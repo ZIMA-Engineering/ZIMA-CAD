@@ -10,7 +10,7 @@ const char* kind_name(assembly::ComponentSourceKind kind) {
     throw std::invalid_argument("Unknown component source kind.");
 }
 Json placement(const assembly::ComponentPlacement& p){return {{"x_mm",p.x},{"y_mm",p.y},{"z_mm",p.z},{"rotation_x_deg",p.rotation_x},{"rotation_y_deg",p.rotation_y},{"rotation_z_deg",p.rotation_z}};}
-Json reference(const assembly::MateReference& ref){return {{"kind",ref.kind==assembly::MateReferenceKind::Face?"face":ref.kind==assembly::MateReferenceKind::Axis?"axis":"point"},{"instance_path",ref.instance_path.encoded()},{"owner",ref.owner_id},{"key",ref.semantic_key}};}
+Json reference(const assembly::MateReference& ref){return {{"kind",ref.kind==assembly::MateReferenceKind::CylinderFace?"cylinder_face":ref.kind==assembly::MateReferenceKind::Face?"face":ref.kind==assembly::MateReferenceKind::Axis?"axis":"point"},{"instance_path",ref.instance_path.encoded()},{"owner",ref.owner_id},{"key",ref.semantic_key}};}
 Json direct_details(const assembly::PartOccurrence& item) {
     Json rows=Json::array();for(const auto& row:item.placement_references) {
         const auto* kind=row.mate_type==assembly::MateKind::PlaneCoincident?"plane_coincident":row.mate_type==assembly::MateKind::AxisCoincident?"axis_coincident":row.mate_type==assembly::MateKind::PointCoincident?"point_coincident":"plane_angle";

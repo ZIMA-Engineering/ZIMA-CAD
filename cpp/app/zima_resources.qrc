@@ -1,5 +1,8 @@
 <RCC>
   <qresource prefix="/zima">
+    <file alias="icons/insert-component.svg">../../resources/icons/insert-component.svg</file>
+    <file alias="icons/export-pdf.svg">../../resources/icons/export-pdf.svg</file>
+    <file alias="icons/export-dxf.svg">../../resources/icons/export-dxf.svg</file>
     <file alias="icons/bend.svg">../../resources/icons/bend.svg</file>
     <file alias="icons/flat.svg">../../resources/icons/flat.svg</file>
     <file alias="icons/sheet-revolve.svg">../../resources/icons/sheet-revolve.svg</file>

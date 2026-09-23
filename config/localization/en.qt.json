@@ -1,4 +1,20 @@
 {
+  "Osa z válcové plochy": "Axis from cylindrical face",
+  "Zadejte název osy.": "Enter an axis name.",
+  "Vyberte válcovou plochu.": "Select a cylindrical face.",
+  "Parametry souboru": "File parameters",
+  "Výkresy": "Drawings",
+  "Výchozí zobrazení pohledu": "Default view display",
+  "Složka PDF": "PDF folder",
+  "Složka DXF": "DXF folder",
+  "Cesty jsou relativní k uloženému výkresu. PDF obsahuje všechny listy, DXF pouze aktuální list. Projekční pohled přebírá zobrazení rodiče.": "Paths are relative to the saved drawing. PDF includes all sheets; DXF includes only the current sheet. Projected views inherit their parent's display style.",
+  "PDF": "PDF",
+  "DXF": "DXF",
+  "Exportovat výkres do nastavené složky PDF": "Export drawing to the configured PDF folder",
+  "Exportovat aktuální list do nastavené složky DXF": "Export current sheet to the configured DXF folder",
+  "Před rychlým exportem uložte výkres.": "Save the drawing before using quick export.",
+  "Složka rychlého exportu musí být relativní k výkresu.": "The quick export folder must be relative to the drawing.",
+  "Export uložen: %1": "Export saved: %1",
   "Převádět názvy na velká písmena": "Convert names to uppercase",
   "Odstraňovat diakritiku z názvů": "Remove diacritics from names",
   "Nahrazovat mezery v názvech podtržítkem": "Replace spaces in names with underscores",
@@ -1315,7 +1331,7 @@
   "Úhel: vyberte řízenou úsečku nebo osu skici.": "Angle: select the driven segment or sketch axis.",
   "Vzdálenost rovnoběžek: vyberte řízenou úsečku.": "Parallel line distance: select the driven segment.",
   "Kóta: kliknutím LMB do prostoru určete polohu kótovací čáry.": "Dimension: click LMB in empty space to position the dimension line.",
-  "Reference → obrys: vyberte persistovanou původní hranu.": "Reference → profile: select a persisted original edge.",
+  "Reference → obrys: vyberte hranu tělesa.": "Reference → profile: select a body edge.",
   "Externí reference: vyberte persistovanou původní plochu, hranu, vrchol nebo osu. Pravým tlačítkem lze přepínat kandidáty.": "External reference: select a persisted original face, edge, vertex or axis. RMB cycles candidates.",
   "Režim externích referencí byl ukončen.": "External reference mode finished.",
   "Externí reference byla uložena bez volání OCCT. Vyberte další zdroj.": "External reference saved without invoking OCCT. Select another source.",
@@ -1586,5 +1602,6 @@
   "Úběr materiálu nepřípustný": "Material removal prohibited",
   "Způsob výroby neurčen": "Manufacturing process unspecified",
   "Celková drsnost — %1": "General surface texture — %1",
-  "Aktivovat": "Activate"
+  "Aktivovat": "Activate",
+  "Invalid drawing edge depths": "Invalid drawing edge depths"
 }

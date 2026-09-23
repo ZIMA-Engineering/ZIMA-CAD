@@ -417,7 +417,8 @@ void AssemblyWorkspaceWindow::preview_sketch_segment_ray(
         (*pending_segment_start_)[0], (*pending_segment_start_)[1])});
     std::string marker;
     const bool endpoint_on_keypoint = endpoint_keypoint_curve.has_value();
-    if (endpoint_snap) marker = endpoint_on_keypoint ? "K" : "C";
+    if (endpoint_snap) marker = endpoint_on_keypoint ? "K" :
+        endpoint_snap->support_geometry_id.find("||") != std::string::npos ? "CC" : "C";
     const bool common_contact = endpoint_tangent && common_tangent_supports(
         *sketch,pending_segment_start_snap_geometry_id_,endpoint_snap_geometry,
         *pending_segment_start_,preview_position,tangent_tolerance).has_value();
@@ -625,13 +626,12 @@ bool AssemblyWorkspaceWindow::accept_sketch_rectangle_ray(
                     if (!kind || geometry_id.empty()) return;
                     try {
                         if (*kind == zima::sketcher::ConstraintKind::Coincident ||
+                            *kind == zima::sketcher::ConstraintKind::PointOnLine ||
                             *kind==zima::sketcher::ConstraintKind::Horizontal || *kind==zima::sketcher::ConstraintKind::Vertical) {
                             static_cast<void>(apply_sketch_point_snap(
                                 target, point_id, geometry_id, kind));
-                        } else if (*kind ==
-                                   zima::sketcher::ConstraintKind::PointOnLine) {
-                            static_cast<void>(target.add_point_on_line_constraint(
-                                point_id, geometry_id));
+                        } else if (*kind == zima::sketcher::ConstraintKind::Midpoint) {
+                            static_cast<void>(target.add_midpoint_constraint(point_id, geometry_id));
                         } else if (*kind ==
                                    zima::sketcher::ConstraintKind::PointOnCircle) {
                             static_cast<void>(target.add_point_on_circle_constraint(
@@ -808,8 +808,12 @@ AssemblyWorkspaceWindow::inferred_sketch_rectangle_midpoint_snap(
     const double tolerance = viewer_->world_tolerance_for_pixels(
         10.0 * viewer_->devicePixelRatioF());
     if(pending_sketch_snap_kind_)return std::nullopt;
-    if(const auto candidate=viewer_->hovered_candidate();candidate&&
-        (candidate->kind==zima::viewer::CandidateKind::SketchPoint||candidate->semantic_key.starts_with("external_point:")))return std::nullopt;
+    if (!sketch_skip_candidate_snap_) {
+        if (const auto candidate = viewer_->hovered_candidate()) {
+            const auto ray = sketch->normal_ray(opposite[0], opposite[1]);
+            if (sketch_candidate_snap_ray(*candidate, ray.first, ray.second)) return std::nullopt;
+        }
+    }
     if(zima::viewer::matches_selection_filter(
         {zima::viewer::CandidateKind::SketchExternalReference,0,0,active_sketch_id_,"external_point:contact"},viewer_->selection_filter())) {
         for(bool midpoint:{true,false}) {

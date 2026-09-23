@@ -10,12 +10,14 @@
 #include <zima/viewer/annotation_arrow.hpp>
 #include "drawing_annotation_layout.hpp"
 #include "drawing_shading.hpp"
+#include "drawing_depth_view.hpp"
 #include <QCoreApplication>
 #include <QDir>
 #include <QFileInfo>
 #include <QFontDatabase>
 #include <QRegularExpression>
 #include <QPainterPathStroker>
+#include <QPaintEngine>
 #include <limits>
 namespace zima::drawing_render {
 using app::model_annotation_key;
@@ -52,6 +54,11 @@ QColor SheetRenderer::annotation_color(const AnnotationKey& key,QColor normal,bo
         if(entity_selected(key)||same(selected_annotation_))return QColor("#00D1FF");if(same(hovered_annotation_))return QColor("#FF9300");return normal;
     }
 QRectF SheetRenderer::view_bounds_at(const zima::drawing::DrawingView& view,double zoom,QPointF origin) const {
+        if(preview_frame_bounds_&&preview_&&preview_->id==view.id) {
+            const auto& b=*preview_frame_bounds_;
+            return {origin.x()+(sheet_->width_mm()-view.x+b.left()*view.scale)*zoom,
+                origin.y()+(sheet_->height_mm()-view.y-b.bottom()*view.scale)*zoom,b.width()*view.scale*zoom,b.height()*view.scale*zoom};
+        }
         if(view.crop)return crop_screen_path(view,{origin.x()+(sheet_->width_mm()-view.x)*zoom,origin.y()+(sheet_->height_mm()-view.y)*zoom},zoom*view.scale).boundingRect();
         bool first = true; double xmin{}, xmax{}, ymin{}, ymax{};
         const auto include = [&](const zima::drawing::Point2& point) {
@@ -88,6 +95,10 @@ QRectF SheetRenderer::label_bounds(const zima::drawing::DrawingView& view,bool s
         return QRectF(center.x()-width/2-zoom,center.y()-(height+2)*zoom/2,width+2*zoom,(height+2)*zoom);
     }
 void SheetRenderer::paint_sheet(QPainter& painter,double zoom,QPointF origin,bool printing) {
+        const bool profile=qEnvironmentVariableIsSet("ZIMA_DRAWING_PROFILE_SHEET");
+        QElapsedTimer paint_timer;if(profile)paint_timer.start();
+        const auto stamp=[&](const char* stage){if(profile)std::fprintf(stderr,"drawing sheet %s engine=%d printing=%d %.3f ms\n",stage,int(painter.paintEngine()->type()),int(printing),paint_timer.nsecsElapsed()/1e6);};
+        struct PaintEnd {const decltype(stamp)& report;~PaintEnd(){report("end");}} paint_end{stamp};
         if(!sheet_)return;
         const auto* dimension_preview=pending_dimension();
         if(!printing){annotation_handles_.clear();witness_handles_.clear();}
@@ -99,7 +110,9 @@ void SheetRenderer::paint_sheet(QPainter& painter,double zoom,QPointF origin,boo
             const auto staged=staged_model_previews_.find(view.id);
             views.push_back(!printing&&staged!=staged_model_previews_.end()?&staged->second:&view);
         }
-        if(!printing&&preview_)views.push_back(&*preview_);
+        if(!printing&&preview_&&!preview_frame_bounds_)views.push_back(&*preview_);
+        std::vector<drawing::DrawingView> output_views;output_views.reserve(views.size());
+        if(printing)for(auto& view:views)if(view->output_source){output_views.push_back(*view);drawing::prepare_output_view(output_views.back());view=&output_views.back();}
         const QRectF paper(origin.x(), origin.y(), sheet_->width_mm() * zoom,
                            sheet_->height_mm() * zoom);
         painter.setRenderHint(QPainter::Antialiasing, true);
@@ -215,14 +228,17 @@ void SheetRenderer::paint_sheet(QPainter& painter,double zoom,QPointF origin,boo
             }
             painter.restore();
         }
-        const auto layout=zima::drawing::title_block_layout(*sheet_,title_block_context_.value_or(zima::drawing::TitleBlockContext{}));
+        if(printing||!layout_cache_)layout_cache_=zima::drawing::title_block_layout(*sheet_,title_block_context_.value_or(zima::drawing::TitleBlockContext{}));
+        const auto& layout=*layout_cache_;
         if(!printing)title_targets_=layout.edit_targets;
         for(const auto& image:layout.images) {
             QPolygonF target;for(const auto& point:image.corners())target<<screen({point[0],point[1]});
             zima::viewer::paint_embedded_image(painter,image.data_base64,image.format,target);
         }
         draw_template(layout.lines,layout.texts,layout.circles);
+        stamp("template");
         for (const auto* rendered_view : views) {
+            if(!printing&&rendered_view->output_source)continue;
             auto geometry = rendered_view->breaks.empty()?std::optional<drawing::DrawingView>{}:std::optional(*rendered_view);
             if(geometry){geometry->projected_edges=drawing::broken_edges(*rendered_view);geometry->projected_triangles=drawing::broken_triangles(*rendered_view);}
             const auto& view = geometry?*geometry:*rendered_view;
@@ -240,7 +256,8 @@ void SheetRenderer::paint_sheet(QPainter& painter,double zoom,QPointF origin,boo
             const double resolution=zoom*view.scale*(printing?1.0:2.0);
             auto& cached=shaded_cache_[view.id];
             if(!view.breaks.empty()||cached.image.isNull()||cached.resolution!=resolution||cached.bounds!=model_bounds||cached.triangles!=view.projected_triangles.data()) {
-                cached.image=drawing_shaded_fill(view,model_bounds,resolution);
+                if(!printing)cached.image=app::drawing_depth_view().render(view,model_bounds,resolution,zoom,ink,QColor("#666666"),width(true),width(false),true);
+                if(printing||cached.image.isNull())cached.image=drawing_shaded_fill(view,model_bounds,resolution);
                 cached.resolution=resolution;cached.bounds=model_bounds;cached.triangles=view.projected_triangles.data();
             }
             painter.setRenderHint(QPainter::SmoothPixmapTransform,true);
@@ -254,15 +271,65 @@ void SheetRenderer::paint_sheet(QPainter& painter,double zoom,QPointF origin,boo
             if(geometry){geometry->projected_edges=drawing::broken_edges(*rendered_view);geometry->projected_triangles=drawing::broken_triangles(*rendered_view);}
             const auto& view = geometry?*geometry:*rendered_view;
             painter.save();if(view.crop)painter.setClipPath(crop_screen_path(view,{origin.x()+(sheet_->width_mm()-view.x)*zoom,origin.y()+(sheet_->height_mm()-view.y)*zoom},zoom*view.scale),Qt::IntersectClip);
-            for(bool hidden_pass:{true,false})for (const auto& edge : view.projected_edges) {
+            bool depth_rendered=false;
+            std::optional<drawing::DrawingView> software_view;
+            if(!printing&&view.output_source) {
+                bool first=true;QRectF bounds;
+                const auto include=[&](drawing::Point2 p){if(first){bounds=QRectF(p.x,p.y,0,0);first=false;}else bounds=QRectF(QPointF(std::min(bounds.left(),p.x),std::min(bounds.top(),p.y)),QPointF(std::max(bounds.right(),p.x),std::max(bounds.bottom(),p.y)));};
+                for(const auto& t:view.projected_triangles)for(auto p:t.points)include(p);
+                for(const auto& e:view.projected_edges)for(auto p:e.points)include(p);
+                const double pixels=zoom*view.scale;bounds.adjust(-2/pixels,-2/pixels,2/pixels,2/pixels);
+                const auto color=ink;
+                const double device_scale=painter.device()->devicePixelRatioF();
+                const auto image=app::drawing_depth_view().render(view,bounds,pixels*device_scale,zoom*device_scale,color,color==ink?QColor("#666666"):color,width(true)*device_scale,width(false)*device_scale);
+                if(!image.isNull()) {
+                    const QRectF target(origin.x()+(sheet_->width_mm()-view.x+bounds.left()*view.scale)*zoom,origin.y()+(sheet_->height_mm()-view.y-bounds.bottom()*view.scale)*zoom,bounds.width()*pixels,bounds.height()*pixels);
+                    painter.drawImage(target,image);depth_rendered=true;
+                }else {
+                    // Headless/unsupported graphics environments retain the
+                    // established exact software output, never an unoccluded wire.
+                    software_view=*rendered_view;drawing::prepare_output_view(*software_view);
+                    software_view->projected_edges=drawing::broken_edges(*software_view);
+                    software_view->projected_triangles=drawing::broken_triangles(*software_view);
+                    if(view.display_style==drawing::DisplayStyle::Shaded||view.display_style==drawing::DisplayStyle::ShadedWithEdges) {
+                        const auto fill=drawing_shaded_fill(*software_view,bounds,pixels);
+                        painter.drawImage(QRectF(origin.x()+(sheet_->width_mm()-view.x+bounds.left()*view.scale)*zoom,origin.y()+(sheet_->height_mm()-view.y-bounds.bottom()*view.scale)*zoom,bounds.width()*pixels,bounds.height()*pixels),fill);
+                    }
+                }
+            }
+            if(!printing&&!depth_rendered) {
+                const auto& edges=software_view?software_view->projected_edges:view.projected_edges;
+                const auto style=[](const drawing::ProjectedEdge& e){return unsigned(e.hidden)|(unsigned(e.tangent)<<1)|(unsigned(e.hatch)<<2)|(unsigned(e.thread)<<3)|(unsigned(e.thread_leadin)<<4)|(unsigned(e.hatch_pattern)<<5);};
+                auto& cache=stroke_cache_[view.id];
+                if(!std::ranges::equal(cache.inputs,edges,[&](const auto& a,const auto& b){return style(a)==style(b)&&a.points==b.points;})) {
+                    cache.inputs=edges;cache.groups.clear();
+                    for(const auto& edge:edges)if(edge.points.size()>1){
+                        auto& group=cache.groups[style(edge)];group.first.hidden=edge.hidden;group.first.tangent=edge.tangent;
+                        group.first.hatch=edge.hatch;group.first.thread=edge.thread;group.first.thread_leadin=edge.thread_leadin;group.first.hatch_pattern=edge.hatch_pattern;
+                        group.second.moveTo(edge.points.front().x,edge.points.front().y);
+                        for(std::size_t i=1;i<edge.points.size();++i)group.second.lineTo(edge.points[i].x,edge.points[i].y);
+                    }
+                }
+                painter.save();painter.translate(origin.x()+(sheet_->width_mm()-view.x)*zoom,origin.y()+(sheet_->height_mm()-view.y)*zoom);painter.scale(zoom*view.scale,-zoom*view.scale);
+                for(bool hidden:{true,false})for(const auto& [key,group]:cache.groups) {
+                    const auto& edge=group.first;if(edge.hidden!=hidden||!drawing::drawing_edge_visible(view,edge))continue;
+                    const auto color=edge.hatch?QColor("#55BB77"):(edge.hidden||edge.tangent||edge.thread)?QColor("#666666"):ink;
+                    QPen pen(color,width(!edge.thread&&!edge.hatch&&!edge.hidden&&!(edge.tangent&&view.tangent_edge_style==drawing::TangentEdgeStyle::Thin))/(zoom*view.scale));
+                    pen.setCapStyle(Qt::FlatCap);pen.setJoinStyle(Qt::RoundJoin);
+                    if(edge.hatch&&edge.hatch_pattern==2)pen.setDashPattern({3.0/(view.scale*pen.widthF()),1.5/(view.scale*pen.widthF())});
+                    painter.save();if(edge.hatch)if(const auto crop=view.section_hatch_crops.find(view.section_id);crop!=view.section_hatch_crops.end())painter.setClipPath(crop_path(crop->second),Qt::IntersectClip);
+                    painter.setPen(pen);painter.drawPath(group.second);painter.restore();
+                }
+                painter.restore();depth_rendered=true;
+            }
+            for(bool hidden_pass:{true,false})if(!depth_rendered)for (const auto& edge : software_view?software_view->projected_edges:view.projected_edges) {
                 if(edge.hidden!=hidden_pass)continue;
                 if(!zima::drawing::drawing_edge_visible(view,edge))continue;
                 const bool gray=edge.hidden&&view.hidden_edge_style==zima::drawing::HiddenEdgeStyle::Gray;
-                const QColor edge_color=!printing&&!model_pick_&&(entity_selected({AnnotationKind::View,view.id,{},0})||(!selected_annotation_&&view.id==selected_))?QColor("#00D1FF"):
-                    edge.hatch&&!printing?QColor("#55BB77"):(edge.hidden||edge.tangent||edge.thread)&&!printing?QColor("#666666"):gray?QColor("#808080"):ink;
+                const QColor edge_color=edge.hatch&&!printing?QColor("#55BB77"):(edge.hidden||edge.tangent||edge.thread)&&!printing?QColor("#666666"):gray?QColor("#808080"):ink;
                 QPen pen(edge_color,width(!edge.thread&&!edge.hatch&&!edge.hidden&&!(edge.tangent&&view.tangent_edge_style==zima::drawing::TangentEdgeStyle::Thin)));
                 pen.setCapStyle(Qt::FlatCap);pen.setJoinStyle(Qt::RoundJoin);
-                if((edge.hidden&&!gray)||(edge.hatch&&edge.hatch_pattern==2)){pen.setDashPattern({3.0*zoom/pen.widthF(),1.5*zoom/pen.widthF()});}
+                if((printing&&edge.hidden&&!gray)||(edge.hatch&&edge.hatch_pattern==2)){pen.setDashPattern({3.0*zoom/pen.widthF(),1.5*zoom/pen.widthF()});}
                 painter.setPen(pen);
                 if (edge.points.size() < 2) continue;
                 QPolygonF line;
@@ -294,6 +361,7 @@ void SheetRenderer::paint_sheet(QPainter& painter,double zoom,QPointF origin,boo
                 painter.setPen(QPen(ink,width(false)));painter.drawPath(crop_screen_path(view,view_origin,zoom*view.scale));painter.restore();
             }
         }
+        stamp("geometry");
         painter.setBrush(Qt::NoBrush);
         for (const auto* view : views) {
             const auto bounds = printing?view_bounds_at(*view,zoom,origin):view_bounds_at(*view,zoom,origin).adjusted(-8,-8,8,8);
@@ -502,15 +570,19 @@ void SheetRenderer::paint_sheet(QPainter& painter,double zoom,QPointF origin,boo
             const auto center=paper(drawing::break_paper(*view,b.position)),anchor=paper(drawing::break_paper(*view,{e.anchor->x*view->scale,e.anchor->y*view->scale}));
             const AnnotationKey key{AnnotationKind::Balloon,b.view_id,b.id,0};
             const auto color=annotation_color(key,e.unresolved?QColor("#C62828"):printing?ink:QColor(Qt::white),printing);
+            const auto outline=annotation_color(key,e.unresolved?QColor("#C62828"):printing?ink:QColor("#FFD400"),printing);
             const auto label=e.item_number>0?QString::number(e.item_number):QStringLiteral("?");
             QFont font(drawing_font_family());font.setWeight(QFont::Normal);font.setPixelSize(1000);const QFontMetricsF metrics(font);
             const auto text_bounds=metrics.tightBoundingRect(label);const double text_scale=b.text_height/metrics.capHeight()*zoom;
             const double radius=std::max(b.diameter*zoom/2,(text_bounds.width()*text_scale+4*zoom)/2);
             const auto delta=anchor-center;const double length=std::hypot(delta.x(),delta.y());
             const auto rim=length>radius?center+delta*(radius/length):center;
-            painter.save();painter.setPen(QPen(color,width(false)));painter.setBrush(Qt::NoBrush);
-            if(length>radius)painter.drawLine(rim,anchor);
+            painter.save();painter.setPen(QPen(outline,width(false)));painter.setBrush(Qt::NoBrush);
+            if(length>radius) {
+                painter.drawLine(rim,anchor);
+            }
             painter.setBrush(printing?QColor(Qt::white):QColor(Qt::black));painter.drawEllipse(center,radius,radius);
+            painter.setPen(QPen(color,width(false)));
             painter.save();painter.setFont(font);painter.translate(center);painter.scale(text_scale,text_scale);
             painter.drawText(-text_bounds.center(),label);painter.restore();
             painter.setPen(Qt::NoPen);painter.setBrush(e.unresolved?QColor("#C62828"):printing?ink:QColor("#FFD400"));painter.drawEllipse(anchor,.7*zoom,.7*zoom);

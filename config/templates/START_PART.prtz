@@ -153,11 +153,6 @@ drawn_by\de=Gezeichnet von
 drawn_by\en=Drew
 drawn_by\fr=Dessiné par
 drawn_by\ru=Разработал
-general_tolerance\cs=presnost
-general_tolerance\de=Genauigkeit
-general_tolerance\en=Accuracy
-general_tolerance\fr=Précision
-general_tolerance\ru=Общие допуски
 mass\cs=hmotnost
 mass\de=Gewicht
 mass\en=Weight
@@ -193,17 +188,11 @@ stock\de=Rohteil
 stock\en=Stock
 stock\fr=Ébauche
 stock\ru=Заготовка
-tolerancing\cs=tolerovani
-tolerancing\de=Tolerierung
-tolerancing\en=Tolerancing
-tolerancing\fr=Tolérancement
-tolerancing\ru=Назначение допусков
 
 [UserParameterValues]
 approved_by=
 date=
 drawn_by=
-general_tolerance=ISO 2768-mK
 mass=0.000
 material=S235JR
 name=
@@ -211,7 +200,7 @@ quantity=1
 revision=00
 standard=
 stock=
-tolerancing=ISO 8015
 
 [UserParameters]
-Order=name, standard, stock, material, quantity, drawn_by, approved_by, revision, date, general_tolerance, tolerancing, mass
+Order=name, standard, stock, material, quantity, drawn_by, approved_by, revision, date, mass
+

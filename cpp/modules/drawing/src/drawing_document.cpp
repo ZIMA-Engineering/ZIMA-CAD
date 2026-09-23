@@ -2,9 +2,11 @@
 #include <zima/drawing/view_breaks.hpp>
 #include <zima/drawing/measurement_dimension.hpp>
 #include "drawing_projection.hpp"
+#include "drawing_output_source.hpp"
 #include <zima/drawing/model_annotations.hpp>
 #include <zima/sketcher/template_image_json.hpp>
 #include <zima/document/document_copy_json.hpp>
+#include <zima/document/viewer_packet_json.hpp>
 #include <zima/drawing/drawing_document.hpp>
 #include <zima/drawing/balloon.hpp>
 #include <zima/document/versioned_file.hpp>
@@ -405,7 +407,23 @@ const DrawingView* DrawingDocument::find_view(const std::string& id) const {
     return const_cast<DrawingDocument*>(this)->find_view(id);
 }
 
+void prepare_interactive_view(DrawingView& view,std::shared_ptr<const kernel::ViewerMesh> source) {
+    if(!view.section_id.empty()){refresh_view_geometry(view,*source);return;}
+    view.output_source=std::move(source);
+    std::optional<kernel::ViewerMesh> filtered;
+    if(kernel::has_surface_results(*view.output_source)){filtered=*view.output_source;kernel::hide_surface_results(*filtered);}
+    const auto& mesh=filtered?*filtered:*view.output_source;
+    capture_measurement_geometry(view,mesh);
+    view.projected_edges=detail::project_drawing_edges(mesh,view.camera,true,false,true);
+    view.projected_triangles=project_triangles(mesh,view.camera);
+}
+void prepare_output_view(DrawingView& view) {
+    if(!view.output_source)return;
+    const auto source=view.output_source;
+    refresh_view_geometry(view,*source);
+}
 void refresh_view_geometry(DrawingView& view,const zima::kernel::ViewerMesh& source_mesh) {
+    view.output_source.reset();
     std::optional<zima::kernel::ViewerMesh> filtered;
     if(zima::kernel::has_surface_results(source_mesh)) {
         filtered=source_mesh;zima::kernel::hide_surface_results(*filtered);
@@ -569,7 +587,7 @@ void DrawingDocument::save(const std::filesystem::path& path,
     if (document_id.empty() || name.empty() || sheets.empty()) {
         throw std::runtime_error("Drawing identity, name and sheets are required");
     }
-    nlohmann::json root{{"format", "zima-cad-drawing"}, {"version", 12},
+    nlohmann::json root{{"format", "zima-cad-drawing"}, {"version", 13},
                         {"document_id", document_id}, {"name", name},
                         {"source_document_id", source_document_id},
                         {"source_path", zima::document::path_to_utf8(source_path)},
@@ -578,6 +596,8 @@ void DrawingDocument::save(const std::filesystem::path& path,
     for(const auto& source:data_sources())root["sources"].push_back({{"document_id",source.document_id},
         {"source_path",zima::document::path_to_utf8(source.source_path)},{"name",source.name}});
     root["measurement_sources"]=nlohmann::json::object();
+    root["output_sources"]=nlohmann::json::object();
+    std::map<const kernel::ViewerMesh*,std::string> output_ids;
     std::map<const MeasurementGeometry*,std::string> measurement_ids;
     auto identifiers = dimension_identifiers;
     identifiers.synchronize(dimension_parameters());
@@ -713,11 +733,17 @@ void DrawingDocument::save(const std::filesystem::path& path,
             if(inserted)root["measurement_sources"][measurement->second]=
                 nlohmann::json::parse(serialize_measurement_geometry(view));
             item["measurement_source"]=measurement->second;
+            if(view.output_source) {
+                const auto [source,added]=output_ids.try_emplace(view.output_source.get(),std::to_string(output_ids.size()));
+                if(added)root["output_sources"][source->second]=detail::serialize_output_source(*view.output_source);
+                item["output_source"]=source->second;
+            }
             item["projected_edges"] = nlohmann::json::array();
             for (const auto& edge : view.projected_edges) {
                 nlohmann::json edge_json{{"source", edge_reference_json(edge.source)},
                                          {"hidden", edge.hidden}, {"silhouette",edge.silhouette},{"tangent",edge.tangent},{"hatch",edge.hatch},{"hatch_pattern",edge.hatch_pattern},{"thread",edge.thread},{"thread_leadin",edge.thread_leadin}};
                 edge_json["points"] = nlohmann::json::array();
+                if(!edge.vertex_depths.empty())edge_json["vertex_depths"]=edge.vertex_depths;
                 for (const auto& point : edge.points) edge_json["points"].push_back({point.x, point.y});
                 item["projected_edges"].push_back(std::move(edge_json));
             }
@@ -745,7 +771,7 @@ void DrawingDocument::save(const std::filesystem::path& path,
     // C++ drawing model has no Python entity fields, so its complete payload
     // lives in the ordinary param.* namespace.
     stream << "[Document]\n"
-           << "format_version=20\n"
+           << "format_version=21\n"
            << "type=drawing\n"
            << "document_id=" << root.at("document_id").get<std::string>() << "\n"
            << "name=" << root.at("name").get<std::string>() << "\n"
@@ -759,7 +785,7 @@ DrawingDocument DrawingDocument::load(const std::filesystem::path& path) {
     const auto document_section = ini.find("Document");
     if (document_section == ini.end() ||
         document_section->second.find("format_version") == document_section->second.end() ||
-        (document_section->second.at("format_version") != "20" && document_section->second.at("format_version") != "19" && document_section->second.at("format_version") != "18") ||
+        (document_section->second.at("format_version") != "21" && document_section->second.at("format_version") != "20" && document_section->second.at("format_version") != "19" && document_section->second.at("format_version") != "18") ||
         document_section->second.find("type") == document_section->second.end() ||
         document_section->second.at("type") != "drawing")
         throw std::runtime_error("Unsupported Drawing document format");
@@ -775,8 +801,9 @@ DrawingDocument DrawingDocument::load(const std::filesystem::path& path) {
     }
     const bool previous=document_section->second.at("format_version")=="18"&&root.value("version",0)==10;
     const bool preceding=document_section->second.at("format_version")=="19"&&root.value("version",0)==11;
-    if (root.value("format", "") != "zima-cad-drawing" || (!previous && !preceding &&
-        (document_section->second.at("format_version")!="20"||root.value("version",0)!=12)))
+    const bool vector_views=document_section->second.at("format_version")=="20"&&root.value("version",0)==12;
+    if (root.value("format", "") != "zima-cad-drawing" || (!previous && !preceding && !vector_views &&
+        (document_section->second.at("format_version")!="21"||root.value("version",0)!=13)))
         throw std::runtime_error("Unsupported C++ Drawing payload");
     // The immediately preceding Drawing schema already persists every view
     // source and title binding. Introduce only the new registry/chooser fields.
@@ -788,6 +815,9 @@ DrawingDocument DrawingDocument::load(const std::filesystem::path& path) {
         }
     }
     std::map<std::string,std::shared_ptr<const MeasurementGeometry>> measurement_sources;
+    std::map<std::string,std::shared_ptr<const kernel::ViewerMesh>> output_sources;
+    if(root.contains("output_sources"))for(const auto& [id,packet]:root.at("output_sources").items())
+        output_sources.emplace(id,std::make_shared<const kernel::ViewerMesh>(detail::load_output_source(packet)));
     for(const auto& [id,geometry]:root.at("measurement_sources").items()) {
         DrawingView source;
         deserialize_measurement_geometry(source,geometry.dump());
@@ -926,16 +956,19 @@ DrawingDocument DrawingDocument::load(const std::filesystem::path& path) {
 
 
             view.measurement_geometry=measurement_sources.at(item.at("measurement_source").get<std::string>());
+            if(item.contains("output_source"))view.output_source=output_sources.at(item.at("output_source").get<std::string>());
             for (const auto& edge_json : item.at("projected_edges")) {
                 ProjectedEdge edge;
                 edge.source = parse_edge_reference(edge_json.at("source"));
                 edge.hidden = edge_json.value("hidden", false);
+                edge.vertex_depths=edge_json.value("vertex_depths",std::vector<double>{});
                 edge.silhouette=edge_json.value("silhouette",false);
                 edge.tangent=edge_json.value("tangent",false);
                 edge.thread=edge_json.value("thread",false);edge.thread_leadin=edge_json.value("thread_leadin",false);
                 edge.hatch=edge_json.value("hatch",false);edge.hatch_pattern=edge_json.value("hatch_pattern",0);
                 for (const auto& point : edge_json.at("points"))
                     edge.points.push_back({point.at(0).get<double>(), point.at(1).get<double>()});
+                if(!edge.vertex_depths.empty()&&edge.vertex_depths.size()!=edge.points.size())throw std::runtime_error("Invalid drawing edge depths");
                 view.projected_edges.push_back(std::move(edge));
             }
             for (const auto& triangle_json : item.value("projected_triangles", nlohmann::json::array())) {

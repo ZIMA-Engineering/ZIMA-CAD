@@ -8,6 +8,34 @@
     0.0
   ],
   "name": "ZE-PROJECTION-METHOD",
+  "pens": {
+    "ze:projection-method:first_angle": {
+      "first_angle:circle-axis-bottom": "green",
+      "first_angle:circle-axis-left": "green",
+      "first_angle:circle-axis-right": "green",
+      "first_angle:circle-axis-top": "green",
+      "first_angle:cone-axis": "green",
+      "first_angle:cone-bottom": "green",
+      "first_angle:cone-large": "green",
+      "first_angle:cone-small": "green",
+      "first_angle:cone-top": "green",
+      "first_angle:inner-circle": "green",
+      "first_angle:outer-circle": "green"
+    },
+    "ze:projection-method:third_angle": {
+      "third_angle:circle-axis-bottom": "green",
+      "third_angle:circle-axis-left": "green",
+      "third_angle:circle-axis-right": "green",
+      "third_angle:circle-axis-top": "green",
+      "third_angle:cone-axis": "green",
+      "third_angle:cone-bottom": "green",
+      "third_angle:cone-large": "green",
+      "third_angle:cone-small": "green",
+      "third_angle:cone-top": "green",
+      "third_angle:inner-circle": "green",
+      "third_angle:outer-circle": "green"
+    }
+  },
   "sketches": [
     {
       "arcs": [],
@@ -84,23 +112,30 @@
         {
           "construction": false,
           "fixed": true,
-          "id": "first_angle:axis-right",
-          "x": 7.8,
+          "id": "first_angle:cone-axis-right",
+          "x": -0.6000000000000002,
           "y": 0.0
         },
         {
           "construction": false,
           "fixed": true,
-          "id": "first_angle:axis-left",
+          "id": "first_angle:cone-axis-left",
           "x": -7.8,
           "y": 0.0
         },
         {
           "construction": false,
           "fixed": true,
-          "id": "first_angle:axis-top",
-          "x": 4.2,
-          "y": 3.6
+          "id": "first_angle:axis-left",
+          "x": 0.6000000000000001,
+          "y": 0.0
+        },
+        {
+          "construction": false,
+          "fixed": true,
+          "id": "first_angle:axis-right",
+          "x": 7.800000000000001,
+          "y": 0.0
         },
         {
           "construction": false,
@@ -108,6 +143,13 @@
           "id": "first_angle:axis-bottom",
           "x": 4.2,
           "y": -3.6
+        },
+        {
+          "construction": false,
+          "fixed": true,
+          "id": "first_angle:axis-top",
+          "x": 4.2,
+          "y": 3.6
         }
       ],
       "resolved_normal": [
@@ -162,15 +204,36 @@
         {
           "centerline": false,
           "construction": true,
+          "first": "first_angle:cone-axis-left",
+          "id": "first_angle:cone-axis",
+          "second": "first_angle:cone-axis-right"
+        },
+        {
+          "centerline": false,
+          "construction": true,
           "first": "first_angle:axis-left",
-          "id": "first_angle:horizontal-axis",
+          "id": "first_angle:circle-axis-left",
+          "second": "first_angle:circle-center"
+        },
+        {
+          "centerline": false,
+          "construction": true,
+          "first": "first_angle:circle-center",
+          "id": "first_angle:circle-axis-right",
           "second": "first_angle:axis-right"
         },
         {
           "centerline": false,
           "construction": true,
           "first": "first_angle:axis-bottom",
-          "id": "first_angle:vertical-axis",
+          "id": "first_angle:circle-axis-bottom",
+          "second": "first_angle:circle-center"
+        },
+        {
+          "centerline": false,
+          "construction": true,
+          "first": "first_angle:circle-center",
+          "id": "first_angle:circle-axis-top",
           "second": "first_angle:axis-top"
         }
       ],
@@ -254,23 +317,30 @@
         {
           "construction": false,
           "fixed": true,
-          "id": "third_angle:axis-right",
+          "id": "third_angle:cone-axis-right",
           "x": 7.8,
           "y": 0.0
         },
         {
           "construction": false,
           "fixed": true,
-          "id": "third_angle:axis-left",
-          "x": -7.8,
+          "id": "third_angle:cone-axis-left",
+          "x": 0.6,
           "y": 0.0
         },
         {
           "construction": false,
           "fixed": true,
-          "id": "third_angle:axis-top",
-          "x": -4.2,
-          "y": 3.6
+          "id": "third_angle:axis-left",
+          "x": -7.800000000000001,
+          "y": 0.0
+        },
+        {
+          "construction": false,
+          "fixed": true,
+          "id": "third_angle:axis-right",
+          "x": -0.6000000000000001,
+          "y": 0.0
         },
         {
           "construction": false,
@@ -278,6 +348,13 @@
           "id": "third_angle:axis-bottom",
           "x": -4.2,
           "y": -3.6
+        },
+        {
+          "construction": false,
+          "fixed": true,
+          "id": "third_angle:axis-top",
+          "x": -4.2,
+          "y": 3.6
         }
       ],
       "resolved_normal": [
@@ -332,15 +409,36 @@
         {
           "centerline": false,
           "construction": true,
+          "first": "third_angle:cone-axis-left",
+          "id": "third_angle:cone-axis",
+          "second": "third_angle:cone-axis-right"
+        },
+        {
+          "centerline": false,
+          "construction": true,
           "first": "third_angle:axis-left",
-          "id": "third_angle:horizontal-axis",
+          "id": "third_angle:circle-axis-left",
+          "second": "third_angle:circle-center"
+        },
+        {
+          "centerline": false,
+          "construction": true,
+          "first": "third_angle:circle-center",
+          "id": "third_angle:circle-axis-right",
           "second": "third_angle:axis-right"
         },
         {
           "centerline": false,
           "construction": true,
           "first": "third_angle:axis-bottom",
-          "id": "third_angle:vertical-axis",
+          "id": "third_angle:circle-axis-bottom",
+          "second": "third_angle:circle-center"
+        },
+        {
+          "centerline": false,
+          "construction": true,
+          "first": "third_angle:circle-center",
+          "id": "third_angle:circle-axis-top",
           "second": "third_angle:axis-top"
         }
       ],

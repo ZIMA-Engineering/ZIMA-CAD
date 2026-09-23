@@ -40,6 +40,18 @@ int verify_drawing_balloon_ui(){using namespace zima;using namespace drawing;try
     mouse(canvas,QEvent::MouseButtonDblClick,QPointF(20,20),Qt::MiddleButton,Qt::MiddleButton);mouse(canvas,QEvent::MouseButtonRelease,QPointF(20,20),Qt::MiddleButton,Qt::NoButton);
     check(!dialog()&&stored().size()==2,"Double MMB over View failed to commit balloons");
     const auto id=stored()[0].id;check(stored()[0].text_height==5&&stored()[1].item_number==2,"Balloon appearance or first-level numbering is wrong");
+    {
+        pick(canvas,{5,5});mouse(canvas,QEvent::MouseMove,{5,5},Qt::NoButton,Qt::NoButton);flush();
+        const auto image=window.render_sheet_for_test(false);image.save("build/balloon-leaders-proof.png");
+        for(const auto& balloon:stored()) {
+            const auto e=evaluate_balloon(window.document_for_test().sheets.front(),balloon);check(e.anchor.has_value(),"Balloon color fixture has no anchor");
+            const auto x=int(2*(sheet.width_mm()-view.x+balloon.position.x*.25+e.anchor->x*view.scale*.75));
+            const auto y=int(2*(sheet.height_mm()-view.y-balloon.position.y*.25-e.anchor->y*view.scale*.75));
+            bool yellow=false;for(int dy=-2;dy<=2;++dy)for(int dx=-2;dx<=2;++dx)if(image.rect().contains(x+dx,y+dy)){const auto p=image.pixelColor(x+dx,y+dy);yellow|=p.red()>180&&p.green()>140&&p.blue()<100;}
+            check(yellow,"Balloon leader midpoint is not yellow on screen");
+        }
+        window.grab();flush(); // Restore interaction handles at the live canvas scale.
+    }
     auto center=window.balloon_handle_for_test(id);auto endpoint=window.balloon_handle_for_test(id,1);check(center&&endpoint,"Balloon grips missing");
     const auto original=stored()[0].position;pick(canvas,*center);const auto movement=QPointF(-45,-30);
     mouse(canvas,QEvent::MouseButtonPress,*center,Qt::LeftButton,Qt::LeftButton);mouse(canvas,QEvent::MouseMove,*center+movement,Qt::NoButton,Qt::LeftButton);mouse(canvas,QEvent::MouseButtonRelease,*center+movement,Qt::LeftButton,Qt::NoButton);

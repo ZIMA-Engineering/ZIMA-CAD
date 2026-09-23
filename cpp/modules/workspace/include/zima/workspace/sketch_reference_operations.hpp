@@ -13,13 +13,20 @@ void populate_external_reference_cache(const sketcher::Sketch&,
     const Workspace&,const std::string& document,const sketcher::Sketch&,
     sketcher::ExternalReferenceKind,const std::string& owner,const std::string& key,
     const std::string& instance_path, const std::string& draft_body_id = {},
-    bool draft_section = false);
+    bool draft_section = false, bool body_edge = false);
+[[nodiscard]] kernel::ViewerReferenceGeometry part_sketch_body_reference_geometry(
+    const document::DocumentSession&,const sketcher::Sketch&,const std::string& draft_body_id = {});
+[[nodiscard]] kernel::ViewerReferenceGeometry assembly_sketch_body_reference_geometry(
+    const assembly::AssemblyDocument&,const sketcher::Sketch&);
+[[nodiscard]] kernel::ViewerReferenceGeometry context_sketch_body_reference_geometry(
+    const Workspace&,const std::string& top,const assembly::InstancePath& dependent,
+    const std::string& source_document);
 // A contextual reference is editable only at its exact active source occurrence.
 void require_sketch_reference_context(const Workspace&,const std::string& document,
     const sketcher::SketchExternalReference&);
-// Explicitly refresh this Sketch from calculated original sources, including
+// Explicitly refresh this Sketch from its selected original/body sources, including
 // the exact active Part context. Never regenerates a body or Assembly mate.
-// Missing original identities remain broken; they are never guessed or rebound.
+// Missing identities remain broken; they are never guessed or rebound.
 [[nodiscard]] bool refresh_sketch_reference_snapshot(
     const Workspace&,const std::string& document,sketcher::Sketch&);
 }

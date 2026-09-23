@@ -399,7 +399,7 @@ target_link_libraries(zima_viewer PUBLIC zima_kernel_api zima_measurement
 
 add_library(zima_drawing_render modules/drawing_render/src/template_image_import.cpp modules/drawing_render/src/sheet_renderer.cpp modules/drawing_render/src/pdf_export.cpp modules/drawing_render/src/dxf_export.cpp modules/drawing_render/src/image_export.cpp)
 target_include_directories(zima_drawing_render PUBLIC modules/drawing_render/include modules/viewer/include PRIVATE app)
-target_link_libraries(zima_drawing_render PUBLIC zima_drawing zima_workspace Qt6::Gui Qt6::Svg)
+target_link_libraries(zima_drawing_render PUBLIC zima_drawing zima_workspace Qt6::Gui Qt6::Svg Qt6::OpenGL)
 target_link_libraries(zima_command_host PUBLIC zima_drawing_render)
 
 add_library(zima_ui modules/ui/src/properties_subwindow.cpp
@@ -434,7 +434,7 @@ include(app/workspace/sources.cmake)
 add_executable(zima-cad-cpp
     ${ZIMA_WORKSPACE_SOURCES}
     app/command_console.cpp app/console_ui_verification.cpp app/holes_ui_verification.cpp app/edge_treatment_ui_verification.cpp app/rotation_handle_ui_verification.cpp
-    app/main_workspace.cpp app/appearance_dialog.cpp app/appearance_command.cpp app/section_command.cpp app/section_ui_verification.cpp app/assembly_workspace_window.cpp app/template_command.cpp app/symbol_command.cpp app/numeric_value_lock_command.cpp app/shaft_thread_command.cpp app/derived_copy_command.cpp
+    app/main_workspace.cpp app/appearance_dialog.cpp app/appearance_command.cpp app/section_command.cpp app/section_ui_verification.cpp app/assembly_workspace_window.cpp app/template_command.cpp app/symbol_command.cpp app/numeric_value_lock_command.cpp app/shaft_thread_command.cpp app/cylinder_axis_command.cpp app/derived_copy_command.cpp
     app/application_settings.cpp app/global_settings_dialog.cpp app/measurement_command.cpp app/measurement_ui_verification.cpp app/mass_properties_command.cpp
     app/document_tools_dialogs.cpp app/updates_ui_verification.cpp app/ai_settings_page.cpp
     app/drawing_window.cpp app/show_erase_dialog.cpp app/file_dialog.cpp app/resource_icon.cpp
@@ -1295,6 +1295,10 @@ if(ZIMA_BUILD_TESTS)
     set_tests_properties(zima_cpp_symbol_ui_contract PROPERTIES ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_SYMBOLS_ONLY=1" WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 120)
     add_test(NAME zima_cpp_template_ui_contract COMMAND zima-cad-cpp --verify-startup)
     add_test(NAME zima_cpp_new_document_options_ui_contract COMMAND zima-cad-cpp --verify-startup)
+    add_test(NAME zima_cpp_cylinder_axis_ui_contract COMMAND zima-cad-cpp --verify-startup)
+    set_tests_properties(zima_cpp_cylinder_axis_ui_contract PROPERTIES
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_CYLINDER_AXIS_ONLY=1"
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 90)
     set_tests_properties(zima_cpp_new_document_options_ui_contract PROPERTIES
         ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_NEW_DOCUMENT_OPTIONS_ONLY=1"
         WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 120)

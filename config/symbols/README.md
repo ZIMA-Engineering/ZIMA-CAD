@@ -34,11 +34,24 @@ Initial list/custom-text examples are also available:
 
 All five factory title blocks embed independent copies of the general surface
 texture and edge definitions. Texture strokes are yellow; local texture text
-is green and general title-block texture text is white. All colours are stored
+and general title-block texture text are green. All colours are stored
 in the embedded definition and respected by Sketcher and Drawing rendering.
 Ra 3.2 and the signed edge values are editable
 factory presets, not requirements prescribed by the standards. Existing Drawing
 copies are not automatically replaced when a library or title block changes.
+
+Projection outlines and edge-symbol strokes that are not leaders use the thin
+green pen. Projection axes are finite: the cone has its own horizontal axis,
+and the circular view has four independent radial axis segments. The factory
+title-block occurrence is anchored at X=47.8 mm, 3 mm to the right of its previous
+position in the drawing's right-to-left coordinate convention.
+
+Factory title blocks own their tolerance fields. The default references are
+`ISO 2768-m` and `ISO 8015:2011`; Part, Skeleton and Assembly start templates
+do not carry `general_tolerance` or `tolerancing` parameters. The editable Accuracy
+list offers ISO 2768 dimensional classes f/m/c/v. Geometrical tolerances must be
+prescribed separately; ISO 8015 specifies GPS principles. See
+[`TITLE_BLOCK_TOLERANCES.md`](../../doc/TITLE_BLOCK_TOLERANCES.md).
 
 These examples can be inserted into a Sketch or title block. The general texture
 composition is intended for the title block; the local texture asset describes

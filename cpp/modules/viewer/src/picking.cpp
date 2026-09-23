@@ -411,7 +411,7 @@ std::vector<ViewerCandidate> ordered_viewer_candidates(
     const zima::kernel::ViewerMesh& references,
     const Vec3& ray_origin,
     const Vec3& ray_direction,
-    double world_tolerance, bool offer_result_faces, bool offer_original_containers) {
+    double world_tolerance, bool offer_result_faces, bool offer_original_containers, bool offer_original_faces) {
     std::vector<ViewerCandidate> result;
     using FaceIdentity = std::tuple<std::string_view,std::string_view,std::string_view>;
     const auto identity = [](const auto& ref) -> FaceIdentity { return {ref.owner_id,ref.semantic_key,ref.instance_path}; };
@@ -500,7 +500,7 @@ std::vector<ViewerCandidate> ordered_viewer_candidates(
             // source identities carried by the actually visible Body
             // fragments. The full untrimmed source faces remain stored for
             // dependency resolution, but must not become a second picker.
-            if (geometry == CandidateGeometry::OriginalReference &&
+            if (!offer_original_faces && geometry == CandidateGeometry::OriginalReference &&
                 has_local_display_faces && face.reference.instance_path.empty()) {
                 if(offer_original_containers&&face.reference.valid()&&
                     face.reference.semantic_key!="plane"&&!face.reference.semantic_key.starts_with("origin:")&&
@@ -542,7 +542,7 @@ std::vector<ViewerCandidate> ordered_viewer_candidates(
             // occurrences never borrow another instance's original topology.
             const bool displayed_source = geometry == CandidateGeometry::Display &&
                 persisted_identities.contains(identity(face.reference));
-            const bool hidden_source_face = geometry == CandidateGeometry::OriginalReference &&
+            const bool hidden_source_face = !offer_original_faces && geometry == CandidateGeometry::OriginalReference &&
                 displayed_source_paths.contains(face.reference.instance_path);
             if (!hidden_source_face && (!persisted_occurrence || offer_result_faces || displayed_source) &&
                 face.reference.semantic_key != "container:display") {

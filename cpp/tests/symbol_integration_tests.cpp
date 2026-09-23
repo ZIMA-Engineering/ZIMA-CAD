@@ -26,20 +26,53 @@ void factory(const std::filesystem::path& root) {
         std::erase_if(sketch.dimensions,[](const auto& v){return v.id.starts_with("projection:");});
         std::erase_if(sketch.circles,[](const auto& v){return v.id.starts_with("projection:");});
         std::erase_if(sketch.drawing_template->pens,[](const auto& v){return v.first.starts_with("projection:");});
-        auto symbol=projection();symbol.id="ze:title-block:projection";symbol.x=50.8;symbol.y=42.5;symbol.scale=.5;
+        auto symbol=projection();symbol.id="ze:title-block:projection";symbol.x=45.8;symbol.y=42.5;symbol.scale=.5;
         std::erase_if(sketch.symbols,[&](const auto& v){return v.id==symbol.id;});sketch.symbols.push_back(symbol);
+        for(auto& instance:sketch.symbols) {
+            const auto definition=symbols::Definition::from_serialized(instance.definition);
+            if(definition.id=="ze:general-edges:iso13715")instance.definition=symbols::Definition::load(root/"config/symbols/general/ZE-GENERAL-EDGES-ISO13715.symz").serialized();
+            if(definition.id=="ze:general-surface-texture:iso21920")instance.definition=symbols::Definition::load(root/"config/symbols/surface-texture/ZE-GENERAL-SURFACE-TEXTURE-ISO21920.symz").serialized();
+        }
+        for(auto& text:sketch.texts)if(text.id=="field10:text"||text.id=="field11:text") {
+            text.value=text.id=="field10:text"?"ISO 2768-m":"ISO 8015:2011";
+            sketcher::rebuild_text_contours(text,true);
+            auto& field=sketch.drawing_template->sections[text.id=="field10:text"?"Field.ACCURACY":"Field.TOLERANCING"];
+            field["Text"]=text.value;field["Default"]=text.value;field["WriteBack"]="no";
+            sketch.drawing_template->sections["TextAction."+text.id]={{"kind","none"}};
+            if(text.id=="field10:text") {
+                const std::vector<std::string> choices{"ISO 2768-f","ISO 2768-m","ISO 2768-c","ISO 2768-v"};
+                sketch.drawing_template->sections["TextAction."+text.id]={{"kind","list"},{"choices",nlohmann::json(choices).dump()},{"allow_custom","yes"}};
+            }
+        }
         drawing::save_template_sketch(sketch,path);
     }
     for(const auto* filename:{"START_PART.prtz","START_SKELETON.prtz"}) {
-        const auto path=root/"config/templates"/filename;const auto part=document::PartDocument::load(path);part.save(path);
+        const auto path=root/"config/templates"/filename;auto part=document::PartDocument::load(path);
+        for(const auto* key:{"general_tolerance","tolerancing"}){part.user_parameters.erase(key);part.user_parameter_values.erase(key);part.user_parameter_labels.erase(key);std::erase(part.user_parameter_order,key);}
+        part.save(path);
     }
-    const auto path=root/"config/templates/START_ASSEMBLY.asmz";const auto assembly=assembly::AssemblyDocument::load(path);assembly.save(path);
+    const auto path=root/"config/templates/START_ASSEMBLY.asmz";auto assembly=assembly::AssemblyDocument::load(path);
+    for(const auto* key:{"general_tolerance","tolerancing"}){assembly.user_parameters.erase(key);assembly.user_parameter_values.erase(key);assembly.user_parameter_labels.erase(key);std::erase(assembly.user_parameter_order,key);}
+    assembly.save(path);
 }
 }
 int main(int argc,char** argv) {
     try {
         const auto root=std::filesystem::current_path();
         if(argc==2&&std::string(argv[1])=="--update-factory"){factory(root);return 0;}
+        for(const auto* language:{"CS","EN","DE","FR","RU"}) {
+            drawing::DrawingSheet sheet;drawing::load_title_block_template(sheet,root/"config/formats"/(std::string("ZE-TITLE-BLOCK-")+language+".tblz"));
+            for(const auto* id:{"ACCURACY","TOLERANCING"}) {
+                const auto f=std::ranges::find(sheet.title_block_fields,id,&drawing::TitleBlockField::id);
+                check(f!=sheet.title_block_fields.end()&&f->editable&&!f->write_back&&f->expression.empty(),"Tolerance field still writes a model parameter");
+                check(f->value==(std::string(id)=="ACCURACY"?"ISO 2768-m":"ISO 8015:2011"),"Factory tolerance default differs");
+                if(std::string(id)=="ACCURACY")check(nlohmann::json::parse(f->action_settings.at("choices")).size()==4&&f->action_settings.at("allow_custom")=="yes","Tolerance choices are incomplete");
+            }
+            const auto layout=drawing::title_block_layout(sheet,{});
+            check(std::ranges::all_of(layout.lines,[](const auto& line){return line.field_id!="symbol:ze:title-block:projection"||line.pen==drawing::DrawingPen::Green;}),"Projection outline must be thin green");
+            const auto i=std::ranges::find(sheet.title_block_symbols,"ze:title-block:projection",&sketcher::SymbolInstance::id);
+            check(i!=sheet.title_block_symbols.end()&&i->x==45.8,"Projection did not move right in title-block coordinates");
+        }
         const auto directory=std::filesystem::temp_directory_path()/("zima-symbols-"+document::PartDocument::create_default().document_id);
         std::filesystem::create_directory(directory);
         auto symbol=projection();symbol.x=20;symbol.y=10;
@@ -110,16 +143,18 @@ int main(int argc,char** argv) {
             if(definition.id=="ze:surface-texture:iso21920"||definition.id=="ze:general-surface-texture:iso21920") {
                 const bool local=definition.id=="ze:surface-texture:iso21920";
                 check(std::ranges::all_of(layout.lines,[](const auto& line){return line.pen==drawing::DrawingPen::Yellow;}),"Surface texture strokes must be yellow");
-                check(std::ranges::all_of(layout.texts,[&](const auto& text){return text.pen==(local?drawing::DrawingPen::Green:drawing::DrawingPen::White);}),"Surface texture text pen differs");
+                check(std::ranges::all_of(layout.texts,[&](const auto& text){return text.pen==drawing::DrawingPen::Green;}),"Surface texture text pen differs");
                 for(const auto& [variant,row]:definition.variants) {
                     auto candidate=instance;candidate.variant=variant;
                     for(const auto& edge:symbols::instance_mesh(candidate).edges)
-                        check(edge.color==(edge.filled_text?(local?"#4DD811":"#FFFFFF"):"#F5CD50"),"Surface texture mesh lost its text/stroke color");
+                        check(edge.color==(edge.filled_text?"#4DD811":"#F5CD50"),"Surface texture mesh lost its text/stroke color");
                 }
             }
             if(definition.id=="ze:general-edges:iso13715") {
                 check(std::ranges::count_if(layout.lines,[](const auto& line){return line.pen==drawing::DrawingPen::Yellow;})==8,"Edge leaders/reference lines did not retain thin yellow pens");
                 check(drawing::drawing_pen_width_mm(sheet,drawing::DrawingPen::Yellow)==sheet.thin_line_mm,"Yellow leader is not thin on paper");
+                check(std::ranges::all_of(layout.texts,[](const auto& text){return text.pen==drawing::DrawingPen::Green;}),"Edge specification text must be green");
+                check(std::ranges::none_of(layout.lines,[](const auto& line){return line.pen==drawing::DrawingPen::White;}),"Edge symbol retained a thick white stroke");
             }
             check(std::ranges::all_of(layout.lines,[&](const auto& line){return line.field_id=="symbol:"+instance.id;}),"Symbol strokes have no common editing identity");
             for(const auto& [key,row]:definition.variants)check(!definition.evaluate(key).empty(),"Catalog variant has no sketches");

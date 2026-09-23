@@ -32,7 +32,7 @@ void Definition::validate() const {
         const auto add=[&](const auto& values){for(const auto& value:values)curves.insert(value.id);};
         add(sketch.segments);add(sketch.circles);add(sketch.arcs);add(sketch.ellipses);add(sketch.elliptical_arcs);add(sketch.bsplines);
         for(const auto& [curve,pen]:entries) {
-            require(pen=="white"||pen=="yellow");
+            require(pen=="white"||pen=="yellow"||pen=="green");
             require(curves.contains(curve));
         }
     }
@@ -106,12 +106,12 @@ kernel::ViewerMesh instance_mesh(const sketcher::SymbolInstance& instance,const 
             for(auto& p:edge.points){const double x=(p.x-d.insertion_point[0])*instance.scale,y=(p.y-d.insertion_point[1])*instance.scale;p={instance.x+c*x-s*y,instance.y+s*x+c*y,0};}
             const auto separator=key.find(':');
             const auto curve=separator==std::string::npos?key:key.substr(separator+1);
-            const bool yellow=d.pens.contains(sketch.id)&&d.pens.at(sketch.id).contains(curve)&&d.pens.at(sketch.id).at(curve)=="yellow";
+            const auto pen=d.pens.contains(sketch.id)&&d.pens.at(sketch.id).contains(curve)?d.pens.at(sketch.id).at(curve):"white";
             const bool text=key.starts_with("text:");
             const std::string text_color=key.ends_with(":green")?"#4DD811":key.ends_with(":yellow")?"#F5CD50":key.ends_with(":red")?"#FF0000":"#FFFFFF";
             edge.reference={instance.id,"symbol:"+instance.id,{}};edge.overlay=true;edge.exact_spline.reset();
             edge.dash_dot=edge.construction;edge.infinite=false;
-            edge.color=text?text_color:edge.construction?"#4DD811":yellow?"#F5CD50":"#FFFFFF";
+            edge.color=text?text_color:edge.construction||pen=="green"?"#4DD811":pen=="yellow"?"#F5CD50":"#FFFFFF";
             result.edges.push_back(std::move(edge));
         }
     }
@@ -133,7 +133,7 @@ Definition projection_method() {
         const auto c=point("cone-large-top",right,3.), e=point("cone-small-top",left,1.5);
         const auto segment=[&](std::string id,const std::string& p,const std::string& q,bool axis) {
             id=key+":"+id;sketch.segments.push_back({id,p,q,axis,false});
-
+            d.pens[sketch.id][id]="green";
         };
         segment("cone-bottom",a,b,false);segment("cone-large",b,c,false);
         segment("cone-top",c,e,false);segment("cone-small",e,a,false);
@@ -141,9 +141,13 @@ Definition projection_method() {
         for(bool outer:{true,false}) {
             const std::string id=key+(outer?":outer-circle":":inner-circle");
             sketch.circles.push_back({id,center_id,outer?3.:1.5,false});
+            d.pens[sketch.id][id]="green";
         }
-        segment("horizontal-axis",point("axis-left",-7.8,0),point("axis-right",7.8,0),true);
-        segment("vertical-axis",point("axis-bottom",center,-3.6),point("axis-top",center,3.6),true);
+        segment("cone-axis",point("cone-axis-left",left-.6,0),point("cone-axis-right",right+.6,0),true);
+        segment("circle-axis-left",point("axis-left",center-3.6,0),center_id,true);
+        segment("circle-axis-right",center_id,point("axis-right",center+3.6,0),true);
+        segment("circle-axis-bottom",point("axis-bottom",center,-3.6),center_id,true);
+        segment("circle-axis-top",center_id,point("axis-top",center,3.6),true);
         d.variants[key].sketches={sketch.id};
     }
     d.validate();return d;

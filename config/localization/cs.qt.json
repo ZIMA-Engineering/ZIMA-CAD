@@ -1,4 +1,20 @@
 {
+  "Osa z válcové plochy": "Osa z válcové plochy",
+  "Zadejte název osy.": "Zadejte název osy.",
+  "Vyberte válcovou plochu.": "Vyberte válcovou plochu.",
+  "Parametry souboru": "Parametry souboru",
+  "Výkresy": "Výkresy",
+  "Výchozí zobrazení pohledu": "Výchozí zobrazení pohledu",
+  "Složka PDF": "Složka PDF",
+  "Složka DXF": "Složka DXF",
+  "Cesty jsou relativní k uloženému výkresu. PDF obsahuje všechny listy, DXF pouze aktuální list. Projekční pohled přebírá zobrazení rodiče.": "Cesty jsou relativní k uloženému výkresu. PDF obsahuje všechny listy, DXF pouze aktuální list. Projekční pohled přebírá zobrazení rodiče.",
+  "PDF": "PDF",
+  "DXF": "DXF",
+  "Exportovat výkres do nastavené složky PDF": "Exportovat výkres do nastavené složky PDF",
+  "Exportovat aktuální list do nastavené složky DXF": "Exportovat aktuální list do nastavené složky DXF",
+  "Před rychlým exportem uložte výkres.": "Před rychlým exportem uložte výkres.",
+  "Složka rychlého exportu musí být relativní k výkresu.": "Složka rychlého exportu musí být relativní k výkresu.",
+  "Export uložen: %1": "Export uložen: %1",
   "Převádět názvy na velká písmena": "Převádět názvy na velká písmena",
   "Odstraňovat diakritiku z názvů": "Odstraňovat diakritiku z názvů",
   "Nahrazovat mezery v názvech podtržítkem": "Nahrazovat mezery v názvech podtržítkem",
@@ -1315,7 +1331,7 @@
   "Úhel: vyberte řízenou úsečku nebo osu skici.": "Úhel: vyberte řízenou úsečku nebo osu skici.",
   "Vzdálenost rovnoběžek: vyberte řízenou úsečku.": "Vzdálenost rovnoběžek: vyberte řízenou úsečku.",
   "Kóta: kliknutím LMB do prostoru určete polohu kótovací čáry.": "Kóta: kliknutím LMB do prostoru určete polohu kótovací čáry.",
-  "Reference → obrys: vyberte persistovanou původní hranu.": "Reference → obrys: vyberte persistovanou původní hranu.",
+  "Reference → obrys: vyberte hranu tělesa.": "Reference → obrys: vyberte hranu tělesa.",
   "Externí reference: vyberte persistovanou původní plochu, hranu, vrchol nebo osu. Pravým tlačítkem lze přepínat kandidáty.": "Externí reference: vyberte persistovanou původní plochu, hranu, vrchol nebo osu. Pravým tlačítkem lze přepínat kandidáty.",
   "Režim externích referencí byl ukončen.": "Režim externích referencí byl ukončen.",
   "Externí reference byla uložena bez volání OCCT. Vyberte další zdroj.": "Externí reference byla uložena bez volání OCCT. Vyberte další zdroj.",
@@ -1586,5 +1602,6 @@
   "Úběr materiálu nepřípustný": "Úběr materiálu nepřípustný",
   "Způsob výroby neurčen": "Způsob výroby neurčen",
   "Celková drsnost — %1": "Celková drsnost — %1",
-  "Aktivovat": "Aktivovat"
+  "Aktivovat": "Aktivovat",
+  "Invalid drawing edge depths": "Neplatné hloubky hran výkresu"
 }

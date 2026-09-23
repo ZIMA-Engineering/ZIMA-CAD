@@ -69,11 +69,11 @@ occurrence and participates in Drawing Undo/Redo; Cancel leaves it unchanged.
 The optional projection-method provider reads the owning sheet, not the source
 library or template.
 
-Definitions can store white/yellow curve pens by Sketch ID and curve ID. The
+Definitions can store white/yellow/green curve pens by Sketch ID and curve ID. The
 general-edge library uses yellow for its leaders, arrow strokes and reference
-lines, matching the application's thin drawing pen. Edge geometry and text retain
-white. Surface-texture strokes are yellow; general/title-block text is white and
-local surface-texture text is green. These colors are application conventions,
+lines, matching the application's thin drawing pen. Other edge-symbol geometry
+and text use green. Surface-texture strokes are yellow; both general/title-block
+and local surface-texture text use green. These colors are application conventions,
 not ISO color rules.
 Leader/reference lines are continuous narrow lines (ISO 128-22:1999, sections
 4–5; the current general line standard is ISO 128-2:2022). Full symbol proportions
@@ -257,3 +257,11 @@ attachment/leader workflow remains pending. `zima_symbol_catalog_tool` rebuilds
 the examples and their preview. Updating library assets alone never modifies
 previously inserted copies; the factory title blocks are explicitly refreshed
 as part of this change.
+
+The projection instance in all five factory title blocks is anchored at
+X = 45.8 mm, Y = 42.5 mm (scale 0.5). The additional 2 mm rightward move reduces
+X under the title-block coordinate convention and preserves symbol orientation.
+Previously inserted title blocks retain their saved instance position until
+the updated template is loaded again. Drawing balloon circles and leaders use
+the thin yellow screen stroke; item numbers remain white. PDF/print uses the
+existing thin monochrome outline and unchanged number text.

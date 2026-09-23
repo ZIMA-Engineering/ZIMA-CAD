@@ -251,10 +251,12 @@ Data={"points":{"a":{"x":-10,"y":-5},"b":{"x":-20,"y":-5}},"geometry":{"line":{"
                 require(sheet.repeat_regions.size()==1&&sheet.title_block_symbols.size()==3,"Inserted template lost BOM region or factory symbols");
                 require(sheet.title_block_circles.empty(),"Projection symbol was duplicated as static circles");
                 const auto layout=zima::drawing::title_block_layout(sheet,{});
-                require(std::ranges::count_if(layout.lines,[](const auto& line){return line.centerline;})==2,"Symbol axes were lost when inserted");
+                require(std::ranges::count_if(layout.lines,[](const auto& line){return line.centerline;})==5,"Split symbol axes were lost when inserted");
                 const auto date=std::ranges::find(sheet.title_block_fields,std::string("DATE"),&zima::drawing::TitleBlockField::id);
                 require(date!=sheet.title_block_fields.end()&&date->action_settings.at("kind")=="today","Template date action was not imported");
-                const auto definition=zima::symbols::Definition::from_serialized(sheet.title_block_symbols.front().definition);
+                const auto projection_symbol=std::ranges::find(sheet.title_block_symbols,std::string("ze:title-block:projection"),&zima::sketcher::SymbolInstance::id);
+                require(projection_symbol!=sheet.title_block_symbols.end(),"Projection symbol is missing");
+                const auto definition=zima::symbols::Definition::from_serialized(projection_symbol->definition);
                 for(const auto& [variant,row]:definition.variants) {
                     const auto evaluated=definition.evaluate(variant);
                     require(evaluated.size()==1&&evaluated.front().circles.size()==2,"Projection variant lost its circles");
@@ -433,7 +435,7 @@ Data={"points":{"a":{"x":-10,"y":-5},"b":{"x":-20,"y":-5}},"geometry":{"line":{"
                     drawn_by->vertical_alignment == "middle" &&
                     drawn_by->write_back,
                 "Drawing title-block fields lost expression or editability");
-        title_fields.front().value = "Ada";
+        drawn_by->value = "Ada";
         auto changed_mesh = mesh;
         changed_mesh.edges[1].points = {{0, 0, 20}, {10, 0, 20}};
         drawing.refresh_view(view_id, changed_mesh);
@@ -463,7 +465,7 @@ Data={"points":{"a":{"x":-10,"y":-5},"b":{"x":-20,"y":-5}},"geometry":{"line":{"
         require(static_cast<bool>(persisted), "Drawing contract file was not written");
         const std::string ini((std::istreambuf_iterator<char>(persisted)), {});
         require(ini.find("[Document]\n") != std::string::npos &&
-                    ini.find("format_version=20\n") != std::string::npos &&
+                    ini.find("format_version=21\n") != std::string::npos &&
                     ini.find("type=drawing\n") != std::string::npos &&
                     ini.find("param.cpp_drawing={") != std::string::npos &&
                     ini.find("[Containers]\n") != std::string::npos &&
@@ -491,8 +493,7 @@ Data={"points":{"a":{"x":-10,"y":-5},"b":{"x":-20,"y":-5}},"geometry":{"line":{"
                     loaded.sheets.front().repeat_regions.size()==1 &&
                     loaded.sheets.front().title_block_symbols==drawing.sheets.front().title_block_symbols &&
                     loaded.sheets.front().bom_rows[1].material == "A2" &&
-                    loaded.sheets.front().title_block_fields.front().value == "Ada" &&
-                    loaded.sheets.front().title_block_fields.front().write_back &&
+                    std::ranges::any_of(loaded.sheets.front().title_block_fields,[](const auto& f){return f.id=="DRAWN_BY"&&f.value=="Ada"&&f.write_back;}) &&
                     std::abs(loaded.sheets.front().dimensions.front().segments.front().last_presentation->value - 20.0) < 1e-9 &&
                     loaded.find_view(view_id)->projected_edges.front().source.semantic_key == "edge:x",
                 "Drawing save/load lost source identity or projected geometry");

@@ -16,12 +16,12 @@ Kind kind(const std::string& name) {
 }
 }
 void Host::register_sketch_reference_commands() {
-    add_sketch_command({"sketch.reference.create",tr("Project an original reference into a Sketch using its exact persisted identity."),
+    add_sketch_command({"sketch.reference.create",tr("Project an original reference or a body edge into a Sketch using its exact persisted identity."),
         {{"kind",true},{"owner",true},{"key",true},{"instance_path",false},{"profile",false,Type::Boolean}}},[this](Sketch& s,const Json& a) {
         const bool profile=a.value("profile",false);const auto source_kind=kind(a["kind"].get<std::string>());
-        if(profile&&source_kind!=Kind::Edge)invalid("Profile geometry requires an original edge reference.");
+        if(profile&&source_kind!=Kind::Edge)invalid("Profile geometry requires a body edge reference.");
         auto value=workspace::prepare_sketch_external_reference(workspace_,workspace_.active_document_id(),s,source_kind,
-            a["owner"].get<std::string>(),a["key"].get<std::string>(),a.value("instance_path",std::string{}));
+            a["owner"].get<std::string>(),a["key"].get<std::string>(),a.value("instance_path",std::string{}),{},false,profile);
         const auto id=value.id;const auto source=value.source_document_id;s.add_external_reference(std::move(value));
         Json data={{"reference",id},{"source_document",source}};
         if(profile)data["geometry"]=s.add_external_profile_geometry(id);return data;

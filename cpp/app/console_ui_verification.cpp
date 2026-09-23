@@ -541,7 +541,8 @@ int verify_command_console(QApplication& application,AssemblyWorkspaceWindow& wi
         run("save");const auto saved_sketch=document::PartDocument::load(directory/(stem+"-sketch.prtz"));
         check(saved_sketch.sketches.back().id==command_sketch && saved_sketch.sketches.back().circles.front().radius==10 && saved_sketch.sketches.back().dimensions.front().locked && saved_sketch.dimension_layouts.back().layout.text_along==3,"GUI console did not persist native Sketch");
         check(saved_sketch.sketches.back().texts.size()==1 && saved_sketch.sketches.back().texts.front().value=="ZIMA","Console did not persist native text");
-        check(saved_sketch.sketches.back().external_references.size()==1 && !saved_sketch.sketches.back().import_blocks.empty(),"Console did not persist native projected reference");
+        check(saved_sketch.sketches.back().external_references.size()==3 && saved_sketch.sketches.back().import_blocks.empty() &&
+            !saved_sketch.sketches.back().segments.empty(),"Console did not persist the linked native segment and its endpoint references");
         auto dxf_profile=sketcher::Sketch::create_default();static_cast<void>(dxf_profile.add_rectangle(0,0,12,6));
         const auto dxf_source=directory/std::filesystem::path(u8"obrys konzole.dxf");interchange::export_dxf(dxf_source,dxf_profile);
         commands::Json dxf_import={{"command","import.dxf"},{"arguments",{{"path",document::path_to_utf8(dxf_source)}}}};
@@ -654,7 +655,7 @@ int verify_command_console(QApplication& application,AssemblyWorkspaceWindow& wi
         const auto imported_dxf_part=document::PartDocument::load(imported_owner.components.back().source_path);
         check(imported_dxf_part.sketches.back().segments.size()==4,"Assembly menu DXF did not preserve native geometry");
         run(QString::fromStdString("new part "+stem+"-metadata"));
-        run("box.create 10 20 30");
+        const auto metadata_box=run("box.create 10 20 30").data.at("container").get<std::string>();
         commands::Json metadata_parameters=commands::Json::array({{{"key","CLI_TEST"},{"values",{{"","before"}}}}});
         run(QString::fromStdString(commands::Json{{"command","document.parameters.set"},{"arguments",{{"parameters",metadata_parameters}}}}.dump()));
         auto* parameter_action=window.findChild<QAction*>("documentParametersAction");check(parameter_action,"Parameters action missing");
@@ -1293,6 +1294,9 @@ int verify_command_console(QApplication& application,AssemblyWorkspaceWindow& wi
                 "File menu interrupted pending Material properties");
             material_dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Cancel)->click(); flush();
             json_run("activate", {{"document",drawing.document_id}}); flush();
+            // Clean GUI Save is intentionally a no-op. Make a real edit so
+            // this path/Unicode check exercises persistence and its archive.
+            json_run("drawing.sheet.set",{{"sheet",drawing.sheets.front().id},{"locale","en"}});flush();
             window.findChild<QAction*>("saveDocumentAction")->trigger(); flush();
             auto companion_archive = final_companion; companion_archive += ".1";
             check(drawing::DrawingDocument::load(final_companion).source_path == final_path &&
@@ -1301,6 +1305,7 @@ int verify_command_console(QApplication& application,AssemblyWorkspaceWindow& wi
             json_run("open", {{"path",path_text(closed_assembly)}}); flush();
             json_run("rename_file", {{"name",path_text(std::filesystem::path(u8"přejmenovaná sestava.asmz"))}}); flush();
             const auto assembly_path = closed_assembly.parent_path() / std::filesystem::path(u8"přejmenovaná sestava.asmz");
+            json_run("component.set",{{"instance_path",assembly::InstancePath{{group.components.front().occurrence_id}}.encoded()},{"name","Saved after rename"}});flush();
             window.findChild<QAction*>("saveDocumentAction")->trigger(); flush();
             auto assembly_archive = assembly_path; assembly_archive += ".1";
             check(assembly::AssemblyDocument::load(assembly_path).components.front().source_path == final_path &&
@@ -1350,10 +1355,22 @@ int verify_command_console(QApplication& application,AssemblyWorkspaceWindow& wi
                 };
                 for(const bool accept:{false,true}) {
                     auto dialog=edit();
+                    const auto wire_minimum_x=[&] {
+                        double minimum=1e100;
+                        std::size_t count=0;
+                        for(const auto& edge:view->transient_edges())
+                            for(const auto& point:edge.points) {minimum=std::min(minimum,point.x);++count;}
+                        check(count>0,"Imported Properties hid the source body wire");
+                        return minimum;
+                    };
+                    const auto preview_before=wire_minimum_x();
                     auto* rows=dialog->findChild<QTableWidget*>("primitiveReferenceTable");
                     auto* offset=rows?qobject_cast<QDoubleSpinBox*>(rows->cellWidget(0,2)):nullptr;
                     check(offset&&offset->isEnabled()&&offset->value()==3,"Imported Properties lost the CLI reference");
                     offset->setValue(4);
+                    flush();
+                    check(std::abs(wire_minimum_x()-preview_before-1)<1e-6,
+                        "Imported Properties preview did not follow its pending placement");
                     check(get().at("placement").at("x")==3,"Imported preview committed before OK");
                     const auto blocked=window.execute_console_command(QString::fromStdString(
                         commands::Json{{"command","import.set"},{"arguments",{{"container",container},{"name","Blocked"}}}}.dump()));
@@ -1416,7 +1433,10 @@ int verify_command_console(QApplication& application,AssemblyWorkspaceWindow& wi
         json_run("document.relations.set",{{"relations",commands::Json::array()}});relations_action->trigger();flush();relations_dialog=window.findChild<QDialog*>("relationsDialog");
         relations_dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
         check(run("document.relations.get").data.at("relations").empty(),"Opening empty relations invented a mass relation");
-        const commands::Json family_table={{"columns",{"LENGTH"}},{"instances",commands::Json::array({{{"name","Varianta 10"},{"values",{{"LENGTH","10"}}}}})}};
+        const commands::Json family_table={
+            {"columns",{"LENGTH"}},
+            {"bindings",{{"LENGTH",{{"kind","dimension"},{"owner",metadata_box},{"key","parameter:length"}}}}},
+            {"instances",commands::Json::array({{{"name","Varianta 10"},{"id","console-length-variant"},{"values",{{"LENGTH","10"}}}}})}};
         json_run("document.family.set",{{"table",family_table}});auto* family_action=window.findChild<QAction*>("familyTableAction");check(family_action,"Family action missing");family_action->trigger();flush();
         auto* family_dialog=window.findChild<QDialog*>("familyTableDialog");auto* family_widget=family_dialog?family_dialog->findChild<QTableWidget*>("familyTableTable"):nullptr;
         check(family_widget && family_widget->item(1,2)->text()=="10","GUI did not read native family table");family_widget->item(1,2)->setText("20");
@@ -1425,7 +1445,13 @@ int verify_command_console(QApplication& application,AssemblyWorkspaceWindow& wi
         family_action->trigger();flush();family_dialog=window.findChild<QDialog*>("familyTableDialog");family_dialog->findChild<QTableWidget*>("familyTableTable")->item(1,2)->setText("999");
         family_dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Cancel)->click();flush();
         check(run("document.family.get").data.at("table").at("instances")[0].at("values").at("LENGTH")=="20","Family Cancel committed pending values");
+        const auto family_after=run("document.family.get").data.at("table");
+        check(family_after.at("bindings")==family_table.at("bindings") &&
+            family_after.at("instances")[0].at("id")==family_table.at("instances")[0].at("id"),
+            "Family GUI changed the bound dimension or variant identity");
         run("save");const auto engineering_saved=document::PartDocument::load(directory/(stem+"-metadata.prtz"));
+        check(commands::Json::parse(engineering_saved.family_table)==family_after,
+            "Native save lost family values, bindings or variant identity");
         check(std::abs(std::stod(engineering_saved.physical_parameters.at("MASS_DENSITY"))-7.85e-6)<1e-12 && engineering_saved.relations.empty() && engineering_saved.family_table.find("20")!=std::string::npos,"GUI engineering metadata did not persist");
         run(QString::fromStdString("new assembly "+stem+"-components"));
         const auto component_owner=run("context").data.at("active_document").get<std::string>();
@@ -1438,6 +1464,12 @@ int verify_command_console(QApplication& application,AssemblyWorkspaceWindow& wi
         check(insert_source && insert_source->isEnabled(),"Open Part missing from component menu");insert_source->trigger();flush();
         QDialog* component_dialog=nullptr;for(auto* dialog:window.findChildren<QDialog*>())if(dialog->isVisible() && dialog->findChild<QTableWidget*>("componentPlacementTable"))component_dialog=dialog;
         check(component_dialog,"GUI insertion did not open original component properties");component_dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Cancel)->click();flush();
+        check(run("component.list").data.at("total")==1,"GUI insertion Cancel retained a pending component");
+        QMetaObject::invokeMethod(insert_menu,"aboutToShow",Qt::DirectConnection);insert_source=nullptr;
+        for(auto* action:insert_menu->actions())if(action->objectName()=="insertSourceAction" && action->text().startsWith(QString::fromStdString(stem+"-metadata")))insert_source=action;
+        check(insert_source && insert_source->isEnabled(),"Open Part missing after insertion Cancel");insert_source->trigger();flush();
+        component_dialog=nullptr;for(auto* dialog:window.findChildren<QDialog*>())if(dialog->isVisible() && dialog->findChild<QTableWidget*>("componentPlacementTable"))component_dialog=dialog;
+        check(component_dialog,"Repeated GUI insertion did not open component properties");component_dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
         check(run("component.list").data.at("total")==2 && json_run("component.get",{{"instance_path",console_occurrence.at("instance_path")}}).data.at("name")=="CLI component","GUI insertion did not share native command transaction");
         run("save");const auto saved_components=assembly::AssemblyDocument::load(directory/(stem+"-components.asmz"));check(saved_components.components.size()==2,"GUI component insertion did not persist");
         {
@@ -1502,6 +1534,8 @@ int verify_command_console(QApplication& application,AssemblyWorkspaceWindow& wi
         const auto view_source_path=directory/(stem+"-metadata.prtz");std::vector<kernel::BodyResult> view_source_cache;
         const auto view_source=document::PartDocument::load(view_source_path,&view_source_cache);check(!view_source_cache.empty(),"Drawing GUI source cache missing");
         auto view_document=drawing::DrawingDocument::create_default();view_document.source_document_id=view_source.document_id;view_document.source_path=view_source_path;
+        view_document.sheets.front().selected_source_document_id=view_source.document_id;
+        view_document.sheets.front().bom_source_document_id=view_source.document_id;
         auto base_view=drawing::DrawingDocument::create_view(view_source.document_id,view_source_path,view_source_cache.back().mesh);
         auto projected_view=drawing::DrawingDocument::create_view(view_source.document_id,view_source_path,view_source_cache.back().mesh);projected_view.parent_view_id=base_view.id;projected_view.projection_direction=drawing::ProjectionDirection::Right;projected_view.x=50;
         drawing::TitleBlockField console_title_field;console_title_field.id="NAME";console_title_field.expression="&name";console_title_field.editable=true;console_title_field.write_back=true;

@@ -1,5 +1,42 @@
 # ZIMA-CAD development rules
 
+## Performance without behavioral regression (mandatory)
+
+- Optimize unnecessary work, repeated calculations, allocations and data loading
+  while preserving functionality, geometric accuracy, model properties,
+  reference identity, persistence and Undo/Redo behavior.
+- Never obtain speed by silently reducing calculation precision, display
+  correctness or supported behavior. Reuse cached calculations only when their
+  actual inputs remain valid; changed source geometry must invalidate reuse.
+- Measure reported slow operations on representative user data and verify
+  equivalent results as well as improved timings. Confirming unchanged
+  properties must not regenerate geometry or create an undo transaction.
+- This requirement was agreed with the user on 2026-09-23.
+
+## Interactive drawing performance (mandatory)
+
+- Ordinary interactive drawing views must use the already calculated 3D viewer
+  geometry and depth-tested rendering, with continuous gray hidden edges. Apply
+  hidden-edge dashes only for printing and vector export. While placing a new
+  ordinary or projected view, show only its bounding frame with the arrow cursor;
+  keep creation properties lightweight and prepare ordinary new-view geometry
+  on OK. If no source extent is already available, use a provisional frame
+  instead of loading the model just for placement. View selection changes only
+  its bounds overlay, never the model stroke colors. Do not
+  require precise vector hidden-line subdivision before displaying, placing,
+  panning or zooming a view.
+- A projected view inherits its parent's source, scale and display settings.
+  Placement click confirms and creates it directly without opening Properties;
+  Escape cancels before insertion. Properties remain available for later edits.
+- Calculate precise output strokes when PDF export, printing or another vector
+  export requires them. Keep output preparation separate from interactive
+  rendering; a display image must never replace persisted reference geometry.
+- Preserve sections, breaks, details, cropping, dimensions, snapping, picking,
+  source/occurrence identities and save/reopen behavior. These operations must
+  continue to use their real geometry and established coordinate conventions.
+- This is the target architecture agreed with the user on 2026-09-23, not a
+  claim that the existing drawing renderer already implements it.
+
 ## Documentation language (mandatory)
 
 - All project documentation must be written and maintained in English only.
@@ -311,6 +348,13 @@
 - Fillet and Chamfer are explicit exceptions: they select edges of the real
   input body at the operation boundary. This operational body selection is
   not a general persisted placement reference.
+- Sketch External Geometry is a separate exception agreed on 2026-09-23:
+  it projects the actual calculated body edge, including trimmed edges and
+  edges created by Fillet/Chamfer. Preserve an inherited original identity
+  where available; never substitute the untrimmed source geometry. Persist
+  this source choice and follow the same body boundary on regeneration.
+  Ordinary Sketch external references still use original objects, including
+  original faces. This exception does not change container placement.
 - Highlight only the exact candidate geometry. Do not colour, tint, or add a
   coloured overlay for an entire body when offering a topology reference.
 - Reference-entry controls expose two independent visual states through one

@@ -77,7 +77,13 @@ struct OccurrenceSnapshot {
     bool operator==(const OccurrenceSnapshot&) const = default;
 };
 
-enum class MateReferenceKind { Face, Axis, Point };
+enum class MateReferenceKind { Face, Axis, Point, CylinderFace };
+[[nodiscard]] constexpr bool is_axis_reference(MateReferenceKind kind) {
+    return kind == MateReferenceKind::Axis || kind == MateReferenceKind::CylinderFace;
+}
+[[nodiscard]] constexpr bool compatible_reference_kinds(MateReferenceKind a, MateReferenceKind b) {
+    return a == b || (is_axis_reference(a) && is_axis_reference(b));
+}
 enum class MateKind {
     PlaneCoincident, AxisCoincident, PointCoincident, PlaneAngle
 };

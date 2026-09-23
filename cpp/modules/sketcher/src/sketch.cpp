@@ -2357,13 +2357,14 @@ void Sketch::validate() const {
         }
     }
     ids.clear();
-    std::vector<std::tuple<ExternalReferenceKind, std::string, std::string,
+    std::vector<std::tuple<ExternalReferenceKind, bool, std::string, std::string,
                            std::string, std::string, std::string, std::string>>
         external_sources;
     for (const auto& reference : external_references) {
         if (reference.exact_spline) reference.exact_spline->validate();
         static_cast<void>(external_reference_kind_name(reference.kind));
         if (reference.id.empty() || !ids.insert(reference.id).second ||
+            (reference.body_edge && reference.kind != ExternalReferenceKind::Edge && !is_external_endpoint_kind(reference.kind)) ||
             reference.source_document_id.empty() ||
             reference.source_owner_id.empty() ||
             reference.source_semantic_key.empty() ||
@@ -2378,7 +2379,7 @@ void Sketch::validate() const {
             throw std::runtime_error("Sketch external reference is invalid");
         }
         const auto source = std::tuple{
-            reference.kind, reference.source_document_id,
+            reference.kind, reference.body_edge, reference.source_document_id,
             reference.source_owner_id, reference.source_semantic_key,
             reference.source_instance_path,
             reference.context_assembly_document_id,
@@ -6792,6 +6793,7 @@ void Sketch::add_external_reference(SketchExternalReference reference) {
     if (reference.id.empty()) reference.id = make_id();
     const auto same_source = [&](const auto& value) {
         return value.kind == reference.kind &&
+            value.body_edge == reference.body_edge &&
             value.source_document_id == reference.source_document_id &&
             value.source_owner_id == reference.source_owner_id &&
             value.source_semantic_key == reference.source_semantic_key &&
@@ -6954,6 +6956,7 @@ std::string Sketch::add_external_profile_geometry(
             endpoint.infinite = false;
             const auto existing = std::ranges::find_if(next.external_references, [&](const auto& candidate) {
                 return candidate.kind==endpoint.kind && candidate.source_document_id==endpoint.source_document_id &&
+                    candidate.body_edge==endpoint.body_edge &&
                     candidate.source_owner_id==endpoint.source_owner_id && candidate.source_semantic_key==endpoint.source_semantic_key &&
                     candidate.source_instance_path==endpoint.source_instance_path &&
                     candidate.context_assembly_document_id==endpoint.context_assembly_document_id &&
@@ -7429,7 +7432,8 @@ std::optional<zima::kernel::BSplineGeometry> Sketch::project_external_spline(
 bool Sketch::refresh_external_references(
     const std::string& source_document_id,
     const zima::kernel::ViewerReferenceGeometry& source_geometry,
-    bool axis_points_only) {
+    bool axis_points_only,
+    const zima::kernel::ViewerReferenceGeometry* body_geometry) {
     if (source_document_id.empty() && !axis_points_only) {
         throw std::invalid_argument(
             "Sketch external reference source document ID is required");
@@ -7449,7 +7453,9 @@ bool Sketch::refresh_external_references(
         if (reference.kind == ExternalReferenceKind::Edge || is_external_endpoint_kind(reference.kind)) {
             const zima::kernel::ViewerEdge* match = nullptr;
             std::size_t match_count{};
-            for (const auto& edge : source_geometry.edges) {
+            const std::vector<zima::kernel::ViewerEdge> empty;
+            const auto& edges = reference.body_edge ? (body_geometry ? body_geometry->edges : empty) : source_geometry.edges;
+            for (const auto& edge : edges) {
                 if (!same_source(reference, edge.reference)) continue;
                 match = &edge;
                 ++match_count;
@@ -11837,12 +11843,35 @@ zima::kernel::ViewerMesh Sketch::viewer_mesh() const {
             {second->x - first->x, second->y - first->y},
             !segment.construction});
     }
+    // External references already carry their projected ZIMA geometry. Publish
+    // crossings into the same candidate stream as native Sketch intersections.
+    for (const auto& reference : external_references) {
+        if (reference.broken) continue;
+        const auto add_path = [&](const auto& path, bool bounded) {
+            for (std::size_t i = 1; i < path.size(); ++i) {
+                const auto& a = path[i - 1];
+                const auto& b = path[i];
+                if (std::hypot(b[0] - a[0], b[1] - a[1]) > 1.0e-12)
+                    placement_lines.push_back({reference.id, a,
+                        {b[0] - a[0], b[1] - a[1]}, bounded});
+            }
+        };
+        if (reference.kind == ExternalReferenceKind::Axis ||
+            (reference.kind == ExternalReferenceKind::Face && reference.cached_points.size() >= 2)) {
+            add_path(reference.cached_points, false);
+        } else if (reference.kind == ExternalReferenceKind::Edge) {
+            add_path(reference.cached_points, true);
+        } else if (reference.kind == ExternalReferenceKind::Face) {
+            for (const auto& path : reference.cached_paths) add_path(path, true);
+        }
+    }
     for (std::size_t first_index = 0; first_index < placement_lines.size();
          ++first_index) {
         const auto& first = placement_lines[first_index];
         for (std::size_t second_index = first_index + 1;
              second_index < placement_lines.size(); ++second_index) {
             const auto& second = placement_lines[second_index];
+            if (first.id == second.id) continue;
             const double denominator =
                 first.direction[0] * second.direction[1] -
                 first.direction[1] * second.direction[0];
@@ -12365,6 +12394,26 @@ zima::kernel::ViewerMesh Sketch::viewer_mesh() const {
                 label=has_support ? "CC" : "C";
             } else if(constraint.kind==ConstraintKind::PointOnLine)
                 combined_support=matching_support(*endpoint,constraint.geometry_id);
+        }
+        if (constraint.kind == ConstraintKind::PointOnLine || constraint.kind == ConstraintKind::PointOnCircle) {
+            const SketchConstraint* first_support = nullptr;
+            std::set<std::string> supports;
+            for (const auto& support : constraints) {
+                if (support.suppressed || support.first_point_id != constraint.first_point_id ||
+                    (support.kind != ConstraintKind::PointOnLine && support.kind != ConstraintKind::PointOnCircle)) continue;
+                if (!first_support) first_support = &support;
+                supports.insert(support.geometry_id);
+            }
+            if (supports.size() == 2 && std::ranges::all_of(supports,[&](const auto& id) {
+                    return std::ranges::any_of(external_references,[&](const auto& reference){return reference.id==id;});
+                })) {
+                label = "CC";
+                combined_support = combined_support || first_support != &constraint;
+                for (const auto& support : supports) {
+                    const auto key = geometry_semantic_key(support);
+                    if (!key.empty() && std::ranges::find(participants, key) == participants.end()) participants.push_back(key);
+                }
+            }
         }
         if(!combined_support)result.constraint_markers.push_back({*anchor,
             label, marker_reference, participants});
@@ -13343,6 +13392,7 @@ std::string Sketch::serialized() const {
         external_reference_values.push_back({
             {"id", reference.id},
             {"kind", external_reference_kind_name(reference.kind)},
+            {"body_edge", reference.body_edge},
             {"source_document_id", reference.source_document_id},
             {"source_owner_id", reference.source_owner_id},
             {"source_semantic_key", reference.source_semantic_key},
@@ -13583,6 +13633,7 @@ Sketch Sketch::from_serialized(const std::string& value) {
     }
     for (const auto& value : root.at("external_references")) {
         SketchExternalReference reference;
+        reference.body_edge = value.at("body_edge").get<bool>();
         reference.id = value.at("id").get<std::string>();
         reference.kind = external_reference_kind_from_name(
             value.at("kind").get<std::string>());

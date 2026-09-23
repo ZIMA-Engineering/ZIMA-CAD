@@ -54,7 +54,7 @@ bool commit_imported_feature(Workspace& live, const kernel::OcctKernel& kernel,
     append_reference_geometry(references, next.construction_viewer_mesh().original_references);
     next.resolve_constructions(references);
     // Preserve the imported-feature GUI calculation boundary and refresh.
-    auto calculated = calculate_part(kernel, next, &previous, policy);
+    auto calculated = calculate_part_with_resolved_references(kernel, next, &previous, policy);
     static_cast<void>(refresh_sketch_external_references(next, calculated));
     commit_part_document(live, id, std::move(next), std::move(calculated));
     return true;

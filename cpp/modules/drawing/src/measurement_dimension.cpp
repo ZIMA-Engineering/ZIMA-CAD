@@ -592,6 +592,28 @@ std::vector<MeasurementCandidate> measurement_candidates(const DrawingView &view
     const auto add_candidate = [&](DimensionAttachment a, Point2 point, double distance, bool point_target=false) {
         if (distance > tolerance || break_hidden(view,point))
             return;
+        // Interactive strokes carry depth instead of pre-split visibility.
+        // Test only the offered point; never prepare a whole vector view on
+        // hover. Hidden-edge mode deliberately allows either depth layer.
+        if(view.output_source&&view.display_style!=DisplayStyle::HiddenEdges) {
+            std::optional<double> depth;Point2 tested=point;double closest=std::numeric_limits<double>::infinity();
+            for(const auto& stored:view.measurement_geometry->points)if(stored.source==a.reference){depth=kernel::dimension_dot(stored.position,view.camera.depth);break;}
+            if(!depth)for(const auto& edge:view.projected_edges)if(edge.source==a.reference&&edge.vertex_depths.size()==edge.points.size())
+                for(std::size_t i=1;i<edge.points.size();++i) {
+                    const auto start=edge.points[i-1],delta=sub(edge.points[i],start);const double den=dot(delta,delta);
+                    const double t=den>0?std::clamp(dot(sub(point,start),delta)/den,0.,1.):0.;const auto p=add(start,mul(delta,t));const double d=length(sub(point,p));
+                    if(d<closest){closest=d;tested=p;depth=edge.vertex_depths[i-1]+(edge.vertex_depths[i]-edge.vertex_depths[i-1])*t;}
+                }
+            if(depth)for(const auto& triangle:view.projected_triangles) {
+                if(triangle.source.semantic_key.starts_with("thread:surface:"))continue;
+                const auto p=triangle.points[0],u=sub(triangle.points[1],p),v=sub(triangle.points[2],p),q=sub(tested,p);
+                const double det=cross(u,v);if(std::abs(det)<1e-12)continue;
+                const double b=cross(q,v)/det,c=cross(u,q)/det;
+                if(b<0||c<0||b+c>1)continue;
+                const double z=(1-b-c)*triangle.vertex_depths[0]+b*triangle.vertex_depths[1]+c*triangle.vertex_depths[2];
+                if(z>*depth+1e-6)return;
+            }
+        }
         if (std::ranges::any_of(offered, [&](const auto &c) { return c.attachment == a; }))
             return;
         point_target=point_target||a.kind==DimensionAttachmentKind::Point||

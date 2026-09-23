@@ -1186,7 +1186,15 @@ void AssemblyWorkspaceWindow::create_layout() {
                                               local_origin, local_direction);
         bool related = cursor_snap.has_value();
         std::set<std::string> relation_support_ids;
-        if (cursor_snap) relation_support_ids.insert(cursor_snap->support_geometry_id);
+        if (cursor_snap) {
+            const auto& support=cursor_snap->support_geometry_id;
+            const auto separator=support.find("||");
+            if(separator==std::string::npos)relation_support_ids.insert(support);
+            else {
+                relation_support_ids.insert(support.substr(0,separator));
+                relation_support_ids.insert(support.substr(separator+2));
+            }
+        }
 
         std::string label;
         if (cursor_snap && cursor_snap->relation) {
@@ -1209,7 +1217,7 @@ void AssemblyWorkspaceWindow::create_layout() {
                     label = "C";
                     break;
                 case zima::sketcher::ConstraintKind::PointOnLine:
-                    label = "C";
+                    label = cursor_snap->support_geometry_id.find("||") != std::string::npos ? "CC" : "C";
                     break;
                 case zima::sketcher::ConstraintKind::Horizontal: label="H";break;
                 case zima::sketcher::ConstraintKind::Vertical: label="V";break;

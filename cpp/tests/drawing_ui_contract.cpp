@@ -11,6 +11,8 @@
 #include <QToolButton>
 #include <QPlainTextEdit>
 #include <QKeyEvent>
+#include <QWheelEvent>
+#include <QOpenGLWidget>
 #include <QToolBar>
 #include <fstream>
 #include <zima/workspace/document_operations.hpp>
@@ -19,6 +21,7 @@
 #include <zima/command_host/host.hpp>
 #include <zima/drawing/measurement_dimension.hpp>
 #include "drawing_shading.hpp"
+#include "drawing_depth_view.hpp"
 #include <zima/kernel/occt_kernel.hpp>
 #include "drawing_projection_fixture.hpp"
 #include "drawing_window.hpp"
@@ -45,6 +48,8 @@
 #include <filesystem>
 #include <iostream>
 #include <stdexcept>
+#include <chrono>
+#include <zima/workspace/drawing_projection.hpp>
 
 namespace {
 void require(bool value, const char* message) { if(!value) throw std::runtime_error(message); }
@@ -57,6 +62,29 @@ void click(QWidget* widget,QPointF point) {
     mouse(widget,QEvent::MouseButtonPress,point,Qt::LeftButton,Qt::LeftButton);
     mouse(widget,QEvent::MouseButtonRelease,point,Qt::LeftButton,Qt::NoButton);
 }
+}
+
+#include "drawing_performance_probe.inc"
+
+void verify_drawing_depth_rendering() {
+    using namespace zima::drawing;
+    DrawingView view;view.display_style=DisplayStyle::VisibleEdges;
+    ProjectedTriangle a,b;a.points={Point2{-10,-10},Point2{10,-10},Point2{10,10}};b.points={Point2{-10,-10},Point2{10,10},Point2{-10,10}};
+    view.projected_triangles={a,b};
+    ProjectedEdge front,back;front.points={{-8,4},{8,4}};front.vertex_depths={1,1};back.points={{-8,0},{8,0}};back.vertex_depths={-1,-1};view.projected_edges={front,back};
+    const auto draw=[&]{return zima::app::drawing_depth_view().render(view,QRectF(-10,-10,20,20),10,10,Qt::white,Qt::gray,1,1);};
+    const auto visible=draw();require(!visible.isNull(),"Depth renderer unavailable in native graphics test");
+    const auto ink=[](const QImage& image,int row){int count=0;for(int y=row-2;y<=row+2;++y)for(int x=15;x<185;++x)if(qAlpha(image.pixel(x,y)))++count;return count;};
+    require(ink(visible,60)>100&&ink(visible,100)==0,"Depth renderer hid front edge or exposed rear edge");
+    require(draw()==visible,"Unchanged depth image was not preserved");
+    view.projected_edges.back().vertex_depths={2,2};require(ink(draw(),100)>100,"Depth cache reused a changed source depth");
+    view.projected_edges.back().vertex_depths={-1,-1};require(ink(draw(),100)==0,"Depth cache did not restore occlusion");
+    view.projected_edges.front().points={{-8,6},{8,6}};require(ink(draw(),60)==0,"Depth cache reused changed edge coordinates");
+    view.projected_edges.front().points=front.points;
+    view.display_style=DisplayStyle::HiddenEdges;const auto dashed=draw();const int dashed_count=ink(dashed,100);
+    view.hidden_edge_style=HiddenEdgeStyle::Gray;const auto gray=draw();
+    require(dashed_count>0&&dashed_count==ink(gray,100),"Interactive hidden edges must be continuous regardless of print dash style");
+    view.display_style=DisplayStyle::Shaded;const auto shaded=draw();require(qAlpha(shaded.pixel(100,100))>0,"Depth renderer lost shaded fill");
 }
 
 int verify_drawing_source_picker() {
@@ -87,6 +115,7 @@ int verify_drawing_source_picker() {
             workspace.open_drawing(drawing.document_id)->commit(drawing);window.edit_workspace_document(drawing.document_id);flush();
             for(const bool accept:{false,true}) {
                 insert->trigger();flush();
+                require(canvas->cursor().shape()==Qt::ArrowCursor,"View placement must retain the arrow cursor");
                 require(!unexpected_picker,"Insert View must directly start placement for a linked Drawing");
                 click(canvas,canvas->rect().center());
                 auto* properties=window.findChild<QDialog*>("drawingViewProperties");
@@ -252,6 +281,29 @@ int verify_drawing_source_picker() {
 }
 int verify_drawing_ui() {
     try {
+        if(QGuiApplication::platformName()!="offscreen"&&QGuiApplication::platformName()!="minimal")verify_drawing_depth_rendering();
+        if(const auto input=qEnvironmentVariable("ZIMA_DRAWING_PROFILE_INPUT");!input.isEmpty())return profile_drawing_ui(input);
+        {
+            QTemporaryDir temporary;require(temporary.isValid(),"Quick export fixture failed");
+            const auto previous=QDir::currentPath();struct Restore {QString path;~Restore(){QDir::setCurrent(path);}} restore{previous};
+            QSettings settings(temporary.filePath("config.ini"),QSettings::IniFormat);
+            settings.setValue("Drawing/PdfDirectory","nested/pdf");settings.setValue("Drawing/DxfDirectory","nested/export");settings.sync();
+            QDir::setCurrent(temporary.path());
+            auto document=zima::drawing::DrawingDocument::create_default();
+            auto& first=document.sheets.front();first.frame_texts={{"FIRST_SHEET_ONLY",{30,30},3.5}};
+            auto second=first;second.id="quick-second";second.name="Second";second.frame_texts={{"SECOND_SHEET_ONLY",{30,30},3.5}};document.sheets.push_back(second);
+            zima::workspace::Workspace exports;const auto path=std::filesystem::path(temporary.filePath("sample.drwz").toStdWString());
+            exports.add_drawing(document,path);zima::app::DrawingWindow exporter(&exports,false);exporter.edit_workspace_document(document.document_id);
+            exporter.findChild<QTabBar*>("drawingSheetTabs")->setCurrentIndex(1);
+            auto* pdf=exporter.findChild<QAction*>("drawingQuickExportPdfAction");auto* dxf=exporter.findChild<QAction*>("drawingQuickExportDxfAction");
+            require(pdf&&dxf&&!pdf->icon().isNull()&&!dxf->icon().isNull()&&!exporter.findChild<QPushButton*>("drawingExportPdf"),"Quick export controls or icons are wrong");
+            dxf->trigger();pdf->trigger();
+            QFile output(temporary.filePath("nested/export/sample_2.dxf"));require(output.open(QIODevice::ReadOnly),"Quick DXF did not use drawing-relative folder and active sheet number");
+            const auto bytes=output.readAll();require(bytes.contains("SECOND_SHEET_ONLY")&&!bytes.contains("FIRST_SHEET_ONLY"),"Quick DXF exported the wrong sheet");
+            require(QFileInfo(temporary.filePath("nested/pdf/sample.pdf")).size()>100,"Quick PDF did not use its configured folder");
+            const auto revision=exports.open_drawing(document.document_id)->revision();pdf->trigger();
+            require(exports.open_drawing(document.document_id)->revision()==revision,"Quick export changed Drawing history");
+        }
         QString modal_error;
         QTimer modal_catcher;
         QObject::connect(&modal_catcher,&QTimer::timeout,[&] {
@@ -296,6 +348,7 @@ int verify_drawing_ui() {
         click(canvas,center);
         require(dialog() && count()==0,"Placement must open transient unified Properties");
         require(dialog()->findChild<QComboBox*>("drawingViewOrientation")->currentIndex()==6,"First view is not isometric");
+        require(dialog()->findChild<QComboBox*>("drawingViewDisplay")->currentIndex()==int(zima::drawing::DisplayStyle::HiddenEdges),"New view did not use the configured hidden-edge default");
         dialog()->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Cancel)->click(); flush();
         require(count()==0 && workspace.open_drawing(drawing.document_id)->document().sheets.front().views.empty(),"Cancel inserted a view");
         require(!workspace.open_drawing(drawing.document_id)->is_dirty(),"Cancel marked Drawing dirty");
@@ -321,6 +374,13 @@ int verify_drawing_ui() {
         require(workspace.open_drawing(drawing.document_id)->revision()==tracked_revision,"Displaying current drawing created another edit");
         require(count()==1 && !dialog(),"OK did not commit one view");
         const auto original=state.sheets.front().views.front();
+        window.select_view(original.id);action("editDrawingViewAction")->trigger();flush();
+        require(dialog(),"Unchanged properties did not open");
+        dialog()->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
+        require(!dialog()&&workspace.open_drawing(drawing.document_id)->revision()==tracked_revision,
+            "Unchanged properties created an Undo transaction");
+        require(state.sheets.front().views.front().x==original.x&&state.sheets.front().views.front().y==original.y,
+            "Unchanged properties rounded stored coordinates");
         require(original.tangent_edge_style==zima::drawing::TangentEdgeStyle::Thin,"Tangent edge property did not persist on OK");
         require(original.show_caption && original.name=="Front test","Caption properties were not persisted");
         require(std::abs(original.x-state.sheets.front().width_mm()/2)<1.0 &&
@@ -389,19 +449,38 @@ int verify_drawing_ui() {
         auto* menu=canvas->findChild<QMenu*>("drawingViewContextMenu");
         require(menu && menu->actions().contains(action("projectDrawingViewAction")),"View context menu lacks projected view");
         menu->close(); flush();
+        const auto projection_revision=workspace.open_drawing(drawing.document_id)->revision();
         action("projectDrawingViewAction")->trigger();
+        QKeyEvent escape(QEvent::KeyPress,Qt::Key_Escape,Qt::NoModifier);QApplication::sendEvent(canvas,&escape);flush();
+        require(count()==1&&!dialog()&&workspace.open_drawing(drawing.document_id)->revision()==projection_revision,"Canceled projection changed the drawing");
+        window.select_view_for_test(original.id);
+        action("projectDrawingViewAction")->trigger();
+        require(canvas->cursor().shape()==Qt::ArrowCursor,"Projected placement must retain the arrow cursor");
         const QPointF right=center+QPointF(220,0);
         mouse(canvas,QEvent::MouseMove,right,Qt::NoButton,Qt::NoButton); click(canvas,right);
-        require(dialog() && count()==1,"Projection placement must remain transient");
+        require(!dialog() && count()==2,"Projection placement must commit without properties");
+        const auto projected_id=state.sheets.front().views.back().id;
+        require(workspace.open_drawing(drawing.document_id)->undo(),"Direct projection has no Undo");
+        window.edit_workspace_document(drawing.document_id);flush();require(count()==1,"Direct projection Undo did not remove the child");
+        require(workspace.open_drawing(drawing.document_id)->redo(),"Direct projection has no Redo");
+        window.edit_workspace_document(drawing.document_id);flush();require(count()==2,"Direct projection Redo did not restore the child");
+        window.select_view_for_test(projected_id);action("editDrawingViewAction")->trigger();flush();
+        require(dialog(),"Projected view must remain editable after direct insertion");
         require(!dialog()->findChild<QComboBox*>("drawingViewOrientation")->isEnabled(),"Derived orientation must be owned by projection");
         // Shared MMB-double-click confirmation must also work over the drawing canvas.
         mouse(canvas,QEvent::MouseButtonPress,right,Qt::MiddleButton,Qt::MiddleButton);
         mouse(canvas,QEvent::MouseButtonRelease,right,Qt::MiddleButton,Qt::NoButton);
-        require(dialog() && count()==1,"Short middle click committed a view");
+        require(dialog() && count()==2,"Short middle click closed view properties");
         mouse(canvas,QEvent::MouseButtonDblClick,right,Qt::MiddleButton,Qt::MiddleButton);
         mouse(canvas,QEvent::MouseButtonRelease,right,Qt::MiddleButton,Qt::NoButton);
         require(count()==2 && !dialog(),"Middle double click did not confirm view properties");
         const auto child=state.sheets.front().views.back();
+        require(child.scale==original.scale&&child.use_sheet_scale==original.use_sheet_scale&&
+            child.display_style==original.display_style&&child.hidden_edge_style==original.hidden_edge_style&&
+            child.tangent_edge_style==original.tangent_edge_style&&child.show_thread_leadins==original.show_thread_leadins&&
+            child.show_caption==original.show_caption&&child.dimension_guide_count==original.dimension_guide_count&&
+            child.dimension_guide_offset==original.dimension_guide_offset&&child.dimension_guide_spacing==original.dimension_guide_spacing,
+            "Direct projection did not inherit parent display settings");
         require(child.name=="Pohled 2","Projected view has no numbered default name");
         require(child.parent_view_id==original.id && child.projection_direction==zima::drawing::ProjectionDirection::Right &&
             std::abs(child.y-original.y)<1e-6,"Projected view did not keep parent/ray placement");
@@ -543,6 +622,8 @@ int verify_drawing_ui() {
             require(author && author->text()=="Original author"&&!author->isReadOnly(),"Title block did not read model Parameters");
             const auto editor_y=[](QDialog* props,const char* id){auto* editor=props->findChild<QLineEdit*>(id);require(editor,"Missing ordered title editor");return editor->mapTo(props,QPoint{}).y();};
             require(editor_y(d,"titleBlockField:parameter:polotovar")<editor_y(d,"titleBlockField:NAME")&&editor_y(d,"titleBlockField:NAME")<editor_y(d,"titleBlockField:DRAWN_BY"),"Title block ignored source Parameters order");
+            auto* separator=d->findChild<QWidget*>("titleBlockValuesSeparator");auto* local=d->findChild<QComboBox*>("titleBlockChoices:ACCURACY");
+            require(separator&&local&&editor_y(d,"titleBlockField:DRAWN_BY")<separator->mapTo(d,QPoint{}).y()&&separator->mapTo(d,QPoint{}).y()<local->mapTo(d,QPoint{}).y(),"Title-only values are not separated below file parameters");
             window.grab().save(QString::fromStdString((directory/"drawing-title-properties.png").string()));
             author->setText("Discard");d->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Cancel)->click();flush();
             require(workspace.open_part(part.document_id)->session.revision()==revision,"Title block Cancel changed model");
@@ -738,7 +819,8 @@ int verify_drawing_ui() {
                     require(view.camera.horizontal==expected.horizontal&&view.camera.vertical==expected.vertical&&view.camera.depth==expected.depth,"Regenerate did not update nested projection cameras parent-first");
                     const auto& a=parent->camera.depth;const auto& b=view.camera.depth;require(std::abs(a.x*b.x+a.y*b.y+a.z*b.z)<1e-12,"Projected view is not perpendicular to its parent");
                     const auto edges=zima::drawing::project_edges(calculated.back().mesh,expected);
-                    require(view.projected_edges.size()==edges.size()&&!edges.empty()&&view.projected_edges.front().points==edges.front().points,"Projected geometry uses a stale camera");
+                    auto output=view;zima::drawing::prepare_output_view(output);
+                    require(output.projected_edges.size()==edges.size()&&!edges.empty()&&output.projected_edges.front().points==edges.front().points,"Projected geometry uses a stale camera");
                 }
             }
             require(opened->session.revision()==source_revision,"Drawing regeneration modified the source Part");
@@ -1147,6 +1229,19 @@ int verify_drawing_ui() {
                 list->setPlainText("A\nB");props->findChild<QCheckBox*>("textFieldAllowCustom")->setChecked(false);
                 props->grab().save(QString("build/text-field-action-%1.png").arg(language));props->buttons()->button(QDialogButtonBox::Ok)->click();flush();
                 require(commits==1&&accepted.at("kind")=="list"&&accepted.at("allow_custom")=="no"&&accepted.at("choices")=="[\"A\",\"B\"]","Text property action was not committed");
+                auto factory=zima::drawing::DrawingDocument::create_default();
+                const auto title_path=catalogs.parent_path()/"formats"/("ZE-TITLE-BLOCK-"+QString(language).toUpper().toStdString()+".tblz");
+                zima::drawing::load_title_block_template(factory.sheets.front(),title_path);
+                workspace.add_drawing(factory);window.edit_workspace_document(factory.document_id);flush();
+                window.findChild<QAction*>("editDrawingTitleBlockAction")->trigger();flush();
+                auto* title_dialog=window.findChild<QDialog*>("drawingTitleBlockProperties");require(title_dialog,"Factory title dialog missing");
+                auto* tolerances=title_dialog->findChild<QComboBox*>("titleBlockChoices:ACCURACY");
+                require(tolerances&&tolerances->isEditable()&&tolerances->count()==4&&tolerances->currentText()=="ISO 2768-m","Factory tolerance list/default missing");
+                auto* gps=title_dialog->findChild<QLineEdit*>("titleBlockField:TOLERANCING");require(gps&&gps->text()=="ISO 8015:2011","Factory GPS standard is not a local title field");
+                tolerances->setCurrentText("ISO 2768-f");title_dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
+                const auto& fields=window.document_for_test().sheets.front().title_block_fields;
+                const auto tolerance=std::ranges::find(fields,"ACCURACY",&zima::drawing::TitleBlockField::id);
+                require(tolerance!=fields.end()&&tolerance->value=="ISO 2768-f"&&!tolerance->write_back&&zima::drawing::title_block_tokens(tolerance->expression).empty(),"Factory tolerance choice was not saved locally");
             }
             zima::app::apply_application_translations(*qApp,saved_settings);
         }
@@ -1155,6 +1250,8 @@ int verify_drawing_ui() {
             require(symbol.sheets.front().dimensions.empty(),"Template Sketch dimensions leaked into Drawing");
             zima::drawing_render::SheetRenderer renderer;renderer.set_render_sheet(&symbol.sheets.front());QImage proof(360,200,QImage::Format_ARGB32_Premultiplied);proof.fill(Qt::white);QPainter painter(&proof);
             renderer.paint_sheet(painter,30,{-4600,-7530},true);painter.end();proof.save("build/projection-symbol-proof.png");
+            QImage title_proof(1200,420,QImage::Format_ARGB32_Premultiplied);title_proof.fill(Qt::black);QPainter title_painter(&title_proof);
+            renderer.paint_sheet(title_painter,6,{-60,-1372},false);title_painter.end();title_proof.save("build/title-symbol-colors-proof.png");
             zima::drawing_render::export_pdf(symbol,directory/"projection-symbol.pdf",{},nullptr,true);
             zima::drawing_render::export_dxf(symbol,symbol.sheets.front().id,directory/"projection-symbol.dxf",{},nullptr,true);
         }

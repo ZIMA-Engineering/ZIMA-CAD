@@ -16,6 +16,9 @@ void AssemblyWorkspaceWindow::show_construction_properties(
         : assembly->session.document().find_construction(object_id);
     if (!object_id.empty() && (edited == nullptr || edited->kind != kind)) return;
     const bool edit_mode = edited != nullptr;
+    if (edited && edited->definition == zima::document::ConstructionDefinition::CylinderAxis) {
+        show_cylinder_axis_properties(object_id); return;
+    }
     auto initial = edit_mode ? *edited
         : zima::document::PartDocument::create_construction(kind);
     if (!edit_mode) {

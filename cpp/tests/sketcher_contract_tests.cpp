@@ -684,6 +684,28 @@ int main() {
                     std::abs(crossing_bound.find_point(crossing_point)->y) < 1.0e-8,
                 "Two persisted PointOnLine relations did not bind an intersection");
         auto asymmetric_crossing = zima::sketcher::Sketch::create_default();
+        {
+            using namespace zima::sketcher;
+            for(const auto kind:{ExternalReferenceKind::Edge,ExternalReferenceKind::Axis,ExternalReferenceKind::Face}) {
+                auto projected=Sketch::create_default();
+                auto a=Sketch::create_external_reference(kind),b=Sketch::create_external_reference(kind);
+                a.source_document_id=b.source_document_id="source";
+                a.source_owner_id="first";b.source_owner_id="second";a.source_semantic_key=b.source_semantic_key="geometry";
+                a.cached_points={{2,1},{8,7}};b.cached_points={{1,6},{9,2}};
+                a.infinite=b.infinite=kind!=ExternalReferenceKind::Edge;
+                projected.add_external_reference(a);projected.add_external_reference(b);
+                const auto key="sketch_intersection:"+a.id+"||"+b.id;
+                const auto mesh=projected.viewer_mesh();
+                require(std::ranges::any_of(mesh.points,[&](const auto& p){return p.reference.semantic_key==key&&std::hypot(p.position.x-5,p.position.y-4)<1e-9;}),"External reference crossing was not published to the common picker");
+                const auto point=projected.add_point(5,4);
+                static_cast<void>(projected.add_point_on_line_constraint(point,a.id));
+                static_cast<void>(projected.add_point_on_line_constraint(point,b.id));
+                auto reopened=Sketch::from_serialized(projected.serialized());
+                require(reopened.constraints==projected.constraints&&std::ranges::any_of(reopened.viewer_mesh().constraint_markers,[](const auto& m){return m.label=="CC";}),"CC references/marker did not survive persistence");
+                reopened.external_references[0].broken=true;
+                require(std::ranges::none_of(reopened.viewer_mesh().points,[&](const auto& p){return p.reference.semantic_key==key;}),"Broken external reference remained offered for CC");
+            }
+        }
         const auto asymmetric_first =
             asymmetric_crossing.add_segment(2.0, 1.0, 8.0, 7.0);
         const auto asymmetric_second =
@@ -1472,9 +1494,9 @@ int main() {
                 text_sketch.viewer_mesh(), {2.0, 0.0, 10.0},
                 {0.0, 0.0, -1.0}, 0.2),
             {zima::viewer::CandidateKind::SketchExternalReference});
-        require(external_face_candidates.size() == 1 &&
-                    external_face_candidates.front().semantic_key ==
-                        "external_face:" + external_face_id,
+        require(std::ranges::any_of(external_face_candidates,[&](const auto& candidate) {
+                    return candidate.semantic_key=="external_face:"+external_face_id;
+                }),
                 "Sketch external face did not use the common viewer candidate list");
         const auto before_invalid_face = text_sketch.serialized();
         bool invalid_face_rejected = false;

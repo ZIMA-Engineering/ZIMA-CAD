@@ -1,4 +1,20 @@
 {
+  "Osa z válcové plochy": "Achse aus Zylinderfläche",
+  "Zadejte název osy.": "Geben Sie einen Achsennamen ein.",
+  "Vyberte válcovou plochu.": "Wählen Sie eine Zylinderfläche aus.",
+  "Parametry souboru": "Dateiparameter",
+  "Výkresy": "Zeichnungen",
+  "Výchozí zobrazení pohledu": "Standarddarstellung der Ansicht",
+  "Složka PDF": "PDF-Ordner",
+  "Složka DXF": "DXF-Ordner",
+  "Cesty jsou relativní k uloženému výkresu. PDF obsahuje všechny listy, DXF pouze aktuální list. Projekční pohled přebírá zobrazení rodiče.": "Pfade sind relativ zur gespeicherten Zeichnung. PDF enthält alle Blätter, DXF nur das aktuelle Blatt. Projektionsansichten übernehmen die Darstellung ihrer übergeordneten Ansicht.",
+  "PDF": "PDF",
+  "DXF": "DXF",
+  "Exportovat výkres do nastavené složky PDF": "Zeichnung in den konfigurierten PDF-Ordner exportieren",
+  "Exportovat aktuální list do nastavené složky DXF": "Aktuelles Blatt in den konfigurierten DXF-Ordner exportieren",
+  "Před rychlým exportem uložte výkres.": "Speichern Sie die Zeichnung vor dem Schnellexport.",
+  "Složka rychlého exportu musí být relativní k výkresu.": "Der Schnellexportordner muss relativ zur Zeichnung angegeben werden.",
+  "Export uložen: %1": "Export gespeichert: %1",
   "Převádět názvy na velká písmena": "Namen in Großbuchstaben umwandeln",
   "Odstraňovat diakritiku z názvů": "Diakritische Zeichen aus Namen entfernen",
   "Nahrazovat mezery v názvech podtržítkem": "Leerzeichen in Namen durch Unterstriche ersetzen",
@@ -1315,7 +1331,7 @@
   "Úhel: vyberte řízenou úsečku nebo osu skici.": "Winkel: Gesteuerte Strecke oder Skizzenachse auswählen.",
   "Vzdálenost rovnoběžek: vyberte řízenou úsečku.": "Abstand paralleler Geraden: Gesteuerte Strecke auswählen.",
   "Kóta: kliknutím LMB do prostoru určete polohu kótovací čáry.": "Bemaßung: LMB in freien Bereich klicken, um die Maßlinie zu positionieren.",
-  "Reference → obrys: vyberte persistovanou původní hranu.": "Referenz → Profil: Gespeicherte ursprüngliche Kante auswählen.",
+  "Reference → obrys: vyberte hranu tělesa.": "Referenz → Profil: Körperkante auswählen.",
   "Externí reference: vyberte persistovanou původní plochu, hranu, vrchol nebo osu. Pravým tlačítkem lze přepínat kandidáty.": "Externe Referenz: Gespeicherte ursprüngliche Fläche, Kante, Eckpunkt oder Achse auswählen. RMB wechselt Kandidaten.",
   "Režim externích referencí byl ukončen.": "Modus für externe Referenzen beendet.",
   "Externí reference byla uložena bez volání OCCT. Vyberte další zdroj.": "Externe Referenz ohne OCCT-Aufruf gespeichert. Weitere Quelle auswählen.",
@@ -1586,5 +1602,6 @@
   "Úběr materiálu nepřípustný": "Materialabtrag unzulässig",
   "Způsob výroby neurčen": "Herstellungsverfahren nicht festgelegt",
   "Celková drsnost — %1": "Allgemeine Oberflächenbeschaffenheit — %1",
-  "Aktivovat": "Aktivieren"
+  "Aktivovat": "Aktivieren",
+  "Invalid drawing edge depths": "Ungültige Tiefen der Zeichnungskanten"
 }

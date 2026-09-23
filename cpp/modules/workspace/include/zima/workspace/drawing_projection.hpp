@@ -18,13 +18,20 @@ public:
         bool pending_hatch{};
         bool refresh_markers{};
         bool require_geometry{true};
+        bool interactive{};
     };
-    DrawingProjection(const Workspace*,std::filesystem::path drawing_path);
+    // Previous projections may be reused only after freshly reading and exactly
+    // comparing their source packets. The donor must outlive this session.
+    DrawingProjection(const Workspace*,std::filesystem::path drawing_path,
+                      const DrawingProjection* previous=nullptr);
     ~DrawingProjection();
     DrawingProjection(const DrawingProjection&)=delete;
     DrawingProjection& operator=(const DrawingProjection&)=delete;
     const Source& source(const drawing::DrawingView&);
+    // Placement needs only the current mesh bounds; defer BOM and annotations.
+    const kernel::ViewerMesh& placement_source(const drawing::DrawingView&);
     void project(drawing::DrawingView&,Options);
+    [[nodiscard]] std::size_t calculated_camera_count() const;
 private:
     struct Impl;
     std::unique_ptr<Impl> impl_;

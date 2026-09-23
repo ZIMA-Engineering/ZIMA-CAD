@@ -753,6 +753,11 @@ int main() {
         require(std::ranges::any_of(source_containers,[](const auto& c){return c.owner_id=="extrusion";}),
             "Explicit original-container command lost its source geometry");
         local_part.triangle_references.front().instance_path.clear();
+        const auto source_faces=zima::viewer::filter_candidates(
+            zima::viewer::ordered_viewer_candidates(threaded_hole,original_faces,
+                {0,0,0},{0,0,1},.01,false,false,true),{zima::viewer::CandidateKind::Face});
+        require(std::ranges::any_of(source_faces,[](const auto& c){return c.owner_id=="extrusion"&&c.geometry==zima::viewer::CandidateGeometry::OriginalReference;}),
+            "External face selection lost the original face removed by a later operation");
         local_part.original_references.triangle_references.front()
             .instance_path.clear();
         const auto local_part_containers = zima::viewer::filter_candidates(

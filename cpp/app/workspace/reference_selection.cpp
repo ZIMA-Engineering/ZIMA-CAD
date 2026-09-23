@@ -3,6 +3,26 @@
 namespace zima::app {
 using namespace workspace_detail;
 
+namespace {
+zima::assembly::MateReferenceKind component_reference_kind(
+    const zima::viewer::ViewerCandidate& candidate, const zima::kernel::ViewerMesh& mesh) {
+    using namespace zima;
+    if (candidate.kind == viewer::CandidateKind::Vertex) return assembly::MateReferenceKind::Point;
+    if (candidate.kind == viewer::CandidateKind::Axis) return assembly::MateReferenceKind::Axis;
+    if (candidate.kind == viewer::CandidateKind::Face) {
+        const auto& faces = candidate.geometry == viewer::CandidateGeometry::OriginalReference
+            ? mesh.original_references.triangle_references : mesh.triangle_references;
+        if (candidate.geometry_index < faces.size()) {
+            const auto& face = faces[candidate.geometry_index];
+            if (face.owner_id == candidate.owner_id && face.semantic_key == candidate.semantic_key &&
+                face.instance_path == candidate.instance_path && face.surface &&
+                face.surface->kind == kernel::SurfaceGeometry::Kind::Cylinder)
+                return assembly::MateReferenceKind::CylinderFace;
+        }
+    }
+    return assembly::MateReferenceKind::Face;
+}
+}
 
 bool AssemblyWorkspaceWindow::finish_active_reference_selection() {
     if(feature_reference_end_&&properties_dialog_){feature_reference_end_();return true;}
@@ -879,21 +899,24 @@ bool AssemblyWorkspaceWindow::component_placement_reference_candidate_allowed(
         candidate.owner_id.empty() || candidate.semantic_key.empty()) return false;
     if (candidate.kind != CandidateKind::Vertex && candidate.kind != CandidateKind::Axis &&
         candidate.kind != CandidateKind::Face && candidate.kind != CandidateKind::Plane) return false;
-    const auto kind = candidate.kind == CandidateKind::Vertex ? zima::assembly::MateReferenceKind::Point :
-        candidate.kind == CandidateKind::Axis ? zima::assembly::MateReferenceKind::Axis : zima::assembly::MateReferenceKind::Face;
+    const auto kind = component_reference_kind(candidate, viewer_->mesh());
     const auto& rows = component_placement_dialog_->placement_references();
     if (match_other_side && !pending_component_placement_component_side_ && *pending_component_placement_index_ < rows.size()) {
         const auto& source = rows[*pending_component_placement_index_].component_reference;
-        if (!source.owner_id.empty() && source.kind != kind) return false;
+        if (!source.owner_id.empty() && !zima::assembly::compatible_reference_kinds(source.kind,kind)) return false;
     }
     try {
         const auto prefix = zima::assembly::InstancePath::decode(properties_dialog_instance_path_)
             .parent().value_or(zima::assembly::InstancePath{});
         const auto path = zima::assembly::InstancePath::decode(candidate.instance_path);
         if (path == prefix) return !pending_component_placement_component_side_;
-        if (path.occurrence_ids.size() != prefix.occurrence_ids.size() + 1 ||
+        const auto depth=prefix.occurrence_ids.size();
+        const bool cylinder=kind==zima::assembly::MateReferenceKind::CylinderFace;
+        if ((cylinder ? path.occurrence_ids.size() <= depth : path.occurrence_ids.size() != depth + 1) ||
             !std::equal(prefix.occurrence_ids.begin(), prefix.occurrence_ids.end(), path.occurrence_ids.begin())) return false;
-        const bool own = path.occurrence_ids.back() == component_placement_occurrence_id_;
+        // A cylinder inside an inserted subassembly locates that immediate
+        // subassembly as a whole; it never places one of its internal children.
+        const bool own = path.occurrence_ids[depth] == component_placement_occurrence_id_;
         return pending_component_placement_component_side_ ? own : !own;
     } catch (const std::invalid_argument&) { return false; }
 }
@@ -920,10 +943,7 @@ void AssemblyWorkspaceWindow::start_component_placement_reference_selection(
 void AssemblyWorkspaceWindow::accept_component_placement_reference(
     const zima::viewer::ViewerCandidate& candidate) {
     if (!component_placement_reference_candidate_allowed(candidate)) return;
-    const auto kind = candidate.kind == zima::viewer::CandidateKind::Axis
-        ? zima::assembly::MateReferenceKind::Axis
-        : candidate.kind == zima::viewer::CandidateKind::Vertex
-            ? zima::assembly::MateReferenceKind::Point : zima::assembly::MateReferenceKind::Face;
+    const auto kind = component_reference_kind(candidate, viewer_->mesh());
     auto path = zima::assembly::InstancePath::decode(candidate.instance_path);
     const auto prefix = zima::assembly::InstancePath::decode(properties_dialog_instance_path_)
         .parent().value_or(zima::assembly::InstancePath{});
@@ -935,7 +955,7 @@ void AssemblyWorkspaceWindow::accept_component_placement_reference(
     zima::assembly::MateReference reference{
         kind, zima::assembly::InstancePath::decode(local_path),
         candidate.owner_id, candidate.semantic_key};
-    const auto semantic_label = candidate.kind == zima::viewer::CandidateKind::Vertex
+    const auto semantic_label = kind == zima::assembly::MateReferenceKind::CylinderFace ? tr("Válcová plocha") : candidate.kind == zima::viewer::CandidateKind::Vertex
         ? tr("Bod") : candidate.kind == zima::viewer::CandidateKind::Axis
             ? tr("Osa") : tr("Plocha");
     // Preserve the nearest orientation when a new pair is picked, but persist
@@ -946,11 +966,11 @@ void AssemblyWorkspaceWindow::accept_component_placement_reference(
     if (selected_index<existing.size() && kind!=zima::assembly::MateReferenceKind::Point) {
         const auto other=component_side?existing[selected_index].target_reference:existing[selected_index].component_reference;
         const auto* assembly=workspace_.open_assembly(component_placement_assembly_document_id_);
-        if (assembly && !other.owner_id.empty() && other.kind==kind) {
+        if (assembly && !other.owner_id.empty() && zima::assembly::compatible_reference_kinds(other.kind,kind)) {
             auto geometry=assembly->session.document();
             *geometry.find_occurrence(component_placement_occurrence_id_)=component_placement_dialog_->pending_value();
             const auto source=component_side?reference:other,target=component_side?other:reference;
-            if (kind==zima::assembly::MateReferenceKind::Axis) {
+            if (zima::assembly::is_axis_reference(kind)) {
                 const auto a=geometry.resolve_axis(source),b=geometry.resolve_axis(target);
                 if(a.status==zima::assembly::MateStatus::Valid && b.status==zima::assembly::MateStatus::Valid)
                     initial_flip=a.axis.direction.x*b.axis.direction.x+a.axis.direction.y*b.axis.direction.y+a.axis.direction.z*b.axis.direction.z<0;

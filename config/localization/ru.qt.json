@@ -1,4 +1,20 @@
 {
+  "Osa z válcové plochy": "Ось цилиндрической грани",
+  "Zadejte název osy.": "Введите имя оси.",
+  "Vyberte válcovou plochu.": "Выберите цилиндрическую грань.",
+  "Parametry souboru": "Параметры файла",
+  "Výkresy": "Чертежи",
+  "Výchozí zobrazení pohledu": "Отображение вида по умолчанию",
+  "Složka PDF": "Папка PDF",
+  "Složka DXF": "Папка DXF",
+  "Cesty jsou relativní k uloženému výkresu. PDF obsahuje všechny listy, DXF pouze aktuální list. Projekční pohled přebírá zobrazení rodiče.": "Пути задаются относительно сохранённого чертежа. PDF содержит все листы, DXF — только текущий лист. Проекционные виды наследуют отображение родительского вида.",
+  "PDF": "PDF",
+  "DXF": "DXF",
+  "Exportovat výkres do nastavené složky PDF": "Экспортировать чертёж в заданную папку PDF",
+  "Exportovat aktuální list do nastavené složky DXF": "Экспортировать текущий лист в заданную папку DXF",
+  "Před rychlým exportem uložte výkres.": "Сохраните чертёж перед быстрым экспортом.",
+  "Složka rychlého exportu musí být relativní k výkresu.": "Папка быстрого экспорта должна задаваться относительно чертежа.",
+  "Export uložen: %1": "Экспорт сохранён: %1",
   "Převádět názvy na velká písmena": "Преобразовывать имена в верхний регистр",
   "Odstraňovat diakritiku z názvů": "Удалять диакритические знаки из имён",
   "Nahrazovat mezery v názvech podtržítkem": "Заменять пробелы в именах знаками подчёркивания",
@@ -1315,7 +1331,7 @@
   "Úhel: vyberte řízenou úsečku nebo osu skici.": "Угол: выберите управляемый отрезок или ось эскиза.",
   "Vzdálenost rovnoběžek: vyberte řízenou úsečku.": "Расстояние между параллельными прямыми: выберите управляемый отрезок.",
   "Kóta: kliknutím LMB do prostoru určete polohu kótovací čáry.": "Размер: нажмите LMB в свободном месте для задания положения размерной линии.",
-  "Reference → obrys: vyberte persistovanou původní hranu.": "Ссылка → контур: выберите сохранённое исходное ребро.",
+  "Reference → obrys: vyberte hranu tělesa.": "Ссылка → контур: выберите ребро тела.",
   "Externí reference: vyberte persistovanou původní plochu, hranu, vrchol nebo osu. Pravým tlačítkem lze přepínat kandidáty.": "Внешняя ссылка: выберите сохранённую исходную грань, ребро, вершину или ось. RMB переключает варианты.",
   "Režim externích referencí byl ukončen.": "Режим внешних ссылок завершён.",
   "Externí reference byla uložena bez volání OCCT. Vyberte další zdroj.": "Внешняя ссылка сохранена без вызова OCCT. Выберите другой источник.",
@@ -1586,5 +1602,6 @@
   "Úběr materiálu nepřípustný": "Удаление материала запрещено",
   "Způsob výroby neurčen": "Способ изготовления не задан",
   "Celková drsnost — %1": "Общая шероховатость — %1",
-  "Aktivovat": "Активировать"
+  "Aktivovat": "Активировать",
+  "Invalid drawing edge depths": "Недопустимые значения глубины рёбер чертежа"
 }

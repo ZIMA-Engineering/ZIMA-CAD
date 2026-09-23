@@ -41,7 +41,7 @@ const char* mate_type_label(zima::assembly::MateKind kind) {
 bool mate_type_accepts(zima::assembly::MateKind type, zima::assembly::MateReferenceKind kind) {
     using namespace zima::assembly;
     if (kind == MateReferenceKind::Point) return type == MateKind::PointCoincident;
-    if (kind == MateReferenceKind::Axis) return type == MateKind::AxisCoincident;
+    if (is_axis_reference(kind)) return type == MateKind::AxisCoincident;
     return type == MateKind::PlaneCoincident || type == MateKind::PlaneAngle;
 }
 
@@ -50,7 +50,7 @@ void match_reference_type(zima::assembly::ComponentPlacementReference& row) {
     const auto& source = row.component_reference.owner_id.empty() ? row.target_reference : row.component_reference;
     if (source.owner_id.empty() || mate_type_accepts(row.mate_type, source.kind)) return;
     row.mate_type = source.kind == MateReferenceKind::Point ? MateKind::PointCoincident :
-        source.kind == MateReferenceKind::Axis ? MateKind::AxisCoincident : MateKind::PlaneCoincident;
+        is_axis_reference(source.kind) ? MateKind::AxisCoincident : MateKind::PlaneCoincident;
     row.offset = 0; row.offset_locked=false; row.lower_limit.reset(); row.upper_limit.reset(); row.flip = false;
 }
 
@@ -387,11 +387,11 @@ void ComponentPropertiesDialog::set_placement_reference(
     auto& row = placement_references_[index];
     if (component_side) {
         row.component_reference = std::move(reference);
-        if (!row.target_reference.owner_id.empty() && row.target_reference.kind != row.component_reference.kind)
+        if (!row.target_reference.owner_id.empty() && !zima::assembly::compatible_reference_kinds(row.target_reference.kind, row.component_reference.kind))
             row.target_reference = {};
     } else {
         row.target_reference = std::move(reference);
-        if (!row.component_reference.owner_id.empty() && row.component_reference.kind != row.target_reference.kind)
+        if (!row.component_reference.owner_id.empty() && !zima::assembly::compatible_reference_kinds(row.component_reference.kind, row.target_reference.kind))
             row.component_reference = {};
     }
     match_reference_type(row);

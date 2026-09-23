@@ -51,7 +51,7 @@ def main():
     source = root / 'config/formats/ZE-TITLE-BLOCK-CS.tblz'
     original = source.read_bytes()
     _, sketch = read(source)
-    unchanged = {'[Kg]', 'ZIMA-Engineering', 'www.zima-engineering.cz',
+    unchanged = {'[Kg]', 'ISO 2768-m', 'ISO 8015:2011', 'ZIMA-Engineering', 'www.zima-engineering.cz',
                  'e-mail: kontakt@zima-engineering.cz', 'tel.: +420 774 206 965'}
     for text in sketch['texts']:
         value = text['value']

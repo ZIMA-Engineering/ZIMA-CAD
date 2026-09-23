@@ -41,6 +41,9 @@ private:
     QCheckBox* names_diacritics_{};
     QCheckBox* names_spaces_{};
     QDoubleSpinBox* sheet_cut_tolerance_{};
+    QComboBox* drawing_view_style_{};
+    QLineEdit* drawing_pdf_directory_{};
+    QLineEdit* drawing_dxf_directory_{};
     QMap<QString, QComboBox*> unit_fields_;
     QMap<QString, QLineEdit*> path_fields_;
 };

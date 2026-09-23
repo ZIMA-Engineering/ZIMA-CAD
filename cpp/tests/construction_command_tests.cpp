@@ -3,6 +3,10 @@
 #include <iostream>
 #include <cmath>
 #include <limits>
+#include <numbers>
+#include <zima/interchange/step_model.hpp>
+#include <zima/workspace/imported_feature_operations.hpp>
+#include <zima/workspace/placement_edit.hpp>
 using namespace zima;
 using commands::Json;
 namespace fs = std::filesystem;
@@ -213,11 +217,24 @@ void edit_verify(const kernel::OcctKernel& kernel, fs::path directory) {
     run(host,"redo");require(get(ap_id).at("entity")==ap.at("entity"),"Redo allocated new topology identity");
 }
 }
-int main() { try {
+#include "cylinder_axis_contract.inc"
+int main(int argc, char** argv) { try {
+    if (argc == 2 && std::string_view(argv[1]) == "--refresh-start-templates") {
+        for (const auto* name : {"START_PART.prtz", "START_SKELETON.prtz"}) {
+            const auto path = fs::path("config/templates") / name;
+            std::vector<kernel::BodyResult> calculated;
+            const auto part = document::PartDocument::load(path, &calculated);
+            part.save(path, calculated);
+        }
+        const fs::path path = "config/templates/START_ASSEMBLY.asmz";
+        assembly::AssemblyDocument::load(path).save(path);
+        std::cout << "Native start templates regenerated with the current serializer\n";
+        return 0;
+    }
     const auto root = fs::canonical(fs::temp_directory_path());
     const auto directory = root / ("zima-constructions-" + document::PartDocument::create_default().document_id);
     require(fs::create_directory(directory), "Cannot create fixture directory");
-    kernel::OcctKernel kernel; verify(kernel, directory); edit_verify(kernel, directory);
+    kernel::OcctKernel kernel; verify(kernel, directory); edit_verify(kernel, directory); cylinder_axis_verify(kernel,directory);
     require(directory.parent_path() == root, "Unexpected cleanup path"); fs::remove_all(directory);
     std::cout << "Construction queries and edits: geometry, identities, ownership, atomic rejection, locks, Undo/Redo and native persistence passed\n";
     return 0;

@@ -1,4 +1,20 @@
 {
+  "Osa z válcové plochy": "Axe à partir d’une face cylindrique",
+  "Zadejte název osy.": "Saisissez un nom d’axe.",
+  "Vyberte válcovou plochu.": "Sélectionnez une face cylindrique.",
+  "Parametry souboru": "Paramètres du fichier",
+  "Výkresy": "Dessins",
+  "Výchozí zobrazení pohledu": "Affichage par défaut des vues",
+  "Složka PDF": "Dossier PDF",
+  "Složka DXF": "Dossier DXF",
+  "Cesty jsou relativní k uloženému výkresu. PDF obsahuje všechny listy, DXF pouze aktuální list. Projekční pohled přebírá zobrazení rodiče.": "Les chemins sont relatifs au dessin enregistré. Le PDF contient toutes les feuilles, le DXF uniquement la feuille active. Les vues projetées héritent de l’affichage de leur vue parente.",
+  "PDF": "PDF",
+  "DXF": "DXF",
+  "Exportovat výkres do nastavené složky PDF": "Exporter le dessin vers le dossier PDF configuré",
+  "Exportovat aktuální list do nastavené složky DXF": "Exporter la feuille active vers le dossier DXF configuré",
+  "Před rychlým exportem uložte výkres.": "Enregistrez le dessin avant l’exportation rapide.",
+  "Složka rychlého exportu musí být relativní k výkresu.": "Le dossier d’exportation rapide doit être relatif au dessin.",
+  "Export uložen: %1": "Exportation enregistrée : %1",
   "Převádět názvy na velká písmena": "Convertir les noms en majuscules",
   "Odstraňovat diakritiku z názvů": "Supprimer les signes diacritiques des noms",
   "Nahrazovat mezery v názvech podtržítkem": "Remplacer les espaces dans les noms par des traits de soulignement",
@@ -1315,7 +1331,7 @@
   "Úhel: vyberte řízenou úsečku nebo osu skici.": "Angle : sélectionnez le segment piloté ou l’axe d’esquisse.",
   "Vzdálenost rovnoběžek: vyberte řízenou úsečku.": "Distance entre parallèles : sélectionnez le segment piloté.",
   "Kóta: kliknutím LMB do prostoru určete polohu kótovací čáry.": "Cote : cliquez LMB dans l’espace vide pour placer la ligne de cote.",
-  "Reference → obrys: vyberte persistovanou původní hranu.": "Référence → contour : sélectionnez une arête d’origine persistante.",
+  "Reference → obrys: vyberte hranu tělesa.": "Référence → contour : sélectionnez une arête du corps.",
   "Externí reference: vyberte persistovanou původní plochu, hranu, vrchol nebo osu. Pravým tlačítkem lze přepínat kandidáty.": "Référence externe : sélectionnez une face, arête, sommet ou axe d’origine persistant. RMB parcourt les candidats.",
   "Režim externích referencí byl ukončen.": "Mode de références externes terminé.",
   "Externí reference byla uložena bez volání OCCT. Vyberte další zdroj.": "Référence externe enregistrée sans appel à OCCT. Sélectionnez une autre source.",
@@ -1586,5 +1602,6 @@
   "Úběr materiálu nepřípustný": "Enlèvement de matière interdit",
   "Způsob výroby neurčen": "Procédé de fabrication non spécifié",
   "Celková drsnost — %1": "État de surface général — %1",
-  "Aktivovat": "Activer"
+  "Aktivovat": "Activer",
+  "Invalid drawing edge depths": "Profondeurs des arêtes du dessin non valides"
 }

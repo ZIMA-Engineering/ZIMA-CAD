@@ -139,6 +139,22 @@ GlobalSettingsDialog::GlobalSettingsDialog(
     auto* sheet_note=new QLabel(tr("Výchozí hodnota pro nové díly. Otevřené a uložené díly používají své vlastní nastavení."),sheet_page);
     sheet_note->setWordWrap(true);sheet_form->addRow(sheet_note);
     sections_->addTab(sheet_page,tr("Plechy"));
+    auto* drawing_page=new QWidget(sections_);drawing_page->setObjectName("globalDrawingSettings");
+    auto* drawing_form=new QFormLayout(drawing_page);
+    drawing_view_style_=new QComboBox(drawing_page);drawing_view_style_->setObjectName("globalDrawingViewStyle");
+    drawing_view_style_->addItem(tr("Pouze viditelné hrany"),"visible_edges");
+    drawing_view_style_->addItem(tr("Viditelné a skryté hrany"),"hidden_edges");
+    drawing_view_style_->addItem(tr("Stínované s hranami"),"shaded_with_edges");
+    drawing_view_style_->addItem(tr("Stínované bez hran"),"shaded");
+    drawing_view_style_->setCurrentIndex(std::max(0,drawing_view_style_->findData(settings_.drawing_view_style)));
+    drawing_form->addRow(tr("Výchozí zobrazení pohledu"),drawing_view_style_);
+    drawing_pdf_directory_=new QLineEdit(settings_.drawing_pdf_directory,drawing_page);drawing_pdf_directory_->setObjectName("globalDrawingPdfDirectory");
+    drawing_dxf_directory_=new QLineEdit(settings_.drawing_dxf_directory,drawing_page);drawing_dxf_directory_->setObjectName("globalDrawingDxfDirectory");
+    drawing_form->addRow(tr("Složka PDF"),drawing_pdf_directory_);
+    drawing_form->addRow(tr("Složka DXF"),drawing_dxf_directory_);
+    auto* drawing_note=new QLabel(tr("Cesty jsou relativní k uloženému výkresu. PDF obsahuje všechny listy, DXF pouze aktuální list. Projekční pohled přebírá zobrazení rodiče."),drawing_page);
+    drawing_note->setWordWrap(true);drawing_form->addRow(drawing_note);
+    sections_->addTab(drawing_page,tr("Výkresy"));
     updates_ = new UpdatesPage([this](bool rollback) {
         auto* service = UpdateService::get();
         const auto blocker = service->restartBlocker();
@@ -193,6 +209,9 @@ bool GlobalSettingsDialog::submit() {
     settings_.document_naming = {names_uppercase_->isChecked(), names_diacritics_->isChecked(), names_spaces_->isChecked()};
     settings_.stacked_tolerances = tolerance_layout_->currentData().toBool();
     settings_.sheet_cut_tolerance=sheet_cut_tolerance_->value();
+    settings_.drawing_view_style=drawing_view_style_->currentData().toString();
+    settings_.drawing_pdf_directory=drawing_pdf_directory_->text().trimmed();
+    settings_.drawing_dxf_directory=drawing_dxf_directory_->text().trimmed();
     settings_.language = language_->currentText();
     settings_.use_iso_application_font =
         application_font_->currentData().toBool();

@@ -167,7 +167,7 @@ struct EdgeKey {
     const zima::kernel::Vec3& ray_origin,
     const zima::kernel::Vec3& ray_direction,
     double world_tolerance, bool offer_result_faces = false,
-    bool offer_original_containers = false);
+    bool offer_original_containers = false, bool offer_original_faces = false);
 
 [[nodiscard]] std::vector<ViewerCandidate> filter_candidates(
     const std::vector<ViewerCandidate>& candidates,

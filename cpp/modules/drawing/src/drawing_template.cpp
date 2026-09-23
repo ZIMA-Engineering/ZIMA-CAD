@@ -312,7 +312,7 @@ TemplateLayout title_block_layout(const DrawingSheet& sheet,const TitleBlockCont
         // Library XY is right-handed; title-block paper X increases to the left.
         for(const auto& edge:mesh.edges)if(!edge.filled_text)for(std::size_t i=1;i<edge.points.size();++i) {
             const auto& a=edge.points[i-1];const auto& b=edge.points[i];
-            result.lines.push_back({{2*symbol.x-a.x,a.y},{2*symbol.x-b.x,b.y},edge.dash_dot?DrawingPen::Green:edge.color=="#F5CD50"?DrawingPen::Yellow:DrawingPen::White,edge.dash_dot,"symbol:"+symbol.id});
+            result.lines.push_back({{2*symbol.x-a.x,a.y},{2*symbol.x-b.x,b.y},edge.color=="#4DD811"?DrawingPen::Green:edge.color=="#F5CD50"?DrawingPen::Yellow:DrawingPen::White,edge.dash_dot,"symbol:"+symbol.id});
         }
         const auto definition=symbols::Definition::from_serialized(symbol.definition);
         const double angle=symbol.angle_degrees*3.141592653589793/180.,c=std::cos(angle),s=std::sin(angle);

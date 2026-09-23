@@ -12,6 +12,14 @@ int verify_new_document_options(QApplication& application) {
             for(const auto* key:{"Uppercase","RemoveDiacritics","ReplaceSpaces"})config.setValue(QString("DocumentNames/")+key,false);
             config.sync();
             app::AssemblyWorkspaceWindow window(directory.path());window.resize(1366,768);window.show();flush();
+            {
+                const auto translated=app::ApplicationSettings::load(directory.path());
+                auto axis=document::PartDocument::create_construction(document::ConstructionKind::Axis);
+                app::CylinderAxisDialog dialog(axis,[](auto){},&window);
+                check(dialog.windowTitle()==translated.qt_translations.value("Osa z válcové plochy"),"Cylinder axis title is not localized");
+                auto* table=dialog.findChild<QTableWidget*>("cylinderAxisReference");
+                check(table&&table->horizontalHeaderItem(0)->text()==translated.qt_translations.value("Válcová plocha"),"Cylinder axis source field is not localized");
+            }
             for (bool accept : {false, true}) {
                 window.findChild<QAction*>("globalSettingsAction")->trigger();flush();
                 auto* options=window.findChild<QDialog*>("globalSettingsDialog");check(options,"Naming settings missing");
@@ -36,12 +44,36 @@ int verify_new_document_options(QApplication& application) {
             name->insert(QString::fromUtf8("Příruba čelní"));
             check(name->text()=="PRIRUBA_CELNI","Typing did not apply updated naming settings");
             typing->reject();flush();
+            check(window.execute_console_command("new part rename-source").ok,"Rename fixture creation failed");
+            check(window.execute_console_command("save").ok,"Rename fixture save failed");flush();
+            QString current_name="RENAME-SOURCE.prtz";
+            const auto rename_check=[&](const QString& entered,const QString& expected,bool accept) {
+                window.findChild<QAction*>("renameDocumentAction")->trigger();flush();
+                auto* dialog=window.findChild<QDialog*>("renameDocumentDialog");check(dialog,"Rename dialog missing");
+                auto* field=dialog->findChild<QLineEdit*>("renameDocumentName");
+                check(field&&field->text()==current_name,"Rename did not retain the existing filename on opening");
+                field->selectAll();field->insert(entered);
+                check(field->text()==expected,"Rename typing did not follow configured naming rules");
+                check(field->cursorPosition()==expected.size(),"Rename normalization moved the cursor incorrectly");
+                dialog->findChild<QDialogButtonBox*>()->button(accept?QDialogButtonBox::Ok:QDialogButtonBox::Cancel)->click();flush();
+                check(!window.findChild<QDialog*>("renameDocumentDialog"),"Rename did not close");
+                const auto path=directory.filePath(accept?expected:current_name);
+                check(QFileInfo::exists(path),"Rename did not preserve or publish the expected filename");
+                if(accept) {
+                    check(!QFileInfo::exists(directory.filePath(current_name)),"Rename retained the old file");
+                    check(document::PartDocument::load(std::filesystem::u8path(path.toStdString())).name==QFileInfo(path).completeBaseName().toStdString(),"Renamed document metadata differs from its filename");
+                    current_name=expected;
+                } else check(!QFileInfo::exists(directory.filePath(expected)),"Rename Cancel created a file");
+            };
+            rename_check(QString::fromUtf8("Držák přední.PRTZ"),"DRZAK_PREDNI.prtz",false);
+            rename_check(QString::fromUtf8("Držák přední.PRTZ"),"DRZAK_PREDNI.prtz",true);
             window.findChild<QAction*>("globalSettingsAction")->trigger();flush();
             auto* reset=window.findChild<QDialog*>("globalSettingsDialog");
             for(const auto* id:{"globalNamesUppercase","globalNamesRemoveDiacritics","globalNamesReplaceSpaces"}) {
                 auto* field=reset->findChild<QCheckBox*>(id);check(field&&field->isChecked(),"Naming options did not reopen enabled");field->setChecked(false);
             }
             reset->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
+            rename_check(QString::fromUtf8("Přejmenovaný díl.prtz"),QString::fromUtf8("Přejmenovaný díl.prtz"),true);
             const auto create=[&](const QString& type,const QString& name,int mode=0,bool a3=false) {
                 window.findChild<QAction*>("newDocumentAction")->trigger();flush();
                 auto* dialog=window.findChild<QDialog*>("newDocumentDialog");check(dialog,"New Document did not open");
@@ -93,6 +125,7 @@ int verify_new_document_options(QApplication& application) {
             check(window.findChild<QComboBox*>("applicationModeSelector")->currentData().toInt()==0,"Modeling selection was ignored");
             const auto model=document::PartDocument::load(std::filesystem::u8path(directory.filePath("model.prtz").toStdString()));
             check(model.history.empty()&&model.body_history.bodies().size()==1&&!model.body_history.active_body_id().empty(),"New Part template context changed");
+            check(!model.user_parameters.contains("general_tolerance")&&!model.user_parameters.contains("tolerancing"),"Drawing tolerances leaked into new Part parameters");
             window.findChild<QToolButton*>("documentKindButton")->click();flush();
             check_drawing(drawing::SheetFormat::A4,"model");
             create("part","sheet",1);
@@ -118,6 +151,7 @@ int verify_new_document_options(QApplication& application) {
                 !material_button->isEnabled(),"Assembly material action is not visibly disabled");
             const auto empty_assembly=assembly::AssemblyDocument::load(std::filesystem::u8path(directory.filePath("assembly.asmz").toStdString()));
             check(!empty_assembly.serialized().contains("physical_parameters"),"New Assembly template retained material");
+            check(!empty_assembly.user_parameters.contains("general_tolerance")&&!empty_assembly.user_parameters.contains("tolerancing"),"Drawing tolerances leaked into new Assembly parameters");
             auto* insert_menu=window.findChild<QMenu*>("insertComponentMenu");
             check(insert_menu,"Assembly insertion menu missing");
             insert_menu->aboutToShow();
@@ -131,7 +165,9 @@ int verify_new_document_options(QApplication& application) {
                     QMetaObject::invokeMethod(file,"accept",Qt::QueuedConnection);
                 }
             });
-            choose_skeleton.start(10);insert_skeleton->trigger();choose_skeleton.stop();flush();
+            auto* insert_component=window.findChild<QAction*>("insertComponentAction");
+            check(insert_component&&insert_component->isEnabled()&&!insert_component->icon().isNull(),"Insert Component is unavailable for a Skeleton");
+            choose_skeleton.start(10);insert_component->trigger();choose_skeleton.stop();flush();
             app::ComponentPropertiesDialog* properties=nullptr;
             for(auto* candidate:window.findChildren<QDialog*>())if(auto* component=dynamic_cast<app::ComponentPropertiesDialog*>(candidate))properties=component;
             check(properties,"Skeleton insertion did not reuse component Properties");

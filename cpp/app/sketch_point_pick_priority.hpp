@@ -13,4 +13,9 @@ inline int sketch_point_pick_priority(const viewer::ViewerCandidate& candidate) 
          candidate.semantic_key.starts_with("sketch_curve_keypoint:")))return 0;
     return 1;
 }
+inline int sketch_placement_pick_priority(const viewer::ViewerCandidate& candidate) {
+    if (candidate.semantic_key.starts_with("sketch_intersection:")) return -1;
+    if (candidate.semantic_key.starts_with("sketch_midpoint:")) return 2;
+    return sketch_point_pick_priority(candidate);
+}
 } // namespace zima::app

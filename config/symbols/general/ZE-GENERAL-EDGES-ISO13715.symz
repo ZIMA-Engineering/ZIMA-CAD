@@ -67,28 +67,44 @@
   "name": "ZE-GENERAL-EDGES-ISO13715",
   "pens": {
     "ze:general-edges:iso13715:all": {
+      "edges:all:bottom": "green",
       "edges:all:leader:left": "yellow",
       "edges:all:leader:line": "yellow",
       "edges:all:leader:right": "yellow",
-      "edges:all:reference": "yellow"
+      "edges:all:reference": "yellow",
+      "edges:all:vertical": "green"
+    },
+    "ze:general-edges:iso13715:brackets": {
+      "edges:close": "green",
+      "edges:open": "green"
     },
     "ze:general-edges:iso13715:exception": {
+      "edges:exception:bottom": "green",
       "edges:exception:leader:left": "yellow",
       "edges:exception:leader:line": "yellow",
       "edges:exception:leader:right": "yellow",
-      "edges:exception:reference": "yellow"
+      "edges:exception:reference": "yellow",
+      "edges:exception:vertical": "green"
     },
     "ze:general-edges:iso13715:external": {
+      "edges:external:bottom": "green",
+      "edges:external:corner-x": "green",
+      "edges:external:corner-y": "green",
       "edges:external:leader:left": "yellow",
       "edges:external:leader:line": "yellow",
       "edges:external:leader:right": "yellow",
-      "edges:external:reference": "yellow"
+      "edges:external:reference": "yellow",
+      "edges:external:vertical": "green"
     },
     "ze:general-edges:iso13715:internal": {
+      "edges:internal:bottom": "green",
+      "edges:internal:corner-x": "green",
+      "edges:internal:corner-y": "green",
       "edges:internal:leader:left": "yellow",
       "edges:internal:leader:line": "yellow",
       "edges:internal:leader:right": "yellow",
-      "edges:internal:reference": "yellow"
+      "edges:internal:reference": "yellow",
+      "edges:internal:vertical": "green"
     }
   },
   "sketches": [
@@ -315,7 +331,7 @@
           "anchor_x": 5.0,
           "anchor_y": 4.8,
           "angle_degrees": 0.0,
-          "color": "white",
+          "color": "green",
           "contours": [
             [
               [
@@ -1931,7 +1947,7 @@
           "anchor_x": 24.0,
           "anchor_y": 4.8,
           "angle_degrees": 0.0,
-          "color": "white",
+          "color": "green",
           "contours": [
             [
               [
@@ -3657,7 +3673,7 @@
           "anchor_x": 5.0,
           "anchor_y": 4.8,
           "angle_degrees": 0.0,
-          "color": "white",
+          "color": "green",
           "contours": [
             [
               [
@@ -5231,7 +5247,7 @@
           "anchor_x": 47.0,
           "anchor_y": 4.8,
           "angle_degrees": 0.0,
-          "color": "white",
+          "color": "green",
           "contours": [
             [
               [

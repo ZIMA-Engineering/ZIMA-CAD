@@ -4,12 +4,14 @@
 #include <zima/workspace/assembly_scene.hpp>
 #include <zima/document/holes.hpp>
 #include "workspace_internal.hpp"
+#include "../sketch_point_pick_priority.hpp"
 
 namespace zima::app {
 using namespace workspace_detail;
 
 
 void AssemblyWorkspaceWindow::refresh_scene() {
+    viewer_->set_original_face_selection(sketch_external_reference_active_&&!sketch_external_profile_active_);
     viewer_->set_document_origin(workspace_.displayed_document_id()+":origin");
     workspace_.refresh_source_geometry();
     if(measure_action_)measure_action_->setEnabled(workspace_.open_part(workspace_.displayed_document_id())||workspace_.open_assembly(workspace_.displayed_document_id()));
@@ -884,7 +886,7 @@ void AssemblyWorkspaceWindow::refresh_scene() {
                              pyramid_action_, wedge_action_, construction_point_action_,
                              curve_3d_action_,
                              sweep_3d_action_, helical_sweep_action_, sweep2d_action_,
-                             construction_axis_action_, construction_plane_action_,
+                             construction_axis_action_, cylinder_axis_action_, construction_plane_action_,
                              sketch_action_, extrusion_action_, revolution_action_,
                              fillet_action_, chamfer_action_, shell_action_,
                              regenerate_part_action_,
@@ -1171,17 +1173,14 @@ void AssemblyWorkspaceWindow::refresh_scene() {
                               zima::viewer::CandidateKind::SketchText,
                           zima::viewer::CandidateKind::Symbol,
                               zima::viewer::CandidateKind::SketchExternalReference});
+        if (sketch_placement_active) viewer_->set_candidate_priority(sketch_placement_pick_priority);
         if (sketch_external_reference_active_) {
             const auto source_owners = sketch_external_reference_source_owners(
                 document, active_sketch_id_, sketch_reference_draft_body_id(),section_dialog_!=nullptr);
             viewer_->set_candidate_filter(
-                [source_owners](const auto& candidate) {
-                    const bool stable_geometry =
-                        candidate.kind == zima::viewer::CandidateKind::Face
-                            ? candidate.geometry ==
-                                  zima::viewer::CandidateGeometry::Display
-                            : candidate.geometry == zima::viewer::
-                                  CandidateGeometry::OriginalReference;
+                [source_owners,profile=sketch_external_profile_active_](const auto& candidate) {
+                    const bool stable_geometry = candidate.geometry ==
+                        (profile ? zima::viewer::CandidateGeometry::Display : zima::viewer::CandidateGeometry::OriginalReference);
                     return stable_geometry && candidate.instance_path.empty() &&
                         source_owners.contains(candidate.owner_id) &&
                         (candidate.kind == zima::viewer::CandidateKind::Edge ||
@@ -1699,6 +1698,7 @@ void AssemblyWorkspaceWindow::refresh_scene() {
         helical_sweep_action_->setEnabled(true);
         sweep2d_action_->setEnabled(true);
         construction_axis_action_->setEnabled(true);
+        cylinder_axis_action_->setEnabled(true);
         construction_plane_action_->setEnabled(true);
         extrusion_action_->setEnabled(true);
         revolution_action_->setEnabled(true);
@@ -1978,14 +1978,15 @@ void AssemblyWorkspaceWindow::refresh_scene() {
                         zima::viewer::CandidateKind::Occurrence};
             }
         }());
+    if (sketch_placement_active) viewer_->set_candidate_priority(sketch_placement_pick_priority);
     if (active_assembly_sketch && sketch_external_reference_active_) {
         const auto top_assembly_id = document.document_id;
         viewer_->set_candidate_filter([this, top_assembly_id](const auto& candidate) {
             const auto& prefix = workspace_.active_occurrence_path();
             if (!prefix.empty() && (!candidate.instance_path.starts_with(prefix) ||
                 candidate.instance_path == prefix)) return false;
-            if (candidate.geometry !=
-                    zima::viewer::CandidateGeometry::OriginalReference ||
+            if (candidate.geometry != (sketch_external_profile_active_ ?
+                    zima::viewer::CandidateGeometry::Display : zima::viewer::CandidateGeometry::OriginalReference) ||
                 candidate.instance_path.empty()) return false;
             try {
                 return workspace_.resolve_occurrence(top_assembly_id,
@@ -2005,8 +2006,8 @@ void AssemblyWorkspaceWindow::refresh_scene() {
         viewer_->set_candidate_filter(
             [this, allowed_local_owners, active_document_id,
              top_assembly_id, dependent_path](const auto& candidate) {
-                if (candidate.geometry !=
-                        zima::viewer::CandidateGeometry::OriginalReference ||
+                if (candidate.geometry != (sketch_external_profile_active_ ?
+                        zima::viewer::CandidateGeometry::Display : zima::viewer::CandidateGeometry::OriginalReference) ||
                     candidate.instance_path.empty()) return false;
                 if (candidate.instance_path == dependent_path) {
                     return allowed_local_owners.contains(candidate.owner_id);
@@ -2198,6 +2199,7 @@ void AssemblyWorkspaceWindow::refresh_scene() {
     helical_sweep_action_->setEnabled(active_part != nullptr);
     sweep2d_action_->setEnabled(active_part != nullptr);
     construction_axis_action_->setEnabled(supports_constructions);
+    cylinder_axis_action_->setEnabled(supports_constructions);
     construction_plane_action_->setEnabled(supports_constructions);
     const bool active_assembly_owner =
         workspace_.open_assembly(workspace_.active_document_id()) != nullptr;

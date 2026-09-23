@@ -98,7 +98,9 @@ void verify_layouts(const kernel::OcctKernel& kernel,fs::path directory) {
         drawing::DrawingView family_view;
         family_view.source_document_id="family-part";
         drawing::ModelAnnotation shown_axis;
-        shown_axis.source={"family-part","family-part:origin","axis:x",{}};
+        // Origin coordinate axes are deliberately excluded from Drawing
+        // annotations. Exercise a drawable model axis across family variants.
+        shown_axis.source={"family-part","family-part","axis:main",{}};
         shown_axis.kind=drawing::ModelAnnotationKind::Axis;
         shown_axis.visible=true;
         shown_axis.paper_handles["first"]={3,4};
@@ -106,7 +108,7 @@ void verify_layouts(const kernel::OcctKernel& kernel,fs::path directory) {
         drawing::ModelAnnotationSource member_packet;
         member_packet.document_id="family-part:family:long";
         kernel::ViewerAxis member_axis;
-        member_axis.reference={"family-part:family:long:origin","axis:x",{}};
+        member_axis.reference={"family-part:family:long","axis:main",{}};
         member_axis.point={12,0,0};member_axis.direction={0,0,1};member_axis.display_length=20;
         member_packet.axes={member_axis};
         drawing::refresh_model_annotations(family_view,std::span(&member_packet,1));
@@ -122,7 +124,7 @@ void verify_layouts(const kernel::OcctKernel& kernel,fs::path directory) {
             "A missing Family variant axis did not retain its Show intent while hidden");
         drawing::ModelAnnotationSource generic_packet;
         generic_packet.document_id="family-part";
-        auto generic_axis=member_axis;generic_axis.reference.owner_id="family-part:origin";generic_axis.point={5,0,0};
+        auto generic_axis=member_axis;generic_axis.reference.owner_id="family-part";generic_axis.point={5,0,0};
         generic_packet.axes={generic_axis};
         drawing::refresh_model_annotations(family_view,std::span(&generic_packet,1));
         require(family_view.model_annotations.size()==1&&family_view.model_annotations.front().visible&&

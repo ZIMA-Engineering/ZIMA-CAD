@@ -264,6 +264,9 @@ public:
         std::map<std::string,zima::kernel::SurfaceStyle> faces = {});
     // Appearance command only: offer final faces without changing reference ownership.
     void set_result_face_selection(bool enabled);
+    // Sketch external references select persisted source faces, including
+    // regions removed from the displayed result by later body operations.
+    void set_original_face_selection(bool enabled);
     // Command-only selection of original solid containers. Faces/edges keep
     // their normal reference contract; ordinary selection remains leaf-first.
     void set_original_container_selection(bool enabled);

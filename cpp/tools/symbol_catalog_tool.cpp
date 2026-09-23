@@ -66,7 +66,7 @@ symbols::Definition general_roughness() {
         bracket(extra,key+":open",22,-.7,7.5,true);bracket(extra,key+":close",34,-.7,7.5,false);
         row.sketches.push_back(extra.id);d.sketches.push_back(std::move(extra));
     }
-    texture_colors(d,sketcher::SketchTextColor::White);
+    texture_colors(d,sketcher::SketchTextColor::Green);
     d.validate();return d;
 }
 symbols::Definition edges() {
@@ -92,6 +92,11 @@ symbols::Definition edges() {
         auto& row=d.variants[scope];row.sketches=sketches;
         auto one=row;one.sketches.push_back(exception);one.sketches.push_back(brackets_id);d.variants[scope+"_exception"]=one;
         one.hidden_texts={"Exception"};d.variants[scope+"_exceptions"]=one;
+    }
+    for(auto& s:d.sketches) {
+        for(auto& t:s.texts)t.color=sketcher::SketchTextColor::Green;
+        for(const auto& c:s.segments)if(!d.pens[s.id].contains(c.id))d.pens[s.id][c.id]="green";
+        for(const auto& c:s.arcs)if(!d.pens[s.id].contains(c.id))d.pens[s.id][c.id]="green";
     }
     d.default_variant="general";d.validate();return d;
 }

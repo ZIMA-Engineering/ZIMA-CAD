@@ -141,64 +141,15 @@ AssemblyWorkspaceWindow::sketch_candidate_snap_ray(
         support_geometry_id = candidate.semantic_key.substr(20);
         const auto separator = support_geometry_id.find("||");
         if (separator == std::string::npos) return std::nullopt;
-        struct SnapLine {
-            std::array<double, 2> origin;
-            std::array<double, 2> direction;
-            bool bounded{};
-        };
-        const auto line_for = [&](const std::string& line_id)
-            -> std::optional<SnapLine> {
-            if (line_id == "sketch_axis:x") {
-                return SnapLine{{0.0, 0.0}, {1.0, 0.0}, false};
-            }
-            if (line_id == "sketch_axis:y") {
-                return SnapLine{{0.0, 0.0}, {0.0, 1.0}, false};
-            }
-            const auto segment = std::find_if(
-                sketch->segments.begin(), sketch->segments.end(),
-                [&](const auto& value) { return value.id == line_id; });
-            if (segment == sketch->segments.end()) return std::nullopt;
-            const auto* first = sketch->find_point(segment->first_point_id);
-            const auto* second = sketch->find_point(segment->second_point_id);
-            if (first == nullptr || second == nullptr) return std::nullopt;
-            return SnapLine{{first->x, first->y},
-                {second->x - first->x, second->y - first->y},
-                !segment->construction};
-        };
-        const auto first_id = support_geometry_id.substr(0, separator);
-        const auto second_id = support_geometry_id.substr(separator + 2);
-        const auto first = line_for(first_id);
-        const auto second = line_for(second_id);
-        if (!first) return std::nullopt;
-        if (second) {
-            const double denominator =
-                first->direction[0] * second->direction[1] -
-                first->direction[1] * second->direction[0];
-            if (std::abs(denominator) <= 1.0e-12) return std::nullopt;
-            const double offset_x = second->origin[0] - first->origin[0];
-            const double offset_y = second->origin[1] - first->origin[1];
-            const double parameter =
-                (offset_x * second->direction[1] -
-                 offset_y * second->direction[0]) / denominator;
-            position = std::array{
-                first->origin[0] + parameter * first->direction[0],
-                first->origin[1] + parameter * first->direction[1]};
-        } else {
-            const auto intersections = sketch->curve_line_intersections(
-                second_id, first->origin, first->direction, first->bounded);
-            if (intersections.empty()) return std::nullopt;
-            const auto cursor = sketch->intersect_ray(
-                cursor_origin, cursor_direction);
-            if (!cursor) return std::nullopt;
-            position = *std::min_element(
-                intersections.begin(), intersections.end(),
-                [&](const auto& left, const auto& right) {
-                    return std::hypot(left[0] - (*cursor)[0],
-                                      left[1] - (*cursor)[1]) <
-                        std::hypot(right[0] - (*cursor)[0],
-                                   right[1] - (*cursor)[1]);
-                });
-        }
+        // The common picker already chose this exact published intersection.
+        // Consume its point, including the exact branch of a curved reference.
+        if (!viewer_ || candidate.geometry != zima::viewer::CandidateGeometry::Display ||
+            candidate.geometry_index >= viewer_->mesh().points.size()) return std::nullopt;
+        const auto& point = viewer_->mesh().points[candidate.geometry_index];
+        if (point.reference.owner_id != candidate.owner_id ||
+            point.reference.semantic_key != candidate.semantic_key ||
+            point.reference.instance_path != candidate.instance_path) return std::nullopt;
+        position = sketch->local_point(active_part_local_ray(point.position, {0, 0, 1}).first);
         relation = zima::sketcher::ConstraintKind::PointOnLine;
     } else if (candidate.kind ==
                    zima::viewer::CandidateKind::SketchExternalReference &&

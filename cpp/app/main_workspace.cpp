@@ -40,6 +40,8 @@
 #include <QTemporaryDir>
 #include "construction_reference_candidate_policy.hpp"
 #include "construction_properties_dialog.hpp"
+#include "cylinder_axis_dialog.hpp"
+#include <zima/interchange/step_model.hpp>
 #include "primitive_properties_dialog.hpp"
 #include "drawing_window.hpp"
 #include "resource_icon.hpp"
@@ -671,17 +673,17 @@ int verify_family_table(QApplication& application,zima::app::AssemblyWorkspaceWi
             "Document navigation must display both its icon and text"))return 1;
     auto* editor=dynamic_cast<app::DrawingWindow*>(window.findChild<QWidget*>("drawingWorkspace"));
     auto* source_choice=editor->findChild<QComboBox*>("drawingSourceVariant");
-    if(!verify(shortcut->isVisible()&&shortcut->text()=="SESTAVA"&&!shortcut->icon().isNull()&&editor->selected_source_id()==assembly_variant,
+    if(!verify(shortcut->isVisible()&&shortcut->text()==QObject::tr("SESTAVA")&&!shortcut->icon().isNull()&&editor->selected_source_id()==assembly_variant,
         "Drawing shortcut does not identify its selected Assembly variant"))return 1;
     shortcut->click();flush();
     if(!verify(window.execute_console_command("context").data.at("active_document")==assembly_variant&&
-        shortcut->text()=="VÝKRES"&&!shortcut->icon().isNull(),"Navigation did not open the selected Assembly variant"))return 1;
+        shortcut->text()==QObject::tr("VÝKRES")&&!shortcut->icon().isNull(),"Navigation did not open the selected Assembly variant"))return 1;
     if(!window.open_document_path(QString::fromStdString(navigation_path.string())))return 1;flush();
     const int native_source=source_choice->findData(QString::fromStdString(part.document_id));
     source_choice->setCurrentIndex(native_source);source_choice->activated(native_source);flush();
-    if(!verify(shortcut->text()=="DÍL"&&!shortcut->icon().isNull(),"Drawing shortcut did not switch to the Part icon"))return 1;
+    if(!verify(shortcut->text()==QObject::tr("DÍL")&&!shortcut->icon().isNull(),"Drawing shortcut did not switch to the Part icon"))return 1;
     shortcut->click();flush();
-    if(!verify(window.execute_console_command("context").data.at("active_document")==part.document_id&&shortcut->text()=="VÝKRES"&&!shortcut->icon().isNull(),
+    if(!verify(window.execute_console_command("context").data.at("active_document")==part.document_id&&shortcut->text()==QObject::tr("VÝKRES")&&!shortcut->icon().isNull(),
         "Part/drawing navigation did not follow the chooser"))return 1;
     if(!window.open_document_path(QString::fromStdString(navigation_path.string())))return 1;flush();
     editor->findChild<QToolButton*>("drawingSettingsButton")->click();flush();
@@ -5322,6 +5324,8 @@ int verify_rectangle_external_contact_ui(QApplication& application,const std::fi
     }catch(const std::exception& error){std::cerr<<error.what()<<'\n';return 1;}
 }
 
+#include "sketch_intersection_ui_verification.inc"
+
 int verify_sketch_endpoint_priority_ui(QApplication& application,const std::filesystem::path& directory) {
     using namespace zima;
     try {
@@ -5378,7 +5382,8 @@ int verify_sketch_endpoint_priority_ui(QApplication& application,const std::file
             if(kind<2)check(std::ranges::none_of(result.constraints,[](const auto& constraint){return constraint.kind==sketcher::ConstraintKind::MidpointOnLine;}),"Endpoint C also committed midpoint M");
             properties->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Cancel)->click();flush();
         }
-        std::cout<<"Endpoint C precedes new-segment midpoint M in preview and confirmation; M remains available without C\n";return 0;
+        std::cout<<"Endpoint C precedes new-segment midpoint M in preview and confirmation; M remains available without C\n";
+        return verify_sketch_intersections_ui(application,directory);
     }catch(const std::exception& error){std::cerr<<error.what()<<'\n';return 1;}
 }
 
@@ -7330,7 +7335,7 @@ bool verify_plane_angle_dialog(QApplication& application,zima::app::ComponentPro
     dialog->set_placement_reference(2,true,rows[1].component_reference,"Plocha");
     dialog->set_placement_reference(2,false,rows[1].target_reference,"Plocha");
     qobject_cast<QDoubleSpinBox*>(table->cellWidget(2,4))->setValue(45);flush();
-    if(!verify(dialog->findChild<QLabel*>("componentDegreesOfFreedom")->text()=="Konflikt vazeb" &&
+    if(!verify(dialog->findChild<QLabel*>("componentDegreesOfFreedom")->text()==QObject::tr("Konflikt vazeb") &&
         verify_mates_in_view(view->mesh(),valid),"Conflicting angle replaced the last valid scene or reports a false DOF"))return false;
     dialog->buttons()->button(QDialogButtonBox::Ok)->click();flush();
     if(!verify(dialog->isVisible(),"Conflicting angle was committed by OK"))return false;
@@ -7737,7 +7742,7 @@ int verify_component_references(QApplication& application, const std::filesystem
     if(!verify(insert_menu,"Missing component insertion menu"))return 1;
     insert_menu->aboutToShow();QAction* insert_source=nullptr;
     for(auto* action:insert_menu->actions())if(action->objectName()=="insertSourceAction"&&
-        action->text().startsWith(QString::fromStdString(part.name)+QStringLiteral(" — Part")))insert_source=action;
+        action->text().startsWith(QString::fromStdString(part.name)+QObject::tr(" — Part")))insert_source=action;
     if(!verify(insert_source&&insert_source->isEnabled(),"Active nested Assembly cannot insert an open source Part"))return 1;
     insert_source->trigger();flush();
     const auto inserted_items=component_command("component.list",commands::Json::object());
@@ -7787,7 +7792,7 @@ int verify_component_references(QApplication& application, const std::filesystem
     if(!verify(window.active_occurrence_path_for_test().empty()&&component_command("context",commands::Json::object()).data.at("active_document")==top_id,
         "Console deactivation did not restore top-level Assembly editing"))return 1;
     window.show_tree_item_properties(find(outer,outer_path));flush();
-    if(!verify(dialog() && dialog()->windowTitle()==QStringLiteral("Vlastnosti sestavy"),
+    if(!verify(dialog() && dialog()->windowTitle()==QObject::tr("Vlastnosti sestavy"),
         "Inserted Assembly does not use Assembly properties"))return 1;
     dialog()->findChild<QTableWidget*>("componentPlacementTable")->cellClicked(0,1);flush();
     tree->clearSelection();tree->setCurrentItem(find(top_id+":origin",{}));flush();
@@ -7912,14 +7917,14 @@ int verify_component_references(QApplication& application, const std::filesystem
     if(!verify(window.open_document_path(QString::fromStdString(missing_file.string())),"Missing component prevented Assembly opening"))return 1;flush();
     const auto missing_path=assembly::InstancePath{}.child(missing_id).encoded();
     auto* missing_item=find(missing_id,missing_path);
-    if(!verify(missing_item && missing_item->text(0).contains(QStringLiteral("chybí zdrojový soubor")),"Missing source is not identified in the tree"))return 1;
+    if(!verify(missing_item && missing_item->text(0).contains(QObject::tr(" [chybí zdrojový soubor]")),"Missing source is not identified in the tree"))return 1;
     tree->setCurrentItem(missing_item);tree->scrollToItem(missing_item);flush();
     bool source_action=false;
     QTimer::singleShot(0,[&] {
         auto* menu=qobject_cast<QMenu*>(QApplication::activePopupWidget());
         if(!menu)return;
         auto* action=menu->findChild<QAction*>("componentSourceFileAction");
-        source_action=action && action->isEnabled() && action->text()==QStringLiteral("Zdrojový soubor…");
+        source_action=action && action->isEnabled() && action->text()==QObject::tr("Zdrojový soubor…");
         menu->close();
     });
     tree->customContextMenuRequested(tree->visualItemRect(missing_item).center());flush();
@@ -7960,6 +7965,30 @@ int verify_drawing_workspace(QApplication& application, zima::app::AssemblyWorks
     window.show();
     if(!verify(window.open_document_path(QString::fromStdString(drawing_path.string())),"Cannot open drawing workspace fixture")) return 1;
     flush();
+    {
+        auto* tools=window.findChild<QToolBar*>("toolsToolbar");
+        auto* pdf=window.findChild<QAction*>("drawingQuickExportPdfAction");auto* dxf=window.findChild<QAction*>("drawingQuickExportDxfAction");
+        if(!verify(tools&&pdf&&dxf&&tools->actions().indexOf(pdf)>=0&&tools->actions().indexOf(dxf)==tools->actions().indexOf(pdf)+1&&
+            !pdf->icon().isNull()&&!dxf->icon().isNull(),"Quick exports must be consecutive PDF/DXF commands on the right"))return 1;
+        window.grab().save("build/drawing-quick-export-toolbar.png");
+        const auto original=zima::app::ApplicationSettings::load();QTemporaryDir translated;
+        for(const auto* language:{"cs","en","de","fr","ru"}) {
+            QSettings config(translated.filePath("config.ini"),QSettings::IniFormat);config.setValue("Application/Language",language);
+            config.setValue("Paths/Localization",original.resolved_paths.value("Localization"));config.sync();
+            const auto settings=zima::app::ApplicationSettings::load(translated.path());zima::app::apply_application_translations(application,settings);
+            window.findChild<QAction*>("globalSettingsAction")->trigger();flush();
+            auto* dialog=window.findChild<QDialog*>("globalSettingsDialog");
+            auto* page=dialog?dialog->findChild<QWidget*>("globalDrawingSettings"):nullptr;
+            auto* tabs=dialog?dialog->findChild<QTabWidget*>():nullptr;
+            if(!verify(page&&tabs&&tabs->tabText(tabs->indexOf(page))==settings.qt_translations.value("Výkresy")&&
+                page->findChild<QComboBox*>("globalDrawingViewStyle")&&page->findChild<QLineEdit*>("globalDrawingPdfDirectory")&&page->findChild<QLineEdit*>("globalDrawingDxfDirectory"),"Localized global Drawing controls missing"))return 1;
+            tabs->setCurrentWidget(page);flush();dialog->grab().save(QString("build/global-drawing-settings-%1.png").arg(language));
+            dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Cancel)->click();flush();
+            zima::app::DrawingWindow localized(nullptr,false);
+            if(!verify(localized.findChild<QAction*>("drawingQuickExportDxfAction")->toolTip()==settings.qt_translations.value("Exportovat aktuální list do nastavené složky DXF"),"Quick export tooltip did not follow language"))return 1;
+        }
+        zima::app::apply_application_translations(application,original);
+    }
     auto* tree=window.findChild<QTreeWidget*>("documentTree");
     auto* canvas=window.findChild<QWidget*>("drawingCanvas");
     auto* parameters=window.findChild<QAction*>("documentParametersAction");
@@ -8154,6 +8183,7 @@ int verify_selection_filter(QApplication& application,
 #include "sheet_state_ui_verification.inc"
 #include "application_lifecycle_ui_verification.inc"
 #include "new_document_ui_verification.inc"
+#include "cylinder_axis_ui_verification.inc"
 #include "symbol_ui_verification.inc"
 
 int verify_startup_contract(
@@ -8161,6 +8191,7 @@ int verify_startup_contract(
     const std::filesystem::path& initial_test_directory,
     const QString& part_capture_path = {}, const QString& drawing_capture_path = {}) {
     auto test_directory = initial_test_directory;
+    if(qEnvironmentVariableIsSet("ZIMA_VERIFY_CYLINDER_AXIS_ONLY"))return verify_cylinder_axis_ui(application,window,test_directory);
     if(qEnvironmentVariableIsSet("ZIMA_VERIFY_SYMBOLS_ONLY"))return verify_symbol_ui(application,window,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_NEW_DOCUMENT_OPTIONS_ONLY"))
         return verify_new_document_options(application);
@@ -12532,6 +12563,22 @@ int main(int argc, char* argv[]) {
             return 1;
         }
         startup_directory = test_directory;
+    }
+    // Console fixtures deliberately include literal Unicode filenames and
+    // archive suffixes. Isolate their policy from the user's naming settings;
+    // normalization and all five languages have dedicated GUI contracts.
+    std::optional<QTemporaryDir> console_test_settings;
+    if(runs_startup_contract && qEnvironmentVariableIsSet("ZIMA_VERIFY_CONSOLE_ONLY")) {
+        console_test_settings.emplace();
+        const auto inherited=zima::app::ApplicationSettings::load(startup_directory);
+        QSettings config(console_test_settings->filePath("config.ini"),QSettings::IniFormat);
+        config.setValue("Application/Language","cs");
+        config.setValue("Application/UseISOFont",inherited.use_iso_application_font);
+        for(const auto* key:{"Uppercase","RemoveDiacritics","ReplaceSpaces"})config.setValue(QString("DocumentNames/")+key,false);
+        for(auto it=inherited.resolved_paths.cbegin();it!=inherited.resolved_paths.cend();++it)config.setValue("Paths/"+it.key(),it.value());
+        config.setValue("Paths/WorkingDirectory",startup_directory);
+        config.setValue("Templates/Part",inherited.part_template);config.setValue("Templates/Assembly",inherited.assembly_template);
+        config.sync();restart_settings_directory=console_test_settings->path();
     }
     QString installation_error;
     if (!registerZimaInstance(&installation_error)) {

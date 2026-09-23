@@ -3589,6 +3589,39 @@ ContainerOrigin create_container_origin(const std::string& parent_id) {
 
 bool resolve_construction(ConstructionObject& object,
     const zima::kernel::ViewerReferenceGeometry& geometry) {
+    if (object.definition == ConstructionDefinition::CylinderAxis) {
+        // Adapt one persisted analytical source face to the existing Axis
+        // contract. No result-body lookup, fitting or kernel calculation.
+        if (object.kind != ConstructionKind::Axis || object.references.size() != 1) {
+            object.reference_valid = false; return false;
+        }
+        const auto& ref = object.references.front();
+        const auto source = std::ranges::find_if(geometry.triangle_references,
+            [&](const auto& face) {
+                return face.owner_id == ref.owner_id && face.semantic_key == ref.semantic_key &&
+                    face.instance_path == ref.instance_path && face.surface &&
+                    face.surface->kind == zima::kernel::SurfaceGeometry::Kind::Cylinder;
+            });
+        if (source == geometry.triangle_references.end()) {
+            object.reference_valid = false; return false;
+        }
+        const auto& cylinder = *source->surface;
+        const double middle = (cylinder.axial_min + cylinder.axial_max) * 0.5;
+        zima::kernel::ViewerReferenceGeometry axis_geometry;
+        axis_geometry.axes.push_back({
+            {cylinder.origin.x + cylinder.axis.x * middle,
+             cylinder.origin.y + cylinder.axis.y * middle,
+             cylinder.origin.z + cylinder.axis.z * middle},
+            cylinder.axis, std::max(1.0, cylinder.axial_max - cylinder.axial_min),
+            {ref.owner_id, ref.semantic_key, ref.instance_path}});
+        auto resolved = object;
+        resolved.definition = ConstructionDefinition::AxisReference;
+        resolved.display_size = axis_geometry.axes.front().display_length;
+        const bool valid = resolve_construction(resolved, axis_geometry);
+        resolved.definition = ConstructionDefinition::CylinderAxis;
+        object = std::move(resolved);
+        return valid;
+    }
     if (object.kind == ConstructionKind::Plane && object.base_plane_auto) {
         const auto first_plane = std::ranges::find_if(object.references, [](const auto& ref) {
             return !ref.orientation_only && ref.supports_offset && !ref.owner_id.empty();
@@ -5393,8 +5426,11 @@ zima::kernel::ViewerMesh PartDocument::construction_viewer_mesh(
             // permanent black dot.
             {
                 const std::string& origin_id = object.container_origin.id;
-                mesh.points.push_back(
-                    {object.origin, {origin_id, "point", {}}, object.name, false});
+                // A face-derived axis has no standalone point to display in
+                // the idle scene. Keep its original point reference available.
+                if (object.definition != ConstructionDefinition::CylinderAxis || editing)
+                    mesh.points.push_back(
+                        {object.origin, {origin_id, "point", {}}, object.name, false});
                 mesh.original_references.points.push_back(
                     {object.origin, {origin_id, "point", {}}, {}, false});
             }
@@ -9548,6 +9584,7 @@ ConstructionObject deserialize_curve_point(
             ? ConstructionDefinition::PointReference
         : definition == "two_point_axis" ? ConstructionDefinition::TwoPointAxis
         : definition == "axis_reference" ? ConstructionDefinition::AxisReference
+        : definition == "cylinder_axis" ? ConstructionDefinition::CylinderAxis
         : definition == "three_point_plane"
             ? ConstructionDefinition::ThreePointPlane
         : definition == "plane_reference" ? ConstructionDefinition::PlaneReference
@@ -9625,6 +9662,8 @@ nlohmann::json serialize_curve_point(
             ? "two_point_axis"
         : point.definition == ConstructionDefinition::AxisReference
             ? "axis_reference"
+        : point.definition == ConstructionDefinition::CylinderAxis
+            ? "cylinder_axis"
         : point.definition == ConstructionDefinition::ThreePointPlane
             ? "three_point_plane" : "plane_reference";
     return {{"id", point.id}, {"value_locks", point.value_locks}, {"entity_id", point.entity_id},
@@ -9762,6 +9801,8 @@ std::vector<ConstructionObject> deserialize_construction_objects(
                 ? ConstructionDefinition::TwoPointAxis
             : definition == "axis_reference"
                 ? ConstructionDefinition::AxisReference
+            : definition == "cylinder_axis"
+                ? ConstructionDefinition::CylinderAxis
             : definition == "three_point_plane"
                 ? ConstructionDefinition::ThreePointPlane
             : definition == "plane_reference"
@@ -9927,6 +9968,8 @@ std::string serialize_construction_objects(
                 ? "two_point_axis"
             : object.definition == ConstructionDefinition::AxisReference
                 ? "axis_reference"
+            : object.definition == ConstructionDefinition::CylinderAxis
+                ? "cylinder_axis"
             : object.definition == ConstructionDefinition::ThreePointPlane
                 ? "three_point_plane" : "plane_reference";
         serialized.push_back({

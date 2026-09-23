@@ -7,6 +7,51 @@
 #include <cmath>
 
 namespace zima::workspace {
+kernel::ViewerReferenceGeometry part_sketch_body_reference_geometry(
+    const document::DocumentSession& session,const sketcher::Sketch& sketch,const std::string& draft_body_id) {
+    const auto& document=session.document();
+    auto context=document.body_history;
+    if(const auto* owner=context.owner(sketch.owner_container_id)) {
+        context.activate(owner->scope.id);
+        context.set_history_cursor(owner->scope.id,context.rollback_before(sketch.owner_container_id).entry_count);
+    } else if(!draft_body_id.empty()) context.activate(draft_body_id);
+    kernel::ViewerReferenceGeometry result;
+    if(!context.bodies().empty()) result.edges=session.body_context_mesh(&context).edges;
+    else if(const auto boundary=session.rollback_boundary(sketch.owner_container_id);boundary&&boundary->input_body)
+        result.edges=boundary->input_body->mesh.edges;
+    else if(!session.calculated_boundaries().empty()) result.edges=session.calculated_boundaries().back().mesh.edges;
+    return !draft_body_id.empty()&&!document.body_owner_for_object(sketch.owner_container_id)
+        ? document.construction_reference_geometry_for(draft_body_id,std::move(result))
+        : document.sketch_reference_geometry_for(sketch,std::move(result));
+}
+
+kernel::ViewerReferenceGeometry assembly_sketch_body_reference_geometry(
+    const assembly::AssemblyDocument& document,const sketcher::Sketch& sketch) {
+    auto input=document;
+    const auto cut=std::ranges::find_if(document.cuts,[&](const auto& value) {
+        return value.definition.id==sketch.owner_container_id;
+    });
+    if(cut!=document.cuts.end())for(auto& component:input.components) {
+        const auto found=cut->input_component_bodies.find(component.occurrence_id);
+        component.calculated_source=found!=cut->input_component_bodies.end()?found->second:kernel::BodyResult{};
+    }
+    kernel::ViewerReferenceGeometry result;result.edges=input.build_scene().edges;return result;
+}
+
+kernel::ViewerReferenceGeometry context_sketch_body_reference_geometry(const Workspace& live,
+    const std::string& top,const assembly::InstancePath& dependent,const std::string& source_document) {
+    kernel::ViewerReferenceGeometry source,result;
+    source.edges=live.authoritative_viewer_mesh(top).edges;
+    ReferenceFrame frame;
+    frame.point=[&](auto p){return live.occurrence_point_from_scene(top,dependent,p);};
+    frame.direction=[&](auto p){return live.occurrence_direction_from_scene(top,dependent,p);};
+    append_original_reference_geometry(result,source,frame,[&](auto,const auto&,const auto&,const auto& path) {
+        const auto address=live.resolve_occurrence(top,assembly::InstancePath::decode(path));
+        return address&&address->source_document_id==source_document;
+    });
+    return result;
+}
+
 void populate_external_reference_cache(
     const zima::sketcher::Sketch& sketch,
     zima::sketcher::SketchExternalReference& reference,
@@ -135,8 +180,9 @@ std::optional<std::string> source_document(const Workspace& live,const std::stri
 }
 sketcher::SketchExternalReference prepare_sketch_external_reference(const Workspace& live,
     const std::string& doc,const sketcher::Sketch& sketch,Kind kind,const std::string& owner,
-    const std::string& key,const std::string& path,const std::string& draft_body_id,bool draft_section) {
+    const std::string& key,const std::string& path,const std::string& draft_body_id,bool draft_section,bool body_edge) {
     auto reference=sketcher::Sketch::create_external_reference(kind);
+    reference.body_edge=body_edge;
     reference.source_owner_id=owner;reference.source_semantic_key=key;reference.source_instance_path=path;
     if(const auto* part=live.open_part(doc);part&&!path.empty()) {
         reference.context_assembly_document_id=live.displayed_document_id();
@@ -145,7 +191,7 @@ sketcher::SketchExternalReference prepare_sketch_external_reference(const Worksp
         if(path==reference.context_instance_path) {
             // Picking the edited occurrence itself is the ordinary earlier
             // feature contract; no cross-document edge or scene path persists.
-            return prepare_sketch_external_reference(live,doc,sketch,kind,owner,key,{},draft_body_id,draft_section);
+            return prepare_sketch_external_reference(live,doc,sketch,kind,owner,key,{},draft_body_id,draft_section,body_edge);
         }
         const auto source=live.resolve_occurrence(reference.context_assembly_document_id,assembly::InstancePath::decode(path));
         if(!source||source->source_kind!=assembly::ComponentSourceKind::Part)
@@ -159,7 +205,9 @@ sketcher::SketchExternalReference prepare_sketch_external_reference(const Worksp
         };
         visit_document_sketches(part->session.document(),compatible);compatible(sketch);
         require_acyclic_document_dependency(live,doc,reference.source_document_id);
-        auto geometry=context_original_reference_geometry(live,reference.context_assembly_document_id,
+        auto geometry=body_edge ? context_sketch_body_reference_geometry(live,reference.context_assembly_document_id,
+            assembly::InstancePath::decode(reference.context_instance_path),reference.source_document_id)
+            : context_original_reference_geometry(live,reference.context_assembly_document_id,
             assembly::InstancePath::decode(reference.context_instance_path),reference.source_document_id,
             [&](OriginalReferenceKind candidate,const auto& candidate_owner,const auto& candidate_key,const auto& candidate_path) {
                 const auto requested=kind==Kind::Face?OriginalReferenceKind::Face:source_kind(kind)==Kind::Edge?OriginalReferenceKind::Edge:
@@ -174,7 +222,11 @@ sketcher::SketchExternalReference prepare_sketch_external_reference(const Worksp
     const auto source=source_document(live,doc,sketch,reference,nullptr,draft_body_id,draft_section);
     if(!source)throw SketchOperationError("invalid_reference_source","The reference must identify an earlier Part object or an exact Assembly occurrence.");
     reference.source_document_id=*source;
-    const auto geometry=collect(live,doc,sketch,{reference},draft_body_id);
+    auto geometry=collect(live,doc,sketch,{reference},draft_body_id);
+    if(body_edge) {
+        if(const auto* part=live.open_part(doc))geometry=part_sketch_body_reference_geometry(part->session,sketch,draft_body_id);
+        else if(const auto* assembly=live.open_assembly(doc))geometry=assembly_sketch_body_reference_geometry(assembly->session.document(),sketch);
+    }
     populate_external_reference_cache(sketch,reference,geometry);
     return reference;
 }
@@ -205,7 +257,12 @@ bool refresh_sketch_reference_snapshot(const Workspace& live,const std::string& 
         if(source && *source==reference.source_document_id)wanted.push_back(reference);
     }
     const auto geometry=collect(live,doc,sketch,wanted);bool changed=false;
-    for(const auto& source:documents)changed=sketch.refresh_external_references(source,geometry)||changed;
+    kernel::ViewerReferenceGeometry body_geometry;
+    if(std::ranges::any_of(wanted,[](const auto& r){return r.body_edge;})) {
+        if(const auto* part=live.open_part(doc))body_geometry=part_sketch_body_reference_geometry(part->session,sketch);
+        else if(const auto* assembly=live.open_assembly(doc))body_geometry=assembly_sketch_body_reference_geometry(assembly->session.document(),sketch);
+    }
+    for(const auto& source:documents)changed=sketch.refresh_external_references(source,geometry,false,&body_geometry)||changed;
     for(const auto& [context,references]:contexts) {
         const auto& [top,dependent,source]=context;std::set<Key> keys;
         for(const auto& reference:references) {
@@ -228,7 +285,12 @@ bool refresh_sketch_reference_snapshot(const Workspace& live,const std::string& 
                 throw SketchOperationError(error.code,error.what());
         }
         current=live.open_part(doc)->session.document().sketch_reference_geometry_for(sketch,std::move(current));
-        changed=sketch.refresh_external_references(source,current)||changed;
+        kernel::ViewerReferenceGeometry body;
+        if(std::ranges::any_of(references,[](const auto& r){return r.body_edge;})) {
+            body=context_sketch_body_reference_geometry(live,top,assembly::InstancePath::decode(dependent),source);
+            body=live.open_part(doc)->session.document().sketch_reference_geometry_for(sketch,std::move(body));
+        }
+        changed=sketch.refresh_external_references(source,current,false,&body)||changed;
     }
     return changed;
 }

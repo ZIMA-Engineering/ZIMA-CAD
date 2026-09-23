@@ -306,6 +306,7 @@ const char* mate_reference_kind_name(MateReferenceKind kind) {
     switch (kind) {
     case MateReferenceKind::Face: return "face";
     case MateReferenceKind::Axis: return "axis";
+    case MateReferenceKind::CylinderFace: return "cylinder_face";
     case MateReferenceKind::Point: return "point";
     }
     throw std::invalid_argument("Unknown Assembly mate reference kind");
@@ -314,6 +315,7 @@ const char* mate_reference_kind_name(MateReferenceKind kind) {
 MateReferenceKind mate_reference_kind_from_name(const std::string& name) {
     if (name == "face") return MateReferenceKind::Face;
     if (name == "axis") return MateReferenceKind::Axis;
+    if (name == "cylinder_face") return MateReferenceKind::CylinderFace;
     if (name == "point") return MateReferenceKind::Point;
     throw std::runtime_error("Unknown Assembly mate reference kind");
 }
@@ -509,6 +511,10 @@ std::optional<Vec3> reference_direction(const MateReference& reference, Referenc
     for (const auto* geometry : sources) {
         if (reference.kind == MateReferenceKind::Axis) {
             for (const auto& axis : geometry->axes) if (matches(axis.reference)) return axis.direction;
+        } else if (reference.kind == MateReferenceKind::CylinderFace) {
+            for (const auto& face : geometry->triangle_references)
+                if (matches(face) && face.surface && face.surface->kind == kernel::SurfaceGeometry::Kind::Cylinder)
+                    return face.surface->axis;
         } else if (reference.kind == MateReferenceKind::Face) {
             for (std::size_t i=0;i<geometry->triangle_references.size();++i) if(matches(geometry->triangle_references[i])) {
                 const auto a=geometry->vertices[geometry->triangles[i*3]],b=geometry->vertices[geometry->triangles[i*3+1]],c=geometry->vertices[geometry->triangles[i*3+2]];
@@ -520,7 +526,7 @@ std::optional<Vec3> reference_direction(const MateReference& reference, Referenc
     return {};
 }
 Vec3 angular_orientation_axis(const AssemblyDocument& document,const PartOccurrence* component,
-        const ComponentPlacementReference& row,Vec3 normal,ReferenceSources sources) {
+        const ComponentPlacementReference& row,Vec3 normal,ReferenceSources sources,bool leaf_surface_frames=false) {
     const auto transverse=[&](Vec3 direction)->std::optional<Vec3> {
         const auto projected=subtract(direction,scaled(normal,dot(normal,direction)));
         if(length(projected)>1e-8)return scaled(projected,1/length(projected));
@@ -531,8 +537,22 @@ Vec3 angular_orientation_axis(const AssemblyDocument& document,const PartOccurre
     // the sign/last solved pose of the moving component.
     if(component)for(const auto kind:{MateKind::AxisCoincident,MateKind::PlaneCoincident})
         for(const auto& other:component->placement_references)if(other.mate_type==kind)
-            if(const auto direction=reference_direction(other.target_reference,sources))
-                if(const auto axis=transverse(*direction))return *axis;
+            if(auto direction=reference_direction(other.target_reference,sources)) {
+                if(leaf_surface_frames && other.target_reference.kind==MateReferenceKind::CylinderFace) {
+                    const auto& path=other.target_reference.instance_path.occurrence_ids;
+                    std::vector<ComponentPlacement> placements;
+                    if(!path.empty())if(const auto* root=document.find_occurrence(path.front())) {
+                        placements.push_back(root->placement);const auto* children=&root->nested_snapshot;
+                        for(std::size_t i=1;i<path.size();++i) {
+                            const auto child=std::ranges::find(*children,path[i],&OccurrenceSnapshot::occurrence_id);
+                            if(child==children->end()){direction.reset();break;}
+                            placements.push_back(child->placement);children=&child->children;
+                        }
+                    }
+                    if(direction)for(auto p=placements.rbegin();p!=placements.rend();++p)*direction=transform_direction(*direction,*p);
+                }
+                if(direction)if(const auto axis=transverse(*direction))return *axis;
+            }
     std::string source_id=document.document_id;
     if(!row.target_reference.instance_path.occurrence_ids.empty()) {
         const auto* target=document.find_occurrence(row.target_reference.instance_path.occurrence_ids.front());
@@ -625,6 +645,18 @@ PlaneResolution resolve_plane_in_scene(
 
 AxisResolution resolve_axis_in_scene(
     const MateReference& reference, const kernel::ViewerMesh& scene) {
+    if (reference.kind == MateReferenceKind::CylinderFace) {
+        const auto& faces = scene.original_references.triangle_references;
+        const auto found = std::ranges::find_if(faces, [&](const auto& face) {
+            return face.instance_path == reference.instance_path.encoded() &&
+                face.owner_id == reference.owner_id && face.semantic_key == reference.semantic_key;
+        });
+        if (found == faces.end()) return {MateStatus::MissingReference, {}};
+        if (!found->surface || found->surface->kind != kernel::SurfaceGeometry::Kind::Cylinder)
+            return {MateStatus::UnsupportedGeometry, {}};
+        const auto& cylinder = *found->surface;
+        return {MateStatus::Valid, {cylinder.origin, cylinder.axis}};
+    }
     if (reference.kind != MateReferenceKind::Axis) {
         return {MateStatus::UnsupportedGeometry, {}};
     }
@@ -660,7 +692,11 @@ PointResolution resolve_point_in_scene(
 PlacementSystem make_placement_system(const AssemblyDocument& document,const PartOccurrence& component) {
     PlacementSystem system;
     if(component.placement_references.empty()) return system;
-    const auto reference_scene=document.build_scene();
+    const bool cylindrical = std::ranges::any_of(component.placement_references, [](const auto& row) {
+        return row.component_reference.kind == MateReferenceKind::CylinderFace ||
+            row.target_reference.kind == MateReferenceKind::CylinderFace;
+    });
+    const auto reference_scene=cylindrical ? document.build_drawing_scene() : document.build_scene();
     const auto pose=placement_pose(component.placement);
     for(const auto& row:component.placement_references) {
         PlacementEquation equation;equation.kind=row.mate_type;equation.value=row.offset;
@@ -1153,7 +1189,11 @@ void AssemblyDocument::resolve_constructions() {
     carrier.history = sketch_containers;
     for(const auto& sketch:sketches)
         if(find_sketch_container(sketch.owner_container_id))carrier.sketches.push_back(sketch);
-    carrier.resolve_constructions(source_document.build_scene().original_references);
+    const bool needs_cylinder_frame = std::ranges::any_of(constructions, [](const auto& object) {
+        return object.definition == zima::document::ConstructionDefinition::CylinderAxis;
+    });
+    carrier.resolve_constructions((needs_cylinder_frame ? source_document.build_drawing_scene()
+        : source_document.build_scene()).original_references);
     constructions = std::move(carrier.constructions);
     sketch_containers = std::move(carrier.history);
     for(auto& sketch:carrier.sketches)
@@ -1248,8 +1288,8 @@ PlaneResolution AssemblyDocument::resolve_plane(
 
 AxisResolution AssemblyDocument::resolve_axis(
     const MateReference& reference) const {
-    if (reference.kind != MateReferenceKind::Axis) return {MateStatus::UnsupportedGeometry, {}};
-    return resolve_axis_in_scene(reference, build_scene());
+    if (!is_axis_reference(reference.kind)) return {MateStatus::UnsupportedGeometry, {}};
+    return resolve_axis_in_scene(reference, reference.kind == MateReferenceKind::CylinderFace ? build_drawing_scene() : build_scene());
 }
 
 PointResolution AssemblyDocument::resolve_point(
@@ -1433,11 +1473,14 @@ void AssemblyDocument::calculate_placement_references() {
 }
 
 zima::kernel::Vec3 AssemblyDocument::placement_reference_angle_axis(const ComponentPlacementReference& reference) const {
-    const auto scene=build_scene();
-    const auto direction=reference_direction(reference.target_reference,{&scene.original_references});
-    if(!direction)throw std::runtime_error("Chybí orientační reference úhlu.");
     const auto& path=reference.component_reference.instance_path.occurrence_ids;
     const auto* component=path.empty()?nullptr:find_occurrence(path.front());
+    const bool cylindrical=component && std::ranges::any_of(component->placement_references,[](const auto& row) {
+        return row.component_reference.kind==MateReferenceKind::CylinderFace || row.target_reference.kind==MateReferenceKind::CylinderFace;
+    });
+    const auto scene=cylindrical?build_drawing_scene():build_scene();
+    const auto direction=reference_direction(reference.target_reference,{&scene.original_references});
+    if(!direction)throw std::runtime_error("Chybí orientační reference úhlu.");
     return angular_orientation_axis(*this,component,reference,*direction,{&scene.original_references});
 }
 std::optional<double> AssemblyDocument::measure_placement_reference(
@@ -1805,7 +1848,7 @@ zima::kernel::ViewerMesh AssemblyDocument::build_scene() const {
                 dimension.unit_suffix = " °";
                 dimension.kind = zima::kernel::ViewerDimensionKind::Angular;
                 dimension.sweep_degrees = row.offset;
-                const auto orientation=angular_orientation_axis(*this,&component,row,target->normal,{&scene.original_references,&datums.original_references});
+                const auto orientation=angular_orientation_axis(*this,&component,row,target->normal,{&scene.original_references,&datums.original_references},true);
                 auto normal=cross(ray,moving->normal);
                 if(length(normal)<1e-10)normal=orientation;
                 else if(dot(normal,orientation)<0)normal=scaled(normal,-1);

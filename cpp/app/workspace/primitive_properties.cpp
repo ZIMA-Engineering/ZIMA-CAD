@@ -138,6 +138,27 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
     const bool profile_feature =
         feature_kind == zima::document::FeatureKind::Extrusion ||
         feature_kind == zima::document::FeatureKind::Revolution;
+    // The import has no analytical primitive wire. Keep its persisted source
+    // edges in feature-local coordinates before entering history rollback.
+    // Previewing a placement must never reread STEP or invoke OCCT.
+    std::vector<zima::kernel::ViewerEdge> imported_preview_edges;
+    if (edit_mode && part && feature_kind == zima::document::FeatureKind::ImportedStep) {
+        const auto& cache = part->session.calculated_boundaries();
+        if (!cache.empty()) {
+            const auto* source = &cache.back();
+            if (const auto* owner = part->session.document().body_owner_for_object(edited->id)) {
+                const auto local = cache.back().body_boundaries.find(owner->scope.id);
+                if (local != cache.back().body_boundaries.end() && !local->second.empty())
+                    source = &local->second.back();
+            }
+            const auto frame = container_dimension_frame(edited->placement);
+            for (auto edge : source->mesh.original_references.edges) {
+                if (edge.reference.owner_id != edited->id) continue;
+                for (auto& point : edge.points) point = frame.inverse_point(point);
+                imported_preview_edges.push_back(std::move(edge));
+            }
+        }
+    }
     std::optional<std::size_t> assembly_cut_index;
     if (edit_mode && assembly_cut) {
         const auto& cuts = assembly->session.document().cuts;
@@ -913,7 +934,7 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
         const bool defer_profile_scene_refresh =
             feature_kind == zima::document::FeatureKind::Extrusion ||
             feature_kind == zima::document::FeatureKind::Revolution;
-        placement_preview = [this, fit_new_basic_preview, edit_mode,
+        placement_preview = [this, fit_new_basic_preview, edit_mode, imported_preview_edges,
                              defer_profile_scene_refresh](
                 const zima::document::HistoryContainer& preview)
                 -> zima::document::HistoryContainer {
@@ -995,6 +1016,12 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
                 }
                 viewer_->set_transient_edges(
                     preview_geometry.thread_edges(resolved_preview, body, &opening_preview_axis));
+            } else if (resolved_preview.feature_kind == zima::document::FeatureKind::ImportedStep) {
+                auto edges = imported_preview_edges;
+                const auto frame = container_dimension_frame(placement);
+                for (auto& edge : edges)
+                    for (auto& point : edge.points) point = frame.point(point);
+                viewer_->set_transient_edges(std::move(edges));
             } else {
                 viewer_->set_transient_edges(through_all_input != nullptr
                     ? preview_geometry.primitive_preview_edges(

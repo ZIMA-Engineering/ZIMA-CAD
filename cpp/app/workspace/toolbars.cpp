@@ -207,7 +207,8 @@ void AssemblyWorkspaceWindow::rebuild_application_toolbar() {
                     } else if (action->objectName() == "drawingDimensionAction") {
                         action->setIcon(resource_icon("sketch-dimensions"));
                     }
-                    add_command(action);
+                    const bool quick_export=action->objectName()=="drawingQuickExportPdfAction"||action->objectName()=="drawingQuickExportDxfAction";
+                    add_command(action,!quick_export);
                 }
             }
         }
@@ -303,7 +304,7 @@ void AssemblyWorkspaceWindow::rebuild_application_toolbar() {
                     part->session.document().history_order.empty())) return;
         }
         add_command(selection_action_);
-        for (auto* action : {construction_point_action_, construction_axis_action_,
+        for (auto* action : {construction_point_action_, construction_axis_action_, cylinder_axis_action_,
                              construction_plane_action_, sketch_action_, curve_3d_action_}) {
             add_command(action);
         }
@@ -335,12 +336,10 @@ void AssemblyWorkspaceWindow::rebuild_application_toolbar() {
         return;
     }
     if (active_application_ == ApplicationMode::Assembly) {
-        mirror_action_->setEnabled(!properties_dialog_);add_command(mirror_action_);
-        pattern_action_->setEnabled(!properties_dialog_);add_command(pattern_action_);
         add_command(selection_action_);
         add_command(insert_action_);
         add_group_separator();
-        for (auto* action : {construction_point_action_, construction_axis_action_,
+        for (auto* action : {construction_point_action_, construction_axis_action_, cylinder_axis_action_,
                              construction_plane_action_}) {
             add_command(action);
         }
@@ -350,6 +349,8 @@ void AssemblyWorkspaceWindow::rebuild_application_toolbar() {
         tools_toolbar_->addSeparator();
         add_command(extrusion_action_);
         add_command(revolution_action_);
+        mirror_action_->setEnabled(!properties_dialog_);add_command(mirror_action_);
+        pattern_action_->setEnabled(!properties_dialog_);add_command(pattern_action_);
         add_group_separator();
         return;
     }

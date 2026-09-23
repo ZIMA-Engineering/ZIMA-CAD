@@ -78,6 +78,8 @@ struct ProjectedEdge {
     int hatch_pattern{};
     bool thread{}; // Conventional thread line, independent of tangent-edge display.
     bool thread_leadin{};
+    // Interactive depth-tested strokes retain one depth per display vertex.
+    std::vector<double> vertex_depths;
 };
 
 struct ProjectedTriangle {
@@ -184,12 +186,16 @@ struct DrawingView {
     std::vector<ModelAnnotation> model_annotations;
     std::vector<ProjectedEdge> projected_edges;
     std::vector<ProjectedTriangle> projected_triangles;
+    // Immutable native snapshot for deferred vector output; never a sidecar.
+    std::shared_ptr<const kernel::ViewerMesh> output_source;
     std::shared_ptr<const MeasurementGeometry> measurement_geometry=
         share_measurement_geometry({});
     std::set<std::string> value_locks;
 };
 
 void refresh_view_geometry(DrawingView&, const zima::kernel::ViewerMesh&);
+void prepare_interactive_view(DrawingView&,std::shared_ptr<const kernel::ViewerMesh>);
+void prepare_output_view(DrawingView&);
 
 struct SectionTraceLayout {
     // View-relative paper millimetres, X right and Y up.

@@ -1,5 +1,6 @@
 #include <zima/workspace/model_calculation.hpp>
 #include <zima/workspace/sketch_operations.hpp>
+#include <zima/workspace/sketch_reference_operations.hpp>
 #include <zima/document/feature_sketches.hpp>
 #include <zima/document/viewer_packet_json.hpp>
 #include <nlohmann/json.hpp>
@@ -167,8 +168,11 @@ bool refresh_sketch_external_references(
                 source.triangles[triangle * 3 + 1],
                 source.triangles[triangle * 3 + 2]});
         }
+        kernel::ViewerReferenceGeometry body;
+        if(std::ranges::any_of(sketch.external_references,[](const auto& r){return r.body_edge;}))
+            body=part_sketch_body_reference_geometry(document::DocumentSession(document,calculated_boundaries),sketch);
         return sketch.refresh_external_references(
-            document.document_id, document.sketch_reference_geometry_for(sketch, std::move(allowed_source)));
+            document.document_id, document.sketch_reference_geometry_for(sketch, std::move(allowed_source)),false,&body);
     };
     const auto before=document.reference_errors;
     std::map<std::string,std::string> errors;
@@ -217,14 +221,18 @@ bool prune_missing_drill_point_references(
 
 bool refresh_assembly_sketch_external_references(
     zima::assembly::AssemblyDocument& document) {
-    const auto source = document.build_scene().original_references;
+    const auto scene = document.build_scene();
+    const auto& source=scene.original_references;
     return update_document_sketches(document,[&](auto& sketch) {
+        kernel::ViewerReferenceGeometry body;
+        if(std::ranges::any_of(sketch.external_references,[](const auto& reference){return reference.body_edge;}))
+            body=assembly_sketch_body_reference_geometry(document,sketch);
         bool changed=false;
         std::set<std::string> source_documents;
         for(const auto& reference:sketch.external_references)
             if(!reference.source_document_id.empty())source_documents.insert(reference.source_document_id);
         for(const auto& source_document_id:source_documents)
-            changed=sketch.refresh_external_references(source_document_id,source)||changed;
+            changed=sketch.refresh_external_references(source_document_id,source,false,&body)||changed;
         return changed;
     });
 }

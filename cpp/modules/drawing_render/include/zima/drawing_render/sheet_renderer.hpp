@@ -16,8 +16,8 @@ QString drawing_font_family();
 class SheetRenderer {
 public:
     virtual ~SheetRenderer() = default;
-    void set_render_sheet(const drawing::DrawingSheet* sheet) {sheet_=sheet;shaded_cache_.clear();}
-    void set_render_context(drawing::TitleBlockContext context) {title_block_context_=std::move(context);}
+    void set_render_sheet(const drawing::DrawingSheet* sheet) {sheet_=sheet;shaded_cache_.clear();stroke_cache_.clear();layout_cache_.reset();}
+    void set_render_context(drawing::TitleBlockContext context) {title_block_context_=std::move(context);layout_cache_.reset();}
     void set_native_text_output(bool enabled) {native_text_output_=enabled;}
     void paint_sheet(QPainter&,double zoom,QPointF origin,bool printing);
 protected:
@@ -49,6 +49,11 @@ protected:
     std::optional<AnnotationKey> selected_annotation_,hovered_annotation_;
     struct ShadedCache {double resolution{};QRectF bounds;const zima::drawing::ProjectedTriangle* triangles{};QImage image;};
     std::map<std::string,ShadedCache> shaded_cache_;
+    struct StrokeCache {
+        std::vector<drawing::ProjectedEdge> inputs;
+        std::map<unsigned,std::pair<drawing::ProjectedEdge,QPainterPath>> groups;
+    };
+    std::map<std::string,StrokeCache> stroke_cache_;
     bool lineweights_{};
     bool native_text_output_{};
     bool show_paper_border_{true};
@@ -57,6 +62,8 @@ protected:
     std::string selected_field_,hovered_field_;
     std::vector<std::pair<std::string,QPolygonF>> field_regions_;
     std::optional<zima::drawing::DrawingView> preview_;
+    std::optional<QRectF> preview_frame_bounds_;
+    std::optional<drawing::TemplateLayout> layout_cache_;
     std::optional<drawing::DrawingText> text_preview_;
     std::optional<zima::drawing::TitleBlockContext> title_block_context_;
     const drawing::DrawingSheet* sheet_{};

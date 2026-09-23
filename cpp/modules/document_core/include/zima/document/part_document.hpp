@@ -55,6 +55,7 @@ enum class ConstructionDefinition {
     PointReference,
     TwoPointAxis,
     AxisReference,
+    CylinderAxis,
     ThreePointPlane,
     PlaneReference,
 };

@@ -473,6 +473,9 @@ void AssemblyWorkspaceWindow::create_actions() {
     helical_sweep_action_->setToolTip(tr("Šroubovicové tažení profilu."));
     connect(helical_sweep_action_, &QAction::triggered, this, [this] { show_helical_sweep_properties(); });
     construction_axis_action_ = make_action(tr("Osa"), "axis");
+    cylinder_axis_action_ = make_action(tr("Osa z válcové plochy"), "axis");
+    cylinder_axis_action_->setObjectName("cylinderAxisAction");
+    connect(cylinder_axis_action_, &QAction::triggered, this, [this] { show_cylinder_axis_properties(); });
     construction_plane_action_ = make_action(tr("Rovina"), "plane");
     construction_point_action_->setObjectName("constructionPointAction");
     curve_3d_action_->setObjectName("curve3DAction");
@@ -897,7 +900,7 @@ void AssemblyWorkspaceWindow::create_actions() {
     insert_menu_ = new QMenu(tr("Vložit otevřený dokument"), this);
     insert_menu_->setObjectName("insertComponentMenu");
     insert_action_ = make_action(tr("Vložit komponentu"));
-    insert_action_->setIcon(resource_icon("assembly"));
+    insert_action_->setIcon(resource_icon("insert-component"));
     insert_action_->setObjectName("insertComponentAction");
     connect(insert_action_, &QAction::triggered, this,
         [this] { insert_component_from_file(); });

@@ -46,7 +46,7 @@ void validate_references(const assembly::AssemblyDocument& doc,const ComponentEd
             throw Error("invalid_reference","Place only the owning component against an independent target.");
         const auto valid=[&](const MateReference& ref){
             if(row.mate_type==MateKind::PointCoincident)return ref.kind==MateReferenceKind::Point&&doc.resolve_point(ref).status==MateStatus::Valid;
-            if(row.mate_type==MateKind::AxisCoincident)return ref.kind==MateReferenceKind::Axis&&doc.resolve_axis(ref).status==MateStatus::Valid;
+            if(row.mate_type==MateKind::AxisCoincident)return is_axis_reference(ref.kind)&&doc.resolve_axis(ref).status==MateStatus::Valid;
             return ref.kind==MateReferenceKind::Face&&doc.resolve_plane(ref).status==MateStatus::Valid;
         };
         if(!valid(row.component_reference)||!valid(row.target_reference))

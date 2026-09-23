@@ -229,6 +229,7 @@ struct SketchText {
 struct SketchExternalReference {
     std::string id;
     ExternalReferenceKind kind{ExternalReferenceKind::Edge};
+    bool body_edge{}; // External Geometry follows the calculated body edge, not its untrimmed source.
     std::string source_document_id;
     std::string source_owner_id;
     std::string source_semantic_key;
@@ -619,7 +620,8 @@ public:
     [[nodiscard]] bool refresh_external_references(
         const std::string& source_document_id,
         const zima::kernel::ViewerReferenceGeometry& source_geometry,
-        bool axis_points_only = false);
+        bool axis_points_only = false,
+        const zima::kernel::ViewerReferenceGeometry* body_geometry = nullptr);
     [[nodiscard]] std::optional<std::vector<std::array<double, 2>>>
         project_external_axis(const zima::kernel::ViewerAxis& axis) const;
     [[nodiscard]] std::optional<std::vector<std::array<double, 2>>>

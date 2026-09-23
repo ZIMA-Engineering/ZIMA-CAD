@@ -62,6 +62,8 @@ int main(int argc, char** argv) {
             "GUI/CLI Sheet Cut default layers differ");
         const auto platform_before = read(root + "/config/" + platform + "/config.ini");
         settings.language = "fr";settings.sheet_cut_tolerance=.075; QString error;
+        require(settings.drawing_view_style=="hidden_edges"&&settings.drawing_pdf_directory=="pdf"&&settings.drawing_dxf_directory=="export","Drawing defaults are missing");
+        settings.drawing_pdf_directory="output/pdf";settings.drawing_dxf_directory="output/dxf";settings.drawing_view_style="shaded_with_edges";
         if (!settings.save(&error)) throw std::runtime_error("portable save failed: " + error.toStdString());
         require(read(factory) == factory_bytes, "save modified factory defaults");
         require(read(root + "/config/config.ini.1").contains("Language=de"), "previous user configuration was not backed up");
@@ -69,6 +71,11 @@ int main(int argc, char** argv) {
         QSettings saved(root + "/config/config.ini", QSettings::IniFormat);
         require(saved.value("Application/Language") == "fr" && !saved.contains("Paths/Localization"), "save pinned version paths");
         require(saved.value("SheetMetal/CutTolerance").toDouble()==.075,"Sheet Cut default was not saved");
+        const auto drawing_settings=zima::app::ApplicationSettings::load(root+"/Projects",exe);
+        require(drawing_settings.drawing_pdf_directory=="output/pdf"&&drawing_settings.drawing_dxf_directory=="output/dxf"&&drawing_settings.drawing_view_style=="shaded_with_edges","Drawing settings did not survive reload");
+        auto invalid_directory=settings;invalid_directory.drawing_pdf_directory=root;
+        const auto before_invalid_directory=read(settings.config_path);
+        require(!invalid_directory.save(&error)&&read(settings.config_path)==before_invalid_directory,"Absolute export directory modified configuration");
         auto invalid_tolerance=settings;invalid_tolerance.sheet_cut_tolerance=0;
         const auto before_invalid_tolerance=read(settings.config_path);
         require(!invalid_tolerance.save(&error)&&read(settings.config_path)==before_invalid_tolerance,

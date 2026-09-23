@@ -50,6 +50,7 @@ const char* definition(document::ConstructionDefinition value) {
     case Definition::PointReference: return "point_reference";
     case Definition::TwoPointAxis: return "two_point_axis";
     case Definition::AxisReference: return "axis_reference";
+    case Definition::CylinderAxis: return "cylinder_axis";
     case Definition::ThreePointPlane: return "three_point_plane";
     case Definition::PlaneReference: return "plane_reference";
     }

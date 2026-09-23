@@ -12,7 +12,23 @@ Native point merging and generated curve-keypoint K markers remain distinct.
 
 ## Reference profiles
 
-Reference Profile (`Reference obrys`) projects a source edge into the Sketch.
+External Geometry / Reference Profile (`Reference obrys`) projects an actual
+calculated body edge into the Sketch. It uses the surviving edge after operations
+such as Chamfer and Fillet, including its trimmed endpoints. An unchanged edge
+retains its original persisted identity. It never substitutes an untrimmed
+original edge for the selected body edge.
+
+Ordinary External Reference remains a separate command: it selects original
+object geometry, including original points and faces. Both picking and highlighting use
+the original face packet, even where later body operations removed part of it.
+
+The native external-reference record persists `body_edge` independently of the
+source identity. Derived endpoint references inherit this choice. Explicit
+regeneration reads the body before the owning Sketch in a Part and the persisted
+input boundary before an owning Assembly cut. Assembly references retain their
+exact occurrence path. A missing or ambiguous edge is
+broken rather than rebound to a different edge or the original geometry.
+
 A straight projected edge now creates an ordinary native Segment and two external
 endpoint references. Each native endpoint has two independent constraints:
 
@@ -48,6 +64,22 @@ sidecar or separate geometry file is introduced. Empty Part and Assembly start
 templates contain no projected references and remain valid with this contract.
 
 ## Verification
+
+Crossings of two external lines, axes, or projected face paths are offered as
+one **CC** candidate by the common picker. Confirmation stores two incidence
+constraints. Hover, RMB cycling, preview and click use the same published
+intersection point. Rectangle endpoints give **C/CC** precedence over midpoint
+inference; **M** remains available when no endpoint contact is selected.
+
+`zima_cpp_sketch_endpoint_priority_ui_contract` exercises first-point and both
+rectangle-corner intersections, RMB cycling, competing midpoint inference and
+native save/reopen, original point/face selection and body-edge projection.
+`zima_cpp_sketch_reference_command_tests` distinguishes an
+original edge from its Chamfer-trimmed body edge and checks regeneration and
+Undo/Redo. `zima_cpp_viewer_contract_tests` checks original face selection behind
+later operations.
+`zima_cpp_assembly_cut_history_tests` checks the owning profile's input boundary
+and body-edge reference regeneration across Assembly cuts.
 
 `zima_cpp_sketcher_contract_tests` covers CC display, native trimming, retained
 source-edge support, removal of the moved endpoint attachment, persistence,

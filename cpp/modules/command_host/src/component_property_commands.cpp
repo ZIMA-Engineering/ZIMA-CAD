@@ -22,7 +22,8 @@ assembly::MateReference reference(const Json& value,assembly::MateReferenceKind 
     keys(value,{"owner","key","instance_path","kind"});
     for(const auto* key:{"owner","key","instance_path"})if(!value.contains(key)||!value.at(key).is_string())
         throw Error("invalid_arguments","A component reference requires owner, key and an explicit instance_path.");
-    const auto expected=kind==assembly::MateReferenceKind::Face?"face":kind==assembly::MateReferenceKind::Axis?"axis":"point";
+    if(kind==assembly::MateReferenceKind::Axis && value.value("kind",std::string{})=="cylinder_face")kind=assembly::MateReferenceKind::CylinderFace;
+    const auto expected=kind==assembly::MateReferenceKind::CylinderFace?"cylinder_face":kind==assembly::MateReferenceKind::Face?"face":kind==assembly::MateReferenceKind::Axis?"axis":"point";
     if(value.contains("kind")&&value.at("kind")!=expected)throw Error("invalid_reference","The reference kind does not match the component mate type.");
     assembly::MateReference result{kind,assembly::InstancePath::decode(value.at("instance_path").get<std::string>()),value.at("owner"),value.at("key")};
     if(result.owner_id.empty()||result.semantic_key.empty())throw Error("invalid_reference","A component reference requires owner, key and an explicit instance_path.");

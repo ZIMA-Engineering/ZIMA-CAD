@@ -27,7 +27,7 @@ inline bool tangent_boundary(const zima::kernel::ViewerEdge& edge) {
 }
 struct ProjectionVertex { Point2 p; double z; };
 inline std::vector<ProjectedEdge> project_drawing_edges(
-    const zima::kernel::ViewerMesh& mesh,const ProjectionCamera& camera,bool silhouettes=true,bool section_caps=false) {
+    const zima::kernel::ViewerMesh& mesh,const ProjectionCamera& camera,bool silhouettes=true,bool section_caps=false,bool interactive=false) {
     const auto project=[&](const zima::kernel::Vec3& p) {
         const auto dot=[&](const auto& d){return p.x*d.x+p.y*d.y+p.z*d.z;};
         return ProjectionVertex{{dot(camera.horizontal),dot(camera.vertical)},dot(camera.depth)};
@@ -88,7 +88,7 @@ inline std::vector<ProjectedEdge> project_drawing_edges(
     }
     const auto& h=camera.horizontal;const auto& v=camera.vertical;const auto& d=camera.depth;
     const double handedness=(h.y*v.z-h.z*v.y)*d.x+(h.z*v.x-h.x*v.z)*d.y+(h.x*v.y-h.y*v.x)*d.z;
-    struct Triangle {std::array<ProjectionVertex,3> v;double determinant;double xmin{},xmax{},ymin{},ymax{};const zima::kernel::FaceReference* source{};std::array<unsigned,3> indices;};
+    struct Triangle {std::array<ProjectionVertex,3> v;double determinant;double xmin{},xmax{},ymin{},ymax{};const zima::kernel::FaceReference* source{};std::array<unsigned,3> indices;unsigned rim_sides{};std::array<double,3> clip_tolerances{};};
     std::vector<Triangle> triangles;
     using Key=std::tuple<long long,long long,long long>;
     struct Boundary {zima::kernel::Vec3 a,b;bool front{},back{};int count{};bool thread{};bool axial_surface{true};};
@@ -113,7 +113,13 @@ inline std::vector<ProjectedEdge> project_drawing_edges(
         const bool thread=ref&&ref->semantic_key.starts_with("thread:surface:");
         // Technological thread surfaces are not solid material and cannot hide
         // the real bore/shaft or other conventional thread lines.
-        if(!thread&&std::abs(t.determinant)>area_tolerance)triangles.push_back(t);
+        if(!thread&&std::abs(t.determinant)>area_tolerance) {
+            for(int k=0;k<3;++k) {
+                const auto& p=t.v[(k+1)%3].p;const auto& q=t.v[(k+2)%3].p;
+                t.clip_tolerances[k]=roundoff*std::hypot(q.x-p.x,q.y-p.y)/std::abs(t.determinant);
+            }
+            triangles.push_back(t);
+        }
         if(thread&&axial_threads.contains(owner(*ref)))continue;
         // Section caps use scan-strip triangulation with T-junctions. Their
         // complete rim is already explicit; unmatched internal strip edges
@@ -136,6 +142,18 @@ inline std::vector<ProjectedEdge> project_drawing_edges(
             edge.front|=t.determinant*handedness>area_tolerance;
             edge.back|=t.determinant*handedness<=area_tolerance;
         }
+    }
+    // Cache face-boundary membership once. A spline only needs rim triangles
+    // of its adjacent faces, not another scan of every triangle in the model.
+    std::map<FaceKey,std::vector<std::size_t>> face_rim_triangles;
+    for(std::size_t i=0;i<triangles.size();++i) {
+        auto& t=triangles[i];if(!t.source)continue;const auto face=face_key(*t.source);
+        for(unsigned side=0;side<3;++side) {
+            auto a=key(mesh.vertices[t.indices[side]]),b=key(mesh.vertices[t.indices[(side+1)%3]]);if(b<a)std::swap(a,b);
+            const auto found=face_edge_counts.find({face,a,b});
+            if(found!=face_edge_counts.end()&&found->second==1)t.rim_sides|=1u<<side;
+        }
+        if(t.rim_sides)face_rim_triangles[face].push_back(i);
     }
     // Broad-phase index only: the existing exact triangle clipping below still
     // decides visibility. Refining a curved rim must not scan the whole model
@@ -194,12 +212,19 @@ inline std::vector<ProjectedEdge> project_drawing_edges(
     }
     const auto append=[&](const auto& points,const zima::kernel::EdgeReference& source,bool silhouette,bool tangent,bool thread=false,bool symbolic=false,
                           const zima::kernel::ViewerEdge* boundary=nullptr,const std::vector<double>* parameters=nullptr) {
+        if(interactive) {
+            if(points.size()<2)return;
+            ProjectedEdge edge{{},source,false,silhouette,tangent,false,0,thread,std::ranges::find(leadin_edges,source)!=leadin_edges.end()};
+            for(const auto& p:points){const auto q=project(p);edge.points.push_back(q.p);edge.vertex_depths.push_back(q.z);}
+            result.push_back(std::move(edge));return;
+        }
         // A triangulated concave face can extend across its exact curved rim.
         // Exclude only that face's local rim triangle, within the parameter
         // interval bounded by two vertices on this very edge. Remote portions
         // of the same face and every other face remain valid occluders.
-        std::vector<std::optional<std::pair<double,double>>> rim_intervals(triangles.size());
+        std::vector<std::optional<std::pair<double,double>>> rim_intervals;
         if(boundary&&parameters&&boundary->exact_spline) {
+            rim_intervals.resize(triangles.size());
             const auto& curve=*boundary->exact_spline;
             const auto start=zima::kernel::bspline_value(curve,0),end=zima::kernel::bspline_value(curve,1);
             const bool closed=std::hypot(start.x-end.x,start.y-end.y,start.z-end.z)<=epsilon*8;
@@ -218,14 +243,16 @@ inline std::vector<ProjectedEdge> project_drawing_edges(
                 const double t=(a+b)/2;if(error(t)<=epsilon*8)result=t;
                 return result;
             };
-            for(std::size_t i=0;i<triangles.size();++i) {
-                const auto& triangle=triangles[i];if(!triangle.source)continue;
-                if(std::ranges::none_of(boundary->edge_treatment_side_references,[&](const auto& side){return face_key(side)==face_key(*triangle.source);}))continue;
+            std::vector<std::size_t> rims;
+            for(const auto& face:boundary->edge_treatment_side_references)
+                if(const auto found=face_rim_triangles.find(face_key(face));found!=face_rim_triangles.end())rims.insert(rims.end(),found->second.begin(),found->second.end());
+            std::sort(rims.begin(),rims.end());rims.erase(std::unique(rims.begin(),rims.end()),rims.end());
+            for(const auto i:rims) {
+                const auto& triangle=triangles[i];
                 std::vector<double> on_rim;
                 for(int side=0;side<3;++side) {
                     const auto ia=triangle.indices[side],ib=triangle.indices[(side+1)%3];
-                    auto ka=key(mesh.vertices[ia]),kb=key(mesh.vertices[ib]);if(kb<ka)std::swap(ka,kb);
-                    if(face_edge_counts[{face_key(*triangle.source),ka,kb}]!=1)continue;
+                    if(!(triangle.rim_sides&(1u<<side)))continue;
                     const auto a=parameter(ia),b=parameter(ib);if(a&&b){on_rim.push_back(*a);on_rim.push_back(*b);}
                 }
                 if(on_rim.size()>=2){
@@ -236,14 +263,32 @@ inline std::vector<ProjectedEdge> project_drawing_edges(
             }
         }
         std::vector<std::size_t> nearby;
+        std::vector<std::pair<double,double>> occluded,merged;
+        const auto source_owner=owner(source);
+        const bool analytic_boundary=symbolic||axial_threads.contains(source_owner);
         for(std::size_t segment=1;segment<points.size();++segment) {
+            // Consecutive refined segments occupy almost the same area. Query
+            // the broad phase once per block, then retain the original per-
+            // segment bounds test and exact clipping for each candidate.
+            if((segment-1)%64==0) {
+                const auto first=project(points[segment-1]).p;
+                double xmin=first.x,xmax=first.x,ymin=first.y,ymax=first.y;
+                const auto end=std::min(points.size(),segment+64);
+                for(auto i=segment;i<end;++i) {
+                    const auto p=project(points[i]).p;
+                    xmin=std::min(xmin,p.x);xmax=std::max(xmax,p.x);ymin=std::min(ymin,p.y);ymax=std::max(ymax,p.y);
+                }
+                candidates(xmin,xmax,ymin,ymax,nearby);
+            }
             const auto a=project(points[segment-1]),b=project(points[segment]);
             if(std::hypot(b.p.x-a.p.x,b.p.y-a.p.y)<=epsilon)continue;
-            std::vector<std::pair<double,double>> occluded;
-            candidates(std::min(a.p.x,b.p.x),std::max(a.p.x,b.p.x),std::min(a.p.y,b.p.y),std::max(a.p.y,b.p.y),nearby);
+            occluded.clear();
+            const double xmin=std::min(a.p.x,b.p.x)-roundoff,xmax=std::max(a.p.x,b.p.x)+roundoff;
+            const double ymin=std::min(a.p.y,b.p.y)-roundoff,ymax=std::max(a.p.y,b.p.y)+roundoff;
             for(const auto triangle_index:nearby) {
                 const auto& triangle=triangles[triangle_index];
-                if(const auto& interval=rim_intervals[triangle_index];interval&&parameters) {
+                if(xmax<triangle.xmin||xmin>triangle.xmax||ymax<triangle.ymin||ymin>triangle.ymax)continue;
+                if(const auto interval=rim_intervals.empty()?std::optional<std::pair<double,double>>{}:rim_intervals[triangle_index];interval&&parameters) {
                     const auto [lo,hi]=std::minmax((*parameters)[segment-1],(*parameters)[segment]);
                     if((hi>=interval->first-1e-8&&lo<=interval->second+1e-8)||
                        (interval->second>1&&hi+1>=interval->first-1e-8&&lo+1<=interval->second+1e-8))continue;
@@ -254,8 +299,8 @@ inline std::vector<ProjectedEdge> project_drawing_edges(
                 // every other solid remains a normal occluder.
                 // The same applies to an axial thread's real bore rim: its
                 // sampled polygon must not be occluded by its own cone facets.
-                const auto* analytic=(symbolic||axial_threads.contains(owner(source)))&&triangle.source?surface_for(*triangle.source):nullptr;
-                if(analytic&&owner(*triangle.source)==owner(source)) {
+                const auto* analytic=analytic_boundary&&triangle.source?surface_for(*triangle.source):nullptr;
+                if(analytic&&triangle.source->owner_id==source_owner.first&&triangle.source->instance_path==source_owner.second) {
                     const auto& surface=*analytic;
                     if(surface.kind==zima::kernel::SurfaceGeometry::Kind::Cone) {
                         const auto on_surface=[&](const auto& p){
@@ -291,9 +336,7 @@ inline std::vector<ProjectedEdge> project_drawing_edges(
                     // from its samples by a few floating-point ulps. Convert
                     // the numerical roundoff to barycentric coordinates
                     // so those points do not alternate inside/outside.
-                    const auto& p=triangle.v[(k+1)%3].p;
-                    const auto& q=triangle.v[(k+2)%3].p;
-                    const double tolerance=roundoff*std::hypot(q.x-p.x,q.y-p.y)/std::abs(triangle.determinant);
+                    const double tolerance=triangle.clip_tolerances[k];
                     intersects=intersects&&clip(wa[k]+tolerance,wb[k]+tolerance);
                 }
                 if(!intersects)continue;
@@ -302,7 +345,7 @@ inline std::vector<ProjectedEdge> project_drawing_edges(
                 if(clip(za,zb)&&high-low>1e-10)occluded.push_back({low,high});
             }
             std::sort(occluded.begin(),occluded.end());
-            std::vector<std::pair<double,double>> merged;
+            merged.clear();
             for(const auto& interval:occluded) {
                 if(!merged.empty()&&interval.first<=merged.back().second+1e-10)merged.back().second=std::max(merged.back().second,interval.second);
                 else merged.push_back(interval);
@@ -333,24 +376,29 @@ inline std::vector<ProjectedEdge> project_drawing_edges(
             const double dx=b.x-a.x,dy=b.y-a.y,den=dx*dx+dy*dy;
             return std::ranges::any_of(edge.points,[&](const auto& point){const auto p=project(point).p;const double t=den>0?((p.x-a.x)*dx+(p.y-a.y)*dy)/den:0.;return std::hypot(p.x-a.x-t*dx,p.y-a.y-t*dy)>epsilon;});
         }();
-        if(curved_projection&&edge.exact_spline&&edge.exact_spline->degree>1) {
+        if(!interactive&&curved_projection&&edge.exact_spline&&edge.exact_spline->degree>1) {
             const auto& curve=*edge.exact_spline;
             const auto at=[&](double t){return zima::kernel::bspline_value(curve,t);};
             const auto distance=[](const auto& a,const auto& b){return std::hypot(a.x-b.x,a.y-b.y,a.z-b.z);};
             std::vector<zima::kernel::Vec3> refined{at(0)};
             std::vector<double> parameters{0};
-            const auto subdivide=[&](auto&& self,double lo,double hi,const auto& a,const auto& b,int depth)->void {
+            const auto subdivide=[&](auto&& self,double lo,double hi,const auto& a,const auto& b,const auto& middle_point,int depth)->void {
                 double error=0;
-                for(double f:{.25,.5,.75}) {
-                    const auto p=at(lo+(hi-lo)*f);
+                const auto quarter=at(lo+(hi-lo)*.25),three_quarters=at(lo+(hi-lo)*.75);
+                const std::array samples{quarter,middle_point,three_quarters};
+                for(int sample=0;sample<3;++sample) {
+                    const double f=(sample+1)*.25;
+                    const auto& p=samples[sample];
                     const zima::kernel::Vec3 chord{a.x+(b.x-a.x)*f,a.y+(b.y-a.y)*f,a.z+(b.z-a.z)*f};
                     error=std::max(error,distance(p,chord));
                 }
                 if(error<=epsilon*.25||depth==18){refined.push_back(b);parameters.push_back(hi);return;}
-                const double middle=(lo+hi)/2;const auto m=at(middle);
-                self(self,lo,middle,a,m,depth+1);self(self,middle,hi,m,b,depth+1);
+                // Child midpoints are the quarter samples already evaluated
+                // above. Keep identical subdivision/error arithmetic and output.
+                const double middle=(lo+hi)/2;
+                self(self,lo,middle,a,middle_point,quarter,depth+1);self(self,middle,hi,middle_point,b,three_quarters,depth+1);
             };
-            for(int part=0;part<16;++part)subdivide(subdivide,part/16.,(part+1)/16.,at(part/16.),at((part+1)/16.),0);
+            for(int part=0;part<16;++part)subdivide(subdivide,part/16.,(part+1)/16.,at(part/16.),at((part+1)/16.),at((part+.5)/16.),0);
             if(!edge.points.empty()&&distance(refined.back(),edge.points.front())<distance(refined.front(),edge.points.front())){std::reverse(refined.begin(),refined.end());std::reverse(parameters.begin(),parameters.end());}
             append(refined,edge.reference,false,thread?false:tangent_boundary(edge),thread,false,&edge,&parameters);
         }else append(edge.points,edge.reference,false,thread?false:tangent_boundary(edge),thread);
@@ -377,7 +425,7 @@ inline std::vector<ProjectedEdge> project_drawing_edges(
     }
     // Retain every visibility transition, but do not persist the much denser
     // depth-classification sampling as the display polyline.
-    for(auto& edge:result)if(edge.points.size()>2) {
+    for(auto& edge:result)if(!interactive&&edge.points.size()>2) {
         const auto& points=edge.points;std::vector<Point2> reduced{points.front()};
         const auto simplify=[&](auto&& self,std::size_t first,std::size_t last)->void {
             const auto a=points[first],b=points[last];const double dx=b.x-a.x,dy=b.y-a.y,den=dx*dx+dy*dy;

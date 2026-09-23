@@ -58,8 +58,20 @@ inline std::vector<std::vector<Point2>> break_fragments(const DrawingView& v,con
     }return out;
 }
 inline std::vector<ProjectedEdge> broken_edges(const DrawingView& v) {
+    if(v.breaks.empty())return v.projected_edges;
     std::vector<ProjectedEdge> out;
-    for(const auto& e:v.projected_edges)for(auto points:break_fragments(v,e.points)){auto copy=e;for(auto& p:points)p=break_map(v,p);copy.points=std::move(points);out.push_back(std::move(copy));}return out;
+    for(const auto& e:v.projected_edges) {
+        if(e.vertex_depths.empty()) {
+            for(auto points:break_fragments(v,e.points)){auto copy=e;for(auto& p:points)p=break_map(v,p);copy.points=std::move(points);out.push_back(std::move(copy));}
+        }else for(std::size_t i=1;i<e.points.size();++i) {
+            const auto a=e.points[i-1],b=e.points[i];const double dx=b.x-a.x,dy=b.y-a.y,den=dx*dx+dy*dy;
+            for(auto points:break_fragments(v,{a,b})) {
+                auto copy=e;copy.vertex_depths.clear();
+                for(auto& p:points){const double t=den>0?std::clamp(((p.x-a.x)*dx+(p.y-a.y)*dy)/den,0.,1.):0.;copy.vertex_depths.push_back(e.vertex_depths[i-1]+(e.vertex_depths[i]-e.vertex_depths[i-1])*t);p=break_map(v,p);}
+                copy.points=std::move(points);out.push_back(std::move(copy));
+            }
+        }
+    }return out;
 }
 inline std::vector<ProjectedTriangle> broken_triangles(const DrawingView& v) {
     if(v.breaks.empty())return v.projected_triangles;

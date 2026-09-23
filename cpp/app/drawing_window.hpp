@@ -21,7 +21,7 @@ class QTabBar;
 class QToolBar;
 class QMenu;
 
-namespace zima::workspace { class Workspace; struct SheetSettings; }
+namespace zima::workspace { class Workspace; class DrawingProjection; struct SheetSettings; }
 
 namespace zima::app {
 
@@ -107,6 +107,8 @@ private:
     QAction* chain_dimension_action_{};
     QAction *dimension_jog_action_{},*dimension_break_action_{};
     QAction* dimension_align_action_{};
+    QAction* quick_pdf_action_{};
+    QAction* quick_dxf_action_{};
     QAction* text_action_{};
     QAction* balloon_action_{};
     QAction* show_erase_action_{};
@@ -126,9 +128,13 @@ private:
     void remove_title_block();
     void edit_title_block();
     void insert_view();
+    void quick_export(bool pdf);
     void insert_detail();
     void show_detail_properties(zima::drawing::DrawingView,bool creating);
-    void show_view_properties(zima::drawing::DrawingView view, bool creating);
+    void show_view_properties(zima::drawing::DrawingView view, bool creating,
+        std::shared_ptr<zima::workspace::DrawingProjection> projection = {});
+    void commit_view(zima::drawing::DrawingView accepted,const std::string& sheet_id,bool creating,
+        zima::workspace::DrawingProjection* cache);
     void update_source_variant();
     void show_drawing_settings();
     void create_projected_view();

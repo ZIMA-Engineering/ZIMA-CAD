@@ -5,7 +5,7 @@ Drawing fonts must not depend on fonts installed in the operating system,
 because substitutions change text metrics and can break title blocks,
 dimensions, and other precisely positioned drawing content.
 
-The default font expected by `config/drawing.ini` is:
+The default font bundled for the drawing renderer is:
 
 ```text
 osifont-lgpl3fe.ttf

@@ -7,6 +7,7 @@
 #include <zima/workspace/reference_sources.hpp>
 #include <zima/workspace/document_dependencies.hpp>
 #include <zima/workspace/sketch_operations.hpp>
+#include <zima/workspace/sketch_reference_operations.hpp>
 #include <zima/document/feature_sketches.hpp>
 #include <zima/document/object_annotation_frames.hpp>
 #include <zima/assembly/physical_properties.hpp>
@@ -320,9 +321,13 @@ std::optional<std::string> Workspace::document_id_for_path(
     for (const auto& state : documents_) {
         const auto* candidate = std::visit([](const auto& document)
             -> const std::filesystem::path* { return &document.path; }, state);
-        if (!candidate->empty() &&
-            std::filesystem::absolute(*candidate).lexically_normal() == normalized)
-            return id_of(state);
+        if (candidate->empty()) continue;
+        if (std::filesystem::absolute(*candidate).lexically_normal() == normalized) return id_of(state);
+        // Windows may reopen the same saved document with different letter
+        // casing after configured filename normalization. Compare actual file
+        // identity before trying to insert a duplicate document into Workspace.
+        std::error_code error;
+        if (std::filesystem::equivalent(*candidate, normalized, error) && !error) return id_of(state);
     }
     return std::nullopt;
 }
@@ -676,8 +681,14 @@ bool Workspace::refresh_context_external_references(
                         reference.context_instance_path == dependent_path &&
                         reference.source_document_id == source_document_id;
                 });
+            kernel::ViewerReferenceGeometry body;
+            if(owns_context&&std::ranges::any_of(sketch.external_references,[](const auto& r){return r.body_edge;})) {
+                body=context_sketch_body_reference_geometry(*this,assembly_id,
+                    assembly::InstancePath::decode(dependent_path),source_document_id);
+                body=document.sketch_reference_geometry_for(sketch,std::move(body));
+            }
             if (owns_context && sketch.refresh_external_references(
-                    source_document_id, document.sketch_reference_geometry_for(sketch, geometry))) {
+                    source_document_id, document.sketch_reference_geometry_for(sketch, geometry),false,&body)) {
                 changed = true;
                 changed_sketches.insert(&sketch);
             }

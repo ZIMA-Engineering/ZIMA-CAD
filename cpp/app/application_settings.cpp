@@ -164,6 +164,11 @@ ApplicationSettings ApplicationSettings::load(const QString& working_directory, 
         result.units.insert(it.key(), value("Units/" + it.key(), it.value()));
     result.part_template = value("Templates/Part", "START_PART.prtz");
     result.assembly_template = value("Templates/Assembly", "START_ASSEMBLY.asmz");
+    result.drawing_pdf_directory=value("Drawing/PdfDirectory","pdf");
+    result.drawing_dxf_directory=value("Drawing/DxfDirectory","export");
+    result.drawing_view_style=value("Drawing/ViewDisplayStyle","hidden_edges");
+    if (!QStringList{"visible_edges", "hidden_edges", "shaded_with_edges", "shaded"}.contains(result.drawing_view_style))
+        result.drawing_view_style = "hidden_edges";
     QFile translations(QDir(result.resolved_paths.value("Localization"))
                            .absoluteFilePath(result.language + ".ini"));
     if (translations.open(QIODevice::ReadOnly | QIODevice::Text)) {
@@ -298,9 +303,15 @@ static bool save_values(const QString& config_path, const QMap<QString, QVariant
 }
 
 bool ApplicationSettings::save(QString* error) const {
+    for(const auto& folder:{drawing_pdf_directory,drawing_dxf_directory})if(folder.trimmed().isEmpty()||QDir::isAbsolutePath(QDir::fromNativeSeparators(folder))||folder.contains(':')) {
+        if(error)*error=QObject::tr("Složka rychlého exportu musí být relativní k výkresu.");return false;
+    }
     try {zima::document::validate_sheet_cut_tolerance(sheet_cut_tolerance);}
     catch(const std::exception& issue){if(error)*error=QString::fromUtf8(issue.what());return false;}
     QMap<QString, QVariant> common{
+        {"Drawing/PdfDirectory",drawing_pdf_directory},
+        {"Drawing/DxfDirectory",drawing_dxf_directory},
+        {"Drawing/ViewDisplayStyle",drawing_view_style},
         {"Application/Language", language}, {"Application/UseISOFont", use_iso_application_font},
         {"Dimensions/ToleranceLayout", stacked_tolerances ? "stacked" : "inline"},
         {"DocumentNames/Uppercase", document_naming.uppercase},

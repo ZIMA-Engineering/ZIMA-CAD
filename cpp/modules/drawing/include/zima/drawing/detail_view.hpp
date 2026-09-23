@@ -14,6 +14,7 @@ inline void refresh_detail_view(DrawingView& detail,const DrawingView& parent) {
     detail.display_style=parent.display_style;detail.hidden_edge_style=parent.hidden_edge_style;
     detail.tangent_edge_style=parent.tangent_edge_style;detail.show_thread_leadins=parent.show_thread_leadins;
     detail.projected_edges=parent.projected_edges;detail.projected_triangles=parent.projected_triangles;
+    detail.output_source=parent.output_source;
     detail.measurement_geometry=parent.measurement_geometry;
     detail.model_annotations=parent.model_annotations;
     detail.section_id=parent.section_id;detail.section_snapshot=parent.section_snapshot;

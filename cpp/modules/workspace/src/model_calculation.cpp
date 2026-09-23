@@ -3,6 +3,7 @@
 #include <zima/workspace/opening_operations.hpp>
 #include <zima/workspace/part_transactions.hpp>
 #include <zima/workspace/sketch_operations.hpp>
+#include <zima/workspace/sketch_reference_operations.hpp>
 #include <zima/document/viewer_packet_json.hpp>
 #include <nlohmann/json.hpp>
 #include <algorithm>
@@ -127,6 +128,13 @@ void calculate_resolved_assembly_cuts(
                 component.occurrence_id, component.calculated_source);
         }
         if (cut.definition.suppressed || cut.target_occurrence_ids.empty()) continue;
+        for(auto& sketch:document.sketches)if(sketch.owner_container_id==cut.definition.id&&
+            std::ranges::any_of(sketch.external_references,[](const auto& reference){return reference.body_edge;})) {
+            const auto body=assembly_sketch_body_reference_geometry(document,sketch);
+            std::set<std::string> sources;
+            for(const auto& reference:sketch.external_references)sources.insert(reference.source_document_id);
+            for(const auto& source:sources)static_cast<void>(sketch.refresh_external_references(source,reference_geometry,false,&body));
+        }
         zima::document::PartDocument cutter_document;
         cutter_document.document_precision = document.document_precision;
         cutter_document.user_parameters = document.user_parameters;

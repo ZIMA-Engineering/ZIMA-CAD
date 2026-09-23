@@ -4,6 +4,8 @@
 #include <zima/workspace/drawing_sources.hpp>
 #include <zima/workspace/drawing_projection.hpp>
 #include <zima/drawing/measurement_dimension.hpp>
+#include <zima/drawing/detail_view.hpp>
+#include <zima/drawing/view_breaks.hpp>
 #include <zima/document/file_path.hpp>
 #include <algorithm>
 #include <iostream>
@@ -16,6 +18,63 @@ commands::Result run(command_host::Host& host,const char* name,Json args=Json::o
 }
 double width(const drawing::DrawingView& view){double low=1e100,high=-1e100;for(const auto& t:view.projected_triangles)for(auto p:t.points){low=std::min(low,p.x);high=std::max(high,p.x);}return high-low;}
 void near(double a,double b){require(std::abs(a-b)<1e-6,"Projected size or dimension differs from the analytical box size");}
+void verify_projection_reuse(const kernel::OcctKernel& kernel,const fs::path& dir) {
+    auto part=document::PartDocument::create_default();auto box=document::PartDocument::create_box_container();box.box={20,10,6};part.history={box};
+    auto calculated=kernel.evaluate_history(part.kernel_operations());
+    const auto path=dir/"reuse.prtz";
+    workspace::Workspace live;live.add_part(part,calculated,path);
+    drawing::DrawingView original;original.id="reuse-view";original.source_document_id=part.document_id;original.source_path=path;
+    workspace::DrawingProjection preview(&live,dir/"reuse.drwz");preview.project(original,{});
+    require(preview.calculated_camera_count()==1,"Initial projection not calculated");
+    workspace::DrawingProjection interactive(&live,dir/"interactive.drwz");auto display=original;interactive.project(display,{.interactive=true});
+    require(interactive.calculated_camera_count()==0&&display.output_source,"Interactive view calculated exact output or lost its source snapshot");
+    require(!display.projected_edges.empty()&&std::ranges::all_of(display.projected_edges,[](const auto& e){return e.vertex_depths.size()==e.points.size();}),"Interactive geometry lacks per-vertex depth");
+    auto saved_display=drawing::DrawingDocument::create_default();saved_display.sheets.front().views={display};saved_display.save(dir/"interactive.drwz");
+    auto reopened=drawing::DrawingDocument::load(dir/"interactive.drwz").sheets.front().views.front();
+    require(reopened.output_source&&reopened.projected_edges.front().vertex_depths==display.projected_edges.front().vertex_depths,"Reopened drawing lost deferred output geometry");
+    drawing::prepare_output_view(reopened);
+    require(!reopened.output_source&&reopened.projected_edges.size()==original.projected_edges.size(),"Deferred output changed edge count");
+    for(std::size_t i=0;i<original.projected_edges.size();++i)require(reopened.projected_edges[i].points==original.projected_edges[i].points&&reopened.projected_edges[i].hidden==original.projected_edges[i].hidden&&reopened.projected_edges[i].source==original.projected_edges[i].source,"Deferred output changed exact geometry, visibility or identity");
+    auto broken=display;broken.breaks={{"depth-break",false,2,3,1,drawing::BreakMark::Zigzag}};
+    const auto clipped=drawing::broken_edges(broken);require(!clipped.empty(),"Interactive break removed every edge");
+    for(const auto& edge:clipped)require(edge.points.size()==edge.vertex_depths.size(),"Interactive break lost interpolated depth");
+    auto detail=display;detail.id="depth-detail";detail.detail_view=true;detail.parent_view_id=display.id;
+    detail.crop=drawing::ViewCrop{drawing::ViewCropShape::Circle,{0,0},{{5,5}}};
+    drawing::refresh_detail_view(detail,broken);
+    require(detail.output_source==broken.output_source&&detail.breaks.size()==1&&detail.measurement_geometry==broken.measurement_geometry,"Detail lost source, break or measurement snapshot");
+    drawing::prepare_output_view(detail);require(!detail.output_source&&detail.crop&&detail.breaks.size()==1,"Output preparation discarded detail or break settings");
+    workspace::DrawingProjection commit(&live,dir/"reuse.drwz",&preview);auto reused=original;commit.project(reused,{});
+    require(commit.calculated_camera_count()==0,"Unchanged source repeated camera calculation");
+    require(reused.projected_edges.size()==original.projected_edges.size()&&reused.projected_triangles.size()==original.projected_triangles.size(),"Reuse changed geometry counts");
+    for(std::size_t i=0;i<original.projected_edges.size();++i) {
+        const auto& a=original.projected_edges[i];const auto& b=reused.projected_edges[i];
+        require(a.points==b.points&&a.source==b.source&&a.hidden==b.hidden&&a.tangent==b.tangent&&a.silhouette==b.silhouette,"Reuse changed edge geometry or visibility");
+    }
+    // Identical IDs do not imply identical geometry. Open unsaved source edits
+    // and a new camera must both invalidate the corresponding projection.
+    part.history.front().box.length=35;
+    workspace::Workspace changed;changed.add_part(part,kernel.evaluate_history(part.kernel_operations()),path);
+    workspace::DrawingProjection after_edit(&changed,dir/"reuse.drwz",&preview);auto updated=original;after_edit.project(updated,{});
+    require(after_edit.calculated_camera_count()==1,"Changed source reused stale geometry");near(width(updated),35);
+    updated.camera=drawing::standard_camera(drawing::ViewOrientation::Right);after_edit.project(updated,{});
+    require(after_edit.calculated_camera_count()==2,"Changed camera reused stale geometry");
+    // Preserve signed coordinates in cache validity; never merge side states.
+    auto positive_zero=calculated;require(!positive_zero.back().mesh.vertices.empty(),"Missing box vertices");
+    positive_zero.back().mesh.vertices.front().z=0.;
+    workspace::Workspace zero_before;zero_before.add_part(live.open_part(part.document_id)->session.document(),positive_zero,path);
+    workspace::DrawingProjection zero_preview(&zero_before,dir/"reuse.drwz");auto zero_view=original;zero_preview.project(zero_view,{});
+    auto negative_zero=positive_zero;negative_zero.back().mesh.vertices.front().z=-0.;
+    workspace::Workspace zero;zero.add_part(live.open_part(part.document_id)->session.document(),negative_zero,path);
+    workspace::DrawingProjection changed_zero(&zero,dir/"reuse.drwz",&zero_preview);changed_zero.project(zero_view,{});
+    require(changed_zero.calculated_camera_count()==1,"Changed signed source coordinate reused stale projection");
+    const auto& unchanged=live.open_part(part.document_id)->session.document();unchanged.save(path,calculated);
+    workspace::DrawingProjection disk_preview(nullptr,dir/"reuse.drwz");auto disk_view=original;disk_preview.project(disk_view,{});
+    workspace::DrawingProjection disk_commit(nullptr,dir/"reuse.drwz",&disk_preview);disk_commit.project(disk_view,{});
+    require(disk_commit.calculated_camera_count()==0,"Unchanged native source repeated projection");
+    part.save(path,kernel.evaluate_history(part.kernel_operations()));
+    workspace::DrawingProjection disk_changed(nullptr,dir/"reuse.drwz",&disk_preview);disk_changed.project(disk_view,{});
+    require(disk_changed.calculated_camera_count()==1,"Modified native source reused stale projection");near(width(disk_view),35);
+}
 void verify_editing(const kernel::OcctKernel& kernel,fs::path dir) {
     workspace::Workspace live;auto part=document::PartDocument::create_default();auto box=document::PartDocument::create_box_container();box.box={20,10,6};part.history={box};
     auto boundaries=kernel.evaluate_history(part.kernel_operations());
@@ -256,4 +315,4 @@ void verify_projected_lengths() {
         }
 }
 int main(){try{
-    verify_projected_lengths();verify_annotation_guides();kernel::OcctKernel kernel;const auto root=fs::canonical(fs::temp_directory_path());const auto dir=root/("zima-drawing-view-"+document::PartDocument::create_default().document_id);fs::create_directory(dir);verify_breaks(dir);verify(kernel,dir);verify_editing(kernel,dir);require(dir.parent_path()==root,"Unsafe cleanup");fs::remove_all(dir);std::cout<<"Drawing view snapshots, original references, parent-first regeneration, dimensions, native sources and deletion passed\n";return 0;}catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}
+    verify_projected_lengths();verify_annotation_guides();kernel::OcctKernel kernel;const auto root=fs::canonical(fs::temp_directory_path());const auto dir=root/("zima-drawing-view-"+document::PartDocument::create_default().document_id);fs::create_directory(dir);verify_projection_reuse(kernel,dir);verify_breaks(dir);verify(kernel,dir);verify_editing(kernel,dir);require(dir.parent_path()==root,"Unsafe cleanup");fs::remove_all(dir);std::cout<<"Drawing view snapshots, original references, parent-first regeneration, dimensions, native sources and deletion passed\n";return 0;}catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}

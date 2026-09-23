@@ -23,7 +23,8 @@ class RenameDocumentDialog final : public zima::ui::PropertiesSubWindow {
 public:
     RenameDocumentDialog(const QString& initial_name,
                          std::function<QString(QString)> accepted,
-                         const ApplicationSettings& settings, QMainWindow* parent)
+                         const ApplicationSettings& settings, QMainWindow* parent,
+                         DocumentNaming naming = {})
         : PropertiesSubWindow(settings.text("dialog.rename.title", tr("Přejmenovat")),
                               parent),
           accepted_(std::move(accepted)) {
@@ -33,6 +34,20 @@ public:
         auto* form = new QFormLayout;
         name_ = new QLineEdit(initial_name, this);
         name_->setObjectName("renameDocumentName");
+        connect(name_, &QLineEdit::textEdited, this, [this, naming](const QString& text) {
+            const auto convert = [&naming](QString input) {
+                // Preserve an unfinished trailing space, as in New Document.
+                input = naming.normalize(input + QLatin1Char('|'));
+                input.chop(1);
+                return naming.normalize(input); // Keep native extensions lowercase.
+            };
+            const auto cursor = convert(text.left(name_->cursorPosition())).size();
+            const auto converted = convert(text);
+            if (converted != text) {
+                name_->setText(converted);
+                name_->setCursorPosition(static_cast<int>(cursor));
+            }
+        });
         form->addRow(settings.text("dialog.rename.label", tr("Nový název:")), name_);
         content_layout()->addLayout(form);
         error_ = new QLabel(this);
@@ -576,7 +591,7 @@ void AssemblyWorkspaceWindow::rename_document_file(std::string document_id) {
                 if (started) finish_status_operation(message, false);
                 return message;
             }
-        }, application_settings_, this);
+        }, application_settings_, this, application_settings_.document_naming);
     rename_document_dialog_ = dialog;
     connect(dialog, &QObject::destroyed, this, [this, dialog] {
         if (rename_document_dialog_ == dialog) rename_document_dialog_ = nullptr;

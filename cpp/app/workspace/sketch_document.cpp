@@ -50,7 +50,7 @@ void AssemblyWorkspaceWindow::set_sketch_external_reference_mode(bool enabled) {
         refresh_scene();
         state_->setText(enabled
             ? sketch_external_profile_active_
-                ? tr("Reference → obrys: vyberte persistovanou původní hranu.")
+                ? tr("Reference → obrys: vyberte hranu tělesa.")
                 : tr("Externí reference: vyberte persistovanou původní plochu, "
                      "hranu, vrchol nebo osu. Pravým tlačítkem lze přepínat kandidáty.")
             : tr("Režim externích referencí byl ukončen."));
@@ -62,12 +62,8 @@ void AssemblyWorkspaceWindow::accept_sketch_external_reference(
     if (!sketch_external_reference_active_ ||
         (sketch_external_profile_active_ &&
          candidate.kind != zima::viewer::CandidateKind::Edge) ||
-        (candidate.kind == zima::viewer::CandidateKind::Face
-             ? candidate.geometry != zima::viewer::CandidateGeometry::Display &&
-                   candidate.geometry !=
-                       zima::viewer::CandidateGeometry::OriginalReference
-             : candidate.geometry !=
-                   zima::viewer::CandidateGeometry::OriginalReference) ||
+        candidate.geometry != (sketch_external_profile_active_ ? zima::viewer::CandidateGeometry::Display :
+            zima::viewer::CandidateGeometry::OriginalReference) ||
         (candidate.kind != zima::viewer::CandidateKind::Edge &&
          candidate.kind != zima::viewer::CandidateKind::Vertex &&
          candidate.kind != zima::viewer::CandidateKind::Axis &&
@@ -86,7 +82,7 @@ void AssemblyWorkspaceWindow::accept_sketch_external_reference(
             candidate.kind==zima::viewer::CandidateKind::Axis?zima::sketcher::ExternalReferenceKind::Axis:
             candidate.kind==zima::viewer::CandidateKind::Face?zima::sketcher::ExternalReferenceKind::Face:zima::sketcher::ExternalReferenceKind::Point;
         auto reference=workspace::prepare_sketch_external_reference(workspace_,owner,pending,kind,
-            candidate.owner_id,candidate.semantic_key,path,sketch_reference_draft_body_id(),section_dialog_!=nullptr);
+            candidate.owner_id,candidate.semantic_key,path,sketch_reference_draft_body_id(),section_dialog_!=nullptr,sketch_external_profile_active_);
         const auto reference_id=reference.id;pending.add_external_reference(std::move(reference));
         if(sketch_external_profile_active_)static_cast<void>(pending.add_external_profile_geometry(reference_id));
         // Drafts are local to the parent dialog. Only its final Part commit
@@ -592,7 +588,7 @@ void AssemblyWorkspaceWindow::set_sketch_placement_selection_contract() {
         zima::viewer::CandidateKind::SketchPoint,
         zima::viewer::CandidateKind::SketchCurve,
         zima::viewer::CandidateKind::SketchExternalReference});
-    viewer_->set_candidate_priority(sketch_point_pick_priority);
+    viewer_->set_candidate_priority(sketch_placement_pick_priority);
 }
 
 } // namespace zima::app

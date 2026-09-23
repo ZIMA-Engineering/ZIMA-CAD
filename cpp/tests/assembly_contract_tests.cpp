@@ -341,9 +341,9 @@ int main() {
                     candidates[0].instance_path != candidates[1].instance_path &&
                     candidates[0].owner_id == candidates[1].owner_id &&
                     candidates[0].geometry ==
-                        zima::viewer::CandidateGeometry::OriginalReference &&
+                        zima::viewer::CandidateGeometry::Display &&
                     candidates[1].geometry ==
-                        zima::viewer::CandidateGeometry::OriginalReference,
+                        zima::viewer::CandidateGeometry::Display,
                 "Viewer did not distinguish repeated occurrences of one source owner");
         const auto occurrence_candidates = zima::viewer::filter_candidates(
             zima::viewer::ordered_viewer_candidates(

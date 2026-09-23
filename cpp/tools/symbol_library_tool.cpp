@@ -64,7 +64,7 @@ int main(int argc,char** argv) {
                 QPen pen(Qt::black,(s.construction?.18:.35)*22);if(s.construction)pen.setStyle(Qt::DashDotLine);
                 painter.setPen(pen);painter.drawLine(screen(a),screen(b));
             }
-            check(circles==2&&axes==2&&edges==4,"Projection geometry roles differ");
+            check(circles==2&&axes==5&&edges==4,"Projection geometry roles differ");
             check((std::string(variant)=="first_angle")== (circle_x>cone_left),"Projection variants are reversed");
             painter.setPen(Qt::black);QFont font(QFontDatabase::applicationFontFamilies(font_id).front());font.setPixelSize(24);painter.setFont(font);
             painter.drawText(QRectF(column*480,25,480,40),Qt::AlignCenter,column==0?"First angle":"Third angle");++column;

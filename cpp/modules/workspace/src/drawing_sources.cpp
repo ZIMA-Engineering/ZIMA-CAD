@@ -124,7 +124,7 @@ zima::drawing::TitleBlockContext build_title_block_context_for_source(
     else if(workspace && workspace->open_assembly(source_id))
         use_parameters(workspace->open_assembly(source_id)->session.document());
     else if(!source_path.empty() && source_extension(source_path)==".asmz") {
-        const auto assembly=read_family_assembly(workspace,source_path,source_id);use_parameters(assembly);
+        const auto assembly=read_family_assembly(workspace,source_path,source_id,false);use_parameters(assembly);
     }
     return context;
 }

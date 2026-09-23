@@ -1,5 +1,6 @@
 #include <set>
 #include <zima/workspace/imported_feature_operations.hpp>
+#include <zima/workspace/body_operations.hpp>
 #include <algorithm>
 #include "dxf_export_test_support.hpp"
 #include <zima/command_host/host.hpp>
@@ -77,6 +78,35 @@ void verify_imported_properties(command_host::Host& host, workspace::Workspace& 
     require(run(host, "import.set", patch).data.at("changed") == true && get().at("placement").at("z") == 12,
         "Imported property patch did not move the feature");
     const auto rotated_spans=spans();
+    const auto exported_path=directory/(container+"-placed.step");
+    run(host,"export.step",{{"path",document::path_to_utf8(exported_path)}});
+    const auto reimported=interchange::import_step_part(document::PartDocument::create_default(),{},exported_path);
+    const auto bounds=[](const auto& vertices) {
+        kernel::Vec3 low{1e100,1e100,1e100},high{-1e100,-1e100,-1e100};
+        for(const auto& p:vertices) {
+            low={std::min(low.x,p.x),std::min(low.y,p.y),std::min(low.z,p.z)};
+            high={std::max(high.x,p.x),std::max(high.y,p.y),std::max(high.z,p.z)};
+        }
+        return std::array{low.x,low.y,low.z,high.x,high.y,high.z};
+    };
+    const auto expected_bounds=bounds(state.session.calculated_boundaries().back().mesh.vertices);
+    const auto exported_bounds=bounds(reimported.calculated.back().mesh.vertices);
+    for(std::size_t i=0;i<expected_bounds.size();++i)
+        require(std::abs(expected_bounds[i]-exported_bounds[i])<1e-6,
+            "STEP export lost imported feature translation or rotation");
+    auto body_edit=workspace::prepare_body_edit(state.session.document(),
+        state.session.document().body_owner_for_object(container)->scope.id);
+    auto moved_body=*body_edit.pending.find(body_edit.object_id);
+    moved_body.scope.placement.references.at(2).offset+=43;
+    require(workspace::commit_body_edit(live,kernel,body_edit,moved_body,true),"Body move failed");
+    const auto body_export=directory/(container+"-body-placed.step");
+    run(host,"export.step",{{"path",document::path_to_utf8(body_export)}});
+    const auto body_reimport=interchange::import_step_part(document::PartDocument::create_default(),{},body_export);
+    const auto expected_body=bounds(state.session.calculated_boundaries().back().mesh.vertices);
+    const auto actual_body=bounds(body_reimport.calculated.back().mesh.vertices);
+    for(std::size_t i=0;i<expected_body.size();++i)
+        require(std::abs(expected_body[i]-actual_body[i])<1e-6,"STEP export lost owning Body placement");
+    run(host,"undo");
     require(std::abs(rotated_spans.x-original_spans.y)<1e-7 &&
             std::abs(rotated_spans.y-original_spans.x)<1e-7 &&
             std::abs(rotated_spans.z-original_spans.z-12)<1e-7 && reference_ids()==original_ids,

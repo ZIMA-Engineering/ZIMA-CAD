@@ -15,6 +15,57 @@ commands::Result run(command_host::Host& host,const std::string& name,Json args=
 }
 void verify(const kernel::OcctKernel& kernel,fs::path directory) {
     {
+        workspace::Workspace live;command_host::Options options;
+        options.settings=[] {return command_host::Settings{{fs::absolute("config/templates"),"START_PART.prtz","START_ASSEMBLY.asmz","Body"},{}};};
+        command_host::Host host(live,kernel,directory,options);
+        run(host,"new",{{"type","part"},{"name","body-edge-projection"}});
+        const auto doc=live.active_document_id();
+        const auto box=run(host,"box.create",{{"length_mm","40"},{"width_mm","30"},{"height_mm","20"}}).data.at("container").get<std::string>();
+        const Json seed={{"owner",box},{"key","edge:x_max:y_min:z_max--x_max:y_min:z_min"}};
+        const auto chamfer=run(host,"chamfer.create",{{"routes",Json::array({Json{{"edges",Json::array({seed})}}})},{"distance_a_mm",2}}).data.at("container").get<std::string>();
+        auto* state=live.open_part(doc);
+        const auto& mesh=state->session.calculated_boundaries().back().mesh;
+        const auto changed=std::ranges::find_if(mesh.edges,[&](const auto& e) {
+            if(e.reference.owner_id!=box||e.points.size()<2||std::hypot(e.points.front().x-e.points.back().x,e.points.front().y-e.points.back().y)<1)return false;
+            const auto source=std::ranges::find_if(mesh.original_references.edges,[&](const auto& r){return r.reference==e.reference;});
+            return source!=mesh.original_references.edges.end()&&source->points!=e.points;
+        });
+        require(changed!=mesh.edges.end(),"Chamfer fixture lacks a trimmed edge with retained source identity");
+        const auto key=changed->reference.semantic_key;
+        const auto generated=std::ranges::find_if(mesh.edges,[&](const auto& e){return e.reference.owner_id==chamfer&&e.points.size()>=2&&std::hypot(e.points.front().x-e.points.back().x,e.points.front().y-e.points.back().y)>1;});
+        require(generated!=mesh.edges.end(),"Chamfer fixture lacks a generated body edge");
+        const auto generated_key=generated->reference.semantic_key;
+        const auto sketch=run(host,"sketch.create",{{"name","Body projection"}}).data.at("sketch").get<std::string>();
+        const auto command=[&](const char* name,Json args){args["sketch"]=sketch;return run(host,name,args).data;};
+        const auto original=command("sketch.reference.create",{{"kind","edge"},{"owner",box},{"key",key}}).at("reference").get<std::string>();
+        const auto projected=command("sketch.reference.create",{{"kind","edge"},{"owner",box},{"key",key},{"profile",true}}).at("reference").get<std::string>();
+        const auto reference=[&](const auto& s,const std::string& id)->const sketcher::SketchExternalReference& {
+            const auto r=std::ranges::find(s.external_references,id,&sketcher::SketchExternalReference::id);require(r!=s.external_references.end(),"Projection reference missing");return *r;
+        };
+        auto current=workspace::document_sketch(live,doc,sketch);
+        const auto original_points=reference(current,original).cached_points;
+        const auto body_points=reference(current,projected).cached_points;
+        require(!reference(current,original).body_edge&&reference(current,projected).body_edge&&original_points!=body_points,
+            "External Geometry used the untrimmed original edge");
+        require(std::ranges::all_of(current.external_references,[&](const auto& r){return r.id==original||r.body_edge;}),"Projected endpoint lost its body-edge source");
+        run(host,"save");
+        const auto reopened=document::PartDocument::load(directory/"body-edge-projection.prtz");
+        require(reference(reopened.sketches.back(),projected)==reference(current,projected),"Body edge mode did not survive native save/reopen");
+        const auto generated_sketch=run(host,"sketch.create",{{"name","Chamfer edge"}}).data.at("sketch").get<std::string>();
+        const auto generated_reference=run(host,"sketch.reference.create",{{"sketch",generated_sketch},{"kind","edge"},{"owner",chamfer},{"key",generated_key},{"profile",true}}).data.at("reference").get<std::string>();
+        run(host,"chamfer.set",{{"container",chamfer},{"distance_a_mm",4}});
+        current=workspace::document_sketch(live,doc,sketch);
+        require(!reference(current,projected).broken&&reference(current,projected).cached_points!=body_points&&reference(current,original).cached_points==original_points,
+            "Regeneration confused original references with body-edge geometry");
+        const auto generated_result=workspace::document_sketch(live,doc,generated_sketch);
+        require(reference(generated_result,generated_reference).body_edge&&!reference(generated_result,generated_reference).broken&&reference(generated_result,generated_reference).source_semantic_key==generated_key,
+            "Generated Chamfer edge identity did not survive regeneration");
+        run(host,"undo");current=workspace::document_sketch(live,doc,sketch);
+        require(reference(current,projected).cached_points==body_points,"Undo lost the projected body edge");
+        run(host,"redo");current=workspace::document_sketch(live,doc,sketch);
+        require(reference(current,projected).body_edge&&!reference(current,projected).broken,"Redo lost the body-edge source mode");
+    }
+    {
         auto part=document::PartDocument::create_default();auto box=document::PartDocument::create_box_container();box.box={30,30,30};part.history.push_back(box);
         auto thread=document::PartDocument::create_thread_container();thread.placement.z=-15;thread.thread.bore_length=20;thread.thread.length_forward=15;part.history.push_back(thread);
         const auto calculated=kernel.evaluate_history(part.kernel_operations());
@@ -152,8 +203,8 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
     spline.reference={box,"test-original-quarter-circle",{}};spline.points={{1,0,0},{0,1,0}};
     spline.exact_spline=kernel::BSplineGeometry{2,{{1,0,0},{1,1,0},{0,1,0}},{0,0,0,1,1,1},{1,std::sqrt(.5),1}};
     cached.back().mesh.original_references.edges.push_back(spline);state->session.commit(state->session.document(),std::move(cached));
-    auto rational=command("sketch.reference.create",{{"kind","edge"},{"owner",box},{"key",spline.reference.semantic_key},{"profile",true}});
-    const auto curve=rational.at("geometry").get<std::string>(),spline_ref=rational.at("reference").get<std::string>();
+    const auto spline_ref=command("sketch.reference.create",{{"kind","edge"},{"owner",box},{"key",spline.reference.semantic_key}}).at("reference").get<std::string>();
+    const auto curve=command("sketch.reference.project",{{"reference",spline_ref}}).at("geometry").get<std::string>();
     require(current().bsplines.size()==1,"Exact source was fitted to display samples");
     for(int i=0;i<=256;++i){const auto p=kernel::bspline_value(current().supporting_curve(curve),i/256.);require(std::abs(p.x*p.x+p.y*p.y-1)<1e-12,"Rational source lost exact weights");}
     const auto offset=command("sketch.offset.create",{{"source",curve},{"distance_mm",.1},{"flipped",true}}).at("geometry").get<std::string>();

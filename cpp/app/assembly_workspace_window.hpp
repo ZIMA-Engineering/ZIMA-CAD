@@ -278,6 +278,8 @@ private:
     QAction* helical_sweep_action_{};
     QAction* sweep2d_action_{};
     QAction* construction_axis_action_{};
+    QAction* cylinder_axis_action_{};
+    void show_cylinder_axis_properties(const std::string& id = {});
     QAction* construction_plane_action_{};
     QAction* extrusion_action_{};
     QAction* revolution_action_{};

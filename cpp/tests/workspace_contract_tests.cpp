@@ -22,6 +22,20 @@ void require(bool condition, const char* message) {
 
 int main() {
     try {
+#ifdef _WIN32
+        {
+            namespace fs=std::filesystem;
+            const auto part=zima::document::PartDocument::create_default();
+            const auto folder=fs::temp_directory_path()/("zima-file-identity-"+part.document_id);
+            fs::create_directories(folder);
+            const auto saved=folder/"UPPERCASE.PRTZ";part.save(saved);
+            zima::workspace::Workspace workspace;workspace.add_part(part,{},saved);
+            require(workspace.document_id_for_path(folder/"uppercase.prtz")==part.document_id,
+                "Windows filename casing reopened the same document as a duplicate");
+            require(!workspace.document_id_for_path(folder/"different.prtz"),"Missing file matched a different document");
+            fs::remove(saved);fs::remove(folder);
+        }
+#endif
         {
             namespace fs=std::filesystem;
             auto part=zima::document::PartDocument::create_default();
