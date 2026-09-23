@@ -66,6 +66,13 @@ V path_point(const BendFrame& f,const BendParameters& p,double fraction) {
     return add(add(f.anchor,scale(f.inward,(p.radius+p.thickness)*(1-std::cos(angle*fraction)))),
         scale(f.normal,(p.radius+p.thickness)*std::sin(angle*fraction)));
 }
+double end_extension(const BendParameters& p,double authored,std::size_t end,double fraction) {
+    if(!p.corner[end])return authored*fraction;
+    const double angle=p.angle_degrees*std::numbers::pi/180;
+    if(angle<=0||angle>=std::numbers::pi||!std::isfinite(p.corner_gap)||p.corner_gap<0||p.corner_gap>1)
+        throw std::invalid_argument("Corner closure requires an angle between 0 and 180 degrees and a gap from 0 to 1 mm.");
+    return (authored-p.corner_gap*.5)*std::sin(angle*fraction)/std::sin(angle);
+}
 const sketcher::SketchSegment* continuation(const sketcher::Sketch& path) {
     const sketcher::SketchSegment* result=nullptr;
     for(const auto& segment:path.segments)if(!segment.construction) {
@@ -385,6 +392,11 @@ BendParameters resolved_bend_parameters(const HistoryContainer& feature,const Sh
         throw std::invalid_argument("Bend inner radius must be between 0 and 1000000 mm.");
     if(!std::isfinite(p.angle_degrees)||p.angle_degrees<0||p.angle_degrees>180)
         throw std::invalid_argument("Bend angle must be between 0 and 180 degrees.");
+    if((p.corner[0]||p.corner[1])&&p.radius<=0)
+        throw std::invalid_argument("Corner closure requires a positive inner radius.");
+    if(!std::isfinite(p.corner_gap)||p.corner_gap<0||p.corner_gap>1||
+        ((p.corner[0]||p.corner[1])&&(p.angle_degrees<=0||p.angle_degrees>=180)))
+        throw std::invalid_argument("Corner closure requires an angle between 0 and 180 degrees and a gap from 0 to 1 mm.");
     // Validate stored overrides as well, even while their controls are disabled.
     validate_sheet_metal_defaults({feature.bend.thickness,feature.bend.k_factor});
     return p;
@@ -587,6 +599,33 @@ kernel::FeatureGroupRequest bend_request(const HistoryContainer& input,const ske
         section.profile.outer_vertex_source_ids=std::move(source.outer_vertex_source_ids);
         request.sections.push_back(std::move(section));
     }
+    if(p.corner[0]||p.corner[1]) {
+        auto original=request;
+        request.path_points.clear();request.path_point_ids.clear();request.path_segments.clear();request.sections.clear();
+        request.smooth_loft=true;
+        const double angle=p.angle_degrees*std::numbers::pi/180;
+        const int count=std::max(8,static_cast<int>(std::ceil(angle/(2*std::acos(1-std::min(.01/(p.radius+p.thickness),.1))))));
+        if(count>128)throw std::invalid_argument("Corner closure exceeds the supported sampling limit.");
+        for(int i=0;i<=count;++i) {
+            const double fraction=static_cast<double>(i)/count,a=angle*fraction;
+            const auto origin=path_point(f,p,fraction);
+            request.path_points.push_back(origin);
+            // Interior samples carry no persistent topology identity. The
+            // single loft retains the authored arc and terminal point parents.
+            request.path_point_ids.push_back(i==0?arc.start_point_id:i==count?arc.end_point_id:"transient-corner-station:"+std::to_string(i));
+            const auto inward=add(scale(f.inward,std::cos(a)),scale(f.normal,-std::sin(a)));
+            BendFrame section_frame=f;
+            section_frame.first=add(origin,scale(f.along,f.first_coordinate-end_extension(p,extension[0],0,fraction)));
+            section_frame.last=add(origin,scale(f.along,f.first_coordinate+f.width+end_extension(p,extension[1],1,fraction)));
+            section_frame.inward=inward;
+            kernel::ExtrusionRequest source;profile(source,feature,section_frame,p.thickness);
+            auto section=original.sections.front();section.point_index=i;section.point_id=request.path_point_ids.back();
+            section.profile_normal=cross(f.along,inward);section.profile.outer_profile=std::move(source.outer_profile);
+            request.sections.push_back(std::move(section));
+            if(i) {auto segment=original.path_segments.front();segment.start=request.path_points[i-1];segment.end=origin;
+                segment.arc_midpoint=path_point(f,p,(i-.5)/count);request.path_segments.push_back(std::move(segment));}
+        }
+    }
     if(straight_length>0) {
         const auto* segment=continuation(path);const auto& join=arc.end_point_id;
         const auto tip=segment->first_point_id==join?segment->second_point_id:segment->first_point_id;
@@ -630,7 +669,7 @@ kernel::ViewerMesh bend_preview(const HistoryContainer& input,const sketcher::Sk
     kernel::ViewerMesh mesh;mesh.axes=request.axes;
     const double angle=p.angle_degrees*std::numbers::pi/180;
     const auto point=[&](double along,bool inner,double fraction) {
-        along+=(along==0?-extension[0]:extension[1])*fraction;
+        along+=along==0?-end_extension(p,extension[0],0,fraction):end_extension(p,extension[1],1,fraction);
         auto result=add(f.first,scale(f.along,along));
         const double r=p.radius+(inner?0:p.thickness),a=angle*fraction;
         return add(add(result,scale(f.inward,p.radius+p.thickness-r*std::cos(a))),scale(f.normal,r*std::sin(a)));

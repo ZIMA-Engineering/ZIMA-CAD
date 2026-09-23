@@ -4,12 +4,104 @@
 #include <zima/workspace/metadata_operations.hpp>
 #include <zima/workspace/engineering_metadata_operations.hpp>
 #include <zima/workspace/sheet_state_operations.hpp>
+#include <zima/workspace/sheet_exchange_operations.hpp>
+#include <zima/workspace/export_operations.hpp>
+#include <zima/interchange/dxf.hpp>
 #include <zima/workspace/operation_input.hpp>
 #include "../sheet_state_dialog.hpp"
 #include "../sheet_state_selection.hpp"
+#include "../sheet_from_body_dialog.hpp"
+#include <zima/workspace/part_transactions.hpp>
 
 namespace zima::app {
 using namespace workspace_detail;
+
+void AssemblyWorkspaceWindow::show_sheet_from_body() {
+    if(properties_dialog_)return;
+    const auto document_id=workspace_.active_document_id();
+    const auto* part=workspace_.open_part(document_id);if(!part)return;
+    try {
+        const auto& source=part->session.document();
+        const auto* target=source.body_history.find(source.body_history.active_body_id());
+        if(!target||!target->entries.empty()||target->derived_copy)throw std::invalid_argument("Sheet from Body requires an empty active Body.");
+        const auto path=resolve_active_occurrence(document_id);if(!path)throw std::invalid_argument("Activate the exact Part occurrence first.");
+        const auto geometry=workspace::construction_reference_source_geometry(part->session.calculated_boundaries());
+        const auto& order=source.body_history.order();const auto target_position=std::ranges::find(order,target->scope.id);
+        auto offered=std::make_shared<std::map<std::pair<std::string,std::string>,kernel::FaceReference>>();
+        for(const auto& face:geometry.triangle_references) {
+            const auto* owner=source.body_owner_for_object(face.owner_id);
+            if(owner&&owner->visible&&std::ranges::find(order,owner->scope.id)<target_position&&face.instance_path.empty()&&face.surface&&face.surface->kind==kernel::SurfaceGeometry::Kind::Plane)
+                offered->emplace(std::pair{face.owner_id,face.semantic_key},face);
+        }
+        if(offered->empty())throw std::invalid_argument("Create the empty target Body after the source Body and show its planar faces.");
+        auto* dialog=new SheetFromBodyDialog(document::sheet_metal_defaults(source).thickness_mm.value_or(1.),
+            [this,document_id](auto face,double thickness) {
+                auto* state=workspace_.open_part(document_id);if(!state)throw std::invalid_argument("Sheet from Body requires a calculated source body.");
+                workspace::SheetBodyConversion result;
+                begin_status_operation(tr("Vytvářím plech z tělesa…"));
+                try {
+                    run_background_task([source=state->session.document(),cache=state->session.calculated_boundaries(),face,thickness,&result]{
+                        kernel::OcctKernel kernel;result=workspace::prepare_sheet_from_body(source,cache,face,thickness,kernel);
+                    });
+                    for(auto& feature:result.document.history)if(std::ranges::find(result.created,feature.id)!=result.created.end()) {
+                        feature.name=(feature.feature_kind==document::FeatureKind::Flat?tr("Tabule"):tr("Profil plechu")).toStdString();
+                        for(auto& sketch:result.document.sketches)if(sketch.owner_container_id==feature.id)sketch.name=feature.name;
+                    }
+                    workspace::commit_part_document(workspace_,document_id,std::move(result.document),std::move(result.calculated));
+                    finish_status_operation(tr("Vytvořeno prvků plechu: %1. Přeskočeno ploch: %2.").arg(result.created.size()).arg(result.skipped));
+                }catch(...){finish_status_operation(tr("Převod tělesa na plech se nezdařil."),false);throw;}
+            },this);
+        properties_dialog_=dialog;properties_dialog_instance_path_=*path;track_tree_edit(dialog);
+        const auto candidate_face=[offered,path=*path](const viewer::ViewerCandidate& candidate)->std::optional<kernel::FaceReference> {
+            if(candidate.kind!=viewer::CandidateKind::Face||candidate.instance_path!=path)return {};
+            const auto found=offered->find({candidate.owner_id,candidate.semantic_key});return found==offered->end()?std::nullopt:std::optional{found->second};
+        };
+        dialog->changed=[this,dialog,candidate_face,path=*path] {
+            viewer_->set_original_face_selection(true);viewer_->set_selection_contract({viewer::CandidateKind::Face});
+            viewer_->set_candidate_filter([dialog,candidate_face](const auto& candidate){return dialog->active()&&candidate_face(candidate).has_value();});
+            std::set<viewer::EdgeKey> highlights;
+            if(dialog->inspected()&&dialog->selected())highlights.insert({dialog->selected()->owner_id,dialog->selected()->semantic_key,path});
+            viewer_->set_constraint_reference_highlights({},std::move(highlights));
+            tree_->setProperty("commandSelectionActive",dialog->active());
+        };
+        feature_reference_pick_=[this,dialog,candidate_face,document_id](const auto& candidate) {
+            if(!dialog->active())return;const auto face=candidate_face(candidate);if(!face)return;
+            double thickness=0;
+            if(const auto* part=workspace_.open_part(document_id);part&&!part->session.calculated_boundaries().empty())
+                thickness=workspace::suggest_sheet_thickness(part->session.calculated_boundaries().back().mesh,*face);
+            dialog->set_reference(*face,thickness);viewer_->clear_selection();
+        };
+        feature_reference_end_=[dialog]{dialog->end_entry();};
+        connect(dialog,&QDialog::finished,this,[this,dialog] {
+            dialog->changed={};feature_reference_pick_={};feature_reference_end_={};properties_dialog_=nullptr;properties_dialog_instance_path_.clear();
+            viewer_->set_candidate_filter({});viewer_->set_selection_contract({});viewer_->set_original_face_selection(false);
+            viewer_->set_constraint_reference_highlights({},{});viewer_->clear_selection();tree_->setProperty("commandSelectionActive",false);
+            preserve_view_on_refresh_=true;refresh_tabs();refresh_scene();
+        });
+        preserve_view_on_refresh_=true;refresh_scene();dialog->show();dialog->changed();
+    }catch(const std::exception& error){state_->setText(tr(error.what()));}
+}
+
+void AssemblyWorkspaceWindow::export_sheet_dxf() {
+    if(properties_dialog_)return;
+    const auto* part=workspace_.open_part(workspace_.active_document_id());if(!part)return;
+    try {
+        if(part->path.empty())throw std::invalid_argument("Save the Part before exporting sheet DXF.");
+        const auto folder=QDir::fromNativeSeparators(application_settings_.drawing_dxf_directory);
+        if(folder.trimmed().isEmpty()||QDir::isAbsolutePath(folder)||folder.contains(':'))
+            throw std::invalid_argument("The DXF folder must be relative to the Part file.");
+        const auto directory=std::filesystem::absolute(part->path).parent_path()/std::filesystem::path(folder.toStdWString());
+        const auto target=directory/std::filesystem::path(part->path.stem().wstring()+L".dxf");
+        begin_status_operation(tr("Exportuji rozvin plechu do DXF…"));
+        run_background_task([document=part->session.document(),cache=part->session.calculated_boundaries(),directory,target] {
+            kernel::OcctKernel kernel;
+            const auto prepared=workspace::prepare_sheet_dxf(document,cache,kernel);
+            std::filesystem::create_directories(directory);
+            workspace::write_export_file(target,true,[&](const auto& file){interchange::export_dxf(file,prepared.contour);});
+        });
+        finish_status_operation(tr("Export uložen: %1").arg(QString::fromStdWString(target.wstring())));
+    }catch(const std::exception& error){finish_status_operation(tr(error.what()),false);}
+}
 
 void AssemblyWorkspaceWindow::show_sheet_state_properties(bool unfold,const std::string& container_id) {
     if(properties_dialog_)return;

@@ -612,6 +612,8 @@ struct TwistedSheetParameters {
     const TwistedSheetParameters& parameters);
 
 struct BendParameters {
+    std::array<bool,2> corner{};
+    double corner_gap{0.05};
     std::string sketch_id;
     bool sheet_attachment{};
     // Path and end profile; the start profile is the ordinary owned Sketch.

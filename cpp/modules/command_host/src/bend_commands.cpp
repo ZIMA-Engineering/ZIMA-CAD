@@ -21,6 +21,7 @@ Json details(const workspace::PartState& state,const document::HistoryContainer&
         {"path_sketch",sketcher::Sketch::from_serialized(p.auxiliary_sketches[0]).id},
         {"end_sketch",sketcher::Sketch::from_serialized(p.auxiliary_sketches[1]).id},
         {"first_extension_mm",extensions[0]},{"last_extension_mm",extensions[1]},
+        {"corner_first",p.corner[0]},{"corner_last",p.corner[1]},{"corner_gap_mm",p.corner_gap},
         {"thickness_mm",p.thickness},{"k_factor",p.k_factor},{"thickness_override",p.thickness_override},
         {"k_factor_override",p.k_factor_override},{"radius_follows_thickness",p.radius_follows_thickness},
         {"revision",state.session.revision()}};
@@ -60,8 +61,8 @@ void Host::register_bend_commands() {
         // The GUI and console use the same atomic workspace operation.
         if(!create)arguments.push_back({"container",true});
         if(create)arguments.push_back({"width_mm",false,Type::Number});
-        for(const auto* key:{"radius_mm","angle_degrees","thickness_mm","k_factor","first_extension_mm","last_extension_mm"})arguments.push_back({key,false,Type::Number});
-        for(const auto* key:{"thickness_override","k_factor_override","radius_follows_thickness","origin_last"})arguments.push_back({key,false,Type::Boolean});
+        for(const auto* key:{"radius_mm","angle_degrees","thickness_mm","k_factor","first_extension_mm","last_extension_mm","corner_gap_mm"})arguments.push_back({key,false,Type::Number});
+        for(const auto* key:{"thickness_override","k_factor_override","radius_follows_thickness","origin_last","corner_first","corner_last"})arguments.push_back({key,false,Type::Boolean});
         for(const auto* key:{"name","document","edge_owner","edge_key"})arguments.push_back({key,false});
         dispatcher_.add({create?"bend.create":"bend.set",tr("Create or edit a Sheet Profile."),arguments,true},[this,create](const Json& args){
             if(auto result=target(args);!result.ok)return result;
@@ -87,6 +88,9 @@ void Host::register_bend_commands() {
                     const double next=args.at(key);if(feature.value_locks.contains(lock)&&next!=value)throw std::invalid_argument("Unlock the dimension before changing it.");value=next;};
                 number("radius_mm","radius",feature.bend.radius);number("angle_degrees","angle",feature.bend.angle_degrees);
                 number("thickness_mm","thickness",feature.bend.thickness);number("k_factor","k_factor",feature.bend.k_factor);
+                if(args.contains("corner_first"))feature.bend.corner[0]=args.at("corner_first");
+                if(args.contains("corner_last"))feature.bend.corner[1]=args.at("corner_last");
+                if(args.contains("corner_gap_mm"))feature.bend.corner_gap=args.at("corner_gap_mm");
                 if(args.contains("thickness_mm"))feature.bend.thickness_override=true;
                 if(args.contains("k_factor"))feature.bend.k_factor_override=true;
                 if(args.contains("thickness_override"))feature.bend.thickness_override=args.at("thickness_override");

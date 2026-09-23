@@ -15,6 +15,7 @@
 #include "console_ui_verification.hpp"
 #include "sketch_offset_dialog.hpp"
 #include "sheet_state_dialog.hpp"
+#include "sheet_from_body_dialog.hpp"
 #include <zima/drawing/drawing_template.hpp>
 #include "sketch_text_properties_dialog.hpp"
 #include <nlohmann/json.hpp>
@@ -4059,6 +4060,7 @@ int verify_owned_profile_external_reference(QApplication& application,const std:
     std::cout<<"Owned profile external reference, projection, Cancel and OK persistence passed\n";return 0;
 }
 
+#include "sheet_corner_ui_verification.inc"
 int verify_application_tools_ui(QApplication& application,const std::filesystem::path& directory) {
     using namespace zima;
     try {
@@ -8184,6 +8186,7 @@ int verify_selection_filter(QApplication& application,
 #include "application_lifecycle_ui_verification.inc"
 #include "new_document_ui_verification.inc"
 #include "cylinder_axis_ui_verification.inc"
+#include "sheet_exchange_ui_verification.inc"
 #include "symbol_ui_verification.inc"
 
 int verify_startup_contract(
@@ -8225,6 +8228,8 @@ int verify_startup_contract(
             return 1;
         }
     }
+    if (qEnvironmentVariableIsSet("ZIMA_VERIFY_SHEET_EXCHANGE")) return verify_sheet_exchange_ui(application,test_directory);
+    if (qEnvironmentVariableIsSet("ZIMA_VERIFY_SHEET_CORNER_FILE")) return verify_sheet_corner_ui(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_SHEET_STATE_ONLY")) return verify_sheet_state_ui(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_CONSOLE_ONLY")) return zima::app::verify_command_console(application,window,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_PROFILE_OFFSET_PLANE_ONLY")) return verify_profile_offset_dimension_plane(application,test_directory);

@@ -280,9 +280,16 @@ inline std::vector<ViewerAxis> bend_lines(const std::vector<HistoryOperation>& o
         const Sweep3DRequest* sweep=nullptr;
         if(group)for(const auto& child:group->children)if(const auto* candidate=std::get_if<Sweep3DRequest>(&child))
             if(std::ranges::any_of(candidate->path_segments,[&](const auto& segment){return segment.source_id==region.curved_source_id;}))sweep=candidate;
-        if(!sweep||sweep->sections.size()!=2)throw std::runtime_error("Bend line requires its authored start and end sections.");
+        if(!sweep||sweep->sections.size()<2)throw std::runtime_error("Bend line requires its authored start and end sections.");
+        const double middle_length=source->sheet_material->angle*source->sheet_material->neutral_radius/2;
+        const auto station_length=[&](const auto& section){return coordinates(*source->sheet_material,sweep->path_points.at(section.point_index)).length;};
+        std::size_t upper=1;
+        while(upper+1<sweep->sections.size()&&station_length(sweep->sections[upper])<middle_length)++upper;
+        const double first_length=station_length(sweep->sections[upper-1]),last_length=station_length(sweep->sections[upper]);
+        const double blend=last_length>first_length?std::clamp((middle_length-first_length)/(last_length-first_length),0.,1.):.5;
         double low=0,high=0;
-        for(const auto& section:sweep->sections) {
+        for(const auto index:{upper-1,upper}) {
+            const auto& section=sweep->sections[index];const double weight=index==upper?blend:1-blend;
             const auto* polygon=std::get_if<ExtrusionRequest::PolygonProfile>(&section.profile.outer_profile);
             if(!polygon||polygon->vertices.empty())throw std::runtime_error("Bend line section is missing.");
             double a=INFINITY,b=-INFINITY;
@@ -290,7 +297,7 @@ inline std::vector<ViewerAxis> bend_lines(const std::vector<HistoryOperation>& o
                 const double u=dot(sub(p,source->sheet_material->origin),source->sheet_material->along);
                 a=std::min(a,u);b=std::max(b,u);
             }
-            low+=a*.5;high+=b*.5;
+            low+=a*weight;high+=b*weight;
         }
         result.push_back({point(region,{(low+high)/2,region.angle*region.neutral_radius/2,-region.thickness}),
             region.along,high-low,{owner,"sheet-bend-line:from:"+region.owner_id+":"+region.curved_source_id,{}},"Osa ohybu"});

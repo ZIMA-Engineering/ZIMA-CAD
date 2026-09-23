@@ -542,6 +542,12 @@ void AssemblyWorkspaceWindow::show_sketch_properties(const std::string& sketch_i
             part_rollback_.reset();
             properties_dialog_instance_path_.clear();
             sweep_profile_sketch_draft_.reset(); embedded_sketch_finished_ = {};
+            // Retire this feature's editing dimensions before rebuilding the
+            // normal scene, otherwise its saved auxiliary Sketches add them
+            // back immediately after the preview is removed.
+            construction_dimension_object_id_.clear();
+            parameter_dimension_preview_.reset();
+            viewer_->set_transient_dimensions({});
         }
         properties_dialog_ = nullptr;
         primitive_reference_dialog_ = nullptr;

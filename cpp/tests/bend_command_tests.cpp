@@ -1,5 +1,6 @@
 #include <zima/command_host/host.hpp>
 #include <zima/document/bend.hpp>
+#include <zima/kernel/sheet_material.hpp>
 #include <zima/document/viewer_packet_json.hpp>
 #include <zima/drawing/measurement_dimension.hpp>
 #include <zima/workspace/bend_operations.hpp>
@@ -519,6 +520,23 @@ void verify(std::filesystem::path directory) {
     const double pi=std::numbers::pi;
     const double initial_k=created.at("k_factor");
     near(volume(),40*pi/2*(36-25)/2); // Annular sector: width * angle * (Ro²-Ri²)/2.
+    for(const auto angle:{60.,90.,120.}) {
+        run(host,"bend.set",{{"container",owner},{"corner_first",true},{"corner_last",false},{"corner_gap_mm",.05},{"angle_degrees",angle}});
+        const auto corner_volume=volume();check(corner_volume>0,"Corner command produced an empty body");
+        const auto details=run(host,"bend.get",{{"container",owner}}).data;
+        check(details.at("corner_first")==true&&details.at("corner_last")==false,"Corner command lost independent ends");
+        for(const auto& edge:state->session.calculated_boundaries().back().mesh.original_references.edges)
+            check(edge.reference.semantic_key.find("transient-corner")==std::string::npos,"Corner sampling leaked into persistent identity");
+        run(host,"undo");run(host,"redo");near(volume(),corner_volume);
+    }
+    const auto before_invalid=state->session.document().serialized();
+    check(!host.execute({{"command","bend.set"},{"arguments",{{"container",owner},{"radius_mm",0.}}}}).ok,"Corner closure accepted a zero radius");
+    check(!host.execute({{"command","bend.set"},{"arguments",{{"container",owner},{"angle_degrees",180.}}}}).ok,"Corner closure accepted a hem");
+    check(state->session.document().serialized()==before_invalid,"Invalid corner edit modified the document");
+    run(host,"save");
+    check(document::PartDocument::load(directory/"bend-test.prtz").find_container(owner)->bend.corner[0],"Corner flag did not survive native save");
+    run(host,"bend.set",{{"container",owner},{"corner_first",false},{"corner_last",false},{"angle_degrees",90.}});
+    near(volume(),40*pi/2*(36-25)/2);
     {
         const auto unchanged=*state->session.document().find_container(owner);
         const auto unchanged_profile=workspace::document_sketch(live,id,unchanged.bend.sketch_id);
@@ -1458,6 +1476,105 @@ void verify_sheet_revolution(std::filesystem::path directory) {
 #include "sheet_cut_actual_verification.inc"
 
 int main(int argc,char** argv) {
+    if(argc==3&&std::string_view(argv[1])=="--verify-corner-prototype") {
+        try {
+            auto part=document::PartDocument::load(argv[2]);
+            for(bool corner:{false,true}) {
+                for(auto& feature:part.history)if(feature.feature_kind==document::FeatureKind::Bend) {
+                    const auto ends=document::bend_profile_extensions(feature);
+                    feature.bend.corner={corner&&ends[0]>0,corner&&ends[1]>0};
+                }
+                kernel::OcctKernel local_kernel;const auto start=std::chrono::steady_clock::now();
+                auto operations=part.kernel_operations();
+                const auto result=local_kernel.evaluate_history(operations);
+                std::cout<<"corner="<<corner<<" seconds="<<std::chrono::duration<double>(std::chrono::steady_clock::now()-start).count()
+                    <<" volume="<<result.back().volume<<" boundaries="<<result.size()<<std::endl;
+                check(result.back().volume>0,"Corner prototype produced no material");
+                if(!corner) {
+                    std::filesystem::create_directories("build/sheet-corner");
+                    part.save("build/sheet-corner/PLECH-BASELINE.prtz",result);
+                }
+                if(corner) {
+                    const auto reopened=document::PartDocument::from_serialized(part.serialized(result));
+                    check(reopened.serialized()==part.serialized(),"Corner settings failed native round trip");
+                    std::filesystem::create_directories("build/sheet-corner");
+                    part.save("build/sheet-corner/PLECH-CORNER.prtz",result);
+                    double max_error=0,max_overrun=0,max_depth_error=0;std::size_t samples=0;
+                    for(std::size_t op=0;op<operations.size();++op)if(operations[op].sheet_material&&
+                        operations[op].sheet_material->kind==kernel::SheetMaterialDefinition::Kind::Cylinder) {
+                        const auto& material=*operations[op].sheet_material;
+                        const auto& feature=*part.find_container(operations[op].owner_id);
+                        const auto& start=*std::ranges::find(part.sketches,feature.bend.sketch_id,&sketcher::Sketch::id);
+                        const auto& line=*std::ranges::find_if(start.segments,[](const auto& s){return !s.construction;});
+                        const auto extensions=document::bend_profile_extensions(feature);
+                        for(std::size_t end=0;end<2;++end)if(feature.bend.corner[end]) {
+                            const auto& point_id=end?line.second_point_id:line.first_point_id;
+                            const auto* point=start.find_point(point_id);
+                            const auto base=kernel::sheet_material::coordinates(material,start.world_point(point->x,point->y)).along;
+                            for(const auto& edge:result.back().mesh.original_references.edges)if(edge.reference.owner_id==feature.id&&
+                                edge.reference.semantic_key.starts_with("sweep:"+material.curved_source_id+":")&&
+                                edge.reference.semantic_key.ends_with(point_id))for(const auto& point:edge.points) {
+                                const auto c=kernel::sheet_material::coordinates(material,point);
+                                const bool outer=edge.reference.semantic_key.find(":outer:from:")!=std::string::npos;
+                                max_depth_error=std::max(max_depth_error,std::abs(c.depth-(outer?0:-material.thickness)));
+                                const double theta=c.length/material.neutral_radius;
+                                const double ideal=(extensions[end]-feature.bend.corner_gap*.5)*std::sin(theta)/std::sin(material.angle);
+                                const double actual=(c.along-base)*(end?1:-1);
+                                max_error=std::max(max_error,std::abs(actual-ideal));max_overrun=std::max(max_overrun,actual-ideal);++samples;
+                            }
+                        }
+                    }
+                    std::cout<<"corner curve samples="<<samples<<" max error="<<max_error<<" max overrun="<<max_overrun<<" depth error="<<max_depth_error<<std::endl;
+                    check(samples>10&&max_error<.01&&max_depth_error<.005,"Corner outline or thickness exceeded its approximation allowance");
+                    std::vector<kernel::BodyResult> profiles;
+                    for(auto operation:operations)if(operation.sheet_material&&operation.sheet_material->kind==kernel::SheetMaterialDefinition::Kind::Cylinder) {
+                        operation.body={};operation.sheet_material.reset();operation.sheet_operation=kernel::SheetOperation::None;
+                        profiles.push_back(local_kernel.evaluate_history({operation}).back());
+                    }
+                    check(profiles.size()==2,"Corner contact fixture needs two profiles");
+                    const auto without_overlap=local_kernel.subtract_bodies(profiles[0],profiles[1],{},{},1e-7);
+                    const double overlap=profiles[0].volume-without_overlap.volume;
+                    std::cout<<"corner overlap volume="<<overlap<<std::endl;
+                    check(std::abs(overlap)<1e-5,"Corner profiles penetrate each other");
+                }
+                kernel::HistoryOperation unbend;unbend.owner_id="corner-unbend";unbend.primitive=kernel::SheetStateRequest{};
+                unbend.body=operations.back().body;operations.push_back(unbend);
+                const auto unfolded=local_kernel.evaluate_history(operations);
+                std::cout<<"unfolded volume="<<unfolded.back().volume<<std::endl;
+                kernel::HistoryOperation back=unbend;back.owner_id="corner-back";
+                std::get<kernel::SheetStateRequest>(back.primitive).unfold=false;operations.push_back(back);
+                const auto folded=local_kernel.evaluate_history(operations);
+                std::cout<<"refolded volume="<<folded.back().volume<<std::endl;
+                check(std::abs(folded.back().volume-result.back().volume)<.1,"Corner round trip changed volume");
+                if(corner) {
+                    using namespace kernel::sheet_material;
+                    operations.resize(result.size());
+                    const auto material_operation=std::ranges::find_if(operations.rbegin(),operations.rend(),[](const auto& op){return op.sheet_material&&op.sheet_material->kind==kernel::SheetMaterialDefinition::Kind::Cylinder;});
+                    check(material_operation!=operations.rend(),"Corner fixture has no cylindrical material");
+                    const auto material=*material_operation->sheet_material;
+                    const auto& group=std::get<kernel::FeatureGroupRequest>(material_operation->primitive);
+                    const auto& sweep=std::get<kernel::Sweep3DRequest>(group.children.front());
+                    const auto& polygon=std::get<kernel::ExtrusionRequest::PolygonProfile>(sweep.sections.front().profile.outer_profile);
+                    const double along=(coordinates(material,polygon.vertices.front()).along+coordinates(material,polygon.vertices[1]).along)*.5;
+                    const Coordinate at{along,material.angle*material.neutral_radius*.5,0};const auto center=point(material,at);const auto axes=basis(material,at);
+                    kernel::ExtrusionRequest cutter;kernel::ExtrusionRequest::PolygonProfile rectangle;
+                    for(auto xy:{std::pair{-1.,-1.},std::pair{1.,-1.},std::pair{1.,1.},std::pair{-1.,1.}})
+                        rectangle.vertices.push_back(add(center,add(mul(axes[0],xy.first),mul(axes[1],xy.second))));
+                    cutter.outer_profile=std::move(rectangle);cutter.direction=mul(axes[2],16);cutter.start_offset=-8;
+                    cutter.sheet_cut=true;cutter.sheet_cut_tolerance=.05;cutter.profile_region_id="corner-cut-profile";cutter.outer_boundary_id="corner-cut-boundary";
+                    cutter.outer_edge_source_ids={"bottom","right","top","left"};cutter.outer_vertex_source_ids={"bottom-left","bottom-right","top-right","top-left"};
+                    kernel::HistoryOperation cut;cut.owner_id="corner-cut";cut.primitive=cutter;cut.operation=kernel::BooleanOperation::Subtract;cut.body=operations.back().body;
+                    operations.push_back(cut);const auto cut_result=local_kernel.evaluate_history(operations);
+                    check(cut_result.back().volume<result.back().volume-1,"Sheet Cut did not remove corner-profile material");
+                    operations.push_back(unbend);static_cast<void>(local_kernel.evaluate_history(operations));operations.push_back(back);
+                    const auto cut_folded=local_kernel.evaluate_history(operations);
+                    check(std::abs(cut_folded.back().volume-cut_result.back().volume)<.1,"Cut corner round trip changed volume");
+                    std::cout<<"sheet cut and cut-state round trip passed"<<std::endl;
+                }
+            }
+            return 0;
+        }catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}
+    }
     if(argc==3&&std::string_view(argv[1])=="--verify-sheet-cut") {
         try{verify_actual_sheet_cut_copy(std::filesystem::path(argv[2]));return 0;}
         catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}

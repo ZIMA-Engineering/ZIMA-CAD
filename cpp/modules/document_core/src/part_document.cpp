@@ -1331,14 +1331,41 @@ zima::kernel::ExtrusionRequest extrusion_request(
         !profile_arcs.empty()||!profile_elliptical_arcs.empty()||!profile_splines.empty();
     const bool mixed_ellipses=!profile_ellipses.empty()&&
         (profile_ellipses.size()>1||has_nonelliptic_profile||has_modeling_text);
-    if ((has_modeling_text && has_ordinary_profile) || mixed_ellipses) {
+    // Separate native curved loops (for example several slots) use the same
+    // exact nesting, crossing validation and ancestry path as mixed profiles.
+    std::vector<std::set<std::string>> curve_groups;
+    if(!profile_arcs.empty()||!profile_elliptical_arcs.empty()||!profile_splines.empty()) {
+        std::map<std::string,std::set<std::string>> ends;
+        for(const auto* c:profile_segments)ends[c->id]={c->first_point_id,c->second_point_id};
+        for(const auto* c:profile_arcs)ends[c->id]={c->start_point_id,c->end_point_id};
+        for(const auto* c:profile_elliptical_arcs)ends[c->id]={c->start_point_id,c->end_point_id};
+        for(const auto* c:profile_splines)if(!c->control_point_ids.empty())ends[c->id]={c->control_point_ids.front(),c->control_point_ids.back()};
+        for(const auto* c:profile_circles)ends[c->id]={};
+        while(!ends.empty()) {
+            std::set<std::string> group{ends.begin()->first},points=ends.begin()->second;ends.erase(ends.begin());
+            bool changed=true;while(changed){changed=false;for(auto it=ends.begin();it!=ends.end();) {
+                if(std::ranges::any_of(it->second,[&](const auto& id){return points.contains(id);})) {
+                    group.insert(it->first);points.insert(it->second.begin(),it->second.end());it=ends.erase(it);changed=true;
+                }else ++it;
+            }}curve_groups.push_back(std::move(group));
+        }
+    }
+    const bool multiple_curved_loops=curve_groups.size()>1;
+    if ((has_modeling_text && has_ordinary_profile) || mixed_ellipses || multiple_curved_loops) {
         // Compose exact loops through the same nesting/ancestry contract used
         // by text and ordinary geometry. Ellipses remain analytic kernel loops.
         std::vector<zima::kernel::ExtrusionRequest> partial_requests;
         auto ordinary_sketch = sketch;
         ordinary_sketch.texts.clear();
         if(mixed_ellipses)ordinary_sketch.ellipses.clear();
-        if(has_nonelliptic_profile || (!mixed_ellipses&&!profile_ellipses.empty()))
+        if(multiple_curved_loops) {
+            for(const auto& group:curve_groups) {
+                auto one=ordinary_sketch;
+                const auto remove=[&](auto& curves){std::erase_if(curves,[&](const auto& curve){return !group.contains(curve.id);});};
+                remove(one.segments);remove(one.arcs);remove(one.elliptical_arcs);remove(one.bsplines);remove(one.circles);one.ellipses.clear();
+                partial_requests.push_back(extrusion_request(one,height,direction_mode));
+            }
+        }else if(has_nonelliptic_profile || (!mixed_ellipses&&!profile_ellipses.empty()))
             partial_requests.push_back(extrusion_request(ordinary_sketch,height,direction_mode));
         auto isolated=sketch;
         isolated.segments.clear();isolated.circles.clear();isolated.arcs.clear();
@@ -10182,6 +10209,10 @@ PartDocument PartDocument::from_serialized(const nlohmann::json& root,
             p.thickness=b.at("thickness");p.k_factor=b.at("k_factor");
             p.thickness_override=b.at("thickness_override");p.k_factor_override=b.at("k_factor_override");
             p.radius_follows_thickness=b.at("radius_follows_thickness");
+            if(b.contains("corner_closure")) {
+                const auto& corner=b.at("corner_closure");
+                p.corner=corner.at("ends").get<std::array<bool,2>>();p.corner_gap=corner.at("gap");
+            }
             p.sheet_attachment=b.at("sheet_attachment");
             p.auxiliary_sketches=b.at("auxiliary_sketches").get<std::array<std::string,2>>();
             for(const auto& data:p.auxiliary_sketches) {
@@ -11345,6 +11376,8 @@ nlohmann::json PartDocument::serialized(
                 {"k_factor_override",p.k_factor_override},{"radius_follows_thickness",p.radius_follows_thickness},
                 {"auxiliary_sketches",p.auxiliary_sketches},
                 {"sheet_attachment",p.sheet_attachment}};
+            if(p.corner[0]||p.corner[1]||p.corner_gap!=.05)
+                serialized["bend"]["corner_closure"]={{"ends",p.corner},{"gap",p.corner_gap}};
         } else if (container.feature_kind == FeatureKind::Holes) {
             serialized["sketch_id"] = container.holes.sketch_id;
             serialized["diameter"] = container.holes.diameter;

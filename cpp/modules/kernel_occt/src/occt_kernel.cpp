@@ -107,6 +107,8 @@
 #include <TColgp_Array2OfPnt.hxx>
 #include <TColStd_HArray1OfReal.hxx>
 #include <zima/kernel/sheet_material.hpp>
+#include <GeomConvert_SurfToAnaSurf.hxx>
+#include <GeomAdaptor_Surface.hxx>
 #include <GeomAPI_ProjectPointOnSurf.hxx>
 #include <TColgp_HArray1OfPnt.hxx>
 #include <TColgp_HArray1OfPnt2d.hxx>
@@ -2197,7 +2199,7 @@ PrimitiveData make_sweep3d_data(
                 const auto authored=TopExp::FirstVertex(station.edges[e],true);
                 const auto position=BRep_Tool::Pnt(authored);
                 const auto vertex_semantic="sweep:vertex:"+
-                    std::string(start?"start":"end")+":at:"+
+                    (request.canonical_station_ids.contains(request.path_point_ids[index])?std::string{}:std::string(start?"start:":"end:"))+"at:"+
                     request.path_point_ids[index]+":profile:"+
                     station.profile_id+":from:"+station.point_ids[e];
                 for(TopExp_Explorer vertices(builder.Shape(),TopAbs_VERTEX);
@@ -3491,6 +3493,23 @@ PrimitiveData make_sheet_cut_data(const PrimitiveData& projection,
         if(!found)continue;
         const bool twisted_source=source.reference.semantic_key.find("twist:")!=
             std::string::npos;
+        // A sampled Sheet Profile loft retains a cylindrical skin. Resolve
+        // its analytic support only during this explicit cut calculation.
+        if(!twisted_source&&BRepAdaptor_Surface(face).GetType()==GeomAbs_BSplineSurface) {
+            BRepAdaptor_Surface original(face);
+            GeomConvert_SurfToAnaSurf conversion(BRep_Tool::Surface(face));
+            const auto analytic=conversion.ConvertToAnalytical(tolerance,
+                original.FirstUParameter(),original.LastUParameter(),
+                original.FirstVParameter(),original.LastVParameter());
+            if(!analytic.IsNull()&&GeomAdaptor_Surface(analytic).GetType()==GeomAbs_Cylinder) {
+                BRepBuilderAPI_MakeFace converted(analytic,BRepTools::OuterWire(face),true);
+                for(TopExp_Explorer wires(face,TopAbs_WIRE);wires.More();wires.Next())
+                    if(!wires.Current().IsSame(BRepTools::OuterWire(face)))converted.Add(TopoDS::Wire(wires.Current()));
+                if(converted.IsDone()) {
+                    const auto orientation=face.Orientation();face=converted.Face();face.Orientation(orientation);
+                }
+            }
+        }
         if(BRepAdaptor_Surface(face).GetType()!=GeomAbs_Plane&&
            BRepAdaptor_Surface(face).GetType()!=GeomAbs_Cylinder&&
            BRepAdaptor_Surface(face).GetType()!=GeomAbs_Cone&&

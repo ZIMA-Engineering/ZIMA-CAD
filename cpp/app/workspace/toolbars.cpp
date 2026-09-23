@@ -365,6 +365,12 @@ void AssemblyWorkspaceWindow::rebuild_application_toolbar() {
             }
             properties->setEnabled(!properties_dialog_ || properties_dialog_->objectName()=="fileSettingsDialog");
             add_command(properties,false);add_group_separator();
+            auto* convert=findChild<QAction*>("sheetFromBodyAction");
+            if(!convert){convert=new QAction(resource_icon("sheet-from-body"),tr("Plech z tělesa"),this);convert->setObjectName("sheetFromBodyAction");
+                connect(convert,&QAction::triggered,this,[this]{show_sheet_from_body();});}
+            const auto& part=workspace_.open_part(workspace_.active_document_id())->session.document();
+            const auto* body=part.body_history.find(part.body_history.active_body_id());
+            convert->setEnabled(!properties_dialog_&&body&&body->entries.empty()&&!body->derived_copy);add_command(convert);
             auto* flat=findChild<QAction*>("flatAction");
             if(!flat) {
                 flat=new QAction(resource_icon("flat"),tr("Tabule"),this);flat->setObjectName("flatAction");
@@ -407,6 +413,10 @@ void AssemblyWorkspaceWindow::rebuild_application_toolbar() {
                 action->setEnabled(!properties_dialog_);add_command(action);
                 if(!unfold)add_group_separator();
             }
+            auto* dxf=findChild<QAction*>("sheetDxfAction");
+            if(!dxf){dxf=new QAction(resource_icon("export-dxf"),tr("DXF"),this);dxf->setObjectName("sheetDxfAction");
+                connect(dxf,&QAction::triggered,this,[this]{export_sheet_dxf();});}
+            dxf->setEnabled(!properties_dialog_);add_command(dxf);
             return;
         }
     }

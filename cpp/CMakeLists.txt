@@ -297,6 +297,8 @@ add_library(zima_workspace modules/workspace/src/workspace.cpp
     modules/workspace/src/holes_operations.cpp
     modules/workspace/src/bend_operations.cpp
     modules/workspace/src/sheet_state_operations.cpp
+    modules/workspace/src/sheet_exchange_operations.cpp
+    modules/workspace/src/sheet_body_conversion.cpp
     modules/workspace/src/flat_operations.cpp
     modules/workspace/src/opening_component_operations.cpp
     modules/workspace/src/template_operations.cpp modules/workspace/src/template_object_operations.cpp
@@ -377,6 +379,7 @@ target_link_libraries(zima_command_host PUBLIC zima_commands zima_workspace)
 target_compile_options(zima_command_host PUBLIC $<$<CXX_COMPILER_ID:MSVC>:/utf-8>)
 
 add_library(zima_kernel_occt
+    modules/kernel_occt/src/sheet_exchange.cpp
     modules/kernel_occt/src/occt_kernel.cpp)
 target_include_directories(zima_kernel_occt PUBLIC
     modules/kernel_occt/include)
@@ -1407,6 +1410,16 @@ if(ZIMA_BUILD_TESTS)
     add_test(NAME zima_cpp_sheet_cut_wire_preview_tests COMMAND zima_cpp_sheet_cut_wire_preview_tests)
     set_tests_properties(zima_cpp_sheet_cut_wire_preview_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
     add_executable(zima_cpp_bend_command_tests tests/bend_command_tests.cpp)
+    add_executable(zima_cpp_sheet_exchange_tests tests/sheet_exchange_tests.cpp)
+    target_link_libraries(zima_cpp_sheet_exchange_tests PRIVATE zima_workspace)
+    add_test(NAME zima_cpp_sheet_exchange_tests COMMAND zima_cpp_sheet_exchange_tests)
+    set_tests_properties(zima_cpp_sheet_exchange_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
+    file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/sheet-exchange-ui-contract")
+    add_test(NAME zima_cpp_sheet_exchange_ui_contract COMMAND zima-cad-cpp --verify-startup
+        --working-directory "${CMAKE_BINARY_DIR}/sheet-exchange-ui-contract")
+    set_tests_properties(zima_cpp_sheet_exchange_ui_contract PROPERTIES
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_SHEET_EXCHANGE=1"
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 120 RUN_SERIAL TRUE)
     add_executable(zima_cpp_sheet_state_tests tests/sheet_state_tests.cpp)
     add_executable(zima_cpp_sheet_state_cone_tests tests/sheet_state_cone_tests.cpp)
     target_link_libraries(zima_cpp_sheet_state_cone_tests PRIVATE zima_document_core zima_kernel_occt)

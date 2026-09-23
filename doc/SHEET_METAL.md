@@ -1,5 +1,11 @@
 # Sheet Metal
 
+See [Sheet from Body and flat-pattern DXF](SHEET_EXCHANGE.md) for independent
+solid-to-sheet reconstruction and the active Body's direct manufacturing export.
+
+See [Sheet Profile corner closure](SHEET_CORNER.md) for the optional curved
+transition at either endpoint, its gap allowance and verification.
+
 The current material-creation commands are **Flat**, **Sheet Profile**,
 **Revolved Sheet** and **Twisted Sheet**, followed by **Sheet Cut**, **Unbend**
 and **Bend Back**. Earlier sections use Bend and

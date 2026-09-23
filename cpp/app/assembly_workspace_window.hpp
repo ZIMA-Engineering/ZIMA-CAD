@@ -75,6 +75,8 @@ public:
     [[nodiscard]] zima::commands::Result execute_console_command(const QString& text);
     [[nodiscard]] bool open_document_path(const QString& path);
     void show_tree_item_properties(QTreeWidgetItem* item);
+    void export_sheet_dxf();
+    void show_sheet_from_body();
     [[nodiscard]] QString dimension_identifier(const std::string& owner, const std::string& key) const;
     std::optional<bool> parameter_value_locked(const std::string& owner,const std::string& key);
     void toggle_parameter_value_lock(const std::string& owner,const std::string& key);
