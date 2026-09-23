@@ -23,8 +23,8 @@ void verify_exact_dxf_import() {
     require(report.imported_entities==12&&report.source_entities==12&&report.warnings.empty(),"DXF exact-curve import lost types or its standalone point");
     require(target.id==sketch_id&&target.plane==sketcher::SketchPlane::YZ&&target.import_blocks.size()==1,"DXF import replaced its destination or lost the native block");
     export_dxf(dir/"roundtrip.dxf",target);test::check_dxf_curves(dir/"roundtrip.dxf");
-    std::ifstream input(dir/"source.dxf");std::string unitless{std::istreambuf_iterator<char>(input),{}};input.close();const std::string units="$INSUNITS\n70\n4\n";
-    const auto unit_position=unitless.find(units);require(unit_position!=std::string::npos,"DXF units header missing");unitless.replace(unit_position,units.size(),"$INSUNITS\n70\n0\n");
+    std::ifstream input(dir/"source.dxf");std::string unitless{std::istreambuf_iterator<char>(input),{}};input.close();const std::string units="$INSUNITS\n 70\n4\n";
+    const auto unit_position=unitless.find(units);require(unit_position!=std::string::npos,"DXF units header missing");unitless.replace(unit_position,units.size(),"$INSUNITS\n 70\n0\n");
     std::ofstream(dir/"unitless.dxf")<<unitless;auto scaled=sketcher::Sketch::create_default();static_cast<void>(import_dxf(dir/"unitless.dxf",scaled,10));
     require(std::abs(scaled.ellipses.front().major_radius-50)<1e-9&&std::abs(scaled.find_point(scaled.bsplines.front().control_point_ids.front())->x-1000)<1e-9&&scaled.bsplines.front().knots==target.bsplines.front().knots&&scaled.bsplines.front().weights==target.bsplines.front().weights,"DXF scaling changed dimensionless spline data or missed curve coordinates");
     const auto restored=sketcher::Sketch::from_serialized(target.serialized());export_dxf(dir/"restored.dxf",restored);test::check_dxf_curves(dir/"restored.dxf");

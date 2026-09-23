@@ -218,6 +218,18 @@ SheetBodyConversion prepare_sheet_from_body(const document::PartDocument& source
             outline(placed,mesh,node.face);
         }else {
             document::prepare_bend_sketches(next.history.back(),placed,document::sheet_metal_defaults(next));
+            // The imported cylinder may widen or narrow between its two
+            // generatrices. Preserve that end span with the native Bend's
+            // editable endpoint extensions instead of assuming equal widths.
+            const auto end=sketcher::Sketch::from_serialized(next.history.back().bend.auxiliary_sketches[1]);
+            const auto first=end.local_point(exit_edge->points.front());
+            const auto last=end.local_point(exit_edge->points.back());
+            const auto* start_reference=end.find_point(end.id+":reference:first");
+            const auto* end_reference=end.find_point(end.id+":reference:last");
+            document::set_bend_profile_extensions(next.history.back(),
+                start_reference->x-std::min(first[0],last[0]),
+                std::max(first[0],last[0])-end_reference->x);
+            document::prepare_bend_sketches(next.history.back(),placed,document::sheet_metal_defaults(next));
             const auto material=document::bend_material_definition(next.history.back(),placed,document::sheet_metal_defaults(next));
             bool supported=true;
             for(const auto& edge:mesh.edges) {

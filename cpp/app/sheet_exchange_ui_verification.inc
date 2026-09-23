@@ -15,8 +15,7 @@ int verify_sheet_exchange_ui(QApplication& application,const std::filesystem::pa
             static_cast<void>(part.body_history.create_body("Sheet"));
         }
         const auto target=std::ranges::find_if(part.body_history.bodies(),[](const auto& body){return body.entries.empty();});
-        check(target!=part.body_history.bodies().end(),"Sheet exchange fixture needs an empty target Body");
-        const auto target_id=target->scope.id;
+        const auto target_id=target==part.body_history.bodies().end()?part.body_history.create_body("Conversion verification"):target->scope.id;
         part.body_history.move_body(target_id,part.body_history.order().size()-1);part.body_history.activate(target_id);
         const auto fixture_bodies=part.body_history.bodies();
         for(auto body:fixture_bodies){body.visible=true;part.body_history.update_body(body);}
@@ -28,14 +27,15 @@ int verify_sheet_exchange_ui(QApplication& application,const std::filesystem::pa
         auto* action=window.findChild<QAction*>("sheetFromBodyAction");auto* dxf=window.findChild<QAction*>("sheetDxfAction");
         check(action&&action->isEnabled()&&!action->icon().isNull()&&dxf&&!dxf->icon().isNull(),"Sheet exchange toolbar actions are missing");
         auto* view=dynamic_cast<viewer::MeshView*>(window.findChild<QWidget*>("modelWorkspace"));check(view,"Sheet exchange View missing");
-        const auto seed=*std::ranges::max_element(cache.back().mesh.original_references.triangle_references,{},[](const auto& face){return face.surface&&face.surface->kind==kernel::SurfaceGeometry::Kind::Plane?face.measured_area.value_or(0):0;});
+        const auto& source_mesh=cache.back().body_outputs.at(part.body_history.order().front())->mesh;
+        const auto seed=*std::ranges::max_element(source_mesh.original_references.triangle_references,{},[](const auto& face){return face.surface&&face.surface->kind==kernel::SurfaceGeometry::Kind::Plane?face.measured_area.value_or(0):0;});
         auto direction=seed.surface->axis;if(seed.surface->reversed){direction.x=-direction.x;direction.y=-direction.y;direction.z=-direction.z;}
         view->set_view_direction(direction);view->fit_all();flush();
         const auto dialog=[&]{auto* result=dynamic_cast<app::SheetFromBodyDialog*>(window.findChild<QDialog*>("sheetFromBodyDialog"));check(result&&result->isVisible(),"Sheet from Body dialog did not open");return result;};
         const auto pick=[&] {
             view->fit_all();flush();
             std::optional<QPointF> hit;std::size_t cycles=0;
-            for(int y=10;y<view->height()&&!hit;y+=5)for(int x=10;x<view->width();x+=5) {
+            for(int step:{50,5})for(int y=10;y<view->height()&&!hit;y+=step)for(int x=10;x<view->width();x+=step) {
                 const QPointF p(x,y);const auto candidates=view->selection_candidates_at(p);
                 for(std::size_t i=0;i<candidates.size();++i)if(candidates[i].kind==viewer::CandidateKind::Face&&candidates[i].owner_id==seed.owner_id&&candidates[i].semantic_key==seed.semantic_key){hit=p;cycles=i;break;}
                 if(hit)break;

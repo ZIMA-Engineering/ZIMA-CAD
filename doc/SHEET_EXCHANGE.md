@@ -20,6 +20,14 @@ cylinders become native Sheet Profiles; subsequent planar walls become native
 Flats attached to those new profiles. Terminal bends are supported. The complete
 batch is one Undo/Redo transaction. The source Body is unchanged.
 
+The entry and exit generatrices of a cylinder need not have equal lengths.
+Conversion measures the exit endpoints in the generated Bend's end-profile
+frame and sets its ordinary, editable endpoint extensions. A widening or
+narrowing bend can therefore meet the next wall without incorrectly rejecting
+the connection as a snapping error. This does not change shared placement or
+increase the 0.05 mm joining tolerance. Arbitrary noncylindrical transitions
+remain outside this recognition path.
+
 There are no retained references to the source solid. All continuation
 references point to newly authored sheet geometry. The new root keeps its
 position even when the source moves or is deleted. Source and target Body
@@ -64,6 +72,18 @@ curves retain their rational spline definition. Export rejects multiple material
 thicknesses, failed calculations and material that does not lie in one unfolded
 plane. It never commits an Unbend feature or changes the document's saved state.
 
+The DXF writer emits an AutoCAD 2000 (`AC1015`) document with explicit millimetre
+units, unique entity handles, Model Space ownership, declared layers/line types,
+block records and layouts. The previous minimal header/entities-only stream
+omitted the model ownership graph and used undeclared layers. Tolerant readers
+could reconstruct these records, while stricter CAD importers could reject the
+file. The corrected envelope preserves the exported geometry, rational curves
+and existing File / Export scope.
+
+Format references: Autodesk's [common entity group codes](https://help.autodesk.com/cloudhelp/2023/ENU/AutoCAD-DXF/files/GUID-3610039E-27D1-4E23-B6D3-7E60B22BB5BD.htm)
+define handles and block-record ownership; [BLOCK_RECORD](https://help.autodesk.com/cloudhelp/2015/ENU/AutoCAD-DXF/files/GUID-A1FD1934-7EF5-4D35-A4B0-F8AE54A9A20A.htm)
+defines the associated layout link.
+
 The global `Drawing/DxfDirectory` setting in `config/config.ini` supplies a
 folder relative to the Part file, defaulting to `export`. For example:
 
@@ -84,10 +104,31 @@ It also rejects a destination Body placed before its source. The GUI contract is
 `zima_cpp_sheet_exchange_ui_contract`; `ZIMA_VERIFY_SHEET_EXCHANGE` can select a
 private copy of a larger native fixture instead of the synthetic test solid.
 
-The supplied `STEP-IMPORT.prtz` example produced **11 native sheet features**,
-with **59 segments, 156 circular arcs and no splines** in their primary sketches,
-without skipped faces on the discovered skin. Its initial measured conversion
-and native save took **35.3 seconds** on the development machine. This is an
-explicit calculation measurement, not an interactive selection latency claim.
-Its flat-pattern export contained 58 lines and 156 circular arcs, with no splines.
-The user's original files were not overwritten.
+### STEP-IMPORT regression, 2026-09-23
+
+The supplied current `STEP-IMPORT.prtz` reproduced **4 created features and
+7 skipped faces**. Its three first bends had exit spans wider than their entry
+spans; the following wall failed endpoint matching by 3 mm. After copying the
+exit spans into native Bend endpoint dimensions, the same starting face produced
+**11 features with no skipped faces** in approximately 29.7 seconds, including
+native save. This is an explicit calculation measurement, not selection latency.
+
+The source folded volume was 822592.4976508 mm3 and the reconstructed folded
+volume was 822592.6393127 mm3 (difference 0.142 mm3). The output uses the
+document's existing K-factor for development; the folded volume is not used to
+override its bend allowance. The original user document was not overwritten.
+
+The full flat-pattern DXF contains **54 lines and 156 circular arcs**, forming
+74 closed contours in XY. Its bounds span approximately 411.780 x 757.212 mm.
+An independent ezdxf audit reported no errors or repairs and confirmed millimetre
+units, zero Z coordinates and paired contour endpoints. This is independent
+format verification, not a claim of a completed interactive VariCAD import.
+
+Native tests cover a following wall, source independence, unfolding/refolding
+and cuts. DXF tests check unique handles, resolved object pointers, layer
+declarations, unchanged exact curves and deterministic save/reopen output.
+The GUI fixture exercises the real source picker, conversion, generated-feature
+editing/Cancel, Undo/Redo and the configured DXF toolbar destination. Its larger
+fixture mode creates a private empty target when the supplied document already
+contains a previous partial conversion. No new user-visible strings were added;
+the existing five-language catalog/dialog validation remains required.

@@ -3,13 +3,37 @@
 #include <zima/kernel/stable_id.hpp>
 #include <iostream>
 #include <fstream>
+#include <set>
 using namespace zima;namespace fs=std::filesystem;
 namespace {
 void require(bool value,const char* text){if(!value)throw std::runtime_error(text);}
 std::string bytes(const fs::path& path){std::ifstream input(path,std::ios::binary);return {std::istreambuf_iterator<char>(input),{}};}
+void verify_document_structure(const fs::path& path) {
+    std::ifstream input(path);std::string code,value,type,section;
+    std::set<std::string> handles,sections,layers;std::vector<std::string> pointers;
+    bool layer=false,has_handle=false;std::size_t model_entities=0;
+    while(std::getline(input,code)&&std::getline(input,value)) {
+        if(!value.empty()&&value.back()=='\r')value.pop_back();const int group=std::stoi(code);
+        if(group==0) {
+            if(section=="ENTITIES"&&type!="SECTION")require(has_handle,"DXF model entity lacks a handle");
+            type=value;has_handle=false;layer=value=="LAYER";
+            if(value=="ENDSEC")section.clear();
+        }
+        if(group==2&&type=="SECTION"){section=value;sections.insert(value);}
+        if(group==2&&layer)layers.insert(value);
+        if((group==5||group==105)&&section!="HEADER") {require(handles.insert(value).second,"DXF duplicates a handle");has_handle=true;}
+        if(group==330||group==340||group==350) {
+            if(value!="0")pointers.push_back(value);
+            if(group==330&&section=="ENTITIES"){require(value=="14","DXF entity has no Model_Space owner");++model_entities;}
+        }
+    }
+    for(const auto& pointer:pointers)require(handles.contains(pointer),"DXF contains a dangling object reference");
+    for(const auto* name:{"HEADER","TABLES","BLOCKS","ENTITIES","OBJECTS"})require(sections.contains(name),"DXF document section is missing");
+    require(layers.contains("PROFILE")&&layers.contains("CONSTRUCTION")&&model_entities>0,"DXF layer table or model ownership is missing");
+}
 void verify(const fs::path& dir) {
     auto sketch=test::dxf_detail_fixture();const auto before=sketch.serialized();const auto path=dir/"detail.dxf";
-    interchange::export_dxf(path,sketch);test::check_dxf_details(path,sketch);require(sketch.serialized()==before,"DXF export edited its source Sketch");
+    interchange::export_dxf(path,sketch);verify_document_structure(path);test::check_dxf_details(path,sketch);require(sketch.serialized()==before,"DXF export edited its source Sketch");
     auto restored=sketcher::Sketch::from_serialized(before);interchange::export_dxf(dir/"restored.dxf",restored);test::check_dxf_details(dir/"restored.dxf",restored);
     require(bytes(path)==bytes(dir/"restored.dxf"),"Native reopening changed deterministic DXF output");
     auto imported=sketcher::Sketch::create_default();const auto report=interchange::import_dxf(path,imported);

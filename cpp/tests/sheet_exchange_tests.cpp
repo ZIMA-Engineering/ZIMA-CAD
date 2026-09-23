@@ -11,6 +11,7 @@
 #include <map>
 #include <chrono>
 #include <numbers>
+#include <iomanip>
 
 namespace {
 using namespace zima;
@@ -103,17 +104,31 @@ void contract() {
         bend.placement.references=document::bend_sheet_references(*edge);
         part.insert_history_entry(document::PartHistoryKind::Feature,bend.id);part.history.push_back(bend);part.sketches.push_back(section);
         cache=workspace::calculate_part_with_resolved_references(kernel,part,&cache);
+        auto wall=document::PartDocument::create_sketch_container();wall.feature_kind=document::FeatureKind::Flat;
+        auto wall_profile=sketcher::Sketch::create_default();wall_profile.owner_container_id=wall.id;wall.flat.sketch_id=wall_profile.id;
+        wall.flat.sheet_attachment=true;wall.flat.direction=document::ExtrusionDirection::Reverse;
+        double end_width=0;
+        for(const auto& candidate:cache.back().mesh.original_references.edges)if(candidate.reference.owner_id==bend.id) {
+            if(std::ranges::none_of(candidate.edge_treatment_side_references,[](const auto& face){return face.semantic_key.starts_with("sweep:cap:end:");}))continue;
+            try{wall.placement.references=document::flat_sheet_references(candidate);}
+            catch(const std::invalid_argument&){continue;}
+            const auto a=candidate.points.front(),b=candidate.points.back();end_width=std::hypot(a.x-b.x,a.y-b.y,a.z-b.z);break;
+        }
+        check(end_width>0,"Bend has no continuation edge");
+        static_cast<void>(wall_profile.add_rectangle(0,0,end_width,25));
+        part.insert_history_entry(document::PartHistoryKind::Feature,wall.id);part.history.push_back(wall);part.sketches.push_back(wall_profile);
+        cache=workspace::calculate_part_with_resolved_references(kernel,part,&cache);
         const auto& faces=cache.back().mesh.original_references.triangle_references;
         const auto seed=std::ranges::find_if(faces,[&](const auto& f){return f.owner_id==flat.id&&f.sheet_role==kernel::SheetFaceRole::SideA;});
         check(seed!=faces.end(),"Bend fixture has no base skin");
         const auto target=part.body_history.create_body("Converted");
         auto converted=workspace::prepare_sheet_from_body(part,cache,*seed,2,kernel);
-        check(converted.created.size()==2&&converted.skipped==0,"Converter failed to follow the tangent cylinder");
+        check(converted.created.size()==3&&converted.skipped==0,"Converter failed to follow the cylinder and its next wall");
         const double folded_volume=converted.calculated.back().body_outputs.at(target)->volume;
         near(folded_volume,cache.back().body_outputs.at(source)->volume,.01);
         const auto dxf=workspace::prepare_sheet_dxf(converted.document,converted.calculated,kernel);
         near(dxf.volume,folded_volume,.05);
-        converted.document.erase_history_object(bend.id);converted.document.erase_history_object(flat.id);
+        converted.document.erase_history_object(wall.id);converted.document.erase_history_object(bend.id);converted.document.erase_history_object(flat.id);
         converted.document.body_history.erase_step(source);
         converted.calculated=workspace::calculate_part_with_resolved_references(kernel,converted.document);
         near(converted.calculated.back().body_outputs.at(target)->volume,folded_volume,.01);
@@ -156,17 +171,25 @@ int main(int argc,char** argv) {
             const auto before=part.serialized();zima::kernel::OcctKernel kernel;
             if(std::filesystem::path(argv[2]).extension()==".prtz") {
                 std::string target;for(const auto& body:part.body_history.bodies())if(body.entries.empty()){target=body.scope.id;break;}
+                if(target.empty())target=part.body_history.create_body("Conversion verification");
                 if(!target.empty()){part.body_history.move_body(target,part.body_history.order().size()-1);part.body_history.activate(target);}
-                const auto& mesh=cache.back().mesh;
+                const auto& mesh=cache.back().body_outputs.at(part.body_history.order().front())->mesh;
                 const auto first=std::ranges::max_element(mesh.triangle_references,{},[](const auto& face){return face.surface&&face.surface->kind==zima::kernel::SurfaceGeometry::Kind::Plane?face.measured_area.value_or(0):0;});
                 const double thickness=zima::workspace::suggest_sheet_thickness(mesh,*first);
                 std::cout<<"seed="<<first->semantic_key<<" thickness="<<thickness<<std::endl;
                 const auto started=std::chrono::steady_clock::now();
                 const auto converted=zima::workspace::prepare_sheet_from_body(part,cache,*first,thickness,kernel);
                 converted.document.save(argv[2],converted.calculated);
-                std::size_t lines=0,arcs=0,circles=0,splines=0;for(const auto& sketch:converted.document.sketches){lines+=sketch.segments.size();arcs+=sketch.arcs.size();circles+=sketch.circles.size();splines+=sketch.bsplines.size();}
+                std::size_t lines=0,arcs=0,circles=0,splines=0;for(const auto& sketch:converted.document.sketches)if(std::ranges::find(converted.created,sketch.owner_container_id)!=converted.created.end()){lines+=sketch.segments.size();arcs+=sketch.arcs.size();circles+=sketch.circles.size();splines+=sketch.bsplines.size();}
                 std::cout<<"Created="<<converted.created.size()<<" skipped="<<converted.skipped<<" lines="<<lines<<" arcs="<<arcs<<" circles="<<circles<<" splines="<<splines
-                    <<" seconds="<<std::chrono::duration<double>(std::chrono::steady_clock::now()-started).count()<<std::endl;return 0;
+                    <<" seconds="<<std::chrono::duration<double>(std::chrono::steady_clock::now()-started).count()<<std::endl;
+                auto reopened=zima::document::PartDocument::load(argv[2]);zima::kernel::OcctKernel cold;
+                const auto regenerated=zima::workspace::calculate_part_with_resolved_references(cold,reopened);
+                check(regenerated.back().calculation_errors.empty(),"Converted fixture failed cold regeneration");
+                const auto volume=converted.calculated.back().body_outputs.at(target)->volume;
+                near(regenerated.back().body_outputs.at(target)->volume,volume,.001);
+                std::cout<<std::setprecision(12)<<"source_volume="<<cache.back().body_outputs.at(part.body_history.order().front())->volume<<" converted_volume="<<volume<<" cold_regeneration=passed\n";
+                return 0;
             }
             const auto result=zima::workspace::prepare_sheet_dxf(part,cache,kernel);
             if(before!=part.serialized())throw std::runtime_error("Sheet DXF changed its input document");
