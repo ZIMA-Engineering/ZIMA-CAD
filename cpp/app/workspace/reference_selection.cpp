@@ -321,6 +321,10 @@ void AssemblyWorkspaceWindow::toggle_local_origin_visibility(
     if (!container && !body) return;
     const auto id = body ? body->origin().id : container->container_origin.id;
     if (!visible_local_origin_ids_.erase(id)) visible_local_origin_ids_.insert(id);
+    if(container&&container->feature_kind==zima::document::FeatureKind::SheetTransition){
+        if(visible_local_origin_ids_.contains(id))visible_local_origin_ids_.insert(container->sheet_transition.end_origin_id);
+        else visible_local_origin_ids_.erase(container->sheet_transition.end_origin_id);
+    }
     preserve_view_on_refresh_ = true;
     refresh_scene();
 }

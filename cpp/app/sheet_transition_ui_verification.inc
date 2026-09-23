@@ -20,12 +20,17 @@ int verify_sheet_transition_ui(QApplication& application,const std::filesystem::
         action->trigger();flush();auto* d=dialog();
         check(d->windowType()==Qt::SubWindow,"Transition properties are not an internal subwindow");
         auto* editor=dynamic_cast<app::SheetTransitionDialog*>(d);check(editor,"Wrong transition editor");
+        check(editor->width()<=std::max(editor->minimumWidth(),editor->minimumSizeHint().width())+2,"Transition did not open at minimum width");
+        check(sketcher::Sketch::from_serialized(editor->pending.sheet_transition.sketches[1]).plane_reference_owner_id==editor->pending.container_origin.id,"Rectangle is not attached to main Origin");
+        check(sketcher::Sketch::from_serialized(editor->pending.sheet_transition.sketches[0]).plane_reference_owner_id==editor->pending.sheet_transition.end_origin_id,"Round profile is not attached to second Origin");
         check(editor->findChild<QTableWidget*>("sweepPlacementReferences")&&editor->findChild<QTableWidget*>("sweepPlacementOrientation"),"Shared placement controls missing");
         check(editor->findChild<QPushButton*>("containerOriginSelectionButton"),"Whole-Origin selection missing");
+        editor->findChild<QDoubleSpinBox*>("sweepTranslation0")->setValue(12);
         for(unsigned i=0;i<2;++i){
             auto* button=editor->findChild<QPushButton*>(QString("transitionSketch%1").arg(i));check(button,"Owned SKETCH button missing");
             button->click();flush();check(!editor->isVisible(),"SKETCH did not enter Sketcher");
             auto* finish=window.findChild<QAction*>("finishSketchAction");check(finish&&finish->isEnabled(),"Sketcher Finish missing");finish->trigger();flush();check(dialog()==editor,"Sketcher did not return to the same editor");
+            check(std::abs(editor->pending.placement.x-12)<1e-9,"Sketcher round trip lost container placement");
         }
         editor->findChild<QDoubleSpinBox*>("sweepTranslation0")->setValue(12);
         check(std::abs(editor->pending.placement.x-12)<1e-9,"Numeric placement did not update");
@@ -41,6 +46,8 @@ int verify_sheet_transition_ui(QApplication& application,const std::filesystem::
             QMouseEvent event(type,origin_pos,origin_global,Qt::LeftButton,type==QEvent::MouseButtonPress?Qt::LeftButton:Qt::NoButton,Qt::NoModifier);QApplication::sendEvent(placement_tree->viewport(),&event);
         }flush();
         check(editor->pending.placement.references.size()>=3,"Whole-Origin placement not resolved");
+        check(editor->set_inline_parameter_value("placement:reference_offset:0",12),"Reference placement offset is not editable");flush();
+        const auto expected_placement=editor->pending.placement;
         check(editor->set_inline_parameter_value("end_z",175),"Second Origin dimension is not editable");flush();
         auto* mesh_view=dynamic_cast<viewer::MeshView*>(window.findChild<QWidget*>("modelWorkspace"));check(mesh_view,"Mesh View missing");
         check(std::ranges::any_of(mesh_view->mesh().dimensions,[&](const auto& dimension){return dimension.reference.owner_id==editor->pending.id&&dimension.reference.semantic_key=="parameter:end_z";}),"Relative Origin dimension missing from View");
@@ -53,6 +60,7 @@ int verify_sheet_transition_ui(QApplication& application,const std::filesystem::
         check(!window.findChild<QDialog*>("sheetTransitionDialog"),"MMB double-click did not commit transition");
         const auto saved=save();check(saved.history.size()==part.history.size()+1,"Creation did not insert one feature");const auto feature=saved.history.back();
         check(feature.feature_kind==document::FeatureKind::SheetTransition&&feature.sheet_transition.end_position.z==175&&feature.placement.references.size()>=3,"UI lost transition parameters");
+        check(std::hypot(feature.placement.x-expected_placement.x,feature.placement.y-expected_placement.y,feature.placement.z-expected_placement.z)<1e-8,"OK lost reference placement");
         window.findChild<QAction*>("undoAction")->trigger();flush();check(save().history.size()==part.history.size(),"Transition UI Undo failed");
         window.findChild<QAction*>("redoAction")->trigger();flush();check(save().history.size()==saved.history.size(),"Transition UI Redo failed");
         auto* tree=window.findChild<QTreeWidget*>("documentTree");QTreeWidgetItem* row=nullptr;
@@ -62,6 +70,24 @@ int verify_sheet_transition_ui(QApplication& application,const std::filesystem::
         check(std::ranges::any_of(mesh_view->mesh().dimensions,[&](const auto& dimension){return dimension.reference.owner_id==feature.id&&dimension.reference.semantic_key=="parameter:end_z";}),"Reopened container has no editable distance");
         d->findChild<QDoubleSpinBox*>("transitionThickness")->setValue(3);d->reject();flush();
         check(save().find_container(feature.id)->sheet_transition==feature.sheet_transition,"Edit Cancel changed transition");
+        window.show_parameter_dimensions(feature.id);flush();
+        const auto dimension=std::ranges::find_if(mesh_view->mesh().dimensions,[&](const auto& value){return value.reference.owner_id==feature.id&&value.reference.semantic_key=="parameter:end_z";});
+        check(dimension!=mesh_view->mesh().dimensions.end(),"Standalone transition dimension missing");
+        viewer::ViewerCandidate candidate;candidate.kind=viewer::CandidateKind::Dimension;candidate.owner_id=feature.id;candidate.semantic_key="parameter:end_z";
+        candidate.geometry_index=std::distance(mesh_view->mesh().dimensions.begin(),dimension);
+        window.edit_dimension_inline(candidate);flush();
+        auto* inline_value=window.findChild<QLineEdit*>("inlineDimensionValueEdit");check(inline_value,"Transition inline editor did not open");
+        inline_value->setText("180");QKeyEvent enter(QEvent::KeyPress,Qt::Key_Return,Qt::NoModifier);QApplication::sendEvent(inline_value,&enter);flush();
+        check(save().find_container(feature.id)->sheet_transition.end_position.z==180,"Standalone dimension edit was not committed");
+        const auto rectangle=sketcher::Sketch::from_serialized(feature.sheet_transition.sketches[1]);
+        const auto width=std::ranges::find_if(mesh_view->mesh().dimensions,[&](const auto& value){return value.reference.owner_id==rectangle.id&&std::abs(value.value-200)<1e-8;});
+        check(width!=mesh_view->mesh().dimensions.end(),"Overall rectangle width dimension missing");
+        candidate.owner_id=rectangle.id;candidate.semantic_key=width->reference.semantic_key;candidate.geometry_index=std::distance(mesh_view->mesh().dimensions.begin(),width);
+        window.edit_dimension_inline(candidate);flush();inline_value=window.findChild<QLineEdit*>("inlineDimensionValueEdit");check(inline_value,"Rectangle inline editor did not open");
+        inline_value->setText("220");QKeyEvent width_enter(QEvent::KeyPress,Qt::Key_Return,Qt::NoModifier);QApplication::sendEvent(inline_value,&width_enter);flush();
+        const auto edited_rectangle=sketcher::Sketch::from_serialized(save().find_container(feature.id)->sheet_transition.sketches[1]);
+        check(std::ranges::any_of(edited_rectangle.dimensions,[](const auto& value){return std::abs(value.value-220)<1e-8;}),"Rectangle dimension edit was not committed");
+        window.finish_parameter_dimensions();flush();
         mesh_view->set_view_direction({1,-1,1});mesh_view->fit_all();flush();
         window.grab().save(QString::fromStdString((directory/"transition-native.png").string()));
         for(bool unfold:{true,false}) {

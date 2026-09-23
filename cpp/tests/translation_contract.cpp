@@ -104,8 +104,8 @@ int verify_translations(QApplication& application, QWidget& parent) {
             auto feature=document::create_sheet_transition();
             app::SheetTransitionDialog transition(feature,[](auto){},&parent);
             transition.setAttribute(Qt::WA_DeleteOnClose,false);transition.show();application.processEvents();
-            check(transition.windowTitle()==settings.qt_translations.value("Přechod plechu"),"Transition title is untranslated");
-            check(transition.findChild<QPushButton*>("transitionSketch0")->text()==settings.qt_translations.value("SKETCH — půlkruh"),"Transition profile prompt is untranslated");
+            check(transition.windowTitle()==settings.qt_translations.value("Vlastnosti přechodu plechu"),"Transition title is untranslated");
+            check(transition.findChild<QPushButton*>("transitionSketch0")->text()==settings.qt_translations.value("Skica půlkruhu"),"Transition profile prompt is untranslated");
             transition.hide();
         }
         {

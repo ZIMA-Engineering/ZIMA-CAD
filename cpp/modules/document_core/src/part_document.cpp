@@ -5043,6 +5043,12 @@ PartDocument::history_origin_reference_geometry_before(
         if (const auto* body = body_history.owner(container.id))
             origin = transform_reference_geometry(std::move(origin), body->scope.translation(), body->scope.rotation_degrees(), false);
         append(result, std::move(origin));
+        if(container.feature_kind==FeatureKind::SheetTransition){
+            auto end=sheet_transition_end_references(container);
+            if(const auto* body=body_history.owner(container.id))end=transform_reference_geometry(std::move(end),body->scope.translation(),body->scope.rotation_degrees(),false);
+            append(result,std::move(end));
+        }
+
     }
     return result;
 }
@@ -6023,6 +6029,7 @@ void PartDocument::resolve_constructions(
         append(source_geometry, local_origin);
         reframe_owned_sketches(container.id);
         reframe_embedded_sketches(container);
+        if(container.feature_kind==FeatureKind::SheetTransition)append(source_geometry,sheet_transition_end_references(container));
         if(container.feature_kind!=FeatureKind::Hole && container.feature_kind!=FeatureKind::Thread)
         visit_feature_sketches(container,[&](const auto& data,std::size_t) {
             const auto sketch=zima::sketcher::Sketch::from_serialized(data);

@@ -6,11 +6,25 @@
 #include <zima/workspace/drawing_sources.hpp>
 #include <zima/workspace/sketch_properties.hpp>
 #include <zima/document/sheet_transition.hpp>
+#include <zima/document/bend.hpp>
+#include <zima/workspace/bend_operations.hpp>
+#include <transition_sketches.hpp>
+#include <BRepTools.hxx>
+#include <BRep_Builder.hxx>
+#include <BRepCheck_Analyzer.hxx>
+#include <TopExp_Explorer.hxx>
+#include <sstream>
 #include <chrono>
 #include <iostream>
 using namespace zima;
 namespace {
 void check(bool condition,const char* message){if(!condition)throw std::runtime_error(message);}
+void check_solid(const kernel::BodyResult& body) {
+    TopoDS_Shape shape;BRep_Builder builder;std::istringstream stream(body.kernel_shape);BRepTools::Read(shape,stream,builder);
+    check(!shape.IsNull()&&BRepCheck_Analyzer(shape).IsValid(),"Transition has invalid B-Rep");
+    unsigned solids=0;for(TopExp_Explorer it(shape,TopAbs_SOLID);it.More();it.Next())++solids;
+    if(solids!=1)throw std::runtime_error("Transition solid count: "+std::to_string(solids));
+}
 }
 int main()try {
     auto part=document::PartDocument::create_default();
@@ -18,6 +32,20 @@ int main()try {
     kernel::OcctKernel kernel;workspace::Workspace live;const auto id=part.document_id;
     live.add_part(part,workspace::calculate_part_with_resolved_references(kernel,part));live.activate(id);
     auto feature=document::create_sheet_transition();feature.name="Transition";
+    {
+        auto rectangle=sketcher::Sketch::from_serialized(feature.sheet_transition.sketches[1]);
+        const auto height=std::ranges::find_if(rectangle.dimensions,[](const auto& d){return d.kind==sketcher::DimensionKind::DistanceY;});
+        check(height!=rectangle.dimensions.end()&&height->value==80,"Rectangle height uses trimmed leg instead of overall envelope");
+        const auto preview=rectangle.viewer_mesh();
+        check(std::ranges::any_of(preview.dimensions,[&](const auto& d){return d.reference.semantic_key=="dimension:"+height->id&&std::abs(d.value-80)<1e-8;}),"Overall height annotation disappeared from trimmed profile");
+        check(rectangle.set_dimension_value(height->id,90),"Overall rectangle height is not editable");
+        const auto radius=std::ranges::find_if(rectangle.corner_radii,[](const auto& c){return c.dimension_visible;});
+        check(radius!=rectangle.corner_radii.end(),"Corner radius annotation is missing");
+        static_cast<void>(rectangle.add_corner_fillet(radius->first_segment_id,radius->second_segment_id,18));
+        check(std::ranges::all_of(rectangle.corner_radii,[](const auto& c){return std::abs(c.radius-18)<1e-8;}),"Corner radii did not stay equal");
+        const auto parsed=research::transition::read_sketches(sketcher::Sketch::from_serialized(feature.sheet_transition.sketches[0]),rectangle);
+        check(std::abs(parsed.model.depth-180)<1e-8&&std::abs(parsed.model.corner_radius-18)<1e-8,"Envelope edit did not reach transition input");
+    }
     const auto start=std::chrono::steady_clock::now();
     check(workspace::commit_sheet_transition(live,kernel,id,feature),"Creation did not commit");
     auto* state=live.open_part(id);const auto created=state->session.document().serialized();
@@ -46,10 +74,26 @@ int main()try {
     check(workspace::commit_sheet_transition(live,kernel,id,placed),"Rigid placement did not commit");
     check(std::abs(state->session.calculated_boundaries().back().volume-volume)<1e-4,"Rigid placement changed volume");
     check(workspace::step_part_document_history(live,id,false)&&state->session.document().serialized()==created,"Rigid placement Undo failed");
-    auto tilted=feature;tilted.sheet_transition.end_rotation.y=15;
-    check(workspace::commit_sheet_transition(live,kernel,id,tilted),"Relative Origin tilt did not commit");
-    check(state->session.calculated_boundaries().back().calculation_errors.empty(),"Compatible Origin tilt failed");
-    check(workspace::step_part_document_history(live,id,false)&&state->session.document().serialized()==created,"Relative tilt Undo failed");
+    for(const auto rotation:std::array<kernel::Vec3,2>{{{0,-15,0},{0,15,0}}}) {
+        auto rotated=feature;rotated.sheet_transition.end_rotation=rotation;
+        std::cout<<"Manufacturing relative tilt "<<rotation.x<<','<<rotation.y<<','<<rotation.z<<std::endl;
+        check(workspace::commit_sheet_transition(live,kernel,id,rotated),"Relative rotated solid failed");
+        check_solid(state->session.calculated_boundaries().back());
+        const auto rotated_volume=state->session.calculated_boundaries().back().volume;
+        for(bool unfold:{true,false}) {
+            auto change=document::PartDocument::create_sketch_container();change.feature_kind=unfold?document::FeatureKind::Unbend:document::FeatureKind::BendBack;
+            change.sheet_state.all=true;
+            check(workspace::commit_sheet_state(live,kernel,id,change),"Rotated transition state change failed");
+            const auto& result=state->session.calculated_boundaries().back();check_solid(result);
+            // Tilted finite-radius lofts and flat reconstruction are approximate.
+            // Bound the flat volume error to 0.02%; Bend Back restores the
+            // original material and must agree to numerical roundoff.
+            check(std::abs(result.volume-rotated_volume)<(unfold?rotated_volume*2e-4:1e-6),"Rotated transition state changed volume");
+        }
+        check(workspace::step_part_document_history(live,id,false)&&workspace::step_part_document_history(live,id,false),"Rotated state Undo failed");
+        check(state->session.calculated_boundaries().back().calculation_errors.empty(),"Rotated solid has errors");
+        check(workspace::step_part_document_history(live,id,false),"Rotated solid Undo failed");
+    }
     const auto directory=std::filesystem::absolute("build/transition-model");std::filesystem::create_directories(directory);
     const auto path=directory/"native-transition.prtz";
     state->session.document().save(path,state->session.calculated_boundaries());
@@ -58,6 +102,54 @@ int main()try {
     kernel::OcctKernel cold;const auto recalculated=workspace::calculate_part_with_resolved_references(cold,loaded);
     check(!recalculated.empty()&&recalculated.back().calculation_errors.empty(),"Cold regeneration failed");
     check(std::abs(recalculated.back().volume-volume)<1e-5,"Cold regeneration changed volume");
+    {
+        const auto origins=loaded.history_origin_reference_geometry_before({});
+        for(const auto& owner:{feature.container_origin.id,feature.sheet_transition.end_origin_id}) {
+            check(std::ranges::count_if(origins.axes,[&](const auto& a){return a.reference.owner_id==owner;})==3,"Transition Origin is missing its three reference axes");
+            document::Placement attachment;
+            attachment.references={{{},owner,"origin:point"},{{},owner,"origin:plane:xy",0,false,"front",true},{{},owner,"origin:plane:yz",0,false,"top",true}};
+            check(document::resolve_placement(attachment,origins),"Whole transition Origin cannot resolve a downstream placement");
+            check(std::abs(attachment.z-(owner==feature.container_origin.id?0.:150.))<1e-8,"Transition Origin resolved to the wrong profile");
+        }
+    }
+    // A real downstream Bend consumes the same original edge/face/point packet
+    // as the interactive sheet commands; display-only edges are insufficient.
+    {
+        const auto& geometry=recalculated.back().mesh.original_references;
+        const auto edge=std::ranges::find_if(geometry.edges,[&](const auto& candidate){
+            if(candidate.reference.owner_id!=feature.id||candidate.reference.semantic_key.find("rectangle-rim")==std::string::npos)return false;
+            try {return document::bend_sheet_references(candidate).size()==3;}catch(const std::exception&){return false;}
+        });
+        check(edge!=geometry.edges.end(),"Transition has no attachable original rectangle rim");
+        auto bend=document::PartDocument::create_sketch_container();bend.feature_kind=document::FeatureKind::Bend;
+        bend.bend.sheet_attachment=true;bend.bend.radius=3;bend.bend.angle_degrees=30;
+        bend.placement.references=document::bend_sheet_references(*edge);
+        auto outline=sketcher::Sketch::create_default();outline.owner_container_id=bend.id;bend.bend.sketch_id=outline.id;
+        document::initialize_bend_start_profile(outline,*edge->measured_length);
+        check(workspace::commit_bend(live,kernel,id,bend,outline),"Bend attachment to transition did not commit");
+        check(state->session.calculated_boundaries().back().calculation_errors.empty(),"Attached Bend failed calculation");
+        auto changed=feature;changed.sheet_transition.end_position.z=175;
+        check(workspace::commit_sheet_transition(live,kernel,id,changed),"Transition edit with attached Bend failed");
+        check(state->session.document().find_container(bend.id)->placement.reference_valid,"Transition edit invalidated Bend references");
+        const auto attached_path=directory/"native-transition-attached.prtz";
+        state->session.document().save(attached_path,state->session.calculated_boundaries());
+        auto attached=document::PartDocument::load(attached_path);
+        kernel::OcctKernel attachment_kernel;
+        const auto rebuilt=workspace::calculate_part_with_resolved_references(attachment_kernel,attached);
+        check(rebuilt.back().calculation_errors.empty()&&attached.find_container(bend.id)->placement.reference_valid,"Attached Bend failed native save/reopen/regeneration");
+        check(attached.find_container(bend.id)->placement.references==bend.placement.references,"Native file changed original attachment identity");
+        const auto attached_volume=state->session.calculated_boundaries().back().volume;
+        for(bool unfold:{true,false}) {
+            auto change=document::PartDocument::create_sketch_container();change.feature_kind=unfold?document::FeatureKind::Unbend:document::FeatureKind::BendBack;change.sheet_state.all=true;
+            check(workspace::commit_sheet_state(live,kernel,id,change),"Attached transition state change failed");
+            const auto& result=state->session.calculated_boundaries().back();check_solid(result);
+            check(std::abs(result.volume-attached_volume)<(unfold?attached_volume*2e-4:1e-6),"Attached transition state lost material");
+        }
+        check(workspace::step_part_document_history(live,id,false)&&workspace::step_part_document_history(live,id,false),"Attached state Undo failed");
+        std::cout<<"Original transition edge/face/point attachment: create, edit, save/reopen and cold regeneration passed\n";
+        check(workspace::step_part_document_history(live,id,false),"Attached source edit Undo failed");
+        check(workspace::step_part_document_history(live,id,false)&&!state->session.document().find_container(bend.id),"Bend attachment Undo failed");
+    }
     const auto dxf=workspace::prepare_sheet_dxf(state->session.document(),state->session.calculated_boundaries(),kernel);
     check(!dxf.contour.segments.empty()||!dxf.contour.bsplines.empty(),"DXF has no flat contour");
     for(bool unfold:{true,false}) {

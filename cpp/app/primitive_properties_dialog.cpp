@@ -1049,7 +1049,7 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
             reverse_end_row_ = reverse_length_;
             form->addRow(tr("Zpětný úhel"), reverse_length_);
         }
-        own_sketch_button_ = new QPushButton(QStringLiteral("SKETCH"), this);
+        own_sketch_button_ = new QPushButton(tr("Skica"), this);
         own_sketch_button_->setObjectName("primitiveOwnSketchButton");
         own_sketch_button_->setMinimumHeight(40);
         own_sketch_button_->setStyleSheet(

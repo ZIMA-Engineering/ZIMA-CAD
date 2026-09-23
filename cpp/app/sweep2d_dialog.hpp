@@ -131,7 +131,7 @@ public:
             const auto status=populated?tr("Vlastní"):inherited.isEmpty()?tr("Vyplňte první profil"):tr("Z %1").arg(inherited);
             if(populated)inherited=sweep_station_label(station.label);
             profiles_->setItem(row,3,new QTableWidgetItem(status));
-            auto* button=new QPushButton(tr("Sketch"),profiles_);style_sketch_button(button);
+            auto* button=new QPushButton(tr("Skica"),profiles_);style_sketch_button(button);
             button->setObjectName(QString("sweep2dStationSketch%1").arg(row));
             connect(button,&QPushButton::clicked,this,[this,station]{
                 try{const auto i=document::PartDocument::ensure_sweep2d_profile(pending,station.point_id,station.incoming);

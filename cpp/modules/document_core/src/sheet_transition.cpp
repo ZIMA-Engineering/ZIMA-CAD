@@ -20,11 +20,18 @@ HistoryContainer create_sheet_transition() {
     auto round=sketcher::Sketch::create_default(),rectangle=sketcher::Sketch::create_default();
     round.name="Skica půlkruhu";rectangle.name="Skica zaobleného půlobdélníku";
     static_cast<void>(round.add_arc(0,0,80,0,-80,0));
-    static_cast<void>(rectangle.add_segment(100,0,100,60));static_cast<void>(rectangle.add_arc(80,60,100,60,80,80));
-    static_cast<void>(rectangle.add_segment(80,80,-80,80));static_cast<void>(rectangle.add_arc(-80,60,-80,80,-100,60));static_cast<void>(rectangle.add_segment(-100,60,-100,0));
+    const auto sides=rectangle.add_rectangle(-100,0,100,80);
+    std::ranges::find(rectangle.segments,sides[0],&sketcher::SketchSegment::id)->construction=true;
+    const auto right=rectangle.add_corner_fillet(sides[1],sides[2],20).arc_id;
+    const auto left=rectangle.add_corner_fillet(sides[2],sides[3],20).arc_id;
+    static_cast<void>(rectangle.add_equal_radius_constraint(right,left));
     round.apply_dimension(round.create_arc_radius_dimension(round.arcs.front().id));
-    for(const auto& arc:rectangle.arcs)rectangle.dimensions.push_back(rectangle.create_arc_radius_dimension(arc.id));
-    for(const auto& segment:rectangle.segments)rectangle.dimensions.push_back(rectangle.create_segment_dimension(segment.id));
+    rectangle.apply_dimension(rectangle.create_segment_dimension(sides[0]));
+    const auto& vertical=*std::ranges::find(rectangle.segments,sides[1],&sketcher::SketchSegment::id);
+    rectangle.apply_dimension(rectangle.create_point_dimension(vertical.first_point_id,vertical.second_point_id,sketcher::DimensionKind::DistanceY));
+    std::ranges::find(rectangle.corner_radii,right,&sketcher::SketchCornerRadius::id)->dimension_visible=true;
+    round.plane_reference_owner_id=feature.sheet_transition.end_origin_id;
+    rectangle.plane_reference_owner_id=feature.container_origin.id;
     round.owner_container_id=rectangle.owner_container_id=feature.id;
     feature.sheet_transition.sketches={round.serialized(),rectangle.serialized()};reframe_sheet_transition(feature);return feature;
 }
@@ -37,12 +44,28 @@ void reframe_sheet_transition(HistoryContainer& feature) {
     for(unsigned i=0;i<2;++i) {
         auto sketch=sketcher::Sketch::from_serialized(feature.sheet_transition.sketches[i]);
         if(sketch.owner_container_id!=feature.id||!ids.insert(sketch.id).second)throw std::invalid_argument("Sheet transition editing must preserve feature identity.");
-        const auto at=i?research::transition::Frame{root.point(relative.origin),root.direction(relative.x),root.direction(relative.y),root.direction(relative.z)}:root;
-        sketch.plane_reference_owner_id=i?feature.sheet_transition.end_origin_id:feature.container_origin.id;
+        const bool at_end=sketch.plane_reference_owner_id==feature.sheet_transition.end_origin_id;
+        if(!at_end&&sketch.plane_reference_owner_id!=feature.container_origin.id)throw std::invalid_argument("Invalid transition sheet parameters");
+        const auto at=at_end?research::transition::Frame{root.point(relative.origin),root.direction(relative.x),root.direction(relative.y),root.direction(relative.z)}:root;
         sketch.plane=sketcher::SketchPlane::XY;sketch.plane_offset=0;
         sketch.resolved_origin=at.origin;sketch.resolved_x_axis=at.x;sketch.resolved_y_axis=at.y;sketch.resolved_normal=at.z;
         feature.sheet_transition.sketches[i]=sketch.serialized();
     }
+}
+kernel::ViewerReferenceGeometry sheet_transition_end_references(const HistoryContainer& source) {
+    auto feature=source;reframe_sheet_transition(feature);
+    PartDocument carrier;carrier.document_id=feature.id+":transition-end";
+    auto result=carrier.origin_viewer_mesh().original_references;
+    const auto selected=std::ranges::find_if(feature.sheet_transition.sketches,[&](const auto& data){return sketcher::Sketch::from_serialized(data).plane_reference_owner_id==feature.sheet_transition.end_origin_id;});
+    if(selected==feature.sheet_transition.sketches.end())throw std::invalid_argument("Invalid transition sheet parameters");
+    const auto s=sketcher::Sketch::from_serialized(*selected);
+    const auto vector=[&](kernel::Vec3 p){return add(add(mul(s.resolved_x_axis,p.x),mul(s.resolved_y_axis,p.y)),mul(s.resolved_normal,p.z));};
+    const auto point=[&](kernel::Vec3 p){return add(s.resolved_origin,vector(p));};
+    for(auto& p:result.vertices)p=point(p);
+    for(auto& e:result.edges)for(auto& p:e.points)p=point(p);
+    for(auto& p:result.points)p.position=point(p.position);
+    for(auto& axis:result.axes){axis.point=point(axis.point);axis.direction=vector(axis.direction);}
+    return result;
 }
 kernel::ViewerMesh sheet_transition_preview(const HistoryContainer& source) {
     auto feature=source;reframe_sheet_transition(feature);kernel::ViewerMesh result;
@@ -50,7 +73,7 @@ kernel::ViewerMesh sheet_transition_preview(const HistoryContainer& source) {
     for(unsigned i=0;i<2;++i) {
         sketches[i]=sketcher::Sketch::from_serialized(feature.sheet_transition.sketches[i]);
         const auto mesh=sketches[i].viewer_mesh();result.edges.insert(result.edges.end(),mesh.edges.begin(),mesh.edges.end());
-        const auto& s=sketches[i];const auto origin=i?feature.sheet_transition.end_origin_id:feature.container_origin.id;
+        const auto& s=sketches[i];const auto origin=s.plane_reference_owner_id;
         for(const auto& [axis,direction]:std::array<std::pair<const char*,kernel::Vec3>,3>{{{"x",s.resolved_x_axis},{"y",s.resolved_y_axis},{"z",s.resolved_normal}}}) {
             kernel::ViewerEdge edge;edge.points={s.resolved_origin,add(s.resolved_origin,mul(direction,20))};edge.reference={origin,std::string("origin:axis:")+axis,{}};result.edges.push_back(std::move(edge));
         }

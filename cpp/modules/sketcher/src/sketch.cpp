@@ -11683,6 +11683,16 @@ zima::kernel::ViewerMesh Sketch::viewer_mesh() const {
                 return !value.suppressed && value.radius > 1.0e-9;
             })) {
         auto evaluated = evaluated_profile_sketch(true);
+        // Overall point-to-point dimensions belong to the authored corners,
+        // not to the tangent endpoints of the trimmed profile.
+        for (const auto& dimension : dimensions) {
+            if (!dimension.geometry_id.empty() ||
+                !evaluated.find_point(dimension.first_point_id) ||
+                !evaluated.find_point(dimension.second_point_id)) continue;
+            if (std::ranges::none_of(evaluated.dimensions, [&](const auto& value) {
+                    return value.id == dimension.id;
+                })) evaluated.dimensions.push_back(dimension);
+        }
         // A corner radius owns its parameter and annotation. Feed a transient
         // render adapter to the evaluated profile; never persist a generic
         // dimension against the derived arc.

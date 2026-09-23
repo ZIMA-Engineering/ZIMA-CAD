@@ -134,14 +134,11 @@ void add_history_container_tree_children(QTreeWidgetItem* parent,
     }
     if(container.feature_kind==zima::document::FeatureKind::SheetTransition){
         auto* main_origin=parent->child(0);
-        auto* end_origin=new QTreeWidgetItem(main_origin);end_origin->setIcon(0,resource_icon("origin"));
-        end_origin->setData(0,Qt::UserRole+1,QString::fromStdString(instance_path.encoded()));
+        auto* end_origin=add_construction_origin_tree_item(main_origin,zima::document::sheet_transition_end_origin(container),container.name,instance_path);
         end_origin->setText(0,QObject::tr("Druhý počátek"));
-        end_origin->setData(0,Qt::UserRole,QString::fromStdString(container.id));
-        end_origin->setData(0,Qt::UserRole+3,"part-transition-origin");
         for(unsigned i=0;i<2;++i){
             const auto sketch=zima::sketcher::Sketch::from_serialized(container.sheet_transition.sketches[i]);
-            auto* child=new QTreeWidgetItem(i?end_origin:main_origin,{QString::fromStdString(sketch.name)});
+            auto* child=new QTreeWidgetItem(sketch.plane_reference_owner_id==container.sheet_transition.end_origin_id?end_origin:main_origin,{QString::fromStdString(sketch.name)});
             child->setIcon(0,resource_icon("sketch"));child->setData(0,Qt::UserRole,QString::fromStdString(container.id));
             child->setData(0,Qt::UserRole+1,QString::fromStdString(instance_path.encoded()));child->setData(0,Qt::UserRole+3,"part-transition-sketch");child->setData(0,Qt::UserRole+6,i);
         }

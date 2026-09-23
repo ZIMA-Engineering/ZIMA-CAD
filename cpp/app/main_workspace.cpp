@@ -10351,17 +10351,7 @@ int verify_startup_contract(
                 "profile Sketch must open Extrusion Properties")) {
         return 1;
     }
-    auto* own_sketch = properties->findChild<QPushButton*>();
-    while (own_sketch != nullptr && own_sketch->text() != QStringLiteral("SKETCH")) {
-        const auto buttons_in_dialog = properties->findChildren<QPushButton*>();
-        own_sketch = nullptr;
-        for (auto* candidate : buttons_in_dialog) {
-            if (candidate->text() == QStringLiteral("SKETCH")) {
-                own_sketch = candidate;
-                break;
-            }
-        }
-    }
+    auto* own_sketch = properties->findChild<QPushButton*>("primitiveOwnSketchButton");
     if (!verify(own_sketch != nullptr,
                 "Extrusion Properties has no owned Sketch entry")) return 1;
     own_sketch->click();

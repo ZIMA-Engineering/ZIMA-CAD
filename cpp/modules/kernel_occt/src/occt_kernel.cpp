@@ -8240,7 +8240,9 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                                 else {if(key.find(":outer:from:")!=std::string::npos)ref.sheet_role=SheetFaceRole::SideA;if(key.find(":inner:from:")!=std::string::npos)ref.sheet_role=SheetFaceRole::SideB;}
                             }};
                             assign(child_data.faces);assign(child_data.source_caps);
-                            if(retain_sheet_sources)compound_sheet_inputs.push_back(child_data);
+                            // Original sheet references belong to the authored
+                            // panels/bends, before their union trims endpoints.
+                            compound_sheet_inputs.push_back(child_data);
                         }
                         ++child_index;
                         if (!grouped) {
@@ -8306,6 +8308,11 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                 assign(operand.faces);assign(operand.source_caps);
             }
             auto source_faces=operand.faces;
+            if(!compound_sheet_inputs.empty()) {
+                source_faces.clear();
+                for(const auto& child:compound_sheet_inputs)
+                    source_faces.insert(source_faces.end(),child.faces.begin(),child.faces.end());
+            }
             if(!operand.source_caps.empty()) {
                 std::erase_if(source_faces,[&](const auto& face) {
                     return std::ranges::any_of(operand.source_caps,[&](const auto& cap){return same_face_identity(face.reference,cap.reference);});
@@ -8340,6 +8347,12 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                     std::move(operand_result.mesh.original_references));
                 if (standalone_import) {
                     standalone_import_result = std::move(operand_result);
+                }
+            } else if(!compound_sheet_inputs.empty()) {
+                for(const auto& child:compound_sheet_inputs) {
+                    auto original=make_operation_result(child.shape,child.faces,
+                        child.edges,child.vertices,true,false);
+                    append_original_reference_geometry(original_references,std::move(original.mesh));
                 }
             } else {
                 auto operand_result = make_operation_result(

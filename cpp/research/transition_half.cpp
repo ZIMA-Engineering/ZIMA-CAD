@@ -62,6 +62,9 @@ HalfResult calculate(const HalfModel& model) {
             for(const auto& face:corner.facets){A.push_back(face.folded[3]);B.push_back(face.folded[2]);}
         }
         A.push_back(A.back());B.push_back(model.second_relative.point({-w,0,0}));
+        // Reversing axial order must preserve inward material normals and
+        // positive bend angles. The main container can own the lower rectangle.
+        if(model.second_relative.origin.z<0){std::reverse(A.begin(),A.end());std::reverse(B.begin(),B.end());}
         Vec3 flat_a{},flat_b{norm(sub(B[0],A[0])),0,0},old_center{};
         for(std::size_t i=0;i+1<A.size();++i) {
             HalfFace face;face.folded={A[i],B[i],B[i+1],A[i+1]};

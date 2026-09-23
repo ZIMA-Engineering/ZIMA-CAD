@@ -93,8 +93,8 @@ int main() {
         graph.insert({document::PartHistoryKind::Sketch, "sketch-a"});
         require(graph.find(a)->entries[1].id == "sketch-a" && graph.find(b)->entries.size() == 1,
             "Insertion modified another body's history");
-        require(graph.visible_context() == std::vector<std::string>{a},
-            "Editing the first body exposes downstream bodies");
+        require(graph.visible_context() == std::vector<std::string>({a,b}),
+            "Activating the first body hid a visible downstream body");
         graph.activate(b);
         require(graph.visible_context() == std::vector<std::string>({a,b}),
             "Editing the second body lost preceding context");
@@ -369,8 +369,10 @@ int main() {
         auto inspect_first = next;
         inspect_first.body_history.activate(first_body);
         document::DocumentSession first_context(inspect_first, next_boundaries);
-        for (const auto& face : first_context.body_context_mesh().original_references.triangle_references)
-            require(face.owner_id == first.id, "Active first body displayed downstream reference geometry");
+        const auto first_visible=first_context.body_context_mesh();
+        require(std::ranges::any_of(first_visible.original_references.triangle_references,[&](const auto& face){return face.owner_id==first.id;})&&
+            std::ranges::any_of(first_visible.original_references.triangle_references,[&](const auto& face){return face.owner_id==second.id;}),
+            "Active first body hid visible sibling reference geometry");
         inspect_first.body_history.activate(second_body);
         inspect_first.body_history.set_history_cursor(second_body, 0);
         document::DocumentSession empty_second_context(inspect_first, next_boundaries);

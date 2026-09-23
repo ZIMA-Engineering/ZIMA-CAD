@@ -87,9 +87,20 @@ the initial implementation must not silently duplicate a consumed result.
 
 ## History, visibility and regeneration
 
-Each body owns history and a cursor. Editing body 1 hides later body 2; editing
-body 2 shows earlier body 1 as context from its last calculated geometry. Body
-activation targets new features, without a Boolean operation.
+Each body owns history and a cursor. Activation chooses the editing/insertion
+owner; Show/Hide independently chooses visibility. Activating a hidden body does
+not reveal it, and activating another body does not hide a visible sibling,
+including later independent bodies. The current visible-context set is determined
+from the complete body graph and stored visibility, without an active-body override.
+Consumed Boolean inputs remain excluded from the document result; activating a
+source does not implicitly reveal it. Explicit property rollback retains its
+separate transient edit-boundary behavior.
+
+Regression coverage checks both the visible-context graph and actual displayed
+triangle ownership while switching between visible/hidden bodies. Activation and
+visibility reuse the same calculated geometry and fingerprints. No new UI text
+is introduced by this change; the existing localized activation and Show/Hide
+actions remain in use.
 
 Editing one body does not recalculate independent bodies in OCCT. Invalidation
 follows actual references/Boolean inputs; later order alone is not dependency.

@@ -45,6 +45,27 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
     run(host,"undo");require(state->session.document().body_history.find(tool)->name=="Tool","Body edit did not participate in shared Undo");
     run(host,"redo");run(host,"body.set",{{"body",tool},{"visible",true}});
     {
+        const auto geometry=state->session.calculated_boundaries().back();
+        const auto visible=[&](const std::string& feature){
+            const auto mesh=state->session.body_context_mesh();
+            return std::ranges::any_of(mesh.triangle_references,[&](const auto& face){return face.owner_id==feature;});
+        };
+        for(const auto& active:{first,tool}) {
+            run(host,"body.activate",{{"body",active}});
+            require(visible(first_box)&&visible(tool_box),"Activation hid another visible Body");
+        }
+        run(host,"body.set",{{"body",first},{"visible",false}});
+        for(const auto& active:{first,tool}) {
+            run(host,"body.activate",{{"body",active}});
+            require(!visible(first_box)&&visible(tool_box),"Activation revealed a hidden Body or hid its sibling");
+            require(!state->session.document().body_history.find(first)->visible,"Activation changed stored visibility");
+        }
+        require(state->session.calculated_boundaries().back().kernel_shape==geometry.kernel_shape&&
+            state->session.calculated_boundaries().back().source_fingerprint==geometry.source_fingerprint,
+            "Activation or visibility regenerated body geometry");
+        run(host,"body.set",{{"body",first},{"visible",true}});
+    }
+    {
         const auto original=state->session.document().body_history;
         const auto calculated=state->session.calculated_boundaries();
         const auto unchanged_geometry=[&]{

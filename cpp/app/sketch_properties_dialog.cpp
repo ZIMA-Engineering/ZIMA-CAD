@@ -111,7 +111,7 @@ SketchPropertiesDialog::SketchPropertiesDialog(
     orientation_form->addRow(tr("Odsazení roviny"), offset_);
     content_layout()->addLayout(orientation_form);
     placement_->install_dof_label(content_layout());
-    sketch_button_ = new QPushButton(QStringLiteral("SKETCH"), this);
+    sketch_button_ = new QPushButton(tr("Skica"), this);
     sketch_button_->setObjectName("sketchOpenButton");
     sketch_button_->setMinimumHeight(40);
     style_sketch_button(sketch_button_);

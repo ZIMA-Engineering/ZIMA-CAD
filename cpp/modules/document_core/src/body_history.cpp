@@ -274,11 +274,10 @@ std::vector<std::string> BodyHistoryGraph::visible_context() const {
         if(const auto* body=find(id);body&&body->derived_copy&&body->derived_copy->subtract_source)
             available.erase(copy_target_before(body->derived_copy->source_id,static_cast<std::size_t>(std::ranges::find(order_,id)-order_.begin())));
         available.insert(id);
-        if (id == active_) break;
     }
     std::vector<std::string> result;
     for (const auto& id : order_)
-        if (available.contains(id) && (id == active_ || (find(id) ? find(id)->visible : find_boolean(id)->visible)))
+        if (available.contains(id) && (find(id) ? find(id)->visible : find_boolean(id)->visible))
             result.push_back(id);
     return result;
 }

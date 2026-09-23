@@ -8,17 +8,24 @@ zero-thickness geometry experiment; its SVG/DXF output is not a production blank
 
 In the Sheet Metal workspace choose **Sheet transition** in an active editable
 Body. The command creates one ordinary placed history container. Its main Origin
-owns the first Sketch; a second nested Origin owns the other Sketch. The second
+owns the rounded half-rectangle; a second nested Origin owns the semicircle. The second
 Origin has XYZ translation and rotation relative to the main Origin. Moving the
 main container moves both profiles together. The shared placement controls offer
 numeric correction, position and FRONT/TOP references, whole-Origin selection
 and inspection without changing the common placement solver.
 
-Two **SKETCH** buttons open the existing Sketcher and return to the same pending
+Two localized **Sketch** buttons at the bottom of the compact properties window
+open the existing Sketcher and return to the same pending
 properties window. The initial example contains a semicircle R80 and a rounded
 half-rectangle 200 wide by 80 deep (full rectangle depth 160), corner R20,
 separated by 150 mm. Both corner strips start with four facets. Thickness and
 K-factor use the Part sheet defaults; the initial inside radius equals thickness.
+The rectangle uses overall width/height dimensions and native corner fillets,
+so dimensions describe the envelope rather than the trimmed straight lengths.
+The seeded height is 80 mm, not the 60 mm remaining straight leg. A native
+corner-radius annotation drives both corners through their equal-radius relation.
+The viewer retains overall point dimensions at the authored corners while showing
+the evaluated fillets; the transient profile does not replace their references.
 Sketch dimensions are seeded, and double-clicking the container exposes its
 Sketch dimensions and relative Origin distances in the View. These values remain
 editable through the common dimension editor. The tree nests both owned Sketches
@@ -57,6 +64,21 @@ relative frame, placement references and all transition parameters.
 Generated semantic keys include authored source-curve ancestry before kernel
 calculation. No required sidecars are introduced. The feature consumes the existing
 container-placement contract without changing its solver.
+
+The Origin visibility action reveals both coordinate systems. Each owns distinct
+point, axis and plane identities, and can resolve a downstream placement. The
+Sketch-to-Origin binding is stored with the Sketch; opening Sketcher does not
+infer that binding from button order.
+
+Compound sheet calculations retain each authored panel/bend's original reference
+packet before Boolean fusion. Fused topology can trim away the original vertices;
+using it for the reference packet left boundary edges without their two native
+endpoint identities. The original packet now preserves the edge, adjacent sheet
+faces and both endpoints required by the standard Bend attachment. Regression
+coverage attaches a Bend to the rectangle rim, changes transition height, saves,
+reopens and cold-regenerates the dependent model without changing references.
+It also unfolds and bends back the combined transition and attached Bend as one
+connected solid.
 
 Current limits are deliberate: only the stated circular half-profiles are
 accepted, and only orientations for which both corner strips and connecting
@@ -235,12 +257,16 @@ The Windows development executable is built through the existing CMake target
 and remains reachable with `zima-cad.bat`. Targeted native checks cover:
 
 - Owned-profile creation, parameter edits, both Sketcher round trips and Cancel.
+- Overall 80 mm height visibility and editing, equal corner-radius editing,
+  and the existing Sketcher contract regression.
 - Main-container rigid translation/rotation with invariant volume, relative
   second-Origin translation and a compatible 15-degree tilt.
 - Numeric/reference placement, whole active-Body Origin entry through the Tree,
   saved references, reopened dimensions, middle-button OK and Undo/Redo.
 - Native save/reopen and cold regeneration; finite-radius solid construction,
   Unbend/Bend Back, intervening cuts, DXF contours and Drawing bend axes.
+- Original edge/face/endpoint attachment of a downstream Bend, source edits,
+  cold regeneration and connected Unbend/Bend Back of the combined sheet.
 - Existing 2D/3D Sweep and sheet-state command regressions.
 - Catalog/source coverage and rendered dialog strings in all five languages.
 
@@ -309,3 +335,34 @@ tested and rejected. The five-language GUI test exercises a 30-degree tilt at
 The complete half-transition regression suite took approximately 0.17 seconds
 including process startup on the development Windows host. No OCCT calculation
 or shared placement-contract change was required.
+
+## Converging-bend experiment (2026-09-23)
+
+An exploratory polygonal-rim triangulation accepted X tilt, Z twist and combined
+rotation at the surface level. Full-length finite-radius bends overlapped near
+converging ends. Restricting their lengths to the remaining panel contact intervals
+produced a connected folded sample, but its native Unbend result contained six
+solids. This experiment is not enabled in the product. Increasing Boolean
+fuzziness also failed to establish the required manufacturing contract.
+
+The first product variant retains the validated common-tangent construction and
+rejects unsupported orientation combinations atomically. Arbitrary independent
+tilt/twist remains an explicit next geometry step, including nearly coincident
+press-brake bend starts, limited end relief, one connected blank and preserved
+material through Unbend/Bend Back. A successful surface preview or positive
+volume alone is not acceptance evidence.
+
+Tilted-material regression uses one connected solid in folded and developed
+states, a 0.02% volume-error budget for numerical flat reconstruction, and an
+absolute 1e-6 mm3 budget for Bend Back. At +/-15 degrees about the compatible Y
+axis, the 45166 mm3 sample's flat-volume differences were +3.69 and -4.75 mm3;
+the material round trip restored the original volume. These checks do not certify
+unsupported independent X/Z rotations or press-brake tooling clearance.
+
+Autodesk's [Lofted Flange procedure](https://help.autodesk.com/cloudhelp/2020/ENU/Inventor-Help/files/GUID-B6271A15-FD68-4672-9461-C86F8D55DA87.htm)
+describes cylindrical bend faces, individual bend radii and a Converge option
+whose flat-pattern bends approach a point. This supports the manufacturing intent,
+but is not an algorithm or proof for arbitrary tilted profiles. A further candidate
+should retain small triangular inner planar remnants between intersecting bend
+zones and trim their true intersections, rather than assuming those remnants must
+be cut out. Constant thickness and an unstretched connected blank remain required.

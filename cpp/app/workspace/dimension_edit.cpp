@@ -522,6 +522,16 @@ void AssemblyWorkspaceWindow::edit_dimension_inline(
                     if (sketch != next.sketches.end()) {
                         sketch->plane_offset = next_value; changed = true;
                     }
+                } else if (container->feature_kind == FeatureKind::SheetTransition) {
+                    auto& p=container->sheet_transition;
+                    if(key=="end_x"){p.end_position.x=next_value;changed=true;}
+                    else if(key=="end_y"){p.end_position.y=next_value;changed=true;}
+                    else if(key=="end_z"){p.end_position.z=next_value;changed=true;}
+                    else if(key=="end_rx"){p.end_rotation.x=next_value;changed=true;}
+                    else if(key=="end_ry"){p.end_rotation.y=next_value;changed=true;}
+                    else if(key=="end_rz"){p.end_rotation.z=next_value;changed=true;}
+                    else if(key=="thickness")positive(p.thickness);
+                    else if(key=="inside_radius")positive(p.inside_radius);
                 } else if (container->feature_kind == FeatureKind::Box) {
                     if (key == "length") positive(container->box.length);
                     else if (key == "width") positive(container->box.width);

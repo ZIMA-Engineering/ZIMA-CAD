@@ -31,10 +31,16 @@ void AssemblyWorkspaceWindow::show_tree_item_properties(QTreeWidgetItem* item) {
         if(auto* dialog=dynamic_cast<Sweep2DDialog*>(properties_dialog_))dialog->edit_sketch(stage);
         return;
     }
-    if(item&&(item->data(0,Qt::UserRole+3)=="part-transition-sketch"||item->data(0,Qt::UserRole+3)=="part-transition-origin")){
-        const bool sketch=item->data(0,Qt::UserRole+3)=="part-transition-sketch";const auto stage=item->data(0,Qt::UserRole+6).toUInt();
+    if(item&&item->data(0,Qt::UserRole+3)=="construction-origin"){
+        if(const auto* part=workspace_.open_part(workspace_.active_document_id()))for(const auto& feature:part->session.document().history)
+            if(feature.feature_kind==zima::document::FeatureKind::SheetTransition&&feature.sheet_transition.end_origin_id==item->data(0,Qt::UserRole).toString().toStdString()){
+                show_sheet_transition_properties(feature.id);return;
+            }
+    }
+    if(item&&item->data(0,Qt::UserRole+3)=="part-transition-sketch"){
+        const auto stage=item->data(0,Qt::UserRole+6).toUInt();
         show_sheet_transition_properties(item->data(0,Qt::UserRole).toString().toStdString());
-        if(sketch)if(auto* dialog=dynamic_cast<SweepPlacementDialog*>(properties_dialog_))dialog->edit_sketch(stage);
+        if(auto* dialog=dynamic_cast<SweepPlacementDialog*>(properties_dialog_))dialog->edit_sketch(stage);
         return;
     }
     if(item&&item->data(0,Qt::UserRole+3).toString()=="part-helical-sketch"){

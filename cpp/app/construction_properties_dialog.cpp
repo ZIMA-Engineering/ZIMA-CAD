@@ -801,7 +801,7 @@ void ConstructionPropertiesDialog::refresh_sweep_profiles() {
             } catch(const std::exception& error) { error_->setText(QObject::tr(error.what())); }
         });
         sweep_profiles_table_->setCellWidget(row,2,order);
-        auto* button = new QPushButton(tr("Sketch"), sweep_profiles_table_);
+        auto* button = new QPushButton(tr("Skica"), sweep_profiles_table_);
         button->setObjectName(QString("sweep3DStationSketch%1").arg(QString::fromStdString(station.label)));
         button->setEnabled(station.active);
         style_sketch_button(button);

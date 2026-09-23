@@ -15,15 +15,10 @@ namespace zima::app {
 class SheetTransitionDialog final:public SweepPlacementDialog {
 public:
     SheetTransitionDialog(document::HistoryContainer initial,std::function<void(document::HistoryContainer)> commit,QWidget* parent)
-        : SweepPlacementDialog(tr("Přechod plechu"),std::move(initial),parent),commit_(std::move(commit)) {
-        setObjectName("sheetTransitionDialog");setAttribute(Qt::WA_DeleteOnClose);set_initial_size({490,720});
+        : SweepPlacementDialog(tr("Vlastnosti přechodu plechu"),std::move(initial),parent),commit_(std::move(commit)) {
+        setObjectName("sheetTransitionDialog");setAttribute(Qt::WA_DeleteOnClose);
         auto* form=new QFormLayout;content_layout()->addLayout(form);name_=new QLineEdit(QString::fromStdString(pending.name),this);form->addRow(tr("Název"),name_);
         connect(name_,&QLineEdit::textChanged,this,[this](const QString& name){pending.name=name.toStdString();});
-        for(unsigned i=0;i<2;++i) {
-            auto* button=new QPushButton(i==0?tr("SKETCH — půlkruh"):tr("SKETCH — zaoblený půlobdélník"),this);
-            button->setObjectName(QString("transitionSketch%1").arg(i));style_sketch_button(button);form->addRow(button);
-            connect(button,&QPushButton::clicked,this,[this,i]{if(edit_sketch)edit_sketch(i);});
-        }
         install_placement();form=new QFormLayout;content_layout()->addLayout(form);
         form->addRow(new QLabel(tr("Druhý počátek — vůči počátku kontejneru"),this));
         const std::array<QString,3> axes{QStringLiteral("X"),QStringLiteral("Y"),QStringLiteral("Z")};
@@ -41,6 +36,11 @@ public:
         radius_=value(tr("Vnitřní poloměr ohybu"),"transitionRadius",pending.sheet_transition.inside_radius,.001,1000," mm");
         factor_=value(tr("K-faktor"),"transitionKFactor",pending.sheet_transition.k_factor,0,1,{});
         for(std::size_t i=0;i<2;++i){counts_[i]=new QSpinBox(this);counts_[i]->setObjectName(i==0?"transitionRightFacets":"transitionLeftFacets");counts_[i]->setRange(2,128);counts_[i]->setValue(pending.sheet_transition.facets[i]);form->addRow(i==0?tr("Počet plošek pravého rohu"):tr("Počet plošek levého rohu"),counts_[i]);}
+        for(unsigned i:{1u,0u}) {
+            auto* button=new QPushButton(i==0?tr("Skica půlkruhu"):tr("Skica zaobleného půlobdélníku"),this);
+            button->setObjectName(QString("transitionSketch%1").arg(i));style_sketch_button(button);form->addRow(button);
+            connect(button,&QPushButton::clicked,this,[this,i]{if(edit_sketch)edit_sketch(i);});
+        }
         status_=new QLabel(this);status_->setWordWrap(true);form->addRow(status_);
         for(auto* field:{thickness_,radius_,factor_})connect(field,&QDoubleSpinBox::valueChanged,this,[this]{read_parameters();notify();});
         for(auto* field:counts_)connect(field,&QSpinBox::valueChanged,this,[this]{read_parameters();notify();});
