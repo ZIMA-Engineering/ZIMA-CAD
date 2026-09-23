@@ -58,6 +58,12 @@ source-case staging correction, hashes and verification scope.
 
 ## Installed layout
 
+Windows build **2026092301** is signed and published. It adds native Sheet from
+Body reconstruction, active-Body flat-pattern DXF and Sheet Profile corner
+closure, plus the intervening Drawing improvements. Candidate and signed-archive
+smoke, production trust, downloaded asset hashes and public update discovery from
+2026092203 passed. See [the verification record](WINDOWS_2026092301.md).
+
 ```text
 ZIMA-CAD/
   ZIMA-CAD.exe
