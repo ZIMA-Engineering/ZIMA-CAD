@@ -5,6 +5,8 @@
 #include <zima/interchange/dxf.hpp>
 #include <zima/document/file_path.hpp>
 #include <zima/document/precision.hpp>
+#include <zima/document/material_library.hpp>
+#include <zima/document/physical_properties.hpp>
 #include <fstream>
 #include <cmath>
 #include <iostream>
@@ -21,6 +23,23 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
     double configured_cut_tolerance=.025;
     options.settings=[&] {return command_host::Settings{{fs::absolute("config/templates"),"START_PART.prtz","START_ASSEMBLY.asmz","Body",configured_cut_tolerance},{{"Length","cm"}}};};
     command_host::Host host(live,kernel,dir,options);
+    const auto expected_material=document::load_material_library("config/materials/01_steels/structural/S235JR.matz");
+    const auto verify_defaults=[&](const document::PartDocument& doc,double volume) {
+        auto template_part=workspace::part_from_template(options.settings().templates);
+        template_part.physical_parameters=expected_material.properties;
+        template_part.physical_parameter_units=expected_material.units;
+        template_part.document_units=doc.document_units;
+        const auto density=document::material_density_kg_mm3(template_part);
+        document::refresh_physical_relations(template_part,
+            document::physical_values_from_totals(template_part,volume,0,volume * *density,density));
+        require(doc.relations==template_part.relations,"Imported Part lost template parameter relations");
+        require(doc.user_parameters==template_part.user_parameters,"Imported Part template parameter values differ");
+        require(doc.user_parameter_order==template_part.user_parameter_order,"Imported Part template parameter order differs");
+        require(doc.user_parameter_labels==template_part.user_parameter_labels,"Imported Part template parameter labels differ");
+        require(doc.user_parameter_values==template_part.user_parameter_values,"Imported Part template localized values differ");
+        require(doc.physical_parameters==expected_material.properties&&doc.physical_parameter_units==expected_material.units&&
+            doc.material_parameter_descriptions==expected_material.descriptions,"Imported Part did not persist S235JR material");
+    };
     kernel::StepProduct part;part.definition_id="part";part.name="Block";part.body=kernel.make_box({10,20,30});
     auto second=part;second.name="Block 2";second.translation={50,0,0};
     kernel::StepProduct group;group.definition_id="group";group.name="Subassembly";group.children={part,second};
@@ -45,6 +64,7 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
         require(file.extension()==".prtz" || file.extension()==".asmz","Import introduced a sidecar format");
         if(file.extension()==".prtz") {
             const auto saved=document::PartDocument::load(file);
+            verify_defaults(saved,6000);
             require(live.open_part(saved.document_id)!=nullptr,"Saved STEP Part cannot be reopened with its source identity");
             require(document::sheet_cut_tolerance(saved.document_precision)==.025,"Saved STEP Part lost its configured Sheet Cut tolerance");
         } else {
@@ -81,13 +101,15 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
     try {workspace::relink_component_source(repair,owner,occurrence.occurrence_id,wrong_path);}catch(const workspace::ComponentOperationError& error){wrong=std::string(error.code)=="source_identity";}
     require(wrong && repair.open_assembly(owner)->session.revision()==0,"Source repair accepted a different document or changed history on failure");
     const auto relocated_dir=dir/"relocated";fs::create_directory(relocated_dir);
-    const auto relocated=relocated_dir/root_source.filename();fs::rename(hidden,relocated);
+    const auto relocated=relocated_dir/root_source.filename();
+    // Resave at the new location so nested relative source paths remain valid.
+    assembly::AssemblyDocument::load(hidden).save(relocated);
     workspace::relink_component_source(repair,owner,occurrence.occurrence_id,relocated);
     const auto& repaired=repair.open_assembly(owner)->session.document().components.front();
     require(!repaired.source_missing && repaired.source_path==relocated && repaired.occurrence_id==occurrence.occurrence_id && std::abs(repaired.calculated_source->volume-24000)<1e-5,"Source relocation lost geometry or occurrence identity");
     require(repair.open_assembly(owner)->session.undo() && repair.open_assembly(owner)->session.document().components.front().source_missing,"Source relocation Undo lost unresolved state");
     require(repair.open_assembly(owner)->session.redo() && !repair.open_assembly(owner)->session.document().components.front().source_missing,"Source relocation Redo failed");
-    fs::rename(relocated,root_source);
+    assembly::AssemblyDocument::load(relocated).save(root_source);
     run(host,"regenerate");require(std::abs(live.open_assembly(owner)->session.document().components.front().calculated_source->volume-24000)<1e-5,"Explicit regeneration lost native imported sources");
     auto parent_document=assembly::AssemblyDocument::create_default();const auto parent_id=parent_document.document_id;
     live.add_assembly(std::move(parent_document),dir/"parent.asmz");static_cast<void>(live.insert_open_assembly(parent_id,owner,"Passive owner"));
@@ -113,6 +135,7 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
     require(iges_result.at("parts").size()==1 && iges_result.at("assemblies").empty(),"IGES did not create exactly one Part");
     require(iges_result.at("files").size()==1,"IGES did not report its native source file");
     const auto iges_native=fs::u8path(iges_result.at("files")[0].get<std::string>());
+    verify_defaults(document::PartDocument::load(iges_native),1000);
     require(fs::is_regular_file(iges_native) && iges_native.extension()==".prtz" && iges_native.parent_path()==dir,"IGES native Part was not saved directly in the working directory");
     const auto saved_iges=document::PartDocument::load(iges_native);
     require(saved_iges.document_id==iges_result.at("parts")[0].get<std::string>(),"Saved IGES Part cannot be reopened with its source identity");

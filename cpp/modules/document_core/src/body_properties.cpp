@@ -67,15 +67,23 @@ std::vector<BodyPropertiesInput> body_properties_inputs(const PartDocument& doc,
     return out;
 }
 BodyProperties evaluate_body_properties(const PartDocument& doc,const std::vector<kernel::BodyResult>& calculated,BodyProperties row) {
-    row.volume=0;row.area=0;row.integrals.reset();row.error.clear();row.density_kg_mm3=material_density_kg_mm3(doc);
+    row.volume=0;row.area=0;row.integrals.reset();row.surface_centroid.reset();row.error.clear();row.density_kg_mm3=material_density_kg_mm3(doc);
     try {
         const auto inputs=body_properties_inputs(doc,calculated,row);
         struct Weighted {double volume;kernel::VolumeIntegrals integrals;};std::vector<Weighted> values;
         kernel::Vec3 center{};
+        kernel::Vec3 surface_sum{};bool surface_complete=true;
         for(const auto& input:inputs) {
             const auto& body=*input.body;
             if(!body.calculation_errors.empty())throw std::invalid_argument("The measured history contains a failed calculation.");
             const double v=std::abs(body.volume);row.area+=std::abs(body.surface_area);
+            if(body.surface_area>0) {
+                if(body.surface_centroid) {
+                    auto c=kernel::inertia_transform(kernel::inertia_frame(input.rotation),*body.surface_centroid);
+                    c.x+=input.translation.x;c.y+=input.translation.y;c.z+=input.translation.z;
+                    surface_sum.x+=body.surface_area*c.x;surface_sum.y+=body.surface_area*c.y;surface_sum.z+=body.surface_area*c.z;
+                }else surface_complete=false;
+            }
             if(v<=0)continue;
             if(!body.volume_integrals)throw std::invalid_argument("Regenerate the model before measuring body properties.");
             auto p=*body.volume_integrals;const auto r=kernel::inertia_frame(input.rotation);
@@ -85,7 +93,13 @@ BodyProperties evaluate_body_properties(const PartDocument& doc,const std::vecto
             values.push_back({v,p});row.volume+=v;
             center.x+=v*p.centroid.x;center.y+=v*p.centroid.y;center.z+=v*p.centroid.z;
         }
-        if(!(row.volume>0))throw std::invalid_argument("There is no solid at this history position.");
+        if(!(row.volume>0)) {
+            if(row.area>0&&surface_complete) {
+                row.surface_centroid=kernel::Vec3{surface_sum.x/row.area,surface_sum.y/row.area,surface_sum.z/row.area};
+                return row;
+            }
+            throw std::invalid_argument("There is no solid at this history position.");
+        }
         center.x/=row.volume;center.y/=row.volume;center.z/=row.volume;
         kernel::VolumeIntegrals total;total.centroid=center;
         for(const auto& p:values) {
@@ -100,9 +114,9 @@ void refresh_body_properties(PartDocument& doc,const std::vector<kernel::BodyRes
     for(auto& row:doc.body_properties)row=evaluate_body_properties(doc,calculated,std::move(row));
 }
 kernel::ViewerMesh body_properties_origin(const BodyProperties& row,const std::string& label) {
-    if(!row.integrals||!row.error.empty()||!row.visible)return {};
+    if(!row.centroid()||!row.error.empty()||!row.visible)return {};
     PartDocument carrier;carrier.document_id=row.id;carrier.name=row.name;
-    auto mesh=carrier.origin_viewer_mesh();const auto r=kernel::inertia_frame(row.rotation_degrees);const auto c=row.integrals->centroid;
+    auto mesh=carrier.origin_viewer_mesh();const auto r=kernel::inertia_frame(row.rotation_degrees);const auto c=*row.centroid();
     for(auto& p:mesh.points)p.label=label;
     const auto point=[&](kernel::Vec3& p){p=kernel::inertia_transform(r,p);p.x+=c.x;p.y+=c.y;p.z+=c.z;};
     const auto transform=[&](auto& geometry) {
@@ -141,6 +155,7 @@ std::string serialize_body_properties(const std::vector<BodyProperties>& rows) {
     auto out=Json::array();for(const auto& r:rows)out.push_back({{"id",r.id},{"name",r.name},{"body_id",r.body_id},
         {"after_object_id",r.after_object_id},{"rotation_degrees",vector(r.rotation_degrees)},{"visible",r.visible},
         {"volume_mm3",r.volume},{"area_mm2",r.area},{"density_kg_mm3",r.density_kg_mm3?Json(*r.density_kg_mm3):Json(nullptr)},
+        {"surface_centroid_mm",r.surface_centroid?vector(*r.surface_centroid):Json(nullptr)},
         {"integrals",r.integrals?Json{{"centroid_mm",vector(r.integrals->centroid)},{"central_inertia_mm5",r.integrals->inertia}}:Json(nullptr)},
         {"error",r.error}});return out.dump();
 }
@@ -154,6 +169,7 @@ std::vector<BodyProperties> parse_body_properties(const std::string& source) {
         validate_native_metadata_text(r.id);validate_native_metadata_text(r.name);
         r.rotation_degrees=vector(v.at("rotation_degrees"));r.visible=v.at("visible");
         r.volume=v.at("volume_mm3");r.area=v.at("area_mm2");finite(r.volume);finite(r.area);
+        if(!v.at("surface_centroid_mm").is_null())r.surface_centroid=vector(v.at("surface_centroid_mm"));
         if(r.volume<0||r.area<0)throw std::invalid_argument("Invalid body properties measures.");
         if(!v.at("density_kg_mm3").is_null()){r.density_kg_mm3=v.at("density_kg_mm3").get<double>();finite(*r.density_kg_mm3);if(*r.density_kg_mm3<=0)throw std::invalid_argument("Invalid material density.");}
         if(!v.at("integrals").is_null()) {

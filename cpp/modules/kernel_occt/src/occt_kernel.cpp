@@ -5163,6 +5163,10 @@ BodyResult make_result(
     BRepGProp::SurfaceProperties(shape, surface_properties);
     result.volume = volume_properties.Mass();
     result.surface_area = surface_properties.Mass();
+    if(result.surface_area>0) {
+        const auto center=surface_properties.CentreOfMass();
+        result.surface_centroid=Vec3{center.X(),center.Y(),center.Z()};
+    }
     store_volume_integrals(result,volume_properties);
     if (persist_kernel_shape) result.kernel_shape = serialize_kernel_shape(shape);
     std::optional<TopologyReferenceIndex<FaceReference, OwnedFace>> face_references;
@@ -5912,6 +5916,7 @@ void place_body_result(BodyResult& result, const gp_Trsf& placement) {
         const auto p = gp_Pnt(value.x, value.y, value.z).Transformed(placement);
         value = {p.X(), p.Y(), p.Z()};
     };
+    if(result.surface_centroid)point(*result.surface_centroid);
     const auto direction = [&](Vec3& value) {
         const auto v = gp_Vec(value.x, value.y, value.z).Transformed(placement);
         value = {v.X(), v.Y(), v.Z()};
@@ -5982,6 +5987,11 @@ BodyResult OcctKernel::mirror_body(const BodyResult& source,MirrorPlane plane,co
     if(!transform.IsDone()||!BRepCheck_Analyzer(transform.Shape()).IsValid())throw std::runtime_error("Zrcadlo nevytvořilo platné těleso.");
     result.kernel_shape=serialize_kernel_shape(transform.Shape());
     result.mesh=mirrored_viewer_mesh(std::move(result.mesh),plane,owner_id);
+    if(result.surface_centroid) {
+        const auto c=*result.surface_centroid;
+        const auto p=gp_Pnt(c.x,c.y,c.z).Transformed(reflection);
+        result.surface_centroid=Vec3{p.X(),p.Y(),p.Z()};
+    }
     if(result.volume_integrals) {
         auto& p=*result.volume_integrals;const auto c=gp_Pnt(p.centroid.x,p.centroid.y,p.centroid.z).Transformed(reflection);
         p.centroid={c.X(),c.Y(),c.Z()};Matrix3 r;
@@ -6010,6 +6020,13 @@ BodyResult OcctKernel::pattern_body(const BodyResult& source,const PatternReques
         if(!transform.IsDone()||!BRepCheck_Analyzer(transform.Shape()).IsValid())throw std::runtime_error("Pole nevytvořilo platné těleso.");
         builder.Add(compound,transform.Shape());
         append_body_viewer(result.mesh,pattern_copy_mesh(input.mesh,p,index,owner,occurrences));
+        if(input.surface_centroid) {
+            const auto c=*input.surface_centroid;
+            const auto placed=gp_Pnt(c.x,c.y,c.z).Transformed(copy);
+            if(!result.surface_centroid)result.surface_centroid=Vec3{};
+            auto& sum=*result.surface_centroid;
+            sum.x+=placed.X()/(p.count-1);sum.y+=placed.Y()/(p.count-1);sum.z+=placed.Z()/(p.count-1);
+        }
     }
     result.kernel_shape=serialize_kernel_shape(compound);result.volume=source.volume*(p.count-1);result.surface_area=source.surface_area*(p.count-1);
     // Rigid copies preserve the exact source integrals, including adaptive
@@ -6355,6 +6372,17 @@ std::vector<BodyResult> OcctKernel::evaluate_body_histories(
         }
     }
     document.source_fingerprint = history_fingerprint(operations, operations.size());
+    if(document.surface_area>0) {
+        Vec3 sum{};bool complete=true;
+        for(const auto& id:available) {
+            const auto& body=document.body_outputs.at(id).get();
+            if(body.surface_area<=0)continue;
+            if(!body.surface_centroid){complete=false;break;}
+            const auto c=*body.surface_centroid;const double weight=body.surface_area/document.surface_area;
+            sum.x+=weight*c.x;sum.y+=weight*c.y;sum.z+=weight*c.z;
+        }
+        if(complete)document.surface_centroid=sum;
+    }
     boundaries.back() = std::move(document);
     compact_history_reference_geometry(boundaries);
     return boundaries;
@@ -8373,6 +8401,7 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                         child.edges,child.vertices,true,false);
                     append_original_reference_geometry(original_references,std::move(original.mesh));
                 }
+                operand_mesh.axes=axes_for_operation(operation,operand.shape,{});
             } else {
                 auto operand_result = make_operation_result(
                     operand.shape, operand.faces, operand.edges,

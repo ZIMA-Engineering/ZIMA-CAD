@@ -86,7 +86,7 @@ struct Tree {
             rows.back()["visible"]=row.visible;rows.back()["error"]=row.error;
             if(add(row.id+":origin",row.id,id,{},depth+1,"analysis-origin","Origin")) {
                 rows.back()["rotation_degrees"]={row.rotation_degrees.x,row.rotation_degrees.y,row.rotation_degrees.z};
-                if(row.integrals){const auto c=row.integrals->centroid;rows.back()["position_mm"]={c.x,c.y,c.z};}
+                if(row.centroid()){const auto c=*row.centroid();rows.back()["position_mm"]={c.x,c.y,c.z};}
             }
         };
         const auto analyses_after=[&](const std::string& anchor,const std::string& parent,int depth) {

@@ -63,6 +63,7 @@ UserParametersDialog::UserParametersDialog(
       data_(std::move(data)), language_(std::move(language)),
       accepted_(std::move(accepted)) {
     setObjectName("documentParametersDialog");
+    setProperty("expandBottomTable", true);
     setMinimumSize(600, 420);
     set_initial_size(QSize(690, 560));
     auto* language_form = new QFormLayout;
@@ -93,7 +94,7 @@ UserParametersDialog::UserParametersDialog(
     table_->setColumnWidth(3, 160);
     table_->setItemDelegate(new EnterDownDelegate(table_));
     table_->horizontalHeader()->setSectionResizeMode(4, QHeaderView::Stretch);
-    content_layout()->addWidget(table_);
+    content_layout()->addWidget(table_, 1);
     const auto change_language = [this] {
             const QString next_language = language_combo_->currentText();
             if (next_language.trimmed().isEmpty() || next_language == language_) return;
@@ -277,6 +278,7 @@ RelationsDialog::RelationsDialog(
     : PropertiesSubWindow(settings.text("dialog.relations.title", "Relace"), parent),
       parameters_(std::move(parameters)), accepted_(std::move(accepted)) {
     setObjectName("relationsDialog"); resize(820, 440);
+    setProperty("expandBottomTable", true);
     auto* explanation = new QLabel(settings.text("dialog.relations.explanation",
         "Relace zapisují vypočítanou hodnotu do cílového parametru."), this);
     explanation->setWordWrap(true); content_layout()->addWidget(explanation);
@@ -354,7 +356,7 @@ void RelationsDialog::set_dimension_catalog(
         ++row;
     }
     catalog->resizeColumnsToContents();
-    content_layout()->addWidget(catalog);
+    content_layout()->addWidget(catalog, 1);
     resize(820, 620);
 }
 
@@ -418,6 +420,7 @@ FamilyTableDialog::FamilyTableDialog(
       generic_name_(std::move(generic_name)), data_(std::move(data)),
       accepted_(std::move(accepted)), settings_(settings) {
     setObjectName("familyTableDialog");setMinimumSize(600,280);
+    setProperty("expandBottomTable", true);
     set_initial_size(QSize(2280,440));setSizeGripEnabled(true);
     const auto model=data_.family_table.empty()?zima::document::FamilyTable{}:zima::document::parse_family_table(data_.family_table);
     table_=new QTableWidget(1,2,this);table_->setObjectName("familyTableTable");
@@ -442,7 +445,7 @@ FamilyTableDialog::FamilyTableDialog(
     }
     content_layout()->addWidget(new QLabel(settings.text("dialog.family_table.hint",
         "Click a base cell, then pick a solid in View. Double-click the solid to show its dimensions. Use the row header icon to open a variant."),this));
-    content_layout()->addWidget(table_);
+    content_layout()->addWidget(table_, 1);
     auto* actions=new QHBoxLayout;
     auto* add=new QPushButton(settings.text("dialog.family_table.add_column","Add column"),this);add->setObjectName("familyAddColumn");
     auto* remove=new QPushButton(settings.text("dialog.family_table.delete_column","Delete column"),this);remove->setObjectName("familyDeleteColumn");
@@ -567,6 +570,7 @@ MaterialDialog::MaterialDialog(DocumentToolData data, ToolDataAccepted accepted,
     : PropertiesSubWindow(settings.text("dialog.material.title", "Materiál"), parent),
       data_(std::move(data)), accepted_(std::move(accepted)), settings_(settings) {
     setObjectName("materialDialog");
+    setProperty("expandBottomTable", true);
     setMinimumSize(620, 380);
     set_initial_size(QSize(1100, 700));
     setSizeGripEnabled(true);
@@ -576,7 +580,7 @@ MaterialDialog::MaterialDialog(DocumentToolData data, ToolDataAccepted accepted,
     connect(load, &QPushButton::clicked, this, &MaterialDialog::load_library); top->addWidget(load); content_layout()->addLayout(top);
     table_ = new QTableWidget(0, 5, this); table_->setObjectName("materialTable");
     table_->setHorizontalHeaderLabels({QString{},settings.text("column.parameter", "Parametr"), settings.text("column.value", "Hodnota"), settings.text("column.unit", "Jednotka"), settings.text("column.description", "Popis")});
-    table_->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch); content_layout()->addWidget(table_);
+    table_->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch); content_layout()->addWidget(table_, 1);
     populate();
     new TableEntryRows(table_,[this]{add_row();});
 }

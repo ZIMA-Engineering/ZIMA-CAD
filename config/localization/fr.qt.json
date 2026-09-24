@@ -1,4 +1,6 @@
 {
+  "Plošné těžiště — X: %1; Y: %2; Z: %3": "Centre de gravité surfacique — X : %1 ; Y : %2 ; Z : %3",
+  "Hmotnost: nelze určit z otevřené plochy bez tloušťky.": "Masse : impossible à déterminer pour une surface ouverte sans épaisseur.",
   "Používat ISO font pro GUI": "Utiliser la police ISO pour l’interface",
   "Výkresy, skici a View vždy používají ISO font.": "Les mises en plan, les esquisses et View utilisent toujours la police ISO.",
   "Přepnout osu": "Changer d’axe",

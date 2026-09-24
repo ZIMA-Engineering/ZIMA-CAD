@@ -102,6 +102,24 @@ int main()try {
     kernel::OcctKernel cold;const auto recalculated=workspace::calculate_part_with_resolved_references(cold,loaded);
     check(!recalculated.empty()&&recalculated.back().calculation_errors.empty(),"Cold regeneration failed");
     check(std::abs(recalculated.back().volume-volume)<1e-5,"Cold regeneration changed volume");
+    for(const kernel::BodyResult* result:{static_cast<const kernel::BodyResult*>(&cache.back()),&recalculated.back()}) {
+        const auto& axes=result->mesh.original_references.axes;
+        const auto axis=std::ranges::find_if(axes,[&](const auto& a){return a.reference.owner_id==feature.id&&a.reference.semantic_key=="axis:primary";});
+        check(axis!=axes.end(),"Transition centre axis was not persisted or regenerated");
+        check(std::abs(axis->point.z-75)<1e-8&&std::abs(axis->direction.z-1)<1e-8,
+            "Transition axis does not connect the two profile centres");
+        check(std::ranges::any_of(result->mesh.axes,[&](const auto& a){return a.reference==axis->reference;}),
+            "Transition centre axis is missing from ordinary display");
+    }
+    {
+        auto shifted=placed;shifted.sheet_transition.end_position={0,0,180};
+        shifted.sheet_transition.end_rotation={0,15,0};
+        const auto operation=document::sheet_transition_operation(loaded,shifted);
+        const auto& axes=std::get<kernel::FeatureGroupRequest>(operation.primitive).axes;
+        const auto axis=std::ranges::find_if(axes,[](const auto& a){return a.reference.semantic_key=="axis:primary";});
+        check(axis!=axes.end()&&std::abs(axis->display_length-182)<1e-8,
+            "Offset/rotated transition centre axis has the wrong span");
+    }
     {
         const auto origins=loaded.history_origin_reference_geometry_before({});
         for(const auto& owner:{feature.container_origin.id,feature.sheet_transition.end_origin_id}) {

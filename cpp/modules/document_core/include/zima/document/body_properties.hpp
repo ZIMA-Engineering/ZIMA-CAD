@@ -11,6 +11,10 @@ struct BodyProperties {
     double volume{},area{};
     std::optional<double> density_kg_mm3;
     std::optional<kernel::VolumeIntegrals> integrals;
+    std::optional<kernel::Vec3> surface_centroid;
+    [[nodiscard]] std::optional<kernel::Vec3> centroid() const {
+        return integrals?std::optional{integrals->centroid}:surface_centroid;
+    }
     std::string error;
     bool operator==(const BodyProperties&) const = default;
 };

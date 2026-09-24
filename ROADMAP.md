@@ -12,6 +12,18 @@ for module boundaries and [distribution rules](doc/DISTRIBUTION_CLEANUP_PLAN.md)
 for the agreed packaging direction. Dated entries below preserve planning context;
 newer completion notes and focused contracts supersede their earlier status.
 
+## Requested follow-up features (2026-09-24)
+
+- General spherical-surface feature. Agree on its inputs and editing parameters
+  before implementation; this request does not specify the construction method.
+- Modeling command **Straighten** (localized Czech label: **Narovnat**): take a
+  profile and straighten it according to user-defined parameters. Define the
+  preserved dimensions, reference direction and supported profile types first.
+- Complete the engineering-symbol functionality and library; review missing
+  symbols and editing/insertion behavior with the user.
+
+These are backlog entries, not part of the current UI, import and measurement fixes.
+
 ## Agreed command console and Codex integration (2026-09-09)
 
 The shared console and CLI coverage for supported CAD operations are complete

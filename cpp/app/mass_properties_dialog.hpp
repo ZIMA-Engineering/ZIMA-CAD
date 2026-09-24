@@ -59,13 +59,15 @@ private:
     QString number(double x)const {return QString::fromStdString(kernel::dimension_number(x,ui::numeric_decimal_places(this)));}
     void refresh() {
         if(!row_.error.empty()){result_->setText(tr(row_.error.c_str()));return;}
-        if(!row_.integrals){result_->clear();return;}
+        if(!row_.centroid()){result_->clear();return;}
         QStringList lines;
         lines<<tr("Objem: %1").arg(number(row_.volume/std::pow(length_,3))+" "+length_unit_+QStringLiteral("³"));
         lines<<tr("Povrch: %1").arg(number(row_.area/(length_*length_))+" "+length_unit_+QStringLiteral("²"));
-        const auto c=row_.integrals->centroid;
-        lines<<tr("Těžiště — X: %1; Y: %2; Z: %3").arg(number(c.x/length_)+" "+length_unit_,number(c.y/length_)+" "+length_unit_,number(c.z/length_)+" "+length_unit_);
-        if(row_.density_kg_mm3) {
+        const auto c=*row_.centroid();
+        lines<<(row_.surface_centroid?tr("Plošné těžiště — X: %1; Y: %2; Z: %3"):tr("Těžiště — X: %1; Y: %2; Z: %3")).arg(number(c.x/length_)+" "+length_unit_,number(c.y/length_)+" "+length_unit_,number(c.z/length_)+" "+length_unit_);
+        if(row_.surface_centroid) {
+            lines<<tr("Hmotnost: nelze určit z otevřené plochy bez tloušťky.");
+        }else if(row_.density_kg_mm3) {
             lines<<tr("Hmotnost: %1").arg(number(row_.volume * *row_.density_kg_mm3/mass_)+" "+mass_unit_);
             auto t=kernel::inertia_rotate(row_.integrals->inertia,kernel::inertia_frame(row_.rotation_degrees),true);
             const double factor=*row_.density_kg_mm3/(mass_*length_*length_);

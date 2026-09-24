@@ -206,6 +206,7 @@ zima::workspace::NativeTemplateSettings native_template_settings(const Applicati
         QObject::tr("Těleso 1").toStdString(),settings.sheet_cut_tolerance,
         QObject::tr("List %1").arg(1).toStdString()};
     configure_new_drawing(result,new_drawing_options(settings));
+    result.materials_directory=std::filesystem::u8path(settings.resolved_paths.value("Materials").toStdString());
     return result;
 }
 

@@ -16,9 +16,9 @@ int verify_new_document_options(QApplication& application) {
                 const auto translated=app::ApplicationSettings::load(directory.path());
                 auto axis=document::PartDocument::create_construction(document::ConstructionKind::Axis);
                 app::CylinderAxisDialog dialog(axis,[](auto){},&window);
-                check(dialog.windowTitle()==translated.qt_translations.value("Osa z válcové plochy"),"Cylinder axis title is not localized");
+                check(dialog.windowTitle()==translated.qt_translations.value("Vlastnosti osy válcové plochy"),"Cylinder axis title is not localized");
                 auto* table=dialog.findChild<QTableWidget*>("cylinderAxisReference");
-                check(table&&table->horizontalHeaderItem(0)->text()==translated.qt_translations.value("Válcová plocha"),"Cylinder axis source field is not localized");
+                check(table&&table->horizontalHeaderItem(1)->text()==translated.qt_translations.value("Válcová plocha"),"Cylinder axis source field is not localized");
             }
             for (bool accept : {false, true}) {
                 window.findChild<QAction*>("globalSettingsAction")->trigger();flush();

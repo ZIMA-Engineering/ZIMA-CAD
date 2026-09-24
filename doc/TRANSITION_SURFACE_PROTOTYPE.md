@@ -366,3 +366,11 @@ but is not an algorithm or proof for arbitrary tilted profiles. A further candid
 should retain small triangular inner planar remnants between intersecting bend
 zones and trim their true intersections, rather than assuming those remnants must
 be cut out. Constant thickness and an unstretched connected blank remain required.
+
+## Profile-centre axis (2026-09-24)
+
+Sheet Transition publishes `axis:primary` under its feature identity through the
+existing calculated original-reference packet. It joins the authored circular
+centre to the midpoint of the two open half-rectangle endpoints, including Sketch
+offsets and feature/Body placement. It is a reference axis, not another bend line.
+It neither changes the manufactured sheet nor adds kernel work during selection.

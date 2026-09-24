@@ -1,4 +1,6 @@
 {
+  "Plošné těžiště — X: %1; Y: %2; Z: %3": "Центр тяжести поверхности — X: %1; Y: %2; Z: %3",
+  "Hmotnost: nelze určit z otevřené plochy bez tloušťky.": "Масса: невозможно определить для открытой поверхности без толщины.",
   "Používat ISO font pro GUI": "Использовать шрифт ISO для интерфейса",
   "Výkresy, skici a View vždy používají ISO font.": "Чертежи, эскизы и View всегда используют шрифт ISO.",
   "Přepnout osu": "Переключить ось",

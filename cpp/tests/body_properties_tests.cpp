@@ -99,9 +99,39 @@ void placed_bodies(const kernel::OcctKernel& kernel) {
     near(calculated.back().volume_integrals->centroid.x,110,"kernel aggregate centroid");
     near(calculated.back().volume_integrals->inertia[4],104000,"kernel aggregate tensor");
 }
+void surfaces(const kernel::OcctKernel& kernel) {
+    auto doc=document::PartDocument::create_default();auto sketch=sketcher::Sketch::create_default();
+    static_cast<void>(sketch.add_segment(0,0,10,0));
+    static_cast<void>(sketch.add_segment(10,0,10,20));
+    auto feature=document::PartDocument::create_extrusion_container(sketch.id);sketch.owner_container_id=feature.id;
+    feature.extrusion.result_type=document::ProfileResultType::Surface;
+    feature.extrusion.height=feature.extrusion.length_forward=10;
+    doc.history={feature};doc.sketches={sketch};
+    document::BodyHistoryGraph graph;const auto body=graph.create_body("Open surfaces");
+    graph.insert({document::PartHistoryKind::Feature,feature.id});
+    auto definition=*graph.find(body);definition.scope.placement.x=100;definition.scope.placement.rotation_z=90;
+    graph.update_body(definition);doc.set_body_history(graph);
+    doc.physical_parameters["MASS_DENSITY"]="0.00000785";
+    const auto calculated=kernel.evaluate_history(doc.kernel_operations());
+    document::BodyProperties row;row.id="area-center";row.name="Surface center";row.body_id=body;row.after_object_id=feature.id;
+    row=document::evaluate_body_properties(doc,calculated,row);
+    check(row.error.empty()&&row.surface_centroid&&!row.integrals,"Open surfaces did not offer an area centroid");
+    near(row.volume,0,"Surface fabricated volume");near(row.area,300,"Surface area");
+    near(row.surface_centroid->x,100-20./3,"Area-weighted rotated X");
+    near(row.surface_centroid->y,25./3,"Area-weighted rotated Y");near(row.surface_centroid->z,5,"Surface Z");
+    check(!document::body_properties_origin(row).points.empty(),"Surface centroid has no displayed Origin");
+    check(document::parse_body_properties(document::serialize_body_properties({row})).front()==row,"Surface measurement persistence");
+    const auto restored=document::load_body_result(document::serialize_body_result(calculated.back()));
+    check(restored.surface_centroid==calculated.back().surface_centroid,"Surface centroid lost in calculation cache");
+    const auto mirror=kernel.mirror_body(restored,{{0,0,0},{1,0,0}},"surface-mirror");
+    near(mirror.surface_centroid->x,-restored.surface_centroid->x,"Mirrored surface centroid");
+    kernel::PatternRequest pattern;pattern.linear[0].count=3;pattern.linear[0].spacing=20;
+    const auto copies=kernel.pattern_body(restored,pattern,"surface-copies");
+    near(copies.surface_centroid->x,restored.surface_centroid->x+30,"Pattern surface centroid");
+}
 }
 int main(){try {
-    kernel::OcctKernel kernel;geometry(kernel);placed_bodies(kernel);
+    kernel::OcctKernel kernel;geometry(kernel);placed_bodies(kernel);surfaces(kernel);
     const auto parent=std::filesystem::canonical(std::filesystem::temp_directory_path());const auto dir=parent/("zima-body-properties-"+kernel::make_stable_id());
     std::filesystem::create_directory(dir);workflow(kernel,dir);
     check(std::filesystem::canonical(dir).parent_path()==parent,"Invalid test cleanup path");std::filesystem::remove_all(dir);

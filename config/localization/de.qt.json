@@ -1,4 +1,6 @@
 {
+  "Plošné těžiště — X: %1; Y: %2; Z: %3": "Flächenschwerpunkt — X: %1; Y: %2; Z: %3",
+  "Hmotnost: nelze určit z otevřené plochy bez tloušťky.": "Masse: bei einer offenen Fläche ohne Dicke nicht bestimmbar.",
   "Používat ISO font pro GUI": "ISO-Schrift für die Benutzeroberfläche verwenden",
   "Výkresy, skici a View vždy používají ISO font.": "Zeichnungen, Skizzen und View verwenden immer die ISO-Schrift.",
   "Přepnout osu": "Achse wechseln",

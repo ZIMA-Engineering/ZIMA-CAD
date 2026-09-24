@@ -1,4 +1,6 @@
 {
+  "Plošné těžiště — X: %1; Y: %2; Z: %3": "Surface centroid — X: %1; Y: %2; Z: %3",
+  "Hmotnost: nelze určit z otevřené plochy bez tloušťky.": "Mass: cannot be determined from an open surface without thickness.",
   "Používat ISO font pro GUI": "Use ISO font for the GUI",
   "Výkresy, skici a View vždy používají ISO font.": "Drawings, sketches and View always use the ISO font.",
   "Přepnout osu": "Cycle axis",

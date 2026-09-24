@@ -2,6 +2,7 @@
 #include <zima/interchange/interchange.hpp>
 #include <zima/document/file_path.hpp>
 #include <zima/document/precision.hpp>
+#include <zima/document/material_library.hpp>
 #include <set>
 #include <type_traits>
 
@@ -73,6 +74,14 @@ AssemblyImportReport import_assembly(Workspace& live,const std::string& owner,
         char tolerance[64];const auto encoded=std::to_chars(tolerance,tolerance+sizeof(tolerance),cut_tolerance);
         if(encoded.ec!=std::errc{})throw std::invalid_argument("Cannot encode Sheet Cut tolerance.");
         const std::string cut_tolerance_text(tolerance,encoded.ptr);
+        std::optional<document::PartDocument> defaults;
+        std::optional<document::MaterialData> material;
+        if(templates && (format==interchange::Format::Step || format==interchange::Format::Iges)) {
+            defaults=part_from_template(*templates);
+            const auto materials=templates->materials_directory.empty()
+                ? templates->directory.parent_path()/"materials" : templates->materials_directory;
+            material=document::load_material_library(materials/"01_steels/structural/S235JR.matz");
+        }
         if(format==interchange::Format::Step) {
             imported=interchange::import_step_assembly(source,directory.path,precision,geometry.mesh_deflection);
             for(auto& part:imported->parts)part.document.document_units=units;
@@ -91,8 +100,20 @@ AssemblyImportReport import_assembly(Workspace& live,const std::string& owner,
         }
         // Imported definitions are new Parts; retain inherited precision while
         // snapshotting the configured Part-only calculation default.
-        for(auto& part:imported->parts)
+        for(auto& part:imported->parts) {
             part.document.document_precision["sheet_cut_tolerance"]=cut_tolerance_text;
+            if(defaults) {
+                auto& doc=part.document;
+                doc.user_parameters=defaults->user_parameters;
+                doc.user_parameter_order=defaults->user_parameter_order;
+                doc.user_parameter_labels=defaults->user_parameter_labels;
+                doc.user_parameter_values=defaults->user_parameter_values;
+                doc.relations=defaults->relations;
+                doc.physical_parameters=material->properties;
+                doc.physical_parameter_units=material->units;
+                doc.material_parameter_descriptions=material->descriptions;
+            }
+        }
     };
     if(runner)runner(std::move(calculate));else calculate();
     if(!imported)throw ImportOperationError("incomplete_import","The import runner did not complete the calculation.");

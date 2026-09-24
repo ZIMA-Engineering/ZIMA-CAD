@@ -96,7 +96,7 @@ void AssemblyWorkspaceWindow::update_mass_properties_ui() {
         auto* origin=new QTreeWidgetItem(item,QStringList{tr("Těžiště")});origin->setIcon(0,resource_icon("origin"));
         origin->setData(0,Qt::UserRole,QString::fromStdString(row.id+":origin"));origin->setData(0,Qt::UserRole+3,"body-properties-origin");
         origin->setData(0,Qt::UserRole+5,QString::fromStdString(row.id));origin->setFlags(origin->flags()&~Qt::ItemIsUserCheckable);
-        if(row.integrals){const auto c=row.integrals->centroid;origin->setToolTip(0,QString("X: %1; Y: %2; Z: %3 mm").arg(c.x).arg(c.y).arg(c.z));}
+        if(row.centroid()){const auto c=*row.centroid();origin->setToolTip(0,QString("X: %1; Y: %2; Z: %3 mm").arg(c.x).arg(c.y).arg(c.z));}
     }
 }
 bool AssemblyWorkspaceWindow::mass_properties_context_menu(QTreeWidgetItem* item,const QPoint& position) {

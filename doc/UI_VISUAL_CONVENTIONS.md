@@ -273,3 +273,9 @@ or behavior.
 The Applications menu reuses the existing Part, Assembly, Bend, Surface, Sweep
 and Drawing icons for its six mode actions. Piping remains hidden. Mode switching,
 check states and all five localized labels are unchanged.
+
+Parameters, Material, Family Table and the lower dimension catalog in Relations allocate
+spare vertical space to their tables using the shared expanding-table presentation.
+Initial and minimum window sizes are
+unchanged; headings stay above the table and action buttons below it. This layout
+change introduces no visible text or translation changes.

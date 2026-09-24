@@ -932,6 +932,8 @@ struct BodyResult {
     double volume{};
     double surface_area{};
     std::optional<VolumeIntegrals> volume_integrals;
+    // Exact area-weighted centre, calculated with surface area at the kernel boundary.
+    std::optional<Vec3> surface_centroid;
     std::string source_fingerprint;
     // Opaque calculation snapshot. Only the solid kernel may consume it
     // during an explicit body calculation; viewer/reference code uses mesh.

@@ -105,6 +105,7 @@ Settings load_settings(const fs::path& executable,const fs::path& working,const 
     result.stacked_tolerances=value("Dimensions/ToleranceLayout","inline")=="stacked";
     result.documents.templates={configured_path("Paths/Templates","templates"),
         fs::u8path(value("Templates/Part","START_PART.prtz")),fs::u8path(value("Templates/Assembly","START_ASSEMBLY.asmz")),"Těleso 1"};
+    result.documents.templates.materials_directory=configured_path("Paths/Materials","materials");
     try {
         result.documents.templates.sheet_cut_tolerance=document::sheet_cut_tolerance({
             {"sheet_cut_tolerance",value("SheetMetal/CutTolerance","0.05")}});

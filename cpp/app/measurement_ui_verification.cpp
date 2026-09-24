@@ -174,7 +174,7 @@ try{
         return nullptr;
     };
     mass_action->trigger();flush();check(mass_dialog(),"Body properties did not open");
-    check(mass_action->text()=="Měření tělesa"&&mass_dialog()->windowTitle()=="Měření tělesa","Body measurement is confused with Body placement properties");
+    check(mass_action->text()==QObject::tr("Měření tělesa")&&mass_dialog()->windowTitle()==QObject::tr("Měření tělesa"),"Body measurement is confused with Body placement properties");
     check(mass_dialog()->parentWidget()==&window&&(mass_dialog()->windowFlags()&Qt::WindowType_Mask)==Qt::SubWindow,"Body properties uses a native window");
     check(mass_dialog()->buttons()->standardButtons()==(QDialogButtonBox::Ok|QDialogButtonBox::Cancel),"Body properties has extra commit actions");
     mass_dialog()->resize(460,260);flush();
@@ -202,7 +202,7 @@ try{
     check(tree->currentItem()&&tree->currentItem()->data(0,Qt::UserRole+3)=="body-properties","Mass feature not selected in Tree");
     check_before_cursor();
     check(std::ranges::any_of(view->mesh().points,[&](const auto& p){return p.reference.owner_id==mass_id+":origin";}),"COG Origin missing from View");
-    auto* centroid_item=tree->currentItem()->child(0);check(centroid_item&&centroid_item->text(0)=="Těžiště","Centroid Tree label is ambiguous");
+    auto* centroid_item=tree->currentItem()->child(0);check(centroid_item&&centroid_item->text(0)==QObject::tr("Těžiště"),"Centroid Tree label is ambiguous");
     tree->setCurrentItem(centroid_item);flush();
     check(view->confirmed_candidate()&&view->confirmed_candidate()->owner_id==mass_id+":origin","Selecting centroid in Tree does not highlight its own frame");
     click({25,25},Qt::LeftButton);check(!view->confirmed_candidate()&&tree->selectedItems().empty(),"Empty View click retained centroid selection");
@@ -290,7 +290,7 @@ try{
           std::abs(info[1]->values.mass->value-.0324)<1e-10,"Second body reused first body material");
     for(int i=1;i<=2;++i){
         const auto text=dialog()->findChild<QLabel*>(QString("measurementInfo%1").arg(i))->text();
-        check(text.contains("Objem:")&&text.contains("Hmotnost:")&&text.contains(','),"Entity summary omitted volume, mass or decimal comma");
+        check(text.contains(QObject::tr("Objem: %1").section("%1",0,0))&&text.contains(QObject::tr("Hmotnost: %1").section("%1",0,0))&&text.contains(','),"Entity summary omitted volume, mass or decimal comma");
     }
     check(std::abs(dialog()->distance()->distance.value-25)<1e-8,"Two-body gap differs from analytic 25mm");
     if(qEnvironmentVariableIsSet("ZIMA_MEASUREMENT_CAPTURE"))window.grab().save(qEnvironmentVariable("ZIMA_MEASUREMENT_CAPTURE")+".assembly.png");
@@ -318,7 +318,7 @@ try{
         const auto c=draft.integrals->centroid;
         check(std::abs(c.x)>1&&std::abs(c.y)>1&&std::abs(c.z)>1,"Source centroid must distinguish the Body origin");
         const auto point=std::ranges::find_if(view->mesh().points,[&](const auto& p){return p.reference.owner_id==draft.id+":origin";});
-        check(point!=view->mesh().points.end()&&point->position==c&&point->label=="Těžiště","Source preview reused Body origin or label");
+        check(point!=view->mesh().points.end()&&point->position==c&&point->label==QObject::tr("Těžiště").toStdString(),"Source preview reused Body origin or label");
         check(execute("body_properties.list").data.at("total")==before,"Source preview was persisted before Save");
         click({25,25},Qt::LeftButton);
         check(view->confirmed_candidate()&&view->confirmed_candidate()->owner_id==draft.id+":origin","Preview lost azure color on empty View click");

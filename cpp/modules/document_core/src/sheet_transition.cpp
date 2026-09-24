@@ -104,6 +104,15 @@ kernel::HistoryOperation sheet_transition_operation(const PartDocument&,const Hi
     for(const auto& parent:parents)ancestry+=":"+std::to_string(parent.size())+":"+parent;
     const auto remap=[&](std::string& id){if(!id.empty())id="transition:"+feature.feature_id+":"+id+ancestry;};
     auto& group=std::get<kernel::FeatureGroupRequest>(operation.primitive);
+    // Profile centres come from authored Sketch geometry, not result topology.
+    // Use the existing primary-axis identity and persisted reference pipeline.
+    const auto round_center=input.model.first_origin.origin;
+    const auto rectangle_center=input.model.first_origin.point(input.model.second_relative.origin);
+    const auto delta=sub(round_center,rectangle_center);
+    const double axis_length=std::sqrt(dot(delta,delta));
+    if(axis_length>1e-9)
+        group.axes.push_back({mul(add(round_center,rectangle_center),.5),
+            mul(delta,1.0/axis_length),axis_length+2.0,{feature.id,"axis:primary",{}}});
     for(auto& child:group.children)std::visit([&](auto& primitive){
         using T=std::decay_t<decltype(primitive)>;
         if constexpr(std::is_same_v<T,kernel::ExtrusionRequest>) {

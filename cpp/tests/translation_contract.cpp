@@ -3,6 +3,7 @@
 #include "primitive_properties_dialog.hpp"
 #include "sweep_station_label.hpp"
 #include "sheet_transition_dialog.hpp"
+#include "mass_properties_dialog.hpp"
 #include <QAction>
 #include <QApplication>
 #include <QDialogButtonBox>
@@ -100,6 +101,18 @@ int verify_translations(QApplication& application, QWidget& parent) {
         check(settings.translations.contains("global.language") &&
             !settings.translations.contains("Zamknout hodnotu"), "INI sections were mixed");
         app::apply_application_translations(application, settings);
+        {
+            document::BodyProperties row;row.name="Surface";row.area=300;
+            row.surface_centroid=kernel::Vec3{1,2,3};row.density_kg_mm3=.00000785;
+            app::MassPropertiesDialog dialog(row,{{"Length","mm"},{"Mass","kg"}},"Surface",[](auto){},[](auto){},&parent);
+            dialog.setAttribute(Qt::WA_DeleteOnClose,false);dialog.show();application.processEvents();
+            const auto text=dialog.findChild<QLabel*>("bodyPropertiesResults")->text();
+            check(text.contains(settings.qt_translations.value("Plošné těžiště — X: %1; Y: %2; Z: %3").section("%1",0,0)),
+                "Surface centroid result is untranslated");
+            check(text.contains(settings.qt_translations.value("Hmotnost: nelze určit z otevřené plochy bez tloušťky."))&&!text.contains("Ixx"),
+                "Surface result fabricated mass inertia or omitted its translated explanation");
+            dialog.hide();
+        }
         {
             auto feature=document::create_sheet_transition();
             app::SheetTransitionDialog transition(feature,[](auto){},&parent);
