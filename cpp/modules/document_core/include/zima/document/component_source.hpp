@@ -46,6 +46,31 @@ inline zima::kernel::BodyResult component_source(const PartDocument& document, c
         if (owner != document.history.end() && (owner->suppressed ||
             owner->feature_kind != zima::document::FeatureKind::Sketch)) continue;
         auto mesh = sketch.viewer_mesh();
+        // A component publishes the idle Sketch profile, not Sketcher tools.
+        // Keep the original-reference packet intact for mates and future edits.
+        std::erase_if(mesh.edges, [](const auto& edge) {
+            const auto& key = edge.reference.semantic_key;
+            return edge.construction || !(key.starts_with("segment:") ||
+                key.starts_with("circle:") || key.starts_with("arc:") ||
+                key.starts_with("corner_radius:") || key.starts_with("ellipse:") ||
+                key.starts_with("elliptical_arc:") || key.starts_with("bspline:") ||
+                key.starts_with("text:"));
+        });
+        for (auto& edge : mesh.edges)
+            edge.display_owner_id = sketch.owner_container_id.empty()
+                ? sketch.id : sketch.owner_container_id;
+        std::erase_if(mesh.points, [](const auto& point) {
+            return point.construction ||
+                (!point.reference.semantic_key.starts_with("point:") &&
+                 point.reference.semantic_key != "external_point:sketch_origin");
+        });
+        for (auto& point : mesh.points)
+            if (point.reference.semantic_key == "external_point:sketch_origin") {
+                point.reference.semantic_key = "sketch:origin-marker";
+                point.always_visible = false;
+            }
+        mesh.axes.clear();
+        mesh.constraint_markers.clear();
         if (const auto* body = document.body_owner_for_object(sketch.id)) {
             if (!body->visible) continue;
             mesh = document.place_body_mesh(std::move(mesh),body->scope.id);

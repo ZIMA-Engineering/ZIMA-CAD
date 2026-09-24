@@ -53,3 +53,15 @@ green accent that must remain intact.
 
 `terminal.svg` is reused from ZIMA-CAD-Parts (`gfx/navigation/terminal.svg`)
 for the CAD console toggle immediately after Regenerate in the View toolbar.
+
+## Menu action icons (2026-09-24)
+
+Shared 24 px SVG assets: `close`, `rename`, `working-directory`, `properties`,
+`edit`, `suppress`, `restore`, `hide` and `show`. They use the same 1.75 px rounded
+`currentColor` strokes as the base set. Reuse `delete` for removal commands and
+submenus. Property/inspection actions use the property-list icon; direct editing
+uses the pencil. Suppression is distinct from visibility (pause versus eye).
+
+Select Parent (`select-parent.svg`), Ground/Release (`ground.svg`, `release.svg`)
+and Regenerate (`regenerate.svg`) use the same 24 px outline style. Ground and
+Release depict fixing a component to ground and lifting it from ground.

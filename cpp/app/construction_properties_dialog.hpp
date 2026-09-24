@@ -181,7 +181,8 @@ private:
     QTableWidget* curve_points_table_{};
     QCheckBox* curve_rounding_{};
     bool initialized_{};
-    QPushButton* edit_curve_point_{};
+    bool updating_reference_{};
+    std::optional<std::string> ordering_point_id_;
     QPushButton* move_curve_point_up_{};
     QPushButton* move_curve_point_down_{};
     std::vector<zima::document::ConstructionObject> curve_points_;
@@ -202,6 +203,7 @@ private:
     bool allow_sweep_subtract_{};
     SweepProfileEditRequestCallback sweep_profile_edit_request_;
     std::optional<std::size_t> active_curve_axis_index_;
+    std::set<std::string> inspected_curve_points_, inspected_curve_axes_;
     std::unique_ptr<zima::ui::ContainerPlacementSection> placement_;
     QLabel* reference_status_{};
     QLabel* dof_label_{};

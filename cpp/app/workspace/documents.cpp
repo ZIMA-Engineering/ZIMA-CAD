@@ -437,7 +437,7 @@ void AssemblyWorkspaceWindow::refresh_tabs() {
             "QPushButton{color:#ffffff;background:#8b2424;"
             "border:1px solid #b94a4a;border-radius:4px;"
             "font-size:16px;font-weight:700;padding:0}"
-            "QPushButton:hover{background:#b83232;border-color:#ed7777}"
+            "QPushButton:hover{background:#4DD811;color:#102027;border-color:#4DD811}"
             "QPushButton:pressed{background:#6f1d1d}");
         const auto document_id = tabs_->tabData(index);
         connect(close, &QPushButton::clicked, this, [this, document_id] {

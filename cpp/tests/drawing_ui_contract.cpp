@@ -388,13 +388,13 @@ int verify_drawing_ui() {
         // Labels live above the model bounds and move independently in paper units.
         const auto caption=window.view_label_center_for_test(original.id);require(caption&&caption->y()<center.y(),"Default caption is not above the view");
         mouse(canvas,QEvent::MouseMove,*caption,Qt::NoButton,Qt::NoButton);
-        const auto hover_image=canvas->grab().toImage();bool orange_handle=false;
+        const auto hover_image=canvas->grab().toImage();bool green_handle=false;
         // QWidget positions are logical pixels; the grabbed image uses device pixels.
         const auto handle_pixel=(*caption*hover_image.devicePixelRatio()).toPoint();
         const int handle_radius=qCeil(6*hover_image.devicePixelRatio());
-        for(int y=-handle_radius;y<=handle_radius;++y)for(int x=-handle_radius;x<=handle_radius;++x){const auto pixel=hover_image.pixelColor(handle_pixel+QPoint(x,y));orange_handle|=pixel.red()>180&&pixel.green()>60&&pixel.green()<190&&pixel.blue()<120;}
-        if(!orange_handle){std::filesystem::create_directories("Projects/test/drawing-ui");hover_image.save("Projects/test/drawing-ui/caption-hover-failure.png");}
-        require(orange_handle,"Hover did not highlight the caption manipulation point");
+        for(int y=-handle_radius;y<=handle_radius;++y)for(int x=-handle_radius;x<=handle_radius;++x){const auto pixel=hover_image.pixelColor(handle_pixel+QPoint(x,y));green_handle|=pixel.red()<120&&pixel.green()>180&&pixel.blue()<80;}
+        if(!green_handle){std::filesystem::create_directories("Projects/test/drawing-ui");hover_image.save("Projects/test/drawing-ui/caption-hover-failure.png");}
+        require(green_handle,"Hover did not highlight the caption manipulation point");
         mouse(canvas,QEvent::MouseButtonPress,*caption+QPointF(18,0),Qt::LeftButton,Qt::LeftButton);
         mouse(canvas,QEvent::MouseMove,*caption+QPointF(48,0),Qt::NoButton,Qt::LeftButton);mouse(canvas,QEvent::MouseButtonRelease,*caption+QPointF(48,0),Qt::LeftButton,Qt::NoButton);
         require(!state.sheets.front().views.front().caption_position,"Text body drag bypassed its manipulation point");

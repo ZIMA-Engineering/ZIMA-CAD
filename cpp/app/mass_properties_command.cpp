@@ -54,7 +54,7 @@ void AssemblyWorkspaceWindow::show_mass_properties(const std::string& object) {
     // The information feature consumes the solid immediately before its row.
     // Suppress downstream tree rows visually only for this edit session.
     for(QTreeWidgetItemIterator it(tree_);*it;++it)if((*it)->data(0,Qt::UserRole).toString().toStdString()==edit.initial.id) {
-        auto* row=*it;row->setForeground(0,QColor("#53bb39"));auto* parent=row->parent();
+        auto* row=*it;row->setBackground(0,QColor("#00D1FF"));row->setForeground(0,QColor("#102027"));auto* parent=row->parent();
         if(parent)for(int i=parent->indexOfChild(row)+1;i<parent->childCount();++i)parent->child(i)->setForeground(0,QColor("#888888"));
         break;
     }
@@ -108,7 +108,7 @@ bool AssemblyWorkspaceWindow::mass_properties_context_menu(QTreeWidgetItem* item
     const auto found=std::ranges::find(part->session.document().body_properties,object,&document::BodyProperties::id);
     if(found==part->session.document().body_properties.end())return true;
     const bool visible=found->visible;
-    QMenu menu(this);auto* edit=menu.addAction(tr("Vlastnosti…"));
+    QMenu menu(this);auto* edit=menu.addAction(resource_icon("properties"),tr("Vlastnosti…"));
     auto* visibility=menu.addAction(visible?tr("Skrýt"):tr("Zobrazit"));visibility->setObjectName("bodyPropertiesVisibilityAction");
     auto* remove=menu.addAction(tr("Odstranit"));
     const auto* picked=exec_tree_menu(menu,item,position);

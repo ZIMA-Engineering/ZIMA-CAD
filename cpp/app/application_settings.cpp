@@ -1,6 +1,7 @@
 #include "application_settings.hpp"
 #include <zima/document/precision.hpp>
 #include "../common/installation.hpp"
+#include "../common/technical_font.hpp"
 #include <memory>
 #include <iostream>
 #include <vector>
@@ -139,7 +140,7 @@ ApplicationSettings ApplicationSettings::load(const QString& working_directory, 
     result.document_naming.uppercase=value("DocumentNames/Uppercase","false").toLower()=="true";
     result.document_naming.remove_diacritics=value("DocumentNames/RemoveDiacritics","false").toLower()=="true";
     result.document_naming.replace_spaces=value("DocumentNames/ReplaceSpaces","false").toLower()=="true";
-    result.use_iso_application_font = value("Application/UseISOFont", "true").toLower() != "false";
+    result.use_iso_application_font = value("Application/UseISOFont", "false").toLower() == "true";
     result.stacked_tolerances = value("Dimensions/ToleranceLayout", "inline") == "stacked";
     try {
         result.sheet_cut_tolerance=zima::document::sheet_cut_tolerance({
@@ -370,19 +371,26 @@ void apply_application_font(QApplication& application,
     const ApplicationSettings& settings) {
     application.setProperty("zimaStackedTolerances",settings.stacked_tolerances);
     for(auto* widget:application.allWidgets())widget->update();
-    if (!settings.use_iso_application_font) {
-        application.setFont(QFontDatabase::systemFont(QFontDatabase::GeneralFont));
-        return;
+    const auto iso = zima::technical_font_family();
+    auto font = QFontDatabase::systemFont(QFontDatabase::GeneralFont);
+    if (!iso.isEmpty()) {
+        if (settings.use_iso_application_font) {
+            font.setFamily(iso);
+            font.setWeight(QFont::DemiBold);
+        } else {
+            auto families = font.families();
+            if (!families.contains(iso)) families.push_back(iso);
+            font.setFamilies(families);
+        }
+#if QT_VERSION >= QT_VERSION_CHECK(6, 8, 0)
+        static const bool fallback_registered = [&] {
+            for (const auto script : {QChar::Script_Latin, QChar::Script_Cyrillic, QChar::Script_Greek})
+                QFontDatabase::addApplicationFallbackFontFamily(script, iso);
+            return true;
+        }();
+        Q_UNUSED(fallback_registered);
+#endif
     }
-    static int font_id = -2;
-    if (font_id == -2) font_id = QFontDatabase::addApplicationFont(
-        QStringLiteral(":/zima/fonts/osifont-lgpl3fe.ttf"));
-    if (font_id < 0) return;
-    const auto families = QFontDatabase::applicationFontFamilies(font_id);
-    if (families.empty()) return;
-    auto font = application.font();
-    font.setFamily(families.front());
-    font.setWeight(QFont::DemiBold);
     application.setFont(font);
 }
 

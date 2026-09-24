@@ -1,4 +1,6 @@
+#include "../../../common/interaction_colors.hpp"
 #include <zima/kernel/tangent_edge_route.hpp>
+#include "../../../common/technical_font.hpp"
 #include <zima/viewer/dimension_presentation.hpp>
 #include <zima/viewer/dimension_text_layer.hpp>
 #include <QApplication>
@@ -67,7 +69,7 @@ template<class Project> void paint_normal_text(QPainter& painter,
             for(std::size_t i=1;i<edge.points.size();++i)path.lineTo(project(edge.points[i]));
             path.closeSubpath();
             const auto& key=edge.reference.semantic_key;
-            color=transient?QColor(0,209,255):!edge.color.empty()?QColor(QString::fromStdString(edge.color)):
+            color=transient?interaction::selected:!edge.color.empty()?QColor(QString::fromStdString(edge.color)):
                 key.ends_with(":red")?QColor(255,0,0):key.ends_with(":yellow")?QColor(245,205,80):key.ends_with(":white")?QColor(255,255,255):QColor(77,216,17);
         }
     };
@@ -259,8 +261,11 @@ struct MeshView::Impl {
     std::set<std::size_t> feature_hover_edge_indices;
     std::set<std::size_t> feature_selected_edge_indices;
     std::set<std::string> feature_preview_owner_ids;
+
     std::string active_sketch_owner_id;
     bool geometry_editing_presentation{};
+    std::string editing_curve_owner;
+    std::string editing_curve_path;
     std::set<std::string> constraint_reference_owner_ids;
     std::set<EdgeKey> constraint_reference_edges;
     std::set<EdgeKey> sketch_relation_highlights;
@@ -737,7 +742,7 @@ struct MeshView::Impl {
 
 MeshView::MeshView(QWidget* parent)
     : QOpenGLWidget(parent), impl_(std::make_unique<Impl>()) {
-    auto annotation_font=font();annotation_font.setWeight(QFont::Normal);setFont(annotation_font);
+    setFont(zima::technical_font());
     setMinimumSize(500, 360);
     setMouseTracking(true);
     setFocusPolicy(Qt::StrongFocus);
@@ -907,9 +912,14 @@ void MeshView::set_selection_contract(std::vector<CandidateKind> allowed_kinds) 
     update();
 }
 
-void MeshView::set_geometry_editing_presentation(bool editing) {
-    if(impl_->geometry_editing_presentation==editing)return;
-    impl_->geometry_editing_presentation=editing;update();
+void MeshView::set_geometry_editing_presentation(bool editing,
+        const std::string& curve_owner, const std::string& instance_path) {
+    if(impl_->geometry_editing_presentation==editing &&
+       impl_->editing_curve_owner==curve_owner && impl_->editing_curve_path==instance_path)return;
+    impl_->geometry_editing_presentation=editing;
+    impl_->editing_curve_owner=editing?curve_owner:std::string{};
+    impl_->editing_curve_path=editing?instance_path:std::string{};
+    update();
 }
 void MeshView::set_active_sketch_owner(std::string owner_id) {
     if (impl_->active_sketch_owner_id == owner_id) return;
@@ -2938,7 +2948,7 @@ void MeshView::paintGL() {
             paint_embedded_image(painter,image.data_base64,image.format,target);
             const auto matches=[&](const auto& c){return c && c->kind==CandidateKind::TemplateImage && c->owner_id==image.reference.owner_id && c->semantic_key==image.reference.semantic_key;};
             if(matches(impl_->confirmed_candidate)||matches(hovered_candidate())) {
-                painter.setPen(QPen(matches(impl_->confirmed_candidate)?QColor("#00D1FF"):QColor("#FF8C0C"),2));painter.setBrush(Qt::NoBrush);painter.drawPolygon(target);
+                painter.setPen(QPen(matches(impl_->confirmed_candidate)?QColor("#00D1FF"):interaction::hover,2));painter.setBrush(Qt::NoBrush);painter.drawPolygon(target);
             }
         }
         const auto draw_reference_segment = [&](const QPointF& first,
@@ -2971,7 +2981,7 @@ if (impl_->show_origins) {
                     impl_->constraint_reference_owner_ids.contains(edge.reference.owner_id) ||
                     impl_->constraint_reference_edges.contains(edge_key(edge.reference));
                 const QColor plane_color = referenced
-                    ? QColor(0, 209, 255) : QColor(173, 110, 46);
+                    ? interaction::selected : QColor(173, 110, 46);
                 zima::kernel::Vec3 center;
                 const std::size_t corner_count = edge.points.size() > 1
                     ? edge.points.size() - 1 : edge.points.size();
@@ -3231,8 +3241,7 @@ if (impl_->show_origins) {
             exact_edge_treatment_wire(highlighted) == nullptr &&
             original_container_wire(highlighted) == nullptr &&
             candidate_recolors_wire_edge(*highlighted, edge);
-        const bool selected =
-            (candidate_match && candidate_is_confirmed) ||
+        const bool reference_selected =
             impl_->edge_treatment_selection_edges.contains(key) ||
             impl_->feature_selected_edges.contains(key) ||
             impl_->feature_selected_edge_indices.contains(mesh_edge_index) ||
@@ -3241,21 +3250,23 @@ if (impl_->show_origins) {
             impl_->assembly_reference_edges.contains(key) ||
             impl_->selected_container_content_ids.contains(edge.reference.owner_id) ||
             impl_->constraint_reference_owner_ids.contains(edge.reference.owner_id);
-        if (selected) return QVector4D(0.0F, 0.82F, 1.0F, 1.0F);
+        if (reference_selected) return interaction::rgba(interaction::selected);
+        if (candidate_match && candidate_is_confirmed)
+            return interaction::rgba(interaction::selected);
         if (impl_->object_overlay_main_edge_keys.contains(key)) {
-            return QVector4D(1.0F, 0.48F, 0.0F, 1.0F);
+            return interaction::rgba(interaction::hover);
         }
         const bool hovered =
             (candidate_match && !candidate_is_confirmed) ||
             impl_->feature_hover_edges.contains(key) ||
             impl_->feature_hover_edge_indices.contains(mesh_edge_index);
-        if (hovered) return QVector4D(1.0F, 0.48F, 0.0F, 1.0F);
+        if (hovered) return interaction::rgba(interaction::hover);
         const bool preview = impl_->feature_preview_owner_ids.contains(edge.reference.owner_id) &&
             (impl_->display_mode == DisplayMode::Wire ||
              impl_->display_mode == DisplayMode::HiddenEdges ||
              impl_->display_mode == DisplayMode::NoHiddenEdges);
-        if (preview) return QVector4D(0.0F, 0.82F, 1.0F, 1.0F);
-        if(edge.surface_result) return QVector4D(242.F/255,211.F/255,79.F/255,1.F);
+        if (preview) return interaction::rgba(interaction::selected);
+        if(edge.surface_result) return interaction::rgba(interaction::surface);
         if (impl_->edge_color_override) {
             const auto& color = *impl_->edge_color_override;
             return QVector4D(static_cast<float>(color.redF()),
@@ -3356,7 +3367,7 @@ if (impl_->show_origins) {
         if (highlighted_only) {
             // Plain Shaded deliberately hides the ordinary body wire, but it
             // must not hide the feedback for the one candidate produced by
-            // the common picker. Draw only orange/cyan persisted edges; do
+            // the common picker. Draw only hover/selected persisted edges; do
             // not reintroduce a complete second wire for large models.
             for (const auto& batch : batches) {
                 impl_->program.setUniformValue("color", batch.color);
@@ -3456,8 +3467,8 @@ if (impl_->show_origins) {
             if (!display_helper && thread_highlight &&
                 candidate_recolors_wire_edge(*thread_highlight, edge)) {
                 color = thread_confirmed
-                    ? QVector4D(0.0F, 0.82F, 1.0F, 1.0F)
-                    : QVector4D(1.0F, 0.48F, 0.0F, 1.0F);
+                    ? interaction::rgba(interaction::selected)
+                    : interaction::rgba(interaction::hover);
             }
             impl_->program.setUniformValue("color", color);
             glDrawArrays(GL_LINES, impl_->line_ranges[index].first,
@@ -3510,14 +3521,14 @@ if (impl_->show_origins) {
     }
 
     std::optional<ViewerCandidate> highlighted = impl_->confirmed_candidate;
-    QVector4D highlight_color(0.12F, 0.86F, 0.94F, 1.0F);
+    QVector4D highlight_color=interaction::rgba(interaction::selected);
     if (!highlighted && !impl_->candidates.empty()) {
         highlighted = impl_->candidates[impl_->active_candidate];
-        highlight_color = QVector4D(1.0F, 0.55F, 0.05F, 1.0F);
+        highlight_color = interaction::rgba(interaction::hover);
     }
     if (!highlighted && !impl_->inspected_faces.empty()) {
         highlighted=impl_->inspected_faces.front();
-        highlight_color=QVector4D(.15F,.7F,1.0F,1.0F);
+        highlight_color=interaction::rgba(interaction::selected);
     }
     impl_->program.disableAttributeArray(0);
     impl_->program.disableAttributeArray(1);
@@ -3530,7 +3541,14 @@ if (impl_->show_origins) {
         std::find(impl_->allowed_kinds.begin(), impl_->allowed_kinds.end(),
             CandidateKind::SketchAxis) != impl_->allowed_kinds.end();
     const bool axes_visible = impl_->show_axes || impl_->show_origins ||
-        impl_->editing_origin_visible || axes_selectable;
+        impl_->editing_origin_visible || axes_selectable ||
+        std::any_of(impl_->mesh.edges.begin(), impl_->mesh.edges.end(), [&](const auto& edge) {
+            return edge.reference.semantic_key.starts_with("centerline:from:") &&
+                highlighted && candidate_recolors_wire_edge(*highlighted, edge);
+        }) ||
+        std::any_of(impl_->mesh.axes.begin(),impl_->mesh.axes.end(),[&](const auto& axis){
+            return impl_->constraint_reference_edges.contains(EdgeKey{axis.reference.owner_id,axis.reference.semantic_key,axis.reference.instance_path});
+        });
     const bool sketch_geometry_visible = impl_->show_sketches && std::any_of(
         impl_->mesh.edges.begin(), impl_->mesh.edges.end(), is_sketch_wire_edge);
     const bool curve3d_geometry_visible = std::any_of(
@@ -3593,7 +3611,7 @@ if (impl_->show_origins) {
         // point/edge/axis candidates accidentally made Face, Container and
         // Occurrence hover completely invisible whenever datum overlays were
         // hidden.  The picker had found the Box face, but the user received
-        // no orange feedback and it looked unselectable.
+        // no green feedback and it looked unselectable.
         highlighted.has_value() || impl_->show_dimension_frame || impl_->sketch_box_start.has_value()) {
         const QMatrix4x4 mvp = impl_->projection(width(), height()) * view;
         const auto project = [&](const zima::kernel::Vec3& point) {
@@ -3622,7 +3640,7 @@ if (impl_->show_origins) {
             paint_embedded_image(painter,image.data_base64,image.format,target);
             const auto matches=[&](const auto& c){return c && c->kind==CandidateKind::TemplateImage && c->owner_id==image.reference.owner_id && c->semantic_key==image.reference.semantic_key;};
             if(matches(impl_->confirmed_candidate)||matches(hovered_candidate())) {
-                painter.setPen(QPen(matches(impl_->confirmed_candidate)?QColor("#00D1FF"):QColor("#FF8C0C"),2));painter.setBrush(Qt::NoBrush);painter.drawPolygon(target);
+                painter.setPen(QPen(matches(impl_->confirmed_candidate)?QColor("#00D1FF"):interaction::hover,2));painter.setBrush(Qt::NoBrush);painter.drawPolygon(target);
             }
         }
         const auto draw_reference_segment = [&](const QPointF& first,
@@ -3798,7 +3816,7 @@ if (impl_->show_origins) {
                     : (external || external_face)
                         ? QPen(external_color, 1.5, Qt::DashLine)
                     : edge.construction
-                        ? QPen(QColor(77, 216, 17), 1.5, Qt::DashLine)
+                        ? QPen(interaction::construction, 1.5, Qt::DashLine)
                         : QPen(impl_->geometry_editing_presentation||!impl_->active_sketch_owner_id.empty()?QColor(255,255,255):QColor(173,110,46),
                             impl_->geometry_editing_presentation||!impl_->active_sketch_owner_id.empty()?1.8:1.0);
                 if (!edge.color.empty()) edge_pen.setColor(QColor(QString::fromStdString(edge.color)));
@@ -3823,13 +3841,13 @@ if (impl_->show_origins) {
                     impl_->feature_preview_owner_ids.contains(
                         edge.reference.owner_id);
                 if (selected) {
-                    edge_pen.setColor(QColor(0, 209, 255));
+                    edge_pen.setColor(interaction::selected);
                     if (!edge.construction && !external && !external_face) edge_pen.setWidthF(1.8);
                 } else if (hovered) {
-                    edge_pen.setColor(QColor(255, 122, 0));
+                    edge_pen.setColor(interaction::hover);
                     if (!edge.construction && !external && !external_face) edge_pen.setWidthF(1.8);
                 } else if (preview) {
-                    edge_pen.setColor(QColor(0, 209, 255));
+                    edge_pen.setColor(interaction::selected);
                 }
                 if (edge.construction && !edge.dash_dot) {
                     // Qt's default dash pattern is dense enough that construction
@@ -3869,10 +3887,13 @@ if (impl_->show_origins) {
             // width on every OpenGL driver.
             for (const auto& edge : impl_->mesh.edges) {
                 const bool centerline=edge.reference.semantic_key.starts_with("centerline:from:");
-                if(centerline ? !(impl_->show_axes || axes_selectable) :
-                    (!curve3d_geometry_visible || !is_curve3d_edge(edge.reference.semantic_key)))continue;
+                const bool editing_curve = !impl_->editing_curve_owner.empty() &&
+                    edge.display_owner_id == impl_->editing_curve_owner &&
+                    edge.reference.instance_path == impl_->editing_curve_path;
                 const bool candidate_match = highlighted &&
                     candidate_recolors_wire_edge(*highlighted, edge);
+                if(centerline ? !(impl_->show_axes || axes_selectable || candidate_match) :
+                    (!curve3d_geometry_visible || !is_curve3d_edge(edge.reference.semantic_key)))continue;
                 const auto key = edge_key(edge.reference);
                 const bool referenced =
                     impl_->constraint_reference_edges.contains(key) ||
@@ -3884,12 +3905,12 @@ if (impl_->show_origins) {
                         edge.reference.owner_id);
                 const QColor color = candidate_match
                     ? impl_->confirmed_candidate
-                        ? QColor(30, 220, 240)
-                        : QColor(255, 140, 12)
+                        ? interaction::selected
+                        : interaction::hover
                     : (referenced || preview)
-                        ? QColor(0, 209, 255)
-                        : centerline || !(impl_->geometry_editing_presentation||!impl_->active_sketch_owner_id.empty()) ? QColor(173, 110, 46) : QColor(255, 255, 255);
-                QPen curve_pen(color, centerline ? 1.5 : candidate_match||referenced||preview||impl_->geometry_editing_presentation||!impl_->active_sketch_owner_id.empty()?1.8:1.0,
+                        ? interaction::selected
+                        : centerline || !editing_curve ? QColor(173, 110, 46) : QColor(255, 255, 255);
+                QPen curve_pen(color, centerline ? 1.5 : candidate_match||referenced||preview||editing_curve?1.8:1.0,
                     Qt::SolidLine,Qt::RoundCap,Qt::RoundJoin);
                 if (centerline) {
                     // Match the ordinary axes: 20 px dash, 10 px gaps, 3 px dot.
@@ -3920,8 +3941,8 @@ if (impl_->show_origins) {
                     highlighted->kind == CandidateKind::SketchConstraint &&
                     highlighted->geometry_index == marker_index;
                 painter.setPen(QPen(selected
-                    ? (impl_->confirmed_candidate ? QColor(30, 220, 240)
-                                                  : QColor(255, 145, 35))
+                    ? (impl_->confirmed_candidate ? interaction::selected
+                                                  : interaction::hover)
                     : QColor("#7CFF6B"), 2.0));
                 const QPointF anchor = project(marker.position);
                 const auto key = std::pair{
@@ -4000,9 +4021,9 @@ if (impl_->show_origins) {
                 const bool referenced = !exact_highlight &&
                     impl_->constraint_reference_edges.contains(edge_key(edge.reference));
                 const QColor plane_color = exact_highlight
-                    ? (impl_->confirmed_candidate ? QColor(30, 220, 240)
-                                                  : QColor(255, 140, 12))
-                    : (referenced || creation_preview) ? QColor(0, 209, 255)
+                    ? (impl_->confirmed_candidate ? interaction::selected
+                                                  : interaction::hover)
+                    : (referenced || creation_preview) ? interaction::selected
                     : QColor(173, 110, 46);
                 zima::kernel::Vec3 center;
                 const std::size_t corner_count = edge.points.size() > 1
@@ -4041,34 +4062,32 @@ if (impl_->show_origins) {
         }
         for(const auto& edge:impl_->mesh.edges)if(edge.overlay&&edge.reference.semantic_key=="section:sketch") {
             const bool selected=highlighted&&highlighted->kind==CandidateKind::Container&&highlighted->owner_id==edge.reference.owner_id&&highlighted->instance_path==edge.reference.instance_path;
-            painter.setPen(QPen(selected?(impl_->confirmed_candidate?QColor(0,209,255):QColor(255,122,0)):
+            painter.setPen(QPen(selected?(impl_->confirmed_candidate?interaction::selected:interaction::hover):
                 edge.color.empty()?QColor(173,110,46):QColor(QString::fromStdString(edge.color)),selected?1.8:edge.color=="#AD6E2E"?1.0:2.0));
             for(std::size_t i=1;i<edge.points.size();++i)painter.drawLine(project(edge.points[i-1]),project(edge.points[i]));
         }
         if (!impl_->transient_edges.empty()) {
-            // Orange is reserved for hover. Pending container geometry is a
-            // live creation preview and therefore uses the same cyan as a
-            // confirmed/modeling result, with continuous rather than dashed
-            // edges.
-            painter.setPen(QPen(QColor(0, 209, 255), 2.0, Qt::SolidLine,
+            // Pending wire uses the shared selection colour. Only symbolic through-all
+            // terminal outlines are dashed; geometry and picking are unchanged.
+            painter.setPen(QPen(interaction::selected, 2.0, Qt::SolidLine,
                                 Qt::RoundCap, Qt::RoundJoin));
             for (const auto& edge : impl_->transient_edges) {
                 const bool inference_reference =
                     edge.reference.semantic_key == "inference:reference";
                 painter.setPen(QPen(inference_reference
-                        ? QColor(255, 140, 12) : !edge.color.empty()?QColor(QString::fromStdString(edge.color)):QColor(0, 209, 255),
-                    2.0, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+                        ? interaction::hover : !edge.color.empty()?QColor(QString::fromStdString(edge.color)):interaction::selected,
+                    2.0, edge.preview_terminal_dashed?Qt::DashLine:Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
                 for (std::size_t index = 1; index < edge.points.size(); ++index) {
                     painter.drawLine(project(edge.points[index - 1]), project(edge.points[index]));
                 }
             }
         }
         for (const auto& point : impl_->transient_points) {
-            draw_circular_marker(painter, project(point), QColor(255, 140, 12));
+            draw_circular_marker(painter, project(point), interaction::hover);
         }
         if (impl_->sketch_cursor) {
             const QColor cursor_color = impl_->sketch_cursor_snapped
-                ? QColor(255, 140, 12) : QColor(255, 255, 255);
+                ? interaction::hover : QColor(255, 255, 255);
             const QPointF cursor = project(*impl_->sketch_cursor);
             draw_circular_marker(painter, cursor, cursor_color);
             if (!impl_->sketch_cursor_label.empty()) {
@@ -4078,7 +4097,7 @@ if (impl_->show_origins) {
             }
         }
         if (!impl_->transient_labels.empty()) {
-            painter.setPen(QPen(QColor(255, 140, 12), 1.5));
+            painter.setPen(QPen(interaction::hover, 1.5));
             for (const auto& [point, label] : impl_->transient_labels) {
                 painter.drawText(project(point) + QPointF(8.0, -8.0),
                     QString::fromStdString(label));
@@ -4107,8 +4126,8 @@ if (impl_->show_origins) {
                         ? QColor(0, 0, 0)  // locked dimension value
                         : QColor(245, 205, 80);  // editable driver
                 const QColor color = selected
-                    ? (impl_->confirmed_candidate ? QColor(30, 220, 240)
-                                                  : QColor(255, 140, 12))
+                    ? (impl_->confirmed_candidate ? interaction::selected
+                                                  : interaction::hover)
                     : idle_color;
                 // Selection is represented by colour only. Drawing the same
                 // dimension thicker made Tree selection look like several
@@ -4145,9 +4164,10 @@ if (impl_->show_origins) {
                 if (!impl_->origin_visible({axis.reference.owner_id,axis.reference.semantic_key,axis.reference.instance_path})) continue;
                     const bool origin = axis.reference.semantic_key.starts_with(
                         "origin:axis:");
-                    if ((origin && !impl_->show_origins && !axes_selectable &&
+                    const bool inspected = impl_->constraint_reference_edges.contains(EdgeKey{axis.reference.owner_id,axis.reference.semantic_key,axis.reference.instance_path});
+                    if (!inspected && ((origin && !impl_->show_origins && !axes_selectable &&
                             !impl_->editing_origin_visible) ||
-                        (!origin && !impl_->show_axes && !axes_selectable)) continue;
+                        (!origin && !impl_->show_axes && !axes_selectable))) continue;
                     const bool exact_highlight = highlighted &&
                         (((highlighted->kind == CandidateKind::Axis ||
                            highlighted->kind == CandidateKind::SketchAxis) &&
@@ -4201,9 +4221,9 @@ if (impl_->show_origins) {
                         impl_->feature_preview_owner_ids.contains(
                             axis.reference.owner_id);
                     const QColor color = exact_highlight
-                        ? (impl_->confirmed_candidate ? QColor(30, 220, 240)
-                                                      : QColor(255, 140, 12))
-                        : (referenced || creation_preview) ? QColor(0, 209, 255)
+                        ? (impl_->confirmed_candidate ? interaction::selected
+                                                      : interaction::hover)
+                        : (referenced || creation_preview) ? interaction::selected
                         : axis.reference.semantic_key == "origin:axis:x"
                             ? QColor(232, 76, 61)
                         : axis.reference.semantic_key == "origin:axis:y"
@@ -4216,7 +4236,7 @@ if (impl_->show_origins) {
                         axis.reference.semantic_key == "sketch_axis:y";
                     const QColor presentation_color = !origin &&
                             !exact_highlight && !referenced && !creation_preview
-                        ? QColor(173, 110, 46) : color;
+                        ? (sketch_axis ? interaction::construction : interaction::axis) : color;
                     painter.setPen(QPen(presentation_color, origin ? 2.0 : 1.5,
                         Qt::SolidLine));
                     const double first = origin ? 0.0 : -axis.display_length * 0.5;
@@ -4371,6 +4391,10 @@ if (impl_->show_origins) {
                             point.reference.owner_id);
                     const bool selected = point.reference.owner_id ==
                             impl_->selected_container_origin_id ||
+                        (!point.display_owner_id.empty() && impl_->confirmed_candidate &&
+                         impl_->confirmed_candidate->kind == CandidateKind::Container &&
+                         impl_->confirmed_candidate->owner_id == point.display_owner_id &&
+                         impl_->confirmed_candidate->instance_path == point.reference.instance_path) ||
                         (impl_->confirmed_candidate &&
                          (impl_->confirmed_candidate->kind == CandidateKind::Vertex ||
                           impl_->confirmed_candidate->kind ==
@@ -4384,7 +4408,10 @@ if (impl_->show_origins) {
                          impl_->confirmed_candidate->instance_path ==
                             point.reference.instance_path);
                     const bool hovered = !impl_->confirmed_candidate && highlighted &&
-                        ((highlighted->kind == CandidateKind::Container &&
+                        ((!point.display_owner_id.empty() &&
+                          highlighted->kind == CandidateKind::Container &&
+                          highlighted->owner_id == point.display_owner_id) ||
+                         (highlighted->kind == CandidateKind::Container &&
                           (highlighted->semantic_key == "point" ||
                            highlighted->semantic_key == "axis" ||
                            highlighted->semantic_key == "plane") &&
@@ -4418,28 +4445,29 @@ if (impl_->show_origins) {
                     // and Revolution properties. The old purple exception
                     // made the point look unrelated to its plane.
                     // Sketcher points use the same interaction language as
-                    // the rest of the Viewer: white while idle, orange while
+                    // the rest of the Viewer: white while idle, green while
                     // offered and cyan once confirmed (including a drag).
                     // Purple remains reserved for the separate feature and
                     // plane manipulators drawn elsewhere.
                     const QColor marker_color = plane_offset_preview
-                        ? QColor(0, 209, 255)
+                        ? interaction::selected
                         : selected
-                        ? QColor(30, 220, 240)
-                        : hovered ? QColor(255, 122, 0)
+                        ? interaction::selected
+                        : hovered ? interaction::hover
                         : (referenced || creation_preview)
-                            ? QColor(0, 209, 255)
+                            ? interaction::selected
                         : point.reference.semantic_key ==
                                 "external_point:sketch_origin"
                             ? QColor(0, 0, 0)
                         : point.reference.semantic_key.starts_with("point:")
                             ? point.construction
-                                ? QColor(77, 216, 17)
+                                ? interaction::construction
                                 : impl_->geometry_editing_presentation||!impl_->active_sketch_owner_id.empty()?QColor(255,255,255):QColor(173,110,46)
                         : point.reference.semantic_key.starts_with(
                                 "corner_radius_handle:")
                             ? QColor(255, 255, 255)
-                        : point.reference.semantic_key == "point"
+                        : point.reference.semantic_key == "point" ||
+                            point.reference.semantic_key.starts_with("sweep:path-point:")
                             ? QColor(173,110,46)
                             : QColor(0, 0, 0);
                     painter.setPen(QPen(marker_color, 1.0));
@@ -4476,7 +4504,7 @@ if (impl_->show_origins) {
                     point.reference.owner_id, point.reference.semantic_key,
                     point.reference.instance_path});
                 const QColor marker_color = referenced
-                    ? QColor(0, 209, 255) : impl_->origin_point_color(point);
+                    ? interaction::selected : impl_->origin_point_color(point);
                 painter.setPen(QPen(marker_color, 1.0));
                 painter.setBrush(marker_color);
                 draw_circular_marker(painter, center, marker_color);
@@ -4498,17 +4526,17 @@ if (impl_->show_origins) {
         // whole-body tint or OCCT topology lookup is involved.
         impl_->prepare_reference_boundaries();
         for (const auto& [first, second] : impl_->reference_boundaries)
-            draw_reference_segment(project(first), project(second), QColor(0, 209, 255), 1.5);
+            draw_reference_segment(project(first), project(second), interaction::selected, 1.5);
         // Relation participants come directly from the persisted Sketch marker.
         auto relation_keys=impl_->sketch_relation_highlights;
-        QColor relation_color(255,140,12);
+        QColor relation_color=interaction::hover;
         if (highlighted && highlighted->kind==CandidateKind::SketchConstraint &&
             highlighted->geometry_index<impl_->mesh.constraint_markers.size()) {
             relation_keys.clear();
             const auto& marker=impl_->mesh.constraint_markers[highlighted->geometry_index];
             for (const auto& semantic : marker.participant_semantic_keys)
                 relation_keys.insert(EdgeKey{marker.reference.owner_id,semantic,marker.reference.instance_path});
-            if (impl_->confirmed_candidate) relation_color=QColor(30,220,240);
+            if (impl_->confirmed_candidate) relation_color=interaction::selected;
         }
         if (highlighted && highlighted->kind==CandidateKind::Dimension) {
             const auto index=highlighted->geometry_index;
@@ -4522,7 +4550,7 @@ if (impl_->show_origins) {
                 for (const auto& semantic : dimension->participant_semantic_keys)
                     relation_keys.insert({dimension->reference.owner_id,semantic,
                         dimension->reference.instance_path});
-                if (impl_->confirmed_candidate) relation_color=QColor(30,220,240);
+                if (impl_->confirmed_candidate) relation_color=interaction::selected;
             }
         }
         painter.save();
@@ -4542,10 +4570,11 @@ if (impl_->show_origins) {
         // Confirmed wires and dimension inspection use one screen-space
         // presentation, including portions inside the solid. Picking still
         // consumes the unchanged common candidate stream.
-        const auto draw_selected_wire = [&](const zima::kernel::ViewerEdge& edge) {
+        const auto draw_selected_wire = [&](const zima::kernel::ViewerEdge& edge,
+                const QColor& color = interaction::selected) {
             for (std::size_t i = 1; i < edge.points.size(); ++i)
                 draw_reference_segment(project(edge.points[i - 1]),
-                    project(edge.points[i]), QColor(0, 209, 255), 1.5);
+                    project(edge.points[i]), color, 1.5);
         };
         for (const auto& edge : impl_->container_inspection_wire) draw_selected_wire(edge);
         const auto* treatment_wire = exact_edge_treatment_wire(impl_->confirmed_candidate);
@@ -4560,21 +4589,22 @@ if (impl_->show_origins) {
                 original_container_wire(impl_->confirmed_candidate) == nullptr &&
                 treatment_wire == nullptr &&
                 candidate_recolors_wire_edge(*impl_->confirmed_candidate, edge);
-            if (candidate_match || component_edges.contains(index) ||
+            const bool reference_selected = component_edges.contains(index) ||
                 impl_->feature_selected_edge_indices.contains(index) ||
                 impl_->feature_selected_edges.contains(key) ||
                 impl_->edge_treatment_selection_edges.contains(key) ||
                 (treatment_wire && std::find(treatment_wire->begin(),
-                    treatment_wire->end(), index) != treatment_wire->end()))
+                    treatment_wire->end(), index) != treatment_wire->end());
+            if (candidate_match || reference_selected)
                 draw_selected_wire(edge);
         }
         for (const auto& edge : confirmed_component_wire())
             for (std::size_t i=1;i<edge.points.size();++i)
                 draw_reference_segment(project(edge.points[i-1]),project(edge.points[i]),
-                    QColor(0,209,255),1.5);
+                    interaction::selected,1.5);
         if (highlighted) {
             const QColor color = impl_->confirmed_candidate
-                ? QColor(30, 220, 240) : QColor(255, 140, 12);
+                ? interaction::selected : interaction::hover;
             std::set<std::string> selected_sketch_owners;
             if(highlighted->kind==CandidateKind::Container)for(const auto& edge:impl_->mesh.edges) {
                 const auto& key=edge.reference.semantic_key;
@@ -4803,7 +4833,7 @@ if (impl_->show_origins) {
                 // silhouette, never the complete OCCT triangulation. A
                 // closed curved face such as a Sphere has no boundary at
                 // all, so without the silhouette the picker did find the
-                // Container but produced no visible orange feedback.
+                // Container but produced no visible green feedback.
                 const QVector3D view_direction = impl_->orientation.inverted()
                     .rotatedVector(QVector3D(0.0F, 0.0F, 1.0F));
                 for (const auto& [key, segment] : boundary) {
@@ -4929,7 +4959,7 @@ if (impl_->show_origins) {
                 }
                 if (exact_highlight) {
                     marker_color = impl_->confirmed_candidate
-                        ? QColor(30, 220, 240) : QColor(255, 122, 0);
+                        ? interaction::selected : interaction::hover;
                 }
                 const QPointF center = project(point.position);
                 draw_circular_marker(painter, center, marker_color);
@@ -4951,9 +4981,9 @@ if (impl_->show_origins) {
                 break;
             }
         }
-        painter.setPen(QPen(QColor(30, 220, 240), 2.0,
+        painter.setPen(QPen(interaction::selected, 2.0,
                             Qt::SolidLine, Qt::RoundCap));
-        painter.setBrush(QColor(30, 220, 240));
+        painter.setBrush(interaction::selected);
         for (const auto& selected : impl_->sketch_box_selected_candidates) {
             if ((selected.kind == CandidateKind::SketchSegment ||
                  selected.kind == CandidateKind::SketchCurve ||
@@ -4969,7 +4999,7 @@ if (impl_->show_origins) {
                 const auto& edge = impl_->mesh.edges[selected.geometry_index];
                 for (std::size_t index = 1; index < edge.points.size(); ++index) {
                     draw_reference_segment(project(edge.points[index - 1]),
-                        project(edge.points[index]), QColor(30, 220, 240), 2.0);
+                        project(edge.points[index]), interaction::selected, 2.0);
                 }
             } else if ((selected.kind == CandidateKind::SketchPoint ||
                         (selected.kind == CandidateKind::SketchExternalReference &&
@@ -4996,8 +5026,8 @@ if (impl_->show_origins) {
         // and constraint labels. They never become printable template geometry.
         for(const auto& edge:impl_->mesh.edges)if(edge.reference.semantic_key.starts_with("repeat_region:")) {
             QColor color("#D580FF");
-            if(impl_->confirmed_candidate&&candidate_recolors_wire_edge(*impl_->confirmed_candidate,edge))color=QColor(30,220,240);
-            else if(hovered_candidate()&&candidate_recolors_wire_edge(*hovered_candidate(),edge))color=QColor("#FF8C00");
+            if(impl_->confirmed_candidate&&candidate_recolors_wire_edge(*impl_->confirmed_candidate,edge))color=interaction::selected;
+            else if(hovered_candidate()&&candidate_recolors_wire_edge(*hovered_candidate(),edge))color=interaction::hover;
             painter.setPen(QPen(color,2.0));painter.setBrush(Qt::NoBrush);
             for(std::size_t i=1;i<edge.points.size();++i)painter.drawLine(project(edge.points[i-1]),project(edge.points[i]));
         }
@@ -5610,7 +5640,7 @@ void MeshView::mouseMoveEvent(QMouseEvent* event) {
         // but without this second pass it also erased the just-computed hover
         // before the frame was painted. Re-evaluate against the final mesh at
         // the same pointer position so the next line/axis remains visibly
-        // orange while an interactive dimension follows the cursor.
+        // green while an interactive dimension follows the cursor.
         if (command_wants_next_candidate) {
             update_candidates(event->position());
         }

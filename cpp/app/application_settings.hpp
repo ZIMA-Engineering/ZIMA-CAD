@@ -33,7 +33,7 @@ struct ApplicationSettings {
     QString drawing_pdf_directory{QStringLiteral("pdf")};
     QString drawing_dxf_directory{QStringLiteral("export")};
     QString drawing_view_style{QStringLiteral("hidden_edges")};
-    bool use_iso_application_font{true};
+    bool use_iso_application_font{false};
     bool stacked_tolerances{};
     double sheet_cut_tolerance{0.05};
 

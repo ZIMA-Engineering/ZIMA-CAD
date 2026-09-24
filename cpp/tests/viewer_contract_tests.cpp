@@ -166,6 +166,13 @@ int main() {
             require(zima::viewer::candidate_recolors_wire_edge(axis,line),"Axis selection does not highlight its Sweep centerline");
             axis.semantic_key="centerline:from:another-segment";
             require(!zima::viewer::candidate_recolors_wire_edge(axis,line),"Axis selection highlights another Sweep segment");
+            line.display_owner_id="sweep";
+            axis.kind=zima::viewer::CandidateKind::Container;axis.semantic_key.clear();
+            require(zima::viewer::candidate_recolors_wire_edge(axis,line),"Sweep selection omits its centerline");
+            axis.semantic_key="solid";
+            require(zima::viewer::candidate_recolors_wire_edge(axis,line),"Original-solid selection omits its centerline");
+            axis.instance_path="other-occurrence";
+            require(!zima::viewer::candidate_recolors_wire_edge(axis,line),"Sweep highlights another occurrence's centerline");
         }
         zima::kernel::ViewerMesh mesh;
         mesh.vertices = {
@@ -433,6 +440,24 @@ int main() {
                     points[1].reference.semantic_key == "vertex-b",
                 "Vertex candidates do not use stable references in depth order");
         zima::kernel::ViewerMesh construction_point_mesh;
+        {
+            zima::kernel::ViewerMesh curve_points;
+            curve_points.points.push_back({{0,0,5},{"child:origin","point",{}},{},true});
+            curve_points.points.back().display_owner_id = "curve";
+            const auto candidates = zima::viewer::ordered_viewer_candidates(
+                curve_points,{0,0,0},{0,0,1},0.01);
+            bool child_reference = false, parent_container = false;
+            for (const auto& candidate : candidates) {
+                if (candidate.kind == zima::viewer::CandidateKind::Vertex)
+                    child_reference |= candidate.owner_id == "child:origin" && candidate.semantic_key == "point";
+                if (candidate.kind == zima::viewer::CandidateKind::Container) {
+                    require(candidate.owner_id == "curve", "Curve point selected a detached child container");
+                    parent_container = true;
+                }
+            }
+            require(child_reference && parent_container,
+                "Curve point must offer its actual reference and owning Curve");
+        }
         construction_point_mesh.points.push_back({
             {0.0, 0.0, 5.0}, {"point-container:origin", "point"}, "Bod001"});
         const auto construction_point_candidates =

@@ -200,7 +200,7 @@ void AssemblyWorkspaceWindow::update_section_ui(){
         item->setData(0,Qt::UserRole,QString::fromStdString(key));item->setData(0,Qt::UserRole+3,type);
         item->setFlags(item->flags()&~Qt::ItemIsUserCheckable);
         item->setIcon(0,resource_icon(key.empty()?"section-normal":"section-cut"));
-        if(active){item->setForeground(0,QColor("#55BB77"));auto font=item->font(0);font.setBold(true);item->setFont(0,font);}
+        if(active){item->setBackground(0,QColor("#00D1FF"));item->setForeground(0,QColor("#102027"));auto font=item->font(0);font.setBold(true);item->setFont(0,font);}
         return item;
     };
     row(tr("Bez řezu"),{},"document-section-normal",std::ranges::none_of(sections,[](const auto& s){return s.show_cut;}));
@@ -261,7 +261,7 @@ bool AssemblyWorkspaceWindow::section_context_menu(QTreeWidgetItem* item,const Q
     }
     QAction* plane{};bool plane_visible=false;
     if(!id.empty()){
-        edit=menu.addAction(tr("Vlastnosti"));draw=menu.addAction(tr("Upravit"));
+        edit=menu.addAction(resource_icon("properties"),tr("Vlastnosti"));draw=menu.addAction(resource_icon("edit"),tr("Upravit"));
         const auto sections=source_sections(&workspace_,workspace_.displayed_document_id(),{});
         const auto found=std::ranges::find(sections,id,&zima::document::SectionDefinition::id);
         plane_visible=found!=sections.end()&&found->show_plane;

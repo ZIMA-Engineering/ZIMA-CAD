@@ -15,8 +15,8 @@ inline FeatureOperationButtons add_feature_operation_buttons(QWidget* parent,QVB
     auto* cut=new QPushButton(QObject::tr("Odečíst"),parent);
     for(auto* button:{add,cut}){button->setCheckable(true);button->setMinimumHeight(40);button->setSizePolicy(QSizePolicy::Expanding,QSizePolicy::Fixed);buttons->addWidget(button);}
     add->setObjectName("primitiveAddOperation");cut->setObjectName("primitiveSubtractOperation");
-    add->setStyleSheet("QPushButton{border:2px solid #2d5670;border-radius:6px;font-weight:700;padding:7px 14px} QPushButton:checked{background:#00d1ff;color:#101510;border-color:#6fe3ff}");
-    cut->setStyleSheet("QPushButton{border:2px solid #713d3d;border-radius:6px;font-weight:700;padding:7px 14px} QPushButton:checked{background:#c64b4b;color:#ffffff;border-color:#ed7777}");
+    add->setStyleSheet("QPushButton{border:2px solid #2d5670;border-radius:6px;font-weight:700;padding:7px 14px} QPushButton:checked{background:#00d1ff;color:#101510;border-color:#00D1FF} QPushButton:hover:enabled{background:#4DD811;color:#102027;border-color:#4DD811}");
+    cut->setStyleSheet("QPushButton{border:2px solid #713d3d;border-radius:6px;font-weight:700;padding:7px 14px} QPushButton:checked{background:#FF0000;color:#ffffff;border-color:#FF0000} QPushButton:hover:enabled{background:#4DD811;color:#102027;border-color:#4DD811}");
     add->setChecked(!subtract);cut->setChecked(subtract);
     auto* form=new QFormLayout;form->addRow(QObject::tr("Operace"),row);layout->addLayout(form);
     const auto select=[add,cut,changed=std::move(changed)](bool subtract){add->setChecked(!subtract);cut->setChecked(subtract);changed(subtract);};

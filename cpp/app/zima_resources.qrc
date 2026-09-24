@@ -1,5 +1,15 @@
 <RCC>
   <qresource prefix="/zima">
+    <file alias="icons/close.svg">../../resources/icons/close.svg</file>
+    <file alias="icons/edit.svg">../../resources/icons/edit.svg</file>
+    <file alias="icons/hide.svg">../../resources/icons/hide.svg</file>
+    <file alias="icons/properties.svg">../../resources/icons/properties.svg</file>
+    <file alias="icons/rename.svg">../../resources/icons/rename.svg</file>
+    <file alias="icons/restore.svg">../../resources/icons/restore.svg</file>
+    <file alias="icons/show.svg">../../resources/icons/show.svg</file>
+    <file alias="icons/suppress.svg">../../resources/icons/suppress.svg</file>
+    <file alias="icons/working-directory.svg">../../resources/icons/working-directory.svg</file>
+    <file alias="icons/dialog-cancel.svg">../../resources/icons/dialog-cancel.svg</file>
     <file alias="icons/insert-component.svg">../../resources/icons/insert-component.svg</file>
     <file alias="icons/export-pdf.svg">../../resources/icons/export-pdf.svg</file>
     <file alias="icons/export-dxf.svg">../../resources/icons/export-dxf.svg</file>
@@ -81,6 +91,10 @@
     <file alias="icons/sketch-offset.svg">../../resources/icons/sketch-offset.svg</file>
     <file alias="icons/sketch-mirror.svg">../../resources/icons/sketch-mirror.svg</file>
     <file alias="icons/pattern.svg">../../resources/icons/pattern.svg</file>
+    <file alias="icons/select-parent.svg">../../resources/icons/select-parent.svg</file>
+    <file alias="icons/ground.svg">../../resources/icons/ground.svg</file>
+    <file alias="icons/release.svg">../../resources/icons/release.svg</file>
+    <file alias="icons/regenerate.svg">../../resources/icons/regenerate.svg</file>
     <file alias="icons/sketch-circle.svg">../../resources/icons/sketch-circle.svg</file>
     <file alias="icons/sketch-arc.svg">../../resources/icons/sketch-arc.svg</file>
     <file alias="icons/sketch-ellipse.svg">../../resources/icons/sketch-ellipse.svg</file>

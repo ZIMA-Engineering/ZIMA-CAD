@@ -1,5 +1,6 @@
 #include "drawing_window.hpp"
 #include "application_settings.hpp"
+#include "resource_icon.hpp"
 
 #include <QApplication>
 #include <QSurfaceFormat>
@@ -18,6 +19,7 @@ int main(int argc, char* argv[]) {
     format.setVersion(3,3);format.setProfile(QSurfaceFormat::CoreProfile);
     format.setDepthBufferSize(24);format.setSamples(4);QSurfaceFormat::setDefaultFormat(format);
     QApplication application(argc, argv);
+    zima::app::install_dialog_button_icons();
     if (application.arguments().contains("--verify-details")) return verify_drawing_details_ui();
     if (application.arguments().contains("--verify-source-picker")) return verify_drawing_source_picker();
     zima::app::apply_application_translations(

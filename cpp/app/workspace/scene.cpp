@@ -11,6 +11,9 @@ using namespace workspace_detail;
 
 
 void AssemblyWorkspaceWindow::refresh_scene() {
+    // Whole-Origin entry still resolves each reference synchronously, but
+    // publishes the resulting tree/mesh only after the complete selection.
+    if (defer_reference_scene_refresh_) return;
     viewer_->set_original_face_selection(sketch_external_reference_active_&&!sketch_external_profile_active_);
     viewer_->set_document_origin(workspace_.displayed_document_id()+":origin");
     workspace_.refresh_source_geometry();
@@ -25,7 +28,9 @@ void AssemblyWorkspaceWindow::refresh_scene() {
     update_viewer_body_colors();
     update_body_color_actions();
     viewer_->set_active_sketch_owner(active_sketch_id_);
-    viewer_->set_geometry_editing_presentation(properties_dialog_!=nullptr||!active_sketch_id_.empty());
+    viewer_->set_geometry_editing_presentation(properties_dialog_!=nullptr||!active_sketch_id_.empty(),
+        construction_parameter_preview_ && construction_parameter_preview_->kind == document::ConstructionKind::Curve3D
+            ? construction_parameter_preview_->id : std::string{}, workspace_.active_occurrence_path());
     QScopedValueRollback refreshing_guard(refreshing_scene_, true);
     set_selected_component_origin({});
     update_document_area_visibility();
@@ -977,7 +982,7 @@ void AssemblyWorkspaceWindow::refresh_scene() {
             root->setData(0, Qt::UserRole, QString::fromStdString(document.document_id));
             root->setData(0, Qt::UserRole + 3, "part-result-body");
             if (document.body_history.active_body_id().empty() && !properties_dialog_) {
-                root->setForeground(0, QBrush(QColor("#4DD811")));
+                root->setBackground(0, QBrush(QColor("#00D1FF"))); root->setForeground(0, QBrush(QColor("#102027")));
                 auto font = root->font(0); font.setBold(true); root->setFont(0, font);
             }
             add_part_tree_children(root, body_dialog_preview_ ? *body_dialog_preview_ : document);
@@ -1646,11 +1651,22 @@ void AssemblyWorkspaceWindow::refresh_scene() {
         if (!document.body_history.bodies().empty() && properties_dialog_ == nullptr && active_sketch_id_.empty()) {
             const auto active_body = document.body_history.active_body_id();
             std::map<std::string,std::string> owners;
+            std::set<std::string> visible_bodies;
             for (const auto& body : document.body_history.bodies())
+            {
+                if(body.visible)visible_bodies.insert(body.scope.id);
                 for (const auto& entry : body.entries) owners.emplace(entry.id, body.scope.id);
-            viewer_->set_candidate_filter([active_body, owners = std::move(owners)](const auto& candidate) {
+            }
+            // Original-reference packets also contain native child Sketches.
+            // Resolve their Body once here, not during every pointer movement.
+            for(const auto& sketch:document.sketches)
+                if(const auto* body=document.body_owner_for_object(sketch.id))
+                    owners.emplace(sketch.id,body->scope.id);
+            viewer_->set_candidate_filter([active_body, owners = std::move(owners),
+                    visible_bodies=std::move(visible_bodies)](const auto& candidate) {
                 const auto owner = owners.find(candidate.owner_id);
-                return active_body.empty() || owner == owners.end() || owner->second == active_body;
+                return owner == owners.end() || (visible_bodies.contains(owner->second) &&
+                    (active_body.empty() || owner->second == active_body));
             }, false);
         }
         // set_mesh() intentionally resets stale picking state. Dimension

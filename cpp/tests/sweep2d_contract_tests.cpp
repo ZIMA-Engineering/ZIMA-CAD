@@ -71,8 +71,23 @@ int main(int argc,char** argv){try{
         std::set<std::string> caps;
         for(const auto& r:body.mesh.original_references.triangle_references)if(r.semantic_key.starts_with("sweep:cap:"))caps.insert(r.semantic_key);
         require(caps.size()==2,"Missing persisted Sweep end caps");
+        for (const auto* role : {"start:from:","end:from:"}) {
+            const auto key=std::string("sweep:path-point:")+role+source;
+            document::Placement attachment;attachment.references={{{},c.id,key}};
+            require(document::resolve_placement(attachment,body.mesh.original_references),
+                "2D Sweep endpoint cannot be used for placement");
+            require(std::ranges::any_of(body.mesh.points,[&](const auto& p){return p.reference.semantic_key==key && p.always_visible;}),
+                "2D Sweep endpoint is not visible");
+        }
         c.placement.rotation_y=35;c.placement.x=7;
-        close(calculate(c).volume,body.volume,"Container placement changed Sweep volume");
+        const auto moved=calculate(c);
+        close(moved.volume,body.volume,"Container placement changed Sweep volume");
+        for (const auto& point : body.mesh.points) {
+            if (!point.reference.semantic_key.starts_with("sweep:path-point:")) continue;
+            document::Placement attachment;attachment.references={{{},c.id,point.reference.semantic_key}};
+            require(document::resolve_placement(attachment,moved.mesh.original_references),
+                "Moving 2D Sweep invalidates its endpoint identity");
+        }
         const auto file=std::filesystem::temp_directory_path()/"zima-sweep2d-loft-contract.prtz";
         doc.save(file);auto loaded=document::PartDocument::load(file);std::filesystem::remove(file);
         close(kernel.evaluate_history(loaded.kernel_operations()).back().volume,body.volume,"Reload changed Sweep geometry");

@@ -497,7 +497,7 @@ void AssemblyWorkspaceWindow::add_object_rename_action(QMenu& menu,const std::st
     if(properties_dialog_||!active_sketch_id_.empty()||document!=workspace_.active_document_id())return;
     const auto initial=workspace::tree_object_name(workspace_,document,kind,object);
     if(!initial)return;
-    auto* action=menu.addAction(tr("Přejmenovat…"));action->setObjectName("renameTreeItemAction");
+    auto* action=menu.addAction(resource_icon("rename"),tr("Přejmenovat…"));action->setObjectName("renameTreeItemAction");
     connect(action,&QAction::triggered,this,[this,document,kind,object,initial] {
         auto* dialog=new RenameDocumentDialog(QString::fromStdString(*initial),[this,document,kind,object](QString name) {
             try {static_cast<void>(workspace::rename_tree_object(workspace_,document,kind,object,name.toStdString()));return QString{};}

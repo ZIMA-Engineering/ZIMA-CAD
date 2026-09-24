@@ -66,7 +66,7 @@ void MainWindow::create_actions() {
         show_primitive_properties(zima::document::FeatureKind::Pyramid); });
     modeling->addAction(tr("Klín…"), this, [this] {
         show_primitive_properties(zima::document::FeatureKind::Wedge); });
-    modeling->addAction(tr("Regenerovat"), this, [this] { regenerate(); });
+    modeling->addAction(resource_icon("regenerate"), tr("Regenerovat"), this, [this] { regenerate(); });
 }
 
 void MainWindow::create_layout() {
@@ -141,7 +141,7 @@ void MainWindow::show_container_context_menu(
         return;
     }
     QMenu menu(this);
-    auto* properties = menu.addAction(tr("Vlastnosti"));
+    auto* properties = menu.addAction(resource_icon("properties"),tr("Vlastnosti"));
     auto* select_parent = menu.addAction(tr("Vybrat nadřazený"));
     const QAction* selected = menu.exec(global_position);
     if (selected == properties) {
@@ -204,7 +204,7 @@ void MainWindow::rebuild(std::optional<std::size_t> history_limit,
         auto* item = new QTreeWidgetItem({QString::fromStdString(container.name)});
         item->setData(0, Qt::UserRole, QString::fromStdString(container.id));
         if (container.id == active_container_id) {
-            item->setForeground(0, QBrush(QColor(70, 190, 95)));
+            item->setBackground(0,QColor("#00D1FF"));item->setForeground(0,QColor("#102027"));
             QFont font = item->font(0);
             font.setBold(true);
             item->setFont(0, font);

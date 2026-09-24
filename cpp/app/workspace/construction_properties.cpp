@@ -442,7 +442,6 @@ void AssemblyWorkspaceWindow::show_curve_point_properties(
         }, this, decimal_places);
 
     set_local_origin_selection_mode(false);
-    bind_local_origin_selection(point_dialog);
     curve_dialog->hide();
     properties_dialog_ = point_dialog;
     construction_reference_dialog_ = point_dialog;
@@ -619,6 +618,10 @@ void AssemblyWorkspaceWindow::show_curve_point_properties(
             static_cast<void>(committed);
         });
 
+    // The initial preview above establishes this child's reference geometry.
+    // Bind labels only now: before switching dialogs the shared resolver would
+    // read the unrelated primitive geometry and mark every stored row missing.
+    bind_local_origin_selection(point_dialog);
     point_dialog->show();
     const auto first = point_dialog->first_empty_position_index();
     if (first < 3) {

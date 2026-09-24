@@ -154,6 +154,27 @@ static void thin_sweep_contracts() {
     }
 }
 int main(){try{
+    {
+        auto curve = fixture(5).sweep3d.path;
+        curve.origin = {10,20,30};
+        auto document = document::PartDocument::create_default();
+        document.constructions = {curve};
+        const auto mesh = document.construction_viewer_mesh();
+        std::size_t markers = 0;
+        for (const auto& point : mesh.points) {
+            if (point.display_owner_id != curve.id) continue;
+            const auto& source = curve.curve_points.at(markers++);
+            require(point.reference.owner_id == source.container_origin.id &&
+                point.reference.semantic_key == "point" && point.always_visible && point.label.empty() &&
+                std::abs(point.position.x-source.origin.x-10)<1e-9 &&
+                std::abs(point.position.y-source.origin.y-20)<1e-9 &&
+                std::abs(point.position.z-source.origin.z-30)<1e-9,
+                "Curve point must retain its persisted reference and placed position without a label");
+        }
+        require(markers == curve.curve_points.size(), "Curve selection omitted entered points");
+        require(mesh.original_references.points.size() >= markers,
+            "Curve points are missing from original references");
+    }
     thin_sweep_contracts();
     // Adding a second circular profile on an oblique sharp corner must
     // produce a stable serialized frame under repeated regeneration.
@@ -222,6 +243,20 @@ int main(){try{
             const auto& segment = start ? request.path_segments.front() : request.path_segments.back();
             const auto key = std::string("sweep:cap:") + (start ? "start:from:" : "end:from:") + segment.source_id;
             const auto& refs=restored.mesh.original_references;
+            const auto point_key=std::string("sweep:path-point:")+(start?"start:from:":"end:from:")+segment.source_id;
+            const auto point=std::ranges::find_if(refs.points,[&](const auto& value) {
+                return value.reference.owner_id==sweep.id && value.reference.semantic_key==point_key;
+            });
+            require(point!=refs.points.end(),"Sweep endpoint is missing from persisted original references");
+            document::Placement on_point;
+            on_point.references={{{},sweep.id,point_key}};
+            require(document::resolve_placement(on_point,refs),"Cannot position a container on a Sweep endpoint");
+            const auto expected=start?segment.start:segment.end;
+            require(std::hypot(std::hypot(on_point.x-expected.x,on_point.y-expected.y),on_point.z-expected.z)<1e-7,
+                "Sweep endpoint placement uses the wrong coordinates");
+            require(std::ranges::any_of(restored.mesh.points,[&](const auto& value) {
+                return value.reference==point->reference && value.always_visible && value.display_owner_id==sweep.id;
+            }),"Sweep endpoint marker disappeared after save/reopen");
             require(std::ranges::any_of(refs.triangle_references,[&](const auto& face) {
                 return face.owner_id==sweep.id && face.semantic_key==key;
             }),"Sweep endpoint face is missing from persisted placement references");

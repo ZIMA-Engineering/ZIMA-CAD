@@ -1,3 +1,4 @@
+#include "../common/interaction_colors.hpp"
 #include "symbol_properties_dialog.hpp"
 #include <QJsonDocument>
 #include <QJsonArray>
@@ -1095,11 +1096,11 @@ public:
             const auto key=entity_selection_.front();
             if(key.kind==AnnotationKind::View){menu.addAction(edit_action_);menu.addAction(projected_action_);menu.addAction(remove_action_);return;}
             QAction* properties=nullptr;
-            if(key.kind==AnnotationKind::Text)properties=menu.addAction(tr("Vlastnosti textu…"),this,[this,key]{if(text_properties_)text_properties_(key.id.substr(5));});
-            if(key.kind==AnnotationKind::Balloon)properties=menu.addAction(tr("Vlastnosti pozice…"),this,[this,key]{if(balloon_properties_)balloon_properties_(key.id);});
+            if(key.kind==AnnotationKind::Text)properties=menu.addAction(resource_icon("properties"),tr("Vlastnosti textu…"),this,[this,key]{if(text_properties_)text_properties_(key.id.substr(5));});
+            if(key.kind==AnnotationKind::Balloon)properties=menu.addAction(resource_icon("properties"),tr("Vlastnosti pozice…"),this,[this,key]{if(balloon_properties_)balloon_properties_(key.id);});
             if(key.kind==AnnotationKind::Dimension) {
                 if(!key.branch.empty())menu.addAction(tr("Vybrat nadřazený"),this,[this,key]{select_manual(key.view,key.id);})->setObjectName("drawingSelectChainAction");
-                properties=menu.addAction(tr("Vlastnosti kóty…"),this,[this,key]{edit_manual_entity(key);});
+                properties=menu.addAction(resource_icon("properties"),tr("Vlastnosti kóty…"),this,[this,key]{edit_manual_entity(key);});
                 const auto* dimension=visible_dimension(key.id);
                 if(dimension&&(dimension->kind==drawing::DrawingDimensionKind::Linear||dimension->kind==drawing::DrawingDimensionKind::Chain)) {
                     menu.addAction(resource_icon("drawing-jog"),tr("Vložit zalomení"),this,[this,key]{start_witness_tool(drawing::WitnessEditKind::Jog,key.id);})->setObjectName("drawingWitnessJogContextAction");
@@ -1113,12 +1114,12 @@ public:
                 }
             }
             if(key.kind==AnnotationKind::Caption||key.kind==AnnotationKind::SectionLabel||key.kind==AnnotationKind::DetailLabel)
-                properties=menu.addAction(tr("Vlastnosti…"),this,[this,key]{select_view_for_test(key.view);if(edit_action_)edit_action_->trigger();});
+                properties=menu.addAction(resource_icon("properties"),tr("Vlastnosti…"),this,[this,key]{select_view_for_test(key.view);if(edit_action_)edit_action_->trigger();});
             if(key.kind==AnnotationKind::Model)for(const auto& view:sheet_->views)if(view.id==key.view)
                 for(const auto& item:view.model_annotations)if(model_annotation_key(item.source)==key.id&&item.kind==drawing::ModelAnnotationKind::Dimension) {
-                    properties=menu.addAction(tr("Vlastnosti kóty…"),this,[this,key]{if(dimension_properties_)dimension_properties_(key.view,key.id);});
+                    properties=menu.addAction(resource_icon("properties"),tr("Vlastnosti kóty…"),this,[this,key]{if(dimension_properties_)dimension_properties_(key.view,key.id);});
                     if(!item.unresolved&&item.model_dimension&&item.model_dimension->driving&&!item.model_dimension->locked&&item.model_dimension->display_text_override.empty())
-                        menu.addAction(tr("Upravit hodnotu…"),this,[this,key]{if(dimension_value_)dimension_value_(key.view,key.id,model_handle(key.id,0,key.view).value_or(rect().center()));})->setObjectName("drawingEditDimensionValueAction");
+                        menu.addAction(resource_icon("edit"),tr("Upravit hodnotu…"),this,[this,key]{if(dimension_value_)dimension_value_(key.view,key.id,model_handle(key.id,0,key.view).value_or(rect().center()));})->setObjectName("drawingEditDimensionValueAction");
                 }
             if(properties)properties->setObjectName("drawingEntityPropertiesAction");
         }
@@ -1494,7 +1495,7 @@ protected:
             if(!measurement_offered_.empty()){
                 const auto& candidate=measurement_offered_[measurement_index_];
                 for(const auto& view:sheet_->views)if(view.id==candidate.view&&candidate.chain_seed.empty()){
-                    const QColor color=dimension_command_?QColor(255,140,12):QColor("#FF9300");
+                    const QColor color=interaction::hover;
                     const bool line=candidate.candidate.attachment.kind==drawing::DimensionAttachmentKind::Line||
                         (dimension_command_&&(dimension_command_->value().kind==drawing::DrawingDimensionKind::Radius||dimension_command_->value().kind==drawing::DrawingDimensionKind::Diameter));
                     if(!dimension_command_||line){highlight(view,candidate.candidate.attachment.reference,color,!dimension_command_);highlight(view,candidate.candidate.attachment.other_reference,color,!dimension_command_);}
@@ -2071,12 +2072,14 @@ void DrawingWindow::create_actions() {
     edit_view_action_ = drawing->addAction(tr("Vlastnosti pohledu…"), this,
         [this] { edit_selected_view(); });
     edit_view_action_->setObjectName("editDrawingViewAction");
+    edit_view_action_->setIcon(resource_icon("properties"));
     show_erase_action_=drawing->addAction(tr("Zobrazit / skrýt kóty…"),this,[this]{show_erase();});
     show_erase_action_->setObjectName("drawingShowEraseAction");
     show_erase_action_->setIcon(resource_icon("show-erase"));
     regenerate_view_action_ = drawing->addAction(tr("Regenerovat"), this,
         [this] { regenerate_selected_view(); });
     regenerate_view_action_->setObjectName("regenerateDrawingViewAction");
+    regenerate_view_action_->setIcon(resource_icon("regenerate"));
     delete_view_action_ = drawing->addAction(tr("Odstranit pohled"), this,
         [this] { delete_selected_view(); });
     delete_view_action_->setObjectName("deleteDrawingViewAction");

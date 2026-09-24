@@ -4,7 +4,9 @@ Global Settings supports Czech (`cs`), English (`en`), German (`de`), French
 (`fr`) and Russian (`ru`). Confirming a language change offers a full application
 window restart. Saved documents reopen; cancelling restart keeps the current
 window language and retains the selected language for the next startup.
-The ISO application font remains unchanged across language changes.
+The selected system/ISO GUI font mode remains unchanged across language changes.
+View, Sketch and Drawing annotations use the bundled ISO font independently;
+see [font policy](UI_VISUAL_CONVENTIONS.md).
 
 ## Catalogs and resource paths
 

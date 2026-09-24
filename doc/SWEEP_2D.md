@@ -6,22 +6,34 @@ results. Creation/editing use one internal Properties window. Pending Sketches a
 parameters commit only on OK; Cancel restores original history. Editing displays
 real input before the container.
 
+The profile table follows the shared reference-table layout: a compact leading
+row-number column, arrow/remove column, consistent row height and no whole-row
+selection highlight.
+The arrow opens the existing station Sketch action; removal retains its original
+meaning of removing an explicit profile. Sketch editing, point correspondence
+and inherited-profile status remain distinct operations with unchanged semantics.
+
 ## Placement and path Sketch
 
 The container uses shared placement: position references, FRONT/TOP, X/Y/Z, rotations,
-corrections, and Origin selection. The first plane reference prepopulates the separate
-green field before **Path Sketch**. Change it by picking an original plane/planar face
-in View/Tree without changing container placement. Two mandatory perpendicular
+corrections, and Origin selection. The separate green field before **Path Sketch**
+defaults to the container's own XY plane. Change it by picking only XY/YZ/XZ of
+that same container in View/Tree, without changing container placement. Body faces,
+Part planes and planes of other containers are excluded. Two mandatory perpendicular
 path/profile planes are not required; profile planes derive from path tangents.
 
-Path-plane selection also accepts XY/YZ/XZ of the container's own Origin. This internal
-Sketch reference follows parent placement; changing it changes no container position,
-rotation, or references. Main Part planes and preceding-object planes remain available.
+This internal Sketch reference follows parent placement; changing it changes no container position,
+rotation, or references. Existing saved path references are not silently rewritten
+when opening a document; new selection follows the own-plane restriction.
 
 The path is one open, continuous planar curve starting at Sketch Origin, with any
 initial direction. It accepts segments, arcs, elliptical arcs, and open splines,
 including evaluated Sketch fillets. It may change planar direction, not necessarily
 follow one axis. Sweep ends at the actual path endpoint.
+
+An invalid path leaves the profile table empty and displays a localized explanation.
+Preview status must not overwrite this error. Correcting the path repopulates the
+station table through the same existing route calculation.
 
 ## Profile Sketches and Loft
 
@@ -93,3 +105,8 @@ them never triggers a kernel calculation.
 The Sweep contract includes a circular-profile cut along a box boundary.
 For a read-only recalculation check of a specific native Part, pass its path
 to `zima_cpp_sweep2d_contract_tests`; this does not save the document.
+
+Selecting the Sweep also highlights its path, even with ordinary axes hidden.
+After explicit calculation, the path endpoints are visible original-reference
+points for downstream placement. See
+[Sweep selection and attachment endpoints](3D_CURVE_AND_SWEEP.md#sweep-selection-and-attachment-endpoints-2026-09-24).

@@ -225,6 +225,9 @@ struct ViewerEdge {
     std::optional<double> measured_length; // Exact source curve length in mm.
     std::optional<BSplineGeometry> exact_spline;
     bool surface_result{};
+    // Transient preview only; not serialized. End-condition symbolism must not
+    // change the semantic roles consumed by sheet-cut footprint estimation.
+    bool preview_terminal_dashed{};
 };
 
 [[nodiscard]] inline SheetEdgeRole sheet_edge_role(const ViewerEdge& edge) {
@@ -252,6 +255,9 @@ struct ViewerPoint {
     // Sketch display association, derived from persisted SketchText.anchor_point_id.
     std::string sketch_text_key;
     bool surface_result{};
+    // Transient construction presentation, rebuilt from the owning Curve.
+    // The reference retains the child Point's persisted identity.
+    std::string display_owner_id;
 };
 
 struct ViewerAxis {
@@ -700,6 +706,9 @@ struct Sweep3DRequest {
     // Only valid for a smooth loft with one section per path point. Ordinary
     // Sweep/Loft callers retain the existing path-normal transport behavior.
     bool fixed_section_frames{};
+    // Authored Sweep tools expose their path ends as attachment points.
+    // Other users of the sweep kernel (e.g. sheet bends) do not opt in.
+    bool attachment_endpoints{};
     // Unrounded polyline: each segment owns two endpoint stations and
     // perpendicular caps. No corner projection or transition joins segments.
     bool separate_segments{};
@@ -1640,6 +1649,7 @@ struct PlacedBody {
                 byte(primitive.transported);
                 if(primitive.smooth_loft) {byte(0xe9);byte(1);}
                 if(primitive.fixed_section_frames) {byte(0xea);byte(1);}
+                if(primitive.attachment_endpoints) {byte(0xeb);byte(1);}
                 u64(std::bit_cast<std::uint64_t>(primitive.linear_tolerance));
                 byte(primitive.thin);
                 u64(std::bit_cast<std::uint64_t>(primitive.thin_first));u64(std::bit_cast<std::uint64_t>(primitive.thin_second));

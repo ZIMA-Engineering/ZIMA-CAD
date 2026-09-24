@@ -37,6 +37,29 @@ int verify_part_dialog_layout(QApplication& application, QWidget& parent) {
                 std::unique_ptr<ui::PropertiesSubWindow> dialog(raw);dialog->setAttribute(Qt::WA_DeleteOnClose,false);
                 dialog->show();flush();++count;
                 QStringList errors;
+                std::vector<std::pair<QWidget*,int>> anchored;
+                for(auto* field:dialog->findChildren<QTableWidget*>())if(field->isVisible())
+                    anchored.emplace_back(field,field->mapTo(dialog.get(),QPoint{}).y());
+                const auto original_size=dialog->size();
+                std::vector<std::pair<QAbstractItemView*,int>> expanding;
+                if(dialog->property("expandBottomTable").toBool())
+                    for(int i=0;i<dialog->content_layout()->count();++i)
+                        if(auto* view=qobject_cast<QAbstractItemView*>(dialog->content_layout()->itemAt(i)->widget());view&&view->isVisible())
+                            expanding.emplace_back(view,view->height());
+                dialog->resize(dialog->width(),std::min(available.height(),dialog->height()+100));flush();
+                for(const auto& [field,y]:anchored)if(field->mapTo(dialog.get(),QPoint{}).y()!=y)
+                    errors<<field->objectName()+": fields moved vertically on resize";
+                const auto growth=dialog->height()-original_size.height();
+                if(growth>10&&!expanding.empty()) {
+                    int gained=0;for(const auto& [view,height]:expanding)gained+=view->height()-height;
+                    if(gained<growth/2)errors<<"extra window height did not reach the reference table";
+                }
+                dialog->resize(original_size);flush();
+                auto* status=dialog->findChild<QLabel*>("containerPlacementStatusLabel");
+                auto* dof=dialog->findChild<QLabel*>("containerPlacementDofLabel");
+                if(status&&dof&&status->isVisible()&&dof->isVisible()&&
+                    std::abs(status->mapTo(dialog.get(),status->rect().center()).y()-dof->mapTo(dialog.get(),dof->rect().center()).y())>1)
+                    errors<<"placement status is not beside degrees of freedom";
                 if(!parent.rect().contains(dialog->geometry()))errors<<"window exceeds parent";
                 for(auto* widget:dialog->findChildren<QWidget*>()) {
                     if(!widget->isVisible() || !widget->parentWidget())continue;
@@ -60,7 +83,7 @@ int verify_part_dialog_layout(QApplication& application, QWidget& parent) {
                 if(!errors.empty()) {
                     ++failures;std::cerr<<language.toStdString()<<" "<<available.width()<<" "<<name.toStdString()<<": "<<errors.join(", ").toStdString()<<'\n';
                 }
-                if(!errors.empty()||name=="sweep2d") {
+                if(!errors.empty()||name=="sweep2d"||name=="shaft-thread"||name=="fillet"||name=="chamfer"||name=="shell"||dialog->findChild<QTableWidget*>("curve3DPoints")) {
                     const auto output=root/"build/dialog-layout";std::filesystem::create_directories(output);
                     dialog->grab().save(QString::fromStdString(output.generic_string())+"/"+language+"-"+name+"-"+QString::number(available.width())+".png");
                 }
@@ -82,12 +105,33 @@ int verify_part_dialog_layout(QApplication& application, QWidget& parent) {
                 auto feature=Part::create_box_container();feature.feature_kind=kind;
                 check(new app::PrimitivePropertiesDialog(feature,false,true,[](auto){},&parent),kind==document::FeatureKind::Fillet?"fillet":"chamfer");
             }
-            for(auto kind:{document::ConstructionKind::Point,document::ConstructionKind::Axis,document::ConstructionKind::Plane,document::ConstructionKind::Curve3D})
-                check(new app::ConstructionPropertiesDialog(Part::create_construction(kind),false,[](auto){},&parent),"construction"+QString::number(static_cast<int>(kind)));
+            for(auto kind:{document::ConstructionKind::Point,document::ConstructionKind::Axis,document::ConstructionKind::Plane,document::ConstructionKind::Curve3D}) {
+                auto feature=Part::create_construction(kind);
+                if(kind==document::ConstructionKind::Curve3D) {
+                    feature.curve_type=document::Curve3DType::Polyline;
+                    for(int i=0;i<3;++i) {
+                        auto point=Part::create_construction(document::ConstructionKind::Point);
+                        point.origin={double(i)*10,0,0};point.curve_tangent_enabled=true;
+                        point.curve_tangent=document::Curve3DTangentMode::PositiveX;
+                        feature.curve_points.push_back(point);
+                    }
+                }
+                check(new app::ConstructionPropertiesDialog(feature,false,[](auto){},&parent),"construction"+QString::number(static_cast<int>(kind)));
+            }
             check(new app::ConstructionPropertiesDialog(Part::create_sweep3d_container(),false,true,[](auto){},&parent),"sweep3d");
             auto* sweep=new app::Sweep2DDialog(Part::create_sweep2d_container(),[](auto){},&parent);
             auto path=sketcher::Sketch::from_serialized(sweep->pending.sweep2d.path_sketch);
-            static_cast<void>(path.add_segment(0,0,40,0));sweep->set_sketch(0,path);check(sweep,"sweep2d");
+            auto invalid_path=path;static_cast<void>(invalid_path.add_segment(10,0,40,0));
+            sweep->set_sketch(0,invalid_path);sweep->set_status("preview status");
+            const auto error_prefix=settings.qt_translations.value("Dráha není platná: %1").section("%1",0,0);
+            bool explained=false;for(auto* label:sweep->findChildren<QLabel*>())
+                if(!error_prefix.isEmpty()&&label->text().startsWith(error_prefix))explained=true;
+            if(!explained){++failures;std::cerr<<"Invalid Sweep path did not retain its localized error\n";}
+            static_cast<void>(path.add_segment(0,0,40,0));sweep->set_sketch(0,path);
+            for(auto* label:sweep->findChildren<QLabel*>())if(!error_prefix.isEmpty()&&label->text().startsWith(error_prefix)) {
+                ++failures;std::cerr<<"Valid Sweep path retained its previous error\n";
+            }
+            check(sweep,"sweep2d");
             check(new app::HelicalSweepDialog(Part::create_helical_sweep_container(),[](auto){},&parent),"helix");
             check(new app::ShaftThreadDialog(Part::create_shaft_thread_container(),[](auto){},&parent),"shaft-thread");
             check(new app::SketchPropertiesDialog(sketcher::Sketch::create_default(),{},false,{},[](auto,auto,auto){},&parent),"sketch");

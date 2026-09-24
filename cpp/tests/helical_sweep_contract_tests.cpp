@@ -61,6 +61,15 @@ int main(){try{
         const auto centerline=std::ranges::find_if(result.back().mesh.edges,[&](const auto& e){return e.reference.semantic_key==key;});
         require(centerline!=result.back().mesh.edges.end() && centerline->points.size()>20 && centerline->dash_dot,
             "Helical solid has no curved centerline");
+        for (const bool start : {true,false}) {
+            const auto endpoint_key=std::string("sweep:path-point:")+(start?"start:from:":"end:from:")+guide.segments.front().id;
+            document::Placement attachment;attachment.references={{{},c.id,endpoint_key}};
+            require(document::resolve_placement(attachment,result.back().mesh.original_references),
+                "Helical endpoint cannot be used for placement");
+            const auto expected=start?centerline->points.front():centerline->points.back();
+            require(std::hypot(std::hypot(attachment.x-expected.x,attachment.y-expected.y),attachment.z-expected.z)<1e-7,
+                "Helical endpoint has incorrect position");
+        }
         require(std::ranges::count_if(result.back().mesh.edges,[&](const auto& e){return e.reference.semantic_key==key;})==1,
             "Helical approximation pieces leaked into centerline identity");
         require(std::ranges::none_of(result.back().mesh.original_references.axes,[&](const auto& a){return a.reference.semantic_key==key;}),
@@ -89,11 +98,24 @@ int main(){try{
             std::set<std::string> loaded_caps;
             for(const auto& ref:loaded_bodies.back().mesh.original_references.triangle_references)if(caps.contains(ref.semantic_key))loaded_caps.insert(ref.semantic_key);
             require(loaded_caps==caps,"Cap references changed after save/load");
+            for (const auto& endpoint : result.back().mesh.points) {
+                if (!endpoint.reference.semantic_key.starts_with("sweep:path-point:")) continue;
+                require(std::ranges::any_of(loaded_bodies.back().mesh.points,[&](const auto& p) {
+                    return p.reference==endpoint.reference && p.always_visible && p.display_owner_id==c.id;
+                }),"Helical endpoint marker/reference was lost on reopening");
+            }
             auto changed=c;changed.helical.pitch=6;changed.helical.left_handed=true;
             auto guide=sketcher::Sketch::from_serialized(changed.helical.sketches[1]);
             for(auto& point:guide.points)if(point.id!=changed.helical.guide_start_point_id)point.y*=1.2;
             changed.helical.sketches[1]=guide.serialized();doc.history={changed};
             auto regenerated=k.evaluate_history(doc.kernel_operations());
+            for (const auto& endpoint : result.back().mesh.points) {
+                if (!endpoint.reference.semantic_key.starts_with("sweep:path-point:")) continue;
+                document::Placement attachment;
+                attachment.references={{{},c.id,endpoint.reference.semantic_key}};
+                require(document::resolve_placement(attachment,regenerated.back().mesh.original_references),
+                    "Helical endpoint identity changed with pitch/guide dimensions");
+            }
             std::set<std::string> new_caps;
             for(const auto& ref:regenerated.back().mesh.original_references.triangle_references)if(caps.contains(ref.semantic_key)){
                 new_caps.insert(ref.semantic_key);require(ref.surface&&ref.surface->kind==kernel::SurfaceGeometry::Kind::Plane,"Cap has no saved plane for downstream attachment");

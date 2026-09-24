@@ -1,3 +1,4 @@
+#include "reference_table_style.hpp"
 #pragma once
 #include "sweep_station_label.hpp"
 #include "table_entry.hpp"
@@ -32,7 +33,7 @@ public:
         content_layout()->addLayout(form);install_placement();
         auto* path_row=new QHBoxLayout;
         plane_table_=new QTableWidget(1,3,this);plane_table_->setObjectName("sweep2dPathPlane");
-        plane_table_->horizontalHeader()->hide();plane_table_->verticalHeader()->hide();
+        plane_table_->horizontalHeader()->hide();plane_table_->verticalHeader()->show();
         plane_table_->setSelectionMode(QAbstractItemView::NoSelection);plane_table_->setEditTriggers(QAbstractItemView::NoEditTriggers);
         // Shared reference controls are 30 px; leave space for the cell grid.
         plane_table_->setRowHeight(0,32);
@@ -50,8 +51,7 @@ public:
         connect(path_button,&QPushButton::clicked,this,[this]{if(edit_sketch)edit_sketch(0);});
         path_row->addWidget(plane_table_,1);path_row->addWidget(path_button);
         content_layout()->addWidget(new QLabel(tr("Rovina a skica dráhy"),this));content_layout()->addLayout(path_row);
-        auto* help=new QLabel(tr("První rovina umístění předvyplní rovinu dráhy. Zde ji můžete změnit. "
-            "Nakreslete jednu otevřenou dráhu z počátku skici; průřezy jsou kolmé k její tečně."),this);
+        auto* help=new QLabel(tr("Vyberte vlastní rovinu XY, YZ nebo XZ kontejneru pro skicu dráhy."),this);
         help->setWordWrap(true);content_layout()->addWidget(help);
         thin_form_=new QFormLayout;
         auto* result=new QComboBox(this);result->setObjectName("sweep2dResultType");result->addItems({tr("Těleso"),tr("Thin")});
@@ -66,14 +66,22 @@ public:
         connect(result,&QComboBox::currentIndexChanged,this,[this](int i){pending.sweep2d.result_type=i?document::ProfileResultType::Thin:document::ProfileResultType::Solid;update_thin();notify();});
         connect(thickness_,&QDoubleSpinBox::valueChanged,this,[this](double v){pending.sweep2d.thickness=v;notify();});
         connect(side_,&QComboBox::currentIndexChanged,this,[this](int i){pending.sweep2d.thin_mode=i==0?document::ThinMode::OneSide:i==1?document::ThinMode::OtherSide:document::ThinMode::Symmetric;notify();});
-        profiles_=new QTableWidget(0,4,this);profiles_->setObjectName("sweep2dProfiles");profiles_->setMinimumHeight(150);
-        profiles_->setHorizontalHeaderLabels({tr("Stanice"),tr("Skica profilu"),tr("Pořadí bodů"),tr("Použitý profil")});
-        profiles_->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);profiles_->verticalHeader()->hide();
-        profiles_->setEditTriggers(QAbstractItemView::NoEditTriggers);content_layout()->addWidget(profiles_);
+        profiles_=new QTableWidget(0,5,this);profiles_->setObjectName("sweep2dProfiles");profiles_->setMinimumHeight(150);
+        profiles_->setHorizontalHeaderLabels({tr("Stanice"),tr("Skica profilu"),tr("Pořadí bodů"),tr("Použitý profil"),QString{}});
+        profiles_->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);profiles_->verticalHeader()->show();
+        profiles_->verticalHeader()->setDefaultSectionSize(34);profiles_->verticalHeader()->setMinimumSectionSize(34);
+        profiles_->horizontalHeader()->setSectionResizeMode(4,QHeaderView::Fixed);profiles_->setColumnWidth(4,32);
+        profiles_->horizontalHeader()->moveSection(4,0);profiles_->setSelectionMode(QAbstractItemView::NoSelection);
+        style_reference_table(profiles_,4,0);
+        connect(profiles_,&QTableWidget::cellClicked,this,[this](int row,int column){
+            if(column==4)if(auto* button=qobject_cast<QPushButton*>(profiles_->cellWidget(row,1)))button->click();
+        });
+        profiles_->setEditTriggers(QAbstractItemView::NoEditTriggers);content_layout()->addWidget(profiles_,1);
+        setProperty("expandBottomTable",true);
         status_=new QLabel(this);status_->setWordWrap(true);content_layout()->addWidget(status_);
         install_operation_buttons();update_thin();refresh_plane();refresh_profiles();
     }
-    void set_status(const QString& text) override {status_->setText(text);}
+    void set_status(const QString& text) override {status_->setText(path_error_.isEmpty()?text:path_error_);}
     void set_sketch(unsigned stage,const sketcher::Sketch& sketch) override {
         pending.sweep2d.sketch_data(stage)=sketch.serialized();
         if(stage==0) {
@@ -114,23 +122,30 @@ public:
     }
     void refresh_profiles() {
         const QSignalBlocker blocked(profiles_);profiles_->setRowCount(0);
-        auto* row_actions=entry_row_header(profiles_);row_actions->clear_actions();
         document::Curve3DRoute route;
-        try{route=document::PartDocument::sweep2d_route(pending);}catch(const std::exception&){return;}
+        path_error_.clear();
+        try{route=document::PartDocument::sweep2d_route(pending);}catch(const std::exception& error){
+            path_error_=tr("Dráha není platná: %1").arg(QObject::tr(error.what()));
+            set_status(path_error_);return;
+        }
+        status_->clear();
         QString inherited;
         for(const auto& station:route.stations) {
             const int row=profiles_->rowCount();profiles_->insertRow(row);
             const auto found=std::ranges::find_if(pending.sweep2d.profiles,[&](const auto& p){return p.point_id==station.point_id&&p.incoming==station.incoming;});
             const auto index=static_cast<std::size_t>(std::distance(pending.sweep2d.profiles.begin(),found));
             const bool populated=found!=pending.sweep2d.profiles.end()&&document::sweep3d_profile_has_geometry(sketcher::Sketch::from_serialized(found->sketch_serialized));
-            row_actions->set_action(row,populated,[this,station] {
+            auto* indicator=ui::build_reference_row_indicator([this,station] {
                 std::erase_if(pending.sweep2d.profiles,[&](const auto& p){return p.point_id==station.point_id&&p.incoming==station.incoming;});
                 refresh_profiles();notify();
             });
-            profiles_->setItem(row,0,new QTableWidgetItem(sweep_station_label(station.label)));
+            ui::set_reference_row_populated(indicator,populated);profiles_->setCellWidget(row,4,indicator);
+            qobject_cast<QWidget*>(indicator->property("_removeWidget").value<QObject*>())->setToolTip(tr("Odstranit vlastní profil (stanice zůstane)"));
+            qobject_cast<QWidget*>(indicator->property("_arrowWidget").value<QObject*>())->setToolTip(tr("Skica"));
+            profiles_->setItem(row,0,new ui::ReferenceCellItem(sweep_station_label(station.label)));
             const auto status=populated?tr("Vlastní"):inherited.isEmpty()?tr("Vyplňte první profil"):tr("Z %1").arg(inherited);
             if(populated)inherited=sweep_station_label(station.label);
-            profiles_->setItem(row,3,new QTableWidgetItem(status));
+            profiles_->setItem(row,3,new ui::ReferenceCellItem(status));
             auto* button=new QPushButton(tr("Skica"),profiles_);style_sketch_button(button);
             button->setObjectName(QString("sweep2dStationSketch%1").arg(row));
             connect(button,&QPushButton::clicked,this,[this,station]{
@@ -163,7 +178,7 @@ private:
     QComboBox* side_{};QDoubleSpinBox* thickness_{};QLabel* status_{};QFormLayout* thin_form_{};
     QTableWidget* profiles_{};QTableWidget* plane_table_{};ui::ReferenceCellItem* plane_item_{};
     QWidget* plane_indicator_{};QToolButton* plane_eye_{};
-    bool plane_initialized_{},plane_active_{},plane_inspected_{},point_order_open_{};QString plane_label_;
+    bool plane_initialized_{},plane_active_{},plane_inspected_{},point_order_open_{};QString plane_label_,path_error_;
     void notify(){if(changed)changed();}
     void update_thin(){const bool enabled=pending.sweep2d.result_type==document::ProfileResultType::Thin;
         thin_form_->setRowVisible(thickness_,enabled);thin_form_->setRowVisible(side_,enabled);}

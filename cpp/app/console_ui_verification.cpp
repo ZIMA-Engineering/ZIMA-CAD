@@ -9,6 +9,7 @@
 #include <zima/drawing/drawing_template.hpp>
 #include <zima/sketcher/text_geometry.hpp>
 #include "primitive_properties_dialog.hpp"
+#include "construction_properties_dialog.hpp"
 #include "../tests/drill_point_test_support.hpp"
 #include <QListWidget>
 #include "../tests/sweep_test_support.hpp"
@@ -50,6 +51,7 @@
 #include <QComboBox>
 #include <QTableWidget>
 #include <QSpinBox>
+#include <zima/ui/reference_cell.hpp>
 #include <cmath>
 #include <zima/viewer/mesh_view.hpp>
 #include <chrono>
@@ -57,15 +59,245 @@
 #include <stdexcept>
 
 namespace zima::app {
+// Specialized GUI suites must not inherit the large general console suite's
+// local document snapshots on the Windows main-thread stack.
+Q_NEVER_INLINE static int verify_general_command_console(QApplication& application,
+    AssemblyWorkspaceWindow& window,const std::filesystem::path& directory);
 int verify_command_console(QApplication& application,AssemblyWorkspaceWindow& window,const std::filesystem::path& directory) {
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_WORK_PLANE_ONLY")) return verify_work_plane_ui(application,window,directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_ROTATION_HANDLE_ONLY")) return verify_rotation_handle_ui(application,window,directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_HOLES_ONLY")) return verify_holes_ui(application,window,directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_EDGE_TREATMENT_ONLY")) return verify_edge_treatment_ui(application,window,directory);
+    return verify_general_command_console(application,window,directory);
+}
+
+static int verify_general_command_console(QApplication& application,AssemblyWorkspaceWindow& window,const std::filesystem::path& directory) {
     const auto check=[](bool condition,const char* message){if(!condition)throw std::runtime_error(message);};
     const auto flush=[&]{application.processEvents();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);application.processEvents();};
     const auto run=[&](const QString& command){auto result=window.execute_console_command(command);if(!result.ok)throw std::runtime_error(command.toStdString()+": "+result.code+": "+result.message);return result;};
     try {
+        if(qEnvironmentVariableIsSet("ZIMA_VERIFY_CURVE_SELECTION")) {
+            window.showMaximized();flush();
+            check(window.open_document_path(qEnvironmentVariable("ZIMA_VERIFY_CURVE_SELECTION")),
+                "Curve selection document did not open");flush();
+            auto* view=dynamic_cast<zima::viewer::MeshView*>(window.findChild<QWidget*>("modelWorkspace"));
+            auto* tree=window.findChild<QTreeWidget*>("documentTree");
+            check(view&&tree,"Curve selection UI missing");
+            if(qEnvironmentVariableIsSet("ZIMA_VERIFY_CURVE_POINTS")) {
+                const auto objects=run("construction.list").data;
+                for(const auto& object:objects.at("items")) {
+                    if(object.at("kind")!="curve3d")continue;
+                    QTreeWidgetItem* item=nullptr;
+                    for(QTreeWidgetItemIterator it(tree);*it;++it)
+                        if((*it)->data(0,Qt::UserRole).toString().toStdString()==object.at("construction").get<std::string>()){item=*it;break;}
+                    check(item,"Curve tree item missing");window.show_tree_item_properties(item);flush();
+                    ConstructionPropertiesDialog* curve=nullptr;
+                    for(auto* candidate:window.findChildren<QDialog*>())if(candidate->isVisible())
+                        if(auto* typed=dynamic_cast<ConstructionPropertiesDialog*>(candidate))curve=typed;
+                    check(curve,"Curve Properties missing");
+                    const auto children=curve->pending_value().curve_points;
+                    auto* points=curve->findChild<QTableWidget*>("curve3DPoints");
+                    for(std::size_t i=0;i<children.size();++i) for(int pass=0;pass<2;++pass) {
+                        points->cellClicked(static_cast<int>(i),0);flush();
+                        ConstructionPropertiesDialog* editor=nullptr;
+                        for(auto* candidate:window.findChildren<QDialog*>())if(candidate->isVisible())
+                            if(auto* typed=dynamic_cast<ConstructionPropertiesDialog*>(candidate))editor=typed;
+                        check(editor&&editor!=curve,"Point Properties missing");
+                        const auto value=editor->pending_value();
+                        std::cout<<"Point "<<value.id<<" references before="<<children[i].references.size()<<" after="<<value.references.size()<<std::endl;
+                        window.grab().save(QString::fromStdString((directory/("point-"+value.id+".png")).string()));
+                        check(children[i].references==value.references,"Point Properties lost stored references");
+                        for(const char* name:{"constructionReferenceTable","constructionOrientationTable"}) {
+                            auto* references=editor->findChild<QTableWidget*>(name);
+                            if(!references)continue;
+                            for(int row=0;row<references->rowCount();++row) {
+                                auto* field=dynamic_cast<zima::ui::ReferenceCellItem*>(references->item(row,1));
+                                if(!field||!field->has_reference())continue;
+                                check(!field->is_missing()&&!field->text().isEmpty(),
+                                    "Point Properties displays a stored reference as missing");
+                            }
+                        }
+                        editor->buttons()->button(pass==0?QDialogButtonBox::Ok:QDialogButtonBox::Cancel)->click();flush();
+                        check(curve->isVisible(),"Point editor did not return to Curve Properties");
+                        check(curve->curve_point(i)->references==children[i].references,
+                            "Point OK/Cancel changed stored references");
+                    }
+                    curve->buttons()->button(QDialogButtonBox::Cancel)->click();flush();
+                }
+                return 0;
+            }
+            view->set_projection_mode(zima::viewer::ProjectionMode::Orthographic);flush();
+            std::set<std::string> inactive_features,inactive_sketches;
+            const auto body_list=run("body.list").data;
+            const auto sketch_list=run("sketch.list").data;
+            for(const auto& body:body_list.at("items"))
+                if(!body.at("active").get<bool>()||!body.at("visible").get<bool>())
+                    for(const auto& entry:body.at("history"))inactive_features.insert(entry.get<std::string>());
+            for(const auto& sketch:sketch_list.at("items"))
+                if(inactive_features.contains(sketch.at("owner").get<std::string>()))
+                    inactive_sketches.insert(sketch.at("sketch").get<std::string>());
+            const auto dot=[](const auto& a,const auto& b){return a.x*b.x+a.y*b.y+a.z*b.z;};
+            const auto sub=[](const auto& a,const auto& b){return kernel::Vec3{a.x-b.x,a.y-b.y,a.z-b.z};};
+            const auto project=[&](const kernel::Vec3& point){
+                const auto base=view->ray_at({0,0})->first;
+                const auto dx=sub(view->ray_at({1,0})->first,base);
+                const auto dy=sub(view->ray_at({0,1})->first,base);
+                const auto delta=sub(point,base);
+                return QPointF(dot(delta,dx)/dot(dx,dx),dot(delta,dy)/dot(dy,dy));
+            };
+            std::map<std::string,std::pair<int,int>> counts;
+            std::map<std::string,int> first_counts;
+            std::map<std::string,QPointF> click_pixels;
+            std::map<std::string,QPointF> overlap_pixels;
+            const auto edges=view->mesh().edges;
+            for(const auto& edge:edges) {
+                if(!zima::viewer::is_curve3d_edge(edge.reference.semantic_key))continue;
+                auto& count=counts[edge.display_owner_id];
+                for(std::size_t i=1;i<edge.points.size();i+=std::max<std::size_t>(1,edge.points.size()/12)) {
+                    const auto& a=edge.points[i-1];const auto& b=edge.points[i];
+                    const auto pixel=project({(a.x+b.x)/2,(a.y+b.y)/2,(a.z+b.z)/2});
+                    if(!view->rect().contains(pixel.toPoint()))continue;
+                    const auto hits=view->selection_candidates_at(pixel);++count.first;
+                    check(std::none_of(hits.begin(),hits.end(),[&](const auto& hit){return inactive_sketches.contains(hit.owner_id);}),
+                        "Inactive or hidden Body Sketch stole ordinary Curve hover");
+                    if(count.first==1&&!hits.empty())std::cout<<"First offered over "<<edge.display_owner_id
+                        <<": "<<hits.front().owner_id<<" key="<<hits.front().semantic_key<<std::endl;
+                    const bool found=std::any_of(hits.begin(),hits.end(),[&](const auto& hit){
+                        return hit.kind==zima::viewer::CandidateKind::Container&&hit.owner_id==edge.display_owner_id;});
+                    count.second+=found;
+                    if(found)overlap_pixels[edge.display_owner_id]=pixel;
+                    if(!hits.empty()&&hits.front().owner_id==edge.display_owner_id) {
+                        ++first_counts[edge.display_owner_id];click_pixels[edge.display_owner_id]=pixel;
+                    }
+                    if(!found)std::cout<<"Missing curve "<<edge.display_owner_id<<" at "<<pixel.x()<<","<<pixel.y()<<" hits="<<hits.size()<<std::endl;
+                }
+            }
+            check(!counts.empty(),"Source contains no displayed 3D Curves");
+            for(const auto& [owner,count]:counts) {
+                std::cout<<"Curve hover "<<owner<<": "<<count.second<<"/"<<count.first
+                    <<"; offered first="<<first_counts[owner]<<std::endl;
+            }
+            window.grab().save(QString::fromStdString((directory/"curve-selection.png").string()));
+            for(const auto& [owner,count]:counts)check(count.first>0&&count.second==count.first,
+                "Visible Curve samples are absent from ordinary hover");
+            for(const auto& [owner,pixel]:click_pixels) {
+                view->clear_selection();view->reset_candidate_cycle();
+                const auto global=view->mapToGlobal(pixel.toPoint());
+                QMouseEvent move(QEvent::MouseMove,pixel,global,Qt::NoButton,Qt::NoButton,Qt::NoModifier);
+                QApplication::sendEvent(view,&move);flush();
+                QMouseEvent press(QEvent::MouseButtonPress,pixel,global,Qt::LeftButton,Qt::LeftButton,Qt::NoModifier);
+                QApplication::sendEvent(view,&press);
+                QMouseEvent release(QEvent::MouseButtonRelease,pixel,global,Qt::LeftButton,Qt::NoButton,Qt::NoModifier);
+                QApplication::sendEvent(view,&release);flush();
+                const auto confirmed=view->confirmed_candidate();
+                std::cout<<"Curve click "<<owner<<" -> "<<(confirmed?confirmed->owner_id:"none")<<std::endl;
+                check(confirmed&&confirmed->owner_id==owner,"Real mouse click failed to select the offered Curve");
+            }
+            for(const auto& [owner,pixel]:overlap_pixels)if(!click_pixels.contains(owner)) {
+                view->clear_selection();view->reset_candidate_cycle();
+                const auto global=view->mapToGlobal(pixel.toPoint());
+                QMouseEvent move(QEvent::MouseMove,pixel,global,Qt::NoButton,Qt::NoButton,Qt::NoModifier);
+                QApplication::sendEvent(view,&move);flush();
+                const auto hits=view->selection_candidates_at(pixel);
+                const auto target=std::find_if(hits.begin(),hits.end(),[&](const auto& hit){return hit.owner_id==owner;});
+                check(target!=hits.end(),"Overlapping Curve vanished before cycling");
+                for(auto it=hits.begin();it!=target;++it) {
+                    QMouseEvent press(QEvent::MouseButtonPress,pixel,global,Qt::RightButton,Qt::RightButton,Qt::NoModifier);
+                    QMouseEvent release(QEvent::MouseButtonRelease,pixel,global,Qt::RightButton,Qt::NoButton,Qt::NoModifier);
+                    QApplication::sendEvent(view,&press);QApplication::sendEvent(view,&release);flush();
+                }
+                QMouseEvent press(QEvent::MouseButtonPress,pixel,global,Qt::LeftButton,Qt::LeftButton,Qt::NoModifier);
+                QMouseEvent release(QEvent::MouseButtonRelease,pixel,global,Qt::LeftButton,Qt::NoButton,Qt::NoModifier);
+                QApplication::sendEvent(view,&press);QApplication::sendEvent(view,&release);flush();
+                const auto confirmed=view->confirmed_candidate();
+                check(confirmed&&confirmed->owner_id==owner,"RMB cycling could not select an overlapping Curve");
+                std::cout<<"Overlapping Curve selected by RMB cycling: "<<owner<<std::endl;
+            }
+            QTreeWidgetItem* selected=nullptr;
+            for(QTreeWidgetItemIterator it(tree);*it;++it)
+                if((*it)->data(0,Qt::UserRole).toString().toStdString()==counts.rbegin()->first){selected=*it;break;}
+            check(selected,"Curve is absent from Tree");window.show_tree_item_properties(selected);flush();
+            window.grab().save(QString::fromStdString((directory/"curve-edit-selection.png").string()));
+            for(auto* dialog:window.findChildren<QDialog*>())if(dialog->isVisible())
+                if(auto* curve=dynamic_cast<ConstructionPropertiesDialog*>(dialog)) {
+                    curve->buttons()->button(QDialogButtonBox::Cancel)->click();flush();break;
+                }
+            if(!click_pixels.empty()) {
+                const auto& [owner,pixel]=*click_pixels.begin();
+                const auto hits=view->selection_candidates_at(pixel);
+                check(std::any_of(hits.begin(),hits.end(),[&](const auto& hit){return hit.owner_id==owner;}),
+                    "Closing Curve Properties disabled ordinary Curve hover");
+            }
+            return 0;
+        }
+        if(qEnvironmentVariableIsSet("ZIMA_VERIFY_ORIGIN_PERF")) {
+            window.showMaximized();flush();
+            const auto source=qEnvironmentVariable("ZIMA_VERIFY_ORIGIN_PERF");
+            if(source=="synthetic") {run("new part origin-placement-contract");run("box.create 10 20 30");}
+            else check(window.open_document_path(source),"Origin benchmark document did not open");
+            flush();
+            const auto original_constructions=run("construction.list").data;
+            auto* tree=window.findChild<QTreeWidget*>("documentTree");
+            auto* action=window.findChild<QAction*>("curve3DAction");
+            check(tree&&action&&action->isEnabled(),"Origin benchmark has no active Part context");
+            int resets=0;
+            const auto connection=QObject::connect(tree->model(),&QAbstractItemModel::modelReset,&window,[&]{++resets;});
+            for(int iteration=0;iteration<3;++iteration) {
+                action->trigger();flush();
+                ConstructionPropertiesDialog* dialog=nullptr;
+                for(auto* candidate:window.findChildren<QDialog*>())
+                    if(candidate->isVisible())if(auto* typed=dynamic_cast<ConstructionPropertiesDialog*>(candidate))dialog=typed;
+                check(dialog,"Origin benchmark curve dialog did not open");
+                auto* table=dialog->findChild<QTableWidget*>("constructionReferenceTable");
+                check(table,"Origin benchmark placement table missing");
+                emit table->cellClicked(0,1);flush();
+                QTreeWidgetItem* origin=nullptr;
+                const auto origin_id=run("body.list").data.at("active_body").get<std::string>()+":origin";
+                for(QTreeWidgetItemIterator it(tree);*it;++it)
+                    if((*it)->data(0,Qt::UserRole).toString().toStdString()==origin_id){origin=*it;break;}
+                check(origin,"Origin benchmark active Body Origin missing");
+                resets=0;QElapsedTimer timer;timer.start();
+                tree->setCurrentItem(origin);flush();
+                const auto elapsed=timer.nsecsElapsed()/1000000.0;
+                const auto pending=dialog->pending_value();
+                check(dialog->first_empty_position_index()==3,"Whole Origin did not fill three position rows");
+                check(resets==1,"Whole Origin rebuilt the scene more than once");
+                for(const auto& reference:pending.references)
+                    check(reference.owner_id==origin_id,"Whole Origin changed the reference owner");
+                std::cout<<"Origin benchmark "<<iteration<<": "<<elapsed<<" ms; scene resets="<<resets
+                    <<"; references="<<pending.references.size()<<std::endl;
+                if(iteration<2) {
+                    dialog->buttons()->button(QDialogButtonBox::Cancel)->click();flush();
+                    check(run("construction.list").data==original_constructions,"Origin Cancel changed the document");
+                } else {
+                    for(int point_index=0;point_index<2;++point_index) {
+                        auto point=document::PartDocument::create_construction(document::ConstructionKind::Point);
+                        point.origin={double(point_index)*10,0,0};dialog->set_curve_point(std::nullopt,point);
+                    }
+                    const auto expected=dialog->pending_value();
+                    dialog->buttons()->button(QDialogButtonBox::Ok)->click();flush();
+                    QTreeWidgetItem* created=nullptr;
+                    for(QTreeWidgetItemIterator it(tree);*it;++it)
+                        if((*it)->data(0,Qt::UserRole).toString().toStdString()==expected.id){created=*it;break;}
+                    check(created,"Origin OK did not create the curve");
+                    window.show_tree_item_properties(created);flush();
+                    ConstructionPropertiesDialog* reopened=nullptr;
+                    for(auto* candidate:window.findChildren<QDialog*>())if(candidate->isVisible())
+                        if(auto* typed=dynamic_cast<ConstructionPropertiesDialog*>(candidate))reopened=typed;
+                    check(reopened,"Origin placement could not reopen");
+                    const auto restored=reopened->pending_value();
+                    check(commands::Json(restored.references)==commands::Json(expected.references),"Origin OK/reopen changed reference sides or offsets");
+                    check(restored.origin.x==expected.origin.x&&restored.origin.y==expected.origin.y&&restored.origin.z==expected.origin.z&&
+                        restored.rotation.x==expected.rotation.x&&restored.rotation.y==expected.rotation.y&&restored.rotation.z==expected.rotation.z,
+                        "Origin OK/reopen changed placement");
+                    reopened->buttons()->button(QDialogButtonBox::Cancel)->click();flush();
+                    run("undo");flush();
+                    check(run("construction.list").data==original_constructions,"Origin creation Undo changed the original document");
+                }
+            }
+            QObject::disconnect(connection);
+            return 0;
+        }
         window.showMaximized();flush();
         auto* dock=window.findChild<QDockWidget*>("commandConsoleDock");
         auto* toggle=window.findChild<QAction*>("showCommandConsoleAction");
@@ -1956,7 +2188,7 @@ int verify_command_console(QApplication& application,AssemblyWorkspaceWindow& wi
                     check(dialog->findChild<QComboBox*>("curve3DType")->currentData().toInt()==
                         static_cast<int>(document::Curve3DType::InterpolatingSpline),"Sweep Properties lost CLI path type");
                     auto* rows=dialog->findChild<QTableWidget*>("curve3DPoints");check(rows,"Sweep path table missing");
-                    rows->selectRow(2);dialog->findChild<QPushButton*>("curve3DEditPoint")->click();flush();
+                    emit rows->cellClicked(2,0);flush();
                     QDialog* point_dialog=nullptr;
                     for(auto* child:window.findChildren<QDialog*>())if(child->isVisible()&&child!=dialog&&child->findChild<QDoubleSpinBox*>("constructionZ")){point_dialog=child;break;}
                     check(point_dialog,"Sweep point Properties did not open");
@@ -1975,7 +2207,7 @@ int verify_command_console(QApplication& application,AssemblyWorkspaceWindow& wi
                 json_run("construction.reference.set",point_reference);flush();
                 for(const bool commit:{false,true}) {
                     dialog=edit();dialog->findChild<QTableWidget*>("curve3DPoints")->selectRow(2);
-                    dialog->findChild<QPushButton*>("curve3DEditPoint")->click();flush();
+                    emit dialog->findChild<QTableWidget*>("curve3DPoints")->cellClicked(2,0);flush();
                     QDialog* child=nullptr;for(auto* candidate:window.findChildren<QDialog*>())
                         if(candidate->isVisible()&&candidate!=dialog&&candidate->findChild<QDoubleSpinBox*>("constructionZ")){child=candidate;break;}
                     check(child,"Referenced Sweep Point Properties missing");
@@ -2202,14 +2434,14 @@ int verify_command_console(QApplication& application,AssemblyWorkspaceWindow& wi
             };
             for(const bool commit:{false,true}) {
                 auto* dialog=edit();auto* angle=dialog->findChild<QDoubleSpinBox*>("drillPointIncludedAngle");
-                check(angle->value()==118&&dialog->findChild<QListWidget*>("drillPointFaces")->count()==2,"Drill Properties lost its angle or original bottom references");
+                check(angle->value()==118&&dialog->findChild<QTableWidget*>("drillPointFaces")->rowCount()==3,"Drill Properties lost its angle or original bottom references");
                 angle->setValue(120);flush();check(get().at("angle_degrees")==118,"Drill Properties committed before OK");
                 dialog->findChild<QDialogButtonBox*>()->button(commit?QDialogButtonBox::Ok:QDialogButtonBox::Cancel)->click();flush();
                 check(get().at("angle_degrees")==(commit?120:118),"Drill Properties OK/Cancel failed");
             }
             run("undo");check(get().at("angle_degrees")==118,"Drill Properties Undo failed");
-            auto* dialog=edit();dialog->findChild<QListWidget*>("drillPointFaces")->setCurrentRow(0);
-            dialog->findChild<QPushButton*>("drillPointRemoveFace")->click();flush();
+            auto* dialog=edit();dialog->findChild<QTableWidget*>("drillPointFaces")->setCurrentCell(0,1);
+            dialog->findChild<QTableWidget*>("drillPointFaces")->cellWidget(0,0)->findChild<QPushButton*>()->click();flush();
             check(get().at("faces").size()==2,"Removing a pending bottom changed the saved feature before OK");
             dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
             check(get().at("faces").size()==1&&get().at("faces")[0].at("owner")==fixture.history[2].id,"Drill Properties removed a different bottom");
@@ -2248,14 +2480,14 @@ int verify_command_console(QApplication& application,AssemblyWorkspaceWindow& wi
             };
             for(const bool commit:{false,true}) {
                 dialog=edit();auto* thickness=dialog->findChild<QDoubleSpinBox*>("shellThickness");
-                check(thickness->value()==1&&dialog->findChild<QListWidget*>("shellFaces")->count()==2,"Shell Properties lost thickness or opening faces");
+                check(thickness->value()==1&&dialog->findChild<QTableWidget*>("shellFaces")->rowCount()==3,"Shell Properties lost thickness or opening faces");
                 thickness->setValue(2);flush();check(get().at("thickness_mm")==1,"Shell Properties committed before OK");
                 dialog->findChild<QDialogButtonBox*>()->button(commit?QDialogButtonBox::Ok:QDialogButtonBox::Cancel)->click();flush();
                 check(get().at("thickness_mm")==(commit?2:1),"Shell Properties OK/Cancel failed");
             }
             run("save");static_cast<void>(document::PartDocument::load(file,&calculated));check(std::abs(calculated.back().volume-616)<1e-6,"GUI adjacent Shell openings have incorrect wall volume");
             run("undo");check(get().at("thickness_mm")==1,"Shell Properties Undo failed");dialog=edit();
-            dialog->findChild<QListWidget*>("shellFaces")->setCurrentRow(0);dialog->findChild<QPushButton*>("shellRemoveFace")->click();flush();
+            dialog->findChild<QTableWidget*>("shellFaces")->setCurrentCell(0,1);dialog->findChild<QTableWidget*>("shellFaces")->cellWidget(0,0)->findChild<QPushButton*>()->click();flush();
             check(get().at("faces").size()==2,"Shell opening removal committed before OK");
             dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();run("save");
             saved=document::PartDocument::load(file,&calculated);
@@ -2317,14 +2549,14 @@ int verify_command_console(QApplication& application,AssemblyWorkspaceWindow& wi
                 auto two_routes=routes;two_routes.push_back(other_route);
                 json_run("fillet.set",{{"container",id},{"routes",two_routes}});flush();
                 for(const bool commit:{false,true}) {
-                    dialog=edit();auto* rows=dialog->findChild<QTreeWidget*>("edgeTreatmentEdges");check(rows&&rows->topLevelItemCount()==2,"Properties lost separate routes");
-                    rows->setCurrentItem(rows->topLevelItem(0));dialog->findChild<QPushButton*>("edgeTreatmentRemove")->click();flush();
-                    check(rows->topLevelItemCount()==1&&get().at("routes").size()==2,"Pending route deletion committed too early");
+                    dialog=edit();auto* rows=dialog->findChild<QTreeWidget*>("edgeTreatmentEdges");check(rows&&rows->topLevelItemCount()==3,"Properties lost separate routes");
+                    rows->setCurrentItem(rows->topLevelItem(0));dialog->findChild<QWidget*>("edgeRouteRemove0")->findChild<QPushButton*>()->click();flush();
+                    check(rows->topLevelItemCount()==2&&get().at("routes").size()==2,"Pending route deletion committed too early");
                     dialog->findChild<QDialogButtonBox*>()->button(commit?QDialogButtonBox::Ok:QDialogButtonBox::Cancel)->click();flush();
                     check(get().at("routes").size()==(commit?1:2),"Route deletion OK/Cancel failed");
                 }
                 check(get().at("routes")[0].at("start")==other_start,"Deleting an earlier route moved the surviving R1 to the wrong group");
-                dialog=edit();auto* rows=dialog->findChild<QTreeWidget*>("edgeTreatmentEdges");rows->setCurrentItem(rows->topLevelItem(0));dialog->findChild<QPushButton*>("edgeTreatmentRemove")->click();
+                dialog=edit();auto* rows=dialog->findChild<QTreeWidget*>("edgeTreatmentEdges");rows->setCurrentItem(rows->topLevelItem(0));dialog->findChild<QWidget*>("edgeRouteRemove0")->findChild<QPushButton*>()->click();
                 dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
                 check(dialog->isVisible()&&get().at("routes").size()==1,"Empty Fillet edit changed the document");
                 dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Cancel)->click();flush();

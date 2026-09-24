@@ -38,7 +38,15 @@ AssemblyWorkspaceWindow::AssemblyWorkspaceWindow(const QString& working_director
     // Apply synchronously before child widgets copy and customize this font;
     // QApplication's queued font-change event arrives after their creation.
     setFont(qApp->font());
+    setStyleSheet(
+        "QPushButton:hover:enabled,QToolButton:hover:enabled,QComboBox:hover:enabled { background:#4DD811; color:#102027; }"
+        "QMenu { background:palette(window); color:palette(window-text); border:1px solid palette(mid); padding:3px; }"
+        "QMenu::item { background:transparent; padding:5px 24px; }"
+        "QMenu::item:selected:enabled { background:#4DD811; color:#102027; }"
+        "QMenu::item:disabled { color:palette(mid); }"
+        "QMenu::separator { height:1px; background:palette(mid); margin:3px 5px; }");
     setWindowTitle(tr("ZIMA-CAD"));
+    install_dialog_button_icons();
     setWindowIcon(application_icon());
     resize(1200, 800);
     create_actions();

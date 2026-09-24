@@ -38,9 +38,9 @@ public:
             connect(full_circle_,&QCheckBox::toggled,this,[this](bool on){derived_copy.pattern->full_circle=on;refresh_pattern();notify();});
         }
         table_=new QTableWidget(2,4,this);table_->setObjectName("mirrorReferences");
-        table_->horizontalHeader()->hide();table_->verticalHeader()->hide();table_->setFixedHeight(74);
+        table_->horizontalHeader()->hide();table_->verticalHeader()->show();table_->setFixedHeight(74);
         table_->setSelectionMode(QAbstractItemView::NoSelection);table_->setEditTriggers(QAbstractItemView::NoEditTriggers);
-        table_->setColumnWidth(0,120);table_->setColumnWidth(1,32);table_->setColumnWidth(3,32);
+        table_->horizontalHeader()->moveSection(1,0);table_->setColumnWidth(0,120);table_->setColumnWidth(1,32);table_->setColumnWidth(3,32);
         table_->verticalHeader()->setDefaultSectionSize(32);
         table_->horizontalHeader()->setSectionResizeMode(0,QHeaderView::ResizeToContents);
         table_->horizontalHeader()->setSectionResizeMode(2,QHeaderView::Stretch);ui::install_reference_cell_delegate(table_);

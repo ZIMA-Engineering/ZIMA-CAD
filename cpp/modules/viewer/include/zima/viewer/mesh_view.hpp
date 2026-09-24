@@ -135,7 +135,8 @@ public:
     [[nodiscard]] std::function<bool(const ViewerCandidate&)> candidate_filter() const;
     [[nodiscard]] bool advances_selection_on_hover() const;
     void set_active_sketch_owner(std::string owner_id);
-    void set_geometry_editing_presentation(bool editing);
+    void set_geometry_editing_presentation(bool editing,
+        const std::string& curve_owner = {}, const std::string& instance_path = {});
     void set_candidate_filter(
         std::function<bool(const ViewerCandidate&)> candidate_filter,
         bool advance_on_hover = true);

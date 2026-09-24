@@ -17,9 +17,11 @@
 #include <QPushButton>
 #include <QShowEvent>
 #include <QStyle>
+#include <QStyleOptionSpinBox>
 #include <QResizeEvent>
 #include <QTimer>
 #include <QVBoxLayout>
+#include <QFormLayout>
 #include <QHBoxLayout>
 
 #include <algorithm>
@@ -70,10 +72,31 @@ int numeric_width(QDoubleSpinBox* spin) {
     if (spin->minimum()<0) zero+=spin->locale().negativeSign();
     zero+=spin->locale().toString(0.0,'f',spin->decimals())+spin->suffix();
     const auto margins=editor->textMargins();
-    const int chrome=std::max(0,spin->width()-editor->contentsRect().width())+
+    QStyleOptionSpinBox option;
+    option.initFrom(spin);
+    option.frame=spin->hasFrame();
+    option.buttonSymbols=spin->buttonSymbols();
+    option.stepEnabled=QAbstractSpinBox::StepUpEnabled|QAbstractSpinBox::StepDownEnabled;
+    auto usable=editor->contentsRect().translated(editor->pos());
+    // Some native styles place both step buttons beside the editor. The line
+    // edit's geometry alone is not a guarantee of unobstructed text space.
+    const auto exclude=[&](const QRect& control) {
+        if(!usable.intersects(control))return;
+        if(control.center().x()>=usable.center().x())usable.setRight(control.left()-1);
+        else usable.setLeft(control.right()+1);
+    };
+    if(spin->buttonSymbols()!=QAbstractSpinBox::NoButtons) {
+        exclude(spin->style()->subControlRect(QStyle::CC_SpinBox,&option,QStyle::SC_SpinBoxUp,spin));
+        exclude(spin->style()->subControlRect(QStyle::CC_SpinBox,&option,QStyle::SC_SpinBoxDown,spin));
+    }
+    if(auto* lock=spin->findChild<QWidget*>("numericValueLockButton"))exclude(lock->geometry());
+    const int chrome=std::max(0,spin->width()-std::max(0,usable.width()))+
         margins.left()+margins.right()+6;
-    return static_cast<int>(std::ceil(std::max(metrics.horizontalAdvance(spin->text()),
-        metrics.horizontalAdvance(zero))))+chrome;
+    const int text_width=static_cast<int>(std::ceil(std::max(metrics.horizontalAdvance(spin->text()),
+        metrics.horizontalAdvance(zero))));
+    const auto native_size=spin->style()->sizeFromContents(QStyle::CT_SpinBox,&option,
+        QSize(text_width+margins.left()+margins.right()+6,editor->fontMetrics().height()),spin);
+    return std::max(text_width+chrome,native_size.width());
 }
 
 void fit_numeric_field(QDoubleSpinBox* spin) {
@@ -247,7 +270,7 @@ PropertiesSubWindow::PropertiesSubWindow(const QString& title, QWidget* parent)
     close->setToolTip(tr("Zrušit"));
     close->setStyleSheet(
         "QPushButton { border:none; border-radius:4px; font-weight:700; }"
-        "QPushButton:hover { background:#b83232; color:white; }");
+        "QPushButton:hover { background:#4DD811; color:#102027; }");
     connect(close, &QPushButton::clicked, this, &QDialog::reject);
     title_layout->addWidget(close);
     title_layout->setAlignment(close, Qt::AlignVCenter);
@@ -255,7 +278,7 @@ PropertiesSubWindow::PropertiesSubWindow(const QString& title, QWidget* parent)
 
     content_layout_ = new QVBoxLayout;
     content_layout_->setSpacing(8);
-    outer->addLayout(content_layout_);
+    outer->addLayout(content_layout_,1);
     submit_error_ = new QLabel(this);
     submit_error_->setObjectName("propertiesSubmitError");
     submit_error_->setWordWrap(true);
@@ -310,6 +333,13 @@ void PropertiesSubWindow::set_initial_size(const QSize& size) {
 }
 
 void PropertiesSubWindow::showEvent(QShowEvent* event) {
+    // All properties forms keep their natural row spacing. Surplus height
+    // belongs below the content, never between reference/numeric rows.
+    if(!content_bottom_space_installed_) {
+        content_layout_->addStretch(property("expandBottomTable").toBool()?0:1);
+        content_bottom_space_installed_=true;
+    }
+    for(auto* form:findChildren<QFormLayout*>())form->setFormAlignment(Qt::AlignTop);
     QDialog::showEvent(event);
     if (initial_size_.isValid()) {
         QSize target = initial_size_.expandedTo(minimumSizeHint());

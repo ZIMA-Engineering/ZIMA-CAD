@@ -15,7 +15,10 @@ inline int sketch_point_pick_priority(const viewer::ViewerCandidate& candidate) 
 }
 inline int sketch_placement_pick_priority(const viewer::ViewerCandidate& candidate) {
     if (candidate.semantic_key.starts_with("sketch_intersection:")) return -1;
-    if (candidate.semantic_key.starts_with("sketch_midpoint:")) return 2;
-    return sketch_point_pick_priority(candidate);
+    if (candidate.semantic_key.starts_with("sketch_midpoint:")) return 1;
+    // A native segment must not hide its own midpoint. External contact C/CC
+    // retains precedence; away from the midpoint the segment remains available.
+    if (candidate.kind == viewer::CandidateKind::SketchExternalReference) return 0;
+    return sketch_point_pick_priority(candidate)==0 ? 0 : 2;
 }
 } // namespace zima::app

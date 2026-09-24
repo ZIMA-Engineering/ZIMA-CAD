@@ -48,12 +48,11 @@ GlobalSettingsDialog::GlobalSettingsDialog(
     language_->setCurrentText(settings_.language);
     form->addRow(settings_.text("global.language", tr("Jazyk aplikace")), language_);
 
-    application_font_ = new QComboBox(this);
+    application_font_ = new QCheckBox(tr("Používat ISO font pro GUI"), this);
     application_font_->setObjectName("globalApplicationFont");
-    application_font_->addItem(tr("ISO technický font"), true);
-    application_font_->addItem(tr("Systémový font"), false);
-    application_font_->setCurrentIndex(settings_.use_iso_application_font ? 0 : 1);
-    form->addRow(tr("Font celé aplikace"), application_font_);
+    application_font_->setChecked(settings_.use_iso_application_font);
+    application_font_->setToolTip(tr("Výkresy, skici a View vždy používají ISO font."));
+    form->addRow(application_font_);
     tolerance_layout_ = new QComboBox(this);
     tolerance_layout_->setObjectName("globalToleranceLayout");
     tolerance_layout_->addItem(tr("V řádku"), false);
@@ -214,7 +213,7 @@ bool GlobalSettingsDialog::submit() {
     settings_.drawing_dxf_directory=drawing_dxf_directory_->text().trimmed();
     settings_.language = language_->currentText();
     settings_.use_iso_application_font =
-        application_font_->currentData().toBool();
+        application_font_->isChecked();
     for (auto it = unit_fields_.cbegin(); it != unit_fields_.cend(); ++it) {
         settings_.units[it.key()] = it.value()->currentText();
     }

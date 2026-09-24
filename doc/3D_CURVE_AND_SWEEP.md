@@ -3,6 +3,19 @@
 A 3D Curve retains original construction points with persistent IDs. Table numbers
 are path positions, not reference identities.
 
+The point/direction table uses the shared reference-cell presentation, with a
+leading arrow or remove control and independent inspection eyes beside Point
+and Direction Axis. Inspection highlights only the selected point or local axis
+without arming input. Clicking a Point opens its existing properties editor;
+Direction Axis chooses X, Y or Z of that point directly. Whole-row selection is not
+used to indicate input ownership. Point order, direction toggles, axis choice, Reverse
+and radius editing retain their existing meaning. The profile table uses the
+same leading controls while retaining Sketch and point-order actions; it does
+not treat an inherited profile status as an editable geometry reference.
+Removing a path point removes its row and its attached profiles. Removing an
+explicit profile keeps the path station and restores the existing inheritance
+rules. Tooltips distinguish these actions; no new deletion capability is added.
+
 For a polyline, **Round corners** enables the **R [mm]** column. When disabled,
 the column shows non-editable zeroes without changing saved values. Open-path
 endpoints have no rounding. Radius 0 retains a sharp corner. A positive radius
@@ -212,3 +225,86 @@ Regenerate calculates. Cancel discards the complete pending feature.
 Regression suites: `zima_cpp_sweep2d_contract_tests`, shared 3D/Helical and UI tests.
 In-application integration check: `ZIMA_VERIFY_SWEEP2D_ONLY=1` with
 `zima-cad-cpp --verify-startup`.
+
+## Curve point table interaction
+
+An independent checkbox before the remove/arrow column selects one point for ordering.
+The bottom Up/Down buttons move that stable point by one position and disable at
+list bounds. Editing and reference inspection do not change this selection.
+Click Point once to open its editor; the redundant Edit button is removed.
+A direction checkbox enables the X/Y/Z dropdown in Direction Axis, its inspection eye and
+Reverse controls. These actions preserve the stored tangent when disabled.
+Reverse is a checkbox; the separate Cycle axis column is no longer displayed. Headers and tooltips are localized in all five languages.
+Radius uses document decimal precision. Numeric sizing subtracts actual native step-button and lock geometry from the available editor rectangle, including horizontally arranged Windows arrows, and respects the native style content size and editor clip.
+The bottom table consumes additional window height while upper fields remain fixed
+(Points in Curve Properties, profiles in 3D Sweep Properties).
+Explicit axis inspection also paints the exact axis when ordinary axes are hidden;
+it does not expose other Origins or change the tangent.
+
+## Whole-Origin placement performance (2026-09-24)
+
+Whole-Origin entry retains the existing sequential XZ/XY/YZ reference validation,
+side/offset handling and placement solving. Only tree/mesh publication is deferred
+until the complete click has been processed. A single reference assignment publishes
+its preview after both the reference and definition mode are updated; the redundant
+second scene refresh after acceptance is removed. No topology or file format changes.
+
+On the local Windows Release build, selecting the active Body Origin in new Curve
+Properties over `Projects/STEP-IMPORT.prtz` took 3482.34 / 3394.41 / 3128.44 ms
+before and 991.291 / 989.113 / 911.958 ms after the change. Each measurement includes
+synchronous tree selection and event processing, excluding file loading and dialog
+opening. The mean fell from 3335.06 to 964.12 ms (3.46 times faster, 71.1% less time).
+Scene/tree resets fell from seven to one. Timings are local observations, not a
+cross-machine performance guarantee; reference solving remains synchronous.
+
+`zima_cpp_whole_origin_ui_contract` verifies the shared path using a synthetic Part.
+For the imported fixture, run the normal `--verify-startup` console verification with
+`ZIMA_VERIFY_CONSOLE_ONLY=1` and `ZIMA_VERIFY_ORIGIN_PERF` set to its absolute path.
+It asserts one scene reset, original reference ownership, Cancel restoration,
+OK/reopen preservation of reference sides/offsets and placement, and creation Undo.
+The benchmark never saves over the supplied document. This change introduces no
+user-visible text; localization coverage remains part of the verification.
+
+The New point cell uses green text on the ordinary background. Hovering any
+enabled reference-entry cell gives only that cell a light-green fill and dark
+text. Leaving restores its ordinary or inspected background. Disabled entries
+do not react. The green input-ownership outline keeps its
+existing meaning. Curve Properties initially requests 900 px height (bounded by the
+main window), with the extra space assigned to the point table. No labels or
+interaction rules change.
+
+Visible 3D Curves always display their entered points without numbers or child Origin frames, matching Sketch presentation. Selecting the Curve in the View or Tree highlights those points; clearing selection restores their ordinary colour. Point references retain the child Point Origin identity, while ordinary selection chooses the owning Curve. This presentation is rebuilt from persisted construction data and requires no kernel calculation. Numbered points remain part of Properties editing. No localized UI text is introduced by this change.
+
+The white editing stroke is restricted to the edited Curve owner and occurrence path. Other Curves retain their normal appearance while any feature or Sketch dialog is open. UI regression checks cover ordinary Curve picking and editing a different Curve or occurrence.
+
+The STEP-IMPORT GUI regression also checks 85 visible Curve samples, real LMB confirmation, RMB cycling of overlapping Curves, and selection after cancelling Properties. Ordinary Body filtering includes owned Sketch identities: original-reference Sketches from a hidden or inactive Body must not steal hover from visible Curves. Ownership is resolved once per scene refresh, not on mouse movement. The source document is opened without saving.
+
+Nested Point Properties binds reference labels after switching the active dialog
+and preparing the child's reference geometry. Binding before that initialization
+incorrectly showed stored references as blank red missing-reference fields,
+although their persisted identities were intact. The fix changes only the nested
+editor's initialization order; placement solving and serialization are unchanged.
+To verify all stored Curve points in a supplied document, add
+`ZIMA_VERIFY_CURVE_POINTS=1` to the `ZIMA_VERIFY_CURVE_SELECTION` console GUI
+verification. It checks populated position/orientation labels and reference
+identity across Point OK, reopening and Cancel, then cancels the parent Curve.
+The supplied document is never saved. No user-visible strings were changed.
+
+### Sweep selection and attachment endpoints (2026-09-24)
+
+Selecting a 2D, 3D or Helical Sweep highlights its persisted centerline as well
+as its profiles. The selected centerline remains visible when ordinary axes
+are hidden, and highlighting is limited to the exact feature occurrence.
+
+Explicit body calculation also publishes the start and end of the sweep path
+as visible, selectable points in the original reference geometry. Their keys
+combine the feature owner, endpoint role and authored source-curve identity;
+they never depend on kernel enumeration or tessellation sample indices.
+These points support the existing container placement contract without changing
+its solver. They follow the placed path and survive native save/reopen.
+Changing dimensions preserves their identity while the source curve remains.
+Replacing that source curve intentionally does not redirect an old reference.
+
+Previously calculated models require explicit **Regenerate** to acquire the new
+points. Selection, display and opening a document do not perform a kernel
+calculation. The native packet schema and localization strings are unchanged.

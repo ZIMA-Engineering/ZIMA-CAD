@@ -256,7 +256,6 @@ private:
     QAction* show_surfaces_action_{};
     QAction* show_sketches_action_{};
     QAction* show_dimensions_action_{};
-    QMenu* colors_menu_{};
     QAction* custom_body_color_action_{};
     QActionGroup* display_mode_group_{};
     QActionGroup* camera_projection_group_{};
@@ -444,6 +443,7 @@ private:
     std::string construction_dimension_object_id_;
     std::pair<std::string,std::string> opening_component_edit_;
     bool refreshing_scene_{};
+    bool defer_reference_scene_refresh_{};
     std::optional<zima::document::HistoryContainer>
         parameter_dimension_preview_;
     std::optional<zima::document::ConstructionObject>

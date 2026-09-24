@@ -233,8 +233,7 @@ private:
     QDoubleSpinBox* thread_profile_diameter_{};
     QDoubleSpinBox* thread_runout_factor_{};
     QDoubleSpinBox* drill_point_angle_{};
-    QListWidget* drill_point_face_list_{};
-    QPushButton* remove_drill_point_face_button_{};
+    QTableWidget* drill_point_face_list_{};
     std::vector<zima::kernel::FaceReference> drill_point_faces_;
     std::function<void(std::size_t)> remove_drill_point_face_;
     std::function<void()> request_drill_point_face_selection_;
@@ -294,14 +293,12 @@ private:
     QPushButton* treatment_flip_{};
     QPushButton* treatment_reverse_{};
     QTreeWidget* edge_list_{};
-    QPushButton* remove_edge_button_{};
     QPushButton* restore_route_button_{};
     std::vector<EdgeGroup> edge_groups_;
     std::function<void(std::size_t, std::optional<std::size_t>)> remove_edge_;
     std::function<void(std::size_t)> restore_route_;
     QDoubleSpinBox* shell_thickness_{};
-    QListWidget* shell_face_list_{};
-    QPushButton* remove_shell_face_button_{};
+    QTableWidget* shell_face_list_{};
     std::vector<zima::kernel::FaceReference> shell_faces_;
     std::function<void(std::size_t)> remove_shell_face_;
     std::function<void()> request_shell_face_selection_;

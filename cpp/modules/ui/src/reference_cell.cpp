@@ -10,6 +10,8 @@
 #include <QTableWidget>
 #include <QToolButton>
 #include <QWidget>
+#include <QMouseEvent>
+#include <QPersistentModelIndex>
 
 namespace zima::ui {
 
@@ -19,10 +21,29 @@ constexpr int missing_reference_role = Qt::UserRole + 134;
 constexpr int active_input_role = Qt::UserRole + 131;
 constexpr int inspected_role = Qt::UserRole + 132;
 constexpr int populated_reference_role = Qt::UserRole + 133;
+constexpr int reference_entry_role = Qt::UserRole + 135;
 
 class ReferenceCellDelegate final : public QStyledItemDelegate {
 public:
-    using QStyledItemDelegate::QStyledItemDelegate;
+    explicit ReferenceCellDelegate(QTableWidget* table)
+        : QStyledItemDelegate(table), table_(table) {
+        table_->setMouseTracking(true);
+        table_->viewport()->setMouseTracking(true);
+        table_->viewport()->installEventFilter(this);
+    }
+
+    bool eventFilter(QObject* object, QEvent* event) override {
+        if (object == table_->viewport() &&
+            (event->type() == QEvent::MouseMove || event->type() == QEvent::Leave)) {
+            const QModelIndex next = event->type() == QEvent::Leave ? QModelIndex{} :
+                table_->indexAt(static_cast<QMouseEvent*>(event)->position().toPoint());
+            if (hovered_ != next) {
+                hovered_ = next;
+                table_->viewport()->update();
+            }
+        }
+        return QStyledItemDelegate::eventFilter(object, event);
+    }
 
     void paint(QPainter* painter, const QStyleOptionViewItem& option,
                const QModelIndex& index) const override {
@@ -30,7 +51,7 @@ public:
         initStyleOption(&clean, index);
         // Reference state is explicit. Native table selection/focus must not
         // colour this or any neighbouring parameter cell.
-        clean.state &= ~(QStyle::State_Selected | QStyle::State_HasFocus);
+        clean.state &= ~(QStyle::State_Selected | QStyle::State_HasFocus | QStyle::State_MouseOver);
         const bool inspected = index.data(inspected_role).toBool();
         const bool active = index.data(active_input_role).toBool();
         const bool populated = index.data(populated_reference_role).toBool();
@@ -52,22 +73,32 @@ public:
             text_color = foreground.style() == Qt::NoBrush
                 ? QColor(QStringLiteral("#8d969f")) : foreground.color();
         }
+        if (index == hovered_ && index.data(reference_entry_role).toBool() &&
+            table_->isEnabled() && (index.flags() & Qt::ItemIsEnabled)) {
+            clean.backgroundBrush = QColor("#4dd811");
+            text_color = QColor("#102027");
+        }
         for (const auto group : {QPalette::Active, QPalette::Inactive,
                                  QPalette::Disabled}) {
             clean.palette.setColor(group, QPalette::Text, text_color);
             clean.palette.setColor(group, QPalette::HighlightedText, text_color);
             clean.palette.setColor(group, QPalette::WindowText, text_color);
         }
-        QStyledItemDelegate::paint(painter, clean, index);
+        // Paint the fully prepared option once; the base delegate would
+        // initialize it again and overwrite transient hover colours.
+        table_->style()->drawControl(QStyle::CE_ItemViewItem, &clean, painter, table_);
         if (!active) return;
         painter->save();
-        QPen pen(QColor(QStringLiteral("#42d66b")), 2.0);
+        QPen pen(QColor(QStringLiteral("#4dd811")), 2.0);
         pen.setJoinStyle(Qt::MiterJoin);
         painter->setPen(pen);
         painter->setBrush(Qt::NoBrush);
         painter->drawRect(option.rect.adjusted(1, 1, -2, -2));
         painter->restore();
     }
+private:
+    QTableWidget* table_;
+    QPersistentModelIndex hovered_;
 };
 
 }  // namespace
@@ -81,6 +112,21 @@ QWidget* centered_cell_widget(QWidget* inner) {
     return container;
 }
 
+QIcon reference_arrow_icon(Qt::ArrowType direction) {
+    QPixmap image(40,40);
+    image.setDevicePixelRatio(2);
+    image.fill(Qt::transparent);
+    QPainter painter(&image);
+    painter.setRenderHint(QPainter::TextAntialiasing);
+    painter.translate(10,10);
+    painter.rotate(direction==Qt::UpArrow?-90:direction==Qt::DownArrow?90:direction==Qt::LeftArrow?180:0);
+    QFont font; font.setPixelSize(16);font.setWeight(QFont::Bold);
+    painter.setFont(font);painter.setPen(QColor("#4dd811"));
+    painter.drawText(QRect(-10,-10,20,20),Qt::AlignCenter,QStringLiteral("\u2192"));
+    painter.end();
+    return QIcon(image);
+}
+
 QWidget* build_reference_row_indicator(std::function<void()> remove_callback) {
     auto* container = new QWidget();
     auto* layout = new QStackedLayout(container);
@@ -92,7 +138,7 @@ QWidget* build_reference_row_indicator(std::function<void()> remove_callback) {
     arrow_label->setAlignment(Qt::AlignCenter);
     arrow_label->setToolTip(QObject::tr("Zadejte referenci"));
     arrow_label->setStyleSheet(
-        "QLabel{color:#3fbf3f;font-size:16px;font-weight:700}");
+        "QLabel{color:#4dd811;font-size:16px;font-weight:700}");
     arrow_label->setFixedSize(30, 30);
 
     auto* remove_button = new QPushButton(QStringLiteral("\u00d7"), container);
@@ -102,7 +148,7 @@ QWidget* build_reference_row_indicator(std::function<void()> remove_callback) {
         "QPushButton{color:#ffffff;background:#8b2424;"
         "border:1px solid #b94a4a;border-radius:4px;"
         "font-size:16px;font-weight:700;padding:0}"
-        "QPushButton:hover{background:#b83232;border-color:#ed7777}"
+        "QPushButton:hover{background:#4DD811;color:#102027;border-color:#4DD811}"
         "QPushButton:pressed{background:#6f1d1d}");
     if (remove_callback) {
         QObject::connect(remove_button, &QPushButton::clicked, container,
@@ -146,9 +192,9 @@ QWidget* build_reference_row_flip_button(
         "QToolButton{color:#dddddd;background:#2f3339;"
         "border:1px solid #4a4f57;border-radius:4px;"
         "font-size:14px;font-weight:700;padding:0}"
-        "QToolButton:hover{background:#3c414a;border-color:#6a7078}"
+        "QToolButton:hover:enabled{background:#4DD811;color:#102027;border-color:#4DD811}"
         "QToolButton:checked{color:#102027;background:#00d1ff;"
-        "border-color:#00a9d1}"
+        "border-color:#00D1FF}"
         "QToolButton:disabled{color:#666666;background:#26282c;"
         "border-color:#35383e}");
     if (toggled_callback) {
@@ -181,9 +227,9 @@ QToolButton* build_reference_inspection_button(
         "QToolButton{color:#dddddd;background:#2f3339;"
         "border:1px solid #4a4f57;border-radius:4px;"
         "font-size:14px;padding:0}"
-        "QToolButton:hover{background:#3c414a;border-color:#6a7078}"
+        "QToolButton:hover:enabled{background:#4DD811;color:#102027;border-color:#4DD811}"
         "QToolButton:checked{color:#102027;background:#00d1ff;"
-        "border-color:#00a9d1}"
+        "border-color:#00D1FF}"
         "QToolButton:disabled{color:#666666;background:#26282c;"
         "border-color:#35383e}");
     if (toggled_callback) {
@@ -196,7 +242,7 @@ QToolButton* build_reference_inspection_button(
 }
 
 ReferenceCellItem::ReferenceCellItem(const QString& text)
-    : QTableWidgetItem(text) {}
+    : QTableWidgetItem(text) { setData(reference_entry_role, true); }
 
 void ReferenceCellItem::set_reference(const QString& value) {
     reference_ = value;

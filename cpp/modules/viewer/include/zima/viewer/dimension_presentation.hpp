@@ -2,6 +2,7 @@
 #include <QLineF>
 #include <QPointF>
 #include <QPolygonF>
+#include <QRectF>
 #include <QTransform>
 #include <zima/kernel/dimension_layout.hpp>
 namespace zima::viewer {
@@ -34,7 +35,8 @@ inline std::optional<QPointF> dimension_plane_drag(QPointF move,QPointF along,QP
 }
 template <class Project>
 DimensionPresentation dimension_presentation(const kernel::ViewerDimension &d, Project project,
-                                             double text_width, double arrow = 10, double gap = 3, bool angular_leaders = false) {
+                                             double text_width, double arrow = 10, double gap = 3, bool angular_leaders = false,
+                                             const QRectF& text_bounds = {}) {
     DimensionPresentation out;
     auto a = project(d.line_first), b = project(d.line_second);
     const auto w1 = project(d.witness_first), w2 = project(d.witness_second);
@@ -194,8 +196,19 @@ DimensionPresentation dimension_presentation(const kernel::ViewerDimension &d, P
             const auto outward = collapsed_measure?along*(along.x()*side<0?-1.:1.):dimension_screen_unit(
                 attachment == a ? a - line[1] : b - line[line.size() - 2]);
             const auto half_label = QPointF(side * text_width / 2, 0);
+            double minimum_extension = arrow * 1.7;
+            if (!text_bounds.isNull()) {
+                // The opaque label can reach backwards from a near-vertical
+                // elbow. Keep its entire mask beyond the arrow/tail, using the
+                // same font bounds as painting and picking (including tolerances).
+                const auto bounds = text_bounds.translated(side < 0 ? -text_width : 0, -gap);
+                double backwards = 0;
+                for (const auto corner : {bounds.topLeft(), bounds.topRight(), bounds.bottomLeft(), bounds.bottomRight()})
+                    backwards = std::max(backwards, -dimension_screen_dot(corner, outward));
+                minimum_extension += backwards;
+            }
             const double extension = std::max(
-                arrow * 1.7, dimension_screen_dot(requested - half_label - attachment, outward));
+                minimum_extension, dimension_screen_dot(requested - half_label - attachment, outward));
             center = attachment + outward * extension + half_label;
         } else {
             const double side = shift < 0 ? -1 : 1;

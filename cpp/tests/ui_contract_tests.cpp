@@ -32,6 +32,8 @@
 #include <zima/workspace/history_policy.hpp>
 #include <zima/document/sketch_placement.hpp>
 #include "resource_icon.hpp"
+#include "command_button_paint.hpp"
+#include "tool_button_style.hpp"
 
 #include <zima/viewer/mesh_view.hpp>
 #include <zima/ui/reference_cell.hpp>
@@ -42,6 +44,7 @@
 #include <QAbstractItemView>
 #include <QDialogButtonBox>
 #include <QDoubleSpinBox>
+#include <QStyleOptionSpinBox>
 #include <QComboBox>
 #include <QCheckBox>
 #include <QFileDialog>
@@ -129,6 +132,19 @@ int verify_numeric_fields(QApplication& application, QWidget& parent) {
                     const auto margins=text->textMargins();
                     const double available=text->contentsRect().width()-margins.left()-margins.right()-4;
                     const double needed=QFontMetricsF(text->font()).horizontalAdvance(text->text());
+                    QStyleOptionSpinBox option;
+                    option.initFrom(field);option.frame=field->hasFrame();option.buttonSymbols=field->buttonSymbols();
+                    option.stepEnabled=QAbstractSpinBox::StepUpEnabled|QAbstractSpinBox::StepDownEnabled;
+                    const QRectF painted_text(text->x()+margins.left()+2,text->y(),needed,text->height());
+                    const auto native_edit=field->style()->subControlRect(QStyle::CC_SpinBox,&option,QStyle::SC_SpinBoxEditField,field);
+                    require(painted_text.left()>=native_edit.left() && painted_text.right()<=native_edit.right()+1,
+                        "Numeric text exceeds the native style editor clip");
+                    if(field->buttonSymbols()!=QAbstractSpinBox::NoButtons)
+                        for(auto control:{QStyle::SC_SpinBoxUp,QStyle::SC_SpinBoxDown})
+                            require(!painted_text.intersects(field->style()->subControlRect(QStyle::CC_SpinBox,&option,control,field)),
+                                "Numeric text overlaps a native step button");
+                    if(auto* lock=field->findChild<QWidget*>("numericValueLockButton"))
+                        require(!painted_text.intersects(lock->geometry()),"Numeric text overlaps its lock button");
                     if(needed>available+0.01) {
                         std::cerr<<name<<" "<<places<<" "<<field->objectName().toStdString()<<" text="<<text->text().toStdString()
                             <<" needs="<<needed<<" available="<<available<<'\n';
@@ -152,7 +168,7 @@ int verify_numeric_fields(QApplication& application, QWidget& parent) {
             // The sizing must follow current digits, not just an all-zero initial value.
             for(auto* field:fields) if(field->isVisible()) {
                 const QSignalBlocker blocker(field);
-                field->setValue(std::clamp(-123456.123456,field->minimum(),field->maximum()));
+                field->setValue(std::clamp(field->minimum()<0?-123456.123456:123456.123456,field->minimum(),field->maximum()));
             }
             flush(); fits();
             if(places==4 || places==9) {
@@ -167,6 +183,16 @@ int verify_numeric_fields(QApplication& application, QWidget& parent) {
         check(new zima::app::HelicalSweepDialog(zima::document::PartDocument::create_helical_sweep_container(),[](auto){},&parent),"helix");
         check(new zima::app::ConstructionPropertiesDialog(zima::document::PartDocument::create_construction(
             zima::document::ConstructionKind::Point),false,[](auto){},&parent,places),"point");
+        auto curve=zima::document::PartDocument::create_construction(zima::document::ConstructionKind::Curve3D);
+        curve.curve_type=zima::document::Curve3DType::Polyline;
+        curve.curve_rounding_enabled=true;
+        for(int i=0;i<3;++i) {
+            auto point=zima::document::PartDocument::create_construction(zima::document::ConstructionKind::Point);
+            point.origin={double(i)*20,0,double(i%2)*10};point.curve_radius=1.23456789;
+            curve.curve_points.push_back(point);
+        }
+        auto* curve_dialog=new zima::app::ConstructionPropertiesDialog(curve,false,[](auto){},&parent,places);
+        check(curve_dialog,"curve-radius");
         zima::assembly::PartOccurrence occurrence;
         occurrence.occurrence_id="numeric-field-component";occurrence.name="Numeric field component";
         check(new zima::app::ComponentPropertiesDialog(occurrence,[](auto){},&parent),"assembly");
@@ -290,12 +316,12 @@ int verify_sketch_line_styles(QApplication& application, QWidget& parent) {
                 std::abs(actual.blue() - expected.blue()) < 35;
         };
         for (const auto& [frame, color] : std::array{
-                std::pair{hover, QColor(255, 122, 0)},
+                std::pair{hover, QColor("#4DD811")},
                 std::pair{selected, QColor(0, 209, 255)}}) {
             int original = 0, highlighted = 0, common = 0;
             for (int y = 10; y < idle.height() - 10; ++y)
                 for (int x = 10; x < idle.width() - 10; ++x) {
-                    const bool a = colored(idle.pixelColor(x, y), QColor(77, 216, 17));
+                    const bool a = colored(idle.pixelColor(x, y), QColor("#FF8C00"));
                     const bool b = colored(frame.pixelColor(x, y), color);
                     original += a; highlighted += b; common += a && b;
                 }
@@ -566,7 +592,7 @@ void verify_point_marker_colours(QApplication& application,QWidget& parent) {
         view.confirm_reference(references[i].owner_id,references[i].semantic_key,
             references[i].instance_path,viewer::CandidateKind::Vertex);
         application.processEvents();
-        require(framebuffer_contains_color_near(view.grabFramebuffer(),view.size(),{250,180},QColor(30,220,240),8),
+        require(framebuffer_contains_color_near(view.grabFramebuffer(),view.size(),{250,180},QColor("#00D1FF"),8),
             "Point base colour replaced confirmed cyan highlighting");
     }
     kernel::ViewerMesh solid;
@@ -576,7 +602,7 @@ void verify_point_marker_colours(QApplication& application,QWidget& parent) {
         for(auto& edge:mesh.edges)edge.display_owner_id="sketch-container";
         view.set_mesh(mesh);view.set_active_sketch_owner({});view.set_selection_contract({viewer::CandidateKind::Container});
         view.confirm_container("sketch-container");application.processEvents();
-        require(framebuffer_contains_color_near(view.grabFramebuffer(),view.size(),{250,180},QColor(30,220,240),4),
+        require(framebuffer_contains_color_near(view.grabFramebuffer(),view.size(),{250,180},QColor("#00D1FF"),4),
             "Selecting the Sketch container omitted its owned circle-center point");
     }
     solid.vertices={{-10,-10,-10},{10,-10,-10},{10,10,-10},{-10,10,-10},
@@ -649,16 +675,81 @@ int verify_stable_placement_rows() {
     return 0;
 }
 
+#include "interaction_color_verification.inc"
+
 int main(int argc, char* argv[]) {
     QApplication application(argc, argv);
+    zima::app::install_dialog_button_icons();
     QWidget parent;
     parent.resize(900, 650);
     parent.show();
     const auto initial = zima::document::PartDocument::create_box_container();
 
     try {
+        {
+            QToolButton command(&parent);
+            command.setGeometry(20,20,180,40);
+            command.setText("Command");
+            command.setStyleSheet(zima::app::command_button_style());
+            new zima::app::LeftAlignedCommandLabel(&command);
+            command.show();parent.raise();parent.activateWindow();
+            const auto previous_cursor=QCursor::pos();
+            QCursor::setPos(command.mapToGlobal(command.rect().center()));
+            application.processEvents();
+            command.setAttribute(Qt::WA_UnderMouse,true);
+            const auto hovered=command.grab().toImage();
+            require(framebuffer_contains_color_near(hovered,command.size(),{160,20},QColor("#4dd811"),3),
+                "Command hover did not use the shared green");
+            QCursor::setPos(parent.mapToGlobal(QPoint(400,200)));
+            application.processEvents();
+            command.setAttribute(Qt::WA_UnderMouse,true); // Simulate a lost Leave after a command.
+            const auto stale=command.grab().toImage();
+            require(!framebuffer_contains_color_near(stale,command.size(),{160,20},QColor("#4dd811"),3),
+                "Command retained a stale green hover after the cursor left");
+            // A command can replace the toolbar/open Properties while Qt is
+            // dispatching mouse release. Recover even if Leave/release never
+            // reaches that button; repaint alone must not be the recovery trigger.
+            QCursor::setPos(command.mapToGlobal(command.rect().center()));
+            application.processEvents();
+            static_cast<void>(command.grab());
+            QCursor::setPos(parent.mapToGlobal(QPoint(400,200)));
+            application.processEvents();
+            command.setAttribute(Qt::WA_UnderMouse,true);
+            command.setDown(true);
+            const QPointF outside(400,200);
+            QMouseEvent movement(QEvent::MouseMove,outside,outside,parent.mapToGlobal(outside.toPoint()),
+                Qt::NoButton,Qt::NoButton,Qt::NoModifier);
+            QApplication::sendEvent(&parent,&movement);
+            require(!command.testAttribute(Qt::WA_UnderMouse) && !command.isDown(),
+                "Command retained hover/press state after a missed Leave/release and movement into View");
+            command.setCheckable(true);command.setChecked(true);
+            const auto active=command.grab().toImage();
+            require(framebuffer_contains_color_near(active,command.size(),{160,20},QColor("#00D1FF"),3),
+                "Active command background is not azure");
+            QCursor::setPos(command.mapToGlobal(command.rect().center()));application.processEvents();
+            command.setAttribute(Qt::WA_UnderMouse,true);
+            require(framebuffer_contains_color_near(command.grab().toImage(),command.size(),{160,20},QColor("#4DD811"),3),
+                "Hover did not temporarily override active command azure");
+            QCursor::setPos(parent.mapToGlobal(QPoint(400,200)));application.processEvents();
+            command.setAttribute(Qt::WA_UnderMouse,false);
+            require(framebuffer_contains_color_near(command.grab().toImage(),command.size(),{160,20},QColor("#00D1FF"),3),
+                "Leaving active command did not restore azure");
+            command.setChecked(false);command.setCheckable(false);
+            int clicks=0;
+            QObject::connect(&command,&QToolButton::clicked,[&]{++clicks;});
+            QKeyEvent key_press(QEvent::KeyPress,Qt::Key_Space,Qt::NoModifier);
+            QKeyEvent key_release(QEvent::KeyRelease,Qt::Key_Space,Qt::NoModifier);
+            QApplication::sendEvent(&command,&key_press);
+            QApplication::sendEvent(&parent,&movement);
+            require(command.isDown(),"Hover cleanup cancelled a legitimate keyboard press");
+            QApplication::sendEvent(&command,&key_release);
+            require(clicks==1,"Hover cleanup changed keyboard command activation");
+            QCursor::setPos(previous_cursor);
+        }
         verify_point_marker_colours(application,parent);
         verify_stable_placement_rows();
+        verify_interaction_colors(application,parent);
+        if(qEnvironmentVariableIsSet("ZIMA_VERIFY_INTERACTION_COLORS_ONLY"))return 0;
         if(qEnvironmentVariableIsSet("ZIMA_VERIFY_STABLE_PLACEMENT_ROWS_ONLY")) return 0;
         if(qEnvironmentVariableIsSet("ZIMA_VERIFY_SHEET_ATTACHMENT_DIALOG_ONLY")) {verify_sheet_attachment_dialog(parent);verify_flat_attachment_dialog(parent);return 0;}
         if(qEnvironmentVariableIsSet("ZIMA_VERIFY_PART_DIALOG_LAYOUT_ONLY")) return verify_part_dialog_layout(application,parent);
@@ -740,6 +831,13 @@ int main(int argc, char* argv[]) {
                 std::abs(exit->points.front().z-22)<1e-8 && std::abs(exit->points.front().x-5)<1e-8,
                 "Preview omitted the nominal-radius circle at the runout end");
             auto* references=dialog->findChild<QTableWidget*>("shaftThreadReferences");
+            require(references->columnCount()==4 && !references->verticalHeader()->isHidden() &&
+                    references->horizontalHeader()->visualIndex(3)==0,
+                "Thread actions replaced row numbering instead of using a separate column");
+            references->cellClicked(0,1);dialog->set_reference(cylinder_ref,QStringLiteral("Cylinder"));
+            references->cellWidget(0,3)->findChild<QPushButton*>()->click();
+            require(references->rowCount()==4 && !dialog->reference(0) && dialog->active_reference()==0,
+                "Clearing a mandatory Thread reference deleted its fixed row");
             auto* chamfer=dialog->findChild<QCheckBox*>("shaftThreadChamfer");
             auto* runout=dialog->findChild<QCheckBox*>("shaftThreadRunout");
             auto* end=dialog->findChild<QComboBox*>("shaftThreadEnd");
@@ -1185,12 +1283,20 @@ int main(int argc, char* argv[]) {
                 "Fillet create/edit dialog does not use a Properties title");
         auto* fillet_routes = fillet_dialog->findChild<QTreeWidget*>(
             "edgeTreatmentEdges");
-        require(fillet_routes != nullptr && fillet_routes->columnCount() == 2 &&
-                    fillet_routes->topLevelItemCount() == 1 &&
+        require(fillet_routes != nullptr && fillet_routes->columnCount() == 4 &&
+                    fillet_routes->topLevelItemCount() == 2 &&
                     fillet_routes->topLevelItem(0)->childCount() == 3,
                 "One Fillet route was split into separate one-object routes");
         require(fillet_dialog->findChild<QLineEdit*>()->isHidden(),
                 "Fillet dialog retained the unrelated container-name editor");
+        std::optional<std::size_t> removed_member;std::size_t removed_group=99;
+        fillet_dialog->set_edge_group_callbacks([&](std::size_t group,std::optional<std::size_t> member){
+            removed_group=group;removed_member=member;
+        },[](std::size_t){});
+        fillet_dialog->findChild<QWidget*>("edgeMemberRemove0_1")->findChild<QPushButton*>()->click();
+        require(removed_group==0 && removed_member==1,"Fillet row removal addressed another edge");
+        fillet_dialog->findChild<QWidget*>("edgeRouteRemove0")->findChild<QPushButton*>()->click();
+        require(removed_group==0 && !removed_member,"Fillet route removal addressed one edge only");
         fillet_dialog->buttons()->button(QDialogButtonBox::Ok)->click();
         application.processEvents();
         require(committed_fillet.edge_treatment.flattened_edges() ==
@@ -1213,11 +1319,11 @@ int main(int argc, char* argv[]) {
         shell_dialog->show();
         application.processEvents();
         auto* shell_list =
-            shell_dialog->findChild<QListWidget*>("shellFaces");
+            shell_dialog->findChild<QTableWidget*>("shellFaces");
         auto* shell_thickness =
             shell_dialog->findChild<QDoubleSpinBox*>("shellThickness");
         auto* remove_shell =
-            shell_dialog->findChild<QPushButton*>("shellRemoveFace");
+            shell_list->cellWidget(1,0)->findChild<QPushButton*>();
         int shell_selection_requests = 0;
         shell_dialog->set_shell_face_callbacks(
             [&](std::size_t index) {
@@ -1228,23 +1334,22 @@ int main(int argc, char* argv[]) {
         shell_dialog->set_shell_face_selection_active(true);
         require(shell_dialog->windowTitle() ==
                     QStringLiteral("Vlastnosti Shellu") &&
-                    shell_list != nullptr && shell_list->count() == 2 &&
+                    shell_list != nullptr && shell_list->rowCount() == 3 &&
                     shell_thickness != nullptr &&
                     remove_shell != nullptr &&
                     shell_dialog->findChild<QLineEdit*>()->isHidden() &&
                     shell_dialog->findChild<QTableWidget*>(
                         "primitiveReferenceTable") == nullptr &&
-                    shell_list->styleSheet().contains(
-                        QStringLiteral("#80AA1A")),
+                    dynamic_cast<zima::ui::ReferenceCellItem*>(shell_list->item(2,1))->is_active_input(),
                 "Shell did not use the shared Properties presentation or "
                 "its dedicated face/thickness controls");
-        shell_list->setCurrentRow(1);
+        shell_list->setCurrentCell(1,1);
         remove_shell->click();
-        require(shell_list->count() == 1 &&
+        require(shell_list->rowCount() == 2 &&
                     shell_faces.size() == 1,
                 "Shell face list did not remove the selected entry");
         const auto item_position =
-            shell_list->visualItemRect(shell_list->item(0)).center();
+            shell_list->visualItemRect(shell_list->item(0,1)).center();
         QMouseEvent shell_list_click(
             QEvent::MouseButtonPress, item_position, item_position,
             shell_list->viewport()->mapToGlobal(item_position),
@@ -1616,7 +1721,7 @@ int main(int argc, char* argv[]) {
                     treatment_candidate->owner_id == "fillet-container" &&
                     framebuffer_contains_color_near(shaded_treatment_frame,
                         shaded_treatment_view.size(), treatment_pointer,
-                        QColor(255, 122, 0)),
+                        QColor("#4DD811")),
                 "Plain Shaded mode did not show the exact orange persisted "
                 "Fillet/Chamfer boundary edge offered by the common picker");
         shaded_treatment_view.set_feature_hover_edge_indices({});
@@ -1724,7 +1829,21 @@ int main(int argc, char* argv[]) {
                 rounded_route_view.size(),QPointF(250,180),QColor(173,110,46)),
                 "3D rounding arc is absent from the rendered View");
         }
-        rounded_route_view.set_geometry_editing_presentation(true);
+        rounded_route_view.set_selection_contract({zima::viewer::CandidateKind::Container});
+        const auto curve_hits = rounded_route_view.selection_candidates_at({250,180});
+        require(!curve_hits.empty() && curve_hits.front().owner_id == "curve-container",
+            "Visible 3D Curve is absent from ordinary View hover");
+        rounded_route_view.set_geometry_editing_presentation(true, "other-curve");
+        application.processEvents();
+        require(framebuffer_contains_color_near(rounded_route_view.grabFramebuffer(),
+            rounded_route_view.size(),QPointF(250,180),QColor(173,110,46)),
+            "Editing another Curve recoloured this Curve white");
+        rounded_route_view.set_geometry_editing_presentation(true, "curve-container", "other-instance");
+        application.processEvents();
+        require(framebuffer_contains_color_near(rounded_route_view.grabFramebuffer(),
+            rounded_route_view.size(),QPointF(250,180),QColor(173,110,46)),
+            "Editing another occurrence recoloured this Curve white");
+        rounded_route_view.set_geometry_editing_presentation(true, "curve-container");
         application.processEvents();
         require(framebuffer_contains_color_near(rounded_route_view.grabFramebuffer(),
             rounded_route_view.size(),QPointF(250,180),QColor(255,255,255)),
@@ -1749,6 +1868,57 @@ int main(int argc, char* argv[]) {
                 "Solid centerline does not use the standard brown axis colour");
         }
         rounded_route_view.hide();
+        auto selected_points_mesh = rounded_route_mesh;
+        selected_points_mesh.edges.front().points = {{-1,1,0},{1,1,0}};
+        selected_points_mesh.points.push_back({{0,0,0},
+            {"curve-child:origin","point",{}}, {}, true});
+        selected_points_mesh.points.back().display_owner_id = "curve-container";
+        rounded_route_view.set_mesh(selected_points_mesh);
+        rounded_route_view.set_display_mode(zima::viewer::DisplayMode::Wire);
+        rounded_route_view.show();
+        application.processEvents();
+        const auto selected_dot_visible = [&] {
+            return framebuffer_contains_color_near(rounded_route_view.grabFramebuffer(),
+                rounded_route_view.size(),QPointF(250,180),QColor("#00D1FF"),3);
+        };
+        const auto idle_dot_visible = [&] {
+            return framebuffer_contains_color_near(rounded_route_view.grabFramebuffer(),
+                rounded_route_view.size(),QPointF(250,180),QColor(173,110,46),3);
+        };
+        require(idle_dot_visible(), "Unselected Curve hid its entered point");
+        rounded_route_view.confirm_container("curve-container");
+        application.processEvents();
+        require(selected_dot_visible(), "Selected Curve did not expose its entered point");
+        rounded_route_view.clear_selection();
+        application.processEvents();
+        require(idle_dot_visible() && !selected_dot_visible(),
+            "Deselected Curve did not restore its ordinary point presentation");
+        selected_points_mesh.points.front().reference.instance_path = "other-occurrence";
+        rounded_route_view.set_mesh(selected_points_mesh);
+        rounded_route_view.confirm_container("curve-container");
+        application.processEvents();
+        require(!selected_dot_visible(), "Curve selection exposed another occurrence's point");
+        rounded_route_view.hide();
+
+        {
+        zima::kernel::ViewerMesh inspected_axis_mesh;
+        inspected_axis_mesh.axes.push_back({{0,0,0},{1,0,0},100,{"curve-point:origin","origin:axis:x",{}}});
+        rounded_route_view.set_mesh(inspected_axis_mesh);
+        rounded_route_view.set_reference_visibility(zima::viewer::ReferenceVisibility::Origins,false);
+        rounded_route_view.set_reference_visibility(zima::viewer::ReferenceVisibility::Axes,false);
+        rounded_route_view.set_selection_contract({});
+        rounded_route_view.show();application.processEvents();
+        const auto uninspected_axis=rounded_route_view.grabFramebuffer();
+        rounded_route_view.set_constraint_reference_highlights({},{{"curve-point:origin","origin:axis:x",{}}});
+        application.processEvents();
+        require(rounded_route_view.grabFramebuffer()!=uninspected_axis,
+            "Inspection eye cannot display an axis with Origins and Axes hidden");
+        rounded_route_view.set_constraint_reference_highlights({},{});
+        application.processEvents();
+        require(rounded_route_view.grabFramebuffer()==uninspected_axis,
+            "Ending axis inspection changed ordinary visibility");
+        rounded_route_view.hide();
+        }
 
         {
         // Camera redraws reuse display data; replacing inputs must invalidate it.
@@ -1827,7 +1997,7 @@ int main(int argc, char* argv[]) {
         plane_inspection_view.confirm_origin("point-origin", "first");
         application.processEvents();
         require(framebuffer_contains_color_near(plane_inspection_view.grabFramebuffer(),
-            plane_inspection_view.size(), QPointF(250,180), QColor(30,220,240)),
+            plane_inspection_view.size(), QPointF(250,180), QColor("#00D1FF")),
             "Coincident plane erased the Tree-selected Origin frame");
         plane_inspection_view.set_candidate_filter([](const auto&) { return true; }, false);
         plane_inspection_view.confirm_origin("point-origin", "first");
@@ -2823,7 +2993,7 @@ int main(int argc, char* argv[]) {
                     "primitiveSubtractOperation") == nullptr,
             "Drill Point incorrectly exposes a selectable Boolean operation");
         drill_angle->setValue(120.0);
-        require(drill_point_dialog->findChild<QListWidget*>(
+        require(drill_point_dialog->findChild<QTableWidget*>(
                     "drillPointFaces") != nullptr &&
                 drill_point_dialog->findChild<QWidget*>(
                     "primitiveReferenceTable") == nullptr,
@@ -3290,6 +3460,32 @@ int main(int argc, char* argv[]) {
                     QPointF(235,18), QColor(QStringLiteral("#00d1ff")), 3),
                 "Inspected reference did not paint its azure background");
         box_reference_dialog->set_active_reference_index(std::nullopt);
+        {
+            active_box_reference->set_active_input(true);
+            const auto position = box_reference_table->visualItemRect(active_box_reference).center();
+            QMouseEvent move(QEvent::MouseMove, position,
+                box_reference_table->viewport()->mapToGlobal(position),
+                Qt::NoButton, Qt::NoButton, Qt::NoModifier);
+            QApplication::sendEvent(box_reference_table->viewport(), &move);
+            const auto hovered = paint_reference_cell(QStyle::State_Enabled);
+            require(framebuffer_contains_color_near(hovered,hovered.size(),
+                QPointF(235,18),QColor("#4dd811"),3),
+                "Reference entry hover did not turn the exact cell green");
+            box_reference_table->setEnabled(false);
+            require(paint_reference_cell(QStyle::State_Enabled) == inactive_reference_cell,
+                "Disabled reference retained hover feedback");
+            box_reference_table->setEnabled(true);
+            QEvent leave(QEvent::Leave);
+            QApplication::sendEvent(box_reference_table->viewport(), &leave);
+            // Restore active state for comparison with the original rendering.
+            active_box_reference->set_active_input(true);
+            require(paint_reference_cell(QStyle::State_Enabled) == inactive_reference_cell,
+                "Leaving reference entry failed to restore inspection and active states");
+            active_box_reference->set_active_input(false);
+            require(!box_reference_dialog->buttons()->button(QDialogButtonBox::Ok)->icon().isNull() &&
+                !box_reference_dialog->buttons()->button(QDialogButtonBox::Cancel)->icon().isNull(),
+                "Shared OK/Cancel icons are missing");
+        }
         box_reference_dialog->clear_reference_highlights();
         require(!active_box_reference->is_active_input() &&
                     !active_box_reference->is_inspected(),
@@ -3946,13 +4142,13 @@ int main(int argc, char* argv[]) {
         application.processEvents();
         auto* curve_table =
             curve_dialog->findChild<QTableWidget*>("curve3DPoints");
-        require(curve_table != nullptr && curve_table->columnCount() == 6 &&
+        require(curve_table != nullptr && curve_table->columnCount() == 10 &&
                     curve_table->rowCount() == 3 &&
                     curve_table->horizontalHeaderItem(0)->text() == "Bod" &&
                     curve_table->horizontalHeaderItem(1)->text() == "Osa směru" &&
                     curve_table->item(0, 0) != nullptr &&
                     curve_table->item(0, 1) != nullptr &&
-                    curve_table->item(0, 1)->text() == "+X",
+                    qobject_cast<QComboBox*>(curve_table->cellWidget(0,1))->currentText() == "X",
                 "3D Curve Properties does not expose the two reference-style "
                 "Point / Direction Axis columns");
         const auto curve_row_button = [curve_table](int column) {
@@ -3960,36 +4156,77 @@ int main(int argc, char* argv[]) {
             if (auto* button = qobject_cast<QToolButton*>(cell)) return button;
             return cell != nullptr ? cell->findChild<QToolButton*>() : nullptr;
         };
-        auto* cycle_curve_axis = curve_row_button(2);
-        auto* direction_enabled = curve_row_button(4);
+        auto* cycle_curve_axis = qobject_cast<QComboBox*>(curve_table->cellWidget(0,1));
+        auto* up=curve_dialog->findChild<QPushButton*>("curve3DMovePointUp");
+        auto* down=curve_dialog->findChild<QPushButton*>("curve3DMovePointDown");
+        require(!curve_dialog->findChild<QPushButton*>("curve3DEditPoint") &&
+            up && down && !up->isEnabled() && !down->isEnabled(),"Ordering must require explicit selection");
+        curve_table->cellWidget(0,9)->findChild<QCheckBox*>()->click();
+        require(!up->isEnabled()&&down->isEnabled(),"First selected point ordering bounds incorrect");
+        down->click();
+        require(curve_dialog->pending_value().curve_points[1].id==curve_point_a.id &&
+            curve_table->cellWidget(1,9)->findChild<QCheckBox*>()->isChecked() &&
+            up->isEnabled()&&!down->isEnabled(),"Ordering lost the selected point identity");
+        up->click();
+        require(curve_dialog->pending_value().curve_points[0].id==curve_point_a.id,
+            "Moving the selected point back failed");
+        curve_table->cellWidget(0,9)->findChild<QCheckBox*>()->click();
+        const auto table_height=curve_table->height();
+        const auto window_height=curve_dialog->height();
+        curve_dialog->resize(curve_dialog->width(),window_height+80);
+        application.processEvents();
+        require(curve_table->height()-table_height==curve_dialog->height()-window_height,
+            "Curve table does not consume added window height");
+        cycle_curve_axis=qobject_cast<QComboBox*>(curve_table->cellWidget(0,1));
+        require(curve_table->selectionMode()==QAbstractItemView::NoSelection&&
+            curve_table->horizontalHeader()->visualIndex(9)==0&&
+            curve_table->horizontalHeader()->visualIndex(6)==1&&
+            curve_table->horizontalHeader()->visualIndex(7)==3&&
+            curve_table->horizontalHeader()->visualIndex(8)==6,
+            "Curve reference controls do not follow the shared field layout");
+        auto* point_eye=curve_row_button(7);
+        auto* axis_eye=curve_row_button(8);
+        require(point_eye&&axis_eye,"Curve reference inspection eyes missing");
+        point_eye->click();application.processEvents();
+        auto inspected=curve_dialog->highlighted_reference_entries();
+        require(inspected.size()==1&&inspected.front().owner_id==curve_point_a.container_origin.id&&
+            inspected.front().semantic_key=="point"&&!requested_curve_axis,
+            "Point inspection changed selection or highlighted the wrong geometry");
+        axis_eye=curve_row_button(8);axis_eye->click();application.processEvents();
+        require(curve_dialog->highlighted_reference_entries().size()==2&&!requested_curve_axis,
+            "Axis inspection must remain independent of point inspection and input");
+        curve_dialog->clear_reference_highlights();
+        require(curve_dialog->highlighted_reference_entries().empty(),"Ending inspection left curve references highlighted");
+        cycle_curve_axis=qobject_cast<QComboBox*>(curve_table->cellWidget(0,1));
+        auto* direction_enabled = curve_table->cellWidget(0,4)->findChild<QCheckBox*>();
         require(cycle_curve_axis != nullptr && direction_enabled != nullptr &&
-                    cycle_curve_axis->text() == QStringLiteral("SWITCH") &&
+                    cycle_curve_axis->currentText() == QStringLiteral("X") && curve_table->isColumnHidden(2) &&
                     direction_enabled->isChecked(),
                 "3D Curve direction row has no SWITCH and direction toggle");
-        cycle_curve_axis->click();
+        cycle_curve_axis->setCurrentIndex(1);
         application.processEvents();
-        require(curve_table->item(0, 1)->text() == "+Y" &&
+        require(qobject_cast<QComboBox*>(curve_table->cellWidget(0,1))->currentText() == "Y" &&
                     curve_dialog->pending_value().curve_points[0].curve_tangent ==
                         zima::document::Curve3DTangentMode::PositiveY,
                 "3D Curve X/Y/Z button did not cycle X to Y");
-        auto* flip_curve_axis = curve_row_button(3);
+        auto* flip_curve_axis = curve_table->cellWidget(0,3)->findChild<QCheckBox*>();
         require(flip_curve_axis != nullptr &&
-                    flip_curve_axis->text() == QStringLiteral("FLIP"),
+                    !flip_curve_axis->isChecked(),
                 "3D Curve direction row has no distinct FLIP control");
         flip_curve_axis->click();
         application.processEvents();
-        require(curve_table->item(0, 1)->text() == QStringLiteral("−Y") &&
+        require(qobject_cast<QComboBox*>(curve_table->cellWidget(0,1))->currentText() == "Y" &&
                     curve_dialog->pending_value().curve_points[0].curve_tangent ==
                         zima::document::Curve3DTangentMode::NegativeY,
                 "3D Curve FLIP did not reverse the selected tangent axis");
-        direction_enabled = curve_row_button(4);
+        direction_enabled = curve_table->cellWidget(0,4)->findChild<QCheckBox*>();
         require(direction_enabled != nullptr,
             "3D Curve direction toggle vanished after FLIP");
         direction_enabled->click();
         application.processEvents();
-        cycle_curve_axis = curve_row_button(2);
-        flip_curve_axis = curve_row_button(3);
-        direction_enabled = curve_row_button(4);
+        cycle_curve_axis = qobject_cast<QComboBox*>(curve_table->cellWidget(0,1));
+        flip_curve_axis = curve_table->cellWidget(0,3)->findChild<QCheckBox*>();
+        direction_enabled = curve_table->cellWidget(0,4)->findChild<QCheckBox*>();
         require(!curve_dialog->pending_value().curve_points[0]
                         .curve_tangent_enabled &&
                     curve_dialog->pending_value().curve_points[0].curve_tangent ==
@@ -4004,10 +4241,10 @@ int main(int argc, char* argv[]) {
         direction_enabled->click();
         application.processEvents();
         emit curve_table->cellClicked(0, 1);
-        require(requested_curve_axis == 0 &&
+        require(!requested_curve_axis &&
                     curve_dialog->findChild<QPushButton*>(
-                        "curve3DEditPoint")->isEnabled() &&
-                    curve_table->verticalHeader()->findChild<QWidget*>("tableRowAction0") != nullptr,
+                        "curve3DMovePointUp") != nullptr &&
+                    curve_table->cellWidget(0,6) != nullptr,
                 "3D Curve direction-axis field did not arm Viewer picking "
                 "or select its Point row");
         bool curve_axis_finished_before_point_edit = false;
@@ -4147,7 +4384,7 @@ int main(int argc, char* argv[]) {
         require(!corner_radius->isEnabled()&&corner_radius->value()==0&&sweep_dialog->pending_value().curve_points[1].curve_radius==2,"Disabled corner_radius lost its stored value");
         rounding->setChecked(true);
         require(qobject_cast<QDoubleSpinBox*>(sweep_dialog->findChild<QTableWidget*>("curve3DPoints")->cellWidget(1,5))->value()==2,"Rounding toggle failed to restore corner_radius");
-        require(stations->columnCount()==4 &&
+        require(stations->columnCount()==5 &&
                 stations->item(0,3)->text()==QString::fromUtf8("Vyplňte první profil") &&
                 stations->item(2,3)->text()==QString::fromUtf8("Vlastní") &&
                 stations->item(3,3)->text()==QString::fromUtf8("Z bodu 2.2"),
@@ -4196,6 +4433,36 @@ int main(int argc, char* argv[]) {
 
         require(committed_sweep.sweep3d.path.curve_rounding_enabled&&committed_sweep.sweep3d.profiles.size()==1&&committed_sweep.sweep3d.profiles[0].id==identity,
             "Sweep did not commit station profile and radii");
+
+        // A profile clear retains stations; a point deletion removes the
+        // path item and its attached profiles. Neither may commit on Cancel.
+        for(const bool remove_point:{false,true}) {
+            bool committed=false;
+            auto* removal=new zima::app::ConstructionPropertiesDialog(committed_sweep,true,true,
+                [&](auto){committed=true;},&parent);
+            removal->show();application.processEvents();
+            auto* rows=removal->findChild<QTableWidget*>(remove_point?"curve3DPoints":"sweep3DProfiles");
+            const auto& profile=committed_sweep.sweep3d.profiles.front();
+            int row=-1;
+            for(int index=0;index<rows->rowCount();++index) {
+                const auto value=removal->pending_sweep_value();
+                if(remove_point) {
+                    if(static_cast<std::size_t>(index)<value.sweep3d.path.curve_points.size()&&value.sweep3d.path.curve_points[index].id==profile.point_id)row=index;
+                } else if(rows->item(index,3)&&rows->item(index,3)->text()==QString::fromUtf8("Vlastní"))row=index;
+            }
+            require(row>=0,"Explicit profile removal fixture missing");
+            const auto count=rows->rowCount();
+            auto* indicator=rows->cellWidget(row,remove_point?6:4);
+            auto* remove=qobject_cast<QPushButton*>(indicator->property("_removeWidget").value<QObject*>());
+            require(remove,"Shared remove control missing");
+            remove->click();application.processEvents();
+            const auto pending=removal->pending_sweep_value();
+            require(pending.sweep3d.profiles.empty()&&
+                pending.sweep3d.path.curve_points.size()==committed_sweep.sweep3d.path.curve_points.size()-(remove_point?1:0)&&
+                rows->rowCount()==count-(remove_point?1:0),"Remove control changed field/list semantics");
+            removal->buttons()->button(QDialogButtonBox::Cancel)->click();
+            require(!committed&&committed_sweep.sweep3d.profiles.size()==1,"Removing a row committed before OK");
+        }
 
         // CLI-created placement belongs to the Sweep; its owned path can
         // independently retain an Absolute definition with no root references.
@@ -4402,7 +4669,7 @@ int main(int argc, char* argv[]) {
         forward_end->setCurrentIndex(forward_end->findData("length"));
         forward_end->setCurrentIndex(forward_end->findData("up_to"));
         require(target_requests == 1 &&
-                    forward_target->styleSheet().contains("#42d66b"),
+                    forward_target->styleSheet().contains("#4dd811"),
                 "Selecting Up-to in the end-condition menu did not immediately "
                 "arm its exact target field");
         QMouseEvent replace_target(
@@ -4410,7 +4677,7 @@ int main(int argc, char* argv[]) {
             Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
         QApplication::sendEvent(forward_target, &replace_target);
         require(target_requests == 2 &&
-                    forward_target->styleSheet().contains("#42d66b") &&
+                    forward_target->styleSheet().contains("#4dd811") &&
                     extrusion_dialog->highlighted_reference_entries().empty(),
                 "Clicking populated Up-to text did not arm one-shot "
                 "replacement independently of inspection");
@@ -4440,7 +4707,7 @@ int main(int argc, char* argv[]) {
             Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
         QApplication::sendEvent(forward_target, &request_target);
         require(target_requests == 3 &&
-                    forward_target->styleSheet().contains("#42d66b") &&
+                    forward_target->styleSheet().contains("#4dd811") &&
                     !forward_target->styleSheet().contains("#00d1ff"),
                 "Clicking an empty Up-to field did not arm explicit face picking");
         extrusion_dialog->set_extrusion_target(
@@ -4791,8 +5058,13 @@ int main(int argc, char* argv[]) {
                 "Offset column still steals space from placement reference text");
         auto* sketch_dof_label = sketch_dialog->findChild<QLabel*>(
             "containerPlacementDofLabel");
+        bool status_row_found=false;
+        auto* sketch_status=sketch_dialog->findChild<QLabel*>("containerPlacementStatusLabel");
+        for(int index=0;index<sketch_dialog->content_layout()->count();++index)
+            if(auto* row=sketch_dialog->content_layout()->itemAt(index)->layout())
+                if(row->indexOf(sketch_dof_label)>=0&&row->indexOf(sketch_status)>=0)status_row_found=true;
         require(sketch_dof_label != nullptr && sketch_dof_label->isVisible() &&
-                    sketch_dialog->content_layout()->indexOf(sketch_dof_label) >= 0,
+                    status_row_found,
                 "Sketch placement DOF label is floating outside the dialog layout");
         require(sketch_dialog->set_reference(0,
                     {{}, "source-plane", "plane", 0.0, true},
@@ -5424,7 +5696,7 @@ int main(int argc, char* argv[]) {
                     zima::viewer::CandidateKind::SketchPoint &&
                     framebuffer_contains_color_near(hover_point_frame,
                         box_selection_view.size(), *shared_corner_position,
-                        QColor(255, 140, 12)) &&
+                        QColor("#4DD811")) &&
                     !framebuffer_contains_color_near(hover_point_frame,
                         box_selection_view.size(), *shared_corner_position,
                         QColor("#D05CFF")),
@@ -5479,7 +5751,7 @@ int main(int argc, char* argv[]) {
                     selected_point_id == "shared-corner" &&
                     framebuffer_contains_color_near(pressed_point_frame,
                         box_selection_view.size(), *shared_corner_position,
-                        QColor(30, 220, 240)) &&
+                        QColor("#00D1FF")) &&
                     !framebuffer_contains_color_near(pressed_point_frame,
                         box_selection_view.size(), *shared_corner_position,
                         QColor("#D05CFF")),
@@ -5499,7 +5771,7 @@ int main(int argc, char* argv[]) {
                     selected_point_id == "shared-corner" &&
                     framebuffer_contains_color_near(clicked_point_frame,
                         box_selection_view.size(), *shared_corner_position,
-                        QColor(30, 220, 240)),
+                        QColor("#00D1FF")),
                 "SketchPoint click-release without movement lost its confirmed "
                 "cyan selection or callback ID needed by Delete");
 
@@ -5522,7 +5794,7 @@ int main(int argc, char* argv[]) {
                     dragged_corner->semantic_key == "point:shared-corner" &&
                     framebuffer_contains_color_near(dragged_point_frame,
                         box_selection_view.size(), *shared_corner_position,
-                        QColor(30, 220, 240)),
+                        QColor("#00D1FF")),
                 "Dragged SketchPoint lost its cyan confirmed state");
         QMouseEvent corner_release(QEvent::MouseButtonRelease,
             corner_drag_position, corner_drag_position,
@@ -5539,7 +5811,7 @@ int main(int argc, char* argv[]) {
                     point_drag_updates == 1 && point_drag_ends == 2 &&
                     framebuffer_contains_color_near(released_point_frame,
                         box_selection_view.size(), *shared_corner_position,
-                        QColor(30, 220, 240)),
+                        QColor("#00D1FF")),
                 "Released SketchPoint did not remain cyan and confirmed");
 
         std::cout << "C++ properties-window contracts passed\n";

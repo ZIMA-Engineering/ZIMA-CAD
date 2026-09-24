@@ -1,9 +1,16 @@
-# Axis from cylindrical face
+# Cylindrical face axis
 
-The explicit **Axis from cylindrical face** command creates a construction Axis
+The explicit **Cylindrical face axis** command creates a construction Axis
 from one exact cylindrical source face. It is useful for imported STEP/IGES
 geometry and also accepts native cylindrical faces. Existing automatically
 generated axes are unchanged.
+
+Creation and editing use **Cylindrical face axis properties**. The source field
+uses the shared green reference arrow, active-input outline, remove button and
+independent inspection eye. Removing a reference reactivates selection. The name
+and reference rows remain at the top when resizing the window. No Origin button
+is offered: this command derives its axis from the selected cylindrical face.
+Existing user-authored object names and stored references are preserved.
 
 In the ordinary display, a face-derived Axis shows its axis line without an
 additional origin-point marker. The original point reference remains available

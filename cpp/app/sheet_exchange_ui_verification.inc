@@ -60,7 +60,21 @@ int verify_sheet_exchange_ui(QApplication& application,const std::filesystem::pa
             config.setValue("Paths/Localization",QString::fromStdString(std::filesystem::absolute("config/localization").string()));config.sync();
             const auto settings=app::ApplicationSettings::load(languages.path());app::apply_application_translations(application,settings);
             action->trigger();flush();auto* current=dialog();check(current->windowType()==Qt::SubWindow,"Conversion dialog is not an internal window");
-            check(current->findChild<QTableWidget*>("sheetSourceFace")->horizontalHeaderItem(0)->text()==settings.qt_translations.value("Výchozí rovinná plocha"),"Conversion face label is untranslated");
+            auto* references=current->findChild<QTableWidget*>("sheetSourceFace");
+            check(references->horizontalHeaderItem(1)->text()==settings.qt_translations.value("Výchozí rovinná plocha"),"Conversion face label is untranslated");
+            auto* indicator=references->cellWidget(0,0);
+            auto* arrow=qobject_cast<QWidget*>(indicator->property("_arrowWidget").value<QObject*>());
+            auto* remove=qobject_cast<QPushButton*>(indicator->property("_removeWidget").value<QObject*>());
+            check(arrow&&remove&&arrow->isVisible(),"Conversion reference arrow missing");
+            check(arrow->toolTip()==settings.qt_translations.value("Zadejte referenci")&&remove->toolTip()==settings.qt_translations.value("Odstranit referenci"),"Conversion reference controls untranslated");
+            const auto top=references->mapTo(current,QPoint{}).y();
+            current->grab().save(QString::fromStdString((directory/"sheet-reference-before.png").string()));
+            current->resize(current->width()+80,current->height()+150);flush();
+            current->grab().save(QString::fromStdString((directory/"sheet-reference-after.png").string()));
+            std::cerr<<"Reference top "<<top<<" -> "<<references->mapTo(current,QPoint{}).y()<<'\n';
+            check(references->mapTo(current,QPoint{}).y()==top,"Conversion references moved vertically on resize");
+            current->set_reference(seed,3);flush();check(remove->isVisible(),"Assigned reference has no remove action");
+            remove->click();flush();check(!current->selected()&&current->active()&&arrow->isVisible(),"Removing reference did not restore entry");
             current->buttons()->button(QDialogButtonBox::Cancel)->click();flush();
         }
         app::apply_application_translations(application,settings_before);

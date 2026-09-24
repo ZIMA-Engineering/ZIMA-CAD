@@ -24,6 +24,9 @@ int verify_cylinder_axis_ui(QApplication& application, zima::app::AssemblyWorksp
         auto* tree=window.findChild<QTreeWidget*>("documentTree");
         auto* action=window.findChild<QAction*>("cylinderAxisAction");
         check(view&&tree&&action&&action->isEnabled()&&!action->icon().isNull(),"Cylinder axis action is missing");
+        auto* appearance=window.findChild<QAction*>("customBodyColorAction");
+        check(appearance&&qobject_cast<QMenu*>(appearance->parent())&&
+            !window.findChild<QMenu*>("colorsMenu"),"Appearance is still nested in a one-item Colors submenu");
         view->set_view_direction({1,-1,0.5});view->fit_all();flush();
         const auto dialog=[&] {
             for (auto* widget : window.findChildren<QDialog*>())
@@ -43,10 +46,65 @@ int verify_cylinder_axis_ui(QApplication& application, zima::app::AssemblyWorksp
             QMouseEvent release(QEvent::MouseButtonRelease,p,p,p,Qt::LeftButton,Qt::NoButton,Qt::NoModifier);
             QApplication::sendEvent(view,&press);QApplication::sendEvent(view,&release);flush();
             check(dialog()->pending().references.size()==1,"Cylinder face click was not accepted");
-            check(!dialog()->findChild<QTableWidget*>("cylinderAxisReference")->item(0,0)->text().isEmpty(),"Selected cylinder has no visible field label");
+            check(!dialog()->findChild<QTableWidget*>("cylinderAxisReference")->item(0,1)->text().isEmpty(),"Selected cylinder has no visible field label");
         };
+        const auto command_button=[&]() -> QToolButton* {
+            for (auto* button : window.findChildren<QToolButton*>())
+                if (button->isVisible() && button->defaultAction()==action) return button;
+            throw std::runtime_error("Cylinder axis toolbar button is missing");
+        };
+        {
+            auto* button=command_button();
+            const auto position=button->rect().center();
+            QCursor::setPos(button->mapToGlobal(position));flush();
+            QMouseEvent press(QEvent::MouseButtonPress,position,position,button->mapToGlobal(position),
+                Qt::LeftButton,Qt::LeftButton,Qt::NoModifier);
+            QMouseEvent release(QEvent::MouseButtonRelease,position,position,button->mapToGlobal(position),
+                Qt::LeftButton,Qt::NoButton,Qt::NoModifier);
+            QApplication::sendEvent(button,&press);QApplication::sendEvent(button,&release);flush();
+            auto* current=dialog();
+            const auto away=view->rect().center();
+            QCursor::setPos(view->mapToGlobal(away));
+            QMouseEvent move(QEvent::MouseMove,away,away,view->mapToGlobal(away),
+                Qt::NoButton,Qt::NoButton,Qt::NoModifier);
+            QApplication::sendEvent(view,&move);flush();
+            button=command_button();
+            check(!button->underMouse()&&!button->isDown(),"Cylinder axis retains hover/press after moving to View");
+            const auto image=button->grab().toImage();
+            check(image.pixelColor(qRound((button->width()-8)*image.devicePixelRatio()),
+                qRound(button->height()/2.0*image.devicePixelRatio()))==QColor("#00D1FF"),
+                "Cylinder axis command is not azure while Properties are open");
+            current->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Cancel)->click();flush();
+            check(!action->property("zimaCommandActive").toBool(),"Closed command retained active feedback");
+            window.grab().save(QString::fromStdString((directory/"interaction-colors.png").string()));
+        }
+        const auto settings_before=app::ApplicationSettings::load();QTemporaryDir languages;
+        for(const auto* language:{"cs","en","de","fr","ru"}) {
+            QSettings config(languages.filePath("config.ini"),QSettings::IniFormat);config.setValue("Application/Language",language);
+            config.setValue("Paths/Localization",QString::fromStdString(std::filesystem::absolute("config/localization").string()));config.sync();
+            const auto settings=app::ApplicationSettings::load(languages.path());app::apply_application_translations(application,settings);
+            action->trigger();flush();auto* current=dialog();
+            check(current->windowTitle()==settings.qt_translations.value("Vlastnosti osy válcové plochy"),"Axis properties title untranslated");
+            check(QString::fromStdString(current->pending().name)==settings.qt_translations.value("Osa válcové plochy"),"New axis name untranslated");
+            check(!current->findChild<QPushButton*>("containerOriginSelectionButton"),"Cylinder axis exposes unnecessary Origin button");
+            auto* table=current->findChild<QTableWidget*>("cylinderAxisReference");
+            auto* indicator=table->cellWidget(0,0);
+            auto* arrow=qobject_cast<QWidget*>(indicator->property("_arrowWidget").value<QObject*>());
+            check(arrow&&arrow->isVisible()&&arrow->toolTip()==settings.qt_translations.value("Zadejte referenci"),"Axis reference arrow missing or untranslated");
+            const auto top=table->mapTo(current,QPoint{}).y();
+            current->resize(current->width()+80,current->height()+150);flush();
+            check(table->mapTo(current,QPoint{}).y()==top,"Axis reference moved on resize");
+            current->buttons()->button(QDialogButtonBox::Cancel)->click();flush();
+        }
+        app::apply_application_translations(application,settings_before);
         std::cerr<<"Axis UI stage: first creation\n";
         action->trigger();flush();dialog();pick();
+        auto* references=dialog()->findChild<QTableWidget*>("cylinderAxisReference");
+        auto* remove=qobject_cast<QPushButton*>(references->cellWidget(0,0)->property("_removeWidget").value<QObject*>());
+        check(remove&&remove->isVisible(),"Selected axis reference has no remove button");
+        remove->click();flush();
+        check(dialog()->pending().references.empty()&&dialog()->active()&&!dialog()->inspected(),"Axis reference removal did not rearm entry");
+        pick();
         check(run("construction.list").at("total")==0,"Axis preview committed before OK");
         dialog()->buttons()->button(QDialogButtonBox::Cancel)->click();flush();
         check(run("construction.list").at("total")==0,"Cancel created an axis");

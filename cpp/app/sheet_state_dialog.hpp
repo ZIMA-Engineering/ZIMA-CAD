@@ -41,7 +41,8 @@ public:
         table_->horizontalHeader()->setSectionResizeMode(1,QHeaderView::Stretch);
         table_->setSelectionMode(QAbstractItemView::NoSelection);table_->setEditTriggers(QAbstractItemView::NoEditTriggers);
         ui::install_reference_cell_delegate(table_);
-        content_layout()->addWidget(table_);set_initial_size({365,310});
+        table_->verticalHeader()->show();table_->verticalHeader()->setMinimumSectionSize(34);table_->verticalHeader()->setDefaultSectionSize(34);
+        setProperty("expandBottomTable",true);content_layout()->addWidget(table_,1);set_initial_size({365,310});
         inspected_.insert(initial_.sheet_state.owners.begin(),initial_.sheet_state.owners.end());
         connect(table_,&QTableWidget::cellClicked,this,[this](int,int column){if(column==1){entering_=true;refresh();}});
         const auto mode=[this](bool all) {

@@ -1,6 +1,11 @@
 #include "updates_ui_verification.hpp"
 #include "assembly_workspace_window.hpp"
 #include "global_settings_dialog.hpp"
+#include "../common/technical_font.hpp"
+#include <zima/viewer/mesh_view.hpp>
+#include <zima/drawing_render/sheet_renderer.hpp>
+#include <QFontInfo>
+#include <QRawFont>
 #include "aiprovider.h"
 #include "aipreferences.h"
 #include <QLineEdit>
@@ -126,6 +131,47 @@ void verify_install_interactions(QApplication& app, QWidget& parent) {
 int verify_updates_ui(QApplication& app, AssemblyWorkspaceWindow& window, const std::filesystem::path& directory) {
     try {
         window.showMaximized(); app.processEvents();
+        if (qEnvironmentVariableIsSet("ZIMA_VERIFY_FONTS_ONLY")) {
+            const auto original = ApplicationSettings::load();
+            const auto iso = zima::technical_font_family();
+            require(!iso.isEmpty(), "Bundled ISO font is missing");
+            QFont missing; missing.setFamilies({"ZimaDeliberatelyMissingFont",iso});
+            require(QFontInfo(missing).family()==iso && QRawFont::fromFont(missing).isValid(),
+                "Missing GUI font does not fall back to bundled ISO");
+            zima::viewer::MeshView view(&window);
+            QTemporaryDir temporary;
+            for (const QString language : {"cs","en","de","fr","ru"}) {
+                QSettings config(temporary.filePath("config.ini"),QSettings::IniFormat);
+                config.setValue("Application/Language",language);
+                config.setValue("Paths/Localization",original.resolved_paths.value("Localization"));
+                config.sync();
+                auto settings=ApplicationSettings::load(temporary.path());
+                require(!settings.use_iso_application_font,"Absent setting must select system GUI font");
+                apply_application_translations(app,settings);
+                for (const bool force_iso : {true,false}) {
+                    settings.use_iso_application_font=force_iso;
+                    apply_application_font(app,settings);app.processEvents();
+                    const auto expected=force_iso?iso:QFontDatabase::systemFont(QFontDatabase::GeneralFont).family();
+                    require(app.font().families().front()==expected,"GUI font switch did not select requested family");
+                    require(view.font().family()==iso && zima::drawing_render::drawing_font_family()==iso,
+                        "GUI font setting changed View/Sketch/Drawing annotation font");
+                    GlobalSettingsDialog dialog(settings,&window);
+                    dialog.setAttribute(Qt::WA_DeleteOnClose,false);
+                    dialog.show();app.processEvents();
+                    auto* field=dialog.findChild<QCheckBox*>("globalApplicationFont");
+                    require(field && field->isChecked()==force_iso,"GUI font checkbox does not reflect configuration");
+                    require(field->text()==settings.qt_translations.value("Používat ISO font pro GUI") &&
+                        field->toolTip()==settings.qt_translations.value("Výkresy, skici a View vždy používají ISO font."),
+                        "GUI font setting is not localized");
+                    if (!force_iso) require(dialog.grab().save(QString::fromStdU16String(
+                        (directory/("gui-font-"+language.toStdString()+".png")).u16string())),"Cannot capture GUI font setting");
+                    dialog.buttons()->button(QDialogButtonBox::Cancel)->click();app.processEvents();
+                }
+            }
+            apply_application_translations(app,original);apply_application_font(app,original);
+            std::cout<<"Fonts: system GUI, bundled fallback, independent technical views and five translated settings passed\n";
+            return 0;
+        }
         verify_install_interactions(app, window);
         auto* service = UpdateService::get();
         auto* notice = window.findChild<QLabel*>("updateAvailableNotice");

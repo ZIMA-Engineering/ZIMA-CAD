@@ -3,6 +3,7 @@
 #include <functional>
 
 #include <QColor>
+#include <QIcon>
 #include <QString>
 #include <QTableWidgetItem>
 
@@ -20,6 +21,9 @@ namespace zima::ui {
 // Container, Orientation, Assembly component mates) so their "x"/arrow cells
 // line up identically.
 QWidget* centered_cell_widget(QWidget* inner);
+
+// Reuse the green reference-entry arrow in directional action buttons.
+QIcon reference_arrow_icon(Qt::ArrowType direction);
 
 // Builds the leading indicator column shared by every reference table: a
 // green arrow prompt for an unfilled reference slot and a red "x" remove

@@ -15,7 +15,7 @@ void AssemblyWorkspaceWindow::show_cylinder_axis_properties(const std::string& i
     if (!part && !assembly) return;
     auto value = document::PartDocument::create_construction(document::ConstructionKind::Axis);
     value.definition = document::ConstructionDefinition::CylinderAxis;
-    value.name = tr("Osa z válcové plochy").toStdString();
+    value.name = tr("Osa válcové plochy").toStdString();
     if (!id.empty()) {
         const auto* stored = part ? part->session.document().find_construction(id)
                                  : assembly->session.document().find_construction(id);

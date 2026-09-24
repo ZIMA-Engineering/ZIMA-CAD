@@ -5370,6 +5370,13 @@ zima::kernel::ViewerMesh PartDocument::construction_viewer_mesh(
             for (const auto& child : object.curve_points) {
                 local_points.push_back(child.origin);
                 const auto world = world_point(child.origin);
+                if (!editing_curve_geometry) {
+                    zima::kernel::ViewerPoint point{world,
+                        {child.container_origin.id, "point", {}}, {}, true};
+                    point.display_owner_id = object.id;
+                    mesh.points.push_back(point);
+                    mesh.original_references.points.push_back(std::move(point));
+                }
                 if (editing_curve_geometry) {
                     // Every child Point owns a real local Origin.  The
                     // complete set must remain visible while its parent
@@ -6389,6 +6396,8 @@ std::vector<zima::kernel::ViewerEdge> PartDocument::extrusion_preview_edges(
         for(auto& point:start.points)point=endpoint(point,true);
         zima::kernel::ViewerEdge end;end.reference={container.id,"preview:end"+profile_role,{}};
         end.points.reserve(source.points.size());for(const auto& point:source.points)end.points.push_back(endpoint(point,false));
+        if(reverse_condition==EndCondition::ThroughAll)start.preview_terminal_dashed=true;
+        if(forward_condition==EndCondition::ThroughAll)end.preview_terminal_dashed=true;
         result.push_back(start);
         result.push_back(end);
         const auto distance = [](const auto& first, const auto& second) {
@@ -6489,6 +6498,8 @@ std::vector<zima::kernel::ViewerEdge> PartDocument::primitive_preview_edges(
                             const std::string& role) {
         zima::kernel::ViewerEdge edge;
         edge.reference = {container.id, "preview:" + role, {}};
+        if(role=="hole:bore:end" && container.hole.bore_end_condition==EndCondition::ThroughAll)
+            edge.preview_terminal_dashed=true;
         edge.points.reserve(points.size());
         for (auto point : points) edge.points.push_back(world(point));
         result.push_back(std::move(edge));
@@ -7786,6 +7797,7 @@ if (sweep.separate_segments) {
 zima::kernel::Sweep3DRequest PartDocument::sweep2d_request(const HistoryContainer& input,double tolerance) {
     auto c=input;reframe_sweep2d_sketches(c);const auto route=sweep2d_route(c,tolerance);
     kernel::Sweep3DRequest request;request.linear_tolerance=tolerance;request.separate_segments=true;
+    request.attachment_endpoints=true;
     for(const auto& station:route.stations){request.path_points.push_back(station.origin);
         request.path_point_ids.push_back(station.point_id+(station.incoming?":in":":out"));}
     request.path_segments=route.segments;
@@ -7897,6 +7909,7 @@ zima::kernel::Sweep3DRequest PartDocument::helical_sweep_request(const HistoryCo
     using namespace helical_geometry;
     auto c=input; reframe_helical_sketches(c);
     const auto p=path(c); zima::kernel::Sweep3DRequest request;request.transported=true;request.linear_tolerance=linear_tolerance;
+    request.attachment_endpoints=true;
     request.path_points.push_back(p.at(0,0));request.path_point_ids.push_back(c.helical.start_point_id);
     std::function<void(std::size_t,double,double,unsigned)> approximate;
     approximate=[&](std::size_t i,double a,double b,unsigned depth){
@@ -9326,6 +9339,7 @@ std::vector<zima::kernel::HistoryOperation> PartDocument::kernel_operations(
                 }
             }
             zima::kernel::Sweep3DRequest sweep;
+            sweep.attachment_endpoints=true;
             sweep.separate_segments = path.curve_type == Curve3DType::Polyline &&
                 !path.curve_rounding_enabled;
             sweep.linear_tolerance = boolean_tolerance;

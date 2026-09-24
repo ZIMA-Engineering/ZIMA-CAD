@@ -102,6 +102,12 @@ std::size_t next_candidate_index(
 bool candidate_recolors_wire_edge(
     const ViewerCandidate& candidate,
     const zima::kernel::ViewerEdge& edge) {
+    if (candidate.kind == CandidateKind::Container &&
+        (candidate.semantic_key.empty() || candidate.semantic_key == "solid") &&
+        edge.reference.semantic_key.starts_with("centerline:from:")) {
+        return edge.reference.owner_id == candidate.owner_id &&
+            edge.reference.instance_path == candidate.instance_path;
+    }
     if (candidate.kind == CandidateKind::Occurrence) {
         return !edge.construction && !edge.overlay &&
             (!edge.reference.valid() || !edge.display_owner_id.empty()) &&
@@ -761,7 +767,11 @@ std::vector<ViewerCandidate> ordered_viewer_candidates(
             // to the Vertex candidate. This avoids a synthetic "point in a
             // point" UI object while preserving the real Origin child ID.
             constexpr std::string_view origin_suffix{":origin"};
-            if (vertex.reference.semantic_key == "point" &&
+            const auto& display_owner = source.points[vertex.point].display_owner_id;
+            if (!display_owner.empty()) {
+                result.push_back({CandidateKind::Container, vertex.distance,
+                    vertex.point, display_owner, {}, vertex.reference.instance_path, geometry});
+            } else if (vertex.reference.semantic_key == "point" &&
                 vertex.reference.owner_id.ends_with(origin_suffix)) {
                 result.push_back({CandidateKind::Container, vertex.distance,
                     vertex.point,

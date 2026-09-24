@@ -52,6 +52,7 @@ private:
     bool correcting_position_{};
     bool correcting_size_{};
     bool centered_on_show_{};
+    bool content_bottom_space_installed_{};
     QSize initial_size_;
     Qt::Edges resize_edges_;
     QPointF resize_drag_origin_;

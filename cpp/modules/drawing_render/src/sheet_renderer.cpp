@@ -1,4 +1,6 @@
+#include "../../../common/interaction_colors.hpp"
 #include <zima/drawing_render/crop_path.hpp>
+#include "../../../common/technical_font.hpp"
 #include <zima/drawing/view_orientation.hpp>
 #include <zima/drawing/view_breaks.hpp>
 #include <zima/drawing/annotation_guides.hpp>
@@ -24,19 +26,7 @@ using app::model_annotation_key;
 using app::model_annotation_layout;
 using app::drawing_shaded_fill;
 QString drawing_font_family() {
-    static const QString family = [] {
-        const QString relative = QStringLiteral("config/fonts/osifont-lgpl3fe.ttf");
-        QString path = relative;
-        if (!QFileInfo::exists(path)) {
-            path = QDir(QCoreApplication::applicationDirPath())
-                .absoluteFilePath(QStringLiteral("../../config/fonts/osifont-lgpl3fe.ttf"));
-        }
-        const int id = QFontDatabase::addApplicationFont(path);
-        const auto families = id >= 0
-            ? QFontDatabase::applicationFontFamilies(id) : QStringList{};
-        return families.empty() ? QStringLiteral("sans-serif") : families.front();
-    }();
-    return family;
+    return zima::technical_font_family();
 }
 
 QColor SheetRenderer::annotation_color(const AnnotationKey& key,QColor normal,bool printing)const{
@@ -51,7 +41,7 @@ QColor SheetRenderer::annotation_color(const AnnotationKey& key,QColor normal,bo
             }
             return false;
         };
-        if(entity_selected(key)||same(selected_annotation_))return QColor("#00D1FF");if(same(hovered_annotation_))return QColor("#FF9300");return normal;
+        if(entity_selected(key)||same(selected_annotation_))return interaction::selected;if(same(hovered_annotation_))return interaction::hover;return normal;
     }
 QRectF SheetRenderer::view_bounds_at(const zima::drawing::DrawingView& view,double zoom,QPointF origin) const {
         if(preview_frame_bounds_&&preview_&&preview_->id==view.id) {
@@ -136,7 +126,7 @@ void SheetRenderer::paint_sheet(QPainter& painter,double zoom,QPointF origin,boo
         if(!printing)field_regions_.clear();
         const auto draw_handle=[&](QPointF point,bool selected) {
             painter.save();painter.setPen(Qt::NoPen);
-            painter.setBrush(selected?QColor("#D05CFF"):QColor("#FF9300"));
+            painter.setBrush(selected?QColor("#D05CFF"):interaction::hover);
             // Same 4.5 logical-pixel radius as ordinary Sketcher point markers.
             painter.drawEllipse(point,4.5,4.5);painter.restore();
         };
@@ -145,7 +135,7 @@ void SheetRenderer::paint_sheet(QPainter& painter,double zoom,QPointF origin,boo
             if(value.trimmed().isEmpty()){if(printing)return;value=QStringLiteral("-");}
             const bool selected=!printing&&!text.field_id.empty()&&(selected_field_==text.field_id||entity_selected({AnnotationKind::Text,{},text.field_id,0}));
             const bool hovered=!printing&&!text.field_id.empty()&&hovered_field_==text.field_id;
-            painter.save();painter.setPen(selected?QColor("#00D1FF"):hovered?QColor("#FF9300"):pen_color(text.pen));
+            painter.save();painter.setPen(selected?interaction::selected:hovered?interaction::hover:pen_color(text.pen));
             QFont font(QString::fromStdString(text.font));font.setWeight(QFont::Normal);font.setPixelSize(1000);painter.setFont(font);
             const QFontMetricsF metrics(font);
             const auto lines=value.split('\n',Qt::KeepEmptyParts);
@@ -203,7 +193,7 @@ void SheetRenderer::paint_sheet(QPainter& painter,double zoom,QPointF origin,boo
                 const auto first=screen(line.first),second=screen(line.second);
                 const bool selected=!printing&&!line.field_id.empty()&&selected_field_==line.field_id;
                 const bool hovered=!printing&&!line.field_id.empty()&&hovered_field_==line.field_id;
-                QPen pen(selected?QColor("#00D1FF"):hovered?QColor("#FF9300"):pen_color(line.pen),line.centerline?(printing||lineweights_?zoom*sheet_->thin_line_mm:1.0):pen_width(line.pen));
+                QPen pen(selected?interaction::selected:hovered?interaction::hover:pen_color(line.pen),line.centerline?(printing||lineweights_?zoom*sheet_->thin_line_mm:1.0):pen_width(line.pen));
                 if(line.centerline)pen.setDashPattern({2*zoom/pen.widthF(),.4*zoom/pen.widthF(),.2*zoom/pen.widthF(),.4*zoom/pen.widthF()});
                 painter.setPen(pen);painter.drawLine(first,second);
                 if(!printing&&!line.field_id.empty()) {
@@ -366,8 +356,8 @@ void SheetRenderer::paint_sheet(QPainter& painter,double zoom,QPointF origin,boo
         for (const auto* view : views) {
             const auto bounds = printing?view_bounds_at(*view,zoom,origin):view_bounds_at(*view,zoom,origin).adjusted(-8,-8,8,8);
             if (!printing&&((entity_selected({AnnotationKind::View,view->id,{},0})||(!selected_annotation_&&view->id==selected_)) || view->id==hovered_ || (preview_ && preview_->id==view->id))) {
-                painter.setPen(QPen(view->id==hovered_ && view->id!=selected_ ? QColor("#FF9300")
-                    : QColor("#00D1FF"), 1, Qt::DashLine));
+                painter.setPen(QPen(view->id==hovered_ && view->id!=selected_ ? interaction::hover
+                    : interaction::selected, 1, Qt::DashLine));
                 painter.drawRect(bounds);
             }
             for(bool section:{false,true}){
@@ -401,7 +391,7 @@ void SheetRenderer::paint_sheet(QPainter& painter,double zoom,QPointF origin,boo
                 const auto layout=model_annotation_layout(*view,item,paper_bounds.adjusted(-5,-5,5,5),viewer::dimension_text_width(painter.font(),label)/zoom,gap/zoom);
                 if(item.model_dimension && layout.curves.empty())continue;
                 const AnnotationKey key{AnnotationKind::Model,view->id,id,0};
-                QColor color=annotation_color(key,printing?ink:item.unresolved?QColor("#E05050"):!item.visible?QColor("#777777"):item.kind==drawing::ModelAnnotationKind::Dimension?QColor("#FFD400"):QColor("#E6C85C"),printing);
+                QColor color=annotation_color(key,printing?ink:item.unresolved?QColor("#E05050"):!item.visible?QColor("#777777"):item.kind==drawing::ModelAnnotationKind::Dimension?QColor("#FFD400"):item.kind==drawing::ModelAnnotationKind::Axis?interaction::axis:QColor("#E6C85C"),printing);
                 painter.save();if(view->crop&&(item.kind!=drawing::ModelAnnotationKind::Dimension||view->detail_view))painter.setClipPath(crop_screen_path(*view,{origin.x()+(sheet_->width_mm()-view->x)*zoom,origin.y()+(sheet_->height_mm()-view->y)*zoom},zoom*view->scale),Qt::IntersectClip);QPen pen(color,width(false));if(item.kind!=drawing::ModelAnnotationKind::Dimension)pen.setDashPattern({8*zoom/pen.widthF(),1.5*zoom/pen.widthF(),.5*zoom/pen.widthF(),1.5*zoom/pen.widthF()});painter.setPen(pen);painter.setBrush(Qt::NoBrush);QPainterPath stroke;
                 for(const auto& line:layout.curves){if(line.empty())continue;QPolygonF polygon;for(auto p:line)polygon<<screen(p);painter.drawPolyline(polygon);stroke.moveTo(polygon.front());for(qsizetype i=1;i<polygon.size();++i)stroke.lineTo(polygon[i]);}
                 // Retain the layout's analytic centers, but do not paint an

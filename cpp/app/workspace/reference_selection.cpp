@@ -729,19 +729,8 @@ void AssemblyWorkspaceWindow::accept_construction_reference(
             selected_index, true);
     pending_construction_reference_index_.reset();
     viewer_->clear_selection();
-    // set_reference() above already triggered the dialog's preview callback
-    // synchronously (via notify_changed()), which itself already called
-    // refresh_scene() with preserve_view_on_refresh_ temporarily true --
-    // but that call resets the flag back to false once done. Without
-    // re-arming it here, this second, redundant refresh_scene() call runs
-    // with fit_view enabled and re-fits/zooms the camera to the newly
-    // resolved construction geometry (e.g. an Axis/Plane's real display-size
-    // extent, which is typically much larger than the small Origin preview
-    // shown before the reference was picked). That camera re-fit is what
-    // makes the Origin appear to shrink the instant the first reference is
-    // entered, even though the Origin's own world-space size never changes.
-    preserve_view_on_refresh_ = true;
-    refresh_scene();
+    // The synchronous preview already published the scene. Whole-Origin
+    // entry defers that publication until all its reference checks finish.
     if (auto_advance) {
         const auto next =
             construction_reference_dialog_->first_empty_position_index();
@@ -1469,6 +1458,8 @@ bool AssemblyWorkspaceWindow::accept_construction_tree_reference(
         // rejected as not adding an independent DOF, and silently failed to
         // show up in the 3D view.
         bool accepted_any = false;
+        {
+        const QScopedValueRollback batch(defer_reference_scene_refresh_,true);
         for (const auto& reference : captured_planes) {
             const auto target_index =
                 construction_reference_dialog_->first_empty_position_index();
@@ -1479,6 +1470,12 @@ bool AssemblyWorkspaceWindow::accept_construction_tree_reference(
                     reference.instance_path, reference.semantic_key)) {
                 accepted_any = true;
             }
+        }
+        }
+        if (accepted_any) {
+            preserve_view_on_refresh_ = true;
+            refresh_scene();
+            set_construction_properties_dimension_selection();
         }
         return accepted_any;
     }

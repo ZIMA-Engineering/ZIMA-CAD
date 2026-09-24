@@ -1,4 +1,5 @@
 #include "../app/dimension_properties_fields.hpp"
+#include "../common/technical_font.hpp"
 #include "../app/drawing_annotation_layout.hpp"
 #include <QApplication>
 #include <QDialogButtonBox>
@@ -46,9 +47,73 @@ void mouse(QWidget *w, QEvent::Type type, QPointF p, Qt::MouseButton button,
     QApplication::sendEvent(w, &event);
     flush();
 }
+Q_NEVER_INLINE void verify_vertical_dimension_clearance() {
+        {
+            // Near-vertical outside labels used a fixed 17 px extension even
+            // when the ISO text mask extended back across the endpoint arrow.
+            QImage proof(900,600,QImage::Format_ARGB32_Premultiplied);proof.fill(QColor("#eef0f2"));
+            QPainter painter(&proof);
+            bool collision=false;
+            for(int pixels:{12,24,36})for(double sign:{-1.,1.})for(double side:{-1.,1.})for(double tilt:{0.,.15,-.15}) {
+                auto font=zima::technical_font();font.setPixelSize(pixels);
+                kernel::ViewerDimension d;d.witness_first={-20,0,0};d.witness_second={-20,80,0};
+                d.line_first={0,0,0};d.line_second={0,80,0};d.label_position=kernel::Vec3{side*70,40,0};
+                const auto project=[&](kernel::Vec3 p){return QPointF(p.x+std::sin(tilt)*p.y+.3*p.z,sign*std::cos(tilt)*p.y);};
+                const QString text="80,000 mm";
+                const auto layout=viewer::dimension_text_presentation(d,project,font,text,2,1.5);
+                require(layout.valid&&layout.oblique&&layout.outside,"Vertical label fixture is not an outside dimension");
+                QTransform transform;transform.translate(layout.text_baseline.x(),layout.text_baseline.y());transform.rotate(layout.text_angle);
+                QPainterPath box;box.addRect(viewer::dimension_text_box(font,text,2));box=transform.map(box);
+                for(const auto& [tip,direction]:layout.arrows) {
+                    QPainterPath arrow;arrow.addPolygon(viewer::annotation_arrow(tip,direction,10));arrow.closeSubpath();
+                    collision|=box.intersects(arrow);
+                }
+                if(pixels==24&&tilt==0) {
+                    painter.save();painter.translate(side<0?225:675,sign<0?180:420);
+                    painter.setPen(QPen(Qt::black,1.5));painter.setBrush(Qt::black);
+                    for(const auto& curve:layout.curves)painter.drawPolyline(curve);
+                    for(const auto& [tip,direction]:layout.arrows)painter.drawPolygon(viewer::annotation_arrow(tip,direction,10));
+                    const std::array labels{viewer::DimensionTextLabel{text,layout.text_baseline,layout.text_angle,font,Qt::black}};
+                    viewer::paint_dimension_text_layer(painter,labels,2,[](QPainter& p,const QPainterPath& area){p.fillPath(area,QColor("#eef0f2"));});
+                    painter.restore();
+                }
+            }
+            painter.end();require(proof.save("build/vertical-dimension-arrow-clearance.png"),"Cannot save vertical dimension proof");
+            require(!collision,"Vertical/near-vertical ISO label mask covers its endpoint arrow");
+        }
+        {
+            viewer::MeshView view;view.resize(900,700);view.set_active_sketch_owner("vertical-sketch");
+            auto font=zima::technical_font();font.setPixelSize(24);view.setFont(font);view.show();flush();
+            for(double side:{-1.,1.}) {
+                kernel::ViewerDimension d;d.reference={"vertical-sketch","dimension:vertical",{}};
+                d.witness_second={0,80,0};d.line_first={15,0,0};d.line_second={15,80,0};
+                d.label_position=kernel::Vec3{15+side*20,40,0};d.value=80;d.display_text_override="80,000 mm";
+                kernel::ViewerMesh mesh;mesh.vertices={d.witness_first,d.witness_second,d.line_first,d.line_second};mesh.dimensions={d};
+                view.set_mesh(mesh);view.set_view_direction({.2,.1,1});
+                for(auto* animation:view.findChildren<QVariantAnimation*>())animation->setCurrentTime(animation->duration());
+                view.fit_all();flush();
+                const viewer::ViewerCandidate candidate{viewer::CandidateKind::Dimension,0,0,"vertical-sketch","dimension:vertical",{}};
+                const auto a=view.dimension_handle_position(candidate,1),b=view.dimension_handle_position(candidate,2);
+                require(a&&b,"Vertical Sketch dimension has no endpoint grips");
+                const auto labeled=view.grabFramebuffer();
+                require(labeled.save(side<0?"build/sketch-vertical-dimension-left.png":"build/sketch-vertical-dimension-right.png"),
+                    "Cannot capture Sketch vertical dimension");
+                mesh.dimensions.front().display_text_override=" ";view.set_mesh(mesh);flush();
+                const auto bare=view.grabFramebuffer();const auto direction=viewer::dimension_screen_unit(*b-*a);
+                for(int end:{0,1})for(int distance=2;distance<=8;++distance) {
+                    const auto point=((end?*b:*a)+direction*(end?distance:-distance))*labeled.devicePixelRatio();
+                    const int x=qRound(point.x()),y=qRound(point.y());
+                    require(labeled.valid(x,y)&&labeled.pixel(x,y)==bare.pixel(x,y),
+                        "ISO text mask erased the vertical Sketch dimension arrow in the real View");
+                }
+            }
+        }
+    std::cout << "Vertical ISO label/arrow clearance passed" << std::endl;
+}
 int main(int argc, char **argv) {
     QApplication app(argc, argv);
     try {
+        verify_vertical_dimension_clearance();
         {
             kernel::DimensionTextStyle style;style.tolerance_mode="deviations";style.suffix.clear();
             style.upper_tolerance="0.2";style.lower_tolerance="0.15";
@@ -391,11 +456,12 @@ int main(int argc, char **argv) {
             drawing::ModelAnnotationSource source;
             source.document_id="part";
             source.envelope.include({-20,-10,-5});source.envelope.include({20,10,5});
-            source.axes.push_back({{0,0,0},{0,0,1},10,{"part:origin","origin:axis:z",{}}});
+            source.axes.push_back({{0,0,0},{0,0,1},10,{"cylinder","axis:primary",{}}});
             drawing::DrawingView view;view.camera={{1,0,0},{0,1,0},{0,0,1}};view.scale=1;
             drawing::refresh_model_annotations(view,std::span(&source,1));
+            require(view.model_annotations.size()==1,"Model axis annotation missing");
             auto cross=app::model_annotation_layout(view,view.model_annotations[0],{});
-            require(cross.curves.size()==4 && cross.centers.size()==1,"End-on origin axis has no cross");
+            require(cross.curves.size()==4 && cross.centers.size()==1,"End-on model axis has no cross");
             near(cross.curves[0].back().x(),-22);near(cross.curves[1].back().x(),22);
             near(cross.curves[2].back().y(),-12);near(cross.curves[3].back().y(),12);
             auto corner_axis=view.model_annotations[0];

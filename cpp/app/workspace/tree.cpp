@@ -446,7 +446,7 @@ void AssemblyWorkspaceWindow::add_pending_tree_item(QTreeWidgetItem* parent,
         : construction ? (assembly ? "assembly-construction" : "part-construction")
         : (assembly ? "assembly-sketch" : "part-sketch"));
     row->setData(0, Qt::UserRole + 12, true);
-    row->setForeground(0, QBrush(QColor(70, 190, 95)));
+    row->setBackground(0, QBrush(QColor("#00D1FF"))); row->setForeground(0, QBrush(QColor("#102027")));
     auto font = row->font(0);
     font.setBold(true);
     font.setItalic(false);
@@ -538,7 +538,7 @@ void AssemblyWorkspaceWindow::add_part_tree_children(
         if (part_rollback_ &&
             part_rollback_->part_document_id == document.document_id) {
             if (index == part_rollback_->history_limit) {
-                item->setForeground(0, QBrush(QColor(70, 190, 95)));
+                item->setBackground(0, QBrush(QColor("#00D1FF"))); item->setForeground(0, QBrush(QColor("#102027")));
                 QFont font = item->font(0);
                 font.setBold(true);
                 item->setFont(0, font);
@@ -725,7 +725,7 @@ void AssemblyWorkspaceWindow::add_part_tree_children(
             row->setData(0, Qt::UserRole, QString::fromStdString(id));
             row->setData(0, Qt::UserRole + 3, definition ? "part-body" : "part-body-boolean");
             if (id == graph.active_body_id() || id == body_dialog_step_id_) {
-                row->setForeground(0, QBrush(QColor("#4DD811")));
+                row->setBackground(0, QBrush(QColor("#00D1FF"))); row->setForeground(0, QBrush(QColor("#102027")));
                 auto font = row->font(0); font.setBold(true); row->setFont(0, font);
             }
             if (!definition) { shade_downstream(row, index); continue; }
@@ -814,7 +814,7 @@ void AssemblyWorkspaceWindow::add_assembly_tree_children(
                 item->setForeground(0, QBrush(QColor(125, 125, 125)));
             } else if (assembly_cut_rollback_ &&
                        cut_index == assembly_cut_rollback_->cut_index) {
-                item->setForeground(0, QBrush(QColor(70, 190, 95)));
+                item->setBackground(0, QBrush(QColor("#00D1FF"))); item->setForeground(0, QBrush(QColor("#102027")));
                 QFont font = item->font(0);
                 font.setBold(true);
                 item->setFont(0, font);
@@ -911,7 +911,7 @@ void AssemblyWorkspaceWindow::add_snapshot_tree_children(
             component.source_document_id == workspace_.active_document_id();
         if ((part_rollback_ && path.encoded() == part_rollback_->instance_path) ||
             (component.occurrence_id==primitive_parameter_owner_id_&&owner_assembly_document_id==workspace_.active_document_id()) || active_occurrence) {
-            item->setForeground(0, QBrush(QColor(70, 190, 95)));
+            item->setBackground(0, QBrush(QColor("#00D1FF"))); item->setForeground(0, QBrush(QColor("#102027")));
             QFont font = item->font(0);
             font.setBold(true);
             item->setFont(0, font);

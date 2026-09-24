@@ -39,7 +39,7 @@ void AssemblyWorkspaceWindow::create_actions() {
     export_action_->setObjectName("exportDocumentAction");
     connect(export_action_, &QAction::triggered, this, [this] { export_file(); });
     file->addAction(export_action_);
-    close_document_action_ = make_action(t("menu.file.close", "Zavřít"));
+    close_document_action_ = make_action(t("menu.file.close", "Zavřít"), "close");
     close_document_action_->setObjectName("closeDocumentAction");
     close_document_action_->setShortcuts({QKeySequence(Qt::Key_F6), QKeySequence::Close});
     connect(close_document_action_, &QAction::triggered, this,
@@ -62,7 +62,7 @@ void AssemblyWorkspaceWindow::create_actions() {
         [this] { save_active_document_as(); });
     file->addAction(save_as_action_);
     rename_document_action_ = make_action(
-        t("menu.file.rename", "Přejmenovat…"));
+        t("menu.file.rename", "Přejmenovat…"), "rename");
     rename_document_action_->setObjectName("renameDocumentAction");
     rename_document_action_->setEnabled(false);
     connect(rename_document_action_, &QAction::triggered, this,
@@ -72,6 +72,7 @@ void AssemblyWorkspaceWindow::create_actions() {
     delete_file_menu_ = file->addMenu(
         t("menu.file.delete", "Odstranit"));
     delete_file_menu_->setObjectName("deleteFileMenu");
+    delete_file_menu_->setIcon(resource_icon("delete"));
     delete_current_file_action_ = delete_file_menu_->addAction(
         resource_icon("delete"),
         t("menu.file.delete.current_file", "Aktuální soubor"));
@@ -101,6 +102,7 @@ void AssemblyWorkspaceWindow::create_actions() {
     delete_working_directory_menu_ = delete_file_menu_->addMenu(
         t("menu.file.delete.working_directory", "Pracovní adresář"));
     delete_working_directory_menu_->setObjectName("deleteWorkingDirectoryMenu");
+    delete_working_directory_menu_->setIcon(resource_icon("working-directory"));
     delete_working_directory_old_versions_action_ =
         delete_working_directory_menu_->addAction(
             t("menu.file.delete.working_directory_old_versions",
@@ -122,11 +124,12 @@ void AssemblyWorkspaceWindow::create_actions() {
                          delete_old_versions_keep_latest_action_,
                          delete_working_directory_old_versions_action_,
                          delete_working_directory_keep_latest_action_}) {
+        action->setIcon(resource_icon("delete"));
         action->setEnabled(false);
     }
     file->addSeparator();
     working_directory_action_ = make_action(
-        t("menu.file.working_directory", "Nastavit pracovní adresář..."));
+        t("menu.file.working_directory", "Nastavit pracovní adresář..."), "working-directory");
     working_directory_action_->setObjectName("workingDirectoryAction");
     connect(working_directory_action_, &QAction::triggered, this,
         [this] { set_working_directory(); });
@@ -134,6 +137,7 @@ void AssemblyWorkspaceWindow::create_actions() {
 
     auto* edit = menuBar()->addMenu(t("menu.edit", "Upravit"));
     regenerate_document_action_ = make_action(tr("Regenerovat"));
+    regenerate_document_action_->setIcon(resource_icon("regenerate"));
     regenerate_document_action_->setObjectName("regenerateDocumentAction");
     regenerate_document_action_->setShortcut(QKeySequence(QStringLiteral("F5")));
     regenerate_document_action_->setToolTip(
@@ -328,9 +332,7 @@ void AssemblyWorkspaceWindow::create_actions() {
         view->addAction(action);
     }
     view->addSeparator();
-    colors_menu_ = view->addMenu(t("menu.view.colors", "Barvy"));
-    colors_menu_->setObjectName("colorsMenu");
-    custom_body_color_action_ = colors_menu_->addAction(tr("Barvy a vzhled…"));
+    custom_body_color_action_ = view->addAction(tr("Barvy a vzhled…"));
     custom_body_color_action_->setObjectName("customBodyColorAction");
     custom_body_color_action_->setIcon(resource_icon("appearance"));
     connect(custom_body_color_action_, &QAction::triggered, this,
@@ -347,8 +349,11 @@ void AssemblyWorkspaceWindow::create_actions() {
         t("application.surface", "Plochy"),
         t("application.piping", "Potrubí"),
         t("application.drawing", "Výkres")};
+    const std::array<const char*, 6> application_icons{
+        "part", "assembly", "bend", "surface", "sweep", "drawing"};
     for (std::size_t index = 0; index < application_actions_.size(); ++index) {
         auto* action = new QAction(application_names[index],this);
+        action->setIcon(resource_icon(QString::fromLatin1(application_icons[index])));
         if(static_cast<ApplicationMode>(index)!=ApplicationMode::Piping)
             applications->addAction(action);
         else action->setVisible(false);
@@ -473,7 +478,7 @@ void AssemblyWorkspaceWindow::create_actions() {
     helical_sweep_action_->setToolTip(tr("Šroubovicové tažení profilu."));
     connect(helical_sweep_action_, &QAction::triggered, this, [this] { show_helical_sweep_properties(); });
     construction_axis_action_ = make_action(tr("Osa"), "axis");
-    cylinder_axis_action_ = make_action(tr("Osa z válcové plochy"), "axis");
+    cylinder_axis_action_ = make_action(tr("Osa válcové plochy"), "axis");
     cylinder_axis_action_->setObjectName("cylinderAxisAction");
     connect(cylinder_axis_action_, &QAction::triggered, this, [this] { show_cylinder_axis_properties(); });
     construction_plane_action_ = make_action(tr("Rovina"), "plane");
@@ -701,6 +706,7 @@ void AssemblyWorkspaceWindow::create_actions() {
     finish_sketch_action_->setObjectName("finishSketchAction");
     finish_sketch_action_->setEnabled(false);
     regenerate_part_action_ = make_action(tr("Regenerovat"));
+    regenerate_part_action_->setIcon(resource_icon("regenerate"));
     regenerate_part_action_->setObjectName("regeneratePartAction");
 
     connect(box_action_, &QAction::triggered, this, [this] {
@@ -907,6 +913,7 @@ void AssemblyWorkspaceWindow::create_actions() {
     connect(insert_menu_, &QMenu::aboutToShow, this,
         [this] { rebuild_insert_menu(); });
     regenerate_action_ = make_action(tr("Regenerovat"));
+    regenerate_action_->setIcon(resource_icon("regenerate"));
     regenerate_action_->setObjectName("regenerateAssemblyAction");
     connect(regenerate_action_, &QAction::triggered, this, [this] { regenerate_assembly(); });
 
@@ -946,13 +953,7 @@ void AssemblyWorkspaceWindow::create_actions() {
     view_toolbar_->setObjectName("viewToolbar");
     view_toolbar_->setMovable(false);
     view_toolbar_->setIconSize(QSize(16, 16));
-    view_toolbar_->setStyleSheet(toolbar_separator_style() +
-        "QToolButton:hover:enabled { background-color:rgba(77,216,17,72);"
-        " color:#fff; border:1px solid rgba(128,170,26,190); border-radius:4px; }"
-        "QToolButton:checked { background-color:rgba(77,216,17,125);"
-        " color:#fff; border:1px solid #80AA1A; border-radius:4px; }"
-        "QToolButton:pressed { background-color:rgba(77,216,17,165);"
-        " color:#fff; border:1px solid #9BCC32; border-radius:4px; }");
+    view_toolbar_->setStyleSheet(toolbar_separator_style() + command_button_style());
     view_toolbar_->addAction(regenerate_document_action_);
     view_toolbar_->addAction(custom_body_color_action_);
     measure_action_=view_toolbar_->addAction(resource_icon("measure"),tr("Měření…"));
@@ -1037,16 +1038,7 @@ void AssemblyWorkspaceWindow::create_actions() {
     tools_toolbar_->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
     tools_toolbar_->setMinimumWidth(158);
     tools_toolbar_->setIconSize(QSize(16, 16));
-    tools_toolbar_->setStyleSheet(toolbar_separator_style() +
-        "QToolButton { padding:3px 6px; text-align:left; }"
-        "QToolButton:checked { background-color:rgba(77,216,17,125);"
-        " color:#fff; border:none; border-radius:4px; }"
-        "QToolButton#applicationCommandButton:hover:enabled {"
-        " background-color:rgba(77,216,17,90); color:#fff; border:none;"
-        " border-radius:4px; }"
-        "QToolButton#applicationCommandButton:pressed:enabled {"
-        " background-color:rgba(77,216,17,165); color:#fff; border:none;"
-        " border-radius:4px; }");
+    tools_toolbar_->setStyleSheet(toolbar_separator_style() + command_button_style());
 }
 
 } // namespace zima::app

@@ -464,6 +464,8 @@ zima::kernel::ViewerReferenceGeometry load_reference_geometry(
             {reference.owner_id, reference.semantic_key,
              reference.instance_path}});
         result.points.back().surface_result=source.at("point_surfaces").at(index).get<bool>();
+        if (reference.semantic_key.starts_with("sweep:path-point:"))
+            result.points.back().display_owner_id = reference.owner_id;
     }
     for (const auto& value : source.at("axes")) {
         const auto& reference = reference_at(
@@ -863,6 +865,10 @@ zima::kernel::BodyResult load_body_result(const nlohmann::json& source) {
         // after cache loading instead of accepting ViewerPoint's general
         // purpose always-visible default.
         loaded.always_visible = false;
+        if (loaded.reference.semantic_key.starts_with("sweep:path-point:")) {
+            loaded.always_visible = true;
+            loaded.display_owner_id = loaded.reference.owner_id;
+        }
         if (!loaded.reference.valid()) {
             throw std::runtime_error("Persisted viewer point is invalid");
         }

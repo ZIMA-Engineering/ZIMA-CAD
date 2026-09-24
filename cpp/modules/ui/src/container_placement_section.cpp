@@ -66,10 +66,12 @@ ContainerPlacementSection::ContainerPlacementSection(
     if (!with_orientation_) remaining_rotation_dof_ = 0;
     if (!with_orientation_) rotation_constraint_state_.remaining_dof = 0;
     reference_status_ = new QLabel(parent_widget_);
-    reference_status_->setStyleSheet("color:#80AA1A;font-weight:700;");
+    reference_status_->setStyleSheet("color:#4dd811;font-weight:700;");
     reference_status_->setWordWrap(true);
     reference_status_->setSizePolicy(QSizePolicy::Preferred,QSizePolicy::Maximum);
-    layout->addWidget(reference_status_);
+    reference_status_->setObjectName("containerPlacementStatusLabel");
+    reference_status_->setAlignment(Qt::AlignRight|Qt::AlignVCenter);
+    reference_status_->hide();
 
     auto* placement_heading = new QLabel(tr("Umístění kontejneru"), parent_widget_);
     auto heading_font = placement_heading->font();
@@ -414,8 +416,15 @@ void ContainerPlacementSection::refresh_rotation_field_states() {
 
 void ContainerPlacementSection::install_dof_label(QVBoxLayout* layout) {
     if (dof_label_ == nullptr || layout == nullptr) return;
-    if (layout->indexOf(dof_label_) < 0) layout->addWidget(dof_label_);
+    if (!dof_label_->property("placementStatusInstalled").toBool()) {
+        auto* row=new QHBoxLayout;
+        row->addWidget(dof_label_,1,Qt::AlignVCenter);
+        row->addWidget(reference_status_,0,Qt::AlignRight|Qt::AlignVCenter);
+        layout->addLayout(row);
+        dof_label_->setProperty("placementStatusInstalled",true);
+    }
     dof_label_->show();
+    reference_status_->show();
 }
 
 void ContainerPlacementSection::set_orientation_locked(

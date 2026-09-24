@@ -1,3 +1,5 @@
+#include "reference_table_style.hpp"
+#include "sketch_button_style.hpp"
 #include "work_plane_selection.hpp"
 #include <zima/document/hole_profiles.hpp>
 #include <zima/ui/numeric_value_lock.hpp>
@@ -500,25 +502,18 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
         label_font.setBold(true);
         faces_label->setFont(label_font);
         form->addRow(faces_label);
-        drill_point_face_list_ = new QListWidget(this);
+        drill_point_face_list_ = new QTableWidget(0,2,this);
+        drill_point_face_list_->setHorizontalHeaderLabels({QString{},tr("Reference")});
+        style_reference_table(drill_point_face_list_,0,1);
         drill_point_face_list_->setObjectName("drillPointFaces");
         drill_point_face_list_->setMinimumHeight(120);
         drill_point_face_list_->viewport()->installEventFilter(this);
-        form->addRow(drill_point_face_list_);
-        connect(drill_point_face_list_, &QListWidget::itemPressed, this,
-            [this] {
+
+        connect(drill_point_face_list_, &QTableWidget::cellPressed, this,
+            [this](int row, int column) {
+                if(column!=1 && !(column==0 && row==drill_point_face_list_->rowCount()-1))return;
                 if (request_drill_point_face_selection_)
                     request_drill_point_face_selection_();
-            });
-        remove_drill_point_face_button_ = new QPushButton(
-            tr("Odebrat vybranou plochu"), this);
-        remove_drill_point_face_button_->setObjectName("drillPointRemoveFace");
-        form->addRow(remove_drill_point_face_button_);
-        connect(remove_drill_point_face_button_, &QPushButton::clicked,
-            this, [this] {
-                const int row = drill_point_face_list_->currentRow();
-                if (row >= 0 && remove_drill_point_face_)
-                    remove_drill_point_face_(static_cast<std::size_t>(row));
             });
         connect(drill_point_angle_,
             qOverload<double>(&QDoubleSpinBox::valueChanged), this,
@@ -1052,10 +1047,7 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
         own_sketch_button_ = new QPushButton(tr("Skica"), this);
         own_sketch_button_->setObjectName("primitiveOwnSketchButton");
         own_sketch_button_->setMinimumHeight(40);
-        own_sketch_button_->setStyleSheet(
-            "QPushButton{background:#4DD811;color:#102027;font-weight:700;"
-            "padding:9px 18px;border-radius:4px}"
-            "QPushButton:hover{background:#65ec2c}");
+        style_sketch_button(own_sketch_button_);
         form->addRow(own_sketch_button_);
         connect(own_sketch_button_, &QPushButton::clicked, this, [this] {
             auto pending = values();
@@ -1136,26 +1128,19 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
         label_font.setBold(true);
         faces_label->setFont(label_font);
         form->addRow(faces_label);
-        shell_face_list_ = new QListWidget(this);
+        shell_face_list_ = new QTableWidget(0,2,this);
+        shell_face_list_->setHorizontalHeaderLabels({QString{},tr("Reference")});
+        style_reference_table(shell_face_list_,0,1);
         shell_face_list_->setObjectName("shellFaces");
         shell_face_list_->setMinimumHeight(100);
         shell_face_list_->viewport()->installEventFilter(this);
-        form->addRow(shell_face_list_);
-        connect(shell_face_list_, &QListWidget::itemPressed, this,
-            [this] {
+
+        connect(shell_face_list_, &QTableWidget::cellPressed, this,
+            [this](int row, int column) {
+                if(column!=1 && !(column==0 && row==shell_face_list_->rowCount()-1))return;
                 if (request_shell_face_selection_)
                     request_shell_face_selection_();
             });
-        remove_shell_face_button_ = new QPushButton(
-            tr("Odebrat vybranou plochu"), this);
-        remove_shell_face_button_->setObjectName("shellRemoveFace");
-        form->addRow(remove_shell_face_button_);
-        connect(remove_shell_face_button_, &QPushButton::clicked, this, [this] {
-            const int row = shell_face_list_->currentRow();
-            if (row >= 0 && remove_shell_face_) {
-                remove_shell_face_(static_cast<std::size_t>(row));
-            }
-        });
         connect(shell_thickness_, qOverload<double>(&QDoubleSpinBox::valueChanged),
             this, [this] { notify_preview(); });
         set_shell_faces(initial.shell.removed_faces);
@@ -1231,33 +1216,41 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
         form->addRow(edges_label);
         edge_list_ = new QTreeWidget(this);
         edge_list_->setObjectName("edgeTreatmentEdges");
-        edge_list_->setColumnCount(2);
-        edge_list_->setHeaderLabels({tr("Trasa"), tr("Objekty")});
+        edge_list_->setColumnCount(4);
+        edge_list_->setHeaderLabels({tr("Trasa"), tr("Objekty"),QStringLiteral("#"),QString{}});
+        edge_list_->setTreePosition(2);
+        for(int column:{2,3})edge_list_->header()->setSectionResizeMode(column,QHeaderView::Fixed);
+        edge_list_->setColumnWidth(2,64);edge_list_->setColumnWidth(3,34);
+        edge_list_->header()->moveSection(edge_list_->header()->visualIndex(2),0);
+        edge_list_->header()->moveSection(edge_list_->header()->visualIndex(3),1);
+        edge_list_->setMouseTracking(true);
+        edge_list_->setStyleSheet("QTreeWidget::item:hover{background:#4dd811;color:#102027;}"
+            "QTreeWidget::item:selected{background:#00d1ff;color:#102027;}");
         edge_list_->header()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
         edge_list_->header()->setSectionResizeMode(1, QHeaderView::Stretch);
         edge_list_->setMinimumHeight(90);
-        form->addRow(edge_list_);
-        remove_edge_button_ = new QPushButton(tr("Odebrat vybranou hranu"), this);
-        remove_edge_button_->setObjectName("edgeTreatmentRemove");
         restore_route_button_ = new QPushButton(tr("Obnovit celou trasu"), this);
-        form->addRow(remove_edge_button_); form->addRow(restore_route_button_);
-        connect(remove_edge_button_, &QPushButton::clicked, this, [this] {
-            const auto* item = edge_list_->currentItem();
-            if (item == nullptr || !remove_edge_) return;
-            const auto group = item->data(0, Qt::UserRole).toUInt();
-            const auto member_data = item->data(0, Qt::UserRole + 1);
-            remove_edge_(group, member_data.isValid()
-                ? std::optional<std::size_t>{member_data.toUInt()} : std::nullopt);
+        connect(edge_list_, &QTreeWidget::currentItemChanged, restore_route_button_,
+            [button=restore_route_button_](QTreeWidgetItem* item) {
+            button->setEnabled(item && item->data(0,Qt::UserRole).isValid());
         });
         connect(restore_route_button_, &QPushButton::clicked, this, [this] {
             const auto* item = edge_list_->currentItem();
-            if (item != nullptr && restore_route_)
+            if (item != nullptr && item->data(0,Qt::UserRole).isValid() && restore_route_)
                 restore_route_(item->data(0, Qt::UserRole).toUInt());
         });
         set_edge_groups(initial.edge_treatment.routes);
     }
 
     content_layout()->addLayout(form);
+    for(auto* table:{shell_face_list_,drill_point_face_list_})if(table) {
+        content_layout()->addWidget(table,1);setProperty("expandBottomTable",true);
+    }
+    if(edge_list_) {
+        content_layout()->addWidget(edge_list_,1);
+        content_layout()->addWidget(restore_route_button_);
+        setProperty("expandBottomTable",true);
+    }
 
     // Sheet Cut always subtracts. Omitting its non-editable operation row also
     // leaves room for both end conditions and the owned Sketch action.
@@ -1663,19 +1656,41 @@ void PrimitivePropertiesDialog::set_edge_groups(std::vector<EdgeGroup> groups) {
             tr("Trasa %1").arg(group_index + 1),
             tr("%1 objektů").arg(group.size())});
         route->setData(0, Qt::UserRole, static_cast<uint>(group_index));
+        route->setText(2,QString::number(group_index+1));
+        route->setSizeHint(0,QSize(edge_list_->fontMetrics().horizontalAdvance(route->text(0))+16,34));
+        auto* route_action=zima::ui::build_reference_row_indicator([this,group_index] {
+            if(remove_edge_)remove_edge_(group_index,std::nullopt);
+        });
+        route_action->setObjectName(QString("edgeRouteRemove%1").arg(group_index));
+        zima::ui::set_reference_row_populated(route_action,true);
+        edge_list_->setItemWidget(route,3,zima::ui::centered_cell_widget(route_action));
         for (std::size_t member = 0; member < group.size(); ++member) {
             const auto& edge = group[member];
             auto* child = new QTreeWidgetItem(route, {QString{},
                 QString::fromStdString(edge.owner_id + " / " + edge.semantic_key)});
             child->setData(0, Qt::UserRole, static_cast<uint>(group_index));
             child->setData(0, Qt::UserRole + 1, static_cast<uint>(member));
+            child->setText(2,QStringLiteral("%1.%2").arg(group_index+1).arg(member+1));
+            child->setSizeHint(0,QSize(16,34));
+            auto* action=zima::ui::build_reference_row_indicator([this,group_index,member] {
+                if(remove_edge_)remove_edge_(group_index,member);
+            });
+            action->setObjectName(QString("edgeMemberRemove%1_%2").arg(group_index).arg(member));
+            zima::ui::set_reference_row_populated(action,true);
+            edge_list_->setItemWidget(child,3,zima::ui::centered_cell_widget(action));
         }
         route->setExpanded(true);
     }
-    const bool available =
-        !initial_.edge_treatment.flattened_edges().empty();
-    if (remove_edge_button_) remove_edge_button_->setEnabled(available);
-    if (restore_route_button_) restore_route_button_->setEnabled(available);
+    // The command already owns edge entry throughout its lifetime. This row
+    // makes the offered input visible without creating an empty model route.
+    auto* offered=new QTreeWidgetItem(edge_list_);
+    offered->setText(1,tr("Vybrat referenci"));
+    offered->setForeground(1,QColor("#4dd811"));
+    offered->setText(2,QString::number(edge_groups_.size()+1));
+    offered->setSizeHint(0,QSize(0,34));
+    edge_list_->setItemWidget(offered,3,zima::ui::centered_cell_widget(
+        zima::ui::build_reference_row_indicator({})));
+    if (restore_route_button_) restore_route_button_->setEnabled(false);
     notify_preview();
 }
 
@@ -1771,8 +1786,7 @@ bool PrimitivePropertiesDialog::eventFilter(QObject* watched, QEvent* event) {
         const auto* mouse = static_cast<QMouseEvent*>(event);
         if (mouse->button() == Qt::LeftButton &&
             request_drill_point_face_selection_ &&
-            drill_point_face_list_->itemAt(
-                mouse->position().toPoint()) == nullptr) {
+            !drill_point_face_list_->indexAt(mouse->position().toPoint()).isValid()) {
             request_drill_point_face_selection_();
         }
     }
@@ -1782,7 +1796,7 @@ bool PrimitivePropertiesDialog::eventFilter(QObject* watched, QEvent* event) {
         const auto* mouse = static_cast<QMouseEvent*>(event);
         if (mouse->button() == Qt::LeftButton &&
             request_shell_face_selection_ &&
-            shell_face_list_->itemAt(mouse->position().toPoint()) == nullptr) {
+            !shell_face_list_->indexAt(mouse->position().toPoint()).isValid()) {
             request_shell_face_selection_();
         }
     }
@@ -1875,7 +1889,7 @@ void PrimitivePropertiesDialog::refresh_extrusion_target_styles() {
             ? QStringLiteral("background:#00d1ff;color:#102027;")
             : QString{};
         const QString border = active
-            ? QStringLiteral("border:2px solid #42d66b;")
+            ? QStringLiteral("border:2px solid #4dd811;")
             : QStringLiteral("border:1px solid palette(mid);");
         edit->setStyleSheet(QStringLiteral("QLineEdit{%1%2padding:2px 5px}")
             .arg(background, border));
@@ -2077,15 +2091,20 @@ void PrimitivePropertiesDialog::set_shell_faces(
     shell_faces_ = std::move(faces);
     initial_.shell.removed_faces = shell_faces_;
     if (shell_face_list_ == nullptr) return;
-    shell_face_list_->clear();
+    shell_face_list_->setRowCount(0);
     for (std::size_t index = 0; index < shell_faces_.size(); ++index) {
-        auto* item = new QListWidgetItem(
-            tr("Plocha %1").arg(index + 1), shell_face_list_);
+        shell_face_list_->insertRow(static_cast<int>(index));
+        auto* item = new zima::ui::ReferenceCellItem(tr("Plocha %1").arg(index + 1));
+        item->set_reference(QString::fromStdString(shell_faces_[index].semantic_key));
+        shell_face_list_->setItem(static_cast<int>(index),1,item);
+        auto* action=zima::ui::build_reference_row_indicator([this,index]{if(remove_shell_face_)remove_shell_face_(index);});
+        zima::ui::set_reference_row_populated(action,true);
+        shell_face_list_->setCellWidget(static_cast<int>(index),0,zima::ui::centered_cell_widget(action));
         item->setToolTip(QString::fromStdString(
             shell_faces_[index].owner_id + " / " +
             shell_faces_[index].semantic_key));
     }
-    remove_shell_face_button_->setEnabled(!shell_faces_.empty());
+    append_face_reference_entry(shell_face_list_);
 }
 
 void PrimitivePropertiesDialog::set_drill_point_faces(
@@ -2094,16 +2113,22 @@ void PrimitivePropertiesDialog::set_drill_point_faces(
     drill_point_faces_ = std::move(faces);
     initial_.drill_point.bottom_faces = drill_point_faces_;
     if (drill_point_face_list_ == nullptr) return;
-    drill_point_face_list_->clear();
+    drill_point_face_list_->setRowCount(0);
     for (std::size_t index = 0; index < drill_point_faces_.size(); ++index) {
-        auto* item = new QListWidgetItem(
+        drill_point_face_list_->insertRow(static_cast<int>(index));
+        auto* item = new zima::ui::ReferenceCellItem(
             index < labels.size() && !labels[index].isEmpty() ? labels[index]
-                : tr("Dno otvoru %1").arg(index + 1), drill_point_face_list_);
+                : tr("Dno otvoru %1").arg(index + 1));
+        item->set_reference(QString::fromStdString(drill_point_faces_[index].semantic_key));
+        drill_point_face_list_->setItem(static_cast<int>(index),1,item);
+        auto* action=zima::ui::build_reference_row_indicator([this,index]{if(remove_drill_point_face_)remove_drill_point_face_(index);});
+        zima::ui::set_reference_row_populated(action,true);
+        drill_point_face_list_->setCellWidget(static_cast<int>(index),0,zima::ui::centered_cell_widget(action));
         item->setToolTip(QString::fromStdString(
             drill_point_faces_[index].owner_id + " / " +
             drill_point_faces_[index].semantic_key));
     }
-    remove_drill_point_face_button_->setEnabled(!drill_point_faces_.empty());
+    append_face_reference_entry(drill_point_face_list_);
     notify_preview();
 }
 
@@ -2117,9 +2142,7 @@ void PrimitivePropertiesDialog::set_drill_point_face_callbacks(
 void PrimitivePropertiesDialog::set_drill_point_face_selection_active(
         bool active) {
     if (drill_point_face_list_ == nullptr) return;
-    drill_point_face_list_->setStyleSheet(active
-        ? QStringLiteral("QListWidget { border: 2px solid #00aa44; }")
-        : QString{});
+    set_face_reference_entry_active(drill_point_face_list_,active);
 }
 
 void PrimitivePropertiesDialog::set_shell_face_callbacks(
@@ -2131,9 +2154,7 @@ void PrimitivePropertiesDialog::set_shell_face_callbacks(
 
 void PrimitivePropertiesDialog::set_shell_face_selection_active(bool active) {
     if (shell_face_list_ == nullptr) return;
-    shell_face_list_->setStyleSheet(active
-        ? QStringLiteral("QListWidget{border:2px solid #80AA1A;}")
-        : QString{});
+    set_face_reference_entry_active(shell_face_list_,active);
 }
 
 bool PrimitivePropertiesDialog::submit() {

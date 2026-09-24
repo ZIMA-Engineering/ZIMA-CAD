@@ -50,10 +50,10 @@ void AssemblyWorkspaceWindow::create_layout() {
         "QTabBar::tab { padding:7px 12px; margin-right:2px;"
         " border:1px solid rgba(255,255,255,35); border-bottom:none;"
         " border-top-left-radius:5px; border-top-right-radius:5px; }"
-        "QTabBar::tab:selected { background:rgba(77,216,17,145); color:#fff;"
-        " font-weight:700; border-color:#4DD811; }"
+        "QTabBar::tab:selected { background:#00D1FF; color:#102027;"
+        " font-weight:700; border-color:#00D1FF; }"
         "QTabBar::tab:!selected { background:rgba(255,255,255,18); }"
-        "QTabBar::tab:hover:!selected { background:rgba(77,216,17,55); }");
+        "QTabBar::tab:hover { background:#4DD811; color:#102027; }");
     document_splitter_ = new QSplitter(Qt::Horizontal, central);
     document_splitter_->setObjectName("documentSplitter");
     auto* history_tree = new zima::app::HistoryTreeWidget(document_splitter_);
@@ -112,8 +112,9 @@ void AssemblyWorkspaceWindow::create_layout() {
         [this] { navigate_document_kind(); });
     tree_->setStyleSheet(
         "QTreeWidget::item:selected, QTreeWidget::item:selected:active,"
-        " QTreeWidget::item:selected:!active { background-color:#356E22;"
-        " color:#fff; } QTreeWidget::item:hover { background-color:transparent; }");
+        " QTreeWidget::item:selected:!active { background-color:#00D1FF;"
+        " color:#102027; } QTreeWidget::item:hover, QTreeWidget::item:selected:hover:active, QTreeWidget::item:selected:hover:!active { background-color:#4dd811; color:#102027; }");
+    tree_->setMouseTracking(true);
     viewer_ = new zima::viewer::MeshView;
     viewer_->setObjectName("modelViewer");
     viewer_->set_origin_visibility_filter([this](const auto& reference) {
@@ -604,6 +605,9 @@ void AssemblyWorkspaceWindow::create_layout() {
                     ? selected_sketch_external_reference_id_
                 : selected_sketch_point_id_;
             if (!selected_id.empty()) {
+                // View confirmation already owns this selection. Do not let the
+                // intermediate empty Tree state erase it or its geometry IDs.
+                const QSignalBlocker tree_signals(tree_);
                 if (additive_sketch_selection) {
                     if (!selected_sketch_geometry_ids_.erase(selected_id)) {
                         selected_sketch_geometry_ids_.insert(selected_id);
@@ -714,17 +718,17 @@ void AssemblyWorkspaceWindow::create_layout() {
             if (!part_element_context_menu_enabled(candidate.owner_id)) return;
             if(candidate.kind==zima::viewer::CandidateKind::Symbol && !properties_dialog_) {
                 const auto id=candidate.semantic_key.substr(7);QMenu menu(this);
-                auto* properties=menu.addAction(tr("Vlastnosti…"));auto* remove=menu.addAction(resource_icon("delete"),tr("Odstranit"));
+                auto* properties=menu.addAction(resource_icon("properties"),tr("Vlastnosti…"));auto* remove=menu.addAction(resource_icon("delete"),tr("Odstranit"));
                 const auto* chosen=menu.exec(global_position);if(chosen==properties)show_symbol_properties(id);else if(chosen==remove)remove_symbol(id);return;
             }
             if(candidate.kind==zima::viewer::CandidateKind::TemplateImage && !properties_dialog_) {
                 const auto id=candidate.semantic_key.substr(15);QMenu menu(this);
-                auto* properties=menu.addAction(tr("Vlastnosti…"));auto* remove=menu.addAction(resource_icon("delete"),tr("Odstranit"));
+                auto* properties=menu.addAction(resource_icon("properties"),tr("Vlastnosti…"));auto* remove=menu.addAction(resource_icon("delete"),tr("Odstranit"));
                 const auto* chosen=menu.exec(global_position);if(chosen==properties)show_template_image_properties(id);else if(chosen==remove)remove_template_image(id);return;
             }
             if(candidate.kind==zima::viewer::CandidateKind::TemplateRegion && !properties_dialog_) {
                 const auto id=candidate.semantic_key.substr(14);QMenu menu(this);
-                auto* properties=menu.addAction(tr("Vlastnosti…"));auto* remove=menu.addAction(resource_icon("delete"),tr("Odstranit"));
+                auto* properties=menu.addAction(resource_icon("properties"),tr("Vlastnosti…"));auto* remove=menu.addAction(resource_icon("delete"),tr("Odstranit"));
                 const auto* chosen=menu.exec(global_position);if(chosen==properties)show_template_region_properties(id);else if(chosen==remove)remove_template_region(id);return;
             }
             if (edge_treatment_selection_ || shell_face_selection_active_ ||
@@ -738,9 +742,9 @@ void AssemblyWorkspaceWindow::create_layout() {
                 sketch_segment_pair_active_ || sketch_point_dimension_active_ ||
                 sketch_universal_dimension_active_) return;
             if(candidate.kind==zima::viewer::CandidateKind::Dimension && !properties_dialog_ && active_sketch_id_.empty()) {
-                QMenu menu(this);auto* presentation=menu.addAction(tr("Vlastnosti kóty…"));
+                QMenu menu(this);auto* presentation=menu.addAction(resource_icon("properties"),tr("Vlastnosti kóty…"));
                 presentation->setObjectName("dimensionLayoutPropertiesAction");
-                auto* value=menu.addAction(tr("Upravit hodnotu…"));
+                auto* value=menu.addAction(resource_icon("edit"),tr("Upravit hodnotu…"));
                 auto* lock=menu.addAction(parameter_value_locked(candidate.owner_id,candidate.semantic_key).value_or(false)?tr("Odemknout hodnotu"):tr("Zamknout hodnotu"));
                 const auto* chosen=menu.exec(global_position);
                 if(chosen==presentation)show_dimension_layout_properties(candidate);
@@ -767,7 +771,7 @@ void AssemblyWorkspaceWindow::create_layout() {
                     locked ? tr("Odemknout rozměr") : tr("Zamknout rozměr"));
                 lock->setEnabled(existing->driving);
                 menu.addSeparator();
-                auto* properties = menu.addAction(tr("Vlastnosti…"));
+                auto* properties = menu.addAction(resource_icon("properties"),tr("Vlastnosti…"));
                 menu.addSeparator();
                 auto* remove = menu.addAction(resource_icon("delete"),tr("Odstranit"));
                 const auto* chosen = menu.exec(global_position);
@@ -818,7 +822,7 @@ void AssemblyWorkspaceWindow::create_layout() {
                 inspect(sketch->elliptical_arcs); inspect(sketch->bsplines);
                 if (!construction) return;
                 QMenu menu(this);
-                auto* properties=candidate.semantic_key.starts_with("bspline:")?menu.addAction(tr("Vlastnosti…")):nullptr;
+                auto* properties=candidate.semantic_key.starts_with("bspline:")?menu.addAction(resource_icon("properties"),tr("Vlastnosti…")):nullptr;
                 auto* role = menu.addAction(*construction
                     ? tr("Převést na obrys profilu")
                     : tr("Převést na pomocnou geometrii"));
@@ -871,7 +875,7 @@ void AssemblyWorkspaceWindow::create_layout() {
                 if (!text_id) return;
                 selected_sketch_text_id_ = *text_id;
                 QMenu menu(this);
-                auto* properties = menu.addAction(tr("Vlastnosti"));
+                auto* properties = menu.addAction(resource_icon("properties"),tr("Vlastnosti"));
                 auto* remove = menu.addAction(resource_icon("delete"),tr("Odstranit"));
                 const auto* chosen = menu.exec(global_position);
                 if (chosen == properties) {
@@ -938,8 +942,8 @@ void AssemblyWorkspaceWindow::create_layout() {
                 QMenu menu(this);
                 const auto locked=parameter_value_locked(candidate.owner_id,candidate.semantic_key);
                 QAction* lock=locked?menu.addAction(*locked?tr("Odemknout hodnotu"):tr("Zamknout hodnotu")):nullptr;
-                auto* edit = menu.addAction(tr("Upravit hodnotu"));edit->setEnabled(!locked.value_or(false));
-                auto* properties = menu.addAction(tr("Vlastnosti"));
+                auto* edit = menu.addAction(resource_icon("edit"),tr("Upravit hodnotu"));edit->setEnabled(!locked.value_or(false));
+                auto* properties = menu.addAction(resource_icon("properties"),tr("Vlastnosti"));
                 const auto* selected = menu.exec(global_position);
                 if(lock && selected==lock){toggle_parameter_value_lock(candidate.owner_id,candidate.semantic_key);return;}
                 if (selected != edit && selected != properties) return;
@@ -957,8 +961,8 @@ void AssemblyWorkspaceWindow::create_layout() {
                 const auto* active=workspace_.open_part(workspace_.active_document_id());
                 const auto* body=active?active->session.document().body_history.find(candidate.owner_id):nullptr;
                 if(body&&body->derived_copy) {
-                    QMenu menu(this);auto* source=menu.addAction(tr("Vlastnosti zdroje"));
-                    auto* settings=menu.addAction(body->derived_copy->pattern?tr("Vlastnosti Pole"):tr("Vlastnosti Zrcadla"));
+                    QMenu menu(this);auto* source=menu.addAction(resource_icon("properties"),tr("Vlastnosti zdroje"));
+                    auto* settings=menu.addAction(resource_icon("properties"),body->derived_copy->pattern?tr("Vlastnosti Pole"):tr("Vlastnosti Zrcadla"));
                     const auto* selected=menu.exec(global_position);
                     if(selected==source)show_derived_source(candidate.owner_id,true);
                     else if(selected==settings)show_derived_copy_properties(candidate.owner_id);
@@ -967,8 +971,8 @@ void AssemblyWorkspaceWindow::create_layout() {
                 auto* item = find_container_item(candidate.owner_id);
                 if (item == nullptr) return;
                 QMenu menu(this);
-                auto* edit = menu.addAction(tr("Upravit"));
-                auto* properties = menu.addAction(tr("Vlastnosti"));
+                auto* edit = menu.addAction(resource_icon("edit"),tr("Upravit"));
+                auto* properties = menu.addAction(resource_icon("properties"),tr("Vlastnosti"));
                 QAction* transform_extrusion{};
                 QAction* transform_revolution{};
                 QAction* suppress_curve{};
@@ -997,9 +1001,7 @@ void AssemblyWorkspaceWindow::create_layout() {
                         construction->kind ==
                             zima::document::ConstructionKind::Curve3D) {
                         menu.addSeparator();
-                        suppress_curve = menu.addAction(
-                            construction->suppressed
-                                ? tr("Obnovit") : tr("Potlačit"));
+                        suppress_curve = menu.addAction(resource_icon(construction->suppressed ? "restore" : "suppress"), construction->suppressed ? tr("Obnovit") : tr("Potlačit"));
                         remove_curve = menu.addAction(resource_icon("delete"),tr("Odstranit"));
                     }
                 }
@@ -2251,20 +2253,20 @@ void AssemblyWorkspaceWindow::create_layout() {
             const auto step_kind = item->data(0, Qt::UserRole + 3).toString();
             if(step_kind=="template-image"&&!properties_dialog_) {
                 const auto id=item->data(0,Qt::UserRole).toString().toStdString();QMenu menu(this);
-                auto* properties=menu.addAction(tr("Vlastnosti…"));auto* remove=menu.addAction(resource_icon("delete"),tr("Odstranit"));
+                auto* properties=menu.addAction(resource_icon("properties"),tr("Vlastnosti…"));auto* remove=menu.addAction(resource_icon("delete"),tr("Odstranit"));
                 properties->setObjectName("templateImagePropertiesAction");remove->setObjectName("templateImageRemoveAction");
                 const auto* chosen=exec_tree_menu(menu,item,position);
                 if(chosen==properties)show_template_image_properties(id);else if(chosen==remove)remove_template_image(id);return;
             }
             if(step_kind=="sketch-symbol"&&!properties_dialog_) {
                 const auto id=item->data(0,Qt::UserRole).toString().toStdString();QMenu menu(this);
-                auto* properties=menu.addAction(tr("Vlastnosti…"));auto* remove=menu.addAction(resource_icon("delete"),tr("Odstranit"));
+                auto* properties=menu.addAction(resource_icon("properties"),tr("Vlastnosti…"));auto* remove=menu.addAction(resource_icon("delete"),tr("Odstranit"));
                 const auto* chosen=menu.exec(tree_->viewport()->mapToGlobal(position));
                 if(chosen==properties)show_symbol_properties(id);else if(chosen==remove)remove_symbol(id);return;
             }
             if(step_kind=="template-repeat-region"&&!properties_dialog_) {
                 const auto id=item->data(0,Qt::UserRole).toString().toStdString();QMenu menu(this);
-                auto* properties=menu.addAction(tr("Vlastnosti…"));auto* remove=menu.addAction(resource_icon("delete"),tr("Odstranit"));
+                auto* properties=menu.addAction(resource_icon("properties"),tr("Vlastnosti…"));auto* remove=menu.addAction(resource_icon("delete"),tr("Odstranit"));
                 properties->setObjectName("templateRegionPropertiesAction");remove->setObjectName("templateRegionRemoveAction");
                 const auto* chosen=exec_tree_menu(menu,item,position);
                 if(chosen==properties)show_template_region_properties(id);else if(chosen==remove)remove_template_region(id);return;
@@ -2330,12 +2332,12 @@ void AssemblyWorkspaceWindow::create_layout() {
                 if (!part) return;
                 QMenu menu(this);
                 menu.setObjectName("partActivationMenu");
-                auto* edit = menu.addAction(tr("Vlastnosti"));
+                auto* edit = menu.addAction(resource_icon("properties"),tr("Vlastnosti"));
                 const auto* body=part->session.document().body_history.find(id);
                 auto* dimensions=body && !body->derived_copy ? menu.addAction(tr("Edit")) : nullptr;
                 if(dimensions)dimensions->setObjectName("editBodyDimensionsAction");
-                auto* source_properties=body&&body->derived_copy ? menu.addAction(tr("Vlastnosti zdroje")) : nullptr;
-                auto* visibility=body ? menu.addAction(body->visible?tr("Skrýt"):tr("Zobrazit")) : nullptr;
+                auto* source_properties=body&&body->derived_copy ? menu.addAction(resource_icon("properties"),tr("Vlastnosti zdroje")) : nullptr;
+                auto* visibility=body ? menu.addAction(resource_icon(body->visible ? "hide" : "show"), body->visible ? tr("Skrýt") : tr("Zobrazit")) : nullptr;
                 if(visibility)visibility->setObjectName("bodyVisibilityAction");
                 QAction* activate = step_kind == "part-body" && !(body&&body->derived_copy) ? menu.addAction(tr("Aktivní")) : nullptr;
                 if (activate) {
@@ -2419,7 +2421,7 @@ void AssemblyWorkspaceWindow::create_layout() {
                 QMenu menu(this);
                 menu.setObjectName("treatmentComponentMenu");
                 auto* edit=menu.addAction(tr("Edit"));
-                auto* properties=menu.addAction(tr("Vlastnosti…"));
+                auto* properties=menu.addAction(resource_icon("properties"),tr("Vlastnosti…"));
                 auto* remove=menu.addAction(resource_icon("delete"),tr("Delete"));
                 remove->setObjectName("deleteTreatmentComponent");
                 const auto* selected=exec_tree_menu(menu,item,position);
@@ -2460,7 +2462,7 @@ void AssemblyWorkspaceWindow::create_layout() {
                 menu.setObjectName("openingComponentMenu");
                 auto* edit=menu.addAction(tr("Edit"));
                 edit->setObjectName("editOpeningComponent");
-                auto* properties=menu.addAction(tr("Vlastnosti…"));
+                auto* properties=menu.addAction(resource_icon("properties"),tr("Vlastnosti…"));
                 QAction* remove=nullptr;
                 if (role!="bore") {
                     remove=menu.addAction(resource_icon("delete"),tr("Delete"));
@@ -2493,7 +2495,7 @@ void AssemblyWorkspaceWindow::create_layout() {
                 if (container == nullptr || container->feature_kind !=
                         zima::document::FeatureKind::Hole) return;
                 QMenu menu(this);
-                auto* properties = menu.addAction(tr("Vlastnosti…"));
+                auto* properties = menu.addAction(resource_icon("properties"),tr("Vlastnosti…"));
                 QAction* remove_thread = role == QStringLiteral("thread")
                     ? menu.addAction(resource_icon("delete"),tr("Odstranit závit")) : nullptr;
                 if(remove_thread)remove_thread->setObjectName("deleteHoleThread");
@@ -2519,16 +2521,11 @@ void AssemblyWorkspaceWindow::create_layout() {
                 if (cut == nullptr) return;
                 QMenu menu(this);
                 menu.setObjectName("assemblyCutHistoryMenu");
-                auto* edit = menu.addAction(tr("Upravit"));
-                auto* properties = menu.addAction(tr("Vlastnosti…"));
-                auto* suppress = menu.addAction(cut->definition.suppressed
-                    ? tr("Obnovit") : tr("Potlačit"));
-                auto* move_up = menu.addAction(tr("Posunout výše"));
-                auto* move_down = menu.addAction(tr("Posunout níže"));
+                auto* edit = menu.addAction(resource_icon("edit"),tr("Upravit"));
+                auto* properties = menu.addAction(resource_icon("properties"),tr("Vlastnosti…"));
+                auto* suppress = menu.addAction(resource_icon(cut->definition.suppressed ? "restore" : "suppress"), cut->definition.suppressed ? tr("Obnovit") : tr("Potlačit"));
                 auto* remove = menu.addAction(resource_icon("delete"),tr("Odstranit"));
                 suppress->setObjectName("assemblyCutSuppressAction");
-                move_up->setObjectName("assemblyCutMoveUpAction");
-                move_down->setObjectName("assemblyCutMoveDownAction");
                 remove->setObjectName("assemblyCutRemoveAction");
                 const auto* selected = exec_tree_menu(menu,item,position);
                 if (selected == edit) {
@@ -2538,18 +2535,6 @@ void AssemblyWorkspaceWindow::create_layout() {
                 } else if (selected == suppress) {
                     try {
                         workspace::set_assembly_cut_suppressed(workspace_,kernel_,workspace_.active_document_id(),id,!cut->definition.suppressed);
-                        preserve_view_on_refresh_=true;refresh_tabs();refresh_scene();
-                    } catch (const std::exception& error) {state_->setText(tr(error.what()));}
-                } else if (selected == move_up || selected == move_down) {
-                    const auto& cuts=assembly->session.document().cuts;
-                    const auto found=std::ranges::find_if(cuts,[&](const auto& value){return value.definition.id==id;});
-                    if(found==cuts.end())return;
-                    const auto index=static_cast<std::size_t>(std::distance(cuts.begin(),found));
-                    const bool upward=selected==move_up;
-                    if((upward&&index==0)||(!upward&&index+1>=cuts.size()))return;
-                    const auto before=upward?cuts[index-1].definition.id:index+2<cuts.size()?cuts[index+2].definition.id:std::string{};
-                    try {
-                        workspace::move_assembly_cut(workspace_,kernel_,workspace_.active_document_id(),id,before);
                         preserve_view_on_refresh_=true;refresh_tabs();refresh_scene();
                     } catch (const std::exception& error) {state_->setText(tr(error.what()));}
                 } else if (selected == remove) {
@@ -2563,8 +2548,8 @@ void AssemblyWorkspaceWindow::create_layout() {
                 if (container == nullptr) return;
                 QMenu menu(this);
                 menu.setObjectName("partHistoryMenu");
-                auto* edit = menu.addAction(tr("Upravit"));
-                auto* properties = menu.addAction(tr("Vlastnosti…"));
+                auto* edit = menu.addAction(resource_icon("edit"),tr("Upravit"));
+                auto* properties = menu.addAction(resource_icon("properties"),tr("Vlastnosti…"));
                 if(std::ranges::any_of(
                         zima::workspace::sheet_state_regions(part->session.document()),
                         [&](const auto& region) {
@@ -2581,11 +2566,8 @@ void AssemblyWorkspaceWindow::create_layout() {
                         resource_icon("revolve"), tr("Rotace"));
                     menu.addSeparator();
                 }
-                auto* suppress = menu.addAction(container->suppressed
-                    ? tr("Obnovit") : tr("Potlačit"));
+                auto* suppress = menu.addAction(resource_icon(container->suppressed ? "restore" : "suppress"), container->suppressed ? tr("Obnovit") : tr("Potlačit"));
                 suppress->setObjectName("suppressHistoryObject");
-                auto* move_up = menu.addAction(tr("Posunout výše"));
-                auto* move_down = menu.addAction(tr("Posunout níže"));
                 auto* remove = menu.addAction(resource_icon("delete"),tr("Odstranit"));
                 remove->setObjectName("deleteHistoryObject");
                 const auto* selected = exec_tree_menu(menu,item,position);
@@ -2614,10 +2596,6 @@ void AssemblyWorkspaceWindow::create_layout() {
                         id, zima::document::FeatureKind::Revolution);
                 } else if (selected == suppress) {
                     toggle_part_container_suppressed(id);
-                } else if (selected == move_up) {
-                    move_part_container(id, -1);
-                } else if (selected == move_down) {
-                    move_part_container(id, 1);
                 } else if (selected == remove) {
                     delete_tree_selection();
                 }
@@ -2635,16 +2613,11 @@ void AssemblyWorkspaceWindow::create_layout() {
                         ? assembly->session.document().find_construction(id) : nullptr;
                 if (object == nullptr) return;
                 QMenu menu(this);
-                auto* edit = menu.addAction(tr("Upravit"));
-                auto* properties = menu.addAction(tr("Vlastnosti…"));
+                auto* edit = menu.addAction(resource_icon("edit"),tr("Upravit"));
+                auto* properties = menu.addAction(resource_icon("properties"),tr("Vlastnosti…"));
                 QAction* suppress{};
-                QAction* move_up{};
-                QAction* move_down{};
                 if (part != nullptr) {
-                    suppress = menu.addAction(object->suppressed
-                        ? tr("Obnovit") : tr("Potlačit"));
-                    move_up = menu.addAction(tr("Posunout výše"));
-                    move_down = menu.addAction(tr("Posunout níže"));
+                    suppress = menu.addAction(resource_icon(object->suppressed ? "restore" : "suppress"), object->suppressed ? tr("Obnovit") : tr("Potlačit"));
                 }
                 auto* remove = menu.addAction(resource_icon("delete"),tr("Odstranit"));
                 const auto* selected = exec_tree_menu(menu,item,position);
@@ -2654,16 +2627,12 @@ void AssemblyWorkspaceWindow::create_layout() {
                     show_construction_properties(object->kind, id);
                 } else if (selected == suppress) {
                     toggle_part_container_suppressed(id);
-                } else if (selected == move_up) {
-                    move_part_container(id, -1);
-                } else if (selected == move_down) {
-                    move_part_container(id, 1);
                 } else if (selected == remove) {
                     delete_tree_selection();
                 }
             } else if (item->data(0, Qt::UserRole + 3).toString() == "assembly-sketch-container") {
                 QMenu menu(this);
-                auto* properties = menu.addAction(tr("Vlastnosti…"));
+                auto* properties = menu.addAction(resource_icon("properties"),tr("Vlastnosti…"));
                 auto* remove = menu.addAction(resource_icon("delete"),tr("Odstranit"));
                 const auto* selected = exec_tree_menu(menu,item,position);
                 if (selected == properties) show_tree_item_properties(item);
@@ -2684,24 +2653,17 @@ void AssemblyWorkspaceWindow::create_layout() {
                     }
                 }
                 QMenu menu(this);
-                auto* edit = menu.addAction(tr("Upravit"));
-                auto* properties = menu.addAction(tr("Vlastnosti…"));
+                auto* edit = menu.addAction(resource_icon("edit"),tr("Upravit"));
+                auto* properties = menu.addAction(resource_icon("properties"),tr("Vlastnosti…"));
                 QAction* suppress{};
-                QAction* move_up{};
-                QAction* move_down{};
                 if (part_sketch != nullptr) {
-                    suppress = menu.addAction(part_sketch->suppressed
-                        ? tr("Obnovit") : tr("Potlačit"));
-                    move_up = menu.addAction(tr("Posunout výše"));
-                    move_down = menu.addAction(tr("Posunout níže"));
+                    suppress = menu.addAction(resource_icon(part_sketch->suppressed ? "restore" : "suppress"), part_sketch->suppressed ? tr("Obnovit") : tr("Potlačit"));
                 }
                 auto* remove = menu.addAction(resource_icon("delete"),tr("Odstranit"));
                 const auto* selected = exec_tree_menu(menu,item,position);
                 if (selected == edit) show_parameter_dimensions(id);
                 else if (selected == properties) show_sketch_properties(id);
                 else if (selected == suppress) toggle_part_container_suppressed(id);
-                else if (selected == move_up) move_part_container(id, -1);
-                else if (selected == move_down) move_part_container(id, 1);
                 else if (selected == remove) {
                     delete_tree_selection();
                 }
@@ -2762,7 +2724,7 @@ void AssemblyWorkspaceWindow::create_layout() {
                 QAction* properties{};
                 QAction* role{};
                 if (text_geometry || bspline_geometry) {
-                    properties = menu.addAction(tr("Vlastnosti…"));
+                    properties = menu.addAction(resource_icon("properties"),tr("Vlastnosti…"));
                     properties->setObjectName("sketchGeometryPropertiesAction");
                 }
                 if (construction) {
@@ -2789,7 +2751,7 @@ void AssemblyWorkspaceWindow::create_layout() {
                 const auto dimension_id =
                     item->data(0, Qt::UserRole).toString().toStdString();
                 QMenu menu(this);
-                auto* properties = menu.addAction(tr("Vlastnosti…"));
+                auto* properties = menu.addAction(resource_icon("properties"),tr("Vlastnosti…"));
                 auto* remove = menu.addAction(resource_icon("delete"),tr("Odstranit"));
                 const auto* selected = exec_tree_menu(menu,item,position);
                 if (selected == properties) {

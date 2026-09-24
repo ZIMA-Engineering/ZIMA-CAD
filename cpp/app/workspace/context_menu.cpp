@@ -202,7 +202,7 @@ bool AssemblyWorkspaceWindow::open_component_source(const std::string& instance_
 
 void AssemblyWorkspaceWindow::add_component_rename_action(QMenu& menu,const std::string& instance_path) {
     if(properties_dialog_||!active_sketch_id_.empty())return;
-    auto* rename=menu.addAction(tr("Přejmenovat…"));rename->setObjectName("renameComponentSourceAction");
+    auto* rename=menu.addAction(resource_icon("rename"),tr("Přejmenovat…"));rename->setObjectName("renameComponentSourceAction");
     connect(rename,&QAction::triggered,this,[this,instance_path]{
         try {
             const auto opened=zima::workspace::open_component_source(workspace_,workspace_.displayed_document_id(),
@@ -247,8 +247,8 @@ void AssemblyWorkspaceWindow::show_component_context_menu(
         auto* locate=menu.addAction(tr("Zdrojový soubor…"));
         locate->setObjectName("componentSourceFileAction");locate->setEnabled(false);
         locate->setToolTip(tr("Nejprve aktivujte sestavu, která tuto komponentu vlastní."));
-        auto* properties=source!=path?menu.addAction(tr("Vlastnosti zdroje")):nullptr;
-        auto* parent=menu.addAction(tr("Vybrat rodiče"));
+        auto* properties=source!=path?menu.addAction(resource_icon("properties"),tr("Vlastnosti zdroje")):nullptr;
+        auto* parent=menu.addAction(resource_icon("select-parent"),tr("Vybrat rodiče"));
         parent->setObjectName("selectParentOccurrenceAction");
         add_component_rename_action(menu,source.encoded());
         const auto* selected=menu.exec(global_position);
@@ -279,26 +279,25 @@ void AssemblyWorkspaceWindow::show_component_context_menu(
         ? menu.addAction(tr("Zpět do sestavy"))
         : menu.addAction(tr("Aktivní"));
     auto* edit_skeleton = zima::assembly::is_skeleton(*occurrence) && !is_active_occurrence
-        ? menu.addAction(tr("Upravit")) : nullptr;
+        ? menu.addAction(resource_icon("edit"),tr("Upravit")) : nullptr;
     if (edit_skeleton) edit_skeleton->setObjectName("editSkeletonAction");
     auto* open = menu.addAction(resource_icon("open"),tr("Otevřít"));
     open->setObjectName("openComponentSourceAction");
     auto* source_file=menu.addAction(tr("Zdrojový soubor…"));
     source_file->setObjectName("componentSourceFileAction");
     source_file->setEnabled(!occurrence->derived_copy && address->owner_assembly_document_id==workspace_.active_document_id());
-    auto* select_parent = menu.addAction(tr("Vybrat rodiče"));
+    auto* select_parent = menu.addAction(resource_icon("select-parent"),tr("Vybrat rodiče"));
     select_parent->setObjectName("selectParentOccurrenceAction");
     auto* create_body=is_active_occurrence && !source_is_assembly && !properties_dialog_
         ? menu.addAction(resource_icon("result-body"),tr("Vytvořit těleso")) : nullptr;
-    auto* properties = menu.addAction(tr("Vlastnosti"));
+    auto* properties = menu.addAction(resource_icon("properties"),tr("Vlastnosti"));
     properties->setObjectName("componentPropertiesAction");
     auto* mirror_properties=occurrence->derived_copy&&address->owner_assembly_document_id==workspace_.active_document_id()
-        ? menu.addAction(occurrence->derived_copy->pattern?tr("Vlastnosti Pole"):tr("Vlastnosti Zrcadla")) : nullptr;
-    auto* visibility = menu.addAction(
-        occurrence->visible ? tr("Skrýt") : tr("Zobrazit"));
-    auto* suppression = menu.addAction(
-        occurrence->suppressed ? tr("Obnovit") : tr("Potlačit"));
+        ? menu.addAction(resource_icon("properties"),occurrence->derived_copy->pattern?tr("Vlastnosti Pole"):tr("Vlastnosti Zrcadla")) : nullptr;
+    auto* visibility = menu.addAction(resource_icon(occurrence->visible ? "hide" : "show"), occurrence->visible ? tr("Skrýt") : tr("Zobrazit"));
+    auto* suppression = menu.addAction(resource_icon(occurrence->suppressed ? "restore" : "suppress"), occurrence->suppressed ? tr("Obnovit") : tr("Potlačit"));
     auto* grounding = menu.addAction(
+        resource_icon(occurrence->grounded ? "release" : "ground"),
         occurrence->grounded ? tr("Uvolnit") : tr("Uzemnit"));
     grounding->setEnabled(!occurrence->derived_copy);
     auto* remove = menu.addAction(resource_icon("delete"),tr("Odstranit"));

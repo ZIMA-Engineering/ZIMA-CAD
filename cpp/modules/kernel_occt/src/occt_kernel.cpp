@@ -401,6 +401,22 @@ std::vector<ViewerEdge> centerlines_for_operation(const HistoryOperation& operat
     return result;
 }
 
+std::vector<ViewerPoint> sweep_endpoints_for_operation(const HistoryOperation& operation) {
+    const auto* request = std::get_if<Sweep3DRequest>(&operation.primitive);
+    if (!request || !request->attachment_endpoints || !request->make_solid || request->path_segments.empty()) return {};
+    std::vector<ViewerPoint> result;
+    for (const bool start : {true, false}) {
+        const auto& segment = start ? request->path_segments.front() : request->path_segments.back();
+        ViewerPoint point;
+        point.position = start ? segment.start : segment.end;
+        point.reference = {operation.owner_id,
+            std::string("sweep:path-point:") + (start ? "start:from:" : "end:from:") + segment.source_id, {}};
+        point.display_owner_id = operation.owner_id;
+        result.push_back(std::move(point));
+    }
+    return result;
+}
+
 std::vector<ViewerAxis> axes_for_operation(
     const HistoryOperation& operation, const TopoDS_Shape& calculated_operand,
     const std::vector<ViewerEdge>& centerlines) {
@@ -6579,6 +6595,9 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                 auto solid=make_operation_result(operand.shape,operand.faces,operand.edges,operand.vertices,true,true,true);
                 const auto centerlines=centerlines_for_operation(operation);
                 solid.mesh.axes=axes_for_operation(operation,operand.shape,centerlines);
+                const auto endpoints = sweep_endpoints_for_operation(operation);
+                solid.mesh.points.insert(solid.mesh.points.end(), endpoints.begin(), endpoints.end());
+                solid.mesh.edges.insert(solid.mesh.edges.end(), centerlines.begin(), centerlines.end());
                 solid.mesh.axes.insert(solid.mesh.axes.end(),additional_axes.begin(),additional_axes.end());
                 solid.mesh.original_references.axes=solid.mesh.axes;
                 solid.source_fingerprint=fingerprint(operations,operation_index+1)+":solid:"+operation.owner_id;
@@ -8361,6 +8380,8 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                 const auto centerlines=centerlines_for_operation(operation);
                 operand_result.mesh.axes = axes_for_operation(operation, operand.shape,centerlines);
                 operand_result.mesh.edges.insert(operand_result.mesh.edges.end(),centerlines.begin(),centerlines.end());
+                const auto endpoints = sweep_endpoints_for_operation(operation);
+                operand_result.mesh.points.insert(operand_result.mesh.points.end(), endpoints.begin(), endpoints.end());
                 operand_mesh = std::move(operand_result.mesh);
                 if (cache_reference_mesh) {
                     live_cache_->reference_meshes.emplace(
@@ -8611,6 +8632,12 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                     std::none_of(boundaries.back().mesh.edges.begin(),boundaries.back().mesh.edges.end(),
                         [&](const auto& existing){return existing.reference==edge.reference;}))
                     boundaries.back().mesh.edges.push_back(edge);
+            }
+            for (const auto& point : boundaries.back().mesh.original_references.points) {
+                if (point.reference.semantic_key.starts_with("sweep:path-point:") &&
+                    std::none_of(boundaries.back().mesh.points.begin(), boundaries.back().mesh.points.end(),
+                        [&](const auto& existing) { return existing.reference == point.reference; }))
+                    boundaries.back().mesh.points.push_back(point);
             }
             // Feature-generated axes are both persisted references and
             // ordinary visible construction geometry. Keeping them only in

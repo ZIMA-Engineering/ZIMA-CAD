@@ -35,7 +35,7 @@ private:
     AiSettingsPage* ai_{};
     QString ai_preferences_path_;
     QComboBox* language_{};
-    QComboBox* application_font_{};
+    QCheckBox* application_font_{};
     QComboBox* tolerance_layout_{};
     QCheckBox* names_uppercase_{};
     QCheckBox* names_diacritics_{};

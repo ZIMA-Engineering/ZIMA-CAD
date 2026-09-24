@@ -14,6 +14,12 @@ material thickness; a matching opposite planar skin supplies a thickness hint.
 The hint remains editable. Selection and inspection consume calculated viewer
 data and do not run OCCT. Only OK starts conversion; Cancel changes nothing.
 
+The source-face field uses the shared reference controls: a green arrow for an
+empty slot, a green outline while accepting a pick, a remove button for a stored
+face, and an independent inspection eye. Removing the face reactivates selection.
+The form stays at the top when the properties window is resized; extra vertical
+space remains below the explanatory note.
+
 Conversion walks the connected tangent planar/cylindrical skin. The initial
 wall becomes a native Flat with a numeric position and orientation. Adjacent
 cylinders become native Sheet Profiles; subsequent planar walls become native

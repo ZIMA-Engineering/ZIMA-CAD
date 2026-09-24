@@ -1,5 +1,6 @@
 #include "main_window.hpp"
 #include "application_settings.hpp"
+#include "resource_icon.hpp"
 
 #include <QApplication>
 #include <QSurfaceFormat>
@@ -13,6 +14,7 @@ int main(int argc, char* argv[]) {
     format.setSamples(4);
     QSurfaceFormat::setDefaultFormat(format);
     QApplication application(argc, argv);
+    zima::app::install_dialog_button_icons();
     application.setApplicationName("ZIMA-CAD");
     const auto settings = zima::app::ApplicationSettings::load();
     zima::app::apply_application_translations(application, settings);

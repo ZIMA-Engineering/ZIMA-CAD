@@ -710,10 +710,22 @@ if(ZIMA_BUILD_TESTS)
     add_test(NAME zima_cpp_numeric_fields_contract COMMAND zima_cpp_ui_contract_tests)
     set_tests_properties(zima_cpp_numeric_fields_contract PROPERTIES
         ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_NUMERIC_ONLY=1")
+    if(WIN32)
+        add_test(NAME zima_cpp_numeric_fields_windows_contract COMMAND zima_cpp_ui_contract_tests)
+        set_tests_properties(zima_cpp_numeric_fields_windows_contract PROPERTIES
+            ENVIRONMENT "QT_QPA_PLATFORM=windows;QT_STYLE_OVERRIDE=windows;ZIMA_VERIFY_NUMERIC_ONLY=1")
+        add_test(NAME zima_cpp_numeric_fields_windows11_contract COMMAND zima_cpp_ui_contract_tests)
+        set_tests_properties(zima_cpp_numeric_fields_windows11_contract PROPERTIES
+            ENVIRONMENT "QT_QPA_PLATFORM=windows;QT_STYLE_OVERRIDE=windows11;ZIMA_VERIFY_NUMERIC_ONLY=1")
+    endif()
     add_executable(zima_cpp_viewer_contract_tests tests/viewer_contract_tests.cpp)
     add_executable(zima_cpp_curve_placement_contract_tests tests/curve_placement_contract_tests.cpp)
     target_link_libraries(zima_cpp_curve_placement_contract_tests PRIVATE zima_command_host)
     add_test(NAME zima_cpp_curve_placement_contract_tests COMMAND zima_cpp_curve_placement_contract_tests)
+    add_test(NAME zima_cpp_whole_origin_ui_contract COMMAND zima-cad-cpp --verify-startup)
+    set_tests_properties(zima_cpp_whole_origin_ui_contract PROPERTIES
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_CONSOLE_ONLY=1;ZIMA_VERIFY_ORIGIN_PERF=synthetic"
+        WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/.." RUN_SERIAL TRUE TIMEOUT 120)
     target_link_libraries(zima_cpp_viewer_contract_tests PRIVATE zima_viewer)
     add_test(NAME zima_cpp_viewer_contract_tests COMMAND zima_cpp_viewer_contract_tests)
     add_executable(zima_cpp_assembly_contract_tests tests/assembly_contract_tests.cpp)
@@ -1241,6 +1253,9 @@ if(ZIMA_BUILD_TESTS)
         WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 120)
     add_test(NAME zima_cpp_console_ui_contract COMMAND zima-cad-cpp --verify-startup)
     add_test(NAME zima_cpp_updates_ui_contract COMMAND zima-cad-cpp --verify-startup)
+    add_test(NAME zima_cpp_fonts_ui_contract COMMAND zima-cad-cpp --verify-startup)
+    set_tests_properties(zima_cpp_fonts_ui_contract PROPERTIES
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_UPDATES_ONLY=1;ZIMA_VERIFY_FONTS_ONLY=1")
     add_test(NAME zima_cpp_application_lifecycle_ui_contract COMMAND zima-cad-cpp --verify-startup)
     set_tests_properties(zima_cpp_application_lifecycle_ui_contract PROPERTIES
         ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_APPLICATION_LIFECYCLE_ONLY=1"

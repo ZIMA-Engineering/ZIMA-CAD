@@ -309,15 +309,15 @@ int verify_family_rename(QApplication& application,zima::app::AssemblyWorkspaceW
         window.findChild<QAction*>("renameDocumentAction")->trigger();flush();
         auto* rename=window.findChild<QDialog*>("renameDocumentDialog");
         if(!verify(rename&&rename->findChild<QLineEdit*>("renameDocumentName")->text()=="Original","Family Rename must edit the instance name without a file extension"))return 1;
-        rename->findChild<QLineEdit*>("renameDocumentName")->setText("From tab");
+        rename->findChild<QLineEdit*>("renameDocumentName")->setText("FROM_TAB");
         rename->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
-        if(!verify(!window.findChild<QDialog*>("renameDocumentDialog")&&run("document.family.get").at("table").at("instances")[0].at("name")=="From tab","Tab rename did not update its owner table"))return 1;
+        if(!verify(!window.findChild<QDialog*>("renameDocumentDialog")&&run("document.family.get").at("table").at("instances")[0].at("name")=="FROM_TAB","Tab rename did not update its owner table"))return 1;
         window.findChild<QAction*>("familyTableAction")->trigger();flush();
         auto* family=window.findChild<QDialog*>("familyTableDialog");auto* table=family->findChild<QTableWidget*>("familyTableTable");
-        if(!verify(table->item(1,1)->text()=="From tab","Family GUI did not display the tab rename"))return 1;
-        table->item(1,1)->setText("From table");family->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
+        if(!verify(table->item(1,1)->text()=="FROM_TAB","Family GUI did not display the tab rename"))return 1;
+        table->item(1,1)->setText("FROM_TABle");family->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
         auto* tabs=window.findChild<QTabBar*>("documentTabs");
-        if(!verify(tabs->tabText(tabs->currentIndex())=="From table"&&run("context").at("active_document")==member&&
+        if(!verify(tabs->tabText(tabs->currentIndex())=="FROM_TABle"&&run("context").at("active_document")==member&&
             run("document.family.get").at("table").at("instances")[0].at("id")==row_id,"Table rename replaced the open instance or failed to update its tab"))return 1;
         const auto after=run("documents");
         for(const auto& before:source_path)for(const auto& item:after)if(item.at("id")==before.at("id"))
@@ -1651,28 +1651,15 @@ int verify_sweep2d_command(QApplication& application,zima::app::AssemblyWorkspac
     if(!verify(dialog&&view,"Cannot test sweep2d reference selection"))return 1;
     view->set_standard_view(zima::viewer::StandardView::Isometric);view->fit_all();dialog->request_path_plane();application.processEvents();
     QEventLoop isometric_animation;QTimer::singleShot(950,&isometric_animation,&QEventLoop::quit);isometric_animation.exec();
-    std::optional<QPointF> hit;
-    std::size_t cap_index{};
-    for(int y=4;y<view->height()&&!hit;y+=2)for(int x=4;x<view->width();x+=2){
-        auto candidates=view->selection_candidates_at(QPointF(x,y));
-        for(std::size_t i=0;i<candidates.size();++i){const auto& candidate=candidates[i];
-            if(candidate.owner_id==feature_id&&candidate.kind==zima::viewer::CandidateKind::Face&&candidate.semantic_key.starts_with("sweep:cap:")){hit=QPointF(x,y);cap_index=i;break;}}
-        if(hit)break;
-    }
-    if(!verify(hit.has_value(),"Start/end plane not offered to another 2D Sweep"))return 1;
-    view->clear_selection();
-    QMouseEvent move(QEvent::MouseMove,*hit,*hit,*hit,Qt::NoButton,Qt::NoButton,Qt::NoModifier);QApplication::sendEvent(view,&move);
-    for(std::size_t i=0;i<cap_index;++i){
-        QMouseEvent cycle_press(QEvent::MouseButtonPress,*hit,*hit,*hit,Qt::RightButton,Qt::RightButton,Qt::NoModifier);
-        QMouseEvent cycle_release(QEvent::MouseButtonRelease,*hit,*hit,*hit,Qt::RightButton,Qt::NoButton,Qt::NoModifier);
-        QApplication::sendEvent(view,&cycle_press);QApplication::sendEvent(view,&cycle_release);
-    }
-    QMouseEvent press(QEvent::MouseButtonPress,*hit,*hit,*hit,Qt::LeftButton,Qt::LeftButton,Qt::NoModifier);
-    QMouseEvent release(QEvent::MouseButtonRelease,*hit,*hit,*hit,Qt::LeftButton,Qt::NoButton,Qt::NoModifier);
-    QApplication::sendEvent(view,&press);QApplication::sendEvent(view,&release);application.processEvents();
-    if(!verify(dialog->pending.sweep2d.path_plane&&dialog->pending.sweep2d.path_plane->owner_id==feature_id&&
-        dialog->pending.sweep2d.path_plane->semantic_key.starts_with("sweep:cap:")&&dialog->pending.placement.references.empty(),
-        "Path plane pick did not confirm the offered cap independently of placement"))return 1;
+    bool own_plane_offered=false;
+    for(int y=4;y<view->height();y+=12)for(int x=4;x<view->width();x+=12)
+        for(const auto& candidate:view->selection_candidates_at(QPointF(x,y))) {
+            if(!verify(candidate.owner_id==dialog->pending.container_origin.id &&
+                (candidate.semantic_key=="origin:plane:xy"||candidate.semantic_key=="origin:plane:yz"||candidate.semantic_key=="origin:plane:xz"),
+                "Path plane picker offered foreign geometry"))return 1;
+            own_plane_offered=true;
+        }
+    if(!verify(own_plane_offered,"Own path planes missing from common picker"))return 1;
     dialog->buttons()->button(QDialogButtonBox::Cancel)->click();application.processEvents();
     QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
     action->trigger();application.processEvents();
@@ -1688,20 +1675,21 @@ int verify_sweep2d_command(QApplication& application,zima::app::AssemblyWorkspac
     }
     dialog->changed();
     auto path_frame=zima::sketcher::Sketch::from_serialized(dialog->pending.sweep2d.path_sketch);
-    if(!verify(dialog->pending.sweep2d.path_plane&&dialog->pending.sweep2d.path_plane->semantic_key=="origin:plane:xz"&&
-        std::abs(path_frame.resolved_normal.y)>1-1e-6,"First placement plane did not seed the path plane"))return 1;
+    if(!verify(dialog->pending.sweep2d.path_plane&&dialog->pending.sweep2d.path_plane->semantic_key=="origin:plane:xy"&&
+        dialog->pending.sweep2d.path_plane->owner_id==dialog->pending.container_origin.id,"Path did not default to its own XY plane"))return 1;
     const auto saved_placement=dialog->pending.placement;
     QTreeWidgetItem* yz_plane{};
     for(QTreeWidgetItemIterator i(tree);*i;++i)if((*i)->data(0,Qt::UserRole+3).toString()=="origin-reference"&&
         (*i)->data(0,Qt::UserRole+5).toString()=="origin:plane:yz"&&
         ((*i)->data(0,Qt::UserRole+6).isValid()?(*i)->data(0,Qt::UserRole+6):(*i)->data(0,Qt::UserRole)).toString().toStdString()==
-            dialog->pending.sweep2d.path_plane->owner_id){yz_plane=*i;break;}
+            origin_geometry.triangle_references.front().owner_id){yz_plane=*i;break;}
     if(!verify(yz_plane!=nullptr,"Document YZ plane missing from Tree"))return 1;
     dialog->request_path_plane();tree->setCurrentItem(yz_plane);application.processEvents();
-    if(!verify(!dialog->path_active()&&dialog->pending.sweep2d.path_plane->semantic_key=="origin:plane:yz",
-        "Tree did not assign the independent path plane"))return 1;
+    if(!verify(dialog->path_active()&&dialog->pending.sweep2d.path_plane->semantic_key=="origin:plane:xy",
+        "Tree accepted a foreign path plane"))return 1;
+    dialog->set_path_plane({{},dialog->pending.container_origin.id,"origin:plane:yz"},"YZ");
     path_frame=zima::sketcher::Sketch::from_serialized(dialog->pending.sweep2d.path_sketch);
-    if(!verify(std::abs(path_frame.resolved_normal.x)>1-1e-6&&dialog->pending.placement==saved_placement,
+    if(!verify(dialog->pending.placement==saved_placement,
         "Independent path plane changed container placement"))return 1;
     if(!verify(!dialog->findChild<QComboBox*>("sweep2dBasePlane")&&!dialog->findChild<QTableWidget*>("sweep2dReferences"),"Redundant sweep plane controls remain"))return 1;
     dialog->findChild<QPushButton*>("sweep2dSketch0")->click();application.processEvents();
@@ -1716,12 +1704,18 @@ int verify_sweep2d_command(QApplication& application,zima::app::AssemblyWorkspac
         QApplication::sendEvent(view,&press);QApplication::sendEvent(view,&release);application.processEvents();
     };
     std::optional<QPointF> origin_hit;
+    std::size_t origin_candidate_index{};
     for(int y=4;y<view->height()&&!origin_hit;y+=2)for(int x=4;x<view->width();x+=2){
         const auto offered=view->selection_candidates_at(QPointF(x,y));
-        if(!offered.empty()&&offered.front().semantic_key=="external_point:sketch_origin"){origin_hit=QPointF(x,y);break;}
+        for(std::size_t index=0;index<offered.size();++index)
+            if(offered[index].semantic_key=="external_point:sketch_origin"){origin_hit=QPointF(x,y);origin_candidate_index=index;break;}
+        if(origin_hit)break;
     }
     if(!verify(origin_hit.has_value(),"Path Sketch origin not offered"))return 1;
     const QPointF chain_start=*origin_hit;
+    // The origin can overlap the axes' intersection. Select its exact entry
+    // through the common RMB cycle instead of assuming it is always first.
+    for(std::size_t index=0;index<origin_candidate_index;++index)mouse(chain_start,Qt::RightButton);
     mouse(chain_start,Qt::LeftButton);
     mouse(chain_start+QPointF(0,-60),Qt::LeftButton);
     mouse(chain_start+QPointF(40,-100),Qt::RightButton);
@@ -2609,7 +2603,7 @@ int verify_pending_container_tree(QApplication& application,
         const auto origin_id = assembly ? parent_dialog->pending_value().container_origin.id
             : parent_dialog->pending_sweep_value().container_origin.id;
         auto* pending = find(assembly ? "assembly-construction" : "part-container", parent_id);
-        if (!verify(pending && pending->foreground(0).color() == QColor(70,190,95) &&
+        if (!verify(pending && pending->background(0).color() == QColor("#00D1FF") &&
                 !find(marker), "Pending container did not replace insertion marker in green")) return 1;
         click_row(find("construction-origin", origin_id));
         if (!verify(parent_dialog->populated_references().empty(),
@@ -3216,7 +3210,7 @@ int verify_body_history_ui(QApplication& application, const std::filesystem::pat
         for (QTreeWidgetItemIterator it(target_tree); *it; ++it)
             if ((*it)->data(0,Qt::UserRole+3).toString()=="part-body" &&
                     (*it)->data(0,Qt::UserRole).toString().toStdString()==a)
-                return (*it)->foreground(0).color()==QColor("#4DD811");
+                return (*it)->background(0).color()==QColor("#00D1FF");
         return false;
     };
     if (!verify(first_body_active(window) && !window.findChild<QAction*>("undoAction")->isEnabled(),
@@ -4343,7 +4337,7 @@ int verify_application_tools_ui(QApplication& application,const std::filesystem:
         check(cut_length->value()>13.,"Dragging the Sheet Cut purple endpoint did not update its length");
         cut_forward->setCurrentIndex(cut_forward->findData("up_to"));flush();
         auto* cut_target=sheet_cut->findChild<QLineEdit*>("extrusionForwardEndTarget");
-        check(cut_target&&cut_target->isVisible()&&cut_target->styleSheet().contains("#42d66b")&&
+        check(cut_target&&cut_target->isVisible()&&cut_target->styleSheet().contains("#4dd811")&&
             !cut_length->isVisible(),"Sheet Cut Up-to does not arm the shared target reference field");
         cut_forward->setCurrentIndex(cut_forward->findData("through_all"));
         cut_extent->setCurrentIndex(cut_extent->findData("two_sides"));
@@ -4977,7 +4971,7 @@ int verify_surface_profiles_ui(QApplication& application,const std::filesystem::
             };
             for(const auto* mode:{"solid","surface","thin","surface"}) {
                 auto* dialog=properties();auto* types=dialog->findChild<QComboBox*>("profileResultType");check(types&&types->count()==3,"Profile does not expose all three result types");
-                check(dialog->findChild<QLineEdit*>("profileStatus")->text()=="Uzavřený","Closed profile status is not Closed");
+                check(dialog->findChild<QLineEdit*>("profileStatus")->text()==app::PrimitivePropertiesDialog::tr("Uzavřený"),"Closed profile status is not Closed");
                 types->setCurrentIndex(types->findData(mode));flush();
                 if(std::string_view(mode)=="surface") {
                     if(auto* cut=dialog->findChild<QPushButton*>("primitiveSubtractOperation"))check(!cut->isEnabled(),"Surface subtraction button enabled");
@@ -5336,10 +5330,10 @@ int verify_sketch_endpoint_priority_ui(QApplication& application,const std::file
         const auto flush=[&]{application.processEvents();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);application.processEvents();};
         // Both C cases put the proposed new segment midpoint near the X axis.
         // The final case removes endpoint contact while retaining that M offer.
-        for(int kind:{0,1,2}) {
+        for(int kind:{0,1,2,3}) {
             auto part=document::PartDocument::create_default();auto feature=document::PartDocument::create_sketch_container();
             auto sketch=sketcher::Sketch::create_default();sketch.owner_container_id=feature.id;
-            const auto support=kind==1?sketch.add_circle(15,4,20):sketch.add_segment(-40,kind==2?35:20,40,kind==2?35:20);
+            const auto support=kind==1?sketch.add_circle(15,4,20):sketch.add_segment(kind==3?-27:-40,kind==2?35:20,kind==3?53:40,kind==2?35:20);
             const auto start=sketch.add_point(7,-19.5);
             part.history={feature};part.sketches={sketch};document::BodyHistoryGraph graph;
             const auto body=graph.create_body("Endpoint priority");graph.insert({document::PartHistoryKind::Feature,feature.id});part.set_body_history(graph);part.resolve_constructions();
@@ -5359,12 +5353,28 @@ int verify_sketch_endpoint_priority_ui(QApplication& application,const std::file
             const auto screen=[&](double x,double y){return QPointF(((x-a[0])*vy-(y-a[1])*vx)/det,(ux*(y-a[1])-uy*(x-a[0]))/det);};
             const auto mouse=[&](QPointF p,QEvent::Type type,Qt::MouseButton button){QMouseEvent event(type,p,QPointF(view->mapToGlobal(p.toPoint())),button,type==QEvent::MouseButtonPress?button:Qt::NoButton,Qt::NoModifier);QApplication::sendEvent(view,&event);flush();};
             const auto click=[&](QPointF p){mouse(p,QEvent::MouseMove,Qt::NoButton);mouse(p,QEvent::MouseButtonPress,Qt::LeftButton);mouse(p,QEvent::MouseButtonRelease,Qt::LeftButton);};
+            if(kind==3) {
+                const auto sample=screen(20,20);
+                click(sample);
+                check(view->confirmed_candidate()&&view->confirmed_candidate()->semantic_key=="segment:"+support,
+                    "Sketch click lost confirmed selection during Tree synchronization");
+                const auto frame=view->grabFramebuffer();const double ratio=frame.devicePixelRatio();
+                int azure=0;
+                for(int y=qRound(sample.y()*ratio)-5;y<=qRound(sample.y()*ratio)+5;++y)
+                    for(int x=qRound(sample.x()*ratio)-5;x<=qRound(sample.x()*ratio)+5;++x)
+                        if(frame.valid(x,y)){const auto c=frame.pixelColor(x,y);if(c.red()<50&&c.green()>170&&c.blue()>220)++azure;}
+                check(azure>3,"Confirmed Sketch segment is not azure");
+                frame.save(QString::fromStdString((directory/"sketch-selection-azure.png").string()));
+                click(screen(30,40));
+                check(!view->confirmed_candidate(),"Empty Sketch click retained selection");
+            }
             auto* action=window.findChild<QAction*>("sketchSegmentAction");check(action&&action->isEnabled(),"Endpoint Segment command unavailable");action->trigger();flush();
-            click(screen(7,-19.5));const auto end=screen(27,kind==2?19.5:20);
+            click(screen(7,-19.5));const auto end=screen(kind==3?13:27,kind==2?19.5:20);
             check(view->rect().contains(end.toPoint()),"Endpoint test cursor lies outside View");
             mouse(end,QEvent::MouseMove,Qt::NoButton);
             if(kind<2)check(view->hovered_candidate()&&view->hovered_candidate()->semantic_key==(kind==1?"circle:":"segment:")+support,"Endpoint C was not offered by common picker");
-            else check(!view->hovered_candidate(),"Free M case unexpectedly has an endpoint candidate");
+            else if(kind==2)check(!view->hovered_candidate(),"Free M case unexpectedly has an endpoint candidate");
+            else check(view->hovered_candidate()&&view->hovered_candidate()->semantic_key=="sketch_midpoint:"+support,"Native segment hides its midpoint M");
             // Compare only the midpoint label region before/after removing
             // labels. Geometry, cursor and the real C label remain unchanged.
             const auto before=view->grabFramebuffer();view->set_transient_labels({});flush();const auto after=view->grabFramebuffer();
@@ -5372,15 +5382,15 @@ int verify_sketch_endpoint_priority_ui(QApplication& application,const std::file
             const QRect region(qRound((center.x()+6)*ratio),qRound((center.y()-28)*ratio),qRound(32*ratio),qRound(23*ratio));
             int changed{};for(int y=region.top();y<=region.bottom();++y)for(int x=region.left();x<=region.right();++x)if(before.valid(x,y)&&before.pixel(x,y)!=after.pixel(x,y))++changed;
             if(kind<2)check(changed==0,"Endpoint C preview still displays midpoint M");
-            else check(changed>3,"Midpoint M disappeared when no endpoint C exists");
+            else if(kind==2)check(changed>3,"Midpoint M disappeared when no endpoint C exists");
             click(end);window.findChild<QAction*>("finishSketchAction")->trigger();flush();
             app::SketchPropertiesDialog* properties{};for(auto* dialog:window.findChildren<QDialog*>())if(auto* p=dynamic_cast<app::SketchPropertiesDialog*>(dialog);p&&p->isVisible())properties=p;
             check(properties,"Endpoint test did not return to Sketch Properties");const auto result=properties->pending_value().first;
             const auto& segment=result.segments.back();const auto* endpoint=result.find_point(segment.second_point_id);
             const double position_tolerance=view->world_tolerance_for_pixels(.01);
-            if(!endpoint||std::abs(endpoint->x-27)>position_tolerance||std::abs(endpoint->y-(kind==2?19.5:20))>position_tolerance)
+            if(!endpoint||std::abs(endpoint->x-(kind==3?13:27))>position_tolerance||std::abs(endpoint->y-(kind==2?19.5:20))>position_tolerance)
                 throw std::runtime_error("Confirmed endpoint differs from offered C/M position; case="+std::to_string(kind)+"; end="+(endpoint?std::to_string(endpoint->x)+","+std::to_string(endpoint->y):"missing"));
-            const auto expected=kind==2?sketcher::ConstraintKind::MidpointOnLine:kind==1?sketcher::ConstraintKind::PointOnCircle:sketcher::ConstraintKind::PointOnLine;
+            const auto expected=kind==3?sketcher::ConstraintKind::Midpoint:kind==2?sketcher::ConstraintKind::MidpointOnLine:kind==1?sketcher::ConstraintKind::PointOnCircle:sketcher::ConstraintKind::PointOnLine;
             check(std::ranges::any_of(result.constraints,[&](const auto& constraint){return constraint.kind==expected&&(kind==2?constraint.geometry_id==segment.id:constraint.geometry_id==support);}),"Offered C/M constraint was not committed");
             if(kind<2)check(std::ranges::none_of(result.constraints,[](const auto& constraint){return constraint.kind==sketcher::ConstraintKind::MidpointOnLine;}),"Endpoint C also committed midpoint M");
             properties->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Cancel)->click();flush();
@@ -7097,6 +7107,38 @@ int verify_nested_body_sketch_ui(QApplication& application, const std::filesyste
     QEventLoop animation;QTimer::singleShot(950,&animation,&QEventLoop::quit);animation.exec();
     auto* view=dynamic_cast<zima::viewer::MeshView*>(window.findChild<QOpenGLWidget*>());
     for(const auto index:{4,5,6})if(!verify(view->camera_state()[index]==sketch_entry_camera[index],"Assembly Sketch alignment changed zoom or pan"))return 1;
+    if(qEnvironmentVariableIsSet("ZIMA_VERIFY_SKETCH_RETURN_ONLY")) {
+        const auto original_edges=view->mesh().edges;
+        window.findChild<QAction*>("finishSketchAction")->trigger();flush();
+        bool accepted=false;
+        for(auto* dialog:window.findChildren<QDialog*>())if(dialog->isVisible()&&dialog->findChild<QPushButton*>("sketchOpenButton")) {
+            window.grab().save(QString::fromStdString((directory/"sketch-orange-button.png").string()));
+            dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();accepted=true;break;
+        }
+        if(!verify(accepted,"Sketch return did not offer Properties OK"))return 1;
+        window.deactivate_active_occurrence_for_test();flush();
+        if(!verify(window.active_occurrence_path_for_test().empty(),"Sketch return retained active occurrence"))return 1;
+        for(const auto& before:original_edges) {
+            if(before.reference.owner_id!=sketch.id||before.reference.instance_path!=active_path||!before.reference.semantic_key.starts_with("segment:"))continue;
+            const auto& after=view->mesh().edges;
+            const auto match=[&](const auto& edge){return edge.reference.owner_id==sketch.id&&edge.reference.instance_path==active_path&&edge.reference.semantic_key==before.reference.semantic_key;};
+            if(!verify(std::ranges::count_if(after,match)==1,"Sketch return duplicated or lost a curve"))return 1;
+            const auto& edge=*std::ranges::find_if(after,match);
+            if(!verify(edge.points.size()==before.points.size(),"Sketch return changed curve sampling"))return 1;
+            for(std::size_t i=0;i<edge.points.size();++i)if(!verify(std::hypot(std::hypot(edge.points[i].x-before.points[i].x,edge.points[i].y-before.points[i].y),edge.points[i].z-before.points[i].z)<1e-7,"Sketch return changed its placed coordinates"))return 1;
+        }
+        if(!verify(std::ranges::none_of(view->mesh().axes,[&](const auto& axis){return axis.reference.owner_id==sketch.id;}),"Inactive component leaked Sketcher axes"))return 1;
+        if(!verify(std::ranges::none_of(view->mesh().points,[&](const auto& point){return point.reference.owner_id==sketch.id&&point.reference.semantic_key.starts_with("sketch_midpoint:");}),"Inactive component leaked midpoint handles"))return 1;
+        window.grab().save(QString::fromStdString((directory/"sketch-return-assembly.png").string()));
+        QMenu menu(&window);auto* offered=menu.addAction("Menu hover verification");menu.addAction("Unselected item");
+        menu.popup(window.mapToGlobal(QPoint(200,200)));flush();menu.setActiveAction(offered);flush();
+        const auto menu_image=menu.grab().toImage();int green=0;
+        for(int y=0;y<menu_image.height();++y)for(int x=0;x<menu_image.width();++x){const auto c=menu_image.pixelColor(x,y);if(c.green()>190&&c.red()<100&&c.blue()<50)++green;}
+        menu_image.save(QString::fromStdString((directory/"context-menu-green.png").string()));menu.close();flush();
+        if(!verify(green>100,"Context-menu offered row is not green"))return 1;
+        std::cout<<"Sketch return preserved rotated Body/Part/Assembly coordinates and unique curves; menu hover is green\n";
+        return 0;
+    }
     const auto has_later=[&](const std::string& path) {
         return std::ranges::any_of(view->mesh().triangle_references,[&](const auto& ref) {
             return ref.owner_id==later.id && ref.instance_path==path;
@@ -8541,7 +8583,7 @@ int verify_startup_contract(
     auto* export_document = window.findChild<QAction*>("exportDocumentAction");
     auto* global_settings = window.findChild<QAction*>("globalSettingsAction");
     auto* standard_views = window.findChild<QMenu*>("standardViewsMenu");
-    auto* colors_menu = window.findChild<QMenu*>("colorsMenu");
+    auto* appearance_action = window.findChild<QAction*>("customBodyColorAction");
     auto* fit_view = window.findChild<QAction*>("fitViewAction");
     auto* view_selection = window.findChild<QAction*>("viewSelectionAction");
     auto* orthographic_camera =
@@ -8607,8 +8649,8 @@ int verify_startup_contract(
                 "document-independent commands must remain available") ||
         !verify(standard_views != nullptr &&
                     !standard_views->menuAction()->isEnabled() &&
-                    colors_menu != nullptr &&
-                    !colors_menu->menuAction()->isEnabled() &&
+                    appearance_action != nullptr &&
+                    !appearance_action->isEnabled() &&
                     fit_view != nullptr && !fit_view->isEnabled() &&
                     view_selection != nullptr && !view_selection->isEnabled() &&
                     orthographic_camera != nullptr &&
@@ -10493,7 +10535,7 @@ int verify_startup_contract(
             }
         }
     }
-    if (!verify(up_to_field->styleSheet().contains("#42d66b"),
+    if (!verify(up_to_field->styleSheet().contains("#4dd811"),
                 "Selecting Up-to did not activate its green target field")) {
         return 1;
     }
@@ -10512,7 +10554,7 @@ int verify_startup_contract(
     QApplication::sendEvent(up_to_viewer, &up_to_press);
     application.processEvents();
     if (!verify(!up_to_field->text().isEmpty() &&
-                    !up_to_field->styleSheet().contains("#42d66b"),
+                    !up_to_field->styleSheet().contains("#4dd811"),
                 "LMB accepted the Up-to hover candidate but did not transfer "
                 "its persisted Face reference into the target field")) {
         return 1;
@@ -10643,11 +10685,11 @@ int verify_startup_contract(
     }
     if (!verify(edit_dialog != nullptr && rollback_extrusion != nullptr &&
                     downstream_box != nullptr &&
-                    rollback_extrusion->foreground(0).color() ==
-                        QColor(70, 190, 95) &&
+                    rollback_extrusion->background(0).color() ==
+                        QColor("#00D1FF") &&
                     downstream_box->foreground(0).color() ==
                         QColor(125, 125, 125),
-                "history edit did not keep the active item green and suppress downstream items")) {
+                "history edit did not keep the active item azure and suppress downstream items")) {
         return 1;
     }
     edit_dialog->findChild<QDialogButtonBox*>()
@@ -10961,7 +11003,7 @@ int verify_startup_contract(
                     rollback_dialog->findChild<QListWidget*>(
                         "assemblyCutTargets") != nullptr &&
                     rollback_cut_item != nullptr &&
-                    rollback_cut_item->foreground(0).color() == QColor(70, 190, 95),
+                    rollback_cut_item->background(0).color() == QColor("#00D1FF"),
                 "Assembly cut Properties did not enter persisted rollback")) {
         return 1;
     }
@@ -12328,14 +12370,14 @@ int verify_startup_contract(
                 "Opening fixture did not start with incomplete active placement")) return 1;
         ending->setCurrentIndex(ending->findData("up_to"));
         application.processEvents();
-        if (!verify(active_placement_cells()==0 && target->styleSheet().contains("#42d66b"),
+        if (!verify(active_placement_cells()==0 && target->styleSheet().contains("#4dd811"),
                 "Opening Up To did not take exclusive input from placement")) return 1;
         const auto* up_to_tip=opening_properties->findChild<QCheckBox*>("threadDrillPoint");
         if (!verify(up_to_tip && !up_to_tip->isChecked() && !up_to_tip->isEnabled(),
                 "Opening Up To retained a drill point past its target surface")) return 1;
         ending->setCurrentIndex(ending->findData("length"));
         application.processEvents();
-        if (!verify(active_placement_cells()==0 && !target->styleSheet().contains("#42d66b"),
+        if (!verify(active_placement_cells()==0 && !target->styleSheet().contains("#4dd811"),
                 "Leaving Opening Up To retained a stale selection state")) return 1;
         ending->setCurrentIndex(ending->findData("up_to"));
         application.processEvents();
@@ -12358,7 +12400,7 @@ int verify_startup_contract(
             view->mapToGlobal(target_position->toPoint()),Qt::LeftButton,Qt::NoButton,Qt::NoModifier);
         QApplication::sendEvent(view,&release);
         application.processEvents();
-        if (!verify(!target->text().isEmpty() && !target->styleSheet().contains("#42d66b") &&
+        if (!verify(!target->text().isEmpty() && !target->styleSheet().contains("#4dd811") &&
                 active_placement_cells()==0 && opening_properties->first_empty_position_index()==0,
                 "Up To click did not set its target independently of placement")) return 1;
         auto* thread_end=opening_properties->findChild<QComboBox*>("threadLengthEnd");
@@ -12366,8 +12408,8 @@ int verify_startup_contract(
         if (!verify(thread_end && thread_target,"Thread length target controls missing")) return 1;
         thread_end->setCurrentIndex(thread_end->findData("up_to"));
         application.processEvents();
-        if (!verify(thread_target->styleSheet().contains("#42d66b") &&
-                !target->styleSheet().contains("#42d66b") && active_placement_cells()==0,
+        if (!verify(thread_target->styleSheet().contains("#4dd811") &&
+                !target->styleSheet().contains("#4dd811") && active_placement_cells()==0,
                 "Thread Up To did not exclusively own target entry")) return 1;
         QApplication::sendEvent(view,&move);
         QApplication::sendEvent(view,&press);

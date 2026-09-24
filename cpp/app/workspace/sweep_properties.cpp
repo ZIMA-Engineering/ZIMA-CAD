@@ -130,7 +130,7 @@ void AssemblyWorkspaceWindow::show_sweep_properties(zima::document::FeatureKind 
                     (candidate.semantic_key=="origin:plane:xy"||candidate.semantic_key=="origin:plane:yz"||candidate.semantic_key=="origin:plane:xz");
                 if(!placement_reference_candidate_has_stable_geometry(candidate)||
                     (candidate.kind!=zima::viewer::CandidateKind::Plane&&candidate.kind!=zima::viewer::CandidateKind::Face)||
-                    candidate.instance_path!=properties_dialog_instance_path_||(!own_plane&&planar_dialog->owns_reference_owner(candidate.owner_id)))return false;
+                    candidate.instance_path!=properties_dialog_instance_path_||!own_plane)return false;
                 return zima::document::PartDocument::sweep2d_accepts_path_plane(
                     {{},candidate.owner_id,candidate.semantic_key},path_geometry);
             };
@@ -150,7 +150,7 @@ void AssemblyWorkspaceWindow::show_sweep_properties(zima::document::FeatureKind 
                 planar_dialog->clear_reference_highlights();tree_->setProperty("commandSelectionActive",false);
                 viewer_->clear_selection();tree_->clearSelection();planar_dialog->changed();
             };
-            state_->setText(tr("Vyberte rovinu nebo rovinnou plochu pro skicu dráhy."));
+            state_->setText(tr("Vyberte vlastní rovinu XY, YZ nebo XZ kontejneru pro skicu dráhy."));
         };
     }
     dialog->changed=[this,dialog,planar,transition,geometry,body_id]{
@@ -159,9 +159,7 @@ void AssemblyWorkspaceWindow::show_sweep_properties(zima::document::FeatureKind 
         const bool valid=dialog->resolve_pending_placement(geometry);
         auto& c=dialog->pending;
         if(auto* planar_dialog=dynamic_cast<Sweep2DDialog*>(dialog)) {
-            for(const auto& ref:c.placement.references)if(!ref.orientation_only&&zima::document::PartDocument::sweep2d_accepts_path_plane(ref,geometry)) {
-                planar_dialog->seed_path_plane(ref,QString::fromStdString(ref.semantic_key));break;
-            }
+            planar_dialog->seed_path_plane({{},c.container_origin.id,"origin:plane:xy"},tr("Počátek kontejneru / %1").arg("XY"));
         }
         primitive_translation_dof_=zima::document::point_constraint_remaining_dof(c.placement.references,geometry);
         zima::document::PartDocument preview;

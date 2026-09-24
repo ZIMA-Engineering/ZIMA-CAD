@@ -1,5 +1,23 @@
 # ZIMA-CAD development rules
 
+## Conservative changes to working code (mandatory)
+
+- The project is at an advanced stage. Preserve working functionality and
+  established contracts; change working code only when necessary for the
+  requested task or a demonstrated defect.
+- Before editing, trace the affected operation and its dependencies. Prefer
+  the smallest coherent fix that addresses the cause and reuse existing
+  implementations. Do not mix unrelated cleanup, renaming, refactoring or
+  architectural changes into a feature or bug fix.
+- When a broader change is necessary, explain its concrete reason and affected
+  behavior. Existing requirements for explicit approval of protected shared
+  contracts still apply.
+- Verify the changed behavior and relevant existing behavior with checks
+  proportionate to the risk, including dependent operations where affected.
+  Do not claim preserved functionality without supporting verification; state
+  any remaining uncertainty.
+- This requirement was agreed with the user on 2026-09-24.
+
 ## Performance without behavioral regression (mandatory)
 
 - Optimize unnecessary work, repeated calculations, allocations and data loading
@@ -95,6 +113,68 @@
 
 ## Property and parameter dialogs
 
+The application must present one consistent visual and interaction style.
+Equivalent actions must use the same controls, terminology, layout conventions
+and interaction behavior across workspaces. New work must reuse established
+shared components rather than introduce command-specific styles. Apply this
+incrementally within the requested scope, preserving working behavior.
+
+Resizable properties windows keep controls anchored from top to bottom with
+stable vertical spacing. Additional height belongs below the content; horizontal
+growth may expand text/reference fields while compact controls keep their size.
+Lower editable tables and lists are an intentional exception: where additional
+visible items are useful, they consume surplus height above the bottom actions.
+Their row heights stay fixed; only the viewport grows. Upper fields remain
+anchored. The shared properties-window implementation owns this layout policy.
+
+### Shared reference-entry template (mandatory)
+
+- New reference-entry fields must reuse the shared controls in
+  `zima/ui/reference_cell.hpp`, following the appearance and interaction of
+  container placement reference entry. Do not build independent lookalikes.
+- Use the shared green-arrow/clear indicator, `ReferenceCellItem` and its
+  delegate, and the independent inspection eye. Only the active input field has
+  a green outline; inspection uses the existing azure state. Clicking the field
+  arms selection or replacement. Clearing a reference removes its inspection
+  and reactivates entry; a short middle click ends entry without deleting data.
+- Keep indicator and eye columns compact and fixed-width; let the reference
+  text column stretch. Anchor the form at the top and put additional window
+  height below the fields, rather than distributing it between input rows.
+- Keep a separate row-number column, as in container placement. Row numbers
+  express display order, not persistent identity; retain semantic point/station
+  labels in their data columns. Show placement status beside the degrees of
+  freedom in the lower status row, with status on the right.
+- In reorderable point/item tables, a checkbox before the remove/arrow column selects
+  exactly one item for ordering. Reordering moves that item by
+  one position and keeps the selection attached to its identity. Disable moves
+  beyond the first/last position and moves when no valid item is selected.
+  Clicking an editable object field opens its editor with one click; clicking
+  a reference-input field arms input instead. The independent eye only inspects
+  geometry. Do not use field clicks or inspection to implicitly change the
+  ordering selection. Apply this interaction contract to other containers
+  only where reordering is meaningful, preserving their existing capabilities.
+  Use bottom Up/Down buttons with the shared green arrow icon before localized text.
+- Consistent presentation must preserve each field's capabilities. Show clear
+  only for removable references; required replaceable references offer
+  replacement without clear. Derived read-only fields offer neither input nor
+  removal. Keep alignment with an empty control slot where appropriate. Show
+  inspection only where exact geometry can be inspected. Never add deletion,
+  replacement or editing merely to make controls look uniform.
+- Before changing a clear/remove control, identify whether it clears a field,
+  deletes a list item and its row, or removes an explicit definition while
+  retaining its structural row (for example a Sweep station inheriting a
+  profile). Preserve that meaning and describe it accurately in the tooltip.
+  Review existing commands individually; visual consistency does not authorize
+  a global rewrite of their deletion semantics.
+- Offer only controls meaningful to the command. A source-face-only command
+  does not need an Origin button. Consume shared components without changing
+  the protected container-placement contract.
+- Verify selection, replacement/removal, independent inspection, Cancel and
+  resizing as applicable; localize all labels and tooltips in all five languages.
+- Apply this template to new work and explicitly requested updates. Do not
+  rewrite working existing dialogs merely to enforce visual uniformity.
+- This requirement was agreed with the user on 2026-09-24.
+
 - Every newly created property, feature-parameter, or editing dialog must use
   the same in-application `Qt.WindowType.SubWindow` presentation and visual
   style as the existing Container Properties window.
@@ -132,7 +212,7 @@
 - Rollback is a general container-editing rule, not a Fillet-specific feature.
   Opening Properties for any history container evaluates and displays the model
   at the boundary immediately before that container. The edited container
-  remains visible in the tree as the active green item; downstream containers
+  remains visible in the tree with its active azure background; downstream containers
   are suppressed only for the edit session.
 - Pending edits and creation previews remain transient. Only OK updates or
   inserts the history container; Cancel restores the unchanged input/history.
@@ -326,8 +406,8 @@
 - With no active command, selection is leaf-first and consistent in every
   workspace. Assembly hover offers the lowest concrete Part occurrence under
   the pointer, not an undifferentiated nested Assembly; Part offers individual
-  history containers. Hover uses the orange wire and LMB confirms the exact
-  candidate with the cyan wire; ordinary result-body topology is not offered.
+  history containers. Hover uses the green wire and LMB confirms the exact
+  candidate with the azure wire; ordinary result-body topology is not offered.
 - RMB over an LMB-confirmed object opens its context menu instead of cycling.
   The context menu exposes **Select Parent** whenever the selected object has a
   selectable parent. Each invocation moves selection exactly one hierarchy
@@ -609,3 +689,13 @@ remaining listed order; the comprehensive Undo/Redo audit comes
 only after the agreed modeling features are broadly implemented. This is a
 reminder and planning preference, not authorization to implement the whole
 roadmap automatically. New user instructions take precedence.
+
+## Shared interaction feedback
+
+- Reference-entry cells use light-green hover feedback on the exact enabled cell only. Leaving restores its stored inspection appearance; the active green input outline is independent. New point actions use green text on the ordinary background until hovered.
+- Tree hover uses light green while confirmed selection retains its distinct appearance.
+- Standard OK and Cancel buttons retain their localized labels and behavior, with the existing Sketch finish checkmark and a red cross respectively. Use the shared application icon installer rather than per-dialog copies.
+
+- Use the interaction green #4DD811 for reference-entry outlines, entry arrows and command hover, matching Sketch/New point actions. Keep inspection cyan and confirmed-selection styling distinct. Command hover must follow the actual pointer and clear after leaving or opening a command; it must not become a persistent selected state.
+
+- The interaction colour contract agreed on 2026-09-24 is defined in `doc/UI_VISUAL_CONVENTIONS.md`. Active GUI and Tree backgrounds are azure; hover is green. Confirmed selections, inspected references and pending feature wire are always azure, independent of add/subtract/surface operation. Sketch construction stays orange, model/Drawing axes brown, and Origin icons red. Do not reintroduce active green Tree text or orange hover.

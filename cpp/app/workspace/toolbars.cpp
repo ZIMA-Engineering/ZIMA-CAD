@@ -1,46 +1,11 @@
 #include "workspace_internal.hpp"
+#include "../command_button_paint.hpp"
 
 namespace zima::app {
 using namespace workspace_detail;
 
 namespace {
 
-
-// Stylesheets may bypass CE_ToolButtonLabel in a proxy style. Paint the
-// command label explicitly while retaining the real toolbar QAction.
-class LeftAlignedCommandLabel final : public QObject {
-public:
-    explicit LeftAlignedCommandLabel(QToolButton* button) : QObject(button), button_(button) {
-        button->installEventFilter(this);
-    }
-protected:
-    bool eventFilter(QObject*, QEvent* event) override {
-        if (event->type()!=QEvent::Paint) return false;
-        QStyleOptionToolButton option;
-        option.initFrom(button_);
-        option.iconSize=button_->iconSize();
-        option.toolButtonStyle=Qt::ToolButtonTextBesideIcon;
-        if (button_->isDown()) option.state|=QStyle::State_Sunken;
-        if (button_->isChecked()) option.state|=QStyle::State_On;
-        if (button_->autoRaise()) option.state|=QStyle::State_AutoRaise;
-        if (button_->menu()) option.features|=QStyleOptionToolButton::HasMenu;
-        QPainter painter(button_);
-        button_->style()->drawComplexControl(QStyle::CC_ToolButton,&option,&painter,button_);
-        const int extent=button_->iconSize().width();
-        const QRect icon_rect(6,(button_->height()-extent)/2,extent,extent);
-        const auto icon=button_->icon();
-        if (!icon.isNull()) icon.paint(&painter,icon_rect,Qt::AlignCenter,
-            button_->isEnabled()?QIcon::Normal:QIcon::Disabled,
-            button_->isChecked()?QIcon::On:QIcon::Off);
-        const int left=icon.isNull()?6:icon_rect.right()+5;
-        button_->style()->drawItemText(&painter,button_->rect().adjusted(left,0,-16,0),
-            Qt::AlignLeft|Qt::AlignVCenter|Qt::TextShowMnemonic,
-            button_->palette(),button_->isEnabled(),button_->text(),QPalette::ButtonText);
-        return true;
-    }
-private:
-    QToolButton* button_;
-};
 
 } // namespace
 
@@ -67,7 +32,6 @@ void AssemblyWorkspaceWindow::update_document_area_visibility() {
     family_table_action_->setEnabled(relations_action_->isEnabled());
     file_settings_action_->setEnabled(has_editable_model);
     standard_views_menu_->menuAction()->setEnabled(has_document);
-    colors_menu_->menuAction()->setEnabled(has_document);
     for (auto* action : {wire_action_, hidden_edges_action_, no_hidden_edges_action_,
                          shaded_edges_action_, shaded_action_,
                          orthographic_camera_action_, perspective_camera_action_,
@@ -186,6 +150,25 @@ void AssemblyWorkspaceWindow::rebuild_application_toolbar() {
         if (auto* button=qobject_cast<QToolButton*>(tools_toolbar_->widgetForAction(action))) {
             new LeftAlignedCommandLabel(button);
             button->setObjectName("applicationCommandButton");
+            button->setProperty("zimaCommandActive",action->property("zimaCommandActive"));
+            if(!action->property("zimaActiveFeedbackInstalled").toBool()) {
+                action->setProperty("zimaActiveFeedbackInstalled",true);
+                connect(action,&QAction::triggered,this,[this,action] {
+                    auto* dialog=properties_dialog_;
+                    if(!dialog || !dialog->isVisible())return;
+                    const auto mark=[action=QPointer<QAction>(action)](bool active) {
+                        if(!action)return;
+                        action->setProperty("zimaCommandActive",active);
+                        for(auto* object:action->associatedObjects())
+                            if(auto* button=qobject_cast<QToolButton*>(object)) {
+                                button->setProperty("zimaCommandActive",active);
+                                button->style()->unpolish(button);button->style()->polish(button);button->update();
+                            }
+                    };
+                    mark(true);
+                    connect(dialog,&QDialog::finished,this,[mark]{mark(false);});
+                });
+            }
             if (action->menu() != nullptr) {
                 button->setPopupMode(QToolButton::InstantPopup);
             }

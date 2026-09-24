@@ -77,8 +77,10 @@ template<class Project>
 DimensionPresentation dimension_text_presentation(const kernel::ViewerDimension& dimension,
     Project project, const QFont& font, const QString& text, double padding,
     double stroke_width, double arrow=10, double minimum_gap=3, bool angular_leaders=false) {
+    const auto bounds = dimension_text_box(font,text,padding);
+    const double gap = std::max(minimum_gap,bounds.bottom()+stroke_width*.5+padding*.5);
     return dimension_presentation(dimension,project,dimension_text_width(font,text),arrow,
-        dimension_text_clearance(font,text,padding,stroke_width,minimum_gap),angular_leaders);
+        gap,angular_leaders,bounds);
 }
 // Stable input order is the annotation order: each later label masks earlier
 // labels as well as all geometry painted before this final text layer.

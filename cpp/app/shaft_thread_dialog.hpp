@@ -1,3 +1,4 @@
+#include "reference_table_style.hpp"
 #include <zima/ui/numeric_value_lock.hpp>
 #pragma once
 #include "table_entry.hpp"
@@ -29,14 +30,16 @@ public:
         auto* form=new QFormLayout;
         name_=new QLineEdit(QString::fromStdString(pending_.name),this);
         form->addRow(tr("Název"),name_);
-        refs_=new QTableWidget(4,3,this);refs_->setObjectName("shaftThreadReferences");
-        refs_->setHorizontalHeaderLabels({tr("Reference"),tr("Plocha"),QString()});
-        refs_->verticalHeader()->hide();refs_->setSelectionMode(QAbstractItemView::NoSelection);
+        refs_=new QTableWidget(4,4,this);refs_->setObjectName("shaftThreadReferences");
+        refs_->setHorizontalHeaderLabels({tr("Reference"),tr("Plocha"),QString(),QString()});
+        refs_->verticalHeader()->show();refs_->verticalHeader()->setDefaultSectionSize(34);
+        refs_->verticalHeader()->setMinimumSectionSize(34);refs_->setSelectionMode(QAbstractItemView::NoSelection);
         refs_->setEditTriggers(QAbstractItemView::NoEditTriggers);
         refs_->horizontalHeader()->setSectionResizeMode(0,QHeaderView::ResizeToContents);
         refs_->horizontalHeader()->setSectionResizeMode(1,QHeaderView::Stretch);
-        refs_->setColumnWidth(2,32);refs_->setFixedHeight(152);
-        ui::install_reference_cell_delegate(refs_);
+        for(int column:{2,3}) {refs_->horizontalHeader()->setSectionResizeMode(column,QHeaderView::Fixed);refs_->setColumnWidth(column,32);}
+        refs_->horizontalHeader()->moveSection(3,0);refs_->setFixedHeight(168);
+        style_reference_table(refs_,3,1);
         const std::array<QString,4> labels{tr("Válcová plocha"),tr("Počáteční plocha"),tr("Vstupní sražení"),tr("Až k")};
         for (int row=0;row<4;++row) {
             refs_->setItem(row,0,new QTableWidgetItem(labels[row]));
@@ -47,7 +50,7 @@ public:
             refs_->setCellWidget(row,2,ui::centered_cell_widget(eyes_[row]));
         }
         connect(refs_,&QTableWidget::cellClicked,this,[this](int row,int column) {
-            if (column!=1) return;
+            if (column!=1 && column!=3) return;
             if (row==2) {
                 const QSignalBlocker blocker(chamfer_);
                 chamfer_->setChecked(true);
@@ -182,15 +185,17 @@ private:
         }
         length_->setEnabled(end_->currentIndex()==0);runout_->setEnabled(end_->currentIndex()==0);
         factor_->setEnabled(end_->currentIndex()==0 && runout_->isChecked());
-        auto* row_actions=entry_row_header(refs_);row_actions->clear_actions();
         for (int row=0;row<4;++row) {
             const auto ref=reference(row);
-            row_actions->set_action(row,ref.has_value(),[this,row] {
+            auto* indicator=ui::build_reference_row_indicator([this,row] {
                 auto& p=pending_.shaft_thread;
                 if(row==0)p.cylinder={};else if(row==1)p.start={};
                 else if(row==2)p.chamfer.reset();else p.end.reset();
                 inspected_[row]=false;labels_[row].clear();active_=row;refresh_fields();notify();
-            },[this,row]{active_=row;refresh_fields();notify();});
+            });
+            indicator->setObjectName(QString("tableRowAction%1").arg(row));
+            ui::set_reference_row_populated(indicator,ref.has_value());
+            refs_->setCellWidget(row,3,ui::centered_cell_widget(indicator));
             fields_[row]->setText(ref ? (labels_[row].isEmpty() ? QString::fromStdString(ref->semantic_key) : labels_[row]) : tr("Vyberte plochu…"));
             if (ref) fields_[row]->set_reference(QString::fromStdString(ref->semantic_key));
             else fields_[row]->clear_reference();
