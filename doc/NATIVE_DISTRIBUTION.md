@@ -2,6 +2,13 @@
 
 ## Scope and status
 
+Windows build **2026092402** is signed and published. It adds expanding metadata
+tables, the Sheet Transition centre axis, template/material defaults for imported
+Parts and a cached area-weighted surface centroid. Ten focused regression
+contracts, clean committed-source packaging, signed archive smoke, production
+trust, packaged lifecycle, downloaded asset hashes and public updater discovery
+passed. See [the release record](releases/2026092402.md) for scope and limitations.
+
 Windows build **2026092401** is signed and published. It includes unified modeling
 reference controls, Curve/Sweep interaction fixes, system GUI fonts, consistent
 selection colours and menu icons, plus Sheet Transition and sheet-exchange fixes.
