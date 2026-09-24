@@ -2,6 +2,14 @@
 
 ## Scope and status
 
+Windows build **2026092401** is signed and published. It includes unified modeling
+reference controls, Curve/Sweep interaction fixes, system GUI fonts, consistent
+selection colours and menu icons, plus Sheet Transition and sheet-exchange fixes.
+All 24 selected regressions, committed-source packaging, signed-archive smoke,
+production trust, remote asset hashes and public updater discovery passed.
+See [the release record](releases/2026092401.md) for the precise verification
+scope, lowercase lifecycle-fixture configuration and remaining broader test limits.
+
 The approved layout uses a shared root `config/`, replacing the earlier
 `profile/` proposal. The root `VERSION` file is the single build ID authority
 (`YYYYMMDDNN`, daily sequence 01-99). CMake embeds it in GUI and CLI;
