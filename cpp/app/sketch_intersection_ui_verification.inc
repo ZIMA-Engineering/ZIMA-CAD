@@ -31,8 +31,9 @@ int verify_sketch_intersections_ui(QApplication& application,const std::filesyst
                 for(const auto& p:edge.points)reference.cached_points.push_back(sketch.local_point(p));
                 references.push_back(reference.id);sketch.add_external_reference(reference);
             }
-            if(mode>=4) {source_feature=document::PartDocument::create_box_container();source_feature.box={40,30,20};}
-            part.history={source_feature,feature};part.sketches=mode>=4?std::vector{sketch}:std::vector{source,sketch};
+            if(mode>=4)source_feature=test::rectangular_feature(part,{40,30,20});
+            part.history={source_feature,feature};
+            if(mode>=4)part.sketches.push_back(sketch);else part.sketches={source,sketch};
             document::BodyHistoryGraph graph;const auto body=graph.create_body("Intersection priority");
             graph.insert({document::PartHistoryKind::Feature,source_feature.id});graph.insert({document::PartHistoryKind::Feature,feature.id});
             part.set_body_history(graph);part.resolve_constructions();

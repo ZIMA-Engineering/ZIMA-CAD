@@ -1,3 +1,4 @@
+#include "profile_solid_fixture.hpp"
 #include <zima/workspace/metadata_operations.hpp>
 #include <zima/workspace/model_calculation.hpp>
 #include <zima/workspace/drawing_view_operations.hpp>
@@ -25,7 +26,7 @@ int main(int argc,char** argv) {
         report["method"]="Release build; one warm-up and five alternating measured cycles; original models are never saved. Times include native transactions; draw_ms is CPU sheet painting to QImage, not interactive GPU frame latency.";
         for(const int count:{1,12}) {
             workspace::Workspace live;auto part=document::PartDocument::create_default();
-            for(int i=0;i<count;++i){auto feature=document::PartDocument::create_cylinder_container();feature.cylinder.radius=10+i*.1;feature.cylinder.height=20;feature.placement.x=i*30.;part.history.push_back(feature);}
+            for(int i=0;i<count;++i){auto feature=zima::test::circular_feature(part,10+i*.1,20);feature.placement.x=i*30.;part.history.push_back(feature);}
             auto calculated=workspace::calculate_part_with_resolved_references(kernel,part,nullptr,{true});
             const auto id=part.document_id;live.add_part(part,calculated);
             auto assembly=assembly::AssemblyDocument::create_default();
@@ -44,7 +45,7 @@ int main(int argc,char** argv) {
                 const auto* state=live.open_part(id);const auto& result=state->session.calculated_boundaries().back();
                 sample["volume_mm3"]=result.volume;sample["volume_delta_mm3"]=result.volume-baseline_volume;sample["triangles"]=result.mesh.triangles.size()/3;
                 require(std::abs(result.volume-baseline_volume)<std::max(1e-6,baseline_volume*1e-8),"Precision benchmark changed separated cylinders' exact volume");
-                require(state->session.document().history.front().cylinder.radius==10,"Precision change altered a modeling parameter");
+                require(zima::test::circular_radius(state->session.document(),state->session.document().history.front())==10,"Precision change altered a modeling parameter");
                 sample["dependency_refresh_ms"]=timed([&]{live.refresh_source_geometry();});
                 auto as=workspace::file_settings(live,assembly_id);as.precision["linear_tolerance"]=tolerance;
                 sample["assembly_settings_ms"]=timed([&]{changed=workspace::set_file_settings(live,kernel,assembly_id,as);});sample["assembly_recalculated"]=changed.calculated;

@@ -1,3 +1,4 @@
+#include "profile_command_fixture.hpp"
 #include <zima/command_host/host.hpp>
 #include <zima/workspace/section_reference_operations.hpp>
 #include <zima/document/placement_json.hpp>
@@ -23,7 +24,7 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
     command_host::Host host(live,kernel,dir,options);
     const auto run=[&](const char* name,Json args=Json::object()){const auto result=host.execute({{"command",name},{"arguments",std::move(args)}});if(!result.ok)throw std::runtime_error(std::string(name)+": "+result.code+": "+result.message);return result.data;};
     run("new",{{"type","part"},{"name","section-reference-source"}});const auto part_id=live.active_document_id();
-    const auto box=run("box.create",{{"length_mm","10"},{"width_mm","20"},{"height_mm","30"}}).at("container").get<std::string>();
+    const auto box=zima::test::rectangular_commands([&](const char* n,commands::Json a){return run(n,std::move(a));},{{"length_mm","10"},{"width_mm","20"},{"height_mm","30"}}).at("container").get<std::string>();
     const auto cache=live.open_part(part_id)->session.calculated_boundaries().back();
     const auto make=[&]{return run("section.create",{{"path_mm",{{-50,0},{50,0}}},{"plane","XY"},{"show_cut",true}}).at("object").get<std::string>();};
     const auto section=make();const auto get=[&]{return run("section.get",{{"object",section}});};

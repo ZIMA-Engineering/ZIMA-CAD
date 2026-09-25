@@ -13,11 +13,6 @@ public:
     OcctKernel(const OcctKernel&) = delete;
     OcctKernel& operator=(const OcctKernel&) = delete;
     [[nodiscard]] std::string name() const override;
-    [[nodiscard]] BodyResult make_box(const BoxRequest& request) const override;
-    [[nodiscard]] BodyResult evaluate_boxes(
-        const std::vector<BoxOperation>& operations) const override;
-    [[nodiscard]] std::vector<BodyResult> evaluate_box_boundaries(
-        const std::vector<BoxOperation>& operations) const override;
     [[nodiscard]] std::vector<BodyResult> evaluate_history(
         const std::vector<HistoryOperation>& operations) const override;
     [[nodiscard]] std::vector<BodyResult> evaluate_history_incremental(

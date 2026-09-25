@@ -1,3 +1,5 @@
+#include "profile_solid_fixture.hpp"
+#include "profile_command_fixture.hpp"
 #include <zima/command_host/host.hpp>
 #include <zima/document/measurement_record.hpp>
 #include <zima/document/file_path.hpp>
@@ -25,7 +27,7 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
     command_host::Host host(live,kernel,dir,options);
     require(host.execute_text("measurement.list").code=="unsupported_document","Measurement query accepted no document");
     run(host,"new",{{"type","part"},{"name","measurement-source"}});
-    const auto box=run(host,"box.create",{{"length_mm","10"},{"width_mm","20"},{"height_mm","30"}}).data.at("container").get<std::string>();
+    const auto box=zima::test::rectangular_commands([&](const char* n,commands::Json a){return run(host,n,std::move(a));},{{"length_mm","10"},{"width_mm","20"},{"height_mm","30"}}).data.at("container").get<std::string>();
     const auto id=live.active_document_id();
     Json material=Json::array({{{"key","MASS_DENSITY"},{"value","2700"},{"unit","kg/m^3"}}});
     run(host,"document.material.set",{{"properties",material}});
@@ -39,7 +41,7 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
     near(initial["values"][0]["mass"]["value"],.0162,"Mass must use kg and mm3");
     require(initial["values"][0]["volume"]["approximate"]==false&&initial["body_calculated"]==false,"Exact cached volume was not reported");
     const auto plane=ref("plane",id+":origin","origin:plane:xy");
-    const auto top=ref("face",box,"z_max");auto result=measure(Json::array({plane,top}));
+    const auto top=ref("face",box,test::profile_key(live.open_part(id)->session.document(),box,"z_max"));auto result=measure(Json::array({plane,top}));
     near(result["distance"]["value"]["value"],15,"Root plane to finite top face");
     near(result["values"][1]["area"]["value"],200,"Exact original face area");
     const auto x_axis=ref("axis",id+":origin","origin:axis:x");
@@ -60,8 +62,8 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
         require(!host.change(),"Rejected query reported a mutation");
     };
     for(const auto& invalid:std::vector<Json>{Json::array(),Json::array({object,object,object}),Json::array({1}),
-        Json::array({{{"kind","unknown"},{"owner",box},{"key","z_max"}}}),
-        Json::array({{{"kind","point"},{"owner",box},{"key","z_max"},{"position",{0,0,0}}}})})
+        Json::array({{{"kind","unknown"},{"owner",box},{"key",test::profile_key(live.open_part(live.active_document_id())->session.document(),box,"z_max")}}}),
+        Json::array({{{"kind","point"},{"owner",box},{"key",test::profile_key(live.open_part(live.active_document_id())->session.document(),box,"z_max")},{"position",{0,0,0}}}})})
         rejected({{"references",invalid}},"invalid_arguments");
     rejected({{"references",Json::array({ref("object",box,"ignored-key")})}},"invalid_reference");
     rejected({{"references",Json::array({ref("point",box,"",{})})}},"invalid_reference");
@@ -84,7 +86,7 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
     require(run(host,"measurement.list",{{"offset",1}}).data.at("items").empty(),"Measurement pagination wrong");
     const auto get=run(host,"measurement.get",{{"object",saved.id}}).data;
     require(get["saved_values"]==true&&get["references"]==initial["references"]&&get["values"]==initial["values"]&&get["units"]["mass"]=="kg","Stored record changed values or units");
-    run(host,"box.set",{{"container",box},{"height_mm","60"}});
+    zima::test::resize_rectangular_commands([&](const char* n,commands::Json a){return run(host,n,std::move(a));},{{"container",box},{"height_mm","60"}});
     near(measure(Json::array({object}))["values"][0]["volume"]["value"],12000,"Measurement ignored source change");
     require(run(host,"measurement.get",{{"object",saved.id}}).data.at("values")==initial.at("values"),"Read query overwrote last saved measurement");
     run(host,"save");run(host,"close",{{"document",id}});
@@ -115,7 +117,7 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
     const auto restored=run(host,"measurement.get",{{"object",asm_saved.id}}).data;
     require(restored.at("references")==pair.at("references")&&restored.at("distance")==pair.at("distance"),"Native Assembly lost measurement paths or witness points");
     run(host,"new",{{"type","part"},{"name","measurement-curves"}});
-    const auto cylinder=run(host,"cylinder.create",{{"radius_mm","5"},{"height_mm","10"}}).data.at("container").get<std::string>();
+    const auto cylinder=zima::test::circular_commands([&](const char* n,commands::Json a){return run(host,n,std::move(a));},{{"radius_mm","5"},{"height_mm","10"}}).data.at("container").get<std::string>();
     const auto& edges=live.open_part(live.active_document_id())->session.calculated_boundaries().back().mesh.original_references.edges;
     const auto circle=std::ranges::find_if(edges,[&](const auto& edge){return edge.reference.owner_id==cylinder&&edge.measured_length&&std::abs(*edge.measured_length-10*std::numbers::pi)<1e-7;});
     require(circle!=edges.end(),"Original circular edge missing");

@@ -1,4 +1,5 @@
 #pragma once
+#include "profile_solid_fixture.hpp"
 #include <zima/workspace/reference_sources.hpp>
 #include <zima/workspace/sketch_reference_operations.hpp>
 #include <zima/kernel/occt_kernel.hpp>
@@ -13,11 +14,12 @@ struct ContextReferenceFixture {
     std::string sketch_id,reference_id,curve_id;
     std::filesystem::path directory;
     ContextReferenceFixture(const kernel::OcctKernel& kernel,const std::filesystem::path& dir):directory(dir) {
-        auto box=document::PartDocument::create_box_container();box.box={10,10,10};source.history={box};
+        auto box=zima::test::rectangular_feature(source,{10,10,10});source.history={box};
         calculated=kernel.evaluate_history(source.kernel_operations());
         edge.reference={box.id,"fixture-original-rational-edge",{}};edge.points={{1,0,0},{0,1,0}};
         edge.exact_spline=kernel::BSplineGeometry{2,{{1,0,0},{1,1,0},{0,1,0}},{0,0,0,1,1,1},{1,std::sqrt(.5),1}};
         calculated.back().mesh.original_references.edges.push_back(edge);
+        calculated.back().mesh.edges.push_back(edge);
         auto container=document::PartDocument::create_sketch_container();auto sketch=sketcher::Sketch::create_default();
         sketch.owner_container_id=container.id;sketch_id=sketch.id;target.history={container};
         auto from=assembly::AssemblyDocument::create_part_occurrence("Source",source.document_id,"context-source.prtz",calculated.back());

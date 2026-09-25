@@ -43,7 +43,7 @@ void try_type(QDoubleSpinBox* field) {
 }
 int verify_numeric_value_locks(QApplication& application,QWidget& parent) {
     using namespace zima;
-    auto initial=document::PartDocument::create_box_container();initial.box.length=30;initial.placement.x=12;
+    auto initial=document::PartDocument::create_twisted_sheet_container();initial.twisted_sheet.length=30;initial.placement.x=12;
     initial.value_locks={"length"};initial.placement.value_locks={"x","rotation_z"};
     int commits=0;document::HistoryContainer stored;
     auto* dialog=new app::PrimitivePropertiesDialog(initial,true,false,[&](document::HistoryContainer value){stored=std::move(value);++commits;},&parent);
@@ -76,7 +76,7 @@ int verify_numeric_value_locks(QApplication& application,QWidget& parent) {
     for(auto* field:dialog->findChildren<QDoubleSpinBox*>())if(field->property("zimaValueLockKey")=="length")length=field;
     action(length)->trigger();length->setValue(42);action(length)->trigger();
     dialog->buttons()->button(QDialogButtonBox::Ok)->click();application.processEvents();
-    check(commits==1&&stored.box.length==42&&stored.value_locks.contains("length"),"OK lost the edited value or final lock");
+    check(commits==1&&stored.twisted_sheet.length==42&&stored.value_locks.contains("length"),"OK lost the edited value or final lock");
     auto document=document::PartDocument::create_default();document.history={stored};
     auto point=document::PartDocument::create_construction(document::ConstructionKind::Point);point.value_locks={"placement:y"};document.constructions={point};
     const auto file=std::filesystem::current_path()/"Projects/test/value-lock-roundtrip.prtz";std::filesystem::create_directories(file.parent_path());document.save(file);

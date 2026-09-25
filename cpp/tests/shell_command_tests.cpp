@@ -1,3 +1,5 @@
+#include "profile_command_fixture.hpp"
+#include "profile_solid_fixture.hpp"
 #include <zima/command_host/host.hpp>
 #include <zima/workspace/shell_operations.hpp>
 #include <zima/workspace/operation_input.hpp>
@@ -25,8 +27,11 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
     auto* state=live.open_part(live.active_document_id());const auto document_id=live.active_document_id();
     const auto body=state->session.document().body_history.active_body_id();
     require(host.execute_text("shell.create").code=="missing_input","Shell accepted an empty input");
-    const auto box=run(host,"box.create",{{"length_mm","10"},{"width_mm","10"},{"height_mm","10"}}).data.at("container").get<std::string>();
-    const auto face=[&](const char* key,const std::string& owner=std::string{}){return Json{{"owner",owner.empty()?box:owner},{"key",key}};};
+    const auto box=zima::test::rectangular_commands([&](const char* n,commands::Json a){return run(host,n,std::move(a));},{{"length_mm","10"},{"width_mm","10"},{"height_mm","10"}}).data.at("container").get<std::string>();
+    const auto face=[&](const char* key,const std::string& owner=std::string{}){const auto id=owner.empty()?box:owner;
+        const auto& doc=live.open_part(live.active_document_id())->session.document();const auto* source=doc.find_container(id);
+        const auto identity=source&&source->feature_kind==document::FeatureKind::Extrusion&&std::string_view(key)!="missing"?test::profile_key(doc,id,key):std::string(key);
+        return Json{{"owner",id},{"key",identity}};};
     const auto top=face("z_max"),side=face("x_max"),bottom=face("z_min");
     const auto rev=state->session.revision();const auto* cache=state->session.calculated_boundaries().data();
     const auto list=run(host,"shell.faces").data;require(list.at("total")==6&&list.at("items").size()==6,"Shell did not list six input faces");
@@ -41,7 +46,7 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
     const auto unchanged=state->session.revision();const auto* saved_cache=state->session.calculated_boundaries().data();
     run(host,"shell.get",{{"container",id}});require(!run(host,"shell.set",{{"container",id},{"thickness_mm",1}}).data.at("changed").get<bool>(),"Shell equal properties committed");
     const auto edit_faces=run(host,"shell.faces",{{"container",id}}).data;
-    require(edit_faces.at("total")==6&&std::ranges::any_of(edit_faces.at("items"),[&](const auto& item){return item.at("owner")==box&&item.at("key")=="z_max";}),"Shell edit listed its final result instead of the removed input face");
+    require(edit_faces.at("total")==6&&std::ranges::any_of(edit_faces.at("items"),[&](const auto& item){return item.at("owner")==box&&item.at("key")==top.at("key");}),"Shell edit listed its final result instead of the removed input face");
     require(state->session.revision()==unchanged&&saved_cache==state->session.calculated_boundaries().data(),"Shell query/no-op recalculated");
     for(const auto& patch:std::vector<Json>{{{"thickness_mm",0}},{{"thickness_mm",-.1}},{{"thickness_mm",1000001}},{{"thickness_mm",20}},
         {{"faces",Json::array({top,top})}},{{"faces",Json::array({face("missing")})}},{{"faces",Json::array({face("z_max",id)})}},
@@ -55,7 +60,7 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
     run(host,"shell.set",{{"container",id},{"faces",Json::array({top,bottom})}});near(state->session.calculated_boundaries().back().volume,360);
     run(host,"shell.set",{{"container",id},{"faces",Json::array()}});near(state->session.calculated_boundaries().back().volume,488);
     // A changed source is used by the existing Shell after explicit calculation.
-    run(host,"box.set",{{"container",box},{"length_mm","12"}});near(state->session.calculated_boundaries().back().volume,560);
+    zima::test::resize_rectangular_commands([&](const char* n,commands::Json a){return run(host,n,std::move(a));},{{"container",box},{"length_mm","12"}});near(state->session.calculated_boundaries().back().volume,560);
     auto locked=*state->session.document().find_container(id);locked.value_locks.insert("thickness");
     static_cast<void>(workspace::commit_shell(live,kernel,document_id,locked,workspace::ShellEditMode::Replace));
     require(host.execute({{"command","shell.set"},{"arguments",{{"container",id},{"thickness_mm",2}}}}).code=="value_locked","Shell bypassed its Properties lock");
@@ -63,7 +68,7 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
     require(*loaded.find_container(id)==locked,"Shell native save lost properties/references");near(saved.back().volume,560);near(kernel.evaluate_history(loaded.kernel_operations()).back().volume,560);
     // Select only the owning Body, including when another Body has an identical shape.
     const auto other=run(host,"body.create",{{"name","Other"}}).data.at("body").get<std::string>();
-    const auto other_box=run(host,"box.create",{{"length_mm","20"},{"width_mm","20"},{"height_mm","20"}}).data.at("container").get<std::string>();
+    const auto other_box=zima::test::rectangular_commands([&](const char* n,commands::Json a){return run(host,n,std::move(a));},{{"length_mm","20"},{"width_mm","20"},{"height_mm","20"}}).data.at("container").get<std::string>();
     const auto other_faces=run(host,"shell.faces").data;
     require(other_faces.at("total")==6&&std::ranges::all_of(other_faces.at("items"),[&](const auto& value){return value.at("owner")==other_box;}),"Shell mixed different Body inputs");
     require(host.execute({{"command","shell.set"},{"arguments",{{"container",id},{"faces",Json::array({top})}}}}).code=="inactive_body","Shell edited an inactive Body");
@@ -78,11 +83,11 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
     require(workspace::calculated_operation_input(state->session)==pointer,"Reading operation input copied the body");
     // Current non-planar source: cylinder with one open end.
     run(host,"new",{{"type","part"},{"name","shell-cylinder"}});
-    const auto cylinder=run(host,"cylinder.create",{{"radius_mm","10"},{"height_mm","20"}}).data.at("container").get<std::string>();
+    const auto cylinder=zima::test::circular_commands([&](const char* n,commands::Json a){return run(host,n,std::move(a));},{{"radius_mm","10"},{"height_mm","20"}}).data.at("container").get<std::string>();
     run(host,"shell.create",{{"faces",Json::array({face("z_max",cylinder)})}});
     state=live.open_part(live.active_document_id());near(state->session.calculated_boundaries().back().volume,461*std::numbers::pi);
     // Closed shell: the kernel must preserve both boundaries of a spherical wall.
-    run(host,"new",{{"type","part"},{"name","shell-sphere"}});run(host,"sphere.create",{{"radius_mm","10"}});run(host,"shell.create");
+    run(host,"new",{{"type","part"},{"name","shell-sphere"}});zima::test::spherical_commands([&](const char* n,commands::Json a){return run(host,n,std::move(a));},10);run(host,"shell.create");
     state=live.open_part(live.active_document_id());near(state->session.calculated_boundaries().back().volume,4*std::numbers::pi*271/3);
     const auto sphere_shell=state->session.document().history.back().id;
     const auto sphere_faces=[&](const kernel::BodyResult& result) {
@@ -102,10 +107,10 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
     near(sphere_cold.back().volume,4*std::numbers::pi*271/3);require(sphere_faces(sphere_cold.back())==sphere_ids,"Spherical Shell changed face identities after native reload");
     // A treatment owns new real faces, which the Shell input query must retain.
     run(host,"new",{{"type","part"},{"name","shell-filleted"}});state=live.open_part(live.active_document_id());
-    auto treated=state->session.document();auto block=document::PartDocument::create_box_container();block.box={100,80,50};
+    auto treated=state->session.document();auto block=zima::test::rectangular_feature(treated,{100,80,50});
     auto fillet=document::PartDocument::create_fillet_container({
-        {block.id,"edge:x_max:y_min:z_max--x_max:y_min:z_min",{}},
-        {block.id,"edge:x_min:y_min:z_max--x_min:y_min:z_min",{}}});fillet.edge_treatment.primary_size=5;
+        {block.id,test::profile_key(treated,block,"edge:x_max:y_min:z_max--x_max:y_min:z_min"),{}},
+        {block.id,test::profile_key(treated,block,"edge:x_min:y_min:z_max--x_min:y_min:z_min"),{}}});fillet.edge_treatment.primary_size=5;
     for(const auto& feature:{block,fillet}){treated.insert_history_entry(document::PartHistoryKind::Feature,feature.id);treated.history.push_back(feature);}
     auto treated_results=kernel.evaluate_history(treated.kernel_operations());state->session.commit(std::move(treated),std::move(treated_results));
     const auto treated_faces=run(host,"shell.faces",{{"owner",fillet.id}}).data;
@@ -115,9 +120,13 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
     // Trimming a sphere introduces a real circular rim. It must survive the
     // seam/pole policy, including its new inward-offset circle at radius 9.
     run(host,"new",{{"type","part"},{"name","shell-hemisphere"}});state=live.open_part(live.active_document_id());
-    auto hemisphere=state->session.document();auto ball=document::PartDocument::create_sphere_container();ball.sphere.radius=10;
-    auto cutter=document::PartDocument::create_box_container();cutter.box={40,40,20};cutter.placement.z=10;cutter.combine_mode=document::CombineMode::Subtract;
+    auto hemisphere=state->session.document();auto ball=zima::test::spherical_feature(hemisphere,10);
+    hemisphere.sketches.back().plane=sketcher::SketchPlane::XZ;
+    hemisphere.sketches.back().plane_auto=false;
+    hemisphere.sketches.back().refresh_default_frame();
+    auto cutter=zima::test::rectangular_feature(hemisphere,{40,40,20});cutter.placement.z=10;cutter.combine_mode=document::CombineMode::Subtract;
     for(const auto& feature:{ball,cutter}){hemisphere.insert_history_entry(document::PartHistoryKind::Feature,feature.id);hemisphere.history.push_back(feature);}
+    hemisphere.resolve_constructions();
     auto hemisphere_results=kernel.evaluate_history(hemisphere.kernel_operations());near(hemisphere_results.back().volume,2000*std::numbers::pi/3);
     state->session.commit(std::move(hemisphere),std::move(hemisphere_results));
     run(host,"shell.create",{{"faces",Json::array({face("z_min",cutter.id)})}});
@@ -128,9 +137,10 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
     }),"Shell discarded a real circular rim of a trimmed spherical face");
     // Two disconnected solids are not a valid single Shell input.
     run(host,"new",{{"type","part"},{"name","shell-disconnected"}});state=live.open_part(live.active_document_id());
-    auto split=state->session.document();auto first=document::PartDocument::create_box_container();first.box={10,10,10};
-    auto second=document::PartDocument::create_box_container();second.box={10,10,10};second.placement.x=30;
+    auto split=state->session.document();auto first=zima::test::rectangular_feature(split,{10,10,10});
+    auto second=zima::test::rectangular_feature(split,{10,10,10});second.placement.x=30;
     for(const auto& feature:{first,second}){split.insert_history_entry(document::PartHistoryKind::Feature,feature.id);split.history.push_back(feature);}
+    split.resolve_constructions();
     auto split_results=kernel.evaluate_history(split.kernel_operations());state->session.commit(std::move(split),std::move(split_results));
     const auto split_revision=state->session.revision();const auto* split_cache=state->session.calculated_boundaries().data();
     require(!host.execute_text("shell.create").ok&&state->session.revision()==split_revision&&split_cache==state->session.calculated_boundaries().data(),"Disconnected Shell partly committed");

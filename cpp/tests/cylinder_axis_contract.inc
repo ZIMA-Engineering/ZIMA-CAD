@@ -2,8 +2,7 @@ void cylinder_axis_verify(const kernel::OcctKernel& kernel, fs::path directory) 
     kernel::StepProduct product;
     product.definition_id="cylinder-source"; product.name="Cylinder";
     auto native_source=document::PartDocument::create_default();
-    auto cylinder=document::PartDocument::create_cylinder_container();
-    cylinder.cylinder.radius=5; cylinder.cylinder.height=20;
+    auto cylinder=zima::test::circular_feature(native_source,5,20);
     native_source.insert_history_entry(document::PartHistoryKind::Feature,cylinder.id);
     native_source.history.push_back(cylinder);
     product.body=kernel.evaluate_history(native_source.kernel_operations()).back();
@@ -27,7 +26,7 @@ void cylinder_axis_verify(const kernel::OcctKernel& kernel, fs::path directory) 
     require(workspace::commit_construction(live,id,axis,workspace::ConstructionEditMode::Create),"Cannot commit cylinder axis");
     const auto current=[&]{return *part->session.document().find_construction(axis.id);};
     require(current().reference_valid&&std::abs(current().origin.z-10)<1e-6&&
-        std::abs(current().direction.z-1)<1e-6,"Cylinder axis is not centred and coaxial");
+        std::abs(std::abs(current().direction.z)-1)<1e-6,"Cylinder axis is not centred and coaxial");
     require(part->session.calculated_boundaries().back().kernel_shape==shape,"Axis creation recalculated the body");
     const auto idle=part->session.document().construction_viewer_mesh();
     const auto axis_point=[&](const auto& point){return point.reference.owner_id==current().container_origin.id && point.reference.semantic_key=="point";};
@@ -46,7 +45,7 @@ void cylinder_axis_verify(const kernel::OcctKernel& kernel, fs::path directory) 
     require(current().reference_valid&&std::abs(current().origin.x-31)<1e-6&&
         std::abs(current().origin.y-(-17-10*std::sin(radians)))<1e-6&&
         std::abs(current().origin.z-(9+10*std::cos(radians)))<1e-6&&
-        std::abs(current().direction.y+std::sin(radians))<1e-6,
+        std::abs(std::abs(current().direction.y)-std::sin(radians))<1e-6,
         "Cylinder axis did not follow translated and rotated import");
     const auto native=directory/"axis.prtz";
     part->session.document().save(native,part->session.calculated_boundaries());

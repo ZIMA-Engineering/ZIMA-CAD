@@ -1,3 +1,4 @@
+#include "profile_solid_fixture.hpp"
 #include <zima/command_host/host.hpp>
 #include <zima/workspace/sketch_operations.hpp>
 #include <zima/document/holes.hpp>
@@ -18,7 +19,7 @@ Json run(command_host::Host& host,const std::string& name,Json args=Json::object
 double dot(kernel::Vec3 a,kernel::Vec3 b){return a.x*b.x+a.y*b.y+a.z*b.z;}
 void verify(kernel::OcctKernel& kernel,fs::path directory,const std::string& kind) {
     auto doc=document::PartDocument::create_default();const auto id=doc.document_id;
-    if(kind=="holes") {auto box=document::PartDocument::create_box_container();box.box={40,40,40};doc.history.push_back(box);}
+    if(kind=="holes") {auto box=zima::test::rectangular_feature(doc,{40,40,40});doc.history.push_back(box);}
     auto container=document::PartDocument::create_sketch_container();auto sketch=sketcher::Sketch::create_default();
     sketch.owner_container_id=container.id;
     std::string axis;

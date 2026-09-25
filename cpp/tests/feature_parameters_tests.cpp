@@ -1,4 +1,5 @@
 #include <zima/document/feature_serialization.hpp>
+#include <zima/document/part_document.hpp>
 #include <zima/document/feature_rotation_limit.hpp>
 #include <nlohmann/json.hpp>
 #include <cmath>
@@ -58,13 +59,73 @@ int main() { try {
         auto p=fixture();p.sides[0].rotation_extent=extent;
         check(load_feature_parameters(serialize_feature_parameters(p))==p,"Rotation extent did not round-trip");
     }
+    for(const auto type:{FeatureType::Point,FeatureType::Axis,FeatureType::Plane,FeatureType::Sketch,FeatureType::Modeling}) {
+        auto p=fixture();const auto stored=p;p.type=type;
+        const auto restored=load_feature_parameters(serialize_feature_parameters(p));
+        check(restored==p,"Feature type or inactive settings did not round-trip");
+        p.type=FeatureType::Modeling;check(p==stored,"Switching Feature type destroyed stored settings");
+        if(type!=FeatureType::Modeling)check(restored.sketch_only(),"Datum Feature attempted material calculation");
+        if(type==FeatureType::Axis) {
+            check(restored.effective_side(1).operation==FeatureSideOperation::Extrusion&&
+                restored.effective_side(1).length==p.sides[1].length&&restored.effective_side(1).targets.empty(),
+                "Axis must use lengths while preserving inactive rotation/limit settings");
+        }
+        auto part=PartDocument::create_default();
+        auto sketch=zima::sketcher::Sketch::create_default();
+        auto feature=PartDocument::create_feature_container(sketch.id);
+        feature.feature=restored;feature.feature.sketch_id=sketch.id;feature.feature.profile_source=ProfileSource::Internal;
+        feature.feature.profile_plane_offset=7;feature.placement.x=11;feature.placement.y=-3;
+        sketch.owner_container_id=feature.id;sketch.plane=zima::sketcher::SketchPlane::YZ;sketch.plane_auto=false;sketch.plane_offset=7;
+        part.history={feature};part.sketches={sketch};part.resolve_constructions();
+        const auto result=part.feature_result_mesh(part.history.front());
+        check(!result.points.empty(),"Feature result lost its origin");
+        const auto& origin=result.points.front();
+        check(std::abs(origin.position.x-18)<1e-9&&std::abs(origin.position.y+3)<1e-9&&
+              std::abs(origin.position.z)<1e-9&&origin.label==feature.name,"Feature name/origin is not anchored on the offset plane");
+        auto follower=create_owned_point("downstream-sweep:path");
+        check(follower.parent_construction_id=="downstream-sweep:path","Owned point lost its parent");
+        follower.definition=ConstructionDefinition::PointReference;
+        follower.references={{"",feature.id,"point"}};
+        check(resolve_construction(follower,result.original_references),"Downstream Point cannot bind the Feature origin");
+        check(std::abs(follower.origin.x-origin.position.x)<1e-9&&std::abs(follower.origin.y-origin.position.y)<1e-9,
+            "Downstream Point lost the Feature work frame");
+        if(type==FeatureType::Axis) {
+            auto axis=PartDocument::create_construction(ConstructionKind::Axis);axis.definition=ConstructionDefinition::AxisReference;
+            axis.references={{"",feature.id,"axis"}};
+            check(resolve_construction(axis,result.original_references),"Downstream Axis cannot use Feature Axis");
+            check(std::abs(axis.direction.x-1)<1e-9,"Downstream Axis lost the selected plane normal");
+        }
+        if(type==FeatureType::Plane) {
+            Placement placement;placement.references={{"",feature.id,"plane",3}};
+            check(resolve_placement(placement,result.original_references),"A following container cannot use Feature Plane");
+            check(std::abs(placement.x-21)<1e-9,"Referenced Feature Plane offset is incorrect");
+        }
+        check(result.points.size()==(type==FeatureType::Axis?3:1),"Feature result has unexpected point markers");
+        check(result.edges.size()==(type==FeatureType::Axis||type==FeatureType::Plane?1:0),"Feature result has extra geometry");
+        if(type==FeatureType::Axis) {
+            const auto& edge=result.edges.front();
+            check(edge.dash_dot&&!edge.infinite,"Feature Axis must remain a finite native axis");
+            check(std::abs(edge.points.front().x-(18-restored.sides[1].length))<1e-9&&
+                  std::abs(edge.points.back().x-(18+restored.sides[0].length))<1e-9,"Axis endpoints do not follow the offset-plane normal");
+            auto changed=part.history.front();changed.feature.symmetric=true;
+            const auto symmetric=part.feature_result_mesh(changed);
+            check(std::abs(symmetric.edges.front().points.front().x-(18-restored.sides[0].length))<1e-9,
+                "Symmetric Axis failed to mirror its first length");
+            check(symmetric.points.back().reference==result.points.back().reference,
+                "Axis extent changed endpoint identity");
+        }
+        if(type==FeatureType::Plane) {
+            check(result.original_references.triangle_references.size()==2,"Plane lost its selectable native reference");
+            for(const auto& point:result.edges.front().points)check(std::abs(point.x-18)<1e-9,"Plane is not at its signed offset");
+        }
+    }
     auto p=fixture();
     for(const double value:{0.,-1.,std::numeric_limits<double>::infinity(),std::numeric_limits<double>::quiet_NaN()}) {
         auto invalid=p;invalid.sides[1].length=value;
         rejected([&]{static_cast<void>(serialize_feature_parameters(invalid));});
     }
     const auto valid=serialize_feature_parameters(p);
-    for(const auto* field:{"sides","sketch_id","thin_mode","origin_centerline"}) {
+    for(const auto* field:{"type","sides","sketch_id","thin_mode","origin_centerline"}) {
         auto invalid=valid;invalid.erase(field);
         rejected([&]{static_cast<void>(load_feature_parameters(invalid));});
     }

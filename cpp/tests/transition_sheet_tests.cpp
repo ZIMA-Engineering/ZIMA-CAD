@@ -1,3 +1,4 @@
+#include "profile_request_fixture.hpp"
 #include "transition_sheet.hpp"
 #include "transition_sketches.hpp"
 #include <zima/kernel/occt_kernel.hpp>
@@ -72,7 +73,7 @@ int main()try {
         using namespace kernel::sheet_material;
         Vec3 center{};for(auto p:sheet.panels.front().outer)center=add(center,p);
         center=mul(center,1./sheet.panels.front().outer.size());
-        const kernel::HistoryOperation cut{"cut",kernel::SphereRequest{3,center},kernel::BooleanOperation::Subtract};
+        const kernel::HistoryOperation cut{"cut",zima::test::SphericalRevolution{3,center},kernel::BooleanOperation::Subtract};
         const auto cut_states=kernel.evaluate_history({operation,cut,{"unbend-cut",kernel::SheetStateRequest{true,true,{}}},{"bend-cut-back",kernel::SheetStateRequest{false,true,{}}}});
         check(cut_states[1].volume<states.front().volume-1,"Cut removed no sheet material");
         check_solid(cut_states.back());

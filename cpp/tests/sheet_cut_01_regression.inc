@@ -70,9 +70,9 @@ void verify_sheet_cut_tilted_cone_attachment(std::filesystem::path directory) {
         "Tilted-cone clearance cut did not preserve both material-region owners");
     for(const auto& face:result.mesh.triangle_references)check(face.valid(),
         "Tilted-cone clearance cut generated anonymous topology");
-    kernel::BoxRequest prism(55.762332916259766,2000.,103.64238170405332);
+    zima::test::ProfilePrism prism(55.762332916259766,2000.,103.64238170405332);
     prism.translation={-27.881166458129883,-1000.,-86.27262540302922};
-    const auto pin=kernel.make_box(prism);
+    const auto pin=zima::test::profile_body(kernel,prism);
     near(kernel.subtract_bodies(result,pin,{},{},1e-7).volume,result.volume);
     const double cut_volume=result.volume;
     run(host,"regenerate");near(state->session.calculated_boundaries().back().volume,cut_volume);

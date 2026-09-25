@@ -1,3 +1,5 @@
+#include "profile_command_fixture.hpp"
+#include "profile_solid_fixture.hpp"
 #include <zima/command_host/host.hpp>
 #include <zima/workspace/sketch_reference_operations.hpp>
 #include <zima/sketcher/curve_geometry.hpp>
@@ -20,8 +22,8 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
         command_host::Host host(live,kernel,directory,options);
         run(host,"new",{{"type","part"},{"name","body-edge-projection"}});
         const auto doc=live.active_document_id();
-        const auto box=run(host,"box.create",{{"length_mm","40"},{"width_mm","30"},{"height_mm","20"}}).data.at("container").get<std::string>();
-        const Json seed={{"owner",box},{"key","edge:x_max:y_min:z_max--x_max:y_min:z_min"}};
+        const auto box=zima::test::rectangular_commands([&](const char* n,commands::Json a){return run(host,n,std::move(a));},{{"length_mm","40"},{"width_mm","30"},{"height_mm","20"}}).data.at("container").get<std::string>();
+        const Json seed={{"owner",box},{"key",test::profile_key(live.open_part(doc)->session.document(),box,"edge:x_max:y_min:z_max--x_max:y_min:z_min")}};
         const auto chamfer=run(host,"chamfer.create",{{"routes",Json::array({Json{{"edges",Json::array({seed})}}})},{"distance_a_mm",2}}).data.at("container").get<std::string>();
         auto* state=live.open_part(doc);
         const auto& mesh=state->session.calculated_boundaries().back().mesh;
@@ -66,7 +68,7 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
         require(reference(current,projected).body_edge&&!reference(current,projected).broken,"Redo lost the body-edge source mode");
     }
     {
-        auto part=document::PartDocument::create_default();auto box=document::PartDocument::create_box_container();box.box={30,30,30};part.history.push_back(box);
+        auto part=document::PartDocument::create_default();auto box=zima::test::rectangular_feature(part,{30,30,30});part.history.push_back(box);
         auto thread=document::PartDocument::create_thread_container();thread.placement.z=-15;thread.thread.bore_length=20;thread.thread.length_forward=15;part.history.push_back(thread);
         const auto calculated=kernel.evaluate_history(part.kernel_operations());
         auto source=calculated.back().mesh.original_references;
@@ -112,7 +114,7 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
     workspace::Workspace live;command_host::Options options;
     options.settings=[] {return command_host::Settings{{fs::absolute("config/templates"),"START_PART.prtz","START_ASSEMBLY.asmz","Body"},{}};};
     command_host::Host host(live,kernel,directory,options);run(host,"new",{{"type","part"},{"name","references"}});const auto doc=live.active_document_id();
-    const auto box=run(host,"box.create",{{"length_mm","10"},{"width_mm","10"},{"height_mm","10"}}).data.at("container").get<std::string>();
+    const auto box=zima::test::rectangular_commands([&](const char* n,commands::Json a){return run(host,n,std::move(a));},{{"length_mm","10"},{"width_mm","10"},{"height_mm","10"}}).data.at("container").get<std::string>();
     const auto sketch=run(host,"sketch.create",{{"name","Projection"}}).data.at("sketch").get<std::string>();
     auto* state=live.open_part(doc);const auto current=[&]{return workspace::document_sketch(live,doc,sketch);};
     const auto command=[&](const char* name,Json args=Json::object()){args["sketch"]=sketch;return run(host,name,std::move(args)).data;};
@@ -151,7 +153,7 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
     require(axis_created && current().external_references.back().infinite,"Original history axis could not be projected");
     auto bad=edge_args;bad["sketch"]=sketch;bad["key"]="result-only";
     require(!host.execute({{"command","sketch.reference.create"},{"arguments",bad}}).ok,"Missing source was guessed");
-    const auto later=run(host,"box.create",{{"length_mm","2"},{"width_mm","2"},{"height_mm","2"}}).data.at("container");
+    const auto later=zima::test::rectangular_commands([&](const char* n,commands::Json a){return run(host,n,std::move(a));},{{"length_mm","2"},{"width_mm","2"},{"height_mm","2"}}).data.at("container");
     bad["owner"]=later;require(host.execute({{"command","sketch.reference.create"},{"arguments",bad}}).code=="invalid_reference_source","Forward dependency accepted");
     // Dialog-owned drafts use the active Body insertion boundary without
     // inserting a temporary feature or widening the stored Sketch contract.
@@ -216,7 +218,7 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
     const auto retained=current().points;cached=state->session.calculated_boundaries();cached.back().mesh.original_references.edges.pop_back();state->session.commit(state->session.document(),std::move(cached));
     require(command("sketch.reference.refresh").at("broken_references").size()==1 && current().points==retained,"Missing source destroyed its last valid geometry");
     command("sketch.reference.delete",{{"reference",spline_ref}});require(current().points==retained,"Detaching broken spline changed its poles");
-    run(host,"save");const auto reopened=document::PartDocument::load(directory/"references.prtz");require(reopened.sketches.back().serialized()==current().serialized(),"Native Part lost projected geometry or references");
+    run(host,"save");const auto reopened=document::PartDocument::load(directory/"references.prtz");const auto saved_sketch=std::ranges::find(reopened.sketches,current().id,&sketcher::Sketch::id); require(saved_sketch!=reopened.sketches.end() && saved_sketch->serialized()==current().serialized(),"Native Part lost projected geometry or references");
     // Embedded Helical profiles obey the same preceding-source rule.
     auto embedded=sketcher::Sketch::create_default();auto helix=document::PartDocument::create_helical_sweep_container();embedded.owner_container_id=helix.id;helix.helical.sketches[2]=embedded.serialized();
     auto next=state->session.document();next.insert_history_entry(document::PartHistoryKind::Feature,helix.id);next.history.push_back(helix);state->session.commit(std::move(next),state->session.calculated_boundaries());

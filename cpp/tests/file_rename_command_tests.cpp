@@ -1,3 +1,4 @@
+#include "profile_solid_fixture.hpp"
 #include <zima/workspace/file_rename_operations.hpp>
 #include <zima/command_host/host.hpp>
 #include <zima/document/file_path.hpp>
@@ -90,7 +91,7 @@ struct Fixture {
 int main() {
     try {
         auto part = document::PartDocument::create_default(); part.name = "Source";
-        part.history.push_back(document::PartDocument::create_box_container());
+        part.history.push_back(zima::test::rectangular_feature(part));
         kernel::OcctKernel kernel; const auto boundaries = kernel.evaluate_history(part.kernel_operations());
         require(!boundaries.empty() && boundaries.back().volume > 0, "No calculated rename fixture");
         const auto root = fs::canonical(fs::temp_directory_path()) / ("zima-native-rename-" + part.document_id);

@@ -1,3 +1,4 @@
+#include "profile_command_fixture.hpp"
 #include <zima/command_host/host.hpp>
 #include <zima/workspace/drawing_title_operations.hpp>
 #include <zima/workspace/drawing_operations.hpp>
@@ -16,7 +17,7 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
     command_host::Host host(live,kernel,directory,options);
     const auto part=[&](const char* file,const char* name) {
         run(host,"new",{{"type","part"},{"name",file}});const auto id=live.active_document_id();
-        run(host,"box.create",{{"length_mm","10"},{"width_mm","20"},{"height_mm","30"}});
+        zima::test::rectangular_commands([&](const char* n,commands::Json a){return run(host,n,std::move(a));},{{"length_mm","10"},{"width_mm","20"},{"height_mm","30"}});
         auto data=workspace::user_parameters(live,id);
         for(const auto* key:{"name","revision"})if(std::ranges::find(data.order,key)==data.order.end())data.order.push_back(key);
         data.values["name"][""]=name;data.values["revision"][""]="A";data.labels["name"]["cs"]="Název";

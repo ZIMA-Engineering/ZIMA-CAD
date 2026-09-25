@@ -1,3 +1,5 @@
+#include "profile_command_fixture.hpp"
+#include "profile_solid_fixture.hpp"
 #include <set>
 #include <zima/workspace/imported_feature_operations.hpp>
 #include <zima/workspace/body_operations.hpp>
@@ -189,8 +191,7 @@ void verify_imported_properties(command_host::Host& host, workspace::Workspace& 
     // Move it before the imported feature in the same Body, then test the
     // actual Boolean result independently of the imported object's placement.
     static_cast<void>(workspace::commit_imported_feature(live, kernel, id, original));
-    const auto base = run(host, "box.create",
-        {{"length_mm", "200"}, {"width_mm", "200"}, {"height_mm", "200"}}).data.at("container");
+    const auto base = zima::test::rectangular_commands([&](const char* n,commands::Json a){return run(host, n,std::move(a));},{{"length_mm", "200"}, {"width_mm", "200"}, {"height_mm", "200"}}).data.at("container");
     run(host, "placement.set", {{"object", base}, {"values", {{"x", -50}, {"y", -50}, {"z", -50}}}});
     run(host, "history.move", {{"object", base}, {"before", container}});
     require(std::abs(state.session.calculated_boundaries().back().volume - (8000000 + volume)) < 1e-4,
@@ -215,7 +216,7 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
     workspace::Workspace live;command_host::Options options;
     options.settings=[] {return command_host::Settings{{fs::absolute("config/templates"),"START_PART.prtz","START_ASSEMBLY.asmz","Body"},{}};};
     command_host::Host host(live,kernel,dir,options);
-    auto source=document::PartDocument::create_default();source.name="Box source";auto box=document::PartDocument::create_box_container();box.box.length=10;box.box.width=20;box.box.height=30;source.history.push_back(box);
+    auto source=document::PartDocument::create_default();source.name="Box source";auto box=zima::test::rectangular_feature(source);zima::test::resize_rectangular_feature(source,box,{10,20,30});source.history.push_back(box);
     const auto body=kernel.evaluate_history(source.kernel_operations());kernel.export_step(interchange::step_product(source,body),document::path_to_utf8(dir/fs::path(u8"kvádr.step")));
     IGESControl_Writer writer("MM",1);writer.AddShape(BRepPrimAPI_MakeBox(10,20,30).Shape());require(writer.Write(document::path_to_utf8(dir/fs::path(u8"kvádr.igs")).c_str()),"Cannot write IGES fixture");
     auto profile=sketcher::Sketch::create_default();static_cast<void>(profile.add_rectangle(0,0,20,10));
@@ -243,7 +244,7 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
     fs::remove(dir/fs::path(u8"kvádr.igs"));
     verify_imported_properties(host,live,kernel,dir,iges.at("containers")[0].get<std::string>());
     run(host,"new",{{"type","part"},{"name","imported-dxf"}});const auto dxf_doc=live.active_document_id();
-    run(host,"box.create",{{"length_mm","3"},{"width_mm","4"},{"height_mm","5"}});part=live.open_part(dxf_doc);const auto cache=part->session.calculated_boundaries().back().kernel_shape;
+    zima::test::rectangular_commands([&](const char* n,commands::Json a){return run(host,n,std::move(a));},{{"length_mm","3"},{"width_mm","4"},{"height_mm","5"}});part=live.open_part(dxf_doc);const auto cache=part->session.calculated_boundaries().back().kernel_shape;
     const auto dxf=run(host,"import.dxf",{{"path",document::path_to_utf8(dxf_path)},{"unitless_scale_mm",25.4}}).data;
     const auto sketch=dxf.at("sketch").get<std::string>();require(dxf.at("body_calculated")==false && dxf.at("imported_entities")==4 && part->session.calculated_boundaries().back().kernel_shape==cache,"DXF import calculated unrelated solid");
     const auto& imported_sketch=part->session.document().sketches.back();require(imported_sketch.name==document::path_to_utf8(dxf_path.stem()) && imported_sketch.import_blocks.front().source_path==document::path_to_utf8(dxf_path),"DXF metadata lost UTF-8 path/name");
@@ -258,7 +259,7 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
     stale=false;try{static_cast<void>(workspace::import_part(live,dxf_doc,dxf_path,{},[&](auto task){task();auto copy=live.open_part(dxf_doc)->session.document();auto boundaries=live.open_part(dxf_doc)->session.calculated_boundaries();require(live.remove(dxf_doc),"Could not remove fixture");live.add_part(std::move(copy),std::move(boundaries),dir/"reopened.prtz");}));}catch(const workspace::ImportOperationError& e){stale=std::string(e.code)=="document_changed";}
     require(stale,"Late import committed into a reopened document");
     run(host,"new",{{"type","part"},{"name","owned-dxf"}});const auto owned_doc=live.active_document_id();
-    run(host,"box.create",{{"length_mm","10"},{"width_mm","10"},{"height_mm","10"}});
+    zima::test::rectangular_commands([&](const char* n,commands::Json a){return run(host,n,std::move(a));},{{"length_mm","10"},{"width_mm","10"},{"height_mm","10"}});
     auto* owned=live.open_part(owned_doc);const auto base_body=owned->session.document().body_history.active_body_id();
     const auto other_body=run(host,"body.create",{{"name","Inactive test"}}).data.at("body").get<std::string>();run(host,"body.activate",{{"body",base_body}});
     auto embedded=sketcher::Sketch::create_default(),other=sketcher::Sketch::create_default();
@@ -275,7 +276,7 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
     const auto imported_owned=run(host,"import.dxf",request).data;
     require(imported_owned.at("containers").empty()&&!imported_owned.at("body_calculated").get<bool>()&&workspace::document_sketch(live,owned_doc,embedded.id).segments.size()==4,"DXF did not append to the exact embedded profile");
     require(workspace::document_sketch(live,owned_doc,other.id).serialized()==other_before,"Embedded DXF changed sibling profile");
-    require(owned->session.document().sketches.empty(),"Embedded DXF created a standalone sketch");
+    require(owned->session.document().sketches.size()==1 && !owned->session.document().sketches.front().owner_container_id.empty(),"Embedded DXF created a standalone sketch");
     require(owned->session.calculated_boundaries().back().kernel_shape==cached,"Embedded DXF changed cached body");
     run(host,"undo");require(workspace::document_sketch(live,owned_doc,embedded.id).serialized()==embedded_before,"Embedded import Undo failed");run(host,"redo");
     run(host,"regenerate");run(host,"save");const auto saved_owned=document::PartDocument::load(dir/"owned-dxf.prtz");require(sketcher::Sketch::from_serialized(saved_owned.find_container(owned_feature)->sweep3d.profiles[1].sketch_serialized).import_blocks.size()==1,"Embedded import lost native persistence");

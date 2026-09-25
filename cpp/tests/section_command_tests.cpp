@@ -1,3 +1,4 @@
+#include "profile_command_fixture.hpp"
 #include <zima/command_host/host.hpp>
 #include <zima/document/section.hpp>
 #include <zima/kernel/stable_id.hpp>
@@ -24,7 +25,7 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
     command_host::Host host(live,kernel,dir,options);
     require(host.execute_text("section.list").code=="unsupported_document","Section query without a document failed unsafely");
     run(host,"new",{{"type","part"},{"name","section-source"}});
-    run(host,"box.create",{{"length_mm","10"},{"width_mm","20"},{"height_mm","30"}});
+    zima::test::rectangular_commands([&](const char* n,commands::Json a){return run(host,n,std::move(a));},{{"length_mm","10"},{"width_mm","20"},{"height_mm","30"}});
     const auto part_id=live.active_document_id();auto* part=live.open_part(part_id);
     const auto body=part->session.document().body_history.active_body_id();
     auto cut=section();cut.show_cut=true;cut.components[body]={2,{30,3,1,2},true};

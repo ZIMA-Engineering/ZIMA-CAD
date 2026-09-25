@@ -9,7 +9,7 @@ int verify_sheet_exchange_ui(QApplication& application,const std::filesystem::pa
         if(fixture!="1")part=document::PartDocument::load(fixture.toStdString(),&cache);
         else {
             static_cast<void>(part.body_history.create_body("Source"));
-            auto box=document::PartDocument::create_box_container();box.box.height=3;
+            auto box=test::rectangular_feature(part,{100,80,3});
             part.insert_history_entry(document::PartHistoryKind::Feature,box.id);part.history.push_back(box);
             cache=workspace::calculate_part_with_resolved_references(kernel,part);
             static_cast<void>(part.body_history.create_body("Sheet"));

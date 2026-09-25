@@ -1,3 +1,4 @@
+#include "profile_command_fixture.hpp"
 #include "drill_point_test_support.hpp"
 #include <zima/command_host/host.hpp>
 #include <zima/workspace/drill_point_operations.hpp>
@@ -22,7 +23,8 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
     run(host,"new",{{"type","part"},{"name","drill-command"}});
     auto* state=live.open_part(live.active_document_id());auto fixture=test::drill_point_fixture(state->session.document());
     const auto large=fixture.history[1].id,small=fixture.history[2].id,block=fixture.history[0].id;
-    const auto face=[](const std::string& owner,const char* key="z_min"){return Json{{"owner",owner},{"key",key}};};
+    const auto face=[&](const std::string& owner,const char* key="z_min"){const auto& doc=fixture.history.empty()?state->session.document():fixture;
+        const auto* source=doc.find_container(owner);return Json{{"owner",owner},{"key",source&&source->feature_kind==document::FeatureKind::Extrusion?test::profile_key(doc,owner,key):std::string(key)}};};
     const Json a=face(large),b=face(small);auto calculated=kernel.evaluate_history(fixture.kernel_operations());
     state->session.commit(std::move(fixture),std::move(calculated));
     const auto created=run(host,"drill_point.create",{{"faces",Json::array({a,b})}}).data;
@@ -35,7 +37,7 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
             const auto parent=kernel::drill_point_source(ref.semantic_key);require(parent.has_value(),"Drill cone has no recoverable original parent");
             if(!ref.semantic_key.starts_with("drill-point:side:from:"))continue;
             const bool is_large=parent->owner_id==large;require(is_large||parent->owner_id==small,"Drill cone changed its source owner");
-            require(parent->semantic_key=="z_min","Drill cone changed its parent face");sources.insert(parent->owner_id);
+            require(parent->semantic_key==(is_large?a:b).at("key").get<std::string>(),"Drill cone changed its parent face");sources.insert(parent->owner_id);
             for(std::size_t j=0;j<3;++j) {
                 const auto p=result.mesh.vertices.at(result.mesh.triangles.at(i*3+j));const double radius=is_large?5:3;
                 const double radial=std::hypot(p.x-(is_large?-8:8),p.y);
@@ -68,14 +70,14 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
     const auto loaded=document::PartDocument::load(directory/"drill-command.prtz",&saved);
     require(*loaded.find_container(id)==locked,"Drill native save lost its parameters/references");near(saved.back().volume,test::drilled_block_volume(120,false,true));
     const auto cold=kernel.evaluate_history(loaded.kernel_operations());near(cold.back().volume,saved.back().volume);
-    const auto expected=kernel::drill_point_key("side",{small,"z_min",{}});
+    const auto expected=kernel::drill_point_key("side",{small,b.at("key").get<std::string>(),{}});
     require(std::ranges::any_of(cold.back().mesh.triangle_references,[&](const auto& ref){return ref.owner_id==id&&ref.semantic_key==expected;}),"Cold calculation lost remaining bottom identity");
     for(const auto* malformed:{"drill-point:side:from:0::x","drill-point:side:from:999:x:y","drill-point:unknown:from:1:a:b","drill-point:side:from:x:a:b"})
         require(!kernel::drill_point_source(malformed),"Malformed drill ancestry was accepted");
     // The current Otvor command generates its bore inside a Thread operation.
     // Its original bottom must work just like a directly subtracted cylinder.
     run(host,"new",{{"type","part"},{"name","opening-bottom"}});
-    run(host,"box.create",{{"length_mm","40"},{"width_mm","40"},{"height_mm","40"}});
+    zima::test::rectangular_commands([&](const char* n,commands::Json a){return run(host,n,std::move(a));},{{"length_mm","40"},{"width_mm","40"},{"height_mm","40"}});
     const auto opening=run(host,"opening.create",{{"type","plain"},{"nominal_diameter_mm",10},{"bore_length_mm",15},
         {"drill_point_enabled",false},{"chamfer_enabled",false},{"placement",{{"z",-20}}}}).data.at("container").get<std::string>();
     state=live.open_part(live.active_document_id());std::optional<kernel::FaceReference> opening_bottom;

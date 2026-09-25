@@ -6,6 +6,8 @@
 
 namespace zima::document {
 
+enum class FeatureType { Point, Axis, Plane, Sketch, Modeling };
+
 enum class FeatureSideOperation { None, Extrusion, Revolution };
 enum class FeatureRotationExtent { Angle, Full, UpTo };
 
@@ -23,6 +25,7 @@ struct FeatureSideParameters {
 // The editing definition is independent of calculated OCCT operands. Start/End
 // ancestry uses the owning container/feature and Sketch IDs, not operation kind.
 struct FeatureParameters {
+    FeatureType type{FeatureType::Modeling};
     std::string sketch_id;
     std::string axis_segment_id;
     ProfileSource profile_source{ProfileSource::Internal};
@@ -36,13 +39,26 @@ struct FeatureParameters {
     // UI Side 1 is End; Side 2 is Start. Order never changes with geometry.
     std::array<FeatureSideParameters,2> sides{{
         {FeatureSideOperation::Extrusion}, {FeatureSideOperation::None}}};
-    [[nodiscard]] const FeatureSideParameters& effective_side(std::size_t side) const {
+    [[nodiscard]] FeatureSideParameters effective_side(std::size_t side) const {
         if(side>=sides.size())throw std::out_of_range("Invalid Feature side");
-        return sides[symmetric?0:side];
+        auto value=sides[symmetric?0:side];
+        if(type==FeatureType::Axis) {
+            value.operation=FeatureSideOperation::Extrusion;
+            value.extrusion_extent=EndCondition::Length;
+            value.targets.clear();
+        } else if(type!=FeatureType::Modeling) value.operation=FeatureSideOperation::None;
+        return value;
     }
     [[nodiscard]] bool sketch_only() const {
-        return effective_side(0).operation==FeatureSideOperation::None &&
-            effective_side(1).operation==FeatureSideOperation::None;
+        return type!=FeatureType::Modeling ||
+            (effective_side(0).operation==FeatureSideOperation::None &&
+             effective_side(1).operation==FeatureSideOperation::None);
+    }
+    [[nodiscard]] bool shows_sketch() const {
+        return type==FeatureType::Sketch || (type==FeatureType::Modeling&&sketch_only());
+    }
+    [[nodiscard]] bool uses_sketch() const {
+        return type==FeatureType::Sketch || type==FeatureType::Modeling;
     }
     bool operator==(const FeatureParameters&) const = default;
 };

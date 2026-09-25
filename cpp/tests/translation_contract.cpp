@@ -191,7 +191,7 @@ int verify_translations(QApplication& application, QWidget& parent) {
         }
         check(QObject::tr("unregistered source") == "unregistered source", "Missing translation did not fall back to source");
         check(QObject::tr("Šablona uložena: %1").arg("logo.tblz").contains("logo.tblz"), "File-name placeholder is broken");
-        auto initial = document::PartDocument::create_box_container();
+        auto initial = document::PartDocument::create_twisted_sheet_container();
         initial.value_locks = {"length"};
         app::PrimitivePropertiesDialog dialog(initial, true, false, [](auto) {}, &parent);
         dialog.setAttribute(Qt::WA_DeleteOnClose, false);

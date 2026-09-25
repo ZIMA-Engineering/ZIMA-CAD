@@ -1,3 +1,4 @@
+#include "profile_command_fixture.hpp"
 #include <zima/command_host/host.hpp>
 #include <zima/workspace/opening_operations.hpp>
 #include <cmath>
@@ -23,7 +24,7 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
     require(host.execute_text("opening.get missing").code=="unsupported_document","Opening query without Part did not fail cleanly");
     for(const auto* type:{"plain","metric","whitworth","pipe"}) {
         run(host,"new",{{"type","part"},{"name",std::string("opening-")+type}});
-        run(host,"box.create",{{"length_mm","60"},{"width_mm","60"},{"height_mm","60"}});
+        zima::test::rectangular_commands([&](const char* n,commands::Json a){return run(host,n,std::move(a));},{{"length_mm","60"},{"width_mm","60"},{"height_mm","60"}});
         auto* state=live.open_part(live.active_document_id());
         Json args={{"type",type},{"bore_length_mm",20},{"thread_length_mm",10},{"chamfer_enabled",false},
             {"drill_point_enabled",false},{"placement",{{"z",-30}}}};

@@ -1,3 +1,4 @@
+#include "profile_command_fixture.hpp"
 #include <zima/command_host/host.hpp>
 #include <zima/workspace/named_view_operations.hpp>
 #include <cmath>
@@ -25,7 +26,7 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
         run("new",{{"type",assembly?"assembly":"part"},{"name",name}});
         const auto id=live.active_document_id();
         if(assembly){owner=id;run("component.insert",{{"source",source}});}
-        else {source=id;run("box.create",{{"length_mm","10"},{"width_mm","20"},{"height_mm","30"}});}
+        else {source=id;zima::test::rectangular_commands([&](const char* n,commands::Json a){return run(n,std::move(a));},{{"length_mm","10"},{"width_mm","20"},{"height_mm","30"}});}
         const auto revision=[&]{return assembly?live.open_assembly(id)->session.revision():live.open_part(id)->session.revision();};
         const auto generation=[&]{return assembly?live.open_assembly(id)->session.data_generation():live.open_part(id)->session.data_generation();};
         const auto before_revision=revision(),before_generation=generation();

@@ -6,9 +6,7 @@ namespace zima::document {
 // Read-only parameter annotations shared by modeling inspection and Drawings.
 // Consume resolved placement data without solving references or bodies.
 inline bool has_primitive_parameter_dimensions(FeatureKind kind) {
-    return kind==FeatureKind::Box || kind==FeatureKind::Cylinder ||
-        kind==FeatureKind::Sphere || kind==FeatureKind::Cone ||
-        kind==FeatureKind::Pyramid || kind==FeatureKind::Wedge || kind==FeatureKind::Thread;
+    return kind==FeatureKind::Thread;
 }
 inline kernel::ViewerMesh primitive_parameter_dimensions(const HistoryContainer& feature) {
     kernel::ViewerMesh mesh;
@@ -116,24 +114,7 @@ inline kernel::ViewerMesh primitive_parameter_dimensions(const HistoryContainer&
                         zima::kernel::ViewerDimensionKind::Radius;
                 };
                 using zima::document::FeatureKind;
-                if (container->feature_kind == FeatureKind::Box) {
-                    const double x = container->box.length * 0.5;
-                    const double y = container->box.width * 0.5;
-                    const double z = container->box.height * 0.5;
-                    linear("length", "Délka = ", local(-x,-y,-z), local(x,-y,-z),
-                        {0,-8,0}, container->box.length);
-                    linear("width", "Šířka = ", local(-x,-y,-z), local(-x,y,-z),
-                        {-8,0,0}, container->box.width);
-                    linear("height", "Výška = ", local(-x,-y,-z), local(-x,-y,z),
-                        {-8,0,0}, container->box.height);
-                } else if (container->feature_kind == FeatureKind::Cylinder) {
-                    radius("radius", origin,
-                        local(container->cylinder.radius,0,0), {0,6,0},
-                        container->cylinder.radius);
-                    linear("height", "Výška = ", origin,
-                        local(0,0,container->cylinder.height), {8,0,0},
-                        container->cylinder.height);
-                } else if (container->feature_kind == FeatureKind::Thread) {
+                if (container->feature_kind == FeatureKind::Thread) {
                     const double diameter=container->thread.enabled
                         ? container->thread.profile_diameter : container->thread.nominal_diameter;
                     const bool referenced_work_plane = std::any_of(
@@ -240,44 +221,6 @@ inline kernel::ViewerMesh primitive_parameter_dimensions(const HistoryContainer&
                         container->thread.end_condition_forward == zima::document::EndCondition::Length)
                         cone_angle("drill_point_angle", container->hole.drill_point_angle_degrees,
                             container->thread.bore_length, diameter*0.5);
-                } else if (container->feature_kind == FeatureKind::Sphere) {
-                    radius("radius", origin,
-                        local(container->sphere.radius,0,0), {0,6,0},
-                        container->sphere.radius);
-                } else if (container->feature_kind == FeatureKind::Cone) {
-                    radius("bottom_radius", origin,
-                        local(container->cone.bottom_radius,0,0), {0,-8,0},
-                        container->cone.bottom_radius);
-                    radius("top_radius", local(0,0,container->cone.height),
-                        local(container->cone.top_radius,0,container->cone.height),
-                        {0,8,0}, container->cone.top_radius);
-                    linear("height", "Výška = ", origin,
-                        local(0,0,container->cone.height), {8,0,0},
-                        container->cone.height);
-                } else if (container->feature_kind == FeatureKind::Pyramid) {
-                    linear("length", "Délka = ", origin,
-                        local(container->pyramid.length,0,0), {0,-8,0},
-                        container->pyramid.length);
-                    linear("width", "Šířka = ", origin,
-                        local(0,container->pyramid.width,0), {-8,0,0},
-                        container->pyramid.width);
-                    linear("height", "Výška = ", origin,
-                        local(0,0,container->pyramid.height), {8,0,0},
-                        container->pyramid.height);
-                } else if (container->feature_kind == FeatureKind::Wedge) {
-                    linear("length", "Délka = ", origin,
-                        local(container->wedge.length,0,0), {0,-8,0},
-                        container->wedge.length);
-                    linear("width", "Šířka = ", origin,
-                        local(0,container->wedge.width,0), {-8,0,0},
-                        container->wedge.width);
-                    linear("height", "Výška = ", origin,
-                        local(0,0,container->wedge.height), {8,0,0},
-                        container->wedge.height);
-                    linear("top_offset", "Posun = ", origin,
-                        local(container->wedge.top_offset,0,0), {0,8,0},
-                        container->wedge.top_offset);
-
                 }
     return mesh;
 }

@@ -1,3 +1,5 @@
+#include "profile_command_fixture.hpp"
+#include "profile_solid_fixture.hpp"
 #include <zima/command_host/host.hpp>
 #include <zima/workspace/opening_operations.hpp>
 #include <cmath>
@@ -20,7 +22,7 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
     options.settings=[] {command_host::Settings settings;settings.templates={fs::absolute("config/templates"),"START_PART.prtz","START_ASSEMBLY.asmz","Body"};return settings;};
     command_host::Host host(live,kernel,directory,options);
     run(host,"new",{{"type","part"},{"name","opening-limits"}});
-    run(host,"box.create",{{"length_mm","60"},{"width_mm","60"},{"height_mm","60"}});
+    zima::test::rectangular_commands([&](const char* n,commands::Json a){return run(host,n,std::move(a));},{{"length_mm","60"},{"width_mm","60"},{"height_mm","60"}});
     const auto bore=run(host,"construction.create",{{"kind","plane"},{"name","Bore end"},{"base_plane","xy"},{"offset_mm",-10}}).data;
     const auto thread=run(host,"construction.create",{{"kind","plane"},{"name","Thread end"},{"base_plane","xy"},{"offset_mm",-15}}).data;
     auto* state=live.open_part(live.active_document_id());
@@ -78,8 +80,8 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
     run(host,"undo");
 
     run(host,"new",{{"type","part"},{"name","opening-faces"}});
-    const auto box=run(host,"box.create",{{"length_mm","60"},{"width_mm","60"},{"height_mm","60"}}).data.at("container");
-    const auto face=Json::array({Json{{"owner",box},{"key","z_max"}}});
+    const auto box=zima::test::rectangular_commands([&](const char* n,commands::Json a){return run(host,n,std::move(a));},{{"length_mm","60"},{"width_mm","60"},{"height_mm","60"}}).data.at("container");
+    const auto face=Json::array({Json{{"owner",box},{"key",test::profile_key(live.open_part(live.active_document_id())->session.document(),box,"z_max")}}});
     const auto face_opening=run(host,"opening.create",{{"type","metric"},{"designation","M10"},{"bore_end","up_to"},
         {"bore_targets",face},{"thread_end","up_to"},{"thread_targets",face},
         {"chamfer_enabled",false},{"drill_point_enabled",false},{"placement",{{"z",-30}}}}).data.at("container").get<std::string>();
@@ -94,10 +96,10 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
     };
     near(state->session.calculated_boundaries().back().volume,216000-std::numbers::pi*r*r*60);
     face_sheet_end(state->session.calculated_boundaries().back(),30);
-    run(host,"box.set",{{"container",box},{"height_mm","80"}});
+    zima::test::resize_rectangular_commands([&](const char* n,commands::Json a){return run(host,n,std::move(a));},{{"container",box},{"height_mm","80"}});
     near(state->session.calculated_boundaries().back().volume,288000-std::numbers::pi*r*r*70);
     face_sheet_end(state->session.calculated_boundaries().back(),40);
-    auto cold_face=state->session.document();cold_face.find_container(box.get<std::string>())->box.height=100;
+    auto cold_face=state->session.document();zima::test::profile_dimension(cold_face,*cold_face.find_container(box.get<std::string>()),2)=100;
     const auto face_result=kernel.evaluate_history(cold_face.kernel_operations());
     near(face_result.back().volume,360000-std::numbers::pi*r*r*80);face_sheet_end(face_result.back(),50);
     // Keep the bore reference intact: a missing thread-only face must also fail.
@@ -114,20 +116,20 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
     const auto reloaded_faces=kernel.evaluate_history(saved_faces.kernel_operations());
     near(reloaded_faces.back().volume,face_stored.back().volume);face_sheet_end(reloaded_faces.back(),40);
     run(host,"new",{{"type","part"},{"name","opening-body-target"}});
-    const auto stock=run(host,"box.create",{{"length_mm","20"},{"width_mm","20"},{"height_mm","20"}}).data.at("container");
+    const auto stock=zima::test::rectangular_commands([&](const char* n,commands::Json a){return run(host,n,std::move(a));},{{"length_mm","20"},{"width_mm","20"},{"height_mm","20"}}).data.at("container");
     state=live.open_part(live.active_document_id());
     const auto source_body=state->session.document().body_history.active_body_id();
     run(host,"placement.set",{{"object",source_body},{"values",{{"reference_offset:0",10}}}});
     const auto carrier=run(host,"body.create",{{"name","Opening carrier"}}).data.at("body");
     run(host,"placement.set",{{"object",carrier},{"values",{{"reference_offset:0",5}}}});
-    run(host,"box.create",{{"length_mm","40"},{"width_mm","40"},{"height_mm","80"}});
-    const auto other_face=Json::array({Json{{"owner",stock},{"key","z_max"}}});
+    zima::test::rectangular_commands([&](const char* n,commands::Json a){return run(host,n,std::move(a));},{{"length_mm","40"},{"width_mm","40"},{"height_mm","80"}});
+    const auto other_face=Json::array({Json{{"owner",stock},{"key",test::profile_key(live.open_part(live.active_document_id())->session.document(),stock,"z_max")}}});
     const auto other_opening=run(host,"opening.create",{{"type","metric"},{"designation","M10"},
         {"bore_end","up_to"},{"bore_targets",other_face},{"thread_end","up_to"},{"thread_targets",other_face},
         {"chamfer_enabled",false},{"drill_point_enabled",false},{"placement",{{"z",-40}}}}).data.at("container").get<std::string>();
     near(state->session.calculated_boundaries().back().volume,136000-std::numbers::pi*r*r*55);
     near(state->session.document().find_container(other_opening)->thread.end_targets_forward.front().fallback_origin.z,15);
-    run(host,"body.activate",{{"body",source_body}});run(host,"box.set",{{"container",stock},{"height_mm","22"}});
+    run(host,"body.activate",{{"body",source_body}});zima::test::resize_rectangular_commands([&](const char* n,commands::Json a){return run(host,n,std::move(a));},{{"container",stock},{"height_mm","22"}});
     near(state->session.calculated_boundaries().back().volume,136800-std::numbers::pi*r*r*56);
     near(state->session.document().find_container(other_opening)->thread.length_end_targets.front().fallback_origin.z,16);
     run(host,"undo");near(state->session.calculated_boundaries().back().volume,136000-std::numbers::pi*r*r*55);

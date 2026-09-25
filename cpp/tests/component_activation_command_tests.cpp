@@ -1,3 +1,4 @@
+#include "profile_command_fixture.hpp"
 #include <zima/command_host/host.hpp>
 #include <zima/workspace/component_source_operations.hpp>
 #include <iostream>
@@ -16,7 +17,7 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
     options.interaction=[&]{command_host::Interaction value;value.editing=editing;value.active_occurrence=supplied_path;return value;};
     command_host::Host host(live,kernel,dir,options);
     run(host,"new",{{"type","part"},{"name","activation-part"}});const auto source=live.active_document_id();
-    const auto box=run(host,"box.create",{{"length_mm","10"},{"width_mm","20"},{"height_mm","30"}}).data.at("container").get<std::string>();run(host,"save");
+    const auto box=zima::test::rectangular_commands([&](const char* n,commands::Json a){return run(host,n,std::move(a));},{{"length_mm","10"},{"width_mm","20"},{"height_mm","30"}}).data.at("container").get<std::string>();run(host,"save");
     run(host,"new",{{"type","assembly"},{"name","activation-middle"}});const auto middle=live.active_document_id();
     const auto leaf=run(host,"component.insert",{{"source",source}}).data.at("occurrence").get<std::string>();run(host,"save");
     run(host,"new",{{"type","assembly"},{"name","activation-top"}});const auto top=live.active_document_id();
@@ -37,7 +38,7 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
     require(result.data.at("opened")==true&&result.data.at("changed")==true&&!live.open_assembly(middle),"Deep activation did not open only the requested source");
     context(source,first_leaf);near(live.open_part(source)->session.calculated_boundaries().back().volume,6000);
     result=activate(first_leaf);require(result.data.at("changed")==false&&!host.change(),"Repeated activation emitted a change");
-    run(host,"box.set",{{"container",box},{"height_mm","40"}});context(source,first_leaf);
+    zima::test::resize_rectangular_commands([&](const char* n,commands::Json a){return run(host,n,std::move(a));},{{"container",box},{"height_mm","40"}});context(source,first_leaf);
     near(live.open_part(source)->session.calculated_boundaries().back().volume,8000);
     run(host,"undo");near(live.open_part(source)->session.calculated_boundaries().back().volume,6000);
     run(host,"redo");near(live.open_part(source)->session.calculated_boundaries().back().volume,8000);
@@ -58,9 +59,9 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
     rejected("component.activate",{{"instance_path",path("missing")}},"invalid_arguments");
     rejected("component.activate",{{"instance_path",""}},"missing_argument");
     rejected("component.activate",{{"instance_path",first_leaf},{"document",source}},"unsupported_document");
-    rejected("box.set",{{"container",box},{"height_mm","50"},{"document",top}},"document_changed");
+    rejected("extrusion.set",{{"container",box},{"length_forward_mm",25},{"document",top}},"document_changed");
     editing=true;rejected("component.activate",{{"instance_path",first_leaf}},"editing_in_progress");rejected("component.deactivate",Json::object(),"editing_in_progress");editing=false;
-    supplied_path=first_leaf;rejected("box.set",{{"container",box},{"height_mm","50"}},"active_occurrence");supplied_path.clear();
+    supplied_path=first_leaf;rejected("extrusion.set",{{"container",box},{"length_forward_mm",25}},"active_occurrence");supplied_path.clear();
     run(host,"save");context(source,second_leaf);saved.clear();static_cast<void>(document::PartDocument::load(dir/"activation-part.prtz",&saved));near(saved.back().volume,8000);
     result=activate(path(first));require(result.data.at("opened")==true,"Nested Assembly source was not opened");context(middle,path(first));
     const auto inserted=run(host,"component.insert",{{"source",source},{"name","Inserted locally"}}).data.at("occurrence").get<std::string>();

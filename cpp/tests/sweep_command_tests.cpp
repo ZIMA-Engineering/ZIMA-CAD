@@ -1,3 +1,4 @@
+#include "profile_command_fixture.hpp"
 #include "sweep_test_support.hpp"
 #include <zima/command_host/host.hpp>
 #include <zima/workspace/sweep_operations.hpp>
@@ -692,7 +693,7 @@ void verify_path_plane(const kernel::OcctKernel& kernel, const fs::path& directo
 }
 void verify_original_path_plane(const kernel::OcctKernel& kernel, const fs::path& directory) {
     Fixture f(kernel, directory); f.run("new", {{"type", "part"}, {"name", "sweep-original-plane"}});
-    const auto box = f.run("box.create", {{"length_mm", "4"}, {"width_mm", "4"}, {"height_mm", "4"}}).at("container").get<std::string>();
+    const auto box = zima::test::rectangular_commands([&](const char* n,commands::Json a){return f.run(n,std::move(a));},{{"length_mm", "4"}, {"width_mm", "4"}, {"height_mm", "4"}}).at("container").get<std::string>();
     f.run("placement.set", {{"object", box}, {"values", {{"z", 40}}}});
     const auto faces = f.run("reference.list", {{"kind", "face"}, {"owner", box}}).at("items");
     Json top; double height = -1e100;

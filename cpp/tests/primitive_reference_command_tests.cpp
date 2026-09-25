@@ -1,3 +1,4 @@
+#include "profile_command_fixture.hpp"
 #include <zima/command_host/host.hpp>
 #include <zima/workspace/primitive_operations.hpp>
 #include <cmath>
@@ -55,11 +56,11 @@ void verify_bodies(const kernel::OcctKernel& kernel,fs::path directory) {
     command_host::Host host(live,kernel,directory,options);
     const auto run=[&](const char* command,Json args=Json::object()){const auto result=host.execute({{"command",command},{"arguments",std::move(args)}});if(!result.ok)throw std::runtime_error(std::string(command)+": "+result.code+": "+result.message);return result.data;};
     run("new",{{"type","part"},{"name","primitive-body-references"}});const auto id=live.active_document_id();auto* state=live.open_part(id);
-    const auto first=state->session.document().body_history.active_body_id();const auto source=run("box.create",{{"length_mm","10"},{"width_mm","10"},{"height_mm","10"}}).at("container").get<std::string>();
+    const auto first=state->session.document().body_history.active_body_id();const auto source=zima::test::rectangular_commands([&](const char* n,commands::Json a){return run(n,std::move(a));},{{"length_mm","10"},{"width_mm","10"},{"height_mm","10"}}).at("container").get<std::string>();
     run("placement.set",{{"object",first},{"values",{{"reference_offset:0",11}}}});
     const auto body=run("body.create",{{"name","Target body"}}).at("body").get<std::string>();
     run("placement.set",{{"object",body},{"values",{{"reference_offset:0",30}}}});
-    const auto target=run("cylinder.create",{{"radius_mm","1"},{"height_mm","2"}}).at("container").get<std::string>();
+    const auto target=zima::test::circular_commands([&](const char* n,commands::Json a){return run(n,std::move(a));},{{"radius_mm","1"},{"height_mm","2"}}).at("container").get<std::string>();
     const auto geometry=workspace::part_construction_dimension_geometry(state->session.document(),state->session.calculated_boundaries());
     std::string key;double plane_z{},normal_z{};
     for(std::size_t i=0;i<geometry.triangle_references.size();++i) {

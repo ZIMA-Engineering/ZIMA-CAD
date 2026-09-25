@@ -1,7 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" role="img" aria-labelledby="title">
-  <title id="title">Wedge</title>
-  <g fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
-    <path d="M2 18L12 7L17 5L21 8V15L6 21Z"/>
-    <path d="M6 21L16 10L21 8M12 7L16 10"/>
-  </g>
-</svg>

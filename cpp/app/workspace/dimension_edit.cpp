@@ -43,7 +43,6 @@ public:
 } // namespace
 
 
-
 QString AssemblyWorkspaceWindow::dimension_identifier(
     const std::string& owner, const std::string& key) const {
     const auto id = workspace_.active_document_id();
@@ -533,10 +532,6 @@ void AssemblyWorkspaceWindow::edit_dimension_inline(
                     else if(key=="end_rz"){p.end_rotation.z=next_value;changed=true;}
                     else if(key=="thickness")positive(p.thickness);
                     else if(key=="inside_radius")positive(p.inside_radius);
-                } else if (container->feature_kind == FeatureKind::Box) {
-                    if (key == "length") positive(container->box.length);
-                    else if (key == "width") positive(container->box.width);
-                    else if (key == "height") positive(container->box.height);
                 } else if (container->feature_kind == FeatureKind::ShaftThread) {
                     if (key=="root_diameter") positive(container->shaft_thread.root_diameter);
                     else if (key=="length" && container->shaft_thread.end_condition==zima::document::EndCondition::Length)
@@ -562,26 +557,6 @@ void AssemblyWorkspaceWindow::edit_dimension_inline(
                         if (key == "chamfer_angle") thread.chamfer_angle_degrees = next_value;
                         else container->hole.drill_point_angle_degrees = next_value;
                         changed = true;
-                    }
-                } else if (container->feature_kind == FeatureKind::Cylinder) {
-                    if (key == "radius") positive(container->cylinder.radius);
-                    else if (key == "height") positive(container->cylinder.height);
-                } else if (container->feature_kind == FeatureKind::Sphere &&
-                           key == "radius") positive(container->sphere.radius);
-                else if (container->feature_kind == FeatureKind::Cone) {
-                    if (key == "bottom_radius") positive(container->cone.bottom_radius);
-                    else if (key == "top_radius") positive(container->cone.top_radius, true);
-                    else if (key == "height") positive(container->cone.height);
-                } else if (container->feature_kind == FeatureKind::Pyramid) {
-                    if (key == "length") positive(container->pyramid.length);
-                    else if (key == "width") positive(container->pyramid.width);
-                    else if (key == "height") positive(container->pyramid.height);
-                } else if (container->feature_kind == FeatureKind::Wedge) {
-                    if (key == "length") positive(container->wedge.length);
-                    else if (key == "width") positive(container->wedge.width);
-                    else if (key == "height") positive(container->wedge.height);
-                    else if (key == "top_offset") {
-                        container->wedge.top_offset = next_value; changed = true;
                     }
                 } else if (container->feature_kind == FeatureKind::Feature) {
                     if(key=="profile_offset") {container->feature.profile_plane_offset=next_value;changed=true;}

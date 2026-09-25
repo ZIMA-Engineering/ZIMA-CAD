@@ -1,3 +1,5 @@
+#include "profile_command_fixture.hpp"
+#include "profile_solid_fixture.hpp"
 #include <zima/command_host/host.hpp>
 #include <cmath>
 #include <numbers>
@@ -15,7 +17,7 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
     options.settings=[] {return command_host::Settings{{fs::absolute("config/templates"),"START_PART.prtz","START_ASSEMBLY.asmz","Body"},{}};};
     command_host::Host host(live,kernel,dir,options);
     run(host,"new",{{"type","part"},{"name","hole-target"}});
-    const auto box=run(host,"box.create",{{"length_mm","40"},{"width_mm","40"},{"height_mm","40"}}).at("container");
+    const auto box=zima::test::rectangular_commands([&](const char* n,commands::Json a){return run(host,n,std::move(a));},{{"length_mm","40"},{"width_mm","40"},{"height_mm","40"}}).at("container");
     const auto plane=run(host,"construction.create",{{"kind","plane"},{"name","Hole end"},{"base_plane","xy"},{"offset_mm",0}});
     const auto target=Json::array({Json{{"owner",plane.at("entity")},{"key","plane"}}});
     const auto created=run(host,"hole.create",{{"diameter_mm",8},{"bore_length_mm",20},{"bore_end","up_to"},{"bore_targets",target},{"placement",{{"z",-20}}}});
@@ -43,47 +45,47 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
     };
     reject(Json::array());reject(Json::array({Json{{"owner","missing"},{"key","plane"}}}));
     reject(Json::array({Json{{"owner",id},{"key","end"}}}));
-    reject(Json::array({Json{{"owner",box},{"key","z_max"},{"kind","point"}}}));
-    reject(Json::array({Json{{"owner",box},{"key","z_max"},{"fallback_origin",Json::array({0,0,5})}}}));
+    reject(Json::array({Json{{"owner",box},{"key",test::profile_key(live.open_part(live.active_document_id())->session.document(),box,"z_max")},{"kind","point"}}}));
+    reject(Json::array({Json{{"owner",box},{"key",test::profile_key(live.open_part(live.active_document_id())->session.document(),box,"z_max")},{"fallback_origin",Json::array({0,0,5})}}}));
     reject(Json::array({target[0],target[0]}));
     auto external=target;external[0]["instance_path"]="outside";reject(external);
-    const auto face=Json::array({Json{{"owner",box},{"key","z_max"}}});
+    const auto face=Json::array({Json{{"owner",box},{"key",test::profile_key(live.open_part(live.active_document_id())->session.document(),box,"z_max")}}});
     run(host,"hole.set",{{"container",id},{"bore_targets",face}});volume(64000,40);
     run(host,"undo");volume(64000,25);run(host,"redo");volume(64000,40);
-    run(host,"box.set",{{"container",box},{"height_mm","80"}});volume(128000,60);
+    zima::test::resize_rectangular_commands([&](const char* n,commands::Json a){return run(host,n,std::move(a));},{{"container",box},{"height_mm","80"}});volume(128000,60);
     run(host,"save");auto loaded=document::PartDocument::load(dir/"hole-target.prtz");
     require(loaded.find_container(id)->hole.sketch_id==original.hole.sketch_id&&loaded.find_container(id)->hole.circle_id==original.hole.circle_id&&
         loaded.find_container(id)->hole.tip_sketch_id==original.hole.tip_sketch_id&&loaded.find_container(id)->hole.chamfer_sketch_id==original.hole.chamfer_sketch_id,
         "Hole target edits replaced owned profile identities");
-    loaded.find_container(box.get<std::string>())->box.height=100;
+    zima::test::profile_dimension(loaded,*loaded.find_container(box.get<std::string>()),2)=100;
     near(kernel.evaluate_history(loaded.kernel_operations()).back().volume,160000-area*70);
     loaded.find_container(id)->hole.bore_end_targets.front().reference.semantic_key="removed-original-face";
     bool missing_failed=false;try{static_cast<void>(kernel.evaluate_history(loaded.kernel_operations()));}catch(const std::exception&){missing_failed=true;}
     require(missing_failed,"Native Hole calculation accepted cached geometry for a missing original face");
     loaded.find_container(id)->hole.bore_end_condition=document::EndCondition::Length;
     near(kernel.evaluate_history(loaded.kernel_operations()).back().volume,160000-area*20);
-    auto future=document::PartDocument::create_box_container();
+    auto future=zima::test::rectangular_feature(loaded,{100,80,50});
     loaded.insert_history_entry(document::PartHistoryKind::Feature,future.id);loaded.history.push_back(future);
     loaded.find_container(id)->hole.bore_end_condition=document::EndCondition::UpTo;
-    loaded.find_container(id)->hole.bore_end_targets.front().reference={future.id,"z_max",{}};
+    loaded.find_container(id)->hole.bore_end_targets.front().reference={future.id,test::profile_key(loaded,future,"z_max"),{}};
     bool future_failed=false;try{static_cast<void>(kernel.evaluate_history(loaded.kernel_operations()));}catch(const std::exception&){future_failed=true;}
     require(future_failed,"Native Hole referenced geometry from a later history operation");
 
     run(host,"new",{{"type","part"},{"name","hole-body-target"}});
-    const auto stock=run(host,"box.create",{{"length_mm","20"},{"width_mm","20"},{"height_mm","20"}}).at("container");
+    const auto stock=zima::test::rectangular_commands([&](const char* n,commands::Json a){return run(host,n,std::move(a));},{{"length_mm","20"},{"width_mm","20"},{"height_mm","20"}}).at("container");
     part=live.open_part(live.active_document_id());const auto source_body=part->session.document().body_history.active_body_id();
     run(host,"placement.set",{{"object",source_body},{"values",{{"reference_offset:0",10}}}});
     const auto carrier=run(host,"body.create",{{"name","Hole carrier"}}).at("body");
     run(host,"placement.set",{{"object",carrier},{"values",{{"reference_offset:0",5}}}});
-    run(host,"box.create",{{"length_mm","40"},{"width_mm","40"},{"height_mm","80"}});
-    const auto body_target=Json::array({Json{{"owner",stock},{"key","z_max"}}});
+    zima::test::rectangular_commands([&](const char* n,commands::Json a){return run(host,n,std::move(a));},{{"length_mm","40"},{"width_mm","40"},{"height_mm","80"}});
+    const auto body_target=Json::array({Json{{"owner",stock},{"key",test::profile_key(live.open_part(live.active_document_id())->session.document(),stock,"z_max")}}});
     const auto body_hole=run(host,"hole.create",{{"diameter_mm",8},{"bore_length_mm",60},{"bore_end","up_to"},
         {"bore_targets",body_target},{"placement",{{"z",-40}}}}).at("container").get<std::string>();
     volume(136000,55);near(part->session.document().find_container(body_hole)->hole.bore_end_targets.front().fallback_origin.z,15);
-    run(host,"body.activate",{{"body",source_body}});run(host,"box.set",{{"container",stock},{"height_mm","22"}});volume(136800,56);
+    run(host,"body.activate",{{"body",source_body}});zima::test::resize_rectangular_commands([&](const char* n,commands::Json a){return run(host,n,std::move(a));},{{"container",stock},{"height_mm","22"}});volume(136800,56);
     run(host,"undo");volume(136000,55);run(host,"redo");volume(136800,56);run(host,"save");
     std::vector<kernel::BodyResult> body_cache;auto body_saved=document::PartDocument::load(dir/"hole-body-target.prtz",&body_cache);
-    body_saved.find_container(stock.get<std::string>())->box.height=24;
+    zima::test::profile_dimension(body_saved,*body_saved.find_container(stock.get<std::string>()),2)=24;
     kernel::OcctKernel cold_kernel;const auto cold=cold_kernel.evaluate_history_incremental(body_saved.kernel_operations(),body_cache);
     near(cold.back().volume,137600-area*57);
 

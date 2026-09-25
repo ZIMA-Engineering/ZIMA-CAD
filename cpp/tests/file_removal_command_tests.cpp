@@ -1,3 +1,4 @@
+#include "profile_solid_fixture.hpp"
 #include <zima/workspace/file_removal_operations.hpp>
 #include <zima/workspace/document_operations.hpp>
 #include <zima/command_host/host.hpp>
@@ -34,7 +35,7 @@ fs::path first_archive(fs::path path) { path += ".1"; return path; }
 int main() {
     try {
         auto part = document::PartDocument::create_default();
-        part.history.push_back(document::PartDocument::create_box_container());
+        part.history.push_back(zima::test::rectangular_feature(part));
         kernel::OcctKernel kernel;
         const auto boundaries = kernel.evaluate_history(part.kernel_operations());
         require(!boundaries.empty() && boundaries.back().volume > 0, "No fixture body");

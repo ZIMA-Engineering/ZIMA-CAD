@@ -1,7 +1,6 @@
 # Component activation in Assembly context
 
-`component.activate` and `component.deactivate` share GUI activation. The catalog
-has 209 commands at this stage. Activation is temporary Workspace state, changing
+`component.activate` and `component.deactivate` share GUI activation. Activation is temporary Workspace state, changing
 neither document formats nor templates.
 
 ## Commands and addressing
@@ -9,7 +8,7 @@ neither document formats nor templates.
 ```json
 {"command":"component.activate","arguments":{"document":"TOP_ASSEMBLY_ID","instance_path":"EXACT_PATH_FROM_COMPONENT_LIST"}}
 {"command":"context"}
-{"command":"box.set","arguments":{"container":"SOURCE_BOX_ID","height_mm":"40"}}
+{"command":"extrusion.set","arguments":{"container":"SOURCE_EXTRUSION_ID","length_forward_mm":40}}
 {"command":"save"}
 {"command":"component.deactivate"}
 ```

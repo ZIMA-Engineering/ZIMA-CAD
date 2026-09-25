@@ -1,3 +1,4 @@
+#include "profile_solid_fixture.hpp"
 #include <zima/document/body_origin_attachment.hpp>
 #include <zima/kernel/occt_kernel.hpp>
 #include <zima/document/body_history.hpp>
@@ -27,7 +28,7 @@ template<class Action> static void rejects(Action action) {
 }
 static kernel::HistoryOperation box(const std::string& owner, const std::string& body,
     kernel::Vec3 placement = {}) {
-    kernel::HistoryOperation operation{owner, kernel::BoxRequest{10, 10, 10}};
+    kernel::HistoryOperation operation{owner, zima::test::ProfilePrism{10, 10, 10}};
     operation.body.id = body;
     operation.body.translation = placement;
     return operation;
@@ -54,7 +55,7 @@ int main() {
         }
         {
             auto part=document::PartDocument::create_default();document::BodyHistoryGraph history;
-            const auto a=history.create_body("A");auto feature=document::PartDocument::create_box_container();
+            const auto a=history.create_body("A");auto feature=zima::test::rectangular_feature(part,{100,80,50});
             part.history.push_back(feature);history.insert({document::PartHistoryKind::Feature,feature.id});
             const auto b=history.create_body("B");const auto cut=history.create_boolean("Cut",kernel::BodyCombination::Subtract,a,b);
             auto hidden=*history.find(a);hidden.visible=false;history.update_body(hidden);
@@ -128,15 +129,15 @@ int main() {
             "Independent body reorder detached a Boolean from its body");
         const auto compiler = [](const document::PartHistoryEntry& entry) -> std::optional<kernel::HistoryOperation> {
             if (entry.kind != document::PartHistoryKind::Feature) return std::nullopt;
-            return kernel::HistoryOperation{entry.id, kernel::BoxRequest{10,10,10}};
+            return kernel::HistoryOperation{entry.id, zima::test::ProfilePrism{10,10,10}};
         };
         kernel::OcctKernel kernel;
         volume(kernel.evaluate_history(graph.compile(compiler)).back(), 500);
 
         auto part = document::PartDocument::create_default();
-        auto first = document::PartDocument::create_box_container();
-        auto second = document::PartDocument::create_box_container();
-        first.box = {10,10,10}; second.box = {10,10,10};
+        auto first = zima::test::rectangular_feature(part,{10,10,10});
+        auto second = zima::test::rectangular_feature(part,{10,10,10});
+
         part.history = {first, second};
         document::BodyHistoryGraph part_graph;
         const auto first_body = part_graph.create_body("První těleso");
@@ -166,7 +167,7 @@ int main() {
             graph.insert({document::PartHistoryKind::Feature, extrusion.id});
             deleted.set_body_history(graph);
             deleted.erase_history_object(extrusion.id);
-            require(deleted.sketches.empty(), "Deleting a feature orphaned its owned Sketch");
+            require(std::ranges::none_of(deleted.sketches,[&](const auto& item){return item.owner_container_id==extrusion.id;}), "Deleting a feature orphaned its owned Sketch");
             // Deleting only the profile preserves a repairable broken feature.
             deleted.history.push_back(extrusion);
             deleted.sketches.push_back(sketch);
@@ -353,10 +354,11 @@ int main() {
             !session.rollback_boundary(second.id)->input_body.has_value(),
             "Second body's first feature incorrectly inherited the first body as input");
         auto next = part;
-        auto added = document::PartDocument::create_box_container();
-        added.box = {2,2,2}; added.placement.x = 20;
+        auto added = zima::test::rectangular_feature(next,{2,2,2});
+         added.placement.x = 20;
         next.insert_history_entry(document::PartHistoryKind::Feature, added.id);
         next.history.push_back(added);
+        next.resolve_constructions();
         auto next_boundaries = kernel.evaluate_history_incremental(next.kernel_operations(), part_boundaries);
         session.commit(next, next_boundaries);
         require(session.document().body_history.owner(added.id)->scope.id == second_body,
@@ -400,9 +402,14 @@ int main() {
         document::DocumentSession loaded_session(loaded, loaded_boundaries);
         volume(*loaded_session.rollback_boundary(added.id)->input_body, 1000);
         auto unrelated_invalid = loaded;
-        unrelated_invalid.history.front().feature_kind = document::FeatureKind::Extrusion;
+        unrelated_invalid.history.front().extrusion.length_forward=std::numeric_limits<double>::quiet_NaN();
         bool unrelated_rejected = false;
-        try { static_cast<void>(unrelated_invalid.kernel_operations()); }
+        try { const auto operations=unrelated_invalid.kernel_operations();
+            const auto invalid_results=kernel.evaluate_history(operations);
+            for(const auto& result:invalid_results) {
+                unrelated_rejected|=!result.calculation_errors.empty();
+                for(const auto& [id,output]:result.body_outputs)unrelated_rejected|=!output->calculation_errors.empty();
+            } }
         catch (const std::exception&) { unrelated_rejected = true; }
         require(unrelated_rejected, "Invalid unrelated feature fixture unexpectedly compiled");
         document::DocumentSession inspect_cached(unrelated_invalid, loaded_boundaries);
@@ -469,7 +476,7 @@ int main() {
             boolean_session.document().body_history.find_boolean(boolean_id)->operation == kernel::BodyCombination::Intersect,
             "Redo did not restore Boolean operation");
         auto invalid_part = loaded;
-        invalid_part.history.push_back(document::PartDocument::create_box_container());
+        invalid_part.history.push_back(zima::test::rectangular_feature(invalid_part));
         rejects([&] { static_cast<void>(invalid_part.kernel_operations()); });
 
         std::vector<kernel::HistoryOperation> operations{box("box-a", "a"), box("box-b", "b", {5,0,0})};
@@ -598,7 +605,7 @@ int main() {
         // reuse after persistence and without a live OCCT cache.
         const auto path = std::filesystem::temp_directory_path() /
             ("zima-multibody-" + kernel::make_stable_id() + ".step");
-        kernel.export_step({{kernel.make_box({10,10,10}), {}, {}}}, path.string());
+        kernel.export_step({{zima::test::profile_body(kernel,{10,10,10}), {}, {}}}, path.string());
         kernel::HistoryOperation imported{"import", kernel::StepRequest{path.string()}};
         imported.body.id = "import-body";
         std::vector<kernel::HistoryOperation> independent{imported, box("changed-box", "changed-body", {20,0,0})};
@@ -606,13 +613,13 @@ int main() {
         std::filesystem::remove(path);
         for (auto& boundary : imported_boundaries)
             boundary = document::load_body_result(document::serialize_body_result(boundary));
-        std::get<kernel::BoxRequest>(independent.back().primitive).height = 20;
+        std::get<kernel::ExtrusionRequest>(independent.back().primitive).direction.z = 20;
         kernel::OcctKernel reopened;
         volume(reopened.evaluate_history_incremental(independent, imported_boundaries).back(), 3000);
         // A mold cut uses the persisted imported solid even after reopening
         // without its STEP file. Changing the stock must not reimport the tool.
         auto stock = box("mold-stock", "stock-body");
-        stock.primitive = kernel::BoxRequest{20,20,20};
+        stock.primitive = zima::test::ProfilePrism{20,20,20};
         kernel::HistoryOperation cavity;
         cavity.owner_id = "mold-cavity";
         cavity.body.id = "mold-cavity";
@@ -625,7 +632,7 @@ int main() {
         std::vector<kernel::BodyResult> restored_mold;
         for (const auto& boundary : cut_mold)
             restored_mold.push_back(document::load_body_result(document::serialize_body_result(boundary)));
-        std::get<kernel::BoxRequest>(mold.front().primitive).height = 30;
+        std::get<kernel::ExtrusionRequest>(mold.front().primitive).direction.z = 30;
         kernel::OcctKernel reopened_mold;
         const auto resized_mold = reopened_mold.evaluate_history_incremental(mold, restored_mold);
         volume(resized_mold.back(), 11000);

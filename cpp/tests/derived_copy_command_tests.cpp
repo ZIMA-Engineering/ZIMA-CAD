@@ -1,3 +1,5 @@
+#include "profile_command_fixture.hpp"
+#include "profile_solid_fixture.hpp"
 #include <zima/command_host/host.hpp>
 #include <zima/workspace/derived_copy_operations.hpp>
 #include <zima/workspace/value_lock_operations.hpp>
@@ -23,7 +25,7 @@ std::set<std::string> y_copy_faces(const kernel::BodyResult& body) {
 void verify_solid_sources(const kernel::OcctKernel& kernel,fs::path dir) {
     {
         auto opening_part=document::PartDocument::create_default();
-        auto block=document::PartDocument::create_box_container();block.box={40,40,40};
+        auto block=zima::test::rectangular_feature(opening_part,{40,40,40});
         auto opening=document::PartDocument::create_thread_container();opening.placement.z=-20;
         document::BodyHistoryGraph bodies;static_cast<void>(bodies.create_body("Opening source"));
         bodies.insert({document::PartHistoryKind::Feature,block.id});bodies.insert({document::PartHistoryKind::Feature,opening.id});
@@ -47,13 +49,13 @@ void verify_solid_sources(const kernel::OcctKernel& kernel,fs::path dir) {
         require(document::PartDocument::load(path).find_container(copy)->derived_copy.source_id==opening.id,"Opening Pattern lost its persisted source");
     }
     auto document=document::PartDocument::create_default();document::BodyHistoryGraph graph;
-    auto box=document::PartDocument::create_box_container();box.box={10,10,10};
-    auto solid=document::PartDocument::create_box_container();solid.box={2,4,6};solid.placement.x=3;
-    auto foreign=document::PartDocument::create_box_container();foreign.box={2,2,2};foreign.placement.x=100;
+    auto box=zima::test::rectangular_feature(document,{10,10,10});
+    auto solid=zima::test::rectangular_feature(document,{2,4,6});solid.placement.x=3;
+    auto foreign=zima::test::rectangular_feature(document,{2,2,2});foreign.placement.x=100;
     const auto owner=graph.create_body("Source");graph.insert({document::PartHistoryKind::Feature,box.id});graph.insert({document::PartHistoryKind::Feature,solid.id});
     auto placed=*graph.find(owner);placed.scope.placement.x=17;placed.scope.placement.rotation_z=90;placed.scope.placement.absolute_rotation_z=90;graph.update_body(placed);
     const auto other=graph.create_body("Other");graph.insert({document::PartHistoryKind::Feature,foreign.id});graph.activate(owner);
-    document.history={box,solid,foreign};document.set_body_history(graph);
+    document.history={box,solid,foreign};document.set_body_history(graph);document.resolve_constructions();
     const auto id=document.document_id;workspace::Workspace live;
     live.add_part(document,kernel.evaluate_history(document.kernel_operations()));live.activate(id);
     command_host::Host host(live,kernel,dir);auto* part=live.open_part(id);
@@ -83,7 +85,7 @@ void verify_solid_sources(const kernel::OcctKernel& kernel,fs::path dir) {
     run(host,"undo");near(result().volume,96);run(host,"redo");near(result().volume,144);
     run(host,"pattern.set",{{"object",linear},{"source",box.id}});near(result().volume,3000);
     run(host,"pattern.set",{{"object",linear},{"source",solid.id}});near(result().volume,144);
-    auto edited=part->session.document();edited.find_container(solid.id)->box.length=4;
+    auto edited=part->session.document();zima::test::profile_dimension(edited,*edited.find_container(solid.id),0)=4;
     auto calculated=workspace::calculate_part_with_resolved_references(kernel,edited,&part->session.calculated_boundaries());
     near(calculated.back().body_outputs.at(linear)->volume,288);
     auto moved=loaded.body_history;bool rejected=false;try{moved.move_step(linear,0);}catch(const std::exception&){rejected=true;}
@@ -102,7 +104,7 @@ void verify_solid_sources(const kernel::OcctKernel& kernel,fs::path dir) {
     // A subtractive solid repeats its cut. Its independent history result
     // replaces the input Body in the Part compound, without positive cutters.
     auto negative=document;negative.find_container(solid.id)->combine_mode=document::CombineMode::Subtract;
-    auto frame=*negative.body_history.find(owner);frame.scope.placement={};negative.body_history.update_body(frame);
+    auto frame=*negative.body_history.find(owner);frame.scope.placement={};negative.body_history.update_body(frame);negative.resolve_constructions();
     workspace::Workspace cut_live;cut_live.add_part(negative,kernel.evaluate_history(negative.kernel_operations()));cut_live.activate(id);
     command_host::Host cut_host(cut_live,kernel,dir);auto* cut_part=cut_live.open_part(id);
     near(cut_part->session.calculated_boundaries().back().body_outputs.at(owner)->volume,952);
@@ -131,7 +133,7 @@ void verify_solid_sources(const kernel::OcctKernel& kernel,fs::path dir) {
         "A preceding cut Pattern broke the downstream target chain");
     run(cut_host,"undo");require(!cut_part->session.document().body_history.find(preceding_cut),"Subtractive Pattern did not undo atomically");
     near(cut_part->session.calculated_boundaries().back().volume,816);
-    auto changed=cut_part->session.document();changed.find_container(solid.id)->box.length=1;
+    auto changed=cut_part->session.document();zima::test::profile_dimension(changed,*changed.find_container(solid.id),0)=1;
     near(workspace::calculate_part_with_resolved_references(kernel,changed,&cut_part->session.calculated_boundaries()).back().volume,912);
     changed.find_container(solid.id)->combine_mode=document::CombineMode::Add;
     const auto added=workspace::calculate_part_with_resolved_references(kernel,changed);
@@ -143,13 +145,13 @@ void verify_in_body_copies(const kernel::OcctKernel& kernel,fs::path dir) {
     for(bool pattern:{false,true})for(bool subtract:{false,true}) {
         auto doc=document::PartDocument::create_default();document::BodyHistoryGraph graph;
         const auto body=graph.create_body("Editable body");
-        auto source=document::PartDocument::create_box_container();source.box={2,2,2};source.placement.x=3;
+        auto source=zima::test::rectangular_feature(doc,{2,2,2});source.placement.x=3;
         if(subtract) {
-            auto base=document::PartDocument::create_box_container();base.box={20,10,10};
+            auto base=zima::test::rectangular_feature(doc,{20,10,10});
             doc.history={base};graph.insert({document::PartHistoryKind::Feature,base.id});
             source.combine_mode=document::CombineMode::Subtract;
         }
-        doc.history.push_back(source);graph.insert({document::PartHistoryKind::Feature,source.id});doc.set_body_history(graph);
+        doc.history.push_back(source);graph.insert({document::PartHistoryKind::Feature,source.id});doc.set_body_history(graph);doc.resolve_constructions();
         workspace::Workspace live;const auto id=doc.document_id;
         live.add_part(doc,kernel.evaluate_history(doc.kernel_operations()));live.activate(id);
         command_host::Host host(live,kernel,dir);auto* part=live.open_part(id);
@@ -189,13 +191,15 @@ void verify_in_body_copies(const kernel::OcctKernel& kernel,fs::path dir) {
         auto changed=edit.initial;changed.name="Edited copy";workspace::commit_derived_copy(live,kernel,edit,changed);
         require(part->session.document().find_container(copy)->name=="Edited copy","Edit changed the wrong owner");
         near(volume(),expected);
-        auto updated=part->session.document();updated.find_container(source.id)->box.height=3;
+        auto updated=part->session.document();zima::test::profile_dimension(updated,*updated.find_container(source.id),2)=3;
         auto recalculated=workspace::calculate_part_with_resolved_references(kernel,updated,&part->session.calculated_boundaries());
         near(recalculated.back().body_outputs.at(body)->volume,subtract?2000-(pattern?36:24):(pattern?36:24));
         // A later ordinary feature remains in the same editable Boolean chain.
-        auto later=document::PartDocument::create_box_container();later.box={1,1,1};later.placement.y=20;
+        auto later=zima::test::rectangular_feature(updated,{1,1,1});later.placement.y=20;
         updated.insert_history_entry(document::PartHistoryKind::Feature,later.id);updated.history.push_back(later);
+        updated.resolve_constructions();
         auto later_result=workspace::calculate_part_with_resolved_references(kernel,updated);
+        for(const auto& [owner,message]:later_result.back().calculation_errors)std::cerr << "Later calculation: " << owner << " " << message << "\n";
         near(later_result.back().body_outputs.at(body)->volume,(subtract?2000-(pattern?36:24):(pattern?36:24))+1);
         auto placed=*updated.body_history.find(body);placed.scope.placement.x=40;placed.scope.placement.rotation_z=90;
         updated.body_history.update_body(placed);
@@ -212,7 +216,7 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
     options.settings=[] {return command_host::Settings{{fs::absolute("config/templates"),"START_PART.prtz","START_ASSEMBLY.asmz","Body"},{}};};
     options.interaction=[&]{return interaction;};command_host::Host host(live,kernel,dir,options);
     run(host,"new",{{"type","part"},{"name","copy-commands"}});const auto id=live.active_document_id();
-    const auto box=run(host,"box.create",{{"length_mm","6"},{"width_mm","4"},{"height_mm","2"}}).data.at("container").get<std::string>();
+    const auto box=zima::test::rectangular_commands([&](const char* n,commands::Json a){return run(host,n,std::move(a));},{{"length_mm","6"},{"width_mm","4"},{"height_mm","2"}}).data.at("container").get<std::string>();
     run(host,"placement.set",{{"object",box},{"values",{{"x",20}}}});
     auto* part=live.open_part(id);const auto source=part->session.document().body_history.active_body_id();
     const auto body=[&](const std::string& object)->const kernel::BodyResult& {return part->session.calculated_boundaries().back().body_outputs.at(object).get();};
@@ -245,7 +249,7 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
     reject("mirror.set",{{"object",mirror},{"reference",{{"owner",box},{"key","missing"}}}});
     reject("mirror.set",{{"object",mirror},{"reference",{{"owner",box},{"key","x_min"},{"instance_path","invalid"}}}});
     run(host,"body.create",{{"name","Later"}});const auto later=part->session.document().body_history.active_body_id();
-    run(host,"box.create",{{"length_mm","2"},{"width_mm","2"},{"height_mm","2"}});
+    zima::test::rectangular_commands([&](const char* n,commands::Json a){return run(host,n,std::move(a));},{{"length_mm","2"},{"width_mm","2"},{"height_mm","2"}});
     reject("mirror.set",{{"object",mirror},{"source",later}});
     run(host,"body.activate",{{"body",source}});
     reject("mirror.create",{{"source",box},{"reference",{{"owner",box},{"key","x_min"}}}});
@@ -294,7 +298,7 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
     require(native.body_history.find(pattern)->derived_copy==part->session.document().body_history.find(pattern)->derived_copy&&
         y_copy_faces(cold.back().body_outputs.at(pattern))==keys,"Native calculation lost Pattern settings or stable parents");
     run(host,"new",{{"type","part"},{"name","simple-source"}});const auto simple_id=live.active_document_id();
-    const auto simple_box=run(host,"box.create",{{"length_mm","10"},{"width_mm","10"},{"height_mm","10"}}).data.at("container").get<std::string>();run(host,"save");
+    const auto simple_box=zima::test::rectangular_commands([&](const char* n,commands::Json a){return run(host,n,std::move(a));},{{"length_mm","10"},{"width_mm","10"},{"height_mm","10"}}).data.at("container").get<std::string>();run(host,"save");
     const auto simple_revision=live.open_part(simple_id)->session.revision();
     run(host,"new",{{"type","assembly"},{"name","copy-assembly"}});const auto assembly_id=live.active_document_id();
     const auto first=run(host,"component.insert",{{"source",simple_id}}).data.at("occurrence").get<std::string>();
@@ -332,7 +336,7 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
     // Pure CLI has no GUI scene refresh. Calculating a copy must nevertheless
     // use the current open source, without saving or regenerating that Part.
     run(host,"activate",{{"document",simple_id}});
-    run(host,"box.set",{{"container",simple_box},{"length_mm","20"}});
+    zima::test::resize_rectangular_commands([&](const char* n,commands::Json a){return run(host,n,std::move(a));},{{"container",simple_box},{"length_mm","20"}});
     const auto unsaved_revision=live.open_part(simple_id)->session.revision();
     run(host,"activate",{{"document",assembly_id}});
     const auto last_copy=assembly->session.document().find_occurrence(copied)->calculated_source;
@@ -352,7 +356,7 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
     run(host,"pattern.set",{{"object",ring},{"count",4}});
     near(assembly->session.document().find_occurrence(ring)->calculated_source->volume,6000);
     require(live.open_part(simple_id)->session.revision()==unsaved_revision&&live.open_part(simple_id)->session.is_dirty()&&
-        document::PartDocument::load(dir/"simple-source.prtz").find_container(simple_box)->box.length==10,
+        zima::test::profile_dimension(document::PartDocument::load(dir/"simple-source.prtz"),*document::PartDocument::load(dir/"simple-source.prtz").find_container(simple_box),0)==10,
         "Copy calculation saved, regenerated or edited the authoritative source Part");
 }
 }

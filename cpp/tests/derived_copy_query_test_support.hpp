@@ -1,4 +1,5 @@
 #pragma once
+#include "profile_solid_fixture.hpp"
 #include <zima/document/part_document.hpp>
 #include <zima/kernel/stable_id.hpp>
 namespace zima::test {
@@ -8,8 +9,8 @@ struct CopyQueryFixture {
 };
 inline CopyQueryFixture copy_query_fixture() {
     CopyQueryFixture fixture;
-    auto a=document::PartDocument::create_box_container();a.box={6,4,2};a.placement.x=20;
-    auto b=document::PartDocument::create_box_container();b.box={3,2,2};b.placement.x=50;
+    auto a=rectangular_feature(fixture.document,{6,4,2});a.placement.x=20;
+    auto b=rectangular_feature(fixture.document,{3,2,2});b.placement.x=50;
     fixture.document.history={a,b};document::BodyHistoryGraph graph;
     fixture.source=graph.create_body("Zdroj");graph.insert({document::PartHistoryKind::Feature,a.id});
     fixture.other=graph.create_body("Jiný zdroj");graph.insert({document::PartHistoryKind::Feature,b.id});

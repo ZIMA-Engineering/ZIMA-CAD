@@ -1,3 +1,4 @@
+#include "profile_command_fixture.hpp"
 #include <zima/command_host/host.hpp>
 #include <zima/workspace/drill_reference_operations.hpp>
 #include <cmath>
@@ -20,7 +21,7 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory,const std::strin
     options.settings=[] {return command_host::Settings{{fs::absolute("config/templates"),"START_PART.prtz","START_ASSEMBLY.asmz","Body"},{}};};options.interaction=[&]{return interaction;};
     command_host::Host host(live,kernel,directory,options);
     const auto run=[&](const std::string& name,Json args=Json::object()){auto r=host.execute({{"command",name},{"arguments",std::move(args)}});if(!r.ok)throw std::runtime_error(kind+" "+name+": "+r.code+": "+r.message);return r.data;};
-    run("new",{{"type","part"},{"name",kind+"-reference"}});run("box.create",{{"length_mm","40"},{"width_mm","40"},{"height_mm","40"}});
+    run("new",{{"type","part"},{"name",kind+"-reference"}});zima::test::rectangular_commands([&](const char* n,commands::Json a){return run(n,std::move(a));},{{"length_mm","40"},{"width_mm","40"},{"height_mm","40"}});
     const auto doc_id=live.active_document_id(),origin=doc_id+":origin";auto* state=live.open_part(doc_id);
     Json create={{"bore_length_mm",10},{"placement",{{"z",-20}}}};
     if(hole)create["diameter_mm"]=10;else {create["type"]=kind;create["thread_length_mm"]=5;create["chamfer_enabled"]=false;create["drill_point_enabled"]=false;

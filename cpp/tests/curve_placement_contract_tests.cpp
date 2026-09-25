@@ -1,3 +1,6 @@
+#include "profile_command_fixture.hpp"
+#include <zima/workspace/profile_operations.hpp>
+#include "profile_solid_fixture.hpp"
 #include <zima/document/part_document.hpp>
 #include <zima/kernel/curve_evaluation.hpp>
 #include <zima/kernel/curve_constraints.hpp>
@@ -59,11 +62,11 @@ void history() {
     auto source=document::PartDocument::create_sketch_container();
     auto sketch=sketcher::Sketch::create_default();sketch.owner_container_id=source.id;
     const auto circle=sketch.add_circle(0,0,10);
-    auto target=document::PartDocument::create_box_container();
+    auto target=zima::test::rectangular_feature(doc,{100,80,50});
     const auto point=sketch.add_point(10,0);
     target.placement.references={{{},sketch.id,"point:"+point},
         {{},sketch.id,"circle:"+circle,0,false,"direction",true,true}};
-    doc.sketches={sketch};doc.history={source,target};
+    doc.sketches.insert(doc.sketches.begin(),sketch);doc.history={source,target};
     doc.history_order={{document::PartHistoryKind::Feature,source.id},{document::PartHistoryKind::Feature,target.id}};
     doc.resolve_constructions();
     check(doc.history.back().placement.reference_valid,"Earlier Sketch reference was not published");
@@ -270,8 +273,8 @@ void native_transactions(const std::filesystem::path& file) {
     doc.sketches={sketch};doc.history={source};doc.history_order={{document::PartHistoryKind::Feature,source.id}};
     doc.resolve_constructions();
     workspace::Workspace live;live.add_part(doc,{},file);live.activate(document_id);kernel::OcctKernel kernel;
-    auto box=document::PartDocument::create_box_container();const auto target=box.id;
-    check(workspace::commit_primitive(live,kernel,document_id,box,workspace::PrimitiveEditMode::Create),"Cannot create dependent Box");
+    auto fixture=doc;auto box=zima::test::rectangular_feature(fixture);const auto target=box.id;
+    workspace::commit_profile(live,kernel,document_id,box,workspace::ProfileEditMode::Create,fixture.sketches.back());
     auto working_directory=file.parent_path();command_host::Host host(live,kernel,working_directory);
     const auto run=[&](const char* name,commands::Json args=commands::Json::object()) {
         auto result=host.execute({{"command",name},{"arguments",args}});
@@ -307,7 +310,7 @@ void native_transactions(const std::filesystem::path& file) {
         occurrences.edges[0].reference.owner_id==reference.owner_id,"Repeated occurrence identity collapsed");
 }
 void solid_edges(const std::filesystem::path& file) {
-    auto doc=document::PartDocument::create_default();auto cylinder=document::PartDocument::create_cylinder_container();
+    auto doc=document::PartDocument::create_default();auto cylinder=zima::test::circular_feature(doc,40,50);
     cylinder.placement.x=31;cylinder.placement.y=-17;cylinder.placement.z=5;
     cylinder.placement.absolute_rotation_x=35;cylinder.placement.rotation_x=35;
     doc.history.push_back(cylinder);doc.resolve_constructions();
@@ -332,14 +335,14 @@ void solid_edges(const std::filesystem::path& file) {
 void third_direction_transactions(const std::filesystem::path& file) {
     for(bool transformed:{false,true}) {
         auto doc=document::PartDocument::create_default();
-        auto box=document::PartDocument::create_box_container();box.placement.x=100;
+        auto box=zima::test::rectangular_feature(doc,{100,80,50});box.placement.x=100;
         if(transformed){box.placement.absolute_rotation_x=23;box.placement.absolute_rotation_z=41;}
         auto source=document::PartDocument::create_sketch_container();
         auto sketch=sketcher::Sketch::create_default();sketch.owner_container_id=source.id;
         const auto arc=sketch.add_arc(0,-10,0,0,-7.66044443118978,-3.572123903134605);
         const auto line=sketch.add_segment(25,30,40,30);
         if(transformed){source.placement.x=17;source.placement.absolute_rotation_x=32;source.placement.absolute_rotation_z=-19;}
-        doc.history={box,source};doc.sketches={sketch};
+        doc.history={box,source};doc.sketches.push_back(sketch);
         doc.history_order={{document::PartHistoryKind::Feature,box.id},{document::PartHistoryKind::Feature,source.id}};
         doc.resolve_constructions();kernel::OcctKernel kernel;
         const auto cache=kernel.evaluate_history(doc.kernel_operations());
@@ -394,7 +397,7 @@ void body_history() {
     run("placement.set",{{"object",first},{"values",{{"reference_offset:0",11}}}});
     const auto second=run("body.create",{{"name","Dependent body"}}).at("body").get<std::string>();
     run("placement.set",{{"object",second},{"values",{{"reference_offset:0",30}}}});
-    const auto box=run("box.create",{{"length_mm","1"},{"width_mm","1"},{"height_mm","1"}}).at("container").get<std::string>();
+    const auto box=zima::test::rectangular_commands([&](const char* n,commands::Json a){return run(n,std::move(a));},{{"length_mm","1"},{"width_mm","1"},{"height_mm","1"}}).at("container").get<std::string>();
     const auto request=[&](const std::string& object,int index,const std::string& key) {
         return commands::Json{{"object",object},{"index",index},{"reference",{{"owner",sketch},{"key",key}}}};
     };

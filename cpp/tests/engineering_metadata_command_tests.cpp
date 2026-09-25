@@ -1,3 +1,4 @@
+#include "profile_command_fixture.hpp"
 #include <zima/command_host/host.hpp>
 #include <zima/workspace/engineering_metadata_operations.hpp>
 #include <zima/workspace/metadata_operations.hpp>
@@ -16,7 +17,7 @@ commands::Result run(command_host::Host& host,const char* name,Json args=Json::o
 void verify(const kernel::OcctKernel& kernel,fs::path dir) {
     workspace::Workspace live;command_host::Options options;options.settings=[] {return command_host::Settings{{fs::absolute("config/templates"),"START_PART.prtz","START_ASSEMBLY.asmz","Body"},{}};};
     command_host::Host host(live,kernel,dir,options);run(host,"new",{{"type","part"},{"name","engineering-part"}});
-    const auto id=live.active_document_id();run(host,"box.create",{{"length_mm","10"},{"width_mm","20"},{"height_mm","30"}});
+    const auto id=live.active_document_id();zima::test::rectangular_commands([&](const char* n,commands::Json a){return run(host,n,std::move(a));},{{"length_mm","10"},{"width_mm","20"},{"height_mm","30"}});
     run(host,"document.settings.set",{{"precision",{{"decimal_places",9}}}});
     auto* part=live.open_part(id);const auto geometry=part->session.calculated_boundaries().back().kernel_shape;
     const auto initial_material=workspace::material_data(live,id);
@@ -56,7 +57,7 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
     invalid_material=material;invalid_material[0]["value"]="line1\nline2";rejected("document.material.set",{{"properties",invalid_material}});
     invalid_material=material;invalid_material[0]["key"]="NAME=VALUE";rejected("document.material.set",{{"properties",invalid_material}});
     const auto box_id=part->session.document().history.front().id;
-    Json family={{"columns",{"NUMBER","LENGTH"}},{"bindings",{{"NUMBER",{{"kind","feature"},{"owner",box_id},{"key",""}}},{"LENGTH",{{"kind","dimension"},{"owner",box_id},{"key","parameter:length"}}}}},{"instances",Json::array({{{"id",""},{"name","Držák 10"},{"values",{{"NUMBER","yes"},{"LENGTH","10"}}}},{{"id",""},{"name","Držák 20"},{"values",{{"LENGTH","20"}}}}})}};
+    Json family={{"columns",{"NUMBER","LENGTH"}},{"bindings",{{"NUMBER",{{"kind","feature"},{"owner",box_id},{"key",""}}},{"LENGTH",{{"kind","dimension"},{"owner",box_id},{"key","parameter:length_forward"}}}}},{"instances",Json::array({{{"id",""},{"name","Držák 10"},{"values",{{"NUMBER","yes"},{"LENGTH","10"}}}},{{"id",""},{"name","Držák 20"},{"values",{{"LENGTH","20"}}}}})}};
     const auto empty_family=part->session.document().family_table;const auto changed_family=run(host,"document.family.set",{{"table",family}}).data.at("table");
     require(changed_family.at("instances")[1].at("values").at("NUMBER")=="","Missing family cells were not normalized");
     require(!run(host,"document.family.set",{{"table",family}}).data.at("changed").get<bool>(),"Family normalization created redundant Undo");

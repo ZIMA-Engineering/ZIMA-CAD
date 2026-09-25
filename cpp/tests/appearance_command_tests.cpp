@@ -1,3 +1,4 @@
+#include "profile_command_fixture.hpp"
 #include <zima/workspace/appearance_operations.hpp>
 #include <zima/command_host/host.hpp>
 #include <iostream>
@@ -16,7 +17,7 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
     require(host.execute_text("appearance.get").code=="unsupported_document","Appearance query without document failed unsafely");
     require(run(host,"appearance.palette").data.at("items").size()>=26,"Built-in palette missing");
     run(host,"new",{{"type","part"},{"name","paint-source"}});const auto source=live.active_document_id();
-    run(host,"box.create",{{"length_mm","10"},{"width_mm","20"},{"height_mm","30"}});
+    zima::test::rectangular_commands([&](const char* n,commands::Json a){return run(host,n,std::move(a));},{{"length_mm","10"},{"width_mm","20"},{"height_mm","30"}});
     auto* part=live.open_part(source);const auto body=part->session.document().body_history.active_body_id();
     const auto revision=part->session.revision();const auto* allocation=part->session.calculated_boundaries().data();
     const auto faces=run(host,"appearance.faces").data;
@@ -73,7 +74,7 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
     run(host,"activate",{{"document",assembly_id}});
     require(run(host,"appearance.get",{{"instance_path",path},{"body",body}}).data.at("style").at("color")=="#336699","Open source appearance required saving or regeneration");
     run(host,"new",{{"type","part"},{"name","paint-copies"}});
-    run(host,"box.create",{{"length_mm","10"},{"width_mm","20"},{"height_mm","30"}});
+    zima::test::rectangular_commands([&](const char* n,commands::Json a){return run(host,n,std::move(a));},{{"length_mm","10"},{"width_mm","20"},{"height_mm","30"}});
     const auto copy_part=live.active_document_id();const auto source_body=live.open_part(copy_part)->session.document().body_history.active_body_id();
     run(host,"body.activate"); // Whole-Body sources are offered at the Part boundary.
     const auto mirrored=run(host,"mirror.create",{{"source",source_body},{"local_plane","yz"},{"placement",{{"x",30}}}}).data.at("object").get<std::string>();
@@ -93,7 +94,6 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
     require(live.active_document_id()==copied_owner,"Closing inactive source changed active Assembly");
     require(run(host,"appearance.faces",{{"instance_path",copied_path},{"body",mirrored}}).data.at("total")==6,"Closed source lost mirrored face ownership");
     require(run(host,"appearance.get",{{"instance_path",copied_path},{"body",mirrored}}).data.at("style").at("color")=="#225FC2","Closed source lost mirrored body style");
-
 
 
 }

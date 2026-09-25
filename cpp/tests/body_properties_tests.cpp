@@ -1,3 +1,5 @@
+#include "profile_command_fixture.hpp"
+#include "profile_solid_fixture.hpp"
 #include <zima/command_host/host.hpp>
 #include <zima/workspace/body_properties_edits.hpp>
 #include <zima/document/viewer_packet_json.hpp>
@@ -12,7 +14,7 @@ Json run(command_host::Host& host,const char* name,Json args=Json::object()) {
     auto result=host.execute({{"command",name},{"arguments",args}});if(!result.ok)throw std::runtime_error(std::string(name)+": "+result.message);return result.data;
 }
 void geometry(const kernel::OcctKernel& kernel) {
-    kernel::BoxRequest box{10,8,6};const auto bodies=kernel.evaluate_history({{"block",box}});const auto& b=bodies.back();
+    zima::test::ProfilePrism box{10,8,6};const auto bodies=kernel.evaluate_history({{"block",box}});const auto& b=bodies.back();
     check(b.volume_integrals.has_value(),"Kernel omitted volume integrals");const auto& p=*b.volume_integrals;
     near(b.volume,480,"block volume");near(p.centroid.x,5,"centroid x");near(p.centroid.y,4,"centroid y");near(p.centroid.z,3,"centroid z");
     near(p.inertia[0],4000,"Ixx");near(p.inertia[4],5440,"Iyy");near(p.inertia[8],6560,"Izz");near(p.inertia[1],0,"Ixy");
@@ -28,7 +30,7 @@ void geometry(const kernel::OcctKernel& kernel) {
     kernel::PatternRequest pattern;pattern.linear[0].count=3;pattern.linear[0].spacing=20;
     const auto copies=kernel.pattern_body(b,pattern,"copies");near(copies.volume,960,"pattern volume");
     near(copies.volume_integrals->centroid.x,35,"pattern centroid");near(copies.volume_integrals->inertia[4],2*5440+960*100,"pattern parallel axes");
-    kernel::BoxRequest cutter{2,8,6};cutter.translation={8,0,0};
+    zima::test::ProfilePrism cutter{2,8,6};cutter.translation={8,0,0};
     const auto cut=kernel.evaluate_history({{"block",box},{"cut",cutter,kernel::BooleanOperation::Subtract}}).back();
     near(cut.volume,384,"cut volume");near(cut.volume_integrals->centroid.x,4,"cut centroid");near(cut.volume_integrals->inertia[8],384*(64+64)/12.,"cut inertia");
 }
@@ -38,7 +40,7 @@ void workflow(const kernel::OcctKernel& kernel,std::filesystem::path dir) {
     command_host::Host host(live,kernel,dir,options);
     run(host,"new",{{"type","part"},{"name","mass-model"}});const auto id=live.active_document_id();
     check(!host.execute({{"command","body_properties.create"},{"arguments",Json::object()}}).ok,"Empty model accepted body properties");
-    const auto box=run(host,"box.create",{{"length_mm","10"},{"width_mm","8"},{"height_mm","6"}}).at("container").get<std::string>();
+    const auto box=zima::test::rectangular_commands([&](const char* n,commands::Json a){return run(host,n,std::move(a));},{{"length_mm","10"},{"width_mm","8"},{"height_mm","6"}}).at("container").get<std::string>();
     auto* part=live.open_part(id);const auto body=part->session.document().body_history.active_body_id();
     auto doc=part->session.document();doc.physical_parameters["MASS_DENSITY"]="7850";doc.physical_parameter_units["MASS_DENSITY"]="kg/m^3";
     part->session.commit(doc,part->session.calculated_boundaries());
@@ -57,17 +59,17 @@ void workflow(const kernel::OcctKernel& kernel,std::filesystem::path dir) {
     row=run(host,"body_properties.get",{{"object",object}});near(row["inertia_kg_mm2"][0],.042704,"rotated saved tensor");
     run(host,"undo");row=run(host,"body_properties.get",{{"object",object}});near(row["rotation_degrees"][2],0,"undo rotation");run(host,"redo");
     const auto stale=workspace::prepare_body_properties_edit(live,id,object);
-    const auto downstream=run(host,"box.create",{{"length_mm","2"},{"width_mm","2"},{"height_mm","2"}}).at("container").get<std::string>();
+    const auto downstream=zima::test::rectangular_commands([&](const char* n,commands::Json a){return run(host,n,std::move(a));},{{"length_mm","2"},{"width_mm","2"},{"height_mm","2"}}).at("container").get<std::string>();
     row=run(host,"body_properties.get",{{"object",object}});near(row["volume_mm3"],480,"Downstream feature changed earlier measurement");
     try{static_cast<void>(workspace::commit_body_properties(live,stale,stale.initial));throw std::runtime_error("stale accepted");}
     catch(const workspace::MeasurementOperationError& e){check(std::string(e.code)=="stale_edit","Wrong stale error");}
-    run(host,"box.set",{{"container",box},{"length_mm","12"}});row=run(host,"body_properties.get",{{"object",object}});near(row["volume_mm3"],576,"Upstream change did not recalculate measurement");
+    zima::test::resize_rectangular_commands([&](const char* n,commands::Json a){return run(host,n,std::move(a));},{{"container",box},{"length_mm","12"}});row=run(host,"body_properties.get",{{"object",object}});near(row["volume_mm3"],576,"Upstream change did not recalculate measurement");
     run(host,"body.cursor",{{"body",body},{"index",1}});
     auto middle=run(host,"body_properties.create",{{"name","At cursor"}});check(middle["after_object_id"]==box,"Creation used final history instead of cursor");
     const auto origins=document::body_properties_origins(part->session.document());check(origins.points.size()==2,"Historical COG origins missing");
     run(host,"body.activate");run(host,"body.cursor",{{"index",1}});
     const auto whole=run(host,"body_properties.create",{{"name","Whole part"}});check(whole["body_id"]==""&&whole["after_object_id"]==body,"Whole Part anchor incorrect");near(whole["volume_mm3"],576,"Whole Part wrong volume");
-    run(host,"body.create",{{"name","Later body"}});run(host,"box.create",{{"length_mm","10"},{"width_mm","8"},{"height_mm","6"}});
+    run(host,"body.create",{{"name","Later body"}});zima::test::rectangular_commands([&](const char* n,commands::Json a){return run(host,n,std::move(a));},{{"length_mm","10"},{"width_mm","8"},{"height_mm","6"}});
     near(run(host,"body_properties.get",{{"object",whole.at("object")}})["volume_mm3"],576,"Later Body changed earlier whole-Part measurement");
     run(host,"body.activate");run(host,"body.cursor",{{"index",2}});
     const auto aggregate=run(host,"body_properties.create",{{"name","Both bodies"}});near(aggregate["volume_mm3"],1056,"Whole-Part aggregate ignored a Body");
@@ -82,8 +84,8 @@ void workflow(const kernel::OcctKernel& kernel,std::filesystem::path dir) {
     check(!row["error"].get<std::string>().empty()&&row["integrals"].is_null(),"Missing anchor silently moved measurement to final body");
 }
 void placed_bodies(const kernel::OcctKernel& kernel) {
-    auto doc=document::PartDocument::create_default();auto first=document::PartDocument::create_box_container();first.box={10,8,6};
-    auto second=document::PartDocument::create_box_container();second.box={10,8,6};doc.history={first,second};
+    auto doc=document::PartDocument::create_default();auto first=zima::test::rectangular_feature(doc,{10,8,6});
+    auto second=zima::test::rectangular_feature(doc,{10,8,6});doc.history={first,second};
     document::BodyHistoryGraph graph;const auto a=graph.create_body("A");graph.insert({document::PartHistoryKind::Feature,first.id});
     auto def=*graph.find(a);def.scope.placement.x=100;def.scope.placement.y=200;def.scope.placement.z=300;def.scope.placement.rotation_z=90;graph.update_body(def);
     const auto b=graph.create_body("B");graph.insert({document::PartHistoryKind::Feature,second.id});

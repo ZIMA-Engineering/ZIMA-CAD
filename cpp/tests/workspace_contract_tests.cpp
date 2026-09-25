@@ -1,3 +1,4 @@
+#include "profile_solid_fixture.hpp"
 #include <zima/workspace/part_transactions.hpp>
 #include <zima/workspace/sketch_reference_operations.hpp>
 #include <zima/workspace/native_documents.hpp>
@@ -65,7 +66,7 @@ int main() {
             part.physical_parameters["MASS_DENSITY"]="7850";part.physical_parameter_units["MASS_DENSITY"]="kg/m^3";
             part.relations={{"mass","model.mass"}};
             kernel::BodyResult body;body.volume=1'000'000;body.surface_area=60'000;
-            auto unresolved=part;unresolved.history.push_back(document::PartDocument::create_box_container());
+            auto unresolved=part;unresolved.history.push_back(zima::test::rectangular_feature(unresolved));
             require(!document::physical_values(unresolved,{}).contains("model.mass"),"Uncalculated geometry was assigned zero mass");
             auto relations=part;relations.relations={{"third","model.mass / 3"},{"restored","third * 3"}};
             document::refresh_physical_relations(relations,{{"model.mass",1.0}});
@@ -103,7 +104,7 @@ int main() {
             const auto source_path=directory/"original.prtz";
             const auto drawing_path=directory/"original.drwz";
             const auto target=directory/"variant.prtz";
-            auto box=PartDocument::create_box_container();
+            auto box=zima::test::rectangular_feature(original);
             original.history.push_back(box);
             zima::document::BodyHistoryGraph graph;
             const auto body_id=graph.create_body("Body");
@@ -228,7 +229,7 @@ int main() {
         zima::workspace::Workspace workspace;
         zima::kernel::OcctKernel kernel;
         auto part = zima::document::PartDocument::create_default();
-        part.history.push_back(zima::document::PartDocument::create_box_container());
+        part.history.push_back(zima::test::rectangular_feature(part));
         part.constructions.push_back(zima::document::PartDocument::create_construction(
             zima::document::ConstructionKind::Point));
         part.constructions.push_back(zima::document::PartDocument::create_construction(
@@ -296,7 +297,7 @@ int main() {
                 "Part construction references were not captured by Assembly insertion");
         const double old_volume = inserted->calculated_source->volume;
         auto changed_part = workspace.open_part(part_id)->session.document();
-        changed_part.history.front().box.length *= 2.0;
+        zima::test::profile_dimension(changed_part,changed_part.history.front(),0) *= 2.0;
         auto changed_calculation = kernel.evaluate_history(changed_part.kernel_operations());
         workspace.open_part(part_id)->session.commit(
             std::move(changed_part), changed_calculation);
@@ -359,8 +360,8 @@ int main() {
         auto reference_part = zima::document::PartDocument::create_default();
         reference_part.name = "Zdroj externí reference";
         reference_part.history.push_back(
-            zima::document::PartDocument::create_box_container());
-        reference_part.history.front().box.length = 35.0;
+            zima::test::rectangular_feature(reference_part));
+        zima::test::profile_dimension(reference_part,reference_part.history.front(),0) = 35.0;
         const std::string reference_part_id = reference_part.document_id;
         workspace.add_part(reference_part,
             kernel.evaluate_history(reference_part.kernel_operations()),
@@ -490,8 +491,8 @@ int main() {
             ->session.document().build_scene();
         auto changed_reference_part = workspace.open_part(reference_part_id)
             ->session.document();
-        changed_reference_part.history.front().box.length += 41.0;
-        changed_reference_part.history.front().box.width += 13.0;
+        zima::test::profile_dimension(changed_reference_part,changed_reference_part.history.front(),0) += 41.0;
+        zima::test::profile_dimension(changed_reference_part,changed_reference_part.history.front(),1) += 13.0;
         auto changed_reference_calculation = kernel.evaluate_history(
             changed_reference_part.kernel_operations());
         workspace.open_part(reference_part_id)->session.commit(
@@ -699,9 +700,9 @@ int main() {
         };
         const double old_nested_maximum_y = maximum_y(nested_scene);
         auto changed_again = workspace.open_part(part_id)->session.document();
-        changed_again.history.front().box.width += 17.0;
-        changed_again.history.front().box.length += 19.0;
-        changed_again.history.front().box.height += 23.0;
+        zima::test::profile_dimension(changed_again,changed_again.history.front(),1) += 17.0;
+        zima::test::profile_dimension(changed_again,changed_again.history.front(),0) += 19.0;
+        zima::test::profile_dimension(changed_again,changed_again.history.front(),2) += 23.0;
         auto changed_again_calculation =
             kernel.evaluate_history(changed_again.kernel_operations());
         workspace.open_part(part_id)->session.commit(
@@ -908,8 +909,8 @@ int main() {
         zima::workspace::Workspace lifecycle_workspace;
         auto lifecycle_part = zima::document::PartDocument::create_default();
         lifecycle_part.history.push_back(
-            zima::document::PartDocument::create_box_container());
-        lifecycle_part.history.front().box.length = 2.0;
+            zima::test::rectangular_feature(lifecycle_part));
+        zima::test::profile_dimension(lifecycle_part,lifecycle_part.history.front(),0) = 2.0;
         const auto lifecycle_part_id = lifecycle_part.document_id;
         auto lifecycle_calculation =
             kernel.evaluate_history(lifecycle_part.kernel_operations());
@@ -953,7 +954,7 @@ int main() {
 
         auto lifecycle_edited_part =
             lifecycle_workspace.open_part(lifecycle_part_id)->session.document();
-        lifecycle_edited_part.history.front().box.length = 7.0;
+        zima::test::profile_dimension(lifecycle_edited_part,lifecycle_edited_part.history.front(),0) = 7.0;
         auto lifecycle_edited_calculation =
             kernel.evaluate_history(lifecycle_edited_part.kernel_operations());
         lifecycle_workspace.open_part(lifecycle_part_id)->session.commit(
@@ -1044,7 +1045,7 @@ int main() {
         const auto closed_before = lifecycle_mesh_extent(*lifecycle_workspace.open_assembly(lifecycle_topassembly_id)->session.document().find_occurrence(lifecycle_subassembly_occurrence));
         auto disk_part = lifecycle_workspace.open_part(lifecycle_part_id)->session.document();
         auto disk_boundaries = lifecycle_workspace.open_part(lifecycle_part_id)->session.calculated_boundaries();
-        disk_part.history.front().box.length = 21.0;
+        zima::test::profile_dimension(disk_part,disk_part.history.front(),0) = 21.0;
         disk_boundaries = kernel.evaluate_history(disk_part.kernel_operations());
         disk_part.save(lifecycle_part_path, disk_boundaries);
         lifecycle_workspace.open_part(lifecycle_part_id)->session.mark_saved();
@@ -1055,7 +1056,7 @@ int main() {
         require(!lifecycle_workspace.open_part(lifecycle_part_id) && !lifecycle_workspace.open_assembly(lifecycle_subassembly_id),
                 "Regenerate unexpectedly opened source tabs");
         auto unsaved_part = disk_part;
-        unsaved_part.history.front().box.length = 35.0;
+        zima::test::profile_dimension(unsaved_part,unsaved_part.history.front(),0) = 35.0;
         lifecycle_workspace.add_part(unsaved_part, kernel.evaluate_history(unsaved_part.kernel_operations()), lifecycle_part_path);
         const auto saved_extent = lifecycle_mesh_extent(*lifecycle_workspace.open_assembly(lifecycle_topassembly_id)->session.document().find_occurrence(lifecycle_subassembly_occurrence));
         lifecycle_workspace.regenerate_assembly_from_open_dependencies(lifecycle_topassembly_id);
@@ -1093,7 +1094,7 @@ int main() {
         {
             namespace fs=std::filesystem;
             auto source=zima::document::PartDocument::create_default();
-            source.history.push_back(zima::document::PartDocument::create_box_container());
+            source.history.push_back(zima::test::rectangular_feature(source));
             auto bodies=kernel.evaluate_history(source.kernel_operations());
             const auto directory=fs::temp_directory_path()/("zima-source-sync-"+source.document_id);
             fs::create_directories(directory);
@@ -1135,11 +1136,11 @@ int main() {
             };
             verify_current(bodies.back().volume);
             live.add_part(source,bodies,part_file);
-            source.history.front().box.length*=2;
+            zima::test::profile_dimension(source,source.history.front(),0)*=2;
             bodies=kernel.evaluate_history(source.kernel_operations());
             live.open_part(source.document_id)->session.commit(source,bodies);
             live.refresh_source_geometry();verify_current(bodies.back().volume);
-            source.history.front().box.length*=1.5;
+            zima::test::profile_dimension(source,source.history.front(),0)*=1.5;
             bodies=kernel.evaluate_history(source.kernel_operations());source.save(part_file,bodies);
             const auto current_disk=zima::assembly::AssemblyDocument::load(top_file);
             require(std::abs(current_disk.components[0].calculated_source->body_outputs.at(leaf)->volume-bodies.back().volume)<1e-6,

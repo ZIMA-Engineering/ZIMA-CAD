@@ -1,3 +1,4 @@
+#include "profile_solid_fixture.hpp"
 #include <zima/command_host/host.hpp>
 #include <zima/document/bend.hpp>
 #include <zima/kernel/sheet_material.hpp>
@@ -29,8 +30,8 @@ void near_clearance_volume(double actual,double expected) {
 }
 void verify_clearance_passage(const kernel::OcctKernel& kernel,const kernel::BodyResult& result,
         double x,double y,double width,double height) {
-    kernel::BoxRequest prism(width,height,200.);prism.translation={x,y,-100.};
-    const auto cutter=kernel.make_box(prism);
+    zima::test::ProfilePrism prism(width,height,200.);prism.translation={x,y,-100.};
+    const auto cutter=zima::test::profile_body(kernel,prism);
     const auto recut=kernel.subtract_bodies(result,cutter,{},{},1e-7);
     near(recut.volume,result.volume);
 }
@@ -1094,7 +1095,7 @@ void verify_sheet_cut_cone_orientation(std::filesystem::path directory,bool clea
                 (reverse_profile?.38705053700104786:.34596017902529286):
                 (reverse_profile?.26430770765918454:.2522314998647712);
             near_clearance_volume(before_round-perforated.volume,round_removed);
-            kernel::CylinderRequest pin;pin.radius=.15;pin.height=200;pin.translation={30,8,-100};
+            zima::test::CircularExtrusion pin;pin.radius=.15;pin.height=200;pin.translation={30,8,-100};
             kernel::HistoryOperation probe;probe.owner_id="cone-clearance-pin";probe.primitive=pin;
             near(kernel.subtract_bodies(perforated,kernel.evaluate_history({probe}).back(),{},{},1e-7).volume,perforated.volume);
             if(taper<0&&!reverse_profile&&!reverse_axis) {
@@ -1274,7 +1275,7 @@ void verify_sheet_cut_clearance(std::filesystem::path directory) {
     // Independent integration: 9.5 * integral[-.15,.15] of
     // acos((7-sqrt(.15^2-x^2))/10)-acos((7+sqrt(.15^2-x^2))/9).
     near_clearance_volume(before_circle-result.volume,.4366419320123114);
-    kernel::CylinderRequest pin;pin.radius=.15;pin.height=200;pin.translation={30,3,-100};
+    zima::test::CircularExtrusion pin;pin.radius=.15;pin.height=200;pin.translation={30,3,-100};
     kernel::HistoryOperation pin_operation;pin_operation.owner_id="clearance-inspection-pin";pin_operation.primitive=pin;
     const auto pin_body=kernel.evaluate_history({pin_operation}).back();
     near(kernel.subtract_bodies(result,pin_body,{},{},1e-7).volume,result.volume);
@@ -1349,9 +1350,9 @@ void verify_sheet_cut_clearance(std::filesystem::path directory) {
         const double area=island?10*(10/cosine+shift)-4*(4/cosine-shift):4*(.2/cosine+shift);
         near_clearance_volume(result.volume,3200-2*area);
         if(island) {
-            kernel::BoxRequest outer(10,10,200),inner(4,4,202);
+            zima::test::ProfilePrism outer(10,10,200),inner(4,4,202);
             outer.translation={-5,-5,-100};inner.translation={-2,-2,-101};
-            const auto prism=kernel.subtract_bodies(kernel.make_box(outer),kernel.make_box(inner),{},{},1e-7);
+            const auto prism=kernel.subtract_bodies(zima::test::profile_body(kernel,outer),zima::test::profile_body(kernel,inner),{},{},1e-7);
             near(kernel.subtract_bodies(result,prism,{},{},1e-7).volume,result.volume);
             check(std::ranges::any_of(result.sheet_cuts,[](const auto& region){return region.loops.size()==2;}),
                 "Clearance projection filled a surviving material island");
@@ -1403,8 +1404,8 @@ void verify_sheet_cut_bounded_bend_thickness(std::filesystem::path directory) {
         if(clearance) {
             // Extend only through the reached Bend wall. This checks that
             // finishing inside it does not retain a pocket or a depth step.
-            kernel::BoxRequest prism(10,2,7);prism.translation={10,1,0};
-            near(kernel.subtract_bodies(result,kernel.make_box(prism),{},{},1e-7).volume,result.volume);
+            zima::test::ProfilePrism prism(10,2,7);prism.translation={10,1,0};
+            near(kernel.subtract_bodies(result,zima::test::profile_body(kernel,prism),{},{},1e-7).volume,result.volume);
         }
         for(const auto& face:result.mesh.triangle_references) {
             check(face.valid(),"Bounded Bend cut created an anonymous face");

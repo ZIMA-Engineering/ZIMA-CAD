@@ -1,3 +1,4 @@
+#include "profile_command_fixture.hpp"
 #include <zima/command_host/host.hpp>
 #include <zima/workspace/component_operations.hpp>
 #include <zima/workspace/document_dependencies.hpp>
@@ -31,7 +32,7 @@ void skeleton(const kernel::OcctKernel& kernel,fs::path dir) {
 void verify(const kernel::OcctKernel& kernel,fs::path dir) {
     workspace::Workspace live;command_host::Host host(live,kernel,dir,options());
     run(host,"new",{{"type","part"},{"name","component-part"}});const auto source=live.active_document_id();
-    run(host,"box.create",{{"length_mm","10"},{"width_mm","20"},{"height_mm","30"}});run(host,"save");
+    zima::test::rectangular_commands([&](const char* n,commands::Json a){return run(host,n,std::move(a));},{{"length_mm","10"},{"width_mm","20"},{"height_mm","30"}});run(host,"save");
     run(host,"new",{{"type","assembly"},{"name","component-owner"}});const auto owner=live.active_document_id();
     const auto inserted=run(host,"component.insert",{{"source",source},{"name","První díl"}}).data;
     const auto second=run(host,"component.insert",{{"source",source},{"name","Druhý díl"}}).data;
@@ -99,7 +100,7 @@ void cycles(const kernel::OcctKernel& kernel,fs::path dir) {
     const auto rev=live.open_assembly(owner)->session.revision(),gen=live.open_assembly(owner)->session.data_generation();const auto count=live.size();
     auto cycle=host.execute({{"command","component.insert"},{"arguments",{{"source",top}}}});
     require(!cycle.ok && cycle.code=="dependency_cycle" && live.open_assembly(owner)->session.revision()==rev && live.open_assembly(owner)->session.data_generation()==gen && live.size()==count,"Cycle through a closed subassembly was accepted or partially opened documents");
-    run(host,"new",{{"type","part"},{"name","cycle-reference-part"}});const auto part=live.active_document_id();run(host,"box.create",{{"length_mm","10"},{"width_mm","20"},{"height_mm","30"}});
+    run(host,"new",{{"type","part"},{"name","cycle-reference-part"}});const auto part=live.active_document_id();zima::test::rectangular_commands([&](const char* n,commands::Json a){return run(host,n,std::move(a));},{{"length_mm","10"},{"width_mm","20"},{"height_mm","30"}});
     auto next=live.open_part(part)->session.document();auto sketch=sketcher::Sketch::create_default();sketcher::SketchExternalReference ref;ref.id="reference";ref.source_document_id=owner;sketch.external_references.push_back(ref);next.sketches.push_back(std::move(sketch));live.open_part(part)->session.commit(std::move(next),live.open_part(part)->session.calculated_boundaries());
     run(host,"activate",{{"document",owner}});cycle=host.execute({{"command","component.insert"},{"arguments",{{"source",part}}}});require(!cycle.ok && cycle.code=="dependency_cycle","Cycle through a Part external reference accepted");
     next=live.open_part(part)->session.document();next.sketches.clear();live.open_part(part)->session.commit(std::move(next),live.open_part(part)->session.calculated_boundaries());

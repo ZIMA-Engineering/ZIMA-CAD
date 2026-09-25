@@ -123,8 +123,8 @@ in [OPENING_COMMANDS.md](OPENING_COMMANDS.md). Tip/exit chamfer still require fi
 length. Formats, extensions, and start templates are unchanged.
 
 Baseline failed on missing `bore_targets` (**0/1 in 0.14 s**,
-`build/hole-target-baseline-tests.log`). After implementation, a `box.set` fixture was
-corrected to use its required dimension string. Expanded geometry passed **1/1 in
+`build/hole-target-baseline-tests.log`). After implementation, a model-edit fixture was
+corrected to use its required dimension representation. Expanded geometry passed **1/1 in
 0.49 s** (`build/hole-target-expanded-tests.log`), covering independent volumes,
 plane/source-solid changes, identities, invalid inputs, Undo/Redo, saving, differently
 placed Bodies, and fresh incremental calculation. Existing Hole/Opening-target tests passed too.

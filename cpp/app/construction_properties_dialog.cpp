@@ -5,6 +5,7 @@
 #include "table_entry.hpp"
 #include "sketch_button_style.hpp"
 #include "construction_properties_dialog.hpp"
+#include "feature_type_control.hpp"
 #include "sweep_point_order_dialog.hpp"
 
 #include "zima/ui/reference_cell.hpp"
@@ -121,6 +122,10 @@ ConstructionPropertiesDialog::ConstructionPropertiesDialog(
     compact_font.setPixelSize(10);
     setFont(compact_font);
     auto* form = new QFormLayout;
+    if(initial.kind==zima::document::ConstructionKind::Point&&!initial.parent_construction_id.empty()) {
+        set_internal_title(tr("Vlastnosti prvku"));
+        form->addRow(tr("Typ prvku"),feature_type_control(this,zima::document::FeatureType::Point,false));
+    }
     name_ = new QLineEdit(QString::fromStdString(initial.name), this);
     form->addRow(tr("Název"), name_);
     definition_ = new QComboBox(this);

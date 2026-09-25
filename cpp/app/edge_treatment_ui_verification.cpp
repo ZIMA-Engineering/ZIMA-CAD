@@ -1,3 +1,4 @@
+#include "../tests/gui_profile_fixture.hpp"
 #include "assembly_workspace_window.hpp"
 #include "primitive_properties_dialog.hpp"
 #include <zima/viewer/mesh_view.hpp>
@@ -110,7 +111,7 @@ int verify_edge_treatment_ui(QApplication& application, AssemblyWorkspaceWindow&
             const std::string prefix=fillet?"fillet":"chamfer";
             const auto name=stem+"-"+std::to_string(mode);
             run("new",{{"type","part"},{"name",name}});
-            const auto box=run("box.create",{{"length_mm","20"},{"width_mm","20"},{"height_mm","20"}}).at("container").get<std::string>();
+            const auto box=zima::test::gui_rectangular_profile(window,20,20,20).data.at("container").get<std::string>();
             // Horizontal as well as vertical edges expose an incorrect default
             // XY annotation plane on Chamfer distance dimensions.
             const std::string edge=mode==3?"edge:x_max:y_max:z_max--x_min:y_max:z_max":"edge:x_max:y_min:z_max--x_max:y_min:z_min";
@@ -190,7 +191,7 @@ int verify_edge_treatment_ui(QApplication& application, AssemblyWorkspaceWindow&
         for(const bool fillet:{true,false})for(const bool commit:{false,true}) {
             const auto name=stem+"-create-"+std::to_string(fillet)+"-"+std::to_string(commit);
             run("new",{{"type","part"},{"name",name}});
-            const auto box=run("box.create",{{"length_mm","20"},{"width_mm","20"},{"height_mm","20"}}).at("container").get<std::string>();
+            const auto box=zima::test::gui_rectangular_profile(window,20,20,20).data.at("container").get<std::string>();
             window.findChild<QAction*>(fillet?"filletAction":"chamferAction")->trigger();flush();
             auto* pending=dialog();const auto owner=pending->container_id();
             pick(viewer::CandidateKind::Edge,box,{});

@@ -1,3 +1,5 @@
+#include "profile_command_fixture.hpp"
+#include "profile_solid_fixture.hpp"
 #include "construction_query_test_support.hpp"
 #include <zima/document/file_path.hpp>
 #include <iostream>
@@ -26,7 +28,7 @@ void verify(const kernel::OcctKernel& kernel, fs::path directory) {
     const auto id = native.document_id, body = native.body_history.active_body_id();
     const auto curve = native.constructions[3];
     // A real calculated snapshot makes accidental cache replacement observable.
-    const auto calculated = kernel.make_box({2, 3, 4});
+    const auto calculated = zima::test::profile_body(kernel,{2, 3, 4});
     live.add_part(native, {calculated}, directory / "construction.prtz"); live.activate(id);
     auto* state = live.open_part(id);
     auto edited = state->session.document(); edited.name = "Neuložená změna";
@@ -102,7 +104,7 @@ void edit_verify(const kernel::OcctKernel& kernel, fs::path directory) {
     options.interaction=[&] { return interaction; }; command_host::Host host(live,kernel,directory,options);
     run(host,"new",{{"type","part"},{"name","construction-edit"}});
     const auto document=live.active_document_id(); auto* state=live.open_part(document);
-    run(host,"box.create",{{"length_mm","10"},{"width_mm","20"},{"height_mm","30"}});
+    zima::test::rectangular_commands([&](const char* n,commands::Json a){return run(host,n,std::move(a));},{{"length_mm","10"},{"width_mm","20"},{"height_mm","30"}});
     const auto body=state->session.document().body_history.active_body_id();
     const auto shape=state->session.calculated_boundaries().back().kernel_shape;
     const auto create=[&](const char* type, Json extra=Json::object()) {

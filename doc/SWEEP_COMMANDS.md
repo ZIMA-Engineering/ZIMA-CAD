@@ -247,8 +247,8 @@ occurrence and offset; no new persistent fields or template changes.
 
 The expanded suite passed **14/15** cases (126.33 s,
 `build/sweep-path-plane-gui-tests.log`), including GUI and standalone CLI.
-The last model scenario exposed test setup errors: string dimensions for
-`box.create`, confusing an analytic plane's axis with a particular face's
+The last model scenario exposed test setup errors: string dimensions in
+model creation, confusing an analytic plane's axis with a particular face's
 orientation, and attempting to change constrained body Z directly. The corrected
 test selects the actual highest horizontal face and moves the body using its
 existing XY mate offset. The complete model test then passed **1/1** (6.73 s),

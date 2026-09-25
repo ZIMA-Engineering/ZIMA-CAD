@@ -1,4 +1,6 @@
+#include "../tests/gui_profile_fixture.hpp"
 #include <QCheckBox>
+#include <QGroupBox>
 #include "primitive_properties_dialog.hpp"
 #include "orientation_dialog.hpp"
 #include <zima/document/named_views.hpp>
@@ -243,6 +245,7 @@ Q_NEVER_INLINE static int verify_feature_prototype(QApplication& application,Ass
         check(dialog->pending_value().feature.effective_side(1)==restored.sides[0],"Symmetric Feature did not derive its effective second side");
         dialog->reject();flush();
         verify_feature_empty_preview(application,window,directory);
+        verify_feature_sketch_visibility(application,window,directory);
         verify_feature_modeling(application,window,directory);
         std::cout<<"Feature GUI: parameter modes, Sketch creation, OK, Cancel and Undo/Redo passed\n";return 0;
     }catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}
@@ -420,7 +423,7 @@ static int verify_general_command_console(QApplication& application,AssemblyWork
         if(qEnvironmentVariableIsSet("ZIMA_VERIFY_ORIGIN_PERF")) {
             window.showMaximized();flush();
             const auto source=qEnvironmentVariable("ZIMA_VERIFY_ORIGIN_PERF");
-            if(source=="synthetic") {run("new part origin-placement-contract");run("box.create 10 20 30");}
+            if(source=="synthetic") {run("new part origin-placement-contract");zima::test::gui_rectangular_profile(window,10,20,30);}
             else check(window.open_document_path(source),"Origin benchmark document did not open");
             flush();
             const auto original_constructions=run("construction.list").data;
@@ -512,12 +515,20 @@ static int verify_general_command_console(QApplication& application,AssemblyWork
         const auto context=run("context").data;const auto id=context.at("active_document").get<std::string>();
         check(!id.empty(),"New document has no identity");
         check(window.execute_console_command(R"({"command":"save","arguments":{"document":"wrong-id"}})").code=="document_changed","Stale target was accepted");
-        auto* box=window.findChild<QAction*>("boxAction");check(box && box->isEnabled(),"Box action missing");box->trigger();flush();
+        const auto initial_profile=zima::test::gui_rectangular_profile(window,100,80,50);
+        check(initial_profile.ok,"Cannot create profile fixture through commands");flush();
+        auto* initial_tree=window.findChild<QTreeWidget*>("documentTree");
+        QTreeWidgetItem* initial_row{};
+        for(QTreeWidgetItemIterator it(initial_tree);*it;++it)
+            if((*it)->data(0,Qt::UserRole).toString().toStdString()==initial_profile.data.at("container").get<std::string>()&&
+               (*it)->data(0,Qt::UserRole+3).toString()=="part-container"){initial_row=*it;break;}
+        check(initial_row,"Profile row missing");window.show_tree_item_properties(initial_row);flush();
         check(window.execute_console_command("regenerate").code=="editing_in_progress","Command overwrote pending edit");
         run("context");run("tree");
         QDialog* properties=nullptr;
-        for(auto* dialog:window.findChildren<QDialog*>())if(dialog->isVisible() && dialog->findChild<QDialogButtonBox*>())properties=dialog;
-        check(properties,"Box properties did not open");
+        for(auto* dialog:window.findChildren<QDialog*>())if(dialog->isVisible()&&dialog->findChild<QDoubleSpinBox*>("extrusionHeight"))properties=dialog;
+        check(properties,"Profile properties did not open");
+        properties->findChild<QDoubleSpinBox*>("extrusionHeight")->setValue(30);
         properties->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
         const auto before=run("documents").data;
         auto* model_tree=window.findChild<QTreeWidget*>("documentTree");
@@ -569,12 +580,13 @@ static int verify_general_command_console(QApplication& application,AssemblyWork
         const auto path=directory/(stem+".prtz");
         auto loaded=document::PartDocument::load(path);check(loaded.history.size()==1,"Console did not save the GUI feature");
         check(std::any_of(model_snapshot.at("items").begin(),model_snapshot.at("items").end(),[&](const auto& item){return item.at("id")==loaded.history.front().id && item.at("type")=="history-container";}),"Model query omitted GUI-created feature");
-        run("undo");run("save");loaded=document::PartDocument::load(path);check(loaded.history.empty(),"Console Undo did not use GUI history");
+        run("undo");run("save");loaded=document::PartDocument::load(path);check(loaded.history.front().extrusion.length_forward==25,"Console Undo did not use GUI history");
         run("redo");run("regenerate");run("save");loaded=document::PartDocument::load(path);check(loaded.history.size()==1,"Console Redo/regenerate lost feature");
         const auto feature_id=loaded.history.front().id;
-        const auto parameters=[&]{return run(QString::fromStdString("box.get "+feature_id)).data;};
-        check(parameters().at("length_mm")==loaded.history.front().box.length,"Console cannot read GUI Box");
-        run(QString::fromStdString("box.set "+feature_id+" 150"));flush();
+        const auto parameters=[&]{return run(QString::fromStdString("extrusion.get "+feature_id)).data;};
+        check(parameters().at("length_forward_mm")==loaded.history.front().extrusion.length_forward,"Console cannot read GUI Box");
+        run(QString::fromStdString(commands::Json{{"command","extrusion.set"},{"arguments",{{"container",feature_id},{"length_forward_mm",150}}}}.dump()));flush();
+        run(QString::fromStdString(commands::Json{{"command","extrusion.set"},{"arguments",{{"container",feature_id},{"extent","two_sides"}}}}.dump()));
         const auto edit_box=[&]() -> QDialog* {
             QTreeWidgetItem* item=nullptr;
             for(QTreeWidgetItemIterator it(model_tree);*it;++it)
@@ -582,47 +594,47 @@ static int verify_general_command_console(QApplication& application,AssemblyWork
                    (*it)->data(0,Qt::UserRole+3).toString()=="part-container") {item=*it;break;}
             check(item,"Updated Box not present in GUI tree");window.show_tree_item_properties(item);flush();
             for(auto* dialog:window.findChildren<QDialog*>())
-                if(dialog->isVisible() && dialog->findChild<QDoubleSpinBox*>("boxLength"))return dialog;
+                if(dialog->isVisible() && dialog->findChild<QDoubleSpinBox*>("extrusionHeight"))return dialog;
             throw std::runtime_error("Edited Box properties did not open");
         };
-        auto* edit=edit_box();auto* length=edit->findChild<QDoubleSpinBox*>("boxLength");
+        auto* edit=edit_box();auto* length=edit->findChild<QDoubleSpinBox*>("extrusionHeight");
         check(length->value()==150,"GUI did not read command-edited dimensions");length->setValue(125);
-        check(window.execute_console_command(QString::fromStdString("box.set "+feature_id+" 140")).code=="editing_in_progress","Box patch ignored pending GUI edit");
+        check(window.execute_console_command(QString::fromStdString(commands::Json{{"command","extrusion.set"},{"arguments",{{"container",feature_id},{"length_forward_mm",140}}}}.dump())).code=="editing_in_progress","Box patch ignored pending GUI edit");
         edit->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Cancel)->click();flush();
-        check(parameters().at("length_mm")==150,"Cancel committed pending Box dimensions");
-        edit=edit_box();edit->findChild<QDoubleSpinBox*>("boxLength")->setValue(125);
+        check(parameters().at("length_forward_mm")==150,"Cancel committed pending Box dimensions");
+        edit=edit_box();edit->findChild<QDoubleSpinBox*>("extrusionHeight")->setValue(125);
         edit->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
-        check(parameters().at("length_mm")==125,"GUI edit did not use shared Box transaction");
-        run("undo");check(parameters().at("length_mm")==150,"Undo did not restore the command change");
-        run("redo");check(parameters().at("length_mm")==125,"Redo lost GUI edit");run("save");
-        commands::Json precise_patch={{"command","box.set"},{"arguments",{{"container",feature_id},
-            {"width_mm","80.123456789"},{"height_mm","50.987654321"}}}};
+        check(parameters().at("length_forward_mm")==125,"GUI edit did not use shared Box transaction");
+        run("undo");check(parameters().at("length_forward_mm")==150,"Undo did not restore the command change");
+        run("redo");check(parameters().at("length_forward_mm")==125,"Redo lost GUI edit");run("save");
+        commands::Json precise_patch={{"command","extrusion.set"},{"arguments",{{"container",feature_id},
+            {"length_reverse_mm",80.123456789},{"profile_offset_mm",50.987654321}}}};
         run(QString::fromStdString(precise_patch.dump()));
-        const auto lock_request=[&](bool locked){return commands::Json{{"command","value_lock.set"},{"arguments",{{"object",feature_id},{"key","width"},{"locked",locked}}}};};
+        const auto lock_request=[&](bool locked){return commands::Json{{"command","value_lock.set"},{"arguments",{{"object",feature_id},{"key","length_reverse"},{"locked",locked}}}};};
         run(QString::fromStdString(lock_request(true).dump()));flush();
-        check(window.parameter_value_locked(feature_id,"parameter:width").value_or(false),"CLI lock is not visible to the View action");
+        check(window.parameter_value_locked(feature_id,"parameter:length_reverse").value_or(false),"CLI lock is not visible to the View action");
         const auto lock_revision=parameters().at("revision");
         check(run(QString::fromStdString(lock_request(true).dump())).data.at("changed")==false&&parameters().at("revision")==lock_revision,"Repeated GUI console lock committed again");
-        edit=edit_box();auto* width=edit->findChild<QDoubleSpinBox*>("boxWidth");
+        edit=edit_box();auto* width=edit->findChild<QDoubleSpinBox*>("extrusionReverseLength");
         check(width && width->isReadOnly(),"Persisted width lock did not reach GUI");
         check(window.execute_console_command(QString::fromStdString(lock_request(false).dump())).code=="editing_in_progress","Console changed a lock during pending Properties");
-        edit->findChild<QDoubleSpinBox*>("boxLength")->setValue(130);
+        edit->findChild<QDoubleSpinBox*>("extrusionHeight")->setValue(130);
         edit->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
-        check(parameters().at("width_mm")==80.123456789 && parameters().at("height_mm")==50.987654321,
+        check(parameters().at("length_reverse_mm")==80.123456789 && parameters().at("profile_offset_mm")==50.987654321,
             "GUI rounded an untouched locked or unlocked command dimension");
         const auto precise_revision=parameters().at("revision");
         edit=edit_box();edit->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
         check(parameters().at("revision")==precise_revision,"Unchanged precise Box created an Undo step");
-        edit=edit_box();width=edit->findChild<QDoubleSpinBox*>("boxWidth");
-        auto* width_lock=width->findChild<QAction*>("valueLock:width");check(width_lock,"Width lock action missing");
+        edit=edit_box();width=edit->findChild<QDoubleSpinBox*>("extrusionReverseLength");
+        auto* width_lock=width->findChild<QAction*>("valueLock:length_reverse");check(width_lock,"Width lock action missing");
         width_lock->trigger();check(!width->isReadOnly(),"Width did not unlock");width->setValue(81.5);width_lock->trigger();
         edit->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
-        check(parameters().at("width_mm")==81.5 && window.parameter_value_locked(feature_id,"parameter:width").value_or(false),
+        check(parameters().at("length_reverse_mm")==81.5 && window.parameter_value_locked(feature_id,"parameter:length_reverse").value_or(false),
             "Unlock, edit and relock in one GUI OK failed");
-        precise_patch["arguments"].erase("height_mm");precise_patch["arguments"]["width_mm"]="82";
+        precise_patch["arguments"].erase("profile_offset_mm");precise_patch["arguments"]["length_reverse_mm"]=82;
         check(window.execute_console_command(QString::fromStdString(precise_patch.dump())).code=="value_locked",
             "Command bypassed GUI-restored lock");
-        run("undo");check(parameters().at("width_mm")==80.123456789,"Undo lost precise locked width");
+        run("undo");check(parameters().at("length_reverse_mm")==80.123456789,"Undo lost precise locked width");
         run("redo");run("save");
         const commands::Json placement_patch = {{"command", "placement.set"},
             {"arguments", {{"object", feature_id}, {"values", {{"x", 17.25}, {"rotation_z", 25}}}}}};
@@ -639,31 +651,6 @@ static int verify_general_command_console(QApplication& application,AssemblyWork
         run("undo");
         const auto placement_read = run(QString::fromStdString("placement.get " + feature_id)).data;
         check(placement_read.at("placement").at("x") == 0, "Placement Undo did not restore GUI model");
-        struct PrimitiveCase {const char* command;const char* field;const char* parameter;};
-        for(const auto& sample:std::vector<PrimitiveCase>{
-            {"cylinder.create 3 6","cylinderHeight","height_mm"},
-            {"sphere.create 3","sphereRadius","radius_mm"},
-            {"cone.create 4 1 6","coneHeight","height_mm"},
-            {"pyramid.create 10 8 6","pyramidHeight","height_mm"},
-            {"wedge.create 10 8 6 2","wedgeHeight","height_mm"}}) {
-            const auto command=std::string(sample.command);const auto kind=command.substr(0,command.find('.'));
-            run(QString::fromStdString("new part "+stem+"-"+kind));
-            const auto result=run(QString::fromStdString(command)).data;flush();
-            const auto primitive_id=result.at("container").get<std::string>();
-            QTreeWidgetItem* item=nullptr;
-            for(QTreeWidgetItemIterator it(model_tree);*it;++it)
-                if((*it)->data(0,Qt::UserRole).toString().toStdString()==primitive_id &&
-                   (*it)->data(0,Qt::UserRole+3).toString()=="part-container") {item=*it;break;}
-            check(item,"CLI-created primitive missing from GUI tree");window.show_tree_item_properties(item);flush();
-            QDialog* properties=nullptr;
-            for(auto* dialog:window.findChildren<QDialog*>()) if(dialog->isVisible() && dialog->findChild<QDoubleSpinBox*>(sample.field))properties=dialog;
-            check(properties,"Primitive properties not shared with CLI");
-            properties->findChild<QDoubleSpinBox*>(sample.field)->setValue(9);
-            properties->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
-            check(run(QString::fromStdString(kind+".get "+primitive_id)).data.at(sample.parameter)==9,"GUI primitive edit did not reach command model");
-            run("undo");check(run(QString::fromStdString(kind+".get "+primitive_id)).data.at(sample.parameter)==result.at(sample.parameter),"Primitive Undo lost original command value");
-            run("redo");run("save");
-        }
         const auto component_menu_action=[&](const std::string& container,const char* node_kind,const char* role,const char* action_name) {
             QTreeWidgetItem* item=nullptr;
             for(QTreeWidgetItemIterator it(model_tree);*it;++it)if((*it)->data(0,Qt::UserRole).toString().toStdString()==container&&
@@ -683,7 +670,7 @@ static int verify_general_command_console(QApplication& application,AssemblyWork
             if(!invoked||!issue.isEmpty())throw std::runtime_error(std::string("Tree context menu failed: ")+(action_name?action_name:"dismiss")+"; offered="+offered.join(", ").toStdString()+"; issue="+issue.toStdString());
         };
         {
-            run(QString::fromStdString("new part "+stem+"-native-hole"));run("box.create 40 40 40");
+            run(QString::fromStdString("new part "+stem+"-native-hole"));zima::test::gui_rectangular_profile(window,40,40,40);
             commands::Json create={{"command","hole.create"},{"arguments",{{"diameter_mm",10},{"bore_length_mm",10.123456789},{"placement",{{"z",-20}}}}}};
             const auto made=run(QString::fromStdString(create.dump())).data;const auto id=made.at("container").get<std::string>();flush();
             const auto open_hole=[&]() -> QDialog* {
@@ -737,7 +724,7 @@ static int verify_general_command_console(QApplication& application,AssemblyWork
 
         }
         {
-            run(QString::fromStdString("new part "+stem+"-appearance"));run("box.create 40 40 40");
+            run(QString::fromStdString("new part "+stem+"-appearance"));zima::test::gui_rectangular_profile(window,40,40,40);
             commands::Json set={{"command","appearance.set"},{"arguments",{{"style",{{"color","#2288CC"},{"roughness",.123456789},{"metallic",.456789123}}}}}};
             run(QString::fromStdString(set.dump()));flush();const auto initial=run("appearance.get").data;
             auto* action=window.findChild<QAction*>("customBodyColorAction");check(action&&action->isEnabled(),"Appearance action missing");
@@ -819,9 +806,9 @@ static int verify_general_command_console(QApplication& application,AssemblyWork
         run("save");run("close");flush();
         run(QString::fromStdString(activate.dump()));flush();
         run(QString::fromStdString("new part "+stem+"-bodies"));
-        const auto base_body=run("box.create 10 10 10").data.at("body").get<std::string>();
+        const auto base_body=zima::test::gui_rectangular_profile(window,10,10,10).data.at("body").get<std::string>();
         const auto tool_body=run("body.create Tool").data.at("body").get<std::string>();
-        const auto tool_feature=run("box.create 4 4 4").data.at("container").get<std::string>();flush();
+        const auto tool_feature=zima::test::gui_rectangular_profile(window,4,4,4).data.at("container").get<std::string>();flush();
         view->confirm_container(tool_feature);check(view->confirmed_candidate().has_value(),"Body activation fixture has no confirmed selection");
         const auto selection_before_reference=run("context").data.at("selection");
         const auto offered_faces=run(QString::fromStdString("reference.list "+tool_feature+" face")).data;
@@ -873,8 +860,8 @@ static int verify_general_command_console(QApplication& application,AssemblyWork
         const auto body_document=document::PartDocument::load(directory/(stem+"-bodies.prtz"),&body_cache);
         check(body_document.body_history.find_boolean(boolean) && !body_cache.empty() && std::abs(body_cache.back().volume-64)<1e-6,"GUI Boolean edit saved the wrong volume");
         run(QString::fromStdString("new part "+stem+"-history"));
-        const auto history_first=run("box.create 10 10 10").data.at("container").get<std::string>();
-        const auto history_second=run("box.create 4 4 4").data.at("container").get<std::string>();flush();
+        const auto history_first=zima::test::gui_rectangular_profile(window,10,10,10).data.at("container").get<std::string>();
+        const auto history_second=zima::test::gui_rectangular_profile(window,4,4,4).data.at("container").get<std::string>();flush();
         auto* history_tree=dynamic_cast<HistoryTreeWidget*>(model_tree);check(history_tree,"History widget missing");
         const auto history_row=[&](const std::string& object) {
             for(QTreeWidgetItemIterator it(model_tree);*it;++it)
@@ -918,7 +905,7 @@ static int verify_general_command_console(QApplication& application,AssemblyWork
         properties->findChild<QLineEdit*>("sketchName")->setText("GUI profile");
         properties->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
         check(run("sketch.list").data.at("items")[0].at("name")=="GUI profile","GUI Sketch creation did not reach shared insertion");
-        const auto projection_box=run("box.create 10 10 10").data.at("container").get<std::string>();
+        const auto projection_box=zima::test::gui_rectangular_profile(window,10,10,10).data.at("container").get<std::string>();
         const auto command_sketch=run("sketch.create Profile XY").data.at("sketch").get<std::string>();
         commands::Json projected_reference=commands::Json::object();
         const auto projection_sources=run(QString::fromStdString(commands::Json{{"command","reference.list"},{"arguments",{{"kind","edge"},{"owner",projection_box}}}}.dump())).data.at("items");
@@ -1074,7 +1061,14 @@ static int verify_general_command_console(QApplication& application,AssemblyWork
         const auto imported_dxf_part=document::PartDocument::load(imported_owner.components.back().source_path);
         check(imported_dxf_part.sketches.back().segments.size()==4,"Assembly menu DXF did not preserve native geometry");
         run(QString::fromStdString("new part "+stem+"-metadata"));
-        const auto metadata_box=run("box.create 10 20 30").data.at("container").get<std::string>();
+        const auto json_run=[&](const char* command,commands::Json arguments) {return run(QString::fromStdString(commands::Json{{"command",command},{"arguments",std::move(arguments)}}.dump()));};
+        const auto metadata_box=zima::test::gui_rectangular_profile(window,10,20,30).data.at("container").get<std::string>();
+        const auto metadata_sketch=json_run("extrusion.get",{{"container",metadata_box}}).data.at("sketch");
+        const auto metadata_entities=json_run("sketch.entities",{{"sketch",metadata_sketch}}).data.at("items");
+        const auto metadata_segment=std::ranges::find_if(metadata_entities,[](const auto& item){return item.at("kind")=="segment";});
+        check(metadata_segment!=metadata_entities.end(),"Metadata profile has no dimensionable segment");
+        json_run("sketch.dimension.create",{{"sketch",metadata_sketch},{"kind","distance"},
+            {"geometry",{metadata_segment->at("id")}},{"driving",false}});
         commands::Json metadata_parameters=commands::Json::array({{{"key","CLI_TEST"},{"values",{{"","before"}}}}});
         run(QString::fromStdString(commands::Json{{"command","document.parameters.set"},{"arguments",{{"parameters",metadata_parameters}}}}.dump()));
         auto* parameter_action=window.findChild<QAction*>("documentParametersAction");check(parameter_action,"Parameters action missing");
@@ -1097,7 +1091,6 @@ static int verify_general_command_console(QApplication& application,AssemblyWork
         check(!window.findChild<QDialog*>("fileSettingsDialog") && metadata_settings.at("units").at("Length")=="cm" && metadata_settings.at("precision").at("mesh_deflection")==2 && window.property("zimaDocumentDecimalPlaces").toInt()==6,"GUI settings callback did not share the metadata transaction");
         run("save");const auto metadata_saved=document::PartDocument::load(directory/(stem+"-metadata.prtz"));
         check(metadata_saved.user_parameters.at("CLI_TEST")=="after GUI" && metadata_saved.document_units.at("Length")=="cm","GUI metadata did not persist");
-        const auto json_run=[&](const char* command,commands::Json arguments) {return run(QString::fromStdString(commands::Json{{"command",command},{"arguments",std::move(arguments)}}.dump()));};
 
         const auto saved_bytes=[&](const std::filesystem::path& file) {
             run("save");
@@ -1162,7 +1155,7 @@ static int verify_general_command_console(QApplication& application,AssemblyWork
         for(const bool in_assembly:{false,true}) {
             const auto name=stem+(in_assembly?"-named-assembly":"-named-part");
             json_run("new",{{"type","part"},{"name",name+"-source"}});
-            json_run("box.create",{{"length_mm","10"},{"width_mm","20"},{"height_mm","30"}});
+            zima::test::gui_rectangular_profile(window,10,20,30);
             run("save");const auto source=run("context").data.at("active_document");
             if(in_assembly) {
                 json_run("new",{{"type","assembly"},{"name",name}});
@@ -1253,10 +1246,10 @@ static int verify_general_command_console(QApplication& application,AssemblyWork
         {
             const auto name=stem+"-body-display";
             json_run("new",{{"type","part"},{"name",name}});
-            json_run("box.create",{{"length_mm","10"},{"width_mm","10"},{"height_mm","10"}});
+            zima::test::gui_rectangular_profile(window,10,10,10);
             const auto first=run("body.list").data.at("active_body").get<std::string>();
             const auto tool=json_run("body.create",{{"name","Tool"}}).data.at("body").get<std::string>();
-            json_run("box.create",{{"length_mm","4"},{"width_mm","4"},{"height_mm","4"}});run("save");flush();
+            zima::test::gui_rectangular_profile(window,4,4,4);run("save");flush();
             const auto path=directory/(name+".prtz");
             const auto bytes=[&] {
                 QFile file(QString::fromStdString(document::path_to_utf8(path)));
@@ -1400,7 +1393,7 @@ static int verify_general_command_console(QApplication& application,AssemblyWork
         }
         {
             json_run("new",{{"type","part"},{"name",stem+"-history-source"}});
-            json_run("box.create",{{"length_mm","10"},{"width_mm","10"},{"height_mm","10"}});
+            zima::test::gui_rectangular_profile(window,10,10,10);
             run("save");const auto source=run("context").data.at("active_document");
             json_run("new",{{"type","assembly"},{"name",stem+"-history-owner"}});
             const auto first=json_run("component.insert",{{"source",source}}).data.at("occurrence").get<std::string>();
@@ -1566,7 +1559,7 @@ static int verify_general_command_console(QApplication& application,AssemblyWork
             }
             const auto dirty_name = stem + "-dirty-removal";
             const auto dirty_file = removal_directory / (dirty_name + ".prtz");
-            json_run("new", {{"type","part"},{"name",dirty_name}}); run("save"); run("box.create 10 20 30"); flush();
+            json_run("new", {{"type","part"},{"name",dirty_name}}); run("save"); zima::test::gui_rectangular_profile(window,10,20,30); flush();
             const auto dirty_state = run("documents").data;
             const auto rejected = window.execute_console_command("delete_file");
             check(!rejected.ok && rejected.code == "unsaved_changes" && std::filesystem::exists(dirty_file) &&
@@ -1580,7 +1573,7 @@ static int verify_general_command_console(QApplication& application,AssemblyWork
             const auto guarded_name = stem + "-guarded-removal";
             const auto guarded_file = removal_directory / (guarded_name + ".prtz");
             json_run("new", {{"type","part"},{"name",guarded_name}}); run("save"); flush();
-            auto* action = window.findChild<QAction*>("boxAction"); check(action && action->isEnabled(), "Box action missing");
+            auto* action = window.findChild<QAction*>("featurePrototypeAction"); check(action && action->isEnabled(), "Box action missing");
             action->trigger(); flush();
             QPointer<QDialog> properties;
             for (auto* candidate : window.findChildren<QDialog*>())
@@ -1614,7 +1607,7 @@ static int verify_general_command_console(QApplication& application,AssemblyWork
             const auto path_text = [](const auto& path) { return document::path_to_utf8(path); };
             json_run("cd", {{"path",path_text(rename_directory)}});
             json_run("new", {{"type","part"},{"name",path_text(original.stem())}});
-            run("box.create 10 20 30"); run("save"); run("save"); flush();
+            zima::test::gui_rectangular_profile(window,10,20,30); run("save"); run("save"); flush();
             std::vector<kernel::BodyResult> saved_body;
             const auto saved = document::PartDocument::load(original, &saved_body);
             check(!saved_body.empty(), "No calculated Part for GUI rename");
@@ -1629,15 +1622,15 @@ static int verify_general_command_console(QApplication& application,AssemblyWork
             const auto closed_assembly = rename_directory / "nested" / "closed.asmz"; group.save(closed_assembly);
             json_run("open", {{"path",path_text(companion)}});
             json_run("activate", {{"document",saved.document_id}});
-            json_run("box.set", {{"container",saved.history.front().id},{"length_mm","20"}});
+            json_run("extrusion.set", {{"container",saved.history.front().id},{"length_forward_mm",30}});
             flush();
-            const auto span_x = [&] {
+            const auto span_z = [&] {
                 const auto& vertices = view->mesh().vertices;
                 check(!vertices.empty(), "GUI rename lost visible Part geometry");
-                const auto [low,high] = std::ranges::minmax_element(vertices, {}, &kernel::Vec3::x);
-                return high->x - low->x;
+                const auto [low,high] = std::ranges::minmax_element(vertices, {}, &kernel::Vec3::z);
+                return high->z - low->z;
             };
-            const auto before_width = span_x();
+            const auto before_depth = span_z();
             const auto camera = view->camera_state();
             const auto docs_before = run("documents").data;
             auto* rename_action = window.findChild<QAction*>("renameDocumentAction");
@@ -1666,7 +1659,7 @@ static int verify_general_command_console(QApplication& application,AssemblyWork
             dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click(); flush();
             check((!dialog || !dialog->isVisible()) && !std::filesystem::exists(original) && std::filesystem::exists(renamed) &&
                 !std::filesystem::exists(companion) && std::filesystem::exists(renamed_companion) &&
-                std::abs(span_x() - before_width) < 1e-8 && view->camera_state() == camera,
+                std::abs(span_z() - before_depth) < 1e-8 && view->camera_state() == camera,
                 "GUI rename failed or changed live geometry/camera");
             const auto renamed_group = assembly::AssemblyDocument::load(closed_assembly,{},false);
             check(renamed_group.components.front().source_document_id == saved.document_id &&
@@ -1678,8 +1671,8 @@ static int verify_general_command_console(QApplication& application,AssemblyWork
             check(renamed_part.document_id == saved.document_id && !disk_body.empty() &&
                 std::abs(disk_body.back().volume - saved_body.back().volume) < 1e-8,
                 "GUI rename saved the pending Part geometry");
-            run("undo"); flush(); check(span_x() < before_width - 1, "Rename cleared Part Undo");
-            run("redo"); flush(); check(std::abs(span_x() - before_width) < 1e-8, "Rename cleared Part Redo");
+            run("undo"); flush(); check(span_z() < before_depth - 1, "Rename cleared Part Undo");
+            run("redo"); flush(); check(std::abs(span_z() - before_depth) < 1e-8, "Rename cleared Part Redo");
             window.findChild<QAction*>("saveDocumentAction")->trigger(); flush();
             std::vector<kernel::BodyResult> gui_saved_body;
             const auto gui_saved = document::PartDocument::load(renamed, &gui_saved_body);
@@ -1856,7 +1849,7 @@ static int verify_general_command_console(QApplication& application,AssemblyWork
         check(run("document.relations.get").data.at("relations").empty(),"Opening empty relations invented a mass relation");
         const commands::Json family_table={
             {"columns",{"LENGTH"}},
-            {"bindings",{{"LENGTH",{{"kind","dimension"},{"owner",metadata_box},{"key","parameter:length"}}}}},
+            {"bindings",{{"LENGTH",{{"kind","dimension"},{"owner",metadata_box},{"key","parameter:length_forward"}}}}},
             {"instances",commands::Json::array({{{"name","Varianta 10"},{"id","console-length-variant"},{"values",{{"LENGTH","10"}}}}})}};
         json_run("document.family.set",{{"table",family_table}});auto* family_action=window.findChild<QAction*>("familyTableAction");check(family_action,"Family action missing");family_action->trigger();flush();
         auto* family_dialog=window.findChild<QDialog*>("familyTableDialog");auto* family_widget=family_dialog?family_dialog->findChild<QTableWidget*>("familyTableTable"):nullptr;
@@ -2467,7 +2460,12 @@ static int verify_general_command_console(QApplication& application,AssemblyWork
                 QPointer<QDialog> properties=edit();
                 auto* rows=properties->findChild<QTableWidget*>(kind==document::FeatureKind::Sweep3D?"constructionReferenceTable":"sweepPlacementReferences");
                 auto* offset=rows?qobject_cast<QDoubleSpinBox*>(rows->cellWidget(0,2)):nullptr;
-                check(offset&&offset->isEnabled()&&std::abs(offset->value()-3)<1e-7,"Sweep Properties did not consume the CLI reference offset");
+                if(!offset||!offset->isEnabled()||std::abs(offset->value()-3)>=1e-7)
+                    throw std::runtime_error(prefix+" Properties reference offset: rows="+
+                        std::to_string(rows?rows->rowCount():-1)+", value="+
+                        (offset?std::to_string(offset->value()):"missing")+", enabled="+
+                        std::to_string(offset&&offset->isEnabled())+", placement="+
+                        json_run("placement.get",{{"object",feature.id}}).data.dump());
                 const auto blocked=window.execute_console_command(QString::fromStdString(
                     commands::Json{{"command",prefix+".reference.set"},{"arguments",reference}}.dump()));
                 check(!blocked.ok&&blocked.code=="editing_in_progress","Sweep reference command interrupted Properties");
@@ -2493,7 +2491,7 @@ static int verify_general_command_console(QApplication& application,AssemblyWork
         {
             const auto previous_document=run("context").data.at("active_document");
             json_run("new",{{"type","part"},{"name",stem+"-opening"}});
-            json_run("box.create",{{"length_mm","40"},{"width_mm","40"},{"height_mm","40"}});
+            zima::test::gui_rectangular_profile(window,40,40,40);
             const auto created=json_run("opening.create",{{"type","metric"},{"designation","M10"},{"bore_length_mm",20},
                 {"thread_length_mm",10},{"chamfer_enabled",false},{"drill_point_enabled",false},{"placement",{{"z",-20}}}}).data;
             const auto opening_id=created.at("container").get<std::string>();flush();
@@ -2566,9 +2564,11 @@ static int verify_general_command_console(QApplication& application,AssemblyWork
         {
             const auto previous_document=run("context").data.at("active_document");
             json_run("new",{{"type","part"},{"name",stem+"-shaft"}});
-            const auto shaft=json_run("cylinder.create",{{"radius_mm","5"},{"height_mm","30"}}).data.at("container");
-            const auto created=json_run("shaft_thread.create",{{"cylinder",{{"owner",shaft},{"key","side"}}},
-                {"start",{{"owner",shaft},{"key","z_min"}}},{"designation","M10"},{"length_mm",15}}).data;
+            const auto shaft=zima::test::circular_commands([&](const char* n,commands::Json a){return json_run(n,std::move(a));},{{"radius_mm",5},{"height_mm",30}}).data.at("container");
+            run("save");const auto shaft_source=document::PartDocument::load(directory/(stem+"-shaft.prtz"));
+            const auto shaft_key=[&](const char* selector){return test::profile_key(shaft_source,shaft.get<std::string>(),selector);};
+            const auto created=json_run("shaft_thread.create",{{"cylinder",{{"owner",shaft},{"key",shaft_key("side")}}},
+                {"start",{{"owner",shaft},{"key",shaft_key("z_min")}}},{"designation","M10"},{"length_mm",15}}).data;
             const auto id=created.at("container").get<std::string>();flush();
             const auto get=[&]{return json_run("shaft_thread.get",{{"container",id}}).data;};
             const auto edit=[&]() {
@@ -2610,7 +2610,7 @@ static int verify_general_command_console(QApplication& application,AssemblyWork
             const auto file=directory/(stem+"-drill.prtz");const auto fixture=test::drill_point_fixture();
             kernel::OcctKernel fixture_kernel;fixture.save(file,fixture_kernel.evaluate_history(fixture.kernel_operations()));
             json_run("open",{{"path",file.string()}});
-            const auto face=[&](std::size_t i){return commands::Json{{"owner",fixture.history.at(i).id},{"key","z_min"}};};
+            const auto face=[&](std::size_t i){return commands::Json{{"owner",fixture.history.at(i).id},{"key",test::profile_key(fixture,fixture.history.at(i),"z_min")}};};
             const auto id=json_run("drill_point.create",{{"faces",commands::Json::array({face(1),face(2)})}}).data.at("container").get<std::string>();flush();
             const auto get=[&]{return json_run("drill_point.get",{{"container",id}}).data;};
             const auto edit=[&]() {
@@ -2642,7 +2642,7 @@ static int verify_general_command_console(QApplication& application,AssemblyWork
             const auto previous_document=run("context").data.at("active_document");
             const auto name=stem+"-shell";json_run("new",{{"type","part"},{"name",name}});
             const auto file=directory/(name+".prtz");
-            const auto box=json_run("box.create",{{"length_mm","10"},{"width_mm","10"},{"height_mm","10"}}).data.at("container").get<std::string>();flush();
+            const auto box=zima::test::gui_rectangular_profile(window,10,10,10).data.at("container").get<std::string>();flush();
             const auto dialog_open=[&]() {
                 for(auto* dialog:window.findChildren<QDialog*>())if(dialog->isVisible()&&dialog->findChild<QDoubleSpinBox*>("shellThickness"))return dialog;
                 throw std::runtime_error("Shell Properties did not open");
@@ -2658,7 +2658,7 @@ static int verify_general_command_console(QApplication& application,AssemblyWork
             action->trigger();flush();dialog=dialog_open();dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();run("save");
             std::vector<kernel::BodyResult> calculated;auto saved=document::PartDocument::load(file,&calculated);
             check(saved.history.size()==2&&saved.history.back().feature_kind==document::FeatureKind::Shell&&std::abs(calculated.back().volume-488)<1e-6,"GUI closed Shell creation failed");
-            const auto id=saved.history.back().id;const auto face=[&](const char* key){return commands::Json{{"owner",box},{"key",key}};};
+            const auto id=saved.history.back().id;const auto face=[&](const char* key){return commands::Json{{"owner",box},{"key",test::profile_key(saved,box,key)}};};
             json_run("shell.set",{{"container",id},{"faces",commands::Json::array({face("z_max"),face("x_max")})}});flush();
             const auto get=[&]{return json_run("shell.get",{{"container",id}}).data;};
             const auto edit=[&]() {
@@ -2680,15 +2680,17 @@ static int verify_general_command_console(QApplication& application,AssemblyWork
             check(get().at("faces").size()==2,"Shell opening removal committed before OK");
             dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();run("save");
             saved=document::PartDocument::load(file,&calculated);
-            check(saved.history.back().shell.removed_faces==std::vector<kernel::FaceReference>{{box,"x_max",{}}}&&std::abs(calculated.back().volume-424)<1e-6,"GUI Shell removed the wrong opening face");
+            check(saved.history.back().shell.removed_faces==std::vector<kernel::FaceReference>{{box,test::profile_key(saved,box,"x_max"),{}}}&&std::abs(calculated.back().volume-424)<1e-6,"GUI Shell removed the wrong opening face");
             json_run("close",{{"discard",true}});json_run("activate",{{"document",previous_document}});flush();
         }
         for(const bool fillet:{true,false}) {
             const auto previous_document=run("context").data.at("active_document");
             const std::string prefix=fillet?"fillet":"chamfer";const auto name=stem+"-"+prefix;
             json_run("new",{{"type","part"},{"name",name}});
-            const auto box=json_run("box.create",{{"length_mm","10"},{"width_mm","10"},{"height_mm","10"}}).data.at("container").get<std::string>();flush();
-            const auto path=directory/(name+".prtz");const kernel::EdgeReference edge{box,"edge:x_max:y_min:z_max--x_max:y_min:z_min",{}};
+            const auto box=zima::test::gui_rectangular_profile(window,10,10,10).data.at("container").get<std::string>();flush();
+            const auto path=directory/(name+".prtz");run("save");
+            const auto edge_source=document::PartDocument::load(path);
+            const kernel::EdgeReference edge{box,test::profile_key(edge_source,box,"edge:x_max:y_min:z_max--x_max:y_min:z_min"),{}};
             const auto dialog_open=[&]() {
                 for(auto* candidate:window.findChildren<QDialog*>())if(auto* dialog=dynamic_cast<PrimitivePropertiesDialog*>(candidate);dialog&&dialog->isVisible()&&dialog->findChild<QDoubleSpinBox*>("edgeTreatmentPrimary"))return dialog;
                 throw std::runtime_error("Edge treatment Properties did not open");
@@ -2731,7 +2733,7 @@ static int verify_general_command_console(QApplication& application,AssemblyWork
             }else check(std::abs(calculated.back().volume-975)<1e-5,"GUI Chamfer distances produced incorrect volume");
             run("undo");check(get().at(fillet?"radius_mm":"distance_a_mm")== (fillet?2:1),"Edge Properties Undo failed");
             if(fillet) {
-                const std::string other_key="edge:x_min:y_max:z_max--x_min:y_max:z_min";
+                const std::string other_key=test::profile_key(edge_source,box,"edge:x_min:y_max:z_max--x_min:y_max:z_min");
                 const auto other=std::ranges::find_if(input_edges,[&](const auto& value){return value.at("key")==other_key;});check(other!=input_edges.end(),"Missing second input route");
                 auto other_start=other->at("segments")[0].at("endpoints")[0];other_start.erase("position_mm");
                 const commands::Json other_route={{"edges",commands::Json::array({commands::Json{{"owner",box},{"key",other_key}}})},{"start",other_start}};
@@ -2759,7 +2761,7 @@ static int verify_general_command_console(QApplication& application,AssemblyWork
             json_run("close",{{"discard",true}});json_run("activate",{{"document",previous_document}});flush();
         }
         run(QString::fromStdString("new part "+stem+"-cut-source"));
-        json_run("box.create",{{"length_mm","10"},{"width_mm","10"},{"height_mm","10"}});run("save");
+        zima::test::gui_rectangular_profile(window,10,10,10);run("save");
         const auto cut_source_id=run("context").data.at("active_document");
         for(const std::string kind:{"extrusion","revolution"}) {
             const bool extrusion=kind=="extrusion";
@@ -2829,9 +2831,21 @@ static int verify_general_command_console(QApplication& application,AssemblyWork
                 model_tree->customContextMenuRequested(model_tree->visualItemRect(item).center());messages.stop();timeout.stop();flush();
                 check(invoked&&issue.isEmpty(),"Assembly cut history menu failed");
             };
-            history_action(extra,"assemblyCutMoveUpAction");
+            const auto drag_cut=[&](const QString& before) {
+                QTreeWidgetItem* row=nullptr;
+                for(QTreeWidgetItemIterator it(model_tree);*it;++it)
+                    if((*it)->data(0,Qt::UserRole).toString().toStdString()==extra&&
+                       (*it)->data(0,Qt::UserRole+3).toString()=="assembly-cut"){row=*it;break;}
+                check(row&&history_tree->reorder_enabled(row),"Assembly cut drag is unavailable");
+                const auto unchanged=json_run("assembly.cut.list",commands::Json::object()).data;
+                check(history_tree->reorder_requested(row,before,false),"Assembly cut drag validation failed");
+                check(json_run("assembly.cut.list",commands::Json::object()).data==unchanged,
+                    "Assembly cut drag preview committed history");
+                check(history_tree->reorder_requested(row,before,true),"Assembly cut drag commit failed");flush();
+            };
+            drag_cut(QString::fromStdString(id));
             check(json_run("assembly.cut.list",commands::Json::object()).data.at("items").front().at("container")==extra,"GUI cut move-up did not change order");
-            history_action(extra,"assemblyCutMoveDownAction");
+            drag_cut(QString{});
             check(json_run("assembly.cut.list",commands::Json::object()).data.at("items").front().at("container")==id,"GUI cut move-down did not restore order");
             history_action(id,"assemblyCutSuppressAction");check(get().at("suppressed")==true,"GUI cut suppression failed");
             history_action(id,"assemblyCutSuppressAction");check(get().at("suppressed")==false,"GUI cut restoration failed");
@@ -2843,7 +2857,7 @@ static int verify_general_command_console(QApplication& application,AssemblyWork
         }
         for(const bool child_mode:{false,true}) {
             const auto name=stem+(child_mode?"-curve-point-reference":"-construction-reference");
-            run(QString::fromStdString("new part "+name));run("box.create 10 10 10");
+            run(QString::fromStdString("new part "+name));zima::test::gui_rectangular_profile(window,10,10,10);
             const auto made=child_mode?json_run("construction.create",{{"kind","curve3d"},{"name","Framed curve"},{"values",{{"x",20},{"z",2},{"rotation_z",90}}},
                 {"points",commands::Json::array({{{"values",{{"x",0}}}},{{"values",{{"x",10}}}},{{"values",{{"x",10},{"y",10}}}}})}}).data
                 :json_run("construction.create",{{"kind","plane"},{"name","Reference plane"},{"base_plane","xy"}}).data;
@@ -2896,7 +2910,7 @@ static int verify_general_command_console(QApplication& application,AssemblyWork
         }
         {
             run(QString::fromStdString("new part "+stem+"-primitive-reference"));
-            const auto made=json_run("box.create",{{"length_mm","10"},{"width_mm","10"},{"height_mm","10"}}).data;
+            const auto made=zima::test::gui_rectangular_profile(window,10,10,10).data;
             const auto id=made.at("container").get<std::string>(),owner=made.at("document").get<std::string>()+":origin";
             const commands::Json request={{"object",id},{"index",0},{"reference",{{"owner",owner},{"key","origin:plane:xy"}}},{"offset_mm",7}};
             json_run("placement.reference.set",request);flush();
@@ -2960,7 +2974,7 @@ static int verify_general_command_console(QApplication& application,AssemblyWork
         }
         for(const bool hole:{true,false}) {
             const std::string prefix=hole?"hole":"opening",name=stem+"-"+prefix+"-reference";
-            run(QString::fromStdString("new part "+name));run("box.create 40 40 40");
+            run(QString::fromStdString("new part "+name));zima::test::gui_rectangular_profile(window,40,40,40);
             commands::Json create={{"bore_length_mm",10},{"placement",{{"z",-20}}}};
             if(hole)create["diameter_mm"]=10;else {create["type"]="metric";create["designation"]="M10";create["thread_length_mm"]=5;create["chamfer_enabled"]=false;create["drill_point_enabled"]=false;}
             const auto made=json_run((prefix+".create").c_str(),create).data;const auto id=made.at("container").get<std::string>(),owner=made.at("document").get<std::string>()+":origin";
@@ -2984,7 +2998,7 @@ static int verify_general_command_console(QApplication& application,AssemblyWork
             json_run("close",{{"discard",true}});flush();
         }
         {
-            const auto name=stem+"-section-reference";run(QString::fromStdString("new part "+name));run("box.create 10 20 30");
+            const auto name=stem+"-section-reference";run(QString::fromStdString("new part "+name));zima::test::gui_rectangular_profile(window,10,20,30);
             const auto section=json_run("section.create",{{"path_mm",{{-50,0},{50,0}}},{"plane","XY"},{"show_cut",true}}).data;
             const auto id=section.at("object").get<std::string>(),owner=section.at("document").get<std::string>()+":origin";
             const commands::Json request={{"object",id},{"index",0},{"reference",{{"owner",owner},{"key","origin:plane:yz"}}},{"offset_mm",2}};
@@ -3013,8 +3027,8 @@ static int verify_general_command_console(QApplication& application,AssemblyWork
         {
             const auto name=stem+"-model-dimension";
             run(QString::fromStdString("new part "+name));
-            const auto id=json_run("box.create",{{"length_mm","10"},{"width_mm","20"},{"height_mm","30"}}).data.at("container").get<std::string>();
-            const commands::Json ref={{"owner",id},{"key","parameter:length"}};
+            const auto id=zima::test::gui_rectangular_profile(window,10,20,30).data.at("container").get<std::string>();
+            const commands::Json ref={{"owner",id},{"key","parameter:length_forward"}};
             const auto get=[&](){return json_run("dimension.layout.get",{{"reference",ref}}).data;};
             auto layout=get().at("layout");kernel::DimensionTextStyle style;style.prefix="CLI ";style.suffix=" mm";style.decimals=4;
             layout["text_style"]=document::dimension_text_style_json(style);layout["text_along"]=4;
@@ -3024,7 +3038,7 @@ static int verify_general_command_console(QApplication& application,AssemblyWork
                 for(std::size_t i=0;i<10000;++i) {
                     viewer::ViewerCandidate candidate;candidate.kind=viewer::CandidateKind::Dimension;candidate.geometry_index=i;
                     const auto source=view->dimension_source(candidate);if(!source)break;
-                    if(source->reference.owner_id!=id||source->reference.semantic_key!="parameter:length")continue;
+                    if(source->reference.owner_id!=id||source->reference.semantic_key!="parameter:length_forward")continue;
                     candidate.owner_id=id;candidate.semantic_key=source->reference.semantic_key;candidate.instance_path=source->reference.instance_path;
                     window.show_dimension_layout_properties(candidate);flush();
                     auto* dialog=window.findChild<QDialog*>("dimensionPropertiesDialog");check(dialog&&dialog->isVisible(),"Model dimension Properties did not open");return dialog;
@@ -3039,8 +3053,8 @@ static int verify_general_command_console(QApplication& application,AssemblyWork
             check(get().at("layout").at("text_style").at("prefix")=="GUI ","Dimension GUI OK did not share command data");
             run("undo");check(get().at("layout")==layout,"Dimension GUI Undo lost the CLI layout");run("redo");run("save");
             std::vector<kernel::BodyResult> cache;const auto saved=document::PartDocument::load(directory/(name+".prtz"),&cache);
-            const auto* stored=kernel::find_dimension_layout(saved.dimension_layouts,{id,"parameter:length",{}});
-            check(stored&&stored->text_style&&stored->text_style->prefix=="GUI "&&saved.find_container(id)->box.length==10&&!cache.empty()&&std::abs(cache.back().volume-6000)<1e-6,"GUI dimension save changed geometry or lost the text override");
+            const auto* stored=kernel::find_dimension_layout(saved.dimension_layouts,{id,"parameter:length_forward",{}});
+            check(stored&&stored->text_style&&stored->text_style->prefix=="GUI "&&saved.find_container(id)->extrusion.length_forward==15&&!cache.empty()&&std::abs(cache.back().volume-6000)<1e-6,"GUI dimension save changed geometry or lost the text override");
             const auto point=json_run("construction.create",{{"kind","point"},{"name","Dimension point"},{"values",{{"x",7},{"y",3},{"z",4}}}}).data.at("construction").get<std::string>();
             window.show_parameter_dimensions(point,{});flush();std::size_t checked=0;
             for(std::size_t i=0;i<10000;++i) {

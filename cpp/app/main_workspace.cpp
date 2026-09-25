@@ -1,3 +1,5 @@
+#include "../tests/gui_profile_fixture.hpp"
+#include "../tests/profile_solid_fixture.hpp"
 #include <zima/workspace/drawing_sources.hpp>
 #include "symbol_attachment_dialog.hpp"
 #include "workspace/workspace_internal.hpp"
@@ -199,9 +201,9 @@ int verify_history_tree_drag(QApplication& application,const std::filesystem::pa
     // Drag real Tree rows, persist the order, and verify one-step Undo.
     {
         auto document=zima::document::PartDocument::create_default();
-        auto a=zima::document::PartDocument::create_box_container();
-        auto b=zima::document::PartDocument::create_box_container();
-        auto c=zima::document::PartDocument::create_box_container();
+        auto a=zima::test::rectangular_feature(document);
+        auto b=zima::test::rectangular_feature(document);
+        auto c=zima::test::rectangular_feature(document);
         b.placement.x=30;c.placement.x=60;
         document.history={a,b,c};
         zima::kernel::OcctKernel kernel;
@@ -336,7 +338,7 @@ int verify_family_table(QApplication& application,zima::app::AssemblyWorkspaceWi
     });watchdog.start();
     using namespace zima;
     auto part=document::PartDocument::create_default();part.name="Family base";
-    auto box=document::PartDocument::create_box_container();box.name="Block";box.box={8,6,4};
+    auto box=zima::test::rectangular_feature(part,{8,6,4});box.name="Block";
     part.history={box};document::BodyHistoryGraph graph;const auto body=graph.create_body("Body");graph.insert({document::PartHistoryKind::Feature,box.id});graph.activate({});part.set_body_history(graph);part.synchronize_dimension_identifiers();
     kernel::OcctKernel kernel;const auto cache=kernel.evaluate_history(part.kernel_operations());
     const auto path=directory/"family-base.prtz";part.save(path,cache);
@@ -369,11 +371,11 @@ int verify_family_table(QApplication& application,zima::app::AssemblyWorkspaceWi
     if(!verify(hit.has_value(),"Family original solid is absent from the common picker"))return 1;
     click(view,*hit);if(!verify(table->horizontalHeaderItem(2)->text()=="Block","Family LMB did not bind solid name"))return 1;
     mouse(view,QEvent::MouseButtonDblClick,*hit,Qt::LeftButton);mouse(view,QEvent::MouseButtonRelease,*hit,Qt::LeftButton);
-    viewer::ViewerCandidate dimension;dimension.kind=viewer::CandidateKind::Dimension;dimension.owner_id=box.id;dimension.semantic_key="parameter:length";
+    viewer::ViewerCandidate dimension;dimension.kind=viewer::CandidateKind::Dimension;dimension.owner_id=box.id;dimension.semantic_key="parameter:length_forward";
     const auto position=view->candidate_dimension_label_position(dimension);
     if(!verify(position.has_value(),"Family double click did not expose source dimensions"))return 1;
     click(view,*position);
-    const auto name=part.dimension_identifiers.identifier(box.id,"parameter:length");
+    const auto name=part.dimension_identifiers.identifier(box.id,"parameter:length_forward");
     if(!verify(table->horizontalHeaderItem(2)->text().toStdString()==name,"Family dimension did not bind secondary identifier"))return 1;
     table->item(1,1)->setText("family-base-V01.prtz");table->item(1,2)->setText("20");flush();
     dialog->findChild<QPushButton*>("familyAddColumn")->click();flush();
@@ -403,7 +405,7 @@ int verify_family_table(QApplication& application,zima::app::AssemblyWorkspaceWi
     if(!verify(saved.ok,"Family instance did not save its parent"))return 1;
     std::string member_id;for(const auto& item:documents.data)if(item.value("active",false))member_id=item.at("id").get<std::string>();
     std::vector<kernel::BodyResult> stored;auto result=document::PartDocument::load(path,&stored);result=workspace::family_part_source(std::move(result),stored,member_id);
-    if(!verify(result.find_container(box.id)->box.length==20&&std::abs(stored.back().volume-480)<1e-8,"Family GUI generated wrong dimensions or geometry"))return 1;
+    if(!verify(result.find_container(box.id)->extrusion.length_forward==20&&std::abs(stored.back().volume-1920)<1e-8,"Family GUI generated wrong dimensions or geometry"))return 1;
     workspace::Workspace drawing_models;drawing_models.add_part(part,cache,path);
     const auto stored_table=window.execute_console_command(QString::fromStdString(commands::Json{{"command","document.family.get"},{"arguments",{{"document",part.document_id}}}}.dump()));
     if(!verify(stored_table.ok,"Cannot read GUI-created Family Table"))return 1;
@@ -530,7 +532,7 @@ int verify_family_table(QApplication& application,zima::app::AssemblyWorkspaceWi
     if(!verify(drawing_window.document_for_test().find_view(grand.id)->source_document_id==tiny_id&&drawing_models.open_part(part.document_id)&&drawing_models.open_part(part.document_id)->session.document().family.evaluated.contains(tiny_row),"Cold unevaluated Drawing variant did not publish its parent packet"))return 1;
     const auto cold_saved=workspace::prepare_document_save(drawing_models,part.document_id,path).write();static_cast<void>(workspace::complete_document_save(drawing_models,cold_saved));
     std::vector<kernel::BodyResult> tiny_cache;const auto tiny=workspace::read_family_part(nullptr,path,tiny_id,tiny_cache);
-    if(!verify(tiny.find_container(box.id)->box.length==3&&std::abs(tiny_cache.back().volume-72)<1e-8,"New cold variant was not saved in the parent native file"))return 1;
+    if(!verify(tiny.find_container(box.id)->extrusion.length_forward==3&&std::abs(tiny_cache.back().volume-288)<1e-8,"New cold variant was not saved in the parent native file"))return 1;
     drawing_window.hide();
     const auto run=[&](const std::string& command,commands::Json args=commands::Json::object()) {
         const auto result=window.execute_console_command(QString::fromStdString(commands::Json{{"command",command},{"arguments",std::move(args)}}.dump()));
@@ -620,7 +622,7 @@ int verify_family_table(QApplication& application,zima::app::AssemblyWorkspaceWi
     run("component.set",{{"instance_path",selected_path},{"placement_references",commands::Json::array()}});
     if(!verify(!marked(),"Repaired references left a stale red component"))return 1;
     auto replacement=document::PartDocument::create_default();replacement.name="Replacement";
-    replacement.history={document::PartDocument::create_box_container()};
+    replacement.history={zima::test::rectangular_feature(replacement)};
     const auto replacement_file=directory/"replacement.prtz";
     replacement.save(replacement_file,kernel.evaluate_history(replacement.kernel_operations()));
     const auto browse_source=[&](QDialog* properties) {
@@ -714,7 +716,7 @@ int verify_family_table(QApplication& application,zima::app::AssemblyWorkspaceWi
         for(auto* radio:create->findChildren<QRadioButton*>())radio->setChecked(radio->property("documentType").toString()==type);
         create->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
         if(!verify(!window.findChild<QDialog*>("newDocumentDialog"),"New template document did not commit"))return 1;
-        const auto command=std::string(type)=="part"?"boxAction":"insertComponentAction";
+        const auto command=std::string(type)=="part"?"featurePrototypeAction":"insertComponentAction";
         if(!verify(window.findChild<QAction*>(command)->isEnabled(),"New template has no active modeling/component context"))return 1;
         window.findChild<QAction*>("documentParametersAction")->trigger();flush();
         auto* parameters=window.findChild<QDialog*>("documentParametersDialog");
@@ -737,7 +739,7 @@ int verify_family_table(QApplication& application,zima::app::AssemblyWorkspaceWi
 int verify_derived_copy_commands(QApplication& application,zima::app::AssemblyWorkspaceWindow& window,
         const std::filesystem::path& directory) {
     using namespace zima;
-    auto part=document::PartDocument::create_default();auto box=document::PartDocument::create_box_container();box.box={8,6,4};box.placement.x=4;
+    auto part=document::PartDocument::create_default();auto box=zima::test::rectangular_feature(part,{8,6,4});box.placement.x=4;
     part.history={box};document::BodyHistoryGraph graph;const auto source=graph.create_body("Zdroj");
     graph.insert({document::PartHistoryKind::Feature,box.id});graph.activate({});part.set_body_history(graph);
     kernel::OcctKernel kernel;const auto calculated=kernel.evaluate_history(part.kernel_operations());
@@ -1064,7 +1066,7 @@ int verify_derived_copy_commands(QApplication& application,zima::app::AssemblyWo
     dialog->reject();flush();
     {
         auto opening_part=document::PartDocument::create_default();
-        auto block=document::PartDocument::create_box_container();block.box={40,40,40};
+        auto block=zima::test::rectangular_feature(opening_part,{40,40,40});
         auto opening=document::PartDocument::create_thread_container();opening.placement.z=-20;
         document::BodyHistoryGraph bodies;static_cast<void>(bodies.create_body("Opening"));
         bodies.insert({document::PartHistoryKind::Feature,block.id});bodies.insert({document::PartHistoryKind::Feature,opening.id});
@@ -1174,11 +1176,11 @@ int verify_derived_copy_commands(QApplication& application,zima::app::AssemblyWo
     }
     // A body command must keep later bodies outside its source/display boundary.
     auto history_part=document::PartDocument::create_default();document::BodyHistoryGraph history_graph;
-    const auto first=history_graph.create_body("First");auto first_box=document::PartDocument::create_box_container();first_box.box={8,6,4};
+    const auto first=history_graph.create_body("First");auto first_box=zima::test::rectangular_feature(history_part,{8,6,4});
     history_graph.insert({document::PartHistoryKind::Feature,first_box.id});
-    auto cutter=document::PartDocument::create_box_container();cutter.box={2,1,4};cutter.placement.x=2;cutter.combine_mode=document::CombineMode::Subtract;
+    auto cutter=zima::test::rectangular_feature(history_part,{2,1,4});cutter.placement.x=2;cutter.combine_mode=document::CombineMode::Subtract;
     history_graph.insert({document::PartHistoryKind::Feature,cutter.id});
-    const auto later=history_graph.create_body("Later");auto later_box=document::PartDocument::create_box_container();later_box.box={8,6,4};later_box.placement.x=80;
+    const auto later=history_graph.create_body("Later");auto later_box=zima::test::rectangular_feature(history_part,{8,6,4});later_box.placement.x=80;
     history_graph.insert({document::PartHistoryKind::Feature,later_box.id});history_graph.activate(first);
     history_part.history={first_box,cutter,later_box};history_part.set_body_history(history_graph);
     const auto history_path=directory/"copy-history-ui.prtz";
@@ -1906,8 +1908,7 @@ int verify_shaft_thread_command(QApplication& application,zima::app::AssemblyWor
     document.insert_history_entry(zima::document::PartHistoryKind::Sketch,profile.id);
     document.history.push_back(shaft);
     document.insert_history_entry(zima::document::PartHistoryKind::Feature,shaft.id);
-    auto support=zima::document::PartDocument::create_box_container();
-    support.box.length=20;support.box.width=20;support.box.height=5;
+    auto support=zima::test::rectangular_feature(document,{20,20,5});
     support.placement.x=-10;support.placement.y=-10;support.placement.z=-5;
     document.history.push_back(support);
     document.insert_history_entry(zima::document::PartHistoryKind::Feature,support.id);
@@ -2053,7 +2054,7 @@ int verify_unresolved_sweep_sketches(QApplication& application,const std::filesy
     using namespace zima::document;
     for(bool planar:{true,false}) {
         auto doc=PartDocument::create_default();
-        auto prior=PartDocument::create_box_container();
+        auto prior=zima::test::rectangular_feature(doc);
         auto sweep=planar?PartDocument::create_sweep2d_container():PartDocument::create_helical_sweep_container();
         if(planar) {
             auto guide=zima::sketcher::Sketch::from_serialized(sweep.sweep2d.path_sketch);
@@ -2378,7 +2379,7 @@ int verify_body_curve_references(QApplication& application, const std::filesyste
     using namespace zima::document;
     for (bool sweep : {false,true}) {
         auto part=PartDocument::create_default();
-        auto box=PartDocument::create_box_container();box.box={10,10,10};part.history={box};
+        auto box=zima::test::rectangular_feature(part,{10,10,10});part.history={box};
         BodyHistoryGraph graph;
         const auto body_id=graph.create_body("Reference body");
         graph.insert({PartHistoryKind::Feature,box.id});
@@ -2392,6 +2393,8 @@ int verify_body_curve_references(QApplication& application, const std::filesyste
         const auto flush=[&] { application.processEvents();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);application.processEvents(); };
         if (!verify(window.open_document_path(QString::fromStdString(path.string())),"Cannot open Body reference fixture")) return 1;
         flush();
+        window.findChild<QAction*>("constructionPointAction")->setEnabled(false);
+        window.findChild<QAction*>("sketchAction")->setEnabled(false);
         window.findChild<QAction*>(sweep ? "sweep3DAction" : "curve3DAction")->trigger();flush();
         const auto dialog=[&]() -> zima::app::ConstructionPropertiesDialog* {
             for(auto* child:window.findChildren<QDialog*>())
@@ -2403,6 +2406,13 @@ int verify_body_curve_references(QApplication& application, const std::filesyste
         {auto* rows=parent->findChild<QTableWidget*>("curve3DPoints");emit rows->cellClicked(rows->rowCount()-1,0);}flush();
         auto* point=dialog();
         if (!verify(point && point!=parent,"Cannot add Curve/Sweep point in Body")) return 1;
+        auto* point_type=point->findChild<QComboBox*>("featureType");
+        if (!verify(point_type && !point_type->isEnabled() && point_type->currentIndex()==0 &&
+            !point->findChild<QDoubleSpinBox*>("constructionOffset")->isVisible(),
+            "Owned Point exposed type or plane-offset editing")) return 1;
+        const auto pending_point=point->pending_value();
+        if (!verify(pending_point.parent_construction_id==parent->pending_value().id,
+            "Owned Point became a standalone container")) return 1;
         auto* view=dynamic_cast<zima::viewer::MeshView*>(window.findChild<QOpenGLWidget*>());
         std::optional<QPointF> hit;
         zima::viewer::ViewerCandidate chosen;
@@ -2445,8 +2455,8 @@ int verify_body_curve_references(QApplication& application, const std::filesyste
 int verify_body_pending_tree(QApplication& application, const std::filesystem::path& directory) {
     using namespace zima::document;
     auto document = PartDocument::create_default();
-    const auto box = PartDocument::create_box_container();
-    auto other_box = PartDocument::create_box_container(); other_box.placement.x = 80;
+    const auto box = zima::test::rectangular_feature(document);
+    auto other_box = zima::test::rectangular_feature(document); other_box.placement.x = 80;
     document.history = {box, other_box};
     BodyHistoryGraph graph;
     const auto body_id = graph.create_body("Active body");
@@ -2489,7 +2499,7 @@ int verify_body_pending_tree(QApplication& application, const std::filesystem::p
         for (auto* child : window.findChildren<QDialog*>()) if (child->isVisible()) return child;
         return nullptr;
     };
-    for (const char* name : {"sweep2dAction", "sweep3DAction", "helicalSweepAction", "boxAction",
+    for (const char* name : {"sweep2dAction", "sweep3DAction", "helicalSweepAction", "featurePrototypeAction",
             "threadAction", "sketchAction", "extrusionAction", "revolutionAction", "curve3DAction",
             "constructionPointAction", "constructionAxisAction", "constructionPlaneAction", "shellAction"}) {
         tree->clearSelection(); tree->setCurrentItem(nullptr);
@@ -2672,7 +2682,7 @@ int verify_pending_container_tree(QApplication& application,
         if (!verify(find(marker) && find(assembly ? "assembly-construction" : "part-construction", created_id),
                 "Edit Cancel removed the committed container")) return 1;
         if (!assembly) {
-            window.findChild<QAction*>("boxAction")->trigger(); flush();
+            window.findChild<QAction*>("featurePrototypeAction")->trigger(); flush();
             zima::app::PrimitivePropertiesDialog* box_dialog{};
             for (auto* child : window.findChildren<QDialog*>())
                 if (auto* value = dynamic_cast<zima::app::PrimitivePropertiesDialog*>(child);
@@ -2825,7 +2835,7 @@ int verify_body_placement_offsets(QApplication& application, const std::filesyst
     using namespace zima::document;
     for (const bool moved : {false,true}) {
         auto part=PartDocument::create_default();
-        auto box=PartDocument::create_box_container();part.history.push_back(box);
+        auto box=zima::test::rectangular_feature(part);part.history.push_back(box);
         BodyHistoryGraph graph;const auto body_id=graph.create_body("Body");
         graph.insert({PartHistoryKind::Feature,box.id});
         if (moved) { auto body=*graph.find(body_id);body.scope.placement={80,40,25};
@@ -2842,8 +2852,8 @@ int verify_body_placement_offsets(QApplication& application, const std::filesyst
                 if((*it)->data(0,Qt::UserRole).toString().toStdString()==id)return *it;
             return nullptr;
         };
-        for (const auto* action_name : {"boxAction","extrusionAction","revolutionAction","constructionPointAction","sweep3DAction","sweep2dAction","helicalSweepAction"}) {
-            if (std::string_view(action_name)=="boxAction") window.show_tree_item_properties(row(box.id));
+        for (const auto* action_name : {"featurePrototypeAction","extrusionAction","revolutionAction","constructionPointAction","sweep3DAction","sweep2dAction","helicalSweepAction"}) {
+            if (std::string_view(action_name)=="featurePrototypeAction") window.show_tree_item_properties(row(box.id));
             else {auto* action=window.findChild<QAction*>(action_name);if(!verify(action!=nullptr,"Missing offset fixture command"))return 1;action->trigger();}
             flush();
             zima::ui::PropertiesSubWindow* dialog=nullptr;
@@ -2953,7 +2963,7 @@ int verify_save_copy_ui(QApplication& application, const std::filesystem::path& 
 
         auto part = PartDocument::create_default();
         part.user_parameters["COPY_SOURCE"] = part.document_id;
-        part.history.push_back(PartDocument::create_box_container());
+        part.history.push_back(zima::test::rectangular_feature(part));
         zima::kernel::OcctKernel kernel;
         const auto boundaries = kernel.evaluate_history(part.kernel_operations());
         const auto source = directory / fs::u8path("zdroj-český.prtz");
@@ -3055,8 +3065,8 @@ int verify_save_copy_ui(QApplication& application, const std::filesystem::path& 
 int verify_body_activation(QApplication& application, const std::filesystem::path& directory) {
     using namespace zima;
     auto part=document::PartDocument::create_default();
-    auto first=document::PartDocument::create_box_container();first.box={10,10,10};
-    auto second=document::PartDocument::create_box_container();second.box={10,10,10};second.placement.x=5;
+    auto first=zima::test::rectangular_feature(part,{10,10,10});
+    auto second=zima::test::rectangular_feature(part,{10,10,10});second.placement.x=5;
     part.history={first,second};document::BodyHistoryGraph graph;
     const auto a=graph.create_body("Těleso 1");graph.insert({document::PartHistoryKind::Feature,first.id});
     const auto b=graph.create_body("Těleso 2");graph.insert({document::PartHistoryKind::Feature,second.id});
@@ -3132,8 +3142,7 @@ int verify_history_recovery_ui(QApplication& application, const std::filesystem:
     auto sketch = zima::sketcher::Sketch::create_default();
     static_cast<void>(sketch.add_circle(0,0,2));
     auto first = extrusion ? PartDocument::create_extrusion_container(sketch.id)
-                           : PartDocument::create_box_container();
-    first.box = {10,10,10};
+                           : zima::test::rectangular_feature(part,{10,10,10});
     if (extrusion) {
         first.extrusion.extent_mode = ProfileExtentMode::OneSide;
         first.extrusion.length_forward = 10;
@@ -3172,14 +3181,14 @@ int verify_history_recovery_ui(QApplication& application, const std::filesystem:
         if (auto* primitive = dynamic_cast<zima::app::PrimitivePropertiesDialog*>(candidate); primitive && primitive->isVisible()) dialog = primitive;
     if (!verify(dialog != nullptr, "Earlier feature Properties did not open")) return 1;
     QPointer<QDialog> guard(dialog);
-    dialog->findChild<QDoubleSpinBox*>(extrusion ? "extrusionHeight" : "boxLength")->setValue(12);
+    dialog->findChild<QDoubleSpinBox*>("extrusionHeight")->setValue(12);
     dialog->buttons()->button(QDialogButtonBox::Ok)->click(); flush();
     if (!verify(!guard || !guard->isVisible(), "Later failure blocked earlier feature OK")) return 1;
     window.findChild<QAction*>("saveDocumentAction")->trigger(); flush();
     std::vector<zima::kernel::BodyResult> loaded;
     const auto saved = PartDocument::load(path, &loaded);
-    if (!verify((extrusion ? saved.find_container(first.id)->extrusion.length_forward : saved.find_container(first.id)->box.length) == 12 && !loaded.empty() &&
-                std::abs(loaded.back().volume - (extrusion ? 48 * std::acos(-1.0) : 1200)) < 1e-7 &&
+    if (!verify((extrusion ? saved.find_container(first.id)->extrusion.length_forward : saved.find_container(first.id)->extrusion.length_forward) == 12 && !loaded.empty() &&
+                std::abs(loaded.back().volume - (extrusion ? 48 * std::acos(-1.0) : 2400)) < 1e-7 &&
                 loaded.back().calculation_errors.contains(broken.id), "Earlier edit or later diagnostic did not persist")) return 1;
     window.close(); flush();
     }
@@ -3190,9 +3199,9 @@ int verify_body_history_ui(QApplication& application, const std::filesystem::pat
     using namespace zima::document;
     auto part = PartDocument::create_default();
     part.document_precision["decimal_places"]="2";
-    auto first = PartDocument::create_box_container(); first.box = {10,10,10};
-    auto second = PartDocument::create_box_container(); second.box = {10,10,10};
-    auto extra = PartDocument::create_box_container(); extra.box = {2,2,2}; extra.placement.x = 20;
+    auto first = zima::test::rectangular_feature(part,{10,10,10});
+    auto second = zima::test::rectangular_feature(part,{10,10,10});
+    auto extra = zima::test::rectangular_feature(part,{2,2,2});  extra.placement.x = 20;
     part.history = {first,second,extra};
     BodyHistoryGraph graph;
     const auto a = graph.create_body("Polotovar"); graph.insert({PartHistoryKind::Feature, first.id});
@@ -3236,13 +3245,13 @@ int verify_body_history_ui(QApplication& application, const std::filesystem::pat
                 "Drawing did not open its relative Part source with first Body active and clean Undo")) return 1;
     }
     if (!verify(activate_test_body(application,window,b), "Cannot select second Body for history editing regression")) return 1;
-    window.toggle_parameter_value_lock(second.id,"parameter:length");flush();
+    window.toggle_parameter_value_lock(second.id,"parameter:length_forward");flush();
     auto* value_undo=window.findChild<QAction*>("undoAction");auto* value_redo=window.findChild<QAction*>("redoAction");
     if(!verify(value_undo->isEnabled(),"First value-lock edit did not enable Undo"))return 1;
     value_undo->trigger();flush();
-    if(!verify(!window.parameter_value_locked(second.id,"parameter:length").value_or(true) && value_redo->isEnabled(),"Undo did not restore the unlocked value"))return 1;
+    if(!verify(!window.parameter_value_locked(second.id,"parameter:length_forward").value_or(true) && value_redo->isEnabled(),"Undo did not restore the unlocked value"))return 1;
     value_redo->trigger();flush();
-    if(!verify(window.parameter_value_locked(second.id,"parameter:length").value_or(false),"Redo did not restore the value lock"))return 1;
+    if(!verify(window.parameter_value_locked(second.id,"parameter:length_forward").value_or(false),"Redo did not restore the value lock"))return 1;
     value_undo->trigger();flush();
     auto* tree = window.findChild<QTreeWidget*>("documentTree");
     const auto row = [&](const char* kind, const std::string& id = {}) -> QTreeWidgetItem* {
@@ -3515,8 +3524,8 @@ int verify_body_history_ui(QApplication& application, const std::filesystem::pat
         return expected==0?!viewer->candidate_dimension_value(candidate):std::abs(viewer->candidate_dimension_value(candidate).value_or(-999)-expected)<1e-7;
     };
     if(!verify(inline_body_value(offset_dimension,"7",7)&&inline_body_value(offset_dimension,"5",5)&&inline_body_value(angle_dimension,"0",0),"Body Edit failed to update position/angle or hide zero"))return 1;
-    window.toggle_parameter_value_lock(second.id,"parameter:length");flush();
-    if(!verify(window.parameter_value_locked(second.id,"parameter:length").value_or(false),"View lock without properties was not committed"))return 1;
+    window.toggle_parameter_value_lock(second.id,"parameter:length_forward");flush();
+    if(!verify(window.parameter_value_locked(second.id,"parameter:length_forward").value_or(false),"View lock without properties was not committed"))return 1;
     auto* lock_save=window.findChild<QAction*>("saveDocumentAction");
     if(!verify(lock_save && lock_save->isEnabled(),"Value-lock edit left Save disabled"))return 1;
     QString lock_save_error;QTimer lock_save_messages;
@@ -3527,8 +3536,8 @@ int verify_body_history_ui(QApplication& application, const std::filesystem::pat
     if(!verify(lock_save_error.isEmpty(),lock_save_error.toStdString().c_str()))return 1;
     const auto locked_part=PartDocument::load(path);
     const auto locked_feature=std::find_if(locked_part.history.begin(),locked_part.history.end(),[&](const auto& feature){return feature.id==second.id;});
-    if(!verify(locked_feature!=locked_part.history.end() && locked_feature->value_locks.contains("length"),"View-only value lock did not survive saving"))return 1;
-    window.toggle_parameter_value_lock(second.id,"parameter:length");flush();
+    if(!verify(locked_feature!=locked_part.history.end() && locked_feature->value_locks.contains("length_forward"),"View-only value lock did not survive saving"))return 1;
+    window.toggle_parameter_value_lock(second.id,"parameter:length_forward");flush();
     auto* reorder_tree = dynamic_cast<zima::app::HistoryTreeWidget*>(tree);
     if (!verify(reorder_tree && !reorder_tree->reorder_requested(row("part-container",extra.id),QString::fromStdString(first.id),false),
             "Feature drag offered another body as its destination")) return 1;
@@ -3599,7 +3608,7 @@ int verify_body_history_ui(QApplication& application, const std::filesystem::pat
             row("part-body",fresh.body_history.active_body_id()) && row("part-insert-here") &&
             window.findChild<QAction*>("sketchAction")->isEnabled() &&
             window.findChild<QAction*>("extrusionAction")->isEnabled() &&
-            window.findChild<QAction*>("boxAction")->isEnabled(),
+            window.findChild<QAction*>("featurePrototypeAction")->isEnabled(),
             "New Part did not start with its first Body active and Modeling commands available")) return 1;
     if(!verify(!row("part-body-insert-here") &&
             activate_from_tree(tree->topLevelItem(0),"activatePartAction"),
@@ -3894,7 +3903,7 @@ int verify_owned_profile_external_reference(QApplication& application,const std:
         document=PartDocument::load(supplied.toStdString(),&calculated);
     } else {
         document=PartDocument::create_default();
-        auto source=PartDocument::create_box_container();source.box={20,20,10};
+        auto source=zima::test::rectangular_feature(document,{20,20,10});
         auto sketch=zima::sketcher::Sketch::create_default();
         static_cast<void>(sketch.add_segment(30,0,40,0));static_cast<void>(sketch.add_segment(40,0,40,10));
         static_cast<void>(sketch.add_segment(40,10,30,10));static_cast<void>(sketch.add_segment(30,10,30,0));
@@ -5463,11 +5472,11 @@ int verify_sketch_offset_ui(QApplication& application,const std::filesystem::pat
     const auto source=sketch.add_segment(2,5,20,5);document.history={feature};document.sketches={sketch};
     BodyHistoryGraph graph;const auto body=graph.create_body("Offset test");graph.insert({PartHistoryKind::Feature,feature.id});document.set_body_history(graph);document.resolve_constructions();
     zima::kernel::SavedMeasurement measurement;
-    measurement.id=PartDocument::create_box_container().id;measurement.name="Offset fixture measurement";
+    measurement.id=QUuid::createUuid().toString(QUuid::WithoutBraces).toStdString();measurement.name="Offset fixture measurement";
     measurement.body_id=body;measurement.after_object_id=feature.id;
     measurement.references={{zima::kernel::MeasurementKind::Object,feature.id,{},{}}};measurement.values.resize(1);
     document.measurements.push_back(measurement);
-    zima::document::BodyProperties mass;mass.id=PartDocument::create_box_container().id;
+    zima::document::BodyProperties mass;mass.id=QUuid::createUuid().toString(QUuid::WithoutBraces).toStdString();
     mass.name="Offset fixture body measurement";mass.body_id=body;mass.after_object_id=feature.id;
     document.body_properties.push_back(mass);
     const auto path=directory/"sketch-offset.prtz";document.save(path);
@@ -5578,8 +5587,7 @@ int verify_standalone_trim_preview(QApplication& application, const std::filesys
 int verify_assembly_refresh_view(QApplication& application,const std::filesystem::path& directory) {
     using namespace zima;
     auto part=document::PartDocument::create_default();
-    part.history.push_back(document::PartDocument::create_box_container());
-    part.history.front().box.length=10;
+    part.history.push_back(zima::test::rectangular_feature(part,{10,80,50}));
     kernel::OcctKernel kernel;
     auto bodies=kernel.evaluate_history(part.kernel_operations());
     const auto part_path=directory/"assembly-refresh-part.prtz";
@@ -5600,7 +5608,7 @@ int verify_assembly_refresh_view(QApplication& application,const std::filesystem
     if(!verify(view&&regenerate&&dimensions,"Assembly View controls missing"))return 1;
     auto camera=view->camera_state();camera[4]*=1.7F;camera[5]=53;camera[6]=-37;
     view->set_camera_state(camera);camera=view->camera_state();
-    part.history.front().box.length=24;
+    zima::test::resize_rectangular_feature(part,part.history.front(),{24,80,50});
     part.save(part_path,kernel.evaluate_history(part.kernel_operations()));
     regenerate->trigger();application.processEvents();
     if(!verify(view->camera_state()==camera,"Assembly Regenerate changed zoom, pan or orientation"))return 1;
@@ -5760,7 +5768,7 @@ int verify_body_reference_dimension_edit(QApplication& application, const std::f
                 body.scope.placement.rotation_y=90;
                 graph.update_body(body);
             }
-            auto feature=document::PartDocument::create_box_container();
+            auto feature=zima::test::rectangular_feature(part);
             for (const std::string plane : {"xy", "xz", "yz"}) {
                 document::ConstructionReference reference;
                 reference.owner_id=body_id+":origin";
@@ -5837,22 +5845,6 @@ int verify_inline_primitive_dimensions(QApplication& application, const std::fil
     };
     using D=document::PartDocument;
     const std::vector<Case> cases{
-        {D::create_box_container(),"length",[](auto& c)->double&{return c.box.length;}},
-        {D::create_box_container(),"width",[](auto& c)->double&{return c.box.width;}},
-        {D::create_box_container(),"height",[](auto& c)->double&{return c.box.height;}},
-        {D::create_cylinder_container(),"radius",[](auto& c)->double&{return c.cylinder.radius;}},
-        {D::create_cylinder_container(),"height",[](auto& c)->double&{return c.cylinder.height;}},
-        {D::create_sphere_container(),"radius",[](auto& c)->double&{return c.sphere.radius;}},
-        {D::create_cone_container(),"bottom_radius",[](auto& c)->double&{return c.cone.bottom_radius;}},
-        {D::create_cone_container(),"top_radius",[](auto& c)->double&{return c.cone.top_radius;}},
-        {D::create_cone_container(),"height",[](auto& c)->double&{return c.cone.height;}},
-        {D::create_pyramid_container(),"length",[](auto& c)->double&{return c.pyramid.length;}},
-        {D::create_pyramid_container(),"width",[](auto& c)->double&{return c.pyramid.width;}},
-        {D::create_pyramid_container(),"height",[](auto& c)->double&{return c.pyramid.height;}},
-        {D::create_wedge_container(),"length",[](auto& c)->double&{return c.wedge.length;}},
-        {D::create_wedge_container(),"width",[](auto& c)->double&{return c.wedge.width;}},
-        {D::create_wedge_container(),"height",[](auto& c)->double&{return c.wedge.height;}},
-        {D::create_wedge_container(),"top_offset",[](auto& c)->double&{return c.wedge.top_offset;}},
         {D::create_shell_container(),"thickness",[](auto& c)->double&{return c.shell.thickness;}},
         {D::create_thread_container(),"bore_length",[](auto& c)->double&{return c.thread.bore_length;}},
         {D::create_thread_container(),"bore_diameter",[](auto& c)->double&{return c.thread.nominal_diameter;}},
@@ -5860,20 +5852,19 @@ int verify_inline_primitive_dimensions(QApplication& application, const std::fil
         {D::create_thread_container(),"chamfer_depth",[](auto& c)->double&{return c.thread.chamfer_depth;}},
         {D::create_thread_container(),"chamfer_angle",[](auto& c)->double&{return c.thread.chamfer_angle_degrees;}},
         {D::create_thread_container(),"drill_point_angle",[](auto& c)->double&{return c.hole.drill_point_angle_degrees;}},
-        {D::create_box_container(),"placement:x",[](auto& c)->double&{return c.placement.x;}},
-        {D::create_box_container(),"placement:y",[](auto& c)->double&{return c.placement.y;}},
-        {D::create_box_container(),"placement:z",[](auto& c)->double&{return c.placement.z;}}
+        {D::create_thread_container(),"placement:x",[](auto& c)->double&{return c.placement.x;}},
+        {D::create_thread_container(),"placement:y",[](auto& c)->double&{return c.placement.y;}},
+        {D::create_thread_container(),"placement:z",[](auto& c)->double&{return c.placement.z;}}
     };
     try {
         for(auto test:cases) {
             std::cout<<"Inline primitive "<<static_cast<int>(test.feature.feature_kind)<<' '<<test.key<<std::endl;
-            if(test.feature.feature_kind==document::FeatureKind::Wedge) test.feature.wedge.top_offset=2;
             if(test.feature.feature_kind==document::FeatureKind::Thread) test.feature.thread.enabled=test.key=="thread_length";
             test.field(test.feature)=5;
             auto document=D::create_default();
             document::BodyHistoryGraph graph;const auto body=graph.create_body("Dimension audit");
             if(test.feature.feature_kind==document::FeatureKind::Thread || test.feature.feature_kind==document::FeatureKind::Shell) {
-                auto base=D::create_box_container();base.box={60,60,60};base.placement.x=-30;base.placement.y=-30;
+                auto base=zima::test::rectangular_feature(document,{60,60,60});base.placement.x=-30;base.placement.y=-30;
                 document.history.push_back(base);graph.insert({document::PartHistoryKind::Feature,base.id});
             }
             document.history.push_back(test.feature);
@@ -6080,16 +6071,14 @@ int verify_sketch_return_frames(QApplication& application, const std::filesystem
             auto source_sketch=sketcher::Sketch::create_default();source_sketch.owner_container_id=source.id;
             const auto segment=source_sketch.add_segment(-10,0,10,0);
             const auto point=source_sketch.segments.front().second_point_id;
-            auto box=document::PartDocument::create_box_container();
-            box.box.length=40;box.box.width=40;box.box.height=40;
-            if(bend_attachment)box.box.height=1;
-            part.history={source,box};part.sketches={source_sketch};
+            auto box=zima::test::rectangular_feature(part,{40,40,bend_attachment?1.:40.});
+            part.history={source,box};part.sketches.insert(part.sketches.begin(),source_sketch);
             if(bend_attachment&&scenario==17) {
                 auto sheet=sketcher::Sketch::create_default();sheet.owner_container_id=box.id;
                 sheet.add_segment(0,0,40,0);sheet.add_segment(40,0,40,40);
                 sheet.add_segment(40,40,0,40);sheet.add_segment(0,40,0,0);
                 box.feature_kind=document::FeatureKind::Flat;box.flat.sketch_id=sheet.id;
-                part.history.back()=box;part.sketches.push_back(sheet);
+                part.history.back()=box;std::erase_if(part.sketches,[&](const auto& s){return s.owner_container_id==box.id;});part.sketches.push_back(sheet);
             }
             auto feature=document::PartDocument::create_sketch_container();feature.feature_kind=kind;
             auto sketch=sketcher::Sketch::create_default();sketch.owner_container_id=feature.id;
@@ -6647,6 +6636,14 @@ int verify_owned_profile_frames(QApplication& application, const std::filesystem
             const char* button=command=="sketchAction"?"sketchOpenButton":
                 command=="sweep2dAction"?"sweep2dSketch0":"helicalSketch0";
             check(properties->findChild<QPushButton*>(button),"Plane audit Sketch button missing");
+            std::optional<kernel::Vec3> owned_normal;
+            if(auto* sweep=dynamic_cast<app::Sweep2DDialog*>(properties))
+                owned_normal=sketcher::Sketch::from_serialized(sweep->pending.sweep2d.path_sketch).normal();
+            else if(auto* sweep=dynamic_cast<app::HelicalSweepDialog*>(properties)) {
+                auto framed=sweep->pending;
+                document::PartDocument::reframe_helical_sketches(framed,0);
+                owned_normal=sketcher::Sketch::from_serialized(framed.helical.sketches[0]).normal();
+            }
             properties->findChild<QPushButton*>(button)->click();flush();
             auto* view=dynamic_cast<viewer::MeshView*>(window.findChild<QOpenGLWidget*>());
             kernel::Vec3 x,y;bool have_x=false,have_y=false;
@@ -6656,8 +6653,9 @@ int verify_owned_profile_frames(QApplication& application, const std::filesystem
             }
             check(have_x&&have_y,"Plane audit Sketch axes missing");
             const kernel::Vec3 normal{x.y*y.z-x.z*y.y,x.z*y.x-x.x*y.z,x.x*y.y-x.y*y.x};
-            check(std::abs(first=="xz"?normal.y:first=="xy"?normal.z:normal.x)>1-1e-7,
-                "Another Sketch host does not use the FIRST plane");
+            check(owned_normal?std::hypot(normal.x-owned_normal->x,normal.y-owned_normal->y,normal.z-owned_normal->z)<1e-7:
+                std::abs(first=="xz"?normal.y:first=="xy"?normal.z:normal.x)>1-1e-7,
+                "Sketcher entry changed the frame selected by its owning command");
             window.findChild<QAction*>("finishSketchAction")->trigger();flush();
             for(auto* d:window.findChildren<QDialog*>())if(d->isVisible()){d->reject();break;}flush();
         }
@@ -6669,7 +6667,7 @@ int verify_assembly_owned_profiles(QApplication& application,const std::filesyst
     using namespace zima;
     const auto flush=[&]{application.processEvents();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);application.processEvents();};
     kernel::OcctKernel kernel;auto part=document::PartDocument::create_default();
-    auto box=document::PartDocument::create_box_container();box.box={100,100,100};part.history={box};
+    auto box=zima::test::rectangular_feature(part,{100,100,100});part.history={box};
     const auto calculated=kernel.evaluate_history(part.kernel_operations());const auto part_path=directory/"owned-cut-source.prtz";part.save(part_path,calculated);
     for(const bool revolve:{false,true}) {
         auto assembly=assembly::AssemblyDocument::create_default();
@@ -7023,9 +7021,9 @@ int verify_nested_body_sketch_ui(QApplication& application, const std::filesyste
         std::cout<<"Reported Assembly Skeleton activation, double-click and exit preserved camera and canvas; source files unchanged\n";return 0;
     }
     auto part=PartDocument::create_default();
-    auto first=PartDocument::create_box_container();first.box={5,5,5};
-    auto middle=PartDocument::create_box_container();middle.box={2,2,2};
-    auto later=PartDocument::create_box_container();later.box={3,3,3};later.placement.x=30;
+    auto first=zima::test::rectangular_feature(part,{5,5,5});
+    auto middle=zima::test::rectangular_feature(part,{2,2,2});
+    auto later=zima::test::rectangular_feature(part,{3,3,3});later.placement.x=30;
     auto container=PartDocument::create_sketch_container();
     auto sketch=zima::sketcher::Sketch::create_default();sketch.owner_container_id=container.id;
     static_cast<void>(sketch.add_segment(0,0,20,0));
@@ -7450,7 +7448,7 @@ int verify_component_reference_document(QApplication& application, const std::fi
 int verify_component_references(QApplication& application, const std::filesystem::path& directory) {
     using namespace zima;
     auto part=document::PartDocument::create_default();
-    auto box=document::PartDocument::create_box_container();box.box={10,10,10};part.history={box};
+    auto box=zima::test::rectangular_feature(part,{10,10,10});part.history={box};
     kernel::OcctKernel kernel;
     const auto calculated=kernel.evaluate_history(part.kernel_operations());
     const auto part_path=directory/"component-reference.prtz";part.save(part_path,calculated);
@@ -7826,11 +7824,11 @@ int verify_component_references(QApplication& application, const std::filesystem
     if(!verify(component_command("component.activate",{{"instance_path",nested_path}}).ok,
         "Console could not activate the exact nested Part"))return 1;flush();
     const auto part_context=component_command("context",commands::Json::object());
-    auto* box_action=window.findChild<QAction*>("boxAction");
+    auto* box_action=window.findChild<QAction*>("featurePrototypeAction");
     if(!verify(part_context.data.at("active_document")==part.document_id&&part_context.data.at("displayed_document")==top_id&&
         part_context.data.at("active_occurrence")==nested_path&&window.active_occurrence_path_for_test()==nested_path&&
         box_action&&box_action->isEnabled(),"Console Part activation lost Modeling tools or retained another occurrence"))return 1;
-    if(!verify(component_command("box.set",{{"container",box.id},{"height_mm","12"}}).ok,
+    if(!verify(component_command("extrusion.set",{{"container",box.id},{"length_forward_mm",6}}).ok,
         "Console cannot model the activated Part source"))return 1;flush();
     if(!verify(std::ranges::any_of(view->mesh().triangle_references,[&](const auto& r){return r.instance_path==passive_path;})&&
         tree->topLevelItem(0)->text(0)==QString::fromStdString(top_path.filename().string()),
@@ -7939,7 +7937,7 @@ int verify_component_references(QApplication& application, const std::filesystem
     }
     // Import keeps its owning Assembly tab, even when editing a nested source.
     kernel::StepProduct imported_part;imported_part.definition_id="import-tab-part";
-    imported_part.name="Imported Part";imported_part.body=kernel.make_box({4,5,6});
+    imported_part.name="Imported Part";imported_part.body=zima::test::rectangular_body(kernel,4,5,6);
     kernel::StepProduct imported_group;imported_group.definition_id="import-tab-assembly";
     imported_group.name="Imported Assembly";imported_group.children={imported_part};
     const auto import_path=directory/"assembly-import-tabs.step";
@@ -7986,7 +7984,7 @@ int verify_drawing_workspace(QApplication& application, zima::app::AssemblyWorks
     auto part=zima::document::PartDocument::create_default();
     part.name="drawing-parameter-source"; part.user_parameters["name"]="Drawing source marker";
     part.user_parameter_order={"name"}; part.user_parameter_values["name"][""]="Drawing source marker";
-    part.history.push_back(zima::document::PartDocument::create_box_container());
+    part.history.push_back(zima::test::rectangular_feature(part));
     auto annotation_sketch=zima::sketcher::Sketch::create_default();
     const auto rectangle=annotation_sketch.add_rectangle(-20,-10,20,10);
     annotation_sketch.dimensions={annotation_sketch.create_segment_dimension(rectangle.front())};
@@ -8163,7 +8161,7 @@ int verify_selection_filter(QApplication& application,
     try {
         window.resize(1100,800);window.show();
         check(window.execute_console_command("new part selection-filter").ok,"Cannot create filter fixture");
-        check(window.execute_console_command("box.create 10 20 30").ok,"Cannot create filter solid");flush();
+        check(zima::test::gui_rectangular_profile(window,10,20,30).ok,"Cannot create filter solid");flush();
         const auto source_id=window.execute_console_command("context").data.at("active_document");
         auto* combo=window.findChild<QComboBox*>("selectionFilterCombo");
         auto* view=dynamic_cast<viewer::MeshView*>(window.findChild<QOpenGLWidget*>("modelWorkspace"));
@@ -8181,7 +8179,7 @@ int verify_selection_filter(QApplication& application,
         };
         for(int index=1;index<7;++index)assert_candidates(index,index==1||index==3||index==4);
         combo->setCurrentIndex(0);flush();
-        window.findChild<QAction*>("boxAction")->trigger();flush();
+        window.findChild<QAction*>("featurePrototypeAction")->trigger();flush();
         app::PrimitivePropertiesDialog* dialog{};
         for(auto* child:window.findChildren<QDialog*>())
             if(auto* p=dynamic_cast<app::PrimitivePropertiesDialog*>(child);p&&p->isVisible())dialog=p;
@@ -8260,7 +8258,7 @@ int verify_startup_contract(
                 if (!result.ok) throw std::runtime_error(result.code + ": " + result.message);
             };
             run(QStringLiteral("new part gui-package-smoke"));
-            run(QStringLiteral("box.create 10 20 30"));
+            zima::test::gui_rectangular_profile(window,10,20,30);
             run(QStringLiteral("save"));
             application.processEvents();
             const auto path = QString::fromStdString(zima::document::path_to_utf8(test_directory / "gui-package-view.png"));
@@ -8513,7 +8511,7 @@ int verify_startup_contract(
     auto* main_toolbar = window.findChild<QToolBar*>("mainToolbar");
     auto* view_toolbar = window.findChild<QToolBar*>("viewToolbar");
     auto* tools_toolbar = window.findChild<QToolBar*>("toolsToolbar");
-    auto* box = window.findChild<QAction*>("boxAction");
+    auto* box = window.findChild<QAction*>("featurePrototypeAction");
     auto* construction_point = window.findChild<QAction*>("constructionPointAction");
     auto* construction_axis = window.findChild<QAction*>("constructionAxisAction");
     auto* construction_plane = window.findChild<QAction*>("constructionPlaneAction");
@@ -9268,7 +9266,7 @@ int verify_startup_contract(
             auto* child = root->child(index);
             const auto item_kind = child->data(0, Qt::UserRole + 3).toString();
             if (item_kind == QStringLiteral("part-container") &&
-                child->text(0) == QStringLiteral("Kvádr")) {
+                child->text(0) == QStringLiteral("Vytažení")) {
                 box_tree_item = child;
             } else if (item_kind ==
                     QStringLiteral("part-construction")) {
@@ -12076,7 +12074,7 @@ int verify_startup_contract(
     // is one undoable model edit for both edge-treatment kinds.
     for (const bool fillet : {false,true}) {
         auto document=zima::document::PartDocument::create_default();
-        auto box=zima::document::PartDocument::create_box_container();
+        auto box=zima::test::rectangular_feature(document);
         document.history={box};
         zima::kernel::OcctKernel kernel;
         auto input=kernel.evaluate_history(document.kernel_operations());
@@ -12162,7 +12160,7 @@ int verify_startup_contract(
     // Missing references remain marked after OK until a real replacement is supplied.
     {
         auto document=zima::document::PartDocument::create_default();
-        auto box=zima::document::PartDocument::create_box_container();
+        auto box=zima::test::rectangular_feature(document);
         box.placement.reference_valid=false;
         document.history={box};
         zima::kernel::OcctKernel kernel;
@@ -12221,8 +12219,8 @@ int verify_startup_contract(
     // from a catalog dimension while no dialog is active.
     {
         auto document=zima::document::PartDocument::create_default();
-        auto block=zima::document::PartDocument::create_box_container();
-        block.box={40.0,40.0,40.0};
+        auto block=zima::test::rectangular_feature(document,{40.0,40.0,40.0});
+
         auto opening=zima::document::PartDocument::create_thread_container();
         opening.placement.z=-20.0;
         document.history={block,opening};

@@ -475,8 +475,7 @@ void AssemblyWorkspaceWindow::show_curve_point_properties(
         ? curve_dialog->curve_point(*point_index) : nullptr;
     if (point_index && existing == nullptr) return;
     auto initial = existing != nullptr ? *existing
-        : zima::document::PartDocument::create_construction(
-            zima::document::ConstructionKind::Point);
+        : zima::document::create_owned_point(curve_value.id);
     initial.parent_construction_id = curve_value.id;
     const std::size_t slot = point_index.value_or(curve_value.curve_points.size());
     if (existing == nullptr) {

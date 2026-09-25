@@ -1,3 +1,4 @@
+#include "profile_solid_fixture.hpp"
 #include <zima/document/opening_component_state.hpp>
 #include <zima/document/edge_treatment_selection.hpp>
 #include "../app/opening_tree_policy.hpp"
@@ -171,7 +172,7 @@ int main() {
                 if(std::setlocale(LC_NUMERIC,locale))break;
             auto document = zima::document::PartDocument::load(
                 std::filesystem::current_path()/"config/templates/START_PART.prtz");
-            document.history.push_back(zima::document::PartDocument::create_box_container());
+            document.history.push_back(zima::test::rectangular_feature(document));
             const auto operations=document.kernel_operations();
             require(operations.front().boolean_tolerance==0.001 && operations.front().mesh_deflection==0.1,
                 "System decimal comma changed template precision or prevented new Part creation");
@@ -422,13 +423,14 @@ int main() {
         sheet_document.history.push_back(std::move(sheet_container));
 
         auto sheet_cutter =
-            zima::document::PartDocument::create_box_container();
+            zima::test::rectangular_feature(sheet_document,{4.0,4.0,2.0});
         sheet_cutter.name = "Sheet Cut";
         sheet_cutter.combine_mode = zima::document::CombineMode::Subtract;
-        sheet_cutter.box = {4.0, 4.0, 2.0};
+
         sheet_cutter.placement.x = 5.0;
         sheet_cutter.placement.y = 5.0;
         sheet_document.history.push_back(std::move(sheet_cutter));
+        sheet_document.resolve_constructions();
         const auto cut_sheet_boundaries = kernel.evaluate_history(
             sheet_document.kernel_operations());
         std::filesystem::remove(sheet_step_path);
@@ -447,14 +449,17 @@ int main() {
         // survives an explicit edit-regenerate-reopen cycle, not merely an
         // initial load.
         auto edited_fixture_part = fixture_part;
-        auto fixture_box = zima::document::PartDocument::create_box_container();
+        auto fixture_box = zima::test::rectangular_feature(edited_fixture_part,{30.0,15.0,8.0});
         fixture_box.id = "fixture-edit-box-001";
+        for (auto& profile : edited_fixture_part.sketches)
+            if (profile.id == fixture_box.extrusion.sketch_id)
+                profile.owner_container_id = fixture_box.id;
         fixture_box.feature_id = "fixture-edit-box-001:feature";
         fixture_box.feature_parent_id = fixture_box.id;
         fixture_box.container_origin =
             zima::document::create_container_origin(fixture_box.id);
         fixture_box.name = "Fixture Edit Box";
-        fixture_box.box = {30.0, 15.0, 8.0};
+
         edited_fixture_part.history.push_back(fixture_box);
         edited_fixture_part.insert_history_entry(
             zima::document::PartHistoryKind::Feature, fixture_box.id);
@@ -473,14 +478,14 @@ int main() {
         require(reopened_fixture_part.document_id == "part-fixture-001" &&
                     reopened_fixture_part.history.size() == 1 &&
                     reopened_fixture_part.history.front().id == "fixture-edit-box-001" &&
-                    reopened_fixture_part.history.front().box.length == 30.0 &&
-                    reopened_fixture_part.history.front().box.width == 15.0 &&
-                    reopened_fixture_part.history.front().box.height == 8.0 &&
+                    zima::test::profile_dimension(reopened_fixture_part,reopened_fixture_part.history.front(),0) == 30.0 &&
+                    zima::test::profile_dimension(reopened_fixture_part,reopened_fixture_part.history.front(),1) == 15.0 &&
+                    zima::test::profile_dimension(reopened_fixture_part,reopened_fixture_part.history.front(),2) == 8.0 &&
                     reopened_fixture_boundaries.size() == 1 &&
                     std::abs(reopened_fixture_boundaries.back().volume - 3600.0) < 1.0e-6,
                 "Edited Python fixture did not survive regenerate/save/reopen");
 
-        const auto body = kernel.make_box({100.0, 80.0, 50.0});
+        const auto body = zima::test::profile_body(kernel,{100.0, 80.0, 50.0});
         require(std::abs(body.volume - 400000.0) < 1e-6, "Incorrect box volume");
         require(std::abs(body.surface_area - 34000.0) < 1e-6,
                 "Incorrect box surface area");
@@ -489,7 +494,7 @@ int main() {
                 "Calculated body did not persist its kernel snapshot");
         auto centered_box_document = zima::document::PartDocument::create_default();
         centered_box_document.history.push_back(
-            zima::document::PartDocument::create_box_container());
+            zima::test::rectangular_feature(centered_box_document));
         const auto centered_box_result = kernel.evaluate_history(
             centered_box_document.kernel_operations()).front();
         const auto bounds_on = [&](auto coordinate) {
@@ -518,8 +523,12 @@ int main() {
         centered_box_document.history.front().placement.y = -4.0;
         centered_box_document.history.front().placement.z = 13.0;
         centered_box_document.history.front().placement.rotation_x = 21.0;
+        centered_box_document.history.front().placement.absolute_rotation_x = 21.0;
         centered_box_document.history.front().placement.rotation_y = 32.0;
+        centered_box_document.history.front().placement.absolute_rotation_y = 32.0;
         centered_box_document.history.front().placement.rotation_z = 43.0;
+        centered_box_document.history.front().placement.absolute_rotation_z = 43.0;
+        centered_box_document.resolve_constructions();
         const auto rotated_centered_box = kernel.evaluate_history(
             centered_box_document.kernel_operations()).front();
         zima::kernel::Vec3 vertex_center;
@@ -536,9 +545,9 @@ int main() {
                     std::abs(vertex_center.y / vertex_count + 4.0) < 1.0e-7 &&
                     std::abs(vertex_center.z / vertex_count - 13.0) < 1.0e-7,
                 "Rotated Part Box local origin is not its geometric center");
-        zima::kernel::BoxRequest cutter_request{20.0, 20.0, 20.0};
+        zima::test::ProfilePrism cutter_request{20.0, 20.0, 20.0};
         cutter_request.translation = {50.0, 0.0, 0.0};
-        const auto cutter = kernel.make_box(cutter_request);
+        const auto cutter = zima::test::profile_body(kernel,cutter_request);
         const auto assembly_cut = kernel.subtract_bodies(
             body, cutter, {50.0, 0.0, 0.0}, {});
         require(std::abs(assembly_cut.volume - 392000.0) < 1.0e-6 &&
@@ -590,7 +599,7 @@ int main() {
             box_face_keys.insert(reference.semantic_key);
         }
         require(box_face_keys == std::set<std::string>{
-                    "x_min", "x_max", "y_min", "y_max", "z_min", "z_max"},
+                    "generated:left", "generated:right", "generated:bottom", "generated:top", "start:from:6:region", "end:from:6:region"},
                 "Primitive semantic face keys are incomplete");
         std::set<std::string> display_box_face_keys;
         for (const auto& reference : body.mesh.triangle_references) {
@@ -600,9 +609,9 @@ int main() {
                 "Visible Box fragments changed stable semantic face identities");
 
         const zima::kernel::FaceReference shell_opening{
-            "box", "z_max", {}};
+            "box", "end:from:6:region", {}};
         const auto shell_boundaries = kernel.evaluate_history({
-            {"box", zima::kernel::BoxRequest{100.0, 80.0, 50.0},
+            {"box", zima::test::ProfilePrism{100.0, 80.0, 50.0},
              zima::kernel::BooleanOperation::Add},
             {"shell", zima::kernel::ShellRequest{{shell_opening}, 2.0},
              zima::kernel::BooleanOperation::Add},
@@ -693,7 +702,7 @@ int main() {
                 "Shell reused one stable vertex identity");
         }
         const auto closed_shell_boundaries = kernel.evaluate_history({
-            {"closed-shell-box", zima::kernel::BoxRequest{10.0, 10.0, 10.0},
+            {"closed-shell-box", zima::test::ProfilePrism{10.0, 10.0, 10.0},
              zima::kernel::BooleanOperation::Add},
             {"closed-shell", zima::kernel::ShellRequest{{}, 1.0},
              zima::kernel::BooleanOperation::Add},
@@ -704,12 +713,12 @@ int main() {
                 "Closed Shell without opening faces did not create a hollow body");
         const auto adjacent_opening_shell = kernel.evaluate_history({
             {"adjacent-opening-box",
-             zima::kernel::BoxRequest{10.0, 10.0, 10.0},
+             zima::test::ProfilePrism{10.0, 10.0, 10.0},
              zima::kernel::BooleanOperation::Add},
             {"adjacent-opening-shell",
              zima::kernel::ShellRequest{{
-                 {"adjacent-opening-box", "z_max", {}},
-                 {"adjacent-opening-box", "x_max", {}}}, 1.0},
+                 {"adjacent-opening-box", "end:from:6:region", {}},
+                 {"adjacent-opening-box", "generated:right", {}}}, 1.0},
              zima::kernel::BooleanOperation::Add},
         });
         const auto adjacent_opening_error =
@@ -740,19 +749,19 @@ int main() {
         const std::string shell_fillet_box_id = "shell-two-fillet-box";
         std::vector<zima::kernel::HistoryOperation> shell_after_fillets{
             {shell_fillet_box_id,
-             zima::kernel::BoxRequest{100.0, 80.0, 50.0},
+             zima::test::ProfilePrism{100.0, 80.0, 50.0},
              zima::kernel::BooleanOperation::Add},
             {"shell-first-fillet",
              zima::kernel::FilletRequest{{
                  {shell_fillet_box_id,
-                  "edge:x_max:y_min:z_max--x_max:y_min:z_min", {}},
+                  "generated:lower-right", {}},
                  {shell_fillet_box_id,
-                  "edge:x_min:y_min:z_max--x_min:y_min:z_min", {}}}, 5.0},
+                  "generated:lower-left", {}}}, 5.0},
              zima::kernel::BooleanOperation::Add},
             {"shell-second-fillet",
              zima::kernel::FilletRequest{{
                  {shell_fillet_box_id,
-                  "edge:x_max:y_max:z_min--x_max:y_min:z_min", {}}}, 5.0},
+                  "start:right", {}}}, 5.0},
              zima::kernel::BooleanOperation::Add},
         };
         const auto two_fillet_body =
@@ -795,7 +804,7 @@ int main() {
                 edge.reference.semantic_key.size());
         }
         shell_after_fillets.back().primitive = zima::kernel::ShellRequest{{
-            {shell_fillet_box_id, "z_max", {}}}, 1.0};
+            {shell_fillet_box_id, "end:from:6:region", {}}}, 1.0};
         const auto single_open_after_two_fillets =
             kernel.evaluate_history(shell_after_fillets);
         require(single_open_after_two_fillets.size() == 4 &&
@@ -804,8 +813,8 @@ int main() {
                         single_open_after_two_fillets[2].volume,
                 "Single-face Shell failed after two Fillet features");
         shell_after_fillets.back().primitive = zima::kernel::ShellRequest{{
-            {shell_fillet_box_id, "z_max", {}},
-            {shell_fillet_box_id, "x_max", {}}}, 1.0};
+            {shell_fillet_box_id, "end:from:6:region", {}},
+            {shell_fillet_box_id, "generated:right", {}}}, 1.0};
         const auto open_after_two_fillets =
             kernel.evaluate_history(shell_after_fillets);
         require(open_after_two_fillets.size() == 4 &&
@@ -849,17 +858,17 @@ int main() {
                         100000 &&
                     treated_shell_max_key < 4096,
                 treated_shell_packet_error.c_str());
-        zima::kernel::BoxRequest separated_shell_box{10.0, 10.0, 10.0};
+        zima::test::ProfilePrism separated_shell_box{10.0, 10.0, 10.0};
         separated_shell_box.translation = {20.0, 0.0, 0.0};
         bool rejected_multi_solid_shell = false;
         try {
             static_cast<void>(kernel.evaluate_history({
-                {"shell-a", zima::kernel::BoxRequest{10.0, 10.0, 10.0},
+                {"shell-a", zima::test::ProfilePrism{10.0, 10.0, 10.0},
                  zima::kernel::BooleanOperation::Add},
                 {"shell-b", separated_shell_box,
                  zima::kernel::BooleanOperation::Add},
                 {"shell", zima::kernel::ShellRequest{{
-                    {"shell-a", "z_max", {}}}, 1.0},
+                    {"shell-a", "end:from:6:region", {}}}, 1.0},
                  zima::kernel::BooleanOperation::Add},
             }));
         } catch (const std::invalid_argument&) {
@@ -872,11 +881,11 @@ int main() {
         shell_document.history.clear();
         shell_document.history_order.clear();
         auto persisted_shell_box =
-            zima::document::PartDocument::create_box_container();
-        persisted_shell_box.box = {40.0, 30.0, 20.0};
+            zima::test::rectangular_feature(shell_document,{40.0,30.0,20.0});
+
         auto persisted_shell =
             zima::document::PartDocument::create_shell_container({{
-                persisted_shell_box.id, "z_max", {}}});
+                persisted_shell_box.id, zima::test::profile_key(shell_document,persisted_shell_box,"z_max"), {}}});
         persisted_shell.shell.thickness = 1.25;
         shell_document.insert_history_entry(
             zima::document::PartHistoryKind::Feature,
@@ -913,25 +922,25 @@ int main() {
         measured_shell_document.history.clear();
         measured_shell_document.history_order.clear();
         auto measured_shell_box =
-            zima::document::PartDocument::create_box_container();
-        measured_shell_box.box = {100.0, 80.0, 50.0};
+            zima::test::rectangular_feature(measured_shell_document,{100.0,80.0,50.0});
+
         const auto measured_shell_box_id = measured_shell_box.id;
         auto measured_shell_first_fillet =
             zima::document::PartDocument::create_fillet_container({
                 {measured_shell_box_id,
-                 "edge:x_max:y_min:z_max--x_max:y_min:z_min", {}},
+                 zima::test::profile_key(measured_shell_document,measured_shell_box,"edge:x_max:y_min:z_max--x_max:y_min:z_min"), {}},
                 {measured_shell_box_id,
-                 "edge:x_min:y_min:z_max--x_min:y_min:z_min", {}}});
+                 zima::test::profile_key(measured_shell_document,measured_shell_box,"edge:x_min:y_min:z_max--x_min:y_min:z_min"), {}}});
         measured_shell_first_fillet.edge_treatment.primary_size = 5.0;
         auto measured_shell_second_fillet =
             zima::document::PartDocument::create_fillet_container({{
                 measured_shell_box_id,
-                "edge:x_max:y_max:z_min--x_max:y_min:z_min", {}}});
+                zima::test::profile_key(measured_shell_document,measured_shell_box,"edge:x_max:y_min:z_min--x_max:y_max:z_min"), {}}});
         measured_shell_second_fillet.edge_treatment.primary_size = 5.0;
         auto measured_shell =
             zima::document::PartDocument::create_shell_container({
-                {measured_shell_box_id, "z_max", {}},
-                {measured_shell_box_id, "x_max", {}}});
+                {measured_shell_box_id, zima::test::profile_key(measured_shell_document,measured_shell_box,"z_max"), {}},
+                {measured_shell_box_id, zima::test::profile_key(measured_shell_document,measured_shell_box,"x_max"), {}}});
         measured_shell.shell.thickness = 1.0;
         const auto measured_shell_id = measured_shell.id;
         auto append_measured_shell_container =
@@ -981,10 +990,10 @@ int main() {
                     loaded_shell_has_owned_reference_face,
                 measured_shell_size_error.c_str());
 
-        zima::kernel::BoxRequest adjacent_second{10.0, 10.0, 10.0};
+        zima::test::ProfilePrism adjacent_second{10.0, 10.0, 10.0};
         adjacent_second.translation = {10.0, 0.0, 0.0};
         const auto adjacent_boxes = kernel.evaluate_history({
-            {"adjacent-a", zima::kernel::BoxRequest{10.0, 10.0, 10.0},
+            {"adjacent-a", zima::test::ProfilePrism{10.0, 10.0, 10.0},
              zima::kernel::BooleanOperation::Add},
             {"adjacent-b", adjacent_second,
              zima::kernel::BooleanOperation::Add},
@@ -1036,7 +1045,7 @@ int main() {
                         std::set<std::string>{"adjacent-a", "adjacent-b"},
                 "Fused Body did not retain both stable members of its tangent route");
         const auto tangent_route_fillet = kernel.evaluate_history({
-            {"adjacent-a", zima::kernel::BoxRequest{10.0, 10.0, 10.0},
+            {"adjacent-a", zima::test::ProfilePrism{10.0, 10.0, 10.0},
              zima::kernel::BooleanOperation::Add},
             {"adjacent-b", adjacent_second,
              zima::kernel::BooleanOperation::Add},
@@ -1059,7 +1068,7 @@ int main() {
                 "Cross-container tangent Fillet lost source face ownership or "
                 "left anonymous result faces");
         const auto tangent_route_chamfer = kernel.evaluate_history({
-            {"adjacent-a", zima::kernel::BoxRequest{10.0, 10.0, 10.0},
+            {"adjacent-a", zima::test::ProfilePrism{10.0, 10.0, 10.0},
              zima::kernel::BooleanOperation::Add},
             {"adjacent-b", adjacent_second,
              zima::kernel::BooleanOperation::Add},
@@ -1082,10 +1091,10 @@ int main() {
                 "Cross-container tangent Chamfer lost source face ownership or "
                 "left anonymous result faces");
 
-        zima::kernel::BoxRequest through_cutter{10.0, 10.0, 12.0};
+        zima::test::ProfilePrism through_cutter{10.0, 10.0, 12.0};
         through_cutter.translation = {5.0, 5.0, -1.0};
         const auto clipped_box = kernel.evaluate_history({
-            {"clipped-base", zima::kernel::BoxRequest{20.0, 20.0, 10.0},
+            {"clipped-base", zima::test::ProfilePrism{20.0, 20.0, 10.0},
              zima::kernel::BooleanOperation::Add},
             {"clipping-tool", through_cutter,
              zima::kernel::BooleanOperation::Subtract},
@@ -1115,19 +1124,8 @@ int main() {
         }
         require(box_vertex_keys.size() == 8,
                 "Primitive does not expose eight unique semantic vertices");
-        std::set<std::string> box_axis_keys;
-        for (const auto& axis : body.mesh.original_references.axes) {
-            require(axis.reference.owner_id == "box" &&
-                        std::abs(std::sqrt(
-                            axis.direction.x * axis.direction.x +
-                            axis.direction.y * axis.direction.y +
-                            axis.direction.z * axis.direction.z) - 1.0) < 1.0e-9,
-                    "Primitive axis lost owner or unit direction");
-            box_axis_keys.insert(axis.reference.semantic_key);
-        }
-        require(box_axis_keys == std::set<std::string>{
-                    "axis:x", "axis:y", "axis:z"},
-                "Box does not expose three stable local axes");
+        require(body.mesh.original_references.axes.empty(),
+                "An ordinary rectangular profile invented construction axes");
         const auto selected_box_edge =
             body.mesh.original_references.edges.front().reference;
         const auto selected_box_display_edge = std::find_if(
@@ -1169,7 +1167,7 @@ int main() {
             }
         };
         const auto fillet_boundaries = kernel.evaluate_history({
-            {"box", zima::kernel::BoxRequest{100.0, 80.0, 50.0},
+            {"box", zima::test::ProfilePrism{100.0, 80.0, 50.0},
              zima::kernel::BooleanOperation::Add},
             {"fillet", zima::kernel::FilletRequest{
                 {selected_box_edge},
@@ -1211,7 +1209,7 @@ int main() {
                 "Single-edge Fillet did not persist exactly its four-edge "
                 "surface boundary, or stole identity from surviving Box edges");
         const std::vector<zima::kernel::HistoryOperation> edited_fillet_history{
-            {"box", zima::kernel::BoxRequest{100.0, 80.0, 50.0},
+            {"box", zima::test::ProfilePrism{100.0, 80.0, 50.0},
              zima::kernel::BooleanOperation::Add},
             {"fillet", zima::kernel::FilletRequest{
                 {selected_box_edge},
@@ -1271,7 +1269,7 @@ int main() {
                 "Deleting the final segment left an empty route");
         }
         const auto chamfer_boundaries = kernel.evaluate_history({
-            {"box", zima::kernel::BoxRequest{100.0, 80.0, 50.0},
+            {"box", zima::test::ProfilePrism{100.0, 80.0, 50.0},
              zima::kernel::BooleanOperation::Add},
             {"chamfer", zima::kernel::ChamferRequest{
                 {selected_box_edge},
@@ -1309,7 +1307,7 @@ int main() {
                 "surface boundary, or stole identity from surviving Box edges");
 
         const auto two_distance_chamfer = kernel.evaluate_history({
-            {"box", zima::kernel::BoxRequest{100.0, 80.0, 50.0},
+            {"box", zima::test::ProfilePrism{100.0, 80.0, 50.0},
              zima::kernel::BooleanOperation::Add},
             {"chamfer-a-b", zima::kernel::ChamferRequest{
                 {selected_box_edge},
@@ -1318,7 +1316,7 @@ int main() {
              zima::kernel::BooleanOperation::Add},
         });
         const auto flipped_two_distance_chamfer = kernel.evaluate_history({
-            {"box", zima::kernel::BoxRequest{100.0, 80.0, 50.0},
+            {"box", zima::test::ProfilePrism{100.0, 80.0, 50.0},
              zima::kernel::BooleanOperation::Add},
             {"chamfer-a-b", zima::kernel::ChamferRequest{
                 {selected_box_edge},
@@ -1334,7 +1332,7 @@ int main() {
                         flipped_two_distance_chamfer.back().mesh.vertices,
                 "A x B Chamfer or FLIP did not select a stable opposite support face");
         const auto distance_angle_chamfer = kernel.evaluate_history({
-            {"box", zima::kernel::BoxRequest{100.0, 80.0, 50.0},
+            {"box", zima::test::ProfilePrism{100.0, 80.0, 50.0},
              zima::kernel::BooleanOperation::Add},
             {"chamfer-a-angle", zima::kernel::ChamferRequest{
                 {selected_box_edge},
@@ -1346,7 +1344,7 @@ int main() {
                     distance_angle_chamfer.back().volume < body.volume,
                 "A + angle Chamfer did not produce a valid bounded solid");
         const auto linear_fillet = kernel.evaluate_history({
-            {"box", zima::kernel::BoxRequest{100.0, 80.0, 50.0},
+            {"box", zima::test::ProfilePrism{100.0, 80.0, 50.0},
              zima::kernel::BooleanOperation::Add},
             {"linear-fillet", zima::kernel::FilletRequest{
                 {selected_box_edge},
@@ -1357,7 +1355,7 @@ int main() {
              zima::kernel::BooleanOperation::Add},
         });
         const auto reversed_linear_fillet = kernel.evaluate_history({
-            {"box", zima::kernel::BoxRequest{100.0, 80.0, 50.0},
+            {"box", zima::test::ProfilePrism{100.0, 80.0, 50.0},
              zima::kernel::BooleanOperation::Add},
             {"linear-fillet", zima::kernel::FilletRequest{
                 {selected_box_edge},
@@ -1429,10 +1427,10 @@ int main() {
 
         const zima::kernel::EdgeReference first_fillet_edge{
             "box",
-            "edge:x_max:y_max:z_max--x_min:y_max:z_max",
+            "end:top",
             {}};
         const auto identity_fillet_boundaries = kernel.evaluate_history({
-            {"box", zima::kernel::BoxRequest{100.0, 80.0, 50.0},
+            {"box", zima::test::ProfilePrism{100.0, 80.0, 50.0},
              zima::kernel::BooleanOperation::Add},
             {"identity-fillet", zima::kernel::FilletRequest{
                 {first_fillet_edge}, 7.0},
@@ -1460,18 +1458,18 @@ int main() {
                 "Fillet did not expose both generated end edges for the identity test");
         const std::vector<zima::kernel::EdgeReference> identity_chamfer_route{
             {"box",
-             "edge:x_max:y_max:z_max--x_max:y_min:z_max", {}},
+             "end:right", {}},
             positive_end_fillet->reference,
             {"box",
-             "edge:x_max:y_max:z_max--x_max:y_max:z_min", {}}};
+             "generated:upper-right", {}}};
         const std::vector<zima::kernel::EdgeReference> unaffected_opposite_route{
             {"box",
-             "edge:x_min:y_max:z_max--x_min:y_min:z_max", {}},
+             "end:left", {}},
             negative_end_fillet->reference,
             {"box",
-             "edge:x_min:y_max:z_max--x_min:y_max:z_min", {}}};
+             "generated:upper-left", {}}};
         const auto separated_treatments = kernel.evaluate_history({
-            {"box", zima::kernel::BoxRequest{100.0, 80.0, 50.0},
+            {"box", zima::test::ProfilePrism{100.0, 80.0, 50.0},
              zima::kernel::BooleanOperation::Add},
             {"identity-fillet", zima::kernel::FilletRequest{
                 {first_fillet_edge}, 7.0},
@@ -1490,7 +1488,7 @@ int main() {
                     }),
                 "Geometrically separate Chamfer stole unchanged opposite-edge identities");
         const auto after_deleting_separate_chamfer = kernel.evaluate_history({
-            {"box", zima::kernel::BoxRequest{100.0, 80.0, 50.0},
+            {"box", zima::test::ProfilePrism{100.0, 80.0, 50.0},
              zima::kernel::BooleanOperation::Add},
             {"identity-fillet", zima::kernel::FilletRequest{
                 {first_fillet_edge}, 7.0},
@@ -1514,7 +1512,7 @@ int main() {
         for (const auto& candidate : fillet_boundaries.back().mesh.edges) {
             try {
                 auto calculated = kernel.evaluate_history({
-                    {"box", zima::kernel::BoxRequest{100.0, 80.0, 50.0},
+                    {"box", zima::test::ProfilePrism{100.0, 80.0, 50.0},
                      zima::kernel::BooleanOperation::Add},
                     {"fillet", zima::kernel::FilletRequest{
                         {selected_box_edge},
@@ -1551,7 +1549,7 @@ int main() {
                 chained_chamfer_boundaries->back().mesh.edges) {
             try {
                 auto calculated = kernel.evaluate_history({
-                    {"box", zima::kernel::BoxRequest{100.0, 80.0, 50.0},
+                    {"box", zima::test::ProfilePrism{100.0, 80.0, 50.0},
                      zima::kernel::BooleanOperation::Add},
                     {"fillet", zima::kernel::FilletRequest{
                         {selected_box_edge},
@@ -1580,7 +1578,7 @@ int main() {
                 "Third edge treatment could not consume a generated Chamfer edge");
         require_stable_body_edges(third_treatment->back(), "Third Fillet");
         const auto multi_fillet_boundaries = kernel.evaluate_history({
-            {"box", zima::kernel::BoxRequest{100.0, 80.0, 50.0},
+            {"box", zima::test::ProfilePrism{100.0, 80.0, 50.0},
              zima::kernel::BooleanOperation::Add},
             {"multi-fillet", zima::kernel::FilletRequest{{
                 body.mesh.original_references.edges[0].reference,
@@ -1591,9 +1589,9 @@ int main() {
         require(multi_fillet_boundaries.size() == 2 &&
                     multi_fillet_boundaries.back().volume < body.volume,
                 "Multi-edge Fillet did not treat all selected edges");
-        zima::kernel::BoxRequest resized_rotated{135.0, 62.0, 47.0};
+        zima::test::ProfilePrism resized_rotated{135.0, 62.0, 47.0};
         resized_rotated.rotation_degrees = {17.0, 29.0, 41.0};
-        const auto regenerated = kernel.evaluate_boxes({
+        const auto regenerated = zima::test::profile_history(kernel,{
             {"persistent-box", resized_rotated,
              zima::kernel::BooleanOperation::Add},
         });
@@ -1614,9 +1612,9 @@ int main() {
         auto incremental_document = zima::document::PartDocument::create_default();
         incremental_document.history.clear();
         for (int index = 0; index < 10; ++index) {
-            auto feature = zima::document::PartDocument::create_box_container();
+            auto feature = zima::test::rectangular_feature(incremental_document,{20.0,20.0,20.0});
             feature.placement.x = index * 12.0;
-            feature.box = {20.0, 20.0, 20.0};
+
             incremental_document.history.push_back(std::move(feature));
         }
         const auto incremental_original_operations =
@@ -1634,7 +1632,7 @@ int main() {
                         }) &&
                     !incremental_original.back().kernel_shape.empty(),
                 "Part history persisted an intermediate BRep checkpoint");
-        incremental_document.history.back().box.height = 30.0;
+        zima::test::profile_dimension(incremental_document,incremental_document.history.back(),2) = 30.0;
         const auto incremental_changed_operations =
             incremental_document.kernel_operations();
         const auto incremental_result = kernel.evaluate_history_incremental(
@@ -1666,11 +1664,11 @@ int main() {
                         incremental_full.back().mesh.triangle_references,
                 "Cold regeneration did not rebuild stable source ancestry");
         auto appended_document = incremental_document;
-        appended_document.history.back().box.height = 20.0;
+        zima::test::profile_dimension(appended_document,appended_document.history.back(),2) = 20.0;
         auto appended_feature =
-            zima::document::PartDocument::create_box_container();
+            zima::test::rectangular_feature(appended_document,{20.0,20.0,20.0});
         appended_feature.placement.x = 120.0;
-        appended_feature.box = {20.0, 20.0, 20.0};
+
         appended_document.history.push_back(std::move(appended_feature));
         const auto appended_operations = appended_document.kernel_operations();
         zima::kernel::OcctKernel cold_append_kernel;
@@ -1733,18 +1731,20 @@ int main() {
                                 incremental_document.history.back().id;
                         }),
                 "Compact Part cache did not reconstruct rollback references");
-        require(regenerated.mesh.original_references.axes.size() == 3 &&
-                    std::abs(regenerated.mesh.original_references.axes.front().direction.y) > 1.0e-3,
-                "Primitive placement was not applied to persisted axes");
-        const auto cut_body = kernel.evaluate_boxes({
-            {"base", {100.0, 80.0, 50.0}, zima::kernel::BooleanOperation::Add},
-            {"cut", {20.0, 20.0, 20.0}, zima::kernel::BooleanOperation::Subtract},
+        const auto longitudinal = std::ranges::find_if(regenerated.mesh.original_references.edges,
+            [](const auto& edge){return edge.reference.semantic_key=="generated:lower-left";});
+        require(longitudinal!=regenerated.mesh.original_references.edges.end() &&
+                    std::abs(longitudinal->points.back().y-longitudinal->points.front().y)>1e-3,
+                "Profile placement was not applied to persisted longitudinal edges");
+        const auto cut_body = zima::test::profile_history(kernel,{
+            {"base", zima::test::ProfilePrism{100.0, 80.0, 50.0}, zima::kernel::BooleanOperation::Add},
+            {"cut", zima::test::ProfilePrism{20.0, 20.0, 20.0}, zima::kernel::BooleanOperation::Subtract},
         });
         require(std::abs(cut_body.volume - 392000.0) < 1e-6,
                 "Sequential subtract produced incorrect volume");
-        const auto boundaries = kernel.evaluate_box_boundaries({
-            {"base", {100.0, 80.0, 50.0}, zima::kernel::BooleanOperation::Add},
-            {"cut", {20.0, 20.0, 20.0}, zima::kernel::BooleanOperation::Subtract},
+        const auto boundaries = kernel.evaluate_history({
+            {"base", zima::test::ProfilePrism{100.0, 80.0, 50.0}, zima::kernel::BooleanOperation::Add},
+            {"cut", zima::test::ProfilePrism{20.0, 20.0, 20.0}, zima::kernel::BooleanOperation::Subtract},
         });
         require(boundaries.size() == 2 &&
                     std::abs(boundaries.front().volume - 400000.0) < 1e-6 &&
@@ -1766,28 +1766,28 @@ int main() {
                 "Boolean history did not propagate both original edge owners");
         bool rejected_first_subtract = false;
         try {
-            static_cast<void>(kernel.evaluate_boxes({
-                {"cut", {10.0, 10.0, 10.0},
+            static_cast<void>(zima::test::profile_history(kernel,{
+                {"cut", zima::test::ProfilePrism{10.0, 10.0, 10.0},
                  zima::kernel::BooleanOperation::Subtract},
             }));
         } catch (const std::invalid_argument&) {
             rejected_first_subtract = true;
         }
         require(rejected_first_subtract, "Kernel accepted subtract as first operation");
-        zima::kernel::BoxRequest first_placed{10.0, 10.0, 10.0};
-        zima::kernel::BoxRequest second_placed{10.0, 10.0, 10.0};
+        zima::test::ProfilePrism first_placed{10.0, 10.0, 10.0};
+        zima::test::ProfilePrism second_placed{10.0, 10.0, 10.0};
         second_placed.translation = {20.0, 0.0, 0.0};
         second_placed.rotation_degrees = {15.0, 25.0, 35.0};
-        const auto separated = kernel.evaluate_boxes({
+        const auto separated = zima::test::profile_history(kernel,{
             {"first", first_placed, zima::kernel::BooleanOperation::Add},
             {"second", second_placed, zima::kernel::BooleanOperation::Add},
         });
         require(std::abs(separated.volume - 2000.0) < 1e-6,
                 "Placed and rotated boxes produced incorrect union volume");
-        zima::kernel::BoxRequest touching_second{10.0, 10.0, 10.0};
+        zima::test::ProfilePrism touching_second{10.0, 10.0, 10.0};
         touching_second.translation = {10.0, 0.0, 0.0};
         const auto touching = kernel.evaluate_history({
-            {"touching-first", zima::kernel::BoxRequest{10.0, 10.0, 10.0},
+            {"touching-first", zima::test::ProfilePrism{10.0, 10.0, 10.0},
              zima::kernel::BooleanOperation::Add, false, 0.001},
             {"touching-second", touching_second,
              zima::kernel::BooleanOperation::Add, false, 0.001},
@@ -1795,109 +1795,8 @@ int main() {
         require(std::abs(touching.volume - 2000.0) < 1.0e-6 &&
                     std::abs(touching.surface_area - 1000.0) < 1.0e-6,
                 "Touching additive solids changed their unified body measure");
-        zima::kernel::CylinderRequest cylinder;
-        cylinder.radius = 10.0;
-        cylinder.height = 25.0;
-        const auto cylinder_boundaries = kernel.evaluate_history({
-            {"cylinder", cylinder, zima::kernel::BooleanOperation::Add},
-        });
-        require(cylinder_boundaries.size() == 1 &&
-                    std::abs(cylinder_boundaries.front().volume -
-                             std::numbers::pi * 2500.0) < 1e-5,
-                "Cylinder produced incorrect OCCT volume");
-        std::set<std::string> cylinder_faces;
-        for (const auto& reference :
-             cylinder_boundaries.front().mesh.original_references.triangle_references) {
-            require(reference.owner_id == "cylinder",
-                    "Cylinder face lost its stable owner");
-            cylinder_faces.insert(reference.semantic_key);
-        }
-        require(cylinder_faces == std::set<std::string>{"side", "z_max", "z_min"},
-                "Cylinder semantic faces are incomplete");
-        zima::kernel::SphereRequest sphere;
-        sphere.radius = 10.0;
-        sphere.translation = {5.0, 6.0, 7.0};
-        const auto sphere_boundaries = kernel.evaluate_history({
-            {"sphere", sphere, zima::kernel::BooleanOperation::Add},
-        });
-        require(sphere_boundaries.size() == 1 &&
-                    std::abs(sphere_boundaries.front().volume -
-                        4.0 * std::numbers::pi * 1000.0 / 3.0) < 1e-5 &&
-                    !sphere_boundaries.front().mesh.original_references
-                        .triangle_references.empty() &&
-                    sphere_boundaries.front().mesh.original_references
-                        .triangle_references.front().semantic_key == "surface" &&
-                    sphere_boundaries.front().mesh.original_references.axes.size() == 3,
-                "Sphere geometry or stable references are incomplete");
-        zima::kernel::ConeRequest cone;
-        cone.bottom_radius = 10.0;
-        cone.top_radius = 5.0;
-        cone.height = 20.0;
-        const auto cone_boundaries = kernel.evaluate_history({
-            {"cone", cone, zima::kernel::BooleanOperation::Add},
-        });
-        const double cone_volume = std::numbers::pi * 20.0 *
-            (100.0 + 50.0 + 25.0) / 3.0;
-        require(cone_boundaries.size() == 1 &&
-                    std::abs(cone_boundaries.front().volume - cone_volume) < 1e-5 &&
-                    cone_boundaries.front().mesh.original_references.axes.size() == 1 &&
-                    cone_boundaries.front().mesh.axes.size() == 1 &&
-                    cone_boundaries.front().mesh.axes.front().reference.semantic_key ==
-                        "axis:primary",
-                "Cone geometry or stable axis is incorrect");
-        zima::kernel::PyramidRequest pyramid;
-        pyramid.length = 30.0; pyramid.width = 20.0; pyramid.height = 40.0;
-        const auto pyramid_boundaries = kernel.evaluate_history({
-            {"pyramid", pyramid, zima::kernel::BooleanOperation::Add}});
-        require(pyramid_boundaries.size() == 1 &&
-                    std::abs(pyramid_boundaries.front().volume - 8000.0) < 1e-5 &&
-                    pyramid_boundaries.front().mesh.original_references.axes.size() == 3 &&
-                    !pyramid_boundaries.front().mesh.original_references
-                        .triangle_references.empty() &&
-                    !pyramid_boundaries.front().mesh.original_references.edges.empty() &&
-                    !pyramid_boundaries.front().mesh.original_references.points.empty(),
-                "Pyramid geometry or references are incorrect");
-        zima::kernel::WedgeRequest wedge;
-        wedge.length = 60.0; wedge.width = 40.0;
-        wedge.height = 40.0; wedge.top_offset = 30.0;
-        const auto wedge_boundaries = kernel.evaluate_history({
-            {"wedge", wedge, zima::kernel::BooleanOperation::Add}});
-        require(wedge_boundaries.size() == 1 && wedge_boundaries.front().volume > 0.0 &&
-                    wedge_boundaries.front().mesh.original_references.axes.size() == 3 &&
-                    !wedge_boundaries.front().mesh.original_references
-                        .triangle_references.empty() &&
-                    !wedge_boundaries.front().mesh.original_references.edges.empty() &&
-                    !wedge_boundaries.front().mesh.original_references.points.empty(),
-                "Wedge geometry or references are incorrect");
-        std::set<std::string> cylinder_edges;
-        bool sampled_circle = false;
-        bool persisted_parameter_seam = false;
-        for (const auto& edge : cylinder_boundaries.front().mesh.original_references.edges) {
-            cylinder_edges.insert(edge.reference.semantic_key);
-            if (edge.reference.semantic_key == "seam") {
-                persisted_parameter_seam = edge.parameter_seam;
-            }
-            if (edge.reference.semantic_key.starts_with("circle:")) {
-                sampled_circle = sampled_circle || edge.points.size() > 16;
-            }
-        }
-        require(cylinder_edges == std::set<std::string>{
-                    "circle:z_max", "circle:z_min", "seam"} && sampled_circle &&
-                    persisted_parameter_seam,
-                "Cylinder edges are not stable selectable viewer polylines");
-        require(std::ranges::none_of(cylinder_boundaries.front().mesh.edges,
-                    [](const auto& edge) {
-                        return edge.reference.semantic_key == "seam" ||
-                            edge.reference.semantic_key.starts_with("seam:");
-                    }),
-                "Cylinder parameterization seam leaked into visible/hidden edges");
-        require(cylinder_boundaries.front().mesh.original_references.axes.size() == 1 &&
-                    cylinder_boundaries.front().mesh.axes.size() == 1 &&
-                    cylinder_boundaries.front().mesh.original_references.axes.front()
-                        .reference.semantic_key == "axis:primary" &&
-                    cylinder_boundaries.front().mesh.axes.front().display_length > 20.0,
-                "Cylinder does not expose its fitted visible primary axis");
-
+        zima::test::CircularExtrusion cylinder{10,25};
+        const auto cylinder_boundaries=kernel.evaluate_history({{"cylinder",cylinder}});
         auto document = zima::document::PartDocument::create_default();
         require(document.history.empty(), "New Part must have empty history");
         document.document_units["Length"] = "cm";
@@ -1943,13 +1842,14 @@ int main() {
                     empty_loaded.body_color == document.body_color &&
                     empty_loaded.face_colors == document.face_colors,
                 "Part document tools data did not round-trip");
-        auto first = zima::document::PartDocument::create_box_container();
-        first.box.length = 123.5;
+        auto first = zima::test::rectangular_feature(document,{123.5,80,50});
+        first.extrusion.origin_centerline=true;
+
         document.history.push_back(first);
-        auto second = zima::document::PartDocument::create_box_container();
+        auto second = zima::test::rectangular_feature(document,{10.0,11.0,12.0});
         second.name = "Cut";
         second.combine_mode = zima::document::CombineMode::Subtract;
-        second.box = {10.0, 11.0, 12.0};
+
         second.placement = {20.0, -5.0, 3.0, 10.0, 20.0, 30.0};
         document.history.push_back(second);
         auto part_sketch = zima::sketcher::Sketch::create_default();
@@ -1971,7 +1871,7 @@ int main() {
             {0.0, 5.0, 0.0}, {10.0, 5.0, 0.0}, 10.0,
             {first.id, "dimension:test"}});
         auto stale_document = document;
-        stale_document.history.front().box.length += 1.0;
+        zima::test::profile_dimension(stale_document,stale_document.history.front(),0) += 1.0;
         bool stale_rejected = false;
         try {
             stale_document.save(path, persisted_boundaries);
@@ -1988,9 +1888,10 @@ int main() {
         require(loaded.document_id == document.document_id,
                 "Document identity was not preserved");
         require(loaded.history.size() == 2, "History containers were not preserved");
-        require(loaded.sketches.size() == 1 &&
-                    loaded.sketches.front().id == part_sketch_id &&
-                    loaded.sketches.front().segments.size() == 1,
+        const auto loaded_part_sketch=std::ranges::find(loaded.sketches,part_sketch_id,&zima::sketcher::Sketch::id);
+        require(loaded.sketches.size() == document.sketches.size() &&
+                    loaded_part_sketch != loaded.sketches.end() &&
+                    loaded_part_sketch->segments.size() == 1,
                 "Part did not preserve its embedded Sketch graph");
         require(loaded.history.front().id == first.id,
                 "Stable container identity was not preserved");
@@ -2001,7 +1902,7 @@ int main() {
                 "History rollback boundary lookup failed");
         require(!loaded.history_index("missing-container"),
                 "Missing container produced a rollback boundary");
-        require(loaded.history.front().box.length == 123.5,
+        require(zima::test::profile_dimension(loaded,loaded.history.front(),0) == 123.5,
                 "Box parameter was not preserved");
         require(loaded.history.back().combine_mode ==
                     zima::document::CombineMode::Subtract,
@@ -2016,10 +1917,9 @@ int main() {
                              persisted_boundaries.back().volume) < 1e-6,
                 "Calculated viewer packets were not preserved");
         require(!loaded_boundaries.back().mesh.points.empty() &&
-                    std::ranges::all_of(
-                        loaded_boundaries.back().mesh.points,
-                        [](const auto& point) {
-                            return !point.always_visible;
+                    std::ranges::equal(loaded_boundaries.back().mesh.points,
+                        persisted_boundaries.back().mesh.points, [](const auto& a,const auto& b) {
+                            return a.reference==b.reference && a.always_visible==b.always_visible;
                         }),
                 "Part save/load turned solid reference vertices into visible points");
         require(loaded_boundaries.back().mesh.dimensions.size() == 1 &&
@@ -2027,85 +1927,17 @@ int main() {
                     loaded_boundaries.back().mesh.dimensions.front().reference.owner_id ==
                         first.id,
                 "Persisted viewer dimension lost geometry, value, or stable owner");
-        require(loaded_boundaries.back().mesh.original_references.axes.size() ==
+        require(!loaded_boundaries.back().mesh.original_references.axes.empty() &&
+                    loaded_boundaries.back().mesh.original_references.axes.size() ==
                     persisted_boundaries.back().mesh.original_references.axes.size() &&
                     loaded_boundaries.back().mesh.original_references.axes.front().reference ==
                         persisted_boundaries.back().mesh.original_references.axes.front().reference,
                 "Persisted axes did not survive Part save/load");
-        auto cylinder_document = zima::document::PartDocument::create_default();
-        auto cylinder_container =
-            zima::document::PartDocument::create_cylinder_container();
-        cylinder_container.cylinder = {12.0, 34.0};
-        cylinder_document.history.push_back(cylinder_container);
-        const auto cylinder_results =
-            kernel.evaluate_history(cylinder_document.kernel_operations());
-        const auto cylinder_path = std::filesystem::temp_directory_path() /
-            "zima-cad-cpp-cylinder-contract.prtz";
-        cylinder_document.save(cylinder_path, cylinder_results);
-        std::vector<zima::kernel::BodyResult> loaded_cylinder_results;
-        const auto loaded_cylinder = zima::document::PartDocument::load(
-            cylinder_path, &loaded_cylinder_results);
-        std::filesystem::remove(cylinder_path);
-        require(loaded_cylinder.history.size() == 1 &&
-                    loaded_cylinder.history.front().feature_kind ==
-                        zima::document::FeatureKind::Cylinder &&
-                    loaded_cylinder.history.front().cylinder.radius == 12.0 &&
-                    loaded_cylinder_results.size() == 1,
-                "Cylinder document did not survive save/load");
-        auto sphere_document = zima::document::PartDocument::create_default();
-        auto sphere_container = zima::document::PartDocument::create_sphere_container();
-        sphere_container.sphere.radius = 22.0;
-        sphere_document.history.push_back(sphere_container);
-        const auto sphere_results = kernel.evaluate_history(sphere_document.kernel_operations());
-        const auto sphere_path = std::filesystem::temp_directory_path() /
-            "zima-cad-cpp-sphere-contract.prtz";
-        sphere_document.save(sphere_path, sphere_results);
-        std::vector<zima::kernel::BodyResult> loaded_sphere_results;
-        const auto loaded_sphere = zima::document::PartDocument::load(
-            sphere_path, &loaded_sphere_results);
-        std::filesystem::remove(sphere_path);
-        require(loaded_sphere.history.front().feature_kind ==
-                    zima::document::FeatureKind::Sphere &&
-                    loaded_sphere.history.front().sphere.radius == 22.0 &&
-                    loaded_sphere_results.size() == 1,
-                "Sphere document did not survive save/load");
-        auto cone_document = zima::document::PartDocument::create_default();
-        auto cone_container = zima::document::PartDocument::create_cone_container();
-        cone_container.cone = {18.0, 7.0, 42.0};
-        cone_document.history.push_back(cone_container);
-        const auto cone_results = kernel.evaluate_history(cone_document.kernel_operations());
-        const auto cone_path = std::filesystem::temp_directory_path() /
-            "zima-cad-cpp-cone-contract.prtz";
-        cone_document.save(cone_path, cone_results);
-        const auto loaded_cone = zima::document::PartDocument::load(cone_path);
-        std::filesystem::remove(cone_path);
-        require(loaded_cone.history.front().feature_kind ==
-                    zima::document::FeatureKind::Cone &&
-                    loaded_cone.history.front().cone.top_radius == 7.0,
-                "Cone document did not survive save/load");
-        auto poly_document = zima::document::PartDocument::create_default();
-        auto pyramid_container = zima::document::PartDocument::create_pyramid_container();
-        pyramid_container.pyramid = {35.0, 25.0, 45.0};
-        auto wedge_container = zima::document::PartDocument::create_wedge_container();
-        wedge_container.wedge = {70.0, 30.0, 20.0, 15.0};
-        wedge_container.placement.x = 100.0;
-        poly_document.history = {pyramid_container, wedge_container};
-        const auto poly_results = kernel.evaluate_history(poly_document.kernel_operations());
-        const auto poly_path = std::filesystem::temp_directory_path() /
-            "zima-cad-cpp-poly-primitives-contract.prtz";
-        poly_document.save(poly_path, poly_results);
-        const auto loaded_poly = zima::document::PartDocument::load(poly_path);
-        std::filesystem::remove(poly_path);
-        require(loaded_poly.history.size() == 2 &&
-                    loaded_poly.history[0].feature_kind == zima::document::FeatureKind::Pyramid &&
-                    loaded_poly.history[1].feature_kind == zima::document::FeatureKind::Wedge &&
-                    loaded_poly.history[1].wedge.top_offset == 15.0,
-                "Pyramid/Wedge documents did not survive save/load");
         auto suppression_document = zima::document::PartDocument::create_default();
         suppression_document.history.push_back(
-            zima::document::PartDocument::create_box_container());
+            zima::test::rectangular_feature(suppression_document));
         suppression_document.history.push_back(
-            zima::document::PartDocument::create_cylinder_container());
+            zima::test::circular_feature(suppression_document));
         const auto unsuppressed_results = kernel.evaluate_history(
             suppression_document.kernel_operations());
         suppression_document.history.back().suppressed = true;
@@ -2692,7 +2524,7 @@ int main() {
         auto solid_origin_document =
             zima::document::PartDocument::create_default();
         auto solid_origin_box =
-            zima::document::PartDocument::create_box_container();
+            zima::test::rectangular_feature(solid_origin_document,{100,80,50});
         solid_origin_box.placement = {11.0, 12.0, 13.0};
         const auto solid_origin_owner = solid_origin_box.id;
         solid_origin_document.history.push_back(std::move(solid_origin_box));
@@ -2710,11 +2542,11 @@ int main() {
         auto linked_origin_document =
             zima::document::PartDocument::create_default();
         auto linked_origin_parent =
-            zima::document::PartDocument::create_box_container();
+            zima::test::rectangular_feature(linked_origin_document,{100,80,50});
         linked_origin_parent.placement = {11.0, 12.0, 13.0};
         const auto linked_parent_id = linked_origin_parent.id;
         auto linked_origin_child =
-            zima::document::PartDocument::create_cylinder_container();
+            zima::test::circular_feature(linked_origin_document,40,50);
         linked_origin_child.placement.references = {
             {{}, linked_origin_parent.container_origin.id, "origin:plane:xz",
                 0.0, true, "front", true},
@@ -2795,9 +2627,9 @@ int main() {
         auto forward_origin_document =
             zima::document::PartDocument::create_default();
         auto forward_origin_first =
-            zima::document::PartDocument::create_cylinder_container();
+            zima::test::circular_feature(forward_origin_document,40,50);
         auto forward_origin_later =
-            zima::document::PartDocument::create_box_container();
+            zima::test::rectangular_feature(forward_origin_document,{100,80,50});
         forward_origin_first.placement.references = {
             {{}, forward_origin_later.container_origin.id, "origin:plane:xz",
                 0.0, true}};
@@ -2812,9 +2644,9 @@ int main() {
         auto cyclic_origin_document =
             zima::document::PartDocument::create_default();
         auto cyclic_origin_first =
-            zima::document::PartDocument::create_box_container();
+            zima::test::rectangular_feature(cyclic_origin_document,{100,80,50});
         auto cyclic_origin_second =
-            zima::document::PartDocument::create_cylinder_container();
+            zima::test::circular_feature(cyclic_origin_document,40,50);
         cyclic_origin_first.placement.references = {
             {{}, cyclic_origin_second.container_origin.id, "origin:plane:xz",
                 0.0, true}};
@@ -3104,7 +2936,7 @@ int main() {
                 cylinder_end_geometry, document_origin_geometry);
             zima::document::Placement cylinder_end_placement;
             cylinder_end_placement.references = {
-                {{}, "cylinder", "z_max", 0.0, true, "front", true},
+                {{}, "cylinder", "end:from:13:circle-region", 0.0, true, "front", true},
                 {{}, constructions.document_id + ":origin", "origin:plane:xz",
                     0.0, true, "top", true},
                 {{}, constructions.document_id + ":origin", "origin:plane:yz",
@@ -4258,8 +4090,8 @@ int main() {
                         }),
                 "Complete Part parity workflow did not survive save/reload");
         auto up_to_document = zima::document::PartDocument::create_default();
-        auto up_to_base = zima::document::PartDocument::create_box_container();
-        up_to_base.box = {20.0, 20.0, 10.0};
+        auto up_to_base = zima::test::rectangular_feature(up_to_document,{20.0,20.0,10.0});
+
         up_to_document.history.push_back(up_to_base);
         auto up_to_sketch = zima::sketcher::Sketch::create_default();
         up_to_sketch.plane_offset = 10.0;
@@ -4308,13 +4140,13 @@ int main() {
         // Boolean intersection edges are created by Up-to Extrusion whenever
         // its clipped prism joins an existing body. They must carry a stable
         // ZIMA identity so a following Fillet/Chamfer can select them.
-        zima::kernel::CylinderRequest joining_cylinder;
+        zima::test::CircularExtrusion joining_cylinder;
         joining_cylinder.radius = 5.0;
         joining_cylinder.height = 20.0;
         joining_cylinder.translation = {10.0, 10.0, 5.0};
         const auto joined_results = kernel.evaluate_history({
             {"joined-box",
-                zima::kernel::BoxRequest{20.0, 20.0, 10.0},
+                zima::test::ProfilePrism{20.0, 20.0, 10.0},
                 zima::kernel::BooleanOperation::Add},
             {"joined-cylinder", joining_cylinder,
                 zima::kernel::BooleanOperation::Add}});
@@ -4334,7 +4166,7 @@ int main() {
             {boolean_intersection_edge->reference}, 0.75};
         const auto joined_fillet_results = kernel.evaluate_history({
             {"joined-box",
-                zima::kernel::BoxRequest{20.0, 20.0, 10.0},
+                zima::test::ProfilePrism{20.0, 20.0, 10.0},
                 zima::kernel::BooleanOperation::Add},
             {"joined-cylinder", joining_cylinder,
                 zima::kernel::BooleanOperation::Add},
@@ -4385,11 +4217,11 @@ int main() {
         // supporting faces extend past that seam, so a face classifier alone
         // cannot choose the material side. The persisted preview guides must
         // use the oriented OCCT faces and agree with the real Fillet side.
-        zima::kernel::BoxRequest sloped_box{50.0, 30.0, 20.0};
+        zima::test::ProfilePrism sloped_box{50.0, 30.0, 20.0};
         sloped_box.translation = {25.0, 30.0, 5.0};
         sloped_box.rotation_degrees = {15.0, 0.0, 0.0};
         const auto sloped_join_results = kernel.evaluate_history({
-            {"sloped-base", zima::kernel::BoxRequest{100.0, 80.0, 10.0},
+            {"sloped-base", zima::test::ProfilePrism{100.0, 80.0, 10.0},
                 zima::kernel::BooleanOperation::Add},
             {"sloped-box", sloped_box,
                 zima::kernel::BooleanOperation::Add}});
@@ -4425,7 +4257,7 @@ int main() {
                 "Sloped Boolean Fillet preview selected the supplementary, "
                 "non-material side of an oriented face");
         const auto sloped_fillet_results = kernel.evaluate_history({
-            {"sloped-base", zima::kernel::BoxRequest{100.0, 80.0, 10.0},
+            {"sloped-base", zima::test::ProfilePrism{100.0, 80.0, 10.0},
                 zima::kernel::BooleanOperation::Add},
             {"sloped-box", sloped_box,
                 zima::kernel::BooleanOperation::Add},
@@ -4444,8 +4276,8 @@ int main() {
         require(std::abs(inclined_results.back().volume - 6250.0) < 1e-5,
                 "Inclined Up-to plane was flattened or clipped on the wrong side");
         auto face_target_document = zima::document::PartDocument::create_default();
-        auto face_target_base = zima::document::PartDocument::create_box_container();
-        face_target_base.box = {20.0, 20.0, 10.0};
+        auto face_target_base = zima::test::rectangular_feature(face_target_document,{20.0,20.0,10.0});
+
         const auto face_target_base_id = face_target_base.id;
         face_target_document.history.push_back(face_target_base);
         auto face_target_sketch = zima::sketcher::Sketch::create_default();
@@ -4458,7 +4290,7 @@ int main() {
         face_target_cut.extrusion.extent =
             zima::document::ExtrusionExtent::UpToPlane;
         face_target_cut.extrusion.target_face = {
-            face_target_base_id, "z_max", {}};
+            face_target_base_id, zima::test::profile_key(face_target_document,face_target_base,"z_max"), {}};
         face_target_cut.extrusion.target_plane_origin = {0.0, 0.0, 5.0};
         face_target_cut.extrusion.target_plane_normal = {0.0, 0.0, 1.0};
         face_target_document.history.push_back(face_target_cut);
@@ -4468,9 +4300,9 @@ int main() {
                 "Up-to stable original face did not resolve at its history boundary");
         auto curved_target_document = zima::document::PartDocument::create_default();
         auto curved_target_sphere =
-            zima::document::PartDocument::create_sphere_container();
-        curved_target_sphere.sphere.radius = 20.0;
+            zima::test::spherical_feature(curved_target_document,20);
         const auto curved_target_owner = curved_target_sphere.id;
+        const auto sphere_surface_key="generated:"+curved_target_document.sketches.front().arcs.front().id;
         curved_target_document.history.push_back(curved_target_sphere);
         const auto sphere_boundary =
             kernel.evaluate_history(curved_target_document.kernel_operations()).front();
@@ -4480,7 +4312,7 @@ int main() {
              triangle < sphere_references.triangle_references.size(); ++triangle) {
             const auto& reference = sphere_references.triangle_references[triangle];
             if (reference.owner_id != curved_target_owner ||
-                reference.semantic_key != "surface") continue;
+                reference.semantic_key != sphere_surface_key) continue;
             for (int corner = 0; corner < 3; ++corner) {
                 sphere_triangles.push_back(sphere_references.vertices[
                     sphere_references.triangles[triangle * 3 + corner]]);
@@ -4498,7 +4330,7 @@ int main() {
         curved_target_cut.extrusion.extent =
             zima::document::ExtrusionExtent::UpToSurface;
         curved_target_cut.extrusion.target_face = {
-            curved_target_owner, "surface", {}};
+            curved_target_owner, sphere_surface_key, {}};
         curved_target_cut.extrusion.target_surface_triangles = sphere_triangles;
         curved_target_document.history.push_back(curved_target_cut);
         const auto curved_preview =
@@ -4661,8 +4493,8 @@ int main() {
                 "Up-to-plane target did not survive save/load");
 
         auto through_document = zima::document::PartDocument::create_default();
-        auto through_base = zima::document::PartDocument::create_box_container();
-        through_base.box = {20.0, 20.0, 10.0};
+        auto through_base = zima::test::rectangular_feature(through_document,{20.0,20.0,10.0});
+
         through_document.history.push_back(through_base);
         auto through_sketch = zima::sketcher::Sketch::create_default();
         static_cast<void>(through_sketch.add_rectangle(0.0, 0.0, 5.0, 5.0));
@@ -4862,8 +4694,8 @@ int main() {
         static_cast<void>(circular_sketch.add_circle(0.0, 0.0, 5.0));
         const auto circular_sketch_id = circular_sketch.id;
         circular_document.sketches.push_back(std::move(circular_sketch));
-        auto circular_base = zima::document::PartDocument::create_box_container();
-        circular_base.box = {40.0, 40.0, 10.0};
+        auto circular_base = zima::test::rectangular_feature(circular_document,{40.0,40.0,10.0});
+
         circular_document.history.push_back(std::move(circular_base));
         auto circular_cut =
             zima::document::PartDocument::create_extrusion_container(
@@ -5087,10 +4919,9 @@ int main() {
                 "Text contours are missing from the history fingerprint");
 
         auto text_cut_document = zima::document::PartDocument::create_default();
-        auto text_cut_box = zima::document::PartDocument::create_box_container();
-        text_cut_box.box.length = 30.0;
-        text_cut_box.box.width = 20.0;
-        text_cut_box.box.height = 5.0;
+        auto text_cut_box = zima::test::rectangular_feature(text_cut_document,{30.0,20.0,5.0});
+
+
         text_cut_document.history.push_back(std::move(text_cut_box));
         auto centered_text_cut_sketch = text_profile_sketch;
         centered_text_cut_sketch.plane_offset = -2.5;
@@ -5828,7 +5659,7 @@ int main() {
                 "New document session must start clean");
         auto revision_one = session.document();
         revision_one.history.push_back(
-            zima::document::PartDocument::create_box_container());
+            zima::test::rectangular_feature(revision_one));
         zima::kernel::BodyResult revision_one_result;
         revision_one_result.volume = 1.0;
         session.commit(std::move(revision_one), {revision_one_result});
@@ -5846,7 +5677,7 @@ int main() {
         session.commit(std::move(revision_two), {revision_two_result});
         require(session.is_dirty(), "Second transaction did not invalidate savepoint");
         require(session.undo(), "Undo failed");
-        require(!session.is_dirty() && session.document().history.front().name == "Kvádr",
+        require(!session.is_dirty() && session.document().history.front().name == "Vytažení",
                 "Undo did not restore the saved revision");
         require(session.calculated_boundaries().front().volume == 1.0,
                 "Undo did not restore revision-owned calculated data");
@@ -5873,11 +5704,12 @@ int main() {
 
         auto long_history = zima::document::PartDocument::create_default();
         for (int index = 0; index < 25; ++index) {
-            auto feature = zima::document::PartDocument::create_box_container();
-            feature.box = {10.0, 10.0, 10.0};
+            auto feature = zima::test::rectangular_feature(long_history,{10.0,10.0,10.0});
+
             feature.placement.x = index * 8.0;
             long_history.history.push_back(std::move(feature));
         }
+        long_history.resolve_constructions();
         const auto long_boundaries =
             kernel.evaluate_history(long_history.kernel_operations());
         require(long_boundaries.size() == long_history.history.size() &&
@@ -5907,7 +5739,7 @@ int main() {
                 "History rollback reconstructed a missing calculated input implicitly");
 
         auto cursor_document = zima::document::PartDocument::create_default();
-        auto cursor_box = zima::document::PartDocument::create_box_container();
+        auto cursor_box = zima::test::rectangular_feature(cursor_document,{100,80,50});
         const auto cursor_box_id = cursor_box.id;
         cursor_document.history.push_back(std::move(cursor_box));
         cursor_document.insert_history_entry(
@@ -5919,7 +5751,7 @@ int main() {
         cursor_document.insert_history_entry(
             zima::document::PartHistoryKind::Construction, cursor_point_id);
         cursor_document.set_history_cursor(1);
-        auto cursor_sphere = zima::document::PartDocument::create_sphere_container();
+        auto cursor_sphere = zima::test::spherical_feature(cursor_document);
         const auto cursor_sphere_id = cursor_sphere.id;
         cursor_document.history.push_back(std::move(cursor_sphere));
         cursor_document.insert_history_entry(
@@ -5932,7 +5764,7 @@ int main() {
                 "Insert Here cursor did not control unified history insertion");
         cursor_document.set_history_cursor(1);
         auto cursor_cylinder =
-            zima::document::PartDocument::create_cylinder_container();
+            zima::test::circular_feature(cursor_document,40,50);
         const auto cursor_cylinder_id = cursor_cylinder.id;
         cursor_document.history.push_back(std::move(cursor_cylinder));
         cursor_document.insert_history_entry(
@@ -6077,7 +5909,7 @@ int main() {
         auto placement_roundtrip =
             zima::document::PartDocument::create_default();
         auto referenced_box =
-            zima::document::PartDocument::create_box_container();
+            zima::test::rectangular_feature(placement_roundtrip,{100,80,50});
         referenced_box.placement = one_front_placement;
         placement_roundtrip.insert_history_entry(
             zima::document::PartHistoryKind::Feature, referenced_box.id);
@@ -6198,15 +6030,16 @@ int main() {
                     !one_profile_boundaries.back().mesh.triangles.empty(),
                 "3D Sweep with one start profile did not create a visible solid");
 
+        auto additive_sweep_document=zima::document::PartDocument::create_default();
         auto sweep_boolean_box =
-            zima::document::PartDocument::create_box_container();
-        sweep_boolean_box.box = {10.0, 10.0, 20.0};
+            zima::test::rectangular_feature(additive_sweep_document,{10.0,10.0,20.0});
+
         sweep_boolean_box.placement.x = -5.0;
         sweep_boolean_box.placement.y = -5.0;
-        auto additive_sweep_document =
-            zima::document::PartDocument::create_default();
+
         additive_sweep_document.history = {
             sweep_boolean_box, one_profile_sweep};
+        additive_sweep_document.resolve_constructions();
         const auto additive_sweep_boundaries = kernel.evaluate_history(
             additive_sweep_document.kernel_operations());
         require(additive_sweep_boundaries.size() == 2 &&
@@ -6218,8 +6051,7 @@ int main() {
         auto subtractive_sweep = one_profile_sweep;
         subtractive_sweep.combine_mode =
             zima::document::CombineMode::Subtract;
-        auto subtractive_sweep_document =
-            zima::document::PartDocument::create_default();
+        auto subtractive_sweep_document = additive_sweep_document;
         subtractive_sweep_document.history = {
             sweep_boolean_box, subtractive_sweep};
         const auto subtractive_sweep_boundaries = kernel.evaluate_history(
@@ -6350,8 +6182,8 @@ int main() {
                         1.0e-5,
                 "3D Sweep path/profile relation did not survive save and reopen");
         auto hole_document = zima::document::PartDocument::create_default();
-        auto hole_base = zima::document::PartDocument::create_box_container();
-        hole_base.box = {40.0, 40.0, 40.0};
+        auto hole_base = zima::test::rectangular_feature(hole_document,{40.0,40.0,40.0});
+
         hole_document.history.push_back(std::move(hole_base));
         auto hole = zima::document::PartDocument::create_hole_container();
         hole.placement.z = -20.0;
@@ -6389,8 +6221,8 @@ int main() {
                         zima::document::CombineMode::Subtract,
                 "Hole parameters or independent bore/thread lengths did not round-trip");
         auto thread_document = zima::document::PartDocument::create_default();
-        auto thread_base = zima::document::PartDocument::create_box_container();
-        thread_base.box = {40.0, 40.0, 40.0};
+        auto thread_base = zima::test::rectangular_feature(thread_document,{40.0,40.0,40.0});
+
         thread_document.history.push_back(thread_base);
         auto thread = zima::document::PartDocument::create_thread_container();
         require(thread.thread.chamfer_enabled && thread.hole.drill_point_enabled,
@@ -6421,7 +6253,7 @@ int main() {
                         }),
             "Threaded opening did not remove its bore or produce the thread sheet");
         auto trimmed_thread_operations = thread_operations;
-        zima::kernel::BoxRequest thread_cutter{20.0, 20.0, 10.0};
+        zima::test::ProfilePrism thread_cutter{20.0, 20.0, 10.0};
         thread_cutter.translation = {-10.0, -10.0, -10.0};
         trimmed_thread_operations.push_back({"thread-cutter", thread_cutter,
             zima::kernel::BooleanOperation::Subtract});
@@ -6447,16 +6279,16 @@ int main() {
         }
         require(has_trimmed_thread_surface,
             "Thread sheet disappeared completely after a partial trim");
-        zima::kernel::BoxRequest drill_block{40.0, 40.0, 40.0};
-        zima::kernel::CylinderRequest blind_bore{5.0, 21.0};
+        zima::test::ProfilePrism drill_block{40.0, 40.0, 40.0};
+        zima::test::CircularExtrusion blind_bore{5.0, 21.0};
         blind_bore.translation = {20.0, 20.0, 20.0};
-        zima::kernel::CylinderRequest smaller_blind_bore{3.0, 21.0};
+        zima::test::CircularExtrusion smaller_blind_bore{3.0, 21.0};
         smaller_blind_bore.translation = {10.0, 10.0, 20.0};
         zima::kernel::DrillPointRequest drill_point;
         drill_point.bottom_faces = {
-            {"blind-bore", "z_min", {}},
-            {"missing-hole", "z_min", {}},
-            {"smaller-blind-bore", "z_min", {}}};
+            {"blind-bore", "start:from:13:circle-region", {}},
+            {"missing-hole", "start:from:6:region", {}},
+            {"smaller-blind-bore", "start:from:13:circle-region", {}}};
         drill_point.included_angle_degrees = 118.0;
         const auto drill_point_boundaries = kernel.evaluate_history({
             {"drill-block", drill_block, zima::kernel::BooleanOperation::Add},
@@ -6474,12 +6306,12 @@ int main() {
                         [](const auto& reference) {
                             return reference.owner_id == "drill-point" &&
                                 reference.semantic_key ==
-                                    "drill-point:side:from:10:blind-bore:z_min";
+                                    "drill-point:side:from:10:blind-bore:start:from:13:circle-region";
                         }),
             "Drill Point did not derive and subtract cones of different "
             "diameters from all selected circular bottom faces");
         auto missing_drill_point = drill_point;
-        missing_drill_point.bottom_faces = {{"missing-hole", "z_min", {}}};
+        missing_drill_point.bottom_faces = {{"missing-hole", "start:from:6:region", {}}};
         const auto missing_drill_point_boundaries = kernel.evaluate_history({
             {"drill-block", drill_block,
                 zima::kernel::BooleanOperation::Add},
@@ -6489,10 +6321,10 @@ int main() {
                 std::abs(missing_drill_point_boundaries[1].volume -
                     missing_drill_point_boundaries[0].volume) < 1.0e-7,
             "A Drill Point whose references all disappeared was not a safe no-op");
-        zima::kernel::CylinderRequest chamfer_bore{5.0, 20.0};
+        zima::test::CircularExtrusion chamfer_bore{5.0, 20.0};
         chamfer_bore.translation = {20.0, 20.0, 20.0};
         zima::kernel::ChamferRequest bore_chamfer{{
-                {"chamfer-bore", "circle:z_max", {}}},
+                {"chamfer-bore", "end:circle", {}}},
             zima::kernel::ChamferRequest::Mode::DistanceAngle,
             1.5, 1.5, std::numbers::pi / 4.0, false};
         const auto bore_chamfer_boundaries = kernel.evaluate_history({

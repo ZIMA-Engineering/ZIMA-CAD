@@ -1,3 +1,4 @@
+#include "profile_solid_fixture.hpp"
 #include <zima/workspace/drawing_sources.hpp>
 #include <zima/workspace/metadata_operations.hpp>
 #include <zima/workspace/family_operations.hpp>
@@ -63,10 +64,10 @@ void bend_state_test(const kernel::OcctKernel& kernel,const fs::path& directory)
 }
 void component_test(const kernel::OcctKernel& kernel,const fs::path& directory) {
     workspace::Workspace live;auto part=document::PartDocument::create_default();part.name="Family component";
-    const auto root=part.document_id;auto box=document::PartDocument::create_box_container();box.box={10,8,6};part.history={box};
+    const auto root=part.document_id;auto box=zima::test::rectangular_feature(part,{10,8,6});part.history={box};const auto [length_owner,length_key]=test::family_length_binding(part,box);
     document::BodyHistoryGraph graph;static_cast<void>(graph.create_body("Body"));graph.insert({document::PartHistoryKind::Feature,box.id});part.set_body_history(graph);part.synchronize_dimension_identifiers();
     const auto file=directory/"component-family.prtz";live.add_part(part,kernel.evaluate_history(part.kernel_operations()),file);
-    document::FamilyTable table;table.columns={"Length","Stock"};table.bindings["Length"]={"dimension",box.id,"parameter:length"};table.bindings["Stock"]={"feature",box.id,{}};
+    document::FamilyTable table;table.columns={"Length","Stock"};table.bindings["Length"]={"dimension",length_owner,length_key};table.bindings["Stock"]={"feature",box.id,{}};
     table.instances={{"Long",{{"Length","20"}}},{"Short",{{"Length","5"}}},{"Empty",{{"Stock","no"}}}};
     static_cast<void>(workspace::set_family_table(live,root,table));
     auto assembly=assembly::AssemblyDocument::create_default();const auto owner=assembly.document_id;const auto assembly_file=directory/"component-owner.asmz";live.add_assembly(assembly,assembly_file);live.display_top_level(owner);live.activate(owner);
@@ -112,7 +113,7 @@ void component_test(const kernel::OcctKernel& kernel,const fs::path& directory) 
     const auto snapshot=reopened.find_occurrence(first)->calculated_source;cold.refresh_source_geometry();require(snapshot.shares_with(cold.open_assembly(owner)->session.document().find_occurrence(first)->calculated_source),"Unchanged display rebuilt the variant source");
     const auto opened=workspace::open_component_source(cold,owner,assembly::InstancePath{}.child(first));
     require(opened.document_id==long_id&&cold.open_part(root)&&cold.open_part(long_id),"Cold component Open did not load its parent and selected member");
-    auto edited=cold.open_part(root)->session.document();edited.find_container(box.id)->box.width=9;cold.open_part(root)->session.commit(edited,kernel.evaluate_history(edited.kernel_operations()));
+    auto edited=cold.open_part(root)->session.document();zima::test::profile_dimension(edited,*edited.find_container(box.id),1)=9;cold.open_part(root)->session.commit(edited,kernel.evaluate_history(edited.kernel_operations()));
     cold.refresh_source_geometry();require(std::abs(cold.open_assembly(owner)->session.document().find_occurrence(second)->calculated_source->volume-270)<1e-8,"Closed member ignored unsaved open-parent geometry");
     // A family Assembly can itself contain Part variants and be inserted cold.
     document::FamilyTable assembly_table;assembly_table.columns={"Second"};assembly_table.bindings["Second"]={"component",second,{}};assembly_table.instances={{"One component",{{"Second","no"}}}};
@@ -133,7 +134,7 @@ void component_test(const kernel::OcctKernel& kernel,const fs::path& directory) 
     bool cycle=false;try{nested_cold.activate(owner);static_cast<void>(workspace::insert_component(nested_cold,owner,assembly_variant));}catch(const std::exception&){cycle=true;}
     require(cycle,"Assembly accepted an instance of its own family as a child");
     auto replacement_workspace=live;replacement_workspace.activate(owner);
-    auto other_part=document::PartDocument::create_default();other_part.history={document::PartDocument::create_box_container()};
+    auto other_part=document::PartDocument::create_default();other_part.history={zima::test::rectangular_feature(other_part)};
     const auto other_id=other_part.document_id;
     replacement_workspace.add_part(other_part,kernel.evaluate_history(other_part.kernel_operations()),directory/"different-part.prtz");
     const auto before_source=replacement_workspace.open_assembly(owner)->session.document().find_occurrence(first)->source_document_id;
@@ -151,11 +152,11 @@ void component_test(const kernel::OcctKernel& kernel,const fs::path& directory) 
         replacement_workspace.open_assembly(owner)->session.document().find_occurrence(first)->source_kind==assembly::ComponentSourceKind::Assembly,
         "Source replacement did not switch Part to Assembly");
 }
-void test(const kernel::OcctKernel& kernel,const fs::path& directory) {
+void family_test(const kernel::OcctKernel& kernel,const fs::path& directory) {
     auto base=document::PartDocument::create_default();base.name="Block";
-    auto box=document::PartDocument::create_box_container();box.box={10,8,6};box.name="Stock";
-    auto cut=document::PartDocument::create_box_container();cut.box={2,2,6};cut.placement.x=2;cut.name="Cut";cut.combine_mode=document::CombineMode::Subtract;
-    auto other=document::PartDocument::create_box_container();other.box={2,2,2};other.placement.x=30;
+    auto box=zima::test::rectangular_feature(base,{10,8,6});box.name="Stock";const auto [length_owner,length_key]=test::family_length_binding(base,box);
+    auto cut=zima::test::rectangular_feature(base,{2,2,6});cut.placement.x=2;cut.name="Cut";cut.combine_mode=document::CombineMode::Subtract;
+    auto other=zima::test::rectangular_feature(base,{2,2,2});other.placement.x=30;
     base.history={box,cut,other};document::BodyHistoryGraph graph;const auto first=graph.create_body("Main");
     graph.insert({document::PartHistoryKind::Feature,box.id});graph.insert({document::PartHistoryKind::Feature,cut.id});
     const auto second=graph.create_body("Second");graph.insert({document::PartHistoryKind::Feature,other.id});graph.activate({});base.set_body_history(graph);base.synchronize_dimension_identifiers();
@@ -164,8 +165,8 @@ void test(const kernel::OcctKernel& kernel,const fs::path& directory) {
     live.add_part(base,cache,directory/"base.prtz");require(std::abs(volume(live,id)-464)<1e-8,"Generic volume must be 480 - 24 + 8");
     const auto refs=workspace::family_references(live,id);
     const auto find=[&](const std::string& owner,const std::string& key){for(const auto& r:refs)if(r.binding.owner_id==owner&&r.binding.semantic_key==key)return r;throw std::runtime_error("Missing family reference");};
-    const auto length=find(box.id,"parameter:length"),presence=find(cut.id,""),body=find(second,"");
-    require(length.name==base.dimension_identifiers.identifier(box.id,"parameter:length"),"Family dimension must use its stable secondary name");
+    const auto length=find(length_owner,length_key),presence=find(cut.id,""),body=find(second,"");
+    require(length.name==base.dimension_identifiers.identifier(length_owner,length_key),"Family dimension must use its stable secondary name");
     document::FamilyTable table;table.columns={length.name,presence.name,body.name};
     for(const auto& r:{length,presence,body})table.bindings[r.name]=r.binding;
     table.instances={{"Long",{{length.name,"20"}}},{"No cut",{{length.name,"20"},{presence.name,"no"}}},{"One body",{{length.name,"20"},{body.name,"no"}}}};
@@ -201,23 +202,23 @@ void test(const kernel::OcctKernel& kernel,const fs::path& directory) {
     const auto one=workspace::open_family_instance(live,kernel,id,"One body");
     require(std::abs(volume(live,no_cut)-968)<1e-8,"Absent cut remains");
     require(std::abs(volume(live,one)-936)<1e-8,"Absent Body remains");
-    auto edited=live.open_part(variant)->session.document();edited.find_container(box.id)->box.length=24;
+    auto edited=live.open_part(variant)->session.document();zima::test::profile_dimension(edited,*edited.find_container(box.id),0)=24;
     auto changed=workspace::calculate_part_with_resolved_references(kernel,edited,nullptr,{true});
     live.open_part(variant)->session.commit(edited,std::move(changed));
     require(workspace::family_table(live,id).instances.front().values.at(length.name)=="24","Instance edit did not update its parent table row");
-    require(live.open_part(id)->session.document().find_container(box.id)->box.length==10,"Row override modified base dimension");
-    require(live.open_part(no_cut)->session.document().find_container(box.id)->box.length==20,"Row override changed sibling");
-    edited=live.open_part(variant)->session.document();edited.find_container(box.id)->box.width=9;
+    require(std::abs(zima::test::profile_dimension(live.open_part(id)->session.document(),*live.open_part(id)->session.document().find_container(box.id),0)-10)<1e-8,"Row override modified base dimension");
+    require(std::abs(zima::test::profile_dimension(live.open_part(no_cut)->session.document(),*live.open_part(no_cut)->session.document().find_container(box.id),0)-20)<1e-8,"Row override changed sibling");
+    edited=live.open_part(variant)->session.document();zima::test::profile_dimension(edited,*edited.find_container(box.id),1)=9;
     changed=workspace::calculate_part_with_resolved_references(kernel,edited,nullptr,{true});
     live.open_part(variant)->session.commit(edited,std::move(changed));
-    for(const auto& member:{id,variant,no_cut,one})require(live.open_part(member)->session.document().find_container(box.id)->box.width==9,"Shared dimension did not update every family member");
+    for(const auto& member:{id,variant,no_cut,one})require(std::abs(zima::test::profile_dimension(live.open_part(member)->session.document(),*live.open_part(member)->session.document().find_container(box.id),1)-9)<1e-8,"Shared dimension did not update every family member");
     require(workspace::step_document_history(live,variant,workspace::HistoryDirection::Undo),"Instance Undo failed");
-    for(const auto& member:{id,variant,no_cut,one})require(live.open_part(member)->session.document().find_container(box.id)->box.width==8,"Family Undo was not shared");
+    for(const auto& member:{id,variant,no_cut,one})require(std::abs(zima::test::profile_dimension(live.open_part(member)->session.document(),*live.open_part(member)->session.document().find_container(box.id),1)-8)<1e-8,"Family Undo was not shared");
     require(workspace::step_document_history(live,id,workspace::HistoryDirection::Redo),"Parent Redo failed");
-    require(live.open_part(no_cut)->session.document().find_container(box.id)->box.width==9,"Family Redo was not shared");
+    require(std::abs(zima::test::profile_dimension(live.open_part(no_cut)->session.document(),*live.open_part(no_cut)->session.document().find_container(box.id),1)-9)<1e-8,"Family Redo was not shared");
     // A structural edit is common history, including a new subtractive feature.
     edited=live.open_part(variant)->session.document();
-    auto added=document::PartDocument::create_box_container();added.box={1,1,1};added.placement={1,1,1};added.combine_mode=document::CombineMode::Subtract;
+    auto added=zima::test::rectangular_feature(edited,{1,1,1});added.placement={1,1,1};added.combine_mode=document::CombineMode::Subtract;
     edited.history.push_back(added);auto added_graph=edited.body_history;added_graph.activate(first);added_graph.set_insertion_cursor(added_graph.find(first)->entries.size());added_graph.insert({document::PartHistoryKind::Feature,added.id});added_graph.activate({});edited.set_body_history(added_graph);
     changed=workspace::calculate_part_with_resolved_references(kernel,edited,nullptr,{true});
     live.open_part(variant)->session.commit(edited,std::move(changed));
@@ -232,7 +233,7 @@ void test(const kernel::OcctKernel& kernel,const fs::path& directory) {
     require(separate&&!fs::exists(directory/"separate.prtz"),"Instance was saved as an independent native file");
     static_cast<void>(live.save_copy(variant,directory/"copy.prtz"));
     const auto independent=document::PartDocument::load(directory/"copy.prtz");
-    require(independent.family.parent_id.empty()&&independent.document_id!=variant&&independent.find_container(box.id)->box.length==20,"Save As did not create a detached copy of the current variant");
+    require(independent.family.parent_id.empty()&&independent.document_id!=variant&&std::abs(zima::test::profile_dimension(independent,*independent.find_container(box.id),0)-20)<1e-8,"Save As did not create a detached copy of the current variant");
     const auto saved=workspace::prepare_document_save(live,variant,directory/"base.prtz").write();require(workspace::complete_document_save(live,saved),"Saving through instance failed");
     require(!workspace::document_needs_save(live,variant)&&!workspace::document_needs_save(live,id),"Family Save left inconsistent dirty state");
     std::vector<kernel::BodyResult> cold_cache;auto cold=document::PartDocument::load(directory/"base.prtz",&cold_cache);
@@ -272,7 +273,7 @@ void test(const kernel::OcctKernel& kernel,const fs::path& directory) {
     const auto copied_variant=workspace::open_family_instance(live,kernel,copied_id,"Long renamed");
     require(copied_variant.starts_with(copied_id+":family:")&&!copied_variant.starts_with(id+":family:"),"Generic Save As retained old family ownership");
     static_cast<void>(workspace::close_document(live,copied_id,true));
-    auto bad=table;bad.instances.push_back({"Invalid",{{length.name,"-2"}}});static_cast<void>(workspace::set_family_table(live,id,bad));
+    auto bad=table;bad.instances.push_back({"Invalid",{{length.name,"0"}}});static_cast<void>(workspace::set_family_table(live,id,bad));
     const auto count=live.size();bool rejected=false;try{workspace::open_family_instance(live,kernel,id,"Invalid");}catch(const std::exception&){rejected=true;}
     require(rejected&&live.size()==count&&std::abs(volume(live,id)-464)<1e-8,"Failed variant left a partial document or changed generic");
     bad=table;bad.bindings[length.name].owner_id="missing";rejected=false;try{static_cast<void>(workspace::set_family_table(live,id,bad));}catch(const std::exception&){rejected=true;}require(rejected,"Dangling family reference accepted");
@@ -318,4 +319,4 @@ void test(const kernel::OcctKernel& kernel,const fs::path& directory) {
     auto opened=host.execute({{"command","document.family.open"},{"arguments",{{"document",id},{"instance","Long"}}}});if(!opened.ok)throw std::runtime_error(opened.code+": "+opened.message);require(opened.data.at("document")==variant,"CLI did not open the same family instance");
 }
 }
-int main(){try{kernel::OcctKernel kernel;const auto root=fs::canonical(fs::temp_directory_path());const auto dir=root/("zima-family-"+document::PartDocument::create_default().document_id);fs::create_directory(dir);test(kernel,dir);component_test(kernel,dir);bend_state_test(kernel,dir);require(dir.parent_path()==root,"Unsafe test cleanup");fs::remove_all(dir);std::cout<<"Linked Family Table, component insertion/replacement, cold nested sources, shared history, drawings and CLI passed\n";return 0;}catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}
+int main(){try{kernel::OcctKernel kernel;const auto root=fs::canonical(fs::temp_directory_path());const auto dir=root/("zima-family-"+document::PartDocument::create_default().document_id);fs::create_directory(dir);family_test(kernel,dir);component_test(kernel,dir);bend_state_test(kernel,dir);require(dir.parent_path()==root,"Unsafe test cleanup");fs::remove_all(dir);std::cout<<"Linked Family Table, component insertion/replacement, cold nested sources, shared history, drawings and CLI passed\n";return 0;}catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}

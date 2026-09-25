@@ -73,9 +73,23 @@ void AssemblyWorkspaceWindow::refresh_scene() {
     };
     const auto construction_mesh = [this, &append_curve_radii](const auto& document, double scene_size,
             const zima::kernel::ViewerReferenceGeometry& reference_geometry) {
-        auto mesh = construction_preview_mesh_.has_value()
-            ? *construction_preview_mesh_
-            : document.construction_viewer_mesh({}, scene_size);
+        auto mesh = [&] {
+            if(construction_preview_mesh_)return *construction_preview_mesh_;
+            if constexpr(requires { document.history; }) {
+                std::set<std::string> hidden;
+                std::set<std::string> visible;
+                for(std::size_t i=0;i<std::min(document.effective_history_cursor(),document.history_order.size());++i)
+                    visible.insert(document.history_order[i].id);
+                for(std::size_t i=0;i<document.history.size();++i) {
+                    const auto& feature=document.history[i];
+                    if(feature.id==primitive_parameter_owner_id_ ||
+                       (!document.history_order.empty()&&!visible.contains(feature.id)) ||
+                       (part_rollback_&&part_rollback_->part_document_id==document.document_id&&i>=part_rollback_->history_limit))
+                        hidden.insert(feature.id);
+                }
+                return document.construction_viewer_mesh({},scene_size,false,hidden);
+            } else return document.construction_viewer_mesh({},scene_size);
+        }();
         if (!active_sketch_id_.empty()) {
             // The active Sketch supplies its complete editable geometry below.
             std::erase_if(mesh.edges, [&](const auto& edge) { return edge.reference.owner_id == active_sketch_id_; });
@@ -906,8 +920,7 @@ void AssemblyWorkspaceWindow::refresh_scene() {
         active_application_ = ApplicationMode::Drawing;
         insert_action_->setEnabled(false);
         regenerate_action_->setEnabled(false);
-        for (auto* action : {box_action_, cylinder_action_, thread_action_, holes_action_, shaft_thread_action_, drill_point_action_, sphere_action_, cone_action_,
-                             pyramid_action_, wedge_action_, construction_point_action_,
+        for (auto* action : {thread_action_, holes_action_, shaft_thread_action_, drill_point_action_, construction_point_action_,
                              curve_3d_action_,
                              sweep_3d_action_, helical_sweep_action_, sweep2d_action_,
                              construction_axis_action_, cylinder_axis_action_, construction_plane_action_,
@@ -1723,7 +1736,7 @@ void AssemblyWorkspaceWindow::refresh_scene() {
             }
         }
         state_->setText(document.history.empty()
-            ? tr("Nový Part: začněte příkazem Kvádr, jiným tělesem nebo Skica.")
+            ? tr("Nový Part: začněte příkazem Prvek.")
             : tr("Zobrazený Part: %1").arg(QString::fromStdString(document.name)));
         if(part->symbol_definition)state_->setText(tr("Symbol")+": "+QString::fromStdString(document.name));
         insert_action_->setEnabled(false);
@@ -1732,16 +1745,10 @@ void AssemblyWorkspaceWindow::refresh_scene() {
         save_as_action_->setEnabled(true);
         close_document_action_->setEnabled(true);
         regenerate_document_action_->setEnabled(true);
-        box_action_->setEnabled(true);
-        cylinder_action_->setEnabled(true);
     thread_action_->setEnabled(!document.history.empty());
     holes_action_->setEnabled(!document.history.empty());
     shaft_thread_action_->setEnabled(!document.history.empty());
     drill_point_action_->setEnabled(!document.history.empty());
-        sphere_action_->setEnabled(true);
-        cone_action_->setEnabled(true);
-        pyramid_action_->setEnabled(true);
-        wedge_action_->setEnabled(true);
         fillet_action_->setEnabled(!document.history.empty());
         chamfer_action_->setEnabled(!document.history.empty());
         shell_action_->setEnabled(!document.history.empty());
@@ -2232,8 +2239,6 @@ void AssemblyWorkspaceWindow::refresh_scene() {
     save_as_action_->setEnabled(true);
     close_document_action_->setEnabled(true);
     regenerate_document_action_->setEnabled(true);
-    box_action_->setEnabled(active_part != nullptr);
-    cylinder_action_->setEnabled(active_part != nullptr);
     shaft_thread_action_->setEnabled(active_part != nullptr && !active_part->session.document().history.empty());
     thread_action_->setEnabled(active_part != nullptr &&
         !active_part->session.document().history.empty());
@@ -2241,10 +2246,6 @@ void AssemblyWorkspaceWindow::refresh_scene() {
         !active_part->session.document().history.empty());
     drill_point_action_->setEnabled(active_part != nullptr &&
         !active_part->session.document().history.empty());
-    sphere_action_->setEnabled(active_part != nullptr);
-    cone_action_->setEnabled(active_part != nullptr);
-    pyramid_action_->setEnabled(active_part != nullptr);
-    wedge_action_->setEnabled(active_part != nullptr);
     fillet_action_->setEnabled(active_part != nullptr &&
         !active_part->session.document().history.empty());
     chamfer_action_->setEnabled(active_part != nullptr &&

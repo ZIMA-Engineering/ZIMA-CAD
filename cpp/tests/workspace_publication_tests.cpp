@@ -1,3 +1,4 @@
+#include "profile_solid_fixture.hpp"
 #include <zima/workspace/workspace.hpp>
 #include <zima/kernel/occt_kernel.hpp>
 #include <iostream>
@@ -74,7 +75,7 @@ void verify_drawing(){
 void verify(){
     static_assert(std::is_nothrow_move_constructible_v<workspace::DocumentState> &&
         std::is_nothrow_move_assignable_v<workspace::DocumentState>);
-    auto part=document::PartDocument::create_default();auto box=document::PartDocument::create_box_container();box.box={10,10,10};part.history={box};
+    auto part=document::PartDocument::create_default();auto box=zima::test::rectangular_feature(part,{10,10,10});part.history={box};
     kernel::OcctKernel kernel;auto calculated=kernel.evaluate_history(part.kernel_operations());
     workspace::Workspace live;live.add_part(part,calculated);const auto id=part.document_id;
     const auto original=reinterpret_cast<std::uintptr_t>(live.open_part(id)->session.calculated_boundaries().data());
@@ -96,7 +97,7 @@ void verify(){
     auto copy=live;require(copy.open_part(id)->session.calculated_boundaries().data()!=live.open_part(id)->session.calculated_boundaries().data(),
         "Explicit Workspace copy aliases mutable Part geometry");
     require(copy.open_part(id)->session.redo()&&live.open_part(id)->session.document().name==part.name,"Workspace copy shares Part history");
-    auto doubled=part;doubled.history.front().box.length=20;const auto changed=kernel.evaluate_history(doubled.kernel_operations());
+    auto doubled=part;test::resize_rectangular_feature(doubled,doubled.history.front(),{20,10,10});const auto changed=kernel.evaluate_history(doubled.kernel_operations());
     verify_assembly(calculated.back(),changed.back(),part.document_id);verify_drawing();
 }
 }

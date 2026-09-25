@@ -1,3 +1,4 @@
+#include "profile_solid_fixture.hpp"
 #include <zima/assembly/assembly_document.hpp>
 #include <zima/kernel/occt_kernel.hpp>
 #include <zima/document/part_document.hpp>
@@ -57,7 +58,7 @@ int step_benchmark(const std::filesystem::path& source) {
     document.insert_history_entry(
         zima::document::PartHistoryKind::Feature, step.id);
 
-    auto marker = zima::document::PartDocument::create_box_container();
+    auto marker = zima::test::rectangular_feature(document,{100,80,50});
     marker.name = "Rollback marker";
     marker.suppressed = true;
     document.history.push_back(marker);
@@ -212,19 +213,25 @@ zima::document::PartDocument part_fixture(std::size_t feature_count) {
     part.history.clear();
     part.history_order.clear();
     for (std::size_t index = 0; index < feature_count; ++index) {
-        auto feature = zima::document::PartDocument::create_box_container();
+        auto feature = zima::test::rectangular_feature(part,{20.0,20.0,20.0});
         feature.id = "benchmark-box-" + std::to_string(index);
+        for (auto& profile : part.sketches)
+            if (profile.id == feature.extrusion.sketch_id)
+                profile.owner_container_id = feature.id;
+        feature.feature_id = feature.id + ":feature";
+        feature.feature_parent_id = feature.id;
+        feature.container_origin = zima::document::create_container_origin(feature.id);
         feature.name = feature.id;
         feature.placement.x = static_cast<double>(index % 8) * 12.0;
         feature.placement.y = static_cast<double>(index / 8) * 12.0;
         feature.placement.z = 0.0;
-        feature.box.length = 20.0;
-        feature.box.width = 20.0;
-        feature.box.height = 20.0;
+
+
         part.history.push_back(feature);
         part.insert_history_entry(zima::document::PartHistoryKind::Feature,
                                   feature.id);
     }
+    part.resolve_constructions();
     return part;
 }
 
@@ -376,7 +383,7 @@ int main(int argc, char** argv) {
             (operations.size() - index);
     }
     auto changed_part = part;
-    changed_part.history.back().box.height = 24.0;
+    zima::test::profile_dimension(changed_part,changed_part.history.back(),2) = 24.0;
     const auto changed_operations = changed_part.kernel_operations();
     const auto part_incremental_ms = milliseconds([&] {
         const auto result = kernel.evaluate_history_incremental(
@@ -394,9 +401,9 @@ int main(int argc, char** argv) {
 
     auto fillet_base_operations = operations;
     for (std::size_t index = 0; index < fillet_base_operations.size(); ++index) {
-        auto& box = std::get<zima::kernel::BoxRequest>(
-            fillet_base_operations[index].primitive);
-        box.translation = {static_cast<double>(index) * 30.0, 0.0, 0.0};
+        auto request=zima::test::rectangular_request(20,20,20);
+        for(auto& point:std::get<zima::kernel::ExtrusionRequest::PolygonProfile>(request.outer_profile).vertices)point.x+=static_cast<double>(index)*30.;
+        fillet_base_operations[index].primitive=std::move(request);
     }
     const auto fillet_base_boundaries =
         kernel.evaluate_history(fillet_base_operations);
@@ -439,7 +446,7 @@ int main(int argc, char** argv) {
     for (std::size_t index = 0; index < assembly_components; ++index) {
         auto occurrence = zima::assembly::AssemblyDocument::create_part_occurrence(
             "benchmark-component-" + std::to_string(index), "benchmark-part",
-            {}, kernel.make_box({10.0, 10.0, 10.0}));
+            {}, zima::test::profile_body(kernel,{10.0, 10.0, 10.0}));
         occurrence.placement.x = static_cast<double>(index % 32) * 14.0;
         occurrence.placement.y = static_cast<double>(index / 32) * 14.0;
         scene_fixture.components.push_back(std::move(occurrence));

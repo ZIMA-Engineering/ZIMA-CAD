@@ -128,9 +128,7 @@ zima::kernel::ViewerMesh local_container_context_mesh(
         if (!visible_origin_ids.contains(container.container_origin.id) ||
             container.suppressed) continue;
         const auto frame = container_dimension_frame(container.placement);
-        if (container.feature_kind == zima::document::FeatureKind::Cylinder ||
-            container.feature_kind == zima::document::FeatureKind::Cone ||
-            container.feature_kind == zima::document::FeatureKind::Hole) {
+        if (container.feature_kind == zima::document::FeatureKind::Hole) {
             append_axis(container, frame.origin, frame.vector({0.0, 0.0, 1.0}));
         }
         if (container.feature_kind == zima::document::FeatureKind::Hole) {

@@ -1,3 +1,4 @@
+#include "profile_solid_fixture.hpp"
 #include <zima/workspace/document_operations.hpp>
 #include <zima/kernel/occt_kernel.hpp>
 #include <filesystem>
@@ -26,7 +27,7 @@ int main() {
         const auto directory=fs::canonical(fs::temp_directory_path())/("zima-document-operations-"+id);
         fs::create_directory(directory);
         const auto part_path=directory/fs::path(u8"díl s mezerou.prtz");
-        auto box=document::PartDocument::create_box_container();part.history.push_back(box);
+        auto box=zima::test::rectangular_feature(part);part.history.push_back(box);
         kernel::OcctKernel kernel;
         const auto boundaries=kernel.evaluate_history(part.kernel_operations());
         Workspace workspace;workspace.add_part(part,boundaries,part_path);

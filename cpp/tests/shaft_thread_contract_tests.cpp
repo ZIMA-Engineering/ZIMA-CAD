@@ -1,3 +1,4 @@
+#include "profile_solid_fixture.hpp"
 #include <zima/document/part_document.hpp>
 #include <zima/document/document_session.hpp>
 #include <zima/kernel/occt_kernel.hpp>
@@ -33,8 +34,8 @@ int main() {
             require(found,"Circular extrusion did not persist its cylinder");
             // The same geometric cylinder used as a subtraction must stay
             // internal, independently of the extrusion direction.
-            auto block=document::PartDocument::create_box_container();
-            block.box={30,30,80};
+            auto block=zima::test::rectangular_feature(extruded,{30,30,80});
+
             cylinder.combine_mode=document::CombineMode::Subtract;
             extruded.history={block,cylinder};
             const auto cut=kernel.evaluate_history(extruded.kernel_operations());
@@ -52,7 +53,7 @@ int main() {
             double forward_volume=0;
             for (const bool flipped : {false,true}) {
                 auto opening_doc=document::PartDocument::create_default();
-                auto base=document::PartDocument::create_box_container();base.box={40,40,40};
+                auto base=zima::test::rectangular_feature(opening_doc,{40,40,40});
                 auto opening=document::PartDocument::create_thread_container();
                 opening.thread.enabled=threaded;
                 opening.thread.bore_length=20;opening.thread.length_forward=15;
@@ -82,14 +83,14 @@ int main() {
             }
         }
         auto doc=document::PartDocument::create_default();
-        auto shaft=document::PartDocument::create_cylinder_container();
-        shaft.cylinder.radius=5;shaft.cylinder.height=30;
+        auto shaft=zima::test::circular_feature(doc,5,30);
+
         doc.history.push_back(shaft);doc.insert_history_entry(document::PartHistoryKind::Feature,shaft.id);
         const auto source=kernel.evaluate_history(doc.kernel_operations());
         const auto& references=source.back().mesh.original_references;
         const auto face=[&](const char* key) {
             for (const auto& ref : references.triangle_references)
-                if (ref.owner_id==shaft.id && ref.semantic_key==key && ref.surface) return ref;
+                if (ref.owner_id==shaft.id && ref.semantic_key==test::profile_key(doc,shaft,key) && ref.surface) return ref;
             throw std::runtime_error("Cylinder did not persist its analytic face geometry");
         };
         auto feature=document::PartDocument::create_shaft_thread_container();
@@ -152,8 +153,8 @@ int main() {
             "Thread starting at the far shaft face did not reverse inward");
         {
             auto beveled=document::PartDocument::create_default();
-            beveled.history.push_back(shaft);
-            auto chamfer=document::PartDocument::create_chamfer_container({{shaft.id,"circle:z_min",{}}});
+            beveled.sketches=doc.sketches;beveled.history.push_back(shaft);
+            auto chamfer=document::PartDocument::create_chamfer_container({{shaft.id,test::profile_key(doc,shaft,"circle:z_min"),{}}});
             chamfer.edge_treatment.primary_size=1;
             beveled.history.push_back(chamfer);
             const auto input=kernel.evaluate_history(beveled.kernel_operations());
@@ -182,9 +183,9 @@ int main() {
         }
         for (const bool reversed : {false,true}) {
             auto beveled=document::PartDocument::create_default();
-            beveled.history.push_back(shaft);
+            beveled.sketches=doc.sketches;beveled.history.push_back(shaft);
             auto chamfer=document::PartDocument::create_chamfer_container(
-                {{shaft.id,reversed ? "circle:z_min" : "circle:z_max",{}}});
+                {{shaft.id,test::profile_key(doc,shaft,reversed ? "circle:z_min" : "circle:z_max"),{}}});
             chamfer.edge_treatment.primary_size=1;
             beveled.history.push_back(chamfer);
             const auto input=kernel.evaluate_history(beveled.kernel_operations());
@@ -213,7 +214,7 @@ int main() {
             require(count(shallow_output.back().mesh,"thread:surface:root")>0 &&
                 std::abs(shallow_output.back().volume-input.back().volume)<1e-6,
                 "Shallow chamfer lost the thread or changed material");
-            beveled.history.front().cylinder.radius=3;
+            zima::test::circular_radius(beveled,beveled.history.front())=3;
             beveled.history.back().shaft_thread.root_diameter=8.16;
             const auto outside=kernel.evaluate_history(beveled.kernel_operations());
             require(count(outside.back().mesh,"thread:surface:root")>0 &&
@@ -230,7 +231,7 @@ int main() {
         }
         for (const double radius : {3.0,doc.history.back().shaft_thread.root_diameter*0.5}) {
             auto smaller=doc;
-            smaller.history.front().cylinder.radius=radius;
+            zima::test::circular_radius(smaller,smaller.history.front())=radius;
             const auto output=kernel.evaluate_history(smaller.kernel_operations());
             require(count(output.back().mesh,"thread:surface:root")>0 &&
                 count(output.back().mesh,"thread:surface:runout:end")>0 &&
@@ -241,9 +242,11 @@ int main() {
         {
             auto moved=doc;
             moved.history.front().placement.rotation_y=35;
+            moved.history.front().placement.absolute_rotation_y=35;
             moved.history.front().placement.x=12;
-            moved.history.front().cylinder.height=45;
+            moved.history.front().extrusion.length_forward=45;
             moved.history.back().shaft_thread.end_condition=document::EndCondition::ThroughAll;
+            moved.resolve_constructions();
             const auto rebuilt=kernel.evaluate_history(moved.kernel_operations());
             const auto resolved_moved=kernel::resolve_shaft_thread(document::PartDocument::shaft_thread_request(
                 moved.history.back(),&rebuilt.back().mesh.original_references));
@@ -254,8 +257,9 @@ int main() {
         {
             document::DocumentSession session(doc,kernel.evaluate_history(doc.kernel_operations()));
             auto resized=session.document();
-            resized.history.front().cylinder.radius=4.5;
+            zima::test::circular_radius(resized,resized.history.front())=4.5;
             resized.history.front().placement.x=12;
+            resized.resolve_constructions();
             session.commit(resized,kernel.evaluate_history(resized.kernel_operations()));
             auto detached=session.document();
             require(detached.history.back().shaft_thread.cylinder.surface &&

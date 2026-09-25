@@ -115,8 +115,7 @@ int verify_symbol_ui(QApplication& application,zima::app::AssemblyWorkspaceWindo
         }
         view->fit_all();flush();
         window.grab().save(QString::fromStdString((directory/"symbol-authoring.png").string()));
-        auto model=document::PartDocument::create_default();auto cylinder=document::PartDocument::create_cylinder_container();
-        cylinder.cylinder.radius=8;cylinder.cylinder.height=25;model.history.push_back(cylinder);model.insert_history_entry(document::PartHistoryKind::Feature,cylinder.id);
+        auto model=document::PartDocument::create_default();auto cylinder=test::circular_feature(model,8,25);model.history.push_back(cylinder);model.insert_history_entry(document::PartHistoryKind::Feature,cylinder.id);
         kernel::OcctKernel kernel;const auto model_path=directory/"symbol-attachment.prtz";model.save(model_path,kernel.evaluate_history(model.kernel_operations()));
         check(window.open_document_path(QString::fromStdString(model_path.string())),"Cannot open model symbol fixture");flush();
         check(insert->isEnabled(),"Model symbol insertion unavailable");view->set_view_direction({1,-1,.5});view->fit_all();flush();

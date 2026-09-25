@@ -90,9 +90,7 @@ int verify_part_dialog_layout(QApplication& application, QWidget& parent) {
                 dialog->hide();
             };
             using Part=document::PartDocument;
-            const std::array factories{&Part::create_box_container,&Part::create_cylinder_container,&Part::create_sphere_container,
-                &Part::create_cone_container,&Part::create_pyramid_container,&Part::create_wedge_container,
-                &Part::create_hole_container,&Part::create_thread_container,&Part::create_drill_point_container,&Part::create_twisted_sheet_container};
+            const std::array factories{&Part::create_hole_container,&Part::create_thread_container,&Part::create_drill_point_container,&Part::create_twisted_sheet_container};
             for(const auto factory:factories) {
                 auto feature=factory();check(new app::PrimitivePropertiesDialog(feature,false,true,[](auto){},&parent),QString::number(static_cast<int>(feature.feature_kind)));
             }
@@ -102,7 +100,7 @@ int verify_part_dialog_layout(QApplication& application, QWidget& parent) {
             }
             check(new app::PrimitivePropertiesDialog(Part::create_shell_container(),false,true,[](auto){},&parent),"shell");
             for(auto kind:{document::FeatureKind::Fillet,document::FeatureKind::Chamfer}) {
-                auto feature=Part::create_box_container();feature.feature_kind=kind;
+                auto feature=Part::create_twisted_sheet_container();feature.feature_kind=kind;
                 check(new app::PrimitivePropertiesDialog(feature,false,true,[](auto){},&parent),kind==document::FeatureKind::Fillet?"fillet":"chamfer");
             }
             for(auto kind:{document::ConstructionKind::Point,document::ConstructionKind::Axis,document::ConstructionKind::Plane,document::ConstructionKind::Curve3D}) {
@@ -145,7 +143,7 @@ int verify_part_dialog_layout(QApplication& application, QWidget& parent) {
                 const bool pattern=mode>0;
                 document::DerivedCopyParameters parameters;
                 if(pattern){parameters.pattern.emplace();parameters.pattern->circular=mode==2;}
-                check(new app::DerivedCopyDialog(Part::create_box_container(),parameters,[](auto,auto){},&parent),mode==0?"mirror":mode==1?"linear-pattern":"circular-pattern");
+                check(new app::DerivedCopyDialog(Part::create_twisted_sheet_container(),parameters,[](auto,auto){},&parent),mode==0?"mirror":mode==1?"linear-pattern":"circular-pattern");
             }
             for(int mode=0;mode<3;++mode) {
                 std::set<std::string> locks;

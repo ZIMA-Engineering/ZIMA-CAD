@@ -4,6 +4,7 @@
 #include <zima/workspace/edge_treatment_operations.hpp>
 #include <zima/workspace/operation_input.hpp>
 #include <limits>
+#include <QUuid>
 
 namespace zima::app {
 using namespace workspace_detail;
@@ -28,7 +29,11 @@ void AssemblyWorkspaceWindow::start_edge_treatment(
     pending_edge_treatment_edges_.clear();
     pending_edge_treatment_groups_.clear();
     pending_edge_treatment_seeds_.clear();
-    auto initial = zima::document::PartDocument::create_box_container();
+    auto initial = zima::document::HistoryContainer{};
+    initial.id=QUuid::createUuid().toString(QUuid::WithoutBraces).toStdString();
+    initial.feature_id=QUuid::createUuid().toString(QUuid::WithoutBraces).toStdString();
+    initial.feature_parent_id=initial.id;
+    initial.container_origin=zima::document::create_container_origin(initial.id);
     initial.feature_kind = kind;
     initial.name = kind == zima::document::FeatureKind::Fillet
         ? tr("Zaoblení").toStdString() : tr("Sražení").toStdString();

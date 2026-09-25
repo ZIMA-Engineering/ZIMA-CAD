@@ -1,3 +1,4 @@
+#include "profile_solid_fixture.hpp"
 #include <zima/document/part_document.hpp>
 #include <zima/document/viewer_packet_json.hpp>
 #include <nlohmann/json.hpp>
@@ -436,9 +437,9 @@ int main(){try{
     for(auto& point:channel.sweep3d.path.curve_points) {
         point.origin.x+=10;point.origin.y+=10;point.origin.z+=10;
     }
-    auto block=document::PartDocument::create_box_container();
-    block.box.height=100;
-    document::PartDocument drilling;drilling.history={block,channel};
+    document::PartDocument drilling;auto block=zima::test::rectangular_feature(drilling,{100,80,100});
+
+    drilling.history={block,channel};
     const auto cut=k.evaluate_history(drilling.kernel_operations());
     auto tip=document::PartDocument::create_drill_point_container();
     tip.drill_point.bottom_faces={{channel.id,document::sweep3d_cap_key(channel.sweep3d.path,0,false),{}}};

@@ -1,3 +1,5 @@
+#include "../tests/gui_profile_fixture.hpp"
+#include "../tests/profile_solid_fixture.hpp"
 #include <QComboBox>
 #include "primitive_properties_dialog.hpp"
 #include "assembly_workspace_window.hpp"
@@ -38,7 +40,7 @@ int verify_holes_ui(QApplication& application, AssemblyWorkspaceWindow& window,
         window.showMaximized();flush();
         const auto name="holes-ui-"+std::to_string(std::chrono::steady_clock::now().time_since_epoch().count());
         run("new",{{"type","part"},{"name",name}});
-        const auto box=run("box.create",{{"length_mm","40"},{"width_mm","40"},{"height_mm","40"}})
+        const auto box=zima::test::gui_rectangular_profile(window,40,40,40).data
             .at("container").get<std::string>();
         const auto source=run("sketch.create",{{"name","Channels"},{"plane","XY"}});
         const auto sketch=source.at("sketch").get<std::string>(),owner=source.at("owner").get<std::string>();
@@ -340,7 +342,7 @@ int verify_work_plane_ui(QApplication& application, AssemblyWorkspaceWindow& win
         for(const std::string kind:{"sketch","holes","extrusion","revolution","plane"}) {
             stage=kind;
             auto doc=document::PartDocument::create_default();doc.name="Plane "+kind;
-            auto box=document::PartDocument::create_box_container();box.box={40,40,40};doc.history.push_back(box);
+            auto box=test::rectangular_feature(doc,{40,40,40});doc.history.push_back(box);
             auto sketch=sketcher::Sketch::create_default();
             auto feature=kind=="extrusion"?document::PartDocument::create_extrusion_container(sketch.id):kind=="revolution"?document::PartDocument::create_revolution_container(sketch.id):document::PartDocument::create_sketch_container();
             feature.name=kind;sketch.owner_container_id=feature.id;

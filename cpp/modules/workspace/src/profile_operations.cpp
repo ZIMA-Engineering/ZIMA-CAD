@@ -172,12 +172,20 @@ void commit_profile(Workspace& live, const kernel::OcctKernel& kernel, const std
         if (profile->plane_auto && first != value.placement.references.end() && first->supports_offset) profile->plane = sketcher::SketchPlane::XZ;
         profile->plane_offset = feature ? value.feature.profile_plane_offset : extrusion ? value.extrusion.profile_plane_offset : value.revolution.profile_plane_offset;
     }
+    // Confirming an unchanged definition must keep its current calculation and
+    // Undo boundary. The owned Sketch is part of the edit, not just its owner.
+    if (mode == ProfileEditMode::Replace && existing && *existing == value) {
+        const auto original_profile = std::ranges::find(before.sketches, sketch_id, &sketcher::Sketch::id);
+        if (original_profile != before.sketches.end() &&
+            original_profile->serialized() == profile->serialized()) return;
+    }
     const auto container_id = value.id;
     if (existing) *next.find_container(container_id) = std::move(value);
     else {next.insert_history_entry(document::PartHistoryKind::Feature, container_id); next.history.push_back(std::move(value));}
     const auto& previous = state->session.calculated_boundaries();
     if (feature) {
         auto& container=*next.find_container(container_id);
+        if(container.feature.type==document::FeatureType::Modeling)
         for (auto& side:container.feature.sides) {
             const bool limit=(side.operation==document::FeatureSideOperation::Extrusion && side.extrusion_extent==document::EndCondition::UpTo) ||
                 (side.operation==document::FeatureSideOperation::Revolution && side.rotation_extent==document::FeatureRotationExtent::UpTo);

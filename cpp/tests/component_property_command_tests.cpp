@@ -1,3 +1,5 @@
+#include "profile_command_fixture.hpp"
+#include "profile_solid_fixture.hpp"
 #include <zima/command_host/host.hpp>
 #include <zima/workspace/component_properties.hpp>
 #include <iostream>
@@ -18,7 +20,7 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
     options.interaction=[&]{command_host::Interaction value;value.editing=editing;return value;};
     command_host::Host host(live,kernel,dir,options);
     run(host,"new",{{"type","part"},{"name","source"}});const auto source=live.active_document_id();
-    const auto box=run(host,"box.create",{{"length_mm","10"},{"width_mm","20"},{"height_mm","30"}}).data.at("container").get<std::string>();run(host,"save");
+    const auto box=zima::test::rectangular_commands([&](const char* n,commands::Json a){return run(host,n,std::move(a));},{{"length_mm","10"},{"width_mm","20"},{"height_mm","30"}}).data.at("container").get<std::string>();run(host,"save");
     const auto source_revision=live.open_part(source)->session.revision();
     run(host,"new",{{"type","assembly"},{"name","properties"}});const auto id=live.active_document_id();
     const auto first=run(host,"component.insert",{{"source",source}}).data.at("occurrence").get<std::string>();
@@ -77,7 +79,7 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
     near(current(second).placement.x,10);near(current(second).placement.y,11);near(current(second).placement.z,12);
     rejected({{"placement",{{"x_mm",11}}}},"constrained_coordinate");
     set(second,{{"placement_references",Json::array()},{"placement",{{"rotation_x_deg",0},{"rotation_y_deg",0},{"rotation_z_deg",0}}}});
-    Json faces={{"kind","plane_coincident"},{"component",ref(second,box,"z_min")},{"target",ref(first,box,"z_max")},{"offset",3},{"flip",true}};
+    Json faces={{"kind","plane_coincident"},{"component",ref(second,box,test::profile_key(live.open_part(source)->session.document(),box,"z_min"))},{"target",ref(first,box,test::profile_key(live.open_part(source)->session.document(),box,"z_max"))},{"offset",3},{"flip",true}};
     set(second,{{"placement_references",Json::array({faces})}});near(current(second).placement.z,45);
     const auto rows=get(second).at("placement_references");set(second,{{"placement_references",rows}});
     require(current(second).placement_references.front().component_reference.owner_id==box,"Original geometry was replaced with result topology");
@@ -95,7 +97,7 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
     editing=true;rejected({{"visible",false}},"editing_in_progress");editing=false;
     set(second,{{"grounded",true}});rejected({{"placement",{{"x_mm",1}}}},"constrained_coordinate");set(second,{{"grounded",false}});
     // Proposed target cycle must be rejected even if one component is grounded.
-    auto cycle=faces;cycle["component"]=ref(first,box,"z_min");cycle["target"]=ref(second,box,"z_max");
+    auto cycle=faces;cycle["component"]=ref(first,box,test::profile_key(live.open_part(source)->session.document(),box,"z_min"));cycle["target"]=ref(second,box,test::profile_key(live.open_part(source)->session.document(),box,"z_max"));
     rejected({{"instance_path",path(first)},{"placement_references",Json::array({cycle})}});
     const auto edit=workspace::prepare_component_edit(live,id,second);set(second,{{"name","Updated"}});
     bool stale=false;try{static_cast<void>(workspace::commit_component_properties(live,edit,edit.initial));}catch(const workspace::ComponentOperationError& e){stale=std::string(e.code)=="document_changed";}require(stale,"Stale Properties accepted");
@@ -113,14 +115,14 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
     run(host,"document.relations.set",{{"relations",Json::array()}});
     const auto prepared=workspace::prepare_component_edit(live,id,second);
     const auto old_mirror=current(mirror).calculated_source;
-    run(host,"activate",{{"document",source}});run(host,"box.set",{{"container",box},{"length_mm","20"}});
+    run(host,"activate",{{"document",source}});zima::test::resize_rectangular_commands([&](const char* n,commands::Json a){return run(host,n,std::move(a));},{{"container",box},{"length_mm","20"}});
     live.refresh_source_geometry();run(host,"activate",{{"document",id}});
     const auto fresh=current(second).calculated_source;near(fresh->volume,12000);
     auto renamed=prepared.initial;renamed.name="Current source retained";
     require(workspace::commit_component_properties(live,prepared,renamed),"Prepared name edit did not commit");
     require(current(second).calculated_source.shares_with(fresh)&&current(mirror).calculated_source.shares_with(old_mirror),
         "Prepared properties overwrote updated source geometry or regenerated a derived result");
-    require(live.open_part(source)->session.is_dirty()&&document::PartDocument::load(dir/"source.prtz").find_container(box)->box.length==10,
+    require(live.open_part(source)->session.is_dirty()&&zima::test::profile_dimension(document::PartDocument::load(dir/"source.prtz"),*document::PartDocument::load(dir/"source.prtz").find_container(box),0)==10,
         "Properties saved the authoritative source Part");
     // Followers precede their targets in component storage. Changing C must
     // settle B and then A without relying on tree/insertion order.

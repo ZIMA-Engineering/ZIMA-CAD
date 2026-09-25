@@ -155,10 +155,10 @@ external geometry, revision, or cache files.
 ## Scope and verification
 
 The catalog is shared with the console: documents, context/tree, new/open/save,
-regenerate, undo/redo, fit, and create/get/set for all six basic primitives.
+regenerate, undo/redo, fit, Sketch geometry and profile operations.
 Without a View, `fit` returns an error. `context` invents no selection, hover, or
-camera. Box, cylinder, sphere, cone, pyramid, and wedge dimensions are explicitly
-in mm and use the same transactions as GUI. The desktop console's
+camera. Profile dimensions use explicit millimetres and the same transactions
+as the GUI. The desktop console's
 [AI mode](AI_CONSOLE.md) uses this same host with active-tab context and inline
 command review. The headless CLI does not connect to a running GUI or AI provider;
 voice input remains outside this stage.
@@ -182,25 +182,17 @@ confirmed no Qt DLLs (`build/cli-dependencies.log`). Shared PDF export subsequen
 introduced Qt Gui/Svg in headless mode; that original observation no longer describes
 the current runtime.
 
-### Modeling a box
+### Modeling from a Sketch
 
-```powershell
-./build/cpp-windows-release/zima-cad-cli.exe --working-directory C:/CAD/example `
-  --command "new part box_example" --command "box.create 10 20 30" --command "save"
-```
+Start with `new part example` and `sketch.create Profile XY`. Use the returned
+Sketch ID with the `sketch.segment.create`, `sketch.circle.create` and other
+Sketch commands. `extrusion.create` or `revolution.create` converts that Sketch
+into an editable profile feature. These commands return a stable container ID
+for subsequent `.get` and `.set` calls; use `save` explicitly when finished.
 
-This creates a real 10 × 20 × 30 mm box (6000 mm³) in `box_example.prtz`.
-`box.create` returns a stable container ID. In a later invocation, open the Part
-with `open` and use `box.get ID` or `box.set ID 15`. The same process can undo,
-redo, and save changes. CLI does not transfer Undo history between processes.
-
-Exact syntax, units, locks, and transactions are in the
-[box command description](CAD_CONSOLE.md#shared-box-operation-2026-09-11).
-
-`cylinder`, `sphere`, `cone`, `pyramid`, and `wedge` follow the same pattern.
-`cylinder.create 3 6` creates a cylinder of radius 3 mm and height 6 mm;
-`cone.create 4 0 6` creates a pointed cone. Full parameter order is in the
-[basic primitive catalog](CAD_CONSOLE.md#all-basic-primitives).
+Box, Cylinder, Sphere, Cone, Pyramid and Wedge commands and native feature types
+were removed. There is no compatibility loader for documents containing them.
+See [Feature types](UNIFIED_FEATURE_TYPES.md) for the current GUI workflow.
 
 ### Drawing PDF without a window
 

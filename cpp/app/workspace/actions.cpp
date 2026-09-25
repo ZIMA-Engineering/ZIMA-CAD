@@ -430,9 +430,6 @@ void AssemblyWorkspaceWindow::create_actions() {
     about_action->setObjectName("aboutAction");
     connect(about_action, &QAction::triggered, this, [this] { show_about(); });
 
-    box_action_ = make_action(tr("Kvádr"), "box");
-    box_action_->setObjectName("boxAction");
-    cylinder_action_ = make_action(tr("Válec"), "cylinder");
     thread_action_ = make_action(tr("Otvor"), "hole");
     thread_action_->setObjectName("threadAction");
     holes_action_ = make_action(tr("Otvory"), "holes");
@@ -457,10 +454,6 @@ void AssemblyWorkspaceWindow::create_actions() {
     connect(shaft_thread_action_,&QAction::triggered,this,[this] { show_shaft_thread_properties(); });
     drill_point_action_ = make_action(tr("Vrtací špička"), "drill-point");
     drill_point_action_->setObjectName("drillPointAction");
-    sphere_action_ = make_action(tr("Koule"), "sphere");
-    cone_action_ = make_action(tr("Kužel"), "cone");
-    pyramid_action_ = make_action(tr("Jehlan"), "pyramid");
-    wedge_action_ = make_action(tr("Klín"), "wedge");
     construction_point_action_ = make_action(tr("Bod"), "point");
     curve_3d_action_ = make_action(tr("3D křivka"), "sketch-3d");
     mirror_action_=make_action(tr("Zrcadlo"),"mirror");mirror_action_->setObjectName("mirrorAction");
@@ -719,22 +712,10 @@ void AssemblyWorkspaceWindow::create_actions() {
     regenerate_part_action_->setIcon(resource_icon("regenerate"));
     regenerate_part_action_->setObjectName("regeneratePartAction");
 
-    connect(box_action_, &QAction::triggered, this, [this] {
-        show_primitive_properties(zima::document::FeatureKind::Box); });
-    connect(cylinder_action_, &QAction::triggered, this, [this] {
-        show_primitive_properties(zima::document::FeatureKind::Cylinder); });
     connect(thread_action_, &QAction::triggered, this, [this] {
         show_primitive_properties(zima::document::FeatureKind::Thread); });
     connect(drill_point_action_, &QAction::triggered, this, [this] {
         show_primitive_properties(zima::document::FeatureKind::DrillPoint); });
-    connect(sphere_action_, &QAction::triggered, this, [this] {
-        show_primitive_properties(zima::document::FeatureKind::Sphere); });
-    connect(cone_action_, &QAction::triggered, this, [this] {
-        show_primitive_properties(zima::document::FeatureKind::Cone); });
-    connect(pyramid_action_, &QAction::triggered, this, [this] {
-        show_primitive_properties(zima::document::FeatureKind::Pyramid); });
-    connect(wedge_action_, &QAction::triggered, this, [this] {
-        show_primitive_properties(zima::document::FeatureKind::Wedge); });
     connect(construction_point_action_, &QAction::triggered, this, [this] {
         show_construction_properties(zima::document::ConstructionKind::Point); });
     connect(curve_3d_action_, &QAction::triggered, this, [this] {

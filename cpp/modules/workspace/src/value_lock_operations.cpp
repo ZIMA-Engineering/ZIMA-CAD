@@ -70,11 +70,7 @@ template<class Document> auto fields(Document& doc,const std::string& owner) {
             // The numeric slots actually exposed by the shared Properties
             // dialogs. Catalog selections and derived values are not locks.
             switch(object.feature_kind) {
-            case Kind::Box:case Kind::Pyramid:add({"length","width","height"});break;
-            case Kind::Cylinder:add({"radius","height"});break;
-            case Kind::Sphere:add({"radius"});break;
-            case Kind::Cone:add({"bottom_radius","top_radius","height"});break;
-            case Kind::Wedge:add({"length","width","height","top_offset"});break;
+            case Kind::Feature:add({"profile_offset","side0_length","side1_length","side0_angle","side1_angle","thin_thickness"});break;
             case Kind::Sketch:number(out,object.placement.value_locks,"profile_offset");break;
             case Kind::Bend:add({"radius","angle"});number(out,object.placement.value_locks,"profile_offset");break;
             case Kind::Holes:add({"diameter"});number(out,object.placement.value_locks,"profile_offset");break;

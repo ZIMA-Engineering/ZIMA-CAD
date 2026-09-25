@@ -1,3 +1,4 @@
+#include "profile_solid_fixture.hpp"
 #include <zima/workspace/native_documents.hpp>
 #include <zima/kernel/occt_kernel.hpp>
 #include <filesystem>
@@ -123,7 +124,7 @@ int main(){
         require(workspace.size()==count,"Failed creation inserted a document");
 
         auto model=document::PartDocument::create_default();model.name="stored model";
-        model.history.push_back(document::PartDocument::create_box_container());
+        model.history.push_back(zima::test::rectangular_feature(model));
         kernel::OcctKernel kernel;const auto boundaries=kernel.evaluate_history(model.kernel_operations());
         const auto model_path=directory/fs::path(u8"uložený model.PRTZ");model.save(model_path,boundaries);
         auto loaded=std::async(std::launch::async,[model_path]{return read_native_document(model_path);}).get();

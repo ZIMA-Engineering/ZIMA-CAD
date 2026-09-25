@@ -191,6 +191,7 @@ add_library(zima_document_core
     modules/document_core/src/sheet_transition.cpp
     modules/document_core/src/profile_serialization.cpp
     modules/document_core/src/feature_serialization.cpp
+    modules/document_core/src/feature_result_geometry.cpp
     modules/document_core/src/part_document.cpp
     modules/document_core/src/hole_profiles.cpp
     modules/document_core/src/holes.cpp
@@ -430,17 +431,6 @@ target_compile_options(zima_interchange PRIVATE $<$<CXX_COMPILER_ID:MSVC>:/utf-8
 target_link_libraries(zima_interchange PUBLIC zima_sketcher zima_document_core zima_assembly zima_kernel_occt
     PRIVATE TKDESTEP TKXSBase TKXCAF TKCAF TKLCAF TKCDF TKBRep TKGeomBase)
 
-add_executable(zima-cad-part-harness
-    app/main.cpp app/main_window.cpp app/file_dialog.cpp
-    app/application_settings.cpp
-    app/resource_icon.cpp app/zima_resources.qrc
-    app/primitive_properties_dialog.cpp)
-target_include_directories(zima-cad-part-harness PRIVATE app)
-target_link_libraries(zima-cad-part-harness PRIVATE
-    zima_document_core zima_kernel_occt zima_viewer zima_ui
-    Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Svg)
-set_target_properties(zima-cad-part-harness PROPERTIES AUTORCC ON)
-
 include(app/workspace/sources.cmake)
 
 add_executable(zima-cad-cpp
@@ -459,6 +449,13 @@ add_executable(zima-cad-cpp
     app/sketch_bspline_properties_dialog.cpp
     app/sketch_text_properties_dialog.cpp
     app/sketch_dimension_properties_dialog.cpp)
+if(MSVC)
+    # The integrated GUI verification and native document value frames consume
+    # about 0.8 MiB before entering profile preview. Match the 8 MiB reserve
+    # used by the combined native contract; Windows otherwise reserves 1 MiB.
+    target_link_options(zima-cad-cpp PRIVATE /STACK:8388608)
+endif()
+
 target_include_directories(zima-cad-cpp PRIVATE app)
 target_link_libraries(zima-cad-cpp PRIVATE
     zima_update_ui zima_ai
@@ -599,6 +596,14 @@ if(ZIMA_BUILD_TESTS)
     set_tests_properties(zima_cpp_helical_sweep_ui_contract PROPERTIES
         ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_HELICAL_SWEEP_ONLY=1"
         WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 120)
+    add_test(NAME zima_cpp_owned_point_ui_contract COMMAND zima-cad-cpp --verify-startup)
+    set_tests_properties(zima_cpp_owned_point_ui_contract PROPERTIES
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_BODY_CURVE_REFERENCE_ONLY=1"
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 120 RUN_SERIAL TRUE)
+    add_test(NAME zima_cpp_owned_sketch_recovery_ui_contract COMMAND zima-cad-cpp --verify-startup)
+    set_tests_properties(zima_cpp_owned_sketch_recovery_ui_contract PROPERTIES
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_UNRESOLVED_SWEEP_ONLY=1"
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 120 RUN_SERIAL TRUE)
     add_test(NAME zima_cpp_profile_frame_ui_contract COMMAND zima-cad-cpp --verify-startup)
     add_test(NAME zima_cpp_profile_on_sheet_ui_contract COMMAND zima-cad-cpp --verify-startup)
     set_tests_properties(zima_cpp_profile_on_sheet_ui_contract PROPERTIES
@@ -1182,14 +1187,6 @@ if(ZIMA_BUILD_TESTS)
     add_test(NAME zima_cpp_profile_command_tests COMMAND zima_cpp_profile_command_tests)
     set_tests_properties(zima_cpp_profile_command_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
 
-    add_executable(zima_cpp_primitive_command_tests tests/primitive_command_tests.cpp)
-    target_link_libraries(zima_cpp_primitive_command_tests PRIVATE zima_command_host)
-    add_test(NAME zima_cpp_primitive_command_tests COMMAND zima_cpp_primitive_command_tests)
-    set_tests_properties(zima_cpp_primitive_command_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
-    add_executable(zima_cpp_box_command_tests tests/box_command_tests.cpp)
-    target_link_libraries(zima_cpp_box_command_tests PRIVATE zima_command_host)
-    add_test(NAME zima_cpp_box_command_tests COMMAND zima_cpp_box_command_tests)
-    set_tests_properties(zima_cpp_box_command_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
     add_executable(zima_cpp_assembly_sketch_properties_tests tests/assembly_sketch_properties_tests.cpp)
     target_link_libraries(zima_cpp_assembly_sketch_properties_tests PRIVATE zima_command_host)
     add_test(NAME zima_cpp_assembly_sketch_properties_tests COMMAND zima_cpp_assembly_sketch_properties_tests)
@@ -1558,6 +1555,17 @@ endif()
 
 if(ZIMA_BUILD_TESTS)
     add_executable(zima_cpp_profile_centerlines_tests tests/profile_centerlines_tests.cpp)
+    add_executable(zima_cpp_feature_type_ui_tests tests/feature_type_ui_tests.cpp
+        app/primitive_properties_dialog.cpp app/resource_icon.cpp app/zima_resources.qrc
+        app/application_settings.cpp app/file_dialog.cpp)
+    target_include_directories(zima_cpp_feature_type_ui_tests PRIVATE app)
+    target_link_libraries(zima_cpp_feature_type_ui_tests PRIVATE
+        zima_workspace zima_document_core zima_assembly zima_ui zima_viewer
+        Qt6::Widgets Qt6::Svg nlohmann_json::nlohmann_json)
+    set_target_properties(zima_cpp_feature_type_ui_tests PROPERTIES AUTORCC ON)
+    add_test(NAME zima_cpp_feature_type_ui_contract COMMAND zima_cpp_feature_type_ui_tests)
+    set_tests_properties(zima_cpp_feature_type_ui_contract PROPERTIES
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT}")
     add_executable(zima_cpp_feature_parameters_tests tests/feature_parameters_tests.cpp)
     target_link_libraries(zima_cpp_feature_parameters_tests PRIVATE zima_document_core)
     add_test(NAME zima_cpp_feature_parameters COMMAND zima_cpp_feature_parameters_tests)

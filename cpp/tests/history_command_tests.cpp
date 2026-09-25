@@ -1,3 +1,4 @@
+#include "profile_command_fixture.hpp"
 #include <zima/command_host/host.hpp>
 #include <zima/workspace/history_operations.hpp>
 #include <zima/workspace/reference_index.hpp>
@@ -24,8 +25,8 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
     options.interaction=[&]{return interaction;};command_host::Host host(live,kernel,directory,options);
     run(host,"new",{{"type","part"},{"name","history"}});const auto doc=live.active_document_id();auto* state=live.open_part(doc);
     const auto body=state->session.document().body_history.active_body_id();
-    const auto first=run(host,"box.create",{{"length_mm","10"},{"width_mm","10"},{"height_mm","10"}}).data.at("container").get<std::string>();
-    const auto second=run(host,"box.create",{{"length_mm","4"},{"width_mm","4"},{"height_mm","4"}}).data.at("container").get<std::string>();
+    const auto first=zima::test::rectangular_commands([&](const char* n,commands::Json a){return run(host,n,std::move(a));},{{"length_mm","10"},{"width_mm","10"},{"height_mm","10"}}).data.at("container").get<std::string>();
+    const auto second=zima::test::rectangular_commands([&](const char* n,commands::Json a){return run(host,n,std::move(a));},{{"length_mm","4"},{"width_mm","4"},{"height_mm","4"}}).data.at("container").get<std::string>();
     volume(*state,1000);const auto revision=state->session.revision();const auto* cache=state->session.calculated_boundaries().data();
     const auto listed=run(host,"history.list").data;
     require(listed.at("items").size()==2 && listed.at("items")[0].at("body")==body,"History query lost order/ownership");
@@ -51,7 +52,7 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
         require(!host.execute(request).ok && state->session.revision()==valid_revision,"Rejected history command partly committed");
     }
     run(host,"history.cursor",{{"index",0}});volume(*state,1000);
-    const auto inserted=run(host,"box.create",{{"length_mm","2"},{"width_mm","2"},{"height_mm","2"}}).data.at("container").get<std::string>();
+    const auto inserted=zima::test::rectangular_commands([&](const char* n,commands::Json a){return run(host,n,std::move(a));},{{"length_mm","2"},{"width_mm","2"},{"height_mm","2"}}).data.at("container").get<std::string>();
     require(state->session.document().history_order.front().id==inserted && state->session.document().body_history.owner(inserted)->scope.id==body,"Cursor insertion lost history scope");
     run(host,"history.delete",{{"object",inserted}});require(!state->session.document().find_container(inserted),"Delete retained feature");
     run(host,"undo");require(state->session.document().find_container(inserted),"Delete Undo lost feature");run(host,"redo");
@@ -67,7 +68,7 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
     const auto other=run(host,"body.create",{{"name","Other"}}).data.at("body").get<std::string>();
     require(host.execute_text("history.delete "+first).code=="inactive_body","Deleted history in inactive Body");
     require(host.execute_text("history.suppress "+first+" true").code=="inactive_body","Suppressed history in inactive Body");
-    run(host,"box.create",{{"length_mm","3"},{"width_mm","3"},{"height_mm","3"}});
+    zima::test::rectangular_commands([&](const char* n,commands::Json a){return run(host,n,std::move(a));},{{"length_mm","3"},{"width_mm","3"},{"height_mm","3"}});
     run(host,"history.move",{{"object",other},{"before",body}});
     require(state->session.document().body_history.order().front()==other,"Body step move failed");
     run(host,"history.delete",{{"object",other}});require(!state->session.document().body_history.find(other),"Body deletion failed");run(host,"undo");
@@ -81,7 +82,7 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
     // Two independent edge treatments: deleting the earlier one must retain
     // the surviving source edge used by the later treatment.
     run(host,"new",{{"type","part"},{"name","edges"}});auto* edges=live.open_part(live.active_document_id());
-    run(host,"box.create",{{"length_mm","10"},{"width_mm","10"},{"height_mm","10"}});
+    zima::test::rectangular_commands([&](const char* n,commands::Json a){return run(host,n,std::move(a));},{{"length_mm","10"},{"width_mm","10"},{"height_mm","10"}});
     const auto vertical=[&](double x,double y) {
         for(const auto& edge:edges->session.calculated_boundaries().back().mesh.edges)
             if(edge.reference.valid() && edge.points.size()>=2 && std::ranges::all_of(edge.points,[&](const auto& p){return std::abs(p.x-x)<1e-7 && std::abs(p.y-y)<1e-7;}))return edge.reference;

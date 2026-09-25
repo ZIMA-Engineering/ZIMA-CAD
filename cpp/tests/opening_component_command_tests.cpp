@@ -1,3 +1,4 @@
+#include "profile_command_fixture.hpp"
 #include <zima/command_host/host.hpp>
 #include <zima/workspace/opening_component_operations.hpp>
 #include <cmath>
@@ -17,7 +18,7 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory,bool native) {
         if(!result.ok)throw std::runtime_error(command+": "+result.code+": "+result.message);return result.data;
     };
     const std::string kind=native?"hole":"opening",stem="components-"+kind;
-    run("new",{{"type","part"},{"name",stem}});run("box.create",{{"length_mm","60"},{"width_mm","60"},{"height_mm","60"}});
+    run("new",{{"type","part"},{"name",stem}});zima::test::rectangular_commands([&](const char* n,commands::Json a){return run(n,std::move(a));},{{"length_mm","60"},{"width_mm","60"},{"height_mm","60"}});
     const auto document_id=live.active_document_id();auto* state=live.open_part(document_id);
     Json args={{"type","metric"},{"bore_length_mm",20},{"thread_length_mm",10},{"drill_point_enabled",true},{"drill_point_angle_degrees",118},{"placement",{{"z",-30}}}};
     if(native){args["diameter_mm"]=8;args["thread_diameter_mm"]=10;args["thread_pitch_mm"]=1.5;args["entrance_chamfer_mm"]=2;}

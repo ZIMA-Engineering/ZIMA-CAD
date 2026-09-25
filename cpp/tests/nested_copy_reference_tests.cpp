@@ -1,3 +1,4 @@
+#include "profile_solid_fixture.hpp"
 #include <zima/command_host/host.hpp>
 #include <zima/workspace/reference_sources.hpp>
 #include <cmath>
@@ -46,8 +47,8 @@ void check_geometry(const workspace::Workspace& live,const std::string& top,cons
 }
 void verify(const fs::path& dir) {
     kernel::OcctKernel kernel;
-    auto part=document::PartDocument::create_default();auto box=document::PartDocument::create_box_container();box.box={10,12,14};
-    auto cylinder=document::PartDocument::create_cylinder_container();cylinder.cylinder={3,18};cylinder.placement.x=18;
+    auto part=document::PartDocument::create_default();auto box=zima::test::rectangular_feature(part,{10,12,14});
+    auto cylinder=zima::test::circular_feature(part,3,18);cylinder.placement.x=18;
     part.history={box,cylinder};document::BodyHistoryGraph graph;static_cast<void>(graph.create_body("Box"));graph.insert({document::PartHistoryKind::Feature,box.id});
     static_cast<void>(graph.create_body("Cylinder"));graph.insert({document::PartHistoryKind::Feature,cylinder.id});part.set_body_history(std::move(graph));
     const auto bodies=kernel.evaluate_history(part.kernel_operations());part.save(dir/"source.prtz",bodies);

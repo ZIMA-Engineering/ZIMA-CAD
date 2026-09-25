@@ -1,3 +1,4 @@
+#include "profile_command_fixture.hpp"
 #include <zima/command_host/host.hpp>
 #include <zima/document/file_path.hpp>
 #include <QCoreApplication>
@@ -30,7 +31,7 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
     const auto run=[&](const char* command,Json args=Json::object()){const auto r=call(command,std::move(args));if(!r.ok)throw std::runtime_error(r.code+": "+r.message);return r.data;};
     require(call("export.view",{{"path","empty.png"}}).code=="no_document"&&captures==0,"Empty host attempted a capture");
     run("new",{{"type","part"},{"name","view-source"}});const auto part=live.active_document_id();
-    run("box.create",{{"length_mm","10"},{"width_mm","20"},{"height_mm","30"}});run("save");
+    zima::test::rectangular_commands([&](const char* n,commands::Json a){return run(n,std::move(a));},{{"length_mm","10"},{"width_mm","20"},{"height_mm","30"}});run("save");
     const auto before=run("documents");const auto generation=live.open_part(part)->session.data_generation();
     const auto* cache=live.open_part(part)->session.calculated_boundaries().data();
     const auto png=directory/fs::path(u8"pohled žluťoučký.PNG");

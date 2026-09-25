@@ -1,3 +1,4 @@
+#include "profile_solid_fixture.hpp"
 #include <zima/command_host/host.hpp>
 #include <zima/workspace/assembly_import_operations.hpp>
 #include <zima/workspace/component_source_operations.hpp>
@@ -40,7 +41,7 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
         require(doc.physical_parameters==expected_material.properties&&doc.physical_parameter_units==expected_material.units&&
             doc.material_parameter_descriptions==expected_material.descriptions,"Imported Part did not persist S235JR material");
     };
-    kernel::StepProduct part;part.definition_id="part";part.name="Block";part.body=kernel.make_box({10,20,30});
+    kernel::StepProduct part;part.definition_id="part";part.name="Block";part.body=zima::test::profile_body(kernel,{10,20,30});
     auto second=part;second.name="Block 2";second.translation={50,0,0};
     kernel::StepProduct group;group.definition_id="group";group.name="Subassembly";group.children={part,second};
     auto repeated=group;repeated.name="Repeated subassembly";repeated.translation={0,50,0};

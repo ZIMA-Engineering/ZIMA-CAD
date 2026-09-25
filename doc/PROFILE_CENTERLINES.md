@@ -59,3 +59,13 @@ Centroid-derived axes and rotation paths display a `T` at their starting locatio
 in the 3D View. The label shares the axis/path presentation color, including hover
 and selection. It is a display-only label, adds no selectable point to a full
 revolution and does not alter persisted references or require recalculation.
+
+## Unified type and owned-frame follow-up (2026-09-25)
+
+The Feature editor now offers Point, Axis, Plane, Sketch and combined
+Extrusion / Revolution types; see [Unified Feature types](UNIFIED_FEATURE_TYPES.md).
+The complete Windows profile-frame GUI matrix and Sketcher-return matrix pass.
+The earlier Sweep2D first-plane assertion incorrectly applied the standalone
+profile rule to a parent-owned path frame. Its expected frame now follows the
+existing Sweep/Helical Sweep definition. The shared placement solver was not
+changed for this correction.

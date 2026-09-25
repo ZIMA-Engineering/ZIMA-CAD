@@ -1,3 +1,4 @@
+#include "profile_solid_fixture.hpp"
 #include <zima/command_host/host.hpp>
 #include <zima/document/file_relocation.hpp>
 #include <zima/document/file_path.hpp>
@@ -18,7 +19,7 @@ int main() {
     try {
         auto part = document::PartDocument::create_default();
         part.name = "original";
-        part.history.push_back(document::PartDocument::create_box_container());
+        part.history.push_back(zima::test::rectangular_feature(part));
         kernel::OcctKernel kernel;
         const auto boundaries = kernel.evaluate_history(part.kernel_operations());
         require(!boundaries.empty() && boundaries.back().volume > 0, "No calculated source fixture");
@@ -205,7 +206,7 @@ int main() {
         const auto staged_drawing = drawing::DrawingDocument::load(root / "staged" / new_drawing.filename());
         require(staged_assembly.components[0].source_path == new_part &&
             staged_drawing.source_path == new_part && staged_drawing.sheets.front().bom_rows[0].source_path == new_part &&
-            assembly::AssemblyDocument::load(old_assembly).components[0].source_path == relative &&
+            assembly::AssemblyDocument::load(old_assembly).components[0].source_path == old_part &&
             drawing::DrawingDocument::load(old_drawing).source_path == old_part,
             "Private staging failed to update references or modified original files");
         require(fs::canonical(root).parent_path() == fs::canonical(fs::temp_directory_path()), "Unsafe fixture cleanup");

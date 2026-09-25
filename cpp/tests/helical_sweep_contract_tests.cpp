@@ -1,3 +1,4 @@
+#include "profile_solid_fixture.hpp"
 #include <zima/document/part_document.hpp>
 #include <zima/document/helical_geometry.hpp>
 #include <zima/kernel/occt_kernel.hpp>
@@ -36,7 +37,7 @@ int main(){try{
             "Sweep approximation ignored document precision");
         require(kernel::history_fingerprint(coarse,1)!=kernel::history_fingerprint(fine,1),
             "Precision change reused a stale body fingerprint");
-        auto cylinder=document::PartDocument::create_cylinder_container();doc.history={cylinder};
+        auto cylinder=zima::test::circular_feature(doc,40,50);doc.history={cylinder};
         doc.document_precision["mesh_deflection"]="0.1";
         const auto rough=k.evaluate_history(doc.kernel_operations());
         doc.document_precision["mesh_deflection"]="0.001";
@@ -138,7 +139,7 @@ int main(){try{
     for(auto& pt:reverse_law.points)pt.y=-pt.y;reverse.helical.sketches[1]=reverse_law.serialized();
     doc.history={reverse};require(k.evaluate_history(doc.kernel_operations()).back().volume>0,"Negative axial guide failed");
     auto subtract=fixture();subtract.combine_mode=document::CombineMode::Subtract;
-    auto block=document::PartDocument::create_box_container();block.box={40,40,40};
+    auto block=zima::test::rectangular_feature(doc,{40,40,40});
     doc.history={block,subtract};const auto subtraction=k.evaluate_history(doc.kernel_operations());
     require(subtraction.back().volume<subtraction.front().volume,"Helical subtract did not remove material");
     for(int shape:{0,1}){

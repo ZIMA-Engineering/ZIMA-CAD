@@ -21,6 +21,8 @@
 #include <QEvent>
 #include <QFile>
 #include <QFormLayout>
+#include <QScrollArea>
+#include <QTimer>
 #include <QFont>
 #include <QHBoxLayout>
 #include <QHeaderView>
@@ -50,10 +52,7 @@ namespace zima::app {
 // FRONT/TOP orientation references, manual RX/RY/RZ correction on top).
 bool uses_container_placement(zima::document::FeatureKind kind) {
     using zima::document::FeatureKind;
-    return kind == FeatureKind::Box || kind == FeatureKind::Cylinder ||
-        kind == FeatureKind::Sphere || kind == FeatureKind::Cone ||
-        kind == FeatureKind::Pyramid || kind == FeatureKind::Wedge ||
-        kind == FeatureKind::Extrusion || kind == FeatureKind::Revolution || kind == FeatureKind::Feature ||
+    return kind == FeatureKind::Extrusion || kind == FeatureKind::Revolution || kind == FeatureKind::Feature ||
         kind == FeatureKind::TwistedSheet || kind == FeatureKind::DerivedCopy ||
         kind == FeatureKind::ImportedStep || kind == FeatureKind::Hole ||
         kind == FeatureKind::Thread || kind == FeatureKind::SheetTransition;
@@ -85,12 +84,8 @@ QString primitive_properties_title(zima::document::FeatureKind kind) {
     using zima::document::FeatureKind;
     switch (kind) {
         case FeatureKind::Sketch: return QObject::tr("Vlastnosti skici");
-        case FeatureKind::Box: return QObject::tr("Vlastnosti kvádru");
-        case FeatureKind::Cylinder: return QObject::tr("Vlastnosti válce");
-        case FeatureKind::Sphere: return QObject::tr("Vlastnosti koule");
-        case FeatureKind::Cone: return QObject::tr("Vlastnosti kužele");
-        case FeatureKind::Pyramid: return QObject::tr("Vlastnosti jehlanu");
-        case FeatureKind::Wedge: return QObject::tr("Vlastnosti klínu");
+
+
         case FeatureKind::TwistedSheet: return QObject::tr("Vlastnosti krouceného plechu");
         case FeatureKind::Feature: return QObject::tr("Vlastnosti prvku");
         case FeatureKind::Extrusion: return QObject::tr("Vlastnosti vytažení");
@@ -229,19 +224,7 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
         field->setValue(value);
         return field;
     };
-    if (initial.feature_kind == zima::document::FeatureKind::Box) {
-        length_ = dimension(initial.box.length, "boxLength");
-        width_ = dimension(initial.box.width, "boxWidth");
-        height_ = dimension(initial.box.height, "boxHeight");
-        form->addRow(tr("Délka"), length_);
-        form->addRow(tr("Šířka"), width_);
-        form->addRow(tr("Výška"), height_);
-    } else if (initial.feature_kind == zima::document::FeatureKind::Cylinder) {
-        radius_ = dimension(initial.cylinder.radius, "cylinderRadius");
-        height_ = dimension(initial.cylinder.height, "cylinderHeight");
-        form->addRow(tr("Poloměr"), radius_);
-        form->addRow(tr("Výška"), height_);
-    } else if (initial.feature_kind == zima::document::FeatureKind::Thread) {
+    if (initial.feature_kind == zima::document::FeatureKind::Thread) {
         thread_standard_ = new QComboBox(this);
         thread_standard_->setObjectName("threadStandard");
         thread_standard_->addItem(tr("Hladký otvor"), "plain");
@@ -665,38 +648,6 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
                 }
             });
         refresh_hole();
-    } else if (initial.feature_kind == zima::document::FeatureKind::Sphere) {
-        radius_ = dimension(initial.sphere.radius, "sphereRadius");
-        form->addRow(tr("Poloměr"), radius_);
-    } else if (initial.feature_kind == zima::document::FeatureKind::Cone) {
-        radius_ = dimension(initial.cone.bottom_radius, "coneBottomRadius");
-        top_radius_ = dimension(std::max(initial.cone.top_radius, 0.001), "coneTopRadius");
-        top_radius_->setRange(0.0, 1'000'000.0);
-        top_radius_->setValue(initial.cone.top_radius);
-        height_ = dimension(initial.cone.height, "coneHeight");
-        form->addRow(tr("Dolní poloměr"), radius_);
-        form->addRow(tr("Horní poloměr"), top_radius_);
-        form->addRow(tr("Výška"), height_);
-    } else if (initial.feature_kind == zima::document::FeatureKind::Pyramid) {
-        length_ = dimension(initial.pyramid.length, "pyramidLength");
-        width_ = dimension(initial.pyramid.width, "pyramidWidth");
-        height_ = dimension(initial.pyramid.height, "pyramidHeight");
-        form->addRow(tr("Délka základny"), length_);
-        form->addRow(tr("Šířka základny"), width_);
-        form->addRow(tr("Výška"), height_);
-    } else if (initial.feature_kind == zima::document::FeatureKind::Wedge) {
-        length_ = dimension(initial.wedge.length, "wedgeLength");
-        width_ = dimension(initial.wedge.width, "wedgeWidth");
-        height_ = dimension(initial.wedge.height, "wedgeHeight");
-        top_offset_ = dimension(std::max(initial.wedge.top_offset, 0.001), "wedgeTopOffset");
-        top_offset_->setRange(0.0, initial.wedge.length);
-        top_offset_->setValue(initial.wedge.top_offset);
-        connect(length_, qOverload<double>(&QDoubleSpinBox::valueChanged),
-            top_offset_, &QDoubleSpinBox::setMaximum);
-        form->addRow(tr("Délka"), length_);
-        form->addRow(tr("Šířka"), width_);
-        form->addRow(tr("Výška"), height_);
-        form->addRow(tr("Odsazení horní hrany"), top_offset_);
     } else if (initial.feature_kind == zima::document::FeatureKind::TwistedSheet) {
         width_ = dimension(initial.twisted_sheet.width, "twistedSheetWidth");
         length_ = dimension(initial.twisted_sheet.length, "twistedSheetLength");
@@ -747,8 +698,49 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
     } else if (initial.feature_kind == zima::document::FeatureKind::Feature) {
         setObjectName("featurePropertiesDialog");
         feature_panel_=new FeatureParameterPanel(this,initial.feature);
+        header_form->insertRow(0,tr("Typ prvku"),feature_panel_->type_control());
         feature_panel_->set_subtract(initial.combine_mode==zima::document::CombineMode::Subtract);
-        form->addRow(feature_panel_);
+        auto* feature_scroll=new QScrollArea(this);
+        feature_scroll->setObjectName("featureParametersScroll");
+        feature_scroll->setFrameShape(QFrame::NoFrame);
+        feature_scroll->setWidgetResizable(true);
+        feature_scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+        feature_scroll->setWidget(feature_panel_);
+        form->addRow(feature_scroll);
+        const auto fit_feature_controls=[this,feature_scroll] {
+            // A compact datum may become a full modeling Feature at any time.
+            // Keep natural row sizes and scroll only the variable parameter area
+            // when the parent View cannot accommodate the complete form.
+            const bool visible=feature_panel_->type_control()->currentIndex()!=0;
+            feature_scroll->setVisible(visible);
+            for(auto* group:feature_panel_->findChildren<QGroupBox*>()) {
+                group->setMinimumHeight(0);
+                if(group->layout()){group->layout()->invalidate();group->layout()->activate();}
+                group->setMinimumHeight(group->sizeHint().height());
+                group->updateGeometry();
+            }
+            feature_panel_->setMinimumHeight(0);
+            feature_panel_->layout()->invalidate();
+            const int natural=feature_panel_->layout()->sizeHint().height();
+            feature_panel_->setMinimumHeight(natural);
+            feature_scroll->setMinimumHeight(visible?std::min(180,natural+4):0);
+            feature_scroll->setMaximumHeight(visible?natural+4:0);
+            if(layout())layout()->activate();
+            if(isVisible()) {
+                const int overhead=minimumSizeHint().height()-(visible?feature_scroll->minimumHeight():0);
+                const int available=parentWidget()?parentWidget()->height()-20:1000;
+                const int viewport=visible?std::max(feature_scroll->minimumHeight(),
+                    std::min(natural+4,available-overhead)):0;
+                // The shared properties layout anchors forms at the top. Reserve
+                // the available viewport explicitly so its bottom spacer cannot
+                // consume space while modeling controls remain behind a scrollbar.
+                feature_scroll->setMinimumHeight(viewport);
+                resize(std::max(width(),minimumSizeHint().width()),overhead+viewport);
+            }
+        };
+        connect(feature_panel_->type_control(),&QComboBox::currentIndexChanged,this,
+            [this,fit_feature_controls]{QTimer::singleShot(0,this,fit_feature_controls);});
+        QTimer::singleShot(0,this,fit_feature_controls);
         profile_plane_=feature_panel_->plane_control();
         profile_plane_offset_=feature_panel_->offset_control();
         thin_thickness_=feature_panel_->thickness_control();
@@ -794,6 +786,14 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
             refresh_extrusion_target_styles();
             if(reference_highlights_changed_)reference_highlights_changed_();
             notify_preview();
+        });
+        connect(feature_panel_->type_control(),&QComboBox::currentIndexChanged,this,[this] {
+            const bool picking=forward_end_target_pick_active_||reverse_end_target_pick_active_;
+            forward_end_target_pick_active_=reverse_end_target_pick_active_=false;
+            forward_end_target_highlighted_=reverse_end_target_highlighted_=false;
+            if(picking&&extrusion_target_cancel_)extrusion_target_cancel_();
+            refresh_extrusion_target_styles();
+            if(reference_highlights_changed_)reference_highlights_changed_();
         });
         feature_panel_->on_change([this]{notify_preview();});
     } else if (initial.feature_kind == zima::document::FeatureKind::Extrusion ||
@@ -1374,6 +1374,7 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
     }
 
     error_ = new QLabel(this);
+    error_->setObjectName("featureValidationError");
     error_->setStyleSheet("color: #c64b4b;");
     error_->setWordWrap(true);
     content_layout()->addWidget(error_);
@@ -1382,7 +1383,7 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
     });
     // Basic-solid dimensions drive the analytical wire preview immediately.
     // The OCCT body is still calculated only when OK commits the dialog.
-    for (auto* input : {length_, width_, height_, radius_, top_radius_, top_offset_}) {
+    for (auto* input : {length_, width_, height_, radius_}) {
         if (input != nullptr) connect(input, &QDoubleSpinBox::valueChanged,
             this, [this] { notify_preview(); });
     }
@@ -1425,12 +1426,18 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
         remember(hole_entrance_chamfer_,initial_.hole.entrance_chamfer);remember(hole_exit_chamfer_,initial_.hole.exit_chamfer);
         remember(hole_drill_angle_,initial_.hole.drill_point_angle_degrees);remember(hole_thread_nominal_diameter_,initial_.hole.thread_nominal_diameter);
         remember(hole_thread_pitch_,initial_.hole.thread_pitch);remember(hole_thread_length_,initial_.hole.thread_length);break;
-    case Kind::Box: remember(length_,initial_.box.length);remember(width_,initial_.box.width);remember(height_,initial_.box.height);break;
-    case Kind::Cylinder: remember(radius_,initial_.cylinder.radius);remember(height_,initial_.cylinder.height);break;
-    case Kind::Sphere: remember(radius_,initial_.sphere.radius);break;
-    case Kind::Cone: remember(radius_,initial_.cone.bottom_radius);remember(top_radius_,initial_.cone.top_radius);remember(height_,initial_.cone.height);break;
-    case Kind::Pyramid: remember(length_,initial_.pyramid.length);remember(width_,initial_.pyramid.width);remember(height_,initial_.pyramid.height);break;
-    case Kind::Wedge: remember(length_,initial_.wedge.length);remember(width_,initial_.wedge.width);remember(height_,initial_.wedge.height);remember(top_offset_,initial_.wedge.top_offset);break;
+
+
+    case Kind::Extrusion:
+        remember(profile_plane_offset_,initial_.extrusion.profile_plane_offset);
+        remember(thin_thickness_,initial_.extrusion.thin_thickness);
+        remember(forward_length_,initial_.extrusion.length_forward);
+        remember(reverse_length_,initial_.extrusion.length_reverse);break;
+    case Kind::Revolution:
+        remember(profile_plane_offset_,initial_.revolution.profile_plane_offset);
+        remember(thin_thickness_,initial_.revolution.thin_thickness);
+        remember(forward_length_,initial_.revolution.angle_degrees);
+        remember(reverse_length_,initial_.revolution.angle_reverse);break;
     case Kind::TwistedSheet: remember(width_,initial_.twisted_sheet.width);
         remember(length_,initial_.twisted_sheet.length);
         remember(radius_,initial_.twisted_sheet.angle_degrees);
@@ -1443,8 +1450,6 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
     lock(length_,"length");
     lock(width_,"width");
     lock(height_,"height");
-    lock(top_radius_,"top_radius");
-    lock(top_offset_,"top_offset");
     lock(twist_developed_correction_,"developed_length_correction");
     lock(profile_plane_offset_,"profile_offset");
     lock(thin_thickness_,"thin_thickness");
@@ -1464,8 +1469,7 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
     lock(treatment_secondary_,"secondary");
     lock(treatment_angle_,"treatment_angle");
     lock(shell_thickness_,"thickness");
-    lock(radius_,initial_.feature_kind==zima::document::FeatureKind::Cone?"bottom_radius":
-        initial_.feature_kind==zima::document::FeatureKind::TwistedSheet?"angle":"radius");
+    lock(radius_,initial_.feature_kind==zima::document::FeatureKind::TwistedSheet?"angle":"radius");
     lock(forward_length_,initial_.feature_kind==zima::document::FeatureKind::Revolution?"angle":"length_forward");
     lock(hole_entrance_chamfer_,initial_.feature_kind==zima::document::FeatureKind::Thread?"chamfer_depth":"entrance_chamfer");
     lock(hole_thread_nominal_diameter_,initial_.feature_kind==zima::document::FeatureKind::Thread?"nominal_diameter":"thread_diameter");
@@ -1487,11 +1491,7 @@ zima::document::HistoryContainer PrimitivePropertiesDialog::values() const {
             ? zima::document::CombineMode::Subtract
             : zima::document::CombineMode::Add;
     }
-    if (result.feature_kind == zima::document::FeatureKind::Box) {
-        result.box = {primitive_value(length_), primitive_value(width_), primitive_value(height_)};
-    } else if (result.feature_kind == zima::document::FeatureKind::Cylinder) {
-        result.cylinder = {primitive_value(radius_), primitive_value(height_)};
-    } else if (result.feature_kind == zima::document::FeatureKind::Thread) {
+    if (result.feature_kind == zima::document::FeatureKind::Thread) {
         result.thread.nominal_diameter = hole_thread_nominal_diameter_->value();
         result.thread.pitch = thread_size_->currentIndex() >= 0
             ? thread_size_->currentData(Qt::UserRole+2).toDouble() : initial_.thread.pitch;
@@ -1568,15 +1568,6 @@ zima::document::HistoryContainer PrimitivePropertiesDialog::values() const {
         result.drill_point.bottom_faces = drill_point_faces_;
         result.drill_point.included_angle_degrees =
             drill_point_angle_->value();
-    } else if (result.feature_kind == zima::document::FeatureKind::Sphere) {
-        result.sphere = {primitive_value(radius_)};
-    } else if (result.feature_kind == zima::document::FeatureKind::Cone) {
-        result.cone = {primitive_value(radius_), primitive_value(top_radius_), primitive_value(height_)};
-    } else if (result.feature_kind == zima::document::FeatureKind::Pyramid) {
-        result.pyramid = {primitive_value(length_), primitive_value(width_), primitive_value(height_)};
-    } else if (result.feature_kind == zima::document::FeatureKind::Wedge) {
-        result.wedge = {primitive_value(length_), primitive_value(width_), primitive_value(height_),
-                        primitive_value(top_offset_)};
     } else if (result.feature_kind == zima::document::FeatureKind::TwistedSheet) {
         result.twisted_sheet.width=primitive_value(width_);
         result.twisted_sheet.length=primitive_value(length_);
@@ -1593,14 +1584,14 @@ zima::document::HistoryContainer PrimitivePropertiesDialog::values() const {
     } else if (result.feature_kind == zima::document::FeatureKind::Extrusion) {
         result.extrusion.origin_centerline=origin_centerline_->isChecked();
         result.extrusion.centroid_centerline=centroid_centerline_->isChecked();
-        result.extrusion.profile_plane_offset = profile_plane_offset_->value();
+        result.extrusion.profile_plane_offset = primitive_value(profile_plane_offset_);
         result.extrusion.profile_source =
             zima::document::ProfileSource::Internal;
         result.extrusion.result_type = result_type_->currentData() == "thin"
             ? zima::document::ProfileResultType::Thin
             : result_type_->currentData() == "surface" ? zima::document::ProfileResultType::Surface
             : zima::document::ProfileResultType::Solid;
-        result.extrusion.thin_thickness = thin_thickness_->value();
+        result.extrusion.thin_thickness = primitive_value(thin_thickness_);
         result.extrusion.thin_mode = thin_mode_->currentData() == "other_side"
             ? zima::document::ThinMode::OtherSide
             : thin_mode_->currentData() == "symmetric"
@@ -1611,8 +1602,8 @@ zima::document::HistoryContainer PrimitivePropertiesDialog::values() const {
             : extent_mode_->currentData() == "symmetric"
                 ? zima::document::ProfileExtentMode::Symmetric
                 : zima::document::ProfileExtentMode::OneSide;
-        result.extrusion.length_forward = forward_length_->value();
-        result.extrusion.length_reverse = reverse_length_->value();
+        result.extrusion.length_forward = primitive_value(forward_length_);
+        result.extrusion.length_reverse = primitive_value(reverse_length_);
         const auto condition = [](const QComboBox* combo) {
             return combo->currentData() == "up_to"
                 ? zima::document::EndCondition::UpTo
@@ -1639,14 +1630,14 @@ zima::document::HistoryContainer PrimitivePropertiesDialog::values() const {
     } else if (result.feature_kind == zima::document::FeatureKind::Revolution) {
         result.revolution.origin_centerline=origin_centerline_->isChecked();
         result.revolution.centroid_centerline=centroid_centerline_->isChecked();
-        result.revolution.profile_plane_offset = profile_plane_offset_->value();
+        result.revolution.profile_plane_offset = primitive_value(profile_plane_offset_);
         result.revolution.profile_source =
             zima::document::ProfileSource::Internal;
         result.revolution.result_type = result_type_->currentData() == "thin"
             ? zima::document::ProfileResultType::Thin
             : result_type_->currentData() == "surface" ? zima::document::ProfileResultType::Surface
             : zima::document::ProfileResultType::Solid;
-        result.revolution.thin_thickness = thin_thickness_->value();
+        result.revolution.thin_thickness = primitive_value(thin_thickness_);
         result.revolution.thin_mode = thin_mode_->currentData() == "other_side"
             ? zima::document::ThinMode::OtherSide
             : thin_mode_->currentData() == "symmetric"
@@ -1660,8 +1651,8 @@ zima::document::HistoryContainer PrimitivePropertiesDialog::values() const {
         result.revolution.direction = extrusion_direction_->currentData() == "reverse"
             ? zima::document::ExtrusionDirection::Reverse
             : zima::document::ExtrusionDirection::Forward;
-        result.revolution.angle_degrees = forward_length_->value();
-        result.revolution.angle_reverse = reverse_length_->value();
+        result.revolution.angle_degrees = primitive_value(forward_length_);
+        result.revolution.angle_reverse = primitive_value(reverse_length_);
     } else if (result.feature_kind == zima::document::FeatureKind::Shell) {
         result.shell.removed_faces = shell_faces_;
         result.shell.thickness = shell_thickness_->value();
@@ -2711,9 +2702,7 @@ bool PrimitivePropertiesDialog::set_inline_parameter_value(
     if (key == "length") return set_field(length_);
     if (key == "width") return set_field(width_);
     if (key == "height") return set_field(height_);
-    if (key == "radius" || key == "bottom_radius") return set_field(radius_);
-    if (key == "top_radius") return set_field(top_radius_);
-    if (key == "top_offset") return set_field(top_offset_);
+    if (key == "radius") return set_field(radius_);
     if (key == "length_forward") return set_field(forward_length_);
     if (key == "length_reverse" && extent_mode_ != nullptr &&
         extent_mode_->currentData() == "symmetric") {
@@ -2721,6 +2710,11 @@ bool PrimitivePropertiesDialog::set_inline_parameter_value(
     }
     if (key == "length_reverse") return set_field(reverse_length_);
     if (key == "profile_offset") return set_field(profile_plane_offset_);
+    if(initial_.feature_kind==zima::document::FeatureKind::TwistedSheet) {
+        if(key=="thickness")return set_field(height_);
+        if(key=="angle")return set_field(radius_);
+        if(key=="developed_length_correction")return set_field(twist_developed_correction_);
+    }
     if (key == "thickness") return set_field(shell_thickness_);
     if (key == "thin_thickness") return set_field(thin_thickness_);
     if (key == "thread_nominal_diameter")

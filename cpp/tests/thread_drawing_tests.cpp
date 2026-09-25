@@ -1,3 +1,4 @@
+#include "profile_solid_fixture.hpp"
 #include <zima/command_host/host.hpp>
 #include <zima/drawing_render/sheet_renderer.hpp>
 #include <zima/drawing_render/pdf_export.hpp>
@@ -21,7 +22,7 @@ void verify(){
     const auto folder=std::filesystem::absolute("Projects/test/thread-drawing");std::filesystem::create_directories(folder);
     kernel::OcctKernel kernel;
     auto part=document::PartDocument::create_default();
-    auto box=document::PartDocument::create_box_container();box.box={40,40,40};part.history.push_back(box);
+    auto box=zima::test::rectangular_feature(part,{40,40,40});part.history.push_back(box);
     auto thread=document::PartDocument::create_thread_container();thread.placement.z=-20;
     thread.thread.chamfer_enabled=false;thread.hole.drill_point_enabled=false;
     thread.thread.nominal_diameter=10;thread.thread.pitch=1.5;thread.thread.length_forward=25;thread.thread.bore_length=32;
@@ -110,11 +111,11 @@ void verify(){
             require(checked,"No measurable thread candidate in axial or side projection");
         }
     }
-    auto shaft_doc=document::PartDocument::create_default();auto shaft=document::PartDocument::create_cylinder_container();
-    shaft.cylinder.radius=5;shaft.cylinder.height=30;shaft_doc.history.push_back(shaft);
+    auto shaft_doc=document::PartDocument::create_default();auto shaft=zima::test::circular_feature(shaft_doc,5,30);
+    shaft_doc.history.push_back(shaft);
     const auto shaft_base=kernel.evaluate_history(shaft_doc.kernel_operations());
     const auto& refs=shaft_base.back().mesh.original_references;
-    const auto face=[&](const char* key){for(const auto& ref:refs.triangle_references)if(ref.owner_id==shaft.id&&ref.semantic_key==key&&ref.surface)return ref;throw std::runtime_error("Missing shaft reference");};
+    const auto face=[&](const char* key){for(const auto& ref:refs.triangle_references)if(ref.owner_id==shaft.id&&ref.semantic_key==test::profile_key(shaft_doc,shaft,key)&&ref.surface)return ref;throw std::runtime_error("Missing shaft reference");};
     auto external=document::PartDocument::create_shaft_thread_container();external.shaft_thread.cylinder=face("side");external.shaft_thread.start=face("z_min");
     external.shaft_thread.root_diameter=8.16;external.shaft_thread.length=15;shaft_doc.history.push_back(external);
     const auto shaft_result=kernel.evaluate_history(shaft_doc.kernel_operations());

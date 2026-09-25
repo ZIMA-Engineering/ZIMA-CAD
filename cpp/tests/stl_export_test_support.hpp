@@ -1,4 +1,5 @@
 #pragma once
+#include "profile_solid_fixture.hpp"
 #include <zima/assembly/assembly_document.hpp>
 #include <zima/kernel/occt_kernel.hpp>
 #include <fstream>
@@ -29,8 +30,8 @@ inline StlGeometry read_stl(const std::filesystem::path& path) {
 }
 inline assembly::AssemblyDocument nested_stl_fixture(const kernel::OcctKernel& kernel,const std::filesystem::path& directory) {
     auto source=document::PartDocument::create_default();
-    auto box=document::PartDocument::create_box_container();box.box={10,20,30};
-    box.placement.x=5;box.placement.y=10;box.placement.z=15;source.history.push_back(box);
+    auto box=rectangular_feature(source,{10,20,30});
+    box.placement.x=5;box.placement.y=10;box.placement.z=15;source.history.push_back(box);source.resolve_constructions();
     const auto calculated=kernel.evaluate_history(source.kernel_operations());
     const kernel::BodySnapshot body=calculated.back();
     source.save(directory/"source.prtz",calculated);

@@ -10,7 +10,6 @@ namespace {
 } // namespace
 
 
-
 void AssemblyWorkspaceWindow::update_document_area_visibility() {
     const bool has_document = workspace_.size() != 0;
     if (tabs_ != nullptr) tabs_->setVisible(has_document);
@@ -307,14 +306,11 @@ void AssemblyWorkspaceWindow::rebuild_application_toolbar() {
                     part->session.document().history_order.empty())) { add_symbol_group(); return; }
         }
         add_command(selection_action_);
-        for (auto* action : {construction_point_action_, construction_axis_action_, cylinder_axis_action_,
-                             construction_plane_action_, sketch_action_, curve_3d_action_}) {
+        for (auto* action : {cylinder_axis_action_, curve_3d_action_}) {
             add_command(action);
         }
         add_group_separator();
         if(auto* feature=findChild<QAction*>("featurePrototypeAction"))add_command(feature);
-        add_command(extrusion_action_);
-        add_command(revolution_action_);
         add_command(sweep2d_action_);
         add_command(sweep_3d_action_);
         add_command(helical_sweep_action_);
@@ -331,11 +327,6 @@ void AssemblyWorkspaceWindow::rebuild_application_toolbar() {
             add_group_separator();
             add_command(mirror_action_);
             add_command(pattern_action_);
-        }
-        add_group_separator();
-        for (auto* action : {box_action_, sphere_action_, cylinder_action_, cone_action_,
-                             pyramid_action_, wedge_action_}) {
-            add_command(action);
         }
         add_symbol_group();
         return;

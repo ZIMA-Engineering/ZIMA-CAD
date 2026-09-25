@@ -3,6 +3,7 @@
 #include <zima/ui/properties_subwindow.hpp>
 #include <functional>
 #include "work_plane_selection.hpp"
+#include "feature_type_control.hpp"
 #include <zima/ui/container_placement_section.hpp>
 #include <zima/ui/numeric_value_lock.hpp>
 #include <zima/document/feature_parameters.hpp>
@@ -34,11 +35,13 @@ public:
     explicit FeatureParameterPanel(QWidget* parent, document::FeatureParameters initial = {})
         : QWidget(parent), initial_(std::move(initial)) {
         content_=new QVBoxLayout(this);content_->setContentsMargins(0,0,0,0);
-        auto* sketch_group=new QGroupBox(tr("Skica"),this);
+        type_=feature_type_control(this,initial_.type);
+        plane_group_=new QGroupBox(tr("Rovina"),this);
+        plane_group_->setObjectName("featurePlaneGroup");
+        auto* sketch_form=new QFormLayout(plane_group_);
+        auto* sketch_group=new QGroupBox(tr("Skica"),this);sketch_group_=sketch_group;
         sketch_group->setObjectName("featureSketchGroup");
         auto* sketch_row=new QHBoxLayout(sketch_group);
-        auto* sketch_form=new QFormLayout;
-        sketch_row->addLayout(sketch_form,1);
         auto* plane=new QComboBox(this);plane_=plane;plane->setObjectName("featureProfilePlane");
         plane->addItem("XY",0);plane->addItem("XZ",1);plane->addItem("YZ",2);
         install_automatic_work_plane(plane,true);
@@ -52,8 +55,9 @@ public:
         sketch->setSizePolicy(QSizePolicy::Fixed,QSizePolicy::Expanding);
         sketch->setIcon(resource_icon("sketch"));sketch->setIconSize({20,20});
         sketch_row->addWidget(sketch);
+        content_->addWidget(plane_group_);
         content_->addWidget(sketch_group);
-        auto* result_group=new QGroupBox(tr("Výsledek"),this);
+        auto* result_group=new QGroupBox(tr("Výsledek"),this);result_group_=result_group;
         result_group->setObjectName("featureResultGroup");
         auto* profile=new QFormLayout(result_group);
         auto* result=new QComboBox(this);result->setObjectName("featureResult");
@@ -99,8 +103,10 @@ public:
             refresh_operations();
         });
         content_->addWidget(result_group);
-        auto* symmetric=new QCheckBox(tr("Symetricky"),this);symmetric->setObjectName("featureSymmetric");
-        auto* options=new QHBoxLayout;
+        auto* symmetric=new QCheckBox(tr("Symetricky"),this);symmetric_control_=symmetric;symmetric->setObjectName("featureSymmetric");
+        options_row_=new QWidget(this);
+        auto* options=new QHBoxLayout(options_row_);
+        options->setContentsMargins(0,0,0,0);
         options->addWidget(symmetric);options->addSpacing(16);
         origin_axis_=new QCheckBox(tr("Osa počátku"),this);origin_axis_->setObjectName("featureOriginAxis");
         centroid_axis_=new QCheckBox(tr("Osa těžiště"),this);centroid_axis_->setObjectName("featureCentroidAxis");
@@ -110,18 +116,18 @@ public:
         swap_=new QPushButton(tr("Prohodit strany"),this);
         swap_->setObjectName("featureSwapSides");options->addWidget(swap_);
         connect(swap_,&QPushButton::clicked,this,[this]{if(swap_requested_)swap_requested_();});
-        content_->addLayout(options);
+        content_->addWidget(options_row_);
         auto* sides=new QHBoxLayout;
         for(int i=0;i<2;++i) {
             auto& s=sides_[i];s.box=new QGroupBox(i==0?tr("Strana 1"):tr("Strana 2"),this);
             s.pending=initial_.sides[i];
-            auto* rows=new QFormLayout(s.box);
+            auto* rows=new QFormLayout(s.box);s.rows=rows;
             s.mode=new QComboBox(s.box);s.mode->setObjectName(QString("featureSideMode%1").arg(i));
             s.mode->addItems({tr("Bez operace"),tr("Vytažení"),tr("Rotace")});rows->addRow(tr("Typ"),s.mode);
             s.end=new QComboBox(s.box);s.end->setObjectName(QString("featureSideEnd%1").arg(i));rows->addRow(tr("Ukončení"),s.end);
             s.value=number(i==0?"featureSideValue0":"featureSideValue1",false);s.value->setMinimum(.001);s.value->setValue(50);
             s.label=new QLabel(tr("Délka"),s.box);rows->addRow(s.label,s.value);
-            auto* target_row=new QWidget(s.box);s.target_layout=new QHBoxLayout(target_row);s.target_layout->setContentsMargins(0,0,0,0);
+            auto* target_row=new QWidget(s.box);s.target_row=target_row;s.target_layout=new QHBoxLayout(target_row);s.target_layout->setContentsMargins(0,0,0,0);
             s.target=new QLineEdit(target_row);s.target->setPlaceholderText(tr("Reference"));s.target->setReadOnly(true);
             s.target_layout->addWidget(s.target,1);rows->addRow(tr("Až k"),target_row);
             connect(s.mode,&QComboBox::currentIndexChanged,this,[this,i]{refresh_side(i);});
@@ -133,15 +139,21 @@ public:
         connect(symmetric,&QCheckBox::toggled,this,[this](bool on){
             sides_[1].box->setEnabled(!on);sides_[1].box->setVisible(!on);
             sides_[0].box->setTitle(on?tr("Obě strany"):tr("Strana 1"));
-            symmetric_=on;refresh_operations();
+            symmetric_=on;refresh_operations();refresh_type();
             swap_->setEnabled(!on);
         });
         symmetric->setChecked(initial_.symmetric);
         result->setCurrentIndex(initial_.result_type==document::ProfileResultType::Surface?1:
             initial_.result_type==document::ProfileResultType::Thin?2:0);
+        connect(type_,&QComboBox::currentIndexChanged,this,[this]{
+            changing_operation_=true;
+            for(int i=0;i<2;++i)refresh_side(i);
+            refresh_type();changing_operation_=false;
+        });
+        refresh_type();
     }
     [[nodiscard]] document::FeatureParameters parameters() const {
-        auto value=initial_;
+        auto value=initial_;value.type=selected_type();
         value.profile_plane_offset=offset_->value()==offset_display_?initial_.profile_plane_offset:offset_->value();
         value.thin_thickness=thickness_->value()==thickness_display_?initial_.thin_thickness:thickness_->value();
         value.thin_mode=static_cast<document::ThinMode>(thin_side_->currentIndex());
@@ -152,6 +164,7 @@ public:
         for(int i=0;i<2;++i)value.sides[i]=capture_side(sides_[i],sides_[i].mode->currentIndex());
         return value;
     }
+    QComboBox* type_control() const { return type_; }
     QComboBox* plane_control() const { return plane_; }
     QDoubleSpinBox* offset_control() const { return offset_; }
     QDoubleSpinBox* thickness_control() const { return thickness_; }
@@ -168,7 +181,7 @@ public:
         }
         for(int i=0;i<2;++i) {
             auto& side=sides_[i];side.pending=values.sides[1-i];
-            side.previous_mode=0; // Loading must not capture the old displayed number.
+            side.previous_mode=0;side.displayed_axis=false; // Loading must not capture the old displayed number.
             side.mode->setCurrentIndex(static_cast<int>(side.pending.operation));
             refresh_side(i);
         }
@@ -192,15 +205,21 @@ public:
         for(auto* box:findChildren<QDoubleSpinBox*>())connect(box,&QDoubleSpinBox::valueChanged,this,notify);
         for(auto* box:findChildren<QCheckBox*>())connect(box,&QCheckBox::toggled,this,notify);
         connect(operation_group_,&QButtonGroup::idClicked,this,notify);
+        if(type_->parentWidget()!=this)connect(type_,&QComboBox::currentIndexChanged,this,notify);
     }
 private:
     struct Side {
         QGroupBox* box{};QComboBox* mode{};QComboBox* end{};QDoubleSpinBox* value{};QLabel* label{};QLineEdit* target{};QHBoxLayout* target_layout{};
+        QFormLayout* rows{};QWidget* target_row{};bool displayed_axis{};
         document::FeatureSideParameters pending;
         int previous_mode{};
         double displayed_value{},authored_value{};
     };
     QVBoxLayout* content_{};
+    QComboBox* type_{};
+    QGroupBox *plane_group_{},*sketch_group_{},*result_group_{};
+    QCheckBox* symmetric_control_{};
+    QWidget* options_row_{};
     QComboBox* plane_{};
     QPushButton* sketch_{};
     QPushButton* swap_{};
@@ -223,9 +242,33 @@ private:
     static document::FeatureSideParameters capture_side(const Side& side,int mode) {
         auto value=side.pending;value.operation=static_cast<document::FeatureSideOperation>(mode);
         const double number=side.value->value()==side.displayed_value?side.authored_value:side.value->value();
-        if(mode==1){value.length=number;value.extrusion_extent=static_cast<document::EndCondition>(side.end->currentIndex());}
-        if(mode==2){value.angle_degrees=number;value.rotation_extent=static_cast<document::FeatureRotationExtent>(side.end->currentIndex());}
+        if(side.displayed_axis)value.length=number;
+        else {
+            if(mode==1){value.length=number;value.extrusion_extent=static_cast<document::EndCondition>(side.end->currentIndex());}
+            if(mode==2){value.angle_degrees=number;value.rotation_extent=static_cast<document::FeatureRotationExtent>(side.end->currentIndex());}
+        }
         return value;
+    }
+    document::FeatureType selected_type() const {
+        return static_cast<document::FeatureType>(type_->currentIndex());
+    }
+    void refresh_type() {
+        const auto type=selected_type();
+        const bool modeling=type==document::FeatureType::Modeling;
+        const bool lengths=modeling||type==document::FeatureType::Axis;
+        plane_group_->setVisible(type!=document::FeatureType::Point);
+        sketch_group_->setVisible(modeling||type==document::FeatureType::Sketch);
+        result_group_->setVisible(modeling);
+        options_row_->setVisible(lengths);
+        symmetric_control_->setVisible(lengths);swap_->setVisible(lengths);
+        origin_axis_->setVisible(modeling);centroid_axis_->setVisible(modeling);
+        for(int i=0;i<2;++i) {
+            auto& s=sides_[i];if(!s.box)continue;
+            s.box->setVisible(lengths&&(i==0||!symmetric_));
+            s.rows->setRowVisible(s.mode,modeling);
+            s.rows->setRowVisible(s.end,modeling);
+            s.rows->setRowVisible(s.target_row,modeling);
+        }
     }
     void refresh_operations() {
         const bool active=(sides_[0].mode&&sides_[0].mode->currentIndex()!=0)||
@@ -240,12 +283,14 @@ private:
         value->setRange(-1000000,1000000);value->setSuffix(angle?QString::fromUtf8(" °"):QString(" mm"));return value;
     }
     void refresh_side(int index) {
-        auto& s=sides_[index];const int mode=s.mode->currentIndex();
-        s.pending=capture_side(s,s.previous_mode);s.previous_mode=mode;
+        auto& s=sides_[index];const int saved_mode=s.mode->currentIndex();
+        s.pending=capture_side(s,s.previous_mode);s.previous_mode=saved_mode;
+        s.displayed_axis=selected_type()==document::FeatureType::Axis;
+        const int mode=s.displayed_axis?1:saved_mode;
         s.end->clear();
         if(mode==2)s.end->addItems({tr("Úhel"),tr("Plná rotace"),tr("Až k")});
         else s.end->addItems({tr("Délka"),tr("Až k"),tr("Skrz vše")});
-        s.end->setCurrentIndex(mode==2?static_cast<int>(s.pending.rotation_extent):static_cast<int>(s.pending.extrusion_extent));
+        s.end->setCurrentIndex(s.displayed_axis?0:mode==2?static_cast<int>(s.pending.rotation_extent):static_cast<int>(s.pending.extrusion_extent));
         s.end->setEnabled(mode!=0);s.value->setEnabled(mode!=0&&s.end->currentIndex()==0);
         refresh_operations();
         s.label->setText(mode==2?tr("Úhel"):tr("Délka"));
@@ -258,7 +303,7 @@ private:
     }
     void refresh_side_lock(int index) {
         if(locks_)ui::bind_numeric_value_lock(sides_[index].value,
-            "side"+std::to_string(index)+(sides_[index].mode->currentIndex()==2?"_angle":"_length"),*locks_,locks_changed_);
+            "side"+std::to_string(index)+(!sides_[index].displayed_axis&&sides_[index].mode->currentIndex()==2?"_angle":"_length"),*locks_,locks_changed_);
     }
 };
 }

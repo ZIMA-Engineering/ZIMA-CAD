@@ -1,3 +1,4 @@
+#include "profile_command_fixture.hpp"
 #include <zima/command_host/host.hpp>
 #include <zima/workspace/section_operations.hpp>
 #include <cmath>
@@ -15,7 +16,7 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
     options.settings=[] {return command_host::Settings{{fs::absolute("config/templates"),"START_PART.prtz","START_ASSEMBLY.asmz","Body"},{}};};
     command_host::Host host(live,kernel,dir,options);
     run(host,"new",{{"type","part"},{"name","section-properties"}});
-    run(host,"box.create",{{"length_mm","10"},{"width_mm","20"},{"height_mm","30"}});
+    zima::test::rectangular_commands([&](const char* n,commands::Json a){return run(host,n,std::move(a));},{{"length_mm","10"},{"width_mm","20"},{"height_mm","30"}});
     const auto doc=live.active_document_id();auto* part=live.open_part(doc);
     const auto before=part->session.calculated_boundaries().back().source_fingerprint;
     const auto created=run(host,"section.create",{{"path_mm",Json::array({Json::array({-20,0}),Json::array({20,0})})},{"show_cut",true}}).data;

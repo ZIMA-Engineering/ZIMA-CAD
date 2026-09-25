@@ -1,3 +1,4 @@
+#include "profile_command_fixture.hpp"
 #include <zima/command_host/host.hpp>
 #include <zima/workspace/component_source_operations.hpp>
 #include <zima/workspace/native_documents.hpp>
@@ -12,7 +13,7 @@ commands::Result run(command_host::Host& host,const char* name,Json args=Json::o
 void verify(const kernel::OcctKernel& kernel,fs::path dir) {
     workspace::Workspace live;command_host::Options options;options.settings=[] {return command_host::Settings{{fs::absolute("config/templates"),"START_PART.prtz","START_ASSEMBLY.asmz","Body"},{}};};
     command_host::Host host(live,kernel,dir,options);run(host,"new",{{"type","part"},{"name","source-part"}});const auto part_id=live.active_document_id();
-    const auto box=run(host,"box.create",{{"length_mm","10"},{"width_mm","20"},{"height_mm","30"}}).data.at("container").get<std::string>();run(host,"save");
+    const auto box=zima::test::rectangular_commands([&](const char* n,commands::Json a){return run(host,n,std::move(a));},{{"length_mm","10"},{"width_mm","20"},{"height_mm","30"}}).data.at("container").get<std::string>();run(host,"save");
     run(host,"new",{{"type","assembly"},{"name","source-middle"}});const auto middle_id=live.active_document_id();const auto leaf=run(host,"component.insert",{{"source",part_id}}).data.at("occurrence").get<std::string>();run(host,"save");
     run(host,"new",{{"type","assembly"},{"name","source-top"}});const auto top=live.active_document_id();const auto root=run(host,"component.insert",{{"source",middle_id}}).data.at("occurrence").get<std::string>();run(host,"save");
     const auto path=assembly::InstancePath{}.child(root).child(leaf);
@@ -21,7 +22,7 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
     auto opened=workspace::open_component_source(live,top,path);
     require(opened.opened && opened.document_id==part_id && opened.source_instance_path==path && live.active_document_id()==top && live.displayed_document_id()==top && !live.open_assembly(middle_id),"Nested source open changed context or opened intermediate assemblies");
     require(live.open_assembly(top)->session.revision()==revision && std::abs(live.open_part(part_id)->session.calculated_boundaries().back().volume-6000)<1e-8,"Source open regenerated geometry or parent");
-    run(host,"activate",{{"document",part_id}});run(host,"box.set",{{"container",box},{"height_mm","40"}});run(host,"activate",{{"document",top}});
+    run(host,"activate",{{"document",part_id}});zima::test::resize_rectangular_commands([&](const char* n,commands::Json a){return run(host,n,std::move(a));},{{"container",box},{"height_mm","40"}});run(host,"activate",{{"document",top}});
     bool io=false;opened=workspace::open_component_source(live,top,path,[&](auto){io=true;});
     require(!opened.opened && !io && std::abs(live.open_part(part_id)->session.calculated_boundaries().back().volume-8000)<1e-8,"Opening an already edited source reloaded its file");
     run(host,"close",{{"document",part_id},{"discard",true}});

@@ -1,3 +1,4 @@
+#include "profile_command_fixture.hpp"
 #include <zima/command_host/host.hpp>
 #include <zima/workspace/body_operations.hpp>
 #include <zima/workspace/document_operations.hpp>
@@ -26,13 +27,13 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
     run(host,"new",{{"type","part"},{"name","bodies"}});const auto id=live.active_document_id();
     auto* state=live.open_part(id);
     const auto first=state->session.document().body_history.active_body_id();
-    const auto first_box=run(host,"box.create",{{"length_mm","10"},{"width_mm","10"},{"height_mm","10"}}).data.at("container").get<std::string>();
+    const auto first_box=zima::test::rectangular_commands([&](const char* n,commands::Json a){return run(host,n,std::move(a));},{{"length_mm","10"},{"width_mm","10"},{"height_mm","10"}}).data.at("container").get<std::string>();
     volume(*state,1000);
     const auto created=run(host,"body.create",{{"name","Tool"}}).data;
     const auto tool=created.at("body").get<std::string>();
     require(created.at("placement").at("x")==0 && created.at("placement").at("references").size()==5,"New Body is not fully attached to the Part origin");
     for(const auto& ref:created.at("placement").at("references"))require(ref.at("owner_id")==id+":origin","New Body references another object");
-    const auto tool_box=run(host,"box.create",{{"length_mm","4"},{"width_mm","4"},{"height_mm","4"}}).data.at("container").get<std::string>();
+    const auto tool_box=zima::test::rectangular_commands([&](const char* n,commands::Json a){return run(host,n,std::move(a));},{{"length_mm","4"},{"width_mm","4"},{"height_mm","4"}}).data.at("container").get<std::string>();
     require(state->session.document().body_history.owner(first_box)->scope.id==first && state->session.document().body_history.owner(tool_box)->scope.id==tool,"Features crossed Body ownership");
     const auto before=state->session.revision();const auto* cache=state->session.calculated_boundaries().data();
     const auto info=run(host,"body.list").data;run(host,"body.get",{{"body",tool}});
@@ -152,7 +153,7 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
     require(state->session.revision()==cursor_revision && state->session.calculated_boundaries().data()==cursor_cache,"No-op cursor rebuilt history");
     require(!host.execute({{"command","body.cursor"},{"arguments",{{"index",-1}}}}).ok && state->session.revision()==cursor_revision,"Negative cursor partly committed");
     require(host.execute({{"command","body.cursor"},{"arguments",{{"index",0},{"body",tool}}}}).code=="inactive_body","Inactive Body cursor changed");
-    const auto inserted=run(host,"box.create",{{"length_mm","2"},{"width_mm","2"},{"height_mm","2"}}).data.at("container").get<std::string>();
+    const auto inserted=zima::test::rectangular_commands([&](const char* n,commands::Json a){return run(host,n,std::move(a));},{{"length_mm","2"},{"width_mm","2"},{"height_mm","2"}}).data.at("container").get<std::string>();
     require(state->session.document().body_history.find(first)->entries.front().id==inserted &&
         state->session.document().body_history.find(tool)->entries.front().id==tool_box,"Cursor insertion crossed Body boundary");
     run(host,"body.cursor",{{"index",0}});

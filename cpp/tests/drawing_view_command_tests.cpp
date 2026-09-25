@@ -1,3 +1,4 @@
+#include "profile_solid_fixture.hpp"
 #include <zima/drawing/annotation_guides.hpp>
 #include <zima/document/native_read_capture.hpp>
 #include <zima/command_host/host.hpp>
@@ -20,7 +21,8 @@ commands::Result run(command_host::Host& host,const char* name,Json args=Json::o
 double width(const drawing::DrawingView& view){double low=1e100,high=-1e100;for(const auto& t:view.projected_triangles)for(auto p:t.points){low=std::min(low,p.x);high=std::max(high,p.x);}return high-low;}
 void near(double a,double b){require(std::abs(a-b)<1e-6,"Projected size or dimension differs from the analytical box size");}
 void verify_projection_reuse(const kernel::OcctKernel& kernel,const fs::path& dir) {
-    auto part=document::PartDocument::create_default();auto box=document::PartDocument::create_box_container();box.box={20,10,6};part.history={box};
+    auto part=document::PartDocument::create_default();auto box=zima::test::rectangular_feature(part,{20,10,6});part.history={box};
+    static_cast<void>(test::family_length_binding(part,box));
     auto calculated=kernel.evaluate_history(part.kernel_operations());
     const auto path=dir/"reuse.prtz";
     workspace::Workspace live;live.add_part(part,calculated,path);
@@ -37,7 +39,7 @@ void verify_projection_reuse(const kernel::OcctKernel& kernel,const fs::path& di
     require(accepted_display.output_source==display.output_source&&accepted_display.measurement_geometry==display.measurement_geometry,
         "Preview commit lost its original geometry snapshot");
     workspace::Workspace unsaved;unsaved.documents()=live.documents();
-    auto edited=part;edited.history.front().box.length=25;
+    auto edited=part;zima::test::profile_dimension(edited,edited.history.front(),0)=25;
     unsaved.open_part(part.document_id)->session.commit(edited,kernel.evaluate_history(edited.kernel_operations()));
     workspace::DrawingProjection unsaved_commit(&unsaved,dir/"interactive.drwz",&interactive);
     auto unsaved_display=display;unsaved_commit.project(unsaved_display,{.interactive=true});
@@ -66,7 +68,7 @@ void verify_projection_reuse(const kernel::OcctKernel& kernel,const fs::path& di
     }
     // Identical IDs do not imply identical geometry. Open unsaved source edits
     // and a new camera must both invalidate the corresponding projection.
-    part.history.front().box.length=35;
+    zima::test::profile_dimension(part,part.history.front(),0)=35;
     workspace::Workspace changed;changed.add_part(part,kernel.evaluate_history(part.kernel_operations()),path);
     workspace::DrawingProjection after_edit(&changed,dir/"reuse.drwz",&preview);auto updated=original;after_edit.project(updated,{});
     require(after_edit.calculated_camera_count()==1,"Changed source reused stale geometry");near(width(updated),35);
@@ -114,7 +116,8 @@ void verify_projection_reuse(const kernel::OcctKernel& kernel,const fs::path& di
     require(!capture.unchanged(),"Newly available dependency did not invalidate the capture");
 }
 void verify_editing(const kernel::OcctKernel& kernel,fs::path dir) {
-    workspace::Workspace live;auto part=document::PartDocument::create_default();auto box=document::PartDocument::create_box_container();box.box={20,10,6};part.history={box};
+    workspace::Workspace live;auto part=document::PartDocument::create_default();auto box=zima::test::rectangular_feature(part,{20,10,6});part.history={box};
+    static_cast<void>(test::family_length_binding(part,box));
     auto boundaries=kernel.evaluate_history(part.kernel_operations());
     auto section=document::create_section();static_cast<void>(section.sketch.add_segment(-30,0,30,0));part.sections.push_back(section);
     live.add_part(part,boundaries,dir/"editing.prtz");
@@ -159,7 +162,7 @@ void verify_editing(const kernel::OcctKernel& kernel,fs::path dir) {
     auto empty=document::PartDocument::create_default();live.add_part(empty,{},{});
     require(!host.execute({{"command","drawing.view.create"},{"arguments",{{"sheet",sheet},{"source",empty.document_id}}}}).ok,"Uncalculated empty source accepted");
     // Separate sources in one projection session must never reuse another mesh.
-    auto second=part;second.document_id=document::PartDocument::create_default().document_id;second.history.front().box={7,7,7};auto small=kernel.evaluate_history(second.kernel_operations());live.add_part(second,small,{});
+    auto second=part;second.document_id=document::PartDocument::create_default().document_id;zima::test::resize_rectangular_feature(second,second.history.front(),{7,7,7});auto small=kernel.evaluate_history(second.kernel_operations());live.add_part(second,small,{});
     const auto unsaved_view=run(host,"drawing.view.create",{{"sheet",sheet},{"source",second.document_id}}).data.at("view").get<std::string>();
     near(width(*live.open_drawing(id)->document().find_view(unsaved_view)),7);
     require(live.open_drawing(id)->document().sheets.front().bom_rows.front().source_document_id==part.document_id&&
@@ -177,7 +180,8 @@ void verify_editing(const kernel::OcctKernel& kernel,fs::path dir) {
 }
 void verify(const kernel::OcctKernel& kernel,fs::path dir){
     fs::create_directory(dir/"drawings");const auto source_path=dir/"source.prtz";
-    auto part=document::PartDocument::create_default();auto box=document::PartDocument::create_box_container();box.box={20,10,6};part.history={box};
+    auto part=document::PartDocument::create_default();auto box=zima::test::rectangular_feature(part,{20,10,6});part.history={box};
+    static_cast<void>(test::family_length_binding(part,box));
     auto boundaries=kernel.evaluate_history(part.kernel_operations());part.save(source_path,boundaries);
     workspace::Workspace live;live.add_part(part,boundaries,source_path);
     auto doc=drawing::DrawingDocument::create_default();doc.source_document_id=part.document_id;doc.source_path="../source.prtz";doc.sheets.front().bom_source_document_id=part.document_id;
@@ -193,7 +197,7 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir){
     const auto references=run(host,"drawing.view.references",{{"view",parent.id}}).data;
     require(references.at("total").get<int>()>0&&references.at("source_document")==part.document_id,"Drawing view lost persisted measuring references");
     const auto query_revision=state->revision();run(host,"drawing.view.get",{{"view",parent.id}});require(state->revision()==query_revision,"Reading a view changed history");
-    auto changed=part;changed.history.front().box.length=40;auto larger=kernel.evaluate_history(changed.kernel_operations());live.open_part(part.document_id)->session.commit(changed,larger);
+    auto changed=part;zima::test::profile_dimension(changed,changed.history.front(),0)=40;auto larger=kernel.evaluate_history(changed.kernel_operations());live.open_part(part.document_id)->session.commit(changed,larger);
     near(width(*state->document().find_view(parent.id)),20);const auto source_revision=live.open_part(part.document_id)->session.revision();
     run(host,"regenerate");near(width(*state->document().find_view(parent.id)),40);
     near(drawing::evaluate_drawing_dimension(*state->document().find_view(parent.id),state->document().sheets.front().dimensions.front()).presentations[0].value,40);

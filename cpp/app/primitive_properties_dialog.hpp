@@ -206,8 +206,6 @@ private:
     QDoubleSpinBox* width_{};
     QDoubleSpinBox* height_{};
     QDoubleSpinBox* radius_{};
-    QDoubleSpinBox* top_radius_{};
-    QDoubleSpinBox* top_offset_{};
     QDoubleSpinBox* twist_developed_correction_{};
     QLabel* twist_developed_length_{};
     QComboBox* twist_direction_{};

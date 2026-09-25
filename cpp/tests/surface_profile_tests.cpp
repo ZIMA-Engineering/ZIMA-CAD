@@ -1,3 +1,4 @@
+#include "profile_solid_fixture.hpp"
 #include <zima/document/part_document.hpp>
 #include <zima/document/profile_status.hpp>
 #include <zima/kernel/occt_kernel.hpp>
@@ -92,11 +93,11 @@ void revolve(const kernel::OcctKernel& kernel){
 }
 void mixed(const kernel::OcctKernel& kernel){
     auto sketch=sketcher::Sketch::create_default();static_cast<void>(sketch.add_segment(0,0,10,0));Fixture f(sketch);
-    auto box=document::PartDocument::create_box_container();box.box={2,2,2};f.append(box);
+    auto box=zima::test::rectangular_feature(f.part,{2,2,2});f.append(box);
     auto b=f.calculate(kernel);near(b.back().volume,8);
-    auto cut=document::PartDocument::create_box_container();cut.box={1,2,4};cut.combine_mode=document::CombineMode::Subtract;f.append(cut);
+    auto cut=zima::test::rectangular_feature(f.part,{1,2,4});cut.combine_mode=document::CombineMode::Subtract;f.append(cut);
     b=f.calculate(kernel);near(b.back().volume,4);near(b.back().surface_area,53);
-    auto add=document::PartDocument::create_box_container();add.box={2,2,2};f.append(add);b=f.calculate(kernel);near(b.back().volume,8);
+    auto add=zima::test::rectangular_feature(f.part,{2,2,2});f.append(add);b=f.calculate(kernel);near(b.back().volume,8);
     check(std::ranges::any_of(b.back().mesh.triangle_references,[](const auto& r){return r.surface_result;}),"Solid operation discarded sheets");
 }
 }

@@ -141,7 +141,10 @@ bool AssemblyWorkspaceWindow::confirm_application_close() {
             !workspace::document_needs_save(workspace_, id)) continue;
         dirty.push_back(id);
         names.push_back(std::visit([](const auto& value) {
-            return QString::fromStdString(document::path_to_utf8(value.path.filename()));
+            if (!value.path.empty()) return QString::fromStdString(document::path_to_utf8(value.path.filename()));
+            if constexpr (std::is_same_v<std::decay_t<decltype(value)>, workspace::DrawingState>)
+                return QString::fromStdString(value.document().name);
+            else return QString::fromStdString(value.session.document().name);
         }, state));
         if (names.back().isEmpty()) names.back() = QString::fromStdString(id);
     }

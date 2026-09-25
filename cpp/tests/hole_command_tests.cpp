@@ -1,3 +1,4 @@
+#include "profile_command_fixture.hpp"
 #include <zima/workspace/hole_operations.hpp>
 #include <zima/command_host/host.hpp>
 #include <cmath>
@@ -19,7 +20,7 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
     command_host::Host host(live,kernel,directory,options);
     require(host.execute_text("hole.get missing").code=="unsupported_document","Query without Part did not fail cleanly");
     run(host,"new",{{"type","part"},{"name","native-hole"}});
-    run(host,"box.create",{{"length_mm","40"},{"width_mm","40"},{"height_mm","40"}});
+    zima::test::rectangular_commands([&](const char* n,commands::Json a){return run(host,n,std::move(a));},{{"length_mm","40"},{"width_mm","40"},{"height_mm","40"}});
     const auto document_id=live.active_document_id();
     auto* state=live.open_part(document_id);
     auto created=run(host,"hole.create",{{"diameter_mm",10},{"bore_length_mm",10},{"placement",{{"z",-20}}}}).data;

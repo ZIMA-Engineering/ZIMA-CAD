@@ -142,7 +142,7 @@ int verify_new_document_options(QApplication& application) {
             check(skeleton.appearance.body.color=="#4D000000"&&skeleton.body_color=="#4D000000"&&
                   skeleton.appearance.bodies.empty(),"Skeleton template appearance was not inherited");
             check(window.findChild<QAction*>("materialAction")->isEnabled(),"Skeleton Part commands are disabled");
-            check(window.findChild<QAction*>("sketchAction")->isEnabled()&&window.findChild<QAction*>("boxAction")->isEnabled(),
+            check(window.findChild<QAction*>("sketchAction")->isEnabled()&&window.findChild<QAction*>("featurePrototypeAction")->isEnabled(),
                   "Skeleton active Body must enable normal modeling commands");
             create("assembly","assembly");
             auto* material=window.findChild<QAction*>("materialAction");
@@ -205,7 +205,7 @@ int verify_new_document_options(QApplication& application) {
                 window.findChild<QAction*>("saveDocumentAction")->trigger();flush();
                 const auto path=directory.filePath(type=="part"?"PRIRUBA_CELNI_SKELETON.prtz":"PRIRUBA_CELNI.asmz");
                 check(QFileInfo::exists(path),"GUI did not normalize the document filename");
-                if(type=="part")check(window.findChild<QAction*>("boxAction")->isEnabled(),"Renamed Skeleton template has no active modeling context");
+                if(type=="part")check(window.findChild<QAction*>("featurePrototypeAction")->isEnabled(),"Renamed Skeleton template has no active modeling context");
             }
             check(window.close(),"Naming test left unsaved changes");
         }

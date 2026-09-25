@@ -1,3 +1,5 @@
+#include "profile_command_fixture.hpp"
+#include "profile_solid_fixture.hpp"
 #include <zima/command_host/host.hpp>
 #include <zima/workspace/model_dimension_layout_operations.hpp>
 #include <zima/document/dimension_layout_json.hpp>
@@ -12,10 +14,10 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
     command_host::Host host(live,kernel,dir,options);
     const auto run=[&](const std::string& name,Json args=Json::object()){const auto r=host.execute({{"command",name},{"arguments",std::move(args)}});if(!r.ok)throw std::runtime_error(name+": "+r.code+": "+r.message);return r.data;};
     run("new",{{"type","part"},{"name","dimension-layout"}});const auto part_id=live.active_document_id();
-    const auto box=run("box.create",{{"length_mm","10"},{"width_mm","20"},{"height_mm","30"}}).at("container").get<std::string>();
+    const auto box=zima::test::rectangular_commands([&](const char* n,commands::Json a){return run(n,std::move(a));},{{"length_mm","10"},{"width_mm","20"},{"height_mm","30"}}).at("container").get<std::string>();
     const auto state=[&]{return live.open_part(part_id);};const auto body=state()->session.document().body_history.active_body_id();
     const auto original=*state()->session.document().find_container(box);const auto cache=state()->session.calculated_boundaries().back();
-    const Json ref={{"owner",box},{"key","parameter:length"}};
+    const Json ref={{"owner",box},{"key","parameter:length_forward"}};
     const auto get=[&]{return run("dimension.layout.get",{{"reference",ref}});};
     const auto initial=get();require(!initial.at("has_override").get<bool>()&&initial.at("layout").at("text_style").is_null(),"Initial layout did not inherit the dimension style");
     const auto list=run("dimension.layout.list",{{"owner",box}});require(list.at("total")>=3&&list.at("items")[0].at("reference").at("owner")==box,"Dimension list lost native parameter identities");
@@ -61,8 +63,8 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
     const Json body_ref={{"owner",other},{"key","parameter:placement:x"}};
     run("dimension.layout.set",{{"reference",body_ref},{"layout",layout}});require(run("dimension.layout.get",{{"reference",body_ref}}).at("has_override")==true,"Body-level metadata became inaccessible outside its active Body");
     run("save");std::vector<kernel::BodyResult> saved_cache;const auto saved=document::PartDocument::load(dir/"dimension-layout.prtz",&saved_cache);
-    const auto* stored=kernel::find_dimension_layout(saved.dimension_layouts,{box,"parameter:length",{}});
-    require(stored&&document::dimension_layout_json(*stored)==layout&&!saved_cache.empty()&&saved.find_container(box)->box.length==10,"Native file lost layout or changed the dimension value");
+    const auto* stored=kernel::find_dimension_layout(saved.dimension_layouts,{box,"parameter:length_forward",{}});
+    require(stored&&document::dimension_layout_json(*stored)==layout&&!saved_cache.empty()&&zima::test::profile_dimension(saved,*saved.find_container(box),0)==10,"Native file lost layout or changed the dimension value");
     run("new",{{"type","assembly"},{"name","dimension-context"}});const auto top=live.active_document_id();
     const auto first=run("component.insert",{{"source",part_id}}).at("occurrence").get<std::string>();
     const auto second=run("component.insert",{{"source",part_id}}).at("occurrence").get<std::string>();
@@ -79,7 +81,7 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
     auto nested_layout=layout;nested_layout["text_along"]=9;run("dimension.layout.set",{{"reference",ref},{"layout",nested_layout}});
     require(get().at("reference").at("instance_path")==first_path&&live.displayed_document_id()==top&&live.open_assembly(top)->session.document().dimension_layouts==assembly_after,"Active Part layout changed the parent Assembly or lost occurrence context");
     run("undo");require(get().at("layout")==layout,"Nested Part layout Undo failed");run("redo");run("save");
-    require(state()->session.document().find_container(box)->box.length==10,"Nested layout modified the modeled length");
+    require(zima::test::profile_dimension(state()->session.document(),*state()->session.document().find_container(box),0)==10,"Nested layout modified the modeled length");
 }
 }
 int main(){try{const auto root=fs::canonical(fs::temp_directory_path()),dir=root/("zima-model-layout-"+document::PartDocument::create_default().document_id);fs::create_directory(dir);kernel::OcctKernel kernel;verify(kernel,dir);require(fs::canonical(dir).parent_path()==root,"Unsafe cleanup");fs::remove_all(dir);std::cout<<"Model dimension layouts: geometry preservation, native identity, Body ownership, occurrence scope, reset and Undo passed\n";return 0;}catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}

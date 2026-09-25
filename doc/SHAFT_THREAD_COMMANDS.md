@@ -11,15 +11,25 @@ Actual changes create one Undo step.
 
 ## Example
 
-Create a Part and cylinder with `new part shaft` and `cylinder.create 5 30`.
-Supply the returned cylinder container ID below. `side` and `z_min` are original
-semantic faces for this cylinder type; other geometry requires its own actual references.
+Create a Part with `new part shaft`, then extrude a circular Sketch. Replace
+`SKETCH-ID` with the ID returned by `sketch.create`:
 
 ```json
-{"command":"shaft_thread.create","arguments":{"cylinder":{"owner":"CYLINDER-ID","key":"side"},"start":{"owner":"CYLINDER-ID","key":"z_min"},"designation":"M10","length_mm":15}}
+{"command":"sketch.create","arguments":{"name":"Shaft profile","plane":"XY"}}
+{"command":"sketch.circle.create","arguments":{"sketch":"SKETCH-ID","center":[0,0],"radius_mm":5}}
+{"command":"extrusion.create","arguments":{"sketch":"SKETCH-ID","length_forward_mm":30}}
+```
+
+Use `reference.list` to obtain the resulting Extrusion's original cylindrical
+face and planar start/end faces. Copy their returned owner and semantic keys;
+these keys derive from the authored Sketch and must not be guessed from face
+positions. Replace the placeholders below with those reference identities:
+
+```json
+{"command":"shaft_thread.create","arguments":{"cylinder":{"owner":"EXTRUSION-ID","key":"CYLINDRICAL-FACE-KEY"},"start":{"owner":"EXTRUSION-ID","key":"START-FACE-KEY"},"designation":"M10","length_mm":15}}
 {"command":"shaft_thread.get","arguments":{"container":"THREAD-ID"}}
 {"command":"shaft_thread.set","arguments":{"container":"THREAD-ID","length_mm":20,"root_diameter_mm":8.05}}
-{"command":"shaft_thread.set","arguments":{"container":"THREAD-ID","end_condition":"up_to","end":{"owner":"CYLINDER-ID","key":"z_max"}}}
+{"command":"shaft_thread.set","arguments":{"container":"THREAD-ID","end_condition":"up_to","end":{"owner":"EXTRUSION-ID","key":"END-FACE-KEY"}}}
 ```
 
 ## Parameters

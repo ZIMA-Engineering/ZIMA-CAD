@@ -1,3 +1,4 @@
+#include "profile_command_fixture.hpp"
 #include "dxf_spline_import_test_support.hpp"
 #include "dxf_export_test_support.hpp"
 #include <zima/interchange/dxf.hpp>
@@ -61,7 +62,7 @@ commands::Result run(command_host::Host& host,const char* name,Json args=Json::o
 void command_cases(const kernel::OcctKernel& kernel,fs::path dir) {
     workspace::Workspace live;command_host::Options options;options.settings=[] {return command_host::Settings{{fs::absolute("config/templates"),"START_PART.prtz","START_ASSEMBLY.asmz","Body"},{}};};
     command_host::Host host(live,kernel,dir,options);run(host,"new",{{"type","part"},{"name","splines"}});const auto id=live.active_document_id();
-    run(host,"box.create",{{"length_mm","3"},{"width_mm","4"},{"height_mm","5"}});const auto cached=live.open_part(id)->session.calculated_boundaries().back().kernel_shape;
+    zima::test::rectangular_commands([&](const char* n,commands::Json a){return run(host,n,std::move(a));},{{"length_mm","3"},{"width_mm","4"},{"height_mm","5"}});const auto cached=live.open_part(id)->session.calculated_boundaries().back().kernel_shape;
     const auto count=live.open_part(id)->session.document().sketches.size();const auto result=run(host,"import.dxf",{{"path","splines.dxf"}}).data;const auto sketch=result.at("sketch").get<std::string>();
     require(result.at("imported_entities")==4&&result.at("body_calculated")==false&&live.open_part(id)->session.calculated_boundaries().back().kernel_shape==cached,"Spline import unexpectedly calculated a body");
     const auto current=[&]{return workspace::document_sketch(live,id,sketch);};test::check_unclamped_dxf_sketch(current());const auto saved=current().serialized();

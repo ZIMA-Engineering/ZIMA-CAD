@@ -1,3 +1,4 @@
+#include "profile_command_fixture.hpp"
 #include <zima/command_host/host.hpp>
 #include <zima/workspace/sketch_operations.hpp>
 #include <cmath>
@@ -17,7 +18,7 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
     options.settings=[] {return command_host::Settings{{fs::absolute("config/templates"),"START_PART.prtz","START_ASSEMBLY.asmz","Body"},{}};};
     options.interaction=[&]{return interaction;};command_host::Host host(live,kernel,directory,options);
     run(host,"new",{{"type","part"},{"name","sketches"}});const auto document=live.active_document_id();
-    run(host,"box.create",{{"length_mm","10"},{"width_mm","10"},{"height_mm","10"}});
+    zima::test::rectangular_commands([&](const char* n,commands::Json a){return run(host,n,std::move(a));},{{"length_mm","10"},{"width_mm","10"},{"height_mm","10"}});
     const auto created=run(host,"sketch.create",{{"name","Profil"},{"plane","XY"}}).data;
     const auto sketch=created.at("sketch").get<std::string>(),owner=created.at("owner").get<std::string>();
     auto* state=live.open_part(document);

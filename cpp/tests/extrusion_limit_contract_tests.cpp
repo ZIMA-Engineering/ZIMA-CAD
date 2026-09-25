@@ -1,3 +1,4 @@
+#include "profile_solid_fixture.hpp"
 #include <zima/document/part_document.hpp>
 #include <zima/document/profile_targets.hpp>
 #include <zima/kernel/occt_kernel.hpp>
@@ -19,7 +20,7 @@ document::PartDocument profile_document() {
 }
 std::vector<kernel::HistoryOperation> profile(){return profile_document().kernel_operations();}
 kernel::ExtrusionRequest& extrusion(std::vector<kernel::HistoryOperation>& operations) {
-    for(auto& operation:operations)if(auto* request=std::get_if<kernel::ExtrusionRequest>(&operation.primitive))return *request;
+    for(auto& operation:operations)if(auto* request=std::get_if<kernel::ExtrusionRequest>(&operation.primitive);request && operation.owner_id!="test-stock")return *request;
     throw std::runtime_error("Missing fixture extrusion");
 }
 std::set<std::string> faces(const kernel::BodyResult& body){std::set<std::string> result;for(const auto& ref:body.mesh.original_references.triangle_references)result.insert(ref.semantic_key);return result;}
@@ -50,7 +51,7 @@ void limits(const kernel::OcctKernel& kernel) {
 }
 void cuts(const kernel::OcctKernel& kernel) {
     auto operations=profile();
-    kernel::BoxRequest stock;stock.length=20;stock.width=20;stock.height=20;stock.translation={-10,-10,-10};
+    zima::test::ProfilePrism stock;stock.length=20;stock.width=20;stock.height=20;stock.translation={-10,-10,-10};
     const auto iterator=std::ranges::find_if(operations,[](const auto& op){return std::holds_alternative<kernel::ExtrusionRequest>(op.primitive);});
     check(iterator!=operations.end(),"Missing cut fixture");
     const auto inserted=operations.insert(iterator,{"test-stock",stock,kernel::BooleanOperation::Add});
@@ -76,7 +77,7 @@ void cuts(const kernel::OcctKernel& kernel) {
     for(std::size_t i=0;i<packet.triangle_references.size();++i)if(packet.triangle_references[i]==*face)
         for(std::size_t j=0;j<3;++j)request.reverse_limit->triangles.push_back(packet.vertices[packet.triangles[i*3+j]]);
     body=kernel.evaluate_history(operations).back();near(body.volume,8000-500*std::numbers::pi);
-    auto& stock_request=std::get<kernel::BoxRequest>(operations.front().primitive);stock_request.translation.z=-8;
+    stock.translation.z=-8;operations.front().primitive=static_cast<kernel::ExtrusionRequest>(stock);
     body=kernel.evaluate_history(operations).back();near(body.volume,8000-450*std::numbers::pi);
     double minimum=1e100;
     const auto& references=body.mesh.original_references;
@@ -134,7 +135,7 @@ void coarse_target_classification() {
     check(document::resolve_profile_target(requested,packet)->kind==document::EndTargetKind::Plane,"Native datum plane requires no OCCT metadata");
 }
 void original_body_targets(const kernel::OcctKernel& kernel) {
-    kernel::BoxRequest stock;stock.length=stock.width=stock.height=20;stock.translation={-10,-10,0};
+    zima::test::ProfilePrism stock;stock.length=stock.width=stock.height=20;stock.translation={-10,-10,0};
     kernel::HistoryOperation source{"original-stock",stock,kernel::BooleanOperation::Add};source.body.id="source-body";
     const auto source_packet=kernel.evaluate_history({source}).back().mesh.original_references;
     const auto top=std::ranges::find_if(source_packet.triangle_references,[](const auto& ref) {
@@ -157,7 +158,7 @@ void original_body_targets(const kernel::OcctKernel& kernel) {
     calculated=kernel.evaluate_history_incremental(operations,calculated);near(calculated.back().volume,8000+625*std::numbers::pi);
     // A new process has only persisted boundaries, not the live original-face chain.
     kernel::OcctKernel cold;
-    std::get<kernel::BoxRequest>(operations.front().primitive).height=22;
+    std::get<kernel::ExtrusionRequest>(operations.front().primitive).direction.z=22;
     calculated=cold.evaluate_history_incremental(operations,calculated);near(calculated.back().volume,8800+675*std::numbers::pi);
     operations.front().suppressed=true;bool rejected=false;
     try{static_cast<void>(cold.evaluate_history_incremental(operations,calculated));}catch(const std::exception&){rejected=true;}
@@ -165,17 +166,17 @@ void original_body_targets(const kernel::OcctKernel& kernel) {
 
     // Removing the visible top of a stock does not remove its original face.
     source.body={};feature.body={};
-    kernel::BoxRequest trim=stock;trim.translation.z=10;
+    zima::test::ProfilePrism trim=stock;trim.translation.z=10;
     kernel::HistoryOperation cut{"top-removal",trim,kernel::BooleanOperation::Subtract};
     operations={source,cut,feature};
     calculated=kernel.evaluate_history(operations);near(calculated.back().volume,4000+250*std::numbers::pi);
-    std::get<kernel::BoxRequest>(operations[1].primitive).translation.z=8;
+    trim.translation.z=8;operations[1].primitive=static_cast<kernel::ExtrusionRequest>(trim);
     calculated=kernel.evaluate_history_incremental(operations,calculated);near(calculated.back().volume,3200+300*std::numbers::pi);
     check(std::ranges::any_of(calculated.back().mesh.original_references.triangle_references,[&](const auto& ref){return ref==*top;}),"Original stock reference disappeared after a cut");
 }
 
 void curved_body_target(const kernel::OcctKernel& kernel) {
-    kernel::SphereRequest sphere;sphere.radius=20;sphere.translation={0,0,30};
+    zima::test::SphericalRevolution sphere;sphere.radius=20;sphere.translation={0,0,30};
     kernel::HistoryOperation source{"sphere-target",sphere,kernel::BooleanOperation::Add};source.body.id="sphere-body";source.body.translation={0,0,10};
     const auto packet=kernel.evaluate_history({source}).back().mesh.original_references;
     auto profile_ops=profile();auto feature=*std::ranges::find_if(profile_ops,[](const auto& op){return std::holds_alternative<kernel::ExtrusionRequest>(op.primitive);});

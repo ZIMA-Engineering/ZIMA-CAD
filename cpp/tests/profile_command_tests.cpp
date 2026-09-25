@@ -33,6 +33,10 @@ struct Fixture {
     std::string sketch(){return run("sketch.create",{{"name","Profil"},{"plane","XY"}}).at("sketch").get<std::string>();}
     std::string line(const std::string& sketch,double x1,double y1,double x2,double y2){return run("sketch.segment.create",{{"sketch",sketch},{"first",{x1,y1}},{"second",{x2,y2}},{"snap_mm",0.000001}}).at("geometry").get<std::string>();}
     std::string rectangle(double x,double y,double width,double height){const auto id=sketch();line(id,x,y,x+width,y);line(id,x+width,y,x+width,y+height);line(id,x+width,y+height,x,y+height);line(id,x,y+height,x,y);return id;}
+    Json stock(double x,double y,double z) {
+        const auto profile=rectangle(-x/2,-y/2,x,y);
+        return run("extrusion.create",{{"sketch",profile},{"extent","symmetric"},{"length_forward_mm",z/2}});
+    }
     double volume(){require(!part().session.calculated_boundaries().empty(),"Missing calculated body");return part().session.calculated_boundaries().back().volume;}
 };
 void surfaces(const kernel::OcctKernel& kernel,fs::path directory) {
@@ -94,6 +98,9 @@ void unified_feature(const kernel::OcctKernel& kernel,fs::path directory) {
     require(rejected && f.doc().serialized()==before && f.part().session.revision()==revision &&
         f.part().session.calculated_boundaries().data()==cache,"Invalid Feature transaction changed live state");
     auto draft=*std::ranges::find(f.doc().sketches,sketch,&sketcher::Sketch::id);
+    workspace::commit_profile(f.live,kernel,f.doc().document_id,*f.doc().find_container(id),workspace::ProfileEditMode::Replace,draft);
+    require(f.part().session.revision()==revision && f.part().session.calculated_boundaries().data()==cache,
+        "Unchanged Feature properties recalculated or created an Undo step");
     for(auto& point:draft.points)point.y*=2;
     workspace::commit_profile(f.live,kernel,f.doc().document_id,*f.doc().find_container(id),workspace::ProfileEditMode::Replace,draft);
     near(f.volume(),800*std::numbers::pi);
@@ -286,7 +293,7 @@ void thin_and_cut(const kernel::OcctKernel& kernel,fs::path directory){
     f.run("undo");near(f.volume(),27*std::numbers::pi);f.run("redo");near(f.volume(),33*std::numbers::pi);
     f.reject("extrusion.set",{{"container",made.at("container")},{"thin_mode","one_side"},{"thin_thickness_mm",8}},"profile_rejected");
     f.run("extrusion.set",{{"container",made.at("container")},{"result_type","solid"}});near(f.volume(),75*std::numbers::pi);
-    f.run("new",{{"type","part"},{"name","profile-cut"}});f.run("box.create",{{"length_mm","10"},{"width_mm","10"},{"height_mm","10"}});
+    f.run("new",{{"type","part"},{"name","profile-cut"}});f.stock(10,10,10);
     const auto cut_sketch=f.rectangle(2,2,2,2);
     const auto cut=f.run("extrusion.create",{{"sketch",cut_sketch},{"combine","subtract"},{"end_forward","through_all"}});near(f.volume(),980);
     // The native Box is centred at the Origin; one side cuts only half its depth.
@@ -334,7 +341,7 @@ void end_targets(const kernel::OcctKernel& kernel,fs::path directory) {
 }
 void original_body_target_commands(const kernel::OcctKernel& kernel,fs::path directory) {
     Fixture f(kernel,directory);f.run("new",{{"type","part"},{"name","profile-body-target"}});
-    const auto stock=f.run("box.create",{{"length_mm","20"},{"width_mm","20"},{"height_mm","20"}}).at("container").get<std::string>();
+    const auto stock=f.stock(20,20,20).at("container").get<std::string>();
     const auto source_body=f.doc().body_history.active_body_id();
     f.run("placement.set",{{"object",source_body},{"values",{{"reference_offset:0",10}}}});
     const auto packet=f.part().session.calculated_boundaries().back().mesh.original_references;
@@ -352,7 +359,7 @@ void original_body_target_commands(const kernel::OcctKernel& kernel,fs::path dir
         {"targets_forward",Json::array({{{"owner",face->owner_id},{"key",face->semantic_key}}})}}).at("container").get<std::string>();
     near(f.volume(),8000+375*std::numbers::pi);
     near(f.doc().find_container(profile)->extrusion.end_targets_forward.front().fallback_origin.z,15);
-    f.run("body.activate",{{"body",source_body}});f.run("box.set",{{"container",stock},{"height_mm","22"}});
+    f.run("body.activate",{{"body",source_body}});f.run("extrusion.set",{{"container",stock},{"length_forward_mm",11}});
     near(f.volume(),8800+400*std::numbers::pi);
     near(f.doc().find_container(profile)->extrusion.end_targets_forward.front().fallback_origin.z,16);
     f.run("undo");near(f.volume(),8000+375*std::numbers::pi);f.run("redo");near(f.volume(),8800+400*std::numbers::pi);

@@ -1,3 +1,4 @@
+#include "profile_solid_fixture.hpp"
 #include <zima/workspace/reference_sources.hpp>
 #include <zima/kernel/occt_kernel.hpp>
 #include <iostream>
@@ -10,7 +11,7 @@ void near(kernel::Vec3 actual,kernel::Vec3 expected){near(actual.x,expected.x);n
 void verify(const fs::path& dir) {
     kernel::OcctKernel kernel;workspace::Workspace live;
     auto source=document::PartDocument::create_default();const auto source_id=source.document_id;
-    auto box=document::PartDocument::create_box_container();box.box={10,10,10};source.history={box};
+    auto box=zima::test::rectangular_feature(source,{10,10,10});source.history={box};
     auto boundaries=kernel.evaluate_history(source.kernel_operations());
     kernel::ViewerEdge curve;curve.reference={box.id,"original-test-quarter-circle",""};curve.points={{1,0,0},{0,1,0}};
     curve.exact_spline=kernel::BSplineGeometry{2,{{1,0,0},{1,1,0},{0,1,0}},{0,0,0,1,1,1},{1,std::sqrt(.5),1}};
@@ -18,7 +19,7 @@ void verify(const fs::path& dir) {
     const auto face=boundaries.back().mesh.original_references.triangle_references.front();
     require(face.surface&&face.surface->kind==kernel::SurfaceGeometry::Kind::Plane,"Box fixture has no persisted analytic plane");
     source.save(dir/"reference-source.prtz",boundaries);live.add_part(source,boundaries,dir/"reference-source.prtz");
-    auto dependent=document::PartDocument::create_default();dependent.history={document::PartDocument::create_box_container()};
+    auto dependent=document::PartDocument::create_default();dependent.history={zima::test::rectangular_feature(dependent)};
     const auto dependent_id=dependent.document_id;auto dependent_bodies=kernel.evaluate_history(dependent.kernel_operations());
     live.add_part(dependent,dependent_bodies,dir/"reference-dependent.prtz");
     auto inner=assembly::AssemblyDocument::create_default();

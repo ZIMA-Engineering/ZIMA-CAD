@@ -177,7 +177,7 @@ int verify_numeric_fields(QApplication& application, QWidget& parent) {
             }
             delete dialog; flush();
         };
-        auto box=zima::document::PartDocument::create_box_container();
+        auto box=zima::document::PartDocument::create_twisted_sheet_container();
         check(new zima::app::PrimitivePropertiesDialog(box,false,false,[](auto){},&parent),"container");
         check(new zima::app::Sweep2DDialog(zima::document::PartDocument::create_sweep2d_container(),[](auto){},&parent),"sweep");
         check(new zima::app::HelicalSweepDialog(zima::document::PartDocument::create_helical_sweep_container(),[](auto){},&parent),"helix");
@@ -224,6 +224,7 @@ int verify_entry_tables(QApplication& application,QWidget& parent) {
         require(table->currentRow()==expected_row&&qobject_cast<QLineEdit*>(application.focusWidget()),"Enter did not move down and start editing");
         require(!committed&&dialog->isVisible(),"Enter submitted the Parameters dialog");
     };
+    parent.raise();parent.activateWindow();table->setFocus();flush();
     edit_table_cell(table,0,4);flush();enter("first",1);enter("second",2);
     require(table->item(0,4)->text()=="first"&&table->item(1,4)->text()=="second","Enter lost the edited cell values");
     table->setFocus();flush();edit_table_cell(table,2,1);flush();enter("c",3);
@@ -683,7 +684,7 @@ int main(int argc, char* argv[]) {
     QWidget parent;
     parent.resize(900, 650);
     parent.show();
-    const auto initial = zima::document::PartDocument::create_box_container();
+    const auto initial = zima::document::PartDocument::create_twisted_sheet_container();
 
     try {
         {
@@ -698,6 +699,14 @@ int main(int argc, char* argv[]) {
             application.processEvents();
             command.setAttribute(Qt::WA_UnderMouse,true);
             const auto hovered=command.grab().toImage();
+            if(!framebuffer_contains_color_near(hovered,command.size(),{160,20},QColor("#4dd811"),3)) {
+                const auto expected=command.mapToGlobal(command.rect().center());
+                const auto actual=QCursor::pos();
+                std::cerr<<"Hover cursor expected="<<expected.x()<<','<<expected.y()
+                    <<" actual="<<actual.x()<<','<<actual.y()
+                    <<" hitsCommand="<<(QApplication::widgetAt(actual)==&command)
+                    <<" platform="<<QApplication::platformName().toStdString()<<'\n';
+            }
             require(framebuffer_contains_color_near(hovered,command.size(),{160,20},QColor("#4dd811"),3),
                 "Command hover did not use the shared green");
             QCursor::setPos(parent.mapToGlobal(QPoint(400,200)));
@@ -761,7 +770,7 @@ int main(int argc, char* argv[]) {
         for (const auto kind : {zima::document::FeatureKind::Fillet,
                 zima::document::FeatureKind::Chamfer, zima::document::FeatureKind::Shell,
                 zima::document::FeatureKind::DrillPoint}) for (const bool edit_mode : {false, true}) {
-            auto initial = zima::document::PartDocument::create_box_container();
+            auto initial = zima::document::PartDocument::create_twisted_sheet_container();
             initial.feature_kind = kind;
             auto* treatment = new zima::app::PrimitivePropertiesDialog(initial, edit_mode, false,
                 [](zima::document::HistoryContainer) {}, &parent);
@@ -939,9 +948,9 @@ int main(int argc, char* argv[]) {
             using namespace zima::app;
             auto document=zima::document::PartDocument::create_default();
             using namespace zima::workspace;
-            auto source=zima::document::PartDocument::create_box_container();
-            auto consumer=zima::document::PartDocument::create_box_container();
-            auto independent=zima::document::PartDocument::create_box_container();
+            auto source=zima::document::PartDocument::create_twisted_sheet_container();
+            auto consumer=zima::document::PartDocument::create_twisted_sheet_container();
+            auto independent=zima::document::PartDocument::create_twisted_sheet_container();
             zima::document::ConstructionReference ref;
             ref.owner_id=source.feature_id;ref.semantic_key="z_max";
             consumer.placement.references.push_back(ref);
@@ -1225,23 +1234,23 @@ int main(int argc, char* argv[]) {
         ok_dialog->show();
         application.processEvents();
         require(ok_dialog->windowTitle() ==
-                    QStringLiteral("Vlastnosti kvádru"),
+                    QStringLiteral("Vlastnosti krouceného plechu"),
                 "Create and edit must share the same Properties title");
-        auto* length = ok_dialog->findChild<QDoubleSpinBox*>("boxLength");
+        auto* length = ok_dialog->findChild<QDoubleSpinBox*>("twistedSheetLength");
         require(length != nullptr, "Box dialog must expose its length");
         int box_preview_updates = 0;
         double previewed_box_length = 0.0;
         ok_dialog->set_preview_callback(
             [&](const zima::document::HistoryContainer& preview) {
                 ++box_preview_updates;
-                previewed_box_length = preview.box.length;
+                previewed_box_length = preview.twisted_sheet.length;
             });
-        auto* box_width = ok_dialog->findChild<QDoubleSpinBox*>("boxWidth");
-        auto* box_height = ok_dialog->findChild<QDoubleSpinBox*>("boxHeight");
+        auto* box_width = ok_dialog->findChild<QDoubleSpinBox*>("twistedSheetWidth");
+        auto* box_height = ok_dialog->findChild<QDoubleSpinBox*>("twistedSheetThickness");
         require(box_width != nullptr && box_height != nullptr &&
                     ok_dialog->set_inline_parameter_value("length", 125.0) &&
                     ok_dialog->set_inline_parameter_value("width", 85.0) &&
-                    ok_dialog->set_inline_parameter_value("height", 55.0) &&
+                    ok_dialog->set_inline_parameter_value("thickness", 55.0) &&
                     length->value() == 125.0 && box_width->value() == 85.0 &&
                     box_height->value() == 55.0 &&
                     box_preview_updates >= 4 &&
@@ -1255,9 +1264,9 @@ int main(int argc, char* argv[]) {
         ok_dialog->buttons()->button(QDialogButtonBox::Ok)->click();
         application.processEvents();
         require(ok_commits == 1, "OK must commit exactly once");
-        require(committed.box.length == 125.0, "OK did not commit edited length");
-        require(committed.box.width == 85.0 &&
-                    committed.box.height == 55.0,
+        require(committed.twisted_sheet.length == 125.0, "OK did not commit edited length");
+        require(committed.twisted_sheet.width == 85.0 &&
+                    committed.twisted_sheet.thickness == 55.0,
                 "OK did not commit inline-edited Box width/height");
         require(committed.placement.x == 42.0,
                 "OK did not commit container placement");
@@ -1382,11 +1391,12 @@ int main(int argc, char* argv[]) {
         require(closed_shell_committed,
             "Shell Properties rejected a closed shell without opening faces");
 
+        const auto confirmation_feature = zima::document::PartDocument::create_extrusion_container("confirmation-profile");
         int middle_commits = 0;
         zima::document::CombineMode middle_operation =
             zima::document::CombineMode::Add;
         auto* middle_dialog = new zima::app::PrimitivePropertiesDialog(
-            initial, true, true,
+            confirmation_feature, true, true,
             [&](zima::document::HistoryContainer value) {
                 ++middle_commits;
                 middle_operation = value.combine_mode;
@@ -1439,7 +1449,7 @@ int main(int argc, char* argv[]) {
 
         int view_middle_commits = 0;
         auto* view_middle_dialog = new zima::app::PrimitivePropertiesDialog(
-            initial, false, false,
+            confirmation_feature, false, false,
             [&](zima::document::HistoryContainer) { ++view_middle_commits; },
             &parent);
         zima::viewer::MeshView view(&parent);
@@ -2564,7 +2574,7 @@ int main(int argc, char* argv[]) {
         QApplication::sendEvent(&zero_dimension_view, &overlap_release);
 
         auto cylinder_initial =
-            zima::document::PartDocument::create_cylinder_container();
+            zima::document::PartDocument::create_twisted_sheet_container();
         int cylinder_commits = 0;
         zima::document::HistoryContainer committed_cylinder;
         auto* cylinder_dialog = new zima::app::PrimitivePropertiesDialog(
@@ -2575,8 +2585,8 @@ int main(int argc, char* argv[]) {
             }, &parent);
         cylinder_dialog->show();
         application.processEvents();
-        auto* radius = cylinder_dialog->findChild<QDoubleSpinBox*>("cylinderRadius");
-        auto* height = cylinder_dialog->findChild<QDoubleSpinBox*>("cylinderHeight");
+        auto* radius = cylinder_dialog->findChild<QDoubleSpinBox*>("twistedSheetWidth");
+        auto* height = cylinder_dialog->findChild<QDoubleSpinBox*>("twistedSheetLength");
         require(radius != nullptr && height != nullptr,
                 "Cylinder dialog does not expose its parameters");
         require(cylinder_dialog->findChild<QTableWidget*>(
@@ -2605,9 +2615,9 @@ int main(int argc, char* argv[]) {
         application.processEvents();
         require(cylinder_commits == 1 &&
                     committed_cylinder.feature_kind ==
-                        zima::document::FeatureKind::Cylinder &&
-                    committed_cylinder.cylinder.radius == 17.0 &&
-                    committed_cylinder.cylinder.height == 63.0 &&
+                        zima::document::FeatureKind::TwistedSheet &&
+                    committed_cylinder.twisted_sheet.width == 17.0 &&
+                    committed_cylinder.twisted_sheet.length == 63.0 &&
                     committed_cylinder.placement.references.size() == 1 &&
                     committed_cylinder.placement.references[0].owner_id ==
                         "part-origin",
@@ -3012,7 +3022,7 @@ int main(int argc, char* argv[]) {
                 committed_drill_point.drill_point.bottom_faces.size() == 2,
             "Drill Point Properties did not commit its faces and included angle");
 
-        auto sphere_initial = zima::document::PartDocument::create_sphere_container();
+        auto sphere_initial = zima::document::PartDocument::create_twisted_sheet_container();
         zima::document::HistoryContainer committed_sphere;
         auto* sphere_dialog = new zima::app::PrimitivePropertiesDialog(
             sphere_initial, false, false,
@@ -3021,7 +3031,7 @@ int main(int argc, char* argv[]) {
             }, &parent);
         sphere_dialog->show();
         application.processEvents();
-        auto* sphere_radius = sphere_dialog->findChild<QDoubleSpinBox*>("sphereRadius");
+        auto* sphere_radius = sphere_dialog->findChild<QDoubleSpinBox*>("twistedSheetWidth");
         require(sphere_radius != nullptr, "Sphere dialog does not expose its radius");
         require(sphere_dialog->findChild<QTableWidget*>("primitiveReferenceTable") !=
                     nullptr,
@@ -3145,8 +3155,8 @@ int main(int argc, char* argv[]) {
         sphere_radius->setValue(27.0);
         sphere_dialog->buttons()->button(QDialogButtonBox::Ok)->click();
         application.processEvents();
-        require(committed_sphere.feature_kind == zima::document::FeatureKind::Sphere &&
-                    committed_sphere.sphere.radius == 27.0 &&
+        require(committed_sphere.feature_kind == zima::document::FeatureKind::TwistedSheet &&
+                    committed_sphere.twisted_sheet.width == 27.0 &&
                     committed_sphere.placement.absolute_rotation_x == -12.0 &&
                     committed_sphere.placement.absolute_rotation_y == 34.0 &&
                     committed_sphere.placement.absolute_rotation_z == 56.0 &&
@@ -3263,74 +3273,6 @@ int main(int argc, char* argv[]) {
                               committed_treatment.edge_treatment.flip),
                     "Fillet/Chamfer Properties lost its mode, edge identity or values");
         }
-        auto cone_initial = zima::document::PartDocument::create_cone_container();
-        zima::document::HistoryContainer committed_cone;
-        auto* cone_dialog = new zima::app::PrimitivePropertiesDialog(
-            cone_initial, false, false,
-            [&](zima::document::HistoryContainer value) {
-                committed_cone = std::move(value);
-            }, &parent);
-        cone_dialog->show();
-        application.processEvents();
-        require(cone_dialog->findChild<QTableWidget*>("primitiveReferenceTable") !=
-                    nullptr,
-                "Cone Properties did not receive the universal placement table");
-        cone_dialog->findChild<QDoubleSpinBox*>("coneBottomRadius")->setValue(25.0);
-        cone_dialog->findChild<QDoubleSpinBox*>("coneTopRadius")->setValue(5.0);
-        cone_dialog->findChild<QDoubleSpinBox*>("coneHeight")->setValue(70.0);
-        cone_dialog->buttons()->button(QDialogButtonBox::Ok)->click();
-        require(committed_cone.feature_kind == zima::document::FeatureKind::Cone &&
-                    committed_cone.cone.bottom_radius == 25.0 &&
-                    committed_cone.cone.top_radius == 5.0 &&
-                    committed_cone.cone.height == 70.0,
-                "Cone Properties did not commit exact parameters");
-
-        auto pyramid_initial = zima::document::PartDocument::create_pyramid_container();
-        zima::document::HistoryContainer committed_pyramid;
-        auto* pyramid_dialog = new zima::app::PrimitivePropertiesDialog(
-            pyramid_initial, false, false,
-            [&](zima::document::HistoryContainer value) {
-                committed_pyramid = std::move(value);
-            }, &parent);
-        pyramid_dialog->show();
-        application.processEvents();
-        require(pyramid_dialog->findChild<QTableWidget*>("primitiveReferenceTable") !=
-                    nullptr,
-                "Pyramid Properties did not receive the universal placement table");
-        pyramid_dialog->findChild<QDoubleSpinBox*>("pyramidLength")->setValue(30.0);
-        pyramid_dialog->findChild<QDoubleSpinBox*>("pyramidWidth")->setValue(20.0);
-        pyramid_dialog->findChild<QDoubleSpinBox*>("pyramidHeight")->setValue(40.0);
-        pyramid_dialog->buttons()->button(QDialogButtonBox::Ok)->click();
-        require(committed_pyramid.feature_kind == zima::document::FeatureKind::Pyramid &&
-                    committed_pyramid.pyramid.length == 30.0 &&
-                    committed_pyramid.pyramid.width == 20.0 &&
-                    committed_pyramid.pyramid.height == 40.0,
-                "Pyramid Properties did not commit exact parameters");
-
-        auto wedge_initial = zima::document::PartDocument::create_wedge_container();
-        zima::document::HistoryContainer committed_wedge;
-        auto* wedge_dialog = new zima::app::PrimitivePropertiesDialog(
-            wedge_initial, false, false,
-            [&](zima::document::HistoryContainer value) {
-                committed_wedge = std::move(value);
-            }, &parent);
-        wedge_dialog->show();
-        application.processEvents();
-        require(wedge_dialog->findChild<QTableWidget*>("primitiveReferenceTable") !=
-                    nullptr,
-                "Wedge Properties did not receive the universal placement table");
-        wedge_dialog->findChild<QDoubleSpinBox*>("wedgeLength")->setValue(60.0);
-        wedge_dialog->findChild<QDoubleSpinBox*>("wedgeWidth")->setValue(25.0);
-        wedge_dialog->findChild<QDoubleSpinBox*>("wedgeHeight")->setValue(35.0);
-        wedge_dialog->findChild<QDoubleSpinBox*>("wedgeTopOffset")->setValue(18.0);
-        wedge_dialog->buttons()->button(QDialogButtonBox::Ok)->click();
-        require(committed_wedge.feature_kind == zima::document::FeatureKind::Wedge &&
-                    committed_wedge.wedge.length == 60.0 &&
-                    committed_wedge.wedge.width == 25.0 &&
-                    committed_wedge.wedge.height == 35.0 &&
-                    committed_wedge.wedge.top_offset == 18.0,
-                "Wedge Properties did not commit exact parameters");
-
         auto imported_step_initial =
             zima::document::PartDocument::create_imported_step_container(
                 "/tmp/example.step");

@@ -1,3 +1,5 @@
+#include "profile_solid_fixture.hpp"
+#include "profile_command_fixture.hpp"
 #include <zima/command_host/host.hpp>
 #include <zima/workspace/edge_treatment_operations.hpp>
 #include <zima/workspace/operation_input.hpp>
@@ -14,8 +16,8 @@ namespace {
 void require(bool value,const char* message){if(!value)throw std::runtime_error(message);}
 void near(double value,double expected,double tolerance=1e-5){if(std::abs(value-expected)>tolerance)throw std::runtime_error("Expected "+std::to_string(expected)+", got "+std::to_string(value));}
 commands::Result run(command_host::Host& host,const char* name,Json args=Json::object()) {
-    auto result=host.execute({{"command",name},{"arguments",std::move(args)}});
-    if(!result.ok)throw std::runtime_error(std::string(name)+": "+result.code+": "+result.message);return result;
+    auto result=host.execute({{"command",name},{"arguments",args}});
+    if(!result.ok)throw std::runtime_error(std::string(name)+" "+args.dump()+": "+result.code+": "+result.message);return result;
 }
 void verify(const kernel::OcctKernel& kernel,fs::path directory) {
     workspace::Workspace live;command_host::Options options;
@@ -26,8 +28,8 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
     auto* state=live.open_part(live.active_document_id());const auto doc_id=live.active_document_id();
     const auto body=state->session.document().body_history.active_body_id();
     require(host.execute({{"command","fillet.create"},{"arguments",{{"routes",Json::array({Json{{"edges",Json::array({Json{{"owner","missing"},{"key","edge"}}})}}})}}}}).code=="missing_input","Fillet accepted an empty input body");
-    const auto box=run(host,"box.create",{{"length_mm","100"},{"width_mm","80"},{"height_mm","50"}}).data.at("container").get<std::string>();
-    const std::string edge_key="edge:x_max:y_min:z_max--x_max:y_min:z_min";
+    const auto box=zima::test::rectangular_commands([&](const char* n,commands::Json a){return run(host,n,std::move(a));},{{"length_mm","100"},{"width_mm","80"},{"height_mm","50"}}).data.at("container").get<std::string>();
+    const std::string edge_key=test::profile_key(state->session.document(),box,"edge:x_max:y_min:z_max--x_max:y_min:z_min");
     const Json edge={{"owner",box},{"key",edge_key}};
     const auto route=run(host,"edge_treatment.route",{{"seed",edge}}).data;
     require(route.at("endpoints").size()==2,"Missing real route endpoints");
@@ -51,7 +53,7 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
         auto args=patch;args["container"]=id;require(!host.execute({{"command","fillet.set"},{"arguments",args}}).ok,"Invalid Fillet accepted");
         require(state->session.revision()==revision&&state->session.calculated_boundaries().data()==cache&&*state->session.document().find_container(id)==original,"Invalid Fillet partly committed");
     }
-    const Json opposite={{"owner",box},{"key","edge:x_min:y_max:z_max--x_min:y_max:z_min"}};
+    const Json opposite={{"owner",box},{"key",test::profile_key(state->session.document(),box,"edge:x_min:y_max:z_max--x_min:y_max:z_min")}};
     const auto disconnected=Json::array({Json{{"edges",Json::array({edge,opposite})},{"start",end}}});
     require(host.execute({{"command","fillet.set"},{"arguments",{{"container",id},{"mode","linear"},{"routes",disconnected}}}}).code=="invalid_reference","Linear Fillet accepted disconnected routes under one R1");
     require(host.execute({{"command","chamfer.get"},{"arguments",{{"container",id}}}}).code=="wrong_feature","Chamfer query accepted a Fillet");
@@ -78,8 +80,8 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
     run(host,"save");std::vector<kernel::BodyResult> saved;const auto loaded=document::PartDocument::load(directory/"edge-treatment.prtz",&saved);
     require(*loaded.find_container(id)==locked,"Native Fillet lost its routes/R1/locks");
     near(kernel.evaluate_history(loaded.kernel_operations()).back().volume,saved.back().volume,1e-5);
-    run(host,"box.set",{{"container",box},{"length_mm","110"}});require(state->session.document().find_container(id)->edge_treatment.route_start_vertices==locked.edge_treatment.route_start_vertices,"Source change replaced R1 ancestry");
-    const auto other=run(host,"body.create",{{"name","Other"}}).data.at("body");run(host,"box.create",{{"length_mm","10"},{"width_mm","10"},{"height_mm","10"}});
+    zima::test::resize_rectangular_commands([&](const char* n,commands::Json a){return run(host,n,std::move(a));},{{"container",box},{"length_mm","110"}});require(state->session.document().find_container(id)->edge_treatment.route_start_vertices==locked.edge_treatment.route_start_vertices,"Source change replaced R1 ancestry");
+    const auto other=run(host,"body.create",{{"name","Other"}}).data.at("body");zima::test::rectangular_commands([&](const char* n,commands::Json a){return run(host,n,std::move(a));},{{"length_mm","10"},{"width_mm","10"},{"height_mm","10"}});
     require(host.execute({{"command","fillet.set"},{"arguments",{{"container",id},{"reverse",false}}}}).code=="inactive_body","Fillet edited inactive Body");
     require(host.execute({{"command","fillet.create"},{"arguments",{{"routes",routes()}}}}).code=="invalid_reference","Fillet accepted another Body edge");
     run(host,"body.activate",{{"body",body}});run(host,"body.cursor",{{"body",body},{"index",1}});
@@ -87,8 +89,8 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
     require(run(host,"edge_treatment.edges",{{"container",id}}).data.at("total")==12,"Fillet edit lost consumed input edge");
     // Three independent Chamfer modes; FLIP swaps the two support faces.
     run(host,"new",{{"type","part"},{"name","chamfer-command"}});
-    const auto block=run(host,"box.create",{{"length_mm","100"},{"width_mm","80"},{"height_mm","50"}}).data.at("container");state=live.open_part(live.active_document_id());
-    const auto chamfer_routes=Json::array({Json{{"edges",Json::array({Json{{"owner",block},{"key",edge_key}}})}}});
+    const auto block=zima::test::rectangular_commands([&](const char* n,commands::Json a){return run(host,n,std::move(a));},{{"length_mm","100"},{"width_mm","80"},{"height_mm","50"}}).data.at("container");state=live.open_part(live.active_document_id());
+    const auto chamfer_routes=Json::array({Json{{"edges",Json::array({Json{{"owner",block},{"key",test::profile_key(state->session.document(),block,"edge:x_max:y_min:z_max--x_max:y_min:z_min")}}})}}});
     const auto chamfer=run(host,"chamfer.create",{{"routes",chamfer_routes},{"distance_a_mm",2}}).data.at("container").get<std::string>();
     near(state->session.calculated_boundaries().back().volume,399900);
     run(host,"chamfer.set",{{"container",chamfer},{"mode","two_distances"},{"distance_b_mm",5}});near(state->session.calculated_boundaries().back().volume,399750);
@@ -111,7 +113,7 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
     // Four independent contours use alternating explicit R1 ends. The runtime
     // topology may contain repeated shape uses for one persisted input edge.
     run(host,"new",{{"type","part"},{"name","four-linear-routes"}});
-    run(host,"box.create",{{"length_mm","100"},{"width_mm","80"},{"height_mm","50"}});state=live.open_part(live.active_document_id());
+    zima::test::rectangular_commands([&](const char* n,commands::Json a){return run(host,n,std::move(a));},{{"length_mm","100"},{"width_mm","80"},{"height_mm","50"}});state=live.open_part(live.active_document_id());
     auto four_routes=Json::array();std::vector<std::pair<kernel::Vec3,kernel::Vec3>> corners;
     const auto many_input=run(host,"edge_treatment.edges").data;
     for(const auto& item:many_input.at("items")) {
@@ -158,18 +160,18 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
     for(const bool fillet:{true,false}) {
         const std::string prefix=fillet?"fillet":"chamfer",name=prefix+"-remove";
         run(host,"new",{{"type","part"},{"name",name}});
-        const auto block=run(host,"box.create",{{"length_mm","10"},{"width_mm","10"},{"height_mm","10"}}).data.at("container").get<std::string>();
+        const auto block=zima::test::rectangular_commands([&](const char* n,commands::Json a){return run(host,n,std::move(a));},{{"length_mm","10"},{"width_mm","10"},{"height_mm","10"}}).data.at("container").get<std::string>();
         state=live.open_part(live.active_document_id());const auto owning_body=state->session.document().body_history.active_body_id();
-        const Json a={{"owner",block},{"key",edge_key}},b={{"owner",block},{"key","edge:x_min:y_max:z_max--x_min:y_max:z_min"}},
-            c={{"owner",block},{"key","edge:x_min:y_min:z_max--x_min:y_min:z_min"}};
+        const Json a={{"owner",block},{"key",test::profile_key(state->session.document(),block,"edge:x_max:y_min:z_max--x_max:y_min:z_min")}},b={{"owner",block},{"key",test::profile_key(state->session.document(),block,"edge:x_min:y_max:z_max--x_min:y_max:z_min")}},
+            c={{"owner",block},{"key",test::profile_key(state->session.document(),block,"edge:x_min:y_min:z_max--x_min:y_min:z_min")}};
         const auto grouped=Json::array({Json{{"edges",Json::array({a,b})}},Json{{"edges",Json::array({c})}}});
         const auto treatment=run(host,(prefix+".create").c_str(),{{"routes",grouped}}).data.at("container").get<std::string>();
         const auto full=*state->session.document().find_container(treatment);const double cut=10*(fillet?corner:.5);
         near(state->session.calculated_boundaries().back().volume,1000-3*cut);
         const auto unchanged=state->session.revision();const auto* original_cache=state->session.calculated_boundaries().data();
         for(auto args:std::vector<Json>{{{"route",-1}},{{"route",Json(std::numeric_limits<std::uint64_t>::max())}},{{"route",3}},{{"route",.5}},
-            {{"route",0},{"edge",c}},{{"route",0},{"edge",Json{{"owner",block},{"key",edge_key},{"instance_path","foreign"}}}},
-            {{"route",0},{"edge",Json{{"owner",block},{"key",edge_key},{"geometry_index",0}}}},{{"route",0},{"edge",nullptr}}}) {
+            {{"route",0},{"edge",c}},{{"route",0},{"edge",Json{{"owner",block},{"key",test::profile_key(state->session.document(),block,"edge:x_max:y_min:z_max--x_max:y_min:z_min")},{"instance_path","foreign"}}}},
+            {{"route",0},{"edge",Json{{"owner",block},{"key",test::profile_key(state->session.document(),block,"edge:x_max:y_min:z_max--x_max:y_min:z_min")},{"geometry_index",0}}}},{{"route",0},{"edge",nullptr}}}) {
             args["container"]=treatment;require(!host.execute({{"command","edge_treatment.remove"},{"arguments",args}}).ok,"Invalid route removal succeeded");
             require(state->session.revision()==unchanged&&state->session.calculated_boundaries().data()==original_cache&&*state->session.document().find_container(treatment)==full,"Rejected removal mutated the document");
         }
@@ -197,9 +199,9 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
     // The last route follows history deletion: retain a dependent feature with
     // its error, expose changed=true, and allow one Undo to restore both bodies.
     run(host,"new",{{"type","part"},{"name","dependent-route-removal"}});
-    const auto source=run(host,"box.create",{{"length_mm","10"},{"width_mm","10"},{"height_mm","10"}}).data.at("container");
+    const auto source=zima::test::rectangular_commands([&](const char* n,commands::Json a){return run(host,n,std::move(a));},{{"length_mm","10"},{"width_mm","10"},{"height_mm","10"}}).data.at("container");
     state=live.open_part(live.active_document_id());
-    const auto parent=run(host,"fillet.create",{{"radius_mm",2},{"routes",Json::array({Json{{"edges",Json::array({Json{{"owner",source},{"key",edge_key}}})}}})}}).data.at("container").get<std::string>();
+    const auto parent=run(host,"fillet.create",{{"radius_mm",2},{"routes",Json::array({Json{{"edges",Json::array({Json{{"owner",source},{"key",test::profile_key(state->session.document(),source,"edge:x_max:y_min:z_max--x_max:y_min:z_min")}}})}}})}}).data.at("container").get<std::string>();
     const auto& parent_body=state->session.calculated_boundaries().back();
     const auto generated=std::ranges::find_if(parent_body.mesh.edges,[&](const auto& e){return e.reference.owner_id==parent&&e.points.size()>2&&
         std::ranges::all_of(e.points,[](const auto& p){return std::abs(p.z-5)<1e-6;});});
@@ -215,7 +217,7 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
     run(host,"undo");require(state->session.document().find_container(parent)&&state->session.calculated_boundaries().back().calculation_errors.empty(),"Undo failed to restore dependency geometry");
     near(state->session.calculated_boundaries().back().volume,intact_volume);
     // A closed circular edge needs no invented R1 endpoint for constant radius.
-    run(host,"new",{{"type","part"},{"name","circular-fillet"}});run(host,"cylinder.create",{{"radius_mm","10"},{"height_mm","20"}});state=live.open_part(live.active_document_id());
+    run(host,"new",{{"type","part"},{"name","circular-fillet"}});zima::test::circular_commands([&](const char* n,commands::Json a){return run(host,n,std::move(a));},{{"radius_mm","10"},{"height_mm","20"}});state=live.open_part(live.active_document_id());
     const auto& input=state->session.calculated_boundaries().back();
     const auto ring=std::ranges::find_if(input.mesh.edges,[](const auto& e){return e.reference.valid()&&e.points.size()>2&&std::ranges::all_of(e.points,[](const auto& p){return std::abs(p.z-20)<1e-6;});});
     require(ring!=input.mesh.edges.end(),"Cylinder top ring is missing");
@@ -247,7 +249,7 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
     near(state->session.calculated_boundaries().back().volume,volume);
 }
 }
-int main(){try{kernel::OcctKernel kernel;const auto directory=fs::temp_directory_path()/("zima-edge-commands-"+document::PartDocument::create_box_container().id);
+int main(){try{kernel::OcctKernel kernel;const auto directory=fs::temp_directory_path()/("zima-edge-commands-"+document::PartDocument::create_default().document_id);
     require(fs::create_directory(directory),"Cannot create test directory");verify(kernel,directory);fs::remove_all(directory);
     std::cout<<"Edge treatment commands: radii, section distances, volumes, reference ownership, locks, rollback and native files passed\n";return 0;
 }catch(const std::exception& error){std::cerr<<error.what()<<'\n';return 1;}}

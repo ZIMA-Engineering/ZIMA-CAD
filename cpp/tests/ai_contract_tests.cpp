@@ -61,11 +61,11 @@ void verifyHostAndConsole(const QString& directory) {
     check(session.begin()["activeDocument"].toObject()["type"]=="part","Missing active Part metadata");
     check(CadAi::instructions().contains("INPUTS")&&CadAi::instructions().contains("MEANS"),"Engineering reasoning resource missing");
     auto page=session.call("cad_help",{{"search",""},{"offset",0}});check(page.success&&page.data["commands"].toArray().size()==12,"Catalog pagination failed");
-    auto catalog=session.call("cad_help",{{"search","box.create"},{"offset",0}});check(catalog.success&&!catalog.data["commands"].toArray().isEmpty(),"Real command catalog is unavailable");
+    auto catalog=session.call("cad_help",{{"search","twisted_sheet.create"},{"offset",0}});check(catalog.success&&!catalog.data["commands"].toArray().isEmpty(),"Real command catalog is unavailable");
     QJsonObject boxArgs;for(const auto& v:catalog.data["commands"].toArray().first().toObject()["arguments"].toArray()){
         const auto arg=v.toObject();if(arg["required"].toBool())boxArgs[arg["name"].toString()]=arg["type"]=="string"?QJsonValue("10"):QJsonValue(10);
     }
-    const auto box=request("box.create",boxArgs);const int before=mutations;
+    const auto box=request("twisted_sheet.create",boxArgs);const int before=mutations;
     check(session.call("cad_command",box).approval&&mutations==before,"Mutation ran before approval");
     check(session.call("cad_context",{}).data["code"]=="approval_pending","Concurrent tool bypassed review");
     check(session.decide(false).data["code"]=="denied"&&mutations==before,"Deny modified CAD");
@@ -77,7 +77,7 @@ void verifyHostAndConsole(const QString& directory) {
     check(session.call("cad_context",{}).success,"Approved changes invalidated subsequent queries");
     check(session.call("cad_command",request("undo")).approval&&session.decide(true).success,"AI changes are not undoable");
     check(session.call("cad_command",request("fabricated.command")).data["code"]=="unknown_command","Unknown command accepted");
-    session.call("cad_command",box);run("box.create 2 3 4");check(session.decide(true).data["code"]=="context_changed","Manual geometry changes did not invalidate review");
+    session.call("cad_command",box);run("twisted_sheet.create 20 30 45 1 0");check(session.decide(true).data["code"]=="context_changed","Manual geometry changes did not invalidate review");
     session.begin();session.call("cad_command",box);interaction.selection={{"owner_id","other"}};
     check(session.decide(true).data["code"]=="context_changed","Selection change did not invalidate review");interaction.selection=nullptr;
     session.begin();session.call("cad_command",box);interaction.active_occurrence="root/part";

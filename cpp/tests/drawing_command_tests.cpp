@@ -1,3 +1,4 @@
+#include "profile_solid_fixture.hpp"
 #include <zima/command_host/host.hpp>
 #include <zima/workspace/drawing_operations.hpp>
 #include <zima/workspace/document_operations.hpp>
@@ -46,7 +47,7 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir){
     next=state->document();dimension.id="new-test";next.sheets.front().dimensions.push_back(dimension);state->commit(std::move(next));require(!state->can_redo()&&state->document().dimension_identifiers.identifier(id,"dimension:new-test")!=allocated,"New history branch reused a dimension identifier");
 }
 void projections(const kernel::OcctKernel& kernel,fs::path dir){
-    auto part=document::PartDocument::create_default();auto box=document::PartDocument::create_box_container();box.box={10,10,10};part.history={box};auto boundaries=kernel.evaluate_history(part.kernel_operations());const auto mesh=boundaries.back().mesh;
+    auto part=document::PartDocument::create_default();auto box=zima::test::rectangular_feature(part,{10,10,10});part.history={box};auto boundaries=kernel.evaluate_history(part.kernel_operations());const auto mesh=boundaries.back().mesh;
     {
         auto skeleton=part;skeleton.document_id=document::PartDocument::create_default().document_id;
         part.save(dir/"real.prtz",boundaries);skeleton.save(dir/"layout_SKELETON.PRTZ",boundaries);

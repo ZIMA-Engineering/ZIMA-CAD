@@ -1,3 +1,4 @@
+#include "profile_command_fixture.hpp"
 #pragma once
 #include <zima/command_host/host.hpp>
 #include <zima/workspace/profile_operations.hpp>
@@ -24,7 +25,7 @@ struct Fixture {
     Fixture(const kernel::OcctKernel& kernel, const fs::path& directory, const std::string& name)
         : kernel(kernel), directory(directory), host(live, kernel, this->directory, options()) {
         run("new", {{"type","part"},{"name",name+"-source"}}); source=live.active_document_id();
-        box=run("box.create",{{"length_mm","10"},{"width_mm","10"},{"height_mm","10"}}).at("container");run("save");
+        box=zima::test::rectangular_commands([&](const char* n,commands::Json a){return run(n,std::move(a));},{{"length_mm","10"},{"width_mm","10"},{"height_mm","10"}}).at("container");run("save");
         run("new",{{"type","assembly"},{"name",name}});owner=live.active_document_id();
         first=run("component.insert",{{"source",source}}).at("occurrence");
         second=run("component.insert",{{"source",source}}).at("occurrence");

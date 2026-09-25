@@ -16,6 +16,7 @@ inline FeatureViewCues feature_view_cues(const document::HistoryContainer& featu
                                        const sketcher::Sketch& sketch) {
     FeatureViewCues out;
     const auto& p=feature.feature;
+    if(p.type==document::FeatureType::Point)return out;
     const auto start=sketch.resolved_origin,normal=sketch.resolved_normal;
     const auto add=[](kernel::Vec3 a,kernel::Vec3 b){return kernel::Vec3{a.x+b.x,a.y+b.y,a.z+b.z};};
     const auto scale=[](kernel::Vec3 a,double b){return kernel::Vec3{a.x*b,a.y*b,a.z*b};};

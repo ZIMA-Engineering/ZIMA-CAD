@@ -1,3 +1,4 @@
+#include "profile_solid_fixture.hpp"
 #include <zima/workspace/model_calculation.hpp>
 #include <algorithm>
 #include <cmath>
@@ -29,9 +30,9 @@ document::ConstructionReference reference_to(const kernel::ViewerPoint& point){
 }
 void verify_reference_chain(const kernel::OcctKernel& kernel){
     auto part=document::PartDocument::create_default();
-    auto first=document::PartDocument::create_box_container();first.box={10,10,10};
-    auto second=document::PartDocument::create_box_container();second.box={2,2,2};
-    auto third=document::PartDocument::create_box_container();third.box={2,2,2};
+    auto first=zima::test::rectangular_feature(part,{10,10,10});
+    auto second=zima::test::rectangular_feature(part,{2,2,2});
+    auto third=zima::test::rectangular_feature(part,{2,2,2});
     part.history={first,second,third};
     // Obtain the persisted original point IDs from calculated source objects.
     const auto initial=workspace::calculate_part(kernel,part);
@@ -47,7 +48,7 @@ void verify_reference_chain(const kernel::OcctKernel& kernel){
     near(part.sections.front().plane_origin.x,7,"Section did not follow the final calculated link");
     require(calculated.back().calculation_errors.empty(),"Valid placement chain failed calculation");
     const auto original_ids=face_ids(calculated.back().mesh);
-    part.history[0].box.length=20;
+    zima::test::resize_rectangular_feature(part,part.history[0],{20,10,10});
     workspace::Workspace live;live.add_part(part,calculated);const auto id=part.document_id;
     const auto revision=live.open_part(id)->session.revision();
     static_cast<void>(workspace::regenerate_part(live,kernel,id));
@@ -68,7 +69,7 @@ void verify_reference_chain(const kernel::OcctKernel& kernel){
 }
 void verify_recovery_policy(const kernel::OcctKernel& kernel){
     auto part=document::PartDocument::create_default();
-    auto box=document::PartDocument::create_box_container();box.box={10,10,10};
+    auto box=zima::test::rectangular_feature(part,{10,10,10});
     auto broken=document::PartDocument::create_extrusion_container("missing-profile");
     broken.extrusion.sketch_id="missing-profile";part.history={box,broken};
     const auto recovered=workspace::calculate_part(kernel,part);
@@ -92,13 +93,13 @@ void verify_recovery_policy(const kernel::OcctKernel& kernel){
 }
 void verify_assembly(const kernel::OcctKernel& kernel){
     auto part=document::PartDocument::create_default();
-    auto box=document::PartDocument::create_box_container();box.box={10,10,10};part.history={box};
+    auto box=zima::test::rectangular_feature(part,{10,10,10});part.history={box};
     workspace::Workspace live;live.add_part(part,workspace::calculate_part(kernel,part));
     auto assembly=assembly::AssemblyDocument::create_default();const auto id=assembly.document_id;
     live.add_assembly(assembly);
     const auto occurrence=live.insert_open_part(id,part.document_id,"source");
     live.activate(part.document_id);live.display_top_level(id);
-    auto changed=part;changed.history.front().box.length=20;
+    auto changed=part;zima::test::resize_rectangular_feature(changed,changed.history.front(),{20,10,10});
     live.open_part(part.document_id)->session.commit(changed,workspace::calculate_part(kernel,changed));
     near(live.open_assembly(id)->session.document().find_occurrence(occurrence)->calculated_source->volume,1000,"Source edit implicitly regenerated parent");
     workspace::regenerate_assembly(live,kernel,id);

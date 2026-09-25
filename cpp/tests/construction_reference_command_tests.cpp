@@ -1,3 +1,4 @@
+#include "profile_solid_fixture.hpp"
 #include <zima/document/placement_json.hpp>
 #include <zima/command_host/host.hpp>
 #include <zima/workspace/construction_reference_operations.hpp>
@@ -11,14 +12,12 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory,bool assembly_mo
     workspace::Workspace live;command_host::Interaction interaction;command_host::Options options;options.interaction=[&]{return interaction;};
     std::string id,box_id;const auto file=directory/(assembly_mode?"construction-refs.asmz":"construction-refs.prtz");
     if(assembly_mode){auto doc=assembly::AssemblyDocument::create_default();id=doc.document_id;live.add_assembly(std::move(doc),file);}
-    else {auto doc=document::PartDocument::create_default();id=doc.document_id;auto box=document::PartDocument::create_box_container();box.box={10,10,10};box_id=box.id;
+    else {auto doc=document::PartDocument::create_default();id=doc.document_id;auto box=zima::test::rectangular_feature(doc,{10,10,10});box_id=box.id;
         doc.insert_history_entry(document::PartHistoryKind::Feature,box.id);doc.history.push_back(box);doc.resolve_constructions();auto calculated=workspace::calculate_part_with_resolved_references(kernel,doc);live.add_part(std::move(doc),std::move(calculated),file);}
     live.activate(id);command_host::Host host(live,kernel,directory,options);
     const auto verify_cache=[&](const std::string& step){if(assembly_mode)return;const auto* state=live.open_part(id);const auto operations=state->session.document().kernel_operations(false,true);const auto& cache=state->session.calculated_boundaries();
         for(std::size_t i=0;i<cache.size();++i)if(cache[i].source_fingerprint!=kernel::history_fingerprint(operations,i+1)) {
-            auto normalized=operations;auto& box=std::get<kernel::BoxRequest>(normalized.front().primitive);
-            for(auto* v:{&box.translation.x,&box.translation.y,&box.translation.z,&box.rotation_degrees.x,&box.rotation_degrees.y,&box.rotation_degrees.z})if(*v==0)*v=0;
-            throw std::runtime_error("Cache no longer matches after "+step+"; positive-zero normalization matches="+(cache[i].source_fingerprint==kernel::history_fingerprint(normalized,i+1)?"yes":"no"));
+            throw std::runtime_error("Cache no longer matches after "+step);
         }};
     verify_cache("fixture calculation");
 

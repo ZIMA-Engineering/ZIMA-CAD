@@ -1,3 +1,5 @@
+#include "profile_command_fixture.hpp"
+#include "profile_solid_fixture.hpp"
 #include "dxf_export_test_support.hpp"
 #include "stl_export_test_support.hpp"
 #include <zima/command_host/host.hpp>
@@ -33,7 +35,7 @@ double stl_volume(const fs::path& path) {
 void verify(const kernel::OcctKernel& kernel,fs::path dir) {
     workspace::Workspace live;command_host::Options settings;settings.settings=[] {return command_host::Settings{{fs::absolute("config/templates"),"START_PART.prtz","START_ASSEMBLY.asmz","Body"},{}};};
     command_host::Host host(live,kernel,dir,settings);run(host,"new",{{"type","part"},{"name","export-source"}});const auto part_id=live.active_document_id();
-    const auto box=run(host,"box.create",{{"length_mm","10"},{"width_mm","20"},{"height_mm","30"}}).data.at("container").get<std::string>();
+    const auto box=zima::test::rectangular_commands([&](const char* n,commands::Json a){return run(host,n,std::move(a));},{{"length_mm","10"},{"width_mm","20"},{"height_mm","30"}}).data.at("container").get<std::string>();
     auto* part=live.open_part(part_id);const auto revision=part->session.revision(),generation=part->session.data_generation();const auto shape=part->session.calculated_boundaries().back().kernel_shape;
     const auto step=dir/fs::path(u8"kvádr export.step"),stl=dir/fs::path(u8"kvádr export.stl");
     const auto report=run(host,"export.step",{{"path",document::path_to_utf8(step)}}).data;
@@ -42,7 +44,7 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
     require(part->session.revision()==revision && part->session.data_generation()==generation && part->session.calculated_boundaries().back().kernel_shape==shape,"Export changed document or calculated state");
     const auto original=bytes(step);
     require(host.execute({{"command","export.step"},{"arguments",{{"path",document::path_to_utf8(step)}}}}).code=="file_exists" && bytes(step)==original,"Unrequested export overwrote a file");
-    auto stale=part->session.document();stale.find_container(box)->box.length=20;part->session.commit(std::move(stale),part->session.calculated_boundaries());const auto stale_revision=part->session.revision();
+    auto stale=part->session.document();zima::test::profile_dimension(stale,*stale.find_container(box),0)=20;part->session.commit(std::move(stale),part->session.calculated_boundaries());const auto stale_revision=part->session.revision();
     run(host,"export.step",{{"path",document::path_to_utf8(step)},{"overwrite",true}});require(std::abs(step_volume(step)-6000)<1e-5 && part->session.revision()==stale_revision,"Export implicitly regenerated pending model data");
     run(host,"regenerate");run(host,"export.step",{{"path",document::path_to_utf8(step)},{"overwrite",true}});require(std::abs(step_volume(step)-12000)<1e-5,"Explicitly regenerated geometry did not reach export");
     const auto conflict=dir/"concurrent.step";bool rejected=false;
@@ -71,7 +73,7 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
     auto flat=assembly::AssemblyDocument::create_default();const auto flat_id=flat.document_id;live.add_assembly(std::move(flat),dir/"missing-flat.asmz");static_cast<void>(live.insert_open_part(flat_id,part_id,"Inserted"));
     auto top=assembly::AssemblyDocument::create_default();const auto top_id=top.document_id;live.add_assembly(std::move(top),dir/"missing-top.asmz");static_cast<void>(live.insert_open_assembly(top_id,flat_id,"Nested"));
     const auto parent_revision=live.open_assembly(top_id)->session.revision();
-    run(host,"activate",{{"document",part_id}});run(host,"box.set",{{"container",box},{"length_mm","30"}});
+    run(host,"activate",{{"document",part_id}});zima::test::resize_rectangular_commands([&](const char* n,commands::Json a){return run(host,n,std::move(a));},{{"container",box},{"length_mm","30"}});
     run(host,"activate",{{"document",top_id}});const auto nested_path=dir/"nested.step";run(host,"export.step",{{"path",document::path_to_utf8(nested_path)}});
     require(std::abs(step_volume(nested_path)-12000)<1e-5 && live.open_assembly(top_id)->session.revision()==parent_revision,"Nested export refreshed dependencies or lost stored geometry");
     run(host,"export.stl",{{"path","nested.stl"}});require(std::abs(stl_volume(dir/"nested.stl")-12000)<1e-5,"Nested STL changed stored geometry");
@@ -121,8 +123,8 @@ void nested_stl(const kernel::OcctKernel& kernel,fs::path dir) {
     require(host.execute({{"command","export.stl"},{"arguments",{{"path","missing-leaf.stl"}}}}).code=="calculation_required","Uncalculated leaf was silently skipped");
     // A parent-owned cut is the final result even though uncut children remain.
     auto cut=doc;cut.components.resize(1);cut.components[0].placement={};
-    const auto box=kernel.make_box({10,20,30});kernel::BoxRequest tool{5,20,30};
-    auto result=kernel.subtract_bodies(box,kernel.make_box(tool),{},{});
+    const auto box=zima::test::profile_body(kernel,{10,20,30});zima::test::ProfilePrism tool{5,20,30};
+    auto result=kernel.subtract_bodies(box,zima::test::profile_body(kernel,tool),{},{});
     require(std::abs(result.volume-3000)<1e-6,"Cut fixture volume is wrong");
     result.body_outputs=cut.components[0].calculated_source->body_outputs;
     cut.components[0].calculated_source=result;live.open_assembly(id)->session.commit(cut);

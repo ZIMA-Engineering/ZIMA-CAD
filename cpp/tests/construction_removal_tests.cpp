@@ -1,3 +1,4 @@
+#include "profile_solid_fixture.hpp"
 #include <zima/command_host/host.hpp>
 #include <zima/workspace/construction_removal.hpp>
 #include <zima/document/file_path.hpp>
@@ -20,7 +21,7 @@ document::ConstructionObject curve() {
 }
 void part_removal(const fs::path& dir) {
     workspace::Workspace live;kernel::OcctKernel kernel;auto cwd=dir;
-    auto part=document::PartDocument::create_default();auto box=document::PartDocument::create_box_container();box.box={2,3,4};
+    auto part=document::PartDocument::create_default();auto box=zima::test::rectangular_feature(part,{2,3,4});
     const auto point=document::PartDocument::create_construction(document::ConstructionKind::Point),route=curve();
     part.history={box};part.constructions={point,route};document::BodyHistoryGraph graph;
     const auto body=graph.create_body("Editable");graph.insert({document::PartHistoryKind::Feature,box.id});
@@ -74,7 +75,7 @@ void assembly_removal(const fs::path& dir) {
             auto& target=cut.definition.extrusion.end_targets_forward.back().reference;
             target.owner_id=ref.owner_id;target.semantic_key=ref.semantic_key;target.instance_path=ref.instance_path;next.cuts={cut};
         }else if(scenario==6) {
-            auto component=assembly::AssemblyDocument::create_part_occurrence("Placed",document::PartDocument::create_default().document_id,"source.prtz",kernel.make_box({1,2,3}));
+            auto component=assembly::AssemblyDocument::create_part_occurrence("Placed",document::PartDocument::create_default().document_id,"source.prtz",zima::test::profile_body(kernel,{1,2,3}));
             assembly::ComponentPlacementReference row;row.mate_type=assembly::MateKind::PointCoincident;
             row.component_reference={assembly::MateReferenceKind::Point,assembly::InstancePath{{component.occurrence_id}},"source-point","point"};
             row.target_reference={assembly::MateReferenceKind::Point,{},ref.owner_id,ref.semantic_key};component.placement_references={row};next.components={component};

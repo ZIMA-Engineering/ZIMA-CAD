@@ -33,7 +33,7 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory,bool title) {
         const auto result=host.execute(request(command,std::move(args)));if(result.ok||result.code!=code)throw std::runtime_error(std::string(command)+" expected "+code+", got "+result.code+": "+result.message);
         if(index>=0)require(result.data.at("operation_index")==index,"Batch failure lost operation index");
         require(current().serialized()==before&&state->session.revision()==rev&&state->session.data_generation()==generation&&live.size()==count&&!host.change(),"Rejected template operation mutated workspace");};
-    rejected("box.create",{{"length_mm","1"},{"width_mm","2"},{"height_mm","3"}},"unsupported_document");
+    rejected("extrusion.create",{{"sketch","unsupported-template"}},"unsupported_document");
     rejected("template.sketch.edit",{{"operations",Json::array()}},"invalid_arguments");
     auto invalid=move;invalid.push_back(request("save"));rejected("template.sketch.edit",{{"operations",invalid}},"unknown_command",1);
     invalid=move;invalid.push_back(request("sketch.point.move",{{"point","missing"},{"position",{0,0}}}));rejected("template.sketch.edit",{{"operations",invalid}},"point_not_found",1);

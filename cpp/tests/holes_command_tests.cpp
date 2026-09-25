@@ -1,3 +1,4 @@
+#include "profile_command_fixture.hpp"
 #include <zima/command_host/host.hpp>
 #include <zima/workspace/holes_operations.hpp>
 #include <zima/workspace/sketch_operations.hpp>
@@ -70,7 +71,7 @@ void verify(const kernel::OcctKernel& kernel, fs::path directory) {
     options.settings=[] {command_host::Settings s;s.templates={fs::absolute("config/templates"),"START_PART.prtz","START_ASSEMBLY.asmz","Body"};return s;};
     command_host::Host host(live,kernel,directory,options);
     run(host,"new",{{"type","part"},{"name","hydraulic-block"}});
-    run(host,"box.create",{{"length_mm","40"},{"width_mm","40"},{"height_mm","40"}});
+    zima::test::rectangular_commands([&](const char* n,commands::Json a){return run(host,n,std::move(a));},{{"length_mm","40"},{"width_mm","40"},{"height_mm","40"}});
     const auto id=live.active_document_id();auto* state=live.open_part(id);
     const auto source=run(host,"sketch.create",{{"name","Drilling axes"},{"plane","XY"}}).data;
     const auto sketch_id=source.at("sketch").get<std::string>();

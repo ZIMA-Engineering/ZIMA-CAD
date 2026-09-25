@@ -1,3 +1,6 @@
+#include "profile_command_fixture.hpp"
+#include "profile_solid_fixture.hpp"
+#include <zima/workspace/profile_operations.hpp>
 #include <zima/command_host/host.hpp>
 #include <zima/workspace/primitive_operations.hpp>
 #include <algorithm>
@@ -45,11 +48,11 @@ struct Fixture {
     workspace::PartState& state() { return *live.open_part(live.active_document_id()); }
     const kernel::BodyResult& result() { return state().session.calculated_boundaries().back(); }
     void box(double length, double width, double height, double y, double z, bool subtract) {
-        auto value = document::PartDocument::create_box_container();
-        value.box = {length, width, height}; value.placement.y = y; value.placement.z = z;
+        auto fixture=state().session.document();
+        auto value = zima::test::rectangular_feature(fixture,{length,width,height}); value.placement.y = y; value.placement.z = z;
         value.combine_mode = subtract ? document::CombineMode::Subtract : document::CombineMode::Add;
         if (subtract) cavity = value.id;
-        static_cast<void>(workspace::commit_primitive(live, kernel, live.active_document_id(), value, workspace::PrimitiveEditMode::Create));
+        workspace::commit_profile(live,kernel,live.active_document_id(),value,workspace::ProfileEditMode::Create,fixture.sketches.back());
     }
     void create(const std::string& name) {
         run("new", {{"type", "part"}, {"name", name}});
@@ -59,7 +62,7 @@ struct Fixture {
             box(100, 80, 50, 0, 0, false);
             if (name == "shell") {
                 const auto source = state().session.document().history.front().id;
-                cavity = run("shell.create", {{"thickness_mm", 6}, {"faces", Json::array({Json{{"owner", source}, {"key", "z_max"}}})}}).at("container");
+                cavity = run("shell.create", {{"thickness_mm", 6}, {"faces", Json::array({Json{{"owner", source}, {"key", test::profile_key(state().session.document(),source,"z_max")}}})}}).at("container");
             } else if (name != "solid") {
                 const bool closed = name == "closed";
                 box(88, 68, closed ? 38 : 50, name == "offset" ? 2 : 0, closed ? 0 : 6, true);
@@ -148,7 +151,7 @@ void exercise(fs::path directory, const std::string& name) {
     require(f.state().session.document().find_container(fillet)->edge_treatment.routes[0][0] == selected.reference, "Regeneration replaced a selected fragment");
     if (!f.cavity.empty() && name != "shell") {
         const auto input_before = f.run("edge_treatment.edges", {{"container", fillet}}).at("items");
-        f.run("box.set", {{"container", f.cavity}, {"width_mm", "64"}});
+        zima::test::resize_rectangular_commands([&](const char* n,commands::Json a){return f.run(n,std::move(a));},{{"container", f.cavity}, {"width_mm", "64"}});
         const auto input_after = f.run("edge_treatment.edges", {{"container", fillet}}).at("items");
         require(input_before.size() == input_after.size(), "Resizing cavity changed fragment count");
         for (std::size_t i = 0; i < input_before.size(); ++i)
@@ -170,10 +173,10 @@ void split_again(const fs::path& directory) {
     require(selected != baseline.end(), "Missing lower front-wall fragment");
     const auto original = selected->reference;
     const auto a = selected->points.front(), b = selected->points.back();
-    auto cutter = document::PartDocument::create_box_container();
-    cutter.box = {4, 2, 4}; cutter.combine_mode = document::CombineMode::Subtract;
+    auto fixture=f.state().session.document();
+    auto cutter = zima::test::rectangular_feature(fixture,{4,2,4}); cutter.combine_mode = document::CombineMode::Subtract;
     cutter.placement.x = a.x; cutter.placement.y = (a.y + b.y) * .5; cutter.placement.z = a.z;
-    static_cast<void>(workspace::commit_primitive(f.live, f.kernel, f.live.active_document_id(), cutter, workspace::PrimitiveEditMode::Create));
+    workspace::commit_profile(f.live,f.kernel,f.live.active_document_id(),cutter,workspace::ProfileEditMode::Create,fixture.sketches.back());
     unique_edges(f.result());
     require(std::ranges::find(f.result().mesh.edges, original, &kernel::ViewerEdge::reference) == f.result().mesh.edges.end(),
         "A split parent still selects an arbitrary surviving child");

@@ -1,3 +1,4 @@
+#include "profile_solid_fixture.hpp"
 #include <zima/document/bend.hpp>
 #include <zima/document/sheet_state.hpp>
 #include <zima/document/flat.hpp>
@@ -120,7 +121,7 @@ int main(){try {
         references_close(restored,reopened);
         for(int mode=0;mode<4;++mode) {
             auto edited=operations;edited.pop_back();
-            kernel::BoxRequest box(6,mode==0?4.:mode==3?.7:3.,frame.neutral_radius*frame.angle*.2);
+            zima::test::ProfilePrism box(6,mode==0?4.:mode==3?.7:3.,frame.neutral_radius*frame.angle*.2);
             box.translation={10,mode==0?-1.:mode==3?.65:1.,frame.neutral_radius*frame.angle*.3};
             kernel::HistoryOperation cut;cut.owner_id="material-edit";cut.primitive=box;
             cut.operation=mode==2?kernel::BooleanOperation::Add:kernel::BooleanOperation::Subtract;
@@ -313,7 +314,7 @@ int main(){try {
         cut_operations.push_back(back);const auto cut_refolded=kernel.evaluate_history(cut_operations).back();
         close(cut_refolded.volume,cut_folded.volume,.05);
         auto flat_edits=operations;flat_edits.pop_back();
-        kernel::BoxRequest tool(10,4,.4);tool.translation={10,-1,.4};
+        zima::test::ProfilePrism tool(10,4,.4);tool.translation={10,-1,.4};
         kernel::HistoryOperation pierce;pierce.owner_id="flat-hem-cut";pierce.primitive=tool;pierce.operation=kernel::BooleanOperation::Subtract;
         flat_edits.push_back(pierce);const auto pierced_flat=kernel.evaluate_history(flat_edits).back();
         check(pierced_flat.volume<flat.volume,"Flat hem test did not cut any material.");

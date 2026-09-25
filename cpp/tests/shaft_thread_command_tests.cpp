@@ -1,3 +1,5 @@
+#include "profile_command_fixture.hpp"
+#include "profile_solid_fixture.hpp"
 #include <zima/command_host/host.hpp>
 #include <zima/workspace/shaft_thread_operations.hpp>
 #include <zima/kernel/shaft_thread_geometry.hpp>
@@ -22,8 +24,8 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
     command_host::Host host(live,kernel,directory,options);
     require(host.execute_text("shaft_thread.get missing").code=="unsupported_document","Shaft query without Part did not fail cleanly");
     run(host,"new",{{"type","part"},{"name","shaft-command"}});
-    const auto cylinder=run(host,"cylinder.create",{{"radius_mm","5"},{"height_mm","30"}}).data.at("container").get<std::string>();
-    const auto face=[&](const char* key){return Json{{"owner",cylinder},{"key",key}};};
+    const auto cylinder=zima::test::circular_commands([&](const char* n,commands::Json a){return run(host,n,std::move(a));},{{"radius_mm","5"},{"height_mm","30"}}).data.at("container").get<std::string>();
+    const auto face=[&](const char* key){return Json{{"owner",cylinder},{"key",test::profile_key(live.open_part(live.active_document_id())->session.document(),cylinder,key)}};};
     auto* state=live.open_part(live.active_document_id());const double volume=750*std::numbers::pi;
     const auto created=run(host,"shaft_thread.create",{{"cylinder",face("side")},{"start",face("z_min")},{"designation","M10"},{"length_mm",15}}).data;
     const auto id=created.at("container").get<std::string>();const auto original=*state->session.document().find_container(id);
@@ -73,7 +75,7 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
     try {static_cast<void>(workspace::commit_shaft_thread(live,kernel,live.active_document_id(),locked_edit,workspace::ShaftThreadEditMode::Replace));}
     catch(const workspace::ShaftThreadOperationError& error){rejected=error.code=="value_locked";}
     require(rejected&&*state->session.document().find_container(id)==locked,"Shared Properties commit bypassed the shaft diameter lock");
-    const auto later=run(host,"cylinder.create",{{"radius_mm","2"},{"height_mm","5"}}).data.at("container");
+    const auto later=zima::test::circular_commands([&](const char* n,commands::Json a){return run(host,n,std::move(a));},{{"radius_mm","2"},{"height_mm","5"}}).data.at("container");
     const auto later_revision=state->session.revision();
     require(host.execute({{"command","shaft_thread.set"},{"arguments",{{"container",id},{"start",Json{{"owner",later},{"key","z_max"}}}}}}).code=="missing_reference"&&state->session.revision()==later_revision,
         "Shaft edit accepted a face after its history boundary");
@@ -84,9 +86,9 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
     near(kernel.evaluate_history(loaded.kernel_operations()).back().volume,volume);
 }
 void verify_chamfer(const kernel::OcctKernel& kernel,fs::path directory) {
-    auto doc=document::PartDocument::create_default();auto shaft=document::PartDocument::create_cylinder_container();
-    shaft.cylinder.radius=5;shaft.cylinder.height=30;
-    auto chamfer=document::PartDocument::create_chamfer_container({{shaft.id,"circle:z_min",{}},{shaft.id,"circle:z_max",{}}});
+    auto doc=document::PartDocument::create_default();auto shaft=zima::test::circular_feature(doc,5,30);
+
+    auto chamfer=document::PartDocument::create_chamfer_container({{shaft.id,test::profile_key(doc,shaft,"circle:z_min"),{}},{shaft.id,test::profile_key(doc,shaft,"circle:z_max"),{}}});
     chamfer.edge_treatment.primary_size=1;
     for(const auto& feature:{shaft,chamfer}){doc.history.push_back(feature);doc.insert_history_entry(document::PartHistoryKind::Feature,feature.id);}
     const auto calculated=kernel.evaluate_history(doc.kernel_operations());
@@ -99,7 +101,7 @@ void verify_chamfer(const kernel::OcctKernel& kernel,fs::path directory) {
     const auto file=directory/"chamfered-shaft.prtz";doc.save(file,calculated);
     workspace::Workspace live;command_host::Host host(live,kernel,directory);
     run(host,"open",{{"path",file.string()}});
-    const auto face=[&](const char* key){return Json{{"owner",shaft.id},{"key",key}};};
+    const auto face=[&](const char* key){return Json{{"owner",shaft.id},{"key",test::profile_key(doc,shaft,key)}};};
     const auto id=run(host,"shaft_thread.create",{{"cylinder",face("side")},{"start",face("z_min")},
         {"chamfer",beginning},{"end_condition","up_to"},{"end",ending},{"designation","M10"}}).data.at("container").get<std::string>();
     const auto* state=live.open_part(live.active_document_id());const auto& mesh=state->session.calculated_boundaries().back().mesh;

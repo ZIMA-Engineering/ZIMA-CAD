@@ -1,3 +1,4 @@
+#include "../tests/gui_profile_fixture.hpp"
 #include "assembly_workspace_window.hpp"
 #include <zima/viewer/mesh_view.hpp>
 #include <QApplication>
@@ -20,7 +21,7 @@ int verify_rotation_handle_ui(QApplication& application, AssemblyWorkspaceWindow
         window.showMaximized();flush();
         const auto stem="rotation-handle-"+document::PartDocument::create_default().document_id;
         run("new",{{"type","part"},{"name",stem+"-part"}});
-        run("box.create",{{"length_mm","30"},{"width_mm","10"},{"height_mm","8"}});
+        zima::test::gui_rectangular_profile(window,30,10,8).data;
         run("save");
         const auto part=document::PartDocument::load(directory/(stem+"-part.prtz"));
         run("new",{{"type","assembly"},{"name",stem}});

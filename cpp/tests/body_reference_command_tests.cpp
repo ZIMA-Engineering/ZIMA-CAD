@@ -1,3 +1,4 @@
+#include "profile_command_fixture.hpp"
 #include <zima/command_host/host.hpp>
 #include <zima/workspace/body_reference_operations.hpp>
 #include <cmath>
@@ -10,9 +11,9 @@ commands::Result run(command_host::Host& host,const char* command,Json args=Json
 void verify(const kernel::OcctKernel& kernel,fs::path dir) {
     workspace::Workspace live;command_host::Options options;options.settings=[] {return command_host::Settings{{fs::absolute("config/templates"),"START_PART.prtz","START_ASSEMBLY.asmz","Body"},{}};};
     command_host::Host host(live,kernel,dir,options);run(host,"new",{{"type","part"},{"name","body-refs"}});const auto id=live.active_document_id();auto* state=live.open_part(id);
-    const auto first=state->session.document().body_history.active_body_id();const auto first_feature=run(host,"box.create",{{"length_mm","10"},{"width_mm","20"},{"height_mm","30"}}).data.at("container").get<std::string>();
+    const auto first=state->session.document().body_history.active_body_id();const auto first_feature=zima::test::rectangular_commands([&](const char* n,commands::Json a){return run(host,n,std::move(a));},{{"length_mm","10"},{"width_mm","20"},{"height_mm","30"}}).data.at("container").get<std::string>();
     run(host,"placement.set",{{"object",first},{"values",{{"reference_offset:0",11}}}});
-    const auto target=run(host,"body.create",{{"name","Follower"}}).data.at("body").get<std::string>();run(host,"box.create",{{"length_mm","2"},{"width_mm","3"},{"height_mm","4"}});
+    const auto target=run(host,"body.create",{{"name","Follower"}}).data.at("body").get<std::string>();zima::test::rectangular_commands([&](const char* n,commands::Json a){return run(host,n,std::move(a));},{{"length_mm","2"},{"width_mm","3"},{"height_mm","4"}});
     const auto source_origin=state->session.document().body_history.find(first)->origin().id;
     const auto placement=[&]() -> const document::Placement& {return state->session.document().body_history.find(target)->scope.placement;};
     const auto set=[&](const std::string& body,int index,std::string owner,std::string key,double offset=0) {return run(host,"body.reference.set",{{"body",body},{"index",index},{"reference",{{"owner",std::move(owner)},{"key",std::move(key)}}},{"offset_mm",offset}}).data;};

@@ -50,11 +50,14 @@ The Windows build script builds it alongside the desktop application:
 
 Use repeated `--command`, a UTF-8 `--script`, or `--stdin`. Each command returns
 one JSON object on stdout; diagnostics use stderr. Batches stop on the first
-error by default and never save implicitly. `box.create`, `box.get` and `box.set`
-create, inspect and resize a Box through the same model transaction as its GUI
-properties, including locks and Undo/Redo. The same create/get/set commands are
-available for cylinder, sphere, cone, pyramid and wedge. Command dimensions are
-explicitly in mm.
+error by default and never save implicitly. Sketch and profile commands create,
+inspect and edit geometry through the same model transactions as the GUI,
+including locks and Undo/Redo. Dimensions are explicitly in millimetres.
+
+Part Modeling uses one [Feature command](doc/UNIFIED_FEATURE_TYPES.md) with
+Point, Axis, Plane, Sketch and combined Extrusion / Revolution types.
+The former six basic solid primitives have been removed, including their
+commands and native-file support.
 See [CLI usage and configuration](doc/CAD_COMMAND_LINE.md).
 
 The desktop console also supports `codex` mode. Configure your own ChatGPT account

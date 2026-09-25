@@ -1,3 +1,4 @@
+#include "profile_solid_fixture.hpp"
 #include <zima/command_host/host.hpp>
 #include <zima/workspace/drawing_hatch_operations.hpp>
 #include <zima/kernel/stable_id.hpp>
@@ -17,7 +18,7 @@ void expect_stale(const std::function<bool()>& commit) {
 }
 std::size_t hatches(const drawing::DrawingView& view){return std::ranges::count_if(view.projected_edges,[](const auto& edge){return edge.hatch&&!edge.hidden;});}
 void verify(const kernel::OcctKernel& kernel,fs::path dir) {
-    workspace::Workspace live;auto part=document::PartDocument::create_default();auto box=document::PartDocument::create_box_container();box.box={20,10,6};part.history={box};document::BodyHistoryGraph graph;static_cast<void>(graph.create_body("Body"));graph.insert({document::PartHistoryKind::Feature,box.id});part.set_body_history(graph);
+    workspace::Workspace live;auto part=document::PartDocument::create_default();auto box=zima::test::rectangular_feature(part,{20,10,6});part.history={box};document::BodyHistoryGraph graph;static_cast<void>(graph.create_body("Body"));graph.insert({document::PartHistoryKind::Feature,box.id});part.set_body_history(graph);
     auto cache=kernel.evaluate_history(part.kernel_operations());auto section=document::create_section();static_cast<void>(section.sketch.add_segment(-30,0,30,0));part.sections={section};
     const auto body=part.body_history.bodies().front().scope.id,source_id=part.document_id;const auto source_path=dir/"source.PRTZ";
     part.save(source_path,cache);live.add_part(part,cache,source_path);
@@ -90,7 +91,7 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
     require(host.execute({{"command","drawing.view.hatch.get"},{"arguments",{{"view",cut}}}}).code=="source_identity","Open path redirected hatch query to wrong document");
 }
 void assembly_cases(const kernel::OcctKernel& kernel,fs::path dir) {
-    workspace::Workspace live;auto part=document::PartDocument::create_default();auto box=document::PartDocument::create_box_container();box.box={10,10,10};part.history={box};document::BodyHistoryGraph graph;static_cast<void>(graph.create_body("Body"));graph.insert({document::PartHistoryKind::Feature,box.id});part.set_body_history(graph);auto cache=kernel.evaluate_history(part.kernel_operations());
+    workspace::Workspace live;auto part=document::PartDocument::create_default();auto box=zima::test::rectangular_feature(part,{10,10,10});part.history={box};document::BodyHistoryGraph graph;static_cast<void>(graph.create_body("Body"));graph.insert({document::PartHistoryKind::Feature,box.id});part.set_body_history(graph);auto cache=kernel.evaluate_history(part.kernel_operations());
     live.add_part(part,cache,{});auto child=assembly::AssemblyDocument::create_default();const auto child_id=child.document_id;live.add_assembly(child,{});
     const auto leaf=live.insert_open_part(child_id,part.document_id,"Bolt");auto top=assembly::AssemblyDocument::create_default();const auto source=top.document_id;live.add_assembly(top,dir/"nested.asmz");
     const auto a=live.insert_open_assembly(source,child_id,"First"),b=live.insert_open_assembly(source,child_id,"Second");

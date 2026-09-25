@@ -1,3 +1,4 @@
+#include "profile_command_fixture.hpp"
 #include <zima/command_host/host.hpp>
 #include <zima/workspace/placement_edit.hpp>
 #include <zima/document/file_path.hpp>
@@ -59,7 +60,7 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
     options.interaction=[&]{return interaction;};command_host::Host host(live,kernel,directory,options);
     require(host.execute_text("placement.get absent").code=="unsupported_document","Empty placement query accepted");
     run(host,"new",{{"type","part"},{"name","placement"}});const auto id=live.active_document_id();
-    const auto feature=run(host,"box.create",{{"length_mm","10"},{"width_mm","20"},{"height_mm","30"}}).data.at("container").get<std::string>();
+    const auto feature=zima::test::rectangular_commands([&](const char* n,commands::Json a){return run(host,n,std::move(a));},{{"length_mm","10"},{"width_mm","20"},{"height_mm","30"}}).data.at("container").get<std::string>();
     auto* state=live.open_part(id);const auto body=state->session.document().body_history.active_body_id();
     const auto initial_bounds=bounds(state->session.calculated_boundaries().back().mesh);
     const auto get=[&](const std::string& object){return run(host,"placement.get",{{"object",object}}).data;};
@@ -150,7 +151,7 @@ void sheet_feature_references(const kernel::OcctKernel& kernel, fs::path directo
         live.add_part(doc,{},file);live.activate(id);command_host::Host host(live,kernel,directory);
         std::string target;
         if(kind=="holes") {
-            run(host,"box.create",{{"length_mm","40"},{"width_mm","40"},{"height_mm","40"}});
+            zima::test::rectangular_commands([&](const char* n,commands::Json a){return run(host,n,std::move(a));},{{"length_mm","40"},{"width_mm","40"},{"height_mm","40"}});
             const auto owned=run(host,"sketch.create",{{"name","Channels"}}).data.at("sketch").get<std::string>();
             run(host,"sketch.segment.create",{{"sketch",owned},{"first",{0,0}},{"second",{20,0}}});
             target=run(host,"holes.create",{{"sketch",owned},{"diameter_mm",4}}).data.at("container").get<std::string>();

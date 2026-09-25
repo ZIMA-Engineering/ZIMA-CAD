@@ -11,8 +11,7 @@ int verify_cylinder_axis_ui(QApplication& application, zima::app::AssemblyWorksp
         window.resize(1366,768);window.show();flush();
         kernel::OcctKernel kernel;
         auto source=document::PartDocument::create_default();
-        auto cylinder=document::PartDocument::create_cylinder_container();
-        cylinder.cylinder.radius=8;cylinder.cylinder.height=25;
+        auto cylinder=test::circular_feature(source,8,25);
         source.insert_history_entry(document::PartHistoryKind::Feature,cylinder.id);source.history.push_back(cylinder);
         const auto step=directory/"axis-ui.step";
         kernel.export_step(interchange::step_product(source,kernel.evaluate_history(source.kernel_operations())),document::path_to_utf8(step));

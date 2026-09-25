@@ -1,3 +1,5 @@
+#include "profile_command_fixture.hpp"
+#include "profile_solid_fixture.hpp"
 #include <zima/command_host/host.hpp>
 #include <zima/workspace/document_operations.hpp>
 #include <algorithm>
@@ -47,7 +49,7 @@ void verify_commands(const kernel::OcctKernel& kernel,const fs::path& root){
         }).get();
     };
     Host host(live,kernel,directory,options);current=&host;
-    require(run(host,"help").data.size()==327,"Command catalog changed");
+    require(run(host,"help").data.size()==309,"Command catalog changed");
     const auto metric=request(host,"thread.catalog",{{"standard","metric"},{"limit",2}}).data;
     require(metric.at("total")==392&&metric.at("more")==true&&metric.at("next_offset")==2&&!host.change(),"Catalog pagination or read-only state failed");
     require(request(host,"thread.catalog",{{"standard","metric"},{"designation","M10"}}).data.at("items")[0].at("pitch_mm")==1.5,"Catalog lookup lost M10 pitch");
@@ -85,7 +87,7 @@ void verify_commands(const kernel::OcctKernel& kernel,const fs::path& root){
     require(!host.execute_text("new part \"díl s mezerou\"").ok&&live.size()==1,"Duplicate open path accepted");
 
     // Commit through the normal model API, then operate on that same history via commands.
-    auto edited=state->session.document();auto box=document::PartDocument::create_box_container();box.box={10,20,30};
+    auto edited=state->session.document();auto box=zima::test::rectangular_feature(edited,{10,20,30});
     edited.history.push_back(box);edited.insert_history_entry(document::PartHistoryKind::Feature,box.id);
     auto calculated=workspace::calculate_part(kernel,edited);state->session.commit(edited,calculated);
     require(std::abs(calculated.back().volume-6000)<1e-6,"Independent box volume fixture failed");
@@ -138,7 +140,7 @@ void verify_document_lifecycle(const kernel::OcctKernel& kernel,const fs::path& 
     require(host.execute_text("cd missing").code=="invalid_directory" && directory==folder,"Failed cd changed directory");
     run(host,"new part original");const auto id=live.active_document_id();
     require(host.execute_text("close").code=="unsaved_changes" && live.size()==1,"Unwritten new document was discarded");
-    auto created=run(host,"box.create 10 20 30");const auto box=created.data.at("container");run(host,"save");
+    auto created=zima::test::rectangular_commands([&](const char* n,commands::Json a){return request(host,n,std::move(a));},{{"length_mm",10},{"width_mm",20},{"height_mm",30}});const auto box=created.data.at("container");run(host,"save");
     require(!run(host,"documents").data.front().at("needs_save").get<bool>(),"Saved document still needs saving");
     run(host,"new assembly owner");const auto owner=live.active_document_id();
     auto* part=live.open_part(id);const auto revision=part->session.revision();
@@ -147,7 +149,7 @@ void verify_document_lifecycle(const kernel::OcctKernel& kernel,const fs::path& 
     require(live.active_document_id()==id && live.displayed_document_id()==id &&
         part->session.revision()==revision && part->session.calculated_boundaries().data()==cache,"Activation calculated or edited model");
     require(host.execute_text("activate missing").code=="document_not_found" && live.active_document_id()==id,"Unknown activation changed context");
-    request(host,"box.set",{{"container",box},{"length_mm","15"}});
+    zima::test::resize_rectangular_commands([&](const char* n,commands::Json a){return request(host,n,std::move(a));},{{"container",box},{"length_mm","15"}});
     auto drawing=drawing::DrawingDocument::create_default();drawing.source_document_id=id;
     drawing.source_path=folder/"original.prtz";const auto drawing_id=drawing.document_id;
     drawing::DrawingView view;view.id="source-view";view.name="Front";view.source_document_id=id;view.source_path=drawing.source_path;

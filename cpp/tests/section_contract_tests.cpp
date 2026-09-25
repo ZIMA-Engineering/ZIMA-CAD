@@ -1,3 +1,4 @@
+#include "profile_solid_fixture.hpp"
 #include <zima/document/section.hpp>
 #include <zima/document/part_document.hpp>
 #include <zima/assembly/assembly_document.hpp>
@@ -13,7 +14,7 @@ double area(const document::SectionResult& cut){double result=0;for(const auto& 
 double volume(const kernel::ViewerMesh& mesh){double sum=0;for(std::size_t i=0;i+2<mesh.triangles.size();i+=3){auto a=mesh.vertices.at(mesh.triangles[i]),b=mesh.vertices.at(mesh.triangles[i+1]),c=mesh.vertices.at(mesh.triangles[i+2]);sum+=a.x*(b.y*c.z-b.z*c.y)+a.y*(b.z*c.x-b.x*c.z)+a.z*(b.x*c.y-b.y*c.x);}return std::abs(sum)/6;}
 document::SectionDefinition chain(std::initializer_list<std::array<double,2>> points){auto s=document::create_section();auto p=points.begin();for(auto q=p+1;q!=points.end();++q,++p)static_cast<void>(s.sketch.add_segment((*p)[0],(*p)[1],(*q)[0],(*q)[1]));return s;}
 int main(){try{
-    kernel::OcctKernel kernel;auto part=document::PartDocument::create_default();auto box=document::PartDocument::create_box_container();box.box={10,10,10};part.history={box};
+    kernel::OcctKernel kernel;auto part=document::PartDocument::create_default();auto box=zima::test::rectangular_feature(part,{10,10,10});part.history={box};
     const auto source=kernel.evaluate_history(part.kernel_operations()).back().mesh;
     auto section=document::create_section();static_cast<void>(section.sketch.add_segment(-20,0,20,0));
     auto cut=document::calculate_section(source,section);require(std::abs(area(cut)-100)<1e-7,"Box cross-section area is incorrect");
@@ -22,7 +23,7 @@ int main(){try{
     auto tangent=section;tangent.plane_origin.y=5;auto empty=document::calculate_section(source,tangent);require(empty.mesh.triangles.empty()&&empty.patches.empty(),"Tangent cut invented a material face");
     tangent.reversed=true;require(document::calculate_section(source,tangent).patches.empty(),"Exterior plane generated duplicate cap");
     // A square tube provides an exact independent area and empty-hole check.
-    auto bore=document::PartDocument::create_box_container();bore.box={4,20,4};bore.combine_mode=document::CombineMode::Subtract;part.history.push_back(bore);
+    auto bore=zima::test::rectangular_feature(part,{4,20,4});bore.combine_mode=document::CombineMode::Subtract;part.history.push_back(bore);
     const auto tube=kernel.evaluate_history(part.kernel_operations()).back().mesh;cut=document::calculate_section(tube,section);require(std::abs(area(cut)-84)<1e-7,"Section filled a cavity");
     const auto display=document::section_display_mesh(cut,section);
     require(std::ranges::any_of(display.edges,[](const auto& e){return e.color=="#00C000";}),"3D section did not show green hatching");

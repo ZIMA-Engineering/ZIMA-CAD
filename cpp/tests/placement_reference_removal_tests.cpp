@@ -1,3 +1,4 @@
+#include "profile_command_fixture.hpp"
 #include <zima/command_host/host.hpp>
 #include <zima/workspace/sweep_operations.hpp>
 #include "sweep_test_support.hpp"
@@ -75,7 +76,7 @@ void constructions(const kernel::OcctKernel& kernel, fs::path directory, bool as
 void body(const kernel::OcctKernel& kernel, fs::path directory) {
     workspace::Workspace live; auto doc = document::PartDocument::create_default(); const auto id = doc.document_id;
     live.add_part(std::move(doc), {}, directory / "body.prtz"); live.activate(id); command_host::Host host(live, kernel, directory);
-    run(host, "box.create", {{"length_mm", "10"}, {"width_mm", "10"}, {"height_mm", "10"}});
+    zima::test::rectangular_commands([&](const char* n,commands::Json a){return run(host, n,std::move(a));},{{"length_mm", "10"}, {"width_mm", "10"}, {"height_mm", "10"}});
     const auto object = run(host, "body.create", {{"name", "Framed body"}}).at("body").get<std::string>();
     const auto state = [&]() -> workspace::PartState& { return *live.open_part(id); };
     const auto bound = *state().session.document().body_history.find(object);

@@ -121,13 +121,7 @@
     <file alias="icons/active-check.svg">../../resources/icons/active-check.svg</file>
     <file alias="icons/mirror.svg">../../resources/icons/mirror.svg</file>
     <file alias="icons/shell.svg">../../resources/icons/shell.svg</file>
-    <file alias="icons/box.svg">../../resources/icons/box.svg</file>
     <file alias="icons/result-body.svg">../../resources/icons/result-body.svg</file>
-    <file alias="icons/sphere.svg">../../resources/icons/sphere.svg</file>
-    <file alias="icons/cylinder.svg">../../resources/icons/cylinder.svg</file>
-    <file alias="icons/cone.svg">../../resources/icons/cone.svg</file>
-    <file alias="icons/pyramid.svg">../../resources/icons/pyramid.svg</file>
-    <file alias="icons/wedge.svg">../../resources/icons/wedge.svg</file>
     <file alias="fonts/osifont-lgpl3fe.ttf">../../config/fonts/osifont-lgpl3fe.ttf</file>
   </qresource>
 </RCC>

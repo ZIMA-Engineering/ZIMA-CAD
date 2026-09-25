@@ -1,3 +1,4 @@
+#include "profile_command_fixture.hpp"
 #include "assembly_profile_test_support.hpp"
 #include <zima/command_host/host.hpp>
 #include <zima/workspace/profile_operations.hpp>
@@ -59,7 +60,7 @@ void extrusion(const kernel::OcctKernel& kernel,const fs::path& directory) {
     require(thin.find_cut(cut)->definition.extrusion==f.doc().find_cut(cut)->definition.extrusion,"Thin or extent parameters lost in Assembly format");
     f.run("extrusion.set",{{"container",cut},{"result_type","solid"}});
     // The source may change without saving; failed edits must not expose a refresh.
-    f.run("activate",{{"document",f.source}});f.run("box.set",{{"container",f.box},{"height_mm","20"}});f.run("activate",{{"document",f.owner}});
+    f.run("activate",{{"document",f.source}});zima::test::resize_rectangular_commands([&](const char* n,commands::Json a){return f.run(n,std::move(a));},{{"container",f.box},{"height_mm","20"}});f.run("activate",{{"document",f.owner}});
     f.reject("extrusion.set",{{"container",cut},{"length_forward_mm",-1}},"invalid_arguments");
     f.run("extrusion.set",{{"container",cut},{"length_forward_mm",3}});near(f.volume(f.first),1982);
     near(f.live.open_part(f.source)->session.calculated_boundaries().back().volume,2000);

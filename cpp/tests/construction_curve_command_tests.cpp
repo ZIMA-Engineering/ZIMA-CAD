@@ -1,3 +1,4 @@
+#include "profile_command_fixture.hpp"
 #include <zima/command_host/host.hpp>
 #include <zima/document/placement_json.hpp>
 #include <cmath>
@@ -23,7 +24,7 @@ void verify(const kernel::OcctKernel& kernel, fs::path directory, bool assembly)
     const std::string name=assembly?"curve-assembly":"curve-part";
     run("new",{{"type",assembly?"assembly":"part"},{"name",name}});
     const auto document=live.active_document_id();
-    if (!assembly) run("box.create",{{"length_mm","10"},{"width_mm","10"},{"height_mm","10"}});
+    if (!assembly) zima::test::rectangular_commands([&](const char* n,commands::Json a){return run(n,std::move(a));},{{"length_mm","10"},{"width_mm","10"},{"height_mm","10"}});
     const auto objects = [&]() -> const std::vector<document::ConstructionObject>& {
         return assembly ? live.open_assembly(document)->session.document().constructions
             : live.open_part(document)->session.document().constructions;

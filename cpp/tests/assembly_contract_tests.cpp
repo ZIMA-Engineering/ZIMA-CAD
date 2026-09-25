@@ -1,3 +1,4 @@
+#include "profile_solid_fixture.hpp"
 #include <zima/assembly/assembly_document.hpp>
 #include <zima/assembly/assembly_session.hpp>
 #include <zima/assembly/physical_properties.hpp>
@@ -59,7 +60,7 @@ int main() {
                 "Start Assembly template is stale or incomplete");
         zima::kernel::OcctKernel kernel;
         const auto fixture_body=kernel.evaluate_history({
-            {"fixture-source",zima::kernel::BoxRequest{4,5,6},zima::kernel::BooleanOperation::Add}}).back();
+            {"fixture-source",zima::test::ProfilePrism{4,5,6},zima::kernel::BooleanOperation::Add}}).back();
         {
             using namespace zima::assembly;
             auto doc = AssemblyDocument::create_default();
@@ -130,7 +131,7 @@ int main() {
         auto edited_fixture_assembly = fixture_assembly;
         const auto fixture_edit_source = kernel.evaluate_history({
             {"fixture-edit-source-container",
-             zima::kernel::BoxRequest{6.0, 6.0, 6.0},
+             zima::test::ProfilePrism{6.0, 6.0, 6.0},
              zima::kernel::BooleanOperation::Add},
         });
         auto fixture_edit_occurrence =
@@ -161,10 +162,16 @@ int main() {
                 "Edited native Assembly fixture did not survive "
                 "regenerate/save/reopen");
 
-        const auto source = kernel.evaluate_history({
-            {"same-source-container", zima::kernel::BoxRequest{10.0, 10.0, 10.0},
+        auto source = kernel.evaluate_history({
+            {"same-source-container", zima::test::ProfilePrism{10.0, 10.0, 10.0},
              zima::kernel::BooleanOperation::Add},
         });
+        // Explicit datum axes belong to this synthetic Assembly source.
+        // A profile solid does not imply three primitive-generated axes.
+        for (const auto& [key,direction] : std::vector<std::pair<std::string,zima::kernel::Vec3>>{
+                {"fixture-axis:x",{1,0,0}}, {"fixture-axis:z",{0,0,1}}})
+            source.back().mesh.original_references.axes.push_back(
+                {{5,5,5},direction,10,{"same-source-container",key,{}}});
         auto assembly = zima::assembly::AssemblyDocument::create_default();
         auto first = zima::assembly::AssemblyDocument::create_part_occurrence(
             "První", "same-part-document", "same.prtz", source.back());
@@ -595,7 +602,7 @@ int main() {
                 ->calculated_source);
         static_cast<void>(repeated_top.build_scene());
 
-        const auto cutter = kernel.make_box({50.0, 20.0, 5.0});
+        const auto cutter = zima::test::profile_body(kernel,{50.0, 20.0, 5.0});
         std::map<std::string, zima::kernel::BodyResult> cut_results;
         for (const auto& target_id : repeated_top.cuts.back().target_occurrence_ids) {
             const auto* target = repeated_top.find_occurrence(target_id);
@@ -759,10 +766,10 @@ int main() {
             {zima::assembly::MateKind::PlaneAngle,
              {zima::assembly::MateReferenceKind::Face,
               zima::assembly::InstancePath{}.child(second_id),
-              "same-source-container", "z_min"},
+              "same-source-container", "start:from:6:region"},
              {zima::assembly::MateReferenceKind::Face,
               zima::assembly::InstancePath{}.child(first_id),
-              "same-source-container", "z_min"},
+              "same-source-container", "start:from:6:region"},
              45.0, false});
         placement_reference_angle_assembly.calculate_placement_references();
         const auto placement_angle_scene =
@@ -838,10 +845,10 @@ int main() {
             {zima::assembly::MateKind::PlaneAngle,
              {zima::assembly::MateReferenceKind::Face,
               zima::assembly::InstancePath{}.child(second_id),
-              "same-source-container", "z_min"},
+              "same-source-container", "start:from:6:region"},
              {zima::assembly::MateReferenceKind::Face,
               zima::assembly::InstancePath{}.child(first_id),
-              "same-source-container", "z_min"},
+              "same-source-container", "start:from:6:region"},
              60.0, false, 30.0, 90.0});
         angled_assembly.calculate_placement_references();
         const auto angled_dependent = angled_assembly.resolve_plane(
@@ -936,10 +943,10 @@ int main() {
             {zima::assembly::MateKind::PlaneAngle,
              {zima::assembly::MateReferenceKind::Face,
               zima::assembly::InstancePath{}.child(second_id),
-              "same-source-container", "z_min"},
+              "same-source-container", "start:from:6:region"},
              {zima::assembly::MateReferenceKind::Face,
               zima::assembly::InstancePath{}.child(first_id),
-              "same-source-container", "z_max"},
+              "same-source-container", "end:from:6:region"},
              45.0, false});
         plane_angled_assembly.calculate_placement_references();
         const auto plane_angled_dependent = plane_angled_assembly.resolve_plane(
@@ -966,10 +973,10 @@ int main() {
             {zima::assembly::MateKind::PlaneCoincident,
              {zima::assembly::MateReferenceKind::Face,
               zima::assembly::InstancePath{}.child(second_id),
-              "same-source-container", "z_min"},
+              "same-source-container", "start:from:6:region"},
              {zima::assembly::MateReferenceKind::Face,
               zima::assembly::InstancePath{}.child(first_id),
-              "same-source-container", "z_max"},
+              "same-source-container", "end:from:6:region"},
              2.5, false});
         const auto dependent_plane = mated_assembly.resolve_plane(
             mated_component_it->placement_references.front().component_reference);
@@ -1026,10 +1033,10 @@ int main() {
             {zima::assembly::MateKind::PlaneCoincident,
              {zima::assembly::MateReferenceKind::Face,
               zima::assembly::InstancePath{}.child(second_id),
-              "same-source-container", "z_min"},
+              "same-source-container", "start:from:6:region"},
              {zima::assembly::MateReferenceKind::Face,
               zima::assembly::InstancePath{}.child(first_id),
-              "same-source-container", "z_max"},
+              "same-source-container", "end:from:6:region"},
              0.0, true});
         flipped_plane_assembly.calculate_placement_references();
         const auto flipped_dependent = flipped_plane_assembly.resolve_plane(
@@ -1113,7 +1120,7 @@ int main() {
         require(broken_mate_assembly.effectively_suppressed_occurrences().empty(),
                 "Broken placement reference unexpectedly suppressed its dependent component");
         broken_mate_assembly.components.back().placement_references.front()
-            .component_reference.semantic_key = "z_min";
+            .component_reference.semantic_key = "start:from:6:region";
         broken_mate_assembly.calculate_placement_references();
         const auto mate_path = std::filesystem::temp_directory_path() /
             "zima-cad-cpp-mate-contract.asmz";
@@ -1212,10 +1219,10 @@ int main() {
             {zima::assembly::MateKind::AxisCoincident,
              {zima::assembly::MateReferenceKind::Axis,
               zima::assembly::InstancePath{}.child(second_id),
-              "same-source-container", "axis:z"},
+              "same-source-container", "fixture-axis:z"},
              {zima::assembly::MateReferenceKind::Axis,
               zima::assembly::InstancePath{}.child(first_id),
-              "same-source-container", "axis:z"},
+              "same-source-container", "fixture-axis:z"},
              0.0, false});
         rotated_axis_mate.calculate_placement_references();
         const auto rotated_axis_dependent = rotated_axis_mate.resolve_axis(
@@ -1261,10 +1268,10 @@ int main() {
             {zima::assembly::MateKind::PlaneCoincident,
              {zima::assembly::MateReferenceKind::Face,
               zima::assembly::InstancePath{}.child(second_id),
-              "same-source-container", "z_min"},
+              "same-source-container", "start:from:6:region"},
              {zima::assembly::MateReferenceKind::Face,
               zima::assembly::InstancePath{}.child(first_id),
-              "same-source-container", "z_max"},
+              "same-source-container", "end:from:6:region"},
              4.0, false});
         rotated_plane_mate.calculate_placement_references();
         const auto rotated_plane_dependent = rotated_plane_mate.resolve_plane(
@@ -1299,19 +1306,19 @@ int main() {
             {zima::assembly::MateKind::AxisCoincident,
              {zima::assembly::MateReferenceKind::Axis,
               zima::assembly::InstancePath{}.child(second_id),
-              "same-source-container", "axis:z"},
+              "same-source-container", "fixture-axis:z"},
              {zima::assembly::MateReferenceKind::Axis,
               zima::assembly::InstancePath{}.child(first_id),
-              "same-source-container", "axis:z"},
+              "same-source-container", "fixture-axis:z"},
              0.0, false});
         combined_mates.components.back().placement_references.push_back(
             {zima::assembly::MateKind::PlaneCoincident,
              {zima::assembly::MateReferenceKind::Face,
               zima::assembly::InstancePath{}.child(second_id),
-              "same-source-container", "z_min"},
+              "same-source-container", "start:from:6:region"},
              {zima::assembly::MateReferenceKind::Face,
               zima::assembly::InstancePath{}.child(first_id),
-              "same-source-container", "z_max"},
+              "same-source-container", "end:from:6:region"},
              0.0, true});
         combined_mates.calculate_placement_references();
         const auto combined_axis_dependent = combined_mates.resolve_axis(
@@ -1332,26 +1339,26 @@ int main() {
             {zima::assembly::MateKind::PlaneCoincident,
              {zima::assembly::MateReferenceKind::Face,
               zima::assembly::InstancePath{}.child(second_id),
-              "same-source-container", "z_min"},
+              "same-source-container", "start:from:6:region"},
              {zima::assembly::MateReferenceKind::Face,
               zima::assembly::InstancePath{}.child(first_id),
-              "same-source-container", "z_max"},
+              "same-source-container", "end:from:6:region"},
              0.0, false});
         two_plane_mates.components.back().placement_references.push_back(
             {zima::assembly::MateKind::PlaneCoincident,
              {zima::assembly::MateReferenceKind::Face,
               zima::assembly::InstancePath{}.child(second_id),
-              "same-source-container", "x_min"},
+              "same-source-container", "generated:left"},
              {zima::assembly::MateReferenceKind::Face,
               zima::assembly::InstancePath{}.child(first_id),
-              "same-source-container", "x_max"},
+              "same-source-container", "generated:right"},
              0.0, false});
         two_plane_mates.calculate_placement_references();
         require(two_plane_mates.components.back().placement_references.size() == 2,
                 "Two independent plane placement references on one component were not preserved");
         auto two_axis_mates = loaded;
         two_axis_mates.components.back().placement = {23.0, 9.0, 14.0, 0.0, 0.0, 0.0};
-        for (const auto* axis : {"axis:z", "axis:x"}) {
+        for (const auto* axis : {"fixture-axis:z", "fixture-axis:x"}) {
             two_axis_mates.components.back().placement_references.push_back(
                 {zima::assembly::MateKind::AxisCoincident,
                  {zima::assembly::MateReferenceKind::Axis,
@@ -1371,19 +1378,19 @@ int main() {
             {zima::assembly::MateKind::AxisCoincident,
              {zima::assembly::MateReferenceKind::Axis,
               zima::assembly::InstancePath{}.child(second_id),
-              "same-source-container", "axis:z"},
+              "same-source-container", "fixture-axis:z"},
              {zima::assembly::MateReferenceKind::Axis,
               zima::assembly::InstancePath{}.child(first_id),
-              "same-source-container", "axis:z"},
+              "same-source-container", "fixture-axis:z"},
              0.0, false});
         conflicting_mates.components.back().placement_references.push_back(
             {zima::assembly::MateKind::PlaneCoincident,
              {zima::assembly::MateReferenceKind::Face,
               zima::assembly::InstancePath{}.child(second_id),
-              "same-source-container", "z_min"},
+              "same-source-container", "start:from:6:region"},
              {zima::assembly::MateReferenceKind::Face,
               zima::assembly::InstancePath{}.child(first_id),
-              "same-source-container", "x_max"},
+              "same-source-container", "generated:right"},
              0.0, false});
         const auto before_conflict=conflicting_mates.components.back().placement;
         bool conflict_rejected=false;
@@ -1400,12 +1407,12 @@ int main() {
             return zima::assembly::MateReference{kind,zima::assembly::InstancePath{}.child(moving?second_id:first_id),"same-source-container",key};
         };
         moving_hinge.placement_references={
-            {zima::assembly::MateKind::AxisCoincident,reference(true,zima::assembly::MateReferenceKind::Axis,"axis:z"),reference(false,zima::assembly::MateReferenceKind::Axis,"axis:z")},
-            {zima::assembly::MateKind::PlaneCoincident,reference(true,zima::assembly::MateReferenceKind::Face,"z_min"),reference(false,zima::assembly::MateReferenceKind::Face,"z_max"),0.0,true}};
+            {zima::assembly::MateKind::AxisCoincident,reference(true,zima::assembly::MateReferenceKind::Axis,"fixture-axis:z"),reference(false,zima::assembly::MateReferenceKind::Axis,"fixture-axis:z")},
+            {zima::assembly::MateKind::PlaneCoincident,reference(true,zima::assembly::MateReferenceKind::Face,"start:from:6:region"),reference(false,zima::assembly::MateReferenceKind::Face,"end:from:6:region"),0.0,true}};
         hinge.calculate_placement_references();
         require(hinge.remaining_degrees_of_freedom(second_id)==1,"Seated hinge does not retain one physical rotation");
         moving_hinge.placement_references.push_back({zima::assembly::MateKind::PlaneAngle,
-            reference(true,zima::assembly::MateReferenceKind::Face,"x_min"),reference(false,zima::assembly::MateReferenceKind::Face,"x_min")});
+            reference(true,zima::assembly::MateReferenceKind::Face,"generated:left"),reference(false,zima::assembly::MateReferenceKind::Face,"generated:left")});
         const auto check_hinge=[&](const zima::assembly::AssemblyDocument& document,double requested) {
             const auto& rows=document.components.back().placement_references;
             const auto axis=document.resolve_axis(rows[0].component_reference).axis,target=document.resolve_axis(rows[0].target_reference).axis;
@@ -1760,7 +1767,7 @@ int main() {
             {zima::assembly::MateKind::AxisCoincident,
              {zima::assembly::MateReferenceKind::Axis,
               zima::assembly::InstancePath{}.child(second_id),
-              "same-source-container", "axis:z"},
+              "same-source-container", "fixture-axis:z"},
              {zima::assembly::MateReferenceKind::Axis, {},
               datum_axis_entity_id, "axis"},
              0.0, false});
@@ -1835,8 +1842,8 @@ int main() {
             [&](const auto& reference) {
                 return reference.instance_path ==
                     zima::assembly::InstancePath{}.child(first_id).encoded() &&
-                    (reference.semantic_key == "z_min" ||
-                        reference.semantic_key == "z_max");
+                    (reference.semantic_key == "start:from:6:region" ||
+                        reference.semantic_key == "end:from:6:region");
             });
         auto associative_assembly = assembly;
         auto referenced_plane =

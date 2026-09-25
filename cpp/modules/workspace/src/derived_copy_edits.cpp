@@ -119,7 +119,7 @@ bool commit_derived_copy(Workspace& live,const kernel::OcctKernel& kernel,const 
     if(auto* part=live.open_part(edit.document_id)) {
         auto next=part->session.document();auto graph=next.body_history;document::BodyHistory body;
         if(!edit.sources.body_id.empty()) {
-            auto feature=edit.creating?document::PartDocument::create_box_container():*next.find_container(value.id);
+            auto feature=edit.creating?document::HistoryContainer{}:*next.find_container(value.id);
             feature.id=value.id;feature.feature_id=value.id+":entity";feature.feature_parent_id=value.id;
             feature.container_origin=document::create_container_origin(value.id);
             feature.feature_kind=document::FeatureKind::DerivedCopy;feature.name=value.name;

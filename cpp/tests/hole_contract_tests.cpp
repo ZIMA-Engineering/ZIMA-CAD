@@ -1,3 +1,4 @@
+#include "profile_solid_fixture.hpp"
 #include <zima/document/part_document.hpp>
 #include <zima/kernel/occt_kernel.hpp>
 
@@ -18,8 +19,8 @@ int main() {
     try {
         zima::kernel::OcctKernel kernel;
         auto document = zima::document::PartDocument::create_default();
-        auto base = zima::document::PartDocument::create_box_container();
-        base.box = {40.0, 40.0, 40.0};
+        auto base = zima::test::rectangular_feature(document,{40.0, 40.0, 40.0});
+
         document.history.push_back(std::move(base));
 
         auto hole = zima::document::PartDocument::create_hole_container();
@@ -181,8 +182,8 @@ int main() {
                 "Referenced Hole thread does not follow bore axis");
 
         auto up_to_document = zima::document::PartDocument::create_default();
-        auto up_to_base = zima::document::PartDocument::create_box_container();
-        up_to_base.box = {40.0, 40.0, 40.0};
+        auto up_to_base = zima::test::rectangular_feature(up_to_document,{40.0, 40.0, 40.0});
+
         up_to_document.history.push_back(up_to_base);
         auto up_to_hole = zima::document::PartDocument::create_hole_container();
         up_to_hole.placement.z = -20.0;

@@ -1,3 +1,4 @@
+#include "profile_solid_fixture.hpp"
 #include <zima/measurement/measurement.hpp>
 #include <zima/viewer/measurement.hpp>
 #include <zima/kernel/occt_kernel.hpp>
@@ -50,7 +51,7 @@ try{
     distance(point({20.25,20.25,8}),grid,8); // Exercises spatial pruning.
     kernel::OcctKernel kernel;
     auto part=document::PartDocument::create_default();
-    auto box=document::PartDocument::create_box_container();box.box={10,20,30};
+    auto box=zima::test::rectangular_feature(part,{10,20,30});
     part.history={box};
     auto bodies=kernel.evaluate_history(part.kernel_operations());
     const auto object=measurement::measure_entity(bodies.back().mesh,{K::Object,box.id,{},{}});
@@ -63,7 +64,7 @@ try{
     const auto shifted_object=measurement::measure_entity(shifted,{K::Object,box.id,{},{}});
     require(shifted_object&&shifted_object->values.volume,"Translated solid disappeared");
     near(shifted_object->values.volume->value,6000,"Volume loses precision far from origin");
-    auto cylinder=document::PartDocument::create_cylinder_container();cylinder.cylinder.radius=5;cylinder.cylinder.height=12;
+    auto cylinder=zima::test::circular_feature(part,5,12);
     part.history={cylinder};bodies=kernel.evaluate_history(part.kernel_operations());
     const auto loaded=document::load_body_result(document::serialize_body_result(bodies.back()));
     bool circular_edge=false,cylindrical_face=false;

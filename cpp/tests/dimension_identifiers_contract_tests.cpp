@@ -42,25 +42,26 @@ int main() {
         require(first=="d1","First dimension did not receive d1");
         require(sketch.dimensions.front().value==0,"Test must cover a zero dimension");
         auto next=session.document();
-        auto cone=zima::document::PartDocument::create_cone_container();
-        cone.cone.top_radius=0;
+        auto cone=zima::document::PartDocument::create_feature_container(sketch.id);
+        cone.feature.type=zima::document::FeatureType::Sketch;
+        cone.feature.profile_plane_offset=0;
         next.history.push_back(cone);session.commit(next);
-        const auto top=session.document().dimension_identifiers.identifier(cone.id,"parameter:top_radius");
+        const auto top=session.document().dimension_identifiers.identifier(cone.id,"parameter:profile_offset");
         const auto zero=session.document().dimension_identifiers.identifier(cone.id,"parameter:placement:x");
         require(!top.empty()&&!zero.empty(),"Zero feature/placement dimensions were omitted");
-        next=session.document();next.history.front().cone.top_radius=4;
+        next=session.document();next.history.front().feature.profile_plane_offset=4;
         next.history.front().name="Renamed";session.commit(next);
-        require(session.document().dimension_identifiers.identifier(cone.id,"parameter:top_radius")==top,
+        require(session.document().dimension_identifiers.identifier(cone.id,"parameter:profile_offset")==top,
             "Value or name change renumbered a dimension");
         require(session.undo()&&session.undo(),"Undo failed");
-        require(session.document().dimension_identifiers.identifier(cone.id,"parameter:top_radius")==top,
+        require(session.document().dimension_identifiers.identifier(cone.id,"parameter:profile_offset")==top,
             "Undo lost allocation tombstones");
         require(session.is_dirty(),"Unsaved allocated numbers must survive saving after Undo");
         require(session.redo(),"Redo failed");
-        require(session.document().dimension_identifiers.identifier(cone.id,"parameter:top_radius")==top,
+        require(session.document().dimension_identifiers.identifier(cone.id,"parameter:profile_offset")==top,
             "Redo renumbered dimension");
         require(session.undo(),"Second Undo failed");
-        next=session.document();auto other=zima::document::PartDocument::create_box_container();
+        next=session.document();auto other=zima::document::PartDocument::create_twisted_sheet_container();
         next.history.push_back(other);session.commit(next);
         require(session.document().dimension_identifiers.identifier(other.id,"parameter:placement:x")!=zero,
             "Branch after Undo reused an allocated identifier");
@@ -75,7 +76,7 @@ int main() {
             "Part save/load lost current or retired identifiers");
         auto copy=loaded;
         auto embedded=sketch_with_zero_dimension();
-        auto sweep=zima::document::PartDocument::create_box_container();
+        auto sweep=zima::document::PartDocument::create_twisted_sheet_container();
         sweep.feature_kind=zima::document::FeatureKind::Sweep2D;
         sweep.sweep2d.path_sketch=embedded.serialized();sweep.sweep2d.thickness=0;
         copy.history.push_back(sweep);copy.synchronize_dimension_identifiers();
@@ -90,7 +91,7 @@ int main() {
         auto assembly=zima::assembly::AssemblyDocument::create_default();
         zima::kernel::OcctKernel kernel;
         auto part=zima::document::PartDocument::create_default();
-        part.history.push_back(zima::document::PartDocument::create_box_container());
+        part.history.push_back(zima::document::PartDocument::create_twisted_sheet_container());
         const auto source_bodies=kernel.evaluate_history(part.kernel_operations());
         part.save(directory/"source.prtz",source_bodies);
         auto occurrence=zima::assembly::AssemblyDocument::create_part_occurrence(

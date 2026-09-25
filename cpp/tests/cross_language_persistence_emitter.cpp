@@ -1,3 +1,4 @@
+#include "profile_solid_fixture.hpp"
 #include <zima/assembly/assembly_document.hpp>
 #include <zima/document/part_document.hpp>
 #include <zima/drawing/drawing_document.hpp>
@@ -33,14 +34,17 @@ int main(int argc, char** argv) {
         static_cast<void>(sketch.add_rectangle(0.0, 0.0, 20.0, 10.0));
         static_cast<void>(sketch.add_circle(5.0, 5.0, 2.0));
         part.sketches.push_back(sketch);
-        auto feature = zima::document::PartDocument::create_box_container();
+        auto feature = zima::test::rectangular_feature(part,{20.0,10.0,5.0});
         feature.id = "cpp-feature-001";
+        for (auto& profile : part.sketches)
+            if (profile.id == feature.extrusion.sketch_id)
+                profile.owner_container_id = feature.id;
         feature.feature_id = "cpp-feature-001:feature";
         feature.feature_parent_id = feature.id;
         feature.container_origin =
             zima::document::create_container_origin(feature.id);
         feature.name = "C++ Box";
-        feature.box = {20.0, 10.0, 5.0};
+
         part.history.push_back(feature);
         part.save(output / "cpp_part.prtz");
 
@@ -84,7 +88,7 @@ int main(int argc, char** argv) {
         sheet.id = "cpp-sheet-001";
         sheet.name = "C++ Sheet";
         auto view = zima::drawing::DrawingDocument::create_view(
-            part.document_id, "cpp_part.prtz", {}, 
+            part.document_id, "cpp_part.prtz", {},
             zima::drawing::ViewOrientation::Front);
         view.id = "cpp-view-001";
         view.name = "C++ Front View";

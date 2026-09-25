@@ -1,3 +1,4 @@
+#include "profile_solid_fixture.hpp"
 #include <zima/kernel/occt_kernel.hpp>
 #include <zima/document/document_session.hpp>
 #include <zima/document/viewer_packet_json.hpp>
@@ -13,9 +14,9 @@ int main(int argc, char** argv) {
     try {
         kernel::OcctKernel kernel;
         std::vector<kernel::HistoryOperation> operations{
-            {"first", kernel::BoxRequest{10, 10, 10}},
+            {"first", zima::test::ProfilePrism{10, 10, 10}},
             {"broken", kernel::FilletRequest{{{"removed", "missing-edge", {}}}, 1}},
-            {"later", kernel::BoxRequest{5, 5, 5}}};
+            {"later", zima::test::ProfilePrism{5, 5, 5}}};
         auto results = kernel.evaluate_history_recovering(operations);
         require(results.size() == 3, "Recovery lost history boundaries");
         require(results.front().calculation_errors.empty(), "Later failure tainted earlier feature");
@@ -31,7 +32,7 @@ int main(int argc, char** argv) {
         const auto packet = document::load_body_result(document::serialize_body_result(results.back()));
         require(packet.calculation_errors == results.back().calculation_errors, "Diagnostics did not persist");
         auto repaired = operations;
-        repaired[1].primitive = kernel::FilletRequest{{{"first", "edge:x_max:y_min:z_max--x_max:y_min:z_min", {}}}, 1};
+        repaired[1].primitive = kernel::FilletRequest{{{"first", "generated:lower-right", {}}}, 1};
         auto recalculated = kernel.evaluate_history_recovering(repaired, results);
         require(recalculated.back().calculation_errors.empty(), "Repair reused failed cache");
         require(recalculated[1].volume < 1000, "Repaired fillet was not calculated");
@@ -46,7 +47,7 @@ int main(int argc, char** argv) {
         const auto failed_again = reopened_kernel.evaluate_history_recovering(operations, recalculated);
         require(!failed_again.back().kernel_shape.empty(), "Recovery retained a viewer-only intermediate cache");
         auto invalid_first = operations;
-        invalid_first.front().primitive = kernel::BoxRequest{-1, 10, 10};
+        invalid_first.front().primitive = zima::test::ProfilePrism{0, 10, 10};
         const auto no_input = kernel.evaluate_history_recovering(invalid_first);
         require(no_input.back().calculation_errors.contains("first") && no_input.back().mesh.triangles.empty(), "Invalid first operation fabricated geometry");
         operations[0].body.id = operations[1].body.id = "body-a";
@@ -72,7 +73,7 @@ int main(int argc, char** argv) {
         require(blocked_boolean.back().calculation_errors.contains("combine"), "Boolean consumed a failed source");
         require(std::abs(blocked_boolean.back().volume - 1125) < 1e-8, "Blocked Boolean hid its preceding inputs");
         auto part = document::PartDocument::create_default();
-        auto first = document::PartDocument::create_box_container(); first.box = {10,10,10};
+        auto first = zima::test::rectangular_feature(part,{10,10,10});
         auto profile = document::PartDocument::create_extrusion_container("missing-sketch");
         profile.extrusion.sketch_id = "missing-sketch";
         part.history = {first, profile};

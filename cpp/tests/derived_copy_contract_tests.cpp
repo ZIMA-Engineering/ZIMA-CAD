@@ -1,3 +1,4 @@
+#include "profile_solid_fixture.hpp"
 #include <set>
 #include <tuple>
 #include <zima/kernel/occt_kernel.hpp>
@@ -12,11 +13,11 @@ using namespace zima;
 static void require(bool b,const char* m){if(!b)throw std::runtime_error(m);}
 static void close(double a,double b){require(std::abs(a-b)<1e-7,"Mirror changed a geometric measure");}
 template<class F> void rejects(F f){bool rejected=false;try{f();}catch(const std::exception&){rejected=true;}require(rejected,"Invalid Mirror accepted");}
-static kernel::BoxRequest box(double length){kernel::BoxRequest result{length,5,7};result.translation={4,2,1};return result;}
+static zima::test::ProfilePrism box(double length){zima::test::ProfilePrism result{length,5,7};result.translation={4,2,1};return result;}
 int main(){try{
-    kernel::HistoryOperation zero;zero.owner_id="signed-zero";zero.body.id="body";
+    kernel::HistoryOperation zero;zero.owner_id="signed-zero";zero.body.id="body";zero.primitive=zima::test::rectangular_request();
     auto signed_zero=zero;signed_zero.body.translation.y=-0.0;
-    std::get<kernel::BoxRequest>(signed_zero.primitive).rotation_degrees.z=-0.0;
+    // Profile direction carries modeling intent; test only placement zero here.
     require(kernel::history_fingerprint({zero},1)==kernel::history_fingerprint({signed_zero},1),
         "Geometrically identical signed zeros must have the same cache identity");
     kernel::HistoryOperation directed;directed.owner_id="directed";

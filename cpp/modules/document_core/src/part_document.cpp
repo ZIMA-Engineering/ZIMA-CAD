@@ -3333,69 +3333,6 @@ PartDocument PartDocument::create_default() {
     return document;
 }
 
-HistoryContainer PartDocument::create_box_container() {
-    HistoryContainer container;
-    container.id = make_id();
-    container.feature_id = make_id();
-    container.feature_parent_id = container.id;
-    container.container_origin = create_container_origin(container.id);
-    return container;
-}
-
-HistoryContainer PartDocument::create_cylinder_container() {
-    HistoryContainer container;
-    container.id = make_id();
-    container.feature_id = make_id();
-    container.feature_parent_id = container.id;
-    container.container_origin = create_container_origin(container.id);
-    container.name = "Válec";
-    container.feature_kind = FeatureKind::Cylinder;
-    return container;
-}
-
-HistoryContainer PartDocument::create_sphere_container() {
-    HistoryContainer container;
-    container.id = make_id();
-    container.feature_id = make_id();
-    container.feature_parent_id = container.id;
-    container.container_origin = create_container_origin(container.id);
-    container.name = "Koule";
-    container.feature_kind = FeatureKind::Sphere;
-    return container;
-}
-
-HistoryContainer PartDocument::create_cone_container() {
-    HistoryContainer container;
-    container.id = make_id();
-    container.feature_id = make_id();
-    container.feature_parent_id = container.id;
-    container.container_origin = create_container_origin(container.id);
-    container.name = "Kužel";
-    container.feature_kind = FeatureKind::Cone;
-    return container;
-}
-
-HistoryContainer PartDocument::create_pyramid_container() {
-    HistoryContainer container;
-    container.id = make_id();
-    container.feature_id = make_id();
-    container.feature_parent_id = container.id;
-    container.container_origin = create_container_origin(container.id);
-    container.name = "Jehlan";
-    container.feature_kind = FeatureKind::Pyramid;
-    return container;
-}
-
-HistoryContainer PartDocument::create_wedge_container() {
-    HistoryContainer container;
-    container.id = make_id();
-    container.feature_id = make_id();
-    container.feature_parent_id = container.id;
-    container.container_origin = create_container_origin(container.id);
-    container.name = "Klín";
-    container.feature_kind = FeatureKind::Wedge;
-    return container;
-}
 
 HistoryContainer PartDocument::create_twisted_sheet_container() {
     HistoryContainer container;
@@ -3578,7 +3515,8 @@ zima::kernel::Vec3 construction_direction_from_local_axis(
     return rotated_vector(local, rotation);
 }
 
-ConstructionObject PartDocument::create_construction(ConstructionKind kind) {
+namespace {
+ConstructionObject create_construction_geometry(ConstructionKind kind) {
     ConstructionObject object;
     object.id = make_id();
     object.kind = kind;
@@ -3591,6 +3529,19 @@ ConstructionObject PartDocument::create_construction(ConstructionKind kind) {
         : kind == ConstructionKind::Curve3D ? "3D křivka001"
         : kind == ConstructionKind::Axis ? "Osa001" : "Rovina001";
     return object;
+}
+
+} // namespace
+
+ConstructionObject PartDocument::create_construction(ConstructionKind kind) {
+    return create_construction_geometry(kind);
+}
+
+ConstructionObject create_owned_point(const std::string& parent_id) {
+    if(parent_id.empty())throw std::invalid_argument("Owned Point parent ID is required");
+    auto point=create_construction_geometry(ConstructionKind::Point);
+    point.parent_construction_id=parent_id;
+    return point;
 }
 
 ContainerOrigin create_container_origin(const std::string& parent_id) {
@@ -5154,13 +5105,13 @@ bool viewer_mesh_contains_point(const zima::kernel::ViewerMesh& mesh,
 
 zima::kernel::ViewerMesh PartDocument::construction_viewer_mesh(
     const std::string& editing_object_id, double reference_scene_size,
-    bool show_sweep_stations) const {
+    bool show_sweep_stations, const std::set<std::string>& excluded_features) const {
     if (!body_history.bodies().empty()) {
         zima::kernel::ViewerMesh result;
         for (const auto& body : body_history.bodies()) {
             auto carrier = body_document(body.scope.id);
             append_body_mesh(result, body_placed_mesh(
-                carrier.construction_viewer_mesh(editing_object_id, reference_scene_size, show_sweep_stations), body.scope));
+                carrier.construction_viewer_mesh(editing_object_id, reference_scene_size, show_sweep_stations, excluded_features), body.scope));
         }
         for(const auto& annotation:symbol_annotations)append_body_mesh(result,annotation.viewer_mesh());
         return result;
@@ -5568,13 +5519,11 @@ zima::kernel::ViewerMesh PartDocument::construction_viewer_mesh(
     // with the solid's wire when the whole history container is hovered or
     // selected.  This is ZIMA viewer data; no OCCT topology is inspected.
     for (const auto& container : history) {
-        const bool basic_solid = container.feature_kind == FeatureKind::Box ||
-            container.feature_kind == FeatureKind::Cylinder ||
-            container.feature_kind == FeatureKind::Sphere ||
-            container.feature_kind == FeatureKind::Cone ||
-            container.feature_kind == FeatureKind::Pyramid ||
-            container.feature_kind == FeatureKind::Wedge ||
-            container.feature_kind == FeatureKind::TwistedSheet;
+        if(container.feature_kind==FeatureKind::Feature) {
+            if(!excluded_features.contains(container.id))append_body_mesh(mesh,feature_result_mesh(container));
+            continue;
+        }
+        const bool basic_solid = container.feature_kind == FeatureKind::TwistedSheet;
         const bool profile_feature =
             container.feature_kind == FeatureKind::Feature ||
             container.feature_kind == FeatureKind::Extrusion ||
@@ -6082,6 +6031,7 @@ void PartDocument::resolve_constructions(
         append(source_geometry, local_origin);
         reframe_owned_sketches(container.id);
         reframe_embedded_sketches(container);
+        if(container.feature_kind==FeatureKind::Feature)append(source_geometry,feature_result_mesh(container).original_references);
         if(container.feature_kind==FeatureKind::SheetTransition)append(source_geometry,sheet_transition_end_references(container));
         if(container.feature_kind!=FeatureKind::Hole && container.feature_kind!=FeatureKind::Thread)
         visit_feature_sketches(container,[&](const auto& data,std::size_t) {
@@ -6565,35 +6515,7 @@ std::vector<zima::kernel::ViewerEdge> PartDocument::primitive_preview_edges(
         }
         append(std::move(points), role);
     };
-    if (container.feature_kind == FeatureKind::Box) {
-        const double x = container.box.length * 0.5;
-        const double y = container.box.width * 0.5;
-        const double z = container.box.height * 0.5;
-        const std::array<zima::kernel::Vec3, 8> vertices{{
-            {-x,-y,-z}, {x,-y,-z}, {x,y,-z}, {-x,y,-z},
-            {-x,-y,z}, {x,-y,z}, {x,y,z}, {-x,y,z}}};
-        constexpr std::array<std::array<int, 2>, 12> segments{{
-            {{0,1}},{{1,2}},{{2,3}},{{3,0}},{{4,5}},{{5,6}},{{6,7}},{{7,4}},
-            {{0,4}},{{1,5}},{{2,6}},{{3,7}}}};
-        for (std::size_t index = 0; index < segments.size(); ++index) {
-            append(std::vector<zima::kernel::Vec3>{
-                    vertices[segments[index][0]], vertices[segments[index][1]]},
-                "box:" + std::to_string(index));
-        }
-    } else if (container.feature_kind == FeatureKind::Cylinder) {
-        const double radius = container.cylinder.radius;
-        const double height = container.cylinder.height;
-        circle(radius, 0.0, "cylinder:bottom");
-        circle(radius, height, "cylinder:top");
-        for (int index = 0; index < 1; ++index) {
-            const double angle = 0.5 * std::numbers::pi * index;
-            const double x = radius * std::cos(angle);
-            const double y = radius * std::sin(angle);
-            append(std::vector<zima::kernel::Vec3>{
-                    {x, y, 0.0}, {x, y, height}},
-                "cylinder:side:" + std::to_string(index));
-        }
-    } else if (container.feature_kind == FeatureKind::Hole) {
+    if (container.feature_kind == FeatureKind::Hole) {
         const double radius = container.hole.diameter * 0.5;
         const double height = container.hole.bore_length;
         const bool referenced_work_plane = std::any_of(
@@ -6622,45 +6544,6 @@ std::vector<zima::kernel::ViewerEdge> PartDocument::primitive_preview_edges(
                 append({{x, y, 0.0}, {x, y, height}},
                     "hole:bore:side:" + std::to_string(index));
             }
-        }
-    } else if (container.feature_kind == FeatureKind::Sphere) {
-        circle(container.sphere.radius, 0.0, "sphere:meridian", 1);
-    } else if (container.feature_kind == FeatureKind::Cone) {
-        circle(container.cone.bottom_radius, 0.0, "cone:bottom");
-        if (container.cone.top_radius > 1.0e-9) {
-            circle(container.cone.top_radius, container.cone.height, "cone:top");
-        }
-        for (int index = 0; index < 1; ++index) {
-            const double angle = 0.5 * std::numbers::pi * index;
-            append({{container.cone.bottom_radius * std::cos(angle),
-                         container.cone.bottom_radius * std::sin(angle), 0.0},
-                    {container.cone.top_radius * std::cos(angle),
-                         container.cone.top_radius * std::sin(angle),
-                         container.cone.height}},
-                "cone:side:" + std::to_string(index));
-        }
-    } else if (container.feature_kind == FeatureKind::Pyramid) {
-        const double x = container.pyramid.length * 0.5;
-        const double y = container.pyramid.width * 0.5;
-        const std::array<zima::kernel::Vec3, 4> base{{
-            {-x,-y,0}, {x,-y,0}, {x,y,0}, {-x,y,0}}};
-        append({base[0], base[1], base[2], base[3], base[0]}, "pyramid:base");
-        for (std::size_t index = 0; index < base.size(); ++index) {
-            append({base[index], {0,0,container.pyramid.height}},
-                "pyramid:side:" + std::to_string(index));
-        }
-    } else if (container.feature_kind == FeatureKind::Wedge) {
-        const double x = container.wedge.length * 0.5;
-        const double y = container.wedge.width * 0.5;
-        const double top_x = -x + container.wedge.top_offset;
-        const std::array<zima::kernel::Vec3, 8> p{{
-            {-x,-y,0}, {x,-y,0}, {top_x,-y,container.wedge.height},
-            {-x,-y,container.wedge.height}, {-x,y,0}, {x,y,0},
-            {top_x,y,container.wedge.height}, {-x,y,container.wedge.height}}};
-        append({p[0],p[1],p[2],p[3],p[0]}, "wedge:front");
-        append({p[4],p[5],p[6],p[7],p[4]}, "wedge:back");
-        for (std::size_t index = 0; index < 4; ++index) {
-            append({p[index], p[index + 4]}, "wedge:cross:" + std::to_string(index));
         }
     } else if (container.feature_kind == FeatureKind::TwistedSheet) {
         const auto& p=container.twisted_sheet;
@@ -7102,7 +6985,7 @@ std::vector<zima::kernel::ViewerEdge> PartDocument::thread_edges(
 
 std::vector<zima::kernel::ViewerEdge> PartDocument::feature_preview_edges(
         const HistoryContainer& container,const zima::kernel::ViewerMesh& input) const {
-    if(container.feature_kind!=FeatureKind::Feature)return {};
+    if(container.feature_kind!=FeatureKind::Feature || container.feature.type!=FeatureType::Modeling)return {};
     const auto& definition=container.feature;
     const auto sketch=std::ranges::find(sketches,definition.sketch_id,&zima::sketcher::Sketch::id);
     if(sketch==sketches.end())return {};
@@ -8919,24 +8802,6 @@ std::vector<zima::kernel::HistoryOperation> PartDocument::kernel_operations(
             const auto sketch = std::ranges::find(sketches, container.holes.sketch_id, &zima::sketcher::Sketch::id);
             if (sketch == sketches.end()) throw std::runtime_error("Otvory nemají zdrojovou skicu.");
             primitive = holes_request(container, *sketch);
-        } else if (container.feature_kind == FeatureKind::Box) {
-            zima::kernel::BoxRequest box{
-                container.box.length, container.box.width, container.box.height};
-            const auto centered_corner = rotated_vector(
-                {-container.box.length * 0.5, -container.box.width * 0.5,
-                 -container.box.height * 0.5}, rotation);
-            box.translation = {translation.x + centered_corner.x,
-                translation.y + centered_corner.y,
-                translation.z + centered_corner.z};
-            box.rotation_degrees = rotation;
-            primitive = box;
-        } else if (container.feature_kind == FeatureKind::Cylinder) {
-            zima::kernel::CylinderRequest cylinder;
-            cylinder.radius = container.cylinder.radius;
-            cylinder.height = container.cylinder.height;
-            cylinder.translation = translation;
-            cylinder.rotation_degrees = rotation;
-            primitive = cylinder;
         } else if (container.feature_kind == FeatureKind::Hole) {
             if (!std::isfinite(container.hole.diameter) ||
                 container.hole.diameter <= 0.0 ||
@@ -9246,37 +9111,6 @@ std::vector<zima::kernel::HistoryOperation> PartDocument::kernel_operations(
             point.included_angle_degrees =
                 container.drill_point.included_angle_degrees;
             primitive = point;
-        } else if (container.feature_kind == FeatureKind::Sphere) {
-            zima::kernel::SphereRequest sphere;
-            sphere.radius = container.sphere.radius;
-            sphere.translation = translation;
-            sphere.rotation_degrees = rotation;
-            primitive = sphere;
-        } else if (container.feature_kind == FeatureKind::Cone) {
-            zima::kernel::ConeRequest cone;
-            cone.bottom_radius = container.cone.bottom_radius;
-            cone.top_radius = container.cone.top_radius;
-            cone.height = container.cone.height;
-            cone.translation = translation;
-            cone.rotation_degrees = rotation;
-            primitive = cone;
-        } else if (container.feature_kind == FeatureKind::Pyramid) {
-            zima::kernel::PyramidRequest pyramid;
-            pyramid.length = container.pyramid.length;
-            pyramid.width = container.pyramid.width;
-            pyramid.height = container.pyramid.height;
-            pyramid.translation = translation;
-            pyramid.rotation_degrees = rotation;
-            primitive = pyramid;
-        } else if (container.feature_kind == FeatureKind::Wedge) {
-            zima::kernel::WedgeRequest wedge;
-            wedge.length = container.wedge.length;
-            wedge.width = container.wedge.width;
-            wedge.height = container.wedge.height;
-            wedge.top_offset = container.wedge.top_offset;
-            wedge.translation = translation;
-            wedge.rotation_degrees = rotation;
-            primitive = wedge;
         } else if (container.feature_kind == FeatureKind::Feature) {
             const auto& p=container.feature;
             validate_feature_parameters(p);
@@ -9287,7 +9121,7 @@ std::vector<zima::kernel::HistoryOperation> PartDocument::kernel_operations(
             const auto status=group.allow_empty?profile_status(*sketch):ProfileStatus::Closed;
             const auto prepare=[&](auto request,std::size_t side) {
                 if(sketch->owner_container_id!=container.id)apply_container_placement(request,container.placement);
-                request.centerlines={p.origin_centerline,p.centroid_centerline,
+                request.centerlines={p.type==FeatureType::Modeling&&p.origin_centerline,p.type==FeatureType::Modeling&&p.centroid_centerline,
                     sketch->world_point(0,0),sketch->normal(),container.container_origin.id,sketch->id};
                 if(sketch->owner_container_id!=container.id) {
                     const auto rotation=placement_rotation_matrix_from_euler_degrees({container.placement.rotation_x,container.placement.rotation_y,container.placement.rotation_z});
@@ -9297,6 +9131,7 @@ std::vector<zima::kernel::HistoryOperation> PartDocument::kernel_operations(
                 return zima::kernel::feature_side_request(std::move(request),container.feature_id,
                     side==0?zima::kernel::FeatureSide::End:zima::kernel::FeatureSide::Start);
             };
+            if(p.type==FeatureType::Modeling || p.type==FeatureType::Sketch)
             for(std::size_t side=0;side<2;++side) {
                 const auto& settings=p.effective_side(side);
                 if(group.allow_empty && (status==ProfileStatus::Empty || status==ProfileStatus::Invalid)) {
@@ -9332,7 +9167,8 @@ std::vector<zima::kernel::HistoryOperation> PartDocument::kernel_operations(
                     const bool inactive=settings.operation==FeatureSideOperation::None;
                     auto request=body_profile_request(*sketch,inactive?1.:settings.length,
                         side==0?ExtrusionDirection::Forward:ExtrusionDirection::Reverse,
-                        group.allow_empty&&status==ProfileStatus::Open?ProfileResultType::Surface:p.result_type,p.thin_thickness,p.thin_mode);
+                        group.allow_empty&&status==ProfileStatus::Open?ProfileResultType::Surface:
+                            p.type==FeatureType::Sketch?ProfileResultType::Solid:p.result_type,p.thin_thickness,p.thin_mode);
                     if(!inactive&&settings.extrusion_extent==EndCondition::ThroughAll) {
                         if(container.combine_mode!=CombineMode::Subtract)throw std::runtime_error("Invalid Feature definition.");
                         request.extent=zima::kernel::ExtrusionRequest::Extent::ThroughAll;
@@ -10373,9 +10209,7 @@ PartDocument PartDocument::from_serialized(const nlohmann::json& root,
     std::unordered_set<std::string> construction_ids;
     for (const auto& source : source_history) {
         const std::string type = source.at("type").get<std::string>();
-        if (type != "sketch" && type != "box" && type != "cylinder" && type != "sphere" &&
-            type != "cone" && type != "pyramid" && type != "wedge" &&
-            type != "extrusion" && type != "feature" &&
+        if (type != "sketch" && type != "extrusion" && type != "feature" &&
             type != "revolution" && type != "sweep3d" && type != "helical_sweep" && type != "sweep2d" &&
             type != "imported_step" &&
             type != "fillet" && type != "chamfer" &&
@@ -10387,11 +10221,6 @@ PartDocument PartDocument::from_serialized(const nlohmann::json& root,
         HistoryContainer container;
         container.feature_kind = type == "sketch" ? FeatureKind::Sketch
             : type == "feature" ? FeatureKind::Feature
-            : type == "cylinder" ? FeatureKind::Cylinder
-            : type == "sphere" ? FeatureKind::Sphere
-            : type == "cone" ? FeatureKind::Cone
-            : type == "pyramid" ? FeatureKind::Pyramid
-            : type == "wedge" ? FeatureKind::Wedge
             : type == "extrusion" ? FeatureKind::Extrusion
             : type == "revolution" ? FeatureKind::Revolution
             : type == "sweep2d" ? FeatureKind::Sweep2D
@@ -10412,8 +10241,7 @@ PartDocument PartDocument::from_serialized(const nlohmann::json& root,
             : type == "hole" ? FeatureKind::Hole
             : type == "shaft_thread" ? FeatureKind::ShaftThread
             : type == "thread" ? FeatureKind::Thread
-            : type == "drill_point" ? FeatureKind::DrillPoint
-            : FeatureKind::Box;
+            : FeatureKind::DrillPoint;
         if(container.feature_kind==FeatureKind::DerivedCopy)container.derived_copy=source.at("derived_copy").get<DerivedCopyParameters>();
         container.id = source.at("id").get<std::string>();
     container.value_locks = source.value("value_locks", std::set<std::string>{});
@@ -10502,18 +10330,6 @@ PartDocument PartDocument::from_serialized(const nlohmann::json& root,
             container.holes.sketch_id = source.at("sketch_id");
             container.holes.diameter = source.at("diameter");
             require_positive(container.holes.diameter, "diameter");
-        } else if (container.feature_kind == FeatureKind::Box) {
-            container.box.length = source.at("length").get<double>();
-            container.box.width = source.at("width").get<double>();
-            container.box.height = source.at("height").get<double>();
-            require_positive(container.box.length, "length");
-            require_positive(container.box.width, "width");
-            require_positive(container.box.height, "height");
-        } else if (container.feature_kind == FeatureKind::Cylinder) {
-            container.cylinder.radius = source.at("radius").get<double>();
-            container.cylinder.height = source.at("height").get<double>();
-            require_positive(container.cylinder.radius, "radius");
-            require_positive(container.cylinder.height, "height");
         } else if (container.feature_kind == FeatureKind::Hole) {
             container.hole.sketch_id = source.at("sketch_id");
             container.hole.circle_id = source.at("circle_id");
@@ -10717,38 +10533,6 @@ PartDocument PartDocument::from_serialized(const nlohmann::json& root,
                 container.drill_point.included_angle_degrees <= 0.0 ||
                 container.drill_point.included_angle_degrees >= 180.0) {
                 throw std::runtime_error("Neplatná vrtací špička");
-            }
-        } else if (container.feature_kind == FeatureKind::Sphere) {
-            container.sphere.radius = source.at("radius").get<double>();
-            require_positive(container.sphere.radius, "radius");
-        } else if (container.feature_kind == FeatureKind::Cone) {
-            container.cone.bottom_radius = source.at("bottom_radius").get<double>();
-            container.cone.top_radius = source.at("top_radius").get<double>();
-            container.cone.height = source.at("height").get<double>();
-            if (!std::isfinite(container.cone.bottom_radius) ||
-                !std::isfinite(container.cone.top_radius) ||
-                container.cone.bottom_radius < 0.0 || container.cone.top_radius < 0.0 ||
-                (container.cone.bottom_radius <= 0.0 && container.cone.top_radius <= 0.0)) {
-                throw std::runtime_error("Invalid Cone radii");
-            }
-            require_positive(container.cone.height, "height");
-        } else if (container.feature_kind == FeatureKind::Pyramid) {
-            container.pyramid = {source.at("length").get<double>(),
-                source.at("width").get<double>(), source.at("height").get<double>()};
-            require_positive(container.pyramid.length, "length");
-            require_positive(container.pyramid.width, "width");
-            require_positive(container.pyramid.height, "height");
-        } else if (container.feature_kind == FeatureKind::Wedge) {
-            container.wedge = {source.at("length").get<double>(),
-                source.at("width").get<double>(), source.at("height").get<double>(),
-                source.at("top_offset").get<double>()};
-            require_positive(container.wedge.length, "length");
-            require_positive(container.wedge.width, "width");
-            require_positive(container.wedge.height, "height");
-            if (!std::isfinite(container.wedge.top_offset) ||
-                container.wedge.top_offset < 0.0 ||
-                container.wedge.top_offset > container.wedge.length) {
-                throw std::runtime_error("Invalid Wedge top offset");
             }
         } else if (container.feature_kind == FeatureKind::TwistedSheet) {
             const auto& data=source.at("twisted_sheet");auto& p=container.twisted_sheet;
@@ -11282,13 +11066,6 @@ nlohmann::json PartDocument::serialized(
             const auto sketch = std::ranges::find(sketches, container.holes.sketch_id, &zima::sketcher::Sketch::id);
             if (sketch == sketches.end()) throw std::runtime_error("Otvory nemají zdrojovou skicu.");
             static_cast<void>(holes_request(container, *sketch));
-        } else if (container.feature_kind == FeatureKind::Box) {
-            require_positive(container.box.length, "length");
-            require_positive(container.box.width, "width");
-            require_positive(container.box.height, "height");
-        } else if (container.feature_kind == FeatureKind::Cylinder) {
-            require_positive(container.cylinder.radius, "radius");
-            require_positive(container.cylinder.height, "height");
         } else if (container.feature_kind == FeatureKind::Hole) {
             const auto profile = zima::sketcher::Sketch::from_serialized(
                 container.hole.sketch_serialized);
@@ -11387,29 +11164,6 @@ nlohmann::json PartDocument::serialized(
                 container.drill_point.included_angle_degrees <= 0.0 ||
                 container.drill_point.included_angle_degrees >= 180.0) {
                 throw std::runtime_error("Neplatná vrtací špička");
-            }
-        } else if (container.feature_kind == FeatureKind::Sphere) {
-            require_positive(container.sphere.radius, "radius");
-        } else if (container.feature_kind == FeatureKind::Cone) {
-            if (!std::isfinite(container.cone.bottom_radius) ||
-                !std::isfinite(container.cone.top_radius) ||
-                container.cone.bottom_radius < 0.0 || container.cone.top_radius < 0.0 ||
-                (container.cone.bottom_radius <= 0.0 && container.cone.top_radius <= 0.0)) {
-                throw std::runtime_error("Invalid Cone radii");
-            }
-            require_positive(container.cone.height, "height");
-        } else if (container.feature_kind == FeatureKind::Pyramid) {
-            require_positive(container.pyramid.length, "length");
-            require_positive(container.pyramid.width, "width");
-            require_positive(container.pyramid.height, "height");
-        } else if (container.feature_kind == FeatureKind::Wedge) {
-            require_positive(container.wedge.length, "length");
-            require_positive(container.wedge.width, "width");
-            require_positive(container.wedge.height, "height");
-            if (!std::isfinite(container.wedge.top_offset) ||
-                container.wedge.top_offset < 0.0 ||
-                container.wedge.top_offset > container.wedge.length) {
-                throw std::runtime_error("Invalid Wedge top offset");
             }
         } else if (container.feature_kind == FeatureKind::TwistedSheet) {
             const auto& p=container.twisted_sheet;
@@ -11560,17 +11314,6 @@ nlohmann::json PartDocument::serialized(
                 : container.feature_kind == FeatureKind::BendBack ? "bend_back"
                 : container.feature_kind == FeatureKind::Holes ? "holes"
                 : container.feature_kind == FeatureKind::Sketch ? "sketch"
-                : container.feature_kind == FeatureKind::Box ? "box"
-                : container.feature_kind == FeatureKind::Cylinder
-                    ? "cylinder"
-                : container.feature_kind == FeatureKind::Sphere
-                    ? "sphere"
-                : container.feature_kind == FeatureKind::Cone
-                    ? "cone"
-                : container.feature_kind == FeatureKind::Pyramid
-                    ? "pyramid"
-                : container.feature_kind == FeatureKind::Wedge
-                    ? "wedge"
                 : container.feature_kind == FeatureKind::TwistedSheet
                     ? "twisted_sheet"
                 : container.feature_kind == FeatureKind::Feature ? "feature"
@@ -11681,13 +11424,6 @@ nlohmann::json PartDocument::serialized(
         } else if (container.feature_kind == FeatureKind::Holes) {
             serialized["sketch_id"] = container.holes.sketch_id;
             serialized["diameter"] = container.holes.diameter;
-        } else if (container.feature_kind == FeatureKind::Box) {
-            serialized["length"] = container.box.length;
-            serialized["width"] = container.box.width;
-            serialized["height"] = container.box.height;
-        } else if (container.feature_kind == FeatureKind::Cylinder) {
-            serialized["radius"] = container.cylinder.radius;
-            serialized["height"] = container.cylinder.height;
         } else if (container.feature_kind == FeatureKind::Hole) {
             const auto end_name = [](EndCondition condition) {
                 return condition == EndCondition::Length ? "length"
@@ -11847,21 +11583,6 @@ nlohmann::json PartDocument::serialized(
             }
             serialized["included_angle_degrees"] =
                 container.drill_point.included_angle_degrees;
-        } else if (container.feature_kind == FeatureKind::Sphere) {
-            serialized["radius"] = container.sphere.radius;
-        } else if (container.feature_kind == FeatureKind::Cone) {
-            serialized["bottom_radius"] = container.cone.bottom_radius;
-            serialized["top_radius"] = container.cone.top_radius;
-            serialized["height"] = container.cone.height;
-        } else if (container.feature_kind == FeatureKind::Pyramid) {
-            serialized["length"] = container.pyramid.length;
-            serialized["width"] = container.pyramid.width;
-            serialized["height"] = container.pyramid.height;
-        } else if (container.feature_kind == FeatureKind::Wedge) {
-            serialized["length"] = container.wedge.length;
-            serialized["width"] = container.wedge.width;
-            serialized["height"] = container.wedge.height;
-            serialized["top_offset"] = container.wedge.top_offset;
         } else if (container.feature_kind == FeatureKind::TwistedSheet) {
             const auto& p=container.twisted_sheet;
             require_positive(p.width,"Twisted sheet width");

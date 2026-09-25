@@ -19,6 +19,12 @@ Enum parse(const nlohmann::json& value,const std::array<std::pair<Enum,std::stri
     for(const auto& [key,candidate]:names)if(text==candidate)return key;
     invalid();
 }
+constexpr std::array feature_types{
+    std::pair{FeatureType::Point,std::string_view{"point"}},
+    std::pair{FeatureType::Axis,std::string_view{"axis"}},
+    std::pair{FeatureType::Plane,std::string_view{"plane"}},
+    std::pair{FeatureType::Sketch,std::string_view{"sketch"}},
+    std::pair{FeatureType::Modeling,std::string_view{"modeling"}}};
 constexpr std::array operations{
     std::pair{FeatureSideOperation::None,std::string_view{"none"}},
     std::pair{FeatureSideOperation::Extrusion,std::string_view{"extrusion"}},
@@ -56,6 +62,7 @@ kernel::Vec3 vector(const nlohmann::json& p) {
 }
 
 void validate_feature_parameters(const FeatureParameters& p) {
+    static_cast<void>(name(p.type,feature_types));
     static_cast<void>(name(p.profile_source,sources));
     static_cast<void>(name(p.result_type,results));
     static_cast<void>(name(p.thin_mode,thin_modes));
@@ -93,7 +100,7 @@ nlohmann::json serialize_feature_parameters(const FeatureParameters& p) {
             {"angle_degrees",side.angle_degrees},{"rotation_extent",name(side.rotation_extent,rotations)},
             {"targets",std::move(targets)}});
     }
-    return {{"sketch_id",p.sketch_id},{"axis_segment_id",p.axis_segment_id},
+    return {{"type",name(p.type,feature_types)},{"sketch_id",p.sketch_id},{"axis_segment_id",p.axis_segment_id},
         {"profile_source",name(p.profile_source,sources)},{"profile_plane_offset",p.profile_plane_offset},
         {"result_type",name(p.result_type,results)},{"thin_thickness",p.thin_thickness},
         {"thin_mode",name(p.thin_mode,thin_modes)},{"symmetric",p.symmetric},
@@ -104,6 +111,7 @@ nlohmann::json serialize_feature_parameters(const FeatureParameters& p) {
 FeatureParameters load_feature_parameters(const nlohmann::json& source) {
     try {
         FeatureParameters p;
+        p.type=parse(source.at("type"),feature_types);
         p.sketch_id=source.at("sketch_id").get<std::string>();
         p.axis_segment_id=source.at("axis_segment_id").get<std::string>();
         p.profile_source=parse(source.at("profile_source"),sources);

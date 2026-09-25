@@ -1,3 +1,4 @@
+#include "profile_solid_fixture.hpp"
 #include <zima/document/part_document.hpp>
 #include <zima/kernel/occt_kernel.hpp>
 #include <zima/document/helical_geometry.hpp>
@@ -49,7 +50,7 @@ int main(int argc,char** argv){try{
     // A tube cut along a box face can retain two surface p-curves on an
     // intersection edge. It still separates two faces and is not a seam.
     {
-        auto box=document::PartDocument::create_box_container();box.box={100,80,50};
+        auto box=zima::test::rectangular_feature(doc,{100,80,50});
         auto cut=fixture();cut.combine_mode=document::CombineMode::Subtract;
         cut.placement.x=25;cut.placement.y=40;cut.placement.rotation_y=90;cut.placement.rotation_z=90;
         doc.history={box,cut};

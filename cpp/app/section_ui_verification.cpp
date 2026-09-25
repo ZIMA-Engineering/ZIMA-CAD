@@ -1,3 +1,4 @@
+#include "../tests/profile_solid_fixture.hpp"
 #include "assembly_workspace_window.hpp"
 #include "section_properties_dialog.hpp"
 #include "section_source.hpp"
@@ -42,7 +43,7 @@ int verify_sections(QApplication& application,AssemblyWorkspaceWindow& window,co
             check(hatch.values().at("a")==a&&hatch.values().at("b")==b&&hatch.values().at("missing")==missing,"Hatch reverse lost exact per-component parameters");
         }
         kernel::OcctKernel kernel;auto part=document::PartDocument::create_default();part.name="Section test tube";
-        auto box=document::PartDocument::create_box_container();box.box={40,30,30};auto bore=document::PartDocument::create_box_container();bore.box={20,50,14};bore.combine_mode=document::CombineMode::Subtract;part.history={box,bore};
+        auto box=test::rectangular_feature(part,{40,30,30});auto bore=test::rectangular_feature(part,{20,50,14});bore.combine_mode=document::CombineMode::Subtract;part.history={box,bore};
         document::BodyHistoryGraph body_graph;static_cast<void>(body_graph.create_body("Tube"));
         body_graph.insert({document::PartHistoryKind::Feature,box.id});body_graph.insert({document::PartHistoryKind::Feature,bore.id});body_graph.activate({});part.set_body_history(body_graph);
         const auto cache=kernel.evaluate_history(part.kernel_operations());const auto path=dir/"section.prtz";part.save(path,cache);
@@ -447,7 +448,7 @@ int verify_sections(QApplication& application,AssemblyWorkspaceWindow& window,co
         source_rename->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Cancel)->click();flush();
         check(tree->topLevelItem(0)->text(0)==displayed_root,"Opening source Rename switched the displayed document");
         {
-            auto axis_part=document::PartDocument::create_default();auto base=document::PartDocument::create_box_container();base.box={30,30,30};
+            auto axis_part=document::PartDocument::create_default();auto base=test::rectangular_feature(axis_part,{30,30,30});
             auto thread=document::PartDocument::create_thread_container();thread.placement.z=-15;thread.thread.bore_length=20;thread.thread.length_forward=15;
             axis_part.history={base,thread};document::BodyHistoryGraph graph;static_cast<void>(graph.create_body("Axis test"));
             graph.insert({document::PartHistoryKind::Feature,base.id});graph.insert({document::PartHistoryKind::Feature,thread.id});axis_part.set_body_history(graph);

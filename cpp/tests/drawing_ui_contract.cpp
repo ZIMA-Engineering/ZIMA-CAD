@@ -1,3 +1,4 @@
+#include "profile_solid_fixture.hpp"
 #include <zima/symbols/definition.hpp>
 #include <zima/drawing_render/sheet_renderer.hpp>
 #include <QDate>
@@ -92,7 +93,7 @@ int verify_drawing_source_picker() {
         QTemporaryDir temporary;require(temporary.isValid(),"Cannot create drawing source fixtures");
         const auto directory=std::filesystem::u8path(temporary.path().toStdString());
         auto part=zima::document::PartDocument::create_default();
-        part.history.push_back(zima::document::PartDocument::create_box_container());part.resolve_constructions();
+        part.history.push_back(zima::test::rectangular_feature(part));part.resolve_constructions();
         zima::kernel::OcctKernel kernel;const auto calculated=kernel.evaluate_history(part.kernel_operations());
         const auto part_path=directory/"source.prtz";part.save(part_path,calculated);
         auto assembly=zima::assembly::AssemblyDocument::create_default();
@@ -753,7 +754,7 @@ int verify_drawing_ui() {
             print_sheet.title_block_lines.push_back({{130,78.0-i*6},{80,78.0-i*6},pen});
         }
         zima::kernel::OcctKernel print_kernel;
-        const auto bodies=print_kernel.evaluate_history({{"print-cylinder",zima::kernel::CylinderRequest{10,20},zima::kernel::BooleanOperation::Add}});
+        const auto bodies=print_kernel.evaluate_history({{"print-cylinder",zima::test::CircularExtrusion{10,20},zima::kernel::BooleanOperation::Add}});
         const auto& cylinder=bodies.back().mesh;
         auto print_source=zima::document::PartDocument::create_default();
         workspace.add_part(print_source,bodies);
@@ -780,11 +781,11 @@ int verify_drawing_ui() {
             view.show_caption=true;view.name=std::array{"Visible", "Hidden dashed", "Shaded + edges", "Shaded"}[i];
             print_sheet.views.push_back(view);
         }
-        const auto box=print_kernel.evaluate_history({{"tangent-box",zima::kernel::BoxRequest{30,25,20},zima::kernel::BooleanOperation::Add}});
+        const auto box=print_kernel.evaluate_history({{"tangent-box",zima::test::ProfilePrism{30,25,20},zima::kernel::BooleanOperation::Add}});
         const auto selected_edge=std::ranges::find_if(box.back().mesh.edges,[](const auto& edge){return edge.reference.valid()&&!edge.parameter_seam;});
         require(selected_edge!=box.back().mesh.edges.end(),"Box has no fillet selection");
         const auto rounded=print_kernel.evaluate_history({
-            {"tangent-box",zima::kernel::BoxRequest{30,25,20},zima::kernel::BooleanOperation::Add},
+            {"tangent-box",zima::test::ProfilePrism{30,25,20},zima::kernel::BooleanOperation::Add},
             {"tangent-fillet",zima::kernel::FilletRequest{{selected_edge->reference},3},zima::kernel::BooleanOperation::Add}});
         auto rounded_source=zima::document::PartDocument::create_default();workspace.add_part(rounded_source,rounded);
         auto tangent_view=zima::drawing::DrawingDocument::create_view(rounded_source.document_id, {},rounded.back().mesh,zima::drawing::ViewOrientation::Isometric);
@@ -811,7 +812,7 @@ int verify_drawing_ui() {
         window.grab().save(QString::fromStdString((directory/"view-styles.png").string()));
         }
         {
-            auto source=zima::document::PartDocument::create_default();auto box=zima::document::PartDocument::create_box_container();source.history={box};
+            auto source=zima::document::PartDocument::create_default();auto box=zima::test::rectangular_feature(source,{100,80,50});source.history={box};
             zima::document::BodyHistoryGraph graph;const auto body=graph.create_body("Source");graph.insert({zima::document::PartHistoryKind::Feature,box.id});graph.activate({});source.set_body_history(graph);
             zima::kernel::OcctKernel kernel;const auto calculated=kernel.evaluate_history(source.kernel_operations());
             const auto source_path=directory/"linked-source.prtz";source.save(source_path,calculated);workspace.add_part(source,calculated,source_path);
@@ -833,7 +834,7 @@ int verify_drawing_ui() {
         {
             // Regeneration pulls changed cuts from memory, but derives camera
             // orientation only from the view's projection tree, never the cut.
-            auto source=zima::document::PartDocument::create_default();auto box=zima::document::PartDocument::create_box_container();source.history={box};
+            auto source=zima::document::PartDocument::create_default();auto box=zima::test::rectangular_feature(source,{100,80,50});source.history={box};
             zima::document::BodyHistoryGraph graph;static_cast<void>(graph.create_body("Projection source"));graph.insert({zima::document::PartHistoryKind::Feature,box.id});graph.activate({});source.set_body_history(graph);
             zima::kernel::OcctKernel kernel;const auto calculated=kernel.evaluate_history(source.kernel_operations());
             auto section=zima::document::create_section();static_cast<void>(section.sketch.add_segment(-20,0,20,0.185847));source.sections={section};
@@ -872,7 +873,7 @@ int verify_drawing_ui() {
         {
             // A right-hand projected view must offer its cutting trace even
             // when both endpoints of the Section sketch project to one point.
-            zima::kernel::OcctKernel kernel;const auto box=kernel.evaluate_history({{"side-trace-box",zima::kernel::BoxRequest{30,20,40},zima::kernel::BooleanOperation::Add}});
+            zima::kernel::OcctKernel kernel;const auto box=kernel.evaluate_history({{"side-trace-box",zima::test::ProfilePrism{30,20,40},zima::kernel::BooleanOperation::Add}});
             auto fixture=zima::drawing::DrawingDocument::create_default();auto root=zima::drawing::DrawingDocument::create_view(part.document_id,"source.prtz",box.back().mesh,zima::drawing::ViewOrientation::Front);root.x=150;root.y=150;
             auto side=zima::drawing::DrawingDocument::create_view(part.document_id,"source.prtz",box.back().mesh,zima::drawing::ViewOrientation::Left);side.parent_view_id=root.id;side.projection_direction=zima::drawing::ProjectionDirection::Right;side.x=65;side.y=150;
             side.camera=zima::drawing::projected_camera(root.camera,side.projection_direction,fixture.sheets.front().projection_method);side.projected_edges=zima::drawing::project_edges(box.back().mesh,side.camera);side.projected_triangles=zima::drawing::project_triangles(box.back().mesh,side.camera);

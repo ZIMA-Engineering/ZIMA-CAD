@@ -30,7 +30,7 @@
 namespace zima::document {
 
 enum class CombineMode { Add, Subtract };
-enum class FeatureKind { Sketch, Box, Cylinder, Sphere, Cone, Pyramid, Wedge, Extrusion, Revolution, Sweep3D, ImportedStep, Fillet, Chamfer, Shell, Hole, Thread, DrillPoint, ShaftThread, HelicalSweep, Sweep2D, Holes, Bend, Flat, TwistedSheet, Unbend, BendBack, DerivedCopy, SheetTransition, Feature };
+enum class FeatureKind { Sketch, Extrusion, Revolution, Sweep3D, ImportedStep, Fillet, Chamfer, Shell, Hole, Thread, DrillPoint, ShaftThread, HelicalSweep, Sweep2D, Holes, Bend, Flat, TwistedSheet, Unbend, BendBack, DerivedCopy, SheetTransition, Feature };
 enum class HoleType { Plain, MetricThread, PipeThread, WhitworthThread };
 enum class ThreadStandard { Metric, Whitworth, Pipe };
 enum class ThreadSide { Automatic, Internal, External };
@@ -55,7 +55,6 @@ enum class ConstructionDefinition {
     ThreePointPlane,
     PlaneReference,
 };
-
 
 
 enum class AxisExtentMode { OneSide, TwoSides, Symmetric };
@@ -177,6 +176,10 @@ struct ConstructionObject {
     bool operator==(const ConstructionObject&) const = default;
 };
 
+// Geometric point owned by a Curve/Sweep, never a standalone history entry.
+// Independent of the standalone construction command and its eventual removal.
+[[nodiscard]] ConstructionObject create_owned_point(const std::string& parent_id);
+
 // Pure Properties preparation: rotate the chosen local axis/plane normal.
 // Reference resolution still owns the final constrained direction.
 [[nodiscard]] zima::kernel::Vec3 construction_direction_from_local_axis(
@@ -253,37 +256,6 @@ container_placement_dimensions(
     const ConstructionReference& reference,
     const zima::kernel::ViewerReferenceGeometry& geometry);
 
-struct BoxParameters {
-    double length{100.0};
-    double width{80.0};
-    double height{50.0};
-    bool operator==(const BoxParameters&) const = default;
-};
-
-struct CylinderParameters {
-    double radius{40.0};
-    double height{50.0};
-    bool operator==(const CylinderParameters&) const = default;
-};
-
-struct SphereParameters {
-    double radius{40.0};
-    bool operator==(const SphereParameters&) const = default;
-};
-struct ConeParameters {
-    double bottom_radius{20.0};
-    double top_radius{};
-    double height{50.0};
-    bool operator==(const ConeParameters&) const = default;
-};
-struct PyramidParameters {
-    double length{40.0}; double width{40.0}; double height{50.0};
-    bool operator==(const PyramidParameters&) const = default;
-};
-struct WedgeParameters {
-    double length{60.0}; double width{40.0}; double height{40.0}; double top_offset{30.0};
-    bool operator==(const WedgeParameters&) const = default;
-};
 
 struct EdgeTreatmentParameters {
     enum class FilletMode { Constant, Linear };
@@ -526,7 +498,6 @@ struct HelicalSweepParameters {
 };
 
 
-
 // Resolves a container's origin (from position references, falling back to
 // the entered x/y/z when none are set) and orientation (FRONT/TOP reference
 // frame composed with the manual rotation_offset_* correction) the same way
@@ -615,18 +586,12 @@ struct HistoryContainer {
     std::string id;
     std::string feature_id;
     std::string feature_parent_id;
-    std::string name{"Kvádr"};
-    FeatureKind feature_kind{FeatureKind::Box};
+    std::string name{"Prvek"};
+    FeatureKind feature_kind{FeatureKind::Feature};
     ContainerOrigin container_origin;
     CombineMode combine_mode{CombineMode::Add};
     Placement placement;
     DerivedCopyParameters derived_copy;
-    BoxParameters box;
-    CylinderParameters cylinder;
-    SphereParameters sphere;
-    ConeParameters cone;
-    PyramidParameters pyramid;
-    WedgeParameters wedge;
     ExtrusionParameters extrusion;
     RevolutionParameters revolution;
     FeatureParameters feature;
@@ -651,7 +616,7 @@ struct HistoryContainer {
     [[nodiscard]] bool is_surface_result() const {
         return (feature_kind==FeatureKind::Extrusion && extrusion.result_type==ProfileResultType::Surface) ||
             (feature_kind==FeatureKind::Revolution && revolution.result_type==ProfileResultType::Surface) ||
-            (feature_kind==FeatureKind::Feature && feature.result_type==ProfileResultType::Surface);
+            (feature_kind==FeatureKind::Feature && feature.type==FeatureType::Modeling && feature.result_type==ProfileResultType::Surface);
     }
     bool operator==(const HistoryContainer&) const = default;
 };
@@ -725,13 +690,7 @@ public:
     void insert_history_entry(PartHistoryKind kind, std::string id);
 
     [[nodiscard]] static PartDocument create_default();
-    [[nodiscard]] static HistoryContainer create_box_container();
     [[nodiscard]] static HistoryContainer create_sketch_container();
-    [[nodiscard]] static HistoryContainer create_cylinder_container();
-    [[nodiscard]] static HistoryContainer create_sphere_container();
-    [[nodiscard]] static HistoryContainer create_cone_container();
-    [[nodiscard]] static HistoryContainer create_pyramid_container();
-    [[nodiscard]] static HistoryContainer create_wedge_container();
     [[nodiscard]] static HistoryContainer create_twisted_sheet_container();
     [[nodiscard]] static HistoryContainer create_hole_container();
     [[nodiscard]] static HistoryContainer create_thread_container();
@@ -766,7 +725,8 @@ public:
     [[nodiscard]] zima::kernel::ViewerMesh construction_viewer_mesh(
         const std::string& editing_object_id = {},
         double reference_scene_size = 0.0,
-        bool show_sweep_stations = false) const;
+        bool show_sweep_stations = false,
+        const std::set<std::string>& excluded_features = {}) const;
     [[nodiscard]] zima::kernel::ViewerReferenceGeometry
         construction_reference_geometry_for(
             const std::string& object_id,
@@ -805,6 +765,7 @@ public:
     [[nodiscard]] static HistoryContainer create_extrusion_container(
         std::string sketch_id);
     [[nodiscard]] static HistoryContainer create_feature_container(std::string sketch_id);
+    [[nodiscard]] zima::kernel::ViewerMesh feature_result_mesh(const HistoryContainer&) const;
     [[nodiscard]] static HistoryContainer create_revolution_container(
         std::string sketch_id);
     static void resolve_copy_reference(DerivedCopyParameters&,const std::string& container_id,

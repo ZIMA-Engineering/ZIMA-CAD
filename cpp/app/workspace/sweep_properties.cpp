@@ -89,7 +89,7 @@ void AssemblyWorkspaceWindow::show_sweep_properties(zima::document::FeatureKind 
     };
     SweepPlacementDialog* dialog=transition?static_cast<SweepPlacementDialog*>(new SheetTransitionDialog(initial,commit,this)):planar?static_cast<SweepPlacementDialog*>(new Sweep2DDialog(initial,commit,this)):
         static_cast<SweepPlacementDialog*>(new HelicalSweepDialog(initial,commit,this));
-    properties_dialog_=dialog;track_tree_edit(dialog);properties_dialog_instance_path_=*occurrence;
+    properties_dialog_=dialog;properties_dialog_instance_path_=*occurrence;
     primitive_parameter_owner_id_=initial.id;primitive_reference_dialog_=dialog;
 
     auto geometry=part->session.calculated_boundaries().empty()?zima::kernel::ViewerReferenceGeometry{}:part->session.calculated_boundaries().back().mesh.original_references;
@@ -114,6 +114,8 @@ void AssemblyWorkspaceWindow::show_sweep_properties(zima::document::FeatureKind 
     std::erase_if(geometry.points,[&](const auto& p){return excluded.contains(p.reference.owner_id);});
     std::erase_if(geometry.axes,[&](const auto& a){return excluded.contains(a.reference.owner_id);});
     primitive_reference_geometry_=geometry;
+    // Resolve stored labels only after this editor has its reference universe.
+    track_tree_edit(dialog);
     dialog->request_placement=[this,dialog](std::size_t i){
         feature_reference_pick_={};feature_reference_end_={};
         start_primitive_reference_selection(i);
@@ -315,8 +317,6 @@ void AssemblyWorkspaceWindow::show_sweep3d_properties(
     });
     construction_reference_dialog_ = dialog;
     properties_dialog_ = dialog;
-    track_tree_edit(dialog);
-
 
     dialog->set_preview_callback(
         [this, document_id, dialog](zima::document::ConstructionObject preview) {
@@ -404,6 +404,9 @@ void AssemblyWorkspaceWindow::show_sweep3d_properties(
                 set_construction_properties_dimension_selection();
             }
         });
+
+    // set_preview_callback initializes the Sweep reference geometry.
+    track_tree_edit(dialog);
 
     if (edit_mode) {
         const auto history_index = part->session.document().history_index(initial.id);

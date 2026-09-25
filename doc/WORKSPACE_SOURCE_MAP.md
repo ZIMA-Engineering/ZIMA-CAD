@@ -132,9 +132,11 @@ The host and its test program do not link Qt. The next stage adds standalone
 `zima-cad-cli`: `cli/main.cpp`, `cli/runner.cpp`, `cli/settings.cpp`; see
 [CAD_COMMAND_LINE.md](CAD_COMMAND_LINE.md).
 
-The Box dialog and `box.create/get/set` share the first modeling transaction.
-`modules/workspace/primitive_operations` validates and atomically calculates/commits
-a Box; `modules/command_host/src/primitive_commands.cpp` converts arguments/results.
-`primitive_properties.cpp` retains the dialog, rollback and preview; Box OK calls
-the shared operation. Cylinder, Sphere, Cone, Pyramid and Wedge use it too.
-The solver and placement contract are unchanged. See [CAD_CONSOLE.md](CAD_CONSOLE.md).
+The common Feature dialog and profile commands share
+`modules/workspace/profile_operations` for validation and atomic commits.
+`primitive_properties.cpp` retains the dialog, rollback and preview. The retained
+Twisted Sheet command uses `modules/workspace/primitive_operations` and its
+command-host adapter. The six basic solid primitives have been removed; tests
+and examples create editable Sketch-based profiles instead. The solver and
+placement contract are unchanged. See [UNIFIED_FEATURE_TYPES.md](UNIFIED_FEATURE_TYPES.md)
+and [CAD_CONSOLE.md](CAD_CONSOLE.md).

@@ -11,6 +11,8 @@ int verify_application_lifecycle_ui(QApplication& application) {
         config.setValue("Application/Language", language);
         config.setValue("Application/UseISOFont", true);
         config.setValue("Paths/WorkingDirectory", directory);
+        for(const auto* key:{"Uppercase","RemoveDiacritics","ReplaceSpaces"})
+            config.setValue(QString("DocumentNames/")+key,false);
         config.sync();
     };
     const auto run = [&](app::AssemblyWorkspaceWindow& window, const QString& command) {
@@ -203,13 +205,13 @@ int verify_application_lifecycle_ui(QApplication& application) {
                 ++rows;
             }
             check(sections_found, "Restart fixture has no section folder");
-            reopened.findChild<QAction*>("boxAction")->trigger(); flush();
+            reopened.findChild<QAction*>("featurePrototypeAction")->trigger(); flush();
             app::PrimitivePropertiesDialog* box_dialog = nullptr;
             for (auto* dialog : reopened.findChildren<QDialog*>())
                 if (auto* primitive = dynamic_cast<app::PrimitivePropertiesDialog*>(dialog);
                     primitive && primitive->isVisible()) box_dialog = primitive;
             check(box_dialog && QString::fromStdString(box_dialog->pending_value().name) ==
-                settings.qt_translations.value("Kvádr"), "New feature name ignores the UI language");
+                settings.qt_translations.value("Prvek"), "New feature name ignores the UI language");
             box_dialog->buttons()->button(QDialogButtonBox::Cancel)->click(); flush();
             reopened.findChild<QAction*>("aboutAction")->trigger(); flush();
             auto* about=dynamic_cast<ui::PropertiesSubWindow*>(reopened.findChild<QDialog*>("aboutDialog"));

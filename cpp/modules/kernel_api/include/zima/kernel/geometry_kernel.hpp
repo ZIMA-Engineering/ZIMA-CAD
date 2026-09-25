@@ -409,24 +409,6 @@ struct ViewerMesh {
     std::map<ObjectEnvelopeKey,ModelEnvelope> annotation_frames;
 };
 
-struct BoxRequest {
-    BoxRequest() = default;
-    BoxRequest(double box_length, double box_width, double box_height)
-        : length(box_length), width(box_width), height(box_height) {}
-
-    double length{100.0};
-    double width{80.0};
-    double height{50.0};
-    Vec3 translation;
-    Vec3 rotation_degrees;
-};
-
-struct CylinderRequest {
-    double radius{40.0};
-    double height{50.0};
-    Vec3 translation;
-    Vec3 rotation_degrees;
-};
 
 struct FeatureGroupRequest;
 
@@ -474,36 +456,6 @@ struct DrillPointRequest {
     double included_angle_degrees{118.0};
 };
 
-struct SphereRequest {
-    double radius{40.0};
-    Vec3 translation;
-    Vec3 rotation_degrees;
-};
-
-struct ConeRequest {
-    double bottom_radius{20.0};
-    double top_radius{};
-    double height{50.0};
-    Vec3 translation;
-    Vec3 rotation_degrees;
-};
-
-struct PyramidRequest {
-    double length{40.0};
-    double width{40.0};
-    double height{50.0};
-    Vec3 translation;
-    Vec3 rotation_degrees;
-};
-
-struct WedgeRequest {
-    double length{60.0};
-    double width{40.0};
-    double height{40.0};
-    double top_offset{30.0};
-    Vec3 translation;
-    Vec3 rotation_degrees;
-};
 
 // Derived from the persisted feature's thickness and side, never from tessellation.
 struct ProfileWall {
@@ -853,11 +805,6 @@ struct BodyHistoryScope {
     bool operator==(const BodyHistoryScope&) const = default;
 };
 
-struct BoxOperation {
-    std::string owner_id;
-    BoxRequest box;
-    BooleanOperation operation{BooleanOperation::Add};
-};
 
 // Authored material coordinates of a sheet creator. They are independent of
 // OCCT face enumeration and survive cuts and later state operations.
@@ -886,7 +833,6 @@ struct SheetStateRequest {
 };
 
 using PrimitiveRequest = std::variant<
-    BoxRequest, CylinderRequest, SphereRequest, ConeRequest, PyramidRequest, WedgeRequest,
     ExtrusionRequest, RevolutionRequest, FeatureGroupRequest,
     Sweep3DRequest, StepRequest, FilletRequest, ChamferRequest, ShellRequest,
     ThreadSurfaceRequest, DrillPointRequest, SheetStateRequest>;
@@ -1008,43 +954,6 @@ struct PlacedBody {
     Vec3 rotation_degrees;
 };
 
-[[nodiscard]] inline std::string box_history_fingerprint(
-    const std::vector<BoxOperation>& operations,
-    std::size_t operation_count) {
-    operation_count = std::min(operation_count, operations.size());
-    std::uint64_t hash = 1469598103934665603ULL;
-    const auto append_byte = [&](std::uint8_t value) {
-        hash ^= value;
-        hash *= 1099511628211ULL;
-    };
-    const auto append_u64 = [&](std::uint64_t value) {
-        for (unsigned shift = 0; shift < 64; shift += 8) {
-            append_byte(static_cast<std::uint8_t>((value >> shift) & 0xffU));
-        }
-    };
-    append_u64(operation_count);
-    for (std::size_t index = 0; index < operation_count; ++index) {
-        const auto& operation = operations[index];
-        append_u64(operation.owner_id.size());
-        for (const unsigned char value : operation.owner_id) append_byte(value);
-        append_byte(static_cast<std::uint8_t>(operation.operation));
-        for (const double value : {
-                operation.box.length, operation.box.width, operation.box.height,
-                operation.box.translation.x, operation.box.translation.y,
-                operation.box.translation.z, operation.box.rotation_degrees.x,
-                operation.box.rotation_degrees.y,
-                operation.box.rotation_degrees.z}) {
-            append_u64(std::bit_cast<std::uint64_t>(value));
-        }
-    }
-    constexpr char digits[] = "0123456789abcdef";
-    std::string result(16, '0');
-    for (int index = 15; index >= 0; --index) {
-        result[static_cast<std::size_t>(index)] = digits[hash & 0xfU];
-        hash >>= 4;
-    }
-    return result;
-}
 
 [[nodiscard]] inline std::string history_fingerprint(
     const std::vector<HistoryOperation>& operations,
@@ -1139,57 +1048,7 @@ struct PlacedBody {
         byte(static_cast<std::uint8_t>(operation.primitive.index()));
         std::visit([&](const auto& primitive) {
             using Request = std::decay_t<decltype(primitive)>;
-            if constexpr (std::is_same_v<Request, BoxRequest>) {
-                for (const double value : {
-                        primitive.length, primitive.width, primitive.height})
-                    u64(std::bit_cast<std::uint64_t>(value));
-                for (const double value : {
-                        primitive.translation.x, primitive.translation.y,
-                        primitive.translation.z, primitive.rotation_degrees.x,
-                        primitive.rotation_degrees.y, primitive.rotation_degrees.z}) {
-                    u64(number_bits(value));
-                }
-            } else if constexpr (std::is_same_v<Request, CylinderRequest>) {
-                for (const double value : {
-                        primitive.radius, primitive.height,
-                        primitive.translation.x, primitive.translation.y,
-                        primitive.translation.z, primitive.rotation_degrees.x,
-                        primitive.rotation_degrees.y, primitive.rotation_degrees.z}) {
-                    u64(std::bit_cast<std::uint64_t>(value));
-                }
-            } else if constexpr (std::is_same_v<Request, SphereRequest>) {
-                for (const double value : {
-                        primitive.radius, primitive.translation.x,
-                        primitive.translation.y, primitive.translation.z,
-                        primitive.rotation_degrees.x, primitive.rotation_degrees.y,
-                        primitive.rotation_degrees.z}) {
-                    u64(std::bit_cast<std::uint64_t>(value));
-                }
-            } else if constexpr (std::is_same_v<Request, ConeRequest>) {
-                for (const double value : {primitive.bottom_radius,
-                        primitive.top_radius, primitive.height,
-                        primitive.translation.x, primitive.translation.y,
-                        primitive.translation.z, primitive.rotation_degrees.x,
-                        primitive.rotation_degrees.y, primitive.rotation_degrees.z}) {
-                    u64(std::bit_cast<std::uint64_t>(value));
-                }
-            } else if constexpr (std::is_same_v<Request, PyramidRequest>) {
-                for (const double value : {primitive.length, primitive.width,
-                        primitive.height, primitive.translation.x,
-                        primitive.translation.y, primitive.translation.z,
-                        primitive.rotation_degrees.x, primitive.rotation_degrees.y,
-                        primitive.rotation_degrees.z}) {
-                    u64(std::bit_cast<std::uint64_t>(value));
-                }
-            } else if constexpr (std::is_same_v<Request, WedgeRequest>) {
-                for (const double value : {primitive.length, primitive.width,
-                        primitive.height, primitive.top_offset,
-                        primitive.translation.x, primitive.translation.y,
-                        primitive.translation.z, primitive.rotation_degrees.x,
-                        primitive.rotation_degrees.y, primitive.rotation_degrees.z}) {
-                    u64(std::bit_cast<std::uint64_t>(value));
-                }
-            } else if constexpr (std::is_same_v<Request, ExtrusionRequest>) {
+            if constexpr (std::is_same_v<Request, ExtrusionRequest>) {
                 byte(primitive.centerlines.origin_enabled);byte(primitive.centerlines.centroid_enabled);
                 for(const auto& text:{primitive.centerlines.origin_id,primitive.centerlines.profile_id}){u64(text.size());for(unsigned char c:text)byte(c);}
                 for(double value:{primitive.centerlines.origin.x,primitive.centerlines.origin.y,primitive.centerlines.origin.z,primitive.centerlines.normal.x,primitive.centerlines.normal.y,primitive.centerlines.normal.z})u64(std::bit_cast<std::uint64_t>(value));
@@ -1856,11 +1715,6 @@ class GeometryKernel {
 public:
     virtual ~GeometryKernel() = default;
     [[nodiscard]] virtual std::string name() const = 0;
-    [[nodiscard]] virtual BodyResult make_box(const BoxRequest& request) const = 0;
-    [[nodiscard]] virtual BodyResult evaluate_boxes(
-        const std::vector<BoxOperation>& operations) const = 0;
-    [[nodiscard]] virtual std::vector<BodyResult> evaluate_box_boundaries(
-        const std::vector<BoxOperation>& operations) const = 0;
     [[nodiscard]] virtual std::vector<BodyResult> evaluate_history(
         const std::vector<HistoryOperation>& operations) const = 0;
     // Reuses the longest valid persisted prefix when the remaining operations

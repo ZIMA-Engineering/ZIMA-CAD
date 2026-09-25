@@ -185,3 +185,139 @@ static void verify_feature_empty_preview(QApplication& application, AssemblyWork
     check(cancelled.find_container(pending.id)->feature==saved.find_container(pending.id)->feature&&
         cancelled.sketches.front().serialized()==saved.sketches.front().serialized(),"Cancel changed axis-only Feature or plane");
 }
+
+// Exercise an actual native axis/sketch through Properties, Sketcher and file cycles.
+static void verify_feature_sketch_visibility(QApplication& application, AssemblyWorkspaceWindow& window,
+                                            const std::filesystem::path& directory) {
+    const auto check=[](bool ok,const char* message){if(!ok)throw std::runtime_error(message);};
+    const auto flush=[&]{application.processEvents();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);application.processEvents();};
+    const auto run=[&](const char* command,commands::Json args=commands::Json::object()) {
+        const auto result=window.execute_console_command(QString::fromStdString(commands::Json{{"command",command},{"arguments",args}}.dump()));
+        if(!result.ok)throw std::runtime_error(result.message);
+        flush();return result;
+    };
+    const auto dialog=[&]{return dynamic_cast<PrimitivePropertiesDialog*>(window.findChild<QWidget*>("featurePropertiesDialog"));};
+    auto* view=dynamic_cast<viewer::MeshView*>(window.findChild<QOpenGLWidget*>());
+    auto* tree=window.findChild<QTreeWidget*>("documentTree");
+    auto* fit=window.findChild<QAction*>("fitViewAction");
+    check(view&&tree&&fit,"Feature visibility controls missing");
+    for(const bool axis_only:{true,false}) {
+        auto part=document::PartDocument::create_default();
+        auto sketch=sketcher::Sketch::create_default();
+        auto feature=document::PartDocument::create_feature_container(sketch.id);
+        feature.feature.sides[0].operation=document::FeatureSideOperation::None;
+        sketch.owner_container_id=feature.id;
+        const auto axis=sketch.add_segment(120,70,240,70);sketch.set_segment_centerline(axis,true);
+        const auto hidden=sketch.add_segment(120,100,240,100);sketch.set_segment_centerline(hidden,true);
+        sketch.set_geometry_visible_in_3d(hidden,false);
+        std::vector<std::string> curves{axis};
+        if(!axis_only) {
+            const auto rectangle=sketch.add_rectangle(140,80,200,130);
+            curves.insert(curves.end(),rectangle.begin(),rectangle.end());
+        }
+        part.history={feature};part.sketches={sketch};
+        document::BodyHistoryGraph graph;const auto body=graph.create_body("Feature wire");
+        graph.insert({document::PartHistoryKind::Feature,feature.id});part.set_body_history(graph);part.resolve_constructions();
+        const kernel::OcctKernel kernel;
+        const auto path=directory/(std::string(axis_only?"feature-axis-cycle-":"feature-sketch-cycle-")+feature.id+".prtz");
+        part.save(path,kernel.evaluate_history(part.kernel_operations()));
+        check(window.open_document_path(QString::fromStdString(path.string())),"Feature wire fixture cannot open");flush();
+        run("body.activate",{{"body",body}});
+        const auto original=document::PartDocument::load(path).sketches.front().serialized();
+        const auto expect=[&](bool editing_sketch=false,double offset=0.) {
+            for(const auto& id:curves) {
+                const auto& edges=view->mesh().edges;
+                const auto count=std::ranges::count_if(edges,[&](const auto& edge){return edge.reference.owner_id==sketch.id&&edge.reference.semantic_key=="segment:"+id;});
+                check(count==1,"Feature axis/sketch is missing or duplicated during an editing transition");
+                const auto& edge=*std::ranges::find_if(edges,[&](const auto& item){return item.reference.owner_id==sketch.id&&item.reference.semantic_key=="segment:"+id;});
+                check(edge.points.size()==2&&!edge.infinite,"Feature wire lost finite endpoints");
+                if(id==axis)check(edge.dash_dot,"Feature axis lost its role during an editing transition");
+                for(const auto& point:edge.points)check(std::abs(point.z-offset)<1e-7,"Feature wire uses a stale work plane");
+            }
+            const auto hidden_count=std::ranges::count_if(view->mesh().edges,[&](const auto& edge){return edge.reference.owner_id==sketch.id&&edge.reference.semantic_key=="segment:"+hidden;});
+            check(hidden_count==(editing_sketch?1:0),"Feature wire ignored its 3D visibility flag");
+        };
+        const auto fit_wire=[&] {
+            auto camera=view->camera_state();camera[0]=1;camera[1]=camera[2]=camera[3]=0;
+            camera[4]=.1f;camera[5]=500;camera[6]=-350;view->set_camera_state(camera);flush();
+            fit->trigger();flush();const auto first=view->camera_state();
+            check(first[4]>10&&first[4]<1000&&first[5]==0&&first[6]==0,"Fit View cannot frame an axis-only/sketch-only Feature");
+            for(int repeat=0;repeat<3;++repeat){fit->trigger();flush();check(view->camera_state()==first,"Repeated Fit View changes the axis/sketch framing");}
+            const auto upper=view->ray_at({0,0}),right=view->ray_at({double(view->width()),0}),lower=view->ray_at({0,double(view->height())});
+            check(upper&&right&&lower,"Fit View rays missing");
+            const double width=right->first.x-upper->first.x,height=lower->first.y-upper->first.y;
+            check(std::abs(width)>1e-8&&std::abs(height)>1e-8,"Fit View has degenerate bounds");
+            for(const auto& edge:view->mesh().edges)if(edge.reference.owner_id==sketch.id)
+                for(const auto& point:edge.points) {
+                    const double x=(point.x-upper->first.x)/width,y=(point.y-upper->first.y)/height;
+                    check(x>.01&&x<.99&&y>.01&&y<.99,"Fit View clips the finite axis or sketch");
+                }
+        };
+        const auto open_properties=[&] {
+            QTreeWidgetItem* row{};
+            for(QTreeWidgetItemIterator it(tree);*it;++it)if((*it)->data(0,Qt::UserRole).toString().toStdString()==feature.id&&(*it)->data(0,Qt::UserRole+3)=="part-container"){row=*it;break;}
+            check(row,"Feature wire row missing");window.show_tree_item_properties(row);flush();check(dialog(),"Feature wire properties missing");
+        };
+        expect();fit_wire();
+        if(!axis_only) {
+            for(int type=0;type<5;++type) {
+                open_properties();
+                const auto inactive=dialog()->pending_value().feature;
+                auto* selector=dialog()->findChild<QComboBox*>("featureType");
+                check(selector&&selector->count()==5,"Feature type selector missing");
+                selector->setCurrentIndex(type);flush();
+                const auto pending=dialog()->pending_value();
+                check(pending.feature.sides==inactive.sides&&pending.feature.origin_centerline==inactive.origin_centerline&&
+                      pending.feature.centroid_centerline==inactive.centroid_centerline,"Type switch discarded inactive settings");
+                check(dialog()->findChild<QGroupBox*>("featurePlaneGroup")->isVisible()==(type!=0),"Wrong work-plane controls for Feature type");
+                check(dialog()->findChild<QGroupBox*>("featureSketchGroup")->isVisible()==(type>=3),"Wrong Sketch controls for Feature type");
+                check(dialog()->findChild<QGroupBox*>("featureResultGroup")->isVisible()==(type==4),"Wrong modeling controls for Feature type");
+                check(dialog()->findChild<QCheckBox*>("featureOriginAxis")->isVisible()==(type==4)&&
+                      dialog()->findChild<QCheckBox*>("featureCentroidAxis")->isVisible()==(type==4),"Datum type exposes optional path checkboxes");
+                check(dialog()->findChild<QCheckBox*>("featureSymmetric")->isVisible()==(type==1||type==4),"Wrong symmetry control for Feature type");
+                const auto source_count=std::ranges::count_if(view->mesh().edges,[&](const auto& edge){return edge.reference.owner_id==sketch.id;});
+                check((source_count>0)==(type>=3),"Feature type published the wrong source geometry");
+                const auto point=std::ranges::find_if(view->mesh().points,[&](const auto& p){return p.reference.owner_id==feature.id&&p.reference.semantic_key=="point";});
+                check(point!=view->mesh().points.end()&&point->label==pending.name,"Feature name is missing at its origin");
+                if(type==4) {
+                    const auto* thin=dialog()->findChild<QComboBox*>("featureThinSide");
+                    const auto* symmetric=dialog()->findChild<QCheckBox*>("featureSymmetric");
+                    check(thin->mapTo(dialog(),QPoint(0,thin->height())).y()<=symmetric->mapTo(dialog(),QPoint()).y(),
+                        "Result controls overlap the symmetry row");
+                }
+                window.grab().save(QString::fromStdString((directory/("feature-type-"+std::to_string(type)+"-ui.png")).string()));
+                dialog()->buttons()->button(QDialogButtonBox::Ok)->click();flush();check(!dialog(),"Feature type cannot commit");
+                run("save");const auto saved=document::PartDocument::load(path);
+                check(static_cast<int>(saved.find_container(feature.id)->feature.type)==type&&saved.sketches.front().serialized()==original,
+                    "Type commit changed the owned Sketch or lost the selected type");
+                run("undo");run("redo");run("save");
+                check(static_cast<int>(document::PartDocument::load(path).find_container(feature.id)->feature.type)==type,"Type Undo/Redo failed");
+                open_properties();check(dialog()->findChild<QComboBox*>("featureType")->currentIndex()==type,"Reopening lost Feature type");
+                dialog()->findChild<QComboBox*>("featureType")->setCurrentIndex((type+1)%5);dialog()->reject();flush();run("save");
+                check(static_cast<int>(document::PartDocument::load(path).find_container(feature.id)->feature.type)==type,"Cancel committed Feature type");
+            }
+        }
+        for(int cycle=0;cycle<3;++cycle) {
+            open_properties();expect();fit_wire();
+            auto* add=dialog()->findChild<QPushButton*>("featureAdd");
+            check(add&&!add->isChecked(),"Sketch-only Feature reopened with Add enabled");
+            add->click();flush();expect();
+            check(!dialog()->pending_value().feature.sketch_only(),"Feature cannot enable a material operation");
+            add->click();flush();expect();fit_wire();
+            check(dialog()->pending_value().feature.sketch_only(),"Feature cannot return to sketch-only mode");
+            dialog()->findChild<QDoubleSpinBox*>("featureProfileOffset")->setValue(7);flush();expect(false,7);
+            dialog()->findChild<QDoubleSpinBox*>("featureProfileOffset")->setValue(0);flush();expect();
+            dialog()->findChild<QPushButton*>("featureSketchButton")->click();flush();
+            QEventLoop animation;QTimer::singleShot(950,&animation,&QEventLoop::quit);animation.exec();
+            check(!dialog(),"Feature Sketcher entry failed");expect(true);fit_wire();
+            window.findChild<QAction*>("finishSketchAction")->trigger();flush();check(dialog(),"Feature Sketcher return failed");expect();fit_wire();
+            if(cycle==1)dialog()->reject();else dialog()->buttons()->button(QDialogButtonBox::Ok)->click();
+            flush();check(!dialog(),"Feature wire properties did not close");expect();fit_wire();run("save");
+            const auto saved=document::PartDocument::load(path);
+            check(saved.sketches.front().serialized()==original,"Feature round trip changed native sketch geometry, IDs or flags");
+        }
+        window.grab().save(QString::fromStdString((directory/(axis_only?"feature-axis-cycle-ui.png":"feature-sketch-cycle-ui.png")).string()));
+        run("close");check(window.open_document_path(QString::fromStdString(path.string())),"Feature wire cannot reopen from disk");flush();
+        run("body.activate",{{"body",body}});expect();fit_wire();open_properties();expect();dialog()->reject();flush();expect();
+    }
+}

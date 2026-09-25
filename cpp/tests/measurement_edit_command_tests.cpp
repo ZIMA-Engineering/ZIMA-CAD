@@ -1,3 +1,5 @@
+#include "profile_solid_fixture.hpp"
+#include "profile_command_fixture.hpp"
 #include <zima/command_host/host.hpp>
 #include <zima/workspace/measurement_edits.hpp>
 #include <zima/document/file_path.hpp>
@@ -22,9 +24,9 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
     options.interaction=[&]{command_host::Interaction value;value.editing=editing;value.template_document=is_template;return value;};
     command_host::Host host(live,kernel,dir,options);
     run(host,"new",{{"type","part"},{"name","measurement-edits"}});const auto id=live.active_document_id();
-    const auto box=run(host,"box.create",{{"length_mm","10"},{"width_mm","20"},{"height_mm","30"}}).data.at("container").get<std::string>();
+    const auto box=zima::test::rectangular_commands([&](const char* n,commands::Json a){return run(host,n,std::move(a));},{{"length_mm","10"},{"width_mm","20"},{"height_mm","30"}}).data.at("container").get<std::string>();
     const auto shape=live.open_part(id)->session.calculated_boundaries().back().kernel_shape;
-    const auto refs=Json::array({ref("plane",id+":origin","origin:plane:xy"),ref("face",box,"z_max")});
+    const auto refs=Json::array({ref("plane",id+":origin","origin:plane:xy"),ref("face",box,test::profile_key(live.open_part(id)->session.document(),box,"z_max"))});
     const auto created=run(host,"measurement.create",{{"name"," Gap "},{"references",refs}}).data;
     const auto object=created.at("object").get<std::string>();
     require(created.at("name")=="Gap"&&created.at("changed")==true&&created.at("body_calculated")==false,"Measurement creation did not commit one normalized record");
@@ -55,14 +57,14 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
     run(host,"undo");require(run(host,"measurement.get",{{"object",object}}).data.at("references")==refs,"Delete Undo lost original references");
     require(live.open_part(id)->session.calculated_boundaries().back().kernel_shape==shape,"Measurement edits recalculated the body");
     const auto stale=workspace::prepare_measurement_edit(live,id,object);
-    run(host,"box.set",{{"container",box},{"height_mm","40"}});run(host,"undo");
+    zima::test::resize_rectangular_commands([&](const char* n,commands::Json a){return run(host,n,std::move(a));},{{"container",box},{"height_mm","40"}});run(host,"undo");
     require(live.open_part(id)->session.revision()==stale.revision,"Fixture did not restore the original revision");
     try {static_cast<void>(workspace::commit_measurement(live,stale,stale.initial));throw std::runtime_error("Stale edit survived Undo");}
     catch(const workspace::MeasurementOperationError& error){require(std::string(error.code)=="stale_edit","Stale error code changed");}
     auto identity=workspace::prepare_measurement_edit(live,id,object);auto forged=identity.initial;forged.body_id="other-body";
     try {static_cast<void>(workspace::commit_measurement(live,identity,forged));throw std::runtime_error("Measurement moved history ownership");}
     catch(const workspace::MeasurementOperationError& error){require(std::string(error.code)=="identity_changed","Identity error code changed");}
-    run(host,"box.set",{{"container",box},{"height_mm","40"}});
+    zima::test::resize_rectangular_commands([&](const char* n,commands::Json a){return run(host,n,std::move(a));},{{"container",box},{"height_mm","40"}});
     require(run(host,"measurement.get",{{"object",object}}).data["distance"]["value"]["value"]==15,"Source edit overwrote saved result");
     const auto refreshed=run(host,"measurement.set",{{"object",object}}).data;
     require(refreshed.at("changed")==true&&std::abs(refreshed["distance"]["value"]["value"].get<double>()-20)<1e-8,"Refresh ignored changed source");

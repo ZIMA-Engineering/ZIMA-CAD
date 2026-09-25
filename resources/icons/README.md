@@ -25,8 +25,8 @@ The first clean SVG icon set for ZIMA-CAD.
 
 Reference geometry: `origin.svg`, `point.svg`, `axis.svg`, `plane.svg`.
 
-Modeling: `sketch.svg`, `sketch-3d.svg`, `box.svg`, `pyramid.svg`, `wedge.svg`,
-`cylinder.svg`, `sphere.svg`, `protrusion.svg`, `revolve.svg`, `sweep.svg`,
+Modeling: `sketch.svg`, `sketch-3d.svg`, `wedge.svg`,
+`protrusion.svg`, `revolve.svg`, `sweep.svg`,
 `fillet.svg`, `chamfer.svg`, `shell.svg`, `blend.svg`.
 
 Documents: `part.svg`, `assembly.svg`, `drawing.svg`, `drawing-format.svg`, `title-block.svg`.

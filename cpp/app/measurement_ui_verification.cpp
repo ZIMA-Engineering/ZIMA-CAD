@@ -1,3 +1,5 @@
+#include "../tests/gui_profile_fixture.hpp"
+#include "../tests/profile_solid_fixture.hpp"
 #include "measurement_ui_verification.hpp"
 #include "assembly_workspace_window.hpp"
 #include "measurement_dialog.hpp"
@@ -24,7 +26,7 @@ int verify_measurement_inspector(QApplication& application,AssemblyWorkspaceWind
 try{
     const auto check=[](bool condition,const char* message){if(!condition)throw std::runtime_error(message);};
     const auto flush=[&]{application.processEvents();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);};
-    auto part=document::PartDocument::create_default();auto box=document::PartDocument::create_box_container();box.box={10,20,30};part.history={box};
+    auto part=document::PartDocument::create_default();auto box=test::rectangular_feature(part,{10,20,30});part.history={box};
     part.physical_parameters["MASS_DENSITY"]="7850";part.physical_parameter_units["MASS_DENSITY"]="kg/m^3";
     kernel::OcctKernel kernel;const auto bodies=kernel.evaluate_history(part.kernel_operations());
     const auto path=directory/"measurement-ui.prtz";part.save(path,bodies);
@@ -215,7 +217,7 @@ try{
     check(axis!=view->mesh().axes.end()&&std::abs(axis->direction.y-1)<1e-8,"Origin rotation preview did not update");
     if(qEnvironmentVariableIsSet("ZIMA_MEASUREMENT_CAPTURE"))window.grab().save(qEnvironmentVariable("ZIMA_MEASUREMENT_CAPTURE")+".mass.png");
     mass_dialog()->reject();flush();check(execute("body_properties.get",{{"object",mass_id}}).data["rotation_degrees"][2]==0,"Cancel changed Origin axes");
-    execute("box.create",{{"length_mm","100"},{"width_mm","200"},{"height_mm","300"}});flush();
+    zima::test::gui_rectangular_profile(window,100,200,300);flush();
     const auto full_vertices=view->mesh().vertices;
     mass_reopen();double extent{};for(const auto& p:view->mesh().vertices)extent=std::max(extent,std::abs(p.z));
     check(mass_dialog()->current().integrals&&std::abs(mass_dialog()->current().volume-6000)<1e-8,"Downstream edit broke mass history anchor");
@@ -226,7 +228,7 @@ try{
     // Body ID. Information records must resolve the real owning Body row.
     const auto before_analysis_revision=execute("measurement.get",{{"object",measurement_id}}).data.at("revision");
     const auto active_body=execute("body.create",{{"name","Analysis owner"}}).data.at("body").get<std::string>();
-    const auto analysis_box=execute("box.create",{{"length_mm","10"},{"width_mm","8"},{"height_mm","6"}}).data.at("container").get<std::string>();
+    const auto analysis_box=zima::test::gui_rectangular_profile(window,10,8,6).data.at("container").get<std::string>();
     const auto in_body=execute("body_properties.create").data.at("object").get<std::string>();
     const auto first_mass=execute("body_properties.get",{{"object",in_body}}).data;
     // The first Body adopts the existing 10 x 20 x 30 solid; the small box
@@ -240,7 +242,7 @@ try{
         tree->setCurrentItem(found);check_before_cursor();return found;
     };
     analysis_row(in_body);analysis_row(body_measurement);
-    const auto later_box=execute("box.create",{{"length_mm","100"},{"width_mm","80"},{"height_mm","60"}}).data.at("container").get<std::string>();
+    const auto later_box=zima::test::gui_rectangular_profile(window,100,80,60).data.at("container").get<std::string>();
     for(const auto& id:{in_body,body_measurement}) {
         auto* row=analysis_row(id);auto* parent=row->parent();int later=-1;
         for(int i=0;i<parent->childCount();++i)if(parent->child(i)->data(0,Qt::UserRole).toString().toStdString()==later_box)later=i;
@@ -267,7 +269,7 @@ try{
     for(int i=0;i<10&&execute("measurement.get",{{"object",measurement_id}}).data.at("revision")!=before_analysis_revision;++i)execute("undo");
     check(execute("measurement.get",{{"object",measurement_id}}).data.at("revision")==before_analysis_revision,"Analysis history could not be undone");flush();
     auto second_part=document::PartDocument::create_default();
-    auto second_box=document::PartDocument::create_box_container();second_box.box={20,20,30};second_part.history={second_box};
+    auto second_box=test::rectangular_feature(second_part,{20,20,30});second_part.history={second_box};
     second_part.physical_parameters["MASS_DENSITY"]="2700";second_part.physical_parameter_units["MASS_DENSITY"]="kg/m^3";
     const auto second_bodies=kernel.evaluate_history(second_part.kernel_operations());
     const auto second_path=directory/"measurement-second.prtz";second_part.save(second_path,second_bodies);

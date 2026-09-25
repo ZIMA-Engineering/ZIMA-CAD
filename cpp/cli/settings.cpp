@@ -49,7 +49,7 @@ Values read_ini(const fs::path& path,bool catalogue=false){
         const auto key=trim(line.substr(0,equals));
         // Other GUI-only settings do not constrain a command-line process.
         const auto full_key=section+"/"+key;
-        if(!catalogue && !full_key.starts_with("DocumentNames/") && full_key!="Application/Language" && full_key!="Paths/Templates" && full_key!="Paths/Localization" &&
+        if(!catalogue && !full_key.starts_with("DocumentNames/") && full_key!="Application/Language" && full_key!="Paths/Templates" && full_key!="Paths/Localization" && full_key!="Paths/Materials" &&
             full_key!="Templates/Part" && full_key!="Templates/Assembly" && full_key!="Units/Length" &&
             full_key!="Units/Angle" && full_key!="Units/Mass" && full_key!="Units/Time" &&
             full_key!="Units/Temperature" && full_key!="Units/Stress" && full_key!="SheetMetal/CutTolerance")continue;

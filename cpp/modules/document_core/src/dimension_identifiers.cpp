@@ -126,16 +126,6 @@ void append_dimension_parameters(std::vector<DimensionParameter>& out,
     // Enumerate parameter slots, never visible dimensions or nonzero values.
     // Names are the existing semantic keys used by the feature editors.
     switch (feature.feature_kind) {
-    case FeatureKind::Box: case FeatureKind::Pyramid:
-        add({"length", "width", "height"}); break;
-    case FeatureKind::Cylinder:
-        add({"radius", "height"}); break;
-    case FeatureKind::Sphere:
-        add({"radius"}); break;
-    case FeatureKind::Cone:
-        add({"bottom_radius", "top_radius", "height"}); break;
-    case FeatureKind::Wedge:
-        add({"length", "width", "height", "top_offset"}); break;
     case FeatureKind::Sketch:
         add({"profile_offset"}); break;
     case FeatureKind::Feature:

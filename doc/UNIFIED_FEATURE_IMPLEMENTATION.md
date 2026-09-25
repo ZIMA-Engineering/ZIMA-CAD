@@ -1,16 +1,16 @@
 # Unified Feature
 
-Implementation checkpoint: 2026-09-25. The Part command now uses the approved
-compact editor and commits a native `Feature` history container. The targeted
-native and GUI verification passes. Existing Sketch, Extrusion, Revolution
-and sheet commands remain available; this change does not remove them.
+The Part Modeling command commits one native `Feature` history container.
+Its type selector and removal of the former basic primitives are described in
+[Unified Feature types](UNIFIED_FEATURE_TYPES.md). Low-level Sketch, Extrusion,
+Revolution and sheet operations remain available to the commands that need them.
 
 ## Inputs, means and output
 
 Inputs are one owned Sketch, the existing container placement, two independent
 side definitions, a common Add/Subtract operation, result type, thickness and
 automatic-path options. The implementation reuses the native profile builders,
-original-reference resolver, atomic Part profile transaction and OCCT primitive
+original-reference resolver, atomic Part profile transaction and OCCT profile
 builders. The output is one editable history container, not two independent
 history operations. Opening properties and drawing its analytical preview do
 not calculate a body.
@@ -173,3 +173,13 @@ cursor and drains pending mouse/resize events before synthetic hover; both
 contracts then pass. This changes test setup only, not application picking.
 No user-visible strings were added; five-language coverage and catalog checks
 pass. This is targeted Windows verification, not a complete suite or Linux run.
+
+## Unified type and owned-frame follow-up (2026-09-25)
+
+The Feature editor now offers Point, Axis, Plane, Sketch and combined
+Extrusion / Revolution types; see [Unified Feature types](UNIFIED_FEATURE_TYPES.md).
+The complete Windows profile-frame GUI matrix and Sketcher-return matrix pass.
+The earlier Sweep2D first-plane assertion incorrectly applied the standalone
+profile rule to a parent-owned path frame. Its expected frame now follows the
+existing Sweep/Helical Sweep definition. The shared placement solver was not
+changed for this correction.

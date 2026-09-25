@@ -1,3 +1,4 @@
+#include "profile_solid_fixture.hpp"
 #include <zima/interchange/step_model.hpp>
 #include <zima/interchange/step.hpp>
 #include <zima/kernel/occt_kernel.hpp>
@@ -84,11 +85,11 @@ int main() {
         kernel::OcctKernel kernel;
         const auto directory=std::filesystem::temp_directory_path()/("zima-step-"+document::PartDocument::create_default().document_id);
         std::filesystem::create_directory(directory);
-        kernel::StepProduct a;a.definition_id="part-a";a.name="Třmen";a.body=kernel.make_box({10,20,30});
+        kernel::StepProduct a;a.definition_id="part-a";a.name="Třmen";a.body=zima::test::profile_body(kernel,{10,20,30});
         auto a2=a;a2.name="Třmen 2";a2.translation={30,20,10};a2.rotation_degrees={17,23,31};
         kernel::StepProduct sub;sub.definition_id="sub";sub.name="Podsestava";sub.children={a,a2};sub.translation={100,25,30};sub.rotation_degrees={20,35,47};
         auto sub2=sub;sub2.name="Podsestava 2";sub2.translation={-70,60,25};sub2.rotation_degrees={-25,10,80};
-        kernel::StepProduct b;b.definition_id="part-b";b.name="Deska";b.body=kernel.make_box({8,5,3});b.translation={15,-35,5};
+        kernel::StepProduct b;b.definition_id="part-b";b.name="Deska";b.body=zima::test::profile_body(kernel,{8,5,3});b.translation={15,-35,5};
         kernel::StepProduct root;root.definition_id="root";root.name="STEP sestava";root.children={sub,sub2,b};
         const auto source=directory/"assembly.step";kernel.export_step(root,source.string());
         const auto nodes=interchange::inspect_step_parts(source);

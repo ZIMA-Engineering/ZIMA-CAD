@@ -1,3 +1,4 @@
+#include "profile_command_fixture.hpp"
 #include <zima/command_host/host.hpp>
 #include <zima/workspace/reference_sources.hpp>
 #include <algorithm>
@@ -27,7 +28,7 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
     options.settings=[] {return command_host::Settings{{fs::absolute("config/templates"),"START_PART.prtz","START_ASSEMBLY.asmz","Body"},{}};};
     options.interaction=[&]{return interaction;};command_host::Host host(live,kernel,directory,options);
     run(host,"new",{{"type","part"},{"name","source"}});const auto part_id=live.active_document_id();
-    const auto box=run(host,"box.create",{{"length_mm","10"},{"width_mm","10"},{"height_mm","10"}}).data.at("container").get<std::string>();
+    const auto box=zima::test::rectangular_commands([&](const char* n,commands::Json a){return run(host,n,std::move(a));},{{"length_mm","10"},{"width_mm","10"},{"height_mm","10"}}).data.at("container").get<std::string>();
     const auto listed=run(host,"reference.list",{{"owner",box},{"kind","face"}}).data;
     require(listed.at("items").size()==6 && listed.at("total")==6,"Box did not expose six original faces");
     const auto first=listed.at("items")[0];const auto face=detail(host,first,part_id);
@@ -81,7 +82,7 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
     require(host.execute({{"command","reference.get"},{"arguments",first}}).code=="reference_not_found","Ambiguous Assembly query silently selected an occurrence");
     // Editing an open source does not change the parent query until its
     // caller explicitly refreshes/recalculates that parent's state.
-    run(host,"activate",{{"document",part_id}});run(host,"box.set",{{"container",box},{"length_mm","20"}});
+    run(host,"activate",{{"document",part_id}});zima::test::resize_rectangular_commands([&](const char* n,commands::Json a){return run(host,n,std::move(a));},{{"container",box},{"length_mm","20"}});
     const auto still_old=detail(host,nested_ref,top_id);require(still_old.at("triangles")==nested_face.at("triangles"),"Query silently pulled newer source geometry into parent");
     require(live.active_document_id()==part_id && live.open_assembly(top_id)->session.revision()==top_revision &&
         live.open_assembly(top_id)->session.document().components[0].calculated_source.shares_with(source_snapshot),"Query activated/rebuilt parent snapshot");

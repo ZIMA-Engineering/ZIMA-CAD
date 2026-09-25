@@ -54,12 +54,8 @@ QString feature_icon_name(zima::document::FeatureKind kind) {
     using zima::document::FeatureKind;
     switch (kind) {
         case FeatureKind::Sketch: return QStringLiteral("sketch");
-        case FeatureKind::Box: return QStringLiteral("box");
-        case FeatureKind::Cylinder: return QStringLiteral("cylinder");
-        case FeatureKind::Sphere: return QStringLiteral("sphere");
-        case FeatureKind::Cone: return QStringLiteral("cone");
-        case FeatureKind::Pyramid: return QStringLiteral("pyramid");
-        case FeatureKind::Wedge: return QStringLiteral("wedge");
+
+
         case FeatureKind::Extrusion: return QStringLiteral("protrusion");
         case FeatureKind::Feature: return QStringLiteral("protrusion");
         case FeatureKind::Revolution: return QStringLiteral("revolve");
@@ -272,8 +268,6 @@ void add_history_container_tree_children(QTreeWidgetItem* parent,
     feature->setData(0, Qt::UserRole + 6,
         QString::fromStdString(container.id));
     const bool primitive_primary_axis =
-        container.feature_kind == zima::document::FeatureKind::Cylinder ||
-        container.feature_kind == zima::document::FeatureKind::Cone ||
         container.feature_kind == zima::document::FeatureKind::Hole;
     if (primitive_primary_axis ||
         (owned_sketch != nullptr &&

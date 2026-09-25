@@ -1,3 +1,4 @@
+#include "profile_solid_fixture.hpp"
 #include <cmath>
 #include <iostream>
 #include <numbers>
@@ -139,8 +140,8 @@ int main() {
         }
         {
             auto part=document::PartDocument::create_default();
-            auto box=document::PartDocument::create_box_container();box.box={30,20,10};
-            auto cut=document::PartDocument::create_box_container();cut.box={5,5,20};cut.combine_mode=document::CombineMode::Subtract;part.history={box,cut};
+            auto box=zima::test::rectangular_feature(part,{30,20,10});
+            auto cut=zima::test::rectangular_feature(part,{5,5,20});cut.combine_mode=document::CombineMode::Subtract;part.history={box,cut};
             kernel::OcctKernel kernel;auto body=kernel.evaluate_history(part.kernel_operations()).back();
             auto actual=DrawingDocument::create_view(part.document_id,{},body.mesh,ViewOrientation::Top);
             MeasurementPickRequest request;request.mode=int(DimensionAttachmentKind::Line);

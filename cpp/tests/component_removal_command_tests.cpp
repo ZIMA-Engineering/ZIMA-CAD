@@ -1,3 +1,4 @@
+#include "profile_command_fixture.hpp"
 #include <zima/command_host/host.hpp>
 #include <zima/workspace/component_operations.hpp>
 #include <zima/workspace/model_calculation.hpp>
@@ -17,7 +18,7 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
     options.interaction=[&]{command_host::Interaction result;result.editing=editing;return result;};
     command_host::Host host(live,kernel,dir,options);
     run(host,"new",{{"type","part"},{"name","remove-source"}});const auto source=live.active_document_id();
-    const auto box=run(host,"box.create",{{"length_mm","10"},{"width_mm","10"},{"height_mm","10"}}).data.at("container").get<std::string>();run(host,"save");
+    const auto box=zima::test::rectangular_commands([&](const char* n,commands::Json a){return run(host,n,std::move(a));},{{"length_mm","10"},{"width_mm","10"},{"height_mm","10"}}).data.at("container").get<std::string>();run(host,"save");
     const auto make=[&](const char* name){run(host,"new",{{"type","assembly"},{"name",name}});return live.active_document_id();};
     const auto insert=[&]{return run(host,"component.insert",{{"source",source}}).data.at("occurrence").get<std::string>();};
     const auto remove=[&](const std::string& occurrence){return run(host,"component.remove",{{"instance_path",path(occurrence)}});};
@@ -39,7 +40,7 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
     };
     editing=true;rejected(second,"editing_in_progress");editing=false;rejected("missing","occurrence_not_found");
     require(!host.execute({{"command","component.remove"},{"arguments",{{"instance_path",path(first)+path(second)}}}}).ok,"Parent removed a nested component directly");
-    run(host,"activate",{{"document",source}});run(host,"box.set",{{"container",box},{"length_mm","20"}});const auto source_revision=live.open_part(source)->session.revision();
+    run(host,"activate",{{"document",source}});zima::test::resize_rectangular_commands([&](const char* n,commands::Json a){return run(host,n,std::move(a));},{{"container",box},{"length_mm","20"}});const auto source_revision=live.open_part(source)->session.revision();
     run(host,"activate",{{"document",owner}});const auto removed=remove(second).data;
     require(removed.at("removed")==true&&live.open_assembly(owner)->session.document().components.size()==1,"Removal result or component count is wrong");
     near(live.open_assembly(owner)->session.document().find_occurrence(first)->calculated_source->volume,2000);
@@ -49,7 +50,7 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
     // A fresh-source preparation succeeds, but the final physical relation fails.
     // The old GUI path published that preparation before attempting removal.
     run(host,"document.relations.set",{{"relations",Json::array({{{"target","capacity"},{"expression","1 / (3000 - round(model.volume))"}}})}});
-    run(host,"activate",{{"document",source}});run(host,"box.set",{{"container",box},{"length_mm","30"}});run(host,"activate",{{"document",owner}});
+    run(host,"activate",{{"document",source}});zima::test::resize_rectangular_commands([&](const char* n,commands::Json a){return run(host,n,std::move(a));},{{"container",box},{"length_mm","30"}});run(host,"activate",{{"document",owner}});
     rejected(second);near(live.open_assembly(owner)->session.document().find_occurrence(first)->calculated_source->volume,2000);
     run(host,"document.relations.set",{{"relations",Json::array()}});
     auto original=live.open_assembly(owner)->session.document();auto next=original;

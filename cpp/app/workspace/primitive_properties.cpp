@@ -59,8 +59,7 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
     if (part == nullptr && assembly == nullptr) return;
     // Sketch is a HistoryContainer kind, but it is not a primitive body.
     // Keep this guard at the common entry point as well as in Tree dispatch,
-    // so no caller can fall through PrimitivePropertiesDialog's default
-    // shape branch (which is Box) and accidentally show Kvádr properties.
+    // so no caller sends a standalone Sketch to a solid Properties editor.
     if (feature_kind == zima::document::FeatureKind::Sketch) {
         if (part == nullptr) return;
         const auto sketch = std::find_if(
@@ -203,31 +202,19 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
     auto initial = (resuming_profile || pending_profile_edit)
         ? *pending_profile_feature_
         : edit_mode ? *edited
-        : feature_kind == zima::document::FeatureKind::Cylinder
-            ? zima::document::PartDocument::create_cylinder_container()
         : feature_kind == zima::document::FeatureKind::Hole
             ? zima::document::PartDocument::create_hole_container()
         : feature_kind == zima::document::FeatureKind::Thread
             ? zima::document::PartDocument::create_thread_container()
         : feature_kind == zima::document::FeatureKind::DrillPoint
             ? zima::document::PartDocument::create_drill_point_container()
-        : feature_kind == zima::document::FeatureKind::Sphere
-            ? zima::document::PartDocument::create_sphere_container()
-        : feature_kind == zima::document::FeatureKind::Cone
-            ? zima::document::PartDocument::create_cone_container()
-        : feature_kind == zima::document::FeatureKind::Pyramid
-            ? zima::document::PartDocument::create_pyramid_container()
-        : feature_kind == zima::document::FeatureKind::Wedge
-            ? zima::document::PartDocument::create_wedge_container()
         : feature_kind == zima::document::FeatureKind::TwistedSheet
             ? zima::document::PartDocument::create_twisted_sheet_container()
         : feature_kind == zima::document::FeatureKind::Feature
             ? zima::document::PartDocument::create_feature_container(source_sketch_id)
         : feature_kind == zima::document::FeatureKind::Extrusion
             ? zima::document::PartDocument::create_extrusion_container(source_sketch_id)
-        : feature_kind == zima::document::FeatureKind::Revolution
-            ? zima::document::PartDocument::create_revolution_container(source_sketch_id)
-            : zima::document::PartDocument::create_box_container();
+        : zima::document::PartDocument::create_revolution_container(source_sketch_id);
     if (!edit_mode && !resuming_profile) {
         initial.name = tr(initial.name.c_str()).toStdString();
         for (auto* data : {&initial.hole.sketch_serialized, &initial.hole.chamfer_sketch_serialized,
@@ -668,8 +655,22 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
         // carrier so construction_viewer_mesh() emits the actual offset plane
         // instead of stopping after the editing Origin frame.
         resolved_plane.reference_valid = true;
-        primitive_origin_preview_mesh_ =
-            preview_document.construction_viewer_mesh(plane.id);
+        if (preview.feature_kind == zima::document::FeatureKind::Feature) {
+            primitive_origin_preview_mesh_=preview_document.feature_result_mesh(preview);
+            if(preview.feature.type!=zima::document::FeatureType::Point &&
+               preview.feature.type!=zima::document::FeatureType::Plane) {
+                zima::document::PartDocument carrier;
+                carrier.constructions.push_back(resolved_plane);
+                append_mesh(*primitive_origin_preview_mesh_,carrier.construction_viewer_mesh(plane.id));
+            }
+            if(preview.feature.uses_sketch()) {
+                // Rollback hides saved output; show the pending owned geometry.
+                auto profile_mesh=sketch->viewer_mesh();
+                sketch->filter_hidden_3d_geometry(profile_mesh);
+                keep_only_inactive_sketch_profile(profile_mesh,preview.id);
+                append_mesh(*primitive_origin_preview_mesh_,std::move(profile_mesh));
+            }
+        } else primitive_origin_preview_mesh_=preview_document.construction_viewer_mesh(plane.id);
         // The temporary Plane publishes its own generic offset dimension.
         // Feature Properties rebuild the operation dimensions below from the
         // feature policy; retaining both sources painted the same value twice.
@@ -1111,8 +1112,8 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
             }
             return resolved_preview;
         };
-        // Box/Cylinder/.../Wedge have no other preview needs: install the
-        // placement-only preview directly. Extrusion/Revolution below merge
+        // Install the placement preview for operations without a profile.
+        // Extrusion/Revolution below merge
         // this with their own transient-edge preview into one callback.
         if (feature_kind != zima::document::FeatureKind::Extrusion &&
             feature_kind != zima::document::FeatureKind::Revolution) {
@@ -1121,8 +1122,9 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
     }
     const auto profile_scene_signature =
         std::make_shared<std::optional<std::vector<double>>>();
+    const auto profile_scene_name=std::make_shared<std::string>();
     const auto publish_profile_preview_scene =
-        [this, profile_scene_signature](
+        [this, profile_scene_signature, profile_scene_name](
             const zima::document::PartDocument* preview_document,
             const zima::document::HistoryContainer& preview) {
         std::vector<zima::kernel::ViewerDimension> live_dimensions;
@@ -1150,6 +1152,11 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
                 preview.extrusion, true).has_value() ? 1.0 : 0.0);
         } else if (preview.feature_kind==zima::document::FeatureKind::Feature) {
             signature.push_back(preview.feature.profile_plane_offset);
+            signature.push_back(static_cast<double>(preview.feature.type));
+            if(preview.feature.type==zima::document::FeatureType::Axis) {
+                signature.push_back(preview.feature.effective_side(0).length);
+                signature.push_back(preview.feature.effective_side(1).length);
+            }
         } else {
             signature.push_back(preview.revolution.profile_plane_offset);
         }
@@ -1172,10 +1179,11 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
             }
         }
         if (*profile_scene_signature &&
-            **profile_scene_signature == signature) {
+            **profile_scene_signature == signature && *profile_scene_name==preview.name) {
             return;
         }
         *profile_scene_signature = std::move(signature);
+        *profile_scene_name=preview.name;
         // The base body and static work-plane frame change only when the
         // placement/profile frame changes. Length/angle edits update the
         // transient wire, manipulators and live dimensions without sending

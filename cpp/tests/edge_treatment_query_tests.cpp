@@ -1,3 +1,4 @@
+#include "profile_command_fixture.hpp"
 #include <zima/command_host/host.hpp>
 #include <algorithm>
 #include <iostream>
@@ -18,7 +19,7 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
     require(host.execute_text("edge_treatment.edges").code=="unsupported_document","Edge query without a Part failed incorrectly");
     run(host,"new",{{"type","part"},{"name","edge-queries"}});
     require(host.execute_text("edge_treatment.edges").code=="missing_input","Empty body exposed treatment input edges");
-    const auto box=run(host,"box.create",{{"length_mm","10"},{"width_mm","10"},{"height_mm","10"}}).data.at("container").get<std::string>();
+    const auto box=zima::test::rectangular_commands([&](const char* n,commands::Json a){return run(host,n,std::move(a));},{{"length_mm","10"},{"width_mm","10"},{"height_mm","10"}}).data.at("container").get<std::string>();
     auto* state=live.open_part(live.active_document_id());const auto body=state->session.document().body_history.active_body_id();
     const auto revision=state->session.revision();const auto* cache=state->session.calculated_boundaries().data();
     const auto listed=run(host,"edge_treatment.edges").data;
@@ -53,14 +54,14 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
     const auto result_edges=run(host,"edge_treatment.edges").data;
     require(std::ranges::any_of(result_edges.at("items"),[&](const auto& edge){return edge.at("owner")==fillet.id;}),"Insertion query omitted current treatment edges");
     const auto other=run(host,"body.create",{{"name","Other"}}).data.at("body");
-    const auto other_box=run(host,"box.create",{{"length_mm","20"},{"width_mm","20"},{"height_mm","20"}}).data.at("container");
+    const auto other_box=zima::test::rectangular_commands([&](const char* n,commands::Json a){return run(host,n,std::move(a));},{{"length_mm","20"},{"width_mm","20"},{"height_mm","20"}}).data.at("container");
     const auto other_edges=run(host,"edge_treatment.edges").data;
     require(other_edges.at("body")==other&&std::ranges::all_of(other_edges.at("items"),[&](const auto& edge){return edge.at("owner")==other_box;}),"Edge query mixed separate bodies");
     require(run(host,"edge_treatment.edges",{{"container",fillet.id}}).data.at("body")==body,"Explicit read query changed the treatment's owning body");
     run(host,"body.activate",{{"body",body}});run(host,"body.cursor",{{"body",body},{"index",1}});
     require(run(host,"edge_treatment.edges").data.at("total")==12,"Insertion query ignored the active history cursor");
     run(host,"new",{{"type","part"},{"name","edge-circle"}});
-    run(host,"cylinder.create",{{"radius_mm","5"},{"height_mm","20"}});
+    zima::test::circular_commands([&](const char* n,commands::Json a){return run(host,n,std::move(a));},{{"radius_mm","5"},{"height_mm","20"}});
     const auto cylinder=run(host,"edge_treatment.edges").data;bool found_circle=false;
     for(const auto& item:cylinder.at("items")) {
         const auto& segment=item.at("segments")[0];const auto& ends=segment.at("endpoints");

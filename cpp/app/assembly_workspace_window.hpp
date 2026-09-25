@@ -270,15 +270,9 @@ private:
     ApplicationMode active_application_{ApplicationMode::Modeling};
     std::map<std::string,ApplicationMode> document_application_modes_;
     QMenu* command_insert_menu_{};
-    QAction* box_action_{};
-    QAction* cylinder_action_{};
     QAction* thread_action_{};
     QAction* holes_action_{};
     QAction* drill_point_action_{};
-    QAction* sphere_action_{};
-    QAction* cone_action_{};
-    QAction* pyramid_action_{};
-    QAction* wedge_action_{};
     QAction* construction_point_action_{};
     QAction* curve_3d_action_{};
     QAction* sweep_3d_action_{};

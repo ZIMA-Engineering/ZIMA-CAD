@@ -46,9 +46,6 @@ shell nor a Python interpreter.
 | `regenerate` | optional `document` | Explicit Part or Assembly regeneration |
 | `undo`, `redo` | optional `document` | History shared with GUI |
 | `fit` | none | Fit the model in the View |
-| `box.create` | `length_mm width_mm height_mm`, optional `document` | Create and calculate a box in the active body |
-| `box.get` | `container`, optional `document` | Read persisted box dimensions, locks, and identity |
-| `box.set` | `container`, optional `length_mm width_mm height_mm document` | Edit supplied dimensions and calculate the Part |
 
 `new` accepts `part`, `assembly`, and `drawing`. Name is the filename stem in the
 working directory; CAD appends the extension. Only `save` writes the file.
@@ -151,7 +148,7 @@ not instructions for the assistant.
 The dispatcher and host of the initial 29 commands are GUI-independent. The panel
 and a windowless test program share `command_host::Host`. Standalone `zima-cad-cli`
 provides the same commands for individual requests and file/stdin batches; see the
-[command-line guide](CAD_COMMAND_LINE.md). Boxes use the shared transaction below.
+[command-line guide](CAD_COMMAND_LINE.md). Profiles use the shared modeling transactions.
 
 ## Verification
 
@@ -263,108 +260,16 @@ Qt Gui/Svg in `offscreen` mode. Catalog, model operations, target-document guard
 and data tree are shared. I/O, config, exit codes, and batch boundaries are in
 [CAD_COMMAND_LINE.md](CAD_COMMAND_LINE.md).
 
-## Shared box operation (2026-09-11)
+## Profile-based modeling
 
-```text
-new part first_box
-box.create 10 20 30
-save
-```
+Create a Sketch, author its geometry, then use `extrusion.create` or
+`revolution.create` with the returned Sketch ID. Profile `.get`/`.set` commands
+inspect and edit the same persisted model as Properties, with native locks,
+references, atomic calculation and Undo/Redo.
 
-Creation returns `document`, `container`, `feature`, `body`, `name`, `length_mm`,
-`width_mm`, `height_mm`, `value_locks`, `revision`, and `changed`. Use the actual
-`container` ID from the response or tree for later edits. `box.get ID` reads only
-persisted parameters; optional `document` reads another open Part without activation.
-Pending dialog values are excluded.
-
-```json
-{"command":"box.set","arguments":{"container":"ID-FROM-RESPONSE","width_mm":"40"}}
-```
-
-These dimension-command arguments are strings. Dimensions explicitly use **mm**,
-independent of display units, with a decimal point. The allowed range matches Box
-Properties: **0.001–1,000,000 mm**. `box.set` requires at least one dimension. Text
-arguments are positional; use JSON to change only width or height. Omitted dimensions
-remain unchanged.
-
-`box.create` inserts at the active body's current cursor. `box.set` edits an existing
-box by ID without moving it to the active body. It preserves name, placement,
-references, combine mode, suppression, locks, and original-face identities. Locked
-values return `value_locked`; at this original stage unlocking was GUI-only.
-Mutations share the console's pending-edit and activated-component guards. Derived
-bodies are not directly editable.
-
-GUI OK and commands use `workspace::commit_primitive` in `primitive_operations.cpp`:
-validation, document copy, existing placement solving from persisted references,
-explicit calculation, external-reference refresh, and one shared history commit.
-GUI Cancel does not commit; unchanged values cause neither Undo nor calculation.
-Validation/calculation errors leave document and cache unchanged. Editing checks
-the edited feature's error while retaining the existing rule allowing independent
-repair of already broken downstream features. Parent Assemblies are not automatically
-regenerated. Formats and start templates remain unchanged.
-
-`zima_cpp_box_command_tests` checks volumes, face identities after resizing, locks,
-atomic rejection, cursor/body ownership, saving, and Undo/Redo. GUI alternates console
-and the same Properties window including Cancel and history; the CLI process test
-creates and edits an actual saved box.
-
-Parametric patches share lock validation in `workspace::set_primitive_dimensions`.
-GUI passes complete committed properties, allowing unlock/edit/relock within one
-session. Calculation and commit remain shared. Box Properties preserves exact values
-of untouched fields despite fewer displayed decimals. Display rounding neither
-changes the model nor blocks editing another dimension. Console GUI tests cover
-these cases and Undo.
-
-Current scope and remaining work: [CAD command coverage](CAD_COMMAND_COVERAGE.md).
-
-Box verification: Windows Release, full suite **58/58** passed (382.07 s,
-`build/box-full-tests.log`). After exact-value preservation and parametric-patch
-checks, all **7/7** affected model, CLI, and GUI scenarios passed (199.07 s,
-`build/box-final-tests.log`), including workspace window, profiles, and dimension
-editing. Final build: `build/box-final-build.log`. At this stage CLI still did not
-link Qt (`build/box-cli-dependencies.log`); later shared PDF export changed that runtime.
-
-## All basic primitives
-
-Six feature types share creation, reading, and parametric patches. Text creation
-commands take dimensions in this order, followed by optional `document`:
-
-| Command | Required dimensions in mm |
-| --- | --- |
-| `box.create` | `length_mm width_mm height_mm` |
-| `cylinder.create` | `radius_mm height_mm` |
-| `sphere.create` | `radius_mm` |
-| `cone.create` | `bottom_radius_mm top_radius_mm height_mm` |
-| `pyramid.create` | `length_mm width_mm height_mm` |
-| `wedge.create` | `length_mm width_mm height_mm top_offset_mm` |
-
-Each prefix also has `.get container [document]` and `.set container ...`.
-For `.set`, dimensions are optional but at least one is required. JSON patches
-specify individual fields without positional placeholders:
-
-```json
-{"command":"cone.set","arguments":{"container":"CONE-ID","top_radius_mm":"0"}}
-```
-
-Cone top radius and wedge top offset may be zero. Other dimensions range from
-0.001 to 1,000,000 mm; wedge top offset cannot exceed length. Invalid geometry,
-such as a cone with equal radii, is rejected without document changes. A type-specific
-command cannot edit another container kind.
-
-All six dialogs use `workspace::commit_primitive`. Parametric patches use
-`set_primitive_dimensions`, respecting locks and calling the same transaction.
-One model-layer parameter definition supplies reading, writing, and ranges; GUI
-preserves unchanged exact values despite rounded display.
-
-`zima_cpp_primitive_command_tests` compares volumes against independent formulas
-for cylinders, spheres, frustums, pyramids, and wedges. It checks face identities,
-Undo/Redo, locks, save/load, zero top dimensions, and atomic error rejection. The
-panel test covers CLI creation and GUI editing for every type; the process test
-creates them through actual standalone CLI.
-
-Primitive extension verification: Windows Release, **59/59 tests passed** (369.66 s),
-`build/primitives-full-tests.log`. Previously all five focused model/GUI/CLI tests
-passed (8.74 s, `build/primitives-focused-tests.log`).
+The Part Modeling toolbar now exposes one [Feature command](UNIFIED_FEATURE_TYPES.md).
+The six former primitive commands and their native model types were removed.
+Build new geometry from Sketch profiles; old primitive files are not migrated.
 
 ## Argument types
 

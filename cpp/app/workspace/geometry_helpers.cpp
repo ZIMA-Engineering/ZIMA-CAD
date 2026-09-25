@@ -135,7 +135,7 @@ bool sketch_visible_outside_sketcher(
     const auto* owner = document.find_container(sketch.owner_container_id);
     return owner != nullptr &&
         (owner->feature_kind == zima::document::FeatureKind::Sketch ||
-         (owner->feature_kind == zima::document::FeatureKind::Feature && owner->feature.sketch_only()));
+         (owner->feature_kind == zima::document::FeatureKind::Feature && owner->feature.shows_sketch()));
 }
 
 // A picked reference supports an editable offset when it is a planar
@@ -389,7 +389,6 @@ QTreeWidgetItem* add_origin_tree_item(QTreeWidgetItem* parent,
     }
     return origin;
 }
-
 
 
 // Port of Python's camera_angles_for_view_direction() (viewer.py:264):

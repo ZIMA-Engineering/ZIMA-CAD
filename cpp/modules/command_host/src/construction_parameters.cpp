@@ -158,8 +158,7 @@ void apply_curve_points(Object& value, const Json& args, const CurvePointGeometr
             if (!identities.insert(id).second) throw ConstructionParameterError("invalid_arguments", "A curve point cannot appear twice in the same list.");
             point = *found;
         } else {
-            point = document::PartDocument::create_construction(document::ConstructionKind::Point);
-            point.parent_construction_id = value.id;
+            point = document::create_owned_point(value.id);
         }
         next.push_back(std::move(point));
     }
