@@ -107,3 +107,81 @@ static void verify_feature_modeling(QApplication& application, AssemblyWorkspace
     check(std::ranges::any_of(view->mesh().dimensions,[&](const auto& d){return d.reference.owner_id==pending.id&&d.reference.semantic_key=="parameter:side0_length";}),
         "Feature length dimension missing outside Properties");
 }
+
+// Work-plane display must be independent of whether a body profile exists yet.
+static void verify_feature_empty_preview(QApplication& application, AssemblyWorkspaceWindow& window,
+                                        const std::filesystem::path& directory) {
+    const auto check=[](bool ok,const char* message){if(!ok)throw std::runtime_error(message);};
+    const auto flush=[&]{application.processEvents();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);application.processEvents();};
+    const auto run=[&](const char* command,commands::Json args=commands::Json::object()) {
+        const auto result=window.execute_console_command(QString::fromStdString(commands::Json{{"command",command},{"arguments",args}}.dump()));
+        if(!result.ok)throw std::runtime_error(result.message);
+        flush();return result;
+    };
+    const auto dialog=[&]{return dynamic_cast<PrimitivePropertiesDialog*>(window.findChild<QWidget*>("featurePropertiesDialog"));};
+    const auto name="feature-empty-ui-"+document::PartDocument::create_default().document_id;
+    run("new",{{"type","part"},{"name",name}});
+    auto* action=window.findChild<QAction*>("featurePrototypeAction");
+    action->trigger();flush();check(dialog(),"Empty Feature properties missing");
+    const auto pending=dialog()->pending_value();
+    auto* view=dynamic_cast<viewer::MeshView*>(window.findChild<QOpenGLWidget*>());
+    check(view,"Empty Feature View missing");
+    auto* plane=dialog()->findChild<QComboBox*>("featureProfilePlane");
+    auto* offset=dialog()->findChild<QDoubleSpinBox*>("featureProfileOffset");
+    check(plane&&offset,"Feature work-plane controls missing");
+    const auto check_plane=[&](int axis,double value) {
+        const auto& edges=view->mesh().edges;
+        const auto border=std::ranges::find_if(edges,[&](const auto& edge){
+            return edge.reference.owner_id==pending.feature_id&&edge.reference.semantic_key=="border";
+        });
+        check(border!=edges.end()&&border->points.size()==5,"Empty Feature has no offset-plane border");
+        for(const auto& point:border->points) {
+            const double coordinate=axis==0?point.z:axis==1?point.y:point.x;
+            check(std::abs(coordinate-value)<1e-7,"Feature plane/offset preview is stale before entering Sketcher");
+        }
+    };
+    for(const double value:{3.5,-2.75,0.0}) {
+        offset->setValue(value);flush();
+        for(const int axis:{0,1,2,0}) {
+            plane->setCurrentIndex(plane->findData(axis));flush();check_plane(axis,value);
+        }
+    }
+    plane->setCurrentIndex(plane->findData(2));offset->setValue(-4);flush();check_plane(2,-4);
+    window.grab().save(QString::fromStdString((directory/"feature-empty-plane-ui.png").string()));
+    auto* add=dialog()->findChild<QPushButton*>("featureAdd");
+    auto* cut=dialog()->findChild<QPushButton*>("featureSubtract");
+    check(add->isChecked(),"New Feature must initially add material");
+    add->click();dialog()->findChild<QCheckBox*>("featureOriginAxis")->setChecked(true);flush();
+    check(!add->isChecked()&&!cut->isChecked()&&dialog()->pending_value().feature.sketch_only(),"Cannot choose origin axis without material");
+    check_plane(2,-4);
+    dialog()->buttons()->button(QDialogButtonBox::Ok)->click();flush();
+    check(!dialog(),"Axis-only Feature OK incorrectly requires a closed profile");
+    run("save");
+    const auto path=directory/(name+".prtz");
+    std::vector<kernel::BodyResult> bodies;
+    auto saved=document::PartDocument::load(path,&bodies);
+    const auto* feature=saved.find_container(pending.id);
+    check(feature&&feature->feature.sketch_only()&&feature->feature.origin_centerline,"Axis-only Feature flags were not saved");
+    check(!bodies.empty()&&std::abs(bodies.back().volume)<1e-10,"Axis-only Feature fabricated a solid");
+    check(std::ranges::any_of(bodies.back().mesh.original_references.points,[](const auto& point){
+        return point.reference.semantic_key.find("centerline:from:origin:")!=std::string::npos;
+    }),"Axis-only Feature lost its origin references");
+    check(saved.sketches.size()==1&&saved.sketches.front().plane==sketcher::SketchPlane::YZ&&
+        !saved.sketches.front().plane_auto&&saved.sketches.front().plane_offset==-4,"Feature lost its work-plane choice on OK");
+    run("undo");run("save");check(!document::PartDocument::load(path).find_container(pending.id),"Axis-only Feature Undo failed");
+    run("redo");run("save");saved=document::PartDocument::load(path,&bodies);
+    check(saved.find_container(pending.id)&&saved.find_container(pending.id)->feature.sketch_only(),"Axis-only Feature Redo failed");
+    auto* tree=window.findChild<QTreeWidget*>("documentTree");QTreeWidgetItem* row{};
+    for(QTreeWidgetItemIterator it(tree);*it;++it)
+        if((*it)->data(0,Qt::UserRole).toString().toStdString()==pending.id&&(*it)->data(0,Qt::UserRole+3)=="part-container"){row=*it;break;}
+    check(row,"Axis-only Feature missing from Tree");window.show_tree_item_properties(row);flush();
+    check(dialog(),"Axis-only Feature cannot reopen");
+    add=dialog()->findChild<QPushButton*>("featureAdd");cut=dialog()->findChild<QPushButton*>("featureSubtract");
+    check(!add->isChecked()&&!cut->isChecked()&&add->isEnabled()&&cut->isEnabled(),"Reopened axis-only Feature forces a material operation");
+    add->click();check(!dialog()->pending_value().feature.sketch_only(),"Reopened Feature cannot re-enable material");
+    dialog()->findChild<QComboBox*>("featureProfilePlane")->setCurrentIndex(0);
+    dialog()->reject();flush();run("save");
+    const auto cancelled=document::PartDocument::load(path);
+    check(cancelled.find_container(pending.id)->feature==saved.find_container(pending.id)->feature&&
+        cancelled.sketches.front().serialized()==saved.sketches.front().serialized(),"Cancel changed axis-only Feature or plane");
+}

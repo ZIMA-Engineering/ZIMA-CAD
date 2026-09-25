@@ -1245,8 +1245,15 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
                     input=&part_rollback_->input_body->mesh;
                 else if(!owner->session.calculated_boundaries().empty())
                     input=&owner->session.calculated_boundaries().back().mesh;
-                auto wire=input?document.feature_preview_edges(preview,*input):document.feature_preview_edges(preview);
-                viewer_->set_transient_edges(std::move(wire));
+                try {
+                    auto wire=input?document.feature_preview_edges(preview,*input):document.feature_preview_edges(preview);
+                    viewer_->set_transient_edges(std::move(wire));
+                } catch(const std::exception& error) {
+                    // An empty or unfinished profile cannot supply a body wire,
+                    // but its resolved work plane is valid editing context.
+                    viewer_->set_transient_edges({});
+                    state_->setText(tr(error.what()));
+                }
                 publish_profile_preview_scene(&document,preview);
             } catch(const std::exception& error) {
                 viewer_->set_transient_edges({});publish_profile_preview_scene(nullptr,preview);

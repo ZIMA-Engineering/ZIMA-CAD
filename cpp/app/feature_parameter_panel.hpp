@@ -39,7 +39,7 @@ public:
         auto* sketch_row=new QHBoxLayout(sketch_group);
         auto* sketch_form=new QFormLayout;
         sketch_row->addLayout(sketch_form,1);
-        auto* plane=new QComboBox(this);plane_=plane;
+        auto* plane=new QComboBox(this);plane_=plane;plane->setObjectName("featureProfilePlane");
         plane->addItem("XY",0);plane->addItem("XZ",1);plane->addItem("YZ",2);
         install_automatic_work_plane(plane,true);
         sketch_form->addRow(tr("Výchozí rovina"),plane);
@@ -60,13 +60,30 @@ public:
         result->addItems({tr("Těleso"),tr("Plocha"),tr("Tenkostěnný prvek")});
         profile->addRow(tr("Výsledek"),result);
         operations_=new QWidget(this);auto* operation_layout=new QHBoxLayout(operations_);operation_layout->setContentsMargins(0,0,0,0);
-        auto* operation_group=new QButtonGroup(operations_);operation_group_=operation_group;operation_group->setExclusive(true);
+        auto* operation_group=new QButtonGroup(operations_);operation_group_=operation_group;operation_group->setExclusive(false);
         for(int operation=0;operation<2;++operation){
             auto* button=new ProfileOperationButton(operation==0,operation==0?tr("Přičíst"):tr("Odečíst"),operations_);
             button->setObjectName(operation==0?"featureAdd":"featureSubtract");button->setCheckable(true);
             auto style=command_button_style();style.replace("QToolButton","QPushButton");button->setStyleSheet(style);
             operation_group->addButton(button,operation);button->setChecked(operation==0);operation_layout->addWidget(button);
         }
+        connect(operation_group,&QButtonGroup::idClicked,this,[this](int id){
+            changing_operation_=true;
+            last_operation_=id;
+            if(operation_group_->button(id)->isChecked()) {
+                operation_group_->button(1-id)->setChecked(false);
+                if(parameters().sketch_only()) {
+                    // Re-enable the same side modes during this edit session.
+                    for(int i=0;i<2;++i)sides_[i].mode->setCurrentIndex(saved_modes_[i]);
+                }
+            } else {
+                for(int i=0;i<2;++i)saved_modes_[i]=sides_[i].mode->currentIndex();
+                // The persisted no-body mode already uses two inactive sides.
+                for(auto& side:sides_)side.mode->setCurrentIndex(0);
+            }
+            changing_operation_=false;
+            refresh_operations();
+        });
         profile->addRow(tr("Operace"),operations_);
         auto* thickness=number("featureThickness",false);thickness->setMinimum(.001);thickness->setValue(1);
         thickness_=thickness;thickness->setValue(initial_.thin_thickness);
@@ -161,16 +178,20 @@ public:
     QDoubleSpinBox* side_value(std::size_t side) const { return sides_.at(side).value; }
     QGroupBox* side_group(std::size_t side) const { return sides_.at(side).box; }
     bool subtract() const { return result_->currentIndex()!=1 && operation_group_->checkedId()==1; }
-    void set_subtract(bool value) { operation_group_->button(value?1:0)->setChecked(true); }
+    void set_subtract(bool value) {
+        last_operation_=value?1:0;
+        refresh_operations();
+    }
     void bind_side_locks(std::set<std::string>& locks,std::function<void()> changed) {
         locks_=&locks;locks_changed_=std::move(changed);
         for(int i=0;i<2;++i)refresh_side_lock(i);
     }
     void on_change(std::function<void()> changed) {
-        for(auto* box:findChildren<QComboBox*>())connect(box,&QComboBox::currentIndexChanged,this,[changed]{changed();});
-        for(auto* box:findChildren<QDoubleSpinBox*>())connect(box,&QDoubleSpinBox::valueChanged,this,[changed]{changed();});
-        for(auto* box:findChildren<QCheckBox*>())connect(box,&QCheckBox::toggled,this,[changed]{changed();});
-        connect(operation_group_,&QButtonGroup::idClicked,this,[changed]{changed();});
+        const auto notify=[this,changed]{if(!changing_operation_)changed();};
+        for(auto* box:findChildren<QComboBox*>())connect(box,&QComboBox::currentIndexChanged,this,notify);
+        for(auto* box:findChildren<QDoubleSpinBox*>())connect(box,&QDoubleSpinBox::valueChanged,this,notify);
+        for(auto* box:findChildren<QCheckBox*>())connect(box,&QCheckBox::toggled,this,notify);
+        connect(operation_group_,&QButtonGroup::idClicked,this,notify);
     }
 private:
     struct Side {
@@ -185,6 +206,9 @@ private:
     QPushButton* swap_{};
     std::function<void()> swap_requested_;
     QButtonGroup* operation_group_{};
+    int last_operation_{};
+    bool changing_operation_{};
+    std::array<int,2> saved_modes_{{1,0}};
     document::FeatureParameters initial_;
     std::array<Side,2> sides_{};
     QDoubleSpinBox *offset_{}, *thickness_{};
@@ -206,7 +230,10 @@ private:
     void refresh_operations() {
         const bool active=(sides_[0].mode&&sides_[0].mode->currentIndex()!=0)||
             (!symmetric_&&sides_[1].mode&&sides_[1].mode->currentIndex()!=0);
-        operations_->setEnabled(active&&result_->currentIndex()!=1);
+        operations_->setEnabled(result_->currentIndex()!=1);
+        if(changing_operation_)return;
+        for(int i=0;i<2;++i)
+            operation_group_->button(i)->setChecked(active&&i==last_operation_);
     }
     QDoubleSpinBox* number(const char* name,bool angle) {
         auto* value=new QDoubleSpinBox(this);value->setObjectName(name);value->setDecimals(ui::numeric_decimal_places(this));

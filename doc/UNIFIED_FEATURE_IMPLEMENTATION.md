@@ -72,8 +72,15 @@ precedence.
 With both sides None, Feature can hold an empty, open or unfinished Sketch.
 Closed profiles retain their reference-only endpoint geometry; open profiles
 retain their source-curve endpoints without requesting a solid. Empty profiles
-can still expose the origin path, but do not manufacture a centroid. This uses
-an explicit empty-group permission for authored sketch-only Features. Ordinary
+can still expose the origin path, but do not manufacture a centroid. Clicking
+an already selected Add or Subtract button releases it and sets both sides to
+None. Both buttons remain available so a material operation can be enabled again;
+only one can be selected at a time. Re-enabling within the same dialog restores
+the previous side modes and retains their dimensions, references and numeric
+locks. Reopening a saved sketch-only Feature leaves both buttons released.
+Surface results continue to disable the Boolean-operation buttons.
+
+This uses an explicit empty-group permission for authored sketch-only Features. Ordinary
 empty kernel groups remain invalid. No epsilon-sized solid is created.
 
 ## Editing and persistence
@@ -83,6 +90,12 @@ separate prototype creation dialog. Creation, Sketcher entry/return, editing,
 rollback, reference inspection, OK and Cancel use the established profile
 lifecycle. Pending changes are committed atomically through `commit_profile`.
 Calculation failure leaves the document, Sketch and undo history unchanged.
+
+The selected XY/XZ/YZ work plane and signed plane offset update in the View
+before the first Sketcher entry, including an empty or unfinished profile.
+Failure to prepare the optional body wire must not discard the resolved Sketch
+frame when refreshing the plane display. This preview does not calculate a body
+or change the document. The shared container-placement solver is unchanged.
 
 The panel preserves inactive settings and original numerical precision when
 fields are merely displayed. Length and angle locks are separate, including
@@ -139,3 +152,24 @@ passes. The previously identified Sweep2D XZ first-plane GUI failure remains
 recorded in `PROFILE_CENTERLINES.md`; this work does not alter the protected
 shared placement solver. Rotation Up To deliberately accepts only an oriented
 plane containing the rotation axis, as described above.
+
+
+## Work-plane and optional-operation follow-up (2026-09-25)
+
+The Windows GUI, CLI, launcher, updater and affected test targets build. Nine
+relevant contracts pass after the follow-up: core, Feature GUI, Feature
+parameters, profile commands, profile centerlines, owned-profile references,
+surface profiles, property-dialog layout and translations.
+
+The Feature GUI regression checks XY/XZ/YZ and positive, negative and zero
+plane offsets before entering Sketcher, optional Add/Subtract with side-setting
+restoration, axis-only OK without a closed profile, native save/reopen,
+Undo/Redo and Cancel. Existing rectangle creation and reference-placement checks
+remain in the same contract. The empty-profile screenshot was inspected.
+
+The initial layout and translation runs stopped in their common selection-color
+fixture before reaching those checks. The fixture now positions the native
+cursor and drains pending mouse/resize events before synthetic hover; both
+contracts then pass. This changes test setup only, not application picking.
+No user-visible strings were added; five-language coverage and catalog checks
+pass. This is targeted Windows verification, not a complete suite or Linux run.

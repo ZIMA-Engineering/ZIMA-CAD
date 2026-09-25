@@ -200,9 +200,19 @@ Q_NEVER_INLINE static int verify_feature_prototype(QApplication& application,Ass
             first->setCurrentIndex(a);second->setCurrentIndex(b);result->setCurrentIndex(r);
             auto* add=dialog->findChild<QPushButton*>("featureAdd");
             auto* cut=dialog->findChild<QPushButton*>("featureSubtract");
-            const bool enabled=(a!=0||b!=0)&&r!=1;
+            const bool enabled=r!=1;
             check(add->isEnabled()==enabled&&cut->isEnabled()==enabled,"Common operation availability differs from modes");
-            if(enabled){cut->click();check(cut->isChecked()&&!add->isChecked(),"Subtract is not exclusive");add->click();check(add->isChecked()&&!cut->isChecked(),"Add is not exclusive");}
+            if(enabled){
+                if(cut->isChecked())add->click();
+                cut->click();check(cut->isChecked()&&!add->isChecked(),"Subtract is not exclusive");
+                const auto active=dialog->pending_value();
+                cut->click();
+                check(!cut->isChecked()&&!add->isChecked()&&dialog->pending_value().feature.sketch_only(),"Subtract cannot be disabled");
+                cut->click();check(dialog->pending_value().feature==active.feature,"Re-enabling Subtract lost side settings");
+                add->click();check(add->isChecked()&&!cut->isChecked(),"Add is not exclusive");
+                add->click();check(!add->isChecked()&&!cut->isChecked()&&dialog->pending_value().feature.sketch_only(),"Add cannot be disabled");
+                add->click();
+            }
         }
         first->setCurrentIndex(1);second->setCurrentIndex(2);result->setCurrentIndex(0);
         dialog->findChild<QPushButton*>("featureSubtract")->click();
@@ -232,6 +242,7 @@ Q_NEVER_INLINE static int verify_feature_prototype(QApplication& application,Ass
         check(dialog->pending_value().feature==restored,"Feature dialog failed to restore its complete editing definition");
         check(dialog->pending_value().feature.effective_side(1)==restored.sides[0],"Symmetric Feature did not derive its effective second side");
         dialog->reject();flush();
+        verify_feature_empty_preview(application,window,directory);
         verify_feature_modeling(application,window,directory);
         std::cout<<"Feature GUI: parameter modes, Sketch creation, OK, Cancel and Undo/Redo passed\n";return 0;
     }catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}
