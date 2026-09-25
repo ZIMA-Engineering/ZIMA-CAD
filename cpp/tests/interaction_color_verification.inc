@@ -54,6 +54,8 @@ void verify_interaction_colors(QApplication& application,QWidget& parent) {
     auto camera=view.camera_state();camera[0]=1;camera[1]=camera[2]=camera[3]=0;view.set_camera_state(camera);
     view.set_selection_contract({viewer::CandidateKind::Container});view.show();view.raise();
     const QPointF center(250,180);
+    QCursor::setPos(view.mapToGlobal(center.toPoint()));
+    application.processEvents(); // Drain native pointer/resize events before the synthetic hover.
     {
         const QColor color("#00D1FF");
         view.clear_selection();
