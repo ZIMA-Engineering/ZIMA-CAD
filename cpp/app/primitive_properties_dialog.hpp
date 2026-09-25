@@ -90,6 +90,7 @@ public:
     // Sketch, while the profile geometry itself is newly created/edited.
     // In that case OK must still invoke the explicit body calculation.
     void set_commit_required(bool required);
+    void set_feature_name_provider(std::function<std::string(zima::document::FeatureType)> provider);
     void set_preview_callback(
         std::function<void(const zima::document::HistoryContainer&)> callback);
     void set_profile_plane_selection(const zima::sketcher::Sketch&, std::function<void(zima::sketcher::SketchPlane, bool)>);
@@ -199,6 +200,8 @@ private:
     std::vector<std::string> accepted_target_baseline_;
     CommitCallback commit_;
     QLineEdit* name_{};
+    std::string feature_automatic_name_;
+    std::function<std::string(zima::document::FeatureType)> feature_name_provider_;
     QComboBox* operation_{};
     QPushButton* add_operation_button_{};
     QPushButton* subtract_operation_button_{};

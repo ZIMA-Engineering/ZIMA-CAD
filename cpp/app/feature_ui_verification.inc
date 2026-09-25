@@ -15,6 +15,8 @@ static void verify_feature_modeling(QApplication& application, AssemblyWorkspace
     check(dialog(),"Feature creation properties missing");
     dialog()->findChild<QDoubleSpinBox*>("featureSideValue0")->setValue(10);
     const auto pending=dialog()->pending_value();
+    check(pending.name==QObject::tr("Prvek").toStdString()+" 001" && pending.feature.automatic_name==pending.name,
+        "New Feature has no numbered automatic name");
     dialog()->findChild<QPushButton*>("featureSketchButton")->click();flush();
     check(!dialog(),"Feature Sketch action did not enter the editor");
     QEventLoop animation;QTimer::singleShot(950,&animation,&QEventLoop::quit);animation.exec();
@@ -205,6 +207,7 @@ static void verify_feature_sketch_visibility(QApplication& application, Assembly
         auto part=document::PartDocument::create_default();
         auto sketch=sketcher::Sketch::create_default();
         auto feature=document::PartDocument::create_feature_container(sketch.id);
+        feature.name=QObject::tr("Prvek").toStdString()+" 001";feature.feature.automatic_name=feature.name;
         feature.feature.sides[0].operation=document::FeatureSideOperation::None;
         sketch.owner_container_id=feature.id;
         const auto axis=sketch.add_segment(120,70,240,70);sketch.set_segment_centerline(axis,true);
@@ -267,6 +270,9 @@ static void verify_feature_sketch_visibility(QApplication& application, Assembly
                 check(selector&&selector->count()==5,"Feature type selector missing");
                 selector->setCurrentIndex(type);flush();
                 const auto pending=dialog()->pending_value();
+                const char* prefixes[]={"Bod","Osa","Rovina","Skica","Prvek"};
+                check(pending.name==QObject::tr(prefixes[type]).toStdString()+" 001" && pending.feature.automatic_name==pending.name,
+                    "GUI type switch did not update its automatic name");
                 check(pending.feature.sides==inactive.sides&&pending.feature.origin_centerline==inactive.origin_centerline&&
                       pending.feature.centroid_centerline==inactive.centroid_centerline,"Type switch discarded inactive settings");
                 check(dialog()->findChild<QGroupBox*>("featurePlaneGroup")->isVisible()==(type!=0),"Wrong work-plane controls for Feature type");
@@ -288,6 +294,14 @@ static void verify_feature_sketch_visibility(QApplication& application, Assembly
                 window.grab().save(QString::fromStdString((directory/("feature-type-"+std::to_string(type)+"-ui.png")).string()));
                 dialog()->buttons()->button(QDialogButtonBox::Ok)->click();flush();check(!dialog(),"Feature type cannot commit");
                 run("save");const auto saved=document::PartDocument::load(path);
+                check(saved.find_container(feature.id)->name==pending.name && saved.find_container(feature.id)->feature.automatic_name==pending.name,
+                    "Save lost automatic Feature name");
+                const char* icons[]={"point","axis","plane","sketch","protrusion"};
+                QTreeWidgetItem* typed_row{};
+                for(QTreeWidgetItemIterator it(tree);*it;++it)if((*it)->data(0,Qt::UserRole).toString().toStdString()==feature.id&&(*it)->data(0,Qt::UserRole+3)=="part-container"){typed_row=*it;break;}
+                check(typed_row&&typed_row->text(0).contains(QString::fromStdString(pending.name)),"Tree did not update the Feature name");
+                check(typed_row->icon(0).pixmap(24,24).toImage()==resource_icon(icons[type]).pixmap(24,24).toImage(),
+                    "Tree did not update its type-specific icon");
                 check(static_cast<int>(saved.find_container(feature.id)->feature.type)==type&&saved.sketches.front().serialized()==original,
                     "Type commit changed the owned Sketch or lost the selected type");
                 run("undo");run("redo");run("save");

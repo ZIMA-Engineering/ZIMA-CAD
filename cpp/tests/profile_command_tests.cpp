@@ -55,6 +55,35 @@ void surfaces(const kernel::OcctKernel& kernel,fs::path directory) {
     }
 }
 
+// A shared edge is a valid multi-solid result, not a failed extrusion.
+void touching_features(const kernel::OcctKernel& kernel,fs::path directory) {
+    int index=0;
+    for(const auto xy: {std::array<double,2>{0,0},{10,0},{10,10}}) {
+        Fixture f(kernel,directory);
+        const auto name="feature-contact-"+std::to_string(++index);
+        f.run("new",{{"type","part"},{"name",name}});
+        const auto create=[&](double x,double y,bool reverse) {
+            auto sketch=sketcher::Sketch::create_default();sketch.plane_auto=false;
+            static_cast<void>(sketch.add_rectangle(x,y,x+10,y+10));
+            auto value=document::PartDocument::create_feature_container(sketch.id);
+            sketch.owner_container_id=value.id;
+            value.feature.sides[0].operation=reverse?document::FeatureSideOperation::None:document::FeatureSideOperation::Extrusion;
+            value.feature.sides[1].operation=reverse?document::FeatureSideOperation::Extrusion:document::FeatureSideOperation::None;
+            value.feature.sides[0].length=value.feature.sides[1].length=10;
+            workspace::commit_profile(f.live,kernel,f.doc().document_id,value,workspace::ProfileEditMode::Create,sketch);
+            return value.id;
+        };
+        create(0,0,false);near(f.volume(),1000);
+        const auto id=create(xy[0],xy[1],true);near(f.volume(),2000);
+        require(f.part().session.calculated_boundaries().back().calculation_errors.empty(),"Touching Feature has a failed calculation");
+        f.run("undo");near(f.volume(),1000);f.run("redo");near(f.volume(),2000);
+        f.run("save");std::vector<kernel::BodyResult> bodies;
+        const auto reopened=document::PartDocument::load(directory/(name+".prtz"),&bodies);
+        require(reopened.find_container(id)!=nullptr,"Touching Feature lost its native definition");
+        near(bodies.back().volume,2000);
+        near(kernel.evaluate_history(reopened.kernel_operations()).back().volume,2000);
+    }
+}
 void unified_feature(const kernel::OcctKernel& kernel,fs::path directory) {
     Fixture f(kernel,directory);
     f.run("new",{{"type","part"},{"name","unified-feature-transaction"}});
@@ -400,6 +429,6 @@ void revolution(const kernel::OcctKernel& kernel,fs::path directory){
 }
 }
 int main(){try{const auto root=fs::canonical(fs::temp_directory_path());const auto directory=root/("zima-profile-commands-"+document::PartDocument::create_default().document_id);
-    require(fs::create_directory(directory),"Cannot create fixture directory");kernel::OcctKernel kernel;front_reference();unified_feature(kernel,directory);surfaces(kernel,directory);sheet_cut_methods(kernel,directory);extrusion(kernel,directory);thin_and_cut(kernel,directory);end_targets(kernel,directory);original_body_target_commands(kernel,directory);revolution(kernel,directory);
+    require(fs::create_directory(directory),"Cannot create fixture directory");kernel::OcctKernel kernel;front_reference();touching_features(kernel,directory);unified_feature(kernel,directory);surfaces(kernel,directory);sheet_cut_methods(kernel,directory);extrusion(kernel,directory);thin_and_cut(kernel,directory);end_targets(kernel,directory);original_body_target_commands(kernel,directory);revolution(kernel,directory);
     require(directory.parent_path()==root,"Unexpected cleanup path");fs::remove_all(directory);std::cout<<"Profile commands: native ownership, exact solid volumes, Thin walls, cuts, dimensions, locks, atomic errors and Undo/Redo passed\n";return 0;
 }catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}

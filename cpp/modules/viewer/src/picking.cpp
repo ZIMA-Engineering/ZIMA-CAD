@@ -812,6 +812,14 @@ std::vector<ViewerCandidate> ordered_viewer_candidates(
                     axis.reference.owner_id.substr(0,
                         axis.reference.owner_id.size() - entity_suffix.size()),
                     "axis", axis.reference.instance_path, geometry});
+            } else if(axis.reference.semantic_key=="axis" &&
+                std::ranges::any_of(mesh.points,[&](const auto& point) {
+                    return point.display_owner_id==axis.reference.owner_id &&
+                        point.reference.owner_id==axis.reference.owner_id &&
+                        point.reference.semantic_key=="point";
+                })) {
+                result.push_back({CandidateKind::Container,axis.distance,axis.axis,
+                    axis.reference.owner_id,{},axis.reference.instance_path,geometry});
             }
         }
     };
@@ -1075,6 +1083,12 @@ std::optional<ViewerCandidate> container_candidate(
                 std::distance(mesh.edges.begin(), display_owned_edge)),
             owner_id, {}, instance_path, CandidateGeometry::Display};
     }
+    const auto display_owned_point=std::ranges::find_if(mesh.points,[&](const auto& point) {
+        return point.display_owner_id==owner_id && point.reference.instance_path==instance_path;
+    });
+    if(display_owned_point!=mesh.points.end())return ViewerCandidate{CandidateKind::Container,0.0,
+        static_cast<std::size_t>(std::distance(mesh.points.begin(),display_owned_point)),
+        owner_id,{},instance_path,CandidateGeometry::Display};
     const auto sketch_edge = std::find_if(mesh.edges.begin(), mesh.edges.end(),
         [&](const zima::kernel::ViewerEdge& edge) {
             const auto& key = edge.reference.semantic_key;

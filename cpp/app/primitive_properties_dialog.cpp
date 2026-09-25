@@ -697,6 +697,8 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
         lock_sheet_attachment_fields();
     } else if (initial.feature_kind == zima::document::FeatureKind::Feature) {
         setObjectName("featurePropertiesDialog");
+        name_->setObjectName("featureName");
+        feature_automatic_name_=initial.feature.automatic_name;
         feature_panel_=new FeatureParameterPanel(this,initial.feature);
         header_form->insertRow(0,tr("Typ prvku"),feature_panel_->type_control());
         feature_panel_->set_subtract(initial.combine_mode==zima::document::CombineMode::Subtract);
@@ -788,6 +790,11 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
             notify_preview();
         });
         connect(feature_panel_->type_control(),&QComboBox::currentIndexChanged,this,[this] {
+            if(feature_name_provider_ && !feature_automatic_name_.empty() &&
+                name_->text().trimmed().toStdString()==feature_automatic_name_) {
+                feature_automatic_name_=feature_name_provider_(feature_panel_->parameters().type);
+                name_->setText(QString::fromStdString(feature_automatic_name_));
+            }
             const bool picking=forward_end_target_pick_active_||reverse_end_target_pick_active_;
             forward_end_target_pick_active_=reverse_end_target_pick_active_=false;
             forward_end_target_highlighted_=reverse_end_target_highlighted_=false;
@@ -1380,6 +1387,7 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
     content_layout()->addWidget(error_);
     connect(name_, &QLineEdit::textChanged, this, [this](const QString&) {
         error_->clear();
+        if(feature_panel_)notify_preview();
     });
     // Basic-solid dimensions drive the analytical wire preview immediately.
     // The OCCT body is still calculated only when OK commits the dialog.
@@ -1579,6 +1587,8 @@ zima::document::HistoryContainer PrimitivePropertiesDialog::values() const {
         result.combine_mode=zima::document::CombineMode::Add;
     } else if (result.feature_kind == zima::document::FeatureKind::Feature) {
         result.feature=feature_panel_->parameters();
+        result.feature.automatic_name=result.name==feature_automatic_name_
+            ? feature_automatic_name_ : std::string{};
         for(std::size_t side=0;side<2;++side)result.feature.sides[side].targets=initial_.feature.sides[side].targets;
         result.combine_mode=feature_panel_->subtract()?zima::document::CombineMode::Subtract:zima::document::CombineMode::Add;
     } else if (result.feature_kind == zima::document::FeatureKind::Extrusion) {
@@ -2042,6 +2052,11 @@ bool PrimitivePropertiesDialog::set_pending_dimension_layout(
     set_commit_required(true);
     notify_preview();
     return true;
+}
+
+void PrimitivePropertiesDialog::set_feature_name_provider(
+        std::function<std::string(zima::document::FeatureType)> provider) {
+    feature_name_provider_=std::move(provider);
 }
 
 void PrimitivePropertiesDialog::set_preview_callback(

@@ -14,7 +14,8 @@ silently discard authored geometry or reset its numerical values.
 
 The common placement/reference section uses the existing shared contract.
 Plane selection and signed offset form a separate Plane section. The Sketch
-button has its own section and is present only for Sketch and modeling results.
+button has its own compact section to the right of Plane, on the same row,
+and is present only for Sketch and modeling results.
 All types use the existing OK/Cancel transaction and Sketcher-return lifecycle.
 Confirming unchanged properties preserves the calculated geometry and Undo
 boundary. The comparison includes the owned Sketch, so actual Sketch edits
@@ -33,7 +34,38 @@ The Axis is always the origin axis normal to the selected work plane. Its
 origin lies on the offset plane; lengths are measured from this point. The
 origin-axis checkbox is unnecessary for this type and the centroid option is
 absent. Plane results show only the offset plane. Labels are anchored at the
-origin on that plane, with a readable screen-space gap.
+origin on that plane, with a readable screen-space gap. The Axis uses the same
+finite dash-dot rendering path as the other native axes; neither hidden optional
+modeling-axis checkbox controls its visibility. Hovering or selecting a Plane
+highlights its border as well as its origin, and coincident unselected planes
+cannot cover that highlight. Selecting an Axis highlights its
+line and its three defining markers, without adding a fourth midpoint marker.
+For Extrusion / Revolution, the origin dot is hidden in the normal idle state;
+it appears with hover, selection, reference inspection or the live preview.
+Its name remains anchored at the work-frame origin.
+
+## Automatic names and Tree icons
+
+New standalone Features receive a localized type name followed by a three-digit
+number, for example `Bod 001`, `Osa 001`, `Rovina 001`, `Skica 001` or `Prvek 001`
+in Czech. The combined Extrusion / Revolution type retains the general Feature
+prefix because its two sides can use different operations. Allocation uses the
+first available number for that prefix and checks existing history and
+construction names in the Part. Numbers can exceed three digits.
+
+The Tree and View use the same stored name. Changing type updates an automatic
+name and the Tree icon; a user-authored name is retained. Renaming never changes
+container, feature, Sketch or reference identities. Undo/Redo, Cancel and
+Sketcher return preserve the pending or committed naming state with the Feature.
+Generated prefixes use the current UI language; stored document names are not
+translated simply because the application language changes.
+
+The Feature definition stores `automatic_name`, the last name assigned by the
+application. An empty value, including an omitted optional value, denotes a
+user-authored name. A name differing from that marker is also user-authored
+(for example after a Tree rename). This presentation metadata does not affect
+geometry or reference resolution. Existing names are not guessed from their
+spelling or overwritten merely because they look like a generated name.
 
 ## Owned geometry in other commands
 
@@ -76,7 +108,24 @@ current-format-only policy.
 General analytic surfaces and geometric operations needed by retained features
 are independent of the removed modeling types and must remain functional.
 
+## Contact between modeling Features
+
+The profile command regression covers two 10 × 10 × 10 mm blocks extruded to
+opposite sides of the same XY plane. The second profile shares a face, only an
+edge, or only a point with the first result. It exercises the real unified
+Feature transaction, expected total volume of 2000 mm³, Undo/Redo, native save,
+reopen and explicit regeneration. Edge/point contact must not be repaired by
+moving geometry or increasing tolerance; it can legitimately retain multiple
+solids in the Body result. All three cases pass without changing the kernel.
+The reported rejection was not reproduced by these cases; a failing native
+model/profile is still needed to diagnose that particular failure.
+
 ## Verification
+
+The dedicated Qt contract checks the horizontal Plane/Sketch layout, automatic
+and custom names, actual OpenGL axis/plane pixels, whole-Feature highlighting
+and the idle modeling-origin marker. The translation contract checks generated
+names in all five languages; the GUI lifecycle checks Tree names and icons.
 
 The native parameter contract verifies all five types, original point/axis/plane
 references, signed work-plane offsets and retained inactive side settings.
@@ -99,6 +148,26 @@ Factory Part, Skeleton and Assembly templates were regenerated with the native
 serializer; New Document options are exercised through the Windows GUI. The
 Windows development launcher remains `zima-cad.bat`. Linux runtime verification
 must be performed on a Linux host.
+
+### Feature presentation follow-up (2026-09-25)
+
+The complete Windows Release build passed, together with 22 targeted contracts:
+12 native tests for Feature parameters, picking, axes, work planes and profile
+operations; and 10 GUI tests for Feature lifecycle/layout/rendering, translations,
+New Document, owned points, profile frames, Sketcher return, axis end targets,
+work-plane editing and cylindrical-face axes. The overlap rendering check uses
+an additional coincident plane to catch highlights being painted over.
+
+The work-plane GUI fixture now finds its edited Sketch by ID. Its stock block
+also owns a Sketch, so checking the first Sketch in the document incorrectly
+reported that accepting a manual plane had failed. All five editor paths now
+check the intended object through Cancel, OK, save, reopen and AUTO restoration.
+
+Part, Skeleton and Assembly start templates were resaved by the current native
+serializer and are byte-identical to the tracked templates; their GUI creation
+checks passed in all five languages. No packaged release is created by this
+source/build verification. The previously recorded unrelated failures below
+are outside this follow-up test set.
 
 ### Existing failures checked against the original revision
 

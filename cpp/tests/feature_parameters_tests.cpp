@@ -15,6 +15,7 @@ template<class Action> void rejected(Action action) {
 }
 FeatureParameters fixture() {
     FeatureParameters p;
+    p.automatic_name="Axis 003";
     p.sketch_id="sketch:source";p.axis_segment_id="axis:source";
     p.profile_source=ProfileSource::External;p.profile_plane_offset=-0.0;
     p.thin_thickness=.75;p.thin_mode=ThinMode::OtherSide;
@@ -102,7 +103,11 @@ int main() { try {
         }
         check(result.points.size()==(type==FeatureType::Axis?3:1),"Feature result has unexpected point markers");
         check(result.edges.size()==(type==FeatureType::Axis||type==FeatureType::Plane?1:0),"Feature result has extra geometry");
+        check(origin.always_visible==(type!=FeatureType::Modeling),"Modeling origin must be hidden while idle");
+        check(result.axes.size()==(type==FeatureType::Axis?1:0),"Feature Axis is absent from the rendering packet");
         if(type==FeatureType::Axis) {
+            check(result.axes.front().reference==result.original_references.axes.front().reference,
+                "Axis presentation and reference identities differ");
             const auto& edge=result.edges.front();
             check(edge.dash_dot&&!edge.infinite,"Feature Axis must remain a finite native axis");
             check(std::abs(edge.points.front().x-(18-restored.sides[1].length))<1e-9&&

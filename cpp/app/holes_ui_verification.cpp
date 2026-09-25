@@ -360,6 +360,14 @@ int verify_work_plane_ui(QApplication& application, AssemblyWorkspaceWindow& win
             std::string owner=feature.id;
             if(kind=="plane") {auto plane=document::PartDocument::create_construction(document::ConstructionKind::Plane);plane.definition=document::ConstructionDefinition::PointReference;plane.references={reference};plane.offset=3;owner=plane.id;doc.constructions.push_back(plane);}
             else {doc.history.push_back(feature);doc.sketches.push_back(sketch);}
+            const auto plane_is_auto=[&](const document::PartDocument& saved) {
+                if(kind=="plane")return saved.find_construction(owner)->base_plane_auto;
+                // The stock is also an authored profile and owns the first
+                // Sketch. Inspect the edited Sketch by its stable identity.
+                const auto found=std::ranges::find(saved.sketches,sketch.id,&sketcher::Sketch::id);
+                check(found!=saved.sketches.end(),"Edited work-plane Sketch disappeared");
+                return found->plane_auto;
+            };
             doc.resolve_constructions(doc.origin_viewer_mesh().original_references);
             kernel::OcctKernel kernel;const auto bodies=kernel.evaluate_history(doc.kernel_operations());
             const auto file=directory/("work-plane-"+kind+"-"+doc.document_id+".prtz");doc.save(file,bodies);
@@ -425,7 +433,7 @@ int verify_work_plane_ui(QApplication& application, AssemblyWorkspaceWindow& win
             combo->setCurrentIndex(combo->findData(xy));flush();
             pending->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Cancel)->click();flush();run("save");
             auto unchanged=document::PartDocument::load(file);
-            check(kind=="plane"?unchanged.find_construction(owner)->base_plane_auto:unchanged.sketches.front().plane_auto,"Cancel changed plane mode");
+            check(plane_is_auto(unchanged),"Cancel changed plane mode");
             edit();pending=dialog();combo=pending->findChild<QComboBox*>(combo_name);combo->setCurrentIndex(combo->findData(xy));flush();
             if(kind=="holes"||kind=="extrusion"||kind=="revolution") {
                 auto* button=pending->findChild<QPushButton*>(kind=="holes"?"sketchOpenButton":"primitiveOwnSketchButton");check(button,"Owned Sketch button missing");button->click();flush();
@@ -434,13 +442,13 @@ int verify_work_plane_ui(QApplication& application, AssemblyWorkspaceWindow& win
             }
             pending->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();run("save");
             auto saved=document::PartDocument::load(file);
-            check(kind=="plane"?!saved.find_construction(owner)->base_plane_auto:!saved.sketches.front().plane_auto,"OK lost manual choice");
+            check(!plane_is_auto(saved),"OK lost manual choice");
             if(kind=="plane")check(!saved.find_construction(owner)->references.empty(),"Plane OK lost first reference");
             edit();pending=dialog();combo=pending->findChild<QComboBox*>(combo_name);check(combo->currentData()==xy,"Reopened Properties lost plane");
             window.grab().save(QString::fromStdString((directory/("work-plane-"+kind+".png")).string()));
             combo->setCurrentIndex(combo->findData("auto"));flush();pending->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();run("save");
             auto automatic=document::PartDocument::load(file);
-            check(kind=="plane"?automatic.find_construction(owner)->base_plane_auto:automatic.sketches.front().plane_auto,"GUI did not restore AUTO");
+            check(plane_is_auto(automatic),"GUI did not restore AUTO");
         }
         std::cout<<"Work-plane GUI: all five live offset-plane borders, XY/XZ/YZ/AUTO, perpendicular 3 mm offsets, Cancel, OK, reopen and owned Sketch return passed\n";return 0;
     }catch(const std::exception& error){window.grab().save(QString::fromStdString((directory/"work-plane-ui-failure.png").string()));std::cerr<<"Work-plane GUI ("<<stage<<"): "<<error.what()<<'\n';return 1;}

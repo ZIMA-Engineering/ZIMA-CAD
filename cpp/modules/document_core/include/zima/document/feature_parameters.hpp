@@ -25,6 +25,9 @@ struct FeatureSideParameters {
 // The editing definition is independent of calculated OCCT operands. Start/End
 // ancestry uses the owning container/feature and Sketch IDs, not operation kind.
 struct FeatureParameters {
+    // Last generated display name; empty (or different from the container name)
+    // means a user-authored name. This has no geometric/reference meaning.
+    std::string automatic_name;
     FeatureType type{FeatureType::Modeling};
     std::string sketch_id;
     std::string axis_segment_id;

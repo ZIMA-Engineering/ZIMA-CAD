@@ -1,5 +1,6 @@
 #include <zima/workspace/imported_feature_operations.hpp>
 #include <zima/workspace/hole_operations.hpp>
+#include "../feature_naming.hpp"
 #include "workspace_internal.hpp"
 #include "../feature_view_cues.hpp"
 #include "sheet_cut_wire_preview.hpp"
@@ -224,6 +225,11 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
             sketch.name = tr(sketch.name.c_str()).toStdString();
             *data = sketch.serialized();
         }
+    }
+    if(feature_kind==zima::document::FeatureKind::Feature && part && !edit_mode &&
+        !resuming_profile && !pending_profile_edit) {
+        initial.name=next_feature_name(part->session.document(),initial.feature.type,initial.id);
+        initial.feature.automatic_name=initial.name;
     }
     if (feature_kind == zima::document::FeatureKind::DrillPoint && part != nullptr) {
         const zima::kernel::BodyResult* input_body = nullptr;
@@ -481,6 +487,14 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
             if (!property_owned_sketch_draft_) return;
             property_owned_sketch_draft_->plane = plane;
             property_owned_sketch_draft_->plane_auto = automatic;
+        });
+    }
+    if(feature_kind==zima::document::FeatureKind::Feature && part) {
+        dialog->set_feature_name_provider([this,owner_id,initial](zima::document::FeatureType type) {
+            if(type==initial.feature.type && initial.name==initial.feature.automatic_name)
+                return initial.name;
+            const auto* current=workspace_.open_part(owner_id);
+            return current?next_feature_name(current->session.document(),type,initial.id):initial.name;
         });
     }
     primitive_parameter_owner_id_ = initial.id;

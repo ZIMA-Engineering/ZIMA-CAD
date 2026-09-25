@@ -17,6 +17,9 @@ zima::kernel::ViewerMesh PartDocument::feature_result_mesh(const HistoryContaine
     mesh.points.push_back({origin,{feature.id,"point",{}},feature.name});
     mesh.points.back().display_owner_id=feature.id;
     mesh.original_references.points=mesh.points;
+    // Keep the persisted point available to reference-taking commands, while
+    // ordinary modeling results show their origin dot only on interaction.
+    mesh.points.back().always_visible=feature.feature.type!=FeatureType::Modeling;
     if(feature.feature.type==FeatureType::Axis) {
         const double forward=feature.feature.effective_side(0).length;
         const double reverse=feature.feature.effective_side(1).length;
@@ -25,6 +28,8 @@ zima::kernel::ViewerMesh PartDocument::feature_result_mesh(const HistoryContaine
         edge.display_owner_id=feature.id;edge.construction=edge.overlay=edge.dash_dot=true;
         edge.measured_length=forward+reverse;
         mesh.edges.push_back(edge);mesh.original_references.edges.push_back(std::move(edge));
+        mesh.axes.push_back({along((forward-reverse)*.5),normal,
+            forward+reverse,{feature.id,"axis",{}}});
         mesh.original_references.axes.push_back({along((forward-reverse)*.5),normal,
             forward+reverse,{feature.id,"axis",{}}});
         for(const auto side:{FeatureSide::Start,FeatureSide::End}) {

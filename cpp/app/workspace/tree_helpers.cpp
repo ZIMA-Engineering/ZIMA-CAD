@@ -87,6 +87,16 @@ QString feature_icon_name(const zima::document::HistoryContainer& feature) {
         return QStringLiteral("sheet-revolve");
     if(feature.feature_kind==zima::document::FeatureKind::Extrusion&&feature.extrusion.sheet_cut)
         return QStringLiteral("sheet-cut");
+    if(feature.feature_kind==zima::document::FeatureKind::Feature) {
+        using zima::document::FeatureType;
+        switch(feature.feature.type) {
+            case FeatureType::Point:return QStringLiteral("point");
+            case FeatureType::Axis:return QStringLiteral("axis");
+            case FeatureType::Plane:return QStringLiteral("plane");
+            case FeatureType::Sketch:return QStringLiteral("sketch");
+            case FeatureType::Modeling:return QStringLiteral("protrusion");
+        }
+    }
     return feature_icon_name(feature.feature_kind);
 }
 

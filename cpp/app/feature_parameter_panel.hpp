@@ -51,12 +51,14 @@ public:
         offset_display_=offset->value();
         auto* sketch=new QPushButton(tr("Skica"),sketch_group);style_sketch_button(sketch);sketch->setMinimumHeight(40);
         sketch_=sketch;sketch->setObjectName("featureSketchButton");
-        sketch->setFixedWidth(220);
+        sketch->setMinimumWidth(100);
         sketch->setSizePolicy(QSizePolicy::Fixed,QSizePolicy::Expanding);
         sketch->setIcon(resource_icon("sketch"));sketch->setIconSize({20,20});
         sketch_row->addWidget(sketch);
-        content_->addWidget(plane_group_);
-        content_->addWidget(sketch_group);
+        auto* plane_row=new QHBoxLayout;
+        plane_row->addWidget(plane_group_,1);
+        plane_row->addWidget(sketch_group);
+        content_->addLayout(plane_row);
         auto* result_group=new QGroupBox(tr("Výsledek"),this);result_group_=result_group;
         result_group->setObjectName("featureResultGroup");
         auto* profile=new QFormLayout(result_group);

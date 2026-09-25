@@ -2938,12 +2938,16 @@ void MeshView::paintGL() {
         [&](const auto* edge) {
             const auto& ref = edge->reference;
             const bool selected = highlighted_plane &&
-                highlighted_plane->owner_id == ref.owner_id &&
                 highlighted_plane->instance_path == ref.instance_path &&
-                ((highlighted_plane->kind == CandidateKind::Container &&
-                  highlighted_plane->semantic_key == "origin") ||
-                 (highlighted_plane->kind == CandidateKind::Plane &&
-                  highlighted_plane->semantic_key == ref.semantic_key));
+                ((!edge->display_owner_id.empty() &&
+                  highlighted_plane->kind == CandidateKind::Container &&
+                  highlighted_plane->semantic_key.empty() &&
+                  highlighted_plane->owner_id == edge->display_owner_id) ||
+                 (highlighted_plane->owner_id == ref.owner_id &&
+                  ((highlighted_plane->kind == CandidateKind::Container &&
+                    highlighted_plane->semantic_key == "origin") ||
+                   (highlighted_plane->kind == CandidateKind::Plane &&
+                    highlighted_plane->semantic_key == ref.semantic_key))));
             return !selected &&
                 !impl_->constraint_reference_edges.contains(edge_key(ref));
         });
@@ -4031,7 +4035,11 @@ if (impl_->show_origins) {
                     (!origin && !impl_->show_planes && !planes_selectable &&
                         !creation_preview)) continue;
                 const bool exact_highlight = highlighted &&
-                    ((highlighted->kind == CandidateKind::Plane &&
+                    ((highlighted->kind == CandidateKind::Container &&
+                      !edge.display_owner_id.empty() &&
+                      highlighted->owner_id == edge.display_owner_id &&
+                      highlighted->semantic_key.empty()) ||
+                     (highlighted->kind == CandidateKind::Plane &&
                       highlighted->owner_id == edge.reference.owner_id &&
                       (highlighted->semantic_key == edge.reference.semantic_key ||
                        (highlighted->semantic_key == "plane" &&
@@ -4231,8 +4239,17 @@ if (impl_->show_origins) {
                     if (!inspected && ((origin && !impl_->show_origins && !axes_selectable &&
                             !impl_->editing_origin_visible) ||
                         (!origin && !impl_->show_axes && !axes_selectable))) continue;
+                    const bool feature_axis = axis.reference.semantic_key == "axis" &&
+                        std::ranges::any_of(impl_->mesh.points,[&](const auto& point) {
+                            return point.display_owner_id == axis.reference.owner_id &&
+                                point.reference.owner_id == axis.reference.owner_id &&
+                                point.reference.semantic_key == "point";
+                        });
                     const bool exact_highlight = highlighted &&
-                        (((highlighted->kind == CandidateKind::Axis ||
+                        ((feature_axis && highlighted->kind == CandidateKind::Container &&
+                          highlighted->owner_id == axis.reference.owner_id &&
+                          (highlighted->semantic_key.empty() || highlighted->semantic_key == "axis")) ||
+                         ((highlighted->kind == CandidateKind::Axis ||
                            highlighted->kind == CandidateKind::SketchAxis) &&
                           highlighted->owner_id == axis.reference.owner_id &&
                           highlighted->semantic_key == axis.reference.semantic_key) ||
@@ -4367,7 +4384,7 @@ if (impl_->show_origins) {
                         // (exact_highlight) -- matching a solid body's own
                         // origin-indicator convention -- not permanently, so it
                         // does not clutter idle/default rendering.
-                        if (exact_highlight) {
+                        if (exact_highlight && !feature_axis) {
                             draw_circular_marker(
                                 painter, project(axis.point), presentation_color);
                         }
@@ -4507,10 +4524,11 @@ if (impl_->show_origins) {
                     // ordinary state -- the Axis line / Plane border is
                     // enough on its own; the dot only appears once one of
                     // the states above gives it a meaningful color.
-                    if (!point.always_visible && !selected && !hovered && !referenced &&
-                        !creation_preview) {
-                        continue;
-                    }
+                    const bool hidden_marker = !point.always_visible && !selected &&
+                        !hovered && !referenced && !creation_preview;
+                    const bool feature_label = point.reference.semantic_key == "point" &&
+                        point.display_owner_id == point.reference.owner_id;
+                    if (hidden_marker && !feature_label) continue;
                     // A live work-plane preview is one visual object: its
                     // rectangular border and its offset-origin point use the
                     // same cyan preview colour in Plane, Sketch, Extrusion
@@ -4550,7 +4568,7 @@ if (impl_->show_origins) {
                     // normal cyan plane marker. The persisted point remains
                     // in viewer data and returns immediately when the dialog
                     // closes, preserving ordinary View-only editing.
-                    if (!replaced_by_active_point_manipulator) {
+                    if (!hidden_marker && !replaced_by_active_point_manipulator) {
                         draw_circular_marker(painter, center, marker_color);
                     }
                     if (!point.label.empty()) {

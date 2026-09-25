@@ -6,6 +6,7 @@
 #include "drawing_detail_dialog.hpp"
 #include "primitive_properties_dialog.hpp"
 #include "sweep_station_label.hpp"
+#include "feature_naming.hpp"
 #include "sheet_transition_dialog.hpp"
 #include "mass_properties_dialog.hpp"
 #include <QAction>
@@ -105,6 +106,14 @@ int verify_translations(QApplication& application, QWidget& parent) {
         check(settings.translations.contains("global.language") &&
             !settings.translations.contains("Zamknout hodnotu"), "INI sections were mixed");
         app::apply_application_translations(application, settings);
+        {
+            auto part=document::PartDocument::create_default();
+            const char* sources[]={"Bod","Osa","Rovina","Skica","Prvek"};
+            for(int type=0;type<5;++type)
+                check(app::next_feature_name(part,static_cast<document::FeatureType>(type),"")==
+                    (settings.qt_translations.value(sources[type])+" 001").toStdString(),
+                    "Automatic Feature name is not localized");
+        }
         {
             document::BodyProperties row;row.name="Surface";row.area=300;
             row.surface_centroid=kernel::Vec3{1,2,3};row.density_kg_mm3=.00000785;

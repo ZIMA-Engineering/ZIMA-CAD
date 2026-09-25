@@ -1,3 +1,4 @@
+#include "resource_icon.hpp"
 #include "../tests/gui_profile_fixture.hpp"
 #include <QCheckBox>
 #include <QGroupBox>
@@ -240,6 +241,7 @@ Q_NEVER_INLINE static int verify_feature_prototype(QApplication& application,Ass
         restored.sides[0].length=51.123456789;restored.sides[1].angle_degrees=123.123456789;
         restored.sketch_id="owned-sketch";restored.axis_segment_id="construction-axis";
         auto definition=document::PartDocument::create_feature_container(restored.sketch_id);definition.feature=restored;
+        definition.name=restored.automatic_name;
         dialog=new PrimitivePropertiesDialog(definition,false,true,[](document::HistoryContainer){},&window);dialog->show();flush();
         check(dialog->pending_value().feature==restored,"Feature dialog failed to restore its complete editing definition");
         check(dialog->pending_value().feature.effective_side(1)==restored.sides[0],"Symmetric Feature did not derive its effective second side");

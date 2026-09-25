@@ -7147,6 +7147,7 @@ HistoryContainer PartDocument::create_feature_container(std::string sketch_id) {
     auto container=create_extrusion_container(sketch_id);
     container.feature_kind=FeatureKind::Feature;
     container.name="Prvek";
+    container.feature.automatic_name=container.name;
     container.feature.sketch_id=std::move(sketch_id);
     container.extrusion={};
     return container;
