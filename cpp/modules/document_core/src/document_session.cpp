@@ -9,6 +9,15 @@
 
 namespace zima::document {
 namespace {
+void refresh_symbol_contacts(PartDocument& document,const std::vector<kernel::BodyResult>& boundaries) {
+    if(std::ranges::none_of(document.symbol_annotations,[](const auto& value){return value.reference&&value.reference->surface_kind.has_value();}))return;
+    const kernel::ViewerReferenceGeometry empty;
+    const auto& geometry=boundaries.empty()?empty:boundaries.back().mesh.original_references;
+    for(auto& value:document.symbol_annotations)if(value.reference&&value.reference->surface_kind) {
+        if(value.reference->document_id!=document.document_id) { value.unresolved=true;continue; }
+        static_cast<void>(symbols::refresh_surface_attachment(value,geometry));
+    }
+}
 
 void retain_shaft_reference_geometry(PartDocument& document,
         const std::vector<zima::kernel::BodyResult>& boundaries) {
@@ -314,6 +323,7 @@ void DocumentSession::commit(
     refresh_body_properties(document,calculated_boundaries);
     retain_shaft_reference_geometry(document,calculated_boundaries);
     document.dimension_identifiers.retain(current_->document.dimension_identifiers);
+    refresh_symbol_contacts(document,calculated_boundaries);
     document.synchronize_dimension_identifiers();
     // Finish validation and allocation before publishing either document or
     // history. Consumers must never observe a rejected edit as a new generation.
@@ -334,6 +344,7 @@ void DocumentSession::update_calculated_boundaries(
     refresh_physical_relations(document,physical_values(document,calculated_boundaries));
     refresh_body_properties(document,calculated_boundaries);
     retain_shaft_reference_geometry(document,calculated_boundaries);
+    refresh_symbol_contacts(document,calculated_boundaries);
     current_->document=std::move(document);
     current_->calculated_boundaries = std::move(calculated_boundaries);
     current_->calculated_state_dirty = true;

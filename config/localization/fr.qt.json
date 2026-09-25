@@ -1,4 +1,16 @@
 {
+  "Orientace ve výkresu": "Orientation dans le dessin",
+  "Se značkou": "Avec le symbole",
+  "Zachovat čitelnost": "Conserver la lisibilité",
+  "Plocha symbolu": "Surface du symbole",
+  "Odkazová čára se šipkou": "Ligne de repère avec flèche",
+  "Počátek X": "Origine X",
+  "Počátek Y": "Origine Y",
+  "Počátek Z": "Origine Z",
+  "Reference není dostupná. Symbol zachovává poslední polohu.": "Référence indisponible. Le symbole conserve sa dernière position.",
+  "Vyberte plochu pro symbol.": "Sélectionnez une surface pour le symbole.",
+  "Dokument již není aktivní.": "Le document n’est plus actif.",
+  "Symbol nelze vytvořit. Zkontrolujte název a cílovou složku.": "Impossible de créer le symbole. Vérifiez le nom et le dossier de destination.",
   "Plošné těžiště — X: %1; Y: %2; Z: %3": "Centre de gravité surfacique — X : %1 ; Y : %2 ; Z : %3",
   "Hmotnost: nelze určit z otevřené plochy bez tloušťky.": "Masse : impossible à déterminer pour une surface ouverte sans épaisseur.",
   "Používat ISO font pro GUI": "Utiliser la police ISO pour l’interface",
@@ -27,13 +39,10 @@
   "Upravte obě skici a polohu druhého počátku. OK vytvoří plech.": "Modifiez les deux esquisses et la position du second repère. OK crée la tôle.",
   "Fixed section frames require an explicit smooth loft section at each station.": "Les repères fixes nécessitent une section explicite du lissage à chaque station.",
   "Compound sheet material must match every authored primitive.": "Le matériau de tôle composite doit correspondre à chaque primitive définie.",
-
   "Both transition Sketches must belong to the same Body.": "Les deux esquisses de transition doivent appartenir au même corps.",
-
   "Vyberte skicu": "Sélectionner une esquisse",
   "Vnitřní poloměr ohybu": "Rayon intérieur de pliage",
   "K-faktor": "Facteur K",
-
   "Přechod plechu": "Transition de tôle",
   "Skica půlkruhu": "Esquisse du demi-cercle",
   "Skica zaobleného půlobdélníku": "Esquisse du demi-rectangle arrondi",
@@ -63,7 +72,6 @@
   "Sheet transition editing must preserve feature identity.": "La modification doit préserver l’identité de la fonction.",
   "Activate an editable Body before creating a sheet transition.": "Activez un corps modifiable avant de créer la transition.",
   "Specify a sheet transition name.": "Indiquez un nom pour la transition.",
-
   "Source Body must precede the active Body.": "Le corps source doit précéder le corps actif.",
   "Create the empty target Body after the source Body and show its planar faces.": "Créez le corps cible vide après le corps source et affichez les faces planes de celui-ci.",
   "Plech z tělesa": "Tôle depuis un corps",
@@ -289,7 +297,7 @@
   "Zpět do sestavy": "Retour à l’assemblage",
   "Vytvořit těleso": "Créer un corps",
   "Potlačit": "Inhiber",
-  "Dokumenty ZIMA-CAD (*.prtz *.asmz *.drwz *.frmz *.tblz)": "Documents ZIMA-CAD (*.prtz *.asmz *.drwz *.frmz *.tblz)",
+  "Dokumenty ZIMA-CAD (*.prtz *.asmz *.drwz *.frmz *.tblz *.symz)": "Documents ZIMA-CAD (*.prtz *.asmz *.drwz *.frmz *.tblz *.symz)",
   "O aplikaci ZIMA-CAD": "À propos de ZIMA-CAD",
   "Uložit sestavu ZIMA-CAD": "Enregistrer l’assemblage ZIMA-CAD",
   "Sestava ZIMA-CAD (*.asmz)": "Assemblage ZIMA-CAD (*.asmz)",
@@ -1726,5 +1734,16 @@
   "Export rozvinu…": "Exporter le développé…",
   "Rozvin prototypu byl exportován: %1": "Développé du prototype exporté : %1",
   "Export rozvinu se nezdařil.": "Échec de l’export du développé.",
-  "Skici určují vnější rozměry. Žluté osy označují skutečné ohyby; tloušťka zatím není započítána.": "Les esquisses définissent les dimensions extérieures. Les axes jaunes indiquent les plis réels ; l’épaisseur n’est pas encore prise en compte."
+  "Skici určují vnější rozměry. Žluté osy označují skutečné ohyby; tloušťka zatím není započítána.": "Les esquisses définissent les dimensions extérieures. Les axes jaunes indiquent les plis réels ; l’épaisseur n’est pas encore prise en compte.",
+  "Reference symbolu": "Référence du symbole",
+  "Vyberte geometrii nebo polohu na listu.": "Sélectionnez une géométrie ou une position sur la feuille.",
+  "Hodnota tolerance": "Valeur de tolérance",
+  "Primární základna": "Référence primaire",
+  "Sekundární základna": "Référence secondaire",
+  "Terciární základna": "Référence tertiaire",
+  "Tolerance musí být kladné číslo.": "La tolérance doit être un nombre positif.",
+  "Základny zadejte v pořadí bez mezer, velkými písmeny.": "Saisissez les références dans l’ordre, sans case intermédiaire vide, en majuscules.",
+  "Tato tolerance vyžaduje primární základnu.": "Cette tolérance nécessite une référence primaire.",
+  "Symbol nelze připojit k vybrané geometrii.": "Le symbole ne peut pas être attaché à la géométrie sélectionnée.",
+  "Geometrická tolerance": "Tolérance géométrique"
 }

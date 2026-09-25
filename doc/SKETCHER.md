@@ -730,3 +730,24 @@ spacing in a profile with arcs, tangent arms and concentric holes, one center
 at origin and another on X. Radii, equality and tangency remain; tests cover
 original spacing 19.448732 mm and repeated changes to 12, 20 and 35 mm. Tangent
 contacts retain their own anchoring rules during segment-length edits.
+
+## Coupled distance edits (2026-09-24)
+
+A closed point/line loop may require several vertices to move simultaneously
+when a true-distance dimension changes. A currently horizontal or vertical
+edge is not an H/V constraint unless that relation is persisted explicitly.
+
+Dimension transactions retain the ordinary solver's successful results and
+reference/construction priorities. If that solve reports a conflict, the shared
+rectilinear equation seed may additionally linearize supported point-distance
+equations. Bounded Newton steps reuse its row-space QR, with decreasing step
+size and a retained distance-direction branch. Unsupported graphs and failed
+seeds remain unchanged. The ordinary solver verifies the resulting seed before
+commit; this does not relax tolerance or redundancy checks. Fixed points and
+persisted signed linear dimensions retain their existing constraints.
+
+The reduced `01.prtz` regression covers shorter/longer edge lengths, verification
+of every other edge length, nearby-branch retention, native Sketch round-trip,
+return to original dimensions, impossible geometry and duplicate drivers.
+The original file was also checked without saving: all six edge lengths accepted
+independent -5% and +5% changes (12 cases). No UI text or native format changed.

@@ -60,10 +60,11 @@ bool is_sketch_wire_edge(const zima::kernel::ViewerEdge& edge) {
 
 template<class Project> void paint_normal_text(QPainter& painter,
     const std::vector<zima::kernel::ViewerEdge>& edges,
-    const std::vector<zima::kernel::ViewerEdge>& preview,Project project,bool visible) {
+    const std::vector<zima::kernel::ViewerEdge>& preview,Project project,bool visible,bool symbols_visible) {
     std::map<zima::viewer::EdgeKey,std::pair<QPainterPath,QColor>> paths;
     const auto append=[&](const auto& source,bool transient) {
         for(const auto& edge:source) if(edge.filled_text && !edge.points.empty()) {
+            if(!transient && !(edge.reference.semantic_key.starts_with("symbol:")?symbols_visible:visible))continue;
             auto& [path,color]=paths[zima::viewer::edge_key(edge.reference)];
             path.setFillRule(Qt::OddEvenFill);path.moveTo(project(edge.points.front()));
             for(std::size_t i=1;i<edge.points.size();++i)path.lineTo(project(edge.points[i]));
@@ -73,7 +74,7 @@ template<class Project> void paint_normal_text(QPainter& painter,
                 key.ends_with(":red")?QColor(255,0,0):key.ends_with(":yellow")?QColor(245,205,80):key.ends_with(":white")?QColor(255,255,255):QColor(77,216,17);
         }
     };
-    if(visible)append(edges,false);append(preview,true);
+    append(edges,false);append(preview,true);
     for(const auto& [key,item]:paths)painter.fillPath(item.first,item.second);
 }
 
@@ -443,6 +444,10 @@ struct MeshView::Impl {
     bool show_planes{true};
     bool show_sketches{true};
     bool show_dimensions{true};
+    bool show_symbols{true};
+    std::function<std::optional<SymbolHandles>()> symbol_handles;
+    std::function<void(const std::string&,bool,kernel::Vec3)> symbol_handle_move;
+    std::optional<SymbolHandles> symbol_drag;
     std::function<std::map<kernel::ObjectEnvelopeKey,kernel::ModelEnvelope>(const kernel::ViewerMesh&)> object_frame_provider;
     kernel::ModelEnvelope dimension_bounds;
     std::map<kernel::ObjectEnvelopeKey,kernel::ModelEnvelope> object_bounds;
@@ -832,6 +837,18 @@ std::optional<QPointF> MeshView::dimension_handle_position(const ViewerCandidate
     const auto layout=dimension_text_presentation(*d,project,font(),text,.5*logicalDpiX()/25.4,1.5);
     return layout.valid?std::optional(layout.handles[index]):std::nullopt;
 }
+void MeshView::set_symbol_handle_callbacks(std::function<std::optional<SymbolHandles>()> provider,
+    std::function<void(const std::string&,bool,kernel::Vec3)> move) {
+    impl_->symbol_handles=std::move(provider);impl_->symbol_handle_move=std::move(move);update();
+}
+std::optional<QPointF> MeshView::symbol_handle_position(int index)const {
+    if(!impl_->show_symbols||!impl_->symbol_handles||index<0||index>1)return {};
+    const auto handles=impl_->symbol_handles();if(!handles)return {};
+    const auto p=index==0?handles->contact:handles->grip;
+    auto q=(impl_->projection(width(),height())*impl_->view())*QVector4D(p.x,p.y,p.z,1);
+    if(std::abs(q.w())<1e-9)return {};q/=q.w();
+    return QPointF((q.x()+1)*width()/2.,(1-q.y())*height()/2.);
+}
 void MeshView::set_object_frame_provider(std::function<std::map<kernel::ObjectEnvelopeKey,kernel::ModelEnvelope>(const kernel::ViewerMesh&)> provider){impl_->object_frame_provider=std::move(provider);}
 void MeshView::set_dimension_layout_resolver(std::function<std::optional<kernel::DimensionLayout>(const kernel::EdgeReference&)> resolver){impl_->dimension_layout_resolver=std::move(resolver);}
 void MeshView::set_dimension_layout_commit(std::function<void(const kernel::EdgeReference&,kernel::DimensionLayout)> commit){impl_->dimension_layout_commit=std::move(commit);}
@@ -1206,6 +1223,7 @@ std::vector<ViewerCandidate> MeshView::selection_candidates_at(
             index-impl_->mesh.dimensions.size()<impl_->transient_dimensions.size()?&impl_->transient_dimensions[index-impl_->mesh.dimensions.size()]:nullptr;
         return dimension&&!impl_->dimension_visibility_filter(*dimension);
     });
+    if (!impl_->show_symbols) std::erase_if(candidates, [](const auto& candidate) { return candidate.kind == CandidateKind::Symbol; });
     if (!impl_->show_dimensions) std::erase_if(candidates, [](const auto& candidate) { return candidate.kind == CandidateKind::Dimension; });
     auto filtered = filter_candidates(candidates,
         impl_->allowed_kinds, impl_->candidate_filter);
@@ -2616,6 +2634,10 @@ void MeshView::set_reference_visibility(
         case ReferenceVisibility::Points: impl_->show_points = visible; break;
         case ReferenceVisibility::Axes: impl_->show_axes = visible; break;
         case ReferenceVisibility::Planes: impl_->show_planes = visible; break;
+        case ReferenceVisibility::Symbols:
+            impl_->show_symbols=visible;impl_->candidates.clear();
+            if(!visible&&impl_->confirmed_candidate&&impl_->confirmed_candidate->kind==CandidateKind::Symbol)clear_selection();
+            break;
         case ReferenceVisibility::Sketches: impl_->show_sketches = visible; break;
         case ReferenceVisibility::Dimensions:
             impl_->show_dimensions = visible;
@@ -2633,6 +2655,7 @@ bool MeshView::reference_visible(ReferenceVisibility reference) const {
         case ReferenceVisibility::Points: return impl_->show_points;
         case ReferenceVisibility::Axes: return impl_->show_axes;
         case ReferenceVisibility::Planes: return impl_->show_planes;
+        case ReferenceVisibility::Symbols: return impl_->show_symbols;
         case ReferenceVisibility::Sketches: return impl_->show_sketches;
         case ReferenceVisibility::Dimensions: return impl_->show_dimensions;
     }
@@ -2942,7 +2965,7 @@ void MeshView::paintGL() {
             const auto corners=(impl_->object_bounds.contains(key)&&impl_->object_bounds.at(key).valid?impl_->object_bounds.at(key):impl_->dimension_bounds).corners();
             for(unsigned i=0;i<8;++i)for(unsigned bit:{1U,2U,4U})if(!(i&bit))painter.drawLine(project(corners[i]),project(corners[i|bit]));
         }
-        paint_normal_text(painter,impl_->mesh.edges,impl_->transient_edges,project,impl_->show_sketches);
+        paint_normal_text(painter,impl_->mesh.edges,impl_->transient_edges,project,impl_->show_sketches,impl_->show_symbols);
         for(const auto& image:impl_->mesh.images) {
             QPolygonF target;for(const auto& p:image.corners)target<<project(p);
             paint_embedded_image(painter,image.data_base64,image.format,target);
@@ -3549,7 +3572,7 @@ if (impl_->show_origins) {
         std::any_of(impl_->mesh.axes.begin(),impl_->mesh.axes.end(),[&](const auto& axis){
             return impl_->constraint_reference_edges.contains(EdgeKey{axis.reference.owner_id,axis.reference.semantic_key,axis.reference.instance_path});
         });
-    const bool sketch_geometry_visible = impl_->show_sketches && std::any_of(
+    const bool sketch_geometry_visible = (impl_->show_sketches || impl_->show_symbols) && std::any_of(
         impl_->mesh.edges.begin(), impl_->mesh.edges.end(), is_sketch_wire_edge);
     const bool curve3d_geometry_visible = std::any_of(
         impl_->mesh.edges.begin(), impl_->mesh.edges.end(),
@@ -3634,7 +3657,7 @@ if (impl_->show_origins) {
             const auto corners=(impl_->object_bounds.contains(key)&&impl_->object_bounds.at(key).valid?impl_->object_bounds.at(key):impl_->dimension_bounds).corners();
             for(unsigned i=0;i<8;++i)for(unsigned bit:{1U,2U,4U})if(!(i&bit))painter.drawLine(project(corners[i]),project(corners[i|bit]));
         }
-        paint_normal_text(painter,impl_->mesh.edges,impl_->transient_edges,project,impl_->show_sketches);
+        paint_normal_text(painter,impl_->mesh.edges,impl_->transient_edges,project,impl_->show_sketches,impl_->show_symbols);
         for(const auto& image:impl_->mesh.images) {
             QPolygonF target;for(const auto& p:image.corners)target<<project(p);
             paint_embedded_image(painter,image.data_base64,image.format,target);
@@ -3798,6 +3821,7 @@ if (impl_->show_origins) {
         if (sketch_geometry_visible) {
             for (const auto& edge : impl_->mesh.edges) {
                 if (!is_sketch_wire_edge(edge)) continue;
+                if(!(edge.reference.semantic_key.starts_with("symbol:")?impl_->show_symbols:impl_->show_sketches))continue;
                 if(edge.filled_text)continue; // Filled annotation; selection still draws its exact wire.
                 const bool text = edge.reference.semantic_key.starts_with("text:");
                 const bool external = edge.reference.semantic_key.starts_with(
@@ -4865,6 +4889,7 @@ if (impl_->show_origins) {
                  highlighted->kind == CandidateKind::SketchSegment ||
                  highlighted->kind == CandidateKind::SketchCurve ||
                  highlighted->kind == CandidateKind::SketchText ||
+                 highlighted->kind == CandidateKind::Symbol ||
                  (highlighted->kind == CandidateKind::SketchExternalReference &&
                   (highlighted->semantic_key.starts_with("external_edge:") ||
                    highlighted->semantic_key.starts_with("external_axis:") ||
@@ -4879,12 +4904,13 @@ if (impl_->show_origins) {
                    selectable_edges[highlighted->geometry_index].dash_dot) &&
                   !selectable_edges[highlighted->geometry_index].filled_text)) {
                 painter.setPen(QPen(color, 1.5, Qt::SolidLine, Qt::RoundCap));
-                if (highlighted->kind == CandidateKind::SketchText ||
+                if (highlighted->kind == CandidateKind::SketchText || highlighted->kind == CandidateKind::Symbol ||
                     (highlighted->kind == CandidateKind::SketchExternalReference &&
                      highlighted->semantic_key.starts_with("external_face:"))) {
                     for (const auto& edge : selectable_edges) {
                         if (edge.reference.owner_id != highlighted->owner_id ||
-                            edge.reference.semantic_key != highlighted->semantic_key) continue;
+                            edge.reference.semantic_key != highlighted->semantic_key ||
+                            edge.reference.instance_path != highlighted->instance_path) continue;
                         for (std::size_t index = 1; index < edge.points.size(); ++index) {
                             painter.drawLine(project(edge.points[index - 1]),
                                              project(edge.points[index]));
@@ -5044,6 +5070,7 @@ if (impl_->show_origins) {
                 }
                 text_painter.setClipping(false);
             });
+        for(int i=0;i<2;++i)if(auto point=symbol_handle_position(i))draw_circular_marker(painter,*point,QColor("#D05CFF"));
         // Editing handles remain above coincident geometry and point markers.
         if(impl_->dimension_layout_commit&&impl_->confirmed_candidate&&dimension_layout_editable(*impl_->confirmed_candidate)&&impl_->show_dimensions) {
             for(int i=0;i<3;++i)if(auto point=dimension_handle_position(*impl_->confirmed_candidate,i))draw_circular_marker(painter,*point,QColor("#D05CFF"));
@@ -5090,6 +5117,14 @@ MeshView::ray_at(const QPointF& position) const {
 }
 
 void MeshView::mousePressEvent(QMouseEvent* event) {
+    if(event->button()==Qt::LeftButton&&impl_->symbol_handle_move&&impl_->symbol_handles) {
+        for(int i=0;i<2;++i)if(auto point=symbol_handle_position(i);point&&QLineF(*point,event->position()).length()<=6) {
+            const auto handles=impl_->symbol_handles();if(!handles)break;
+            if(i==1)impl_->symbol_drag=*handles;
+            impl_->symbol_handle_move(handles->id,i==0,i==0?handles->contact:handles->grip);
+            event->accept();return;
+        }
+    }
     if(event->button()==Qt::RightButton&&impl_->layout_drag&&(event->buttons()&Qt::LeftButton)) {
         auto& drag=*impl_->layout_drag;kernel::cycle_dimension_presentation(drag.initial,drag.source.kind);
         drag.current.arrows_reversed=drag.initial.arrows_reversed;
@@ -5448,6 +5483,19 @@ void MeshView::mouseDoubleClickEvent(QMouseEvent* event) {
 }
 
 void MeshView::mouseMoveEvent(QMouseEvent* event) {
+    if(impl_->symbol_drag&&(event->buttons()&Qt::LeftButton)) {
+        const auto handle=*impl_->symbol_drag;const auto ray=ray_at(event->position());
+        if(ray&&impl_->symbol_handle_move) {
+            const auto n=handle.normal;const auto dot=[](kernel::Vec3 a,kernel::Vec3 b){return a.x*b.x+a.y*b.y+a.z*b.z;};
+            const auto denominator=dot(n,ray->second);
+            if(std::abs(denominator)>1e-10) {
+                const kernel::Vec3 offset{handle.grip.x-ray->first.x,handle.grip.y-ray->first.y,handle.grip.z-ray->first.z};
+                const auto t=dot(offset,n)/denominator;
+                impl_->symbol_handle_move(handle.id,false,{ray->first.x+t*ray->second.x,ray->first.y+t*ray->second.y,ray->first.z+t*ray->second.z});
+            }
+        }
+        event->accept();return;
+    }
     if(impl_->layout_drag&&(event->buttons()&Qt::LeftButton)) {
         auto& drag=*impl_->layout_drag;const auto delta=event->position()-drag.start;
         if(!drag.moved&&delta.manhattanLength()<QApplication::startDragDistance()){event->accept();return;}
@@ -5648,6 +5696,7 @@ void MeshView::mouseMoveEvent(QMouseEvent* event) {
 }
 
 void MeshView::mouseReleaseEvent(QMouseEvent* event) {
+    if(event->button()==Qt::LeftButton&&impl_->symbol_drag){impl_->symbol_drag.reset();event->accept();return;}
     if (event->button() == Qt::LeftButton) impl_->pending_dimension_drag.reset();
     if(impl_->layout_drag&&event->button()==Qt::RightButton){event->accept();return;}
     if(event->button()==Qt::LeftButton&&impl_->layout_drag){auto drag=*impl_->layout_drag;impl_->layout_drag.reset();if(drag.moved&&impl_->dimension_layout_commit)impl_->dimension_layout_commit(drag.source.reference,drag.current);event->accept();return;}
@@ -5850,6 +5899,7 @@ void MeshView::wheelEvent(QWheelEvent* event) {
 }
 
 void MeshView::keyPressEvent(QKeyEvent* event) {
+    if(event->key()==Qt::Key_Escape)impl_->symbol_drag.reset();
     if(event->key()==Qt::Key_Escape&&impl_->layout_drag){auto drag=*impl_->layout_drag;impl_->layout_drag.reset();const auto i=drag.candidate.geometry_index;if(i<impl_->mesh.dimensions.size())impl_->mesh.dimensions[i]=drag.shown;else if(i-impl_->mesh.dimensions.size()<impl_->transient_dimensions.size())impl_->transient_dimensions[i-impl_->mesh.dimensions.size()]=drag.shown;update();event->accept();return;}
     if (!impl_->fly_navigation_enabled) {
         QOpenGLWidget::keyPressEvent(event);

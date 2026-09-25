@@ -1,4 +1,16 @@
 {
+  "Orientace ve výkresu": "Orientace ve výkresu",
+  "Se značkou": "Se značkou",
+  "Zachovat čitelnost": "Zachovat čitelnost",
+  "Plocha symbolu": "Plocha symbolu",
+  "Odkazová čára se šipkou": "Odkazová čára se šipkou",
+  "Počátek X": "Počátek X",
+  "Počátek Y": "Počátek Y",
+  "Počátek Z": "Počátek Z",
+  "Reference není dostupná. Symbol zachovává poslední polohu.": "Reference není dostupná. Symbol zachovává poslední polohu.",
+  "Vyberte plochu pro symbol.": "Vyberte plochu pro symbol.",
+  "Dokument již není aktivní.": "Dokument již není aktivní.",
+  "Symbol nelze vytvořit. Zkontrolujte název a cílovou složku.": "Symbol nelze vytvořit. Zkontrolujte název a cílovou složku.",
   "Plošné těžiště — X: %1; Y: %2; Z: %3": "Plošné těžiště — X: %1; Y: %2; Z: %3",
   "Hmotnost: nelze určit z otevřené plochy bez tloušťky.": "Hmotnost: nelze určit z otevřené plochy bez tloušťky.",
   "Používat ISO font pro GUI": "Používat ISO font pro GUI",
@@ -27,13 +39,10 @@
   "Upravte obě skici a polohu druhého počátku. OK vytvoří plech.": "Upravte obě skici a polohu druhého počátku. OK vytvoří plech.",
   "Fixed section frames require an explicit smooth loft section at each station.": "Pevné rámy řezů vyžadují explicitní řez hladkého přechodu v každém bodě dráhy.",
   "Compound sheet material must match every authored primitive.": "Materiál složeného plechu musí odpovídat každému zdrojovému prvku.",
-
   "Both transition Sketches must belong to the same Body.": "Obě skici přechodu musí patřit ke stejnému tělesu.",
-
   "Vyberte skicu": "Vyberte skicu",
   "Vnitřní poloměr ohybu": "Vnitřní poloměr ohybu",
   "K-faktor": "K-faktor",
-
   "Přechod plechu": "Přechod plechu",
   "Skica půlkruhu": "Skica půlkruhu",
   "Skica zaobleného půlobdélníku": "Skica zaobleného půlobdélníku",
@@ -63,7 +72,6 @@
   "Sheet transition editing must preserve feature identity.": "Úprava přechodu plechu musí zachovat identitu prvku.",
   "Activate an editable Body before creating a sheet transition.": "Před vytvořením přechodu plechu aktivujte upravitelné těleso.",
   "Specify a sheet transition name.": "Zadejte název přechodu plechu.",
-
   "Source Body must precede the active Body.": "Zdrojové těleso musí být před aktivním tělesem.",
   "Create the empty target Body after the source Body and show its planar faces.": "Vytvořte prázdné cílové těleso za zdrojovým tělesem a zobrazte jeho rovinné plochy.",
   "Plech z tělesa": "Plech z tělesa",
@@ -289,7 +297,7 @@
   "Zpět do sestavy": "Zpět do sestavy",
   "Vytvořit těleso": "Vytvořit těleso",
   "Potlačit": "Potlačit",
-  "Dokumenty ZIMA-CAD (*.prtz *.asmz *.drwz *.frmz *.tblz)": "Dokumenty ZIMA-CAD (*.prtz *.asmz *.drwz *.frmz *.tblz)",
+  "Dokumenty ZIMA-CAD (*.prtz *.asmz *.drwz *.frmz *.tblz *.symz)": "Dokumenty ZIMA-CAD (*.prtz *.asmz *.drwz *.frmz *.tblz *.symz)",
   "O aplikaci ZIMA-CAD": "O aplikaci ZIMA-CAD",
   "Uložit sestavu ZIMA-CAD": "Uložit sestavu ZIMA-CAD",
   "Sestava ZIMA-CAD (*.asmz)": "Sestava ZIMA-CAD (*.asmz)",
@@ -1726,5 +1734,16 @@
   "Export rozvinu…": "Export rozvinu…",
   "Rozvin prototypu byl exportován: %1": "Rozvin prototypu byl exportován: %1",
   "Export rozvinu se nezdařil.": "Export rozvinu se nezdařil.",
-  "Skici určují vnější rozměry. Žluté osy označují skutečné ohyby; tloušťka zatím není započítána.": "Skici určují vnější rozměry. Žluté osy označují skutečné ohyby; tloušťka zatím není započítána."
+  "Skici určují vnější rozměry. Žluté osy označují skutečné ohyby; tloušťka zatím není započítána.": "Skici určují vnější rozměry. Žluté osy označují skutečné ohyby; tloušťka zatím není započítána.",
+  "Reference symbolu": "Reference symbolu",
+  "Vyberte geometrii nebo polohu na listu.": "Vyberte geometrii nebo polohu na listu.",
+  "Hodnota tolerance": "Hodnota tolerance",
+  "Primární základna": "Primární základna",
+  "Sekundární základna": "Sekundární základna",
+  "Terciární základna": "Terciární základna",
+  "Tolerance musí být kladné číslo.": "Tolerance musí být kladné číslo.",
+  "Základny zadejte v pořadí bez mezer, velkými písmeny.": "Základny zadejte v pořadí bez mezer, velkými písmeny.",
+  "Tato tolerance vyžaduje primární základnu.": "Tato tolerance vyžaduje primární základnu.",
+  "Symbol nelze připojit k vybrané geometrii.": "Symbol nelze připojit k vybrané geometrii.",
+  "Geometrická tolerance": "Geometrická tolerance"
 }

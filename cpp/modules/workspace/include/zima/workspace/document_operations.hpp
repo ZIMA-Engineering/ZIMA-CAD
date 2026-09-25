@@ -1,5 +1,6 @@
 #pragma once
 #include <zima/workspace/workspace.hpp>
+#include <zima/symbols/definition.hpp>
 
 namespace zima::workspace {
 
@@ -27,7 +28,7 @@ private:
     friend DocumentSave prepare_document_save(const Workspace&, const std::string&,
                                               const std::filesystem::path&);
     struct Part { document::PartDocument document; std::vector<kernel::BodyResult> boundaries; };
-    std::variant<Part, assembly::AssemblyDocument, drawing::DrawingDocument> snapshot_;
+    std::variant<Part, assembly::AssemblyDocument, drawing::DrawingDocument, symbols::Definition> snapshot_;
     SavedDocument receipt_;
     std::vector<DocumentSave> sources_;
 };

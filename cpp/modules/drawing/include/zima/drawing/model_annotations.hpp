@@ -24,6 +24,7 @@ struct ModelAnnotationSource {
   // Thread measuring metadata also accompanies child Parts whose modeling
   // dimensions are deliberately excluded from Assembly Show/Erase.
   std::map<std::string,ThreadDesignation> threads;
+  std::vector<symbols::Placement> symbols;
 };
 ModelAnnotation project_model_annotation(const DrawingView&,ModelAnnotation);
 kernel::ViewerDimension drawing_model_dimension(const DrawingView&,const ModelAnnotation&);

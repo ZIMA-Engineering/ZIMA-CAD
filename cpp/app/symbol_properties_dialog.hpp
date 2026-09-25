@@ -12,6 +12,7 @@
 #include <QLabel>
 #include <QLineEdit>
 #include <QMessageBox>
+#include <QRegularExpression>
 #include <QSignalBlocker>
 #include <QTreeWidgetItemIterator>
 #include <QVBoxLayout>
@@ -20,7 +21,7 @@
 #include <set>
 
 namespace zima::app {
-class SymbolDialog final:public ui::PropertiesSubWindow {
+class SymbolDialog:public ui::PropertiesSubWindow {
 public:
     using Instance=sketcher::SymbolInstance;
     SymbolDialog(Instance value,std::function<void(const Instance&)> preview,std::function<void(Instance)> commit,QWidget* parent)
@@ -57,12 +58,39 @@ public:
         update_preview();
     }
     void set_anchor(double x,double y) {const QSignalBlocker a(values_[0]),b(values_[1]);values_[0]->setValue(x);values_[1]->setValue(y);update_preview();}
+    void set_preview_callback(std::function<void(const Instance&)> callback) {preview_=std::move(callback);update_preview();}
 protected:
-    bool submit() override {auto value=pending();value.validate();commit_(std::move(value));return true;}
+    bool submit() override {
+        auto value=pending();value.validate();
+        if(definition_.id.starts_with("ze:geometric-tolerance:")) {
+            auto tolerance=fields_.at("Tolerance")->currentText().trimmed();tolerance.replace(',', '.');bool numeric=false;
+            const double number=tolerance.toDouble(&numeric);
+            if(!numeric||!std::isfinite(number)||number<=0)throw std::invalid_argument(tr("Tolerance musí být kladné číslo.").toStdString());
+            value.text_values["Tolerance"]=tolerance.toStdString();
+            if(fields_.contains("Primary datum")) {
+                bool gap=false;std::set<QString> datums;
+                for(const auto* key:{"Primary datum","Secondary datum","Tertiary datum"}) {
+                    const auto datum=fields_.at(key)->currentText().trimmed().toUpper();
+                    if(datum.isEmpty())gap=true;
+                    else if(gap||!QRegularExpression("^[A-Z]+(?:-[A-Z]+)*$").match(datum).hasMatch()||!datums.insert(datum).second)
+                        throw std::invalid_argument(tr("Základny zadejte v pořadí bez mezer, velkými písmeny.").toStdString());
+                    value.text_values[key]=datum.toStdString();
+                }
+                const bool profile=definition_.id.ends_with("LINE-PROFILE")||definition_.id.ends_with("SURFACE-PROFILE");
+                if(!profile&&value.text_values["Primary datum"].empty())throw std::invalid_argument(tr("Tato tolerance vyžaduje primární základnu.").toStdString());
+            }
+        }
+        commit_(std::move(value));return true;
+    }
 private:
     QString field_label(const std::string& key) const {
         if(!definition_.id.starts_with("ze:"))return QString::fromStdString(key);
+        if(key=="Text")return tr("Text");
         if(key=="Specification")return tr("Drsnost");
+        if(key=="Tolerance")return tr("Hodnota tolerance");
+        if(key=="Primary datum")return tr("Primární základna");
+        if(key=="Secondary datum")return tr("Sekundární základna");
+        if(key=="Tertiary datum")return tr("Terciární základna");
         if(key=="External edges")return tr("Vnější hrany");
         if(key=="Internal edges")return tr("Vnitřní hrany");
         if(key=="All edges")return tr("Všechny hrany");
@@ -70,6 +98,8 @@ private:
         return QString::fromStdString(key);
     }
     QString variant_label(const std::string& key) const {
+        if(definition_.id=="ze:annotation:text"&&key=="text")return tr("Text");
+        if(definition_.id.starts_with("ze:geometric-tolerance:")&&key=="default")return tr("Geometrická tolerance");
         if(definition_.id=="ze:general-edges:iso13715") {
             const auto scope=key.substr(0,key.find('_'));
             auto label=scope=="general"?tr("Vnější a vnitřní hrany"):scope=="external"?tr("Vnější hrany"):scope=="internal"?tr("Vnitřní hrany"):tr("Všechny hrany");
@@ -77,7 +107,7 @@ private:
             if(key.ends_with("_exception"))return tr("%1 — jedna výjimka").arg(label);
             return label;
         }
-        if(definition_.id=="ze:surface-texture:iso21920"||definition_.id=="ze:general-surface-texture:iso21920") {
+        if(definition_.id=="ze:surface-texture:iso1302-1978"||definition_.id=="ze:surface-texture:iso21920"||definition_.id=="ze:general-surface-texture:iso21920") {
             auto label=key=="material_removal"?tr("Úběr materiálu požadován"):key=="no_material_removal"?tr("Úběr materiálu nepřípustný"):tr("Způsob výroby neurčen");
             return definition_.id=="ze:general-surface-texture:iso21920"?tr("Celková drsnost — %1").arg(label):label;
         }

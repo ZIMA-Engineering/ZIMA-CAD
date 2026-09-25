@@ -281,6 +281,8 @@ void AssemblyWorkspaceWindow::create_actions() {
     show_sketches_action_ = reference_action(
         tr("Skici"), "sketch", zima::viewer::ReferenceVisibility::Sketches);
     show_dimensions_action_ = reference_action(tr("Kóty"), "sketch-dimensions", zima::viewer::ReferenceVisibility::Dimensions);
+    show_symbols_action_=reference_action(tr("Symboly"),"symbol",zima::viewer::ReferenceVisibility::Symbols);
+    show_symbols_action_->setObjectName("showSymbolsAction");
     show_dimensions_action_->setObjectName("showDimensionsAction");
     show_dimensions_action_->setToolTip(tr("Zobrazit nebo skrýt kóty v modelovém pohledu"));
     show_origins_action_->setObjectName("showOriginsAction");
@@ -328,7 +330,7 @@ void AssemblyWorkspaceWindow::create_actions() {
     }
     view->addSeparator();
     for (auto* action : {show_origins_action_, show_points_action_, show_axes_action_,
-                         show_planes_action_, show_surfaces_action_, show_sketches_action_, show_dimensions_action_}) {
+                         show_planes_action_, show_surfaces_action_, show_sketches_action_, show_dimensions_action_, show_symbols_action_}) {
         view->addAction(action);
     }
     view->addSeparator();
@@ -1027,7 +1029,7 @@ void AssemblyWorkspaceWindow::create_actions() {
     }
     view_toolbar_->addSeparator();
     for (auto* action : {show_origins_action_, show_points_action_, show_axes_action_,
-                         show_planes_action_, show_surfaces_action_, show_sketches_action_, show_dimensions_action_}) {
+                         show_planes_action_, show_surfaces_action_, show_sketches_action_, show_dimensions_action_, show_symbols_action_}) {
         view_toolbar_->addAction(action);
     }
 

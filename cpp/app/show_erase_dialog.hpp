@@ -43,7 +43,7 @@ private:
   std::function<void()> view_picker_,view_picker_cancel_;
   QPointF middle_origin_;
   bool middle_pending_{};
-  QCheckBox *dimensions_{}, *axes_{}, *construction_{};
+  QCheckBox *dimensions_{}, *axes_{}, *construction_{}, *symbols_{};
   QTreeWidget *items_{};
   QLabel *status_{};
   std::set<Reference> selected_;

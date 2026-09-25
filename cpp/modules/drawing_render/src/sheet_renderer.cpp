@@ -392,8 +392,19 @@ void SheetRenderer::paint_sheet(QPainter& painter,double zoom,QPointF origin,boo
                 if(item.model_dimension && layout.curves.empty())continue;
                 const AnnotationKey key{AnnotationKind::Model,view->id,id,0};
                 QColor color=annotation_color(key,printing?ink:item.unresolved?QColor("#E05050"):!item.visible?QColor("#777777"):item.kind==drawing::ModelAnnotationKind::Dimension?QColor("#FFD400"):item.kind==drawing::ModelAnnotationKind::Axis?interaction::axis:QColor("#E6C85C"),printing);
-                painter.save();if(view->crop&&(item.kind!=drawing::ModelAnnotationKind::Dimension||view->detail_view))painter.setClipPath(crop_screen_path(*view,{origin.x()+(sheet_->width_mm()-view->x)*zoom,origin.y()+(sheet_->height_mm()-view->y)*zoom},zoom*view->scale),Qt::IntersectClip);QPen pen(color,width(false));if(item.kind!=drawing::ModelAnnotationKind::Dimension)pen.setDashPattern({8*zoom/pen.widthF(),1.5*zoom/pen.widthF(),.5*zoom/pen.widthF(),1.5*zoom/pen.widthF()});painter.setPen(pen);painter.setBrush(Qt::NoBrush);QPainterPath stroke;
-                for(const auto& line:layout.curves){if(line.empty())continue;QPolygonF polygon;for(auto p:line)polygon<<screen(p);painter.drawPolyline(polygon);stroke.moveTo(polygon.front());for(qsizetype i=1;i<polygon.size();++i)stroke.lineTo(polygon[i]);}
+                painter.save();if(view->crop&&(item.kind!=drawing::ModelAnnotationKind::Dimension||view->detail_view))painter.setClipPath(crop_screen_path(*view,{origin.x()+(sheet_->width_mm()-view->x)*zoom,origin.y()+(sheet_->height_mm()-view->y)*zoom},zoom*view->scale),Qt::IntersectClip);QPen pen(color,width(false));if(item.kind!=drawing::ModelAnnotationKind::Dimension&&item.kind!=drawing::ModelAnnotationKind::Symbol)pen.setDashPattern({8*zoom/pen.widthF(),1.5*zoom/pen.widthF(),.5*zoom/pen.widthF(),1.5*zoom/pen.widthF()});painter.setPen(pen);painter.setBrush(Qt::NoBrush);QPainterPath stroke;
+                std::map<QRgb,QPainterPath> symbol_fills;
+                for(std::size_t curve_index=0;curve_index<layout.curves.size();++curve_index){const auto& line=layout.curves[curve_index];if(line.empty())continue;
+                    if(item.kind==drawing::ModelAnnotationKind::Symbol){
+                        auto symbol_color=color;if(!printing&&!item.unresolved&&item.visible&&curve_index<item.curve_colors.size())
+                            symbol_color=annotation_color(key,item.curve_colors[curve_index]=="#FFFFFF"?ink:QColor(QString::fromStdString(item.curve_colors[curve_index])),false);
+                        QPen symbol_pen(symbol_color,width(false));if(curve_index<item.curve_centerlines.size()&&item.curve_centerlines[curve_index])symbol_pen.setDashPattern({8*zoom/symbol_pen.widthF(),1.5*zoom/symbol_pen.widthF(),.5*zoom/symbol_pen.widthF(),1.5*zoom/symbol_pen.widthF()});painter.setPen(symbol_pen);
+                    }
+                    QPolygonF polygon;for(auto p:line)polygon<<screen(p);
+                    if(item.kind==drawing::ModelAnnotationKind::Symbol&&curve_index<item.curve_filled.size()&&item.curve_filled[curve_index])symbol_fills[painter.pen().color().rgba()].addPolygon(polygon);
+                    else painter.drawPolyline(polygon);
+                    stroke.moveTo(polygon.front());for(qsizetype i=1;i<polygon.size();++i)stroke.lineTo(polygon[i]);}
+                for(const auto& [rgba,path]:symbol_fills)painter.fillPath(path,QColor::fromRgba(rgba));
                 // Retain the layout's analytic centers, but do not paint an
                 // extra filled dot over axis lines or end-on center crosses.
                 for(const auto& [tip,direction]:layout.arrows){painter.save();painter.setPen(Qt::NoPen);painter.setBrush(color);painter.drawPolygon(viewer::annotation_arrow(screen(tip),{direction.x(),-direction.y()},2.5*zoom));painter.restore();}
@@ -594,10 +605,33 @@ void SheetRenderer::paint_sheet(QPainter& painter,double zoom,QPointF origin,boo
             auto presentation=text.presentation;presentation.field_id="text:"+text.id;draw_text(presentation);
         }
         if(!printing&&text_preview_) {auto text=text_preview_->presentation;text.field_id="text:"+text_preview_->id;draw_text(text);}
+        const auto paint_symbol=[&](const symbols::Placement& symbol) {
+            if(!symbol.symbol.visible)return;
+            const AnnotationKey key{AnnotationKind::Symbol,{},symbol.symbol.id,0};
+            const auto screen=[&](kernel::Vec3 p){return origin+QPointF(sheet_->width_mm()-p.x,sheet_->height_mm()-p.y)*zoom;};
+            QPainterPath stroke;std::map<QRgb,QPainterPath> fills;painter.save();
+            for(const auto& edge:symbol.viewer_mesh(std::atan2(symbol.frame.x.y,-symbol.frame.x.x)*180/std::acos(-1.)).edges) {
+                if(edge.points.empty())continue;
+                const auto color=annotation_color(key,printing?ink:symbol.unresolved?QColor("#E05050"):edge.color=="#FFFFFF"?ink:QColor(QString::fromStdString(edge.color)),printing);
+                QPen pen(color,width(false));if(edge.dash_dot)pen.setDashPattern({8*zoom/pen.widthF(),1.5*zoom/pen.widthF(),.5*zoom/pen.widthF(),1.5*zoom/pen.widthF()});
+                painter.setPen(pen);painter.setBrush(Qt::NoBrush);QPolygonF polygon;for(const auto p:edge.points)polygon<<screen(p);
+                if(edge.filled_text)fills[color.rgba()].addPolygon(polygon);else painter.drawPolyline(polygon);
+                stroke.moveTo(polygon.front());for(qsizetype i=1;i<polygon.size();++i)stroke.lineTo(polygon[i]);
+            }
+            for(const auto& [rgba,path]:fills)painter.fillPath(path,QColor::fromRgba(rgba));painter.restore();
+            if(!printing){
+                QPainterPathStroker picker;picker.setWidth(10);
+                annotation_handles_.push_back({key,screen(symbol.frame.world({symbol.symbol.x,symbol.symbol.y,0})),picker.createStroke(stroke)});
+                if(symbol.leader){auto contact_key=key;contact_key.end=1;
+                    annotation_handles_.push_back({contact_key,screen(symbol.frame.origin),{}});}
+            }
+        };
+        for(const auto& symbol:sheet_->symbol_annotations)if(printing||!symbol_preview_||symbol_preview_->symbol.id!=symbol.symbol.id)paint_symbol(symbol);
+        if(!printing&&symbol_preview_)paint_symbol(*symbol_preview_);
         if(!printing&&!preview_)for(const auto& handle:annotation_handles_){
-            const bool selected=(selected_annotation_&&selected_annotation_->kind==handle.key.kind&&selected_annotation_->view==handle.key.view&&selected_annotation_->id==handle.key.id)||(dimension_preview&&handle.key.kind==AnnotationKind::Dimension&&dimension_preview->id==handle.key.id),hovered=hovered_annotation_&&*hovered_annotation_==handle.key;
-            const bool movable=handle.key.kind==AnnotationKind::DetailLabel||handle.key.kind==AnnotationKind::Balloon||handle.key.kind==AnnotationKind::Caption||handle.key.kind==AnnotationKind::SectionLabel||handle.key.kind==AnnotationKind::SectionEnd||handle.key.kind==AnnotationKind::Dimension||
-                (handle.key.kind==AnnotationKind::Model&&std::ranges::any_of(sheet_->views,[&](const auto& view){return view.id==handle.key.view&&std::ranges::any_of(view.model_annotations,[&](const auto& item){return item.kind==drawing::ModelAnnotationKind::Dimension&&model_annotation_key(item.source)==handle.key.id;});}));
+            const bool selected=(selected_annotation_&&selected_annotation_->kind==handle.key.kind&&selected_annotation_->view==handle.key.view&&selected_annotation_->id==handle.key.id)||(dimension_preview&&handle.key.kind==AnnotationKind::Dimension&&dimension_preview->id==handle.key.id)||(symbol_preview_&&handle.key.kind==AnnotationKind::Symbol&&symbol_preview_->symbol.id==handle.key.id),hovered=hovered_annotation_&&*hovered_annotation_==handle.key;
+            const bool movable=handle.key.kind==AnnotationKind::Symbol||handle.key.kind==AnnotationKind::DetailLabel||handle.key.kind==AnnotationKind::Balloon||handle.key.kind==AnnotationKind::Caption||handle.key.kind==AnnotationKind::SectionLabel||handle.key.kind==AnnotationKind::SectionEnd||handle.key.kind==AnnotationKind::Dimension||
+                (handle.key.kind==AnnotationKind::Model&&std::ranges::any_of(sheet_->views,[&](const auto& view){return view.id==handle.key.view&&std::ranges::any_of(view.model_annotations,[&](const auto& item){return (item.kind==drawing::ModelAnnotationKind::Dimension||item.kind==drawing::ModelAnnotationKind::Symbol)&&model_annotation_key(item.source)==handle.key.id;});}));
             if(movable&&(selected||hovered))draw_handle(handle.point,selected);
         }
     }

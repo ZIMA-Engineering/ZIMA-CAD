@@ -16,6 +16,8 @@
 #include "numeric_expression_edit.hpp"
 #include "toolbar_style.hpp"
 #include "sketch_text_properties_dialog.hpp"
+#include "symbol_attachment_dialog.hpp"
+#include <zima/drawing/symbol_contacts.hpp>
 #include <zima/document/file_path.hpp>
 #include <zima/workspace/family_operations.hpp>
 #include <zima/workspace/engineering_metadata_operations.hpp>
@@ -814,7 +816,7 @@ class DrawingCanvas final : public QWidget, public SheetRenderer {
         hovered_annotation_=offered_annotations_.empty()?std::optional<AnnotationKey>{}:offered_annotations_[offered_annotation_index_].key;
     }
     bool ordinary_selection() const {
-        return sheet_&&!align_mode_&&!witness_tool_&&!crop_edit_&&!preview_&&!placed_&&!choose_view_&&!dimension_command_&&!dimension_mode_&&!balloon_command_&&!text_editor_&&!model_pick_;
+        return sheet_&&!align_mode_&&!witness_tool_&&!crop_edit_&&!preview_&&!placed_&&!choose_view_&&!dimension_command_&&!dimension_mode_&&!balloon_command_&&!text_editor_&&!symbol_editor_&&!model_pick_;
     }
     void select_entity(std::optional<AnnotationKey> key,bool toggle) {
         if(key&&key->kind==AnnotationKind::Dimension&&key->end%3==1&&sheet_) {
@@ -841,6 +843,7 @@ class DrawingCanvas final : public QWidget, public SheetRenderer {
         if(std::ranges::all_of(selected,[](const auto& key){return key.kind==AnnotationKind::View;}))return;
         for(const auto& key:selected){
             if(key.kind==AnnotationKind::View)continue;
+            if(key.kind==AnnotationKind::Symbol){std::erase_if(sheet_->symbol_annotations,[&](const auto& p){return p.symbol.id==key.id;});sheet_->symbol_contacts.erase(key.id);continue;}
             if(key.kind==AnnotationKind::Text){std::erase_if(sheet_->texts,[&](const auto& t){return "text:"+t.id==key.id;});continue;}
             if(key.kind==AnnotationKind::Dimension){
                 auto dimension=std::ranges::find(sheet_->dimensions,key.id,&drawing::DrawingDimension::id);
@@ -968,6 +971,12 @@ public:
         update();
     }
     void set_title_block_action(QAction* action) { title_action_=action; }
+    void set_symbol_editor(SymbolAttachmentDialog* dialog,std::function<void(const drawing::DrawingView*,const drawing::DimensionAttachment*,drawing::Point2)> pick={}) {
+        if(dialog)select_entity({},false);symbol_editor_=dialog;symbol_pick_=std::move(pick);measurement_offered_.clear();measurement_index_=0;update();
+    }
+    void set_symbol_reference_view(std::string id){symbol_reference_view_=std::move(id);}
+    void set_symbol_preview(std::optional<symbols::Placement> value){symbol_preview_=std::move(value);update();}
+    void set_symbol_properties(std::function<void(const std::string&)> callback){symbol_properties_=std::move(callback);}
     void set_text_properties(std::function<void(const std::string&)> callback) {text_properties_=std::move(callback);}
     void set_text_editor(SketchTextPropertiesDialog* dialog) {
         if(dialog)select_entity({},false);text_editor_=dialog;
@@ -1026,6 +1035,7 @@ public:
         case AnnotationKind::View:return key.view;
         case AnnotationKind::Model:return key.view+":"+key.id;
         case AnnotationKind::Dimension:return "drawing-dimension:"+key.id+(key.branch.empty()?"":":branch:"+key.branch);
+        case AnnotationKind::Symbol:return "drawing-symbol:"+key.id;
         case AnnotationKind::Text:return key.id;
         case AnnotationKind::Balloon:return "drawing-balloon:"+key.id;
         case AnnotationKind::Caption:return "drawing-caption:"+key.view;
@@ -1051,6 +1061,7 @@ public:
             if(item.kind==drawing::DrawingDimensionKind::Chain&&item.chain_group.empty()&&!item.chain_datum_only)for(std::size_t i=0;i<item.segments.size();++i)
                 keys.push_back({AnnotationKind::Dimension,item.view_id,item.id,0,item.segments[i].id});
         }
+        for(const auto& item:sheet.symbol_annotations)keys.push_back({AnnotationKind::Symbol,{},item.symbol.id,0});
         for(const auto& item:sheet.texts)keys.push_back({AnnotationKind::Text,{},"text:"+item.id,0});
         for(const auto& item:sheet.balloons)if(item.visible)keys.push_back({AnnotationKind::Balloon,item.view_id,item.id,0});
         return keys;
@@ -1096,6 +1107,7 @@ public:
             const auto key=entity_selection_.front();
             if(key.kind==AnnotationKind::View){menu.addAction(edit_action_);menu.addAction(projected_action_);menu.addAction(remove_action_);return;}
             QAction* properties=nullptr;
+            if(key.kind==AnnotationKind::Symbol)properties=menu.addAction(resource_icon("properties"),tr("Vlastnosti"),this,[this,key]{if(symbol_properties_)symbol_properties_(key.id);});
             if(key.kind==AnnotationKind::Text)properties=menu.addAction(resource_icon("properties"),tr("Vlastnosti textu…"),this,[this,key]{if(text_properties_)text_properties_(key.id.substr(5));});
             if(key.kind==AnnotationKind::Balloon)properties=menu.addAction(resource_icon("properties"),tr("Vlastnosti pozice…"),this,[this,key]{if(balloon_properties_)balloon_properties_(key.id);});
             if(key.kind==AnnotationKind::Dimension) {
@@ -1177,6 +1189,13 @@ public:
             const double scale=canvas_zoom()*view.scale;
             drawing::MeasurementPickRequest request;request.mode=int(drawing::DimensionAttachmentKind::CurvePoint);
             for(auto candidate:drawing::measurement_candidates(view,measurement_point(view,point),8/scale,request))if(drawing::balloon_bom_row(*sheet_,view,candidate.attachment.reference)){
+                candidate.distance*=scale;candidates.push_back({view.id,std::move(candidate)});
+            }
+        }
+        if(symbol_editor_&&symbol_editor_->active()&&sheet_)for(const auto& view:sheet_->views) {
+            if(view.crop&&!drawing_render::crop_screen_path(view,raw_view_origin(view),canvas_zoom()*view.scale).contains(point))continue;
+            const double scale=canvas_zoom()*view.scale;drawing::MeasurementPickRequest request;request.mode=int(drawing::DimensionAttachmentKind::CurvePoint);
+            for(auto candidate:drawing::measurement_candidates(view,measurement_point(view,point),8/scale,request)) {
                 candidate.distance*=scale;candidates.push_back({view.id,std::move(candidate)});
             }
         }
@@ -1295,6 +1314,10 @@ protected:
                 entity_selected({AnnotationKind::View,view_at(event->pos()),{},0});
             bool generic=entity_selection_.size()>1;
             if(entity_selection_.size()==1){const auto& key=entity_selection_.front();
+                if(key.kind==AnnotationKind::Symbol&&on_selection) {
+                    auto* menu=new QMenu(this);menu->setAttribute(Qt::WA_DeleteOnClose);populate_selection_menu(*menu);
+                    menu->popup(event->globalPos());event->accept();return;
+                }
                 if(key.kind==AnnotationKind::Dimension)if(const auto* dimension=visible_dimension(key.id);dimension&&dimension->kind==drawing::DrawingDimensionKind::Chain&&on_selection) {
                     auto* menu=new QMenu(this);menu->setAttribute(Qt::WA_DeleteOnClose);
                     populate_selection_menu(*menu);menu->popup(event->globalPos());event->accept();return;
@@ -1309,6 +1332,10 @@ protected:
             }
         }
         if(balloon_context(event))return;
+        if(symbol_editor_){
+            if(symbol_editor_->active()&&!measurement_offered_.empty())measurement_index_=(measurement_index_+1)%measurement_offered_.size();
+            update();event->accept();return;
+        }
         if(text_editor_){event->accept();return;}
         if(const auto field=field_at(event->pos());editable_text(field)) {
             selected_field_=field;selected_.clear();selected_annotation_.reset();selected_dimension_id_.clear();update();
@@ -1409,6 +1436,9 @@ protected:
                 if(text_properties_)text_properties_(field.substr(5));event->accept();return;
             }
         }
+        if(event->button()==Qt::LeftButton&&selected_annotation_&&selected_annotation_->kind==AnnotationKind::Symbol&&!symbol_editor_){
+            if(symbol_properties_)symbol_properties_(selected_annotation_->id);event->accept();return;
+        }
         if(event->button()==Qt::LeftButton&&selected_annotation_&&selected_annotation_->kind==AnnotationKind::Dimension&&!dimension_command_){
             dragged_dimension_id_.clear();edit_manual_entity(*selected_annotation_);event->accept();return;
         }
@@ -1485,11 +1515,11 @@ protected:
     const drawing::DrawingDimension* pending_dimension() const override {return witness_draft_?&*witness_draft_:dimension_command_?&dimension_command_->value():nullptr;}
     void paint_reference_overlay(QPainter& painter) override {
         paint_witness(painter);
-        if(dimension_command_||balloon_command_||balloon_drag_original_){
+        if(dimension_command_||balloon_command_||balloon_drag_original_||symbol_editor_){
             const auto highlight=[&](const drawing::DrawingView& view,const kernel::EdgeReference& ref,QColor color,bool points=true){
                 painter.save();painter.setPen(QPen(color,2));painter.setBrush(Qt::NoBrush);
                 for(const auto& curve:drawing::measurement_reference_geometry(view,ref)){QPolygonF line;for(const auto& p:curve)line<<view_screen_point(view,p);painter.drawPolyline(line);}
-                for(const auto& p:view.measurement_geometry->points)if(points&&p.source==ref&&!drawing::break_hidden(view,{kernel::dimension_dot(p.position,view.camera.horizontal),kernel::dimension_dot(p.position,view.camera.vertical)}))painter.drawEllipse(view_screen_point(view,{kernel::dimension_dot(p.position,view.camera.horizontal),kernel::dimension_dot(p.position,view.camera.vertical)}),4,4);
+                if(view.measurement_geometry)for(const auto& p:view.measurement_geometry->points)if(points&&p.source==ref&&!drawing::break_hidden(view,{kernel::dimension_dot(p.position,view.camera.horizontal),kernel::dimension_dot(p.position,view.camera.vertical)}))painter.drawEllipse(view_screen_point(view,{kernel::dimension_dot(p.position,view.camera.horizontal),kernel::dimension_dot(p.position,view.camera.vertical)}),4,4);
                 painter.restore();
             };
             if(!measurement_offered_.empty()){
@@ -1504,6 +1534,8 @@ protected:
                     if(!dimension_command_||!line){painter.save();painter.setPen(QPen(color,2));painter.setBrush(dimension_command_?QBrush(color):QBrush(Qt::NoBrush));painter.drawEllipse(view_screen_point(view,candidate.candidate.position),radius,radius);painter.restore();}
                 }
             }
+            if(symbol_editor_&&symbol_editor_->inspected())if(const auto& ref=symbol_editor_->pending_placement().reference;ref)
+                for(const auto& view:sheet_->views)if(view.id==symbol_reference_view_)highlight(view,{ref->owner_id,ref->semantic_key,ref->instance_path},interaction::selected);
             if(dimension_command_)for(const auto& view:sheet_->views)if(view.id==dimension_command_->value().view_id)for(const auto& ref:dimension_command_->inspected_references())highlight(view,ref,QColor("#00D1FF"));
             if(balloon_command_&&balloon_command_->inspecting_attachment())if(const auto* b=balloon_command_->selected_balloon())for(const auto& view:sheet_->views)if(view.id==b->view_id)highlight(view,b->attachment.reference,QColor("#00D1FF"));
         }
@@ -1528,6 +1560,7 @@ protected:
             event->accept();return;
         }
         if(witness_press(event)){event->accept();return;}
+        if(symbol_editor_&&event->button()==Qt::MiddleButton)symbol_middle_press_=event->position();
         if(crop_press(event))return;
         if (sheet_ == nullptr) return;
         if(event->button()==Qt::RightButton&&!dragged_dimension_id_.empty()&&(event->buttons()&Qt::LeftButton)){
@@ -1556,6 +1589,15 @@ protected:
         if (event->button() != Qt::LeftButton) return;
         setFocus();
         if(text_editor_) {const auto p=paper_point(event->position());text_editor_->set_anchor(p.x,p.y);event->accept();return;}
+        if(symbol_editor_){
+            if(symbol_editor_->active()&&symbol_pick_) {
+                if(!measurement_offered_.empty()) {const auto offered=measurement_offered_[measurement_index_];
+                    const auto view=std::ranges::find(sheet_->views,offered.view,&drawing::DrawingView::id);
+                    if(view!=sheet_->views.end())symbol_pick_(&*view,&offered.candidate.attachment,paper_point(event->position()));
+                }else symbol_pick_(nullptr,nullptr,paper_point(event->position()));
+            }
+            measurement_offered_.clear();update();event->accept();return;
+        }
         if(balloon_press(event))return;
         if(dimension_command_){
             setFocus();
@@ -1630,8 +1672,16 @@ protected:
                     }else if(candidate.key.kind==AnnotationKind::Dimension){
                         begin_manual_drag(candidate,event->position());
                     }else if(candidate.key.kind==AnnotationKind::Model){
-                        for(const auto& view:sheet_->views)if(view.id==candidate.key.view)for(const auto& item:view.model_annotations)if(model_annotation_key(item.source)==candidate.key.id&&item.kind==drawing::ModelAnnotationKind::Dimension){model_drag_original_=item;dragged_model_=candidate;model_drag_start_=event->position();model_moved_=false;model_drag_layout_initial_=item.view_layout.value_or(item.model_layout);if(!item.view_layout)model_drag_layout_initial_.plane_quarter_turns=0;model_drag_shown_=item.model_dimension?std::optional(drawing::drawing_model_dimension(view,item)):std::nullopt;}
-                    }else{dragged_section_end_=candidate;section_end_drag_start_=event->position();section_end_moved_=false;}
+                        for(const auto& view:sheet_->views)if(view.id==candidate.key.view)for(const auto& item:view.model_annotations)if(model_annotation_key(item.source)==candidate.key.id&&(item.kind==drawing::ModelAnnotationKind::Dimension||item.kind==drawing::ModelAnnotationKind::Symbol)){model_drag_original_=item;dragged_model_=candidate;model_drag_start_=event->position();model_moved_=false;model_drag_layout_initial_=item.view_layout.value_or(item.model_layout);if(!item.view_layout)model_drag_layout_initial_.plane_quarter_turns=0;model_drag_shown_=item.model_dimension?std::optional(drawing::drawing_model_dimension(view,item)):std::nullopt;}
+                    }else if(candidate.key.kind==AnnotationKind::Symbol){
+                        if(candidate.key.end==1){
+                            if(symbol_properties_)symbol_properties_(candidate.key.id);
+                            if(symbol_editor_)symbol_editor_->begin_entry();
+                            update();event->accept();return;
+                        }
+                        const auto found=std::ranges::find(sheet_->symbol_annotations,candidate.key.id,[](const auto& p){return p.symbol.id;});
+                        if(found!=sheet_->symbol_annotations.end()){symbol_drag_original_=*found;symbol_drag_start_=event->position();}
+                    }else if(candidate.key.kind==AnnotationKind::SectionEnd){dragged_section_end_=candidate;section_end_drag_start_=event->position();section_end_moved_=false;}
                 }
                 if(selection_changed_)selection_changed_();update();event->accept();return;
             }
@@ -1668,7 +1718,19 @@ protected:
             if(text_editor_->needs_anchor()){const auto p=paper_point(event->position());text_editor_->set_preview_anchor(p.x,p.y);}
             update();event->accept();return;
         }
+        if(symbol_editor_&&!view_panning_&&!(event->buttons()&Qt::MiddleButton)){
+            offer_measurements(event->position());update();event->accept();return;
+        }
         if(balloon_move(event))return;
+        if(symbol_drag_original_&&!view_panning_&&(event->buttons()&Qt::LeftButton)) {
+            const auto found=std::ranges::find(sheet_->symbol_annotations,symbol_drag_original_->symbol.id,[](const auto& p){return p.symbol.id;});
+            if(found!=sheet_->symbol_annotations.end()) {
+                const auto delta=(event->position()-symbol_drag_start_)/canvas_zoom();const auto& original=*symbol_drag_original_;
+                const auto grip=original.frame.world({original.symbol.x,original.symbol.y,0});
+                const auto local=original.frame.local({grip.x-delta.x(),grip.y-delta.y(),grip.z});found->symbol.x=local.x;found->symbol.y=local.y;
+            }
+            update();event->accept();return;
+        }
         if(text_drag_original_&&!view_panning_&&(event->buttons()&Qt::LeftButton)) {
             if(auto* text=editable_text("text:"+text_drag_original_->id)) {
                 const auto delta=(event->position()-text_drag_start_)/canvas_zoom();
@@ -1847,6 +1909,9 @@ protected:
         update();
     }
     void mouseReleaseEvent(QMouseEvent* event) override {
+        if(symbol_editor_&&event->button()==Qt::MiddleButton&&(event->position()-symbol_middle_press_).manhattanLength()<QApplication::startDragDistance()){
+            symbol_editor_->end_entry();measurement_offered_.clear();update();
+        }
         if(witness_tool_&&event->button()==Qt::MiddleButton){
             const bool click=(event->position()-witness_middle_origin_).manhattanLength()<QApplication::startDragDistance();
             view_panning_=false;unsetCursor();
@@ -1858,6 +1923,10 @@ protected:
         if(crop_edit_){crop_grip_=-1;event->accept();return;}
         if(event->button()==Qt::LeftButton)clear_annotation_snap();
         if(balloon_release(event))return;
+        if(symbol_drag_original_&&event->button()==Qt::LeftButton){
+            const auto found=std::ranges::find(sheet_->symbol_annotations,symbol_drag_original_->symbol.id,[](const auto& p){return p.symbol.id;});
+            const bool moved=found!=sheet_->symbol_annotations.end()&&*found!=*symbol_drag_original_;symbol_drag_original_.reset();if(moved&&changed_)changed_();event->accept();return;
+        }
         if(text_drag_original_&&event->button()==Qt::LeftButton) {
             const auto* text=editable_text("text:"+text_drag_original_->id);
             const bool moved=text&&(text->presentation.position.x!=text_drag_original_->presentation.position.x||text->presentation.position.y!=text_drag_original_->presentation.position.y);
@@ -1913,7 +1982,12 @@ protected:
         }
         if(event->key()==Qt::Key_Escape) {
             if(balloon_escape()){event->accept();return;}
+            if(symbol_editor_){symbol_editor_->reject();event->accept();return;}
             if(text_editor_){text_editor_->reject();event->accept();return;}
+            if(symbol_drag_original_){
+                const auto found=std::ranges::find(sheet_->symbol_annotations,symbol_drag_original_->symbol.id,[](const auto& p){return p.symbol.id;});
+                if(found!=sheet_->symbol_annotations.end())*found=*symbol_drag_original_;symbol_drag_original_.reset();update();event->accept();return;
+            }
             if(text_drag_original_){if(auto* text=editable_text("text:"+text_drag_original_->id))*text=*text_drag_original_;text_drag_original_.reset();update();event->accept();return;}
             selected_field_.clear();hovered_field_.clear();
             if(dragged_model_&&model_drag_original_&&sheet_){for(auto& view:sheet_->views)if(view.id==dragged_model_->key.view)for(auto& item:view.model_annotations)if(model_annotation_key(item.source)==dragged_model_->key.id)item=*model_drag_original_;dragged_model_.reset();model_drag_original_.reset();model_moved_=false;update();event->accept();return;}
@@ -1952,6 +2026,11 @@ protected:
     }
 private:
     zima::drawing::DrawingSheet* sheet_{};
+    std::optional<symbols::Placement> symbol_drag_original_;QPointF symbol_drag_start_;
+    std::string symbol_reference_view_;QPointF symbol_middle_press_;
+    QPointer<SymbolAttachmentDialog> symbol_editor_;
+    std::function<void(const drawing::DrawingView*,const drawing::DimensionAttachment*,drawing::Point2)> symbol_pick_;
+    std::function<void(const std::string&)> symbol_properties_;
     QPointer<SketchTextPropertiesDialog> text_editor_;
     std::function<void(const std::string&)> text_properties_;
     std::optional<drawing::DrawingText> text_drag_original_;
@@ -2102,6 +2181,8 @@ void DrawingWindow::create_actions() {
     dimension_align_action_->setObjectName("drawingDimensionAlignAction");
     text_action_=drawing->addAction(resource_icon("sketch-text"),tr("Text"),this,[this]{show_text_properties();});
     text_action_->setObjectName("drawingTextAction");
+    symbol_action_=drawing->addAction(resource_icon("symbol"),tr("Vložit symbol"),this,[this]{show_symbol_properties();});
+    symbol_action_->setObjectName("drawingSymbolAction");
     balloon_action_=drawing->addAction(resource_icon("drawing-balloon"),tr("Pozice"),this,[this]{show_balloon_properties();});
     balloon_action_->setObjectName("drawingBalloonAction");
     selection_action_ = new QAction(tr("Výběr"), this);
@@ -2126,6 +2207,7 @@ void DrawingWindow::create_actions() {
     drawing_toolbar_->addAction(linear_dimension_action_);
     drawing_toolbar_->addAction(chain_dimension_action_);
     drawing_toolbar_->addAction(text_action_);
+    drawing_toolbar_->addAction(symbol_action_);
     drawing_toolbar_->addAction(balloon_action_);
     drawing_toolbar_->addAction(dimension_jog_action_);
     drawing_toolbar_->addAction(dimension_break_action_);
@@ -2165,6 +2247,7 @@ void DrawingWindow::create_layout() {
     });
     canvas_->set_context_actions(insert_view_action_,edit_view_action_,projected_view_action_,delete_view_action_);
     canvas_->set_title_block_action(edit_title_block_action_);
+    canvas_->set_symbol_properties([this](const auto& id){show_symbol_properties(id);});
     canvas_->set_text_properties([this](const auto& id){show_text_properties(id);});
     sheet_controls_ = new QWidget(central);
     auto* bottom = new QHBoxLayout(sheet_controls_);
@@ -2620,6 +2703,47 @@ void DrawingWindow::show_detail_properties(drawing::DrawingView view,bool creati
     if(properties_handler_)properties_handler_(dialog);dialog->show();dialog->resume();update_action_states();
 }
 
+void DrawingWindow::show_symbol_properties(const std::string& id) {
+    if(view_dialog_){view_dialog_->raise();return;}
+    if(raise_open_properties(window()))return;
+    const auto* sheet=active_sheet();if(!sheet)return;
+    symbols::Placement initial;auto contact=std::make_shared<std::optional<drawing::SymbolContact>>();
+    if(id.empty()) {
+        const auto path=open_file(this,tr("Vložit symbol"),ApplicationSettings::load().resolved_paths.value("Symbols"),tr("Symbol ZIMA-CAD (*.symz)"));
+        if(path.isEmpty())return;
+        try {
+            const auto definition=symbols::Definition::load(std::filesystem::path(path.toStdU16String()));
+            initial.symbol.id=kernel::make_stable_id();initial.symbol.definition=definition.serialized();initial.symbol.variant=definition.default_variant;
+            initial.frame={{sheet->width_mm()/2,sheet->height_mm()/2,0},{-1,0,0},{0,1,0}};
+        }catch(const std::exception&){QMessageBox::warning(this,tr("Symbol"),tr("Symbol nelze načíst. Zkontrolujte jeho definici."));return;}
+    }else {
+        const auto found=std::ranges::find(sheet->symbol_annotations,id,[](const auto& p){return p.symbol.id;});
+        if(found==sheet->symbol_annotations.end())return;initial=*found;
+        if(const auto entry=sheet->symbol_contacts.find(id);entry!=sheet->symbol_contacts.end())*contact=entry->second;
+    }
+    const auto sheet_id=sheet->id,drawing_id=document_.document_id;canvas_->start_selection();
+    auto* dialog=new SymbolAttachmentDialog(initial,[this,sheet_id,drawing_id,contact](auto value){
+        if(document_.document_id!=drawing_id)throw std::runtime_error(tr("Dokument již není aktivní.").toStdString());
+        auto* sheet=document_.find_sheet(sheet_id);if(!sheet)throw std::runtime_error(tr("Dokument již není aktivní.").toStdString());
+        auto next=*sheet;const auto id=value.symbol.id;
+        const auto found=std::ranges::find(next.symbol_annotations,id,[](const auto& p){return p.symbol.id;});
+        if(found==next.symbol_annotations.end())next.symbol_annotations.push_back(value);else *found=value;
+        if(value.reference&&*contact)next.symbol_contacts[id]=**contact;else next.symbol_contacts.erase(id);
+        drawing::refresh_symbol_contacts(next);*sheet=std::move(next);canvas_->set_symbol_preview({});refresh();
+    },window(),true);
+    const QPointer<SymbolAttachmentDialog> guarded(dialog);view_dialog_=dialog;
+    dialog->changed=[this,guarded,contact]{if(!guarded)return;if(!guarded->pending_placement().reference)contact->reset();canvas_->set_symbol_reference_view(*contact?(**contact).view_id:std::string{});canvas_->set_symbol_preview(guarded->pending_placement());};
+    canvas_->set_symbol_editor(dialog,[guarded,contact](const auto* view,const auto* attachment,auto point){
+        if(!guarded)return;auto value=guarded->pending_placement();
+        if(view&&attachment){try {drawing::attach_symbol_to_view(value,*view,*attachment);}catch(const std::exception&){QMessageBox::warning(guarded,tr("Symbol"),tr("Symbol nelze připojit k vybrané geometrii."));return;}*contact=drawing::SymbolContact{view->id,attachment->parameter};}
+        else {value.reference.reset();value.unresolved=false;value.frame={{point.x,point.y,0},{-1,0,0},{0,1,0}};contact->reset();}
+        guarded->set_planar_placement(std::move(value));
+    });
+    dialog->changed();if(properties_handler_)properties_handler_(dialog);
+    connect(dialog,&QDialog::finished,this,[this,guarded]{canvas_->set_symbol_editor(nullptr);canvas_->set_symbol_preview({});if(view_dialog_==guarded){view_dialog_.clear();if(properties_handler_)properties_handler_(nullptr);}update_action_states();});
+    dialog->show();update_action_states();
+}
+
 void DrawingWindow::show_text_properties(const std::string& id) {
     if(view_dialog_){view_dialog_->raise();return;}
     if(raise_open_properties(window()))return;
@@ -3017,6 +3141,7 @@ void DrawingWindow::update_action_states() {
     dimension_align_action_->setEnabled(has_view);
     text_action_->setEnabled(has_sheet&&!view_dialog_);
     balloon_action_->setEnabled(has_view);
+    symbol_action_->setEnabled(has_sheet&&!view_dialog_);
     linear_dimension_action_->setChecked(canvas_->dimension_mode());
     show_erase_action_->setEnabled(has_view);
     selection_action_->setEnabled(has_sheet);
@@ -3062,6 +3187,7 @@ void DrawingWindow::update_source_variant() {
     source_variant_->setEnabled(!view_dialog_&&source_variant_->count()>1);
 }
 void DrawingWindow::refresh(bool changed) {
+    for(auto& sheet:document_.sheets)drawing::refresh_symbol_contacts(sheet);
     const int wanted = std::clamp(sheets_ ? sheets_->currentIndex() : 0, 0, static_cast<int>(document_.sheets.size() - 1));
     sheets_->blockSignals(true); while (sheets_->count()) sheets_->removeTab(0);
     for (const auto& sheet : document_.sheets) sheets_->addTab(QString::fromStdString(sheet.name));

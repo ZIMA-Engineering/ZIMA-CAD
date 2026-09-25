@@ -223,6 +223,7 @@ struct SketchText {
     std::vector<std::vector<std::array<double, 2>>> contours;
     std::string anchor_point_id; // Optional constrained anchor in a template Sketch.
     bool modeling_geometry{true}; // Annotation text never enters solid profiles.
+    bool drawing_keep_readable{}; // Symbol text only: paper-space half-turn around its center.
     bool operator==(const SketchText&) const = default;
 };
 

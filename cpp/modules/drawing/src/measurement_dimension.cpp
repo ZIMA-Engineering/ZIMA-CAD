@@ -1,3 +1,4 @@
+#include <charconv>
 #include <zima/drawing/dimension_text.hpp>
 #include <zima/drawing/view_breaks.hpp>
 #include <mutex>
@@ -29,6 +30,37 @@ Point2 project(kernel::Vec3 p, const ProjectionCamera &c) {
     return {kernel::dimension_dot(p, c.horizontal), kernel::dimension_dot(p, c.vertical)};
 }
 bool finite(Point2 p) { return std::isfinite(p.x) && std::isfinite(p.y); }
+// Boolean split edges and inherited vertices retain explicit parent identity. A fillet,
+// intersection, mirror or sweep child is not interchangeable with its parent.
+std::optional<kernel::EdgeReference> inherited_parent(const kernel::EdgeReference& ref,bool point=false) {
+    const std::string_view key=ref.semantic_key;
+    if(!key.starts_with("boolean:"))return {};
+    const auto role_end=key.find(':',8);
+    const std::string_view marker=point?":vertex:from:":":split-edge:from:";
+    if(role_end==key.npos||key.substr(role_end,marker.size())!=marker)return {};
+    std::size_t offset=role_end+marker.size();
+    const auto read=[&](std::string& value) {
+        const auto end=key.find(':',offset);if(end==key.npos)return false;
+        std::size_t count{};const auto parsed=std::from_chars(key.data()+offset,key.data()+end,count);
+        if(parsed.ec!=std::errc{}||parsed.ptr!=key.data()+end||count>key.size()-end-1)return false;
+        value=key.substr(end+1,count);offset=end+1+count;return true;
+    };
+    kernel::EdgeReference parent;
+    if(!read(parent.owner_id)||!read(parent.semantic_key)||!read(parent.instance_path)||
+        !parent.valid()||!key.substr(offset).starts_with(point?":at:":":between:"))return {};
+    // Body identities are authored locally; projection adds the exact occurrence.
+    if(parent.instance_path.empty())parent.instance_path=ref.instance_path;
+    if(parent.instance_path!=ref.instance_path)return {};
+    return parent;
+}
+bool inherited_edge(const kernel::EdgeReference& child,const kernel::EdgeReference& parent) {
+    auto current=child;
+    for(unsigned depth=0;depth<64;++depth) {
+        if(current==parent)return true;
+        const auto next=inherited_parent(current);if(!next)return false;current=*next;
+    }
+    return false;
+}
 auto key(const kernel::EdgeReference &r) { return std::tuple{r.owner_id, r.semantic_key, r.instance_path}; }
 std::optional<MeasurementCircle> circle_geometry(const std::vector<kernel::Vec3> &points) {
     if (points.size() < 5)
@@ -318,7 +350,7 @@ void capture_measurement_geometry(DrawingView &view, const kernel::ViewerMesh &m
         data.curves.push_back(std::move(c));
     }
     seen.clear();
-    for (const auto *points : {&mesh.points, &mesh.original_references.points})
+    for (const auto *points : {&mesh.original_references.points, &mesh.points})
         for (const auto &p : *points) {
             kernel::EdgeReference r{p.reference.owner_id, p.reference.semantic_key,
                                     p.reference.instance_path};
@@ -388,7 +420,7 @@ std::vector<std::vector<Point2>> measurement_reference_geometry(
     if (!ref.valid())
         return result;
     for (const auto &edge : view.projected_edges)
-        if (edge.source == ref && !edge.hatch && (!edge.silhouette||edge.thread) && drawing_edge_visible(view, edge))
+        if (inherited_edge(edge.source, ref) && !edge.hatch && (!edge.silhouette||edge.thread) && drawing_edge_visible(view, edge))
             result.push_back(edge.points);
     for (const auto &item : view.model_annotations)
         if (!origin_annotation(item.source) && item.kind == ModelAnnotationKind::Axis && item.model_axis && item.visible && !item.unresolved &&
@@ -614,6 +646,42 @@ std::vector<MeasurementCandidate> measurement_candidates(const DrawingView &view
                 if(z>*depth+1e-6)return;
             }
         }
+        // Canonicalize only proven inherited geometry and only when resolving
+        // the new attachment preserves the exact offered contact. Both symbols
+        // and dimensions consume this same candidate, including RMB cycling.
+        if(a.kind==DimensionAttachmentKind::Point) {
+            const auto& points=view.measurement_geometry->points;
+            const auto source=std::ranges::find(points,a.reference,&MeasurementPoint::source);
+            auto current=a.reference;
+            if(source!=points.end())for(unsigned depth=0;depth<64;++depth) {
+                const auto parent=inherited_parent(current,true);if(!parent)break;current=*parent;
+                const auto original=std::ranges::find(points,current,&MeasurementPoint::source);
+                // Ancestry establishes identity; 3D coincidence checks that the
+                // inherited point was not displaced (projection alone is unsafe).
+                if(original!=points.end()) {
+                    const auto delta=kernel::dimension_sub(original->position,source->position);
+                    if(kernel::dimension_dot(delta,delta)<1e-14)a.reference=current;
+                }
+            }
+        } else {
+            auto canonical=a;
+            const auto prefer_parent=[&](kernel::EdgeReference& reference,bool primary) {
+                auto current=reference;
+                for(unsigned depth=0;depth<64;++depth) {
+                    const auto parent=inherited_parent(current);if(!parent)break;current=*parent;
+                    if(const auto* curve=find_curve(curves,current)) {
+                        reference=current;
+                        if(primary&&(a.kind==DimensionAttachmentKind::CurvePoint||a.kind==DimensionAttachmentKind::Line||a.kind==DimensionAttachmentKind::Intersection))
+                            canonical.parameter=parameter_at(*curve,point);
+                    }
+                }
+            };
+            prefer_parent(canonical.reference,true);
+            prefer_parent(canonical.other_reference,false);
+            const auto before=resolve(view,curves,a,request.tangent_direction);
+            const auto after=resolve(view,curves,canonical,request.tangent_direction);
+            if(before&&after&&length(sub(*before,*after))<1e-7)a=std::move(canonical);
+        }
         if (std::ranges::any_of(offered, [&](const auto &c) { return c.attachment == a; }))
             return;
         point_target=point_target||a.kind==DimensionAttachmentKind::Point||
@@ -622,6 +690,9 @@ std::vector<MeasurementCandidate> measurement_candidates(const DrawingView &view
     };
     const auto *parallel = find_curve(curves, request.parallel_line);
     for (const auto &curve : curves) {
+        // Offer the displayed child geometry, then canonicalize its reference.
+        // Do not offer the removed endpoints/midpoint of an untrimmed parent.
+        if(!curve.axis&&std::ranges::none_of(view.projected_edges,[&](const auto& edge){return edge.source==curve.source;}))continue;
         if (request.lines_only && !curve.line)
             continue;
         const bool thread=curve.source.semantic_key.starts_with("thread:boundary:");

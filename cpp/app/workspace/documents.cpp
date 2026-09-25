@@ -3,6 +3,7 @@
 #include "workspace_internal.hpp"
 #include "new_document_options.hpp"
 #include <zima/workspace/template_operations.hpp>
+#include <zima/workspace/symbol_operations.hpp>
 #include <zima/workspace/document_operations.hpp>
 #include <zima/workspace/drawing_sources.hpp>
 #include <zima/document/file_path.hpp>
@@ -67,6 +68,7 @@ public:
             layout, QObject::tr("Razítko výkresu"), "title_block",
             "title-block", true);
         part_->setChecked(true);
+        add_type(layout, QObject::tr("Symbol"), "symbol", "symbol", true);
         error_ = new QLabel(content);
         error_->setObjectName("newDocumentError");
         error_->setWordWrap(true);
@@ -169,7 +171,7 @@ QString AssemblyWorkspaceWindow::create_document(
             ? QStringLiteral(".asmz")
             : document_type == QStringLiteral("drawing")
                 ? QStringLiteral(".drwz") : document_type == "title_block" ? QStringLiteral(".tblz")
-                    : document_type == "drawing_format" ? QStringLiteral(".frmz") : QString{};
+                    : document_type == "drawing_format" ? QStringLiteral(".frmz") : document_type == "symbol" ? QStringLiteral(".symz") : QString{};
     if (suffix.isEmpty()) return tr("Tento typ dokumentu zatím není podporován.");
     const std::filesystem::path path = working_directory_ /
         std::filesystem::u8path(name + suffix.toStdString());
@@ -179,7 +181,9 @@ QString AssemblyWorkspaceWindow::create_document(
     }
     std::string id;
     try {
-        if (document_type == "title_block" || document_type == "drawing_format") {
+        if(document_type=="symbol") {
+            id=workspace::create_symbol_document(workspace_,name,path);
+        } else if (document_type == "title_block" || document_type == "drawing_format") {
             id=workspace::create_drawing_template(workspace_,document_type=="title_block",name,path);
         } else {
             const auto type=workspace::native_document_type(path);
@@ -211,6 +215,7 @@ QString AssemblyWorkspaceWindow::create_document(
             document_application_modes_[id]=active_application_;
         }
     } catch (const std::exception& error) {
+        if(document_type=="symbol")return tr("Symbol nelze vytvořit. Zkontrolujte název a cílovou složku.");
         return tr("Dokument nelze vytvořit: %1").arg(error.what());
     }
     workspace_.activate(id);
@@ -283,7 +288,7 @@ void AssemblyWorkspaceWindow::open_document() {
         application_settings_.text("file.open_document", tr("Otevřít dokument")),
         QString::fromStdString(zima::document::path_to_utf8(working_directory_)),
         application_settings_.text("file.filter.document",
-            tr("Dokumenty ZIMA-CAD (*.prtz *.asmz *.drwz *.frmz *.tblz)")),
+            tr("Dokumenty ZIMA-CAD (*.prtz *.asmz *.drwz *.frmz *.tblz *.symz)")),
         application_settings_.translations);
     if (path.isEmpty()) return;
     static_cast<void>(open_document_path(path));
@@ -300,6 +305,8 @@ bool AssemblyWorkspaceWindow::open_document_path(const QString& path) {
         if (const auto already_open = workspace_.document_id_for_path(opened_path)) {
             update_status_operation(tr("Aktivuji již otevřený dokument…"));
             id = *already_open;
+        } else if(path.endsWith(".symz",Qt::CaseInsensitive)) {
+            id=workspace::open_symbol_document(workspace_,opened_path);
         } else if (path.endsWith(".frmz",Qt::CaseInsensitive) || path.endsWith(".tblz",Qt::CaseInsensitive)) {
             id=workspace::open_drawing_template(workspace_,opened_path);
         } else {
@@ -328,7 +335,8 @@ bool AssemblyWorkspaceWindow::open_document_path(const QString& path) {
         workspace_.display_top_level(id);
     } catch (const std::exception& error) {
         finish_status_operation(tr("Otevření dokumentu selhalo"), false);
-        report_operation_error(tr("Otevření dokumentu selhalo"), error.what());
+        report_operation_error(tr("Otevření dokumentu selhalo"), path.endsWith(".symz",Qt::CaseInsensitive)
+            ? tr("Symbol nelze načíst. Zkontrolujte jeho definici.") : QString::fromUtf8(error.what()));
         return false;
     }
     if (!opened_path.parent_path().empty()) {
@@ -395,6 +403,7 @@ void AssemblyWorkspaceWindow::refresh_tabs() {
                 const int index = tabs_->addTab(
                     resource_icon([&]() -> QString {
                         if constexpr(std::is_same_v<State,zima::workspace::PartState>) {
+                            if(document.symbol_definition)return "symbol";
                             if(!model.sketches.empty()&&model.sketches.front().drawing_template)
                                 return model.sketches.front().drawing_template->kind=="title_block"?"title-block":"drawing-format";
                             return "part";
@@ -467,7 +476,7 @@ void AssemblyWorkspaceWindow::update_document_kind_button() {
     }
     QString label;
     QString tooltip;
-    if(template_sketch()){document_kind_button_->hide();return;}
+    if(template_sketch()||symbol_document_sketch()){document_kind_button_->hide();return;}
     if (const auto* drawing = workspace_.open_drawing(displayed)) {
         const auto source=drawing_workspace_->selected_source_id();
         if(source.empty()){document_kind_button_->hide();return;}

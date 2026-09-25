@@ -14,6 +14,12 @@ struct Variant {
     std::map<std::string, std::string> text_values;
     std::vector<std::string> hidden_texts;
 };
+struct FrameLayout {
+    // Ordered Sketch cells; omitted variant Sketches and empty text cells do
+    // not occupy space. Geometry and text stay editable in the source Sketch.
+    std::vector<std::string> cells;
+    double height{7}, padding{1}, minimum_width{7};
+};
 // All sketches share local XY. Occurrence placement is annotation placement,
 // independent of the shared history-container placement contract.
 struct Definition {
@@ -25,6 +31,7 @@ struct Definition {
     // Sketch ID -> persisted curve ID -> display/plot pen (white or yellow).
     std::map<std::string,std::map<std::string,std::string>> pens;
     std::string default_variant, variant_source;
+    std::optional<FrameLayout> frame_layout;
     void validate() const;
     [[nodiscard]] std::vector<sketcher::Sketch> evaluate(const std::string& variant,
         const std::map<std::string,std::string>& overrides = {}) const;
@@ -35,5 +42,5 @@ struct Definition {
 };
 [[nodiscard]] Definition projection_method();
 [[nodiscard]] kernel::ViewerMesh instance_mesh(const sketcher::SymbolInstance&,
-    const std::string& cad_variant = {});
+    const std::string& cad_variant = {}, std::optional<double> paper_frame_angle = std::nullopt);
 }

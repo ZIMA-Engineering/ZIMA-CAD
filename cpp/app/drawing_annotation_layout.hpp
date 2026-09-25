@@ -58,6 +58,7 @@ unbroken_model_annotation_layout(const drawing::DrawingView &view,
   out.text = {item.text_anchor.x * view.scale, item.text_anchor.y * view.scale};
   if (auto i = item.paper_handles.find("text"); i != item.paper_handles.end())
     out.text = {i->second.x, i->second.y};
+  if(item.kind==drawing::ModelAnnotationKind::Symbol){out.handles["text"]=out.text;return out;}
   if (item.kind == drawing::ModelAnnotationKind::Axis) {
     const auto axis=drawing::axis_annotation_geometry(view,item);
     out.curves.clear();
@@ -131,7 +132,7 @@ unbroken_model_annotation_layout(const drawing::DrawingView &view,
 }
 inline ModelAnnotationLayout model_annotation_layout(const drawing::DrawingView& view,const drawing::ModelAnnotation& source,QRectF bounds,double text_width=-1,double text_gap=.75) {
     auto out=unbroken_model_annotation_layout(view,source,bounds,text_width,text_gap);
-    if(view.breaks.empty()||(source.kind==drawing::ModelAnnotationKind::Dimension&&source.model_dimension))return out;
+    if(view.breaks.empty()||source.kind==drawing::ModelAnnotationKind::Symbol||(source.kind==drawing::ModelAnnotationKind::Dimension&&source.model_dimension))return out;
     const auto map=[&](QPointF p){auto q=drawing::break_paper(view,{p.x(),p.y()});return QPointF(q.x,q.y);};
     std::vector<std::vector<QPointF>> curves;
     for(const auto& c:out.curves){std::vector<drawing::Point2> points;for(auto p:c)points.push_back({p.x()/view.scale,p.y()/view.scale});

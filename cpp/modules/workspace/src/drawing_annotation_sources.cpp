@@ -85,12 +85,14 @@ drawing_annotation_sources(const Workspace *workspace,
     std::vector<kernel::DimensionLayoutEntry> layouts;
     std::map<std::pair<std::string,std::string>,kernel::ModelEnvelope> axis_frames;
     std::map<std::string,drawing::ThreadDesignation> threads;
+    std::vector<symbols::Placement> native_symbols;
     const auto part_mesh = [&](const document::PartDocument &part,
                                const kernel::ViewerMesh &calculated) {
       if (part.document_id != id)
         throw std::runtime_error(
             "Annotation source document identity mismatch");
       envelope=kernel::model_envelope(calculated);frames=document::part_annotation_envelopes(part,calculated);layouts=part.dimension_layouts;
+      native_symbols=part.symbol_annotations;
       append(mesh, part.construction_viewer_mesh());
       append(mesh, part.origin_viewer_mesh());
       frames[{part.document_id+":origin",{}}]=envelope;
@@ -213,6 +215,7 @@ drawing_annotation_sources(const Workspace *workspace,
         throw std::runtime_error(
             "Annotation source document identity mismatch");
       const auto scene=assembly.build_scene();envelope=kernel::model_envelope(scene);frames=scene.annotation_frames;layouts=assembly.dimension_layouts;
+      native_symbols=assembly.symbol_annotations;
       std::erase_if(frames,[](const auto& entry){return !entry.first.second.empty();});
       append(mesh, assembly.construction_viewer_mesh());
       append(mesh, assembly.origin_viewer_mesh());
@@ -326,6 +329,7 @@ drawing_annotation_sources(const Workspace *workspace,
     // Consume the existing Assembly display transformation. Extra vertices
     // carry optional text anchors through exactly the same placement, without
     // solving.
+    std::erase_if(mesh.edges,[](const auto& edge){return edge.reference.semantic_key.starts_with("symbol:");});
     for (const auto &d : mesh.dimensions)
       mesh.vertices.push_back(d.label_position.value_or(d.line_second));
     frames[{}]=envelope;
@@ -339,6 +343,11 @@ drawing_annotation_sources(const Workspace *workspace,
     for(const auto& [key,frame]:axis_frames) {
       mesh.vertices.push_back(frame.origin);
       for(auto axis:frame.axes)mesh.vertices.push_back(kernel::dimension_add(frame.origin,axis));
+    }
+    for(const auto& symbol:native_symbols) {
+      mesh.vertices.push_back(symbol.frame.origin);
+      mesh.vertices.push_back(kernel::dimension_add(symbol.frame.origin,symbol.frame.x));
+      mesh.vertices.push_back(kernel::dimension_add(symbol.frame.origin,symbol.frame.y));
     }
     for (auto i = placements.rbegin(); i != placements.rend(); ++i) {
       if (i->mirror || i->pattern) {
@@ -392,6 +401,12 @@ drawing_annotation_sources(const Workspace *workspace,
       for(auto& axis:frame.axes)axis=kernel::dimension_sub(mesh.vertices.at(frame_index++),frame.origin);
     }
     frames=std::move(placed_frames);
+    for(auto& symbol:native_symbols) {
+      symbol.frame.origin=mesh.vertices.at(frame_index++);
+      symbol.frame.x=kernel::dimension_sub(mesh.vertices.at(frame_index++),symbol.frame.origin);
+      symbol.frame.y=kernel::dimension_sub(mesh.vertices.at(frame_index++),symbol.frame.origin);
+      symbol.frame.validate();
+    }
     envelope=frames.at({{},occurrence.encoded()});
     for (std::size_t i = 0; i < mesh.dimensions.size(); ++i) {
       mesh.dimensions[i].label_position = mesh.vertices.at(i);
@@ -402,7 +417,7 @@ drawing_annotation_sources(const Workspace *workspace,
     for (auto &a : mesh.axes)
       a.reference.instance_path = occurrence.encoded();
     result.push_back({id, occurrence.encoded(), std::move(mesh.dimensions),
-                      std::move(mesh.edges), std::move(mesh.axes),envelope,std::move(layouts),std::move(frames),std::move(axis_frames),std::move(threads)});
+                      std::move(mesh.edges), std::move(mesh.axes),envelope,std::move(layouts),std::move(frames),std::move(axis_frames),std::move(threads),std::move(native_symbols)});
     stack.erase(id);
   };
   visit(root, root_path, {}, {});

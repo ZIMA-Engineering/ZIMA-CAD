@@ -1152,6 +1152,7 @@ zima::kernel::ViewerMesh AssemblyDocument::construction_viewer_mesh(
     carrier.name = name;
     carrier.constructions = constructions;
     carrier.history = sketch_containers;
+    carrier.symbol_annotations = symbol_annotations;
     for(const auto& component:components)if(component.derived_copy&&component.visible) {
         document::ConstructionObject origin;
         origin.id=component.occurrence_id;origin.entity_id=origin.id+":entity";
@@ -2121,6 +2122,7 @@ AssemblyDocument AssemblyDocument::from_serialized(const nlohmann::json& root) {
     static_cast<void>(zima::document::parse_named_views(document.named_views));
     document.sections=zima::document::parse_sections(root.value("sections",nlohmann::json::array()).dump());
     document.measurements=zima::document::parse_measurements(root.value("measurements",nlohmann::json::array()).dump());
+    document.symbol_annotations=symbols::placements_from_json(root.value("symbol_annotations",nlohmann::json::array()));
     document.dimension_layouts=zima::document::dimension_layouts_from_json(root.value("dimension_layouts",nlohmann::json::array()));
     document.dimension_identifiers = zima::document::DimensionIdentifiers::from_serialized(root.at("dimension_identifiers").dump());
     for (const auto& value : root.at("sketches")) {
@@ -2443,6 +2445,7 @@ nlohmann::json AssemblyDocument::serialized(
         {"named_views", named_views},
         {"sections",nlohmann::json::parse(zima::document::serialize_sections(sections))},
         {"measurements",nlohmann::json::parse(zima::document::serialize_measurements(measurements))},
+        {"symbol_annotations",symbols::placements_json(symbol_annotations)},
         {"sketches", std::move(sketches_json)},
         {"sketch_containers",std::move(sketch_containers_json)},
         {"cuts", std::move(cuts_json)},

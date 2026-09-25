@@ -25,7 +25,7 @@ Initial list/custom-text examples are also available:
 
 - `surface-texture/ZE-SURFACE-TEXTURE-ISO21920.symz`: three surface-texture
   process variants for individual surfaces and a configurable specification.
-- `surface-texture/ZE-GENERAL-SURFACE-TEXTURE-ISO21920.symz`: a separate
+- `general/ZE-GENERAL-SURFACE-TEXTURE-ISO21920.symz`: a separate
   title-block/general indication, with the default requirement followed by a
   bare symbol in parentheses. Three manufacturing-process variants are offered.
 - `general/ZE-GENERAL-EDGES-ISO13715.symz`: all, external, internal or combined
@@ -57,3 +57,9 @@ These examples can be inserted into a Sketch or title block. The general texture
 composition is intended for the title block; the local texture asset describes
 individual surfaces. They do not yet
 provide model-surface attachment or an exhaustive standard-symbol catalog.
+
+
+The historical `surface-texture/ZE-SURFACE-TEXTURE-ISO1302-1978.symz` contains
+two variants: unspecified process and required material removal. Its editable text above the bar defaults to `3,2` (optional `Ra` prefix) and enables the ordinary per-text Drawing readability option. Authors can set
+this same option in Symbol Sketch Text Properties; no symbol ID is required.
+See `doc/SYMBOLS_USER_GUIDE.md` for orientation and scope.

@@ -201,6 +201,7 @@ void AssemblyWorkspaceWindow::refresh_drawing_tree() {
         sheet_item->setIcon(0,resource_icon("drawing-sheet"));
         sheet_item->setData(0,Qt::UserRole,QString::fromStdString(sheet.id));
         sheet_item->setData(0,Qt::UserRole+3,"drawing-sheet");
+        for(const auto& symbol:sheet.symbol_annotations)entity(sheet_item,QString::fromStdString(symbols::Definition::from_serialized(symbol.symbol.definition).name),"drawing-symbol:"+symbol.symbol.id,"symbol");
         for(const auto& view:sheet.views) {
             auto* item=new QTreeWidgetItem(sheet_item,{QString::fromStdString(view.name)});
             item->setIcon(0,resource_icon("drawing-view"));
@@ -211,13 +212,14 @@ void AssemblyWorkspaceWindow::refresh_drawing_tree() {
                 entity(item,QString::fromStdString(view.section_snapshot->name),"drawing-section-label:"+view.id,"text");
             for(const auto& marker:view.section_markers)
                 entity(item,QString::fromStdString(marker.name),"drawing-section-end:"+view.id+":"+marker.id,"section");
-            for(const auto kind:{drawing::ModelAnnotationKind::Dimension,drawing::ModelAnnotationKind::Axis,drawing::ModelAnnotationKind::Construction}) {
+            for(const auto kind:{drawing::ModelAnnotationKind::Dimension,drawing::ModelAnnotationKind::Axis,drawing::ModelAnnotationKind::Construction,drawing::ModelAnnotationKind::Symbol}) {
                 QTreeWidgetItem* group=nullptr;
                 for(const auto& annotation:view.model_annotations) {
                     if(annotation.kind!=kind||!annotation.visible)continue;
-                    if(!group){group=new QTreeWidgetItem(item,{kind==drawing::ModelAnnotationKind::Dimension?tr("Kóty"):kind==drawing::ModelAnnotationKind::Axis?tr("Osy"):tr("Konstrukční geometrie")});group->setIcon(0,resource_icon(kind==drawing::ModelAnnotationKind::Dimension?"drawing-dimension":kind==drawing::ModelAnnotationKind::Axis?"axis":"sketch"));}
+                    if(!group){group=new QTreeWidgetItem(item,{kind==drawing::ModelAnnotationKind::Dimension?tr("Kóty"):kind==drawing::ModelAnnotationKind::Axis?tr("Osy"):kind==drawing::ModelAnnotationKind::Symbol?tr("Symboly"):tr("Konstrukční geometrie")});group->setIcon(0,resource_icon(kind==drawing::ModelAnnotationKind::Dimension?"drawing-dimension":kind==drawing::ModelAnnotationKind::Axis?"axis":kind==drawing::ModelAnnotationKind::Symbol?"symbol":"sketch"));}
                     const auto key=model_annotation_key(annotation.source);
                     auto label=QString::fromStdString(annotation.text);
+                    if(annotation.model_symbol)label=QString::fromStdString(symbols::Definition::from_serialized(annotation.model_symbol->symbol.definition).name);
                     if(label.isEmpty())label=QString::fromStdString(annotation.source.semantic_id);
                     if(drawing::break_annotation_hidden(view,annotation))label+=tr(" — skryto přerušením");
                     auto* child=new QTreeWidgetItem(group,{label});
@@ -226,7 +228,7 @@ void AssemblyWorkspaceWindow::refresh_drawing_tree() {
                     child->setData(0,Qt::UserRole+4,QString::fromStdString(view.id));
                     child->setData(0,Qt::UserRole+5,QString::fromStdString(key));
                     child->setToolTip(0,QString::fromStdString(annotation.source.owner_id+" / "+annotation.source.semantic_id));
-                    child->setIcon(0,resource_icon(kind==drawing::ModelAnnotationKind::Dimension?"drawing-dimension":kind==drawing::ModelAnnotationKind::Axis?"axis":"sketch"));
+                    child->setIcon(0,resource_icon(kind==drawing::ModelAnnotationKind::Dimension?"drawing-dimension":kind==drawing::ModelAnnotationKind::Axis?"axis":kind==drawing::ModelAnnotationKind::Symbol?"symbol":"sketch"));
                 }
                 if(kind==drawing::ModelAnnotationKind::Dimension)for(const auto& dimension:sheet.dimensions) {
                     if(dimension.view_id!=view.id)continue;

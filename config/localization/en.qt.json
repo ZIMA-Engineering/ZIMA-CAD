@@ -1,4 +1,16 @@
 {
+  "Orientace ve výkresu": "Drawing orientation",
+  "Se značkou": "With symbol",
+  "Zachovat čitelnost": "Keep readable",
+  "Plocha symbolu": "Symbol surface",
+  "Odkazová čára se šipkou": "Leader with arrow",
+  "Počátek X": "Origin X",
+  "Počátek Y": "Origin Y",
+  "Počátek Z": "Origin Z",
+  "Reference není dostupná. Symbol zachovává poslední polohu.": "Reference unavailable. The symbol retains its last position.",
+  "Vyberte plochu pro symbol.": "Select a surface for the symbol.",
+  "Dokument již není aktivní.": "The document is no longer active.",
+  "Symbol nelze vytvořit. Zkontrolujte název a cílovou složku.": "Cannot create the symbol. Check the name and destination folder.",
   "Plošné těžiště — X: %1; Y: %2; Z: %3": "Surface centroid — X: %1; Y: %2; Z: %3",
   "Hmotnost: nelze určit z otevřené plochy bez tloušťky.": "Mass: cannot be determined from an open surface without thickness.",
   "Používat ISO font pro GUI": "Use ISO font for the GUI",
@@ -27,13 +39,10 @@
   "Upravte obě skici a polohu druhého počátku. OK vytvoří plech.": "Edit both Sketches and the second Origin placement. OK creates the sheet.",
   "Fixed section frames require an explicit smooth loft section at each station.": "Fixed section frames require an explicit smooth loft section at each station.",
   "Compound sheet material must match every authored primitive.": "Compound sheet material must match every authored primitive.",
-
   "Both transition Sketches must belong to the same Body.": "Both transition Sketches must belong to the same Body.",
-
   "Vyberte skicu": "Select a Sketch",
   "Vnitřní poloměr ohybu": "Inside bend radius",
   "K-faktor": "K-factor",
-
   "Přechod plechu": "Sheet transition",
   "Skica půlkruhu": "Semicircle Sketch",
   "Skica zaobleného půlobdélníku": "Rounded half-rectangle Sketch",
@@ -63,7 +72,6 @@
   "Sheet transition editing must preserve feature identity.": "Sheet transition editing must preserve feature identity.",
   "Activate an editable Body before creating a sheet transition.": "Activate an editable Body before creating a sheet transition.",
   "Specify a sheet transition name.": "Specify a sheet transition name.",
-
   "Source Body must precede the active Body.": "Source Body must precede the active Body.",
   "Create the empty target Body after the source Body and show its planar faces.": "Create the empty target Body after the source Body and show its planar faces.",
   "Plech z tělesa": "Sheet from Body",
@@ -289,7 +297,7 @@
   "Zpět do sestavy": "Return to assembly",
   "Vytvořit těleso": "Create Body",
   "Potlačit": "Suppress",
-  "Dokumenty ZIMA-CAD (*.prtz *.asmz *.drwz *.frmz *.tblz)": "ZIMA-CAD Documents (*.prtz *.asmz *.drwz *.frmz *.tblz)",
+  "Dokumenty ZIMA-CAD (*.prtz *.asmz *.drwz *.frmz *.tblz *.symz)": "ZIMA-CAD Documents (*.prtz *.asmz *.drwz *.frmz *.tblz *.symz)",
   "O aplikaci ZIMA-CAD": "About ZIMA-CAD",
   "Uložit sestavu ZIMA-CAD": "Save ZIMA-CAD Assembly",
   "Sestava ZIMA-CAD (*.asmz)": "ZIMA-CAD Assembly (*.asmz)",
@@ -1726,5 +1734,16 @@
   "Export rozvinu…": "Export flat pattern…",
   "Rozvin prototypu byl exportován: %1": "Prototype flat pattern exported: %1",
   "Export rozvinu se nezdařil.": "Flat pattern export failed.",
-  "Skici určují vnější rozměry. Žluté osy označují skutečné ohyby; tloušťka zatím není započítána.": "Sketches define external dimensions. Yellow centerlines mark actual bends; thickness is not yet included."
+  "Skici určují vnější rozměry. Žluté osy označují skutečné ohyby; tloušťka zatím není započítána.": "Sketches define external dimensions. Yellow centerlines mark actual bends; thickness is not yet included.",
+  "Reference symbolu": "Symbol reference",
+  "Vyberte geometrii nebo polohu na listu.": "Select geometry or a position on the sheet.",
+  "Hodnota tolerance": "Tolerance value",
+  "Primární základna": "Primary datum",
+  "Sekundární základna": "Secondary datum",
+  "Terciární základna": "Tertiary datum",
+  "Tolerance musí být kladné číslo.": "Tolerance must be a positive number.",
+  "Základny zadejte v pořadí bez mezer, velkými písmeny.": "Enter datums in order without empty intermediate cells, using uppercase letters.",
+  "Tato tolerance vyžaduje primární základnu.": "This tolerance requires a primary datum.",
+  "Symbol nelze připojit k vybrané geometrii.": "The symbol cannot be attached to the selected geometry.",
+  "Geometrická tolerance": "Geometric tolerance"
 }

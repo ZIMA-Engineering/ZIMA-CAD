@@ -116,6 +116,7 @@ void AssemblyWorkspaceWindow::create_layout() {
         " color:#102027; } QTreeWidget::item:hover, QTreeWidget::item:selected:hover:active, QTreeWidget::item:selected:hover:!active { background-color:#4dd811; color:#102027; }");
     tree_->setMouseTracking(true);
     viewer_ = new zima::viewer::MeshView;
+    initialize_symbol_handles();
     viewer_->setObjectName("modelViewer");
     viewer_->set_origin_visibility_filter([this](const auto& reference) {
         if (!workspace_.open_assembly(workspace_.displayed_document_id())) return true;
@@ -291,7 +292,8 @@ void AssemblyWorkspaceWindow::create_layout() {
         // That stale latch also kept commands such as Horizontal and Length
         // enabled and could apply them to geometry that was no longer the
         // confirmed viewer candidate.
-        if(candidate.kind==zima::viewer::CandidateKind::Symbol && candidate.owner_id==active_sketch_id_) {
+        if(candidate.kind==zima::viewer::CandidateKind::Symbol && (candidate.owner_id==active_sketch_id_||
+            (active_sketch_id_.empty()&&candidate.instance_path==workspace_.active_occurrence_path()))) {
             select_symbol(candidate.semantic_key.substr(7));return;
         }
         if(candidate.kind==zima::viewer::CandidateKind::TemplateImage && candidate.owner_id==active_sketch_id_) {
@@ -1432,7 +1434,8 @@ void AssemblyWorkspaceWindow::create_layout() {
     viewer_->set_double_confirmation_callback([this](const auto& candidate) {
         if(accept_family_reference(candidate,true))return;
         if(measurement_dialog_)return;
-        if(candidate.kind==zima::viewer::CandidateKind::Symbol && candidate.owner_id==active_sketch_id_) {
+        if(candidate.kind==zima::viewer::CandidateKind::Symbol && (candidate.owner_id==active_sketch_id_||
+            (active_sketch_id_.empty()&&candidate.instance_path==workspace_.active_occurrence_path()))) {
             show_symbol_properties(candidate.semantic_key.substr(7));return;
         }
         if(candidate.kind==zima::viewer::CandidateKind::TemplateImage && candidate.owner_id==active_sketch_id_) {
@@ -1718,6 +1721,10 @@ void AssemblyWorkspaceWindow::create_layout() {
             auto* item = tree_->currentItem();
             if (item == nullptr || !selected_items.contains(item)) {
                 item = selected_items.front();
+            }
+            if(item->data(0,Qt::UserRole+3).toString()=="model-symbol") {
+                const auto id=item->data(0,Qt::UserRole).toString().toStdString();selected_symbol_=id;
+                viewer_->confirm_reference(id,"symbol:"+id,workspace_.active_occurrence_path(),zima::viewer::CandidateKind::Symbol);return;
             }
             if(item->data(0,Qt::UserRole+3).toString()=="sketch-symbol") {
                 const auto id=item->data(0,Qt::UserRole).toString().toStdString();selected_symbol_=id;
@@ -2169,6 +2176,7 @@ void AssemblyWorkspaceWindow::create_layout() {
             const auto role=item->data(0,Qt::UserRole+3).toString();
             auto owner=item->data(0,Qt::UserRole).toString().toStdString();
             const auto path=item->data(0,Qt::UserRole+1).toString().toStdString();
+            if(role=="model-symbol"){show_model_symbol_properties(owner);return;}
             const auto component=role=="part-opening-component"?item->data(0,Qt::UserRole+5).toString().toStdString():std::string{};
             if(role=="part-container-entity")owner=item->data(0,Qt::UserRole+6).toString().toStdString();
             synchronize_tree_selection();
@@ -2258,7 +2266,7 @@ void AssemblyWorkspaceWindow::create_layout() {
                 const auto* chosen=exec_tree_menu(menu,item,position);
                 if(chosen==properties)show_template_image_properties(id);else if(chosen==remove)remove_template_image(id);return;
             }
-            if(step_kind=="sketch-symbol"&&!properties_dialog_) {
+            if((step_kind=="sketch-symbol"||step_kind=="model-symbol")&&!properties_dialog_) {
                 const auto id=item->data(0,Qt::UserRole).toString().toStdString();QMenu menu(this);
                 auto* properties=menu.addAction(resource_icon("properties"),tr("Vlastnosti…"));auto* remove=menu.addAction(resource_icon("delete"),tr("Odstranit"));
                 const auto* chosen=menu.exec(tree_->viewport()->mapToGlobal(position));

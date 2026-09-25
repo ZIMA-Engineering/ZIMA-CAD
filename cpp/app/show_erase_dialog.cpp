@@ -53,10 +53,11 @@ ShowEraseDialog::ShowEraseDialog(
   dimensions_ = new QCheckBox(tr("Kóty"), this);
   axes_ = new QCheckBox(tr("Osy"), this);
   construction_ = new QCheckBox(tr("Pomocná geometrie"), this);
+  symbols_ = new QCheckBox(tr("Symboly"),this);symbols_->setObjectName("showEraseSymbols");
   dimensions_->setObjectName("showEraseDimensions");
   axes_->setObjectName("showEraseAxes");
   construction_->setObjectName("showEraseConstruction");
-  for (auto *box : {dimensions_, axes_, construction_}) {
+  for (auto *box : {dimensions_, axes_, construction_, symbols_}) {
     box->setChecked(true);
     filters->addWidget(box);
     connect(box, &QCheckBox::toggled, this, [this] { rebuild(); });
@@ -117,6 +118,7 @@ std::set<drawing::ModelAnnotationKind> ShowEraseDialog::kinds() const {
     result.insert(drawing::ModelAnnotationKind::Axis);
   if (construction_->isChecked())
     result.insert(drawing::ModelAnnotationKind::Construction);
+  if(symbols_->isChecked())result.insert(drawing::ModelAnnotationKind::Symbol);
   return result;
 }
 void ShowEraseDialog::arm_view(){view_item_->set_active_input(true);view_field_->viewport()->update();if(view_picker_)view_picker_();}
@@ -147,6 +149,7 @@ void ShowEraseDialog::rebuild() {
                      ? tr("Kóta %1").arg(QString::fromStdString(item->text))
                  : item->kind == drawing::ModelAnnotationKind::Axis
                      ? tr("Osa")
+                 : item->kind == drawing::ModelAnnotationKind::Symbol ? tr("Symbol")
                      : tr("Pomocná geometrie");
     if(item->kind==drawing::ModelAnnotationKind::Axis) {
       if(id.semantic_id.starts_with("sketch_axis:"))label=tr("Osa skici %1").arg(QString::fromStdString(id.semantic_id.substr(12)).toUpper());

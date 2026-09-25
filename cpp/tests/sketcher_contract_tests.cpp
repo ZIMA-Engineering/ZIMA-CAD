@@ -24,6 +24,42 @@ void require(bool condition, const char* message) {
 int main() {
     try {
         using zima::sketcher::DimensionKind;
+        // Reduced 01.prtz regression: six edge lengths, but no H/V on the
+        // top and right edges. Those edges must tilt when a length changes.
+        {
+            using namespace zima::sketcher;
+            auto base=Sketch::create_default();
+            for(const auto xy:std::vector<std::array<double,2>>{{0,0},{109.95014953613281,0},{0,-53.44097518921015},
+                {68.00519561767578,-53.44097518921015},{68.00519561767578,-24.70091438293486},{109.95014953613281,-24.70091438293486}})
+                base.points.push_back(Sketch::create_point(xy[0],xy[1]));
+            for(const auto ij:std::vector<std::array<int,2>>{{0,1},{2,0},{3,4},{4,5},{1,5},{3,2}})
+                base.segments.push_back(Sketch::create_segment(base.points[ij[0]].id,base.points[ij[1]].id));
+            for(const auto i:{0,3})static_cast<void>(base.add_segment_constraint(base.segments[i].id,ConstraintKind::Horizontal));
+            for(const auto i:{1,2})static_cast<void>(base.add_segment_constraint(base.segments[i].id,ConstraintKind::Vertical));
+            static_cast<void>(base.add_point_reference_constraint(base.points[0].id,"sketch_origin"));
+            for(const auto i:{5,1,0,4,3,2})base.apply_dimension(base.create_segment_dimension(base.segments[i].id));
+            for(const double target:{66.0,70.0,75.0}) {
+                auto edited=base;auto value=edited.dimensions.front();value.value=target;edited.apply_dimension(value);
+                const auto solved=edited.solve();require(solved.status==SolveStatus::Solved&&solved.maximum_residual<1e-7,
+                    "Closed distance loop did not solve after length edit");
+                for(const auto& d:edited.dimensions) {
+                    const auto* a=edited.find_point(d.first_point_id);const auto* b=edited.find_point(d.second_point_id);
+                    require(std::abs(std::hypot(b->x-a->x,b->y-a->y)-d.value)<1e-7,"Coupled edit violated another edge length");
+                }
+                require(std::abs(edited.points[3].y-edited.points[2].y)>1e-4,"Unconstrained top edge incorrectly stayed horizontal");
+                require(edited.points[3].x>0&&edited.points[3].y<0,"Coupled edit jumped to opposite branch");
+                require(Sketch::from_serialized(edited.serialized()).solve().status==SolveStatus::Solved,"Coupled result failed reopen");
+                auto restore=edited.dimensions.front();restore.value=base.dimensions.front().value;edited.apply_dimension(restore);
+                for(std::size_t i=0;i<base.points.size();++i)require(std::hypot(edited.points[i].x-base.points[i].x,edited.points[i].y-base.points[i].y)<1e-7,
+                    "Returning original length failed to restore nearby branch");
+            }
+            auto impossible=base;const auto unchanged=impossible.serialized();auto value=impossible.dimensions.front();value.value=200;
+            bool rejected=false;try{impossible.apply_dimension(value);}catch(const std::exception&){rejected=true;}
+            require(rejected&&impossible.serialized()==unchanged,"Impossible loop was accepted or changed the input");
+            auto duplicate=base.create_segment_dimension(base.segments.front().id);rejected=false;
+            try{base.apply_dimension(duplicate);}catch(const std::exception&){rejected=true;}
+            require(rejected,"Duplicate driver was accepted after distance-loop fix");
+        }
         {
             using namespace zima::sketcher;
             auto profile=Sketch::create_default();

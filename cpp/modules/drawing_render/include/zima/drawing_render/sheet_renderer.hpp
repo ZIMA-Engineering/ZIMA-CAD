@@ -21,7 +21,7 @@ public:
     void set_native_text_output(bool enabled) {native_text_output_=enabled;}
     void paint_sheet(QPainter&,double zoom,QPointF origin,bool printing);
 protected:
-    enum class AnnotationKind { Caption, SectionLabel, Dimension, SectionEnd, Model, Balloon, View, Text, DetailLabel };
+    enum class AnnotationKind { Caption, SectionLabel, Dimension, SectionEnd, Model, Balloon, View, Text, DetailLabel, Symbol };
     struct AnnotationKey {
         AnnotationKind kind{};std::string view,id;int end{};
         std::string branch;
@@ -65,6 +65,7 @@ protected:
     std::optional<QRectF> preview_frame_bounds_;
     std::optional<drawing::TemplateLayout> layout_cache_;
     std::optional<drawing::DrawingText> text_preview_;
+    std::optional<symbols::Placement> symbol_preview_;
     std::optional<zima::drawing::TitleBlockContext> title_block_context_;
     const drawing::DrawingSheet* sheet_{};
     virtual const drawing::DrawingDimension* pending_dimension() const {return nullptr;}

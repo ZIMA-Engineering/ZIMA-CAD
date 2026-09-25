@@ -47,6 +47,9 @@ class DrawingDxfDevice final : public QPaintDevice {
         }
         void line(QPointF a,QPointF b) {
             if(pen_.style()==Qt::NoPen)return;
+            // Closed painter paths may repeat their start point; DXF must not
+            // contain a zero-length LINE for that non-geometric close step.
+            if(QLineF(point(a),point(b)).length()<1e-10)return;
             if(clipping_){
                 const auto x=transform_.map(a),y=transform_.map(b);const QLineF line(x,y);std::vector<double> cuts{0,1};
                 const auto delta=y-x;const double length=QPointF::dotProduct(delta,delta);if(length<1e-20)return;

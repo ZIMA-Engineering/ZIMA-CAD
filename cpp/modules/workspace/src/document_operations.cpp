@@ -1,7 +1,9 @@
 #include <zima/workspace/document_operations.hpp>
+#include <zima/workspace/symbol_operations.hpp>
 #include <zima/workspace/family_operations.hpp>
 #include <zima/workspace/part_transactions.hpp>
 #include <stdexcept>
+#include <cctype>
 #include <type_traits>
 
 namespace zima::workspace {
@@ -32,8 +34,14 @@ DocumentSave prepare_document_save(const Workspace& workspace,
             job.receipt_.revision_=value.session.revision();
             job.receipt_.generation_=value.session.data_generation();
             job.receipt_.allocations_=value.session.document().dimension_identifiers.allocation_count();
-            if constexpr(std::is_same_v<State, PartState>)
-                job.snapshot_=DocumentSave::Part{value.session.document(),value.session.calculated_boundaries()};
+            if constexpr(std::is_same_v<State, PartState>) {
+                if(value.symbol_definition) {
+                    auto extension=target.extension().string();
+                    std::ranges::transform(extension,extension.begin(),[](unsigned char c){return std::tolower(c);});
+                    if(extension!=".symz")throw std::invalid_argument("A symbol document requires the symz extension");
+                    job.snapshot_=edited_symbol_definition(workspace,id);
+                } else job.snapshot_=DocumentSave::Part{value.session.document(),value.session.calculated_boundaries()};
+            }
             else job.snapshot_=value.session.document();
         }
     },*state);

@@ -18,6 +18,7 @@ name=Start Skeleton
 named_views=[]
 reference_errors={}
 sections=[]
+symbol_annotations=[]
 type=part
 
 [DocumentPrecision]

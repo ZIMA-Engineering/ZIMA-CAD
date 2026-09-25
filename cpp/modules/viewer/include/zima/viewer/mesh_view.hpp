@@ -54,8 +54,13 @@ enum class ReferenceVisibility {
     Planes,
     Sketches,
     Dimensions,
+    Symbols,
 };
 
+struct SymbolHandles {
+    std::string id;
+    kernel::Vec3 contact,grip,normal;
+};
 struct ExtentManipulator {
     std::string start_key;
     std::string end_key;
@@ -94,6 +99,9 @@ public:
         std::function<bool(const kernel::EdgeReference&)> filter = {});
     [[nodiscard]] bool dimension_layout_editable(const ViewerCandidate&) const;
     std::optional<QPointF> dimension_handle_position(const ViewerCandidate&,int)const;
+    void set_symbol_handle_callbacks(std::function<std::optional<SymbolHandles>()>,
+        std::function<void(const std::string&,bool,kernel::Vec3)>);
+    [[nodiscard]] std::optional<QPointF> symbol_handle_position(int index) const;
     void set_object_frame_provider(std::function<std::map<kernel::ObjectEnvelopeKey,kernel::ModelEnvelope>(const kernel::ViewerMesh&)>);
 
     [[nodiscard]] const zima::kernel::ViewerMesh& mesh() const;

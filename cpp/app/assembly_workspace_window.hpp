@@ -154,6 +154,11 @@ private:
     void remove_template_region(const std::string& id);
     void select_template_region(const std::string& id);
     void start_symbol();
+    void initialize_symbol_handles();
+    void show_model_symbol_properties(const std::string&, std::optional<zima::symbols::Placement> initial = {});
+    void append_model_symbols_to_tree();
+    const zima::sketcher::Sketch* symbol_document_sketch() const;
+    void save_symbol_document(bool copy);
     void show_symbol_properties(const std::string& id, std::optional<zima::sketcher::SymbolInstance> initial = {});
     void remove_symbol(const std::string& id);
     void select_symbol(const std::string& id);
@@ -256,6 +261,7 @@ private:
     QAction* show_surfaces_action_{};
     QAction* show_sketches_action_{};
     QAction* show_dimensions_action_{};
+    QAction* show_symbols_action_{};
     QAction* custom_body_color_action_{};
     QActionGroup* display_mode_group_{};
     QActionGroup* camera_projection_group_{};

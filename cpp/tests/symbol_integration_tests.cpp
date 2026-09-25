@@ -31,7 +31,7 @@ void factory(const std::filesystem::path& root) {
         for(auto& instance:sketch.symbols) {
             const auto definition=symbols::Definition::from_serialized(instance.definition);
             if(definition.id=="ze:general-edges:iso13715")instance.definition=symbols::Definition::load(root/"config/symbols/general/ZE-GENERAL-EDGES-ISO13715.symz").serialized();
-            if(definition.id=="ze:general-surface-texture:iso21920")instance.definition=symbols::Definition::load(root/"config/symbols/surface-texture/ZE-GENERAL-SURFACE-TEXTURE-ISO21920.symz").serialized();
+            if(definition.id=="ze:general-surface-texture:iso21920")instance.definition=symbols::Definition::load(root/"config/symbols/general/ZE-GENERAL-SURFACE-TEXTURE-ISO21920.symz").serialized();
         }
         for(auto& text:sketch.texts)if(text.id=="field10:text"||text.id=="field11:text") {
             text.value=text.id=="field10:text"?"ISO 2768-m":"ISO 8015:2011";
@@ -59,7 +59,60 @@ void factory(const std::filesystem::path& root) {
 int main(int argc,char** argv) {
     try {
         const auto root=std::filesystem::current_path();
+        const auto historical_path=root/"config/symbols/surface-texture/ZE-SURFACE-TEXTURE-ISO1302-1978.symz";
+        if(argc==1) {
+            const auto historical=symbols::Definition::load(historical_path);
+            check(historical.variants.size()==2,"Historical roughness must have two process variants");
+            for(const auto* variant:{"any_process","material_removal"}) {
+                const auto sketches=historical.evaluate(variant);std::size_t lines=0;for(const auto& sketch:sketches)lines+=sketch.segments.size();
+                check(lines==(std::string(variant)=="any_process"?2:3),"Historical roughness is not ordinary editable segments");
+                check(sketches.front().texts.front().drawing_keep_readable,"Historical roughness text is not marked readable");
+                check(sketches.front().texts.front().value=="3,2","Historical default must omit Ra");
+                for(const auto& value:historical.fields.at("Specification").choices) {
+                    const auto sample=historical.evaluate(variant,{{"Specification",value}});
+                    for(const auto& contour:sample.front().texts.front().contours)for(const auto& p:contour)
+                        check(p[1]>3.031&&p[0]<p[1]*3.5/6.062-.2,"Historical text intersects the bar or long arm");
+                }
+            }
+        }
+
         if(argc==2&&std::string(argv[1])=="--update-factory"){factory(root);return 0;}
+        {
+            // An arbitrary user-authored definition exercises the same policy;
+            // no catalog ID or roughness-specific rendering is involved.
+            symbols::Definition d;d.id="user:readable";d.name="User text";d.default_variant="default";
+            auto sketch=sketcher::Sketch::create_default();sketch.id="readable-sketch";
+            auto text=sketcher::Sketch::create_text();text.id="readable-text";text.value="Ra 3.2";text.modeling_geometry=false;
+            text.anchor_x=4;text.anchor_y=9;text.angle_degrees=15;text.horizontal=sketcher::TextHorizontalAlignment::Center;
+            text.vertical=sketcher::TextVerticalAlignment::Middle;text.drawing_keep_readable=true;
+            sketcher::rebuild_text_contours(text,true);sketch.texts={text};
+            sketch.points={{"p",0,0,true},{"q",5,3,true}};sketch.segments={{"segment","p","q"}};
+            d.sketches={sketch};d.variants["default"].sketches={sketch.id};
+            d=symbols::Definition::from_serialized(d.serialized());check(d.sketches.front().texts.front().drawing_keep_readable,"Text readability flag lost on save/reopen");
+            sketcher::SymbolInstance instance;instance.id="instance";instance.definition=d.serialized();instance.variant="default";instance.scale=1.7;
+            for(double total:{-450.,-270.,-180.,-90.001,-90.,-89.999,0.,89.999,90.,90.001,135.,180.,270.,450.}) {
+                const double frame_angle=25;instance.angle_degrees=total-text.angle_degrees-frame_angle;
+                const auto spatial=symbols::instance_mesh(instance),paper=symbols::instance_mesh(instance,{},frame_angle);
+                check(spatial.edges.size()==paper.edges.size(),"Readability changed symbol topology");
+                const double normalized=std::remainder(total,360.);const bool flip=normalized>90.||normalized<=-90.;
+                double xmin=1e100,xmax=-1e100,ymin=1e100,ymax=-1e100;
+                // The pivot is authored in symbol coordinates, then transformed with the instance.
+                // A rotated axis-aligned bounding box has a different center for asymmetric glyphs.
+                for(const auto& contour:text.contours)for(auto p:contour){xmin=std::min(xmin,p[0]);xmax=std::max(xmax,p[0]);ymin=std::min(ymin,p[1]);ymax=std::max(ymax,p[1]);}
+                const double a=instance.angle_degrees*std::acos(-1.)/180.;
+                const double cx=(xmin+xmax)*.5*instance.scale,cy=(ymin+ymax)*.5*instance.scale;
+                const double pivot_x=instance.x+std::cos(a)*cx-std::sin(a)*cy,pivot_y=instance.y+std::sin(a)*cx+std::cos(a)*cy;
+                for(std::size_t i=0;i<spatial.edges.size();++i)for(std::size_t j=0;j<spatial.edges[i].points.size();++j) {
+                    const auto before=spatial.edges[i].points[j],after=paper.edges[i].points[j];
+                    const bool turn=flip&&spatial.edges[i].filled_text;
+                    check(std::abs(after.x-(turn?2*pivot_x-before.x:before.x))<1e-7&&std::abs(after.y-(turn?2*pivot_y-before.y:before.y))<1e-7,"Paper readability moved text center or symbol geometry");
+                }
+            }
+            d.sketches.front().texts.front().drawing_keep_readable=false;instance.definition=d.serialized();
+            const auto ordinary=symbols::instance_mesh(instance),unchanged=symbols::instance_mesh(instance,{},180);
+            check(ordinary.edges.size()==unchanged.edges.size(),"Disabled readability changed geometry");
+            for(std::size_t i=0;i<ordinary.edges.size();++i)check(ordinary.edges[i].points==unchanged.edges[i].points,"Disabled readability changed text");
+        }
         for(const auto* language:{"CS","EN","DE","FR","RU"}) {
             drawing::DrawingSheet sheet;drawing::load_title_block_template(sheet,root/"config/formats"/(std::string("ZE-TITLE-BLOCK-")+language+".tblz"));
             for(const auto* id:{"ACCURACY","TOLERANCING"}) {
@@ -129,7 +182,7 @@ int main(int argc,char** argv) {
         check(drawing::title_block_layout(reopened_drawing.sheets.front(),{}).lines.size()==third.lines.size(),"Reopened symbol did not render");
         auto manual=drawing.sheets.front();manual.title_block_symbols.front().use_cad_variant=false;
         check(drawing::title_block_layout(manual,{}).lines.front().first.x==first.lines.front().first.x,"Manual variant followed CAD settings");
-        for(const auto* asset:{"surface-texture/ZE-SURFACE-TEXTURE-ISO21920.symz","surface-texture/ZE-GENERAL-SURFACE-TEXTURE-ISO21920.symz","general/ZE-GENERAL-EDGES-ISO13715.symz"}) {
+        for(const auto* asset:{"surface-texture/ZE-SURFACE-TEXTURE-ISO21920.symz","general/ZE-GENERAL-SURFACE-TEXTURE-ISO21920.symz","general/ZE-GENERAL-EDGES-ISO13715.symz"}) {
             const auto definition=symbols::Definition::load(root/"config/symbols"/asset);
             auto instance=symbol;instance.use_cad_variant=false;instance.definition=definition.serialized();instance.variant=definition.default_variant;
             drawing::DrawingSheet sheet;sheet.title_block_symbols={instance};const auto layout=drawing::title_block_layout(sheet,{});
@@ -159,6 +212,16 @@ int main(int argc,char** argv) {
             check(std::ranges::all_of(layout.lines,[&](const auto& line){return line.field_id=="symbol:"+instance.id;}),"Symbol strokes have no common editing identity");
             for(const auto& [key,row]:definition.variants)check(!definition.evaluate(key).empty(),"Catalog variant has no sketches");
         }
+        const auto tolerance_root=root/"config/symbols/geometric-tolerances";int tolerance_count=0;
+        for(const auto& entry:std::filesystem::directory_iterator(tolerance_root))if(entry.path().extension()==".symz") {
+            const auto d=symbols::Definition::load(entry.path());check(d.frame_layout.has_value(),"Tolerance frame has fixed borders");++tolerance_count;
+            sketcher::SymbolInstance i;i.id="frame-test";i.definition=d.serialized();i.variant=d.default_variant;
+            const auto width=[&](const auto& instance){double a=1e100,b=-1e100;for(const auto& edge:symbols::instance_mesh(instance).edges)for(auto p:edge.points){a=std::min(a,p.x);b=std::max(b,p.x);}return b-a;};
+            const auto initial=width(i);i.text_values["Tolerance"]="0.000000123456789";check(width(i)>initial+5,"Tolerance frame did not grow with text");
+            if(d.fields.contains("Secondary datum")) {i.text_values["Secondary datum"]="B";const auto two=width(i);i.text_values["Tertiary datum"]="C";check(width(i)>=two+6.9,"Datum cells overlap or fail to grow");}
+            const auto roundtrip=symbols::Definition::from_serialized(d.serialized());check(roundtrip.serialized()==d.serialized(),"Dynamic frame layout lost on save");
+        }
+        check(tolerance_count==14,"Geometric tolerance library incomplete");
         workspace::Workspace live;auto carrier=workspace::template_part_from_sketch(title,"Symbols");const auto id=carrier.document_id;
         live.add_part(std::move(carrier),{},directory/"undo.tblz");auto* state=live.open_part(id);const auto original=state->session.document().sketches.front();
         auto edited=original;edited.symbols.front().x=99;

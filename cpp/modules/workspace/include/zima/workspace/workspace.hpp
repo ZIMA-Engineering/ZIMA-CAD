@@ -26,6 +26,9 @@ struct PartState {
     // Runtime identity distinguishes closing/reopening the same native document.
     std::shared_ptr<const int> runtime_identity=std::make_shared<const int>(0);
     bool background_import_source{};
+    // Symbol editor carrier: sketches use the existing editing/Undo session;
+    // immutable variant/field metadata is saved only into the native SYMZ.
+    std::optional<std::string> symbol_definition;
 
 };
 

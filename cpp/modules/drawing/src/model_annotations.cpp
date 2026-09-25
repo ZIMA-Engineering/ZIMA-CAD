@@ -8,6 +8,7 @@
 #include <sstream>
 #include <stdexcept>
 #include <zima/drawing/model_annotations.hpp>
+#include <zima/drawing/view_breaks.hpp>
 namespace zima::drawing {
 namespace {
 using nlohmann::json;
@@ -29,8 +30,13 @@ void validate(const std::vector<ModelAnnotation> &items) {
           "Invalid or duplicate model annotation identity");
     if (item.kind != ModelAnnotationKind::Dimension &&
         item.kind != ModelAnnotationKind::Axis &&
-        item.kind != ModelAnnotationKind::Construction)
+        item.kind != ModelAnnotationKind::Construction && item.kind != ModelAnnotationKind::Symbol)
       throw std::invalid_argument("Invalid annotation kind");
+    if(item.kind==ModelAnnotationKind::Symbol) {
+      if(!item.model_symbol||item.curves.size()!=item.curve_colors.size()||item.curves.size()!=item.curve_centerlines.size()||item.curves.size()!=item.curve_filled.size())
+        throw std::invalid_argument("Invalid symbol annotation presentation");
+      item.model_symbol->validate();
+    }
     if (static_cast<int>(item.dimension_kind) < 0 ||
         static_cast<int>(item.dimension_kind) > 3)
       throw std::invalid_argument("Invalid dimension annotation kind");
@@ -131,6 +137,30 @@ kernel::ViewerDimension drawing_model_dimension(const DrawingView& view,const Mo
 }
 ModelAnnotation project_model_annotation(const DrawingView& view,ModelAnnotation item) {
   if(origin_annotation(item.source)){item.visible=false;item.curves.clear();return item;}
+    if(item.model_symbol) {
+        if(!std::isfinite(view.scale)||view.scale<=0)throw std::invalid_argument("Invalid symbol view scale");
+        auto placed=*item.model_symbol;placed.symbol.visible=true;const auto original=placed.frame;
+        const auto mapped=break_map(view,{dot(original.origin,view.camera.horizontal),dot(original.origin,view.camera.vertical)});
+        const auto contact=Point2{mapped.x*view.scale,mapped.y*view.scale};
+        const double u=dot(original.x,view.camera.horizontal),v=dot(original.x,view.camera.vertical);
+        double angle=std::hypot(u,v)>1e-8?std::atan2(v,u):0;
+        // The source plane may face away from the sheet. Keep the paper
+        // definition readable without mirroring it; retain the authored angle.
+        if(angle>std::numbers::pi/2)angle-=std::numbers::pi;
+        if(angle<-std::numbers::pi/2)angle+=std::numbers::pi;
+        const double c=std::cos(angle),s=std::sin(angle);
+        placed.frame={{contact.x,contact.y,0},{c,s,0},{-s,c,0}};
+        if(const auto handle=item.paper_handles.find("text");handle!=item.paper_handles.end()) {
+            const auto local=placed.frame.local({handle->second.x,handle->second.y,0});placed.symbol.x=local.x;placed.symbol.y=local.y;
+        }
+        const auto grip=placed.frame.world({placed.symbol.x,placed.symbol.y,0});item.text_anchor={grip.x/view.scale,grip.y/view.scale};
+        item.text.clear();item.curves.clear();item.curve_colors.clear();item.curve_centerlines.clear();item.curve_filled.clear();
+        for(const auto& edge:placed.viewer_mesh(angle*180/std::numbers::pi).edges) {
+            auto& curve=item.curves.emplace_back();for(const auto p:edge.points)curve.push_back({p.x/view.scale,p.y/view.scale});
+            item.curve_colors.push_back(edge.color);item.curve_centerlines.push_back(edge.dash_dot);item.curve_filled.push_back(edge.filled_text);
+        }
+        return item;
+    }
     if(item.model_axis) {
         const auto project=[&](kernel::Vec3 p){return Point2{dot(p,view.camera.horizontal),dot(p,view.camera.vertical)};};
         item.curves={{project((*item.model_axis)[0]),project((*item.model_axis)[1])}};
@@ -262,7 +292,7 @@ void refresh_model_annotations(DrawingView &view,
       add(std::move(item));
     }
     for (const auto &edge : source.construction) {
-      if (!edge.construction)
+      if (!edge.construction || edge.reference.semantic_key.starts_with("symbol:"))
         continue;
       ModelAnnotation item;
       item.source = identity(edge.reference);
@@ -272,6 +302,11 @@ void refresh_model_annotations(DrawingView &view,
         curve.push_back(project(p));
       item.curves.push_back(std::move(curve));
       add(std::move(item));
+    }
+    for(const auto& symbol:source.symbols) {
+      ModelAnnotation item;item.source={source.document_id,symbol.symbol.id,"symbol:"+symbol.symbol.id,source.instance_path};
+      item.kind=ModelAnnotationKind::Symbol;item.model_symbol=symbol;item.unresolved=symbol.unresolved;
+      item=project_model_annotation(view,std::move(item));add(std::move(item));
     }
     for (const auto &axis : source.axes) {
       ModelAnnotation item;
@@ -332,6 +367,9 @@ serialize_model_annotations(const std::vector<ModelAnnotation> &items) {
                       {"value", item.value},
                       {"visible", item.visible},
                       {"model_axis",item.model_axis?json{document::dimension_vec_json((*item.model_axis)[0]),document::dimension_vec_json((*item.model_axis)[1])}:json(nullptr)},
+                      {"model_symbol",item.model_symbol?json(*item.model_symbol):json(nullptr)},
+                      {"curve_colors",item.curve_colors},{"curve_centerlines",item.curve_centerlines},
+                      {"curve_filled",item.curve_filled},
                       {"unresolved", item.unresolved},
                       {"paper_handles", handles},
                       {"model_dimension",item.model_dimension?document::dimension_geometry_json(*item.model_dimension):json(nullptr)},
@@ -373,6 +411,9 @@ deserialize_model_annotations(const std::string &value) {
     for (const auto &[key, p] : j.at("paper_handles").items())
       item.paper_handles[key] = {p.at(0), p.at(1)};
     if(j.contains("model_dimension")&&!j.at("model_dimension").is_null())item.model_dimension=document::dimension_geometry_from_json(j.at("model_dimension"));
+    if(j.contains("model_symbol")&&!j.at("model_symbol").is_null())item.model_symbol=j.at("model_symbol").get<symbols::Placement>();
+    item.curve_colors=j.value("curve_colors",std::vector<std::string>{});item.curve_centerlines=j.value("curve_centerlines",std::vector<bool>{});
+    item.curve_filled=j.value("curve_filled",std::vector<bool>{});
     if(j.contains("model_envelope")){const auto& b=j.at("model_envelope");item.model_envelope={document::dimension_vec_from_json(b.at("minimum")),document::dimension_vec_from_json(b.at("maximum")),b.at("valid")};if(b.contains("origin"))item.model_envelope.origin=document::dimension_vec_from_json(b.at("origin"));if(b.contains("axes"))for(int i=0;i<3;++i)item.model_envelope.axes[i]=document::dimension_vec_from_json(b.at("axes").at(i));}
     if(j.contains("model_layout"))item.model_layout=document::dimension_layout_from_json(j.at("model_layout"));
     if(j.contains("view_layout")&&!j.at("view_layout").is_null())item.view_layout=document::dimension_layout_from_json(j.at("view_layout"));

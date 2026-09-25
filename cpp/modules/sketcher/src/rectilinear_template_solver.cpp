@@ -6,7 +6,7 @@
 #include <unordered_map>
 
 namespace zima::sketcher {
-bool seed_rectilinear_equations(Sketch& sketch,const std::vector<std::string>& anchors) {
+bool seed_rectilinear_equations(Sketch& sketch,const std::vector<std::string>& anchors,bool allow_nonlinear_distances) {
     if(!sketch.external_references.empty() || sketch.points.empty() ||
        !sketch.arcs.empty() || !sketch.ellipses.empty() ||
        !sketch.elliptical_arcs.empty() || !sketch.bsplines.empty() ||
@@ -76,6 +76,8 @@ bool seed_rectilinear_equations(Sketch& sketch,const std::vector<std::string>& a
             for(std::size_t i=0;i<count;++i)(*a)[i]-=(*b)[i];add(std::move(*a),0);
         } else return false;
     }
+    struct Distance {std::size_t a,b;double length;};
+    std::vector<Distance> nonlinear_distances;
     std::vector<Row> positive_distances;
     for(const auto& d:sketch.dimensions)if(!d.suppressed&&d.driving) {
         if(d.kind==DimensionKind::DistanceX||d.kind==DimensionKind::DistanceY) {
@@ -86,8 +88,14 @@ bool seed_rectilinear_equations(Sketch& sketch,const std::vector<std::string>& a
                    !pair("sketch_origin",d.first_point_id,axis,d.value))return false;
             }
         } else if(d.kind==DimensionKind::Distance) {
-            auto row=distance_row(d.first_point_id,d.second_point_id);if(!row)return false;
-            positive_distances.push_back(*row);add(std::move(*row),d.value);
+            auto row=distance_row(d.first_point_id,d.second_point_id);
+            if(row){positive_distances.push_back(*row);add(std::move(*row),d.value);}
+            else {
+                if(!allow_nonlinear_distances)return false;
+                const auto a=coordinate(d.first_point_id,0),b=coordinate(d.second_point_id,0);
+                if(!a||!b||!d.geometry_id.empty()||d.value<=0)return false;
+                nonlinear_distances.push_back({*a,*b,d.value});
+            }
         } else if(d.kind==DimensionKind::DistancePointLine||d.kind==DimensionKind::DistanceLine) {
             const int axis=axis_coordinate(d.geometry_id);if(axis<0)return false;
             const double target=d.value*d.solution_side*(axis==0?-1:1);
@@ -104,24 +112,54 @@ bool seed_rectilinear_equations(Sketch& sketch,const std::vector<std::string>& a
     for(const auto& p:sketch.points)if(p.fixed||std::ranges::find(anchors,p.id)!=anchors.end())
         for(int axis=0;axis<2;++axis){Row row(count);const auto i=*coordinate(p.id,axis);row[i]=1;add(std::move(row),coordinates[i]);}
     const auto dot=[](const Row& a,const Row& b){return std::inner_product(a.begin(),a.end(),b.begin(),0.0);};
-    double initial_error=0;for(std::size_t i=0;i<rows.size();++i)initial_error=std::max(initial_error,std::abs(targets[i]-dot(rows[i],coordinates)));
-    if(initial_error<1e-8)return true;
-    // Twice-reorthogonalized row-space QR gives the minimum coordinate change
-    // even when H/V chains contain dependent equations or free coordinates.
-    std::vector<Row> basis;std::vector<double> values;
-    for(std::size_t i=0;i<rows.size();++i) {
-        auto row=rows[i];double value=targets[i]-dot(row,coordinates);
-        for(int pass=0;pass<2;++pass)for(std::size_t j=0;j<basis.size();++j) {
-            const double factor=dot(row,basis[j]);if(std::abs(factor)<1e-16)continue;
-            for(std::size_t k=0;k<count;++k)row[k]-=factor*basis[j][k];value-=factor*values[j];
-        }
-        const double norm=std::sqrt(dot(row,row));
-        if(norm<1e-10){if(std::abs(value)>1e-7)return false;continue;}
-        for(auto& element:row)element/=norm;basis.push_back(std::move(row));values.push_back(value/norm);
-    }
+    const auto error=[&](const Row& position) {
+        double result=0;
+        for(std::size_t i=0;i<rows.size();++i)result=std::max(result,std::abs(targets[i]-dot(rows[i],position)));
+        for(const auto& d:nonlinear_distances)result=std::max(result,std::abs(std::hypot(position[d.b]-position[d.a],position[d.b+1]-position[d.a+1])-d.length));
+        return result;
+    };
     auto solved=coordinates;
-    for(std::size_t j=0;j<basis.size();++j)for(std::size_t k=0;k<count;++k)solved[k]+=values[j]*basis[j][k];
-    for(std::size_t i=0;i<rows.size();++i)if(!std::isfinite(dot(rows[i],solved))||std::abs(dot(rows[i],solved)-targets[i])>1e-7)return false;
+    // The original linear path needs one QR solve. Genuine distances need a
+    // bounded Newton solve of the same small point graph, not sequential moves
+    // that accidentally retain the initial horizontal/vertical appearance.
+    const int iterations=nonlinear_distances.empty()?1:32;
+    for(int iteration=0;iteration<iterations&&error(solved)>=1e-8;++iteration) {
+        auto equations=rows;std::vector<double> residual;
+        for(std::size_t i=0;i<rows.size();++i)residual.push_back(targets[i]-dot(rows[i],solved));
+        for(const auto& d:nonlinear_distances) {
+            const double dx=solved[d.b]-solved[d.a],dy=solved[d.b+1]-solved[d.a+1],length=std::hypot(dx,dy);
+            if(length<1e-10)return false;
+            Row row(count);row[d.a]=-dx/length;row[d.a+1]=-dy/length;row[d.b]=dx/length;row[d.b+1]=dy/length;
+            equations.push_back(std::move(row));residual.push_back(d.length-length);
+        }
+        // Twice-reorthogonalized row-space QR preserves free coordinates and
+        // detects incompatible equations before publishing any point changes.
+        std::vector<Row> basis;std::vector<double> values;
+        for(std::size_t i=0;i<equations.size();++i) {
+            auto row=equations[i];double value=residual[i];
+            for(int pass=0;pass<2;++pass)for(std::size_t j=0;j<basis.size();++j) {
+                const double factor=dot(row,basis[j]);if(std::abs(factor)<1e-16)continue;
+                for(std::size_t k=0;k<count;++k)row[k]-=factor*basis[j][k];value-=factor*values[j];
+            }
+            const double norm=std::sqrt(dot(row,row));
+            if(norm<1e-10){if(std::abs(value)>1e-7)return false;continue;}
+            for(auto& element:row)element/=norm;basis.push_back(std::move(row));values.push_back(value/norm);
+        }
+        Row change(count);
+        for(std::size_t j=0;j<basis.size();++j)for(std::size_t k=0;k<count;++k)change[k]+=values[j]*basis[j][k];
+        bool accepted=false;const double before=error(solved);
+        for(double step=1;step>=1.0/1024;step*=.5) {
+            auto candidate=solved;for(std::size_t k=0;k<count;++k)candidate[k]+=step*change[k];
+            if(std::ranges::any_of(candidate,[](double value){return !std::isfinite(value);}))continue;
+            bool same_branch=true;
+            for(const auto& d:nonlinear_distances)
+                if((candidate[d.b]-candidate[d.a])*(coordinates[d.b]-coordinates[d.a])+
+                   (candidate[d.b+1]-candidate[d.a+1])*(coordinates[d.b+1]-coordinates[d.a+1])<=0)same_branch=false;
+            if(same_branch&&error(candidate)<before){solved=std::move(candidate);accepted=true;break;}
+        }
+        if(!accepted)return false;
+    }
+    if(error(solved)>1e-8)return false;
     for(const auto& row:positive_distances)if(dot(row,solved)<-1e-8)return false;
     for(const auto& c:sketch.constraints)if(!c.suppressed&&c.kind==ConstraintKind::EqualLength)
         if(dot(*segment_row(c.geometry_id),solved)<=1e-8||dot(*segment_row(c.second_geometry_id),solved)<=1e-8)return false;

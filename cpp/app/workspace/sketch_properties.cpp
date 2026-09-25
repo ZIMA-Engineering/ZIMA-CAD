@@ -653,6 +653,7 @@ void AssemblyWorkspaceWindow::show_sketch_text_properties(
     } else {
         initial = zima::sketcher::Sketch::create_text();
         if(sketch->drawing_template){initial.flipped=true;initial.height=2.5;initial.modeling_geometry=false;}
+        if(symbol_document_sketch()){initial.height=2.5;initial.modeling_geometry=false;initial.color=zima::sketcher::SketchTextColor::White;}
     }
 
     cancel_sketch_segment();
@@ -705,8 +706,8 @@ void AssemblyWorkspaceWindow::show_sketch_text_properties(
             state_->setText(edit_mode
                 ? tr("Text skici byl upraven jako jedna revize.")
                 : tr("Text skici byl vytvořen jako jedna revize."));
-        }, this, sketch->drawing_template.has_value(), false,
-        action_settings);
+        }, this, sketch->drawing_template.has_value()||symbol_document_sketch()!=nullptr, false,
+        action_settings,symbol_document_sketch()!=nullptr);
     properties_dialog_ = dialog;
     sketch_text_dialog_ = dialog;
     connect(dialog, &QObject::destroyed, this, [this, dialog] {

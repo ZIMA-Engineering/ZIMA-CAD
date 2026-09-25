@@ -229,6 +229,7 @@ void AssemblyWorkspaceWindow::save_active_assembly() {
 }
 
 void AssemblyWorkspaceWindow::save_active_document() {
+    if(symbol_document_sketch()){save_symbol_document(false);return;}
     if(template_sketch()){save_template_document(false);return;}
     if(auto* drawing=workspace_.open_drawing(workspace_.active_document_id())) {
         QString path=QString::fromStdString(zima::document::path_to_utf8(drawing->path));
@@ -332,6 +333,7 @@ void AssemblyWorkspaceWindow::save_active_document() {
 }
 
 void AssemblyWorkspaceWindow::save_active_document_as() {
+    if(symbol_document_sketch()){save_symbol_document(true);return;}
     if(template_sketch()){save_template_document(true);return;}
     const std::string document_id = workspace_.active_document_id();
     if (document_id.empty()) return;

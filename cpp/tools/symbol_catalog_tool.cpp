@@ -33,6 +33,34 @@ void texture_colors(symbols::Definition& d,sketcher::SketchTextColor text_color)
         for(auto& t:s.texts)t.color=text_color;
     }
 }
+symbols::Definition annotation_text() {
+    symbols::Definition d;d.id="ze:annotation:text";d.name="ZE-TEXT";
+    auto base=sketch(d.id+":base");text(base,"annotation:text","Text",0,0);
+    d.fields["Text"]={base.id,"annotation:text",{},true};
+    d.variants["text"].sketches={base.id};d.variants["text"].text_values["Text"]="Text";
+    d.sketches={std::move(base)};d.default_variant="text";d.insertion_point={0,0};
+    d.validate();return d;
+}
+symbols::Definition historical_roughness() {
+    symbols::Definition d;d.id="ze:surface-texture:iso1302-1978";d.name="ZE-SURFACE-TEXTURE-ISO1302-1978";
+    auto base=sketch(d.id+":base");
+    line(base,"roughness:left",-1.75,3.031,0,0);
+    line(base,"roughness:right",0,0,3.5,6.062);
+    text(base,"roughness:value","3,2",-1.75,7.062);
+    base.texts.back().horizontal=sketcher::TextHorizontalAlignment::Right;
+    base.texts.back().vertical=sketcher::TextVerticalAlignment::Middle;
+    base.texts.back().anchor_x=1.5;base.texts.back().anchor_y=4.781;
+    base.texts.back().drawing_keep_readable=true;sketcher::rebuild_text_contours(base.texts.back(),true);
+    auto bar=sketch(d.id+":removal-required");line(bar,"roughness:removal",-1.75,3.031,1.75,3.031);
+    d.sketches={base,bar};d.fields["Specification"]={base.id,"roughness:value",{"0,4","0,8","1,6","3,2","6,3","12,5","Ra 0,4","Ra 0,8","Ra 1,6","Ra 3,2","Ra 6,3","Ra 12,5"},true};
+    for(const auto* kind:{"any_process","material_removal"}) {
+        auto& row=d.variants[kind];row.sketches={base.id};
+        if(std::string(kind)=="material_removal")row.sketches.push_back(bar.id);
+        row.text_values["Specification"]="3,2";
+    }
+    d.default_variant="material_removal";texture_colors(d,sketcher::SketchTextColor::Green);
+    d.validate();return d;
+}
 symbols::Definition roughness() {
     symbols::Definition d;d.id="ze:surface-texture:iso21920";d.name="ZE-SURFACE-TEXTURE-ISO21920";
     auto base=sketch(d.id+":base");
@@ -100,6 +128,42 @@ symbols::Definition edges() {
     }
     d.default_variant="general";d.validate();return d;
 }
+symbols::Definition geometric_tolerance(const std::string& kind) {
+    symbols::Definition d;d.id="ze:geometric-tolerance:"+kind;d.name="ZE-"+kind+"-ISO1101";
+    auto glyph=sketch(d.id+":characteristic");const auto ln=[&](const char* id,double x,double y,double u,double v){line(glyph,id,x,y,u,v);};
+    const auto circle=[&](const std::string& id,double r){glyph.points.push_back({id+":center",3.5,3.5,true});glyph.circles.push_back({id,id+":center",r,false});};
+    if(kind=="STRAIGHTNESS")ln("line",1.5,3.5,5.5,3.5);
+    if(kind=="FLATNESS"){ln("bottom",1,2.2,4.8,2.2);ln("right",4.8,2.2,6,4.8);ln("top",6,4.8,2.2,4.8);ln("left",2.2,4.8,1,2.2);}
+    if(kind=="CIRCULARITY"||kind=="CYLINDRICITY"||kind=="POSITION"||kind=="COAXIALITY")circle("circle",1.7);
+    if(kind=="CYLINDRICITY"){ln("left",.8,1.2,2,5.8);ln("right",5,1.2,6.2,5.8);}
+    if(kind=="COAXIALITY")circle("inner",.9);
+    if(kind=="POSITION"){ln("horizontal",1,3.5,6,3.5);ln("vertical",3.5,1,3.5,6);}
+    if(kind=="LINE-PROFILE"||kind=="SURFACE-PROFILE") {
+        glyph.points.push_back({"center",3.5,2.5,true});glyph.points.push_back({"start",5.5,2.5,true});glyph.points.push_back({"end",1.5,2.5,true});
+        glyph.arcs.push_back({"profile","center","start","end",2,0,std::acos(-1.0),false});
+        if(kind=="SURFACE-PROFILE")ln("base",1.5,2.5,5.5,2.5);
+    }
+    if(kind=="PARALLELISM"){ln("first",1.5,1.5,3.5,5.5);ln("second",3.5,1.5,5.5,5.5);}
+    if(kind=="PERPENDICULARITY"){ln("horizontal",1.3,1.7,5.7,1.7);ln("vertical",3.5,1.7,3.5,5.3);}
+    if(kind=="ANGULARITY"){ln("bottom",1.2,1.7,5.8,1.7);ln("slant",1.2,1.7,4.8,5.3);}
+    if(kind=="SYMMETRY"){ln("middle",1,3.5,6,3.5);ln("bottom",1.8,2.2,5.2,2.2);ln("top",1.8,4.8,5.2,4.8);}
+    if(kind=="CIRCULAR-RUNOUT"||kind=="TOTAL-RUNOUT")arrow(glyph,"first",1.5,1.5,5.2,5.2);
+    if(kind=="TOTAL-RUNOUT"){arrow(glyph,"second",3.2,1.5,6.9,5.2);ln("join",1.5,1.5,3.2,1.5);}
+    const auto glyph_id=glyph.id;d.sketches.push_back(glyph);d.frame_layout=symbols::FrameLayout{};d.frame_layout->cells={glyph_id};
+    auto tolerance=sketch(d.id+":tolerance");text(tolerance,"value","0.1",1,2.2);
+    d.fields["Tolerance"]={tolerance.id,"value",{"0.01","0.02","0.05","0.1","0.2","0.5"},true};
+    const auto tolerance_id=tolerance.id;d.sketches.push_back(tolerance);d.frame_layout->cells.push_back(tolerance_id);
+    const bool form=kind=="STRAIGHTNESS"||kind=="FLATNESS"||kind=="CIRCULARITY"||kind=="CYLINDRICITY";
+    auto& row=d.variants["default"];row.sketches={glyph_id,tolerance_id};row.text_values["Tolerance"]="0.1";
+    if(!form)for(int i=0;i<3;++i) {
+        const std::string field=i==0?"Primary datum":i==1?"Secondary datum":"Tertiary datum";
+        auto datum=sketch(d.id+":datum-"+std::to_string(i));text(datum,"value",std::string(1,char('A'+i)),1,2.2);
+        d.fields[field]={datum.id,"value",{"","A","B","C","D","E","F"},true};row.text_values[field]=i==0?"A":"";
+        row.sketches.push_back(datum.id);d.frame_layout->cells.push_back(datum.id);d.sketches.push_back(datum);
+    }
+    for(auto& s:d.sketches){for(auto& p:s.points)p.y-=3.5;for(auto& t:s.texts){t.anchor_y-=3.5;sketcher::rebuild_text_contours(t,true);}}
+    d.default_variant="default";d.insertion_point={0,0};d.validate();return d;
+}
 }
 int main(int argc,char** argv) {
     QGuiApplication app(argc,argv);
@@ -107,10 +171,16 @@ int main(int argc,char** argv) {
         if(argc!=3)throw std::invalid_argument("Expected library root and preview path");
         const auto root=std::filesystem::u8path(argv[1]);
         std::vector<std::pair<std::filesystem::path,symbols::Definition>> definitions{
+            {root/"annotations/ZE-TEXT.symz",annotation_text()},
+            {root/"surface-texture/ZE-SURFACE-TEXTURE-ISO1302-1978.symz",historical_roughness()},
             {root/"surface-texture/ZE-SURFACE-TEXTURE-ISO21920.symz",roughness()},
-            {root/"surface-texture/ZE-GENERAL-SURFACE-TEXTURE-ISO21920.symz",general_roughness()},
+            {root/"general/ZE-GENERAL-SURFACE-TEXTURE-ISO21920.symz",general_roughness()},
             {root/"general/ZE-GENERAL-EDGES-ISO13715.symz",edges()}};
-        QImage image(1400,5400,QImage::Format_ARGB32_Premultiplied);image.fill(Qt::white);QPainter painter(&image);painter.setRenderHint(QPainter::Antialiasing);
+        for(const auto* kind:{"STRAIGHTNESS","FLATNESS","CIRCULARITY","CYLINDRICITY","LINE-PROFILE","SURFACE-PROFILE","PARALLELISM","PERPENDICULARITY","ANGULARITY","POSITION","COAXIALITY","SYMMETRY","CIRCULAR-RUNOUT","TOTAL-RUNOUT"}) {
+            auto definition=geometric_tolerance(kind);definitions.push_back({root/"geometric-tolerances"/(definition.name+".symz"),std::move(definition)});
+        }
+        int variants=0;for(const auto& entry:definitions)variants+=int(entry.second.variants.size());
+        QImage image(1400,200+variants*290,QImage::Format_ARGB32_Premultiplied);image.fill(Qt::white);QPainter painter(&image);painter.setRenderHint(QPainter::Antialiasing);
         int row=0;
         for(const auto& [path,definition]:definitions) {
             std::filesystem::create_directories(path.parent_path());definition.save(path);
@@ -128,6 +198,25 @@ int main(int argc,char** argv) {
             }
         }
         painter.end();if(!image.save(QString::fromUtf8(argv[2])))throw std::runtime_error("Cannot write catalog preview");
+        QImage readable(1200,600,QImage::Format_ARGB32_Premultiplied);readable.fill(Qt::white);
+        QPainter sample(&readable);sample.setRenderHint(QPainter::Antialiasing);
+        const auto historical=historical_roughness();int column=0;
+        for(double angle:{0.,90.,135.,180.,270.}) {
+            sample.setPen(Qt::black);sample.drawText(QPointF(70+column*240,30),QString::number(angle)+" deg");
+            for(int row=0;row<2;++row) {
+                sketcher::SymbolInstance instance;instance.id="readable-preview";instance.definition=historical.serialized();
+                instance.variant=row?"material_removal":"any_process";instance.angle_degrees=angle;
+                sample.save();sample.translate(120+column*240,170+row*280);sample.scale(10,-10);QPainterPath letters;
+                for(const auto& edge:symbols::instance_mesh(instance,{},0).edges) {
+                    QPolygonF points;for(const auto& p:edge.points)points<<QPointF(p.x,p.y);
+                    if(edge.filled_text)letters.addPolygon(points);
+                    else {sample.setPen(QPen(Qt::black,.2));sample.drawPolyline(points);}
+                }
+                sample.fillPath(letters,Qt::black);sample.restore();
+            }
+            ++column;
+        }
+        sample.end();if(!readable.save(QString::fromStdString((root.parent_path()/"historical-roughness-orientation.png").string())))throw std::runtime_error("Cannot write readability preview");
         std::cout<<"Catalog definitions, variants and embedded text validated\n";return 0;
     }catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}
 }

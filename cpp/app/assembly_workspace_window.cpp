@@ -123,7 +123,7 @@ bool AssemblyWorkspaceWindow::confirm_application_close() {
         dialog->activateWindow();
         return false;
     }
-    if ((!active_sketch_id_.empty() && !template_sketch()) ||
+    if ((!active_sketch_id_.empty() && !template_sketch() && !symbol_document_sketch()) ||
         (inline_dimension_edit_ && inline_dimension_edit_->isVisible())) {
         QMessageBox::information(this, tr("Neuložené změny"),
             tr("Nejprve dokončete nebo zrušte otevřenou úpravu modelu."));

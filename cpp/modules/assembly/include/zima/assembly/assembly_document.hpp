@@ -258,6 +258,7 @@ public:
     std::string named_views{"[]"};
     std::vector<zima::document::SectionDefinition> sections;
     std::vector<zima::kernel::SavedMeasurement> measurements;
+    std::vector<zima::symbols::Placement> symbol_annotations;
     std::vector<zima::kernel::DimensionLayoutEntry> dimension_layouts;
     std::vector<PartOccurrence> components;
     std::vector<zima::sketcher::Sketch> sketches;

@@ -20,6 +20,10 @@ inline void remap_document_identity(nlohmann::json& value,
         field=="material_parameter_descriptions" || field=="document_units" ||
         field=="document_precision") return;
     if (value.is_object()) {
+        // Embedded library definitions have their own local namespace. Their
+        // variant "sketches" arrays contain IDs, not serialized model Sketches.
+        // Only the surrounding occurrence/attachment belongs to this document.
+        if(value.contains("format")&&value["format"]=="zima.symbol")return;
         if (!target_path.empty() && value.contains("source_path") && value["source_path"].is_string()) {
             const auto path=std::filesystem::u8path(value["source_path"].get<std::string>());
             if (value.value("source_document_id", std::string{})==old_id)

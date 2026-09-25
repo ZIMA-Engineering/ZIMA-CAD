@@ -551,6 +551,7 @@ nlohmann::json read_part_ini(const std::filesystem::path& path) {
         {"named_views", ini_value(ini, "Document", "named_views", "[]")},
         {"sections", nlohmann::json::parse(ini_value(ini,"Document","sections","[]"))},
         {"measurements", nlohmann::json::parse(ini_value(ini,"Document","measurements","[]"))},
+        {"symbol_annotations",nlohmann::json::parse(ini_value(ini,"Document","symbol_annotations","[]"))},
         {"body_properties", nlohmann::json::parse(ini_value(ini,"Document","body_properties"))},
         {"dimension_layouts", nlohmann::json::parse(ini_value(ini,"Document","dimension_layouts","[]"))},
         {"dimension_identifiers", nlohmann::json::parse(ini_required(ini, "Document", "dimension_identifiers"))},
@@ -705,6 +706,7 @@ void write_part_ini(
         {"named_views", root.value("named_views", std::string("[]"))},
         {"sections", root.value("sections",nlohmann::json::array()).dump()},
         {"measurements", root.value("measurements",nlohmann::json::array()).dump()},
+        {"symbol_annotations",root.value("symbol_annotations",nlohmann::json::array()).dump()},
         {"body_properties", root.at("body_properties").dump()},
         {"dimension_layouts", root.value("dimension_layouts",nlohmann::json::array()).dump()},
         {"dimension_identifiers", root.at("dimension_identifiers").dump()},
@@ -4828,6 +4830,9 @@ PartDocument PartDocument::body_document(const std::string& body_id) const {
     if (!body) throw std::invalid_argument("Body does not exist");
     auto result = *this;
     result.body_history = {};
+    // Document annotations are already in document coordinates. A temporary
+    // body carrier must not duplicate or transform them as body-local data.
+    result.symbol_annotations.clear();
     result.document_id = body_id;
     result.name = body->name;
     result.history_order = body->entries;
@@ -5159,6 +5164,7 @@ zima::kernel::ViewerMesh PartDocument::construction_viewer_mesh(
             append_body_mesh(result, body_placed_mesh(
                 carrier.construction_viewer_mesh(editing_object_id, reference_scene_size, show_sweep_stations), body.scope));
         }
+        for(const auto& annotation:symbol_annotations)append_body_mesh(result,annotation.viewer_mesh());
         return result;
     }
     // Origin sizing no longer depends on scene size (see
@@ -5586,6 +5592,7 @@ zima::kernel::ViewerMesh PartDocument::construction_viewer_mesh(
             marker,
             {container.id, "container:origin-marker", {}}, {}, false});
     }
+    for(const auto& annotation:symbol_annotations)append_body_mesh(mesh,annotation.viewer_mesh());
     return mesh;
 }
 
@@ -10112,6 +10119,7 @@ PartDocument PartDocument::from_serialized(const nlohmann::json& root,
     static_cast<void>(zima::document::parse_named_views(document.named_views));
     document.sections = parse_sections(root.value("sections",nlohmann::json::array()).dump());
     document.measurements = parse_measurements(root.value("measurements",nlohmann::json::array()).dump());
+    document.symbol_annotations=symbols::placements_from_json(root.value("symbol_annotations",nlohmann::json::array()));
     document.body_properties = parse_body_properties(root.at("body_properties").dump());
     document.dimension_layouts=zima::document::dimension_layouts_from_json(root.value("dimension_layouts",nlohmann::json::array()));
     document.dimension_identifiers = DimensionIdentifiers::from_serialized(root.at("dimension_identifiers").dump());
@@ -11865,6 +11873,7 @@ nlohmann::json PartDocument::serialized(
         {"named_views", named_views},
         {"sections", nlohmann::json::parse(serialize_sections(sections))},
         {"measurements", nlohmann::json::parse(serialize_measurements(measurements))},
+        {"symbol_annotations",symbols::placements_json(symbol_annotations)},
         {"body_properties", nlohmann::json::parse(serialize_body_properties(body_properties))},
         {"body_color", body_color},
         {"appearance", serialize_appearance(appearance)},

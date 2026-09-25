@@ -939,6 +939,11 @@ void AssemblyWorkspaceWindow::refresh_scene() {
             return;
         }
         const auto& document = part->session.document();
+        if(part->symbol_definition&&!document.sketches.empty()&&
+            std::ranges::none_of(document.sketches,[&](const auto& s){return s.id==active_sketch_id_;})) {
+            active_sketch_id_=document.sketches.front().id;
+            QTimer::singleShot(0,this,[this]{if(symbol_document_sketch())align_active_sketch_view(true);});
+        }
         if(!document.sketches.empty() && document.sketches.front().drawing_template) {
             const auto& sketch=document.sketches.front();
             if(active_sketch_id_!=sketch.id) {
@@ -1170,6 +1175,7 @@ void AssemblyWorkspaceWindow::refresh_scene() {
                         default:
                             return std::vector{
                                 zima::viewer::CandidateKind::Dimension,
+                                zima::viewer::CandidateKind::Symbol,
                                 zima::viewer::CandidateKind::Container};
                     }
                 }()
@@ -1520,6 +1526,11 @@ void AssemblyWorkspaceWindow::refresh_scene() {
                         zima::viewer::ReferenceVisibility::Planes)));
             }
             if (template_sketch()) display = sketch_viewer_mesh(document.sketches.front());
+            if (const auto* symbol=symbol_document_sketch()) {
+                display=sketch_viewer_mesh(sketch_trim_active_&&sketch_trim_preview_?*sketch_trim_preview_:*symbol);
+                if(!editing_sketch_text_id_.empty())std::erase_if(display.edges,[&](const auto& edge){
+                    const auto text=sketch_text_id_from_key(edge.reference.semantic_key);return text&&*text==editing_sketch_text_id_;});
+            }
             viewer_->set_mesh(std::move(display),
                 !preserve_view_on_refresh_ && active_sketch_id_.empty());
             preserve_view_on_refresh_ = false;
@@ -1644,6 +1655,11 @@ void AssemblyWorkspaceWindow::refresh_scene() {
                 }
             }
             if (template_sketch()) display = sketch_viewer_mesh(document.sketches.front());
+            if (const auto* symbol=symbol_document_sketch()) {
+                display=sketch_viewer_mesh(sketch_trim_active_&&sketch_trim_preview_?*sketch_trim_preview_:*symbol);
+                if(!editing_sketch_text_id_.empty())std::erase_if(display.edges,[&](const auto& edge){
+                    const auto text=sketch_text_id_from_key(edge.reference.semantic_key);return text&&*text==editing_sketch_text_id_;});
+            }
             viewer_->set_mesh(std::move(display),
                 !preserve_view_on_refresh_ && active_sketch_id_.empty());
             preserve_view_on_refresh_ = false;
@@ -1694,6 +1710,7 @@ void AssemblyWorkspaceWindow::refresh_scene() {
         state_->setText(document.history.empty()
             ? tr("Nový Part: začněte příkazem Kvádr, jiným tělesem nebo Skica.")
             : tr("Zobrazený Part: %1").arg(QString::fromStdString(document.name)));
+        if(part->symbol_definition)state_->setText(tr("Symbol")+": "+QString::fromStdString(document.name));
         insert_action_->setEnabled(false);
         regenerate_action_->setEnabled(false);
         save_action_->setEnabled(true);
@@ -1727,8 +1744,8 @@ void AssemblyWorkspaceWindow::refresh_scene() {
         sketch_normal_view_action_->setEnabled(!active_sketch_id_.empty());
         sketch_flip_view_action_->setEnabled(!active_sketch_id_.empty());
         sketch_rotate_view_action_->setEnabled(!active_sketch_id_.empty());
-        sketch_external_reference_action_->setEnabled(!active_sketch_id_.empty());
-        sketch_external_profile_action_->setEnabled(!active_sketch_id_.empty());
+        sketch_external_reference_action_->setEnabled(!active_sketch_id_.empty()&&!part->symbol_definition);
+        sketch_external_profile_action_->setEnabled(!active_sketch_id_.empty()&&!part->symbol_definition);
         sketch_point_action_->setEnabled(!active_sketch_id_.empty());
         sketch_construction_action_->setEnabled(!active_sketch_id_.empty());
         sketch_segment_action_->setEnabled(!active_sketch_id_.empty());
@@ -1747,7 +1764,8 @@ void AssemblyWorkspaceWindow::refresh_scene() {
         sketch_bspline_action_->setEnabled(!active_sketch_id_.empty());
         sketch_interpolating_spline_action_->setEnabled(!active_sketch_id_.empty());
         sketch_text_action_->setEnabled(!active_sketch_id_.empty());
-        symbol_action_->setEnabled(!active_sketch_id_.empty());
+        symbol_action_->setEnabled(!properties_dialog_&&!part->symbol_definition);
+        append_model_symbols_to_tree();
         sketch_constraints_action_->setEnabled(!active_sketch_id_.empty());
         sketch_dimensions_action_->setEnabled(!active_sketch_id_.empty());
         // H/V can constrain a preselected segment, but without a preselection
@@ -1992,10 +2010,12 @@ void AssemblyWorkspaceWindow::refresh_scene() {
                     if (active_part != nullptr) {
                         return std::vector{
                             zima::viewer::CandidateKind::Dimension,
+                            zima::viewer::CandidateKind::Symbol,
                             zima::viewer::CandidateKind::Container};
                     }
                     return std::vector{
                         zima::viewer::CandidateKind::Dimension,
+                        zima::viewer::CandidateKind::Symbol,
                         zima::viewer::CandidateKind::Occurrence};
             }
         }());
@@ -2254,7 +2274,8 @@ void AssemblyWorkspaceWindow::refresh_scene() {
     sketch_bspline_action_->setEnabled(has_active_part_sketch);
     sketch_interpolating_spline_action_->setEnabled(has_active_part_sketch);
     sketch_text_action_->setEnabled(has_active_part_sketch);
-    symbol_action_->setEnabled(has_active_part_sketch);
+    symbol_action_->setEnabled(!properties_dialog_);
+    append_model_symbols_to_tree();
     sketch_constraints_action_->setEnabled(has_active_part_sketch);
     sketch_dimensions_action_->setEnabled(has_active_part_sketch);
     const bool has_segment = has_active_part_sketch &&

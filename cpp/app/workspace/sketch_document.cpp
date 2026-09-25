@@ -124,6 +124,9 @@ void AssemblyWorkspaceWindow::align_active_sketch_view(bool fit_view) {
     // This makes entry into Sketcher show the exact owning-container frame,
     // including the intended side of a supporting solid face.
     zima::kernel::Vec3 screen_x = sketch->resolved_x_axis;
+    // A library definition uses conventional local XY, unlike the normal
+    // Sketcher's front-side entry and the right-anchored title-block editor.
+    if(symbol_document_sketch())direction={-direction.x,-direction.y,-direction.z};
     if (sketch_view_state_id_ != active_sketch_id_) {
         sketch_view_state_id_ = active_sketch_id_;
         // Sketcher controls are relative camera overrides. The initial view

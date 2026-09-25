@@ -184,3 +184,41 @@ reference loss and repair. They check yellow/red pixels, last value without a
 question mark, invalid-dimension selection and `.drwz` save/reopen. Independent
 checks cover 60°/120°, trimming, 0°/180° and nearly parallel lines. Screenshots of
 valid, invalid and repaired states passed visual inspection.
+
+
+## Original-edge preference (2026-09-25)
+
+Drawing dimensions and direct sheet symbols share the measurement candidate
+pipeline. A selected result edge prefers its uniquely recoverable original edge
+when the persisted identity proves unchanged geometric ancestry. Boolean
+`split-edge:from` identities encode that parent with length-prefixed owner, key
+and occurrence fields; nested splits are followed without OCCT or proximity
+searches. The contact parameter is recalculated on the parent, and the resolved
+contact must remain unchanged before accepting the replacement. Occurrences
+must match exactly. Picking continues to use the displayed fragment, not removed
+portions of its original curve. Reference highlighting can follow displayed
+split descendants of the stored original edge.
+
+If the parent is absent or the contact cannot be preserved, keep the selected
+body-edge reference. Intersection and edge-treatment boundaries retain their
+own identities: face ancestry or a fillet's generating edge is not proof that
+the resulting edge is the same curve. Mirror/copy ancestry must not move a
+contact back onto its source object. Persisted point references remain points.
+
+The policy applies at selection time. It does not reconstruct a previously lost
+reference whose source data is no longer available, nor silently repair old
+annotations by geometric proximity. No document schema or UI text changed.
+
+Regression coverage in `measurement_dimension_contract_tests.cpp` and
+`symbol_drawing_tests.cpp` covers reversed split direction, preserved contact,
+nested ancestry, missing parents, distinct occurrences, intersections, dimension
+serialization and restoring the unsplit source geometry.
+
+
+The same preference applies to persisted point references. Boolean
+`vertex:from` ancestry may resolve to the original point only in the same
+occurrence and at the same 3D location. Matching projected coordinates alone is
+insufficient. Original point records take priority over duplicate result records.
+New intersection vertices without a unique inherited point retain body identity.
+Direct Drawing symbols accept these Point contacts as well as curve contacts,
+persist their kind, and retain their last position if that point disappears.

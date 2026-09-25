@@ -35,6 +35,23 @@ right-hand anchor. Symbol geometry must retain its intended handedness and text
 must remain readable. Frame-change checks must verify the anchor independently
 of symbol-orientation checks.
 
+## Spatial annotation extension (2026-09-24)
+
+The current implementation extends symbols beyond Sketch annotations to native
+Part/Assembly annotations and direct Drawing-sheet annotations. Definitions can
+also be opened, created and saved as standalone SYMZ documents. Model symbols
+are inherited through Show/Erase with independent Drawing presentation.
+
+See [Symbol user guide](SYMBOLS_USER_GUIDE.md) for the interaction workflow and
+[implementation and verification notes](SYMBOL_PLACEMENT_IMPLEMENTATION.md) for
+reference retention, accepted scope, tests and standards sources.
+
+Optional `frame_layout` metadata arranges ordered Sketch cells around local
+zero, the middle of the frame's left edge. Cell width follows the evaluated
+content; empty datum text cells are omitted. The source Sketch geometry remains
+editable. The initial geometric-tolerance library uses this layout and vector
+characteristic glyphs.
+
 ## Implementation checkpoint
 
 Native `.symz` version 2 is self-contained UTF-8 JSON (`zima.symbol`, units `mm`).
@@ -198,7 +215,7 @@ and a list/custom `Specification` field. The graphic includes the distinguishing
 short bar shown in ISO 21920-1:2021. The official standard record is
 [ISO 21920-1](https://www.iso.org/standard/72196.html).
 
-`surface-texture/ZE-GENERAL-SURFACE-TEXTURE-ISO21920.symz` is a separate general
+`general/ZE-GENERAL-SURFACE-TEXTURE-ISO21920.symz` is a separate general
 indication for the title-block area. ISO 21920-1:2021, 9.1.2 and figure 12,
 place the default surface requirement before a bare graphical symbol in
 parentheses. Three variants distinguish an unspecified manufacturing process,
@@ -252,8 +269,10 @@ display convention, not a standard-mandated colour. Parentheses are native arcs
 with the yellow/thin symbol stroke rather than oversized text glyphs.
 
 These are initial editable library examples, not a claim of exhaustive standard
-coverage or verified compliance with every prescribed proportion. Their model
-attachment/leader workflow remains pending. `zima_symbol_catalog_tool` rebuilds
+coverage or verified compliance with every prescribed proportion. Model and
+Drawing attachment, leaders and reference-loss handling are implemented; see
+[Symbol placement implementation](SYMBOL_PLACEMENT_IMPLEMENTATION.md) and the
+[Symbol user guide](SYMBOLS_USER_GUIDE.md). `zima_symbol_catalog_tool` rebuilds
 the examples and their preview. Updating library assets alone never modifies
 previously inserted copies; the factory title blocks are explicitly refreshed
 as part of this change.

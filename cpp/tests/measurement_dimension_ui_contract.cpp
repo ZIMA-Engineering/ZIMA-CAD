@@ -1,4 +1,5 @@
 #include "drawing_dimension_dialog.hpp"
+#include "../common/interaction_colors.hpp"
 #include "application_settings.hpp"
 #include "drawing_window.hpp"
 #include <zima/drawing/view_breaks.hpp>
@@ -170,10 +171,10 @@ int verify_measurement_dimension_ui() {
         flush();
         mouse(canvas,QEvent::MouseMove,point(15,0),Qt::NoButton,Qt::NoButton);
         const auto line_hover=canvas->grab().toImage();
-        const auto orange=[](QColor c){return c.red()>220&&c.green()>90&&c.green()<175&&c.blue()<60;};
+        const auto hover_color=[](QColor c){const auto expected=zima::interaction::hover;return std::abs(c.red()-expected.red())<10&&std::abs(c.green()-expected.green())<10&&std::abs(c.blue()-expected.blue())<10;};
         const auto pixel=[&](const QImage& image,QPointF p){return image.pixelColor((p*image.devicePixelRatio()).toPoint());};
-        require(!orange(pixel(line_hover,point(15,0)+QPointF(0,4))),"Line hover includes a misleading point marker");
-        require(orange(pixel(line_hover,point(15,0)+QPointF(12,0))),"Line hover does not highlight the line");
+        require(!hover_color(pixel(line_hover,point(15,0)+QPointF(0,4))),"Line hover includes a misleading point marker");
+        require(hover_color(pixel(line_hover,point(15,0)+QPointF(12,0))),"Line hover does not highlight the line");
         pick(canvas, point(15, 0));
         require(props->value().attachments[0].reference.valid() &&
                     props->value().attachments[0].kind == DimensionAttachmentKind::Line,
@@ -340,8 +341,8 @@ int verify_measurement_dimension_ui() {
             props->findChild<QComboBox*>("drawingDimensionType")->setCurrentIndex(int(kind));flush();
             mouse(canvas,QEvent::MouseMove,point(15,10),Qt::NoButton,Qt::NoButton);
             const auto hover=canvas->grab().toImage();
-            require(orange(pixel(hover,point(5,10))),"Radial hover does not highlight the whole selected circle");
-            require(!orange(pixel(hover,point(15,10)+QPointF(4,0))),"Radial hover retains a misleading point marker");
+            require(hover_color(pixel(hover,point(5,10))),"Radial hover does not highlight the whole selected circle");
+            require(!hover_color(pixel(hover,point(15,10)+QPointF(4,0))),"Radial hover retains a misleading point marker");
         }
         props->findChild<QComboBox *>("drawingDimensionType")
             ->setCurrentIndex(int(DrawingDimensionKind::Radius));

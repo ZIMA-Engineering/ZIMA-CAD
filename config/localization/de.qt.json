@@ -1,4 +1,16 @@
 {
+  "Orientace ve výkresu": "Ausrichtung in der Zeichnung",
+  "Se značkou": "Mit Symbol",
+  "Zachovat čitelnost": "Lesbarkeit beibehalten",
+  "Plocha symbolu": "Symbolfläche",
+  "Odkazová čára se šipkou": "Hinweislinie mit Pfeil",
+  "Počátek X": "Ursprung X",
+  "Počátek Y": "Ursprung Y",
+  "Počátek Z": "Ursprung Z",
+  "Reference není dostupná. Symbol zachovává poslední polohu.": "Referenz nicht verfügbar. Das Symbol behält seine letzte Position.",
+  "Vyberte plochu pro symbol.": "Wählen Sie eine Fläche für das Symbol.",
+  "Dokument již není aktivní.": "Das Dokument ist nicht mehr aktiv.",
+  "Symbol nelze vytvořit. Zkontrolujte název a cílovou složku.": "Das Symbol kann nicht erstellt werden. Prüfen Sie den Namen und den Zielordner.",
   "Plošné těžiště — X: %1; Y: %2; Z: %3": "Flächenschwerpunkt — X: %1; Y: %2; Z: %3",
   "Hmotnost: nelze určit z otevřené plochy bez tloušťky.": "Masse: bei einer offenen Fläche ohne Dicke nicht bestimmbar.",
   "Používat ISO font pro GUI": "ISO-Schrift für die Benutzeroberfläche verwenden",
@@ -27,13 +39,10 @@
   "Upravte obě skici a polohu druhého počátku. OK vytvoří plech.": "Bearbeiten Sie beide Skizzen und die Lage des zweiten Ursprungs. OK erstellt das Blech.",
   "Fixed section frames require an explicit smooth loft section at each station.": "Feste Schnittrahmen benötigen an jeder Station einen expliziten Querschnitt des glatten Lofts.",
   "Compound sheet material must match every authored primitive.": "Das Material des zusammengesetzten Blechs muss jedem definierten Grundelement entsprechen.",
-
   "Both transition Sketches must belong to the same Body.": "Beide Übergangsskizzen müssen zum selben Körper gehören.",
-
   "Vyberte skicu": "Skizze auswählen",
   "Vnitřní poloměr ohybu": "Innerer Biegeradius",
   "K-faktor": "K-Faktor",
-
   "Přechod plechu": "Blechübergang",
   "Skica půlkruhu": "Halbkreis-Skizze",
   "Skica zaobleného půlobdélníku": "Skizze des abgerundeten halben Rechtecks",
@@ -63,7 +72,6 @@
   "Sheet transition editing must preserve feature identity.": "Die Bearbeitung muss die Identität des Elements erhalten.",
   "Activate an editable Body before creating a sheet transition.": "Aktivieren Sie vor dem Erstellen ein bearbeitbares Körperobjekt.",
   "Specify a sheet transition name.": "Geben Sie einen Namen für den Blechübergang ein.",
-
   "Source Body must precede the active Body.": "Der Quellkörper muss vor dem aktiven Körper liegen.",
   "Create the empty target Body after the source Body and show its planar faces.": "Erstellen Sie den leeren Zielkörper nach dem Quellkörper und zeigen Sie dessen ebene Flächen an.",
   "Plech z tělesa": "Blech aus Körper",
@@ -289,7 +297,7 @@
   "Zpět do sestavy": "Zurück zur Baugruppe",
   "Vytvořit těleso": "Körper erstellen",
   "Potlačit": "Unterdrücken",
-  "Dokumenty ZIMA-CAD (*.prtz *.asmz *.drwz *.frmz *.tblz)": "ZIMA-CAD-Dokumente (*.prtz *.asmz *.drwz *.frmz *.tblz)",
+  "Dokumenty ZIMA-CAD (*.prtz *.asmz *.drwz *.frmz *.tblz *.symz)": "ZIMA-CAD-Dokumente (*.prtz *.asmz *.drwz *.frmz *.tblz *.symz)",
   "O aplikaci ZIMA-CAD": "Über ZIMA-CAD",
   "Uložit sestavu ZIMA-CAD": "ZIMA-CAD-Baugruppe speichern",
   "Sestava ZIMA-CAD (*.asmz)": "ZIMA-CAD-Baugruppe (*.asmz)",
@@ -1726,5 +1734,16 @@
   "Export rozvinu…": "Abwicklung exportieren…",
   "Rozvin prototypu byl exportován: %1": "Prototyp-Abwicklung exportiert: %1",
   "Export rozvinu se nezdařil.": "Export der Abwicklung fehlgeschlagen.",
-  "Skici určují vnější rozměry. Žluté osy označují skutečné ohyby; tloušťka zatím není započítána.": "Skizzen bestimmen die Außenmaße. Gelbe Mittellinien markieren tatsächliche Biegungen; die Dicke ist noch nicht berücksichtigt."
+  "Skici určují vnější rozměry. Žluté osy označují skutečné ohyby; tloušťka zatím není započítána.": "Skizzen bestimmen die Außenmaße. Gelbe Mittellinien markieren tatsächliche Biegungen; die Dicke ist noch nicht berücksichtigt.",
+  "Reference symbolu": "Symbolreferenz",
+  "Vyberte geometrii nebo polohu na listu.": "Geometrie oder Position auf dem Blatt auswählen.",
+  "Hodnota tolerance": "Toleranzwert",
+  "Primární základna": "Primärbezug",
+  "Sekundární základna": "Sekundärbezug",
+  "Terciární základna": "Tertiärbezug",
+  "Tolerance musí být kladné číslo.": "Die Toleranz muss eine positive Zahl sein.",
+  "Základny zadejte v pořadí bez mezer, velkými písmeny.": "Bezüge der Reihe nach ohne leere Zwischenfelder und mit Großbuchstaben eingeben.",
+  "Tato tolerance vyžaduje primární základnu.": "Diese Toleranz benötigt einen Primärbezug.",
+  "Symbol nelze připojit k vybrané geometrii.": "Das Symbol kann nicht an die ausgewählte Geometrie angehängt werden.",
+  "Geometrická tolerance": "Geometrische Toleranz"
 }

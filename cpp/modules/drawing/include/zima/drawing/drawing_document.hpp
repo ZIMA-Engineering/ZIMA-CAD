@@ -1,5 +1,6 @@
 #pragma once
 #include <zima/kernel/dimension_layout.hpp>
+#include <zima/symbols/placement.hpp>
 #include <zima/document/section.hpp>
 #include <zima/document/document_copy.hpp>
 
@@ -39,7 +40,7 @@ struct Point2 {
     bool operator==(const Point2&) const = default;
 };
 
-enum class ModelAnnotationKind { Dimension, Axis, Construction };
+enum class ModelAnnotationKind { Dimension, Axis, Construction, Symbol };
 struct ModelAnnotationReference {
     std::string document_id, owner_id, semantic_id, instance_path;
     bool operator==(const ModelAnnotationReference&) const = default;
@@ -61,6 +62,10 @@ struct ModelAnnotation {
     std::map<std::string, Point2> paper_handles;
     std::optional<kernel::ViewerDimension> model_dimension;
     std::optional<std::array<kernel::Vec3,2>> model_axis;
+    std::optional<symbols::Placement> model_symbol;
+    std::vector<std::string> curve_colors;
+    std::vector<bool> curve_centerlines;
+    std::vector<bool> curve_filled;
     kernel::ModelEnvelope model_envelope;
     kernel::DimensionLayout model_layout;
     std::optional<kernel::DimensionLayout> view_layout;
@@ -322,6 +327,13 @@ struct BomRow {
     std::vector<std::string> occurrence_paths;
 };
 
+// The original geometry identity lives in Placement::reference. This locator
+// only supplies the projected view and normalized position on that geometry.
+struct SymbolContact {
+    std::string view_id;
+    double parameter{};
+    bool operator==(const SymbolContact&) const = default;
+};
 struct DrawingSheet {
     std::string id;
     std::string name{"List 1"};
@@ -349,6 +361,8 @@ struct DrawingSheet {
     std::vector<zima::sketcher::SketchRepeatRegion> repeat_regions;
     std::vector<zima::sketcher::TemplateImage> title_block_images;
     std::vector<zima::sketcher::SymbolInstance> title_block_symbols;
+    std::vector<zima::symbols::Placement> symbol_annotations;
+    std::map<std::string,SymbolContact> symbol_contacts;
     std::string title_block_locale{"cs"};
     std::map<std::string, std::string> local_parameters;
 

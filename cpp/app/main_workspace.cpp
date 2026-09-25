@@ -1,4 +1,5 @@
 #include <zima/workspace/drawing_sources.hpp>
+#include "symbol_attachment_dialog.hpp"
 #include "workspace/workspace_internal.hpp"
 #include <numbers>
 #include <zima/workspace/model_calculation.hpp>
@@ -8,6 +9,7 @@
 #include "updateservice.h"
 #include "updates_ui_verification.hpp"
 #include <zima/document/file_path.hpp>
+#include <zima/document/component_source.hpp>
 #include <zima/document/bend.hpp>
 #include <zima/document/flat.hpp>
 #include <zima/workspace/native_documents.hpp>
@@ -46,6 +48,7 @@
 #include <zima/interchange/step_model.hpp>
 #include "primitive_properties_dialog.hpp"
 #include "drawing_window.hpp"
+#include <zima/drawing/measurement_dimension.hpp>
 #include "resource_icon.hpp"
 #include "tree_reference_state.hpp"
 
@@ -1344,11 +1347,11 @@ int verify_template_commands(QApplication& application,zima::app::AssemblyWorksp
                     flush();const auto image=view->grab().toImage();const auto p=anchor_pixel*image.devicePixelRatio();
                     for(int y=static_cast<int>(p.y())-6;y<=p.y()+6;++y)for(int x=static_cast<int>(p.x())-6;x<=p.x()+6;++x) {
                         if(x<0||y<0||x>=image.width()||y>=image.height())continue;const auto c=image.pixelColor(x,y);
-                        if(selected?(c.red()<80&&c.green()>180&&c.blue()>190):(c.red()>220&&c.green()>70&&c.green()<170&&c.blue()<80))return true;
+                        if(selected?(c.red()<80&&c.green()>180&&c.blue()>190):(c.red()<140&&c.green()>180&&c.blue()<100))return true;
                     }
                     return false;
                 };
-                if(!verify(anchor_colored(false),"Text hover did not highlight its anchor orange"))return 1;
+                if(!verify(anchor_colored(false),"Text hover did not highlight its anchor green"))return 1;
                 click(pixel);
                 if(!verify(anchor_colored(true),"Text confirmation did not highlight its anchor cyan"))return 1;
                 QMouseEvent dbl(QEvent::MouseButtonDblClick,pixel,QPointF(view->mapToGlobal(pixel.toPoint())),Qt::LeftButton,Qt::LeftButton,Qt::NoModifier);

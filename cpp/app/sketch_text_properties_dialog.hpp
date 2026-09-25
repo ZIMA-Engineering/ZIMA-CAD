@@ -28,7 +28,7 @@ public:
     SketchTextPropertiesDialog(
         zima::sketcher::SketchText initial,
         std::optional<std::array<double, 2>> anchor,
-        PreviewCallback preview, CommitCallback commit, QWidget* parent, bool y_up = false, bool drawing_text = false, std::optional<std::map<std::string,std::string>> action_settings = std::nullopt);
+        PreviewCallback preview, CommitCallback commit, QWidget* parent, bool y_up = false, bool drawing_text = false, std::optional<std::map<std::string,std::string>> action_settings = std::nullopt, bool symbol_definition = false);
     std::map<std::string,std::string> field_action() const;
 
     void set_anchor(double x, double y);
@@ -54,6 +54,7 @@ private:
     QComboBox* font_{};
     QComboBox* color_{};
     QComboBox* mode_{};
+    QComboBox* drawing_orientation_{};
     QDoubleSpinBox* angle_{};
     QCheckBox* flipped_{};
     QLabel* error_{};
@@ -62,6 +63,7 @@ private:
     QPlainTextEdit* choices_{};
     QCheckBox* allow_custom_{};
     bool y_up_{};
+    bool inverted_flip_ui_{};
     bool drawing_text_{};
 };
 

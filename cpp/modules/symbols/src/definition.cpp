@@ -24,6 +24,10 @@ void Definition::validate() const {
         require(sketch.external_references.empty()&&sketch.plane_reference_owner_id.empty()&&sketch.owner_container_id.empty()&&!sketch.drawing_template);
         require(sketch.plane==sketcher::SketchPlane::XY&&sketch.plane_offset==0);
     }
+    if(frame_layout) {
+        const auto& f=*frame_layout;require(!f.cells.empty()&&std::isfinite(f.height)&&f.height>0&&std::isfinite(f.padding)&&f.padding>=0&&std::isfinite(f.minimum_width)&&f.minimum_width>0);
+        std::set<std::string> cells;for(const auto& id:f.cells)require(ids.contains(id)&&cells.insert(id).second);
+    }
     std::set<std::pair<std::string,std::string>> text_ids;
     for(const auto& [owner,entries]:pens) {
         require(ids.contains(owner));
@@ -64,9 +68,35 @@ std::vector<sketcher::Sketch> Definition::evaluate(const std::string& variant,co
             auto& text=*std::ranges::find(sketch.texts,field.text_id,&sketcher::SketchText::id);
             if(row.text_values.contains(key))text.value=row.text_values.at(key);
             if(overrides.contains(key))text.value=overrides.at(key);
+            if(text.value.find_first_not_of(" \t\r\n")==std::string::npos) {
+                std::erase_if(sketch.texts,[&](const auto& item){return item.id==field.text_id;});continue;
+            }
             sketcher::rebuild_text_contours(text,true);
         }
         result.push_back(std::move(sketch));
+    }
+    if(frame_layout) {
+        const auto& layout=*frame_layout;double left=0;
+        for(const auto& id:layout.cells) {
+            const auto found=std::ranges::find(result,id,&sketcher::Sketch::id);if(found==result.end())continue;
+            auto& sketch=*found;double xmin=1e100,xmax=-1e100;
+            for(const auto& edge:sketch.viewer_mesh().edges) {
+                const auto& key=edge.reference.semantic_key;if(key.starts_with("sketch_axis:")||key.starts_with("dimension:"))continue;
+                for(const auto p:edge.points){xmin=std::min(xmin,p.x);xmax=std::max(xmax,p.x);}
+            }
+            if(xmin>xmax)continue;
+            const double width=std::max(layout.minimum_width,xmax-xmin+2*layout.padding);
+            const double shift=left+(width-(xmax-xmin))/2-xmin;
+            for(auto& point:sketch.points)point.x+=shift;
+            for(auto& text:sketch.texts){text.anchor_x+=shift;sketcher::rebuild_text_contours(text,true);}
+            const auto segment=[&](const std::string& suffix,double x,double y,double u,double v){
+                const auto key=id+":frame:"+suffix;sketch.points.push_back({key+":a",x,y,true});sketch.points.push_back({key+":b",u,v,true});sketch.segments.push_back({key,key+":a",key+":b"});
+            };
+            const double bottom=-layout.height/2,top=layout.height/2;
+            if(left==0)segment("left",left,bottom,left,top);
+            segment("bottom",left,bottom,left+width,bottom);segment("top",left,top,left+width,top);
+            segment("right",left+width,bottom,left+width,top);left+=width;
+        }
     }
     return result;
 }
@@ -75,6 +105,7 @@ std::string Definition::serialized() const {
         {"insertion_point",insertion_point},{"default_variant",default_variant},{"variant_source",variant_source},
         {"sketches",Json::array()},{"fields",Json::object()},{"variants",Json::object()}};
     data["pens"]=pens;
+    if(frame_layout)data["frame_layout"]={{"cells",frame_layout->cells},{"height",frame_layout->height},{"padding",frame_layout->padding},{"minimum_width",frame_layout->minimum_width}};
     for(const auto& sketch:sketches)data["sketches"].push_back(Json::parse(sketch.serialized()));
     for(const auto& [key,field]:fields)data["fields"][key]={{"sketch",field.sketch_id},{"text",field.text_id},{"choices",field.choices},{"allow_custom",field.allow_custom}};
     for(const auto& [key,row]:variants)data["variants"][key]={{"sketches",row.sketches},{"text_values",row.text_values},{"hidden_texts",row.hidden_texts}};
@@ -86,6 +117,7 @@ Definition Definition::from_serialized(const std::string& data) {
     Definition d;d.id=root.at("id");d.name=root.at("name");d.insertion_point=root.at("insertion_point").get<std::array<double,2>>();
     d.default_variant=root.at("default_variant");d.variant_source=root.at("variant_source");
     d.pens=root.value("pens",decltype(d.pens){});
+    if(root.contains("frame_layout")){const auto& f=root.at("frame_layout");d.frame_layout=FrameLayout{f.at("cells").get<std::vector<std::string>>(),f.at("height"),f.at("padding"),f.at("minimum_width")};}
     for(const auto& value:root.at("sketches")) {
         require(!value.contains("symbols")||value.at("symbols").empty());
         d.sketches.push_back(sketcher::Sketch::from_serialized(value.dump()));
@@ -94,12 +126,22 @@ Definition Definition::from_serialized(const std::string& data) {
     for(const auto& [key,r]:root.at("variants").items())d.variants[key]={r.at("sketches").get<std::vector<std::string>>(),r.at("text_values").get<std::map<std::string,std::string>>(),r.at("hidden_texts").get<std::vector<std::string>>()};
     d.validate();return d;
 }
-kernel::ViewerMesh instance_mesh(const sketcher::SymbolInstance& instance,const std::string& cad_variant) {
+kernel::ViewerMesh instance_mesh(const sketcher::SymbolInstance& instance,const std::string& cad_variant,std::optional<double> paper_frame_angle) {
     const auto d=Definition::from_serialized(instance.definition);
     const auto variant=instance.use_cad_variant&&!cad_variant.empty()?cad_variant:instance.variant;
     kernel::ViewerMesh result;if(!instance.visible)return result;
     const double a=instance.angle_degrees*3.141592653589793/180.,c=std::cos(a),s=std::sin(a);
-    for(const auto& sketch:d.evaluate(variant,instance.text_values)) {
+    for(auto& sketch:d.evaluate(variant,instance.text_values)) {
+        if(paper_frame_angle)for(auto& text:sketch.texts)if(text.drawing_keep_readable) {
+            // ISO 1302:1992 7.1: readable from bottom/right. A half-turn
+            // preserves the authored center, symbol geometry and text slope.
+            const double angle=std::remainder(*paper_frame_angle+instance.angle_degrees+text.angle_degrees,360.);
+            if(angle>90.+1e-9||angle<=-90.+1e-9) {
+                double left=1e100,right=-1e100,bottom=1e100,top=-1e100;
+                for(const auto& contour:text.contours)for(const auto& p:contour){left=std::min(left,p[0]);right=std::max(right,p[0]);bottom=std::min(bottom,p[1]);top=std::max(top,p[1]);}
+                if(left<=right)for(auto& contour:text.contours)for(auto& p:contour){p[0]=left+right-p[0];p[1]=bottom+top-p[1];}
+            }
+        }
         for(auto edge:sketch.viewer_mesh().edges) {
             const auto& key=edge.reference.semantic_key;
             if(key.starts_with("sketch_axis:")||key.starts_with("dimension:"))continue;

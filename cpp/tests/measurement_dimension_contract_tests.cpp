@@ -40,6 +40,57 @@ DrawingView view(kernel::ViewerMesh mesh) {
 int main() {
     try {
         {
+            const auto encode=[](const std::string& value){return std::to_string(value.size())+":"+value;};
+            kernel::ViewerMesh mesh;auto edge=line("body-edge",{0,0,0},{10,0,0});edge.reference={"cut","body-edge","A"};mesh.edges={edge};
+            kernel::ViewerPoint original{{0,0,0},{"profile","source-point","A"}};
+            auto child=original;child.reference={"cut","boolean:cut:vertex:from:"+encode("profile")+encode("source-point")+encode("")+":at:faces:edges:edges","A"};
+            mesh.original_references.points={original};mesh.points={child};auto v=view(mesh);
+            MeasurementPickRequest request;request.mode=int(DimensionAttachmentKind::Point);
+            auto picked=measurement_candidates(v,{0,0},.01,request).front().attachment;
+            require(picked.kind==DimensionAttachmentKind::Point&&picked.reference==kernel::EdgeReference{"profile","source-point","A"},"Point did not prefer persisted original ancestry");
+            mesh.points.clear();capture_measurement_geometry(v,mesh);near(resolve_dimension_attachment(v,picked)->x,0);
+            mesh.points={child};mesh.original_references.points.front().position.z=5;capture_measurement_geometry(v,mesh);
+            require(measurement_candidates(v,{0,0},.01,request).front().attachment.reference.owner_id=="cut","Projected coincidence merged distinct 3D points");
+            mesh.original_references.points.front()=original;mesh.original_references.points.front().reference.instance_path="B";capture_measurement_geometry(v,mesh);
+            require(measurement_candidates(v,{0,0},.01,request).front().attachment.reference.owner_id=="cut","Point crossed occurrence ownership");
+            mesh.original_references.points={original};mesh.points.front().reference.semantic_key="boolean:cut:vertex:at:new-faces:edges:new-edges";capture_measurement_geometry(v,mesh);
+            require(measurement_candidates(v,{0,0},.01,request).front().attachment.reference.owner_id=="cut","New intersection point acquired a nearby original identity");
+        }
+        {
+            const auto split=[](kernel::EdgeReference parent,std::string owner) {
+                const auto encode=[](const std::string& value){return std::to_string(value.size())+":"+value;};
+                return kernel::EdgeReference{owner,"boolean:cut:split-edge:from:"+encode(parent.owner_id)+encode(parent.semantic_key)+encode("")+":between:faces:ends:vertices",parent.instance_path};
+            };
+            auto original=line("original",{0,0,0},{100,0,0});original.reference.instance_path="occurrence-A";
+            auto fragment=original;fragment.points={{80,0,0},{60,0,0}};fragment.reference=split(original.reference,"cut-A");
+            kernel::ViewerMesh mesh;mesh.original_references.edges={original};mesh.edges={fragment};
+            auto v=view(mesh);MeasurementPickRequest request;request.mode=int(DimensionAttachmentKind::CurvePoint);
+            const auto offered=measurement_candidates(v,{73,0},.1,request);
+            require(!offered.empty(),"Split edge not offered");
+            auto attachment=offered.front().attachment;
+            require(attachment.reference==original.reference,"Split edge did not retain its original identity");
+            near(attachment.parameter,.73);near(resolve_dimension_attachment(v,attachment)->x,73);
+            require(!measurement_reference_geometry(v,original.reference).empty(),"Original reference lost split-edge highlight");
+            auto d=make_drawing_dimension(v.id);d.attachments={attachment,{DimensionAttachmentKind::CurvePoint,original.reference,{},.1}};
+            const auto saved=deserialize_drawing_dimensions(serialize_drawing_dimensions({d})).front();
+            require(saved.attachments==d.attachments,"Original identity not persisted");
+            // Removing the cutting feature restores the full original edge.
+            mesh.edges={original};capture_measurement_geometry(v,mesh);v.projected_edges=project_edges(mesh,v.camera);
+            near(resolve_dimension_attachment(v,saved.attachments.front())->x,73);
+            // Nested split lineage is followed without merging occurrences.
+            fragment.reference=split(split(original.reference,"cut-A"),"cut-B");mesh.edges={fragment};
+            capture_measurement_geometry(v,mesh);v.projected_edges=project_edges(mesh,v.camera);
+            require(measurement_candidates(v,{73,0},.1,request).front().attachment.reference==original.reference,"Nested split did not reach original");
+            mesh.original_references.edges.front().reference.instance_path="occurrence-B";
+            capture_measurement_geometry(v,mesh);
+            require(measurement_candidates(v,{73,0},.1,request).front().attachment.reference==fragment.reference,"Split crossed occurrence ownership");
+            mesh.original_references.edges.clear();capture_measurement_geometry(v,mesh);
+            require(measurement_candidates(v,{73,0},.1,request).front().attachment.reference==fragment.reference,"Missing parent discarded body reference");
+            fragment.reference={"cut","boolean:cut:intersection:between:faces:ends:vertices","occurrence-A"};mesh.edges={fragment};
+            mesh.original_references.edges={original};capture_measurement_geometry(v,mesh);v.projected_edges=project_edges(mesh,v.camera);
+            require(measurement_candidates(v,{73,0},.1,request).front().attachment.reference==fragment.reference,"Intersection incorrectly matched nearby original");
+        }
+        {
             kernel::ViewerMesh mesh;mesh.edges={line("point-priority",{0,0,0},{40,0,0})};
             auto v=view(mesh);
             for(double x:{.3,19.7,39.7}) {

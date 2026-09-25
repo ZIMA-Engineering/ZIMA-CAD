@@ -8528,7 +8528,13 @@ void Sketch::apply_dimension(SketchDimension dimension) {
         dimension_kind != DimensionKind::EllipseRotation;
     // Editing a value leaves the equation graph unchanged. Recompute rank
     // only when inserting a driver whose redundancy must be diagnosed.
-    const auto result = next.solve_impl(100, needs_rank_for_redundancy);
+    auto result = next.solve_impl(100, needs_rank_for_redundancy);
+    // Preserve established branch/anchor priorities when the ordinary solve
+    // succeeds. Only retry a failed dimension transaction with a simultaneous
+    // point-distance seed, then verify it using the common solver again.
+    if(result.status==SolveStatus::Conflicting &&
+       seed_rectilinear_equations(next,{},true))
+        result=next.solve_impl(100,needs_rank_for_redundancy);
     if (result.status == SolveStatus::Conflicting || result.status == SolveStatus::Invalid) {
         throw std::runtime_error("Sketch dimension conflicts with existing geometry");
     }
@@ -13377,6 +13383,7 @@ std::string Sketch::serialized() const {
         text_values.push_back({
             {"id", text.id}, {"value", text.value},
             {"modeling_geometry", text.modeling_geometry},
+            {"drawing_keep_readable", text.drawing_keep_readable},
             {"anchor_x", text.anchor_x}, {"anchor_y", text.anchor_y},
             {"height", text.height},
             {"horizontal", text_horizontal_name(text.horizontal)},
@@ -13620,6 +13627,7 @@ Sketch Sketch::from_serialized(const std::string& value) {
         text.anchor_point_id=value.value("anchor_point_id",std::string{});
         text.value = value.at("value").get<std::string>();
         text.modeling_geometry = value.value("modeling_geometry", true);
+        text.drawing_keep_readable = value.value("drawing_keep_readable", false);
         text.anchor_x = value.at("anchor_x").get<double>();
         text.anchor_y = value.at("anchor_y").get<double>();
         text.height = value.at("height").get<double>();

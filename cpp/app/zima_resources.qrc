@@ -63,6 +63,7 @@
     <file alias="icons/drawing.svg">../../resources/icons/drawing.svg</file>
     <file alias="icons/drawing-format.svg">../../resources/icons/drawing-format.svg</file>
     <file alias="icons/insert-symbol.svg">../../resources/icons/insert-symbol.svg</file>
+    <file alias="icons/symbol.svg">../../resources/icons/symbol.svg</file>
     <file alias="icons/template-image.svg">../../resources/icons/template-image.svg</file>
     <file alias="icons/bom-region.svg">../../resources/icons/bom-region.svg</file>
     <file alias="icons/title-block.svg">../../resources/icons/title-block.svg</file>

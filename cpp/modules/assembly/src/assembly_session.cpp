@@ -5,6 +5,29 @@
 #include <utility>
 
 namespace zima::assembly {
+namespace {
+void refresh_symbol_contacts(AssemblyDocument& document) {
+    if(std::ranges::none_of(document.symbol_annotations,[](const auto& value){return value.reference&&value.reference->surface_kind.has_value();}))return;
+    const auto scene=document.build_scene();
+    for(auto& value:document.symbol_annotations)if(value.reference&&value.reference->surface_kind) {
+        const auto path=InstancePath::decode(value.reference->instance_path).occurrence_ids;
+        std::string source_id=document.document_id;
+        if(!path.empty()) {
+            const auto* occurrence=document.find_occurrence(path.front());
+            source_id=occurrence?occurrence->source_document_id:std::string{};
+            const auto* children=occurrence?&occurrence->nested_snapshot:nullptr;
+            for(std::size_t i=1;i<path.size();++i) {
+                const OccurrenceSnapshot* found=nullptr;
+                if(children)for(const auto& child:*children)if(child.occurrence_id==path[i]){found=&child;break;}
+                source_id=found?found->source_document_id:std::string{};
+                children=found?&found->children:nullptr;
+            }
+        }
+        if(source_id!=value.reference->document_id){value.unresolved=true;continue;}
+        static_cast<void>(symbols::refresh_surface_attachment(value,scene.original_references));
+    }
+}
+}
 void AssemblySession::rebase_native_files(std::span<const document::FileRelocation> files,
         const std::filesystem::path& owning_file) {
     document::FileRelocationEdits edits(files);
@@ -66,6 +89,7 @@ void AssemblySession::commit(AssemblyDocument document) {
     zima::document::refresh_physical_relations(document,physical_values(document));
     document.dimension_identifiers.retain(current_->document.dimension_identifiers);
     document.synchronize_dimension_identifiers();
+    refresh_symbol_contacts(document);
     // Validation and allocation finish before any live state changes.
     auto next=std::make_unique<State>(State{std::move(document),next_revision_,false});
     undo_.push_back(std::move(current_));current_=std::move(next);++next_revision_;
@@ -77,6 +101,7 @@ void AssemblySession::update_dependency_snapshots(AssemblyDocument document) {
     zima::document::refresh_physical_relations(document,physical_values(document));
     document.dimension_identifiers.retain(current_->document.dimension_identifiers);
     document.synchronize_dimension_identifiers();
+    refresh_symbol_contacts(document);
     static_assert(std::is_nothrow_move_assignable_v<AssemblyDocument>);
     current_->document=std::move(document);current_->dependency_state_dirty=true;++data_generation_;
 }
@@ -84,6 +109,7 @@ void AssemblySession::update_source_geometry(AssemblyDocument document) {
     // Display-only refresh preserves dirty/history state and does not evaluate
     // physical relations, dimensions, mates or body operations.
     static_assert(std::is_nothrow_move_assignable_v<AssemblyDocument>);
+    refresh_symbol_contacts(document);
     current_->document=std::move(document);++data_generation_;
 }
 bool AssemblySession::step(States& from,States& to) {

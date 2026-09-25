@@ -1,4 +1,16 @@
 {
+  "Orientace ve výkresu": "Ориентация на чертеже",
+  "Se značkou": "Вместе с символом",
+  "Zachovat čitelnost": "Сохранять читаемость",
+  "Plocha symbolu": "Поверхность символа",
+  "Odkazová čára se šipkou": "Линия-выноска со стрелкой",
+  "Počátek X": "Начало X",
+  "Počátek Y": "Начало Y",
+  "Počátek Z": "Начало Z",
+  "Reference není dostupná. Symbol zachovává poslední polohu.": "Ссылка недоступна. Символ сохраняет последнее положение.",
+  "Vyberte plochu pro symbol.": "Выберите поверхность для символа.",
+  "Dokument již není aktivní.": "Документ больше не активен.",
+  "Symbol nelze vytvořit. Zkontrolujte název a cílovou složku.": "Не удалось создать символ. Проверьте имя и целевую папку.",
   "Plošné těžiště — X: %1; Y: %2; Z: %3": "Центр тяжести поверхности — X: %1; Y: %2; Z: %3",
   "Hmotnost: nelze určit z otevřené plochy bez tloušťky.": "Масса: невозможно определить для открытой поверхности без толщины.",
   "Používat ISO font pro GUI": "Использовать шрифт ISO для интерфейса",
@@ -27,13 +39,10 @@
   "Upravte obě skici a polohu druhého počátku. OK vytvoří plech.": "Измените оба эскиза и положение второго начала. OK создаст лист.",
   "Fixed section frames require an explicit smooth loft section at each station.": "Фиксированные системы сечений требуют явного сечения плавного перехода на каждой станции.",
   "Compound sheet material must match every authored primitive.": "Материал составного листа должен соответствовать каждому заданному примитиву.",
-
   "Both transition Sketches must belong to the same Body.": "Оба эскиза перехода должны принадлежать одному телу.",
-
   "Vyberte skicu": "Выберите эскиз",
   "Vnitřní poloměr ohybu": "Внутренний радиус гиба",
   "K-faktor": "Коэффициент K",
-
   "Přechod plechu": "Переход из листа",
   "Skica půlkruhu": "Эскиз полуокружности",
   "Skica zaobleného půlobdélníku": "Эскиз половины скруглённого прямоугольника",
@@ -63,7 +72,6 @@
   "Sheet transition editing must preserve feature identity.": "Редактирование должно сохранять идентичность элемента.",
   "Activate an editable Body before creating a sheet transition.": "Перед созданием перехода активируйте редактируемое тело.",
   "Specify a sheet transition name.": "Задайте имя перехода.",
-
   "Source Body must precede the active Body.": "Исходное тело должно находиться перед активным телом.",
   "Create the empty target Body after the source Body and show its planar faces.": "Создайте пустое целевое тело после исходного и отобразите плоские грани источника.",
   "Plech z tělesa": "Лист из тела",
@@ -289,7 +297,7 @@
   "Zpět do sestavy": "Вернуться к сборке",
   "Vytvořit těleso": "Создать тело",
   "Potlačit": "Подавить",
-  "Dokumenty ZIMA-CAD (*.prtz *.asmz *.drwz *.frmz *.tblz)": "Документы ZIMA-CAD (*.prtz *.asmz *.drwz *.frmz *.tblz)",
+  "Dokumenty ZIMA-CAD (*.prtz *.asmz *.drwz *.frmz *.tblz *.symz)": "Документы ZIMA-CAD (*.prtz *.asmz *.drwz *.frmz *.tblz *.symz)",
   "O aplikaci ZIMA-CAD": "О программе ZIMA-CAD",
   "Uložit sestavu ZIMA-CAD": "Сохранить сборку ZIMA-CAD",
   "Sestava ZIMA-CAD (*.asmz)": "Сборка ZIMA-CAD (*.asmz)",
@@ -1726,5 +1734,16 @@
   "Export rozvinu…": "Экспорт развёртки…",
   "Rozvin prototypu byl exportován: %1": "Развёртка прототипа экспортирована: %1",
   "Export rozvinu se nezdařil.": "Не удалось экспортировать развёртку.",
-  "Skici určují vnější rozměry. Žluté osy označují skutečné ohyby; tloušťka zatím není započítána.": "Эскизы задают наружные размеры. Жёлтые осевые линии обозначают реальные сгибы; толщина пока не учитывается."
+  "Skici určují vnější rozměry. Žluté osy označují skutečné ohyby; tloušťka zatím není započítána.": "Эскизы задают наружные размеры. Жёлтые осевые линии обозначают реальные сгибы; толщина пока не учитывается.",
+  "Reference symbolu": "Ссылка символа",
+  "Vyberte geometrii nebo polohu na listu.": "Выберите геометрию или положение на листе.",
+  "Hodnota tolerance": "Значение допуска",
+  "Primární základna": "Первичная база",
+  "Sekundární základna": "Вторичная база",
+  "Terciární základna": "Третичная база",
+  "Tolerance musí být kladné číslo.": "Допуск должен быть положительным числом.",
+  "Základny zadejte v pořadí bez mezer, velkými písmeny.": "Введите базы по порядку без пустых промежуточных ячеек, прописными буквами.",
+  "Tato tolerance vyžaduje primární základnu.": "Для этого допуска требуется первичная база.",
+  "Symbol nelze připojit k vybrané geometrii.": "Не удалось прикрепить символ к выбранной геометрии.",
+  "Geometrická tolerance": "Геометрический допуск"
 }

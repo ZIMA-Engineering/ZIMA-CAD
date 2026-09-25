@@ -141,6 +141,7 @@ file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/sketch_font_data.cpp"
 add_library(zima_sketcher
     modules/symbols/src/definition.cpp
     modules/symbols/src/instance.cpp
+    modules/symbols/src/placement.cpp
     modules/sketcher/src/sketch.cpp
     modules/sketcher/src/text_geometry.cpp
     "${CMAKE_CURRENT_BINARY_DIR}/sketch_font_data.cpp"
@@ -228,7 +229,7 @@ target_link_libraries(zima_assembly
     PRIVATE nlohmann_json::nlohmann_json)
 
 add_library(zima_drawing modules/drawing/src/file_relocation.cpp modules/drawing/src/drawing_document.cpp modules/drawing/src/model_annotations.cpp
-    modules/drawing/src/measurement_dimension.cpp modules/drawing/src/balloon.cpp
+    modules/drawing/src/measurement_dimension.cpp modules/drawing/src/balloon.cpp modules/drawing/src/symbol_contacts.cpp
     modules/drawing/src/drawing_template.cpp modules/drawing/src/drawing_section_trace.cpp)
 target_include_directories(zima_drawing PUBLIC modules/drawing/include)
 target_link_libraries(zima_drawing
@@ -308,6 +309,7 @@ add_library(zima_workspace modules/workspace/src/workspace.cpp
     modules/workspace/src/flat_operations.cpp
     modules/workspace/src/opening_component_operations.cpp
     modules/workspace/src/template_operations.cpp modules/workspace/src/template_object_operations.cpp
+    modules/workspace/src/symbol_operations.cpp
     modules/workspace/src/opening_targets.cpp
     modules/workspace/src/shaft_thread_operations.cpp
     modules/workspace/src/drill_point_operations.cpp
@@ -325,7 +327,7 @@ add_library(zima_workspace modules/workspace/src/workspace.cpp
     modules/workspace/src/sweep_operations.cpp)
 target_include_directories(zima_workspace PUBLIC modules/workspace/include)
 target_link_libraries(zima_workspace PUBLIC
-    zima_document_core zima_assembly zima_drawing zima_kernel_occt zima_interchange zima_measurement
+    zima_document_core zima_assembly zima_drawing zima_kernel_occt zima_interchange zima_measurement zima_symbols
     PRIVATE nlohmann_json::nlohmann_json)
 
 add_library(zima_command_host
@@ -1527,6 +1529,15 @@ endif()
 
 if(ZIMA_BUILD_TESTS)
     add_executable(zima_cpp_symbol_integration_tests tests/symbol_integration_tests.cpp)
+    add_executable(zima_cpp_symbol_placement_tests tests/symbol_placement_tests.cpp)
+    add_executable(zima_cpp_symbol_document_tests tests/symbol_document_tests.cpp)
+    add_executable(zima_cpp_symbol_drawing_tests tests/symbol_drawing_tests.cpp)
+    target_link_libraries(zima_cpp_symbol_drawing_tests PRIVATE zima_workspace)
+    add_test(NAME zima_cpp_symbol_drawing COMMAND zima_cpp_symbol_drawing_tests)
+    target_link_libraries(zima_cpp_symbol_document_tests PRIVATE zima_workspace)
+    add_test(NAME zima_cpp_symbol_document COMMAND zima_cpp_symbol_document_tests)
+    target_link_libraries(zima_cpp_symbol_placement_tests PRIVATE zima_symbols)
+    add_test(NAME zima_cpp_symbol_placement COMMAND zima_cpp_symbol_placement_tests)
     target_link_libraries(zima_cpp_symbol_integration_tests PRIVATE zima_workspace zima_symbols)
     add_test(NAME zima_cpp_symbol_integration COMMAND zima_cpp_symbol_integration_tests)
     set_tests_properties(zima_cpp_symbol_integration PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")

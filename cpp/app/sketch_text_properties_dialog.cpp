@@ -21,11 +21,12 @@ namespace zima::app {
 SketchTextPropertiesDialog::SketchTextPropertiesDialog(
     zima::sketcher::SketchText initial,
     std::optional<std::array<double, 2>> anchor,
-    PreviewCallback preview, CommitCallback commit, QWidget* parent, bool y_up, bool drawing_text, std::optional<std::map<std::string,std::string>> action_settings)
+    PreviewCallback preview, CommitCallback commit, QWidget* parent, bool y_up, bool drawing_text, std::optional<std::map<std::string,std::string>> action_settings, bool symbol_definition)
     : PropertiesSubWindow(tr(drawing_text ? "Text výkresu" : "Text skici"), parent),
       initial_(std::move(initial)), anchor_(anchor),
       preview_(std::move(preview)), commit_(std::move(commit)), y_up_(y_up), drawing_text_(drawing_text) {
     setAttribute(Qt::WA_DeleteOnClose, true);
+    inverted_flip_ui_=y_up_&&!symbol_definition;
     setProperty("dialogKind", QStringLiteral("sketchText"));
     setObjectName(drawing_text ? "drawingTextProperties" : "sketchTextProperties");
     setMinimumWidth(420);
@@ -86,6 +87,15 @@ SketchTextPropertiesDialog::SketchTextPropertiesDialog(
     vertical_->setCurrentIndex(vertical_->findData(
         static_cast<int>(initial_.vertical)));
     form->addRow(tr("Svislé zarovnání"), vertical_);
+    if(symbol_definition) {
+        drawing_orientation_=new QComboBox(this);drawing_orientation_->setObjectName("symbolTextDrawingOrientation");
+        drawing_orientation_->addItem(tr("Se značkou"),false);
+        drawing_orientation_->addItem(tr("Zachovat čitelnost"),true);
+        drawing_orientation_->setCurrentIndex(initial_.drawing_keep_readable?1:0);
+        form->addRow(tr("Orientace ve výkresu"),drawing_orientation_);
+        connect(drawing_orientation_,&QComboBox::currentIndexChanged,this,&SketchTextPropertiesDialog::update_preview);
+    }
+
 
     font_ = new QComboBox(this);
     font_->setObjectName("sketchTextFont");
@@ -128,7 +138,7 @@ SketchTextPropertiesDialog::SketchTextPropertiesDialog(
     flipped_->setObjectName("sketchTextFlipped");
     // Template X grows to the left. Its stored flip is the upright baseline,
     // not a user-requested mirror; keep storage/contours exactly as before.
-    flipped_->setChecked(initial_.flipped != y_up_);
+    flipped_->setChecked(initial_.flipped != inverted_flip_ui_);
     content_layout()->addWidget(flipped_);
 
     error_ = new QLabel(this);
@@ -184,11 +194,12 @@ zima::sketcher::SketchText SketchTextPropertiesDialog::build_text(bool preview) 
     auto text = initial_;
     text.value = value.toStdString();
     text.modeling_geometry = mode_->currentData().toBool();
+    if(drawing_orientation_)text.drawing_keep_readable=drawing_orientation_->currentData().toBool();
     text.anchor_x = (*anchor)[0]; text.anchor_y = (*anchor)[1];
     text.height = height_->value();
     text.horizontal = static_cast<zima::sketcher::TextHorizontalAlignment>(horizontal_->currentData().toInt());
     text.vertical = static_cast<zima::sketcher::TextVerticalAlignment>(vertical_->currentData().toInt());
-    text.angle_degrees = angle_->value(); text.flipped = flipped_->isChecked() != y_up_;
+    text.angle_degrees = angle_->value(); text.flipped = flipped_->isChecked() != inverted_flip_ui_;
     text.color = static_cast<zima::sketcher::SketchTextColor>(color_->currentData().toInt());
     text.font = font_->currentData().toString().toStdString();
     if(!drawing_text_)rebuild_sketch_text_contours(text, y_up_);
