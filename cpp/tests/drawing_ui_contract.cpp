@@ -539,6 +539,10 @@ int verify_drawing_ui() {
             properties->findChild<QDoubleSpinBox*>("drawingRotationVertical")->setValue(-23);
             properties->findChild<QDoubleSpinBox*>("drawingRotationRoll")->setValue(31);
             properties->grab().save("build/drawing-view-properties.png");
+            auto* scroll=properties->findChild<QWidget*>("drawingViewPropertiesScroll");
+            auto* buttons=properties->findChild<QDialogButtonBox*>();
+            require(scroll&&buttons&&buttons->mapTo(properties,QPoint{}).y()-scroll->mapTo(properties,QPoint(0,scroll->height())).y()<50,
+                "View Properties leaves unused space below its scrolling controls");
             properties->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
             require(state.sheets.front().dimensions.empty(),"Committed rotation retained Drawing dimensions in parent or projected child");
             zima::kernel::OcctKernel history_kernel;auto history_path=std::filesystem::current_path();zima::command_host::Host history(workspace,history_kernel,history_path);

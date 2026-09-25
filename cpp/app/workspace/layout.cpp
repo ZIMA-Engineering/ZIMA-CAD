@@ -825,16 +825,11 @@ void AssemblyWorkspaceWindow::create_layout() {
                 if (!construction) return;
                 QMenu menu(this);
                 auto* properties=candidate.semantic_key.starts_with("bspline:")?menu.addAction(resource_icon("properties"),tr("Vlastnosti…")):nullptr;
-                auto* role = menu.addAction(*construction
-                    ? tr("Převést na obrys profilu")
-                    : tr("Převést na pomocnou geometrii"));
+                append_sketch_geometry_role_actions(menu,*sketch,geometry_id);
                 auto* remove = menu.addAction(resource_icon("delete"),tr("Odstranit"));
                 const auto* chosen = menu.exec(global_position);
                 if(properties && chosen==properties) {
                     show_sketch_bspline_properties(active_sketch_id_,geometry_id);
-                } else if (chosen == role) {
-                    set_active_sketch_geometry_construction(
-                        geometry_id, !*construction);
                 } else if (chosen == remove) {
                     if (candidate.kind ==
                             zima::viewer::CandidateKind::SketchPoint) {
@@ -2730,25 +2725,17 @@ void AssemblyWorkspaceWindow::create_layout() {
                 if (!construction && !text_geometry && !external_reference) return;
                 QMenu menu(this);
                 QAction* properties{};
-                QAction* role{};
                 if (text_geometry || bspline_geometry) {
                     properties = menu.addAction(resource_icon("properties"),tr("Vlastnosti…"));
                     properties->setObjectName("sketchGeometryPropertiesAction");
                 }
-                if (construction) {
-                    role = menu.addAction(*construction
-                        ? tr("Převést na obrys profilu")
-                        : tr("Převést na pomocnou geometrii"));
-                }
+                if (construction) append_sketch_geometry_role_actions(menu,*sketch,geometry_id);
                 auto* remove = menu.addAction(resource_icon("delete"),tr("Odstranit"));
                 const auto* selected = exec_tree_menu(menu,item,position);
                 if (selected == properties && text_geometry) {
                     show_sketch_text_properties(sketch_id, geometry_id);
                 } else if (selected == properties && bspline_geometry) {
                     show_sketch_bspline_properties(sketch_id, geometry_id);
-                } else if (role && selected == role) {
-                    set_active_sketch_geometry_construction(
-                        geometry_id, !*construction);
                 } else if (selected == remove) {
                     static_cast<void>(delete_selected_sketch_geometry());
                 }

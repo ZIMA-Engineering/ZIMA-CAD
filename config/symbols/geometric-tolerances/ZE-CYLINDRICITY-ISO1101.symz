@@ -41,7 +41,9 @@
           "center": "circle:center",
           "construction": false,
           "id": "circle",
-          "radius": 1.7
+          "radius": 1.7,
+          "centerline": false,
+          "visible_in_3d": true
         }
       ],
       "constraints": [],
@@ -69,35 +71,45 @@
           "fixed": true,
           "id": "circle:center",
           "x": 3.5,
-          "y": 0.0
+          "y": 0.0,
+          "centerline": false,
+          "visible_in_3d": true
         },
         {
           "construction": false,
           "fixed": true,
           "id": "left:a",
           "x": 0.8,
-          "y": -2.3
+          "y": -2.3,
+          "centerline": false,
+          "visible_in_3d": true
         },
         {
           "construction": false,
           "fixed": true,
           "id": "left:b",
           "x": 2.0,
-          "y": 2.3
+          "y": 2.3,
+          "centerline": false,
+          "visible_in_3d": true
         },
         {
           "construction": false,
           "fixed": true,
           "id": "right:a",
           "x": 5.0,
-          "y": -2.3
+          "y": -2.3,
+          "centerline": false,
+          "visible_in_3d": true
         },
         {
           "construction": false,
           "fixed": true,
           "id": "right:b",
           "x": 6.2,
-          "y": 2.3
+          "y": 2.3,
+          "centerline": false,
+          "visible_in_3d": true
         }
       ],
       "resolved_normal": [
@@ -126,20 +138,22 @@
           "construction": false,
           "first": "left:a",
           "id": "left",
-          "second": "left:b"
+          "second": "left:b",
+          "visible_in_3d": true
         },
         {
           "centerline": false,
           "construction": false,
           "first": "right:a",
           "id": "right",
-          "second": "right:b"
+          "second": "right:b",
+          "visible_in_3d": true
         }
       ],
       "suppressed": false,
       "symbols": [],
       "texts": [],
-      "version": 34
+      "version": 35
     },
     {
       "arcs": [],
@@ -1167,7 +1181,7 @@
           "vertical": "bottom"
         }
       ],
-      "version": 34
+      "version": 35
     }
   ],
   "units": "mm",

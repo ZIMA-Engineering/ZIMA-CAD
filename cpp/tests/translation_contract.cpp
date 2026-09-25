@@ -1,4 +1,8 @@
+#include <QCheckBox>
+#include <QTableWidget>
 #include "application_settings.hpp"
+#include "construction_properties_dialog.hpp"
+#include <QComboBox>
 #include "drawing_detail_dialog.hpp"
 #include "primitive_properties_dialog.hpp"
 #include "sweep_station_label.hpp"
@@ -129,6 +133,40 @@ int verify_translations(QApplication& application, QWidget& parent) {
         }
         check(app::sweep_station_label("12 — začátek") == settings.qt_translations.value("%1 — začátek").arg(12),
             "Generated Sweep station labels are not translated");
+        {
+            auto feature=document::PartDocument::create_feature_container("profile");
+            feature.value_locks={"side0_length"};
+            feature.feature.sides[0].length=51.123456789;
+            feature.feature.sides[1].operation=document::FeatureSideOperation::Revolution;
+            feature.feature.sides[1].angle_degrees=123.123456789;
+            document::ExtrusionParameters::EndTarget target;
+            target.label="swap-target";
+            feature.feature.sides[0].targets.push_back(target);
+            app::PrimitivePropertiesDialog properties(feature,false,true,[](auto){},&parent);
+            properties.setAttribute(Qt::WA_DeleteOnClose,false);properties.show();application.processEvents();
+            check(properties.windowTitle()==settings.qt_translations.value("Vlastnosti prvku"),"Feature title is untranslated");
+            check(properties.findChild<QPushButton*>("featureSketchButton")->text()==settings.qt_translations.value("Skica"),"Feature Sketch action is untranslated");
+            auto* mode=properties.findChild<QComboBox*>("featureSideMode0");
+            check(mode->itemText(0)==settings.qt_translations.value("Bez operace")&&mode->itemText(2)==settings.qt_translations.value("Rotace"),"Feature side modes are untranslated");
+            auto* value=properties.findChild<QDoubleSpinBox*>("featureSideValue0");
+            check(value->isReadOnly(),"Feature length lock was not restored");
+            mode->setCurrentIndex(2);check(!value->isReadOnly(),"Feature angle inherited an unrelated length lock");
+            mode->setCurrentIndex(1);check(value->isReadOnly(),"Feature mode switching lost length lock");
+            auto* swap=properties.findChild<QPushButton*>("featureSwapSides");
+            check(swap&&swap->text()==settings.qt_translations.value("Prohodit strany"),"Feature swap action is untranslated");
+            const auto before=properties.pending_value();
+            swap->click();
+            auto swapped=properties.pending_value();
+            check(swapped.id==before.id&&swapped.feature.sides[0]==before.feature.sides[1]&&
+                swapped.feature.sides[1]==before.feature.sides[0],"Feature swap lost settings, reference or precision");
+            check(swapped.value_locks.contains("side1_length")&&!swapped.value_locks.contains("side0_length"),"Feature swap did not transfer dimension locks");
+            swap->click();
+            check(properties.pending_value().feature==before.feature&&properties.pending_value().value_locks==before.value_locks,"Double swap did not restore the authored definition");
+            auto* symmetric=properties.findChild<QCheckBox*>("featureSymmetric");
+            symmetric->setChecked(true);check(!swap->isEnabled(),"Symmetric Feature offers an ambiguous side swap");
+            symmetric->setChecked(false);check(swap->isEnabled(),"Independent Feature sides cannot be swapped");
+            properties.reject();application.processEvents();
+        }
         for (auto it = sources.cbegin(); it != sources.cend(); ++it) {
             const auto translated = QCoreApplication::translate("QObject", it.key().toUtf8().constData());
             check(!translated.isEmpty() && translated == settings.qt_translations.value(it.key()),
@@ -174,6 +212,53 @@ int verify_translations(QApplication& application, QWidget& parent) {
         check(dialog.findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Cancel)->text() == cancel[language],
             "Shared Cancel button is not translated");
         dialog.reject();
+        for(bool revolve:{false,true}) {
+            auto feature=revolve?document::PartDocument::create_revolution_container("profile"):document::PartDocument::create_extrusion_container("profile");
+            std::optional<document::HistoryContainer> committed;
+            app::PrimitivePropertiesDialog properties(feature,false,false,[&](document::HistoryContainer value){committed=std::move(value);},&parent);
+            properties.setAttribute(Qt::WA_DeleteOnClose,false);properties.show();application.processEvents();
+            auto* origin=properties.findChild<QCheckBox*>("profileOriginCenterline");
+            auto* centroid=properties.findChild<QCheckBox*>("profileCentroidCenterline");
+            check(origin&&centroid&&origin->text()==settings.qt_translations.value("Osa počátku profilu")&&centroid->text()==settings.qt_translations.value("Osa těžiště profilu"),"Profile centerline controls are missing or untranslated");
+            check(!origin->isChecked()&&!centroid->isChecked(),"New centerlines must be opt-in");origin->setChecked(true);centroid->setChecked(true);
+            properties.findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();application.processEvents();
+            check(committed.has_value(),"Profile centerline OK failed");
+            check(revolve?(committed->revolution.origin_centerline&&committed->revolution.centroid_centerline):(committed->extrusion.origin_centerline&&committed->extrusion.centroid_centerline),"Profile centerline OK lost choices");
+            app::PrimitivePropertiesDialog editing(*committed,true,false,[&](document::HistoryContainer){throw std::runtime_error("Cancel committed profile centerline changes");},&parent);
+            editing.setAttribute(Qt::WA_DeleteOnClose,false);editing.show();application.processEvents();
+            check(editing.findChild<QCheckBox*>("profileOriginCenterline")->isChecked()&&editing.findChild<QCheckBox*>("profileCentroidCenterline")->isChecked(),"Profile centerline edit lost choices");
+            editing.findChild<QCheckBox*>("profileOriginCenterline")->setChecked(false);editing.reject();application.processEvents();
+        }
+        {
+            auto axis=document::PartDocument::create_construction(document::ConstructionKind::Axis);
+            std::optional<document::ConstructionObject> committed;
+            app::ConstructionPropertiesDialog properties(axis,false,[&](auto value){committed=value;},&parent);
+            properties.setAttribute(Qt::WA_DeleteOnClose,false);properties.show();application.processEvents();
+            auto* mode=properties.findChild<QComboBox*>("constructionAxisExtentMode");
+            auto* reverse=properties.findChild<QDoubleSpinBox*>("constructionAxisReverseLength");
+            check(mode&&reverse&&mode->itemText(0)==settings.qt_translations.value("Jedna strana")&&mode->itemText(1)==settings.qt_translations.value("Obě strany")&&mode->itemText(2)==settings.qt_translations.value("Symetricky"),"Axis extent modes are untranslated");
+            check(!reverse->isVisible(),"One-sided axis exposes second length");
+            mode->setCurrentIndex(1);application.processEvents();check(reverse->isVisible(),"Two-sided axis hides second length");
+            auto* end=properties.findChild<QComboBox*>("axisEndMode0");
+            check(end&&end->count()==2&&end->itemText(0)==settings.qt_translations.value("Na délku")&&end->itemText(1)==settings.qt_translations.value("Až k…"),"Axis end modes/untranslated Through All");
+            end->setCurrentIndex(1);application.processEvents();
+            auto* target=properties.findChild<QTableWidget*>("axisEndTarget0");
+            check(target&&target->isVisible()&&!properties.findChild<QDoubleSpinBox*>("constructionDisplaySize")->isVisible(),"Up-to reference row missing");
+            QMetaObject::invokeMethod(target,"cellClicked",Qt::DirectConnection,Q_ARG(int,0),Q_ARG(int,1));
+            check(properties.active_axis_target()==0,"Axis target field did not arm");
+            properties.set_axis_target({"","target","plane"});
+            check(!properties.active_axis_target()&&properties.pending_value().axis_ends[0].target.owner_id=="target","Axis target confirmation failed");
+            end->setCurrentIndex(0);application.processEvents();
+            reverse->setValue(23);properties.findChild<QDoubleSpinBox*>("constructionDisplaySize")->setValue(71);
+            properties.findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();application.processEvents();
+            check(committed&&committed->axis_extent_mode==document::AxisExtentMode::TwoSides&&committed->axis_reverse_length==23&&committed->display_size==71,"Axis extent OK lost values");
+            app::ConstructionPropertiesDialog editing(*committed,true,[](auto){throw std::runtime_error("Axis Cancel committed changes");},&parent);
+            editing.setAttribute(Qt::WA_DeleteOnClose,false);editing.show();application.processEvents();
+            check(editing.findChild<QComboBox*>("constructionAxisExtentMode")->currentIndex()==1,"Axis edit lost mode");
+            editing.findChild<QComboBox*>("constructionAxisExtentMode")->setCurrentIndex(2);application.processEvents();
+            check(!editing.findChild<QDoubleSpinBox*>("constructionAxisReverseLength")->isVisible(),"Symmetric axis exposes second length");
+            editing.reject();application.processEvents();
+        }
         std::cout << "Translations verified: " << languages[language].toStdString() << '\n';
     }
     auto settings = load("en");

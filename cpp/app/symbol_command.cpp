@@ -1,6 +1,7 @@
 #include "assembly_workspace_window.hpp"
 #include "symbol_properties_dialog.hpp"
 #include "symbol_attachment_dialog.hpp"
+#include <variant>
 #include "file_dialog.hpp"
 #include <zima/symbols/definition.hpp>
 #include <zima/workspace/symbol_operations.hpp>
@@ -51,16 +52,16 @@ void AssemblyWorkspaceWindow::initialize_symbol_handles() {
             const auto path=workspace_.active_occurrence_path();
             return path.empty()?point:workspace_.occurrence_point_to_scene(workspace_.displayed_document_id(),assembly::InstancePath::decode(path),point);
         };
-        const auto contact=to_scene(value->frame.origin),grip=to_scene(value->frame.world({value->symbol.x,value->symbol.y,0}));
+        const auto contact=to_scene(value->frame.origin),grip=to_scene(value->frame.world({value->symbol.x,value->symbol.y,value->offset_z}));
         const auto z=to_scene(value->frame.world({0,0,1}));
         return viewer::SymbolHandles{value->symbol.id,contact,grip,{z.x-contact.x,z.y-contact.y,z.z-contact.z}};
-    },[this](const std::string& id,bool contact,kernel::Vec3 position) {
+    },[this](const std::string& id,int handle,kernel::Vec3 position,double shelf_length) {
         if(!properties_dialog_)show_model_symbol_properties(id);
         auto* dialog=dynamic_cast<SymbolAttachmentDialog*>(properties_dialog_);if(!dialog)return;
-        if(contact){dialog->begin_entry();return;}
+        if(handle==0){dialog->begin_entry();return;}
         const auto path=workspace_.active_occurrence_path();
         if(!path.empty())position=workspace_.occurrence_point_from_scene(workspace_.displayed_document_id(),assembly::InstancePath::decode(path),position);
-        const auto local=dialog->pending_placement().frame.local(position);dialog->set_anchor(local.x,local.y);
+        const auto local=dialog->pending_placement().frame.local(position);dialog->set_shelf_anchor(local,shelf_length);
     });
 }
 void AssemblyWorkspaceWindow::start_symbol() {
@@ -72,7 +73,7 @@ void AssemblyWorkspaceWindow::start_symbol() {
         sketcher::SymbolInstance instance;instance.id=kernel::make_stable_id();instance.definition=definition.serialized();instance.variant=definition.default_variant;
         instance.use_cad_variant=!definition.variant_source.empty()&&template_sketch();
         if(active_sketch())show_symbol_properties({},std::move(instance));
-        else {symbols::Placement placement;placement.symbol=std::move(instance);show_model_symbol_properties({},std::move(placement));}
+        else {symbols::Placement placement;placement.symbol=std::move(instance);placement.perpendicular_leader=true;show_model_symbol_properties({},std::move(placement));}
     }catch(const std::exception&){QMessageBox::warning(this,tr("Symbol"),tr("Symbol nelze načíst. Zkontrolujte jeho definici."));}
 }
 void AssemblyWorkspaceWindow::show_symbol_properties(const std::string& id,std::optional<sketcher::SymbolInstance> initial) {
@@ -133,11 +134,17 @@ void AssemblyWorkspaceWindow::show_model_symbol_properties(const std::string& id
     // Capture original analytic records once. Hover uses identity lookup, not
     // model traversal, tessellation or a second picker.
     using Key=std::tuple<std::string,std::string,std::string>;
-    auto references=std::make_shared<std::map<Key,kernel::FaceReference>>();
-    for(const auto& face:workspace::measurement_scene(workspace_,owner).original_references.triangle_references)
+    using Target=std::variant<kernel::FaceReference,kernel::ViewerEdge,kernel::ViewerPoint>;
+    auto references=std::make_shared<std::map<Key,Target>>();
+    const auto geometry=workspace::measurement_scene(workspace_,owner).original_references;
+    for(const auto& face:geometry.triangle_references)
         if(face.valid()&&face.surface)references->try_emplace(Key{face.instance_path,face.owner_id,face.semantic_key},face);
-    const auto source=[references,path](const viewer::ViewerCandidate& candidate)->std::optional<kernel::FaceReference>{
-        if(candidate.kind!=viewer::CandidateKind::Face)return {};
+    for(const auto& edge:geometry.edges)if(edge.reference.valid()&&edge.points.size()>1&&!edge.parameter_seam) {
+        const auto& r=edge.reference;references->try_emplace(Key{r.instance_path,r.owner_id,r.semantic_key},edge);}
+    for(const auto& point:geometry.points)if(point.reference.valid()) {
+        const auto& r=point.reference;references->try_emplace(Key{r.instance_path,r.owner_id,r.semantic_key},point);}
+    const auto source=[references,path](const viewer::ViewerCandidate& candidate)->std::optional<Target>{
+        if(candidate.kind!=viewer::CandidateKind::Face&&candidate.kind!=viewer::CandidateKind::Edge&&candidate.kind!=viewer::CandidateKind::Vertex&&candidate.kind!=viewer::CandidateKind::SketchPoint&&candidate.kind!=viewer::CandidateKind::SketchSegment&&candidate.kind!=viewer::CandidateKind::SketchCurve)return {};
         auto occurrence=assembly::InstancePath::decode(candidate.instance_path);const auto prefix=assembly::InstancePath::decode(path);
         if(occurrence.occurrence_ids.size()<prefix.occurrence_ids.size()||!std::equal(prefix.occurrence_ids.begin(),prefix.occurrence_ids.end(),occurrence.occurrence_ids.begin()))return {};
         occurrence.occurrence_ids.erase(occurrence.occurrence_ids.begin(),occurrence.occurrence_ids.begin()+prefix.occurrence_ids.size());
@@ -154,7 +161,7 @@ void AssemblyWorkspaceWindow::show_model_symbol_properties(const std::string& id
         std::erase_if(preview.edges,[&](const auto& edge){return edge.reference.owner_id==value.symbol.id;});
         auto symbol=value.viewer_mesh();preview.edges.insert(preview.edges.end(),symbol.edges.begin(),symbol.edges.end());
         construction_preview_mesh_=std::move(preview);preserve_view_on_refresh_=true;refresh_scene();
-        viewer_->set_original_face_selection(true);viewer_->set_selection_contract({viewer::CandidateKind::Face});
+        viewer_->set_original_face_selection(true);viewer_->set_selection_contract({viewer::CandidateKind::Face,viewer::CandidateKind::Edge,viewer::CandidateKind::Vertex,viewer::CandidateKind::SketchPoint,viewer::CandidateKind::SketchSegment,viewer::CandidateKind::SketchCurve});
         viewer_->set_candidate_filter([dialog,source](const auto& candidate){return dialog->active()&&source(candidate).has_value();});
         tree_->setProperty("commandSelectionActive",dialog->active());
         std::set<viewer::EdgeKey> highlights;
@@ -169,8 +176,16 @@ void AssemblyWorkspaceWindow::show_model_symbol_properties(const std::string& id
         // The distance is from the already confirmed common-picker candidate.
         auto point=ray->first;point.x+=ray->second.x*candidate.distance;point.y+=ray->second.y*candidate.distance;point.z+=ray->second.z*candidate.distance;
         if(!path.empty())point=workspace_.occurrence_point_from_scene(workspace_.displayed_document_id(),assembly::InstancePath::decode(path),point);
-        auto source_document=owner;if(!face->instance_path.empty())if(const auto address=workspace_.resolve_occurrence(owner,assembly::InstancePath::decode(face->instance_path)))source_document=address->source_document_id;
-        try {dialog->set_surface(*face,source_document,point);}
+        const auto local_path=std::visit([](const auto& item){if constexpr(std::is_same_v<std::decay_t<decltype(item)>,kernel::FaceReference>)return item.instance_path;else return item.reference.instance_path;},*face);
+        auto source_document=owner;if(!local_path.empty())if(const auto address=workspace_.resolve_occurrence(owner,assembly::InstancePath::decode(local_path)))source_document=address->source_document_id;
+        try {std::visit([&](const auto& item){
+            using T=std::decay_t<decltype(item)>;
+            if constexpr(std::is_same_v<T,kernel::FaceReference>)dialog->set_surface(item,source_document,point);
+            else {auto value=dialog->pending_placement();
+                if constexpr(std::is_same_v<T,kernel::ViewerEdge>)symbols::attach_to_edge(value,item,source_document,point);
+                else symbols::attach_to_point(value,item,source_document);
+                dialog->set_planar_placement(std::move(value));}
+        },*face);}
         catch(const std::exception&){QMessageBox::warning(dialog,tr("Symbol"),tr("Symbol nelze připojit k vybrané geometrii."));}
     };
     feature_reference_end_=[dialog]{dialog->end_entry();};

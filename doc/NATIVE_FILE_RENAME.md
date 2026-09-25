@@ -58,14 +58,16 @@ Private `PreparedNativeDocument` rewrites only saved snapshots. Renaming does no
 save pending parameters or geometry of open documents. Their metadata is updated
 only after the complete file batch succeeds.
 
-A same-stem drawing is automatically renamed only if it actually belongs to the
-renamed Part/Assembly. An open drawing's current in-memory owner is authoritative;
-a matching filename alone is insufficient.
+A same-stem Drawing in the same directory is renamed together with its Part or
+Assembly, even if the Drawing is closed. Renaming a Drawing alone does not rename
+its model. The companion's pending in-memory edits and source ownership remain
+unchanged; the filename rule does not transfer document ownership.
 
-Dependency scope includes current `.asmz`/`.drwz` files in the source directory,
-the working directory and subdirectories, and open saved Assembly/Drawing documents
-outside them. It does not search the entire disk or update unknown out-of-scope files.
-Numbered archives are not renamed. File symlinks are excluded from traversal.
+Dependency updates apply only to documents currently open in the Workspace.
+Closed Assemblies and other closed Drawings are neither scanned nor changed.
+The same-stem companion is the only closed-document exception. The working
+directory is not traversed. This scope was explicitly agreed on 2026-09-25.
+Numbered archives are not renamed.
 
 ## Preparation, publication, and errors
 
@@ -74,14 +76,11 @@ paths, and dimension allocations. `stage` may run on a worker without live-docum
 pointers. It reads saved files, validates identities, prepares rewritten native files,
 and verifies reopening. Originals remain untouched.
 
-`commit` rechecks live documents, input sizes/times, discovered dependency sets, and
-destination availability. Dependency discovery first checks persisted document
-IDs and source filenames, including JSON-escaped names. Unrelated closed files
-are not loaded, so an unsupported test fixture cannot block renaming a current
-project. Open files and possible dependencies are still validated; unreadable
-dependencies cannot be silently skipped. All inspected files retain size/time
-checks through publication. Identity conflicts in renamed documents or older Undo states reject the
-batch before any original changes.
+`commit` rechecks live documents, input sizes/times, the open-document input set,
+and destination availability. Closed test fixtures cannot block renaming a current
+project. Participating files remain fully validated; unreadable open documents or
+the same-name companion cannot be silently skipped. Identity conflicts in renamed
+documents or older Undo states reject the batch before any original changes.
 
 Before publication, originals move to transaction-owned temporary backups. Prepared
 files then move to destinations. Only full success swaps live metadata, preserves
@@ -112,8 +111,9 @@ templates remain valid. Required data remains in native `.prtz`, `.asmz`, and `.
 references, actual calculated bodies, sharing, historical conflicts, and unsaved
 parameter preservation.
 
-`zima_cpp_file_rename_command_tests` checks physical renaming, real closed/nested
-dependencies, open documents outside the working directory, drawings/BOMs, identical
+`zima_cpp_file_rename_command_tests` checks physical renaming, unchanged closed dependencies,
+open documents outside the working directory, same-name Drawing companions,
+standalone Drawing rename, drawings/BOMs, identical
 names, Unicode, input changes during I/O, identities, and cache/Undo/Redo preservation.
 On Windows it locks an original, later dependency, and staged file, verifying restoration
 of original bytes.

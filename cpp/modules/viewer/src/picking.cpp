@@ -136,7 +136,7 @@ bool candidate_recolors_wire_edge(
              key.starts_with("ellipse:") ||
              key.starts_with("elliptical_arc:") ||
              key.starts_with("bspline:") || key.starts_with("text:"));
-        return !edge.construction &&
+        return (!edge.construction || (inactive_sketch_profile && edge.dash_dot)) &&
             (!edge.overlay || screen_curve || inactive_sketch_profile) &&
             edge.display_owner_id == candidate.owner_id &&
             edge.reference.instance_path == candidate.instance_path;
@@ -584,6 +584,19 @@ std::vector<ViewerCandidate> ordered_viewer_candidates(
                 source, ray_origin, ray_direction, world_tolerance)) {
             if (edge.edge < source.edges.size() &&
                 source.edges[edge.edge].parameter_seam) continue;
+            // Hidden sketch construction remains persisted for existing links,
+            // but only its displayed copy may be offered for new selections.
+            if (geometry == CandidateGeometry::OriginalReference &&
+                edge.edge < source.edges.size() && source.edges[edge.edge].construction &&
+                (edge.reference.semantic_key.starts_with("segment:") ||
+                 edge.reference.semantic_key.starts_with("circle:") ||
+                 edge.reference.semantic_key.starts_with("arc:") ||
+                 edge.reference.semantic_key.starts_with("ellipse:") ||
+                 edge.reference.semantic_key.starts_with("elliptical_arc:") ||
+                 edge.reference.semantic_key.starts_with("bspline:")) &&
+                std::none_of(mesh.edges.begin(), mesh.edges.end(), [&](const auto& shown) {
+                    return shown.reference == edge.reference;
+                })) continue;
             if (edge.reference.semantic_key == "seam" ||
                 edge.reference.semantic_key.starts_with("seam:")) {
                 continue;
@@ -738,6 +751,11 @@ std::vector<ViewerCandidate> ordered_viewer_candidates(
         }
         for (const auto& vertex : ordered_vertex_candidates(
                 source, ray_origin, ray_direction, world_tolerance)) {
+            if (geometry == CandidateGeometry::OriginalReference &&
+                vertex.reference.semantic_key.starts_with("point:") &&
+                std::none_of(mesh.points.begin(), mesh.points.end(), [&](const auto& shown) {
+                    return shown.reference == vertex.reference;
+                })) continue;
             const auto kind = vertex.reference.semantic_key.starts_with(
                     "external_point:") ||
                     vertex.reference.semantic_key.starts_with("sketch_midpoint:") ||

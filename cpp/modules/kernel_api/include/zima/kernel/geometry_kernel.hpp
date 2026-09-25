@@ -182,6 +182,21 @@ inline void reverse_bspline_parameters(std::vector<double>& knots, std::vector<d
     std::reverse(weights.begin(), weights.end());
 }
 
+// Disposable annotation display data. Native ownership remains in Symbol Placement.
+struct AnnotationStroke {
+    Vec3 contact, grip, direction_tip;
+    std::vector<Vec3> local_points;
+    double left{}, right{}, bottom{}, arrow_length{2.5};
+    int kind{2}; // face normal, edge tangent, free point
+    int role{}; // glyph, leader, arrow, shelf
+    bool perpendicular{true};
+    bool short_shelf{};
+    double shelf_length{3.};
+};
+template<class Transform> inline void transform_annotation(AnnotationStroke& a,Transform transform) {
+    a.contact=transform(a.contact);a.grip=transform(a.grip);a.direction_tip=transform(a.direction_tip);
+}
+
 struct ViewerEdge {
     std::vector<Vec3> points;
     EdgeReference reference;
@@ -228,6 +243,7 @@ struct ViewerEdge {
     // Transient preview only; not serialized. End-condition symbolism must not
     // change the semantic roles consumed by sheet-cut footprint estimation.
     bool preview_terminal_dashed{};
+    std::optional<AnnotationStroke> annotation;
 };
 
 [[nodiscard]] inline SheetEdgeRole sheet_edge_role(const ViewerEdge& edge) {
@@ -506,7 +522,14 @@ struct ExtrusionLimit {
     std::vector<Vec3> triangles;
 };
 
+struct ProfileCenterlines {
+    bool origin_enabled{}, centroid_enabled{};
+    Vec3 origin, normal{0,0,1};
+    std::string origin_id, profile_id;
+};
+
 struct ExtrusionRequest {
+    ProfileCenterlines centerlines;
     bool sheet_cut{};
     // Both Sheet Cut methods retain normal walls. Clearance encloses the
     // profile passage through the full thickness instead of its surface trim.
@@ -602,11 +625,15 @@ struct ExtrusionRequest {
     std::vector<Vec3> target_surface_triangles;
     std::optional<ExtrusionLimit> reverse_limit;
     bool symmetric_limit{};
+    // One independently identified side may use the reflection of the authored
+    // forward target across its source profile (unified Feature symmetry).
+    bool mirror_forward_limit{};
     bool surface_result{};
     std::string open_profile_end_id;
 };
 
 struct RevolutionRequest {
+    ProfileCenterlines centerlines;
     ExtrusionRequest::ProfileLoop outer_profile{
         ExtrusionRequest::PolygonProfile{}};
     std::string profile_region_id;
@@ -724,6 +751,14 @@ struct FeatureGroupRequest {
     using Child = std::variant<ExtrusionRequest, RevolutionRequest, Sweep3DRequest>;
     std::vector<Child> children;
     std::vector<ViewerAxis> axes;
+    // Inactive authored sides retain endpoint references at their source
+    // profiles. They do not add faces or material to the result body.
+    using ReferenceProfile = std::variant<ExtrusionRequest, RevolutionRequest>;
+    std::vector<ReferenceProfile> reference_profiles;
+    // An explicitly authored sketch-only Feature may have no profile yet.
+    // Ordinary empty groups remain invalid calculation requests.
+    bool allow_empty{};
+    std::vector<ViewerPoint> reference_points;
 };
 
 struct FilletRequest {
@@ -1155,6 +1190,10 @@ struct PlacedBody {
                     u64(std::bit_cast<std::uint64_t>(value));
                 }
             } else if constexpr (std::is_same_v<Request, ExtrusionRequest>) {
+                byte(primitive.centerlines.origin_enabled);byte(primitive.centerlines.centroid_enabled);
+                for(const auto& text:{primitive.centerlines.origin_id,primitive.centerlines.profile_id}){u64(text.size());for(unsigned char c:text)byte(c);}
+                for(double value:{primitive.centerlines.origin.x,primitive.centerlines.origin.y,primitive.centerlines.origin.z,primitive.centerlines.normal.x,primitive.centerlines.normal.y,primitive.centerlines.normal.z})u64(std::bit_cast<std::uint64_t>(value));
+
                 byte(primitive.sheet_cut);
                 byte(primitive.sheet_cut_clearance);
                 if(primitive.sheet_cut)u64(std::bit_cast<std::uint64_t>(primitive.sheet_cut_tolerance));
@@ -1321,6 +1360,7 @@ struct PlacedBody {
                     }
                 }
                 if (primitive.symmetric_limit) for(const unsigned char c:std::string_view("symmetric-extrusion-limit-v1"))byte(c);
+                if (primitive.mirror_forward_limit) for(const unsigned char c:std::string_view("mirrored-forward-limit-v1"))byte(c);
                 if (primitive.reverse_limit) {
                     for (const unsigned char c : std::string_view("extrusion-reverse-limit-v1")) byte(c);
                     const auto& limit=*primitive.reverse_limit;
@@ -1339,6 +1379,14 @@ struct PlacedBody {
                     for (const unsigned char c : primitive.wall->end_point_id) byte(c);
                 }
             } else if constexpr (std::is_same_v<Request, FeatureGroupRequest>) {
+                byte(primitive.allow_empty);
+                u64(primitive.reference_points.size());
+                for(const auto& point:primitive.reference_points) {
+                    for(const auto* text:{&point.reference.owner_id,&point.reference.semantic_key,&point.reference.instance_path,&point.display_owner_id}) {
+                        u64(text->size());for(const unsigned char value:*text)byte(value);
+                    }
+                    for(double value:{point.position.x,point.position.y,point.position.z})u64(std::bit_cast<std::uint64_t>(value));
+                }
                 u64(primitive.children.size());
                 u64(primitive.axes.size());
                 for (const auto& axis : primitive.axes) {
@@ -1367,7 +1415,18 @@ struct PlacedBody {
                     child_operations, child_operations.size());
                 u64(child_fingerprint.size());
                 for (const unsigned char value : child_fingerprint) byte(value);
+                u64(primitive.reference_profiles.size());
+                for(const auto& profile:primitive.reference_profiles) {
+                    HistoryOperation reference;reference.owner_id=operation.owner_id;
+                    std::visit([&](const auto& value){reference.primitive=value;},profile);
+                    const auto key=history_fingerprint({reference},1);
+                    u64(key.size());for(const unsigned char value:key)byte(value);
+                }
             } else if constexpr (std::is_same_v<Request, RevolutionRequest>) {
+                byte(primitive.centerlines.origin_enabled);byte(primitive.centerlines.centroid_enabled);
+                for(const auto& text:{primitive.centerlines.origin_id,primitive.centerlines.profile_id}){u64(text.size());for(unsigned char c:text)byte(c);}
+                for(double value:{primitive.centerlines.origin.x,primitive.centerlines.origin.y,primitive.centerlines.origin.z,primitive.centerlines.normal.x,primitive.centerlines.normal.y,primitive.centerlines.normal.z})u64(std::bit_cast<std::uint64_t>(value));
+
                 if(primitive.surface_result) {byte(0xf1);for(const auto c:primitive.open_profile_end_id)byte(c);}
                 const auto append_profile = [&](const auto& profile_variant) {
                     byte(static_cast<std::uint8_t>(profile_variant.index()));

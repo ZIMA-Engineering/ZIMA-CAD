@@ -181,12 +181,24 @@ void curved_body_target(const kernel::OcctKernel& kernel) {
     auto profile_ops=profile();auto feature=*std::ranges::find_if(profile_ops,[](const auto& op){return std::holds_alternative<kernel::ExtrusionRequest>(op.primitive);});
     feature.body.id="curved-profile-body";feature.body.translation={0,0,5};
     auto& request=std::get<kernel::ExtrusionRequest>(feature.primitive);request.extent=kernel::ExtrusionRequest::Extent::UpToSurface;
+    request.centerlines.origin_enabled=request.centerlines.centroid_enabled=true;
     request.target_face=packet.triangle_references.front();request.target_is_datum=false;
     for(std::size_t i=0;i<packet.triangle_references.size();++i)if(packet.triangle_references[i]==request.target_face)
         for(std::size_t j=0;j<3;++j){auto point=packet.vertices[packet.triangles[i*3+j]];point.z-=5;request.target_surface_triangles.push_back(point);}
     const double sphere_volume=4.0/3*std::numbers::pi*8000;
     const double profile_volume=25*std::numbers::pi*35-2*std::numbers::pi/3*(8000-std::pow(375,1.5));
     auto body=kernel.evaluate_history({source,feature}).back();near(body.volume,sphere_volume+profile_volume);
+    std::set<std::string> automatic_endpoints;
+    for(const auto& point:body.mesh.original_references.points) {
+        if(point.reference.owner_id!=feature.owner_id)continue;
+        if(point.reference.semantic_key.starts_with("profile:path-point:end:")) {
+            near(point.position.z,20);automatic_endpoints.insert(point.reference.semantic_key);
+        }
+        if(point.reference.semantic_key.starts_with("profile:path-point:start:")) {
+            near(point.position.z,5);automatic_endpoints.insert(point.reference.semantic_key);
+        }
+    }
+    check(automatic_endpoints.size()==4,"Curved limit lost automatic origin/centroid endpoints");
     request.symmetric_limit=true;
     body=kernel.evaluate_history({source,feature}).back();near(body.volume,sphere_volume+2*profile_volume);
     check(faces(body).size()==4,"Curved extrusion lost the original sphere, two caps or profile side");

@@ -119,7 +119,7 @@ int main() {
             {
                 auto job = fixture.job(); job.stage(); fixture.unchanged();
                 const auto result = job.commit(fixture.live);
-                require(result.ok() && result.changed && result.updated_files.size() == 4 &&
+                require(result.ok() && result.changed && result.updated_files.size() == 3 &&
                     result.recovery_paths.empty() && !fs::exists(fixture.source) && !fs::exists(fixture.companion) &&
                     fs::exists(fixture.target) && fs::exists(fixture.renamed_companion), "Native rename transaction failed");
                 auto archive = fixture.source; archive += ".1";
@@ -156,17 +156,22 @@ int main() {
                 const auto saved_part = document::PartDocument::load(fixture.target);
                 const auto saved_group = assembly::AssemblyDocument::load(fixture.assembly_file);
                 const auto saved_drawing = drawing::DrawingDocument::load(fixture.renamed_companion);
-                const auto closed = assembly::AssemblyDocument::load(fixture.closed_file);
+                const auto closed = assembly::AssemblyDocument::load(fixture.closed_file,{},false);
                 require(saved_part.document_id == part.document_id && !saved_part.user_parameters.contains("LIVE_ONLY") &&
                     saved_group.components[0].name == document::path_to_utf8(fixture.target.stem()) && saved_group.components[0].source_path == fixture.target &&
                     saved_drawing.source_path == fixture.target && saved_drawing.sheets.front().bom_rows[0].name == "saved row" &&
                     saved_drawing.sheets.front().views[0].source_path == fixture.target &&
-                    closed.components[0].source_path == fixture.target && closed.components[0].name == document::path_to_utf8(fixture.target.stem()),
-                    "Disk dependency rename included unrelated live edits or missed closed/open-file references");
+                    closed.components[0].source_path == fixture.source && read(fixture.closed_file) == fixture.original.at(fixture.closed_file),
+                    "Disk dependency rename included unrelated live edits or changed closed references or missed open-file references");
                 require(!job.commit(fixture.live).ok(), "Rename job could be published twice");
+                auto group_companion=fixture.assembly_file;group_companion.replace_extension(".drwz");
+                auto group_drawing=drawing::DrawingDocument::create_default();
+                group_drawing.source_document_id=fixture.group.document_id;group_drawing.source_path=fixture.assembly_file;
+                group_drawing.save(group_companion);
                 auto rename_group=workspace::prepare_document_file_rename(fixture.live,fixture.group.document_id,"renamed assembly.asmz",fixture.work);
                 rename_group.stage();const auto group_result=rename_group.commit(fixture.live);
                 require(group_result.ok()&&group_result.changed,"Subassembly source rename failed");
+                require(!fs::exists(group_companion)&&fs::exists(group_companion.parent_path()/"renamed assembly.drwz"),"Assembly did not rename its closed same-name Drawing");
                 for(const auto& component:fixture.live.open_assembly(parent_id)->session.document().components)
                     require(component.name=="renamed assembly"&&component.source_document_id==fixture.group.document_id&&
                         component.source_path==fixture.assembly_file.parent_path()/"renamed assembly.asmz",
@@ -188,9 +193,9 @@ int main() {
         }
         {
             Fixture fixture(root / "invalid_dependency", part, boundaries);
-            const auto invalid = fixture.work / "nested" / "invalid.asmz";
+            const auto invalid = fixture.assembly_file;
             const auto damaged = "not a native Assembly: " + part.document_id;
-            write(invalid, damaged);
+            write(invalid, damaged); fixture.original[invalid] = damaged;
             auto directory = fixture.work;
             command_host::Host host(fixture.live, kernel, directory);
             const auto result = host.execute({{"command","rename_file"},{"arguments",{{"name","new.prtz"}}}});
@@ -202,13 +207,13 @@ int main() {
         {
             Fixture fixture(root / "unrelated_document", part, boundaries);
             const auto unrelated = fixture.work / "nested" / "old-test.asmz";
-            const std::string bytes = "[Document]\nformat_version=22\ntype=assembly\ndocument_id=unrelated-test\n";
+            const std::string bytes = "[Document]\nformat_version=22\ntype=assembly\ndocument_id=unrelated-test\nsource=díl.prtz\n";
             write(unrelated, bytes);
             auto job = fixture.job(); job.stage();
             require(job.commit(fixture.live).ok(), "Unrelated unsupported file blocked native rename");
             require(read(unrelated) == bytes, "Rename changed an unrelated unsupported file");
         }
-        for (const std::string kind : {"model", "file", "added_dependency", "history_conflict"}) {
+        for (const std::string kind : {"model", "file", "history_conflict"}) {
             Fixture fixture(root / kind, part, boundaries);
             if (kind == "history_conflict") {
                 auto* state = fixture.live.open_assembly(fixture.group.document_id);
@@ -229,10 +234,6 @@ int main() {
                     write(fixture.source, fixture.original.at(fixture.source) + "changed");
                     require(job.commit(fixture.live).code == "stale_file", "Changed input accepted old rename");
                     write(fixture.source, fixture.original.at(fixture.source));
-                } else if (kind == "added_dependency") {
-                    auto added = assembly::AssemblyDocument::create_default();
-                    added.save(fixture.work / "nested" / "new.asmz");
-                    require(job.commit(fixture.live).code == "stale_file", "New dependency file was silently omitted");
                 } else {
                     bool denied = false;
                     try { static_cast<void>(job.commit(fixture.live)); }
@@ -248,7 +249,7 @@ int main() {
             Fixture fixture(root / kind, part, boundaries);
             {
                 auto job = fixture.job(); job.stage();
-                fs::path locked = kind == "locked_source" ? fixture.source : fixture.closed_file;
+                fs::path locked = kind == "locked_source" ? fixture.source : fixture.assembly_file;
                 if (kind == "locked_stage") {
                     locked.clear();
                     for (const auto& entry : fs::recursive_directory_iterator(fixture.root))
@@ -287,7 +288,7 @@ int main() {
             const auto json = commands::Json::parse(result.json().dump());
             require(result.ok && io_calls == 1 && host.change() && host.change()->kind == command_host::ChangeKind::Rename &&
                 json.at("data").at("document") == part.document_id && json.at("data").at("changed") == true &&
-                json.at("data").at("updated_paths").size() == 4 && fs::exists(fixture.target) && !fs::exists(fixture.source),
+                json.at("data").at("updated_paths").size() == 3 && fs::exists(fixture.target) && !fs::exists(fixture.source),
                 "Typed rename command lost file effects, Unicode or presentation change");
         }
         {
@@ -307,7 +308,7 @@ int main() {
                 "I/O event-loop reentry let rename overwrite a newer edit");
             fixture.unchanged(); fixture.clean_staging();
         }
-        // A dirty open Drawing is authoritative for automatic companion ownership.
+        // The same-name Drawing follows the filename; unrelated pending owner edits survive.
         {
             Fixture fixture(root / "companion_owner", part, boundaries);
             auto* state = fixture.live.open_drawing(fixture.drawing.document_id);
@@ -315,10 +316,10 @@ int main() {
             changed.source_path = fixture.root / "other.prtz"; state->commit(changed);
             {
                 auto job = fixture.job(); job.stage(); const auto result = job.commit(fixture.live);
-                require(result.ok() && fs::exists(fixture.companion) && !fs::exists(fixture.renamed_companion) &&
-                    state->path == fixture.companion && state->document().source_document_id == "other-model" &&
+                require(result.ok() && !fs::exists(fixture.companion) && fs::exists(fixture.renamed_companion) &&
+                    state->path == fixture.renamed_companion && state->document().source_document_id == "other-model" &&
                     state->document().sheets.front().views[0].source_path == fixture.target &&
-                    drawing::DrawingDocument::load(fixture.companion).source_path == fixture.target,
+                    drawing::DrawingDocument::load(fixture.renamed_companion).source_path == fixture.target,
                     "Companion filename overrode live ownership or saved unrelated owner edits");
             }
             fixture.clean_staging();
@@ -343,6 +344,18 @@ int main() {
                 live.open_drawing(drawing.document_id)->document().source_path==target&&
                 live.open_drawing(drawing.document_id)->path==folder/"renamed_skeleton.drwz",
                 "Skeleton rename left stale Assembly or Drawing references");
+        }
+        {
+            Fixture fixture(root / "drawing-only", part, boundaries);
+            const auto part_bytes=read(fixture.source);
+            auto job=workspace::prepare_document_file_rename(fixture.live,fixture.drawing.document_id,"drawing-only.drwz",fixture.work);
+            job.stage();require(job.commit(fixture.live).ok(),"Standalone Drawing rename failed");
+            const auto destination=fixture.companion.parent_path()/"drawing-only.drwz";
+            require(fs::exists(destination)&&!fs::exists(fixture.companion)&&read(fixture.source)==part_bytes,
+                "Drawing rename moved or rewrote its Part");
+            const auto saved=drawing::DrawingDocument::load(destination);
+            require(saved.document_id==fixture.drawing.document_id&&saved.source_path==fixture.source&&
+                fixture.live.open_drawing(saved.document_id)->path==destination,"Drawing rename lost source identity or tab path");
         }
         {
             const auto folder=root/"case-only";fs::create_directory(folder);

@@ -1,4 +1,5 @@
 #include <zima/symbols/placement.hpp>
+#include <zima/kernel/annotation_layout.hpp>
 #include <nlohmann/json.hpp>
 #include <iostream>
 #include <limits>
@@ -17,12 +18,24 @@ int main(){try {
     p.reference=symbols::Reference{"part","face-owner","face:authored","assembly/occurrence",symbols::ReferenceKind::Face,true};
     p.leader=true;p.leader_bends={{5,8}};p.validate();
     const auto local=symbols::instance_mesh(p.symbol),mesh=p.viewer_mesh();
-    check(mesh.edges.size()==local.edges.size()+2,"Leader and arrow missing");
-    check(mesh.edges[local.edges.size()].color=="#F5CD50"&&mesh.edges.back().color=="#F5CD50","Leader/arrow must share yellow pen");
-    for(std::size_t i=0;i<local.edges.size();++i)for(std::size_t k=0;k<local.edges[i].points.size();++k)
-        check(near(p.frame.local(mesh.edges[i].points[k]),local.edges[i].points[k]),"Rotated symbol frame distorted geometry");
+    check(mesh.edges.size()==local.edges.size()+3,"Leader, arrow and shelf missing");
+    check(mesh.edges.back().color=="#F5CD50","Shelf must use yellow pen");
+    const auto shelf=mesh.edges.back().points;
     check(near(mesh.edges[local.edges.size()].points.front(),p.frame.origin),"Leader does not start at contact");
-    check(near(mesh.edges[local.edges.size()].points.back(),p.frame.world({20,10,0})),"Leader does not end at grip");
+    check(near(mesh.edges[local.edges.size()].points.back(),shelf.front())||near(mesh.edges[local.edges.size()].points.back(),shelf.back()),"Leader does not end at shelf end");
+    const auto info=*mesh.edges.back().annotation;
+    for(auto right:{kernel::Vec3{1,0,0},kernel::Vec3{0,1,0},kernel::Vec3{-1,0,0}}) {
+        const kernel::Vec3 up{0,0,1};
+        const auto first=kernel::annotation_stroke(info,right,up,true,true),other=kernel::annotation_stroke(info,right,up,false,true);
+        check(first==other,"Side change mirrored shelf");
+        check(std::abs(std::hypot(first[1].x-first[0].x,first[1].y-first[0].y,first[1].z-first[0].z)-(info.right-info.left))<1e-8,"Shelf width differs from glyph width");
+        for(const auto& source:mesh.edges)if(source.annotation&&source.annotation->role==0) {
+            const auto a=kernel::annotation_stroke(*source.annotation,right,up,true,true),b=kernel::annotation_stroke(*source.annotation,right,up,false,true);
+            check(a==b,"Side change mirrored glyph");
+            for(auto point:a)check(kernel::dimension_dot(kernel::dimension_sub(point,info.grip),up)>-1e-8,"Content falls below shelf");
+        }
+    }
+    p.offset_z=4.;check(nlohmann::json(p).get<symbols::Placement>()==p,"Spatial grip offset lost");p.offset_z=0;
     const auto original=p;const auto original_mesh=p.viewer_mesh();p.refresh_reference({});
     check(p.unresolved&&p.frame==original.frame&&p.reference==original.reference&&p.symbol==original.symbol,"Lost reference altered symbol");
     const auto unresolved_mesh=p.viewer_mesh();
@@ -43,7 +56,7 @@ int main(){try {
     invalid=p;moved.x={0,0,0};rejects([&]{invalid.refresh_reference(moved);});check(invalid==p,"Rejected resolution changed placement");
     p.symbol.visible=false;check(p.viewer_mesh().edges.empty(),"Hidden symbol retained leader");
     p.symbol.visible=true;p.symbol.x=p.symbol.y=0;p.leader_bends.clear();
-    check(p.viewer_mesh().edges.size()==symbols::instance_mesh(p.symbol).edges.size(),"Zero-length leader emitted degenerate arrow");
+    for(const auto& stroke:p.viewer_mesh().edges)for(auto point:stroke.points)check(std::isfinite(point.x)&&std::isfinite(point.y)&&std::isfinite(point.z),"Coincident contact and shelf center emitted invalid geometry");
     p.reference.reset();p.unresolved=false;p.refresh_reference({});check(!p.unresolved,"Free symbol became unresolved");
     auto surface=std::make_shared<kernel::SurfaceGeometry>();surface->origin={10,20,30};
     kernel::FaceReference face{"source","face:original","first-occurrence",surface};
@@ -80,6 +93,50 @@ int main(){try {
             check(symbols::refresh_surface_attachment(p,refs)&&p.frame==saved.frame,"Roughness refresh changed orientation");
             check(nlohmann::json(p).get<symbols::Placement>()==p,"Roughness orientation failed persistence");
         }
+    }
+    {
+        kernel::ViewerEdge edge;edge.reference={"source","curve:original","occurrence"};edge.points={{0,0,0},{10,0,0}};
+        symbols::attach_to_edge(p,edge,"part",{3,0,0});check(near(p.frame.origin,{3,0,0}),"Edge contact missed");
+        kernel::ViewerReferenceGeometry geometry;edge.points[1]={20,0,0};geometry.edges={edge};
+        check(symbols::refresh_surface_attachment(p,geometry)&&near(p.frame.origin,{6,0,0}),"Edge parameter failed regeneration");
+        kernel::ViewerPoint point;point.reference={"source","point:original","occurrence"};point.position={2,3,4};
+        symbols::attach_to_point(p,point,"part");geometry.points={point};
+        check(symbols::refresh_surface_attachment(p,geometry),"Point contact did not resolve");
+        const auto current=p.frame;geometry.points.clear();check(!symbols::refresh_surface_attachment(p,geometry)&&p.frame==current,"Missing point moved annotation");
+        kernel::AnnotationStroke a;a.role=1;a.kind=0;a.contact={0,0,0};a.grip={20,10,5};a.direction_tip={0,0,-1};a.left=0;a.right=10;
+        auto line=kernel::annotation_stroke(a,{1,0,0},{0,1,0},true,true);
+        check(line[1].x==0&&line[1].y==0&&line[1].z<0,"Lower surface leader lost normal side");
+        a.kind=1;a.direction_tip={1,0,0};line=kernel::annotation_stroke(a,{1,0,0},{0,1,0},true,true);
+        check(std::abs(line[1].x)<1e-9,"Edge leader is not perpendicular");
+        a.kind=2;line=kernel::annotation_stroke(a,{1,0,0},{0,1,0},true,true);
+        check(line.size()==2&&std::abs(line[1].x)<1e-9&&line[1].y>0,"Point leader must be vertical without a diagonal connector");
+        a.role=3;const auto shelf=kernel::annotation_stroke(a,{1,0,0},{0,1,0},true,true);
+        check(near(line.back(),shelf.front()),"Perpendicular leader does not directly join shelf");
+        a.role=1;a.perpendicular=false;line=kernel::annotation_stroke(a,{1,0,0},{0,1,0},true,true);
+        check(line.size()==2&&near(line.back(),{15,10,5}),"Free leader gained an intermediate segment");
+        const auto paper=p.viewer_mesh(0);check(std::ranges::none_of(paper.edges,[](const auto& e){return e.annotation.has_value();}),"Paper received camera-dependent strokes");
+    }
+    {
+        kernel::AnnotationStroke a;a.contact={0,0,0};a.grip={20,10,0};a.perpendicular=false;a.left=-4;a.right=8;a.bottom=-2;a.short_shelf=true;a.shelf_length=3;
+        const kernel::Vec3 right{1,0,0},up{0,1,0};
+        for(bool left:{true,false}) {
+            const auto handles=kernel::annotation_handles(a,right,up,left,true);
+            check(near(handles[2],a.grip),"Short shelf must end at authored insertion point");
+            check(std::abs(kernel::dimension_dot(kernel::dimension_sub(handles[2],handles[1]),right))==3,"Short shelf length is not 3 mm");
+            a.role=0;a.local_points={{0,0,0},{2,1,0}};const auto glyph=kernel::annotation_stroke(a,right,up,left,true);
+            check(near(glyph.front(),handles[2])&&near(kernel::dimension_sub(glyph.back(),glyph.front()),{2,1,0}),"Origin attachment moved or mirrored authored symbol");
+            auto moved=kernel::drag_annotation(a,right,up,left,true,2,kernel::dimension_add(handles[1],{left?7.:-7.,9,0}));
+            check(moved.shelf_length==7,"End grip did not resize short shelf");
+            auto next=a;next.grip=moved.grip;next.shelf_length=moved.shelf_length;
+            check(near(kernel::annotation_handles(next,right,up,left,true)[1],handles[1]),"Resizing moved elbow");
+            moved=kernel::drag_annotation(a,right,up,left,true,1,kernel::dimension_add(handles[1],{2,4,0}));
+            check(near(moved.grip,kernel::dimension_add(a.grip,{2,4,0}))&&moved.shelf_length==3,"Elbow drag did not translate shelf");
+            next=a;next.short_shelf=false;const auto full=kernel::annotation_handles(next,right,up,left,true);
+            moved=kernel::drag_annotation(next,right,up,left,true,2,kernel::dimension_add(full[2],{5,6,0}));
+            check(near(moved.grip,kernel::dimension_add(a.grip,{5,6,0})),"Full-width shelf end did not translate symbol");
+        }
+        p.short_shelf=true;p.shelf_length=7.5;check(nlohmann::json(p).get<symbols::Placement>()==p,"Shelf settings did not persist");
+        auto invalid=p;invalid.shelf_length=0;rejects([&]{invalid.validate();});
     }
     std::cout<<"Symbol placement contracts passed\n";return 0;
 }catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}

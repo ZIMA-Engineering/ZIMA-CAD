@@ -34,11 +34,12 @@ document::ExtrusionParameters::EndTarget resolve_profile_end_target(
 document::ExtrusionParameters::EndTarget prepare_profile_end_target(
     const document::PartDocument& part,const std::vector<kernel::BodyResult>& calculated,
     const document::HistoryContainer& feature,const document::ExtrusionParameters::EndTarget& requested) {
-    if(feature.feature_kind!=document::FeatureKind::Extrusion || requested.kind==document::EndTargetKind::Point)
+    if((feature.feature_kind!=document::FeatureKind::Extrusion && feature.feature_kind!=document::FeatureKind::Feature) || requested.kind==document::EndTargetKind::Point)
         throw ProfileOperationError("invalid_reference","Extrusion end references require a plane or an original face.");
     if(!requested.reference.valid() || !requested.reference.instance_path.empty())
         throw ProfileOperationError("invalid_reference","The extrusion target must belong to this Part.");
-    auto allowed=sketch_external_reference_source_owners(part,feature.extrusion.sketch_id);
+    auto allowed=sketch_external_reference_source_owners(part,
+        feature.feature_kind==document::FeatureKind::Feature ? feature.feature.sketch_id : feature.extrusion.sketch_id);
     allowed.insert(part.document_id+":origin");
     const auto* target_body=part.body_owner_for_object(feature.id);
     for(const auto& body:part.body_history.bodies()) {
@@ -53,14 +54,18 @@ document::ExtrusionParameters::EndTarget prepare_profile_end_target(
 bool refresh_profile_end_targets(document::PartDocument& part,const std::vector<kernel::BodyResult>& calculated) {
     bool changed=false;
     for(auto& feature:part.history) {
-        if(feature.feature_kind!=document::FeatureKind::Extrusion)continue;
+        if(feature.feature_kind!=document::FeatureKind::Extrusion && feature.feature_kind!=document::FeatureKind::Feature)continue;
         const auto refresh=[&](auto& targets) {
             for(auto& target:targets)try {
                 const auto next=prepare_profile_end_target(part,calculated,feature,target);
                 if(next!=target){target=next;changed=true;}
             }catch(const ProfileOperationError&) { /* The original ID and last geometry stay available for repair. */ }
         };
-        refresh(feature.extrusion.end_targets_forward);refresh(feature.extrusion.end_targets_reverse);
+        if(feature.feature_kind==document::FeatureKind::Feature) {
+            for(auto& side:feature.feature.sides)refresh(side.targets);
+        } else {
+            refresh(feature.extrusion.end_targets_forward);refresh(feature.extrusion.end_targets_reverse);
+        }
     }
     return changed;
 }

@@ -1,6 +1,7 @@
 #include <zima/workspace/imported_feature_operations.hpp>
 #include <zima/workspace/hole_operations.hpp>
 #include "workspace_internal.hpp"
+#include "../feature_view_cues.hpp"
 #include "sheet_cut_wire_preview.hpp"
 #include <zima/workspace/primitive_operations.hpp>
 #include <zima/workspace/opening_operations.hpp>
@@ -92,8 +93,8 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
         property_owned_sketch_draft_ &&
         property_owned_sketch_draft_->owner_container_id == pending_profile_feature_->id;
     if (container_id.empty() &&
-        (feature_kind == zima::document::FeatureKind::Extrusion ||
-         feature_kind == zima::document::FeatureKind::Revolution)) {
+        ((feature_kind == zima::document::FeatureKind::Extrusion ||
+         feature_kind == zima::document::FeatureKind::Revolution || feature_kind == zima::document::FeatureKind::Feature))) {
         if (resuming_profile) {
             source_sketch_id = property_owned_sketch_draft_->id;
         } else {
@@ -137,8 +138,8 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
     const bool pending_profile_edit = edit_mode && pending_profile_feature_ &&
         pending_profile_feature_->id == container_id;
     const bool profile_feature =
-        feature_kind == zima::document::FeatureKind::Extrusion ||
-        feature_kind == zima::document::FeatureKind::Revolution;
+        (feature_kind == zima::document::FeatureKind::Extrusion ||
+        feature_kind == zima::document::FeatureKind::Revolution || feature_kind == zima::document::FeatureKind::Feature);
     // The import has no analytical primitive wire. Keep its persisted source
     // edges in feature-local coordinates before entering history rollback.
     // Previewing a placement must never reread STEP or invoke OCCT.
@@ -220,6 +221,8 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
             ? zima::document::PartDocument::create_wedge_container()
         : feature_kind == zima::document::FeatureKind::TwistedSheet
             ? zima::document::PartDocument::create_twisted_sheet_container()
+        : feature_kind == zima::document::FeatureKind::Feature
+            ? zima::document::PartDocument::create_feature_container(source_sketch_id)
         : feature_kind == zima::document::FeatureKind::Extrusion
             ? zima::document::PartDocument::create_extrusion_container(source_sketch_id)
         : feature_kind == zima::document::FeatureKind::Revolution
@@ -288,22 +291,24 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
     }
     if(initial.revolution.sheet_metal&&!initial.revolution.sheet_attachment&&!initial.revolution.thickness_override)
         initial.revolution.thin_thickness=zima::document::sheet_metal_defaults(part->session.document()).thickness_mm.value_or(1);
-    if (!edit_mode && (feature_kind == zima::document::FeatureKind::Extrusion ||
-                       feature_kind == zima::document::FeatureKind::Revolution)) {
+    if (!edit_mode && ((feature_kind == zima::document::FeatureKind::Extrusion ||
+                       feature_kind == zima::document::FeatureKind::Revolution || feature_kind == zima::document::FeatureKind::Feature))) {
         const auto source = zima::document::ProfileSource::Internal;
-        if (feature_kind == zima::document::FeatureKind::Extrusion) {
+        if (feature_kind == zima::document::FeatureKind::Feature) {
+            initial.feature.profile_source=source;
+        } else if (feature_kind == zima::document::FeatureKind::Extrusion) {
             initial.extrusion.profile_source = source;
         } else {
             initial.revolution.profile_source = source;
         }
     }
     if (part != nullptr &&
-        (feature_kind == zima::document::FeatureKind::Extrusion ||
-         feature_kind == zima::document::FeatureKind::Revolution)) {
-        const auto profile_source = feature_kind ==
+        ((feature_kind == zima::document::FeatureKind::Extrusion ||
+         feature_kind == zima::document::FeatureKind::Revolution || feature_kind == zima::document::FeatureKind::Feature))) {
+        const auto profile_source = initial.feature_kind == zima::document::FeatureKind::Feature ? initial.feature.profile_source : feature_kind ==
                 zima::document::FeatureKind::Extrusion
             ? initial.extrusion.profile_source : initial.revolution.profile_source;
-        const auto& sketch_id = feature_kind ==
+        const auto& sketch_id = initial.feature_kind == zima::document::FeatureKind::Feature ? initial.feature.sketch_id : feature_kind ==
                 zima::document::FeatureKind::Extrusion
             ? initial.extrusion.sketch_id : initial.revolution.sketch_id;
         const auto source = std::find_if(part->session.document().sketches.begin(),
@@ -312,7 +317,9 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
             });
         if (profile_source == zima::document::ProfileSource::Internal &&
             source != part->session.document().sketches.end()) {
-            if (feature_kind == zima::document::FeatureKind::Extrusion) {
+            if (feature_kind == zima::document::FeatureKind::Feature) {
+                initial.feature.profile_plane_offset=source->plane_offset;
+            } else if (feature_kind == zima::document::FeatureKind::Extrusion) {
                 initial.extrusion.profile_plane_offset = source->plane_offset;
             } else {
                 initial.revolution.profile_plane_offset = source->plane_offset;
@@ -321,7 +328,7 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
                     [](const auto& segment) {
                         return segment.construction && segment.centerline;
                     });
-                if (axis_count == 1) {
+                if (axis_count > 0) {
                     initial.revolution.axis_segment_id =
                         revolution_axis_segment_id(
                             *source, initial.revolution.axis_segment_id);
@@ -341,14 +348,14 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
         std::count_if(property_owned_sketch_draft_->segments.begin(),
             property_owned_sketch_draft_->segments.end(), [](const auto& segment) {
                 return segment.construction && segment.centerline;
-            }) == 1) {
+            }) > 0) {
         initial.revolution.axis_segment_id = revolution_axis_segment_id(
             *property_owned_sketch_draft_, initial.revolution.axis_segment_id);
     }
     if (profile_feature && !property_owned_sketch_draft_) {
-        const auto internal = feature_kind == zima::document::FeatureKind::Extrusion
+        const auto internal = initial.feature_kind == zima::document::FeatureKind::Feature ? initial.feature.profile_source : feature_kind == zima::document::FeatureKind::Extrusion
             ? initial.extrusion.profile_source : initial.revolution.profile_source;
-        const auto& id = feature_kind == zima::document::FeatureKind::Extrusion
+        const auto& id = initial.feature_kind == zima::document::FeatureKind::Feature ? initial.feature.sketch_id : feature_kind == zima::document::FeatureKind::Extrusion
             ? initial.extrusion.sketch_id : initial.revolution.sketch_id;
         const auto& sketches = assembly_cut ? assembly->session.document().sketches
                                             : part->session.document().sketches;
@@ -424,7 +431,8 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
                 return;
             }
             if (committed.feature_kind == zima::document::FeatureKind::Extrusion ||
-                committed.feature_kind == zima::document::FeatureKind::Revolution) {
+                committed.feature_kind == zima::document::FeatureKind::Revolution ||
+                committed.feature_kind == zima::document::FeatureKind::Feature) {
                 const auto* source = workspace_.open_part(owner_id);
                 const auto* old = source ? source->session.document().find_container(committed.id) : nullptr;
                 const auto mode = !edit_mode ? zima::workspace::ProfileEditMode::Create
@@ -500,10 +508,10 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
             const zima::document::HistoryContainer& preview) {
         const bool extrusion = preview.feature_kind ==
             zima::document::FeatureKind::Extrusion;
-        const auto profile_source = extrusion ? preview.extrusion.profile_source
+        const auto profile_source = preview.feature_kind == zima::document::FeatureKind::Feature ? preview.feature.profile_source : extrusion ? preview.extrusion.profile_source
                                               : preview.revolution.profile_source;
         if (profile_source != zima::document::ProfileSource::Internal) return;
-        const auto& sketch_id = extrusion ? preview.extrusion.sketch_id
+        const auto& sketch_id = preview.feature_kind == zima::document::FeatureKind::Feature ? preview.feature.sketch_id : extrusion ? preview.extrusion.sketch_id
                                           : preview.revolution.sketch_id;
         auto sketch = std::find_if(preview_document.sketches.begin(),
             preview_document.sketches.end(), [&](const auto& value) {
@@ -542,7 +550,7 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
             first_reference->supports_offset) {
             sketch->plane = zima::sketcher::SketchPlane::XZ;
         }
-        const double next_offset = extrusion
+        const double next_offset = preview.feature_kind == zima::document::FeatureKind::Feature ? preview.feature.profile_plane_offset : extrusion
             ? preview.extrusion.profile_plane_offset
             : preview.revolution.profile_plane_offset;
         const double offset_delta = next_offset - sketch->plane_offset;
@@ -575,7 +583,7 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
             const zima::document::HistoryContainer& preview) {
         const bool extrusion = preview.feature_kind ==
             zima::document::FeatureKind::Extrusion;
-        const auto sketch_id = extrusion ? preview.extrusion.sketch_id
+        const auto sketch_id = preview.feature_kind == zima::document::FeatureKind::Feature ? preview.feature.sketch_id : extrusion ? preview.extrusion.sketch_id
                                           : preview.revolution.sketch_id;
         auto sketch = std::find_if(preview_document.sketches.begin(),
             preview_document.sketches.end(), [&](const auto& value) {
@@ -666,7 +674,7 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
         // Feature Properties rebuild the operation dimensions below from the
         // feature policy; retaining both sources painted the same value twice.
         primitive_origin_preview_mesh_->dimensions.clear();
-        const double profile_offset = extrusion
+        const double profile_offset = preview.feature_kind == zima::document::FeatureKind::Feature ? preview.feature.profile_plane_offset : extrusion
             ? preview.extrusion.profile_plane_offset
             : preview.revolution.profile_plane_offset;
         const auto start = sketch->resolved_origin;
@@ -738,6 +746,12 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
                         ? "parameter:length_forward"
                         : "parameter:length_reverse", -1.0);
             }
+        }
+        if(preview.feature_kind==zima::document::FeatureKind::Feature) {
+            auto cues=feature_view_cues(preview,*sketch);
+            primitive_origin_preview_mesh_->dimensions=std::move(cues.dimensions.dimensions);
+            viewer_->set_extent_manipulators(std::move(cues.handles));
+            viewer_->set_operation_direction_indicators(std::move(cues.directions));
         }
         viewer_->set_feature_preview_owners({plane.entity_id});
     };
@@ -930,11 +944,12 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
             feature_kind != zima::document::FeatureKind::Thread &&
             feature_kind != zima::document::FeatureKind::Extrusion &&
             feature_kind != zima::document::FeatureKind::Revolution &&
+            feature_kind != zima::document::FeatureKind::Feature &&
             feature_kind != zima::document::FeatureKind::Fillet &&
             feature_kind != zima::document::FeatureKind::Chamfer;
         const bool defer_profile_scene_refresh =
-            feature_kind == zima::document::FeatureKind::Extrusion ||
-            feature_kind == zima::document::FeatureKind::Revolution;
+            (feature_kind == zima::document::FeatureKind::Extrusion ||
+            feature_kind == zima::document::FeatureKind::Revolution || feature_kind == zima::document::FeatureKind::Feature);
         placement_preview = [this, fit_new_basic_preview, edit_mode, imported_preview_edges,
                              defer_profile_scene_refresh](
                 const zima::document::HistoryContainer& preview)
@@ -1133,11 +1148,13 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
                 preview.extrusion, false).has_value() ? 1.0 : 0.0);
             signature.push_back(extrusion_length_dimension_value(
                 preview.extrusion, true).has_value() ? 1.0 : 0.0);
+        } else if (preview.feature_kind==zima::document::FeatureKind::Feature) {
+            signature.push_back(preview.feature.profile_plane_offset);
         } else {
             signature.push_back(preview.revolution.profile_plane_offset);
         }
         if (preview_document != nullptr) {
-            const auto& sketch_id = preview.feature_kind ==
+            const auto& sketch_id = preview.feature_kind == zima::document::FeatureKind::Feature ? preview.feature.sketch_id : preview.feature_kind ==
                     zima::document::FeatureKind::Extrusion
                 ? preview.extrusion.sketch_id : preview.revolution.sketch_id;
             const auto sketch = std::find_if(
@@ -1185,6 +1202,7 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
                     zima::document::EndCondition::ThroughAll);
     };
     if (feature_kind == zima::document::FeatureKind::Extrusion ||
+        feature_kind == zima::document::FeatureKind::Feature ||
         feature_kind == zima::document::FeatureKind::Thread) {
         dialog->set_extrusion_target_request([this, dialog, assembly_cut] {
             // Placement auto-arms its next empty row, but Up-to is a
@@ -1204,6 +1222,36 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
         dialog->set_extrusion_target_cancel([this] {
             if (extrusion_target_dialog_ != nullptr)
                 finish_extrusion_target_selection();
+        });
+    }
+    if (feature_kind == zima::document::FeatureKind::Feature) {
+        dialog->set_preview_callback([this,owner_id,placement_preview,prepare_owned_profile_preview,extent_drag_baseline,
+                update_owned_profile_context_preview,publish_profile_preview_scene](const auto& pending) {
+            const auto preview=placement_preview?placement_preview(pending):pending;
+            try {
+                const auto* owner=workspace_.open_part(owner_id);if(!owner)return;
+                auto document=owner->session.document();
+                if(property_owned_sketch_draft_) {
+                    const auto found=std::ranges::find(document.sketches,property_owned_sketch_draft_->id,&zima::sketcher::Sketch::id);
+                    if(found==document.sketches.end())document.sketches.push_back(*property_owned_sketch_draft_);
+                    else *found=*property_owned_sketch_draft_;
+                }
+                prepare_owned_profile_preview(document,preview);
+                const auto profile=std::ranges::find(document.sketches,preview.feature.sketch_id,&zima::sketcher::Sketch::id);
+                if(profile!=document.sketches.end())extent_drag_baseline->profile_plane=profile->plane;
+                update_owned_profile_context_preview(document,preview);
+                const zima::kernel::ViewerMesh* input=nullptr;
+                if(part_rollback_ && part_rollback_->part_document_id==owner_id && part_rollback_->input_body)
+                    input=&part_rollback_->input_body->mesh;
+                else if(!owner->session.calculated_boundaries().empty())
+                    input=&owner->session.calculated_boundaries().back().mesh;
+                auto wire=input?document.feature_preview_edges(preview,*input):document.feature_preview_edges(preview);
+                viewer_->set_transient_edges(std::move(wire));
+                publish_profile_preview_scene(&document,preview);
+            } catch(const std::exception& error) {
+                viewer_->set_transient_edges({});publish_profile_preview_scene(nullptr,preview);
+                state_->setText(tr(error.what()));
+            }
         });
     }
     if (feature_kind == zima::document::FeatureKind::Extrusion) {
@@ -1427,14 +1475,14 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
             }
         });
     }
-    if (feature_kind == zima::document::FeatureKind::Extrusion ||
-        feature_kind == zima::document::FeatureKind::Revolution) {
+    if ((feature_kind == zima::document::FeatureKind::Extrusion ||
+        feature_kind == zima::document::FeatureKind::Revolution || feature_kind == zima::document::FeatureKind::Feature)) {
         dialog->set_edit_sketch_callback(
             [this, owner_id, edit_mode, pending_profile_edit, assembly_cut](
                 zima::document::HistoryContainer pending_feature) {
             const bool extrusion = pending_feature.feature_kind ==
                 zima::document::FeatureKind::Extrusion;
-            const std::string sketch_id = extrusion
+            const std::string sketch_id = pending_feature.feature_kind == zima::document::FeatureKind::Feature ? pending_feature.feature.sketch_id : extrusion
                 ? pending_feature.extrusion.sketch_id
                 : pending_feature.revolution.sketch_id;
             if (!edit_mode) {
@@ -1465,7 +1513,7 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
                     first_reference->supports_offset) {
                     draft_sketch.plane = zima::sketcher::SketchPlane::XZ;
                 }
-                draft_sketch.plane_offset = extrusion
+                draft_sketch.plane_offset = pending_feature.feature_kind == zima::document::FeatureKind::Feature ? pending_feature.feature.profile_plane_offset : extrusion
                     ? pending_feature.extrusion.profile_plane_offset
                     : pending_feature.revolution.profile_plane_offset;
                 if (!assembly_cut) {
@@ -1549,7 +1597,26 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
             });
         });
     }
-    if (feature_kind == zima::document::FeatureKind::Extrusion) {
+    if(feature_kind==zima::document::FeatureKind::Feature) {
+        auto baseline=std::make_shared<zima::document::FeatureParameters>();
+        viewer_->set_extent_manipulator_callbacks(
+            [dialog,baseline](const std::string&){*baseline=dialog->pending_value().feature;},
+            [dialog,baseline,extent_drag_baseline](const std::string& key,double coordinate) {
+                if(key.starts_with("feature_profile_start")) {
+                    // Each side's handle points outward; recover the same
+                    // authored offset through the resolved Sketch normal.
+                    const double delta=key.ends_with("1")?-coordinate:coordinate;
+                    dialog->set_inline_parameter_value("profile_offset",baseline->profile_plane_offset+
+                        zima::sketcher::plane_offset_delta_for_normal_displacement(extent_drag_baseline->profile_plane,delta));
+                } else if(key=="side0_length"||key=="side1_length") {
+                    dialog->set_inline_parameter_value(key,std::max(.001,coordinate));
+                } else if(key=="side0_angle"||key=="side1_angle") {
+                    const auto side=key=="side0_angle"?0:1;
+                    dialog->set_inline_parameter_value(key,std::clamp(baseline->sides[side].angle_degrees+
+                        coordinate/25.*180./std::numbers::pi,.001,360.));
+                }
+            },[]{});
+    } else if (feature_kind == zima::document::FeatureKind::Extrusion) {
         viewer_->set_extent_manipulator_callbacks(
             [dialog, extent_drag_baseline](const std::string&) {
                 extent_drag_baseline->offset = dialog->profile_plane_offset();

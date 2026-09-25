@@ -41,7 +41,9 @@
           "center": "circle:center",
           "construction": false,
           "id": "circle",
-          "radius": 1.7
+          "radius": 1.7,
+          "centerline": false,
+          "visible_in_3d": true
         }
       ],
       "constraints": [],
@@ -69,7 +71,9 @@
           "fixed": true,
           "id": "circle:center",
           "x": 3.5,
-          "y": 0.0
+          "y": 0.0,
+          "centerline": false,
+          "visible_in_3d": true
         }
       ],
       "resolved_normal": [
@@ -96,7 +100,7 @@
       "suppressed": false,
       "symbols": [],
       "texts": [],
-      "version": 34
+      "version": 35
     },
     {
       "arcs": [],
@@ -1124,7 +1128,7 @@
           "vertical": "bottom"
         }
       ],
-      "version": 34
+      "version": 35
     }
   ],
   "units": "mm",

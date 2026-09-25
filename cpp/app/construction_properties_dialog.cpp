@@ -256,7 +256,63 @@ ConstructionPropertiesDialog::ConstructionPropertiesDialog(
             direction_combo_->hide();
         }
         if (initial.kind == zima::document::ConstructionKind::Axis) {
-            rotation_form->addRow(tr("Délka zobrazení"), display_size_);
+            axis_extent_mode_ = new QComboBox(this);
+            axis_extent_mode_->setObjectName("constructionAxisExtentMode");
+            axis_extent_mode_->addItem(tr("Jedna strana"));
+            axis_extent_mode_->addItem(tr("Obě strany"));
+            axis_extent_mode_->addItem(tr("Symetricky"));
+            axis_extent_mode_->setCurrentIndex(static_cast<int>(initial.axis_extent_mode));
+            axis_reverse_length_ = field(initial.axis_reverse_length, "constructionAxisReverseLength", " mm");
+            axis_reverse_length_->setRange(0.001, 1'000'000.0);
+            rotation_form->addRow(tr("Rozsah"), axis_extent_mode_);
+            axis_ends_=initial.axis_ends;
+            for(std::size_t i=0;i<2;++i) {
+                auto* row=new QWidget(this);auto* layout=new QHBoxLayout(row);layout->setContentsMargins(0,0,0,0);
+                axis_end_mode_[i]=new QComboBox(row);
+                axis_end_mode_[i]->setObjectName(QString("axisEndMode%1").arg(i));
+                axis_end_mode_[i]->addItem(tr("Na délku"));axis_end_mode_[i]->addItem(tr("Až k…"));
+                axis_end_mode_[i]->setCurrentIndex(axis_ends_[i].up_to?1:0);
+                layout->addWidget(axis_end_mode_[i]);layout->addWidget(i?axis_reverse_length_:display_size_);
+                rotation_form->addRow(i?tr("Druhá délka"):tr("Délka"),row);
+                auto* table=axis_end_table_[i]=new QTableWidget(1,3,this);
+                table->setObjectName(QString("axisEndTarget%1").arg(i));
+                table->setHorizontalHeaderLabels({QString(),tr("Až k…"),QString()});
+                table->verticalHeader()->show();table->setSelectionMode(QAbstractItemView::NoSelection);
+                table->setEditTriggers(QAbstractItemView::NoEditTriggers);
+                table->horizontalHeader()->setSectionResizeMode(1,QHeaderView::Stretch);
+                table->setColumnWidth(0,32);table->setColumnWidth(2,32);table->setFixedHeight(65);
+                zima::ui::install_reference_cell_delegate(table);
+                table->setItem(0,1,new zima::ui::ReferenceCellItem);
+                table->setCellWidget(0,0,zima::ui::build_reference_row_indicator([this,i]{
+                    axis_ends_[i].target={};axis_end_inspected_[i]=false;active_axis_target_=i;
+                    placement_->set_active_reference_index(std::nullopt);refresh_axis_targets();
+                    if(axis_target_changed)axis_target_changed();notify_preview();
+                }));
+                auto* eye=zima::ui::build_reference_inspection_button(false,false,[this,i](bool checked){
+                    axis_end_inspected_[i]=checked;refresh_axis_targets();
+                    if(reference_highlights_changed_)reference_highlights_changed_();
+                });
+                table->setCellWidget(0,2,zima::ui::centered_cell_widget(eye));
+                rotation_form->addRow(table);
+                connect(table,&QTableWidget::cellClicked,this,[this,i](int,int col){if(col!=1)return;
+                    placement_->set_active_reference_index(std::nullopt);active_axis_target_=i;
+                    refresh_axis_targets();if(axis_target_changed)axis_target_changed();
+                });
+                const auto refresh=[this,i,row,rotation_form]{
+                    const bool visible=i==0||axis_extent_mode_->currentIndex()==1;
+                    axis_ends_[i].up_to=axis_end_mode_[i]->currentIndex()==1;
+                    rotation_form->setRowVisible(row,visible);
+                    rotation_form->setRowVisible(axis_end_table_[i],visible&&axis_ends_[i].up_to);
+                    (i?axis_reverse_length_:display_size_)->setVisible(!axis_ends_[i].up_to);
+                    if(active_axis_target_==i&&(!visible||!axis_ends_[i].up_to))end_axis_target_entry();
+                    refresh_axis_targets();notify_preview();
+                };
+                connect(axis_extent_mode_,&QComboBox::currentIndexChanged,this,refresh);
+                connect(axis_end_mode_[i],&QComboBox::currentIndexChanged,this,refresh);
+                refresh();
+            }
+            connect(axis_reverse_length_, &QDoubleSpinBox::valueChanged, this,
+                [this] { notify_preview(); });
         }
     }
     content_layout()->addLayout(rotation_form);
@@ -457,6 +513,7 @@ ConstructionPropertiesDialog::ConstructionPropertiesDialog(
         this, [this] { notify_preview(); });
     setProperty("zimaValueLockOwner",QString::fromStdString(initial_.id));
     zima::ui::bind_numeric_value_lock(display_size_,"length",initial_.value_locks,[this]{notify_preview();});
+    zima::ui::bind_numeric_value_lock(axis_reverse_length_,"reverse_length",initial_.value_locks,[this]{notify_preview();});
     zima::ui::bind_numeric_value_lock(offset_,"offset",initial_.value_locks,[this]{notify_preview();});
     initialized_ = true;
 }
@@ -626,6 +683,7 @@ ConstructionPropertiesDialog::highlighted_reference_owner_ids() const {
 std::vector<zima::document::ConstructionReference>
 ConstructionPropertiesDialog::highlighted_reference_entries() const {
     auto result=placement_->highlighted_reference_entries();
+    for(std::size_t i=0;i<2;++i)if(axis_end_inspected_[i]&&axis_ends_[i].up_to&&!axis_ends_[i].target.owner_id.empty())result.push_back(axis_ends_[i].target);
     for(const auto& point:curve_points_) {
         if(inspected_curve_points_.contains(point.id))result.push_back({{},point.container_origin.id,"point"});
         if(inspected_curve_axes_.contains(point.id)&&point.curve_tangent_enabled) {
@@ -636,6 +694,36 @@ ConstructionPropertiesDialog::highlighted_reference_entries() const {
         }
     }
     return result;
+}
+
+void ConstructionPropertiesDialog::refresh_axis_targets() {
+    for(std::size_t i=0;i<2;++i)if(auto* table=axis_end_table_[i]) {
+        const auto& ref=axis_ends_[i].target;const bool populated=!ref.owner_id.empty();
+        auto* item=static_cast<zima::ui::ReferenceCellItem*>(table->item(0,1));
+        const auto key=QString::fromStdString(ref.semantic_key);
+        const auto label=ref.semantic_key.starts_with("origin:plane:")
+            ? tr("Rovina %1").arg(key.mid(13).toUpper())
+            : ref.semantic_key=="plane" ? tr("Rovina")
+            : ref.semantic_key.find("point")!=std::string::npos||ref.semantic_key.find("vertex")!=std::string::npos ? tr("Bod") : tr("Plocha");
+        item->setText(populated?label:tr("Až k…"));item->setToolTip(key);
+        if(populated)item->set_reference(key);else item->clear_reference();
+        item->set_active_input(active_axis_target_==i);item->set_inspected(axis_end_inspected_[i]);
+        zima::ui::set_reference_row_populated(table->cellWidget(0,0),populated);
+        if(auto* eye=table->cellWidget(0,2)->findChild<QToolButton*>()) {
+            QSignalBlocker block(eye);eye->setEnabled(populated);eye->setChecked(axis_end_inspected_[i]);
+        }
+        table->viewport()->update();
+    }
+}
+void ConstructionPropertiesDialog::end_axis_target_entry() {
+    active_axis_target_.reset();axis_end_inspected_={};refresh_axis_targets();
+    if(axis_target_changed)axis_target_changed();
+    if(reference_highlights_changed_)reference_highlights_changed_();
+}
+void ConstructionPropertiesDialog::set_axis_target(zima::document::ConstructionReference target) {
+    if(!active_axis_target_)return;
+    axis_ends_[*active_axis_target_].target=std::move(target);
+    end_axis_target_entry();notify_preview();
 }
 
 void ConstructionPropertiesDialog::set_preview_callback(PreviewCallback callback) {
@@ -990,6 +1078,7 @@ std::size_t ConstructionPropertiesDialog::first_empty_position_index() const {
 
 void ConstructionPropertiesDialog::set_active_reference_index(
     std::optional<std::size_t> index) {
+    if(index && axis_extent_mode_)end_axis_target_entry();
     placement_->set_active_reference_index(index);
 }
 
@@ -999,6 +1088,7 @@ void ConstructionPropertiesDialog::set_reference_inspected(
 }
 
 void ConstructionPropertiesDialog::clear_reference_highlights() {
+    axis_end_inspected_={};refresh_axis_targets();
     inspected_curve_points_.clear();inspected_curve_axes_.clear();
     refresh_curve_points();
     placement_->clear_reference_highlights();
@@ -1103,6 +1193,8 @@ void ConstructionPropertiesDialog::filter_parameter_dimensions(
             field = offset_;
         } else if (key == "length") {
             field = display_size_;
+        } else if (key == "reverse_length") {
+            field = axis_reverse_length_;
         } else {
             return false;
         }
@@ -1139,6 +1231,7 @@ bool ConstructionPropertiesDialog::set_inline_parameter_value(
     if (key == "thickness") return set_field(sweep_thickness_);
     if (key == "offset") return set_field(offset_);
     if (key == "length") return set_field(display_size_);
+    if (key == "reverse_length") return set_field(axis_reverse_length_);
     constexpr std::string_view prefix{"reference_offset:"};
     if (!key.starts_with(prefix)) return false;
     const auto suffix = key.substr(prefix.size());
@@ -1405,6 +1498,11 @@ zima::document::ConstructionObject ConstructionPropertiesDialog::current_value()
             key.toStdString(), value.rotation);
     }
     if (display_size_ != nullptr) value.display_size = display_size_->value();
+    if (axis_extent_mode_ != nullptr) {
+        value.axis_extent_mode = static_cast<zima::document::AxisExtentMode>(axis_extent_mode_->currentIndex());
+        value.axis_reverse_length = axis_reverse_length_->value();
+        value.axis_ends = axis_ends_;
+    }
     if (base_plane_combo_ != nullptr) {
         const auto key = selected_work_plane(base_plane_combo_).toString();
         value.base_plane_auto = automatic_work_plane(base_plane_combo_);
@@ -1473,6 +1571,11 @@ bool ConstructionPropertiesDialog::submit() {
         }
     }
     if (display_size_ != nullptr) value.display_size = display_size_->value();
+    if (axis_extent_mode_ != nullptr) {
+        value.axis_extent_mode = static_cast<zima::document::AxisExtentMode>(axis_extent_mode_->currentIndex());
+        value.axis_reverse_length = axis_reverse_length_->value();
+        value.axis_ends = axis_ends_;
+    }
     const auto populated = placement_->populated_references();
     const std::size_t required =
             value.definition == zima::document::ConstructionDefinition::PointReference

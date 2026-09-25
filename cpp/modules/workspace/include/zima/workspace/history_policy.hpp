@@ -35,6 +35,8 @@ struct HistoryDependencyCollector {
     }
     void construction(const document::ConstructionObject& object,const std::string& root) {
         for (const auto& ref : object.references) reference(root,ref);
+        for(std::size_t i=0;i<(object.axis_extent_mode==document::AxisExtentMode::TwoSides?2u:1u);++i)
+            if(object.axis_ends[i].up_to)reference(root,object.axis_ends[i].target);
         for (const auto& point : object.curve_points) construction(point,root);
     }
     void sketch(const sketcher::Sketch& sketch,const std::string& root) {
@@ -53,6 +55,17 @@ struct HistoryDependencyCollector {
         };
         using document::FeatureKind;
         switch(feature.feature_kind) {
+        case FeatureKind::Feature:
+            use(root,feature.feature.sketch_id);
+            for(std::size_t side=0;side<2;++side) {
+                const auto& value=feature.feature.effective_side(side);
+                if(value.operation==document::FeatureSideOperation::Extrusion)
+                    targets(value.extrusion_extent,value.targets);
+                else if(value.operation==document::FeatureSideOperation::Revolution &&
+                        value.rotation_extent==document::FeatureRotationExtent::UpTo)
+                    targets(document::EndCondition::UpTo,value.targets);
+            }
+            break;
         case FeatureKind::Extrusion:
             use(root,feature.extrusion.sketch_id);
             targets(feature.extrusion.end_condition_forward,feature.extrusion.end_targets_forward);

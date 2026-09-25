@@ -61,6 +61,7 @@ QString feature_icon_name(zima::document::FeatureKind kind) {
         case FeatureKind::Pyramid: return QStringLiteral("pyramid");
         case FeatureKind::Wedge: return QStringLiteral("wedge");
         case FeatureKind::Extrusion: return QStringLiteral("protrusion");
+        case FeatureKind::Feature: return QStringLiteral("protrusion");
         case FeatureKind::Revolution: return QStringLiteral("revolve");
         case FeatureKind::Sweep2D: return QStringLiteral("sweep2d");
         case FeatureKind::HelicalSweep: return QStringLiteral("helical-sweep");

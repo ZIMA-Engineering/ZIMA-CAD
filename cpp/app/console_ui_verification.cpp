@@ -1,3 +1,5 @@
+#include <QCheckBox>
+#include "primitive_properties_dialog.hpp"
 #include "orientation_dialog.hpp"
 #include <zima/document/named_views.hpp>
 #include <zima/document/placement_json.hpp>
@@ -63,7 +65,181 @@ namespace zima::app {
 // local document snapshots on the Windows main-thread stack.
 Q_NEVER_INLINE static int verify_general_command_console(QApplication& application,
     AssemblyWorkspaceWindow& window,const std::filesystem::path& directory);
+Q_NEVER_INLINE static int verify_axis_up_to(QApplication& application,AssemblyWorkspaceWindow& window,const std::filesystem::path& directory) {
+    try {
+        const auto check=[](bool ok,const char* text){if(!ok)throw std::runtime_error(text);};
+        const auto flush=[&]{application.processEvents();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);application.processEvents();};
+        auto document=zima::document::PartDocument::create_default();
+        document.history.clear();document.sketches.clear();document.constructions.clear();
+        auto plane=zima::document::PartDocument::create_construction(zima::document::ConstructionKind::Plane);
+        plane.base_plane=zima::document::LocalDatumPlane::XZ;plane.base_plane_auto=false;
+        plane.origin=plane.entity_origin={0,60,0};plane.direction={0,1,0};plane.name="End plane";
+        document.constructions={plane};
+        zima::document::BodyHistoryGraph graph;static_cast<void>(graph.create_body("Axis test"));
+        graph.insert({zima::document::PartHistoryKind::Construction,plane.id});document.set_body_history(graph);
+        const auto file=directory/"axis-up-to-ui.prtz";document.save(file);
+        window.showMaximized();flush();check(window.open_document_path(QString::fromStdString(file.string())),"Axis fixture open failed");flush();
+        auto* action=window.findChild<QAction*>("constructionAxisAction");check(action&&action->isEnabled(),"Axis action unavailable");action->trigger();flush();
+        const auto find_dialog=[&]() -> ConstructionPropertiesDialog* {
+            for(auto* item:window.findChildren<QDialog*>())if(item->isVisible())
+                if(auto* typed=dynamic_cast<ConstructionPropertiesDialog*>(item))return typed;
+            return nullptr;
+        };
+        auto* dialog=find_dialog();check(dialog,"Axis properties missing");
+        dialog->findChild<QComboBox*>("axisEndMode0")->setCurrentIndex(1);flush();
+        auto* table=dialog->findChild<QTableWidget*>("axisEndTarget0");
+        QMetaObject::invokeMethod(table,"cellClicked",Qt::DirectConnection,Q_ARG(int,0),Q_ARG(int,1));flush();
+        auto* view=dynamic_cast<zima::viewer::MeshView*>(window.findChild<QWidget*>("modelWorkspace"));check(view,"Axis View missing");
+        std::optional<QPointF> pixel;
+        for(int y=20;y<view->height()-20&&!pixel;y+=8)for(int x=20;x<view->width()-20&&!pixel;x+=8) {
+            const auto hits=view->selection_candidates_at({double(x),double(y)});
+            if(!hits.empty()&&hits.front().owner_id==plane.entity_id&&hits.front().semantic_key=="plane")pixel=QPointF(x,y);
+        }
+        check(pixel.has_value(),"Axis target plane not offered by common picker");
+        const auto global=view->mapToGlobal(pixel->toPoint());
+        QMouseEvent move(QEvent::MouseMove,*pixel,global,Qt::NoButton,Qt::NoButton,Qt::NoModifier);QApplication::sendEvent(view,&move);flush();
+        QMouseEvent press(QEvent::MouseButtonPress,*pixel,global,Qt::LeftButton,Qt::LeftButton,Qt::NoModifier);QApplication::sendEvent(view,&press);
+        QMouseEvent release(QEvent::MouseButtonRelease,*pixel,global,Qt::LeftButton,Qt::NoButton,Qt::NoModifier);QApplication::sendEvent(view,&release);flush();
+        check(dialog->pending_value().axis_ends[0].target.owner_id==plane.entity_id,"Axis target click differs from hover");
+        const auto id=dialog->pending_value().id;
+        window.grab().save(QString::fromStdString((directory/"axis-up-to-ui.png").string()));
+        dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
+        check(find_dialog()==nullptr,"Axis Up-to OK rejected");
+        const auto run=[&](const QString& command){auto result=window.execute_console_command(command);if(!result.ok)throw std::runtime_error(result.message);return result;};
+        const QString get=QString::fromStdString(commands::Json{{"command","construction.get"},{"arguments",{{"construction",id}}}}.dump());
+        std::cout<<"Axis after OK "<<id<<": "<<run("construction.list").data.dump()<<std::endl;
+        check(run(get).data.at("forward_end").at("owner_id")==plane.entity_id,"Axis commit lost end target");
+        run("undo");run("redo");
+        std::cout<<"Axis after Redo: "<<run("construction.list").data.dump()<<std::endl;
+        check(run(get).data.at("forward_end").at("condition")=="up_to","Axis Up-to Redo failed");
+        std::cout<<"Axis Up-to GUI picker, OK and Undo/Redo passed\n";return 0;
+    }catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}
+}
+Q_NEVER_INLINE static int verify_sketch_roles(QApplication& application, AssemblyWorkspaceWindow& window,
+        const std::filesystem::path& directory) {
+    using namespace zima;
+    try {
+        const auto check=[](bool ok,const char* message){if(!ok)throw std::runtime_error(message);};
+        const auto flush=[&]{application.processEvents();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);application.processEvents();};
+        auto part=document::PartDocument::create_default();
+        auto feature=document::PartDocument::create_sketch_container();
+        auto sketch=sketcher::Sketch::create_default();sketch.owner_container_id=feature.id;
+        const auto line=sketch.add_segment(5,5,25,5);
+        const auto circle=sketch.add_circle(40,15,5);
+        part.history={feature};part.sketches={sketch};
+        document::BodyHistoryGraph graph;const auto body=graph.create_body("Construction roles");
+        graph.insert({document::PartHistoryKind::Feature,feature.id});part.set_body_history(graph);part.resolve_constructions();
+        const auto path=directory/"sketch-roles-ui.prtz";part.save(path);
+        window.showMaximized();check(window.open_document_path(QString::fromStdString(path.string())),"Sketch role fixture failed to open");flush();
+        check(window.execute_console_command(QString::fromStdString(commands::Json{{"command","body.activate"},{"arguments",{{"body",body}}}}.dump())).ok,"Body activation failed");flush();
+        auto* tree=window.findChild<QTreeWidget*>("documentTree");check(tree,"Tree missing");
+        const auto find_row=[&](const std::string& id){QTreeWidgetItem* found{};for(QTreeWidgetItemIterator it(tree);*it;++it)
+            if((*it)->data(0,Qt::UserRole).toString().toStdString()==id && (id!=sketch.id || (*it)->data(0,Qt::UserRole+3).toString()=="part-sketch")){found=*it;break;}return found;};
+        auto* row=find_row(sketch.id);check(row,"Sketch row missing");window.show_tree_item_properties(row);flush();
+        auto* open=window.findChild<QPushButton*>("sketchOpenButton");check(open,"Sketch button missing");open->click();flush();
+        const auto context=[&](const std::string& id,const char* action_name,bool expect_both){
+            auto* item=find_row(id);check(item,"Geometry row missing");tree->setCurrentItem(item);tree->scrollToItem(item);flush();
+            bool found=false,both=false;
+            QTimer::singleShot(0,&window,[&]{
+                auto* menu=qobject_cast<QMenu*>(QApplication::activePopupWidget());if(!menu)return;
+                both=menu->findChild<QAction*>("sketchAuxiliaryRoleAction")&&menu->findChild<QAction*>("sketchConstructionRoleAction");
+                auto* action=menu->findChild<QAction*>(action_name);
+                if(action){found=true;action->trigger();}menu->close();
+            });
+            QMetaObject::invokeMethod(tree,"customContextMenuRequested",Qt::DirectConnection,Q_ARG(QPoint,tree->visualItemRect(item).center()));flush();
+            check(found,"Construction context action missing");check(!expect_both||both,"Normal geometry must offer both alternative roles");
+        };
+        context(line,"sketchConstructionRoleAction",true);
+        context(circle,"sketchConstructionRoleAction",true);
+        context(circle,"sketchGeometryVisible3DAction",false);
+        window.findChild<QAction*>("finishSketchAction")->trigger();flush();
+        SketchPropertiesDialog* properties{};
+        for(auto* dialog:window.findChildren<QDialog*>())if(dialog->isVisible())if(auto* typed=dynamic_cast<SketchPropertiesDialog*>(dialog))properties=typed;
+        check(properties,"Sketch properties did not resume");properties->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
+        window.findChild<QAction*>("saveDocumentAction")->trigger();flush();
+        const auto saved=document::PartDocument::load(path);const auto& result=saved.sketches.front();
+        check(result.geometry_is_centerline(line)&&result.geometry_is_centerline(circle)&&!result.geometry_visible_in_3d(circle),"Role or visibility not persisted");
+        auto* view=dynamic_cast<viewer::MeshView*>(window.findChild<QWidget*>("modelWorkspace"));check(view,"View missing");
+        bool line_shown=false,circle_shown=false;
+        for(const auto& edge:view->mesh().edges){if(edge.reference.semantic_key=="segment:"+line){line_shown=true;check(edge.dash_dot&&!edge.infinite,"Construction segment not finite dash-dot");}if(edge.reference.semantic_key=="circle:"+circle)circle_shown=true;}
+        check(line_shown&&!circle_shown,"3D construction visibility differs from saved settings");
+        window.grab().save(QString::fromStdString((directory/"sketch-roles-ui.png").string()));
+        std::cout<<"Sketch role context menus, finite 3D display and visibility persistence passed\n";return 0;
+    } catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}
+}
+#include "feature_ui_verification.inc"
+
+Q_NEVER_INLINE static int verify_feature_prototype(QApplication& application,AssemblyWorkspaceWindow& window,const std::filesystem::path& directory) {
+    try {
+        const auto check=[](bool ok,const char* message){if(!ok)throw std::runtime_error(message);};
+        const auto flush=[&]{application.processEvents();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);application.processEvents();};
+        window.showMaximized();flush();
+        check(window.execute_console_command(QString::fromStdString(commands::Json{{"command","new"},{"arguments",{{"type","part"},{"name","feature-gui"}}}}.dump())).ok,"Prototype Part creation failed");flush();
+        auto* action=window.findChild<QAction*>("featurePrototypeAction");check(action&&action->isEnabled(),"Feature command unavailable");action->trigger();flush();
+        auto* dialog=dynamic_cast<PrimitivePropertiesDialog*>(window.findChild<QWidget*>("featurePropertiesDialog"));check(dialog&&dialog->isVisible(),"Feature GUI did not open");
+        auto* first=dialog->findChild<QComboBox*>("featureSideMode0");auto* second=dialog->findChild<QComboBox*>("featureSideMode1");
+        check(first->currentIndex()==1&&second->currentIndex()==0,"Unexpected initial side modes");
+        second->setCurrentIndex(2);flush();
+        auto* angle=dialog->findChild<QDoubleSpinBox*>("featureSideValue1");check(angle->maximum()==360&&angle->value()==90,"Rotation controls not updated");
+        angle->setValue(123);second->setCurrentIndex(1);angle->setValue(37);
+        auto* side_end=dialog->findChild<QComboBox*>("featureSideEnd1");side_end->setCurrentIndex(1);
+        second->setCurrentIndex(0);second->setCurrentIndex(2);
+        check(angle->value()==123&&side_end->currentIndex()==0,"Switching a side discarded its rotation settings");
+        second->setCurrentIndex(1);
+        check(angle->value()==37&&side_end->currentIndex()==1,"Switching a side discarded its extrusion settings");
+        second->setCurrentIndex(2);
+        const auto pending=dialog->pending_value().feature;
+        check(pending.sides[1].length==37&&pending.sides[1].angle_degrees==123&&
+              pending.sides[1].extrusion_extent==document::EndCondition::UpTo,
+            "Feature editing definition lost inactive operation parameters");
+        auto* symmetric=dialog->findChild<QCheckBox*>("featureSymmetric");symmetric->setChecked(true);check(!second->isEnabled(),"Symmetry did not lock second side");symmetric->setChecked(false);
+        check(dialog->pending_value().feature.sides==pending.sides,"Symmetry discarded independent side settings");
+        dialog->findChild<QComboBox*>("featureResult")->setCurrentIndex(2);check(dialog->findChild<QDoubleSpinBox*>("featureThickness")->isEnabled(),"Thin mode did not enable thickness");
+        auto* result=dialog->findChild<QComboBox*>("featureResult");
+        for(int a=0;a<3;++a)for(int b=0;b<3;++b)for(int r=0;r<3;++r){
+            first->setCurrentIndex(a);second->setCurrentIndex(b);result->setCurrentIndex(r);
+            auto* add=dialog->findChild<QPushButton*>("featureAdd");
+            auto* cut=dialog->findChild<QPushButton*>("featureSubtract");
+            const bool enabled=(a!=0||b!=0)&&r!=1;
+            check(add->isEnabled()==enabled&&cut->isEnabled()==enabled,"Common operation availability differs from modes");
+            if(enabled){cut->click();check(cut->isChecked()&&!add->isChecked(),"Subtract is not exclusive");add->click();check(add->isChecked()&&!cut->isChecked(),"Add is not exclusive");}
+        }
+        first->setCurrentIndex(1);second->setCurrentIndex(2);result->setCurrentIndex(0);
+        dialog->findChild<QPushButton*>("featureSubtract")->click();
+        auto* plus=dialog->findChild<QPushButton*>("featureAdd");
+        const auto icon_color=[](QPushButton* button){const auto icon=button->icon().pixmap({18,18}).toImage();return icon.pixelColor(icon.width()/2,icon.height()/2);};
+        check(icon_color(plus)==QColor("#4DD811"),"Add icon is not green at rest");
+        QEnterEvent enter(QPointF(2,2),QPointF(2,2),QPointF(plus->mapToGlobal(QPoint(2,2))));QApplication::sendEvent(plus,&enter);
+        check(icon_color(plus)==QColor(Qt::black),"Add icon is not black on hover");
+        QEvent leave(QEvent::Leave);QApplication::sendEvent(plus,&leave);
+        check(icon_color(plus)==QColor("#4DD811"),"Add icon did not restore green after hover");
+        plus->click();QApplication::sendEvent(plus,&leave);
+        check(icon_color(plus)==QColor(Qt::black),"Selected Add icon is not black after pointer leave");
+        dialog->findChild<QPushButton*>("featureSubtract")->click();
+        check(icon_color(plus)==QColor("#4DD811"),"Deselected Add icon did not restore green");
+        check(icon_color(dialog->findChild<QPushButton*>("featureSubtract"))==QColor("#FF0000"),"Subtract icon is not red");
+        window.grab().save(QString::fromStdString((directory/"feature-prototype-ui.png").string()));
+        dialog->reject();flush();
+        check(!window.findChild<QWidget*>("featurePropertiesDialog"),"Feature prototype did not close");
+        action->trigger();flush();dialog=dynamic_cast<PrimitivePropertiesDialog*>(window.findChild<QWidget*>("featurePropertiesDialog"));check(dialog,"Feature prototype cannot reopen");dialog->reject();flush();
+        auto restored=pending;restored.symmetric=true;restored.result_type=document::ProfileResultType::Thin;
+        restored.thin_thickness=.75123456789;restored.thin_mode=document::ThinMode::Symmetric;
+        restored.origin_centerline=restored.centroid_centerline=true;restored.profile_plane_offset=-3.5123456789;
+        restored.sides[0].length=51.123456789;restored.sides[1].angle_degrees=123.123456789;
+        restored.sketch_id="owned-sketch";restored.axis_segment_id="construction-axis";
+        auto definition=document::PartDocument::create_feature_container(restored.sketch_id);definition.feature=restored;
+        dialog=new PrimitivePropertiesDialog(definition,false,true,[](document::HistoryContainer){},&window);dialog->show();flush();
+        check(dialog->pending_value().feature==restored,"Feature dialog failed to restore its complete editing definition");
+        check(dialog->pending_value().feature.effective_side(1)==restored.sides[0],"Symmetric Feature did not derive its effective second side");
+        dialog->reject();flush();
+        verify_feature_modeling(application,window,directory);
+        std::cout<<"Feature GUI: parameter modes, Sketch creation, OK, Cancel and Undo/Redo passed\n";return 0;
+    }catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}
+}
 int verify_command_console(QApplication& application,AssemblyWorkspaceWindow& window,const std::filesystem::path& directory) {
+    if (qEnvironmentVariableIsSet("ZIMA_VERIFY_FEATURE_PROTOTYPE_ONLY")) return verify_feature_prototype(application,window,directory);
+    if (qEnvironmentVariableIsSet("ZIMA_VERIFY_SKETCH_ROLES_ONLY")) return verify_sketch_roles(application,window,directory);
+    if (qEnvironmentVariableIsSet("ZIMA_VERIFY_AXIS_UP_TO_ONLY")) return verify_axis_up_to(application,window,directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_WORK_PLANE_ONLY")) return verify_work_plane_ui(application,window,directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_ROTATION_HANDLE_ONLY")) return verify_rotation_handle_ui(application,window,directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_HOLES_ONLY")) return verify_holes_ui(application,window,directory);
@@ -1481,11 +1657,11 @@ static int verify_general_command_console(QApplication& application,AssemblyWork
                 !std::filesystem::exists(companion) && std::filesystem::exists(renamed_companion) &&
                 std::abs(span_x() - before_width) < 1e-8 && view->camera_state() == camera,
                 "GUI rename failed or changed live geometry/camera");
-            const auto renamed_group = assembly::AssemblyDocument::load(closed_assembly);
+            const auto renamed_group = assembly::AssemblyDocument::load(closed_assembly,{},false);
             check(renamed_group.components.front().source_document_id == saved.document_id &&
-                renamed_group.components.front().source_path == renamed &&
+                renamed_group.components.front().source_path == original &&
                 renamed_group.components.front().occurrence_id == group.components.front().occurrence_id,
-                "GUI rename missed a real closed Assembly reference or changed occurrence identity");
+                "GUI rename changed a closed Assembly reference or occurrence identity");
             std::vector<kernel::BodyResult> disk_body;
             const auto renamed_part = document::PartDocument::load(renamed, &disk_body);
             check(renamed_part.document_id == saved.document_id && !disk_body.empty() &&
@@ -1503,7 +1679,7 @@ static int verify_general_command_console(QApplication& application,AssemblyWork
             check(result.data.at("changed") == true && result.data.at("document") == saved.document_id &&
                 !std::filesystem::exists(renamed) && std::filesystem::exists(final_path) &&
                 std::filesystem::exists(final_companion) &&
-                assembly::AssemblyDocument::load(closed_assembly).components.front().source_path == final_path,
+                assembly::AssemblyDocument::load(closed_assembly,{},false).components.front().source_path == original,
                 "Console rename did not update real files and dependencies after GUI rename");
             auto* document_tabs = window.findChild<QTabBar*>("documentTabs");
             bool part_tab = false, drawing_tab = false;
@@ -1534,6 +1710,8 @@ static int verify_general_command_console(QApplication& application,AssemblyWork
             check(drawing::DrawingDocument::load(final_companion).source_path == final_path &&
                 std::filesystem::exists(companion_archive),
                 "GUI Drawing Save after Unicode rename used a different native path");
+            group.components.front().source_path = final_path;
+            group.save(closed_assembly);
             json_run("open", {{"path",path_text(closed_assembly)}}); flush();
             json_run("rename_file", {{"name",path_text(std::filesystem::path(u8"přejmenovaná sestava.asmz"))}}); flush();
             const auto assembly_path = closed_assembly.parent_path() / std::filesystem::path(u8"přejmenovaná sestava.asmz");

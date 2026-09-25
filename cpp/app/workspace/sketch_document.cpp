@@ -566,7 +566,7 @@ void AssemblyWorkspaceWindow::finish_active_sketch() {
                 } else if (feature_kind ==
                                zima::document::FeatureKind::Extrusion ||
                            feature_kind ==
-                               zima::document::FeatureKind::Revolution) {
+                               zima::document::FeatureKind::Revolution || feature_kind == zima::document::FeatureKind::Feature) {
                     const auto* assembly = workspace_.open_assembly(
                         workspace_.active_document_id());
                     const auto* part = workspace_.open_part(workspace_.active_document_id());

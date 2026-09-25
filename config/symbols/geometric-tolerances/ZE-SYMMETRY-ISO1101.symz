@@ -107,42 +107,54 @@
           "fixed": true,
           "id": "middle:a",
           "x": 1.0,
-          "y": 0.0
+          "y": 0.0,
+          "centerline": false,
+          "visible_in_3d": true
         },
         {
           "construction": false,
           "fixed": true,
           "id": "middle:b",
           "x": 6.0,
-          "y": 0.0
+          "y": 0.0,
+          "centerline": false,
+          "visible_in_3d": true
         },
         {
           "construction": false,
           "fixed": true,
           "id": "bottom:a",
           "x": 1.8,
-          "y": -1.2999999999999998
+          "y": -1.2999999999999998,
+          "centerline": false,
+          "visible_in_3d": true
         },
         {
           "construction": false,
           "fixed": true,
           "id": "bottom:b",
           "x": 5.2,
-          "y": -1.2999999999999998
+          "y": -1.2999999999999998,
+          "centerline": false,
+          "visible_in_3d": true
         },
         {
           "construction": false,
           "fixed": true,
           "id": "top:a",
           "x": 1.8,
-          "y": 1.2999999999999998
+          "y": 1.2999999999999998,
+          "centerline": false,
+          "visible_in_3d": true
         },
         {
           "construction": false,
           "fixed": true,
           "id": "top:b",
           "x": 5.2,
-          "y": 1.2999999999999998
+          "y": 1.2999999999999998,
+          "centerline": false,
+          "visible_in_3d": true
         }
       ],
       "resolved_normal": [
@@ -171,27 +183,30 @@
           "construction": false,
           "first": "middle:a",
           "id": "middle",
-          "second": "middle:b"
+          "second": "middle:b",
+          "visible_in_3d": true
         },
         {
           "centerline": false,
           "construction": false,
           "first": "bottom:a",
           "id": "bottom",
-          "second": "bottom:b"
+          "second": "bottom:b",
+          "visible_in_3d": true
         },
         {
           "centerline": false,
           "construction": false,
           "first": "top:a",
           "id": "top",
-          "second": "top:b"
+          "second": "top:b",
+          "visible_in_3d": true
         }
       ],
       "suppressed": false,
       "symbols": [],
       "texts": [],
-      "version": 34
+      "version": 35
     },
     {
       "arcs": [],
@@ -1219,7 +1234,7 @@
           "vertical": "bottom"
         }
       ],
-      "version": 34
+      "version": 35
     },
     {
       "arcs": [],
@@ -1531,7 +1546,7 @@
           "vertical": "bottom"
         }
       ],
-      "version": 34
+      "version": 35
     },
     {
       "arcs": [],
@@ -2185,7 +2200,7 @@
           "vertical": "bottom"
         }
       ],
-      "version": 34
+      "version": 35
     },
     {
       "arcs": [],
@@ -2663,7 +2678,7 @@
           "vertical": "bottom"
         }
       ],
-      "version": 34
+      "version": 35
     }
   ],
   "units": "mm",

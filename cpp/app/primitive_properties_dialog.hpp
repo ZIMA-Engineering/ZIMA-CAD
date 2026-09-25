@@ -33,6 +33,8 @@ class ReferenceCellItem;
 
 namespace zima::app {
 
+class FeatureParameterPanel;
+
 // Single source of truth for history features that consume the complete
 // shared container-placement contract in both Properties and the View.
 [[nodiscard]] bool uses_container_placement(
@@ -78,10 +80,7 @@ public:
         std::vector<zima::kernel::Vec3> triangles, std::string label = {});
     void set_extrusion_target_request(std::function<void()> callback);
     void set_extrusion_target_cancel(std::function<void()> callback);
-    [[nodiscard]] bool requires_planar_end_target() const {
-        return initial_.feature_kind == zima::document::FeatureKind::Thread &&
-            active_end_target_side_ == "reverse";
-    }
+    [[nodiscard]] bool requires_planar_end_target() const;
     void finish_extrusion_target_entry();
     void set_profile_pick_request(std::function<void(bool)> callback);
     void set_profile_sketch_status(const zima::sketcher::Sketch&);
@@ -182,6 +181,9 @@ protected:
     bool eventFilter(QObject* watched, QEvent* event) override;
 
 private:
+    FeatureParameterPanel* feature_panel_{};
+    std::vector<zima::document::ExtrusionParameters::EndTarget>& profile_end_targets(bool reverse);
+    const std::vector<zima::document::ExtrusionParameters::EndTarget>& profile_end_targets(bool reverse) const;
     zima::kernel::ViewerReferenceGeometry sheet_reference_geometry_;
     QCheckBox* sheet_thickness_override_{};
     double sheet_default_thickness_{1};
@@ -237,6 +239,8 @@ private:
     std::vector<zima::kernel::FaceReference> drill_point_faces_;
     std::function<void(std::size_t)> remove_drill_point_face_;
     std::function<void()> request_drill_point_face_selection_;
+    QCheckBox* origin_centerline_{};
+    QCheckBox* centroid_centerline_{};
     QComboBox* extrusion_direction_{};
     QComboBox* extrusion_extent_{};
     QLabel* extrusion_target_{};

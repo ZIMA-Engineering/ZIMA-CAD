@@ -51,6 +51,128 @@ void surfaces(const kernel::OcctKernel& kernel,fs::path directory) {
     }
 }
 
+void unified_feature(const kernel::OcctKernel& kernel,fs::path directory) {
+    Fixture f(kernel,directory);
+    f.run("new",{{"type","part"},{"name","unified-feature-transaction"}});
+    const auto upper=f.run("construction.create",{{"kind","plane"},{"name","Feature end"},{"base_plane","xy"},{"offset_mm",7}});
+    const auto sketch=f.rectangle(5,0,10,8);
+    const auto axis=f.line(sketch,0,0,0,8);
+    f.run("sketch.segment.centerline",{{"sketch",sketch},{"segment",axis},{"centerline",true}});
+    auto value=workspace::profile_from_sketch(f.doc(),sketch,document::FeatureKind::Feature);
+    const auto id=value.id, feature_id=value.feature_id;
+    const auto source=*f.doc().find_container(id);
+    value.feature.sides[0].length=20;
+    value.feature.sides[1].operation=document::FeatureSideOperation::Extrusion;
+    value.feature.sides[1].length=7;
+    const auto commit=[&](document::HistoryContainer draft,workspace::ProfileEditMode mode=workspace::ProfileEditMode::Replace) {
+        workspace::commit_profile(f.live,kernel,f.doc().document_id,std::move(draft),mode);
+    };
+    commit(value,workspace::ProfileEditMode::TransformSketch);
+    near(f.volume(),2160);
+    f.run("undo");require(*f.doc().find_container(id)==source,"Feature Undo did not restore standalone Sketch");
+    f.run("redo");near(f.volume(),2160);
+    value=*f.doc().find_container(id);
+    value.feature.symmetric=true;
+    commit(value);near(f.volume(),3200);
+    require(f.doc().find_container(id)->feature.sides[1].length==7,"Feature symmetry destroyed independent side settings");
+    value=*f.doc().find_container(id);
+    value.feature.symmetric=false;
+    value.feature.sides[1].operation=document::FeatureSideOperation::None;
+    commit(value);near(f.volume(),1600);
+    f.run("undo");near(f.volume(),3200);f.run("redo");near(f.volume(),1600);
+    value=*f.doc().find_container(id);
+    value.feature.sides[0].operation=document::FeatureSideOperation::Revolution;
+    value.feature.sides[0].angle_degrees=90;
+    commit(value);near(f.volume(),400*std::numbers::pi);
+    require(f.doc().find_container(id)->feature.axis_segment_id==axis && f.doc().find_container(id)->feature_id==feature_id,
+        "Feature changed identity or failed to select first construction axis");
+    const auto before=f.doc().serialized();const auto revision=f.part().session.revision();
+    const auto* cache=f.part().session.calculated_boundaries().data();
+    value=*f.doc().find_container(id);value.feature.sides[0].angle_degrees=0;
+    bool rejected=false;
+    try {commit(value);}catch(const workspace::ProfileOperationError&){rejected=true;}
+    require(rejected && f.doc().serialized()==before && f.part().session.revision()==revision &&
+        f.part().session.calculated_boundaries().data()==cache,"Invalid Feature transaction changed live state");
+    auto draft=*std::ranges::find(f.doc().sketches,sketch,&sketcher::Sketch::id);
+    for(auto& point:draft.points)point.y*=2;
+    workspace::commit_profile(f.live,kernel,f.doc().document_id,*f.doc().find_container(id),workspace::ProfileEditMode::Replace,draft);
+    near(f.volume(),800*std::numbers::pi);
+    f.run("undo");near(f.volume(),400*std::numbers::pi);f.run("redo");
+    f.run("save");std::vector<kernel::BodyResult> saved;
+    const auto reopened=document::PartDocument::load(directory/"unified-feature-transaction.prtz",&saved);
+    require(*reopened.find_container(id)==*f.doc().find_container(id),"Feature transaction lost native fields");
+    near(saved.back().volume,800*std::numbers::pi);
+
+    // A kernel-level profile failure must leave the transaction just as intact
+    // as a parameter validation failure, including its owned Sketch.
+    const auto valid_document=f.doc().serialized();const auto valid_revision=f.part().session.revision();
+    auto open_profile=*std::ranges::find(f.doc().sketches,sketch,&sketcher::Sketch::id);
+    open_profile.segments.erase(open_profile.segments.begin());
+    rejected=false;
+    try {workspace::commit_profile(f.live,kernel,f.doc().document_id,*f.doc().find_container(id),workspace::ProfileEditMode::Replace,open_profile);}
+    catch(const std::exception&){rejected=true;}
+    require(rejected && f.doc().serialized()==valid_document && f.part().session.revision()==valid_revision,
+        "Failed Feature calculation committed partial history or Sketch data");
+
+    value=*f.doc().find_container(id);
+    value.feature.sides[0].operation=document::FeatureSideOperation::Extrusion;
+    value.feature.sides[0].extrusion_extent=document::EndCondition::UpTo;
+    document::ExtrusionParameters::EndTarget target;
+    target.reference.owner_id=upper.at("entity").get<std::string>();
+    target.reference.semantic_key="plane";
+    value.feature.sides[0].targets={target};
+    commit(value);near(f.volume(),1120);
+    f.run("construction.set",{{"construction",upper.at("construction")},{"offset_mm",9}});
+    near(f.volume(),1120);f.run("regenerate");near(f.volume(),1440);
+    near(f.doc().find_container(id)->feature.sides[0].targets.front().fallback_origin.z,9);
+    f.run("undo");f.run("redo");near(f.volume(),1440);
+    value=*f.doc().find_container(id);value.feature.symmetric=true;
+    commit(value);near(f.volume(),2880);
+    f.run("undo");near(f.volume(),1440);f.run("redo");near(f.volume(),2880);
+
+    // Creation from a transient owned Sketch uses the same atomic transaction.
+    draft=*std::ranges::find(f.doc().sketches,sketch,&sketcher::Sketch::id);
+    f.run("new",{{"type","part"},{"name","unified-feature-created"}});
+    auto created=document::PartDocument::create_feature_container(draft.id);
+    draft.owner_container_id=created.id;
+    created.feature.sides[0].length=2;
+    workspace::commit_profile(f.live,kernel,f.doc().document_id,created,workspace::ProfileEditMode::Create,draft);
+    near(f.volume(),320);
+    require(f.doc().find_container(created.id)!=nullptr && f.doc().sketches.size()==1,"Feature creation did not commit its owned Sketch");
+    f.run("undo");require(!f.doc().find_container(created.id) && f.doc().sketches.empty(),"Feature creation Undo left a pending Sketch");
+    f.run("redo");near(f.volume(),320);
+
+    // No-operation Feature keeps an unfinished Sketch and the same history
+    // transaction. Adding the profile later must not replace its identity.
+    auto empty=draft;empty.points.clear();empty.segments.clear();
+    auto datum=*f.doc().find_container(created.id);
+    datum.feature.sides[0].operation=document::FeatureSideOperation::None;
+    datum.feature.origin_centerline=true;
+    workspace::commit_profile(f.live,kernel,f.doc().document_id,datum,workspace::ProfileEditMode::Replace,empty);
+    near(f.volume(),0);
+    f.run("undo");near(f.volume(),320);f.run("redo");near(f.volume(),0);
+    workspace::commit_profile(f.live,kernel,f.doc().document_id,created,workspace::ProfileEditMode::Replace,draft);
+    near(f.volume(),320);
+
+    // Rotation Up To uses an original datum containing the authored axis.
+    auto limited=*f.doc().find_container(created.id);
+    limited.feature.sides[0].operation=document::FeatureSideOperation::Revolution;
+    limited.feature.sides[0].rotation_extent=document::FeatureRotationExtent::UpTo;
+    document::ExtrusionParameters::EndTarget end;
+    end.reference={f.doc().document_id+":origin","origin:plane:yz",{}};
+    limited.feature.sides[0].targets={end};
+    commit(limited);near(f.volume(),800*std::numbers::pi);
+    require(!f.doc().feature_preview_edges(*f.doc().find_container(created.id)).empty(),"Rotation limit has no analytical preview");
+    limited=*f.doc().find_container(created.id);limited.feature.symmetric=true;
+    commit(limited);near(f.volume(),1600*std::numbers::pi);
+    f.run("undo");near(f.volume(),800*std::numbers::pi);f.run("redo");near(f.volume(),1600*std::numbers::pi);
+    limited=*f.doc().find_container(created.id);
+    limited.feature.sides[0].targets.front().reference.semantic_key="origin:plane:xz";
+    const auto valid=f.doc().serialized();
+    rejected=false;try{commit(limited);}catch(const std::exception&){rejected=true;}
+    require(rejected&&f.doc().serialized()==valid,"Invalid rotation limit changed committed state");
+}
+
 void front_reference() {
     document::ConstructionReference stale, front, top;
     stale.owner_id="obsolete";stale.orientation_only=true;stale.supports_offset=true;
@@ -246,8 +368,16 @@ void revolution(const kernel::OcctKernel& kernel,fs::path directory){
     const auto sketch=f.rectangle(2,0,2,10);
     f.reject("revolution.create",{{"sketch",sketch}},"profile_rejected");
     const auto axis=f.line(sketch,0,0,0,10);f.run("sketch.segment.centerline",{{"sketch",sketch},{"segment",axis},{"centerline",true}});
-    const auto made=f.run("revolution.create",{{"sketch",sketch},{"axis",axis}});const auto id=made.at("container").get<std::string>();near(f.volume(),120*std::numbers::pi);
+    const auto second_axis=f.line(sketch,-8,0,-8,10);
+    f.run("sketch.segment.centerline",{{"sketch",sketch},{"segment",second_axis},{"centerline",true}});
+    const auto made=f.run("revolution.create",{{"sketch",sketch}});const auto id=made.at("container").get<std::string>();near(f.volume(),120*std::numbers::pi);
     require(made.at("axis")==axis,"Revolution did not use exact native centerline identity");
+    auto hidden_axis=f.doc();
+    auto& hidden_sketch=*std::ranges::find(hidden_axis.sketches,sketch,&sketcher::Sketch::id);
+    hidden_sketch.set_geometry_visible_in_3d(axis,false);
+    require(workspace::revolution_axis_segment_id(hidden_sketch)==axis,"Hiding first construction axis selected another axis");
+    hidden_axis.find_container(id)->revolution.axis_segment_id.clear();
+    near(kernel.evaluate_history(hidden_axis.kernel_operations()).back().volume,120*std::numbers::pi);
     f.run("revolution.set",{{"container",id},{"result_type","thin"},{"thin_thickness_mm",.25},{"thin_mode","symmetric"}});near(f.volume(),36*std::numbers::pi);
     f.run("revolution.set",{{"container",id},{"result_type","solid"}});near(f.volume(),120*std::numbers::pi);
     f.run("revolution.set",{{"container",id},{"angle_degrees",90}});near(f.volume(),30*std::numbers::pi);
@@ -263,6 +393,6 @@ void revolution(const kernel::OcctKernel& kernel,fs::path directory){
 }
 }
 int main(){try{const auto root=fs::canonical(fs::temp_directory_path());const auto directory=root/("zima-profile-commands-"+document::PartDocument::create_default().document_id);
-    require(fs::create_directory(directory),"Cannot create fixture directory");kernel::OcctKernel kernel;front_reference();surfaces(kernel,directory);sheet_cut_methods(kernel,directory);extrusion(kernel,directory);thin_and_cut(kernel,directory);end_targets(kernel,directory);original_body_target_commands(kernel,directory);revolution(kernel,directory);
+    require(fs::create_directory(directory),"Cannot create fixture directory");kernel::OcctKernel kernel;front_reference();unified_feature(kernel,directory);surfaces(kernel,directory);sheet_cut_methods(kernel,directory);extrusion(kernel,directory);thin_and_cut(kernel,directory);end_targets(kernel,directory);original_body_target_commands(kernel,directory);revolution(kernel,directory);
     require(directory.parent_path()==root,"Unexpected cleanup path");fs::remove_all(directory);std::cout<<"Profile commands: native ownership, exact solid volumes, Thin walls, cuts, dimensions, locks, atomic errors and Undo/Redo passed\n";return 0;
 }catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}

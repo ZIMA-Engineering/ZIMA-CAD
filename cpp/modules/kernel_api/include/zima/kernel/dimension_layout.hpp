@@ -52,7 +52,7 @@ inline ModelEnvelope model_envelope(const ViewerMesh &mesh) {
         if (index < mesh.vertices.size())
             bounds.include(mesh.vertices[index]);
     for (const auto &edge : mesh.edges)
-        if (!edge.construction && !edge.reference.semantic_key.starts_with("origin:"))
+        if (!edge.construction && !edge.annotation && !edge.reference.semantic_key.starts_with("origin:"))
             for (auto point : edge.points)
                 bounds.include(point);
     return bounds;

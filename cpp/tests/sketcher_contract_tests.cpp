@@ -1678,9 +1678,35 @@ int main() {
         require(auxiliary_curves.serialized() == auxiliary_curves_before,
                 "Construction round-trip modified the original curve definitions");
         auxiliary_curves.set_segment_centerline(auxiliary_curve_ids.front(), true);
-        require(auxiliary_curves.viewer_mesh().edges.front().infinite &&
+        require(!auxiliary_curves.viewer_mesh().edges.front().infinite &&
                     auxiliary_curves.viewer_mesh().edges.front().dash_dot,
-                "The separate infinite centerline contract was lost");
+                "The finite construction centerline contract was lost");
+        // Every native curve supports the same finite construction role and
+        // independent 3D visibility without modifying shape or identity.
+        for (const auto& curve_id : auxiliary_curve_ids)
+            auxiliary_curves.set_geometry_centerline(curve_id, true);
+        auto construction_roundtrip = zima::sketcher::Sketch::from_serialized(auxiliary_curves.serialized());
+        auto construction_display = construction_roundtrip.viewer_mesh();
+        construction_roundtrip.filter_hidden_3d_geometry(construction_display);
+        require(construction_display.edges.size() == auxiliary_curve_ids.size(),
+                "Visible construction curves disappeared in 3D");
+        for (std::size_t i = 0; i < auxiliary_curve_ids.size(); ++i) {
+            const auto& edge=construction_display.edges[i];
+            require(edge.dash_dot && !edge.infinite && edge.construction &&
+                    edge.reference == auxiliary_edges_before[i].reference &&
+                    edge.points == auxiliary_edges_before[i].points,
+                    "Construction conversion changed shape, identity or finite style");
+            construction_roundtrip.set_geometry_visible_in_3d(auxiliary_curve_ids[i], false);
+        }
+        auto hidden_roundtrip=zima::sketcher::Sketch::from_serialized(construction_roundtrip.serialized());
+        auto hidden_display=hidden_roundtrip.viewer_mesh();
+        hidden_roundtrip.filter_hidden_3d_geometry(hidden_display);
+        require(hidden_display.edges.empty() && std::none_of(hidden_display.points.begin(),hidden_display.points.end(),
+                    [](const auto& point){return point.reference.semantic_key.starts_with("point:");}),
+                "Hidden construction still appears in 3D");
+        require(hidden_roundtrip.viewer_mesh().edges.size()==auxiliary_curve_ids.size() &&
+                hidden_roundtrip.placement_reference_geometry().edges.size()==auxiliary_curve_ids.size(),
+                "3D hiding deleted editable geometry or persisted references");
         // Construction styling must preserve the circle's stable constraint graph.
         auto auxiliary_circle = zima::sketcher::Sketch::create_default();
         const auto auxiliary_circle_id = auxiliary_circle.add_circle(0.0, 0.0, 10.0);
@@ -7124,7 +7150,7 @@ int main() {
         const auto centerline_round_trip = zima::sketcher::Sketch::from_serialized(
             committed_sketch.serialized());
         require(centerline_round_trip.segments.back().centerline,
-                "Sketch centerline lost its unbounded semantic on round-trip");
+                "Sketch centerline lost its construction role on round-trip");
 
         const auto before_cancel = committed_sketch.serialized();
         auto cancelled_edit = committed_sketch;

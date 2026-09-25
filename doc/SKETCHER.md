@@ -602,14 +602,14 @@ not move.
 Segments, circles, circular/elliptic arcs, ellipses and B-splines can switch via
 View/Tree context actions **Convert to auxiliary geometry** and **Convert to
 profile outline**. Auxiliary curves use dashed lines. The separate **Construction
-line** tool creates an infinite centerline with a dash-dot (chain) pattern.
+line** tool creates a finite centerline with a dash-dot (chain) pattern.
 Hover and confirmed selection change only the color, preserving the line pattern
 and extent. Sampled curves keep one continuous dash pattern across their chords.
 
 The role changes while identity, control points, dimensions, ranges, constraints
 remain. Auxiliary curves are excluded from solid profiles. Segments remain finite
 and arcs retain ends; converting a segment to auxiliary geometry does not turn it
-into an infinite construction line.
+into a dash-dot construction line.
 
 ### Template text and dimensions in Properties (2026-09-09)
 
@@ -751,3 +751,51 @@ of every other edge length, nearby-branch retention, native Sketch round-trip,
 return to original dimensions, impossible geometry and duplicate drivers.
 The original file was also checked without saving: all six edge lengths accepted
 independent -5% and +5% changes (12 cases). No UI text or native format changed.
+
+## Midpoint endpoint confirmation (2026-09-25)
+
+When a new segment ends at an existing segment midpoint, automatic horizontal or
+vertical alignment is retained only if the accepted first endpoint and the
+snapped midpoint actually express that direction. Alignment to an unrelated
+existing point must not become a direction constraint on the new segment.
+
+The endpoint-priority GUI regression includes midpoint-to-midpoint and free-point-
+to-midpoint creation, checks both endpoints and unchanged support geometry, and
+verifies native persistence of the M constraints. The regression reproduces an
+endpoint displacement with the previous confirmation code.
+
+## Finite construction geometry and 3D visibility
+
+Native points, segments, circles, arcs, ellipses, elliptical arcs and splines
+support three roles. Profile geometry participates in body profiles. Auxiliary
+geometry is dashed, excluded from profiles and hidden outside Sketcher.
+Construction geometry is dash-dot, excluded from profiles and visible in 3D by
+default. A construction segment ends at its two defining points; its mathematical
+supporting line remains available for rotation and geometric constraints.
+
+The geometry context menu offers both alternative roles. Construction geometry
+also exposes **Show in 3D**. This setting affects display and new hover selection,
+not the editable Sketch, geometry IDs, constraints or persisted references.
+Hidden construction remains visible while editing its Sketch. Undo/Redo and
+native save/reopen preserve both role and visibility.
+
+The first construction **segment** supplies the default Revolution axis. An
+already configured axis keeps its persisted identity. Other construction curves
+are not straight rotation axes. Hiding the axis in 3D does not disable rotation.
+
+Construction role and per-entity visibility are stored in native Sketch format
+35. Factory symbols, title blocks and regression fixtures use this format. Older
+Sketch formats are not accepted, following the project's native-format policy.
+The start Part and Assembly templates were re-saved with the current native code
+and checked through the application's New Document UI.
+
+Verification covers all six native curve types, shape/ID preservation, finite
+rendering, hidden geometry persistence, real Tree context-menu actions, 3D
+visibility after commit, and a Revolution with two construction segments whose
+first segment is hidden. Localization coverage includes all five supported
+languages.
+
+Auxiliary and construction geometry in Sketcher use the same brown as datum
+planes/axes (`#AD6E2E`). Dashed versus dash-dot lines distinguish their roles;
+hover and confirmed selection retain the shared interaction colors. Sketch entry
+buttons share a blue background, green hover and cyan active state.

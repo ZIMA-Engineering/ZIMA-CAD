@@ -31,6 +31,8 @@ void commit_assembly_profile(Workspace& live, const kernel::OcctKernel& kernel,
     const std::optional<sketcher::Sketch>& owned_sketch) {
     auto* state = live.open_assembly(id);
     if (!state) throw ProfileOperationError("unsupported_document", "Cut operations require an open Assembly.");
+    if (value.feature_kind!=document::FeatureKind::Extrusion && value.feature_kind!=document::FeatureKind::Revolution)
+        throw ProfileOperationError("wrong_feature", "The requested profile type does not match the container.");
     validate_profile_definition(value);
     if(value.feature_kind==document::FeatureKind::Extrusion&&value.extrusion.sheet_cut)
         throw ProfileOperationError("unsupported_document", "Sheet Cut belongs to a Part. Activate its source Part before cutting sheet material.");

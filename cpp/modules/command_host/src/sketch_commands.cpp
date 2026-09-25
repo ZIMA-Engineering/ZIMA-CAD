@@ -173,7 +173,7 @@ void Host::register_sketch_commands() {
     add_sketch_command({"sketch.segment.create",tr("Add a native segment between two Sketch points (mm)."),{{"first",true,Type::Array},{"second",true,Type::Array},{"construction",false,Type::Boolean},{"snap_mm",false,Type::Number}}},[](Sketch& s,const Json& a) {
         const auto p=point(a,"first"),q=point(a,"second");return Json{{"geometry",s.add_segment(p[0],p[1],q[0],q[1],snap(a),a.value("construction",false))}};
     });
-    add_sketch_command({"sketch.segment.centerline",tr("Set a native segment's unbounded centerline state."),{{"segment",true},{"centerline",true,Type::Boolean}}},[](Sketch& s,const Json& a) {
+    add_sketch_command({"sketch.segment.centerline",tr("Set a native segment's finite construction state."),{{"segment",true},{"centerline",true,Type::Boolean}}},[](Sketch& s,const Json& a) {
         const auto id=a["segment"].get<std::string>();require_geometry(s,id);s.set_segment_centerline(id,a["centerline"].get<bool>());return Json{{"geometry",id}};
     });
     add_sketch_command({"sketch.circle.create",tr("Add an exact circle with radius in millimetres."),{{"center",true,Type::Array},{"radius_mm",true,Type::Number},{"construction",false,Type::Boolean},{"snap_mm",false,Type::Number}}},[](Sketch& s,const Json& a) {

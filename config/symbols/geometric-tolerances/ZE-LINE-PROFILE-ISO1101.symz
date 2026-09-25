@@ -88,7 +88,9 @@
           "id": "profile",
           "radius": 2.0,
           "start": "start",
-          "start_angle": 0.0
+          "start_angle": 0.0,
+          "centerline": false,
+          "visible_in_3d": true
         }
       ],
       "bsplines": [],
@@ -118,21 +120,27 @@
           "fixed": true,
           "id": "center",
           "x": 3.5,
-          "y": -1.0
+          "y": -1.0,
+          "centerline": false,
+          "visible_in_3d": true
         },
         {
           "construction": false,
           "fixed": true,
           "id": "start",
           "x": 5.5,
-          "y": -1.0
+          "y": -1.0,
+          "centerline": false,
+          "visible_in_3d": true
         },
         {
           "construction": false,
           "fixed": true,
           "id": "end",
           "x": 1.5,
-          "y": -1.0
+          "y": -1.0,
+          "centerline": false,
+          "visible_in_3d": true
         }
       ],
       "resolved_normal": [
@@ -159,7 +167,7 @@
       "suppressed": false,
       "symbols": [],
       "texts": [],
-      "version": 34
+      "version": 35
     },
     {
       "arcs": [],
@@ -1187,7 +1195,7 @@
           "vertical": "bottom"
         }
       ],
-      "version": 34
+      "version": 35
     },
     {
       "arcs": [],
@@ -1499,7 +1507,7 @@
           "vertical": "bottom"
         }
       ],
-      "version": 34
+      "version": 35
     },
     {
       "arcs": [],
@@ -2153,7 +2161,7 @@
           "vertical": "bottom"
         }
       ],
-      "version": 34
+      "version": 35
     },
     {
       "arcs": [],
@@ -2631,7 +2639,7 @@
           "vertical": "bottom"
         }
       ],
-      "version": 34
+      "version": 35
     }
   ],
   "units": "mm",

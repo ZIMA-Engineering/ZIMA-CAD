@@ -137,112 +137,144 @@
           "fixed": true,
           "id": "edges:external:vertical:a",
           "x": 4.0,
-          "y": 4.0
+          "y": 4.0,
+          "centerline": false,
+          "visible_in_3d": true
         },
         {
           "construction": false,
           "fixed": true,
           "id": "edges:external:vertical:b",
           "x": 4.0,
-          "y": 8.5
+          "y": 8.5,
+          "centerline": false,
+          "visible_in_3d": true
         },
         {
           "construction": false,
           "fixed": true,
           "id": "edges:external:bottom:a",
           "x": 4.0,
-          "y": 4.0
+          "y": 4.0,
+          "centerline": false,
+          "visible_in_3d": true
         },
         {
           "construction": false,
           "fixed": true,
           "id": "edges:external:bottom:b",
           "x": 15.0,
-          "y": 4.0
+          "y": 4.0,
+          "centerline": false,
+          "visible_in_3d": true
         },
         {
           "construction": false,
           "fixed": true,
           "id": "edges:external:reference:a",
           "x": 3.5,
-          "y": 3.5
+          "y": 3.5,
+          "centerline": false,
+          "visible_in_3d": true
         },
         {
           "construction": false,
           "fixed": true,
           "id": "edges:external:reference:b",
           "x": 15.0,
-          "y": 3.5
+          "y": 3.5,
+          "centerline": false,
+          "visible_in_3d": true
         },
         {
           "construction": false,
           "fixed": true,
           "id": "edges:external:leader:line:a",
           "x": 3.5,
-          "y": 3.5
+          "y": 3.5,
+          "centerline": false,
+          "visible_in_3d": true
         },
         {
           "construction": false,
           "fixed": true,
           "id": "edges:external:leader:line:b",
           "x": 0.0,
-          "y": 0.0
+          "y": 0.0,
+          "centerline": false,
+          "visible_in_3d": true
         },
         {
           "construction": false,
           "fixed": true,
           "id": "edges:external:leader:left:a",
           "x": 0.0,
-          "y": 0.0
+          "y": 0.0,
+          "centerline": false,
+          "visible_in_3d": true
         },
         {
           "construction": false,
           "fixed": true,
           "id": "edges:external:leader:left:b",
           "x": 1.2727922061357857,
-          "y": 0.8485281374238571
+          "y": 0.8485281374238571,
+          "centerline": false,
+          "visible_in_3d": true
         },
         {
           "construction": false,
           "fixed": true,
           "id": "edges:external:leader:right:a",
           "x": 0.0,
-          "y": 0.0
+          "y": 0.0,
+          "centerline": false,
+          "visible_in_3d": true
         },
         {
           "construction": false,
           "fixed": true,
           "id": "edges:external:leader:right:b",
           "x": 0.8485281374238571,
-          "y": 1.2727922061357857
+          "y": 1.2727922061357857,
+          "centerline": false,
+          "visible_in_3d": true
         },
         {
           "construction": false,
           "fixed": true,
           "id": "edges:external:corner-x:a",
           "x": 0.0,
-          "y": 0.0
+          "y": 0.0,
+          "centerline": false,
+          "visible_in_3d": true
         },
         {
           "construction": false,
           "fixed": true,
           "id": "edges:external:corner-x:b",
           "x": -3.0,
-          "y": 0.0
+          "y": 0.0,
+          "centerline": false,
+          "visible_in_3d": true
         },
         {
           "construction": false,
           "fixed": true,
           "id": "edges:external:corner-y:a",
           "x": 0.0,
-          "y": 0.0
+          "y": 0.0,
+          "centerline": false,
+          "visible_in_3d": true
         },
         {
           "construction": false,
           "fixed": true,
           "id": "edges:external:corner-y:b",
           "x": 0.0,
-          "y": -3.0
+          "y": -3.0,
+          "centerline": false,
+          "visible_in_3d": true
         }
       ],
       "resolved_normal": [
@@ -271,56 +303,64 @@
           "construction": false,
           "first": "edges:external:vertical:a",
           "id": "edges:external:vertical",
-          "second": "edges:external:vertical:b"
+          "second": "edges:external:vertical:b",
+          "visible_in_3d": true
         },
         {
           "centerline": false,
           "construction": false,
           "first": "edges:external:bottom:a",
           "id": "edges:external:bottom",
-          "second": "edges:external:bottom:b"
+          "second": "edges:external:bottom:b",
+          "visible_in_3d": true
         },
         {
           "centerline": false,
           "construction": false,
           "first": "edges:external:reference:a",
           "id": "edges:external:reference",
-          "second": "edges:external:reference:b"
+          "second": "edges:external:reference:b",
+          "visible_in_3d": true
         },
         {
           "centerline": false,
           "construction": false,
           "first": "edges:external:leader:line:a",
           "id": "edges:external:leader:line",
-          "second": "edges:external:leader:line:b"
+          "second": "edges:external:leader:line:b",
+          "visible_in_3d": true
         },
         {
           "centerline": false,
           "construction": false,
           "first": "edges:external:leader:left:a",
           "id": "edges:external:leader:left",
-          "second": "edges:external:leader:left:b"
+          "second": "edges:external:leader:left:b",
+          "visible_in_3d": true
         },
         {
           "centerline": false,
           "construction": false,
           "first": "edges:external:leader:right:a",
           "id": "edges:external:leader:right",
-          "second": "edges:external:leader:right:b"
+          "second": "edges:external:leader:right:b",
+          "visible_in_3d": true
         },
         {
           "centerline": false,
           "construction": false,
           "first": "edges:external:corner-x:a",
           "id": "edges:external:corner-x",
-          "second": "edges:external:corner-x:b"
+          "second": "edges:external:corner-x:b",
+          "visible_in_3d": true
         },
         {
           "centerline": false,
           "construction": false,
           "first": "edges:external:corner-y:a",
           "id": "edges:external:corner-y",
-          "second": "edges:external:corner-y:b"
+          "second": "edges:external:corner-y:b",
+          "visible_in_3d": true
         }
       ],
       "suppressed": false,
@@ -501,7 +541,7 @@
                 6.998432343234324
               ],
               [
-                7.0447091584158414,
+                7.044709158415841,
                 6.978320957095709
               ],
               [
@@ -545,7 +585,7 @@
                 6.2955651815181515
               ],
               [
-                6.8221947194719474,
+                6.822194719471947,
                 6.2179042904290425
               ],
               [
@@ -781,7 +821,7 @@
                 7.048143564356435
               ],
               [
-                7.2209158415841586,
+                7.220915841584159,
                 7.052629950495049
               ]
             ],
@@ -1003,7 +1043,7 @@
                 5.396818275577558
               ],
               [
-                6.6465552805280526,
+                6.646555280528053,
                 5.502454620462046
               ],
               [
@@ -1722,7 +1762,7 @@
           "vertical": "bottom"
         }
       ],
-      "version": 34
+      "version": 35
     },
     {
       "arcs": [],
@@ -1753,112 +1793,144 @@
           "fixed": true,
           "id": "edges:internal:vertical:a",
           "x": 23.0,
-          "y": 4.0
+          "y": 4.0,
+          "centerline": false,
+          "visible_in_3d": true
         },
         {
           "construction": false,
           "fixed": true,
           "id": "edges:internal:vertical:b",
           "x": 23.0,
-          "y": 8.5
+          "y": 8.5,
+          "centerline": false,
+          "visible_in_3d": true
         },
         {
           "construction": false,
           "fixed": true,
           "id": "edges:internal:bottom:a",
           "x": 23.0,
-          "y": 4.0
+          "y": 4.0,
+          "centerline": false,
+          "visible_in_3d": true
         },
         {
           "construction": false,
           "fixed": true,
           "id": "edges:internal:bottom:b",
           "x": 34.0,
-          "y": 4.0
+          "y": 4.0,
+          "centerline": false,
+          "visible_in_3d": true
         },
         {
           "construction": false,
           "fixed": true,
           "id": "edges:internal:reference:a",
           "x": 22.5,
-          "y": 3.5
+          "y": 3.5,
+          "centerline": false,
+          "visible_in_3d": true
         },
         {
           "construction": false,
           "fixed": true,
           "id": "edges:internal:reference:b",
           "x": 34.0,
-          "y": 3.5
+          "y": 3.5,
+          "centerline": false,
+          "visible_in_3d": true
         },
         {
           "construction": false,
           "fixed": true,
           "id": "edges:internal:leader:line:a",
           "x": 22.5,
-          "y": 3.5
+          "y": 3.5,
+          "centerline": false,
+          "visible_in_3d": true
         },
         {
           "construction": false,
           "fixed": true,
           "id": "edges:internal:leader:line:b",
           "x": 19.0,
-          "y": 0.0
+          "y": 0.0,
+          "centerline": false,
+          "visible_in_3d": true
         },
         {
           "construction": false,
           "fixed": true,
           "id": "edges:internal:leader:left:a",
           "x": 19.0,
-          "y": 0.0
+          "y": 0.0,
+          "centerline": false,
+          "visible_in_3d": true
         },
         {
           "construction": false,
           "fixed": true,
           "id": "edges:internal:leader:left:b",
           "x": 20.272792206135787,
-          "y": 0.8485281374238571
+          "y": 0.8485281374238571,
+          "centerline": false,
+          "visible_in_3d": true
         },
         {
           "construction": false,
           "fixed": true,
           "id": "edges:internal:leader:right:a",
           "x": 19.0,
-          "y": 0.0
+          "y": 0.0,
+          "centerline": false,
+          "visible_in_3d": true
         },
         {
           "construction": false,
           "fixed": true,
           "id": "edges:internal:leader:right:b",
           "x": 19.84852813742386,
-          "y": 1.2727922061357857
+          "y": 1.2727922061357857,
+          "centerline": false,
+          "visible_in_3d": true
         },
         {
           "construction": false,
           "fixed": true,
           "id": "edges:internal:corner-x:a",
           "x": 19.0,
-          "y": 0.0
+          "y": 0.0,
+          "centerline": false,
+          "visible_in_3d": true
         },
         {
           "construction": false,
           "fixed": true,
           "id": "edges:internal:corner-x:b",
           "x": 22.0,
-          "y": 0.0
+          "y": 0.0,
+          "centerline": false,
+          "visible_in_3d": true
         },
         {
           "construction": false,
           "fixed": true,
           "id": "edges:internal:corner-y:a",
           "x": 19.0,
-          "y": 0.0
+          "y": 0.0,
+          "centerline": false,
+          "visible_in_3d": true
         },
         {
           "construction": false,
           "fixed": true,
           "id": "edges:internal:corner-y:b",
           "x": 19.0,
-          "y": 3.0
+          "y": 3.0,
+          "centerline": false,
+          "visible_in_3d": true
         }
       ],
       "resolved_normal": [
@@ -1887,56 +1959,64 @@
           "construction": false,
           "first": "edges:internal:vertical:a",
           "id": "edges:internal:vertical",
-          "second": "edges:internal:vertical:b"
+          "second": "edges:internal:vertical:b",
+          "visible_in_3d": true
         },
         {
           "centerline": false,
           "construction": false,
           "first": "edges:internal:bottom:a",
           "id": "edges:internal:bottom",
-          "second": "edges:internal:bottom:b"
+          "second": "edges:internal:bottom:b",
+          "visible_in_3d": true
         },
         {
           "centerline": false,
           "construction": false,
           "first": "edges:internal:reference:a",
           "id": "edges:internal:reference",
-          "second": "edges:internal:reference:b"
+          "second": "edges:internal:reference:b",
+          "visible_in_3d": true
         },
         {
           "centerline": false,
           "construction": false,
           "first": "edges:internal:leader:line:a",
           "id": "edges:internal:leader:line",
-          "second": "edges:internal:leader:line:b"
+          "second": "edges:internal:leader:line:b",
+          "visible_in_3d": true
         },
         {
           "centerline": false,
           "construction": false,
           "first": "edges:internal:leader:left:a",
           "id": "edges:internal:leader:left",
-          "second": "edges:internal:leader:left:b"
+          "second": "edges:internal:leader:left:b",
+          "visible_in_3d": true
         },
         {
           "centerline": false,
           "construction": false,
           "first": "edges:internal:leader:right:a",
           "id": "edges:internal:leader:right",
-          "second": "edges:internal:leader:right:b"
+          "second": "edges:internal:leader:right:b",
+          "visible_in_3d": true
         },
         {
           "centerline": false,
           "construction": false,
           "first": "edges:internal:corner-x:a",
           "id": "edges:internal:corner-x",
-          "second": "edges:internal:corner-x:b"
+          "second": "edges:internal:corner-x:b",
+          "visible_in_3d": true
         },
         {
           "centerline": false,
           "construction": false,
           "first": "edges:internal:corner-y:a",
           "id": "edges:internal:corner-y",
-          "second": "edges:internal:corner-y:b"
+          "second": "edges:internal:corner-y:b",
+          "visible_in_3d": true
         }
       ],
       "suppressed": false,
@@ -3490,7 +3570,7 @@
           "vertical": "bottom"
         }
       ],
-      "version": 34
+      "version": 35
     },
     {
       "arcs": [],
@@ -3521,84 +3601,108 @@
           "fixed": true,
           "id": "edges:all:vertical:a",
           "x": 4.0,
-          "y": 4.0
+          "y": 4.0,
+          "centerline": false,
+          "visible_in_3d": true
         },
         {
           "construction": false,
           "fixed": true,
           "id": "edges:all:vertical:b",
           "x": 4.0,
-          "y": 8.5
+          "y": 8.5,
+          "centerline": false,
+          "visible_in_3d": true
         },
         {
           "construction": false,
           "fixed": true,
           "id": "edges:all:bottom:a",
           "x": 4.0,
-          "y": 4.0
+          "y": 4.0,
+          "centerline": false,
+          "visible_in_3d": true
         },
         {
           "construction": false,
           "fixed": true,
           "id": "edges:all:bottom:b",
           "x": 15.0,
-          "y": 4.0
+          "y": 4.0,
+          "centerline": false,
+          "visible_in_3d": true
         },
         {
           "construction": false,
           "fixed": true,
           "id": "edges:all:reference:a",
           "x": 3.5,
-          "y": 3.5
+          "y": 3.5,
+          "centerline": false,
+          "visible_in_3d": true
         },
         {
           "construction": false,
           "fixed": true,
           "id": "edges:all:reference:b",
           "x": 15.0,
-          "y": 3.5
+          "y": 3.5,
+          "centerline": false,
+          "visible_in_3d": true
         },
         {
           "construction": false,
           "fixed": true,
           "id": "edges:all:leader:line:a",
           "x": 3.5,
-          "y": 3.5
+          "y": 3.5,
+          "centerline": false,
+          "visible_in_3d": true
         },
         {
           "construction": false,
           "fixed": true,
           "id": "edges:all:leader:line:b",
           "x": 0.0,
-          "y": 0.0
+          "y": 0.0,
+          "centerline": false,
+          "visible_in_3d": true
         },
         {
           "construction": false,
           "fixed": true,
           "id": "edges:all:leader:left:a",
           "x": 0.0,
-          "y": 0.0
+          "y": 0.0,
+          "centerline": false,
+          "visible_in_3d": true
         },
         {
           "construction": false,
           "fixed": true,
           "id": "edges:all:leader:left:b",
           "x": 1.2727922061357857,
-          "y": 0.8485281374238571
+          "y": 0.8485281374238571,
+          "centerline": false,
+          "visible_in_3d": true
         },
         {
           "construction": false,
           "fixed": true,
           "id": "edges:all:leader:right:a",
           "x": 0.0,
-          "y": 0.0
+          "y": 0.0,
+          "centerline": false,
+          "visible_in_3d": true
         },
         {
           "construction": false,
           "fixed": true,
           "id": "edges:all:leader:right:b",
           "x": 0.8485281374238571,
-          "y": 1.2727922061357857
+          "y": 1.2727922061357857,
+          "centerline": false,
+          "visible_in_3d": true
         }
       ],
       "resolved_normal": [
@@ -3627,42 +3731,48 @@
           "construction": false,
           "first": "edges:all:vertical:a",
           "id": "edges:all:vertical",
-          "second": "edges:all:vertical:b"
+          "second": "edges:all:vertical:b",
+          "visible_in_3d": true
         },
         {
           "centerline": false,
           "construction": false,
           "first": "edges:all:bottom:a",
           "id": "edges:all:bottom",
-          "second": "edges:all:bottom:b"
+          "second": "edges:all:bottom:b",
+          "visible_in_3d": true
         },
         {
           "centerline": false,
           "construction": false,
           "first": "edges:all:reference:a",
           "id": "edges:all:reference",
-          "second": "edges:all:reference:b"
+          "second": "edges:all:reference:b",
+          "visible_in_3d": true
         },
         {
           "centerline": false,
           "construction": false,
           "first": "edges:all:leader:line:a",
           "id": "edges:all:leader:line",
-          "second": "edges:all:leader:line:b"
+          "second": "edges:all:leader:line:b",
+          "visible_in_3d": true
         },
         {
           "centerline": false,
           "construction": false,
           "first": "edges:all:leader:left:a",
           "id": "edges:all:leader:left",
-          "second": "edges:all:leader:left:b"
+          "second": "edges:all:leader:left:b",
+          "visible_in_3d": true
         },
         {
           "centerline": false,
           "construction": false,
           "first": "edges:all:leader:right:a",
           "id": "edges:all:leader:right",
-          "second": "edges:all:leader:right:b"
+          "second": "edges:all:leader:right:b",
+          "visible_in_3d": true
         }
       ],
       "suppressed": false,
@@ -3843,7 +3953,7 @@
                 6.998432343234324
               ],
               [
-                7.0447091584158414,
+                7.044709158415841,
                 6.978320957095709
               ],
               [
@@ -3887,7 +3997,7 @@
                 6.2955651815181515
               ],
               [
-                6.8221947194719474,
+                6.822194719471947,
                 6.2179042904290425
               ],
               [
@@ -4123,7 +4233,7 @@
                 7.048143564356435
               ],
               [
-                7.2209158415841586,
+                7.220915841584159,
                 7.052629950495049
               ]
             ],
@@ -4345,7 +4455,7 @@
                 5.396818275577558
               ],
               [
-                6.6465552805280526,
+                6.646555280528053,
                 5.502454620462046
               ],
               [
@@ -5064,7 +5174,7 @@
           "vertical": "bottom"
         }
       ],
-      "version": 34
+      "version": 35
     },
     {
       "arcs": [],
@@ -5095,84 +5205,108 @@
           "fixed": true,
           "id": "edges:exception:vertical:a",
           "x": 46.0,
-          "y": 4.0
+          "y": 4.0,
+          "centerline": false,
+          "visible_in_3d": true
         },
         {
           "construction": false,
           "fixed": true,
           "id": "edges:exception:vertical:b",
           "x": 46.0,
-          "y": 8.5
+          "y": 8.5,
+          "centerline": false,
+          "visible_in_3d": true
         },
         {
           "construction": false,
           "fixed": true,
           "id": "edges:exception:bottom:a",
           "x": 46.0,
-          "y": 4.0
+          "y": 4.0,
+          "centerline": false,
+          "visible_in_3d": true
         },
         {
           "construction": false,
           "fixed": true,
           "id": "edges:exception:bottom:b",
           "x": 57.0,
-          "y": 4.0
+          "y": 4.0,
+          "centerline": false,
+          "visible_in_3d": true
         },
         {
           "construction": false,
           "fixed": true,
           "id": "edges:exception:reference:a",
           "x": 45.5,
-          "y": 3.5
+          "y": 3.5,
+          "centerline": false,
+          "visible_in_3d": true
         },
         {
           "construction": false,
           "fixed": true,
           "id": "edges:exception:reference:b",
           "x": 57.0,
-          "y": 3.5
+          "y": 3.5,
+          "centerline": false,
+          "visible_in_3d": true
         },
         {
           "construction": false,
           "fixed": true,
           "id": "edges:exception:leader:line:a",
           "x": 45.5,
-          "y": 3.5
+          "y": 3.5,
+          "centerline": false,
+          "visible_in_3d": true
         },
         {
           "construction": false,
           "fixed": true,
           "id": "edges:exception:leader:line:b",
           "x": 42.0,
-          "y": 0.0
+          "y": 0.0,
+          "centerline": false,
+          "visible_in_3d": true
         },
         {
           "construction": false,
           "fixed": true,
           "id": "edges:exception:leader:left:a",
           "x": 42.0,
-          "y": 0.0
+          "y": 0.0,
+          "centerline": false,
+          "visible_in_3d": true
         },
         {
           "construction": false,
           "fixed": true,
           "id": "edges:exception:leader:left:b",
           "x": 43.27279220613579,
-          "y": 0.8485281374238571
+          "y": 0.8485281374238571,
+          "centerline": false,
+          "visible_in_3d": true
         },
         {
           "construction": false,
           "fixed": true,
           "id": "edges:exception:leader:right:a",
           "x": 42.0,
-          "y": 0.0
+          "y": 0.0,
+          "centerline": false,
+          "visible_in_3d": true
         },
         {
           "construction": false,
           "fixed": true,
           "id": "edges:exception:leader:right:b",
           "x": 42.848528137423855,
-          "y": 1.2727922061357857
+          "y": 1.2727922061357857,
+          "centerline": false,
+          "visible_in_3d": true
         }
       ],
       "resolved_normal": [
@@ -5201,42 +5335,48 @@
           "construction": false,
           "first": "edges:exception:vertical:a",
           "id": "edges:exception:vertical",
-          "second": "edges:exception:vertical:b"
+          "second": "edges:exception:vertical:b",
+          "visible_in_3d": true
         },
         {
           "centerline": false,
           "construction": false,
           "first": "edges:exception:bottom:a",
           "id": "edges:exception:bottom",
-          "second": "edges:exception:bottom:b"
+          "second": "edges:exception:bottom:b",
+          "visible_in_3d": true
         },
         {
           "centerline": false,
           "construction": false,
           "first": "edges:exception:reference:a",
           "id": "edges:exception:reference",
-          "second": "edges:exception:reference:b"
+          "second": "edges:exception:reference:b",
+          "visible_in_3d": true
         },
         {
           "centerline": false,
           "construction": false,
           "first": "edges:exception:leader:line:a",
           "id": "edges:exception:leader:line",
-          "second": "edges:exception:leader:line:b"
+          "second": "edges:exception:leader:line:b",
+          "visible_in_3d": true
         },
         {
           "centerline": false,
           "construction": false,
           "first": "edges:exception:leader:left:a",
           "id": "edges:exception:leader:left",
-          "second": "edges:exception:leader:left:b"
+          "second": "edges:exception:leader:left:b",
+          "visible_in_3d": true
         },
         {
           "centerline": false,
           "construction": false,
           "first": "edges:exception:leader:right:a",
           "id": "edges:exception:leader:right",
-          "second": "edges:exception:leader:right:b"
+          "second": "edges:exception:leader:right:b",
+          "visible_in_3d": true
         }
       ],
       "suppressed": false,
@@ -6358,7 +6498,7 @@
           "vertical": "bottom"
         }
       ],
-      "version": 34
+      "version": 35
     },
     {
       "arcs": [
@@ -6370,7 +6510,9 @@
           "id": "edges:open",
           "radius": 9.5,
           "start": "edges:open:start",
-          "start_angle": 2.6179938779914944
+          "start_angle": 2.6179938779914944,
+          "centerline": false,
+          "visible_in_3d": true
         },
         {
           "center": "edges:close:center",
@@ -6380,7 +6522,9 @@
           "id": "edges:close",
           "radius": 9.5,
           "start": "edges:close:start",
-          "start_angle": -0.5235987755982988
+          "start_angle": -0.5235987755982988,
+          "centerline": false,
+          "visible_in_3d": true
         }
       ],
       "bsplines": [],
@@ -6410,42 +6554,54 @@
           "fixed": true,
           "id": "edges:open:center",
           "x": 47.5,
-          "y": 4.25
+          "y": 4.25,
+          "centerline": false,
+          "visible_in_3d": true
         },
         {
           "construction": false,
           "fixed": true,
           "id": "edges:open:start",
           "x": 39.27275866404783,
-          "y": 9.0
+          "y": 9.0,
+          "centerline": false,
+          "visible_in_3d": true
         },
         {
           "construction": false,
           "fixed": true,
           "id": "edges:open:end",
           "x": 39.272758664047835,
-          "y": -0.5000000000000009
+          "y": -0.5000000000000009,
+          "centerline": false,
+          "visible_in_3d": true
         },
         {
           "construction": false,
           "fixed": true,
           "id": "edges:close:center",
           "x": 51.5,
-          "y": 4.25
+          "y": 4.25,
+          "centerline": false,
+          "visible_in_3d": true
         },
         {
           "construction": false,
           "fixed": true,
           "id": "edges:close:start",
           "x": 59.72724133595217,
-          "y": -0.4999999999999991
+          "y": -0.4999999999999991,
+          "centerline": false,
+          "visible_in_3d": true
         },
         {
           "construction": false,
           "fixed": true,
           "id": "edges:close:end",
           "x": 59.72724133595217,
-          "y": 9.0
+          "y": 9.0,
+          "centerline": false,
+          "visible_in_3d": true
         }
       ],
       "resolved_normal": [
@@ -6472,7 +6628,7 @@
       "suppressed": false,
       "symbols": [],
       "texts": [],
-      "version": 34
+      "version": 35
     }
   ],
   "units": "mm",

@@ -134,7 +134,8 @@ bool sketch_visible_outside_sketcher(
     const zima::sketcher::Sketch& sketch) {
     const auto* owner = document.find_container(sketch.owner_container_id);
     return owner != nullptr &&
-        owner->feature_kind == zima::document::FeatureKind::Sketch;
+        (owner->feature_kind == zima::document::FeatureKind::Sketch ||
+         (owner->feature_kind == zima::document::FeatureKind::Feature && owner->feature.sketch_only()));
 }
 
 // A picked reference supports an editable offset when it is a planar
@@ -309,7 +310,7 @@ void keep_only_inactive_sketch_profile(
             key.starts_with("ellipse:") ||
             key.starts_with("elliptical_arc:") ||
             key.starts_with("bspline:") || key.starts_with("text:");
-        return edge.construction || !native_profile;
+        return (edge.construction && !edge.dash_dot) || !native_profile;
     });
     // In ordinary Part/Assembly interaction the history Container is the
     // selectable object. Keep the persisted Sketch identity on each edge for

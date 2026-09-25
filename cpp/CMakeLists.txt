@@ -190,6 +190,7 @@ target_link_libraries(zima_transition_core PUBLIC zima_sketcher)
 add_library(zima_document_core
     modules/document_core/src/sheet_transition.cpp
     modules/document_core/src/profile_serialization.cpp
+    modules/document_core/src/feature_serialization.cpp
     modules/document_core/src/part_document.cpp
     modules/document_core/src/hole_profiles.cpp
     modules/document_core/src/holes.cpp
@@ -1253,6 +1254,18 @@ if(ZIMA_BUILD_TESTS)
     set_tests_properties(zima_cpp_derived_copy_ui_contract PROPERTIES
         ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_DERIVED_COPY_ONLY=1"
         WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 120)
+    add_test(NAME zima_cpp_feature_prototype_ui_contract COMMAND zima-cad-cpp --verify-startup)
+    set_tests_properties(zima_cpp_feature_prototype_ui_contract PROPERTIES
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_CONSOLE_ONLY=1;ZIMA_VERIFY_FEATURE_PROTOTYPE_ONLY=1"
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 90)
+    add_test(NAME zima_cpp_sketch_roles_ui_contract COMMAND zima-cad-cpp --verify-startup)
+    set_tests_properties(zima_cpp_sketch_roles_ui_contract PROPERTIES
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_CONSOLE_ONLY=1;ZIMA_VERIFY_SKETCH_ROLES_ONLY=1"
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 90)
+    add_test(NAME zima_cpp_axis_up_to_ui_contract COMMAND zima-cad-cpp --verify-startup)
+    set_tests_properties(zima_cpp_axis_up_to_ui_contract PROPERTIES
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_CONSOLE_ONLY=1;ZIMA_VERIFY_AXIS_UP_TO_ONLY=1"
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 90)
     add_test(NAME zima_cpp_console_ui_contract COMMAND zima-cad-cpp --verify-startup)
     add_test(NAME zima_cpp_updates_ui_contract COMMAND zima-cad-cpp --verify-startup)
     add_test(NAME zima_cpp_fonts_ui_contract COMMAND zima-cad-cpp --verify-startup)
@@ -1541,4 +1554,19 @@ if(ZIMA_BUILD_TESTS)
     target_link_libraries(zima_cpp_symbol_integration_tests PRIVATE zima_workspace zima_symbols)
     add_test(NAME zima_cpp_symbol_integration COMMAND zima_cpp_symbol_integration_tests)
     set_tests_properties(zima_cpp_symbol_integration PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
+endif()
+
+if(ZIMA_BUILD_TESTS)
+    add_executable(zima_cpp_profile_centerlines_tests tests/profile_centerlines_tests.cpp)
+    add_executable(zima_cpp_feature_parameters_tests tests/feature_parameters_tests.cpp)
+    target_link_libraries(zima_cpp_feature_parameters_tests PRIVATE zima_document_core)
+    add_test(NAME zima_cpp_feature_parameters COMMAND zima_cpp_feature_parameters_tests)
+    target_link_libraries(zima_cpp_profile_centerlines_tests PRIVATE zima_workspace zima_kernel_occt)
+    add_test(NAME zima_cpp_profile_centerlines COMMAND zima_cpp_profile_centerlines_tests)
+endif()
+
+if(ZIMA_BUILD_TESTS)
+    add_executable(zima_cpp_axis_extent_tests tests/axis_extent_tests.cpp)
+    target_link_libraries(zima_cpp_axis_extent_tests PRIVATE zima_document_core)
+    add_test(NAME zima_cpp_axis_extents COMMAND zima_cpp_axis_extent_tests)
 endif()

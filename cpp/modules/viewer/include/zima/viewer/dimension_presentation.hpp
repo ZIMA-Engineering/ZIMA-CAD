@@ -1,4 +1,5 @@
 #pragma once
+#include <zima/kernel/annotation_layout.hpp>
 #include <QLineF>
 #include <QPointF>
 #include <QPolygonF>
@@ -161,7 +162,7 @@ DimensionPresentation dimension_presentation(const kernel::ViewerDimension &d, P
         } else {
             center=a+along*position;
             const auto first=center-text_direction*text_width/2,last=center+text_direction*text_width/2;
-            join=QLineF(b,first).length()<QLineF(b,last).length()?first:last;
+            join=kernel::shelf_joins_left({b.x(),b.y(),0},{first.x(),first.y(),0},{last.x(),last.y(),0})?first:last;
         }
         const auto start=center-text_direction*text_width/2,end=center+text_direction*text_width/2;
         if(!d.radius_center_line_hidden)out.curves.push_back({a,b});

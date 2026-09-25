@@ -107,28 +107,36 @@
           "fixed": true,
           "id": "bottom:a",
           "x": 1.2,
-          "y": -1.8
+          "y": -1.8,
+          "centerline": false,
+          "visible_in_3d": true
         },
         {
           "construction": false,
           "fixed": true,
           "id": "bottom:b",
           "x": 5.8,
-          "y": -1.8
+          "y": -1.8,
+          "centerline": false,
+          "visible_in_3d": true
         },
         {
           "construction": false,
           "fixed": true,
           "id": "slant:a",
           "x": 1.2,
-          "y": -1.8
+          "y": -1.8,
+          "centerline": false,
+          "visible_in_3d": true
         },
         {
           "construction": false,
           "fixed": true,
           "id": "slant:b",
           "x": 4.8,
-          "y": 1.7999999999999998
+          "y": 1.7999999999999998,
+          "centerline": false,
+          "visible_in_3d": true
         }
       ],
       "resolved_normal": [
@@ -157,20 +165,22 @@
           "construction": false,
           "first": "bottom:a",
           "id": "bottom",
-          "second": "bottom:b"
+          "second": "bottom:b",
+          "visible_in_3d": true
         },
         {
           "centerline": false,
           "construction": false,
           "first": "slant:a",
           "id": "slant",
-          "second": "slant:b"
+          "second": "slant:b",
+          "visible_in_3d": true
         }
       ],
       "suppressed": false,
       "symbols": [],
       "texts": [],
-      "version": 34
+      "version": 35
     },
     {
       "arcs": [],
@@ -1198,7 +1208,7 @@
           "vertical": "bottom"
         }
       ],
-      "version": 34
+      "version": 35
     },
     {
       "arcs": [],
@@ -1510,7 +1520,7 @@
           "vertical": "bottom"
         }
       ],
-      "version": 34
+      "version": 35
     },
     {
       "arcs": [],
@@ -2164,7 +2174,7 @@
           "vertical": "bottom"
         }
       ],
-      "version": 34
+      "version": 35
     },
     {
       "arcs": [],
@@ -2642,7 +2652,7 @@
           "vertical": "bottom"
         }
       ],
-      "version": 34
+      "version": 35
     }
   ],
   "units": "mm",

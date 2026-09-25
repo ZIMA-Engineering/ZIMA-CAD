@@ -44,6 +44,12 @@ int verify_symbol_ui(QApplication& application,zima::app::AssemblyWorkspaceWindo
             const auto* readable=text_options->findChild<QComboBox*>("symbolTextDrawingOrientation");
             check(readable&&readable->itemText(0)==settings.qt_translations.value("Se značkou")&&readable->itemText(1)==settings.qt_translations.value("Zachovat čitelnost"),"Symbol text orientation translation differs");
             text_options->reject();flush();
+            symbols::Placement translated_symbol;translated_symbol.symbol=original;
+            auto* attachment_options=new app::SymbolAttachmentDialog(translated_symbol,[](auto){},&window,true);
+            check(attachment_options->findChild<QCheckBox*>("symbolPerpendicularLeader")->text()==settings.qt_translations.value("Odkaz kolmý k entitě"),"Perpendicular leader translation differs");
+            const auto* shelf=attachment_options->findChild<QComboBox*>("symbolShelfMode");
+            check(shelf&&shelf->itemText(0)==settings.qt_translations.value("Pod symbolem")&&shelf->itemText(1)==settings.qt_translations.value("K uchopovacímu bodu"),"Shelf choices are untranslated");
+            attachment_options->reject();flush();
         }
         app::apply_application_translations(application,app::ApplicationSettings::load());
         window.show_tree_item_properties(select());flush();auto* dialog=window.findChild<QDialog*>("symbolPropertiesDialog");
@@ -140,7 +146,7 @@ int verify_symbol_ui(QApplication& application,zima::app::AssemblyWorkspaceWindo
         check(model_symbol,"Model symbol Tree row missing");tree->setCurrentItem(model_symbol);flush();
         check(view->confirmed_candidate()&&view->confirmed_candidate()->kind==viewer::CandidateKind::Symbol,"Model Tree/View symbol selection failed");
         const auto contact_handle=view->symbol_handle_position(0),grip_handle=view->symbol_handle_position(1);
-        check(contact_handle&&grip_handle,"Selected model leader does not expose both handles");
+        check(contact_handle&&grip_handle&&view->symbol_handle_position(2),"Selected model leader does not expose three handles");
         std::optional<QPointF> symbol_hit;
         for(int y=-12;y<=12&&!symbol_hit;y+=2)for(int x=-12;x<=12;++x){const auto p=*grip_handle+QPointF(x,y);
             const auto candidates=view->selection_candidates_at(p);if(!candidates.empty()&&candidates.front().kind==viewer::CandidateKind::Symbol){symbol_hit=p;break;}}
@@ -166,6 +172,15 @@ int verify_symbol_ui(QApplication& application,zima::app::AssemblyWorkspaceWindo
         send_handle(QEvent::MouseButtonRelease,*drag_grip+QPointF(35,20),Qt::LeftButton,Qt::NoButton);
         check(attachment->pending_placement().symbol.x!=stored.symbol.x||attachment->pending_placement().symbol.y!=stored.symbol.y,"Symbol grip drag did not move preview");
         check(attachment->pending_placement().reference==stored.reference,"Grip drag replaced contact reference");
+        auto* shelf_mode=attachment->findChild<QComboBox*>("symbolShelfMode");auto* shelf_length=attachment->findChild<QDoubleSpinBox*>("symbolShelfLength");
+        check(shelf_mode&&shelf_length,"Shelf controls missing");shelf_mode->setCurrentIndex(1);shelf_length->setValue(3);flush();
+        const auto shelf_end=view->symbol_handle_position(2);check(shelf_end.has_value(),"Short shelf end missing");
+        const auto previous_length=attachment->pending_placement().shelf_length;
+        send_handle(QEvent::MouseButtonPress,*shelf_end,Qt::LeftButton,Qt::LeftButton);
+        send_handle(QEvent::MouseMove,*shelf_end+QPointF(28,0),Qt::NoButton,Qt::LeftButton);
+        send_handle(QEvent::MouseButtonRelease,*shelf_end+QPointF(28,0),Qt::LeftButton,Qt::NoButton);
+        check(std::abs(attachment->pending_placement().shelf_length-previous_length)>.01,"Short shelf drag did not change length");
+        check(attachment->pending_placement().reference==stored.reference,"Shelf resizing replaced reference");
         const auto edit_contact=view->symbol_handle_position(0);check(edit_contact.has_value(),"Editing contact missing");
         send_handle(QEvent::MouseButtonPress,*edit_contact,Qt::LeftButton,Qt::LeftButton);
         send_handle(QEvent::MouseButtonRelease,*edit_contact,Qt::LeftButton,Qt::NoButton);
@@ -229,8 +244,65 @@ int verify_symbol_ui(QApplication& application,zima::app::AssemblyWorkspaceWindo
         check(sheet_properties,"Drawing symbol Properties action missing");sheet_properties->trigger();flush();
         auto* reopened_symbol=dynamic_cast<app::SymbolAttachmentDialog*>(window.findChild<QDialog*>("symbolAttachmentDialog"));
         check(reopened_symbol&&reopened_symbol->pending_placement()==sheet_symbol,"Drawing symbol Properties lost reference or local pose");
+        {
+            reopened_symbol->findChild<QCheckBox*>("symbolPerpendicularLeader")->setChecked(true);flush();
+            auto value=reopened_symbol->pending_placement();
+            check(value.paper_tangent.has_value(),"Straight Drawing symbol has no contact tangent");
+            const auto mesh=value.viewer_mesh(0.,true);
+            const auto stroke=std::ranges::find_if(mesh.edges,[](const auto& edge){return edge.annotation&&edge.annotation->role==1;});
+            check(stroke!=mesh.edges.end()&&stroke->points.size()==2,"Perpendicular Drawing leader is missing");
+            const auto a=stroke->points.front(),b=stroke->points.back(),t=*value.paper_tangent;
+            check(std::abs((b.x-a.x)*t.x+(b.y-a.y)*t.y)<1e-8,"Drawing leader is not perpendicular after checking the option");
+            const auto rect=drawing_window->sheet_rectangle_for_test();const auto& page=drawing_window->document_for_test().sheets.front();const double zoom=rect.width()/page.width_mm();
+            const auto start=rect.topLeft()+QPointF(page.width_mm()-value.frame.origin.x,page.height_mm()-value.frame.origin.y)*zoom;
+            const auto delta=QPointF(-t.x,-t.y)*10*zoom;
+            const auto send=[&](QEvent::Type type,QPointF p,Qt::MouseButton button,Qt::MouseButtons buttons){QMouseEvent event(type,p,QPointF(canvas->mapToGlobal(p.toPoint())),button,buttons,Qt::NoModifier);QApplication::sendEvent(canvas,&event);flush();};
+            send(QEvent::MouseButtonPress,start,Qt::LeftButton,Qt::LeftButton);send(QEvent::MouseMove,start+delta,Qt::NoButton,Qt::LeftButton);send(QEvent::MouseButtonRelease,start+delta,Qt::LeftButton,Qt::NoButton);
+            const auto moved=reopened_symbol->pending_placement();
+            check(moved.reference==value.reference&&std::hypot(moved.frame.origin.x-value.frame.origin.x,moved.frame.origin.y-value.frame.origin.y)>9.9,"Drawing arrow handle cannot slide on its original entity");
+            check(drawing_window->document_for_test().sheets.front().symbol_annotations.front()==sheet_symbol,"Dragging a pending symbol committed before OK");
+            const auto second_start=rect.topLeft()+QPointF(page.width_mm()-moved.frame.origin.x,page.height_mm()-moved.frame.origin.y)*zoom;
+            send(QEvent::MouseButtonPress,second_start,Qt::LeftButton,Qt::LeftButton);
+            send(QEvent::MouseMove,second_start+delta,Qt::NoButton,Qt::LeftButton);
+            QKeyEvent escape(QEvent::KeyPress,Qt::Key_Escape,Qt::NoModifier);QApplication::sendEvent(canvas,&escape);flush();
+            check(reopened_symbol->isVisible()&&reopened_symbol->pending_placement()==moved,"Escape did not restore the pending arrow drag");
+            reopened_symbol->findChild<QCheckBox*>("symbolPerpendicularLeader")->setChecked(false);flush();
+        }
+        reopened_symbol->findChild<QComboBox*>("symbolShelfMode")->setCurrentIndex(1);reopened_symbol->findChild<QDoubleSpinBox*>("symbolShelfLength")->setValue(8);flush();
+        {
+            const auto value=reopened_symbol->pending_placement();const auto end=value.frame.world({value.symbol.x,value.symbol.y,0});
+            const auto rect=drawing_window->sheet_rectangle_for_test();const auto& page=drawing_window->document_for_test().sheets.front();const double zoom=rect.width()/page.width_mm();
+            const auto start=rect.topLeft()+QPointF(page.width_mm()-end.x,page.height_mm()-end.y)*zoom;
+            const auto send=[&](QEvent::Type type,QPointF p,Qt::MouseButton button,Qt::MouseButtons buttons){QMouseEvent event(type,p,QPointF(canvas->mapToGlobal(p.toPoint())),button,buttons,Qt::NoModifier);QApplication::sendEvent(canvas,&event);flush();};
+            send(QEvent::MouseButtonPress,start,Qt::LeftButton,Qt::LeftButton);send(QEvent::MouseMove,start+QPointF(24,0),Qt::NoButton,Qt::LeftButton);send(QEvent::MouseButtonRelease,start+QPointF(24,0),Qt::LeftButton,Qt::NoButton);
+            check(std::abs(reopened_symbol->pending_placement().shelf_length-8)>.01,"Drawing shelf end drag did not resize preview");
+            check(reopened_symbol->pending_placement().reference==value.reference,"Drawing shelf drag replaced attachment");
+        }
         reopened_symbol->findChild<QDoubleSpinBox*>("symbolPlacement0")->setValue(99);reopened_symbol->reject();flush();
         check(drawing_window->document_for_test().sheets.front().symbol_annotations.front()==sheet_symbol,"Drawing symbol edit Cancel changed stored annotation");
+        {
+            const auto& page=drawing_window->document_for_test().sheets.front();
+            const auto view_id=page.symbol_contacts.at(sheet_symbol.symbol.id).view_id;
+            drawing_window->select_view_for_test(view_id);flush();
+            const auto center=drawing_window->view_rectangle_center_for_test(view_id);check(center.has_value(),"Symbol source view rectangle missing");
+            const auto before_view=*std::ranges::find(page.views,view_id,&drawing::DrawingView::id);
+            const auto before=page.symbol_annotations.front().viewer_mesh(0.);
+            const auto send=[&](QEvent::Type type,QPointF pos,Qt::MouseButton button,Qt::MouseButtons buttons){QMouseEvent e(type,pos,QPointF(canvas->mapToGlobal(pos.toPoint())),button,buttons,Qt::NoModifier);QApplication::sendEvent(canvas,&e);flush();};
+            // The center is occupied by the attached arrow; grab empty space in the view rectangle.
+            const auto grab=*center+QPointF(-25,0);
+            send(QEvent::MouseButtonPress,grab,Qt::LeftButton,Qt::LeftButton);
+            send(QEvent::MouseMove,grab+QPointF(35,22),Qt::NoButton,Qt::LeftButton);
+            send(QEvent::MouseButtonRelease,grab+QPointF(35,22),Qt::LeftButton,Qt::NoButton);
+            const auto& moved_page=drawing_window->document_for_test().sheets.front();
+            const auto after_view=*std::ranges::find(moved_page.views,view_id,&drawing::DrawingView::id);
+            const double dx=after_view.x-before_view.x,dy=after_view.y-before_view.y;
+            check(std::hypot(dx,dy)>1,"View rectangle GUI drag did not move");
+            const auto after=moved_page.symbol_annotations.front().viewer_mesh(0.);
+            for(std::size_t e=0;e<before.edges.size();++e)for(std::size_t i=0;i<before.edges[e].points.size();++i){
+                const auto a=before.edges[e].points[i],b=after.edges[e].points[i];
+                check(std::abs(b.x-a.x-dx)<1e-7&&std::abs(b.y-a.y-dy)<1e-7,"GUI view drag detached a symbol stroke");
+            }
+        }
         chosen_symbol=std::filesystem::current_path()/"config/symbols/geometric-tolerances/ZE-PERPENDICULARITY-ISO1101.symz";
         chooser.start(100);insert_sheet->trigger();chooser.stop();flush();
         auto* free_symbol=dynamic_cast<app::SymbolAttachmentDialog*>(window.findChild<QDialog*>("symbolAttachmentDialog"));check(free_symbol,"Free Drawing symbol dialog missing");

@@ -601,7 +601,17 @@ bool AssemblyWorkspaceWindow::accept_sketch_segment_ray(
                         zima::sketcher::ConstraintKind::Horizontal ||
                     offered_direction_inference ==
                         zima::sketcher::ConstraintKind::Vertical)) {
-            direction_inference = offered_direction_inference;
+            // Point alignment can refer to an unrelated support endpoint.
+            // After snapping to M, only retain a direction actually expressed
+            // by the new segment, never reinterpret that unrelated alignment.
+            const double intent_tolerance = viewer_->world_tolerance_for_pixels(
+                2.0 * viewer_->devicePixelRatioF());
+            const auto coordinate = offered_direction_inference ==
+                zima::sketcher::ConstraintKind::Horizontal ? 1U : 0U;
+            if (std::abs(confirmed_position[coordinate] -
+                    (*pending_segment_start_)[coordinate]) <= intent_tolerance) {
+                direction_inference = offered_direction_inference;
+            }
         } else if (*end_snap_kind ==
                    zima::sketcher::ConstraintKind::PointOnLine) {
             // Landing on a line means coincidence with that support.  Add
@@ -1164,7 +1174,7 @@ AssemblyWorkspaceWindow::inferred_sketch_segment_end(
             const double rx = second->x - first->x;
             const double ry = second->y - first->y;
             offer_midpoint_on_line(reference.id, {first->x, first->y},
-                {rx, ry}, !reference.centerline);
+                {rx, ry}, true);
             const double length = std::hypot(rx, ry);
             if (length <= 1.0e-12) continue;
             const double ux = rx / length;

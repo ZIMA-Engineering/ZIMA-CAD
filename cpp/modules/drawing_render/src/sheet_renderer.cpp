@@ -1,3 +1,4 @@
+#include <zima/kernel/annotation_layout.hpp>
 #include "../../../common/interaction_colors.hpp"
 #include <zima/drawing_render/crop_path.hpp>
 #include "../../../common/technical_font.hpp"
@@ -609,9 +610,11 @@ void SheetRenderer::paint_sheet(QPainter& painter,double zoom,QPointF origin,boo
             if(!symbol.symbol.visible)return;
             const AnnotationKey key{AnnotationKind::Symbol,{},symbol.symbol.id,0};
             const auto screen=[&](kernel::Vec3 p){return origin+QPointF(sheet_->width_mm()-p.x,sheet_->height_mm()-p.y)*zoom;};
+            auto grip=symbol.frame.world({symbol.symbol.x,symbol.symbol.y,0});auto shelf_end=grip;
             QPainterPath stroke;std::map<QRgb,QPainterPath> fills;painter.save();
-            for(const auto& edge:symbol.viewer_mesh(std::atan2(symbol.frame.x.y,-symbol.frame.x.x)*180/std::acos(-1.)).edges) {
+            for(const auto& edge:symbol.viewer_mesh(std::atan2(symbol.frame.x.y,-symbol.frame.x.x)*180/std::acos(-1.),true).edges) {
                 if(edge.points.empty())continue;
+                if(edge.annotation&&edge.annotation->role==3){const auto& layout=*edge.annotation;const kernel::Vec3 right{-1,0,0},up{0,1,0};const bool left=kernel::dimension_dot(kernel::dimension_sub(layout.contact,layout.grip),right)<=0;const auto points=kernel::annotation_handles(layout,right,up,left,true);grip=points[1];shelf_end=points[2];}
                 const auto color=annotation_color(key,printing?ink:symbol.unresolved?QColor("#E05050"):edge.color=="#FFFFFF"?ink:QColor(QString::fromStdString(edge.color)),printing);
                 QPen pen(color,width(false));if(edge.dash_dot)pen.setDashPattern({8*zoom/pen.widthF(),1.5*zoom/pen.widthF(),.5*zoom/pen.widthF(),1.5*zoom/pen.widthF()});
                 painter.setPen(pen);painter.setBrush(Qt::NoBrush);QPolygonF polygon;for(const auto p:edge.points)polygon<<screen(p);
@@ -621,9 +624,10 @@ void SheetRenderer::paint_sheet(QPainter& painter,double zoom,QPointF origin,boo
             for(const auto& [rgba,path]:fills)painter.fillPath(path,QColor::fromRgba(rgba));painter.restore();
             if(!printing){
                 QPainterPathStroker picker;picker.setWidth(10);
-                annotation_handles_.push_back({key,screen(symbol.frame.world({symbol.symbol.x,symbol.symbol.y,0})),picker.createStroke(stroke)});
+                annotation_handles_.push_back({key,screen(grip),picker.createStroke(stroke)});
                 if(symbol.leader){auto contact_key=key;contact_key.end=1;
-                    annotation_handles_.push_back({contact_key,screen(symbol.frame.origin),{}});}
+                    annotation_handles_.push_back({contact_key,screen(symbol.frame.origin),{}});
+                    auto end_key=key;end_key.end=2;annotation_handles_.push_back({end_key,screen(shelf_end),{}});}
             }
         };
         for(const auto& symbol:sheet_->symbol_annotations)if(printing||!symbol_preview_||symbol_preview_->symbol.id!=symbol.symbol.id)paint_symbol(symbol);

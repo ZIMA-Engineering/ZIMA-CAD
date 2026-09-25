@@ -68,56 +68,72 @@
           "fixed": true,
           "id": "roughness:left:a",
           "x": -1.75,
-          "y": 3.031
+          "y": 3.031,
+          "centerline": false,
+          "visible_in_3d": true
         },
         {
           "construction": false,
           "fixed": true,
           "id": "roughness:left:b",
           "x": 0.0,
-          "y": 0.0
+          "y": 0.0,
+          "centerline": false,
+          "visible_in_3d": true
         },
         {
           "construction": false,
           "fixed": true,
           "id": "roughness:right:a",
           "x": 0.0,
-          "y": 0.0
+          "y": 0.0,
+          "centerline": false,
+          "visible_in_3d": true
         },
         {
           "construction": false,
           "fixed": true,
           "id": "roughness:right:b",
           "x": 3.5,
-          "y": 6.062
+          "y": 6.062,
+          "centerline": false,
+          "visible_in_3d": true
         },
         {
           "construction": false,
           "fixed": true,
           "id": "roughness:top:a",
           "x": 3.5,
-          "y": 6.062
+          "y": 6.062,
+          "centerline": false,
+          "visible_in_3d": true
         },
         {
           "construction": false,
           "fixed": true,
           "id": "roughness:top:b",
           "x": 19.0,
-          "y": 6.062
+          "y": 6.062,
+          "centerline": false,
+          "visible_in_3d": true
         },
         {
           "construction": false,
           "fixed": true,
           "id": "roughness:standard-bar:a",
           "x": -1.2,
-          "y": 4.55
+          "y": 4.55,
+          "centerline": false,
+          "visible_in_3d": true
         },
         {
           "construction": false,
           "fixed": true,
           "id": "roughness:standard-bar:b",
           "x": 1.2,
-          "y": 4.55
+          "y": 4.55,
+          "centerline": false,
+          "visible_in_3d": true
         }
       ],
       "resolved_normal": [
@@ -146,28 +162,32 @@
           "construction": false,
           "first": "roughness:left:a",
           "id": "roughness:left",
-          "second": "roughness:left:b"
+          "second": "roughness:left:b",
+          "visible_in_3d": true
         },
         {
           "centerline": false,
           "construction": false,
           "first": "roughness:right:a",
           "id": "roughness:right",
-          "second": "roughness:right:b"
+          "second": "roughness:right:b",
+          "visible_in_3d": true
         },
         {
           "centerline": false,
           "construction": false,
           "first": "roughness:top:a",
           "id": "roughness:top",
-          "second": "roughness:top:b"
+          "second": "roughness:top:b",
+          "visible_in_3d": true
         },
         {
           "centerline": false,
           "construction": false,
           "first": "roughness:standard-bar:a",
           "id": "roughness:standard-bar",
-          "second": "roughness:standard-bar:b"
+          "second": "roughness:standard-bar:b",
+          "visible_in_3d": true
         }
       ],
       "suppressed": false,
@@ -432,7 +452,7 @@
                 2.3360406353135312
               ],
               [
-                5.3534447194719474,
+                5.353444719471947,
                 2.2872318481848186
               ],
               [
@@ -642,7 +662,7 @@
             ],
             [
               [
-                6.3415841584158414,
+                6.341584158415841,
                 1.7607260726072607
               ],
               [
@@ -2385,7 +2405,7 @@
           "vertical": "bottom"
         }
       ],
-      "version": 34
+      "version": 35
     },
     {
       "arcs": [],
@@ -2416,14 +2436,18 @@
           "fixed": true,
           "id": "roughness:removal:a",
           "x": -1.75,
-          "y": 3.031
+          "y": 3.031,
+          "centerline": false,
+          "visible_in_3d": true
         },
         {
           "construction": false,
           "fixed": true,
           "id": "roughness:removal:b",
           "x": 1.75,
-          "y": 3.031
+          "y": 3.031,
+          "centerline": false,
+          "visible_in_3d": true
         }
       ],
       "resolved_normal": [
@@ -2452,13 +2476,14 @@
           "construction": false,
           "first": "roughness:removal:a",
           "id": "roughness:removal",
-          "second": "roughness:removal:b"
+          "second": "roughness:removal:b",
+          "visible_in_3d": true
         }
       ],
       "suppressed": false,
       "symbols": [],
       "texts": [],
-      "version": 34
+      "version": 35
     },
     {
       "arcs": [],
@@ -2468,7 +2493,9 @@
           "center": "roughness:circle-center",
           "construction": false,
           "id": "roughness:circle",
-          "radius": 0.925
+          "radius": 0.925,
+          "centerline": false,
+          "visible_in_3d": true
         }
       ],
       "constraints": [],
@@ -2496,7 +2523,9 @@
           "fixed": true,
           "id": "roughness:circle-center",
           "x": 0.0,
-          "y": 1.85
+          "y": 1.85,
+          "centerline": false,
+          "visible_in_3d": true
         }
       ],
       "resolved_normal": [
@@ -2523,7 +2552,7 @@
       "suppressed": false,
       "symbols": [],
       "texts": [],
-      "version": 34
+      "version": 35
     }
   ],
   "units": "mm",

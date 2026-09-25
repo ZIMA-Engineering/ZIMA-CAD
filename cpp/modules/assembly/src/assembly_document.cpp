@@ -1664,6 +1664,7 @@ zima::kernel::ViewerMesh AssemblyDocument::build_scene() const {
                 scene.triangle_references.push_back(std::move(reference));
             }
             for (auto edge : source_mesh.edges) {
+                if(edge.annotation)kernel::transform_annotation(*edge.annotation,[&](auto p){return transform_point(p,component.placement);});
                 assign_instance(edge.reference, path);
                 for(auto& reference:edge.edge_treatment_side_references)assign_instance(reference,path);
                 for(auto& reference:edge.edge_treatment_endpoint_references)assign_instance(reference,path);

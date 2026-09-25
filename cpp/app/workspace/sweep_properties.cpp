@@ -34,10 +34,10 @@ void AssemblyWorkspaceWindow::transform_sketch_container(
             sketch->segments.end(), [](const auto& segment) {
                 return segment.construction && segment.centerline;
             });
-        // A missing/ambiguous axis is intentionally allowed at this point:
+        // A missing axis is intentionally allowed at this point:
         // Properties opens first and its SKETCH action is how the user fixes
         // the profile before OK performs strict Revolution validation.
-        if (axis_count == 1) {
+        if (axis_count > 0) {
             draft.revolution.axis_segment_id = revolution_axis_segment_id(
                 *sketch, draft.revolution.axis_segment_id);
         }

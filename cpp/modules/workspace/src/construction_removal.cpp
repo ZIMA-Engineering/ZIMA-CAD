@@ -27,6 +27,8 @@ void require_unused(const Workspace& live,const assembly::AssemblyDocument& doc,
     bool used=false;
     const auto construction=[&](const auto& self,const auto& value)->void {
         used=used||std::ranges::any_of(value.references,local);
+        for(std::size_t i=0;i<(value.axis_extent_mode==document::AxisExtentMode::TwoSides?2u:1u);++i)
+            if(value.axis_ends[i].up_to)used=used||local(value.axis_ends[i].target);
         for(const auto& point:value.curve_points)self(self,point);
     };
     for(const auto& value:doc.constructions)if(value.id!=object.id)construction(construction,value);

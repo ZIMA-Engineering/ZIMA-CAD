@@ -188,7 +188,7 @@ void AssemblyWorkspaceWindow::rebuild_application_toolbar() {
                     } else if (action->objectName() == "insertDrawingViewAction") {
                         action->setIcon(resource_icon("drawing"));
                     } else if (action->objectName() == "drawingDimensionAction") {
-                        action->setIcon(resource_icon("sketch-dimensions"));
+                        action->setIcon(resource_icon("drawing-dimension"));
                     }
                     const bool quick_export=action->objectName()=="drawingQuickExportPdfAction"||action->objectName()=="drawingQuickExportDxfAction";
                     add_command(action,!quick_export);
@@ -273,7 +273,11 @@ void AssemblyWorkspaceWindow::rebuild_application_toolbar() {
         return;
     }
 
-    add_command(symbol_action_);
+    const auto add_symbol_group = [&] {
+        if (tools_toolbar_->actions().empty() || !tools_toolbar_->actions().back()->isSeparator())
+            add_group_separator();
+        add_command(symbol_action_);
+    };
     if (active_application_ == ApplicationMode::Modeling) {
         const auto* modeling_part=workspace_.open_part(workspace_.active_document_id());
         const bool active_body=modeling_part&&!modeling_part->session.document().body_history.active_body_id().empty();
@@ -300,7 +304,7 @@ void AssemblyWorkspaceWindow::rebuild_application_toolbar() {
             if (graph.active_body_id().empty()) add_command(boolean);
             if (graph.active_body_id().empty()) tools_toolbar_->addSeparator();
             if (graph.active_body_id().empty() && (!graph.bodies().empty() ||
-                    part->session.document().history_order.empty())) return;
+                    part->session.document().history_order.empty())) { add_symbol_group(); return; }
         }
         add_command(selection_action_);
         for (auto* action : {construction_point_action_, construction_axis_action_, cylinder_axis_action_,
@@ -308,6 +312,7 @@ void AssemblyWorkspaceWindow::rebuild_application_toolbar() {
             add_command(action);
         }
         add_group_separator();
+        if(auto* feature=findChild<QAction*>("featurePrototypeAction"))add_command(feature);
         add_command(extrusion_action_);
         add_command(revolution_action_);
         add_command(sweep2d_action_);
@@ -332,6 +337,7 @@ void AssemblyWorkspaceWindow::rebuild_application_toolbar() {
                              pyramid_action_, wedge_action_}) {
             add_command(action);
         }
+        add_symbol_group();
         return;
     }
     if (active_application_ == ApplicationMode::Assembly) {
@@ -350,7 +356,7 @@ void AssemblyWorkspaceWindow::rebuild_application_toolbar() {
         add_command(revolution_action_);
         mirror_action_->setEnabled(!properties_dialog_);add_command(mirror_action_);
         pattern_action_->setEnabled(!properties_dialog_);add_command(pattern_action_);
-        add_group_separator();
+        add_symbol_group();
         return;
     }
     if(active_application_==ApplicationMode::SheetMetal) {
@@ -419,6 +425,7 @@ void AssemblyWorkspaceWindow::rebuild_application_toolbar() {
             if(!dxf){dxf=new QAction(resource_icon("export-dxf"),tr("DXF"),this);dxf->setObjectName("sheetDxfAction");
                 connect(dxf,&QAction::triggered,this,[this]{export_sheet_dxf();});}
             dxf->setEnabled(!properties_dialog_);add_command(dxf);
+            add_symbol_group();
             return;
         }
     }
@@ -430,6 +437,7 @@ void AssemblyWorkspaceWindow::rebuild_application_toolbar() {
             : tr("Příkazy potrubí – připravuje se"), tools_toolbar_);
     placeholder->setEnabled(false);
     add_command(placeholder);
+    add_symbol_group();
 }
 
 void AssemblyWorkspaceWindow::sync_sketch_tool_action_checks() {

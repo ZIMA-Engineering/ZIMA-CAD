@@ -149,7 +149,8 @@ std::optional<zima::kernel::BodyResult> DocumentSession::calculated_boundary(
     // publish them into the display packet without invoking OCCT.
     for (const auto& axis : result.mesh.original_references.axes) {
         if (axis.reference.semantic_key != "axis:primary" &&
-            !axis.reference.semantic_key.starts_with("axis:profile:")) {
+            !axis.reference.semantic_key.starts_with("axis:profile:") &&
+            !axis.reference.semantic_key.starts_with("centerline:from:")) {
             continue;
         }
         const bool already_visible = std::ranges::any_of(result.mesh.axes,

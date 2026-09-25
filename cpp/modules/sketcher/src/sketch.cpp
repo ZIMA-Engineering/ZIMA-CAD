@@ -2885,6 +2885,7 @@ void Sketch::set_geometry_construction(
             [&](const auto& value) { return value.id == geometry_id; });
         if (item == values.end()) return;
         item->construction = construction;
+        item->centerline = false;
         found = true;
     };
     update(points);
@@ -2906,15 +2907,59 @@ void Sketch::set_geometry_construction(
     validate();
 }
 
-void Sketch::set_segment_centerline(
-    const std::string& segment_id, bool centerline) {
-    const auto found = std::find_if(segments.begin(), segments.end(),
-        [&](const auto& segment) { return segment.id == segment_id; });
-    if (found == segments.end()) {
-        throw std::invalid_argument("Sketch centerline segment does not exist");
-    }
-    found->construction = centerline || found->construction;
-    found->centerline = centerline;
+namespace {
+template<class S,class F> bool visit_sketch_geometry(S& sketch,const std::string& id,F callback) {
+    bool found=false;
+    const auto visit=[&](auto& values){for(auto& value:values)if(value.id==id){callback(value);found=true;return;}};
+    visit(sketch.points);visit(sketch.segments);visit(sketch.circles);visit(sketch.arcs);
+    visit(sketch.ellipses);visit(sketch.elliptical_arcs);visit(sketch.bsplines);return found;
+}
+}
+bool Sketch::geometry_is_centerline(const std::string& id) const {
+    bool result=false;visit_sketch_geometry(*this,id,[&](const auto& v){result=v.centerline;});return result;
+}
+bool Sketch::geometry_visible_in_3d(const std::string& id) const {
+    bool result=false;visit_sketch_geometry(*this,id,[&](const auto& v){result=v.visible_in_3d;});return result;
+}
+void Sketch::set_geometry_centerline(const std::string& id,bool enabled) {
+    if(!visit_sketch_geometry(*this,id,[&](auto& v){v.centerline=enabled;if(enabled)v.construction=true;}))
+        throw std::invalid_argument("Sketch geometry does not support a construction role");
+    validate();
+}
+void Sketch::set_geometry_visible_in_3d(const std::string& id,bool visible) {
+    if(!visit_sketch_geometry(*this,id,[&](auto& v){v.visible_in_3d=visible;}))
+        throw std::invalid_argument("Sketch geometry does not support a construction role");
+}
+void Sketch::set_segment_centerline(const std::string& id,bool enabled) {
+    if (std::none_of(segments.begin(), segments.end(), [&](const auto& value) { return value.id == id; })) throw std::invalid_argument("Sketch segment not found");
+    set_geometry_centerline(id,enabled);
+}
+void Sketch::filter_hidden_3d_geometry(zima::kernel::ViewerMesh& mesh, bool construction_only) const {
+    std::erase_if(mesh.edges,[&](const auto& edge){
+        if(!edge.construction)return construction_only;
+        const auto pos=edge.reference.semantic_key.find(':');
+        const auto curve=edge.reference.semantic_key.substr(pos==std::string::npos?0:pos+1);
+        return !geometry_is_centerline(curve)||!geometry_visible_in_3d(curve);
+    });
+    std::set<std::string> shown_points, owned_points;
+    const auto include=[&](const auto& values,auto ids){for(const auto& v:values)for(const auto& p:ids(v)) {
+        owned_points.insert(p);
+        if((!construction_only&&!v.construction)||(v.centerline&&v.visible_in_3d))shown_points.insert(p);
+    }};
+    include(segments,[](const auto& v){return std::vector{v.first_point_id,v.second_point_id};});
+    include(circles,[](const auto& v){return std::vector{v.center_point_id};});
+    include(arcs,[](const auto& v){return std::vector{v.center_point_id,v.start_point_id,v.end_point_id};});
+    include(ellipses,[](const auto& v){return std::vector{v.center_point_id,v.major_point_id,v.minor_point_id};});
+    include(elliptical_arcs,[](const auto& v){return std::vector{v.center_point_id,v.major_point_id,v.minor_point_id,v.start_point_id,v.end_point_id};});
+    include(bsplines,[](const auto& v){return v.control_point_ids;});
+    for(const auto& p:points)if(p.centerline&&p.visible_in_3d)shown_points.insert(p.id);
+    std::erase_if(mesh.points,[&](auto& point){
+        if(!point.reference.semantic_key.starts_with("point:"))return construction_only;
+        const auto id=point.reference.semantic_key.substr(6);
+        if(shown_points.contains(id)){point.construction=false;return false;}
+        const auto* p=find_point(id);
+        return construction_only||owned_points.contains(id)||point.construction||(p&&p->centerline&&!p->visible_in_3d);
+    });
 }
 
 bool Sketch::move_point(const std::string& point_id, double x, double y) {
@@ -11857,7 +11902,7 @@ zima::kernel::ViewerMesh Sketch::viewer_mesh() const {
         const auto* second = find_point(segment.second_point_id);
         placement_lines.push_back({segment.id, {first->x, first->y},
             {second->x - first->x, second->y - first->y},
-            !segment.construction});
+            true});
     }
     // External references already carry their projected ZIMA geometry. Publish
     // crossings into the same candidate stream as native Sketch intersections.
@@ -12004,7 +12049,7 @@ zima::kernel::ViewerMesh Sketch::viewer_mesh() const {
             {project(*find_point(segment.first_point_id)),
              project(*find_point(segment.second_point_id))},
             {id, "segment:" + segment.id, {}}, segment.construction, true,
-            segment.centerline, segment.centerline});
+            false, segment.centerline});
     }
     constexpr std::size_t circle_samples = 96;
     for (const auto& circle : circles) {
@@ -12012,6 +12057,7 @@ zima::kernel::ViewerMesh Sketch::viewer_mesh() const {
         zima::kernel::ViewerEdge edge;
         edge.reference = {id, "circle:" + circle.id, {}};
         edge.construction = circle.construction;
+        edge.dash_dot = circle.centerline;
         edge.overlay = true;
         edge.points.reserve(circle_samples + 1);
         for (std::size_t sample = 0; sample <= circle_samples; ++sample) {
@@ -12029,6 +12075,7 @@ zima::kernel::ViewerMesh Sketch::viewer_mesh() const {
         if(const auto* offset=find_offset(spline.id);offset && offset->broken)edge.color="#FF5555";
         if(std::ranges::any_of(curve_trims,[&](const auto& c){return c.id==spline.id && c.broken;}))edge.color="#FF5555";
         edge.construction = spline.construction;
+        edge.dash_dot = spline.centerline;
         edge.overlay = true;
         if (!spline.knots.empty()) {
             zima::kernel::BSplineGeometry exact{spline.degree, {}, spline.knots, spline.weights};
@@ -12048,6 +12095,7 @@ zima::kernel::ViewerMesh Sketch::viewer_mesh() const {
         zima::kernel::ViewerEdge edge;
         edge.reference = {id, "ellipse:" + ellipse.id, {}};
         edge.construction = ellipse.construction;
+        edge.dash_dot = ellipse.centerline;
         edge.overlay = true;
         edge.points.reserve(circle_samples + 1);
         for (std::size_t sample = 0; sample <= circle_samples; ++sample) {
@@ -12068,6 +12116,7 @@ zima::kernel::ViewerMesh Sketch::viewer_mesh() const {
         zima::kernel::ViewerEdge edge;
         edge.reference = {id, "elliptical_arc:" + arc.id, {}};
         edge.construction = arc.construction;
+        edge.dash_dot = arc.centerline;
         edge.overlay = true;
         const double sweep = arc.end_parameter - arc.start_parameter;
         const auto samples = std::max<std::size_t>(8,
@@ -12088,6 +12137,7 @@ zima::kernel::ViewerMesh Sketch::viewer_mesh() const {
         zima::kernel::ViewerEdge edge;
         edge.reference = {id, "arc:" + arc.id, {}};
         edge.construction = arc.construction;
+        edge.dash_dot = arc.centerline;
         edge.overlay = true;
         const double sweep = arc.end_angle - arc.start_angle;
         const auto samples = std::max<std::size_t>(2,
@@ -13366,6 +13416,16 @@ std::string Sketch::serialized() const {
         {"degree", spline.degree}, {"interpolating", spline.interpolating},
         {"closed", spline.closed},
         {"construction", spline.construction}});
+    const auto write_roles=[](auto& rows,const auto& values){for(std::size_t i=0;i<values.size();++i){
+        rows[i]["centerline"]=values[i].centerline;rows[i]["visible_in_3d"]=values[i].visible_in_3d;
+    }};
+    write_roles(point_values,points);
+    write_roles(segment_values,segments);
+    write_roles(circle_values,circles);
+    write_roles(arc_values,arcs);
+    write_roles(ellipse_values,ellipses);
+    write_roles(elliptical_arc_values,elliptical_arcs);
+    write_roles(spline_values,bsplines);
     nlohmann::json import_block_values = nlohmann::json::array();
     for (const auto& block : import_blocks) import_block_values.push_back({
         {"id", block.id}, {"name", block.name}, {"source_path", block.source_path},
@@ -13456,7 +13516,7 @@ std::string Sketch::serialized() const {
         value["locked"] = dimension.locked;
         dimension_values.push_back(std::move(value));
     }
-    nlohmann::json root{{"format", "zima-cad-cpp-sketch"}, {"version", 34},
+    nlohmann::json root{{"format", "zima-cad-cpp-sketch"}, {"version", 35},
         {"id", id}, {"owner_container_id", owner_container_id},
         {"name", name}, {"suppressed", suppressed},
         {"plane", plane_name(plane)}, {"plane_auto", plane_auto},
@@ -13511,7 +13571,7 @@ std::string Sketch::serialized() const {
 
 Sketch Sketch::from_serialized(const std::string& value) {
     const auto root = nlohmann::json::parse(value);
-    if (root.at("format") != "zima-cad-cpp-sketch" || root.at("version") != 34) {
+    if (root.at("format") != "zima-cad-cpp-sketch" || root.at("version") != 35) {
         throw std::runtime_error("Unsupported sketch format");
     }
     Sketch sketch;
@@ -13614,6 +13674,17 @@ Sketch Sketch::from_serialized(const std::string& value) {
         value.at("construction").get<bool>(),
         value.at("knots").get<std::vector<double>>(),
         value.at("weights").get<std::vector<double>>()});
+    const auto read_roles=[&](const char* key,auto& values){const auto& rows=root.at(key);
+        for(std::size_t i=0;i<values.size();++i){values[i].centerline=rows[i].at("centerline").template get<bool>();
+            values[i].visible_in_3d=rows[i].at("visible_in_3d").template get<bool>();}
+    };
+    read_roles("points",sketch.points);
+    read_roles("segments",sketch.segments);
+    read_roles("circles",sketch.circles);
+    read_roles("arcs",sketch.arcs);
+    read_roles("ellipses",sketch.ellipses);
+    read_roles("elliptical_arcs",sketch.elliptical_arcs);
+    read_roles("bsplines",sketch.bsplines);
     for (const auto& value : root.at("import_blocks")) sketch.import_blocks.push_back({
         value.at("id").get<std::string>(), value.at("name").get<std::string>(),
         value.at("source_path").get<std::string>(),
@@ -13747,20 +13818,14 @@ zima::kernel::ViewerReferenceGeometry Sketch::placement_reference_geometry() con
         zima::kernel::ViewerEdge edge;
         edge.reference={id,prefix+curve_id,{}};
         edge.construction=auxiliary;edge.overlay=true;
+        edge.dash_dot=geometry_is_centerline(curve_id);
         edge.exact_spline=std::move(exact);
         const unsigned samples=edge.exact_spline->degree==1?1:96;
         for(unsigned i=0;i<=samples;++i)edge.points.push_back(
             zima::kernel::bspline_value(*edge.exact_spline,double(i)/samples));
         result.edges.push_back(std::move(edge));
     };
-    for (const auto& c:segments) {
-        if (!c.centerline) add(c.id,"segment:",c.construction);
-        else {
-            const auto* a=find_point(c.first_point_id); const auto* b=find_point(c.second_point_id);
-            const auto p=world_point(a->x,a->y),q=world_point(b->x,b->y);
-            result.axes.push_back({p,{q.x-p.x,q.y-p.y,q.z-p.z},1,{id,"segment:"+c.id,{}}});
-        }
-    }
+    for (const auto& c:segments) add(c.id,"segment:",c.construction);
     for (const auto& c:circles) add(c.id,"circle:",c.construction);
     for (const auto& c:arcs) add(c.id,"arc:",c.construction);
     for (const auto& c:ellipses) add(c.id,"ellipse:",c.construction);

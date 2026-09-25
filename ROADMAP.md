@@ -24,6 +24,22 @@ newer completion notes and focused contracts supersede their earlier status.
 
 These are backlog entries, not part of the current UI, import and measurement fixes.
 
+## Container placement on curved surfaces (2026-09-25)
+
+- Teach shared container placement to attach to cylindrical and other curved
+  surfaces, including elliptical and spline surfaces. Agree on the contact
+  position, orientation, offset and remaining degrees of freedom before
+  implementation. Distinguish attachment to a cylinder's surface from attachment
+  to its axis.
+- Resolve the actual surface contact and local normal from persisted native
+  reference data; never substitute the plane of the first display triangle.
+  Preserve original-object identity, occurrence path and contact side through
+  editing, regeneration, save/reopen and Undo/Redo.
+- Keep picking and property editing fast and free of OCCT body calculations.
+  Preserve existing point, axis, plane and curve placement behavior.
+- Status: requested backlog only. Changes to the protected shared placement
+  contract still require explicit approval of the proposed design.
+
 ## Agreed command console and Codex integration (2026-09-09)
 
 The shared console and CLI coverage for supported CAD operations are complete

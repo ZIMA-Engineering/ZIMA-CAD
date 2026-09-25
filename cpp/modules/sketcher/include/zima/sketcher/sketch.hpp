@@ -77,6 +77,8 @@ struct SketchPoint {
     double y{};
     bool fixed{};
     bool construction{};
+    bool centerline{};
+    bool visible_in_3d{true};
     bool operator==(const SketchPoint&) const = default;
 };
 
@@ -85,9 +87,10 @@ struct SketchSegment {
     std::string first_point_id;
     std::string second_point_id;
     bool construction{};
-    // A true centerline (Python geometry type "construction") is unbounded.
+    // A finite construction curve; its supporting line can still define an axis.
     // `construction && !centerline` is finite auxiliary geometry.
     bool centerline{};
+    bool visible_in_3d{true};
     bool operator==(const SketchSegment&) const = default;
 };
 
@@ -96,6 +99,8 @@ struct SketchCircle {
     std::string center_point_id;
     double radius{};
     bool construction{};
+    bool centerline{};
+    bool visible_in_3d{true};
     bool operator==(const SketchCircle&) const = default;
 };
 
@@ -108,6 +113,8 @@ struct SketchArc {
     double start_angle{};
     double end_angle{};
     bool construction{};
+    bool centerline{};
+    bool visible_in_3d{true};
     bool operator==(const SketchArc&) const = default;
 };
 
@@ -121,6 +128,8 @@ struct SketchEllipse {
     double rotation{};
     bool construction{};
     bool reversed{};
+    bool centerline{};
+    bool visible_in_3d{true};
     bool operator==(const SketchEllipse&) const = default;
 };
 
@@ -138,6 +147,8 @@ struct SketchEllipticalArc {
     double end_parameter{};
     bool construction{};
     bool reversed{};
+    bool centerline{};
+    bool visible_in_3d{true};
     bool operator==(const SketchEllipticalArc&) const = default;
 };
 
@@ -152,6 +163,8 @@ struct SketchBSpline {
     bool construction{};
     std::vector<double> knots;
     std::vector<double> weights;
+    bool centerline{};
+    bool visible_in_3d{true};
     bool operator==(const SketchBSpline&) const = default;
 };
 
@@ -464,6 +477,11 @@ public:
     [[nodiscard]] bool set_dimension_placement(
         const std::string& dimension_id, double x, double y);
     void set_point_fixed(const std::string& point_id, bool fixed);
+    bool geometry_is_centerline(const std::string&) const;
+    bool geometry_visible_in_3d(const std::string&) const;
+    void set_geometry_centerline(const std::string&, bool);
+    void set_geometry_visible_in_3d(const std::string&, bool);
+    void filter_hidden_3d_geometry(zima::kernel::ViewerMesh&, bool construction_only=false) const;
     void set_geometry_construction(
         const std::string& geometry_id, bool construction);
     void set_segment_centerline(const std::string& segment_id, bool centerline);

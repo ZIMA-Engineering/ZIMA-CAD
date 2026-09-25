@@ -1,3 +1,4 @@
+#include <QMenu>
 #include "workspace_internal.hpp"
 
 namespace zima::app {
@@ -138,6 +139,32 @@ bool AssemblyWorkspaceWindow::delete_selected_sketch_geometry() {
     } catch (const std::exception& error) {
         QMessageBox::warning(this, tr("Geometrii nelze odstranit"), error.what());
         return true;
+    }
+}
+
+void AssemblyWorkspaceWindow::append_sketch_geometry_role_actions(
+    QMenu& menu,const zima::sketcher::Sketch& sketch,const std::string& id) {
+    bool auxiliary=false;
+    const auto inspect=[&](const auto& values){for(const auto& v:values)if(v.id==id)auxiliary=v.construction;};
+    inspect(sketch.points);inspect(sketch.segments);inspect(sketch.circles);inspect(sketch.arcs);
+    inspect(sketch.ellipses);inspect(sketch.elliptical_arcs);inspect(sketch.bsplines);
+    const bool construction=sketch.geometry_is_centerline(id);
+    const auto add=[&](const QString& label,const char* name,auto operation){
+        auto* action=menu.addAction(label);action->setObjectName(name);
+        connect(action,&QAction::triggered,this,[this,id,operation]{
+            try {
+                if(!mutate_active_sketch([&](auto& next){operation(next,id);}))return;
+                preserve_view_on_refresh_=true;refresh_tabs();refresh_scene();
+            }catch(const std::exception& e){state_->setText(QObject::tr(e.what()));}
+        });return action;
+    };
+    if(auxiliary)add(tr("Převést na obrys profilu"),"sketchProfileRoleAction",[](auto& s,const auto& id){s.set_geometry_construction(id,false);});
+    if(!auxiliary||construction)add(tr("Převést na pomocnou geometrii"),"sketchAuxiliaryRoleAction",[](auto& s,const auto& id){s.set_geometry_construction(id,true);});
+    if(!construction)add(tr("Převést na konstrukční geometrii"),"sketchConstructionRoleAction",[](auto& s,const auto& id){s.set_geometry_centerline(id,true);});
+    if(construction) {
+        const bool visible=sketch.geometry_visible_in_3d(id);
+        auto* action=add(tr("Zobrazovat ve 3D"),"sketchGeometryVisible3DAction",[visible](auto& s,const auto& id){s.set_geometry_visible_in_3d(id,!visible);});
+        action->setCheckable(true);action->setChecked(visible);
     }
 }
 

@@ -126,7 +126,7 @@ kernel::BSplineGeometry clamp_curve_geometry(Curve curve) {
 
 kernel::BSplineGeometry sketch_curve_geometry(const Sketch& s,const std::string& id) {
     const auto point=[&](const std::string& id){const auto* p=s.find_point(id);if(!p)throw std::invalid_argument("Missing curve point");return V{p->x,p->y,0};};
-    for(const auto& c:s.segments)if(c.id==id){if(c.centerline)throw std::invalid_argument("Offset requires a finite curve");return {1,{point(c.first_point_id),point(c.second_point_id)},{0,0,1,1},{1,1}};}
+    for(const auto& c:s.segments)if(c.id==id){return {1,{point(c.first_point_id),point(c.second_point_id)},{0,0,1,1},{1,1}};}
     for(const auto& c:s.circles)if(c.id==id)return conic(point(c.center_point_id),c.radius,c.radius,0,false,0,2*std::numbers::pi);
     for(const auto& c:s.arcs)if(c.id==id)return conic(point(c.center_point_id),c.radius,c.radius,0,false,c.start_angle,c.end_angle);
     for(const auto& c:s.ellipses)if(c.id==id)return conic(point(c.center_point_id),c.major_radius,c.minor_radius,c.rotation,c.reversed,0,2*std::numbers::pi);

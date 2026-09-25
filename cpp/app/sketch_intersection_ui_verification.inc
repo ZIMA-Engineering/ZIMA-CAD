@@ -3,9 +3,9 @@ int verify_sketch_intersections_ui(QApplication& application,const std::filesyst
     const auto check=[](bool ok,const char* message){if(!ok)throw std::runtime_error(message);};
     const auto flush=[&]{application.processEvents();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);application.processEvents();};
     try {
-        for (int scenario : {0,1,2,3,4,5,6,7,8,9,10}) {
-            const int mode=scenario>=7?5:scenario;
-            const QString language=QStringList{"cs","en","de","fr","ru"}[scenario>=7?scenario-6:0];
+        for (int scenario : {11,12,0,1,2,3,4,5,6,7,8,9,10}) {
+            const int mode=scenario>=11?scenario:(scenario>=7?5:scenario);
+            const QString language=QStringList{"cs","en","de","fr","ru"}[scenario>=7&&scenario<=10?scenario-6:0];
             QSettings settings(QString::fromStdString((directory/"config.ini").string()),QSettings::IniFormat);
             settings.setValue("Application/Language",language);settings.sync();
             std::cout<<"External intersection UI mode "<<mode<<std::endl;
@@ -17,6 +17,10 @@ int verify_sketch_intersections_ui(QApplication& application,const std::filesyst
             const auto vertical=source.add_segment(27,-40,27,40);
             auto sketch=sketcher::Sketch::create_default();sketch.owner_container_id=feature.id;
             std::vector<std::string> references;
+            if(mode>=11) {
+                sketch.add_segment(-40,-20,0,-20);
+                sketch.add_segment(30,10,30,40);
+            }
             for (const auto& edge : source.viewer_mesh().edges) {
                 if(mode>=4)break;
                 if (edge.reference.semantic_key!="segment:"+horizontal && edge.reference.semantic_key!="segment:"+vertical) continue;
@@ -51,6 +55,33 @@ int verify_sketch_intersections_ui(QApplication& application,const std::filesyst
             const auto screen=[&](double x,double y){return QPointF(((x-a[0])*vy-(y-a[1])*vx)/det,(ux*(y-a[1])-uy*(x-a[0]))/det);};
             const auto mouse=[&](QPointF p,QEvent::Type type,Qt::MouseButton button){QMouseEvent event(type,p,QPointF(view->mapToGlobal(p.toPoint())),button,type==QEvent::MouseButtonPress?button:Qt::NoButton,Qt::NoModifier);QApplication::sendEvent(view,&event);flush();};
             const auto click=[&](QPointF p){mouse(p,QEvent::MouseMove,Qt::NoButton);mouse(p,QEvent::MouseButtonPress,Qt::LeftButton);mouse(p,QEvent::MouseButtonRelease,Qt::LeftButton);};
+            if(mode>=11) {
+                window.findChild<QAction*>("sketchSegmentAction")->trigger();flush();
+                const auto start=mode==11?QPointF(-20,-20):QPointF(-17,-13);
+                click(screen(start.x(),start.y()));
+                const auto end=screen(30,25);mouse(end,QEvent::MouseMove,Qt::NoButton);
+                check(view->hovered_candidate()&&view->hovered_candidate()->semantic_key=="sketch_midpoint:"+sketch.segments[1].id,"Midpoint endpoint was not offered");
+                click(end);
+                window.findChild<QAction*>("finishSketchAction")->trigger();flush();
+                app::SketchPropertiesDialog* properties{};
+                for(auto* d:window.findChildren<QDialog*>())if(auto* p=dynamic_cast<app::SketchPropertiesDialog*>(d);p&&p->isVisible())properties=p;
+                check(properties,"Midpoint test did not return to properties");
+                const auto result=properties->pending_value().first;
+                check(result.segments.size()==3,"Midpoint-to-midpoint/free-point line was rejected");
+                const auto& line=result.segments.back();
+                const auto* first=result.find_point(line.first_point_id);
+                const auto* last=result.find_point(line.second_point_id);
+                check(first&&last&&std::hypot(first->x-start.x(),first->y-start.y())<1e-3&&std::hypot(last->x-30,last->y-25)<1e-6,"Midpoint confirmation moved a requested endpoint");
+                for(const auto& before:sketch.points) {
+                    const auto* after=result.find_point(before.id);
+                    check(after&&std::hypot(after->x-before.x,after->y-before.y)<1e-6,"Midpoint confirmation moved support geometry");
+                }
+                check(std::ranges::count_if(result.constraints,[](const auto& c){return c.kind==sketcher::ConstraintKind::Midpoint;})==(mode==11?2:1),"Midpoint relations missing");
+                properties->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
+                window.findChild<QAction*>("saveDocumentAction")->trigger();flush();
+                check(document::PartDocument::load(path).sketches.back().constraints==result.constraints,"Midpoint relations changed on reopen");
+                continue;
+            }
             if(mode>=4) {
                 auto* command=window.findChild<QAction*>(mode!=5?"sketchExternalReferenceAction":"sketchExternalProfileAction");
                 check(command&&command->isEnabled(),"External source command unavailable");command->trigger();flush();

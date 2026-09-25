@@ -1,3 +1,4 @@
+#include <zima/kernel/annotation_layout.hpp>
 #include "../common/interaction_colors.hpp"
 #include "symbol_properties_dialog.hpp"
 #include <QJsonDocument>
@@ -305,6 +306,7 @@ public:
           value_(std::move(initial)), sources_(std::move(sources)),
           sections_(std::move(sections)), sheet_scale_(sheet_scale), accepted_(std::move(accepted)), preview_(std::move(preview)) {
         setObjectName("drawingViewProperties");
+        setProperty("expandBottomTable",true);
         auto* content = new QWidget(this);
         auto* form = new QVBoxLayout(content);
         const auto group=[&](const QString& title) {
@@ -445,7 +447,7 @@ public:
         error_ = new QLabel(content); error_->setWordWrap(true);error_->hide();
         error_->setObjectName("drawingViewError");
         form->addWidget(error_);form->addStretch();
-        auto* scroll=new QScrollArea(this);scroll->setWidgetResizable(true);scroll->setWidget(content);scroll->setMinimumHeight(420);scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);content_layout()->addWidget(scroll);
+        auto* scroll=new QScrollArea(this);scroll->setObjectName("drawingViewPropertiesScroll");scroll->setWidgetResizable(true);scroll->setWidget(content);scroll->setMinimumHeight(420);scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);content_layout()->addWidget(scroll,1);
         setMinimumWidth(760);set_initial_size({800,760});
         load_sections(value_.section_id);
         connect(source_,&QComboBox::currentIndexChanged,this,[this]{load_sections({});});
@@ -971,8 +973,9 @@ public:
         update();
     }
     void set_title_block_action(QAction* action) { title_action_=action; }
-    void set_symbol_editor(SymbolAttachmentDialog* dialog,std::function<void(const drawing::DrawingView*,const drawing::DimensionAttachment*,drawing::Point2)> pick={}) {
-        if(dialog)select_entity({},false);symbol_editor_=dialog;symbol_pick_=std::move(pick);measurement_offered_.clear();measurement_index_=0;update();
+    void set_symbol_editor(SymbolAttachmentDialog* dialog,std::function<void(const drawing::DrawingView*,const drawing::DimensionAttachment*,drawing::Point2)> pick={},std::function<void(drawing::Point2)> move_contact={},std::function<std::function<void()>()> capture_contact={}) {
+        symbol_drag_original_.reset();symbol_drag_layout_.reset();symbol_drag_restore_={};symbol_capture_contact_=std::move(capture_contact);
+        if(dialog)select_entity({},false);symbol_editor_=dialog;symbol_pick_=std::move(pick);symbol_move_contact_=std::move(move_contact);measurement_offered_.clear();measurement_index_=0;update();
     }
     void set_symbol_reference_view(std::string id){symbol_reference_view_=std::move(id);}
     void set_symbol_preview(std::optional<symbols::Placement> value){symbol_preview_=std::move(value);update();}
@@ -1590,6 +1593,16 @@ protected:
         setFocus();
         if(text_editor_) {const auto p=paper_point(event->position());text_editor_->set_anchor(p.x,p.y);event->accept();return;}
         if(symbol_editor_){
+            const auto& value=symbol_editor_->pending_placement();
+            int nearest_handle=-1;double handle_distance=6.;
+            if(value.leader)for(std::size_t i=0;i<annotation_handles_.size();++i){const auto& h=annotation_handles_[i];if(h.key.kind!=AnnotationKind::Symbol||h.key.id!=value.symbol.id)continue;const double d=QLineF(h.point,event->position()).length();if(d<=handle_distance){handle_distance=d;nearest_handle=int(i);}}
+            if(nearest_handle>=0){const auto& handle=annotation_handles_[nearest_handle];
+                symbol_drag_original_=value;symbol_drag_start_=event->position();symbol_contact_drag_=handle.key.end==1;symbol_drag_handle_=handle.key.end==2?2:1;
+                symbol_drag_restore_=symbol_capture_contact_?symbol_capture_contact_():std::function<void()>{};
+                symbol_drag_layout_.reset();const auto mesh=value.viewer_mesh(std::atan2(value.frame.x.y,-value.frame.x.x)*180/std::acos(-1.),true);
+                for(const auto& edge:mesh.edges)if(edge.annotation&&edge.annotation->role==3){symbol_drag_layout_=edge.annotation;break;}
+                event->accept();return;
+            }
             if(symbol_editor_->active()&&symbol_pick_) {
                 if(!measurement_offered_.empty()) {const auto offered=measurement_offered_[measurement_index_];
                     const auto view=std::ranges::find(sheet_->views,offered.view,&drawing::DrawingView::id);
@@ -1674,13 +1687,10 @@ protected:
                     }else if(candidate.key.kind==AnnotationKind::Model){
                         for(const auto& view:sheet_->views)if(view.id==candidate.key.view)for(const auto& item:view.model_annotations)if(model_annotation_key(item.source)==candidate.key.id&&(item.kind==drawing::ModelAnnotationKind::Dimension||item.kind==drawing::ModelAnnotationKind::Symbol)){model_drag_original_=item;dragged_model_=candidate;model_drag_start_=event->position();model_moved_=false;model_drag_layout_initial_=item.view_layout.value_or(item.model_layout);if(!item.view_layout)model_drag_layout_initial_.plane_quarter_turns=0;model_drag_shown_=item.model_dimension?std::optional(drawing::drawing_model_dimension(view,item)):std::nullopt;}
                     }else if(candidate.key.kind==AnnotationKind::Symbol){
-                        if(candidate.key.end==1){
-                            if(symbol_properties_)symbol_properties_(candidate.key.id);
-                            if(symbol_editor_)symbol_editor_->begin_entry();
-                            update();event->accept();return;
-                        }
                         const auto found=std::ranges::find(sheet_->symbol_annotations,candidate.key.id,[](const auto& p){return p.symbol.id;});
-                        if(found!=sheet_->symbol_annotations.end()){symbol_drag_original_=*found;symbol_drag_start_=event->position();}
+                        if(found!=sheet_->symbol_annotations.end()){symbol_drag_original_=*found;symbol_drag_start_=event->position();symbol_contact_drag_=candidate.key.end==1||!found->leader;symbol_drag_handle_=candidate.key.end==2?2:1;
+                            symbol_drag_layout_.reset();if(found->leader){const auto mesh=found->viewer_mesh(std::atan2(found->frame.x.y,-found->frame.x.x)*180/std::acos(-1.),true);for(const auto& edge:mesh.edges)if(edge.annotation&&edge.annotation->role==3){symbol_drag_layout_=edge.annotation;break;}}
+                            const auto contact=sheet_->symbol_contacts.find(found->symbol.id);symbol_contact_original_=contact==sheet_->symbol_contacts.end()?std::nullopt:std::optional(contact->second);}
                     }else if(candidate.key.kind==AnnotationKind::SectionEnd){dragged_section_end_=candidate;section_end_drag_start_=event->position();section_end_moved_=false;}
                 }
                 if(selection_changed_)selection_changed_();update();event->accept();return;
@@ -1718,16 +1728,33 @@ protected:
             if(text_editor_->needs_anchor()){const auto p=paper_point(event->position());text_editor_->set_preview_anchor(p.x,p.y);}
             update();event->accept();return;
         }
-        if(symbol_editor_&&!view_panning_&&!(event->buttons()&Qt::MiddleButton)){
+        if(symbol_editor_&&!symbol_drag_original_&&!view_panning_&&!(event->buttons()&Qt::MiddleButton)){
             offer_measurements(event->position());update();event->accept();return;
         }
         if(balloon_move(event))return;
         if(symbol_drag_original_&&!view_panning_&&(event->buttons()&Qt::LeftButton)) {
-            const auto found=std::ranges::find(sheet_->symbol_annotations,symbol_drag_original_->symbol.id,[](const auto& p){return p.symbol.id;});
-            if(found!=sheet_->symbol_annotations.end()) {
+            const auto stored=std::ranges::find(sheet_->symbol_annotations,symbol_drag_original_->symbol.id,[](const auto& p){return p.symbol.id;});
+            auto pending=symbol_editor_?symbol_editor_->pending_placement():*symbol_drag_original_;
+            auto* found=symbol_editor_?&pending:stored==sheet_->symbol_annotations.end()?nullptr:&*stored;
+            if(found) {
+                if(symbol_contact_drag_&&found->reference){
+                    if(symbol_editor_){if(symbol_move_contact_)symbol_move_contact_(paper_point(event->position()));}
+                    else drawing::move_symbol_contact(*sheet_,found->symbol.id,paper_point(event->position()));
+                    update();event->accept();return;
+                }
                 const auto delta=(event->position()-symbol_drag_start_)/canvas_zoom();const auto& original=*symbol_drag_original_;
                 const auto grip=original.frame.world({original.symbol.x,original.symbol.y,0});
-                const auto local=original.frame.local({grip.x-delta.x(),grip.y-delta.y(),grip.z});found->symbol.x=local.x;found->symbol.y=local.y;
+                auto target=kernel::Vec3{grip.x-delta.x(),grip.y-delta.y(),grip.z};
+                if(symbol_drag_layout_){const auto& a=*symbol_drag_layout_;const kernel::Vec3 right{-1,0,0},up{0,1,0};const bool left=kernel::dimension_dot(kernel::dimension_sub(a.contact,a.grip),right)<=0;
+                    const auto initial=kernel::annotation_handles(a,right,up,left,true)[symbol_drag_handle_];
+                    const auto moved=kernel::drag_annotation(a,right,up,left,true,symbol_drag_handle_,{initial.x-delta.x(),initial.y-delta.y(),initial.z});target=moved.grip;found->shelf_length=moved.shelf_length;
+                }
+                if(symbol_contact_drag_&&original.leader&&!original.reference){found->frame.origin={original.frame.origin.x-delta.x(),original.frame.origin.y-delta.y(),original.frame.origin.z};const auto local=found->frame.local(grip);found->symbol.x=local.x;found->symbol.y=local.y;}
+                else {const auto local=original.frame.local(target);found->symbol.x=local.x;found->symbol.y=local.y;}
+                if(symbol_editor_){
+                    if(symbol_contact_drag_)symbol_editor_->set_planar_placement(*found);
+                    symbol_editor_->set_shelf_anchor({found->symbol.x,found->symbol.y,found->offset_z},found->shelf_length);
+                }
             }
             update();event->accept();return;
         }
@@ -1900,9 +1927,10 @@ protected:
         next_x=constrained.x;next_y=constrained.y;
         const double dx = next_x - found->x; const double dy = next_y - found->y;
         found->x = next_x; found->y = next_y;
+        drawing::translate_symbol_contacts(*sheet_,found->id,{dx,dy});
         std::function<void(const std::string&)> move_children = [&](const std::string& parent) {
             for (auto& view : sheet_->views) if (view.parent_view_id == parent) {
-                view.x += dx; view.y += dy; move_children(view.id);
+                view.x += dx; view.y += dy; drawing::translate_symbol_contacts(*sheet_,view.id,{dx,dy}); move_children(view.id);
             }
         };
         move_children(found->id);
@@ -1924,6 +1952,7 @@ protected:
         if(event->button()==Qt::LeftButton)clear_annotation_snap();
         if(balloon_release(event))return;
         if(symbol_drag_original_&&event->button()==Qt::LeftButton){
+            if(symbol_editor_){symbol_drag_original_.reset();symbol_drag_restore_={};event->accept();return;}
             const auto found=std::ranges::find(sheet_->symbol_annotations,symbol_drag_original_->symbol.id,[](const auto& p){return p.symbol.id;});
             const bool moved=found!=sheet_->symbol_annotations.end()&&*found!=*symbol_drag_original_;symbol_drag_original_.reset();if(moved&&changed_)changed_();event->accept();return;
         }
@@ -1982,11 +2011,19 @@ protected:
         }
         if(event->key()==Qt::Key_Escape) {
             if(balloon_escape()){event->accept();return;}
-            if(symbol_editor_){symbol_editor_->reject();event->accept();return;}
+            if(symbol_editor_&&!symbol_drag_original_){symbol_editor_->reject();event->accept();return;}
             if(text_editor_){text_editor_->reject();event->accept();return;}
             if(symbol_drag_original_){
+                if(symbol_editor_){
+                    const auto original=*symbol_drag_original_;
+                    if(symbol_drag_restore_)symbol_drag_restore_();symbol_drag_restore_={};
+                    symbol_editor_->set_planar_placement(original);
+                    symbol_editor_->set_shelf_anchor({original.symbol.x,original.symbol.y,original.offset_z},original.shelf_length);
+                    symbol_drag_original_.reset();update();event->accept();return;
+                }
                 const auto found=std::ranges::find(sheet_->symbol_annotations,symbol_drag_original_->symbol.id,[](const auto& p){return p.symbol.id;});
-                if(found!=sheet_->symbol_annotations.end())*found=*symbol_drag_original_;symbol_drag_original_.reset();update();event->accept();return;
+                if(found!=sheet_->symbol_annotations.end())*found=*symbol_drag_original_;
+                if(symbol_contact_original_)sheet_->symbol_contacts[symbol_drag_original_->symbol.id]=*symbol_contact_original_;symbol_drag_original_.reset();update();event->accept();return;
             }
             if(text_drag_original_){if(auto* text=editable_text("text:"+text_drag_original_->id))*text=*text_drag_original_;text_drag_original_.reset();update();event->accept();return;}
             selected_field_.clear();hovered_field_.clear();
@@ -2027,9 +2064,14 @@ protected:
 private:
     zima::drawing::DrawingSheet* sheet_{};
     std::optional<symbols::Placement> symbol_drag_original_;QPointF symbol_drag_start_;
+    int symbol_drag_handle_{1};std::optional<kernel::AnnotationStroke> symbol_drag_layout_;
+    bool symbol_contact_drag_{};std::optional<drawing::SymbolContact> symbol_contact_original_;
     std::string symbol_reference_view_;QPointF symbol_middle_press_;
     QPointer<SymbolAttachmentDialog> symbol_editor_;
     std::function<void(const drawing::DrawingView*,const drawing::DimensionAttachment*,drawing::Point2)> symbol_pick_;
+    std::function<void(drawing::Point2)> symbol_move_contact_;
+    std::function<std::function<void()>()> symbol_capture_contact_;
+    std::function<void()> symbol_drag_restore_;
     std::function<void(const std::string&)> symbol_properties_;
     QPointer<SketchTextPropertiesDialog> text_editor_;
     std::function<void(const std::string&)> text_properties_;
@@ -2166,11 +2208,11 @@ void DrawingWindow::create_actions() {
     linear_dimension_action_ = drawing->addAction(tr("Kóta"), this,
         [this] { start_linear_dimension(); });
     linear_dimension_action_->setObjectName("drawingDimensionAction");
-    linear_dimension_action_->setIcon(resource_icon("sketch-dimensions"));
+    linear_dimension_action_->setIcon(resource_icon("drawing-dimension"));
     linear_dimension_action_->setCheckable(true);
     chain_dimension_action_=drawing->addAction(tr("Řetězová kóta"),this,[this]{show_dimension_properties({},3);});
     chain_dimension_action_->setObjectName("drawingChainDimensionAction");
-    chain_dimension_action_->setIcon(resource_icon("sketch-dimensions"));
+    chain_dimension_action_->setIcon(resource_icon("drawing-chain-dimension"));
     dimension_jog_action_=drawing->addAction(tr("Vložit zalomení"),this,[this]{canvas_->start_selection();canvas_->begin_witness_command(drawing::WitnessEditKind::Jog);});
     dimension_jog_action_->setObjectName("drawingDimensionJogAction");
     dimension_break_action_=drawing->addAction(tr("Vložit přerušení"),this,[this]{canvas_->start_selection();canvas_->begin_witness_command(drawing::WitnessEditKind::Break);});
@@ -2736,8 +2778,20 @@ void DrawingWindow::show_symbol_properties(const std::string& id) {
     canvas_->set_symbol_editor(dialog,[guarded,contact](const auto* view,const auto* attachment,auto point){
         if(!guarded)return;auto value=guarded->pending_placement();
         if(view&&attachment){try {drawing::attach_symbol_to_view(value,*view,*attachment);}catch(const std::exception&){QMessageBox::warning(guarded,tr("Symbol"),tr("Symbol nelze připojit k vybrané geometrii."));return;}*contact=drawing::SymbolContact{view->id,attachment->parameter};}
-        else {value.reference.reset();value.unresolved=false;value.frame={{point.x,point.y,0},{-1,0,0},{0,1,0}};contact->reset();}
+        else {value.reference.reset();value.paper_tangent.reset();value.paper_extension_start.reset();value.unresolved=false;value.frame={{point.x,point.y,0},{-1,0,0},{0,1,0}};contact->reset();}
         guarded->set_planar_placement(std::move(value));
+    },[this,guarded,contact,sheet_id](drawing::Point2 point){
+        if(!guarded||!*contact)return;
+        const auto* sheet=document_.find_sheet(sheet_id);if(!sheet)return;
+        const auto view=std::ranges::find(sheet->views,(**contact).view_id,&drawing::DrawingView::id);if(view==sheet->views.end())return;
+        auto moved=guarded->pending_placement();auto next_contact=**contact;
+        if(!drawing::move_symbol_contact(moved,*view,next_contact,point))return;
+        *contact=next_contact;
+        guarded->set_planar_placement(moved);
+        guarded->set_spatial_anchor({moved.symbol.x,moved.symbol.y,moved.offset_z});
+    },[contact]{
+        const auto original=*contact;
+        return std::function<void()>{[contact,original]{*contact=original;}};
     });
     dialog->changed();if(properties_handler_)properties_handler_(dialog);
     connect(dialog,&QDialog::finished,this,[this,guarded]{canvas_->set_symbol_editor(nullptr);canvas_->set_symbol_preview({});if(view_dialog_==guarded){view_dialog_.clear();if(properties_handler_)properties_handler_(nullptr);}update_action_states();});

@@ -2525,17 +2525,17 @@ int main() {
         const auto construction_mesh = constructions.construction_viewer_mesh();
         // Point, Axis and Plane each expose their own defining point through
         // a distinct persisted Container-Origin owner.
-        require(construction_mesh.points.size() == 3 &&
+        require(construction_mesh.points.size() == 5 &&
                     construction_mesh.axes.size() == 1 &&
                     construction_mesh.edges.size() == 1 &&
-                    construction_mesh.original_references.points.size() == 3 &&
+                    construction_mesh.original_references.points.size() == 5 &&
                     construction_mesh.original_references.points.front().reference.owner_id ==
                         point.id + ":origin" &&
                     construction_mesh.original_references.points.front()
                             .reference.semantic_key == "point" &&
-                    construction_mesh.original_references.points[1].reference.owner_id ==
+                    construction_mesh.original_references.points[3].reference.owner_id ==
                         axis.id + ":origin" &&
-                    construction_mesh.original_references.points[1]
+                    construction_mesh.original_references.points[3]
                             .reference.semantic_key == "point" &&
                     construction_mesh.original_references.points.back().reference.owner_id ==
                         plane.id + ":origin" &&
@@ -2590,7 +2590,8 @@ int main() {
                         axis.reference.semantic_key == "origin:axis:x";
                 });
         };
-        require(curve_mesh.points.empty() && curve_mesh.edges.size() == 1 &&
+        require(curve_mesh.points.size() == 2 &&
+                    std::ranges::all_of(curve_mesh.points, [](const auto& p) { return p.label.empty() && p.always_visible; }) && curve_mesh.edges.size() == 1 &&
                     curve_mesh.edges.front().points.size() == 25 &&
                     std::abs(curve_mesh.edges.front().points.front().x - 5.0) < 1.0e-9 &&
                     std::abs(curve_mesh.edges.front().points.front().y - 6.0) < 1.0e-9 &&
@@ -2606,7 +2607,7 @@ int main() {
                         edited_curve_point_mesh, curve.container_origin.id) &&
                     has_editing_axis(edited_curve_point_mesh,
                         curve_first.container_origin.id),
-                "3D Curve did not keep normal View leaf-only while exposing editing Points");
+                "3D Curve did not keep normal unnumbered Points and editing reference frames");
         auto automatic_curve_document = curve_document;
         auto* automatic_curve = automatic_curve_document.find_construction(curve_id);
         require(automatic_curve != nullptr,
@@ -2840,7 +2841,7 @@ int main() {
             });
         // Editing the Point adds its origin frame, but not a duplicate of
         // the Point entity itself; Axis and Plane keep their own markers.
-        require(edited_point_mesh.points.size() == 3 &&
+        require(edited_point_mesh.points.size() == 5 &&
                     edited_point_mesh.points.front().reference.semantic_key ==
                         "point" &&
                     edited_point_mesh.axes.size() == 4 &&
@@ -3610,7 +3611,7 @@ int main() {
         retained_document.constructions.push_back(retained_axis);
         const auto retained_mesh = retained_document.construction_viewer_mesh();
         require(retained_mesh.axes.size() == 1 &&
-                    retained_mesh.axes.front().point == retained_origin &&
+                    retained_mesh.axes.front().point == retained_axis.axis_point((retained_axis.axis_limits().first + retained_axis.axis_limits().second) * .5) &&
                     retained_mesh.axes.front().direction == retained_direction,
                 "Invalid-reference Axis disappeared from normal View");
         auto construction_reference_sketch = zima::sketcher::Sketch::create_default();

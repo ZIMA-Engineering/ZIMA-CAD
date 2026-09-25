@@ -50,4 +50,47 @@ std::optional<ExtrusionParameters::EndTarget> resolve_profile_target(
     if(planar){result.kind=EndTargetKind::Plane;result.fallback_triangles.clear();}
     return result;
 }
+// Axis termination consumes the same persisted target geometry as profiles.
+// It is independent of container placement and never invokes the solid kernel.
+bool resolve_axis_extents(ConstructionObject& object, const kernel::ViewerReferenceGeometry& geometry) {
+    if(object.kind!=ConstructionKind::Axis || object.definition==ConstructionDefinition::CylinderAxis)return true;
+    const auto sub=[](kernel::Vec3 a,kernel::Vec3 b){return kernel::Vec3{a.x-b.x,a.y-b.y,a.z-b.z};};
+    const auto dot=[](kernel::Vec3 a,kernel::Vec3 b){return a.x*b.x+a.y*b.y+a.z*b.z;};
+    const auto cross=[](kernel::Vec3 a,kernel::Vec3 b){return kernel::Vec3{a.y*b.z-a.z*b.y,a.z*b.x-a.x*b.z,a.x*b.y-a.y*b.x};};
+    const auto direction=sub(object.axis_point(1),object.origin);
+    auto resolved=object.axis_ends;
+    for(std::size_t i=0;i<(object.axis_extent_mode==AxisExtentMode::TwoSides?2u:1u);++i) {
+        auto& end=resolved[i];if(!end.up_to)continue;
+        if(end.target.owner_id==object.entity_id || end.target.owner_id==object.container_origin.id)return false;
+        ExtrusionParameters::EndTarget requested;
+        requested.reference={end.target.owner_id,end.target.semantic_key,end.target.instance_path};
+        requested.kind=EndTargetKind::Face;
+        for(const auto& p:geometry.points)if(p.reference.owner_id==end.target.owner_id &&
+            p.reference.semantic_key==end.target.semantic_key && p.reference.instance_path==end.target.instance_path)
+            requested.kind=EndTargetKind::Point;
+        const auto target=resolve_profile_target(requested,geometry);if(!target)return false;
+        const kernel::Vec3 ray{i?-direction.x:direction.x,i?-direction.y:direction.y,i?-direction.z:direction.z};
+        double distance=std::numeric_limits<double>::infinity();
+        if(target->kind==EndTargetKind::Point)distance=dot(sub(target->fallback_origin,object.origin),ray);
+        else if(target->kind==EndTargetKind::Plane) {
+            const double denominator=dot(target->fallback_normal,ray);
+            if(std::abs(denominator)<1e-10)return false;
+            distance=dot(sub(target->fallback_origin,object.origin),target->fallback_normal)/denominator;
+        } else {
+            // Trimmed non-planar faces use the captured profile-target triangles.
+            for(std::size_t j=0;j+2<target->fallback_triangles.size();j+=3) {
+                const auto a=target->fallback_triangles[j];
+                const auto u=sub(target->fallback_triangles[j+1],a),v=sub(target->fallback_triangles[j+2],a);
+                const auto h=cross(ray,v);const double det=dot(u,h);if(std::abs(det)<1e-12)continue;
+                const auto delta=sub(object.origin,a);const double b=dot(delta,h)/det;
+                const auto q=cross(delta,u);const double c=dot(ray,q)/det;
+                if(b < -1e-9 || c < -1e-9 || b+c > 1+1e-9)continue;
+                const double d=dot(v,q)/det;if(d>1e-8)distance=std::min(distance,d);
+            }
+        }
+        if(!std::isfinite(distance)||distance<=1e-8)return false;
+        end.resolved_length=distance;
+    }
+    object.axis_ends=std::move(resolved);return true;
+}
 } // namespace zima::document

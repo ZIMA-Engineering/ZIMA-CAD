@@ -46,11 +46,12 @@ inline zima::kernel::BodyResult component_source(const PartDocument& document, c
         if (owner != document.history.end() && (owner->suppressed ||
             owner->feature_kind != zima::document::FeatureKind::Sketch)) continue;
         auto mesh = sketch.viewer_mesh();
+        sketch.filter_hidden_3d_geometry(mesh);
         // A component publishes the idle Sketch profile, not Sketcher tools.
         // Keep the original-reference packet intact for mates and future edits.
         std::erase_if(mesh.edges, [](const auto& edge) {
             const auto& key = edge.reference.semantic_key;
-            return edge.construction || !(key.starts_with("segment:") ||
+            return (edge.construction && !edge.dash_dot) || !(key.starts_with("segment:") ||
                 key.starts_with("circle:") || key.starts_with("arc:") ||
                 key.starts_with("corner_radius:") || key.starts_with("ellipse:") ||
                 key.starts_with("elliptical_arc:") || key.starts_with("bspline:") ||

@@ -1,3 +1,4 @@
+#include "feature_parameter_panel.hpp"
 #include "reference_table_style.hpp"
 #include "sketch_button_style.hpp"
 #include "work_plane_selection.hpp"
@@ -52,7 +53,7 @@ bool uses_container_placement(zima::document::FeatureKind kind) {
     return kind == FeatureKind::Box || kind == FeatureKind::Cylinder ||
         kind == FeatureKind::Sphere || kind == FeatureKind::Cone ||
         kind == FeatureKind::Pyramid || kind == FeatureKind::Wedge ||
-        kind == FeatureKind::Extrusion || kind == FeatureKind::Revolution ||
+        kind == FeatureKind::Extrusion || kind == FeatureKind::Revolution || kind == FeatureKind::Feature ||
         kind == FeatureKind::TwistedSheet || kind == FeatureKind::DerivedCopy ||
         kind == FeatureKind::ImportedStep || kind == FeatureKind::Hole ||
         kind == FeatureKind::Thread || kind == FeatureKind::SheetTransition;
@@ -91,6 +92,7 @@ QString primitive_properties_title(zima::document::FeatureKind kind) {
         case FeatureKind::Pyramid: return QObject::tr("Vlastnosti jehlanu");
         case FeatureKind::Wedge: return QObject::tr("Vlastnosti klínu");
         case FeatureKind::TwistedSheet: return QObject::tr("Vlastnosti krouceného plechu");
+        case FeatureKind::Feature: return QObject::tr("Vlastnosti prvku");
         case FeatureKind::Extrusion: return QObject::tr("Vlastnosti vytažení");
         case FeatureKind::Revolution: return QObject::tr("Vlastnosti rotace");
         case FeatureKind::Sweep3D: return QObject::tr("Vlastnosti 3D tažení");
@@ -742,10 +744,77 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
         connect(twist_direction_,&QComboBox::currentIndexChanged,this,
             [this](int){notify_preview();});
         lock_sheet_attachment_fields();
+    } else if (initial.feature_kind == zima::document::FeatureKind::Feature) {
+        setObjectName("featurePropertiesDialog");
+        feature_panel_=new FeatureParameterPanel(this,initial.feature);
+        feature_panel_->set_subtract(initial.combine_mode==zima::document::CombineMode::Subtract);
+        form->addRow(feature_panel_);
+        profile_plane_=feature_panel_->plane_control();
+        profile_plane_offset_=feature_panel_->offset_control();
+        thin_thickness_=feature_panel_->thickness_control();
+        own_sketch_button_=feature_panel_->sketch_button();
+        connect(own_sketch_button_,&QPushButton::clicked,this,[this] {
+            auto pending=values();accept();if(edit_sketch_)edit_sketch_(std::move(pending));
+        });
+        for(std::size_t side=0;side<2;++side) {
+            auto* target=feature_panel_->target_control(side);
+            (side==0?forward_end_target_:reverse_end_target_)=target;
+            target->installEventFilter(this);
+            const auto& targets=initial.feature.sides[side].targets;
+            if(!targets.empty())target->setText(QString::fromStdString(targets.front().label));
+            const std::string key=side==0?"forward":"reverse";
+            auto* clear=new QAction(tr("Vymazat referenci"),target);
+            target->addAction(clear);clear->setEnabled(!targets.empty());
+            (side==0?forward_end_target_clear_action_:reverse_end_target_clear_action_)=clear;
+            connect(clear,&QAction::triggered,this,[this,key]{clear_extrusion_target(key);});
+            auto* eye=zima::ui::build_reference_inspection_button(!targets.empty(),false,
+                [this,key](bool){toggle_extrusion_target_highlight(key);});
+            (side==0?forward_end_targets_button_:reverse_end_targets_button_)=eye;
+            feature_panel_->target_layout(side)->addWidget(eye);
+        }
+        feature_panel_->on_swap([this]{
+            const bool picking=forward_end_target_pick_active_||reverse_end_target_pick_active_;
+            forward_end_target_pick_active_=reverse_end_target_pick_active_=false;
+            forward_end_target_highlighted_=reverse_end_target_highlighted_=false;
+            if(picking&&extrusion_target_cancel_)extrusion_target_cancel_();
+            std::swap(initial_.feature.sides[0].targets,initial_.feature.sides[1].targets);
+            for(const auto* suffix:{"_length","_angle"}) {
+                const auto first=std::string("side0")+suffix,second=std::string("side1")+suffix;
+                const bool a=initial_.value_locks.contains(first),b=initial_.value_locks.contains(second);
+                initial_.value_locks.erase(first);initial_.value_locks.erase(second);
+                if(a)initial_.value_locks.insert(second);
+                if(b)initial_.value_locks.insert(first);
+            }
+            feature_panel_->swap_sides();
+            for(std::size_t side=0;side<2;++side) {
+                const auto& targets=initial_.feature.sides[side].targets;
+                feature_panel_->target_control(side)->setText(targets.empty()?QString{}:QString::fromStdString(targets.front().label));
+                (side==0?forward_end_target_clear_action_:reverse_end_target_clear_action_)->setEnabled(!targets.empty());
+            }
+            refresh_extrusion_target_styles();
+            if(reference_highlights_changed_)reference_highlights_changed_();
+            notify_preview();
+        });
+        feature_panel_->on_change([this]{notify_preview();});
     } else if (initial.feature_kind == zima::document::FeatureKind::Extrusion ||
                initial.feature_kind == zima::document::FeatureKind::Revolution) {
         const bool revolve = initial.feature_kind ==
             zima::document::FeatureKind::Revolution;
+        origin_centerline_=new QCheckBox(tr("Osa počátku profilu"),this);
+        origin_centerline_->setObjectName("profileOriginCenterline");
+        origin_centerline_->setChecked(revolve?initial.revolution.origin_centerline:initial.extrusion.origin_centerline);
+        centroid_centerline_=new QCheckBox(tr("Osa těžiště profilu"),this);
+        centroid_centerline_->setObjectName("profileCentroidCenterline");
+        centroid_centerline_->setChecked(revolve?initial.revolution.centroid_centerline:initial.extrusion.centroid_centerline);
+        auto* centerline_row = new QHBoxLayout;
+        centerline_row->setContentsMargins(0, 0, 0, 0);
+        centerline_row->setSpacing(24);
+        centerline_row->addWidget(origin_centerline_);
+        centerline_row->addWidget(centroid_centerline_);
+        centerline_row->addStretch();
+        form->addRow(centerline_row);
+        connect(origin_centerline_,&QCheckBox::toggled,this,[this]{notify_preview();});
+        connect(centroid_centerline_,&QCheckBox::toggled,this,[this]{notify_preview();});
         const auto profile_source = revolve ? initial.revolution.profile_source
                                              : initial.extrusion.profile_source;
         const auto& sketch_id = revolve ? initial.revolution.sketch_id
@@ -1255,7 +1324,7 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
     // Sheet Cut always subtracts. Omitting its non-editable operation row also
     // leaves room for both end conditions and the owned Sketch action.
     // The hidden combo remains an internal value adapter for other features.
-    if (operation_ != nullptr && !(initial.feature_kind == zima::document::FeatureKind::Extrusion &&
+    if (operation_ != nullptr && !feature_panel_ && !(initial.feature_kind == zima::document::FeatureKind::Extrusion &&
         initial.extrusion.sheet_cut)) {
         const auto operation_buttons = add_feature_operation_buttons(
             this, content_layout(), operation_->currentData() == "subtract",
@@ -1379,6 +1448,7 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
     lock(twist_developed_correction_,"developed_length_correction");
     lock(profile_plane_offset_,"profile_offset");
     lock(thin_thickness_,"thin_thickness");
+    if(feature_panel_)feature_panel_->bind_side_locks(initial_.value_locks,[this]{notify_preview();});
     lock(reverse_length_,"length_reverse");
     lock(hole_diameter_,"diameter");
     lock(hole_bore_length_,"bore_length");
@@ -1516,7 +1586,13 @@ zima::document::HistoryContainer PrimitivePropertiesDialog::values() const {
             primitive_value(twist_developed_correction_);
         result.twisted_sheet.reverse=twist_direction_->currentData().toBool();
         result.combine_mode=zima::document::CombineMode::Add;
+    } else if (result.feature_kind == zima::document::FeatureKind::Feature) {
+        result.feature=feature_panel_->parameters();
+        for(std::size_t side=0;side<2;++side)result.feature.sides[side].targets=initial_.feature.sides[side].targets;
+        result.combine_mode=feature_panel_->subtract()?zima::document::CombineMode::Subtract:zima::document::CombineMode::Add;
     } else if (result.feature_kind == zima::document::FeatureKind::Extrusion) {
+        result.extrusion.origin_centerline=origin_centerline_->isChecked();
+        result.extrusion.centroid_centerline=centroid_centerline_->isChecked();
         result.extrusion.profile_plane_offset = profile_plane_offset_->value();
         result.extrusion.profile_source =
             zima::document::ProfileSource::Internal;
@@ -1561,6 +1637,8 @@ zima::document::HistoryContainer PrimitivePropertiesDialog::values() const {
             result.extrusion.sheet_cut_clearance = sheet_cut_method_->currentData()=="clearance";
         }
     } else if (result.feature_kind == zima::document::FeatureKind::Revolution) {
+        result.revolution.origin_centerline=origin_centerline_->isChecked();
+        result.revolution.centroid_centerline=centroid_centerline_->isChecked();
         result.revolution.profile_plane_offset = profile_plane_offset_->value();
         result.revolution.profile_source =
             zima::document::ProfileSource::Internal;
@@ -1701,6 +1779,22 @@ void PrimitivePropertiesDialog::set_edge_group_callbacks(
     restore_route_ = std::move(restore);
 }
 
+bool PrimitivePropertiesDialog::requires_planar_end_target() const {
+    if(feature_panel_)return feature_panel_->parameters().effective_side(active_end_target_side_=="reverse"?1:0).operation==zima::document::FeatureSideOperation::Revolution;
+    return initial_.feature_kind==zima::document::FeatureKind::Thread && active_end_target_side_=="reverse";
+}
+
+std::vector<zima::document::ExtrusionParameters::EndTarget>& PrimitivePropertiesDialog::profile_end_targets(bool reverse) {
+    return initial_.feature_kind==zima::document::FeatureKind::Feature
+        ? initial_.feature.sides[reverse?1:0].targets
+        : reverse?initial_.extrusion.end_targets_reverse:initial_.extrusion.end_targets_forward;
+}
+const std::vector<zima::document::ExtrusionParameters::EndTarget>& PrimitivePropertiesDialog::profile_end_targets(bool reverse) const {
+    return initial_.feature_kind==zima::document::FeatureKind::Feature
+        ? initial_.feature.sides[reverse?1:0].targets
+        : reverse?initial_.extrusion.end_targets_reverse:initial_.extrusion.end_targets_forward;
+}
+
 void PrimitivePropertiesDialog::set_extrusion_target(
     zima::kernel::FaceReference reference, zima::kernel::Vec3 origin,
     zima::kernel::Vec3 normal, std::string label) {
@@ -1719,8 +1813,8 @@ void PrimitivePropertiesDialog::set_extrusion_target(
                 ? initial_.thread.length_end_targets
                 : initial_.thread.end_targets_forward
         : active_end_target_side_ == "reverse"
-            ? initial_.extrusion.end_targets_reverse
-            : initial_.extrusion.end_targets_forward;
+            ? profile_end_targets(true)
+            : profile_end_targets(false);
     targets = {target};
     auto* edit = active_end_target_side_ == "reverse"
         ? reverse_end_target_ : forward_end_target_;
@@ -1760,8 +1854,8 @@ void PrimitivePropertiesDialog::set_extrusion_surface_target(
                 ? initial_.thread.length_end_targets
                 : initial_.thread.end_targets_forward
         : active_end_target_side_ == "reverse"
-            ? initial_.extrusion.end_targets_reverse
-            : initial_.extrusion.end_targets_forward;
+            ? profile_end_targets(true)
+            : profile_end_targets(false);
     targets = {target};
     auto* edit = active_end_target_side_ == "reverse"
         ? reverse_end_target_ : forward_end_target_;
@@ -1807,8 +1901,8 @@ bool PrimitivePropertiesDialog::eventFilter(QObject* watched, QEvent* event) {
             const std::string side = watched == reverse_end_target_
                 ? "reverse" : "forward";
             const auto& targets = side == "reverse"
-                ? initial_.extrusion.end_targets_reverse
-                : initial_.extrusion.end_targets_forward;
+                ? profile_end_targets(true)
+                : profile_end_targets(false);
             static_cast<void>(targets);
             request_extrusion_target(side);
             event->accept();
@@ -1848,8 +1942,8 @@ void PrimitivePropertiesDialog::clear_extrusion_target(
         : initial_.feature_kind == zima::document::FeatureKind::Thread
             ? side == "reverse" ? initial_.thread.length_end_targets
                                 : initial_.thread.end_targets_forward
-        : side == "reverse" ? initial_.extrusion.end_targets_reverse
-                            : initial_.extrusion.end_targets_forward;
+        : side == "reverse" ? profile_end_targets(true)
+                            : profile_end_targets(false);
     targets.clear();
     auto* edit = side == "reverse" ? reverse_end_target_ : forward_end_target_;
     if (edit != nullptr) edit->clear();
@@ -1905,12 +1999,12 @@ void PrimitivePropertiesDialog::refresh_extrusion_target_styles() {
             ? !initial_.hole.bore_end_targets.empty()
             : initial_.feature_kind == zima::document::FeatureKind::Thread
                 ? !initial_.thread.end_targets_forward.empty()
-            : !initial_.extrusion.end_targets_forward.empty());
+            : !profile_end_targets(false).empty());
     apply(reverse_end_target_, reverse_end_targets_button_,
         reverse_end_target_pick_active_, reverse_end_target_highlighted_,
         initial_.feature_kind == zima::document::FeatureKind::Thread
             ? !initial_.thread.length_end_targets.empty()
-            : !initial_.extrusion.end_targets_reverse.empty());
+            : !profile_end_targets(true).empty());
 }
 
 void PrimitivePropertiesDialog::set_extrusion_target_request(
@@ -2288,11 +2382,11 @@ PrimitivePropertiesDialog::highlighted_reference_owner_ids() const {
             ? initial_.hole.bore_end_targets
             : initial_.feature_kind == zima::document::FeatureKind::Thread
                 ? initial_.thread.end_targets_forward
-            : initial_.extrusion.end_targets_forward);
+            : profile_end_targets(false));
     append_target(reverse_end_target_highlighted_,
         initial_.feature_kind == zima::document::FeatureKind::Thread
             ? initial_.thread.length_end_targets
-            : initial_.extrusion.end_targets_reverse);
+            : profile_end_targets(true));
     return result;
 }
 
@@ -2312,11 +2406,11 @@ PrimitivePropertiesDialog::highlighted_reference_entries() const {
             ? initial_.hole.bore_end_targets
             : initial_.feature_kind == zima::document::FeatureKind::Thread
                 ? initial_.thread.end_targets_forward
-            : initial_.extrusion.end_targets_forward);
+            : profile_end_targets(false));
     append_target(reverse_end_target_highlighted_,
         initial_.feature_kind == zima::document::FeatureKind::Thread
             ? initial_.thread.length_end_targets
-            : initial_.extrusion.end_targets_reverse);
+            : profile_end_targets(true));
     return result;
 }
 
@@ -2609,6 +2703,10 @@ bool PrimitivePropertiesDialog::set_inline_parameter_value(
             index = index * 10 + static_cast<std::size_t>(digit - '0');
         }
         return placement_->set_reference_offset(index, value);
+    }
+    if (feature_panel_) {
+        if(key=="side0_length" || key=="side0_angle")return set_field(feature_panel_->side_value(0));
+        if(key=="side1_length" || key=="side1_angle")return set_field(feature_panel_->side_value(1));
     }
     if (key == "length") return set_field(length_);
     if (key == "width") return set_field(width_);

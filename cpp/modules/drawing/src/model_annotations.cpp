@@ -149,7 +149,7 @@ ModelAnnotation project_model_annotation(const DrawingView& view,ModelAnnotation
         if(angle>std::numbers::pi/2)angle-=std::numbers::pi;
         if(angle<-std::numbers::pi/2)angle+=std::numbers::pi;
         const double c=std::cos(angle),s=std::sin(angle);
-        placed.frame={{contact.x,contact.y,0},{c,s,0},{-s,c,0}};
+        placed.frame={{contact.x,contact.y,0},{c,s,0},{-s,c,0}};placed.offset_z=0;
         if(const auto handle=item.paper_handles.find("text");handle!=item.paper_handles.end()) {
             const auto local=placed.frame.local({handle->second.x,handle->second.y,0});placed.symbol.x=local.x;placed.symbol.y=local.y;
         }

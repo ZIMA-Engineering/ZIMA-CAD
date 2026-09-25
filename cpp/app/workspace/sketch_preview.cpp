@@ -1243,7 +1243,7 @@ AssemblyWorkspaceWindow::inferred_sketch_circle_tangent(
         const auto* second = sketch->find_point(line.second_point_id);
         if (first == nullptr || second == nullptr) continue;
         offer_line({first->x, first->y}, {second->x, second->y}, line.id,
-            !line.centerline);
+            true);
     }
     return best;
 }

@@ -47,6 +47,23 @@ void apply_construction_properties(Object& value, const Json& args, const kernel
     };
     if (field("display_size_mm", document::ConstructionKind::Axis))
         value.display_size = number("display_size_mm", "length", 0.001, 1000000);
+    if (field("reverse_length_mm", document::ConstructionKind::Axis))
+        value.axis_reverse_length = number("reverse_length_mm", "reverse_length", 0.001, 1000000);
+    if (field("extent_mode", document::ConstructionKind::Axis)) {
+        const auto mode = args.at("extent_mode").get<std::string>();
+        if (mode != "one_side" && mode != "two_sides" && mode != "symmetric")
+            throw ConstructionParameterError("invalid_arguments", "Invalid construction axis extent mode");
+        value.axis_extent_mode = mode == "two_sides" ? document::AxisExtentMode::TwoSides
+            : mode == "symmetric" ? document::AxisExtentMode::Symmetric : document::AxisExtentMode::OneSide;
+    }
+    for (std::size_t i=0;i<2;++i) {
+        const char* key=i?"reverse_end":"forward_end";
+        if(!field(key,document::ConstructionKind::Axis))continue;
+        const auto& end=args.at(key);const auto mode=end.at("condition").get<std::string>();
+        if(mode!="length"&&mode!="up_to")throw ConstructionParameterError("invalid_arguments","Invalid construction axis extent mode");
+        value.axis_ends[i].up_to=mode=="up_to";
+        if(value.axis_ends[i].up_to)value.axis_ends[i].target={end.value("instance_path",std::string{}),end.at("owner_id").get<std::string>(),end.at("semantic_key").get<std::string>()};
+    }
     if (field("offset_mm", document::ConstructionKind::Plane))
         value.offset = number("offset_mm", "offset", -1000000, 1000000);
     if (field("direction_axis", document::ConstructionKind::Axis)) {

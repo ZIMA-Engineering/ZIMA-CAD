@@ -321,7 +321,7 @@ int verify_sketch_line_styles(QApplication& application, QWidget& parent) {
             int original = 0, highlighted = 0, common = 0;
             for (int y = 10; y < idle.height() - 10; ++y)
                 for (int x = 10; x < idle.width() - 10; ++x) {
-                    const bool a = colored(idle.pixelColor(x, y), QColor("#FF8C00"));
+                    const bool a = colored(idle.pixelColor(x, y), QColor("#AD6E2E"));
                     const bool b = colored(frame.pixelColor(x, y), color);
                     original += a; highlighted += b; common += a && b;
                 }

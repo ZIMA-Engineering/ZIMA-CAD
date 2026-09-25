@@ -94,56 +94,72 @@
           "fixed": true,
           "id": "roughness:left:a",
           "x": -1.75,
-          "y": 3.031
+          "y": 3.031,
+          "centerline": false,
+          "visible_in_3d": true
         },
         {
           "construction": false,
           "fixed": true,
           "id": "roughness:left:b",
           "x": 0.0,
-          "y": 0.0
+          "y": 0.0,
+          "centerline": false,
+          "visible_in_3d": true
         },
         {
           "construction": false,
           "fixed": true,
           "id": "roughness:right:a",
           "x": 0.0,
-          "y": 0.0
+          "y": 0.0,
+          "centerline": false,
+          "visible_in_3d": true
         },
         {
           "construction": false,
           "fixed": true,
           "id": "roughness:right:b",
           "x": 3.5,
-          "y": 6.062
+          "y": 6.062,
+          "centerline": false,
+          "visible_in_3d": true
         },
         {
           "construction": false,
           "fixed": true,
           "id": "roughness:top:a",
           "x": 3.5,
-          "y": 6.062
+          "y": 6.062,
+          "centerline": false,
+          "visible_in_3d": true
         },
         {
           "construction": false,
           "fixed": true,
           "id": "roughness:top:b",
           "x": 19.0,
-          "y": 6.062
+          "y": 6.062,
+          "centerline": false,
+          "visible_in_3d": true
         },
         {
           "construction": false,
           "fixed": true,
           "id": "roughness:standard-bar:a",
           "x": -1.2,
-          "y": 4.55
+          "y": 4.55,
+          "centerline": false,
+          "visible_in_3d": true
         },
         {
           "construction": false,
           "fixed": true,
           "id": "roughness:standard-bar:b",
           "x": 1.2,
-          "y": 4.55
+          "y": 4.55,
+          "centerline": false,
+          "visible_in_3d": true
         }
       ],
       "resolved_normal": [
@@ -172,28 +188,32 @@
           "construction": false,
           "first": "roughness:left:a",
           "id": "roughness:left",
-          "second": "roughness:left:b"
+          "second": "roughness:left:b",
+          "visible_in_3d": true
         },
         {
           "centerline": false,
           "construction": false,
           "first": "roughness:right:a",
           "id": "roughness:right",
-          "second": "roughness:right:b"
+          "second": "roughness:right:b",
+          "visible_in_3d": true
         },
         {
           "centerline": false,
           "construction": false,
           "first": "roughness:top:a",
           "id": "roughness:top",
-          "second": "roughness:top:b"
+          "second": "roughness:top:b",
+          "visible_in_3d": true
         },
         {
           "centerline": false,
           "construction": false,
           "first": "roughness:standard-bar:a",
           "id": "roughness:standard-bar",
-          "second": "roughness:standard-bar:b"
+          "second": "roughness:standard-bar:b",
+          "visible_in_3d": true
         }
       ],
       "suppressed": false,
@@ -458,7 +478,7 @@
                 2.3360406353135312
               ],
               [
-                5.3534447194719474,
+                5.353444719471947,
                 2.2872318481848186
               ],
               [
@@ -668,7 +688,7 @@
             ],
             [
               [
-                6.3415841584158414,
+                6.341584158415841,
                 1.7607260726072607
               ],
               [
@@ -2411,7 +2431,7 @@
           "vertical": "bottom"
         }
       ],
-      "version": 34
+      "version": 35
     },
     {
       "arcs": [],
@@ -2442,14 +2462,18 @@
           "fixed": true,
           "id": "roughness:removal:a",
           "x": -1.75,
-          "y": 3.031
+          "y": 3.031,
+          "centerline": false,
+          "visible_in_3d": true
         },
         {
           "construction": false,
           "fixed": true,
           "id": "roughness:removal:b",
           "x": 1.75,
-          "y": 3.031
+          "y": 3.031,
+          "centerline": false,
+          "visible_in_3d": true
         }
       ],
       "resolved_normal": [
@@ -2478,13 +2502,14 @@
           "construction": false,
           "first": "roughness:removal:a",
           "id": "roughness:removal",
-          "second": "roughness:removal:b"
+          "second": "roughness:removal:b",
+          "visible_in_3d": true
         }
       ],
       "suppressed": false,
       "symbols": [],
       "texts": [],
-      "version": 34
+      "version": 35
     },
     {
       "arcs": [],
@@ -2494,7 +2519,9 @@
           "center": "roughness:circle-center",
           "construction": false,
           "id": "roughness:circle",
-          "radius": 0.925
+          "radius": 0.925,
+          "centerline": false,
+          "visible_in_3d": true
         }
       ],
       "constraints": [],
@@ -2522,7 +2549,9 @@
           "fixed": true,
           "id": "roughness:circle-center",
           "x": 0.0,
-          "y": 1.85
+          "y": 1.85,
+          "centerline": false,
+          "visible_in_3d": true
         }
       ],
       "resolved_normal": [
@@ -2549,7 +2578,7 @@
       "suppressed": false,
       "symbols": [],
       "texts": [],
-      "version": 34
+      "version": 35
     },
     {
       "arcs": [
@@ -2561,7 +2590,9 @@
           "id": "any_process:open",
           "radius": 7.5,
           "start": "any_process:open:start",
-          "start_angle": 2.6179938779914944
+          "start_angle": 2.6179938779914944,
+          "centerline": false,
+          "visible_in_3d": true
         },
         {
           "center": "any_process:close:center",
@@ -2571,7 +2602,9 @@
           "id": "any_process:close",
           "radius": 7.5,
           "start": "any_process:close:start",
-          "start_angle": -0.5235987755982988
+          "start_angle": -0.5235987755982988,
+          "centerline": false,
+          "visible_in_3d": true
         }
       ],
       "bsplines": [],
@@ -2601,98 +2634,126 @@
           "fixed": true,
           "id": "any_process:left:a",
           "x": 24.25,
-          "y": 3.031
+          "y": 3.031,
+          "centerline": false,
+          "visible_in_3d": true
         },
         {
           "construction": false,
           "fixed": true,
           "id": "any_process:left:b",
           "x": 26.0,
-          "y": 0.0
+          "y": 0.0,
+          "centerline": false,
+          "visible_in_3d": true
         },
         {
           "construction": false,
           "fixed": true,
           "id": "any_process:right:a",
           "x": 26.0,
-          "y": 0.0
+          "y": 0.0,
+          "centerline": false,
+          "visible_in_3d": true
         },
         {
           "construction": false,
           "fixed": true,
           "id": "any_process:right:b",
           "x": 29.5,
-          "y": 6.062
+          "y": 6.062,
+          "centerline": false,
+          "visible_in_3d": true
         },
         {
           "construction": false,
           "fixed": true,
           "id": "any_process:top:a",
           "x": 29.5,
-          "y": 6.062
+          "y": 6.062,
+          "centerline": false,
+          "visible_in_3d": true
         },
         {
           "construction": false,
           "fixed": true,
           "id": "any_process:top:b",
           "x": 31.5,
-          "y": 6.062
+          "y": 6.062,
+          "centerline": false,
+          "visible_in_3d": true
         },
         {
           "construction": false,
           "fixed": true,
           "id": "any_process:standard-bar:a",
           "x": 24.8,
-          "y": 4.55
+          "y": 4.55,
+          "centerline": false,
+          "visible_in_3d": true
         },
         {
           "construction": false,
           "fixed": true,
           "id": "any_process:standard-bar:b",
           "x": 27.2,
-          "y": 4.55
+          "y": 4.55,
+          "centerline": false,
+          "visible_in_3d": true
         },
         {
           "construction": false,
           "fixed": true,
           "id": "any_process:open:center",
           "x": 29.5,
-          "y": 3.05
+          "y": 3.05,
+          "centerline": false,
+          "visible_in_3d": true
         },
         {
           "construction": false,
           "fixed": true,
           "id": "any_process:open:start",
           "x": 23.00480947161671,
-          "y": 6.799999999999999
+          "y": 6.799999999999999,
+          "centerline": false,
+          "visible_in_3d": true
         },
         {
           "construction": false,
           "fixed": true,
           "id": "any_process:open:end",
           "x": 23.00480947161671,
-          "y": -0.7000000000000011
+          "y": -0.7000000000000011,
+          "centerline": false,
+          "visible_in_3d": true
         },
         {
           "construction": false,
           "fixed": true,
           "id": "any_process:close:center",
           "x": 26.5,
-          "y": 3.05
+          "y": 3.05,
+          "centerline": false,
+          "visible_in_3d": true
         },
         {
           "construction": false,
           "fixed": true,
           "id": "any_process:close:start",
           "x": 32.99519052838329,
-          "y": -0.6999999999999997
+          "y": -0.6999999999999997,
+          "centerline": false,
+          "visible_in_3d": true
         },
         {
           "construction": false,
           "fixed": true,
           "id": "any_process:close:end",
           "x": 32.99519052838329,
-          "y": 6.799999999999999
+          "y": 6.799999999999999,
+          "centerline": false,
+          "visible_in_3d": true
         }
       ],
       "resolved_normal": [
@@ -2721,34 +2782,38 @@
           "construction": false,
           "first": "any_process:left:a",
           "id": "any_process:left",
-          "second": "any_process:left:b"
+          "second": "any_process:left:b",
+          "visible_in_3d": true
         },
         {
           "centerline": false,
           "construction": false,
           "first": "any_process:right:a",
           "id": "any_process:right",
-          "second": "any_process:right:b"
+          "second": "any_process:right:b",
+          "visible_in_3d": true
         },
         {
           "centerline": false,
           "construction": false,
           "first": "any_process:top:a",
           "id": "any_process:top",
-          "second": "any_process:top:b"
+          "second": "any_process:top:b",
+          "visible_in_3d": true
         },
         {
           "centerline": false,
           "construction": false,
           "first": "any_process:standard-bar:a",
           "id": "any_process:standard-bar",
-          "second": "any_process:standard-bar:b"
+          "second": "any_process:standard-bar:b",
+          "visible_in_3d": true
         }
       ],
       "suppressed": false,
       "symbols": [],
       "texts": [],
-      "version": 34
+      "version": 35
     },
     {
       "arcs": [
@@ -2760,7 +2825,9 @@
           "id": "material_removal:open",
           "radius": 7.5,
           "start": "material_removal:open:start",
-          "start_angle": 2.6179938779914944
+          "start_angle": 2.6179938779914944,
+          "centerline": false,
+          "visible_in_3d": true
         },
         {
           "center": "material_removal:close:center",
@@ -2770,7 +2837,9 @@
           "id": "material_removal:close",
           "radius": 7.5,
           "start": "material_removal:close:start",
-          "start_angle": -0.5235987755982988
+          "start_angle": -0.5235987755982988,
+          "centerline": false,
+          "visible_in_3d": true
         }
       ],
       "bsplines": [],
@@ -2800,112 +2869,144 @@
           "fixed": true,
           "id": "material_removal:left:a",
           "x": 24.25,
-          "y": 3.031
+          "y": 3.031,
+          "centerline": false,
+          "visible_in_3d": true
         },
         {
           "construction": false,
           "fixed": true,
           "id": "material_removal:left:b",
           "x": 26.0,
-          "y": 0.0
+          "y": 0.0,
+          "centerline": false,
+          "visible_in_3d": true
         },
         {
           "construction": false,
           "fixed": true,
           "id": "material_removal:right:a",
           "x": 26.0,
-          "y": 0.0
+          "y": 0.0,
+          "centerline": false,
+          "visible_in_3d": true
         },
         {
           "construction": false,
           "fixed": true,
           "id": "material_removal:right:b",
           "x": 29.5,
-          "y": 6.062
+          "y": 6.062,
+          "centerline": false,
+          "visible_in_3d": true
         },
         {
           "construction": false,
           "fixed": true,
           "id": "material_removal:top:a",
           "x": 29.5,
-          "y": 6.062
+          "y": 6.062,
+          "centerline": false,
+          "visible_in_3d": true
         },
         {
           "construction": false,
           "fixed": true,
           "id": "material_removal:top:b",
           "x": 31.5,
-          "y": 6.062
+          "y": 6.062,
+          "centerline": false,
+          "visible_in_3d": true
         },
         {
           "construction": false,
           "fixed": true,
           "id": "material_removal:standard-bar:a",
           "x": 24.8,
-          "y": 4.55
+          "y": 4.55,
+          "centerline": false,
+          "visible_in_3d": true
         },
         {
           "construction": false,
           "fixed": true,
           "id": "material_removal:standard-bar:b",
           "x": 27.2,
-          "y": 4.55
+          "y": 4.55,
+          "centerline": false,
+          "visible_in_3d": true
         },
         {
           "construction": false,
           "fixed": true,
           "id": "material_removal:removal:a",
           "x": 24.25,
-          "y": 3.031
+          "y": 3.031,
+          "centerline": false,
+          "visible_in_3d": true
         },
         {
           "construction": false,
           "fixed": true,
           "id": "material_removal:removal:b",
           "x": 27.75,
-          "y": 3.031
+          "y": 3.031,
+          "centerline": false,
+          "visible_in_3d": true
         },
         {
           "construction": false,
           "fixed": true,
           "id": "material_removal:open:center",
           "x": 29.5,
-          "y": 3.05
+          "y": 3.05,
+          "centerline": false,
+          "visible_in_3d": true
         },
         {
           "construction": false,
           "fixed": true,
           "id": "material_removal:open:start",
           "x": 23.00480947161671,
-          "y": 6.799999999999999
+          "y": 6.799999999999999,
+          "centerline": false,
+          "visible_in_3d": true
         },
         {
           "construction": false,
           "fixed": true,
           "id": "material_removal:open:end",
           "x": 23.00480947161671,
-          "y": -0.7000000000000011
+          "y": -0.7000000000000011,
+          "centerline": false,
+          "visible_in_3d": true
         },
         {
           "construction": false,
           "fixed": true,
           "id": "material_removal:close:center",
           "x": 26.5,
-          "y": 3.05
+          "y": 3.05,
+          "centerline": false,
+          "visible_in_3d": true
         },
         {
           "construction": false,
           "fixed": true,
           "id": "material_removal:close:start",
           "x": 32.99519052838329,
-          "y": -0.6999999999999997
+          "y": -0.6999999999999997,
+          "centerline": false,
+          "visible_in_3d": true
         },
         {
           "construction": false,
           "fixed": true,
           "id": "material_removal:close:end",
           "x": 32.99519052838329,
-          "y": 6.799999999999999
+          "y": 6.799999999999999,
+          "centerline": false,
+          "visible_in_3d": true
         }
       ],
       "resolved_normal": [
@@ -2934,41 +3035,46 @@
           "construction": false,
           "first": "material_removal:left:a",
           "id": "material_removal:left",
-          "second": "material_removal:left:b"
+          "second": "material_removal:left:b",
+          "visible_in_3d": true
         },
         {
           "centerline": false,
           "construction": false,
           "first": "material_removal:right:a",
           "id": "material_removal:right",
-          "second": "material_removal:right:b"
+          "second": "material_removal:right:b",
+          "visible_in_3d": true
         },
         {
           "centerline": false,
           "construction": false,
           "first": "material_removal:top:a",
           "id": "material_removal:top",
-          "second": "material_removal:top:b"
+          "second": "material_removal:top:b",
+          "visible_in_3d": true
         },
         {
           "centerline": false,
           "construction": false,
           "first": "material_removal:standard-bar:a",
           "id": "material_removal:standard-bar",
-          "second": "material_removal:standard-bar:b"
+          "second": "material_removal:standard-bar:b",
+          "visible_in_3d": true
         },
         {
           "centerline": false,
           "construction": false,
           "first": "material_removal:removal:a",
           "id": "material_removal:removal",
-          "second": "material_removal:removal:b"
+          "second": "material_removal:removal:b",
+          "visible_in_3d": true
         }
       ],
       "suppressed": false,
       "symbols": [],
       "texts": [],
-      "version": 34
+      "version": 35
     },
     {
       "arcs": [
@@ -2980,7 +3086,9 @@
           "id": "no_material_removal:open",
           "radius": 7.5,
           "start": "no_material_removal:open:start",
-          "start_angle": 2.6179938779914944
+          "start_angle": 2.6179938779914944,
+          "centerline": false,
+          "visible_in_3d": true
         },
         {
           "center": "no_material_removal:close:center",
@@ -2990,7 +3098,9 @@
           "id": "no_material_removal:close",
           "radius": 7.5,
           "start": "no_material_removal:close:start",
-          "start_angle": -0.5235987755982988
+          "start_angle": -0.5235987755982988,
+          "centerline": false,
+          "visible_in_3d": true
         }
       ],
       "bsplines": [],
@@ -2999,7 +3109,9 @@
           "center": "no_material_removal:center",
           "construction": false,
           "id": "no_material_removal:circle",
-          "radius": 0.925
+          "radius": 0.925,
+          "centerline": false,
+          "visible_in_3d": true
         }
       ],
       "constraints": [],
@@ -3027,105 +3139,135 @@
           "fixed": true,
           "id": "no_material_removal:left:a",
           "x": 24.25,
-          "y": 3.031
+          "y": 3.031,
+          "centerline": false,
+          "visible_in_3d": true
         },
         {
           "construction": false,
           "fixed": true,
           "id": "no_material_removal:left:b",
           "x": 26.0,
-          "y": 0.0
+          "y": 0.0,
+          "centerline": false,
+          "visible_in_3d": true
         },
         {
           "construction": false,
           "fixed": true,
           "id": "no_material_removal:right:a",
           "x": 26.0,
-          "y": 0.0
+          "y": 0.0,
+          "centerline": false,
+          "visible_in_3d": true
         },
         {
           "construction": false,
           "fixed": true,
           "id": "no_material_removal:right:b",
           "x": 29.5,
-          "y": 6.062
+          "y": 6.062,
+          "centerline": false,
+          "visible_in_3d": true
         },
         {
           "construction": false,
           "fixed": true,
           "id": "no_material_removal:top:a",
           "x": 29.5,
-          "y": 6.062
+          "y": 6.062,
+          "centerline": false,
+          "visible_in_3d": true
         },
         {
           "construction": false,
           "fixed": true,
           "id": "no_material_removal:top:b",
           "x": 31.5,
-          "y": 6.062
+          "y": 6.062,
+          "centerline": false,
+          "visible_in_3d": true
         },
         {
           "construction": false,
           "fixed": true,
           "id": "no_material_removal:standard-bar:a",
           "x": 24.8,
-          "y": 4.55
+          "y": 4.55,
+          "centerline": false,
+          "visible_in_3d": true
         },
         {
           "construction": false,
           "fixed": true,
           "id": "no_material_removal:standard-bar:b",
           "x": 27.2,
-          "y": 4.55
+          "y": 4.55,
+          "centerline": false,
+          "visible_in_3d": true
         },
         {
           "construction": false,
           "fixed": true,
           "id": "no_material_removal:center",
           "x": 26.0,
-          "y": 1.85
+          "y": 1.85,
+          "centerline": false,
+          "visible_in_3d": true
         },
         {
           "construction": false,
           "fixed": true,
           "id": "no_material_removal:open:center",
           "x": 29.5,
-          "y": 3.05
+          "y": 3.05,
+          "centerline": false,
+          "visible_in_3d": true
         },
         {
           "construction": false,
           "fixed": true,
           "id": "no_material_removal:open:start",
           "x": 23.00480947161671,
-          "y": 6.799999999999999
+          "y": 6.799999999999999,
+          "centerline": false,
+          "visible_in_3d": true
         },
         {
           "construction": false,
           "fixed": true,
           "id": "no_material_removal:open:end",
           "x": 23.00480947161671,
-          "y": -0.7000000000000011
+          "y": -0.7000000000000011,
+          "centerline": false,
+          "visible_in_3d": true
         },
         {
           "construction": false,
           "fixed": true,
           "id": "no_material_removal:close:center",
           "x": 26.5,
-          "y": 3.05
+          "y": 3.05,
+          "centerline": false,
+          "visible_in_3d": true
         },
         {
           "construction": false,
           "fixed": true,
           "id": "no_material_removal:close:start",
           "x": 32.99519052838329,
-          "y": -0.6999999999999997
+          "y": -0.6999999999999997,
+          "centerline": false,
+          "visible_in_3d": true
         },
         {
           "construction": false,
           "fixed": true,
           "id": "no_material_removal:close:end",
           "x": 32.99519052838329,
-          "y": 6.799999999999999
+          "y": 6.799999999999999,
+          "centerline": false,
+          "visible_in_3d": true
         }
       ],
       "resolved_normal": [
@@ -3154,34 +3296,38 @@
           "construction": false,
           "first": "no_material_removal:left:a",
           "id": "no_material_removal:left",
-          "second": "no_material_removal:left:b"
+          "second": "no_material_removal:left:b",
+          "visible_in_3d": true
         },
         {
           "centerline": false,
           "construction": false,
           "first": "no_material_removal:right:a",
           "id": "no_material_removal:right",
-          "second": "no_material_removal:right:b"
+          "second": "no_material_removal:right:b",
+          "visible_in_3d": true
         },
         {
           "centerline": false,
           "construction": false,
           "first": "no_material_removal:top:a",
           "id": "no_material_removal:top",
-          "second": "no_material_removal:top:b"
+          "second": "no_material_removal:top:b",
+          "visible_in_3d": true
         },
         {
           "centerline": false,
           "construction": false,
           "first": "no_material_removal:standard-bar:a",
           "id": "no_material_removal:standard-bar",
-          "second": "no_material_removal:standard-bar:b"
+          "second": "no_material_removal:standard-bar:b",
+          "visible_in_3d": true
         }
       ],
       "suppressed": false,
       "symbols": [],
       "texts": [],
-      "version": 34
+      "version": 35
     }
   ],
   "units": "mm",

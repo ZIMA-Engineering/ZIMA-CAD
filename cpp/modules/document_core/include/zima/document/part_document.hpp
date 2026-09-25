@@ -1,5 +1,8 @@
 #pragma once
+#include <cmath>
 #include <zima/document/family_document.hpp>
+#include <zima/document/profile_parameters.hpp>
+#include <zima/document/feature_parameters.hpp>
 #include <zima/symbols/placement.hpp>
 #include <zima/document/measurement_record.hpp>
 #include <zima/document/body_properties.hpp>
@@ -27,15 +30,7 @@
 namespace zima::document {
 
 enum class CombineMode { Add, Subtract };
-enum class FeatureKind { Sketch, Box, Cylinder, Sphere, Cone, Pyramid, Wedge, Extrusion, Revolution, Sweep3D, ImportedStep, Fillet, Chamfer, Shell, Hole, Thread, DrillPoint, ShaftThread, HelicalSweep, Sweep2D, Holes, Bend, Flat, TwistedSheet, Unbend, BendBack, DerivedCopy, SheetTransition };
-enum class ExtrusionDirection { Forward, Reverse, Symmetric };
-enum class ExtrusionExtent { Blind, UpToPlane, UpToSurface, ThroughAll };
-enum class ProfileSource { Internal, External };
-enum class ProfileResultType { Solid, Thin, Surface };
-enum class ProfileExtentMode { OneSide, TwoSides, Symmetric };
-enum class ThinMode { OneSide, OtherSide, Symmetric };
-enum class EndCondition { Length, UpTo, ThroughAll };
-enum class EndTargetKind { Point, Plane, Face };
+enum class FeatureKind { Sketch, Box, Cylinder, Sphere, Cone, Pyramid, Wedge, Extrusion, Revolution, Sweep3D, ImportedStep, Fillet, Chamfer, Shell, Hole, Thread, DrillPoint, ShaftThread, HelicalSweep, Sweep2D, Holes, Bend, Flat, TwistedSheet, Unbend, BendBack, DerivedCopy, SheetTransition, Feature };
 enum class HoleType { Plain, MetricThread, PipeThread, WhitworthThread };
 enum class ThreadStandard { Metric, Whitworth, Pipe };
 enum class ThreadSide { Automatic, Internal, External };
@@ -62,6 +57,14 @@ enum class ConstructionDefinition {
 };
 
 
+
+enum class AxisExtentMode { OneSide, TwoSides, Symmetric };
+struct AxisEnd {
+    bool up_to{};
+    ConstructionReference target;
+    double resolved_length{50.0};
+    bool operator==(const AxisEnd&) const = default;
+};
 
 struct ConstructionObject {
     std::string id;
@@ -128,6 +131,25 @@ struct ConstructionObject {
     LocalDatumPlane base_plane{LocalDatumPlane::YZ};
     bool base_plane_auto{true};
     double display_size{100.0};
+    AxisExtentMode axis_extent_mode{AxisExtentMode::OneSide};
+    double axis_reverse_length{50.0};
+    std::array<AxisEnd, 2> axis_ends;
+    // Finite extent does not change the container placement or axis direction.
+    [[nodiscard]] std::pair<double, double> axis_limits() const {
+        if (definition == ConstructionDefinition::CylinderAxis)
+            return {-display_size * 0.5, display_size * 0.5};
+        const double forward = axis_ends[0].up_to ? axis_ends[0].resolved_length
+            : axis_extent_mode == AxisExtentMode::Symmetric ? display_size * .5 : display_size;
+        if (axis_extent_mode == AxisExtentMode::Symmetric) return {-forward, forward};
+        const double reverse = axis_ends[1].up_to ? axis_ends[1].resolved_length : axis_reverse_length;
+        return {axis_extent_mode == AxisExtentMode::TwoSides ? -reverse : 0.0, forward};
+    }
+    [[nodiscard]] zima::kernel::Vec3 axis_point(double distance) const {
+        const double length = std::hypot(direction.x, direction.y, direction.z);
+        const double scale = length > 1e-12 ? distance / length : 0.0;
+        return {origin.x + direction.x * scale, origin.y + direction.y * scale,
+                origin.z + direction.z * scale};
+    }
     ConstructionDefinition definition{ConstructionDefinition::Absolute};
     std::vector<ConstructionReference> references;
     // 3D-Curve only: ordered ordinary Point containers. Their coordinates,
@@ -169,6 +191,8 @@ struct ConstructionObject {
 [[nodiscard]] std::vector<ConstructionObject> deserialize_construction_objects(
     std::string_view serialized);
 
+[[nodiscard]] bool resolve_axis_extents(ConstructionObject&,
+    const zima::kernel::ViewerReferenceGeometry&);
 [[nodiscard]] bool resolve_construction(
     ConstructionObject& object,
     const zima::kernel::ViewerReferenceGeometry& references);
@@ -259,61 +283,6 @@ struct PyramidParameters {
 struct WedgeParameters {
     double length{60.0}; double width{40.0}; double height{40.0}; double top_offset{30.0};
     bool operator==(const WedgeParameters&) const = default;
-};
-
-struct ExtrusionParameters {
-    bool sheet_cut{};
-    bool sheet_cut_clearance{};
-    std::string sketch_id;
-    double profile_plane_offset{};
-    ProfileSource profile_source{ProfileSource::Internal};
-    ProfileResultType result_type{ProfileResultType::Solid};
-    double thin_thickness{1.0};
-    ThinMode thin_mode{ThinMode::OneSide};
-    ProfileExtentMode extent_mode{ProfileExtentMode::OneSide};
-    double length_forward{10.0};
-    double length_reverse{60.0};
-    EndCondition end_condition_forward{EndCondition::Length};
-    EndCondition end_condition_reverse{EndCondition::Length};
-    struct EndTarget {
-        EndTargetKind kind{EndTargetKind::Face};
-        zima::kernel::FaceReference reference;
-        std::string label;
-        zima::kernel::Vec3 fallback_origin;
-        zima::kernel::Vec3 fallback_normal{0.0, 0.0, 1.0};
-        std::vector<zima::kernel::Vec3> fallback_triangles;
-        bool operator==(const EndTarget&) const = default;
-    };
-    std::vector<EndTarget> end_targets_forward;
-    std::vector<EndTarget> end_targets_reverse;
-    double height{10.0};
-    ExtrusionDirection direction{ExtrusionDirection::Forward};
-    ExtrusionExtent extent{ExtrusionExtent::Blind};
-    zima::kernel::FaceReference target_face;
-    zima::kernel::Vec3 target_plane_origin;
-    zima::kernel::Vec3 target_plane_normal{0.0, 0.0, 1.0};
-    std::vector<zima::kernel::Vec3> target_surface_triangles;
-    bool operator==(const ExtrusionParameters&) const = default;
-};
-
-struct RevolutionParameters {
-    bool sheet_metal{};
-    bool sheet_attachment{};
-    bool thickness_override{};
-    std::string sketch_id;
-    // Stable ZIMA Sketch segment used as the unbounded revolution axis.
-    // It must identify a green construction centerline in the owned Sketch.
-    std::string axis_segment_id;
-    double profile_plane_offset{};
-    ProfileSource profile_source{ProfileSource::Internal};
-    ProfileResultType result_type{ProfileResultType::Solid};
-    double thin_thickness{1.0};
-    ThinMode thin_mode{ThinMode::OneSide};
-    ProfileExtentMode extent_mode{ProfileExtentMode::OneSide};
-    ExtrusionDirection direction{ExtrusionDirection::Forward};
-    double angle_reverse{360.0};
-    double angle_degrees{360.0};
-    bool operator==(const RevolutionParameters&) const = default;
 };
 
 struct EdgeTreatmentParameters {
@@ -660,6 +629,7 @@ struct HistoryContainer {
     WedgeParameters wedge;
     ExtrusionParameters extrusion;
     RevolutionParameters revolution;
+    FeatureParameters feature;
     Sweep3DParameters sweep3d;
     HelicalSweepParameters helical;
     Sweep2DParameters sweep2d;
@@ -680,7 +650,8 @@ struct HistoryContainer {
     std::set<std::string> value_locks;
     [[nodiscard]] bool is_surface_result() const {
         return (feature_kind==FeatureKind::Extrusion && extrusion.result_type==ProfileResultType::Surface) ||
-            (feature_kind==FeatureKind::Revolution && revolution.result_type==ProfileResultType::Surface);
+            (feature_kind==FeatureKind::Revolution && revolution.result_type==ProfileResultType::Surface) ||
+            (feature_kind==FeatureKind::Feature && feature.result_type==ProfileResultType::Surface);
     }
     bool operator==(const HistoryContainer&) const = default;
 };
@@ -808,6 +779,9 @@ public:
     [[nodiscard]] std::vector<zima::kernel::ViewerEdge> extrusion_preview_edges(
         const HistoryContainer& container,
         const zima::kernel::ViewerMesh& through_all_input) const;
+    [[nodiscard]] std::vector<zima::kernel::ViewerEdge> feature_preview_edges(
+        const HistoryContainer& container,
+        const zima::kernel::ViewerMesh& through_all_input = {}) const;
     [[nodiscard]] std::vector<zima::kernel::ViewerEdge> primitive_preview_edges(
         const HistoryContainer& container) const;
     [[nodiscard]] std::vector<zima::kernel::ViewerEdge> primitive_preview_edges(
@@ -830,6 +804,7 @@ public:
         const HistoryContainer& container) const;
     [[nodiscard]] static HistoryContainer create_extrusion_container(
         std::string sketch_id);
+    [[nodiscard]] static HistoryContainer create_feature_container(std::string sketch_id);
     [[nodiscard]] static HistoryContainer create_revolution_container(
         std::string sketch_id);
     static void resolve_copy_reference(DerivedCopyParameters&,const std::string& container_id,

@@ -125,6 +125,16 @@ Json details(const Source& source, const Item& item, std::size_t limit) {
     result["orientation_quarter_turns"] = value.orientation_quarter_turns;
     result["definition"] = definition(value.definition);
     result["display_size_mm"] = value.display_size;
+    if (value.kind == document::ConstructionKind::Axis) {
+        result["extent_mode"] = value.axis_extent_mode == document::AxisExtentMode::TwoSides ? "two_sides"
+            : value.axis_extent_mode == document::AxisExtentMode::Symmetric ? "symmetric" : "one_side";
+        result["reverse_length_mm"] = value.axis_reverse_length;
+        for(std::size_t i=0;i<2;++i) {
+            const auto& end=value.axis_ends[i];
+            result[i?"reverse_end":"forward_end"]={{"condition",end.up_to?"up_to":"length"},
+                {"instance_path",end.target.instance_path},{"owner_id",end.target.owner_id},{"semantic_key",end.target.semantic_key}};
+        }
+    }
     result["value_locks"] = value.value_locks;
     auto references = Json::array();
     for (std::size_t i = 0; i < std::min(limit, value.references.size()); ++i)
@@ -267,6 +277,8 @@ void Host::register_construction_commands() {
     for (const bool create : {true, false}) {
         std::vector<commands::Argument> fields{{create ? "kind" : "construction", true}, {"name", create},
             {"values", false, commands::ArgumentType::Object}, {"direction_axis", false}, {"base_plane", false},
+            {"forward_end", false, commands::ArgumentType::Object}, {"reverse_end", false, commands::ArgumentType::Object},
+            {"extent_mode", false}, {"reverse_length_mm", false, commands::ArgumentType::Number},
             {"display_size_mm", false, commands::ArgumentType::Number}, {"offset_mm", false, commands::ArgumentType::Number},
             {"document", false}, {"curve_type", false}, {"rounding_enabled", false, commands::ArgumentType::Boolean},
             {"points", false, commands::ArgumentType::Array}, {"radius_mm", false, commands::ArgumentType::Number},

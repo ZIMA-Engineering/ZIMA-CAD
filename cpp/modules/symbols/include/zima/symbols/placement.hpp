@@ -31,14 +31,20 @@ struct Placement {
     std::optional<Reference> reference;
     bool unresolved{};
     bool leader{};
+    bool perpendicular_leader{};
+    bool short_shelf{};
+    double shelf_length{3.};
     // Optional bends in annotation-plane coordinates, from contact to grip.
     std::vector<std::array<double,2>> leader_bends;
     double arrow_length{2.5};
+    std::optional<kernel::Vec3> paper_tangent;
+    std::optional<kernel::Vec3> paper_extension_start;
+    double offset_z{}; // Grip offset normal to the stored annotation plane.
     void validate() const;
     // Called with an explicitly resolved original-geometry frame. Losing a
     // reference preserves the last valid frame AND reference identity.
     void refresh_reference(const std::optional<Frame>& resolved);
-    [[nodiscard]] kernel::ViewerMesh viewer_mesh(std::optional<double> paper_frame_angle = std::nullopt) const;
+    [[nodiscard]] kernel::ViewerMesh viewer_mesh(std::optional<double> paper_frame_angle = std::nullopt, bool retain_layout = false) const;
     bool operator==(const Placement&) const = default;
 };
 void to_json(nlohmann::json&, const Placement&);
@@ -47,6 +53,8 @@ void from_json(const nlohmann::json&, Placement&);
 [[nodiscard]] std::vector<Placement> placements_from_json(const nlohmann::json&);
 void attach_to_surface(Placement&,const kernel::FaceReference&,const std::string& source_document,
     kernel::Vec3 contact,bool reversed=false);
+void attach_to_edge(Placement&,const kernel::ViewerEdge&,const std::string&,kernel::Vec3);
+void attach_to_point(Placement&,const kernel::ViewerPoint&,const std::string&);
 // Resolves only the exact original face and occurrence. Missing/unsupported
 // geometry preserves the complete last pose and marks the attachment unresolved.
 bool refresh_surface_attachment(Placement&,const kernel::ViewerReferenceGeometry&);

@@ -491,6 +491,14 @@ void AssemblyWorkspaceWindow::create_actions() {
     construction_plane_action_->setObjectName("constructionPlaneAction");
     extrusion_action_ = make_action(tr("Vytažení"), "protrusion");
     extrusion_action_->setObjectName("extrusionAction");
+    auto* feature_prototype=make_action(tr("Prvek"),"protrusion");
+    feature_prototype->setObjectName("featurePrototypeAction");
+    connect(feature_prototype,&QAction::triggered,this,[this]{
+        if(properties_dialog_||!active_sketch_id_.empty())return;
+        show_primitive_properties(zima::document::FeatureKind::Feature);
+    });
+    connect(extrusion_action_,&QAction::changed,this,[this,feature_prototype]{feature_prototype->setEnabled(extrusion_action_->isEnabled());});
+
     revolution_action_ = make_action(tr("Rotace"), "revolve");
     revolution_action_->setObjectName("revolutionAction");
     fillet_action_ = make_action(tr("Zaoblení"), "fillet");
@@ -589,7 +597,7 @@ void AssemblyWorkspaceWindow::create_actions() {
                          sketch_interpolating_spline_action_}) {
         action->setCheckable(true);
     }
-    symbol_action_=make_action(tr("Vložit symbol"),"insert-symbol");
+    symbol_action_=make_action(tr("Vložit symbol"),"symbol");
     symbol_action_->setObjectName("insertSymbolAction");
     connect(symbol_action_,&QAction::triggered,this,[this]{start_symbol();});
     sketch_text_action_ = make_action(tr("Text"), "sketch-text");

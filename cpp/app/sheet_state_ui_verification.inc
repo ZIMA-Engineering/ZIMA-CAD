@@ -59,7 +59,18 @@ int verify_sheet_state_ui(QApplication& application,const std::filesystem::path&
                 check(view->transient_edges().empty(),"Cancel retained the Twisted Sheet preview.");
             }
             auto* sheet_toolbar=window.findChild<QToolBar*>("toolsToolbar");
-            check(sheet_toolbar&&sheet_toolbar->findChildren<QWidget*>("greenToolbarSeparator",Qt::FindDirectChildrenOnly).size()==5,
+            const auto separated=[&](const char* first,const char* last) {
+                bool seen=false,separator=false;
+                if(sheet_toolbar)for(const auto* action:sheet_toolbar->actions()) {
+                    if(action->objectName()==first)seen=true;
+                    else if(seen&&action->isSeparator())separator=true;
+                    else if(action->objectName()==last)return seen&&separator;
+                }
+                return false;
+            };
+            check(separated("sheetMetalPropertiesAction","sheetFromBodyAction")&&
+                separated("sheetTransitionAction","sheetCutAction")&&separated("sheetCutAction","unbendAction")&&
+                separated("bendBackAction","sheetDxfAction")&&separated("sheetDxfAction","insertSymbolAction"),
                 "Sheet Metal toolbar does not separate Properties, Revolved Sheet, Sheet Cut and Bend Back.");
             if(!context) {
                 QImage icons(720,135,QImage::Format_ARGB32);icons.fill(window.palette().color(QPalette::Window));
@@ -172,7 +183,8 @@ int verify_sheet_state_ui(QApplication& application,const std::filesystem::path&
             check(std::ranges::none_of(view->mesh().axes,[&](const auto& axis){return axis.reference.instance_path==active_path&&axis.reference.semantic_key.starts_with("sheet-bend-line:from:");}),"View retained a flat bend line after Bend Back.");
             check(window.active_occurrence_path_for_test()==active_path,"Sheet state changed the active occurrence.");
             if(context)check(std::ranges::any_of(view->mesh().triangle_references,[&](const auto& face){return face.instance_path==passive_path;}),"Sheet state hid the passive Assembly context.");
-            window.close();flush();
+            // Fixture teardown must not enter the unrelated unsaved-document prompt.
+            window.hide();flush();
         }
         {
             auto part=document::PartDocument::load("cpp/tests/fixtures/sheet/tilted-cone-with-bends.prtz");
@@ -201,7 +213,7 @@ int verify_sheet_state_ui(QApplication& application,const std::filesystem::path&
             dialog->buttons()->button(QDialogButtonBox::Ok)->click();flush();
             check(rotation_visible(),"Bend Back did not restore the cone rotation axis in View.");
             view->fit_all();flush();window.grab().save(QString::fromStdString((fixture/"tilted-cone-folded.png").string()));
-            window.close();flush();
+            window.hide();flush();
         }
         std::cout<<"Sheet state GUI: Part and repeated Assembly occurrences, common picking/filter, toggle, MMB, Cancel and OK passed\n";
         return 0;

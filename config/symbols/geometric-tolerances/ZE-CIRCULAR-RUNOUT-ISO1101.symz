@@ -107,42 +107,54 @@
           "fixed": true,
           "id": "first:line:a",
           "x": 1.5,
-          "y": -2.0
+          "y": -2.0,
+          "centerline": false,
+          "visible_in_3d": true
         },
         {
           "construction": false,
           "fixed": true,
           "id": "first:line:b",
           "x": 5.2,
-          "y": 1.7000000000000002
+          "y": 1.7000000000000002,
+          "centerline": false,
+          "visible_in_3d": true
         },
         {
           "construction": false,
           "fixed": true,
           "id": "first:left:a",
           "x": 5.2,
-          "y": 1.7000000000000002
+          "y": 1.7000000000000002,
+          "centerline": false,
+          "visible_in_3d": true
         },
         {
           "construction": false,
           "fixed": true,
           "id": "first:left:b",
           "x": 3.927207793864215,
-          "y": 0.851471862576143
+          "y": 0.851471862576143,
+          "centerline": false,
+          "visible_in_3d": true
         },
         {
           "construction": false,
           "fixed": true,
           "id": "first:right:a",
           "x": 5.2,
-          "y": 1.7000000000000002
+          "y": 1.7000000000000002,
+          "centerline": false,
+          "visible_in_3d": true
         },
         {
           "construction": false,
           "fixed": true,
           "id": "first:right:b",
           "x": 4.351471862576143,
-          "y": 0.4272077938642149
+          "y": 0.4272077938642149,
+          "centerline": false,
+          "visible_in_3d": true
         }
       ],
       "resolved_normal": [
@@ -171,27 +183,30 @@
           "construction": false,
           "first": "first:line:a",
           "id": "first:line",
-          "second": "first:line:b"
+          "second": "first:line:b",
+          "visible_in_3d": true
         },
         {
           "centerline": false,
           "construction": false,
           "first": "first:left:a",
           "id": "first:left",
-          "second": "first:left:b"
+          "second": "first:left:b",
+          "visible_in_3d": true
         },
         {
           "centerline": false,
           "construction": false,
           "first": "first:right:a",
           "id": "first:right",
-          "second": "first:right:b"
+          "second": "first:right:b",
+          "visible_in_3d": true
         }
       ],
       "suppressed": false,
       "symbols": [],
       "texts": [],
-      "version": 34
+      "version": 35
     },
     {
       "arcs": [],
@@ -1219,7 +1234,7 @@
           "vertical": "bottom"
         }
       ],
-      "version": 34
+      "version": 35
     },
     {
       "arcs": [],
@@ -1531,7 +1546,7 @@
           "vertical": "bottom"
         }
       ],
-      "version": 34
+      "version": 35
     },
     {
       "arcs": [],
@@ -2185,7 +2200,7 @@
           "vertical": "bottom"
         }
       ],
-      "version": 34
+      "version": 35
     },
     {
       "arcs": [],
@@ -2663,7 +2678,7 @@
           "vertical": "bottom"
         }
       ],
-      "version": 34
+      "version": 35
     }
   ],
   "units": "mm",

@@ -1089,6 +1089,7 @@ private:
     void end_component_drag();
     void clear_selected_sketch_geometry();
     [[nodiscard]] bool delete_selected_sketch_geometry();
+    void append_sketch_geometry_role_actions(QMenu&, const zima::sketcher::Sketch&, const std::string&);
     void set_active_sketch_geometry_construction(
         const std::string& geometry_id, bool construction);
     void remove_sketch_relation(

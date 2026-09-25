@@ -77,6 +77,10 @@ public:
     [[nodiscard]] const zima::document::Sweep3DProfile* sweep_profile(
         std::size_t index) const;
     void refresh_preview();
+    std::function<void()> axis_target_changed;
+    std::optional<std::size_t> active_axis_target() const { return active_axis_target_; }
+    void set_axis_target(zima::document::ConstructionReference);
+    void end_axis_target_entry();
     bool set_reference(std::size_t index,
         zima::document::ConstructionReference reference,
         const QString& label,
@@ -174,6 +178,14 @@ private:
     QComboBox* direction_combo_{};
     QComboBox* base_plane_combo_{};
     QDoubleSpinBox* display_size_{};
+    QComboBox* axis_extent_mode_{};
+    QDoubleSpinBox* axis_reverse_length_{};
+    std::array<QComboBox*,2> axis_end_mode_{};
+    std::array<QTableWidget*,2> axis_end_table_{};
+    std::array<zima::document::AxisEnd,2> axis_ends_;
+    std::array<bool,2> axis_end_inspected_{};
+    std::optional<std::size_t> active_axis_target_;
+    void refresh_axis_targets();
     QDoubleSpinBox* offset_{};
     QComboBox* definition_{};
     QComboBox* curve_type_{};

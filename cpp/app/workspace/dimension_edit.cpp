@@ -391,11 +391,12 @@ void AssemblyWorkspaceWindow::edit_dimension_inline(
                                 construction_key, next_value)) return false;
                     } else if (construction->kind ==
                                    zima::document::ConstructionKind::Axis &&
-                               key == "length") {
+                               (key == "length" || key == "reverse_length")) {
                         if (next_value <= 1.0e-9)
                             throw std::runtime_error(
                                 "Dimension must be positive");
-                        construction->display_size = next_value;
+                        if (key == "length") construction->display_size = next_value;
+                        else construction->axis_reverse_length = next_value;
                     } else if (construction->kind ==
                                    zima::document::ConstructionKind::Plane &&
                                key == "offset") {
@@ -582,6 +583,14 @@ void AssemblyWorkspaceWindow::edit_dimension_inline(
                     else if (key == "top_offset") {
                         container->wedge.top_offset = next_value; changed = true;
                     }
+                } else if (container->feature_kind == FeatureKind::Feature) {
+                    if(key=="profile_offset") {container->feature.profile_plane_offset=next_value;changed=true;}
+                    else if(key=="thin_thickness")positive(container->feature.thin_thickness);
+                    else if(key=="side0_length" || key=="side1_length")positive(container->feature.sides[key=="side0_length"?0:1].length);
+                    else if(key=="side0_angle" || key=="side1_angle") {
+                        if(next_value<=0 || next_value>360)throw std::runtime_error("Revolution angle must be in (0, 360]");
+                        container->feature.sides[key=="side0_angle"?0:1].angle_degrees=next_value;changed=true;
+                    }
                 } else if (container->feature_kind == FeatureKind::Extrusion) {
                     if (key == "length_forward") positive(
                         container->extrusion.length_forward);
@@ -638,9 +647,16 @@ void AssemblyWorkspaceWindow::edit_dimension_inline(
             }
             if (!changed) throw std::runtime_error(
                 "This dimension is not directly editable");
-            workspace::commit_part_parameter_edit(*part, kernel_, std::move(next),
-                candidate.owner_id, candidate.semantic_key.starts_with("parameter:"),
-                part_calculation_policy());
+            const auto* edited_feature=next.find_container(candidate.owner_id);
+            if(edited_feature && edited_feature->feature_kind==document::FeatureKind::Feature &&
+               candidate.semantic_key.starts_with("parameter:")) {
+                workspace::commit_profile(workspace_,kernel_,next.document_id,*edited_feature,
+                    workspace::ProfileEditMode::Replace);
+            } else {
+                workspace::commit_part_parameter_edit(*part, kernel_, std::move(next),
+                    candidate.owner_id, candidate.semantic_key.starts_with("parameter:"),
+                    part_calculation_policy());
+            }
             // Remove the editor before rebuilding the scene. Keeping the
             // child QLineEdit over the old label while refresh_scene() swaps
             // the dimension mesh makes a successful edit look as if the

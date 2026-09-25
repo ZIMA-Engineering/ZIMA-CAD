@@ -67,27 +67,11 @@ Stamp stamp(const fs::path& path) {
     if (!regular(path)) throw FileRenameError("file_not_found", "A native rename input is missing or is not a regular file.");
     return {path, fs::file_size(path), fs::last_write_time(path)};
 }
-bool may_reference(const fs::path& path, const std::vector<document::FileRelocation>& moves) {
-    std::ifstream stream(path, std::ios::binary);
-    if (!stream) throw fs::filesystem_error("read", path, std::make_error_code(std::errc::io_error));
-    const std::string bytes{std::istreambuf_iterator<char>(stream), {}};
-    if (stream.bad()) throw fs::filesystem_error("read", path, std::make_error_code(std::errc::io_error));
-    // Candidate discovery only: current native documents persist stable IDs.
-    // Also retain filename matches so mismatched path/identity references are
-    // rejected by the real loader, rather than silently lost during rename.
-    for (const auto& move : moves) {
-        const auto filename = document::path_to_utf8(move.from.filename());
-        const auto escaped = nlohmann::json(filename).dump(-1, ' ', true);
-        if (bytes.find(move.document_id) != std::string::npos ||
-            bytes.find(filename) != std::string::npos ||
-            bytes.find(escaped.substr(1, escaped.size()-2)) != std::string::npos) return true;
-    }
-    return false;
-}
+
 }
 struct FileRenameJob::Impl {
     std::string id, token;
-    fs::path from, to, directory;
+    fs::path from, to;
     std::vector<Receipt> open;
     std::vector<document::FileRelocation> moves;
     std::vector<Stamp> observed;
@@ -120,22 +104,9 @@ struct FileRenameJob::Impl {
     }
     std::vector<fs::path> inputs() const {
         std::set<fs::path> paths{from};
-        const auto add = [&](const fs::directory_entry& entry) {
-            const auto suffix = extension(entry.path());
-            if ((suffix == ".asmz" || suffix == ".drwz") && fs::is_regular_file(entry.symlink_status()))
-                paths.insert(normalized_path(entry.path()));
-        };
-        for (const auto& entry : fs::directory_iterator(from.parent_path())) add(entry);
-        if (!directory.empty() && fs::is_directory(directory)) {
-            for (fs::recursive_directory_iterator it(directory), end; it != end; ++it) {
-                const auto path = normalized_path(it->path());
-                const bool owned = std::ranges::any_of(directories, [&](const auto& pair) { return pair.second == path; });
-                if (owned) { it.disable_recursion_pending(); continue; }
-                add(*it);
-            }
-        }
+        for (const auto& move : moves) paths.insert(move.from);
         for (const auto& state : open)
-            if (state.kind != 0 && !state.path.empty() && regular(state.path)) paths.insert(state.path);
+            if (!state.path.empty() && regular(state.path)) paths.insert(state.path);
         std::vector<fs::path> ordered{from};
         for (const auto& path : paths) if (path != from) ordered.push_back(path);
         return ordered;
@@ -171,7 +142,8 @@ FileRenameJob prepare_document_file_rename(const Workspace& live, const std::str
         std::ranges::any_of(filename, [](unsigned char c) { return c < 32; }))
         throw FileRenameError("invalid_filename", "Enter a filename without directories or forbidden characters.");
     auto impl = std::make_unique<FileRenameJob::Impl>();
-    impl->id = id; impl->open = receipts(live); impl->directory = normalized_path(working_directory);
+    impl->id = id; impl->open = receipts(live);
+    static_cast<void>(working_directory);
     impl->from = std::visit([](const auto& value) { return normalized_path(value.path); }, *state);
     if (impl->from.empty()) throw FileRenameError("path_required", "The document has no saved native file.");
     if (static_cast<std::size_t>(native_document_type(impl->from)) != state->index())
@@ -202,23 +174,16 @@ void FileRenameJob::stage() {
     if (job.staged || job.finished || !job.directories.empty())
         throw FileRenameError("invalid_operation_state", "Native rename staging can run only once.");
     if (job.from == job.to) { job.staged = true; return; }
-    // Only a Drawing with a persisted owner qualifies as an automatic companion.
+    // The same-name Drawing follows its Part/Assembly even when closed.
     if (native_document_type(job.from) != NativeDocumentType::Drawing) {
         auto companion = job.from; companion.replace_extension(".drwz");
         if (regular(companion)) {
             const auto before = stamp(companion);
             auto drawing = read_native_document(companion);
             if (stamp(companion) != before) throw FileRenameError("stale_file", "A native rename input changed during staging.");
-            bool belongs = drawing.is_drawing_for(job.id);
-            for (const auto& open : job.open)
-                if (open.kind == 2 && open.id == drawing.id() &&
-                    (open.path == companion || (!open.path.empty() && fs::equivalent(open.path, companion))))
-                    belongs = open.drawing_source_id == job.id;
-            if (belongs) {
-                auto target = job.to; target.replace_extension(".drwz");
-                job.destination_available(target,companion);
-                job.moves.push_back({drawing.id(), companion, target});
-            }
+            auto target = job.to; target.replace_extension(".drwz");
+            job.destination_available(target,companion);
+            job.moves.push_back({drawing.id(), companion, target});
         }
     }
     job.candidates = job.inputs();
@@ -226,12 +191,6 @@ void FileRenameJob::stage() {
     std::set<fs::path> targets;
     for (const auto& input : job.candidates) {
         const auto before = stamp(input);
-        const bool open = std::ranges::any_of(job.open, [&](const auto& state) { return state.path == input; });
-        if (input != job.from && !open && !may_reference(input, job.moves)) {
-            if (stamp(input) != before) throw FileRenameError("stale_file", "A native rename input changed during staging.");
-            job.observed.push_back(before);
-            continue;
-        }
         auto loaded = read_native_document(input,{},false);
         if (input == job.from && loaded.id() != job.id)
             throw FileRenameError("stale_document", "The saved native file has a different document identity.");

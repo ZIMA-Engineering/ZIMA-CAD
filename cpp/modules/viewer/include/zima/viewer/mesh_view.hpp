@@ -100,7 +100,7 @@ public:
     [[nodiscard]] bool dimension_layout_editable(const ViewerCandidate&) const;
     std::optional<QPointF> dimension_handle_position(const ViewerCandidate&,int)const;
     void set_symbol_handle_callbacks(std::function<std::optional<SymbolHandles>()>,
-        std::function<void(const std::string&,bool,kernel::Vec3)>);
+        std::function<void(const std::string&,int,kernel::Vec3,double)>);
     [[nodiscard]] std::optional<QPointF> symbol_handle_position(int index) const;
     void set_object_frame_provider(std::function<std::map<kernel::ObjectEnvelopeKey,kernel::ModelEnvelope>(const kernel::ViewerMesh&)>);
 
@@ -329,6 +329,8 @@ protected:
     void keyPressEvent(QKeyEvent* event) override;
 
 private:
+    std::optional<kernel::AnnotationStroke> symbol_handle_annotation() const;
+    void update_annotation_presentation() const;
     struct Impl;
     std::unique_ptr<Impl> impl_;
     std::function<std::optional<bool>(const zima::kernel::EdgeReference&)> dimension_lock_query_;

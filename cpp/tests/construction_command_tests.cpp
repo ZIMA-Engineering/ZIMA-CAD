@@ -117,6 +117,10 @@ void edit_verify(const kernel::OcctKernel& kernel, fs::path directory) {
     require(point.at("entity_parent")==point.at("origin")&&point.at("origin")!=point.at("construction"),"Point ancestry collapsed");
     const auto axis=create("axis",{{"direction_axis","x"},{"display_size_mm",25.25},{"values",{{"rotation_z",90}}}});
     const auto axis_id=axis.at("construction").get<std::string>();
+    set(axis_id,{{"extent_mode","two_sides"},{"reverse_length_mm",17}});
+    require(get(axis_id).at("extent_mode")=="two_sides"&&get(axis_id).at("reverse_length_mm")==17,"CLI lost Axis extent");
+    run(host,"undo");
+
     near(axis.at("direction")[0],0);near(axis.at("direction")[1],1);near(axis.at("direction")[2],0);
     run(host,"placement.set",{{"object",axis_id},{"values",{{"rotation_z",180}}}});
     near(get(axis_id).at("direction")[0],-1);near(get(axis_id).at("direction")[1],0);

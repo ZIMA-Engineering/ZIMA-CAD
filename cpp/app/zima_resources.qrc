@@ -106,6 +106,7 @@
     <file alias="icons/sketch-constraints.svg">../../resources/icons/sketch-constraints.svg</file>
     <file alias="icons/sketch-dimensions.svg">../../resources/icons/sketch-dimensions.svg</file>
     <file alias="icons/drawing-dimension.svg">../../resources/icons/drawing-dimension.svg</file>
+    <file alias="icons/drawing-chain-dimension.svg">../../resources/icons/drawing-chain-dimension.svg</file>
     <file alias="icons/drawing-sheet.svg">../../resources/icons/drawing-sheet.svg</file>
     <file alias="icons/drawing-view.svg">../../resources/icons/drawing-view.svg</file>
     <file alias="icons/protrusion.svg">../../resources/icons/protrusion.svg</file>

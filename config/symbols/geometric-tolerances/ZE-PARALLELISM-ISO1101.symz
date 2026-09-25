@@ -107,28 +107,36 @@
           "fixed": true,
           "id": "first:a",
           "x": 1.5,
-          "y": -2.0
+          "y": -2.0,
+          "centerline": false,
+          "visible_in_3d": true
         },
         {
           "construction": false,
           "fixed": true,
           "id": "first:b",
           "x": 3.5,
-          "y": 2.0
+          "y": 2.0,
+          "centerline": false,
+          "visible_in_3d": true
         },
         {
           "construction": false,
           "fixed": true,
           "id": "second:a",
           "x": 3.5,
-          "y": -2.0
+          "y": -2.0,
+          "centerline": false,
+          "visible_in_3d": true
         },
         {
           "construction": false,
           "fixed": true,
           "id": "second:b",
           "x": 5.5,
-          "y": 2.0
+          "y": 2.0,
+          "centerline": false,
+          "visible_in_3d": true
         }
       ],
       "resolved_normal": [
@@ -157,20 +165,22 @@
           "construction": false,
           "first": "first:a",
           "id": "first",
-          "second": "first:b"
+          "second": "first:b",
+          "visible_in_3d": true
         },
         {
           "centerline": false,
           "construction": false,
           "first": "second:a",
           "id": "second",
-          "second": "second:b"
+          "second": "second:b",
+          "visible_in_3d": true
         }
       ],
       "suppressed": false,
       "symbols": [],
       "texts": [],
-      "version": 34
+      "version": 35
     },
     {
       "arcs": [],
@@ -1198,7 +1208,7 @@
           "vertical": "bottom"
         }
       ],
-      "version": 34
+      "version": 35
     },
     {
       "arcs": [],
@@ -1510,7 +1520,7 @@
           "vertical": "bottom"
         }
       ],
-      "version": 34
+      "version": 35
     },
     {
       "arcs": [],
@@ -2164,7 +2174,7 @@
           "vertical": "bottom"
         }
       ],
-      "version": 34
+      "version": 35
     },
     {
       "arcs": [],
@@ -2642,7 +2652,7 @@
           "vertical": "bottom"
         }
       ],
-      "version": 34
+      "version": 35
     }
   ],
   "units": "mm",

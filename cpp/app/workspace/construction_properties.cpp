@@ -38,6 +38,64 @@ void AssemblyWorkspaceWindow::show_construction_properties(
                 std::move(committed), edit_mode ? workspace::ConstructionEditMode::Replace
                                                 : workspace::ConstructionEditMode::Create));
         }, this, decimal_places);
+    const auto axis_candidate = [this,dialog,document_id](const zima::viewer::ViewerCandidate& candidate)
+        -> std::optional<zima::document::ConstructionReference> {
+        using Kind=zima::viewer::CandidateKind;
+        if(candidate.kind!=Kind::Face && candidate.kind!=Kind::Plane && candidate.kind!=Kind::Vertex)return {};
+        if(!placement_reference_candidate_has_stable_geometry(candidate))return {};
+        auto local_path=candidate.instance_path;
+        try {
+            auto path=zima::assembly::InstancePath::decode(local_path);
+            const auto prefix=zima::assembly::InstancePath::decode(workspace_.active_occurrence_path());
+            if(path.occurrence_ids.size()<prefix.occurrence_ids.size() ||
+                !std::equal(prefix.occurrence_ids.begin(),prefix.occurrence_ids.end(),path.occurrence_ids.begin()))return {};
+            path.occurrence_ids.erase(path.occurrence_ids.begin(),path.occurrence_ids.begin()+prefix.occurrence_ids.size());
+            local_path=path.encoded();
+        }catch(const std::invalid_argument&){return {};}
+        if(const auto* part=workspace_.open_part(document_id)) {
+            if(!local_path.empty())return {};
+            const auto& doc=part->session.document();
+            const auto edited=std::ranges::find(doc.history_order,dialog->construction_id(),&zima::document::PartHistoryEntry::id);
+            if(edited!=doc.history_order.end())for(auto it=edited;it!=doc.history_order.end();++it)
+                if(const auto* feature=doc.find_container(it->id);feature &&
+                    (candidate.owner_id==feature->id||candidate.owner_id==feature->feature_id||candidate.owner_id==feature->container_origin.id))return {};
+        }
+        if(!placement_reference_exists(candidate,construction_reference_geometry_,local_path))return {};
+        const auto value=dialog->pending_value();
+        if(candidate.owner_id==value.entity_id || candidate.owner_id==value.container_origin.id)return {};
+        // Do not offer later construction geometry as an upstream end target.
+        const auto allowed=[&](const auto& doc) {
+            bool after=false;
+            for(const auto& object:doc.constructions) {
+                after=after||object.id==value.id;
+                if(after && (candidate.owner_id==object.entity_id||candidate.owner_id==object.container_origin.id))return false;
+            }
+            return true;
+        };
+        if(local_path.empty()) {
+            if(const auto* part=workspace_.open_part(document_id);part&&!allowed(part->session.document()))return {};
+            if(const auto* assembly=workspace_.open_assembly(document_id);assembly&&!allowed(assembly->session.document()))return {};
+        }
+        return zima::document::ConstructionReference{local_path,candidate.owner_id,candidate.semantic_key};
+    };
+    const auto axis_selection = [this,dialog,axis_candidate] {
+        if(!dialog->active_axis_target()) {
+            feature_reference_pick_={};feature_reference_end_={};
+            viewer_->set_original_face_selection(false);
+            if(!pending_construction_reference_index_)set_construction_properties_dimension_selection();
+            return;
+        }
+        pending_construction_reference_index_.reset();construction_reference_auto_advance_=false;
+        tree_->setProperty("commandSelectionActive",true);
+        viewer_->set_original_face_selection(true);
+        viewer_->set_selection_contract({zima::viewer::CandidateKind::Face,zima::viewer::CandidateKind::Plane,zima::viewer::CandidateKind::Vertex});
+        viewer_->set_candidate_filter([axis_candidate](const auto& candidate){return axis_candidate(candidate).has_value();});
+        feature_reference_pick_=[this,dialog,axis_candidate](const auto& candidate){
+            if(const auto ref=axis_candidate(candidate)){dialog->set_axis_target(*ref);viewer_->clear_selection();}
+        };
+        feature_reference_end_=[dialog]{dialog->end_axis_target_entry();};
+    };
+    if(kind==zima::document::ConstructionKind::Axis)dialog->axis_target_changed=axis_selection;
     dialog->set_reference_request_callback(
         [this](std::size_t index) { start_construction_reference_selection(index); });
     if (kind == zima::document::ConstructionKind::Curve3D) {
@@ -88,7 +146,7 @@ void AssemblyWorkspaceWindow::show_construction_properties(
             }, [] {});
     }
     dialog->set_preview_callback(
-        [this, document_id, edit_mode](zima::document::ConstructionObject preview) {
+        [this, document_id, edit_mode, dialog, axis_selection](zima::document::ConstructionObject preview) {
             const std::set<std::string> preview_owners{
                 preview.entity_id, preview.container_origin.id};
             zima::kernel::ViewerMesh mesh;
@@ -213,7 +271,8 @@ void AssemblyWorkspaceWindow::show_construction_properties(
             viewer_->set_transient_edges({});
             preserve_view_on_refresh_ = true;
             refresh_scene();
-            if (!pending_construction_reference_index_) {
+            if (dialog->active_axis_target()) axis_selection();
+            else if (!pending_construction_reference_index_) {
                 tree_->setProperty("commandSelectionActive", false);
                 set_construction_properties_dimension_selection();
             }
@@ -228,6 +287,8 @@ void AssemblyWorkspaceWindow::show_construction_properties(
     track_tree_edit(dialog);
 
     connect(dialog, &QObject::destroyed, this, [this] {
+        feature_reference_pick_={};feature_reference_end_={};
+        viewer_->set_original_face_selection(false);
         properties_dialog_ = nullptr;
         construction_reference_dialog_ = nullptr;
         curve_axis_dialog_ = nullptr;

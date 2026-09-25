@@ -62,56 +62,72 @@
           "fixed": true,
           "id": "bottom:a",
           "x": 1.0,
-          "y": -1.2999999999999998
+          "y": -1.2999999999999998,
+          "centerline": false,
+          "visible_in_3d": true
         },
         {
           "construction": false,
           "fixed": true,
           "id": "bottom:b",
           "x": 4.8,
-          "y": -1.2999999999999998
+          "y": -1.2999999999999998,
+          "centerline": false,
+          "visible_in_3d": true
         },
         {
           "construction": false,
           "fixed": true,
           "id": "right:a",
           "x": 4.8,
-          "y": -1.2999999999999998
+          "y": -1.2999999999999998,
+          "centerline": false,
+          "visible_in_3d": true
         },
         {
           "construction": false,
           "fixed": true,
           "id": "right:b",
           "x": 6.0,
-          "y": 1.2999999999999998
+          "y": 1.2999999999999998,
+          "centerline": false,
+          "visible_in_3d": true
         },
         {
           "construction": false,
           "fixed": true,
           "id": "top:a",
           "x": 6.0,
-          "y": 1.2999999999999998
+          "y": 1.2999999999999998,
+          "centerline": false,
+          "visible_in_3d": true
         },
         {
           "construction": false,
           "fixed": true,
           "id": "top:b",
           "x": 2.2,
-          "y": 1.2999999999999998
+          "y": 1.2999999999999998,
+          "centerline": false,
+          "visible_in_3d": true
         },
         {
           "construction": false,
           "fixed": true,
           "id": "left:a",
           "x": 2.2,
-          "y": 1.2999999999999998
+          "y": 1.2999999999999998,
+          "centerline": false,
+          "visible_in_3d": true
         },
         {
           "construction": false,
           "fixed": true,
           "id": "left:b",
           "x": 1.0,
-          "y": -1.2999999999999998
+          "y": -1.2999999999999998,
+          "centerline": false,
+          "visible_in_3d": true
         }
       ],
       "resolved_normal": [
@@ -140,34 +156,38 @@
           "construction": false,
           "first": "bottom:a",
           "id": "bottom",
-          "second": "bottom:b"
+          "second": "bottom:b",
+          "visible_in_3d": true
         },
         {
           "centerline": false,
           "construction": false,
           "first": "right:a",
           "id": "right",
-          "second": "right:b"
+          "second": "right:b",
+          "visible_in_3d": true
         },
         {
           "centerline": false,
           "construction": false,
           "first": "top:a",
           "id": "top",
-          "second": "top:b"
+          "second": "top:b",
+          "visible_in_3d": true
         },
         {
           "centerline": false,
           "construction": false,
           "first": "left:a",
           "id": "left",
-          "second": "left:b"
+          "second": "left:b",
+          "visible_in_3d": true
         }
       ],
       "suppressed": false,
       "symbols": [],
       "texts": [],
-      "version": 34
+      "version": 35
     },
     {
       "arcs": [],
@@ -1195,7 +1215,7 @@
           "vertical": "bottom"
         }
       ],
-      "version": 34
+      "version": 35
     }
   ],
   "units": "mm",

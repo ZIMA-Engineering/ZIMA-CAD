@@ -4,6 +4,7 @@
 #include <zima/workspace/assembly_scene.hpp>
 #include <zima/document/holes.hpp>
 #include "workspace_internal.hpp"
+#include "../feature_view_cues.hpp"
 #include "../sketch_point_pick_priority.hpp"
 
 namespace zima::app {
@@ -75,6 +76,11 @@ void AssemblyWorkspaceWindow::refresh_scene() {
         auto mesh = construction_preview_mesh_.has_value()
             ? *construction_preview_mesh_
             : document.construction_viewer_mesh({}, scene_size);
+        if (!active_sketch_id_.empty()) {
+            // The active Sketch supplies its complete editable geometry below.
+            std::erase_if(mesh.edges, [&](const auto& edge) { return edge.reference.owner_id == active_sketch_id_; });
+            std::erase_if(mesh.points, [&](const auto& point) { return point.reference.owner_id == active_sketch_id_; });
+        }
         if constexpr (requires { document.history; }) {
             append_reference_geometry(mesh.original_references,
                 document.sketch_placement_reference_geometry(primitive_parameter_owner_id_));
@@ -232,17 +238,14 @@ void AssemblyWorkspaceWindow::refresh_scene() {
             append_nonzero_parameter_dimensions(
                 mesh.dimensions, std::move(dimensions));
             if (object->kind == zima::document::ConstructionKind::Axis) {
-                const double half = object->display_size * 0.5;
-                const auto start = zima::kernel::Vec3{
-                    object->origin.x - object->direction.x * half,
-                    object->origin.y - object->direction.y * half,
-                    object->origin.z - object->direction.z * half};
-                const auto end = zima::kernel::Vec3{
-                    object->origin.x + object->direction.x * half,
-                    object->origin.y + object->direction.y * half,
-                    object->origin.z + object->direction.z * half};
-                append_dimension(object->id, "length", "L = ",
-                    start, end, {5, 5, 0}, object->display_size);
+                const auto [first, last] = object->axis_limits();
+                const auto start = object->axis_point(first);
+                const auto end = object->axis_point(last);
+                const bool two_sides = object->axis_extent_mode == zima::document::AxisExtentMode::TwoSides;
+                if (!object->axis_ends[0].up_to) append_dimension(object->id, "length", "L = ",
+                    two_sides ? object->origin : start, end, {5, 5, 0}, object->display_size);
+                if (two_sides && !object->axis_ends[1].up_to) append_dimension(object->id, "reverse_length", "L2 = ",
+                    start, object->origin, {5, 5, 0}, object->axis_reverse_length);
             } else if (object->kind ==
                        zima::document::ConstructionKind::Plane) {
                 if (std::abs(object->offset) > 1.0e-12) {
@@ -371,6 +374,17 @@ void AssemblyWorkspaceWindow::refresh_scene() {
                         const auto preview=shaft_thread_preview(*container,placement_reference_geometry);
                         mesh.dimensions.insert(mesh.dimensions.end(),preview.dimensions.begin(),preview.dimensions.end());
                     } catch (const std::exception&) { /* Incomplete reference entry has no dimension. */ }
+                } else if (container->feature_kind == FeatureKind::Feature) {
+                    if(!primitive_origin_preview_mesh_) {
+                        const auto sketch=std::ranges::find(document.sketches,container->feature.sketch_id,&zima::sketcher::Sketch::id);
+                        if(sketch!=document.sketches.end()) {
+                            auto display=feature_view_cues(*container,*sketch).dimensions;
+                            if(!parameter_dimension_preview_)
+                                if(const auto* body=document.body_owner_for_object(container->id))
+                                    display=document.place_body_mesh(std::move(display),body->scope.id);
+                            mesh.dimensions.insert(mesh.dimensions.end(),display.dimensions.begin(),display.dimensions.end());
+                        }
+                    }
                 } else if (container->feature_kind == FeatureKind::Extrusion) {
                     const auto sketch = std::find_if(document.sketches.begin(),
                         document.sketches.end(), [&](const auto& value) {
@@ -1606,6 +1620,7 @@ void AssemblyWorkspaceWindow::refresh_scene() {
                     });
                 }
                 if (sketch.id != active_sketch_id_) {
+                    sketch.filter_hidden_3d_geometry(sketch_mesh);
                     keep_only_inactive_sketch_profile(sketch_mesh,
                         sketch.owner_container_id.empty()
                             ? sketch.id : sketch.owner_container_id);
@@ -1739,6 +1754,7 @@ void AssemblyWorkspaceWindow::refresh_scene() {
         cylinder_axis_action_->setEnabled(true);
         construction_plane_action_->setEnabled(true);
         extrusion_action_->setEnabled(true);
+        if(auto* feature=findChild<QAction*>("featurePrototypeAction"))feature->setEnabled(workspace_.open_part(workspace_.active_document_id())!=nullptr);
         revolution_action_->setEnabled(true);
         sketch_action_->setEnabled(true);
         sketch_normal_view_action_->setEnabled(!active_sketch_id_.empty());
@@ -1864,6 +1880,7 @@ void AssemblyWorkspaceWindow::refresh_scene() {
                 sketch.id == sketch_properties_preview_id_ ||
                 (property_owned_sketch_draft_ && property_owned_sketch_draft_->id == sketch.id)) continue;
             auto wire = sketch.viewer_mesh();
+            sketch.filter_hidden_3d_geometry(wire);
             keep_only_inactive_sketch_profile(wire, owner->id);
             append_mesh(mesh, std::move(wire));
         }
@@ -2120,6 +2137,7 @@ void AssemblyWorkspaceWindow::refresh_scene() {
                         remove_sketch_computation_points(mesh);
                     }
                     if (sketch.id != active_sketch_id_) {
+                        sketch.filter_hidden_3d_geometry(mesh);
                         keep_only_inactive_sketch_profile(mesh,
                             sketch.owner_container_id.empty()
                                 ? sketch.id : sketch.owner_container_id);
@@ -2163,6 +2181,7 @@ void AssemblyWorkspaceWindow::refresh_scene() {
                     remove_sketch_computation_points(sketch_mesh);
                 }
                 if (sketch.id != active_sketch_id_) {
+                    sketch.filter_hidden_3d_geometry(sketch_mesh);
                     keep_only_inactive_sketch_profile(sketch_mesh,
                         sketch.owner_container_id.empty()
                             ? sketch.id : sketch.owner_container_id);
@@ -2246,6 +2265,7 @@ void AssemblyWorkspaceWindow::refresh_scene() {
         workspace_.open_assembly(workspace_.active_document_id()) != nullptr;
     const bool profile_feature_owner = active_part != nullptr || active_assembly_owner;
     extrusion_action_->setEnabled(profile_feature_owner);
+    if(auto* feature=findChild<QAction*>("featurePrototypeAction"))feature->setEnabled(profile_feature_owner&&workspace_.open_part(workspace_.active_document_id())!=nullptr);
     revolution_action_->setEnabled(profile_feature_owner);
     sketch_action_->setEnabled(active_part != nullptr || active_assembly_owner);
     const bool has_active_part_sketch =

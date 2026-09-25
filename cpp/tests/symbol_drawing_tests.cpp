@@ -70,6 +70,50 @@ int main(){try {
     check(direct.frame.origin==kernel::Vec3{95,80,0}&&direct.frame.x==kernel::Vec3{-1,0,0},"Sheet contact mirrored local symbol geometry");
     sheet.views.front().x+=10;drawing::refresh_symbol_contacts(sheet);
     check(sheet.symbol_annotations.front().frame.origin==kernel::Vec3{105,80,0},"Sheet symbol did not follow its view");
+    // Every stroke, including the shelf and arrow, follows the owning view rectangle.
+    for(bool leader:{false,true}) {
+        auto page=sheet;auto& mark=page.symbol_annotations.front();mark.leader=leader;
+        if(!leader)mark.symbol.x=mark.symbol.y=0;
+        const auto before=mark.viewer_mesh(0.);
+        page.views.front().x+=37;page.views.front().y-=19;
+        drawing::translate_symbol_contacts(page,page.views.front().id,{37,-19});
+        const auto translated=mark;drawing::refresh_symbol_contacts(page);
+        check(mark==translated,"View translation differs from resolved contact refresh");
+        const auto after=mark.viewer_mesh(0.);
+        check(before.edges.size()==after.edges.size(),"Moving view changed symbol strokes");
+        for(std::size_t e=0;e<before.edges.size();++e)for(std::size_t i=0;i<before.edges[e].points.size();++i) {
+            const auto a=before.edges[e].points[i],b=after.edges[e].points[i];
+            check(std::abs(b.x-a.x-37)<1e-8&&std::abs(b.y-a.y+19)<1e-8&&std::abs(b.z-a.z)<1e-8,
+                  "Whole symbol did not preserve its offset from the view rectangle");
+        }
+        // Dragging a contact along a straight source may extend beyond its endpoint.
+        check(drawing::move_symbol_contact(page,mark.symbol.id,{page.views.front().x-30,page.views.front().y}),"Straight contact drag rejected");
+        check(mark.paper_extension_start.has_value(),"Extended contact has no witness line");
+        check(std::abs(page.symbol_contacts.at(mark.symbol.id).parameter-1.5)<1e-8,"Extended contact lost its source parameter");
+        const auto extended=mark.viewer_mesh(0.);
+        check(extended.edges.back().color=="#F5CD50"&&std::abs(extended.edges.back().points.back().x-mark.frame.origin.x+2)<1e-8,
+              "Witness line does not overrun the contact by 2 mm");
+        check(drawing::move_symbol_contact(page,mark.symbol.id,{page.views.front().x-10,page.views.front().y}),"Contact cannot return to source edge");
+        check(!mark.paper_extension_start,"Witness line remained inside the edge");
+    }
+    {
+        auto page=sheet;auto& v=page.views.front();kernel::ViewerMesh mesh;kernel::ViewerEdge arc;
+        arc.reference={"arc-owner","arc-source",{}};
+        for(int i=0;i<=64;++i){const double angle=i*std::acos(-1.)/128;arc.points.push_back({10*std::cos(angle),10*std::sin(angle),0});}
+        mesh.edges={arc};v.camera={{1,0,0},{0,1,0},{0,0,1}};drawing::capture_measurement_geometry(v,mesh);
+        auto& mark=page.symbol_annotations.front();mark.leader=true;mark.perpendicular_leader=true;
+        drawing::DimensionAttachment a;a.kind=drawing::DimensionAttachmentKind::CurvePoint;a.reference=arc.reference;a.parameter=.5;
+        drawing::attach_symbol_to_view(mark,v,a);page.symbol_contacts[mark.symbol.id]={v.id,.5};
+        check(mark.paper_tangent.has_value(),"Arc symbol has no tangent for its perpendicular leader");
+        const auto before=mark.frame.origin;
+        check(drawing::move_symbol_contact(page,mark.symbol.id,{v.x-10*v.scale,v.y}),"Arc contact cannot slide along its original curve");
+        check(mark.frame.origin!=before&&std::abs(page.symbol_contacts.at(mark.symbol.id).parameter)<1e-8,"Arc contact did not reach its source start");
+        const auto strokes=mark.viewer_mesh(0.,true);
+        const auto leader=std::ranges::find_if(strokes.edges,[](const auto& e){return e.annotation&&e.annotation->role==1;});
+        check(leader!=strokes.edges.end(),"Arc leader missing");
+        const auto p=leader->points.front(),q=leader->points.back(),t=*mark.paper_tangent;
+        check(std::abs((q.x-p.x)*t.x+(q.y-p.y)*t.y)<1e-8,"Arc leader is not perpendicular to its local tangent");
+    }
     const auto path=std::filesystem::temp_directory_path()/("zima-symbol-drawing-"+kernel::make_stable_id()+".drwz");
     sheet_document.save(path);const auto reopened=drawing::DrawingDocument::load(path);std::filesystem::remove(path);
     check(reopened.sheets.front().symbol_contacts==sheet.symbol_contacts&&reopened.sheets.front().symbol_annotations==sheet.symbol_annotations,"Sheet symbol lost projected reference or pose on reopen");
