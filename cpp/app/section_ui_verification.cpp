@@ -114,7 +114,7 @@ int verify_sections(QApplication& application,AssemblyWorkspaceWindow& window,co
         check(dialog()->windowTitle()==QObject::tr("Vlastnosti řezu"),"Section Properties has an inconsistent title");
         check(!window.findChild<QAction*>("cancelSectionSketchAction"),"Section Sketch retains a separate Cancel action");
         const auto* sketch_button=dialog()->findChild<QPushButton*>("editSectionSketch");
-        check(sketch_button&&sketch_button->text()==QObject::tr("Skica…")&&sketch_button->styleSheet().isEmpty(),"Section Sketch button is not localized or uses custom state colors");
+        check(sketch_button&&sketch_button->text()==QObject::tr("Skica…"),"Section Sketch button is not localized");
         check(dialog()->height()>=std::min(800,window.height()-24),"Section properties did not use the available vertical space");
         auto* scroll=dialog()->findChild<QScrollArea*>();auto* name=dialog()->findChild<QLineEdit*>("sectionName");auto* translation=dialog()->findChild<QDoubleSpinBox*>("sweepTranslation0");
         check(scroll&&scroll->widget()->isAncestorOf(name)&&scroll->widget()->isAncestorOf(translation)&&translation->mapTo(dialog(),QPoint{}).y()>name->mapTo(dialog(),QPoint{}).y()+name->height(),"Section controls are outside their scroll layout");

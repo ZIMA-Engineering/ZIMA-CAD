@@ -11,6 +11,17 @@ The Windows GUI rebuilt successfully; the existing shared UI and five-language
 translation contracts passed. This follow-up is not part of the published
 2026092603 archive.
 
+The same azure accent also applies to the shared Sketch entry buttons inside
+feature properties: the shared feature parameter panel, primitive-owned sketches,
+Sketch/Flat/Bend editors, 2D and 3D sweep profiles, helical sketches, sheet
+transition profiles and Section. Their existing
+callbacks, labels and enabled conditions are unchanged. Disabled buttons retain
+native feedback; hover, keyboard focus and press remain distinguishable.
+The Windows build and shared UI, feature-type UI and five-language translation
+contracts passed. The extended Section contract reaches the later Drawing
+sheet/view Rename check and fails there; the same failure was reproduced with
+the unchanged published 2026092603 executable.
+
 ## Azure wire and checked controls (2026-09-26 follow-up)
 
 This agreement supersedes the selected-wire and checked-button colours below.
