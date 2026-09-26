@@ -82,6 +82,8 @@ QString feature_icon_name(zima::document::FeatureKind kind) {
 }
 
 QString feature_icon_name(const zima::document::HistoryContainer& feature) {
+    if(feature.feature_kind==zima::document::FeatureKind::SheetTransition&&zima::document::rectangular_sheet_transition(feature))
+        return QStringLiteral("sheet-transition-rectangular");
     if(feature.feature_kind==zima::document::FeatureKind::DerivedCopy)return feature.derived_copy.pattern?"pattern":"mirror";
     if(feature.feature_kind==zima::document::FeatureKind::Revolution&&feature.revolution.sheet_metal)
         return QStringLiteral("sheet-revolve");

@@ -1,6 +1,7 @@
 #include "transition_sheet.hpp"
 #include <algorithm>
 #include <numbers>
+#include <optional>
 namespace zima::research::transition {
 namespace {
 using namespace kernel::sheet_material;
@@ -27,6 +28,8 @@ SheetResult manufacture_model(const Model& model,const SheetOptions& options) {
     SheetResult result;result.thickness=options.thickness;
     const double outer_radius=options.inside_radius+options.thickness,neutral_radius=options.inside_radius+options.k_factor*options.thickness;
     std::vector<Vec3> shifts(surface.faces.size());
+    struct Relief {Vec3 origin,inward;double offset;};
+    std::vector<std::optional<Relief>> reliefs(surface.faces.size());
     for(const auto& face:surface.faces)result.panels.push_back({face.folded,{},face.normal});
     const Vec3 cap0=model.first_origin.origin,normal0=model.first_origin.z;
     const Vec3 cap1=model.first_origin.point(model.second_relative.origin),normal1=model.first_origin.direction(model.second_relative.z);
@@ -44,6 +47,26 @@ SheetResult manufacture_model(const Model& model,const SheetOptions& options) {
             if(dot(sub(centroid(surface.faces[panel].folded),fold.first),inward)<0)inward=mul(inward,-1);
             result.panels[panel].outer=clip(result.panels[panel].outer,fold.first,inward,setback);
         }
+    }
+    // Blunt the narrow planar tip where two finite-radius bends converge.
+    // A straight cut through the thickness leaves an intentional weld relief;
+    // the neighboring bend ends use this same clipped material boundary.
+    for(std::size_t i=1;i+1<surface.faces.size();++i) {
+        const auto& entry=surface.folds[i-1];const auto& exit=surface.folds[i];
+        if(std::abs(entry.signed_angle_radians)<1e-8||std::abs(exit.signed_angle_radians)<1e-8)continue;
+        const bool first=length(sub(entry.first,exit.first))<1e-7;
+        const bool last=length(sub(entry.second,exit.second))<1e-7;
+        if(!first&&!last)continue;
+        const auto origin=first?entry.first:entry.second;
+        const auto a=unit(sub(first?entry.second:entry.first,origin));
+        const auto b=unit(sub(first?exit.second:exit.first,origin));
+        const auto inward=unit(add(a,b));
+        auto& polygon=result.panels[i].outer;
+        double tip=1e100;
+        for(auto p:polygon)tip=std::min(tip,dot(sub(p,origin),inward));
+        const double offset=tip+options.thickness;
+        polygon=clip(polygon,origin,inward,offset);
+        reliefs[i]=Relief{origin,inward,offset};
     }
     for(std::size_t i=0;i<surface.folds.size();++i) {
         const auto& fold=surface.folds[i];const auto& before=surface.faces[i];const auto& after=surface.faces[i+1];
@@ -123,8 +146,17 @@ SheetResult manufacture_model(const Model& model,const SheetOptions& options) {
         for(std::size_t j=0;j<panel.outer.size();++j) {
             const auto a=panel.outer[j],b=panel.outer[(j+1)%panel.outer.size()];
             const auto on_rim=[&](Vec3 origin,Vec3 normal){return std::abs(dot(sub(a,origin),normal))<1e-6&&std::abs(dot(sub(b,origin),normal))<1e-6;};
-            if(on_rim(cap0,normal0))panel.edge_roles.push_back("round-rim");
+            if(reliefs[i]&&std::abs(dot(sub(a,reliefs[i]->origin),reliefs[i]->inward)-reliefs[i]->offset)<1e-6&&
+                std::abs(dot(sub(b,reliefs[i]->origin),reliefs[i]->inward)-reliefs[i]->offset)<1e-6)
+                panel.edge_roles.push_back("apex-relief");
+            else if(on_rim(cap0,normal0))panel.edge_roles.push_back("round-rim");
             else if(on_rim(cap1,normal1))panel.edge_roles.push_back("rectangle-rim");
+            else if(i==surface.folds.size()) {
+                // The closing edge of the final triangle may be a rim, not
+                // its free end. Identify the incoming tangent by direction.
+                const auto entry=unit(sub(source.folded[1],source.folded[0]));
+                panel.edge_roles.push_back(length(cross(unit(sub(b,a)),entry))<1e-7?"entry":"exit");
+            }
             else {
                 const auto middle=mul(add(a,b),.5);
                 const auto distance_to=[&](Vec3 a,Vec3 b){return length(cross(sub(middle,a),unit(sub(b,a))));};

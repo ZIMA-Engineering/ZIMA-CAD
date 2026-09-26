@@ -399,7 +399,7 @@ void AssemblyWorkspaceWindow::rebuild_application_toolbar() {
             if(!transition){transition=new QAction(resource_icon("sheet-transition"),tr("Přechod plechu"),this);transition->setObjectName("sheetTransitionAction");connect(transition,&QAction::triggered,this,[this]{show_sheet_transition_properties();});}
             transition->setEnabled(!properties_dialog_);add_command(transition);
             auto* rectangular=findChild<QAction*>("rectangularSheetTransitionAction");
-            if(!rectangular){rectangular=new QAction(resource_icon("sheet-transition"),tr("Obdélníkový přechod plechu"),this);rectangular->setObjectName("rectangularSheetTransitionAction");connect(rectangular,&QAction::triggered,this,[this]{show_sheet_transition_properties({},true);});}
+            if(!rectangular){rectangular=new QAction(resource_icon("sheet-transition-rectangular"),tr("Obdélníkový přechod plechu"),this);rectangular->setObjectName("rectangularSheetTransitionAction");connect(rectangular,&QAction::triggered,this,[this]{show_sheet_transition_properties({},true);});}
             rectangular->setEnabled(!properties_dialog_);add_command(rectangular);add_group_separator();
             auto* cut=findChild<QAction*>("sheetCutAction");
             if(!cut) {

@@ -32,6 +32,10 @@ construction geometry so the rectangular envelopes stay dimensionable.
 The main Origin positions the first rectangle; the second Origin controls its
 relative XYZ position and all three rotations, including axial twist. Warped
 walls are divided into planar triangles joined by finite-radius bends.
+Narrow tips between converging bends are cut back through the sheet thickness.
+The resulting small end gaps are intended for welding; the same material relief
+is present in the flat pattern. The rectangular command's icon has a straight
+upper rim, distinguishing it from the half-round transition.
 
 Both transition commands share the existing placement references and internal
 properties window. OK calculates and commits; Cancel discards the pending

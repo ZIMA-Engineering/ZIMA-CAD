@@ -141,7 +141,8 @@ int main()try {
             // Tilted finite-radius lofts and flat reconstruction are approximate.
             // Bound the flat volume error to 0.02%; Bend Back restores the
             // original material and must agree to numerical roundoff.
-            check(std::abs(result.volume-rotated_volume)<(unfold?rotated_volume*2e-4:1e-6),"Rotated transition state changed volume");
+            if(std::abs(result.volume-rotated_volume)>=(unfold?rotated_volume*2e-4:1e-6))
+                throw std::runtime_error(std::string(unfold?"Unbend":"Bend Back")+" changed rotated transition volume from "+std::to_string(rotated_volume)+" to "+std::to_string(result.volume));
         }
         check(workspace::step_part_document_history(live,id,false)&&workspace::step_part_document_history(live,id,false),"Rotated state Undo failed");
         check(state->session.calculated_boundaries().back().calculation_errors.empty(),"Rotated solid has errors");

@@ -17,7 +17,7 @@ int verify_sheet_transition_ui(QApplication& application,const std::filesystem::
         const auto dialog=[&]{auto* d=window.findChild<QDialog*>("sheetTransitionDialog");check(d&&d->isVisible(),"Transition dialog did not open");return d;};
         const auto save=[&]{window.findChild<QAction*>("saveDocumentAction")->trigger();flush();return document::PartDocument::load(path);};
         auto* rectangular=window.findChild<QAction*>("rectangularSheetTransitionAction");
-        check(rectangular&&rectangular->isEnabled(),"Rectangular transition action unavailable");
+        check(rectangular&&rectangular->isEnabled()&&!rectangular->icon().isNull(),"Rectangular transition action unavailable");
         rectangular->trigger();flush();
         auto* rectangular_editor=dynamic_cast<app::SheetTransitionDialog*>(dialog());
         auto* sides=rectangular_editor->findChild<QComboBox*>("transitionSides");
@@ -34,6 +34,9 @@ int verify_sheet_transition_ui(QApplication& application,const std::filesystem::
         check(!window.findChild<QDialog*>("sheetTransitionDialog"),"Rectangular transition did not commit");
         const auto rectangular_saved=save();check(rectangular_saved.history.size()==part.history.size()+1,"Rectangular transition did not insert one history row");
         const auto rectangular_feature=rectangular_saved.history.back();
+        auto* rectangular_view=dynamic_cast<viewer::MeshView*>(window.findChild<QWidget*>("modelWorkspace"));
+        check(rectangular_view,"Rectangular transition View missing");
+        rectangular_view->fit_all();flush();
         window.grab().save(QString::fromStdString((directory/"rectangular-transition-native.png").string()));
         check(document::rectangular_sheet_transition(rectangular_feature)&&std::abs(rectangular_feature.placement.x-25)<1e-8,"Rectangular transition lost placement or profile mode");
         check(rectangular_feature.sheet_transition.end_rotation==kernel::Vec3{8,-10,12},"Rectangular transition lost its three-axis rotation");

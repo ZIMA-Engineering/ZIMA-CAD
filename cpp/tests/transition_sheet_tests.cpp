@@ -15,6 +15,22 @@ using namespace zima;
 using namespace research::transition;
 void check(bool ok,const char* message){if(!ok)throw std::runtime_error(message);}
 double distance(kernel::Vec3 a,kernel::Vec3 b){return std::hypot(std::hypot(a.x-b.x,a.y-b.y),a.z-b.z);}
+void check_reliefs(const SheetResult& sheet) {
+    std::size_t count=0;
+    for(const auto& panel:sheet.panels) {
+        std::set<std::string> roles;
+        for(std::size_t i=0;i<panel.edge_roles.size();++i) {
+            check(roles.insert(panel.edge_roles[i]).second,"Duplicate authored panel edge identity");
+            if(panel.edge_roles[i]!="apex-relief")continue;
+            ++count;
+            const auto next=(i+1)%panel.outer.size();
+            const double formed=distance(panel.outer[i],panel.outer[next]);
+            check(formed>1e-5,"Apex relief collapsed to a sharp point");
+            check(std::abs(formed-distance(panel.developed[i],panel.developed[next]))<1e-7,"Apex cut stretched in development");
+        }
+    }
+    check(count>0,"Converging bends retained their sharp apex");
+}
 void check_solid(const kernel::BodyResult& body){
     TopoDS_Shape shape;BRep_Builder builder;std::istringstream stream(body.kernel_shape);BRepTools::Read(shape,stream,builder);
     check(!shape.IsNull()&&BRepCheck_Analyzer(shape).IsValid(),"Invalid transition B-Rep");
@@ -23,6 +39,8 @@ void check_solid(const kernel::BodyResult& body){
 }
 int main()try {
     const auto start=std::chrono::steady_clock::now();HalfModel model;SheetOptions options;
+    // Verify the clipped polygon identities before the more expensive solid checks.
+    {RectangularModel probe;const double c=std::cos(.2),s=std::sin(.2);probe.second_relative.x={c,s,0};probe.second_relative.y={-s,c,0};check_reliefs(manufacture(probe,options));}
     auto circle=sketcher::Sketch::create_default(),rectangle=sketcher::Sketch::create_default();
     static_cast<void>(circle.add_arc(0,0,80,0,-80,0));
     static_cast<void>(rectangle.add_segment(100,0,100,60));static_cast<void>(rectangle.add_arc(80,60,100,60,80,80));
@@ -99,6 +117,7 @@ int main()try {
         tilted.second_relative.z={std::sin(y)*std::cos(x),-std::sin(x),std::cos(y)*std::cos(x)};
         std::cout<<"Combined tilt "<<x<<", "<<y<<std::endl;
         const auto made=manufacture(tilted,options);
+        if(x!=0)check_reliefs(made);
         const auto combined=sheet_operation(made,"combined");
         std::cout<<"Direct developed combined tilt"<<std::endl;
         check_solid(kernel.evaluate_history({{"direct-flat",sheet_request(made,true)}}).back());
@@ -140,6 +159,7 @@ int main()try {
         rectangular.second_relative={{0,0,150},{cz*cy,sz*cy,-sy},{cz*sy*sx-sz*cx,sz*sy*sx+cz*cx,cy*sx},{cz*sy*cx+sz*sx,sz*sy*cx-cz*sx,cy*cx}};
         std::cout<<"Rectangular twist, sides "<<sides<<", combined "<<combined<<std::endl;
         const auto made=manufacture(rectangular,options);const auto op=sheet_operation(made,"rectangular-twist");
+        check_reliefs(made);
         const auto formed=kernel.evaluate_history({op}).back();check_solid(formed);
         const kernel::HistoryOperation unfold{"rectangle-flat",kernel::SheetStateRequest{true,true,{}}};
         const kernel::HistoryOperation restore{"rectangle-restore",kernel::SheetStateRequest{false,true,{}}};

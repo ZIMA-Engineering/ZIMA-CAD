@@ -102,9 +102,20 @@ PrimitiveData calculate(Sources sources,const std::vector<SheetMaterialDefinitio
             auto material=sheet_state_geometry::transform(source.material,transitions,refine?effective_tolerance:tolerance,owner,source.created_region);
             if(result.shape.IsNull()){result=std::move(material);continue;}
             const auto combine=[&](auto& algorithm) {
+                // A valid single solid can still be an incomplete Boolean
+                // result at an approximated compound junction. Addition may
+                // never discard the volume of either input solid.
+                const auto volume=[](const TopoDS_Shape& shape) {
+                    GProp_GProps properties;BRepGProp::VolumeProperties(shape,properties);
+                    return std::abs(properties.Mass());
+                };
+                const bool check_addition=source.operation==BooleanOperation::Add&&source.material_tolerance<tolerance;
+                const double minimum_volume=check_addition?std::max(volume(result.shape),volume(material.shape)):0;
                 set_boolean_inputs(algorithm,result.shape,material.shape);algorithm.SetToFillHistory(true);
                 algorithm.SetFuzzyValue(restoring_authored?source.boolean_tolerance:effective_tolerance/8);algorithm.Build();
                 if(!algorithm.IsDone())throw std::runtime_error("Cannot reconstruct sheet material in the requested state.");
+                if(check_addition&&volume(algorithm.Shape())<minimum_volume*(1-1e-5))
+                    throw std::runtime_error("Cannot reconstruct sheet material in the requested state.");
                 result.faces=propagate_topology(algorithm,result.faces,material.faces);
                 result.edges=propagate_topology(algorithm,result.edges,material.edges);
                 result.vertices=propagate_topology(algorithm,result.vertices,material.vertices);result.shape=algorithm.Shape();
@@ -121,7 +132,8 @@ PrimitiveData calculate(Sources sources,const std::vector<SheetMaterialDefinitio
         return result;
     };
     // Use the document's permitted approximation first. Only compound sheet
-    // junctions which fail validity/connectivity need their finer source budget.
+    // junctions which fail validity/connectivity or lose material on addition
+    // need their finer source budget.
     // Both attempts rebuild immutable contributions; no partial result escapes.
     try {return reconstruct(false);}
     catch(const std::runtime_error&) {

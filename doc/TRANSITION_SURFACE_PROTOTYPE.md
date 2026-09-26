@@ -406,12 +406,30 @@ intervals. A following planar material region is anchored on its incoming bend's
 final tangent; an arbitrary first polygon vertex is not a valid attachment after
 both neighboring corners have been trimmed.
 
+The user accepts small weldable gaps at converging bend ends. A straight
+through-thickness cut blunts each intervening panel tip by one sheet thickness,
+measured inward along the bisector of its two authored fold directions. Adjacent
+bend contact intervals follow the clipped panel. The relief is real removed
+material in both formed and developed geometry, not a viewer-only trim.
+Its edge has the authored `apex-relief` role; retained boundaries keep their
+existing roles. This local construction is not a tooling-clearance or weld
+strength certification. Ordinary nonconverging bends are unchanged.
+
+The rectangular command and its history row use a separate icon with a straight
+upper rim. Localization review found no new user-visible text in the relief or
+icon change; the existing five-language command labels remain in use.
+
 The document's agreed sheet calculation limit remains 0.05 mm. State deformation
 first uses that configured limit. It verifies B-Rep validity and preserves the
 input solid count; a numerically disconnected development is not accepted just
 because its individual solids are valid. A failed compound-junction reconstruction
 is retried once using the finer source budget. Ordinary regions retain the
 document limit, and both attempts use immutable contributions.
+Compound additions also reject Boolean results whose volume is smaller than
+either input, allowing only numerical integration noise. A valid single solid
+alone does not establish that all panel material survived joining. The clipped
+native half-transition at 8/-10 degrees exposed this failure at the coarse
+budget; the check sends it through the existing finer reconstruction.
 
 Bend loft fitting uses 1e-5 mm accuracy; joining reserves one eighth
 of that budget, including compilation inside a Body. The former 1e-3 mm fitting
@@ -452,3 +470,12 @@ Visual captures were
 inspected for the rectangular dialog and calculated three-axis L transition.
 These changes have not been published as a Windows release. Tooling access,
 forming sequence and untested near-singular input remain outside this evidence.
+
+After the apex-relief and Boolean-volume checks, the same ten contracts passed
+again in 184.06 seconds. The geometry suite took 112.77 seconds, the native
+transaction suite 85.23 seconds and the transition GUI contract 22.17 seconds.
+Additional checks require a nonzero relief edge with preserved developed length
+and unique authored panel edge roles. The final triangular panel identifies its
+incoming boundary by direction because its closing polygon edge can be a rim.
+The rectangular icon and formed L transition were inspected in the GUI.
+See [transition coverage](TRANSITION_COVERAGE.md) for the requested gap review.
