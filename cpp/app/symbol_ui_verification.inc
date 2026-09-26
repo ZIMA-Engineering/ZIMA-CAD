@@ -50,6 +50,14 @@ int verify_symbol_ui(QApplication& application,zima::app::AssemblyWorkspaceWindo
             const auto* shelf=attachment_options->findChild<QComboBox*>("symbolShelfMode");
             check(shelf&&shelf->itemText(0)==settings.qt_translations.value("Pod symbolem")&&shelf->itemText(1)==settings.qt_translations.value("K uchopovacímu bodu"),"Shelf choices are untranslated");
             attachment_options->reject();flush();
+            const auto weld_definition=symbols::Definition::load(std::filesystem::current_path()/"config/symbols/welding/ZE-FILLET-WELD-ISO2553.symz");
+            sketcher::SymbolInstance weld;weld.id="localized-weld";weld.definition=weld_definition.serialized();weld.variant=weld_definition.default_variant;
+            auto* weld_options=new app::SymbolDialog(weld,{},[](auto){},&window);
+            auto* variant=weld_options->findChild<QComboBox*>("symbolVariant");
+            check(variant->itemText(variant->findData("arrow_side"))==settings.qt_translations.value("ISO 2553 A — strana šipky"),"Weld arrow-side label is untranslated");
+            check(variant->itemText(variant->findData("other_side"))==settings.qt_translations.value("ISO 2553 A — opačná strana"),"Weld other-side label is untranslated");
+            weld_options->reject();flush();
+
         }
         app::apply_application_translations(application,app::ApplicationSettings::load());
         window.show_tree_item_properties(select());flush();auto* dialog=window.findChild<QDialog*>("symbolPropertiesDialog");
@@ -325,6 +333,37 @@ int verify_symbol_ui(QApplication& application,zima::app::AssemblyWorkspaceWindo
         tolerance_field("Tolerance")->setCurrentText("0,05");tolerance_field("Primary datum")->setCurrentText("");submit_tolerance();check(!accepted_tolerance,"Orientation tolerance accepted without datum");
         tolerance_field("Primary datum")->setCurrentText("a");tolerance_field("Tertiary datum")->setCurrentText("C");submit_tolerance();check(!accepted_tolerance,"Gap in datum precedence accepted");
         tolerance_field("Secondary datum")->setCurrentText("B");submit_tolerance();check(accepted_tolerance&&accepted_tolerance->text_values.at("Tolerance")=="0.05"&&accepted_tolerance->text_values.at("Primary datum")=="A","Valid geometric tolerance was not normalized and committed");
+        chosen_symbol=std::filesystem::current_path()/"config/symbols/welding/ZE-FILLET-WELD-ISO2553.symz";
+        window.resize(1024,680);flush();
+        for(const double offset:{-30.,30.}) {
+            const auto before=drawing_window->document_for_test().sheets.front().symbol_annotations.size();
+            for(bool accept:{false,true}) {
+                chooser.start(100);insert_sheet->trigger();chooser.stop();flush();
+                auto* editor=dynamic_cast<app::SymbolAttachmentDialog*>(window.findChild<QDialog*>("symbolAttachmentDialog"));check(editor,"Weld editor missing");
+                check(editor->findChild<QCheckBox*>("symbolLeader")->isChecked(),"Weld did not default to a leader");
+                auto* variant=editor->findChild<QComboBox*>("symbolVariant");variant->setCurrentIndex(variant->findData(offset<0?"other_side":"arrow_side"));
+                const auto prefix=offset<0?"Other":"Arrow";
+                editor->findChild<QDoubleSpinBox*>("symbolOrigin0")->setValue(140);editor->findChild<QDoubleSpinBox*>("symbolOrigin1")->setValue(offset<0?110:80);
+                editor->findChild<QDoubleSpinBox*>("symbolPlacement0")->setValue(offset);editor->findChild<QDoubleSpinBox*>("symbolPlacement1")->setValue(12);
+                editor->findChild<QComboBox*>(QString("symbolField:%1 size").arg(prefix))->setCurrentText("a4");
+                editor->findChild<QComboBox*>(QString("symbolField:%1 length").arg(prefix))->setCurrentText("3 x 50 (100)");
+                auto* ok=editor->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok);
+                check(window.rect().contains(QRect(ok->mapTo(&window,QPoint()),ok->size())),"Weld OK button is outside laptop window");
+                if(accept)ok->click();else editor->reject();flush();
+                check(drawing_window->document_for_test().sheets.front().symbol_annotations.size()==before+(accept?1:0),"Weld OK/Cancel differs");
+            }
+            window.findChild<QAction*>("undoAction")->trigger();flush();
+            check(drawing_window->document_for_test().sheets.front().symbol_annotations.size()==before,"Weld Undo failed");
+            window.findChild<QAction*>("redoAction")->trigger();flush();
+            check(drawing_window->document_for_test().sheets.front().symbol_annotations.size()==before+1,"Weld Redo failed");
+        }
+        save->trigger();flush();
+        const auto reopened=drawing::DrawingDocument::load(drawing_path);
+        check(reopened.sheets.front().symbol_annotations==drawing_window->document_for_test().sheets.front().symbol_annotations,"Weld values lost on save/reopen");
+        drawing_window->render_sheet_for_test(false).save(QString::fromStdString((directory/"weld-tolerance-sheet.png").string()));
+        drawing_window->export_pdf(directory/"weld-tolerance-sheet.pdf");drawing_window->export_dxf(directory/"weld-tolerance-sheet.dxf");
+        auto exported=sketcher::Sketch::create_default();
+        check(interchange::import_dxf(directory/"weld-tolerance-sheet.dxf",exported).imported_entities>30,"Weld DXF lacks vector geometry");
         std::cout<<"Symbol insertion, edit, cancellation, middle-button confirmation, Tree/View selection and five UI languages passed\n";return 0;
     }catch(const std::exception& error){std::cerr<<error.what()<<'\n';return 1;}
 }

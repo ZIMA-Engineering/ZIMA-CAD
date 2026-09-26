@@ -164,6 +164,35 @@ symbols::Definition geometric_tolerance(const std::string& kind) {
     for(auto& s:d.sketches){for(auto& p:s.points)p.y-=3.5;for(auto& t:s.texts){t.anchor_y-=3.5;sketcher::rebuild_text_contours(t,true);}}
     d.default_variant="default";d.insertion_point={0,0};d.validate();return d;
 }
+symbols::Definition welding(const std::string& kind) {
+    symbols::Definition d;d.id="ze:welding:iso2553:"+kind;d.name="ZE-"+kind+"-WELD-ISO2553";
+    d.reference_line_layout=symbols::ReferenceLineLayout{};
+    std::vector<std::string> sizes,glyphs,lengths;
+    for(bool other:{false,true}) {
+        const std::string side=other?"other_side":"arrow_side",prefix=other?"Other":"Arrow";
+        const double y=other?-3.:0.,sign=other?-1.:1.;
+        auto glyph=sketch(d.id+":"+side+":glyph");
+        const auto ln=[&](const char* id,double x,double a,double u,double b){line(glyph,id,x,y+sign*a,u,y+sign*b);};
+        if(kind=="FILLET"){ln("vertical",0,0,0,4);ln("slope",0,4,4,0);}
+        if(kind=="SQUARE-BUTT"){ln("first",0,0,0,4);ln("second",2,0,2,4);}
+        if(kind=="V-BUTT"){ln("first",0,4,2,0);ln("second",2,0,4,4);}
+        if(kind=="BEVEL-BUTT"){ln("first",0,0,0,4);ln("second",0,0,3,4);}
+        auto size=sketch(d.id+":"+side+":size"),length=sketch(d.id+":"+side+":length");
+        const double text_y=other?y-3.5:y+1.;
+        const std::string size_field=prefix+" size",length_field=prefix+" length";
+        text(size,"value",kind=="FILLET"?"a3":"s5",0,text_y);
+        text(length,"value","50",0,text_y);
+        d.fields[size_field]={size.id,"value",kind=="FILLET"?std::vector<std::string>{"a3","a4","a5","a6","z4","z6"}:std::vector<std::string>{"s3","s5","s8","s10"},true};
+        d.fields[length_field]={length.id,"value",{"","25","50","100","3 x 50 (100)"},true};
+        auto& row=d.variants[side];row.sketches={size.id,glyph.id,length.id};
+        row.text_values[size_field]=kind=="FILLET"?"a3":"s5";row.text_values[length_field]="50";
+        sizes.push_back(size.id);glyphs.push_back(glyph.id);lengths.push_back(length.id);
+        for(const auto& c:glyph.segments)d.pens[glyph.id][c.id]="yellow";
+        d.sketches.push_back(std::move(size));d.sketches.push_back(std::move(glyph));d.sketches.push_back(std::move(length));
+    }
+    d.reference_line_layout->columns={sizes,glyphs,lengths};d.default_variant="arrow_side";d.validate();return d;
+}
+
 }
 int main(int argc,char** argv) {
     QGuiApplication app(argc,argv);
@@ -178,6 +207,9 @@ int main(int argc,char** argv) {
             {root/"general/ZE-GENERAL-EDGES-ISO13715.symz",edges()}};
         for(const auto* kind:{"STRAIGHTNESS","FLATNESS","CIRCULARITY","CYLINDRICITY","LINE-PROFILE","SURFACE-PROFILE","PARALLELISM","PERPENDICULARITY","ANGULARITY","POSITION","COAXIALITY","SYMMETRY","CIRCULAR-RUNOUT","TOTAL-RUNOUT"}) {
             auto definition=geometric_tolerance(kind);definitions.push_back({root/"geometric-tolerances"/(definition.name+".symz"),std::move(definition)});
+        }
+        for(const auto* kind:{"FILLET","SQUARE-BUTT","V-BUTT","BEVEL-BUTT"}) {
+            auto definition=welding(kind);definitions.push_back({root/"welding"/(definition.name+".symz"),std::move(definition)});
         }
         int variants=0;for(const auto& entry:definitions)variants+=int(entry.second.variants.size());
         QImage image(1400,200+variants*290,QImage::Format_ARGB32_Premultiplied);image.fill(Qt::white);QPainter painter(&image);painter.setRenderHint(QPainter::Antialiasing);

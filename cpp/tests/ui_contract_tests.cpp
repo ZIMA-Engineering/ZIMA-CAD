@@ -36,6 +36,7 @@
 #include "tool_button_style.hpp"
 
 #include <zima/viewer/mesh_view.hpp>
+#include <zima/viewer/view_theme.hpp>
 #include <zima/ui/reference_cell.hpp>
 
 #include <QAction>
@@ -322,7 +323,7 @@ int verify_sketch_line_styles(QApplication& application, QWidget& parent) {
             int original = 0, highlighted = 0, common = 0;
             for (int y = 10; y < idle.height() - 10; ++y)
                 for (int x = 10; x < idle.width() - 10; ++x) {
-                    const bool a = colored(idle.pixelColor(x, y), QColor(kind==3?"#FFFFFF":"#AD6E2E"));
+                    const bool a = colored(idle.pixelColor(x, y), (kind==3?zima::viewer::view_theme(view.palette()).foreground:QColor("#AD6E2E")));
                     const bool b = colored(frame.pixelColor(x, y), color);
                     original += a; highlighted += b; common += a && b;
                 }
@@ -597,7 +598,7 @@ void verify_point_marker_colours(QApplication& application,QWidget& parent) {
         view.set_mesh(mesh);view.set_selection_contract({});view.show();view.raise();
         application.processEvents();
         require(framebuffer_contains_color_near(view.grabFramebuffer(),view.size(),{250,180},
-            i==0?QColor(0,0,0):(i==4||i==5)?QColor(255,255,255):QColor(173,110,46),8),
+            i==0?QColor(0,0,0):(i==4||i==5)?viewer::view_theme(view.palette()).foreground:QColor(173,110,46),8),
             "Main Origin and construction/feature/occurrence points have incorrect base colours");
         view.confirm_reference(references[i].owner_id,references[i].semantic_key,
             references[i].instance_path,viewer::CandidateKind::Vertex);
@@ -1874,8 +1875,8 @@ int main(int argc, char* argv[]) {
         rounded_route_view.set_geometry_editing_presentation(true, "curve-container");
         application.processEvents();
         require(framebuffer_contains_color_near(rounded_route_view.grabFramebuffer(),
-            rounded_route_view.size(),QPointF(250,180),QColor(255,255,255)),
-            "3D rounding arc did not switch to white for editing");
+            rounded_route_view.size(),QPointF(250,180),zima::viewer::view_theme(rounded_route_view.palette()).foreground),
+            "3D rounding arc did not switch to the neutral editing pen");
         rounded_route_view.set_geometry_editing_presentation(false);
         rounded_route_view.hide();
         auto solid_centerline_mesh=rounded_route_mesh;
@@ -5641,7 +5642,7 @@ int main(int argc, char* argv[]) {
                     !framebuffer_contains_color_near(idle_point_frame,
                         box_selection_view.size(), *shared_corner_position,
                         QColor("#D05CFF")),
-                "Idle active SketchPoint was not white or retained the purple "
+                "Idle active SketchPoint did not use the neutral pen or retained the purple "
                 "manipulator colour");
         QMouseEvent corner_hover(QEvent::MouseMove,
             *shared_corner_position, *shared_corner_position,

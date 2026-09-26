@@ -210,3 +210,37 @@ covers local tangents and contact movement on an arc.
 The Windows development executable was rebuilt and the generated model/sheet
 screenshots were inspected. The separate cross-command first-plane audit has
 an unresolved Sweep2D finding documented in `PROFILE_CENTERLINES.md`.
+
+## Geometrical tolerances and welds (2026092602)
+
+In a Drawing, use **Insert symbol** and choose a native file from the configured
+Symbols library. `geometric-tolerances/` contains fourteen ISO 1101 indications:
+straightness, flatness, circularity, cylindricity, line/surface profile,
+parallelism, perpendicularity, angularity, position, coaxiality, symmetry and
+circular/total run-out. Enter the positive tolerance and, where applicable,
+ordered primary/secondary/tertiary datums. Cells grow with their text; empty
+optional datum cells are omitted.
+
+`welding/` contains fillet, square-butt, V-butt and bevel-butt definitions using
+ISO 2553 system A. Choose **Arrow side** or **Other side**, then edit the weld
+size and length/count/pitch indication. The solid and dashed reference lines
+retain their meaning when the leader is moved. Size examples (`a3`, `z4`, `s5`)
+and length examples are editable presets, not calculated weld requirements.
+The opposite-side row lies on the dashed reference line. These definitions cover
+single-sided elementary indications; combined welds, all-around/site flags,
+finish/contour symbols and process tails are not provided by this catalog.
+
+New tolerance/weld insertions enable the leader automatically. Move the symbol
+left or right of its contact to change the approached end. The leader meets a
+tolerance frame at the middle of its nearest side and a weld at the nearest end
+of its reference line. Text, glyphs, datum order and weld-side meaning never
+mirror. The reference line grows with the visible fields. Use the same Properties
+dialog for creation and editing; OK commits once and Cancel discards the preview.
+Long forms scroll while confirmation buttons remain outside the scroll area.
+Instances embed their definition and values in the Drawing; changing the library
+does not rewrite previously inserted copies.
+
+Standards references: [ISO 1101:2017](https://www.iso.org/standard/66777.html) and
+[ISO 2553:2019](https://www.iso.org/standard/72740.html). The catalog implements
+these stated indications, not an exhaustive standards-compliance checker.
+Manufacturing suitability and tolerance/weld sizing remain the author's decision.

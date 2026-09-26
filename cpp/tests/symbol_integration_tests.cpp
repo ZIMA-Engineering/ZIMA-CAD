@@ -1,4 +1,5 @@
 #include <zima/symbols/definition.hpp>
+#include <zima/symbols/placement.hpp>
 #include <zima/drawing/drawing_template.hpp>
 #include <zima/workspace/native_documents.hpp>
 #include <zima/workspace/template_operations.hpp>
@@ -222,6 +223,50 @@ int main(int argc,char** argv) {
             const auto roundtrip=symbols::Definition::from_serialized(d.serialized());check(roundtrip.serialized()==d.serialized(),"Dynamic frame layout lost on save");
         }
         check(tolerance_count==14,"Geometric tolerance library incomplete");
+        const auto bilateral=[&](const symbols::Definition& d,const std::string& variant) {
+            symbols::Placement a;a.symbol.id="bilateral";a.symbol.definition=d.serialized();a.symbol.variant=variant;
+            a.leader=true;a.symbol.x=40;a.symbol.y=15;
+            auto b=a;b.symbol.id="bilateral-other";b.symbol.x=-40;
+            const auto left=a.viewer_mesh(0.),right=b.viewer_mesh(0.);
+            check(left.edges.size()==right.edges.size(),"Changing leader end changed symbol topology");
+            for(std::size_t e=0;e<left.edges.size();++e) {
+                check(left.edges[e].filled_text==right.edges[e].filled_text,"Leader end changed text semantics");
+                if(e+2<left.edges.size()) {
+                    check(left.edges[e].points.size()==right.edges[e].points.size(),"Leader end changed glyph size");
+                    for(std::size_t i=0;i<left.edges[e].points.size();++i) {
+                        const auto p=left.edges[e].points[i],q=right.edges[e].points[i];
+                        check(std::abs(p.x-q.x-80)<1e-8&&std::abs(p.y-q.y)<1e-8,"Leader end mirrored glyphs or changed weld side");
+                    }
+                }
+            }
+            const auto& l=left.edges[left.edges.size()-2].points;
+            const auto& r=right.edges[right.edges.size()-2].points;
+            check(l.front()==a.frame.origin&&r.front()==b.frame.origin,"Arrow contact moved");
+            check(l.back().x<40&&r.back().x>-40,"Leader did not join the nearest side");
+            check(std::abs(l.back().y-15)<1e-8&&std::abs(r.back().y-15)<1e-8,"Leader did not meet frame centre/reference line");
+            const auto saved=symbols::placements_json({a,b});check(symbols::placements_from_json(saved)==std::vector<symbols::Placement>{a,b},"Bilateral symbol did not round trip");
+        };
+        for(const auto& entry:std::filesystem::directory_iterator(tolerance_root))if(entry.path().extension()==".symz") {
+            const auto d=symbols::Definition::load(entry.path());bilateral(d,d.default_variant);
+        }
+        int weld_count=0;
+        for(const auto& entry:std::filesystem::directory_iterator(root/"config/symbols/welding"))if(entry.path().extension()==".symz") {
+            const auto d=symbols::Definition::load(entry.path());check(d.reference_line_layout.has_value(),"Weld lacks reference-line layout");++weld_count;
+            for(const auto& [variant,row]:d.variants) {
+                bilateral(d,variant);
+                const auto prefix=variant=="other_side"?"Other":"Arrow";
+                const auto measure=[&](const auto& overrides){double left=1e100,right=-1e100;for(const auto& s:d.evaluate(variant,overrides))for(const auto& edge:s.viewer_mesh().edges) {
+                    if(edge.reference.semantic_key.starts_with("sketch_axis:"))continue;
+                    for(auto p:edge.points){left=std::min(left,p.x);right=std::max(right,p.x);}
+                }return right-left;};
+                const auto original=measure(std::map<std::string,std::string>{});
+                check(measure(std::map<std::string,std::string>{{std::string(prefix)+" length","12 x 123456789 (123456789)"}})>original+10,"Weld reference line did not grow with text");
+                auto invalid=d;invalid.reference_line_layout->columns.front().push_back("missing");rejects([&]{invalid.validate();});
+            }
+            check(symbols::Definition::from_serialized(d.serialized()).serialized()==d.serialized(),"Weld layout persistence changed");
+        }
+        check(weld_count==4,"Weld catalog incomplete");
+
         workspace::Workspace live;auto carrier=workspace::template_part_from_sketch(title,"Symbols");const auto id=carrier.document_id;
         live.add_part(std::move(carrier),{},directory/"undo.tblz");auto* state=live.open_part(id);const auto original=state->session.document().sketches.front();
         auto edited=original;edited.symbols.front().x=99;

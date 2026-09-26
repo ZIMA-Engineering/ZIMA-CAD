@@ -28,6 +28,13 @@ void Definition::validate() const {
         const auto& f=*frame_layout;require(!f.cells.empty()&&std::isfinite(f.height)&&f.height>0&&std::isfinite(f.padding)&&f.padding>=0&&std::isfinite(f.minimum_width)&&f.minimum_width>0);
         std::set<std::string> cells;for(const auto& id:f.cells)require(ids.contains(id)&&cells.insert(id).second);
     }
+    if(reference_line_layout) {
+        const auto& l=*reference_line_layout;
+        require(!frame_layout&&!l.columns.empty()&&std::isfinite(l.padding)&&l.padding>0&&
+            std::isfinite(l.minimum_width)&&l.minimum_width>0&&std::isfinite(l.other_side_y)&&l.other_side_y<0);
+        std::set<std::string> cells;
+        for(const auto& column:l.columns){require(!column.empty());for(const auto& id:column)require(ids.contains(id)&&cells.insert(id).second);}
+    }
     std::set<std::pair<std::string,std::string>> text_ids;
     for(const auto& [owner,entries]:pens) {
         require(ids.contains(owner));
@@ -98,6 +105,35 @@ std::vector<sketcher::Sketch> Definition::evaluate(const std::string& variant,co
             segment("right",left+width,bottom,left+width,top);left+=width;
         }
     }
+    if(reference_line_layout) {
+        const auto& l=*reference_line_layout;double x=l.padding;
+        for(const auto& column:l.columns) {
+            double width=0;
+            for(const auto& id:column) {
+                auto found=std::ranges::find(result,id,&sketcher::Sketch::id);if(found==result.end())continue;
+                double left=1e100,right=-1e100;
+                for(const auto& edge:found->viewer_mesh().edges) {
+                    if(edge.reference.semantic_key.starts_with("sketch_axis:")||edge.reference.semantic_key.starts_with("dimension:"))continue;
+                    for(const auto p:edge.points){left=std::min(left,p.x);right=std::max(right,p.x);}
+                }
+                if(left>right)continue;
+                width=std::max(width,right-left);
+                for(auto& point:found->points)point.x+=x-left;
+                for(auto& text:found->texts){text.anchor_x+=x-left;sketcher::rebuild_text_contours(text,true);}
+            }
+            if(width>0)x+=width+l.padding;
+        }
+        const double width=std::max(l.minimum_width,x);
+        auto reference=sketcher::Sketch::create_default();reference.id=id+":reference-line";reference.name=reference.id;
+        const auto segment=[&](const std::string& key,double a,double b,double y){
+            reference.points.push_back({key+":a",a,y,true});reference.points.push_back({key+":b",b,y,true});reference.segments.push_back({key,key+":a",key+":b"});
+        };
+        segment("solid",0,width,0);
+        // System A: the opposite-side reference remains dashed, even when the
+        // leader switches ends; its meaning is independent of screen direction.
+        for(double x=0;x<width;x+=3.)segment("dash:"+std::to_string(int(x)),x,std::min(x+2.,width),l.other_side_y);
+        result.push_back(std::move(reference));
+    }
     return result;
 }
 std::string Definition::serialized() const {
@@ -106,6 +142,7 @@ std::string Definition::serialized() const {
         {"sketches",Json::array()},{"fields",Json::object()},{"variants",Json::object()}};
     data["pens"]=pens;
     if(frame_layout)data["frame_layout"]={{"cells",frame_layout->cells},{"height",frame_layout->height},{"padding",frame_layout->padding},{"minimum_width",frame_layout->minimum_width}};
+    if(reference_line_layout)data["reference_line_layout"]={{"columns",reference_line_layout->columns},{"padding",reference_line_layout->padding},{"minimum_width",reference_line_layout->minimum_width},{"other_side_y",reference_line_layout->other_side_y}};
     for(const auto& sketch:sketches)data["sketches"].push_back(Json::parse(sketch.serialized()));
     for(const auto& [key,field]:fields)data["fields"][key]={{"sketch",field.sketch_id},{"text",field.text_id},{"choices",field.choices},{"allow_custom",field.allow_custom}};
     for(const auto& [key,row]:variants)data["variants"][key]={{"sketches",row.sketches},{"text_values",row.text_values},{"hidden_texts",row.hidden_texts}};
@@ -118,6 +155,7 @@ Definition Definition::from_serialized(const std::string& data) {
     d.default_variant=root.at("default_variant");d.variant_source=root.at("variant_source");
     d.pens=root.value("pens",decltype(d.pens){});
     if(root.contains("frame_layout")){const auto& f=root.at("frame_layout");d.frame_layout=FrameLayout{f.at("cells").get<std::vector<std::string>>(),f.at("height"),f.at("padding"),f.at("minimum_width")};}
+    if(root.contains("reference_line_layout")){const auto& l=root.at("reference_line_layout");d.reference_line_layout=ReferenceLineLayout{l.at("columns").get<std::vector<std::vector<std::string>>>(),l.at("padding"),l.at("minimum_width"),l.at("other_side_y")};}
     for(const auto& value:root.at("sketches")) {
         require(!value.contains("symbols")||value.at("symbols").empty());
         d.sketches.push_back(sketcher::Sketch::from_serialized(value.dump()));
@@ -148,7 +186,7 @@ kernel::ViewerMesh instance_mesh(const sketcher::SymbolInstance& instance,const 
             for(auto& p:edge.points){const double x=(p.x-d.insertion_point[0])*instance.scale,y=(p.y-d.insertion_point[1])*instance.scale;p={instance.x+c*x-s*y,instance.y+s*x+c*y,0};}
             const auto separator=key.find(':');
             const auto curve=separator==std::string::npos?key:key.substr(separator+1);
-            const auto pen=d.pens.contains(sketch.id)&&d.pens.at(sketch.id).contains(curve)?d.pens.at(sketch.id).at(curve):"white";
+            const auto pen=d.pens.contains(sketch.id)&&d.pens.at(sketch.id).contains(curve)?d.pens.at(sketch.id).at(curve):(d.reference_line_layout&&sketch.id==d.id+":reference-line"?"yellow":"white");
             const bool text=key.starts_with("text:");
             const std::string text_color=key.ends_with(":green")?"#4DD811":key.ends_with(":yellow")?"#F5CD50":key.ends_with(":red")?"#FF0000":"#FFFFFF";
             edge.reference={instance.id,"symbol:"+instance.id,{}};edge.overlay=true;edge.exact_spline.reset();

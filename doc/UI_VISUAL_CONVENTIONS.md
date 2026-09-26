@@ -332,3 +332,19 @@ spare vertical space to their tables using the shared expanding-table presentati
 Initial and minimum window sizes are
 unchanged; headings stay above the table and action buttons below it. This layout
 change introduces no visible text or translation changes.
+
+## Compact workspaces and the desktop theme (2026092602)
+
+The hidden Drawing page no longer imposes its full sheet-control row width on
+Part and Assembly windows. Sheet controls retain their normal sizes inside a
+horizontal scroll area. Both canvases accept a 240 x 180 logical-pixel minimum;
+this only changes layout constraints, not geometry, camera conventions or picking.
+The focused GUI contract checks Part, Assembly and Drawing at 1024 x 680 and
+800 x 600 logical pixels, including visibility of the right command panel.
+
+The 3D view follows the Qt window palette. Dark mode retains the previous exact
+blue-gray gradient. Light mode uses a soft gray gradient and dark neutral strokes;
+the white annotation display pen also becomes dark. Stored CAD pen colours and
+Drawing output are unchanged. Dimension text masks use the same gradient as the
+OpenGL clear bands. The application SVG and Windows ICO give the white C a dark
+outline so the monogram remains recognizable on either taskbar background.

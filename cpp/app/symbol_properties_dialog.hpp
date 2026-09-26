@@ -14,6 +14,7 @@
 #include <QMessageBox>
 #include <QRegularExpression>
 #include <QSignalBlocker>
+#include <QScrollArea>
 #include <QTreeWidgetItemIterator>
 #include <QVBoxLayout>
 #include <algorithm>
@@ -27,7 +28,12 @@ public:
     SymbolDialog(Instance value,std::function<void(const Instance&)> preview,std::function<void(Instance)> commit,QWidget* parent)
         :PropertiesSubWindow(tr("Vlastnosti symbolu"),parent),value_(std::move(value)),definition_(symbols::Definition::from_serialized(value_.definition)),preview_(std::move(preview)),commit_(std::move(commit)) {
         setObjectName("symbolPropertiesDialog");setAttribute(Qt::WA_DeleteOnClose);set_initial_size({420,360});
-        auto* form=new QFormLayout;content_layout()->addLayout(form);
+        auto* scroll=new QScrollArea(this);scroll->setObjectName("symbolPropertiesScroll");
+        scroll->setWidgetResizable(true);scroll->setFrameShape(QFrame::NoFrame);
+        auto* editor=new QWidget(scroll);editor_layout_=new QVBoxLayout(editor);editor_layout_->setContentsMargins(0,0,0,0);
+        editor_layout_->setSizeConstraint(QLayout::SetMinAndMaxSize);scroll->setWidget(editor);content_layout()->addWidget(scroll,1);
+        auto* form=new QFormLayout;editor_layout_->addLayout(form);
+        editor_layout_->addStretch();
         form->addRow(tr("Symbol"),new QLabel(QString::fromStdString(definition_.name),this));
         variant_=new QComboBox(this);variant_->setObjectName("symbolVariant");
         for(const auto& [key,row]:definition_.variants)variant_->addItem(variant_label(key),QString::fromStdString(key));
@@ -60,6 +66,7 @@ public:
     void set_anchor(double x,double y) {const QSignalBlocker a(values_[0]),b(values_[1]);values_[0]->setValue(x);values_[1]->setValue(y);update_preview();}
     void set_preview_callback(std::function<void(const Instance&)> callback) {preview_=std::move(callback);update_preview();}
 protected:
+    QVBoxLayout* editor_layout()const{return editor_layout_;}
     bool submit() override {
         auto value=pending();value.validate();
         if(definition_.id.starts_with("ze:geometric-tolerance:")) {
@@ -80,11 +87,24 @@ protected:
                 if(!profile&&value.text_values["Primary datum"].empty())throw std::invalid_argument(tr("Tato tolerance vyžaduje primární základnu.").toStdString());
             }
         }
+        if(definition_.reference_line_layout) {
+            const auto prefix=value.variant=="other_side"?"Other":"Arrow";
+            const std::string key=std::string(prefix)+" size";
+            auto size=fields_.at(key)->currentText().trimmed();size.replace(',', '.');
+            const auto match=QRegularExpression("^[asz]?([0-9]+(?:[.][0-9]+)?)$").match(size);
+            if(!match.hasMatch()||match.captured(1).toDouble()<=0)
+                throw std::invalid_argument(tr("Rozměr svaru musí být kladné číslo s volitelnou značkou a, z nebo s.").toStdString());
+            value.text_values[key]=size.toStdString();
+        }
         commit_(std::move(value));return true;
     }
 private:
     QString field_label(const std::string& key) const {
         if(!definition_.id.starts_with("ze:"))return QString::fromStdString(key);
+        if(key=="Arrow size")return tr("Rozměr svaru na straně šipky");
+        if(key=="Other size")return tr("Rozměr svaru na opačné straně");
+        if(key=="Arrow length")return tr("Délka / počet / rozteč na straně šipky");
+        if(key=="Other length")return tr("Délka / počet / rozteč na opačné straně");
         if(key=="Text")return tr("Text");
         if(key=="Specification")return tr("Drsnost");
         if(key=="Tolerance")return tr("Hodnota tolerance");
@@ -98,6 +118,7 @@ private:
         return QString::fromStdString(key);
     }
     QString variant_label(const std::string& key) const {
+        if(definition_.reference_line_layout)return key=="other_side"?tr("ISO 2553 A — opačná strana"):tr("ISO 2553 A — strana šipky");
         if(definition_.id=="ze:annotation:text"&&key=="text")return tr("Text");
         if(definition_.id.starts_with("ze:geometric-tolerance:")&&key=="default")return tr("Geometrická tolerance");
         if(definition_.id=="ze:general-edges:iso13715") {
@@ -133,6 +154,7 @@ private:
         if(preview_)preview_(pending());
     }
     Instance value_;symbols::Definition definition_;std::function<void(const Instance&)> preview_;std::function<void(Instance)> commit_;
+    QVBoxLayout* editor_layout_{};
     QComboBox* variant_{};QCheckBox* automatic_{};std::array<QDoubleSpinBox*,4> values_{};std::map<std::string,QComboBox*> fields_;std::set<std::string> overrides_;std::map<std::string,QWidget*> field_rows_,field_labels_;
 };
 }

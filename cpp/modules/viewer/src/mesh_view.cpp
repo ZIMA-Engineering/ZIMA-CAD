@@ -5,6 +5,7 @@
 #include <zima/kernel/annotation_layout.hpp>
 #include <zima/viewer/dimension_text_layer.hpp>
 #include <QApplication>
+#include <zima/viewer/view_theme.hpp>
 #include <zima/viewer/annotation_arrow.hpp>
 #include <QOpenGLPaintDevice>
 #include <zima/viewer/mesh_view.hpp>
@@ -62,6 +63,7 @@ bool is_sketch_wire_edge(const zima::kernel::ViewerEdge& edge) {
 template<class Project> void paint_normal_text(QPainter& painter,
     const std::vector<zima::kernel::ViewerEdge>& edges,
     const std::vector<zima::kernel::ViewerEdge>& preview,Project project,bool visible,bool symbols_visible) {
+    const auto foreground=view_theme(qApp->palette()).foreground;
     std::map<zima::viewer::EdgeKey,std::pair<QPainterPath,QColor>> paths;
     const auto append=[&](const auto& source,bool transient) {
         for(const auto& edge:source) if(edge.filled_text && !edge.points.empty()) {
@@ -76,7 +78,7 @@ template<class Project> void paint_normal_text(QPainter& painter,
         }
     };
     append(edges,false);append(preview,true);
-    for(const auto& [key,item]:paths)painter.fillPath(item.first,item.second);
+    for(const auto& [key,item]:paths)painter.fillPath(item.first,item.second==QColor(Qt::white)?foreground:item.second);
 }
 
 
@@ -756,7 +758,7 @@ struct MeshView::Impl {
 MeshView::MeshView(QWidget* parent)
     : QOpenGLWidget(parent), impl_(std::make_unique<Impl>()) {
     setFont(zima::technical_font());
-    setMinimumSize(500, 360);
+    setMinimumSize(240, 180);
     setMouseTracking(true);
     setFocusPolicy(Qt::StrongFocus);
 }
@@ -2965,6 +2967,7 @@ void MeshView::paintGL() {
     glEnable(GL_DEPTH_TEST);
     glDepthFunc(GL_LEQUAL);
     glEnable(GL_SCISSOR_TEST);
+    const auto theme = view_theme(palette());
     constexpr int background_bands = 64;
     const qreal pixel_ratio = devicePixelRatioF();
     const int framebuffer_width = std::max(
@@ -2980,7 +2983,7 @@ void MeshView::paintGL() {
         const int first_y = framebuffer_height * band / background_bands;
         const int last_y = framebuffer_height * (band + 1) / background_bands;
         glScissor(0, first_y, framebuffer_width, std::max(1, last_y - first_y));
-        glClearColor(channel(23, 59), channel(27, 70), channel(33, 84), 1.0F);
+        glClearColor(channel(theme.bottom.red(), theme.top.red()), channel(theme.bottom.green(), theme.top.green()), channel(theme.bottom.blue(), theme.top.blue()), 1.0F);
         glClear(GL_COLOR_BUFFER_BIT);
     }
     glDisable(GL_SCISSOR_TEST);
@@ -3349,7 +3352,7 @@ if (impl_->show_origins) {
             semantic.starts_with("thread:boundary:")) {
             return QVector4D(0.62F, 0.62F, 0.62F, 1.0F);
         }
-        return QVector4D(1.0F, 1.0F, 1.0F, 1.0F);
+        return interaction::rgba(theme.foreground);
     };
     const auto draw_lines = [&](bool force_black_if_not_highlighted = false,
                                 bool highlighted_only = false) {
@@ -3411,7 +3414,7 @@ if (impl_->show_origins) {
             ? QVector4D(static_cast<float>(impl_->edge_color_override->redF()),
                   static_cast<float>(impl_->edge_color_override->greenF()),
                   static_cast<float>(impl_->edge_color_override->blueF()), 1.0F)
-            : QVector4D(1.0F, 1.0F, 1.0F, 1.0F);
+            : interaction::rgba(theme.foreground);
         struct ColorBatch {
             QVector4D color;
             std::vector<GLint> first;
@@ -3582,7 +3585,7 @@ if (impl_->show_origins) {
                 glEnable(GL_DEPTH_TEST);
             }
             impl_->program.setUniformValue(
-                "color", QVector4D(1.0F, 1.0F, 1.0F, 1.0F));
+                "color", interaction::rgba(theme.foreground));
             glDepthFunc(GL_LEQUAL);
             glDrawArrays(GL_LINES, 0,
                 static_cast<GLsizei>(silhouette_data.size() / 6));
@@ -3925,7 +3928,7 @@ if (impl_->show_origins) {
                     : edge.reference.semantic_key.ends_with(":yellow")
                     ? QColor(245, 205, 80)
                     : edge.reference.semantic_key.ends_with(":white")
-                        ? QColor(255, 255, 255) : QColor(77, 216, 17);
+                        ? theme.foreground : QColor(77, 216, 17);
                 const QColor external_color = edge.reference.semantic_key.ends_with(
                     ":broken") ? QColor(179, 74, 60) : QColor(145, 105, 72);
                 QPen edge_pen = text ? QPen(text_color, 1.8)
@@ -3933,9 +3936,9 @@ if (impl_->show_origins) {
                         ? QPen(external_color, 1.5, Qt::DashLine)
                     : edge.construction
                         ? QPen(interaction::axis, 1.5, Qt::DashLine)
-                        : QPen(QColor(255,255,255),
+                        : QPen(theme.foreground,
                             impl_->geometry_editing_presentation||!impl_->active_sketch_owner_id.empty()?1.8:1.0);
-                if (!edge.color.empty()) edge_pen.setColor(QColor(QString::fromStdString(edge.color)));
+                if (!edge.color.empty()) {const QColor color(QString::fromStdString(edge.color));edge_pen.setColor(color==QColor(Qt::white)?theme.foreground:color);}
                 const bool candidate_match = highlighted &&
                     candidate_recolors_wire_edge(*highlighted, edge);
                 const auto key = edge_key(edge.reference);
@@ -4025,7 +4028,7 @@ if (impl_->show_origins) {
                         : interaction::hover
                     : (referenced || preview)
                         ? interaction::selected
-                        : centerline || !editing_curve ? interaction::axis : QColor(255, 255, 255);
+                        : centerline || !editing_curve ? interaction::axis : theme.foreground;
                 QPen curve_pen(color, centerline ? 1.5 : candidate_match||referenced||preview||editing_curve?1.8:1.0,
                     Qt::SolidLine,Qt::RoundCap,Qt::RoundJoin);
                 if (centerline) {
@@ -4211,7 +4214,7 @@ if (impl_->show_origins) {
         }
         if (impl_->sketch_cursor) {
             const QColor cursor_color = impl_->sketch_cursor_snapped
-                ? interaction::hover : QColor(255, 255, 255);
+                ? interaction::hover : theme.foreground;
             const QPointF cursor = project(*impl_->sketch_cursor);
             draw_circular_marker(painter, cursor, cursor_color);
             if (!impl_->sketch_cursor_label.empty()) {
@@ -4605,7 +4608,7 @@ if (impl_->show_origins) {
                             ? QColor(0, 0, 0)
                         : point.reference.semantic_key.starts_with("point:")
                             ? point.reference.semantic_key.starts_with("point:from:")
-                                ? interaction::axis : QColor(255,255,255)
+                                ? interaction::axis : theme.foreground
                         : point.reference.semantic_key.starts_with(
                                 "corner_radius_handle:")
                             ? QColor(255, 255, 255)
@@ -5183,7 +5186,7 @@ if (impl_->show_origins) {
                 for(int band=0;band<background_bands;++band) {
                     const qreal factor=(band+.5)/background_bands;
                     const auto channel=[&](int bottom,int top){return (bottom+(top-bottom)*factor)/255.;};
-                    const QColor color=QColor::fromRgbF(channel(23,59),channel(27,70),channel(33,84));
+                    const QColor color=QColor::fromRgbF(channel(theme.bottom.red(),theme.top.red()),channel(theme.bottom.green(),theme.top.green()),channel(theme.bottom.blue(),theme.top.blue()));
                     const int first=framebuffer_height*band/background_bands,last=framebuffer_height*(band+1)/background_bands;
                     text_painter.fillRect(QRectF(0,(framebuffer_height-last)/pixel_ratio,width(),(last-first)/pixel_ratio),color);
                 }

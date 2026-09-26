@@ -471,6 +471,7 @@ endif()
 if(WIN32)
     set_target_properties(zima-cad-cpp PROPERTIES WIN32_EXECUTABLE TRUE)
     target_sources(zima-cad-cpp PRIVATE app/windows/zima-cad.rc)
+    set_source_files_properties(app/windows/zima-cad.rc PROPERTIES OBJECT_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/app/windows/app-icon.ico")
 endif()
 if(WIN32 AND TARGET Qt6::QWindowsIntegrationPlugin)
     add_custom_command(TARGET zima-cad-cpp POST_BUILD
@@ -1340,6 +1341,8 @@ if(ZIMA_BUILD_TESTS)
     set_tests_properties(zima_cpp_section_ui_contract PROPERTIES
         ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_SECTIONS_ONLY=1"
         WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
+    add_test(NAME zima_cpp_compact_window_ui_contract COMMAND zima-cad-cpp --verify-startup)
+    set_tests_properties(zima_cpp_compact_window_ui_contract PROPERTIES ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_COMPACT_WINDOW_ONLY=1" WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 120)
     add_test(NAME zima_cpp_symbol_ui_contract COMMAND zima-cad-cpp --verify-startup)
     set_tests_properties(zima_cpp_symbol_ui_contract PROPERTIES ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_SYMBOLS_ONLY=1" WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 120)
     add_test(NAME zima_cpp_template_ui_contract COMMAND zima-cad-cpp --verify-startup)

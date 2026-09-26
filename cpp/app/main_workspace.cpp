@@ -43,6 +43,10 @@
 #include "instance_verification.hpp"
 #include "measurement_ui_verification.hpp"
 #include <QSettings>
+#include <QSvgRenderer>
+#include <QScrollArea>
+#include <QScrollBar>
+#include <zima/viewer/view_theme.hpp>
 #include <QTemporaryDir>
 #include "construction_reference_candidate_policy.hpp"
 #include "construction_properties_dialog.hpp"
@@ -8239,6 +8243,48 @@ int verify_startup_contract(
     const std::filesystem::path& initial_test_directory,
     const QString& part_capture_path = {}, const QString& drawing_capture_path = {}) {
     auto test_directory = initial_test_directory;
+    if(qEnvironmentVariableIsSet("ZIMA_VERIFY_COMPACT_WINDOW_ONLY")) {
+        window.show();
+        for(const auto* kind:{"part","assembly","drawing"}) {
+            const auto result=window.execute_console_command(QString("new %1 compact-%1").arg(kind));
+            if(!verify(result.ok,"Compact layout fixture failed"))return 1;
+            for(const QSize size:{QSize(1024,680),QSize(800,600)}) {
+                window.resize(size);
+                for(int i=0;i<5;++i)application.processEvents();
+                auto* tools=window.findChild<QToolBar*>("toolsToolbar");
+                if(!verify(window.size()==size,"Workspace grew beyond the requested laptop size"))return 1;
+                if(!verify(tools&&tools->isVisible()&&window.rect().contains(QRect(tools->mapTo(&window,QPoint()),tools->size())),"Commands extend outside the window"))return 1;
+            }
+        }
+        auto* scroll=window.findChild<QScrollArea*>("drawingSheetControlsScroll");
+        if(!verify(scroll&&scroll->horizontalScrollBar()->maximum()>0,"Compact drawing controls cannot be scrolled"))return 1;
+        scroll->horizontalScrollBar()->setValue(scroll->horizontalScrollBar()->maximum());
+        if(!verify(window.execute_console_command("new part compact-theme").ok,"Cannot open theme fixture"))return 1;
+        application.processEvents();
+        auto* view=dynamic_cast<zima::viewer::MeshView*>(window.findChild<QOpenGLWidget*>("modelWorkspace"));
+        if(!verify(view!=nullptr,"Missing theme viewer"))return 1;
+        const auto saved=application.palette();
+        for(bool dark:{false,true,false}) {
+            auto palette=saved;palette.setColor(QPalette::Window,dark?QColor(32,32,32):QColor(245,245,245));
+            application.setPalette(palette);application.processEvents();
+            const auto theme=zima::viewer::view_theme(palette);
+            view->update();application.processEvents();
+            const auto image=view->grabFramebuffer();
+            if(!verify(!image.isNull()&&(image.pixelColor(8,8).lightness()<128)==dark,"Rendered view background does not follow theme"))return 1;
+            if(qEnvironmentVariableIsSet("ZIMA_THEME_PREVIEW"))image.save(qEnvironmentVariable("ZIMA_THEME_PREVIEW")+(dark?"-dark.png":"-light.png"));
+            if(!verify((theme.top.lightness()<128)==dark,"View theme does not follow desktop palette"))return 1;
+            if(!verify(std::abs(theme.foreground.lightness()-theme.bottom.lightness())>140,"View neutral strokes lack contrast"))return 1;
+            if(dark&&!verify(theme.bottom==QColor(23,27,33)&&theme.top==QColor(59,70,84),"Dark view gradient changed"))return 1;
+        }
+        application.setPalette(saved);
+        if(qEnvironmentVariableIsSet("ZIMA_ICON_PREVIEW")) {
+            QImage icon(256,256,QImage::Format_ARGB32_Premultiplied);icon.fill(Qt::transparent);
+            QSvgRenderer renderer(QStringLiteral(":/zima/branding/app-icon.svg"));QPainter painter(&icon);renderer.render(&painter);painter.end();
+            if(!verify(icon.save(qEnvironmentVariable("ZIMA_ICON_PREVIEW")),"Cannot save icon preview"))return 1;
+        }
+        std::cout<<"Compact Part/Assembly/Drawing layout and live view theme passed\n";
+        return 0;
+    }
     if(qEnvironmentVariableIsSet("ZIMA_VERIFY_CYLINDER_AXIS_ONLY"))return verify_cylinder_axis_ui(application,window,test_directory);
     if(qEnvironmentVariableIsSet("ZIMA_VERIFY_SYMBOLS_ONLY"))return verify_symbol_ui(application,window,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_NEW_DOCUMENT_OPTIONS_ONLY"))

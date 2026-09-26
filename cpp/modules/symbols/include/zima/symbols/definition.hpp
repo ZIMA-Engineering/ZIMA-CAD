@@ -20,6 +20,14 @@ struct FrameLayout {
     std::vector<std::string> cells;
     double height{7}, padding{1}, minimum_width{7};
 };
+struct ReferenceLineLayout {
+    // Upper/lower rows share each column, retaining the weld side when a
+    // leader approaches from the opposite end. Text is never mirrored.
+    std::vector<std::vector<std::string>> columns;
+    double padding{1.5};
+    double minimum_width{24.};
+    double other_side_y{-3.};
+};
 // All sketches share local XY. Occurrence placement is annotation placement,
 // independent of the shared history-container placement contract.
 struct Definition {
@@ -32,6 +40,7 @@ struct Definition {
     std::map<std::string,std::map<std::string,std::string>> pens;
     std::string default_variant, variant_source;
     std::optional<FrameLayout> frame_layout;
+    std::optional<ReferenceLineLayout> reference_line_layout;
     void validate() const;
     [[nodiscard]] std::vector<sketcher::Sketch> evaluate(const std::string& variant,
         const std::map<std::string,std::string>& overrides = {}) const;

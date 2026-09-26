@@ -43,13 +43,22 @@ public:
         form->addRow(tr("Délka police"),shelf_length_);shelf_length_->setEnabled(placement_.short_shelf);
         connect(shelf_mode_,&QComboBox::currentIndexChanged,this,[this](int i){placement_.short_shelf=i==1;shelf_length_->setEnabled(i==1);notify();});
         connect(shelf_length_,&QDoubleSpinBox::valueChanged,this,[this](double v){placement_.shelf_length=v;notify();});
+        const auto definition=symbols::Definition::from_serialized(placement_.symbol.definition);
+        if(definition.frame_layout||definition.reference_line_layout) {
+            // Framed tolerances and welds have their own reference line.
+            // They do not offer a separate roughness-symbol shelf.
+            placement_.short_shelf=false;
+            const QSignalBlocker blocked(shelf_mode_);shelf_mode_->setCurrentIndex(0);
+            form->labelForField(shelf_mode_)->hide();shelf_mode_->hide();
+            form->labelForField(shelf_length_)->hide();shelf_length_->hide();
+        }
         const std::array labels{tr("Počátek X"),tr("Počátek Y"),tr("Počátek Z")};
         for(std::size_t i=0;i<3;++i){origin_[i]=new QDoubleSpinBox(panel);origin_[i]->setObjectName(QString("symbolOrigin%1").arg(i));
             origin_[i]->setRange(-1000000,1000000);origin_[i]->setDecimals(ui::numeric_decimal_places(parent));form->addRow(labels[i],origin_[i]);
             connect(origin_[i],&QDoubleSpinBox::valueChanged,this,[this]{placement_.frame.origin={origin_[0]->value(),origin_[1]->value(),origin_[2]->value()};notify();});}
         if(sheet_){form->labelForField(origin_[2])->hide();origin_[2]->hide();}
         unresolved_=new QLabel(tr("Reference není dostupná. Symbol zachovává poslední polohu."),panel);unresolved_->setWordWrap(true);form->addRow(unresolved_);
-        content_layout()->insertWidget(0,panel);active_=!placement_.reference;refresh();
+        editor_layout()->insertWidget(0,panel);active_=!placement_.reference;refresh();
         set_preview_callback([this](const auto& instance){placement_.symbol=instance;notify();});
     }
     const symbols::Placement& pending_placement()const{return placement_;}

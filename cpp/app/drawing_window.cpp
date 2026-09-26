@@ -894,7 +894,7 @@ public:
 #include "drawing_balloon_canvas.inc"
 public:
     explicit DrawingCanvas(QWidget* parent = nullptr) : QWidget(parent) {
-        setMinimumSize(640, 480); setMouseTracking(true); setFocusPolicy(Qt::StrongFocus);
+        setMinimumSize(240, 180); setMouseTracking(true); setFocusPolicy(Qt::StrongFocus);
         auto drawing_font = font();
         drawing_font.setFamily(drawing_font_family());
         drawing_font.setWeight(QFont::Normal);
@@ -2402,7 +2402,17 @@ void DrawingWindow::create_layout() {
         auto* sheet=active_sheet();if(!sheet||index<0)return;auto value=zima::workspace::sheet_settings(*sheet);value.projection=index==0?zima::drawing::ProjectionMethod::FirstAngle:zima::drawing::ProjectionMethod::ThirdAngle;
         try{set_sheet_settings(sheet->id,value);}catch(const std::exception& e){refresh(false);set_status_message(QString::fromUtf8(e.what()));}
     });
-    layout->addWidget(canvas_, 1); layout->addWidget(sheet_controls_); layout->addWidget(state_);
+    // Sheet controls keep their normal sizes without imposing their combined
+    // width on every page of the shared workspace stack.
+    auto* sheet_scroll = new QScrollArea(central);
+    sheet_scroll->setObjectName("drawingSheetControlsScroll");
+    sheet_scroll->setWidgetResizable(true);
+    sheet_scroll->setFrameShape(QFrame::NoFrame);
+    sheet_scroll->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    sheet_scroll->setWidget(sheet_controls_);
+    sheet_scroll->setFixedHeight(sheet_controls_->sizeHint().height() +
+        style()->pixelMetric(QStyle::PM_ScrollBarExtent));
+    layout->addWidget(canvas_, 1); layout->addWidget(sheet_scroll); layout->addWidget(state_);
     setCentralWidget(central);
     connect(sheets_, &QTabBar::currentChanged, this, [this] { if(title_dialog_)title_dialog_->reject();refresh(false); });
 }
@@ -2756,6 +2766,7 @@ void DrawingWindow::show_symbol_properties(const std::string& id) {
         try {
             const auto definition=symbols::Definition::load(std::filesystem::path(path.toStdU16String()));
             initial.symbol.id=kernel::make_stable_id();initial.symbol.definition=definition.serialized();initial.symbol.variant=definition.default_variant;
+            if(definition.frame_layout||definition.reference_line_layout){initial.leader=true;initial.symbol.x=15;initial.symbol.y=8;}
             initial.frame={{sheet->width_mm()/2,sheet->height_mm()/2,0},{-1,0,0},{0,1,0}};
         }catch(const std::exception&){QMessageBox::warning(this,tr("Symbol"),tr("Symbol nelze načíst. Zkontrolujte jeho definici."));return;}
     }else {

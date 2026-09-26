@@ -63,3 +63,9 @@ The historical `surface-texture/ZE-SURFACE-TEXTURE-ISO1302-1978.symz` contains
 two variants: unspecified process and required material removal. Its editable text above the bar defaults to `3,2` (optional `Ra` prefix) and enables the ordinary per-text Drawing readability option. Authors can set
 this same option in Symbol Sketch Text Properties; no symbol ID is required.
 See `doc/SYMBOLS_USER_GUIDE.md` for orientation and scope.
+
+The geometric-tolerance catalog contains fourteen dynamic frame definitions.
+The welding catalog contains fillet, square-butt, V-butt and bevel-butt symbols
+with ISO 2553 system A arrow-side/other-side variants. Their reference lines grow
+with field text. See `doc/SYMBOLS_USER_GUIDE.md` for insertion, bilateral leaders,
+editing and the exact implemented scope.

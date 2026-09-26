@@ -55,9 +55,11 @@ kernel::ViewerMesh Placement::viewer_mesh(std::optional<double> paper_frame_angl
     if(leader) {
         auto glyph=symbol;glyph.x=glyph.y=0;glyph.angle_degrees=0;
         result=instance_mesh(glyph);
+        const auto definition=Definition::from_serialized(symbol.definition);
+        const bool structured=definition.frame_layout.has_value()||definition.reference_line_layout.has_value();
         kernel::AnnotationStroke info;info.contact=frame.origin;
         info.grip=frame.world({symbol.x,symbol.y,offset_z});info.arrow_length=arrow_length;info.perpendicular=perpendicular_leader;
-        info.short_shelf=short_shelf;info.shelf_length=shelf_length;
+        info.short_shelf=short_shelf&&!structured;info.shelf_length=shelf_length;
         info.kind=reference?static_cast<int>(reference->kind):2;
         if(info.kind==3)info.kind=0;
         auto direction=cross(frame.x,frame.y);
@@ -67,9 +69,10 @@ kernel::ViewerMesh Placement::viewer_mesh(std::optional<double> paper_frame_angl
         info.left=info.bottom=1e100;info.right=-1e100;
         for(const auto& edge:result.edges)for(auto p:edge.points){info.left=std::min(info.left,p.x);info.right=std::max(info.right,p.x);info.bottom=std::min(info.bottom,p.y);}
         if(info.left>info.right)return {};
+        if(structured)info.bottom=-definition.insertion_point[1]*symbol.scale;
         for(auto& edge:result.edges){info.local_points=edge.points;edge.annotation=info;}
         info.local_points.clear();
-        for(int role:{1,2,3}){info.role=role;kernel::ViewerEdge edge;edge.annotation=info;edge.reference={symbol.id,"symbol:"+symbol.id+(role==3?":shelf":""),{}};edge.overlay=true;edge.color="#F5CD50";result.edges.push_back(std::move(edge));}
+        for(int role:{1,2,3}){if(role==3&&structured)continue;info.role=role;kernel::ViewerEdge edge;edge.annotation=info;edge.reference={symbol.id,"symbol:"+symbol.id+(role==3?":shelf":""),{}};edge.overlay=true;edge.color="#F5CD50";result.edges.push_back(std::move(edge));}
         auto right=frame.x,up=frame.y;
         if(paper_frame_angle){const double a=*paper_frame_angle*std::acos(-1.)/180.;
             right={frame.x.x*std::cos(a)-frame.y.x*std::sin(a),frame.x.y*std::cos(a)-frame.y.y*std::sin(a),frame.x.z*std::cos(a)-frame.y.z*std::sin(a)};
