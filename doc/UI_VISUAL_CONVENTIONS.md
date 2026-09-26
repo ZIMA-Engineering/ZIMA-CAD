@@ -23,6 +23,17 @@ terminal and a longer upper arm bevelled inward toward its opening. SVG and mult
 Windows ICO artwork agree and were inspected at 16, 24, 32 and 48 pixels on both
 light and dark backgrounds. This artwork-only refinement changes no UI text.
 
+The Windows GUI and portable `ZIMA-CAD.exe` launcher embed the same ICO resource;
+shortcuts use executable icon index 0. Linux installs the same SVG as
+`share/icons/hicolor/scalable/apps/zima-cad.svg`. The `zima-cad.desktop` entry
+uses `Icon=zima-cad`, matching the application's `setDesktopFileName("zima-cad")`
+identity for desktop/taskbar integration. Existing Linux installations need the
+updated artwork installed with their Linux build; Windows verification does not
+establish Linux panel behaviour or refresh an older installed Linux release.
+Windows verification extracted the shell icon from both rebuilt EXEs and obtained
+identical PNG hashes. The local desktop shortcut was refreshed with the
+repository-owned shortcut script. Linux panel verification remains pending.
+
 The change adds no mesh traversal, geometry regeneration or rendering pass.
 Paired measurements of the same 400-edge selected-wire scene at 800 x 600
 (80 framebuffer samples after 10 warm-up frames, three alternating runs) gave

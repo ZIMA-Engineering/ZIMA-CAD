@@ -108,7 +108,8 @@ if(ZIMA_BUILD_TESTS)
     target_link_libraries(zima_update_fixture PRIVATE Qt6::Network)
 endif()
 if(WIN32)
-    add_executable(zima-cad-launcher WIN32 ../tools/distribution/launcher-windows.cpp)
+    add_executable(zima-cad-launcher WIN32 ../tools/distribution/launcher-windows.cpp
+        app/windows/zima-cad.rc)
     target_link_libraries(zima-cad-launcher PRIVATE shell32 user32)
     set_target_properties(zima-cad-launcher PROPERTIES OUTPUT_NAME "ZIMA-CAD"
         MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
