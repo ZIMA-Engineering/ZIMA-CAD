@@ -2,6 +2,15 @@
 
 ## Scope and status
 
+Windows build **2026092602** is signed and published. It fixes compact-window
+sizing, adapts View contrast to light/dark system appearance, outlines the taskbar
+icon and adds four ISO 2553 A weld definitions alongside bilateral ISO 1101 frames.
+Eleven focused native contracts, packaging/signature tests, committed-source
+packaging, signed archive smoke, production trust, packaged lifecycle and compact
+window checks passed. Downloaded asset hashes and production updater discovery
+were verified. See [the release record](releases/2026092602.md) for exact catalog
+scope and acceptance limits.
+
 Windows build **2026092601** is signed and verified locally, not published.
 It includes Feature placement feedback, exact face highlighting, Origin display
 controls and configurable sweep precision. Twenty focused regression contracts
