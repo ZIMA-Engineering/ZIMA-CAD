@@ -108,7 +108,7 @@ int verify_translations(QApplication& application, QWidget& parent) {
         app::apply_application_translations(application, settings);
         {
             auto part=document::PartDocument::create_default();
-            const char* sources[]={"Bod","Osa","Rovina","Skica","Prvek"};
+            const char* sources[]={"Bod","Osa","Rovina","Skica","Vytažení"};
             for(int type=0;type<5;++type)
                 check(app::next_feature_name(part,static_cast<document::FeatureType>(type),"")==
                     (settings.qt_translations.value(sources[type])+" 001").toStdString(),
@@ -154,6 +154,9 @@ int verify_translations(QApplication& application, QWidget& parent) {
             app::PrimitivePropertiesDialog properties(feature,false,true,[](auto){},&parent);
             properties.setAttribute(Qt::WA_DeleteOnClose,false);properties.show();application.processEvents();
             check(properties.windowTitle()==settings.qt_translations.value("Vlastnosti prvku"),"Feature title is untranslated");
+            check(properties.findChild<QCheckBox*>("featureShowPoint")->text()==settings.qt_translations.value("Bod")&&
+                properties.findChild<QCheckBox*>("featureShowText")->text()==settings.qt_translations.value("Text"),
+                "Feature visibility switches are untranslated");
             check(properties.findChild<QPushButton*>("featureSketchButton")->text()==settings.qt_translations.value("Skica"),"Feature Sketch action is untranslated");
             auto* mode=properties.findChild<QComboBox*>("featureSideMode0");
             check(mode->itemText(0)==settings.qt_translations.value("Bez operace")&&mode->itemText(2)==settings.qt_translations.value("Rotace"),"Feature side modes are untranslated");

@@ -279,7 +279,6 @@ private:
     QAction* helical_sweep_action_{};
     QAction* sweep2d_action_{};
     QAction* construction_axis_action_{};
-    QAction* cylinder_axis_action_{};
     void show_cylinder_axis_properties(const std::string& id = {});
     QAction* construction_plane_action_{};
     QAction* extrusion_action_{};
@@ -784,7 +783,8 @@ private:
     void export_file();
     void show_primitive_properties(
         zima::document::FeatureKind feature_kind,
-        const std::string& container_id = {}, bool sheet_metal = false);
+        const std::string& container_id = {}, bool sheet_metal = false,
+        std::optional<zima::document::FeatureType> feature_preset = {}, bool rotation_preset = false);
     void show_sweep_properties(zima::document::FeatureKind kind, const std::string& container_id);
     void show_sweep2d_properties(const std::string& container_id = {});
     void show_helical_sweep_properties(const std::string& container_id = {});

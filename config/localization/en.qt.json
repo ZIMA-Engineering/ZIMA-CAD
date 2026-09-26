@@ -1,4 +1,9 @@
 {
+  "Combined rotation angle must not exceed 360 degrees.": "Combined rotation angle must not exceed 360 degrees.",
+  "Směr": "Direction",
+  "Text": "Text",
+  "Na ploše": "On surface",
+  "V ose": "On axis",
   "Typ prvku": "Feature type",
   "Vytažení / Rotace": "Extrusion / Revolution",
   "Prohodit strany": "Swap sides",

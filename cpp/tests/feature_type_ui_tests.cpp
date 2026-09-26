@@ -11,6 +11,7 @@
 #include "../common/interaction_colors.hpp"
 #include <QApplication>
 #include <QComboBox>
+#include <QCheckBox>
 #include <QDoubleSpinBox>
 #include <QGroupBox>
 #include <QLayout>
@@ -69,7 +70,17 @@ static void verify_rendering(QApplication& application,QWidget& parent) {
         if(type==document::FeatureType::Axis||type==document::FeatureType::Plane)
             check(colored(idle,interaction::axis,true)>30,"Feature axis/plane has no visible idle wire");
         if(type==document::FeatureType::Modeling)
-            check(colored(idle,interaction::axis,false)==0,"Modeling Feature displays its origin dot while idle");
+            check(colored(idle,interaction::axis,false)>0,"Enabled Modeling origin dot is not visible while idle");
+        if(type==document::FeatureType::Modeling) {
+            for(bool point:{false,true})for(bool text:{false,true}) {
+                auto changed=feature;changed.name="Visible name";
+                changed.feature.show_point=point;changed.feature.show_text=text;
+                view.set_mesh(part.feature_result_mesh(changed));flush();
+                check((colored(view.grabFramebuffer(),interaction::axis,false)>0)==(point||text),
+                    "Idle Feature visibility switches do not control rendering");
+            }
+            view.set_mesh(part.feature_result_mesh(feature));flush();
+        }
         if(type==document::FeatureType::Axis) {
             const auto at=project({0,20,0});const auto candidates=view.selection_candidates_at(at);
             check(std::ranges::any_of(candidates,[&](const auto& c){return c.kind==viewer::CandidateKind::Container&&c.owner_id==feature.id;}),
@@ -103,8 +114,31 @@ int main(int argc,char** argv) {
     const auto flush=[&] {QElapsedTimer timer;timer.start();while(timer.elapsed()<50){application.processEvents();QThread::msleep(2);}};
     auto* type=dialog.findChild<QComboBox*>("featureType");
     try {
+        auto* first=dialog.findChild<QComboBox*>("featureSideMode0");
+        auto* second=dialog.findChild<QComboBox*>("featureSideMode1");
+        auto* first_end=dialog.findChild<QComboBox*>("featureSideEnd0");
+        auto* second_end=dialog.findChild<QComboBox*>("featureSideEnd1");
+        auto* first_angle=dialog.findChild<QDoubleSpinBox*>("featureSideValue0");
+        auto* second_angle=dialog.findChild<QDoubleSpinBox*>("featureSideValue1");
+        const auto verify_rotation=[&](bool ok){if(!ok)throw std::runtime_error("Feature rotation controls allow overlap or change an extrusion");};
+        first->setCurrentIndex(2);second->setCurrentIndex(2);
+        first_angle->setValue(300);verify_rotation(second_angle->value()==60);
+        second_angle->setValue(200);verify_rotation(first_angle->value()==160);
+        second_end->setCurrentIndex(1);verify_rotation(first->currentIndex()==0);
+        first->setCurrentIndex(1);verify_rotation(second->currentIndex()==2&&second_end->currentIndex()==1);
+        first->setCurrentIndex(2);first_end->setCurrentIndex(0);first_angle->setValue(90);
+        auto* symmetry=dialog.findChild<QCheckBox*>("featureSymmetric");symmetry->setChecked(true);
+        first_angle->setValue(250);verify_rotation(first_angle->value()==180);
+        first_end->setCurrentIndex(1);verify_rotation(!symmetry->isChecked()&&second->currentIndex()==0);
+        first->setCurrentIndex(1);first_end->setCurrentIndex(0);
         for(int pass=0;pass<3;++pass)for(int i=0;i<5;++i) {
             type->setCurrentIndex(i);flush();
+            const auto* point_toggle=dialog.findChild<QCheckBox*>("featureShowPoint");
+            const auto* text_toggle=dialog.findChild<QCheckBox*>("featureShowText");
+            if(type->geometry().right()>=point_toggle->geometry().left()||
+                point_toggle->geometry().right()>=text_toggle->geometry().left())
+                throw std::runtime_error("Feature type and visibility switches overlap");
+            if(pass==0&&i==4)dialog.grab().save(QDir::tempPath()+"/zima-feature-visibility-properties.png");
             const auto pending=dialog.pending_value();
             if(pending.name!=zima::app::next_feature_name(part,pending.feature.type,feature.id)||
                 pending.feature.automatic_name!=pending.name)throw std::runtime_error("Type switch lost automatic naming");

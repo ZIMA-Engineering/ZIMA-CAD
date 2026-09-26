@@ -64,7 +64,7 @@ void Host::register_placement_commands() {
     dispatcher_.add({prefix+".reference.set",prefix=="placement"?tr("Assign an original reference through the supported shared placement and feature transactions."):
         tr("Assign an original reference to a Hole or Opening through its shared Properties transaction."),
         {{object_key,true},{"index",true,commands::ArgumentType::Integer},{"reference",true,commands::ArgumentType::Object},
-         {"offset_mm",false,commands::ArgumentType::Number},{"flip",false,commands::ArgumentType::Boolean},{"derive_orientation",false,commands::ArgumentType::Boolean},{"document",false}},true},[this,prefix,object_key](const Json& args) {
+         {"use_axis",false,commands::ArgumentType::Boolean},{"offset_mm",false,commands::ArgumentType::Number},{"flip",false,commands::ArgumentType::Boolean},{"derive_orientation",false,commands::ArgumentType::Boolean},{"document",false}},true},[this,prefix,object_key](const Json& args) {
         const auto checked=target(args);if(!checked.ok)return checked;
         if(interaction().template_document)return Result::failure("unsupported_document",tr("Placement operations require an open Part or Assembly."));
         try {
@@ -83,7 +83,7 @@ void Host::register_placement_commands() {
             }
             const auto info=workspace::read_placement(workspace_,id,object);
             document::ConstructionReference source;source.owner_id=ref.at("owner");source.semantic_key=ref.at("key");source.instance_path=ref.value("instance_path",std::string{});
-            source.offset=args.value("offset_mm",0.0);source.flip=args.value("flip",false);
+            source.offset=args.value("offset_mm",0.0);source.flip=args.value("flip",false);source.use_axis=args.value("use_axis",false);
             const auto index=args.at("index").get<std::size_t>();const auto derive=args.value("derive_orientation",true);bool changed{};
             if(info.kind=="body")changed=workspace::set_body_placement_reference(workspace_,kernel_,id,object,index,std::move(source),derive);
             else if(info.kind=="construction")changed=workspace::set_construction_reference(workspace_,id,object,index,std::move(source),derive);

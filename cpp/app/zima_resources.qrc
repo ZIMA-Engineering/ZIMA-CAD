@@ -1,5 +1,6 @@
 <RCC>
   <qresource prefix="/zima">
+    <file alias="icons/feature.svg">../../resources/icons/feature.svg</file>
     <file alias="icons/close.svg">../../resources/icons/close.svg</file>
     <file alias="icons/edit.svg">../../resources/icons/edit.svg</file>
     <file alias="icons/hide.svg">../../resources/icons/hide.svg</file>

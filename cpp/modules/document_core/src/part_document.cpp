@@ -1,4 +1,6 @@
 #include <zima/document/derived_copy_json.hpp>
+#include <zima/document/placement_surface.hpp>
+#include <zima/document/feature_rotation_span.hpp>
 #include <zima/document/native_read_capture.hpp>
 #include <zima/document/holes.hpp>
 #include <zima/document/bend.hpp>
@@ -2949,10 +2951,24 @@ std::optional<PlacementReferenceAxis> placement_straight_direction(
     return PlacementReferenceAxis{first,direction};
 }
 
+zima::kernel::Vec3 placement_vec_add(zima::kernel::Vec3 a,zima::kernel::Vec3 b) {
+    return {a.x+b.x,a.y+b.y,a.z+b.z};
+}
+zima::kernel::Vec3 placement_vec_scale(zima::kernel::Vec3 a,double scale) {
+    return {a.x*scale,a.y*scale,a.z*scale};
+}
+
 std::optional<PlacementReferenceAxis> placement_reference_axis(
     const ConstructionReference& reference,
     const zima::kernel::ViewerReferenceGeometry& geometry,
     const zima::kernel::Vec3& origin = {}, bool secondary_direction = false) {
+    if(reference.use_axis) {
+        const auto* surface=placement_surface(reference,geometry);
+        if(!surface || !placement_surface_has_axis(*surface))return std::nullopt;
+        const double middle=(surface->axial_min+surface->axial_max)*0.5;
+        return PlacementReferenceAxis{placement_vec_add(surface->origin,
+            placement_vec_scale(surface->axis,middle)),surface->axis};
+    }
     const auto found = std::find_if(geometry.axes.begin(), geometry.axes.end(),
         [&](const auto& candidate) {
             return placement_reference_matches(candidate.reference, reference);
@@ -2986,7 +3002,17 @@ struct PlacementReferencePlane {
 
 std::optional<PlacementReferencePlane> placement_reference_plane(
     const ConstructionReference& reference,
-    const zima::kernel::ViewerReferenceGeometry& geometry) {
+    const zima::kernel::ViewerReferenceGeometry& geometry,
+    const zima::kernel::Vec3& at = {}) {
+    if(reference.use_axis)return std::nullopt;
+    if(const auto* surface=placement_surface(reference,geometry)) {
+        const auto projected=project_placement_surface(*surface,at);
+        if(!projected)return std::nullopt;
+        const auto tangent=surface->kind==zima::kernel::SurfaceGeometry::Kind::Plane
+            ? surface->radial:placement_vec_normalized(placement_vec_cross(surface->axis,projected->normal));
+        return PlacementReferencePlane{projected->point,projected->normal,
+            tangent,placement_vec_cross(projected->normal,tangent)};
+    }
     for (std::size_t index = 0; index < geometry.triangle_references.size(); ++index) {
         if (!placement_reference_matches(geometry.triangle_references[index], reference)) continue;
         const auto& a = geometry.vertices[geometry.triangles[index * 3]];
@@ -3007,6 +3033,16 @@ std::optional<PlacementReferencePlane> placement_reference_plane(
             front.x * top.y - front.y * top.x};
         if (placement_vec_is_zero(normal)) return std::nullopt;
         normal = placement_vec_normalized(normal);
+        // Datum planes without analytic packets remain supported. A curved
+        // face without an exact packet must never masquerade as one triangle.
+        for(std::size_t other=0;other<geometry.triangle_references.size();++other) {
+            if(!placement_reference_matches(geometry.triangle_references[other],reference))continue;
+            for(int corner=0;corner<3;++corner) {
+                const auto& p=geometry.vertices[geometry.triangles[other*3+corner]];
+                if(std::abs(placement_vec_dot(placement_vec_sub(p,a),normal))>1e-7)
+                    return std::nullopt;
+            }
+        }
         return PlacementReferencePlane{a, normal, front, top};
     }
     return std::nullopt;
@@ -3015,6 +3051,9 @@ std::optional<PlacementReferencePlane> placement_reference_plane(
 bool construction_reference_is_planar_face(
     const ConstructionReference& reference,
     const zima::kernel::ViewerReferenceGeometry& geometry) {
+    if(reference.use_axis)return false;
+    if(const auto* surface=placement_surface(reference,geometry))
+        return surface->kind==zima::kernel::SurfaceGeometry::Kind::Plane;
     if (construction_reference_is_plane_like(reference)) {
         return true;
     }
@@ -3078,7 +3117,7 @@ std::optional<PlacementPointStation> placement_point_station(
     return PlacementPointStation{&point,axis->direction};
 }
 
-bool placement_solve_position(
+bool placement_solve_position_step(
     const std::vector<std::reference_wrapper<const ConstructionReference>>&
         placement_references,
     const zima::kernel::ViewerReferenceGeometry& geometry,
@@ -3100,6 +3139,11 @@ bool placement_solve_position(
     };
     for (const auto& wrapped : placement_references) {
         const auto& reference = wrapped.get();
+        if(reference.use_axis) {
+            const auto axis=placement_reference_axis(reference,geometry);
+            if(!axis || reference.offset!=0)return false;
+            add_axis_equations(*axis);continue;
+        }
         const auto curve=std::ranges::find_if(geometry.edges,[&](const auto& e){
             return e.exact_spline && placement_reference_matches(e.reference,reference);});
         if (curve!=geometry.edges.end()) {
@@ -3114,7 +3158,7 @@ bool placement_solve_position(
             equations.push_back({{0.0, 0.0, 1.0}, resolved->z});
         } else if (const auto resolved = placement_reference_axis(reference, geometry)) {
             add_axis_equations(*resolved);
-        } else if (const auto resolved = placement_reference_plane(reference, geometry)) {
+        } else if (const auto resolved = placement_reference_plane(reference, geometry, origin)) {
             equations.push_back({resolved->normal,
                 placement_vec_dot(resolved->normal, resolved->point) +
                     reference.offset});
@@ -3164,6 +3208,59 @@ bool placement_solve_position(
     if (!consistent) return false;
     origin = solved;
     return true;
+}
+
+bool placement_solve_position(
+    const std::vector<std::reference_wrapper<const ConstructionReference>>& references,
+    const zima::kernel::ViewerReferenceGeometry& geometry,zima::kernel::Vec3& origin) {
+    const bool curved=std::ranges::any_of(references,[&](const auto& wrapped) {
+        const auto& ref=wrapped.get();const auto* surface=placement_surface(ref,geometry);
+        return !ref.use_axis&&surface&&surface->kind!=zima::kernel::SurfaceGeometry::Kind::Plane;
+    });
+    if(!curved)return placement_solve_position_step(references,geometry,origin);
+    const auto attempt=[&](zima::kernel::Vec3 candidate)->std::optional<zima::kernel::Vec3> {
+    for(const auto& wrapped:references)
+        if(const auto point=placement_reference_point(wrapped.get(),geometry)) {candidate=*point;break;}
+    for(int iteration=0;iteration<64;++iteration) {
+        if(!placement_solve_position_step(references,geometry,candidate))return std::nullopt;
+        bool satisfied=true;
+        for(const auto& wrapped:references) {
+            const auto& ref=wrapped.get();const auto* surface=placement_surface(ref,geometry);
+            if(ref.use_axis||!surface)continue;
+            const auto projected=project_placement_surface(*surface,candidate);
+            if(!projected)return std::nullopt;
+            const auto target=placement_vec_add(projected->point,placement_vec_scale(projected->normal,ref.offset));
+            const auto error=placement_vec_sub(candidate,target);
+            if(std::hypot(error.x,error.y,error.z)>1e-7)satisfied=false;
+        }
+        if(satisfied)return candidate;
+    }
+    return std::nullopt;
+    };
+    if(const auto solved=attempt(origin)){origin=*solved;return true;}
+    // A seed at a symmetry extremum can have a singular tangent system even
+    // when a transverse plane intersects the cylinder. Try deterministic
+    // alternative angular seeds, then retain the nearest verified solution.
+    std::optional<zima::kernel::Vec3> best;double best_distance=std::numeric_limits<double>::max();
+    for(const auto& wrapped:references) {
+        const auto& ref=wrapped.get();const auto* surface=placement_surface(ref,geometry);
+        if(ref.use_axis||!surface||!placement_surface_has_axis(*surface))continue;
+        const auto radial=surface->radial,tangent=placement_vec_cross(surface->axis,radial);
+        const double station=placement_vec_dot(placement_vec_sub(origin,surface->origin),surface->axis);
+        const double radius=std::abs(surface->radius+station*std::tan(surface->semi_angle));
+        for(int i=0;i<8;++i) {
+            const double angle=(i+.5)*std::numbers::pi/4;
+            const auto seed=placement_vec_add(placement_vec_add(surface->origin,placement_vec_scale(surface->axis,station)),
+                placement_vec_add(placement_vec_scale(radial,radius*std::cos(angle)),placement_vec_scale(tangent,radius*std::sin(angle))));
+            if(const auto solved=attempt(seed)) {
+                const auto d=placement_vec_sub(*solved,origin);const double distance=placement_vec_dot(d,d);
+                if(distance<best_distance){best=*solved;best_distance=distance;}
+            }
+        }
+        break;
+    }
+    if(best){origin=*best;return true;}
+    return false;
 }
 
 bool placement_directions_independent(const zima::kernel::Vec3& a,
@@ -3222,7 +3319,7 @@ PlacementDirections placement_resolve_directions(
         if (const auto axis = placement_reference_axis(reference, geometry, origin,
                 placement_uses_secondary_direction(reference, result.front.has_value())))
             direction = axis->direction;
-        else if (const auto plane = placement_reference_plane(reference, geometry))
+        else if (const auto plane = placement_reference_plane(reference, geometry, origin))
             direction = plane->normal;
         else if (reference.orientation_role == "direction")
             if (const auto point = placement_reference_point(reference, geometry))
@@ -3241,7 +3338,7 @@ PlacementDirections placement_resolve_directions(
 std::optional<double> measure_placement_reference_offset(const ConstructionReference& reference,
         const zima::kernel::ViewerReferenceGeometry& geometry,const zima::kernel::Vec3& point) {
     if(!reference.supports_offset)return std::nullopt;
-    const auto plane=placement_reference_plane(reference,geometry);if(!plane)return std::nullopt;
+    const auto plane=placement_reference_plane(reference,geometry,point);if(!plane)return std::nullopt;
     return (point.x-plane->point.x)*plane->normal.x+(point.y-plane->point.y)*plane->normal.y+(point.z-plane->point.z)*plane->normal.z;
 }
 
@@ -3661,7 +3758,7 @@ bool resolve_construction(ConstructionObject& object,
     };
     const auto plane = [&](const ConstructionReference& reference)
         -> std::optional<PlacementReferencePlane> {
-        return placement_reference_plane(reference, geometry);
+        return placement_reference_plane(reference, geometry, object.origin);
     };
     // Even an absolute construction with no references must continue
     // through the common frame calculation below. Plane in particular must
@@ -4341,6 +4438,16 @@ PointConstraintState point_constraint_state(
         // used for orientation must not drop it from the position rank
         // count, matching the equivalent fix in resolve_construction().
         if (reference.orientation_only) continue;
+        if(reference.use_axis) {
+            if(const auto axis=placement_reference_axis(reference,geometry,origin))
+                append_axis_rows(axis->direction);
+            continue;
+        }
+        if(placement_surface(reference,geometry)) {
+            if(const auto plane=placement_reference_plane(reference,geometry,origin))
+                rows.push_back(plane->normal);
+            continue;
+        }
         if (std::any_of(geometry.points.begin(), geometry.points.end(),
                 [&](const auto& item) { return matches(item.reference, reference); })) {
             if(station && station->reference==&reference) {
@@ -4516,7 +4623,7 @@ std::vector<zima::kernel::ViewerDimension> construction_point_dimensions(
             (reference.owner_id.empty() && reference.semantic_key.empty())) {
             continue;
         }
-        if (const auto plane = placement_reference_plane(reference, geometry)) {
+        if (const auto plane = placement_reference_plane(reference, geometry, object.origin)) {
             constraint_normals.push_back(plane->normal);
         }
         if (constraint_normals.size() == 3) break;
@@ -4531,7 +4638,7 @@ std::vector<zima::kernel::ViewerDimension> construction_point_dimensions(
         const std::size_t current_index = position_index++;
         if (current_index >= 3 || !reference.supports_offset ||
             std::abs(reference.offset) <= 1.0e-12) continue;
-        const auto plane = placement_reference_plane(reference, geometry);
+        const auto plane = placement_reference_plane(reference, geometry, object.origin);
         if (!plane) continue;
 
         const auto normal = plane->normal;
@@ -6987,6 +7094,8 @@ std::vector<zima::kernel::ViewerEdge> PartDocument::feature_preview_edges(
         const HistoryContainer& container,const zima::kernel::ViewerMesh& input) const {
     if(container.feature_kind!=FeatureKind::Feature || container.feature.type!=FeatureType::Modeling)return {};
     const auto& definition=container.feature;
+    validate_feature_parameters(definition);
+    std::array<double,2> rotation_angles{};
     const auto sketch=std::ranges::find(sketches,definition.sketch_id,&zima::sketcher::Sketch::id);
     if(sketch==sketches.end())return {};
     std::vector<zima::kernel::ViewerEdge> wire;
@@ -7018,9 +7127,9 @@ std::vector<zima::kernel::ViewerEdge> PartDocument::feature_preview_edges(
                 const auto target=resolved_extrusion_end_target(*this,container,settings.targets.front(),!settings.targets.front().reference.instance_path.empty());
                 p.angle_degrees=feature_rotation_limit_angle(request.axis_point,request.axis_direction,request.profile_normal,target);
             }
-            // Independent mirrored sides can overlap beyond a half turn.
-            // Draw them separately to avoid passing a >360 degree request to
-            // the ordinary Revolution preview builder.
+            rotation_angles[side]=p.angle_degrees;
+            if(definition.symmetric)rotation_angles[1]=p.angle_degrees;
+            validate_feature_rotation_span(rotation_angles[0],rotation_angles[1]);
             edges=revolution_preview_edges(operand);
             if(definition.symmetric) {
                 p.direction=ExtrusionDirection::Reverse;
@@ -7146,7 +7255,7 @@ HistoryContainer PartDocument::create_sketch_container() {
 HistoryContainer PartDocument::create_feature_container(std::string sketch_id) {
     auto container=create_extrusion_container(sketch_id);
     container.feature_kind=FeatureKind::Feature;
-    container.name="Prvek";
+    container.name="Vytažení";
     container.feature.automatic_name=container.name;
     container.feature.sketch_id=std::move(sketch_id);
     container.extrusion={};
@@ -9119,6 +9228,7 @@ std::vector<zima::kernel::HistoryOperation> PartDocument::kernel_operations(
             if(sketch==sketches.end())throw std::runtime_error("Extrusion references a missing Sketch");
             zima::kernel::FeatureGroupRequest group;
             group.allow_empty=p.sketch_only();
+            std::array<double,2> rotation_angles{};
             const auto status=group.allow_empty?profile_status(*sketch):ProfileStatus::Closed;
             const auto prepare=[&](auto request,std::size_t side) {
                 if(sketch->owner_container_id!=container.id)apply_container_placement(request,container.placement);
@@ -9163,6 +9273,8 @@ std::vector<zima::kernel::HistoryOperation> PartDocument::kernel_operations(
                         if(p.symmetric&&side==1)axis={-axis.x,-axis.y,-axis.z};
                         prepared.angle_degrees=feature_rotation_limit_angle(prepared.axis_point,axis,prepared.profile_normal,target);
                     }
+                    rotation_angles[side]=prepared.angle_degrees;
+                    validate_feature_rotation_span(rotation_angles[0],rotation_angles[1]);
                     group.children.push_back(std::move(prepared));
                 } else {
                     const bool inactive=settings.operation==FeatureSideOperation::None;
@@ -9703,7 +9815,7 @@ ConstructionObject deserialize_curve_point(
             serialized.at("orientation_role").get<std::string>(),
             serialized.at("orientation_drives_rotation").get<bool>(),
             serialized.value("orientation_only", false),
-            serialized.value("flip", false), serialized.value("offset_locked",false)});
+            serialized.value("flip", false), serialized.value("offset_locked",false), {}, serialized.value("use_axis",false)});
     }
     if (point.id.empty() || point.name.empty() ||
         !construction_ids.insert(point.id).second ||
@@ -9743,7 +9855,7 @@ nlohmann::json serialize_curve_point(
             {"instance_path", reference.instance_path},
             {"owner_id", reference.owner_id},
             {"semantic_key", reference.semantic_key},
-            {"offset", reference.offset}, {"offset_locked", reference.offset_locked},
+            {"offset", reference.offset}, {"offset_locked", reference.offset_locked}, {"use_axis", reference.use_axis},
             {"supports_offset", reference.supports_offset},
             {"orientation_role", reference.orientation_role},
             {"orientation_drives_rotation",
@@ -9951,7 +10063,7 @@ std::vector<ConstructionObject> deserialize_construction_objects(
                 value.at("orientation_role").get<std::string>(),
                 value.at("orientation_drives_rotation").get<bool>(),
                 value.value("orientation_only", false),
-                value.value("flip", false), value.value("offset_locked",false)});
+                value.value("flip", false), value.value("offset_locked",false), {}, value.value("use_axis",false)});
         }
         if (object.kind == ConstructionKind::Curve3D) {
             object.curve_rounding_enabled = source.at("curve_rounding_enabled").get<bool>();
@@ -10075,7 +10187,7 @@ std::string serialize_construction_objects(
             references.push_back({{"instance_path", reference.instance_path},
                 {"owner_id", reference.owner_id},
                 {"semantic_key", reference.semantic_key},
-                {"offset", reference.offset}, {"offset_locked", reference.offset_locked},
+                {"offset", reference.offset}, {"offset_locked", reference.offset_locked}, {"use_axis", reference.use_axis},
                 {"supports_offset", reference.supports_offset},
                 {"orientation_role", reference.orientation_role},
                 {"orientation_drives_rotation",
@@ -10814,7 +10926,7 @@ PartDocument PartDocument::from_serialized(const nlohmann::json& root,
                         serialized.at("orientation_role").get<std::string>(),
                         serialized.at("orientation_drives_rotation").get<bool>(),
                         serialized.value("orientation_only", false),
-                        serialized.value("flip", false), serialized.value("offset_locked",false)});
+                        serialized.value("flip", false), serialized.value("offset_locked",false), {}, serialized.value("use_axis",false)});
                 }
             }
         }
@@ -11373,7 +11485,7 @@ nlohmann::json PartDocument::serialized(
                     {{"instance_path", reference.instance_path},
                         {"owner_id", reference.owner_id},
                         {"semantic_key", reference.semantic_key},
-                        {"offset", reference.offset}, {"offset_locked", reference.offset_locked},
+                        {"offset", reference.offset}, {"offset_locked", reference.offset_locked}, {"use_axis", reference.use_axis},
                         {"supports_offset", reference.supports_offset},
                         {"orientation_role", reference.orientation_role},
                         {"orientation_drives_rotation",

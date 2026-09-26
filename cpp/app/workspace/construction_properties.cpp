@@ -515,7 +515,7 @@ void AssemblyWorkspaceWindow::show_curve_point_properties(
                 {}, highlighted_reference_edge_keys(*point_dialog));
         });
     point_dialog->set_preview_callback(
-        [this, document_id, parent_guard, slot](
+        [this, document_id, parent_guard, slot, new_point = existing == nullptr](
                 zima::document::ConstructionObject preview) {
             if (parent_guard == nullptr) return;
             auto* source_part = workspace_.open_part(document_id);
@@ -579,7 +579,17 @@ void AssemblyWorkspaceWindow::show_curve_point_properties(
             if (resolved == nullptr) return;
 
             construction_parameter_preview_ = *resolved;
-            construction_preview_mesh_ = point_document.construction_viewer_mesh(preview.id);
+            if (new_point && preview.references.empty()) {
+                // Resolve the draft for reference entry, but do not connect
+                // its default position to the route before its first reference.
+                auto display = point_document;
+                construction_preview_mesh_ = zima::kernel::ViewerMesh{};
+                if (auto* curve = display.find_construction(curve_preview.id)) {
+                    std::erase_if(curve->curve_points, [&](const auto& point) { return point.id == preview.id; });
+                    construction_parameter_preview_ = *curve;
+                    construction_preview_mesh_ = display.construction_viewer_mesh(curve->id);
+                }
+            } else construction_preview_mesh_ = point_document.construction_viewer_mesh(preview.id);
             if (!sweep_body.empty())
                 construction_preview_mesh_=next.place_body_mesh(std::move(*construction_preview_mesh_),sweep_body);
             if (part_document) {

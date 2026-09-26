@@ -1,6 +1,7 @@
 #include <zima/document/feature_serialization.hpp>
 #include <zima/document/part_document.hpp>
 #include <zima/document/feature_rotation_limit.hpp>
+#include <zima/document/feature_rotation_span.hpp>
 #include <nlohmann/json.hpp>
 #include <cmath>
 #include <iostream>
@@ -31,6 +32,25 @@ FeatureParameters fixture() {
 }
 }
 int main() { try {
+    for(std::size_t edited:{0u,1u}) {
+        FeatureParameters p;for(auto& side:p.sides){side.operation=FeatureSideOperation::Revolution;side.angle_degrees=90;}
+        p.sides[edited].angle_degrees=300;normalize_feature_rotations(p,edited);
+        check(p.sides[edited].angle_degrees==300&&p.sides[1-edited].angle_degrees==60,"Edited rotation did not retain priority");
+        validate_feature_parameters(p);
+        p.sides[edited].rotation_extent=FeatureRotationExtent::Full;normalize_feature_rotations(p,edited);
+        check(p.sides[1-edited].operation==FeatureSideOperation::None,"Full rotation did not retire opposite rotation");
+        p.sides[1-edited].operation=FeatureSideOperation::Extrusion;
+        const auto mixed=p;normalize_feature_rotations(p,edited);
+        check(p==mixed,"Full rotation modified opposite extrusion");validate_feature_parameters(p);
+        p.sides[1-edited].operation=FeatureSideOperation::Revolution;
+        rejected([&]{validate_feature_parameters(p);});
+        p.symmetric=true;p.sides[0].operation=FeatureSideOperation::Revolution;
+        p.sides[0].rotation_extent=FeatureRotationExtent::Angle;p.sides[0].angle_degrees=250;
+        normalize_feature_rotations(p,0);check(p.sides[0].angle_degrees==180,"Symmetric rotation exceeded a half turn");
+        validate_feature_parameters(p);
+        p.sides[0].rotation_extent=FeatureRotationExtent::Full;normalize_feature_rotations(p,0);
+        check(!p.symmetric&&p.sides[1].operation==FeatureSideOperation::None,"Symmetric full turn remained duplicated");
+    }
     ExtrusionParameters::EndTarget limit;limit.kind=EndTargetKind::Plane;limit.fallback_normal={1,0,0};
     const auto angle=[&](zima::kernel::Vec3 axis){return feature_rotation_limit_angle({0,0,0},axis,{0,0,1},limit);};
     check(std::abs(angle({0,1,0})-90)<1e-9,"Forward rotation plane angle is wrong");
@@ -103,7 +123,15 @@ int main() { try {
         }
         check(result.points.size()==(type==FeatureType::Axis?3:1),"Feature result has unexpected point markers");
         check(result.edges.size()==(type==FeatureType::Axis||type==FeatureType::Plane?1:0),"Feature result has extra geometry");
-        check(origin.always_visible==(type!=FeatureType::Modeling),"Modeling origin must be hidden while idle");
+        check(origin.always_visible==feature.feature.show_point,"Feature point visibility differs from its setting");
+        for(bool point:{false,true})for(bool text:{false,true}) {
+            auto changed=feature;changed.feature.show_point=point;changed.feature.show_text=text;
+            const auto shown=part.feature_result_mesh(changed);
+            check(shown.points.front().always_visible==point&&shown.points.front().label.empty()==!text,
+                "Feature point and text switches are not independent");
+            check(shown.original_references.points.front().reference==result.original_references.points.front().reference,
+                "Visibility changed point reference identity");
+        }
         check(result.axes.size()==(type==FeatureType::Axis?1:0),"Feature Axis is absent from the rendering packet");
         if(type==FeatureType::Axis) {
             check(result.axes.front().reference==result.original_references.axes.front().reference,

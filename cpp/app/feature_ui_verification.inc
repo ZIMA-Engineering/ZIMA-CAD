@@ -1,3 +1,166 @@
+// Surface modes use the public Feature editor and real persisted cylinder data.
+static void verify_feature_surface_placement(QApplication& application, AssemblyWorkspaceWindow& window,
+                                            const std::filesystem::path& directory) {
+    const auto check=[](bool ok,const char* message){if(!ok)throw std::runtime_error(message);};
+    const auto flush=[&]{application.processEvents();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);application.processEvents();};
+    const auto run=[&](const char* command,commands::Json args=commands::Json::object()) {
+        const auto result=window.execute_console_command(QString::fromStdString(commands::Json{{"command",command},{"arguments",args}}.dump()));
+        if(!result.ok)throw std::runtime_error(result.message);flush();
+    };
+    auto part=document::PartDocument::create_default();
+    auto sketch=sketcher::Sketch::create_default();sketch.add_circle(0,0,5);
+    auto source=document::PartDocument::create_feature_container(sketch.id);source.feature.sides[0].length=20;
+    sketch.owner_container_id=source.id;part.history={source};part.sketches={sketch};
+    document::BodyHistoryGraph graph;const auto body=graph.create_body("Surface placement");
+    graph.insert({document::PartHistoryKind::Feature,source.id});part.set_body_history(graph);part.resolve_constructions();
+    const kernel::OcctKernel kernel;auto calculated=kernel.evaluate_history(part.kernel_operations());
+    const auto face=std::ranges::find_if(calculated.back().mesh.original_references.triangle_references,[](const auto& f) {
+        return f.surface&&f.surface->kind==kernel::SurfaceGeometry::Kind::Cylinder;
+    });
+    check(face!=calculated.back().mesh.original_references.triangle_references.end(),"Cylinder packet missing");
+    const auto path=directory/("feature-surface-"+source.id+".prtz");part.save(path,calculated);
+    check(window.open_document_path(QString::fromStdString(path.string())),"Surface fixture cannot open");flush();
+    run("body.activate",{{"body",body}});
+    const auto dialog=[&]{return dynamic_cast<PrimitivePropertiesDialog*>(window.findChild<QWidget*>("featurePropertiesDialog"));};
+    for(int i=0;i<6;++i) {
+        auto* shortcut=window.findChild<QAction*>(QStringLiteral("featureShortcut%1Action").arg(i));
+        check(shortcut&&shortcut->isEnabled()&&!shortcut->icon().isNull(),"Feature shortcut missing or disabled");
+        shortcut->trigger();flush();check(dialog(),"Feature shortcut did not open shared dialog");
+        const auto check_collapsed=[&] {
+            bool found=false;
+            for(QTreeWidgetItemIterator row(window.findChild<QTreeWidget*>("documentTree"));*row;++row)
+                if((*row)->data(0,Qt::UserRole).toString().toStdString()==dialog()->pending_value().id &&
+                   (*row)->data(0,Qt::UserRole+12).toBool()) {
+                    check(!(*row)->isExpanded(),"New Feature automatically expanded in the tree");found=true;break;
+                }
+            check(found,"Pending Feature tree row missing");
+        };
+        check_collapsed();
+        dialog()->findChild<QCheckBox*>("featureShowText")->setChecked(false);flush();check_collapsed();
+        const auto preset=dialog()->pending_value().feature;
+        check(preset.type==static_cast<document::FeatureType>(std::min(i,4)),"Feature shortcut selected wrong type");
+        if(i==5)check(preset.sides[0].operation==document::FeatureSideOperation::Revolution&&
+            preset.sides[1].operation==document::FeatureSideOperation::Revolution,"Rotation shortcut did not preset both sides");
+        dialog()->reject();flush();
+    }
+    window.findChild<QAction*>("featurePrototypeAction")->trigger();flush();check(dialog(),"Axis Feature dialog missing");
+    dialog()->findChild<QComboBox*>("featureType")->setCurrentIndex(1);
+    check(dialog()->set_reference(0,{{},face->owner_id,face->semantic_key,0,true,"front",true},"Cylinder"),"Cylinder cannot be selected");flush();
+    auto* mode=dialog()->findChild<QComboBox*>("placementReferenceType0");
+    check(mode&&mode->count()==2&&!mode->currentData().toBool(),"Surface mode is not default or axis mode missing");
+    auto value=dialog()->pending_value();
+    check(document::resolve_placement(value.placement,calculated.back().mesh.original_references),"Surface pending placement invalid");
+    check(std::abs(std::hypot(value.placement.x,value.placement.y)-5)<1e-7,"Surface placement left cylinder");
+    mode->setCurrentIndex(1);flush();value=dialog()->pending_value();const auto axis_id=value.id;
+    check(value.placement.references.front().use_axis,"Axis mode did not update definition");
+    dialog()->findChild<QCheckBox*>("featureShowPoint")->setChecked(false);
+    dialog()->findChild<QCheckBox*>("featureShowText")->setChecked(false);flush();
+    auto* preview_view=dynamic_cast<viewer::MeshView*>(window.findChild<QOpenGLWidget*>());
+    check(preview_view,"Feature preview view missing");
+    const auto visible_origin=std::ranges::find_if(preview_view->mesh().points,[&](const auto& p) {
+        return p.reference.owner_id==axis_id&&p.reference.semantic_key=="point";
+    });
+    check(visible_origin!=preview_view->mesh().points.end()&&visible_origin->always_visible&&!visible_origin->label.empty(),
+        "Properties hid the origin or name when idle visibility was disabled");
+    check(std::abs(value.placement.z-10)<1e-7&&std::abs(value.feature.effective_side(0).length-10)<1e-7&&
+        std::abs(value.feature.effective_side(1).length-10)<1e-7,"Axis extent was not derived from whole face");
+    window.grab().save(QString::fromStdString((directory/"feature-surface-axis-ui.png").string()));
+    dialog()->grab().save(QString::fromStdString((directory/"feature-visibility-properties.png").string()));
+    dialog()->buttons()->button(QDialogButtonBox::Ok)->click();flush();check(!dialog(),"Axis Feature OK failed");run("save");
+    auto saved=document::PartDocument::load(path,&calculated);
+    const auto* axis=saved.find_container(axis_id);check(axis&&axis->placement.references.front().use_axis,"Axis mode not persisted");
+    const auto mesh=saved.feature_result_mesh(*axis);check(mesh.axes.size()==1&&std::abs(mesh.axes.front().direction.z)>1-1e-7,
+        "Feature axis is not coaxial with selected cylinder");
+    check(!axis->feature.show_point&&!axis->feature.show_text&&!mesh.points.front().always_visible&&mesh.points.front().label.empty(),
+        "Feature visibility settings did not persist");
+    check(std::abs(calculated.back().volume-std::numbers::pi*25*20)<1e-5,"Axis changed source body");
+    run("undo");run("save");check(!document::PartDocument::load(path).find_container(axis_id),"Axis Undo failed");
+    run("redo");run("save");check(document::PartDocument::load(path).find_container(axis_id),"Axis Redo failed");
+    auto* tree=window.findChild<QTreeWidget*>();QTreeWidgetItem* item{};
+    for(QTreeWidgetItemIterator i(tree);*i;++i)if((*i)->data(0,Qt::UserRole).toString().toStdString()==axis_id){item=*i;break;}
+    check(item,"Axis tree item missing");window.show_tree_item_properties(item);flush();check(dialog(),"Axis edit missing");
+    mode=dialog()->findChild<QComboBox*>("placementReferenceType0");check(mode&&mode->currentData().toBool(),"Reopened axis mode lost");
+    check(!dialog()->findChild<QCheckBox*>("featureShowPoint")->isChecked()&&
+        !dialog()->findChild<QCheckBox*>("featureShowText")->isChecked(),"Reopened visibility settings lost");
+    dialog()->findChild<QCheckBox*>("featureShowPoint")->setChecked(true);
+    dialog()->findChild<QCheckBox*>("featureShowText")->setChecked(true);
+    mode->setCurrentIndex(0);flush();dialog()->reject();flush();run("save");
+    check(document::PartDocument::load(path).find_container(axis_id)->placement.references.front().use_axis,"Cancel changed mode");
+    check(!document::PartDocument::load(path).find_container(axis_id)->feature.show_point&&
+        !document::PartDocument::load(path).find_container(axis_id)->feature.show_text,"Cancel changed visibility");
+    run("close");check(window.open_document_path(QString::fromStdString(path.string())),"Saved axis cannot reopen");flush();
+    check(!window.findChild<QAction*>("cylinderAxisAction"),"Retired cylinder axis action remains");
+    for(const auto* type:{"part","assembly"}) {
+        window.findChild<QAction*>("newDocumentAction")->trigger();flush();
+        auto* create=window.findChild<QDialog*>("newDocumentDialog");
+        check(create,"New template dialog missing");
+        create->findChild<QLineEdit*>("newDocumentFileName")->setText(
+            QString("Surface template %1 %2").arg(type).arg(QUuid::createUuid().toString(QUuid::Id128)));
+        for(auto* radio:create->findChildren<QRadioButton*>())
+            radio->setChecked(radio->property("documentType").toString()==type);
+        create->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
+        check(!window.findChild<QDialog*>("newDocumentDialog"),"Template creation did not commit");
+        const auto command=std::string(type)=="part"?"featurePrototypeAction":"insertComponentAction";
+        check(window.findChild<QAction*>(command)->isEnabled(),"Template has no active editable context");
+    }
+}
+
+static void verify_feature_operation_tree(QApplication& application,AssemblyWorkspaceWindow& window,
+                                          const std::filesystem::path& directory) {
+    const auto check=[](bool ok,const char* message){if(!ok)throw std::runtime_error(message);};
+    const auto flush=[&]{application.processEvents();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);application.processEvents();};
+    using Op=document::FeatureSideOperation;
+    auto part=document::PartDocument::create_default();auto sketch=sketcher::Sketch::create_default();
+    static_cast<void>(sketch.add_rectangle(3,0,8,5));
+    const auto axis=sketch.add_segment(0,-2,0,8);sketch.set_segment_centerline(axis,true);
+    auto feature=document::PartDocument::create_feature_container(sketch.id);sketch.owner_container_id=feature.id;
+    feature.feature.axis_segment_id=axis;part.history={feature};part.sketches={sketch};
+    document::BodyHistoryGraph graph;const auto body=graph.create_body("Operation tree");
+    graph.insert({document::PartHistoryKind::Feature,feature.id});part.set_body_history(graph);part.resolve_constructions();
+    auto* tree=window.findChild<QTreeWidget*>("documentTree");
+    auto* view=dynamic_cast<viewer::MeshView*>(window.findChild<QOpenGLWidget*>());
+    const auto root=[&]() -> QTreeWidgetItem* {
+        for(QTreeWidgetItemIterator i(tree);*i;++i)if((*i)->data(0,Qt::UserRole).toString().toStdString()==feature.id&&
+            (*i)->data(0,Qt::UserRole+3)=="part-container")return *i;
+        throw std::runtime_error("Operation tree Feature missing");
+    };
+    int number=0;
+    for(const auto modes:std::array<std::array<int,2>,7>{{{1,0},{0,2},{1,1},{2,2},{1,2},{2,1},{0,0}}}) {
+        auto& p=part.history.front().feature;p.sides[0].operation=static_cast<Op>(modes[0]);p.sides[1].operation=static_cast<Op>(modes[1]);
+        p.sides[0].angle_degrees=p.sides[1].angle_degrees=90;
+        const auto path=directory/("feature-operation-tree-"+feature.id+"-"+std::to_string(number++)+".prtz");
+        part.save(path,kernel::OcctKernel{}.evaluate_history(part.kernel_operations()));
+        check(window.open_document_path(QString::fromStdString(path.string())),"Operation tree document cannot open");flush();
+        check(window.execute_console_command(QString::fromStdString(commands::Json{{"command","body.activate"},{"arguments",{{"body",body}}}}.dump())).ok,"Operation tree Body activation failed");flush();
+        const bool extrusion=modes[0]==1||modes[1]==1,rotation=modes[0]==2||modes[1]==2;
+        const auto icon=extrusion?(rotation?"protrusion-revolve":"protrusion"):(rotation?"revolve":"sketch");
+        auto* row=root();
+        check(row->icon(0).pixmap(48,24).toImage()==resource_icon(icon).pixmap(48,24).toImage(),"Feature tree icon differs from its active operations");
+        int operations=0;
+        for(int i=0;i<row->childCount();++i) {
+            auto* child=row->child(i);if(child->data(0,Qt::UserRole+3)!="feature-operation")continue;
+            const int side=child->data(0,Qt::UserRole+5).toInt();++operations;
+            check(modes[side]!=0&&child->text(0).contains(QObject::tr(modes[side]==2?"Rotace":"Vytažení"))&&
+                child->text(0).contains(QObject::tr(side==0?"Strana 1":"Strana 2")),"Operation tree row lost kind or side");
+        }
+        check(operations==(modes[0]!=0)+(modes[1]!=0),"Operation tree has missing or inactive side rows");
+        if(extrusion&&rotation) {
+            row->setExpanded(true);tree->scrollToItem(row);flush();
+            tree->grab().save(QString::fromStdString((directory/"feature-mixed-operation-tree.png").string()));
+        }
+        if(operations) {
+            auto* operation=row->child(row->childCount()-1);tree->setCurrentItem(operation);flush();
+            tree->itemClicked(operation,0);flush();
+            check(view->confirmed_candidate()&&view->confirmed_candidate()->owner_id==feature.id,"Operation row cannot select its owning Feature");
+            window.show_tree_item_properties(root()->child(root()->childCount()-1));flush();
+            auto* dialog=dynamic_cast<PrimitivePropertiesDialog*>(window.findChild<QWidget*>("featurePropertiesDialog"));
+            check(dialog&&dialog->pending_value().id==feature.id,"Operation row did not open the shared Feature editor");
+            dialog->reject();flush();
+        }
+        check(window.execute_console_command("close").ok,"Operation tree document did not close");flush();
+    }
+}
+
 // Exercises the public action, embedded Sketcher and one real native commit.
 static void verify_feature_modeling(QApplication& application, AssemblyWorkspaceWindow& window,
                                    const std::filesystem::path& directory) {
@@ -15,7 +178,7 @@ static void verify_feature_modeling(QApplication& application, AssemblyWorkspace
     check(dialog(),"Feature creation properties missing");
     dialog()->findChild<QDoubleSpinBox*>("featureSideValue0")->setValue(10);
     const auto pending=dialog()->pending_value();
-    check(pending.name==QObject::tr("Prvek").toStdString()+" 001" && pending.feature.automatic_name==pending.name,
+    check(pending.name==QObject::tr("Vytažení").toStdString()+" 001" && pending.feature.automatic_name==pending.name,
         "New Feature has no numbered automatic name");
     dialog()->findChild<QPushButton*>("featureSketchButton")->click();flush();
     check(!dialog(),"Feature Sketch action did not enter the editor");
@@ -207,7 +370,7 @@ static void verify_feature_sketch_visibility(QApplication& application, Assembly
         auto part=document::PartDocument::create_default();
         auto sketch=sketcher::Sketch::create_default();
         auto feature=document::PartDocument::create_feature_container(sketch.id);
-        feature.name=QObject::tr("Prvek").toStdString()+" 001";feature.feature.automatic_name=feature.name;
+        feature.name=QObject::tr("Vytažení").toStdString()+" 001";feature.feature.automatic_name=feature.name;
         feature.feature.sides[0].operation=document::FeatureSideOperation::None;
         sketch.owner_container_id=feature.id;
         const auto axis=sketch.add_segment(120,70,240,70);sketch.set_segment_centerline(axis,true);
@@ -270,7 +433,7 @@ static void verify_feature_sketch_visibility(QApplication& application, Assembly
                 check(selector&&selector->count()==5,"Feature type selector missing");
                 selector->setCurrentIndex(type);flush();
                 const auto pending=dialog()->pending_value();
-                const char* prefixes[]={"Bod","Osa","Rovina","Skica","Prvek"};
+                const char* prefixes[]={"Bod","Osa","Rovina","Skica","Vytažení"};
                 check(pending.name==QObject::tr(prefixes[type]).toStdString()+" 001" && pending.feature.automatic_name==pending.name,
                     "GUI type switch did not update its automatic name");
                 check(pending.feature.sides==inactive.sides&&pending.feature.origin_centerline==inactive.origin_centerline&&
@@ -296,10 +459,18 @@ static void verify_feature_sketch_visibility(QApplication& application, Assembly
                 run("save");const auto saved=document::PartDocument::load(path);
                 check(saved.find_container(feature.id)->name==pending.name && saved.find_container(feature.id)->feature.automatic_name==pending.name,
                     "Save lost automatic Feature name");
-                const char* icons[]={"point","axis","plane","sketch","protrusion"};
+                const char* icons[]={"point","axis","plane","sketch","sketch"};
                 QTreeWidgetItem* typed_row{};
                 for(QTreeWidgetItemIterator it(tree);*it;++it)if((*it)->data(0,Qt::UserRole).toString().toStdString()==feature.id&&(*it)->data(0,Qt::UserRole+3)=="part-container"){typed_row=*it;break;}
                 check(typed_row&&typed_row->text(0).contains(QString::fromStdString(pending.name)),"Tree did not update the Feature name");
+                int sketch_rows=0,result_rows=0;
+                for(int child=0;child<typed_row->childCount();++child) {
+                    const auto role=typed_row->child(child)->data(0,Qt::UserRole+3).toString();
+                    sketch_rows+=role=="part-sketch";
+                    result_rows+=role=="part-container-entity";
+                }
+                check(sketch_rows==(type>=3?1:0)&&result_rows==(type>=3?0:1),
+                    "Feature tree exposes an unused Sketch or duplicate Sketch result");
                 check(typed_row->icon(0).pixmap(24,24).toImage()==resource_icon(icons[type]).pixmap(24,24).toImage(),
                     "Tree did not update its type-specific icon");
                 check(static_cast<int>(saved.find_container(feature.id)->feature.type)==type&&saved.sketches.front().serialized()==original,

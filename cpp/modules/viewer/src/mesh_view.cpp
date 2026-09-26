@@ -3880,7 +3880,7 @@ if (impl_->show_origins) {
                         ? QPen(external_color, 1.5, Qt::DashLine)
                     : edge.construction
                         ? QPen(interaction::axis, 1.5, Qt::DashLine)
-                        : QPen(impl_->geometry_editing_presentation||!impl_->active_sketch_owner_id.empty()?QColor(255,255,255):interaction::axis,
+                        : QPen(QColor(255,255,255),
                             impl_->geometry_editing_presentation||!impl_->active_sketch_owner_id.empty()?1.8:1.0);
                 if (!edge.color.empty()) edge_pen.setColor(QColor(QString::fromStdString(edge.color)));
                 const bool candidate_match = highlighted &&
@@ -4550,9 +4550,8 @@ if (impl_->show_origins) {
                                 "external_point:sketch_origin"
                             ? QColor(0, 0, 0)
                         : point.reference.semantic_key.starts_with("point:")
-                            ? point.construction
-                                ? interaction::axis
-                                : impl_->geometry_editing_presentation||!impl_->active_sketch_owner_id.empty()?QColor(255,255,255):interaction::axis
+                            ? point.reference.semantic_key.starts_with("point:from:")
+                                ? interaction::axis : QColor(255,255,255)
                         : point.reference.semantic_key.starts_with(
                                 "corner_radius_handle:")
                             ? QColor(255, 255, 255)

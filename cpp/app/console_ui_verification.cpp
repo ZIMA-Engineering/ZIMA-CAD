@@ -1,6 +1,8 @@
 #include "resource_icon.hpp"
 #include "../tests/gui_profile_fixture.hpp"
 #include <QCheckBox>
+#include <QRadioButton>
+#include <QUuid>
 #include <QGroupBox>
 #include "primitive_properties_dialog.hpp"
 #include "orientation_dialog.hpp"
@@ -249,10 +251,15 @@ Q_NEVER_INLINE static int verify_feature_prototype(QApplication& application,Ass
         verify_feature_empty_preview(application,window,directory);
         verify_feature_sketch_visibility(application,window,directory);
         verify_feature_modeling(application,window,directory);
+        verify_feature_operation_tree(application,window,directory);
         std::cout<<"Feature GUI: parameter modes, Sketch creation, OK, Cancel and Undo/Redo passed\n";return 0;
     }catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}
 }
 int verify_command_console(QApplication& application,AssemblyWorkspaceWindow& window,const std::filesystem::path& directory) {
+    if(qEnvironmentVariableIsSet("ZIMA_VERIFY_SURFACE_PLACEMENT_ONLY")) {
+        try {verify_feature_surface_placement(application,window,directory);std::cout<<"Feature surface placement and shortcuts passed\n";return 0;}
+        catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}
+    }
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_FEATURE_PROTOTYPE_ONLY")) return verify_feature_prototype(application,window,directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_SKETCH_ROLES_ONLY")) return verify_sketch_roles(application,window,directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_AXIS_UP_TO_ONLY")) return verify_axis_up_to(application,window,directory);
@@ -268,6 +275,46 @@ static int verify_general_command_console(QApplication& application,AssemblyWork
     const auto flush=[&]{application.processEvents();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);application.processEvents();};
     const auto run=[&](const QString& command){auto result=window.execute_console_command(command);if(!result.ok)throw std::runtime_error(command.toStdString()+": "+result.code+": "+result.message);return result;};
     try {
+        if(qEnvironmentVariableIsSet("ZIMA_VERIFY_PENDING_CURVE_POINT_ONLY")) {
+            window.showMaximized();flush();
+            for(const char* kind:{"part","assembly"}) {
+                run(QString("new %1 pending-curve-%2").arg(kind,QUuid::createUuid().toString(QUuid::Id128)));flush();
+                auto* action=window.findChild<QAction*>("curve3DAction");
+                check(action&&action->isEnabled(),"Curve creation unavailable");action->trigger();flush();
+                const auto editor=[&]() -> ConstructionPropertiesDialog* {
+                    for(auto* candidate:window.findChildren<QDialog*>())if(candidate->isVisible())
+                        if(auto* typed=dynamic_cast<ConstructionPropertiesDialog*>(candidate))return typed;
+                    return nullptr;
+                };
+                auto* curve=editor();check(curve,"Curve editor missing");
+                auto first=document::create_owned_point(curve->pending_value().id);first.origin={10,0,0};
+                curve->set_curve_point(std::nullopt,first);flush();
+                const auto curve_id=curve->pending_value().entity_id;
+                auto* view=dynamic_cast<viewer::MeshView*>(window.findChild<QOpenGLWidget*>());
+                const auto route_edges=[&] {return std::ranges::count_if(view->mesh().edges,[&](const auto& edge){return edge.reference.owner_id==curve_id;});};
+                curve->findChild<QTableWidget*>("curve3DPoints")->cellClicked(1,0);flush();
+                auto* point=editor();check(point&&point!=curve,"New point editor missing");
+                check(route_edges()==0,"New point connected before its first reference");
+                std::string origin;
+                for(QTreeWidgetItemIterator it(window.findChild<QTreeWidget*>("documentTree"));*it;++it)
+                    if((*it)->data(0,Qt::UserRole+3)=="document-origin") {origin=(*it)->data(0,Qt::UserRole).toString().toStdString();break;}
+                check(!origin.empty(),"Origin reference missing");
+                check(point->set_reference(0,{{},origin,"origin:point"},"Origin"),"Point reference rejected");flush();
+                check(route_edges()>0,"Point did not connect after its first reference");
+                auto* references=point->findChild<QTableWidget*>("constructionReferenceTable");
+                auto* clear=references->cellWidget(0,0)->findChild<QPushButton*>();
+                check(clear,"Reference clear control missing");clear->click();flush();
+                check(route_edges()==0,"Cleared draft point still connects the curve");
+                point->reject();flush();check(curve->pending_value().curve_points.size()==1,"Cancel inserted the pending point");
+                auto second=document::create_owned_point(curve->pending_value().id);second.origin={20,0,0};
+                curve->set_curve_point(std::nullopt,second);flush();
+                curve->findChild<QTableWidget*>("curve3DPoints")->cellClicked(1,0);flush();
+                point=editor();check(point&&point!=curve&&route_edges()>0,"Existing numeric point disappeared during editing");
+                point->reject();flush();curve->reject();flush();
+                check(run("construction.list").data.at("items").empty(),"Curve Cancel changed the document");
+            }
+            std::cout<<"Pending Curve point preview passed in Part and Assembly\n";return 0;
+        }
         if(qEnvironmentVariableIsSet("ZIMA_VERIFY_CURVE_SELECTION")) {
             window.showMaximized();flush();
             check(window.open_document_path(qEnvironmentVariable("ZIMA_VERIFY_CURVE_SELECTION")),
@@ -845,7 +892,7 @@ static int verify_general_command_console(QApplication& application,AssemblyWork
         const commands::Json body_reference={{"command","body.reference.set"},{"arguments",{{"body",tool_body},{"index",0},{"reference",{{"owner",base_origin},{"key","origin:plane:xy"}}},{"offset_mm",7}}}};
         run(QString::fromStdString(body_reference.dump()));edit_object(tool_body,"part-body");properties=visible_properties("bodyName");check(properties,"Referenced Body Properties missing");
         auto* body_reference_table=properties->findChild<QTableWidget*>("bodyReferenceTable");check(body_reference_table,"Body reference table missing");
-        auto* body_offset=qobject_cast<QDoubleSpinBox*>(body_reference_table->cellWidget(0,2));check(body_offset&&std::abs(body_offset->value()-7)<1e-8,"Body Properties did not consume CLI reference offset");
+        auto* body_offset=qobject_cast<QDoubleSpinBox*>(body_reference_table->cellWidget(0,3));check(body_offset&&std::abs(body_offset->value()-7)<1e-8,"Body Properties did not consume CLI reference offset");
         check(window.execute_console_command(QString::fromStdString(body_reference.dump())).code=="editing_in_progress","Body reference overwrote pending Properties");
         body_offset->setValue(9);properties->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
         const auto body_reference_read=run(QString::fromStdString("body.get "+tool_body)).data.at("placement");
@@ -1359,7 +1406,7 @@ static int verify_general_command_console(QApplication& application,AssemblyWork
             json_run("sketch.reference.set",{{"sketch",sid},{"index",0},{"reference",{{"owner",origin},{"key","origin:plane:xy"}}},{"offset_mm",4}});flush();
             for(const bool commit:{false,true}){
                 SketchPropertiesDialog* dialog=edit();auto* table=dialog->findChild<QTableWidget*>("sketchReferenceTable");
-                auto* value=table?qobject_cast<QDoubleSpinBox*>(table->cellWidget(0,2)):nullptr;
+                auto* value=table?qobject_cast<QDoubleSpinBox*>(table->cellWidget(0,3)):nullptr;
                 check(value&&value->isEnabled()&&std::abs(value->value()-4)<1e-7,"Sketch Properties lost CLI reference offset");
                 value->setValue(7);
                 dialog->findChild<QDialogButtonBox*>()->button(commit?QDialogButtonBox::Ok:QDialogButtonBox::Cancel)->click();flush();
@@ -1781,7 +1828,7 @@ static int verify_general_command_console(QApplication& application,AssemblyWork
                     };
                     const auto preview_before=wire_minimum_x();
                     auto* rows=dialog->findChild<QTableWidget*>("primitiveReferenceTable");
-                    auto* offset=rows?qobject_cast<QDoubleSpinBox*>(rows->cellWidget(0,2)):nullptr;
+                    auto* offset=rows?qobject_cast<QDoubleSpinBox*>(rows->cellWidget(0,3)):nullptr;
                     check(offset&&offset->isEnabled()&&offset->value()==3,"Imported Properties lost the CLI reference");
                     offset->setValue(4);
                     flush();
@@ -2396,7 +2443,7 @@ static int verify_general_command_console(QApplication& application,AssemblyWork
                         if(candidate->isVisible()&&candidate!=dialog&&candidate->findChild<QDoubleSpinBox*>("constructionZ")){child=candidate;break;}
                     check(child,"Referenced Sweep Point Properties missing");
                     auto* table=child->findChild<QTableWidget*>("constructionReferenceTable");
-                    auto* offset=table?qobject_cast<QDoubleSpinBox*>(table->cellWidget(0,2)):nullptr;
+                    auto* offset=table?qobject_cast<QDoubleSpinBox*>(table->cellWidget(0,3)):nullptr;
                     check(offset&&offset->isEnabled()&&std::abs(offset->value()-30)<1e-7,"Sweep Point Properties lost CLI reference");
                     check(window.execute_console_command(QString::fromStdString(commands::Json{
                         {"command","construction.reference.set"},{"arguments",point_reference}}.dump())).code=="editing_in_progress",
@@ -2461,7 +2508,7 @@ static int verify_general_command_console(QApplication& application,AssemblyWork
             for(bool accept:{false,true}) {
                 QPointer<QDialog> properties=edit();
                 auto* rows=properties->findChild<QTableWidget*>(kind==document::FeatureKind::Sweep3D?"constructionReferenceTable":"sweepPlacementReferences");
-                auto* offset=rows?qobject_cast<QDoubleSpinBox*>(rows->cellWidget(0,2)):nullptr;
+                auto* offset=rows?qobject_cast<QDoubleSpinBox*>(rows->cellWidget(0,3)):nullptr;
                 if(!offset||!offset->isEnabled()||std::abs(offset->value()-3)>=1e-7)
                     throw std::runtime_error(prefix+" Properties reference offset: rows="+
                         std::to_string(rows?rows->rowCount():-1)+", value="+
@@ -2877,11 +2924,11 @@ static int verify_general_command_console(QApplication& application,AssemblyWork
                     dialog->findChild<QDialogButtonBox*>()->button(action)->click();flush();return;
                 }
                 throw std::runtime_error("Curve parent Properties did not resume after its point");};
-            auto* properties=edit();auto* table=properties->findChild<QTableWidget*>("constructionReferenceTable");auto* offset=qobject_cast<QDoubleSpinBox*>(table->cellWidget(0,2));
+            auto* properties=edit();auto* table=properties->findChild<QTableWidget*>("constructionReferenceTable");auto* offset=qobject_cast<QDoubleSpinBox*>(table->cellWidget(0,3));
             check(offset&&offset->isEnabled()&&offset->value()==7,"GUI did not consume CLI reference offset");
             check(window.execute_console_command(QString::fromStdString(commands::Json({{"command","construction.reference.set"},{"arguments",request}}).dump())).code=="editing_in_progress","Reference command interrupted Properties");
             offset->setValue(13);properties->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Cancel)->click();flush();finish_parent(QDialogButtonBox::Cancel);check(std::abs(get().at("origin_mm")[2].get<double>()-(7-local_z))<1e-7,"Reference Cancel changed construction");
-            properties=edit();table=properties->findChild<QTableWidget*>("constructionReferenceTable");qobject_cast<QDoubleSpinBox*>(table->cellWidget(0,2))->setValue(13);properties->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
+            properties=edit();table=properties->findChild<QTableWidget*>("constructionReferenceTable");qobject_cast<QDoubleSpinBox*>(table->cellWidget(0,3))->setValue(13);properties->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
             if(child_mode)check(std::abs(get().at("origin_mm")[2].get<double>()-5)<1e-7,"Point OK committed before the parent Curve");
             finish_parent(QDialogButtonBox::Ok);
             if(std::abs(get().at("origin_mm")[2].get<double>()-(13-local_z))>=1e-7)throw std::runtime_error("Reference GUI OK mismatch, child="+std::to_string(child_mode)+" data="+get().dump());run("undo");check(std::abs(get().at("origin_mm")[2].get<double>()-(7-local_z))<1e-7,"Reference GUI edit Undo failed");run("redo");run("save");
@@ -2921,11 +2968,11 @@ static int verify_general_command_console(QApplication& application,AssemblyWork
                 check(item,"Referenced construction is missing from Tree");window.show_tree_item_properties(item);flush();
                 for(auto* dialog:window.findChildren<QDialog*>())if(dialog->isVisible()&&dialog->findChild<QTableWidget*>("primitiveReferenceTable"))return dialog;
                 throw std::runtime_error("Referenced construction Properties did not open");};
-            auto* properties=edit();auto* table=properties->findChild<QTableWidget*>("primitiveReferenceTable");auto* offset=qobject_cast<QDoubleSpinBox*>(table->cellWidget(0,2));
+            auto* properties=edit();auto* table=properties->findChild<QTableWidget*>("primitiveReferenceTable");auto* offset=qobject_cast<QDoubleSpinBox*>(table->cellWidget(0,3));
             check(offset&&offset->isEnabled()&&offset->value()==7,"GUI did not consume CLI reference offset");
             check(window.execute_console_command(QString::fromStdString(commands::Json({{"command","placement.reference.set"},{"arguments",request}}).dump())).code=="editing_in_progress","Reference command interrupted Properties");
             offset->setValue(13);properties->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Cancel)->click();flush();check(get().at("z")==7,"Reference Cancel changed construction");
-            properties=edit();table=properties->findChild<QTableWidget*>("primitiveReferenceTable");qobject_cast<QDoubleSpinBox*>(table->cellWidget(0,2))->setValue(13);properties->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
+            properties=edit();table=properties->findChild<QTableWidget*>("primitiveReferenceTable");qobject_cast<QDoubleSpinBox*>(table->cellWidget(0,3))->setValue(13);properties->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
             check(get().at("z")==13,"Reference GUI OK did not share placement data");run("undo");check(get().at("z")==7,"Reference GUI edit Undo failed");run("redo");run("save");
             std::vector<kernel::BodyResult> cache;const auto saved=document::PartDocument::load(directory/(stem+"-primitive-reference.prtz"),&cache);
             check(saved.find_container(id)&&saved.find_container(id)->placement.references.front().owner_id==owner&&saved.find_container(id)->placement.z==13&&!cache.empty()&&std::abs(cache.back().volume-1000)<1e-6,"Reference native save lost position, source or body");
@@ -2964,11 +3011,11 @@ static int verify_general_command_console(QApplication& application,AssemblyWork
                 check(item,"Referenced construction is missing from Tree");window.show_tree_item_properties(item);flush();
                 for(auto* dialog:window.findChildren<QDialog*>())if(dialog->isVisible()&&dialog->findChild<QTableWidget*>("primitiveReferenceTable"))return dialog;
                 throw std::runtime_error("Referenced construction Properties did not open");};
-            auto* properties=edit();auto* table=properties->findChild<QTableWidget*>("primitiveReferenceTable");auto* offset=qobject_cast<QDoubleSpinBox*>(table->cellWidget(0,2));
+            auto* properties=edit();auto* table=properties->findChild<QTableWidget*>("primitiveReferenceTable");auto* offset=qobject_cast<QDoubleSpinBox*>(table->cellWidget(0,3));
             check(offset&&offset->isEnabled()&&offset->value()==7,"GUI did not consume CLI reference offset");
             check(window.execute_console_command(QString::fromStdString(commands::Json({{"command",prefix+".reference.set"},{"arguments",request}}).dump())).code=="editing_in_progress","Reference command interrupted Properties");
             offset->setValue(13);properties->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Cancel)->click();flush();check(get().at("z")==7,"Reference Cancel changed construction");
-            properties=edit();table=properties->findChild<QTableWidget*>("primitiveReferenceTable");qobject_cast<QDoubleSpinBox*>(table->cellWidget(0,2))->setValue(13);properties->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
+            properties=edit();table=properties->findChild<QTableWidget*>("primitiveReferenceTable");qobject_cast<QDoubleSpinBox*>(table->cellWidget(0,3))->setValue(13);properties->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
             check(get().at("z")==13,"Reference GUI OK did not share placement data");run("undo");check(get().at("z")==7,"Reference GUI edit Undo failed");run("redo");run("save");
             std::vector<kernel::BodyResult> cache;const auto saved=document::PartDocument::load(directory/(name+".prtz"),&cache);
             check(saved.find_container(id)&&saved.find_container(id)->placement.references.front().owner_id==owner&&saved.find_container(id)->placement.z==13&&!cache.empty()&&std::abs(cache.back().volume-(extrusion?30:36*std::acos(-1.0)))<1e-6,"Reference native save lost position, source or body");
@@ -2988,11 +3035,11 @@ static int verify_general_command_console(QApplication& application,AssemblyWork
                 check(item,"Referenced opening is missing from Tree");window.show_tree_item_properties(item);flush();
                 for(auto* dialog:window.findChildren<QDialog*>())if(dialog->isVisible()&&dialog->findChild<QTableWidget*>("primitiveReferenceTable"))return dialog;
                 throw std::runtime_error("Referenced opening Properties did not open");};
-            auto* properties=edit();auto* table=properties->findChild<QTableWidget*>("primitiveReferenceTable");auto* offset=qobject_cast<QDoubleSpinBox*>(table->cellWidget(1,2));
+            auto* properties=edit();auto* table=properties->findChild<QTableWidget*>("primitiveReferenceTable");auto* offset=qobject_cast<QDoubleSpinBox*>(table->cellWidget(1,3));
             check(offset&&offset->isEnabled()&&offset->value()==3,"Opening GUI did not consume CLI lateral reference");
             check(window.execute_console_command(QString::fromStdString(commands::Json({{"command",prefix+".reference.set"},{"arguments",request}}).dump())).code=="editing_in_progress","Opening reference command interrupted Properties");
             offset->setValue(7);properties->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Cancel)->click();flush();check(get().at("x")==3,"Opening reference Cancel changed model");
-            properties=edit();table=properties->findChild<QTableWidget*>("primitiveReferenceTable");qobject_cast<QDoubleSpinBox*>(table->cellWidget(1,2))->setValue(7);properties->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
+            properties=edit();table=properties->findChild<QTableWidget*>("primitiveReferenceTable");qobject_cast<QDoubleSpinBox*>(table->cellWidget(1,3))->setValue(7);properties->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
             check(get().at("x")==7,"Opening reference GUI OK did not share placement data");run("undo");check(get().at("x")==3,"Opening reference GUI Undo failed");run("redo");run("save");
             std::vector<kernel::BodyResult> cache;const auto saved=document::PartDocument::load(directory/(name+".prtz"),&cache);const auto* feature=saved.find_container(id);check(feature,"GUI save lost the opening");
             const auto r=hole?5.:feature->thread.profile_diameter/2;
@@ -3016,11 +3063,11 @@ static int verify_general_command_console(QApplication& application,AssemblyWork
                 check(dialog&&dialog->isVisible(),"Referenced Section Properties did not open");return dialog;
             };
             auto* dialog=edit();auto* table=dialog->findChild<QTableWidget*>("sweepPlacementReferences");
-            check(table,"Section placement reference table is missing");auto* offset=qobject_cast<QDoubleSpinBox*>(table->cellWidget(0,2));
+            check(table,"Section placement reference table is missing");auto* offset=qobject_cast<QDoubleSpinBox*>(table->cellWidget(0,3));
             check(offset&&offset->isEnabled()&&offset->value()==2,"Section Properties lost the CLI reference offset");
             check(window.execute_console_command(QString::fromStdString(commands::Json({{"command","section.reference.set"},{"arguments",request}}).dump())).code=="editing_in_progress","Section reference command interrupted Properties");
             offset->setValue(3);dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Cancel)->click();flush();check(get().at("placement").at("x")==2,"Section reference Cancel changed native placement");
-            dialog=edit();table=dialog->findChild<QTableWidget*>("sweepPlacementReferences");qobject_cast<QDoubleSpinBox*>(table->cellWidget(0,2))->setValue(3);dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
+            dialog=edit();table=dialog->findChild<QTableWidget*>("sweepPlacementReferences");qobject_cast<QDoubleSpinBox*>(table->cellWidget(0,3))->setValue(3);dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
             check(get().at("placement").at("x")==3,"Section GUI OK did not share reference placement");run("undo");check(get().at("placement").at("x")==2,"Section reference GUI Undo failed");run("redo");run("save");
             std::vector<kernel::BodyResult> cache;const auto saved=document::PartDocument::load(directory/(name+".prtz"),&cache);
             check(saved.sections.front().id==id&&saved.sections.front().placement.x==3&&saved.sections.front().placement.references.front().owner_id==owner&&!cache.empty()&&std::abs(cache.back().volume-6000)<1e-6,"Section GUI edit lost reference identity or changed the body");

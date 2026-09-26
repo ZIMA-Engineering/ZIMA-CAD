@@ -36,13 +36,16 @@ font default.
 - Neutral geometry uses `currentColor`, resolved from the application's
   `WindowText` palette role for light and dark themes.
 - Modeling operations use green `#80AA1A`.
-- Reference geometry (Point, Axis, Plane, Sketch and 3D Curve) uses brown
+- Reference geometry (Point, Axis, Plane and 3D Curve) uses brown
   `#AD6E2E`, matching the View reference colour. Mirror uses the same brown axis.
   The displayed document's main Origin point stays black. Construction Point
   markers and all feature, Body and occurrence Origin points use the same brown
   as planes. Marker sizes and hover/confirmation colours are unchanged.
   Sweep path endpoint markers also use brown in their ordinary state, with
   green hover and azure confirmation/reference colours.
+- The Sketch icon, ordinary Sketch curves and Sketch point markers are white.
+  Sketch construction lines and centerlines remain brown; Feature points keep
+  their brown colour so they are distinct from Sketch points.
 - Sheet Metal geometry uses azure `#39C5E8`. Sheet Cut shares Sheet Blank's
   square outline and adds an internal green diagonal. Thread remains green.
 - Unbend reuses the azure Sheet Profile silhouette with a green horizontal
@@ -77,8 +80,8 @@ grips; measured values and stored annotation placement are not rewritten.
 Regression checks cover both label sides and leader directions at three font
 sizes, and compare arrow pixels with/without text in the actual Sketch View.
 
-Ordinary View Sketch and 3D Curve strokes are brown (`#AD6E2E`), one logical
-pixel wide. Properties and Sketcher use white strokes at the existing editing
+Ordinary View Sketch strokes are white and 3D Curve strokes are brown (`#AD6E2E`),
+one logical pixel wide. Properties and Sketcher use white strokes at the existing editing
 width; construction geometry and external references retain their own styles.
 Hover uses interaction green and confirmation uses azure, including Sketch points when the
 owning history container is selected. Finish Sketch uses the green check icon.
@@ -164,7 +167,8 @@ ownership and Tree groups are described in [Show/Erase](DRAWING_SHOW_ERASE.md).
   azure (`#00D1FF`) for every operation, including subtraction and surfaces.
 - Sketcher construction curves and axes are orange (`#FF8C00`). This is an
   intentional distinction from brown (`#AD6E2E`) model/Drawing axes.
-- Origin icons are red (`#FF0000`); hover and selection affect their row
+- Tree Origin icons distinguish document (white `#FFFFFF`), Body (red
+  `#FF0000`) and feature/container (green `#4DD811`); hover and selection affect their row
   background, not the icon's identity colour.
 - A through-all preview has a dashed symbolic terminal outline. Longitudinal
   connectors remain continuous; both terminals are dashed for two-sided

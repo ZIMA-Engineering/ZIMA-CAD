@@ -1,4 +1,5 @@
 #include "workspace_internal.hpp"
+#include <zima/document/placement_surface.hpp>
 
 namespace zima::app {
 using namespace workspace_detail;
@@ -188,6 +189,11 @@ zima::kernel::ViewerMesh AssemblyWorkspaceWindow::selected_container_origins(
 void AssemblyWorkspaceWindow::bind_local_origin_selection(QDialog* dialog) {
     for (auto* object : dialog->findChildren<QObject*>()) {
         if (auto* section = dynamic_cast<zima::ui::ContainerPlacementSection*>(object)) {
+            section->set_surface_resolver([this,dialog](const auto& reference) {
+                return zima::document::placement_surface(reference,
+                    dialog==dynamic_cast<QDialog*>(construction_reference_dialog_)
+                        ? construction_reference_geometry_:primitive_reference_geometry_);
+            });
             section->set_reference_label_resolver([this, dialog](const auto& reference) {
                 return reference_display_label(reference,
                     dialog == dynamic_cast<QDialog*>(construction_reference_dialog_)

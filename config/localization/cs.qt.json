@@ -1,4 +1,9 @@
 {
+  "Combined rotation angle must not exceed 360 degrees.": "Součet úhlů rotace nesmí překročit 360 stupňů.",
+  "Směr": "Směr",
+  "Text": "Text",
+  "Na ploše": "Na ploše",
+  "V ose": "V ose",
   "Typ prvku": "Typ prvku",
   "Vytažení / Rotace": "Vytažení / Rotace",
   "Prohodit strany": "Prohodit strany",

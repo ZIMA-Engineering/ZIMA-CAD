@@ -41,6 +41,10 @@ public:
     using ReferenceLabelResolver = std::function<std::optional<QString>(
         const zima::document::ConstructionReference&)>;
     void set_reference_label_resolver(ReferenceLabelResolver resolver);
+    using SurfaceResolver = std::function<const zima::kernel::SurfaceGeometry*(
+        const zima::document::ConstructionReference&)>;
+    void set_surface_resolver(SurfaceResolver resolver) { surface_resolver_=std::move(resolver); }
+    void set_axis_extent_callback(std::function<void(double)> callback) { axis_extent_=std::move(callback); }
     using ReferenceRequestCallback = std::function<void(std::size_t)>;
     using ChangedCallback = std::function<void()>;
     using HighlightsChangedCallback = std::function<void()>;
@@ -237,6 +241,8 @@ private:
     bool orientation_inherited_{false};
     QString orientation_inherited_label_;
     ReferenceRequestCallback reference_request_;
+    SurfaceResolver surface_resolver_;
+    std::function<void(double)> axis_extent_;
     ChangedCallback changed_;
     HighlightsChangedCallback highlights_changed_;
     OriginSelectionModeCallback origin_selection_mode_;

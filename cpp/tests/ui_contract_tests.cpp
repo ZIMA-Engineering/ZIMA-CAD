@@ -270,12 +270,12 @@ int verify_entry_tables(QApplication& application,QWidget& parent) {
 
 int verify_sketch_line_styles(QApplication& application, QWidget& parent) {
     using namespace zima::viewer;
-    for (int kind = 0; kind < 3; ++kind) {
+    for (int kind = 0; kind < 4; ++kind) {
         auto sketch = zima::sketcher::Sketch::create_default();
         const auto id = kind == 1 ? sketch.add_circle(0, 0, 10)
             : sketch.add_segment(-15, 0, 15, 0);
         if (kind == 2) sketch.set_segment_centerline(id, true);
-        else sketch.set_geometry_construction(id, true);
+        else if(kind!=3)sketch.set_geometry_construction(id, true);
         auto mesh = sketch.viewer_mesh();
         mesh.points.clear(); mesh.axes.clear(); mesh.dimensions.clear();
         MeshView view(&parent);
@@ -284,7 +284,7 @@ int verify_sketch_line_styles(QApplication& application, QWidget& parent) {
         auto camera = view.camera_state();
         camera[0] = 1; camera[1] = camera[2] = camera[3] = 0;
         view.set_camera_state(camera);
-        view.set_active_sketch_owner(sketch.id);
+        if(kind!=3)view.set_active_sketch_owner(sketch.id);
         view.set_selection_contract({CandidateKind::SketchSegment, CandidateKind::SketchCurve});
         view.show(); view.raise();
         application.processEvents();
@@ -322,7 +322,7 @@ int verify_sketch_line_styles(QApplication& application, QWidget& parent) {
             int original = 0, highlighted = 0, common = 0;
             for (int y = 10; y < idle.height() - 10; ++y)
                 for (int x = 10; x < idle.width() - 10; ++x) {
-                    const bool a = colored(idle.pixelColor(x, y), QColor("#AD6E2E"));
+                    const bool a = colored(idle.pixelColor(x, y), QColor(kind==3?"#FFFFFF":"#AD6E2E"));
                     const bool b = colored(frame.pixelColor(x, y), color);
                     original += a; highlighted += b; common += a && b;
                 }
@@ -397,6 +397,11 @@ void verify_sketch_endpoint_dialog(QWidget& parent) {
         dialog->set_reference_geometry(geometry);
         require(dialog->set_reference(0,{{},source.id,"point:"+point},"Endpoint"),"Sketch dialog rejected endpoint");
         require(dialog->set_reference(1,{{},source.id,"arc:"+arc,0,false,"direction",true,true},"Arc tangent"),"Sketch dialog rejected tangent");
+        const auto* direction_table=dialog->findChild<QTableWidget*>("sketchReferenceTable");
+        require(direction_table,"Sketch placement table missing");
+        const auto* direction_type=qobject_cast<QComboBox*>(direction_table->cellWidget(1,2));
+        require(direction_type&&direction_type->currentText()==QObject::tr("Směr")&&!direction_type->isEnabled(),
+            "Direction-only reference has no read-only Type label");
         const auto [pending,placement]=dialog->pending_value();
         require(placement.references.size()==2&&placement.references[1].orientation_only&&
             placement.references[1].orientation_drives_rotation&&placement.references[1].orientation_role=="direction",
@@ -577,18 +582,22 @@ void verify_point_marker_colours(QApplication& application,QWidget& parent) {
     view.set_document_origin("document:origin");
     view.set_reference_visibility(viewer::ReferenceVisibility::Origins,true);
     view.set_reference_visibility(viewer::ReferenceVisibility::Points,true);
-    const std::array<kernel::VertexReference,4> references{{
+    const std::array<kernel::VertexReference,7> references{{
         {"document:origin","origin:point",{}},
         {"feature:origin","origin:point",{}},
         {"document:origin","origin:point","occurrence"},
-        {"construction","point",{}}}};
+        {"construction","point",{}},
+        {"sketch","point:regular",{}},
+        {"sketch","point:construction",{}},
+        {"feature","point:from:end",{}}}};
     for(std::size_t i=0;i<references.size();++i) {
         kernel::ViewerMesh mesh;mesh.vertices={{-1,-1,0},{1,1,0}};
         mesh.points.push_back({{0,0,0},references[i]});mesh.original_references.points=mesh.points;
+        mesh.points.back().construction=i==5;
         view.set_mesh(mesh);view.set_selection_contract({});view.show();view.raise();
         application.processEvents();
         require(framebuffer_contains_color_near(view.grabFramebuffer(),view.size(),{250,180},
-            i==0?QColor(0,0,0):QColor(173,110,46),8),
+            i==0?QColor(0,0,0):(i==4||i==5)?QColor(255,255,255):QColor(173,110,46),8),
             "Main Origin and construction/feature/occurrence points have incorrect base colours");
         view.confirm_reference(references[i].owner_id,references[i].semantic_key,
             references[i].instance_path,viewer::CandidateKind::Vertex);
@@ -670,7 +679,7 @@ int verify_stable_placement_rows() {
     require(placement.set_reference(0, {{}, "replacement", "face", 7, true},
         "Replacement", &error), "Cannot replace reference");
     require(table->item(0, 1)->text().contains("Replacement") &&
-        qobject_cast<QDoubleSpinBox*>(table->cellWidget(0, 2))->value() == 7,
+        qobject_cast<QDoubleSpinBox*>(table->cellWidget(0, 3))->value() == 7,
         "Reference replacement did not refresh its label and offset");
     std::cout << "Stable placement rows and DOF transitions passed\n";
     return 0;
@@ -1157,7 +1166,7 @@ int main(int argc, char* argv[]) {
             require(missing_field&&missing_field->text().isEmpty()&&missing_field->is_missing()&&
                 placement_fields.references().front().semantic_key==source.semantic_key,
                 "Missing reference did not remain repairable in a blank marked field");
-            require(!reference_table->cellWidget(0,3)->findChild<QToolButton*>()->isEnabled(),"Missing reference still enables inspection");
+            require(!reference_table->cellWidget(0,4)->findChild<QToolButton*>()->isEnabled(),"Missing reference still enables inspection");
             geometry.triangle_references.push_back({source.owner_id,source.semantic_key,{}});placement_fields.refresh_reference_table();
             require(!dynamic_cast<zima::ui::ReferenceCellItem*>(reference_table->item(0,1))->is_missing(),"Repaired reference remains marked missing");
             QTreeWidget tree;
@@ -3359,7 +3368,7 @@ int main(int argc, char* argv[]) {
                 "Sequential placement did not move the green active state to "
                 "the newly offered reference field");
         box_reference_dialog->set_active_reference_index(0);
-        auto* box_eye_cell = box_reference_table->cellWidget(0, 3);
+        auto* box_eye_cell = box_reference_table->cellWidget(0, 4);
         auto* box_eye = box_eye_cell == nullptr
             ? nullptr : box_eye_cell->findChild<QToolButton*>();
         require(box_eye != nullptr && box_eye->isEnabled(),
@@ -3811,7 +3820,7 @@ int main(int argc, char* argv[]) {
                 "Point Properties did not disable and solve the constrained Z axis");
         auto* construction_point_offset = qobject_cast<QDoubleSpinBox*>(
             construction_point_dialog->findChild<QTableWidget*>(
-                "constructionReferenceTable")->cellWidget(0, 2));
+                "constructionReferenceTable")->cellWidget(0, 3));
         require(construction_point_offset != nullptr &&
                     construction_point_offset->isEnabled() &&
                     point_x->decimals() == 2 &&
@@ -4430,7 +4439,7 @@ int main(int argc, char* argv[]) {
                     "Sweep dialog discarded CLI placement references on opening");
                 if (count) {
                     auto* rows = dialog->findChild<QTableWidget*>("constructionReferenceTable");
-                    auto* offset = qobject_cast<QDoubleSpinBox*>(rows->cellWidget(0, 2));
+                    auto* offset = qobject_cast<QDoubleSpinBox*>(rows->cellWidget(0, 3));
                     require(offset && offset->value() == 3, "Sweep reference offset is missing");
                     offset->setValue(4);
                     pending = dialog->pending_sweep_value();

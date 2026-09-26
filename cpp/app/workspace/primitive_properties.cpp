@@ -18,7 +18,8 @@ using namespace workspace_detail;
 
 void AssemblyWorkspaceWindow::show_primitive_properties(
     zima::document::FeatureKind feature_kind,
-    const std::string& container_id, bool sheet_metal) {
+    const std::string& container_id, bool sheet_metal,
+    std::optional<zima::document::FeatureType> feature_preset, bool rotation_preset) {
     if(feature_kind==zima::document::FeatureKind::DerivedCopy) {
         show_derived_copy_properties(container_id);return;
     }
@@ -216,6 +217,12 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
         : feature_kind == zima::document::FeatureKind::Extrusion
             ? zima::document::PartDocument::create_extrusion_container(source_sketch_id)
         : zima::document::PartDocument::create_revolution_container(source_sketch_id);
+    if (!edit_mode && !resuming_profile && !pending_profile_edit && feature_preset &&
+        feature_kind==zima::document::FeatureKind::Feature) {
+        initial.feature.type=*feature_preset;
+        if(rotation_preset)for(auto& side:initial.feature.sides)
+            side.operation=zima::document::FeatureSideOperation::Revolution;
+    }
     if (!edit_mode && !resuming_profile) {
         initial.name = tr(initial.name.c_str()).toStdString();
         for (auto* data : {&initial.hole.sketch_serialized, &initial.hole.chamfer_sketch_serialized,
@@ -671,6 +678,10 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
         resolved_plane.reference_valid = true;
         if (preview.feature_kind == zima::document::FeatureKind::Feature) {
             primitive_origin_preview_mesh_=preview_document.feature_result_mesh(preview);
+            for(auto& point:primitive_origin_preview_mesh_->points)
+                if(point.reference.owner_id==preview.id&&point.reference.semantic_key=="point") {
+                    point.always_visible=true;point.label=preview.name;
+                }
             if(preview.feature.type!=zima::document::FeatureType::Point &&
                preview.feature.type!=zima::document::FeatureType::Plane) {
                 zima::document::PartDocument carrier;

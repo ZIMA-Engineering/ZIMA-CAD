@@ -109,6 +109,37 @@ void install_dialog_button_icons() {
 }
 
 QIcon resource_icon(const QString& name, bool surface) {
+    if (name == "origin-document" || name == "origin-feature") {
+        static QHash<QString,QIcon> origins;
+        if (origins.contains(name)) return origins.value(name);
+        QIcon icon;
+        const auto source = resource_icon("origin");
+        const QColor color(name == "origin-document" ? "#FFFFFF" : "#4DD811");
+        for (const int size : {16,18,20,24,32,48}) {
+            auto pixmap = source.pixmap(size,size);
+            QPainter painter(&pixmap);
+            painter.setCompositionMode(QPainter::CompositionMode_SourceIn);
+            painter.fillRect(pixmap.rect(),color);
+            painter.end();
+            icon.addPixmap(pixmap);
+            icon.addPixmap(pixmap,QIcon::Active);
+            icon.addPixmap(pixmap,QIcon::Selected);
+        }
+        origins.insert(name,icon);
+        return icon;
+    }
+    if(name=="protrusion-revolve") {
+        static QHash<bool,QIcon> combined;
+        if(combined.contains(surface))return combined.value(surface);
+        QIcon icon;const auto first=resource_icon("protrusion",surface),second=resource_icon("revolve",surface);
+        for(const int size:{16,18,20,24,32,48}) {
+            QPixmap pixmap(2*size,size);pixmap.fill(Qt::transparent);
+            QPainter painter(&pixmap);
+            painter.drawPixmap(0,0,first.pixmap(size,size));
+            painter.drawPixmap(size,0,second.pixmap(size,size));painter.end();icon.addPixmap(pixmap);
+        }
+        combined.insert(surface,icon);return icon;
+    }
     if(surface) {
         QIcon icon;
         const auto base=resource_icon(name);

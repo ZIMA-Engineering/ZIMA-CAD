@@ -360,7 +360,7 @@ QTreeWidgetItem* add_origin_tree_item(QTreeWidgetItem* parent,
     const zima::assembly::InstancePath& instance_path) {
     auto* origin = new QTreeWidgetItem(parent, {
         assembly ? QObject::tr("Počátek sestavy") : QObject::tr("Počátek dílu")});
-    origin->setIcon(0, resource_icon("origin"));
+    origin->setIcon(0, resource_icon("origin-document"));
     origin->setData(0, Qt::UserRole,
         QString::fromStdString(document_id + ":origin"));
     origin->setData(0, Qt::UserRole + 1,

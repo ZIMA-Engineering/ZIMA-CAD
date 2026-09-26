@@ -1,5 +1,6 @@
 #include <zima/ui/numeric_value_lock.hpp>
 #include <zima/document/placement_reference_assignment.hpp>
+#include <zima/document/placement_surface.hpp>
 #include "zima/ui/container_placement_section.hpp"
 #include <zima/ui/properties_subwindow.hpp>
 
@@ -79,10 +80,10 @@ ContainerPlacementSection::ContainerPlacementSection(
     placement_heading->setFont(heading_font);
     layout->addWidget(placement_heading);
 
-    reference_table_ = new QTableWidget(0, 4, parent_widget_);
+    reference_table_ = new QTableWidget(0, 5, parent_widget_);
     reference_table_->setObjectName("containerPlacementReferenceTable");
     reference_table_->setHorizontalHeaderLabels(
-        {QString(), tr("Reference"), tr("Odsazení"), QString()});
+        {QString(), tr("Reference"), tr("Typ"), tr("Odsazení"), QString()});
     reference_table_->horizontalHeader()->setSectionResizeMode(
         0, QHeaderView::ResizeToContents);
     reference_table_->horizontalHeader()->setSectionResizeMode(
@@ -91,6 +92,8 @@ ContainerPlacementSection::ContainerPlacementSection(
         2, QHeaderView::ResizeToContents);
     reference_table_->horizontalHeader()->setSectionResizeMode(
         3, QHeaderView::ResizeToContents);
+    reference_table_->horizontalHeader()->setSectionResizeMode(
+        4, QHeaderView::ResizeToContents);
     reference_table_->verticalHeader()->setDefaultSectionSize(34);
     reference_table_->verticalHeader()->setMinimumSectionSize(34);
     reference_table_->setFixedHeight(
@@ -853,19 +856,58 @@ void ContainerPlacementSection::refresh_reference_table() {
                 notify_changed();
             },populated);
         reference_offset_fields_[index] = offset;
-        reference_table_->setCellWidget(static_cast<int>(index), 2, offset);
+        reference_table_->setCellWidget(static_cast<int>(index), 3, offset);
+        auto* type=new QComboBox(reference_table_);
+        type->setObjectName(QStringLiteral("placementReferenceType%1").arg(index));
+        const auto* surface=populated&&surface_resolver_?surface_resolver_(references_[index]):nullptr;
+        if(surface || (populated && references_[index].supports_offset)) {
+            type->addItem(tr("Na ploše"),false);
+            if(surface && zima::document::placement_surface_has_axis(*surface))type->addItem(tr("V ose"),true);
+            type->setCurrentIndex(type->findData(references_[index].use_axis));
+        } else if(populated && (references_[index].orientation_only || references_[index].orientation_drives_rotation)) {
+            type->addItem(tr("Směr"));
+        }
+        type->setEnabled(type->count()>0&&!missing&&type->currentData().isValid());
+        reference_table_->setCellWidget(static_cast<int>(index),2,type);
+        connect(type,&QComboBox::currentIndexChanged,this,[this,index,type](int selected) {
+            if(selected<0||index>=references_.size()||!type->currentData().isValid())return;
+            auto& ref=references_[index];
+            ref.use_axis=type->currentData().toBool();
+            ref.supports_offset=!ref.use_axis;
+            if(ref.use_axis)ref.offset=0;
+            for(auto& oriented:orientation_references_)
+                if(oriented.owner_id==ref.owner_id&&oriented.semantic_key==ref.semantic_key&&
+                    oriented.instance_path==ref.instance_path) {
+                    oriented.use_axis=ref.use_axis;oriented.supports_offset=ref.supports_offset;
+                    oriented.offset=ref.offset;
+                }
+            // Seed the freely movable axial position from the full face extent.
+            // This is an initial value, not an extra constraint on that station.
+            if(ref.use_axis && index==0 && surface_resolver_) {
+                if(const auto* s=surface_resolver_(ref)) {
+                    const double t=(s->axial_min+s->axial_max)*.5;
+                    const std::array values{s->origin.x+s->axis.x*t,
+                        s->origin.y+s->axis.y*t,s->origin.z+s->axis.z*t};
+                    for(std::size_t i=0;i<3;++i){QSignalBlocker block(translation_[i]);translation_[i]->setValue(values[i]);}
+                    if(axis_extent_)axis_extent_(s->axial_max-s->axial_min);
+                }
+            }
+            reference_offset_fields_[index]->setEnabled(!ref.use_axis);
+            {QSignalBlocker block(reference_offset_fields_[index]);reference_offset_fields_[index]->setValue(ref.offset);}
+            notify_changed();
+        });
         auto* inspection = zima::ui::build_reference_inspection_button(
             populated && !missing, highlighted_reference_rows_.contains(index),
             [this, index](bool) { toggle_reference_highlight(index); });
         reference_inspection_buttons_[index] = inspection;
-        reference_table_->setCellWidget(static_cast<int>(index), 3,
+        reference_table_->setCellWidget(static_cast<int>(index), 4,
             zima::ui::centered_cell_widget(inspection));
         const int header_width = reference_table_->horizontalHeader()
             ->fontMetrics().horizontalAdvance(tr("Odsazení")) + 14;
         reference_table_->horizontalHeader()->setSectionResizeMode(
-            2, QHeaderView::Fixed);
+            3, QHeaderView::Fixed);
         reference_table_->horizontalHeader()->resizeSection(
-            2, std::max(spin_width + 2, header_width));
+            3, std::max(spin_width + 2, header_width));
         zima::ui::set_reference_row_populated(indicator, populated);
     }
     apply_reference_visual_states();

@@ -11,6 +11,7 @@
 #include <zima/workspace/reference_sources.hpp>
 #include <zima/workspace/sketch_properties.hpp>
 #include <zima/document/sketch_placement.hpp>
+#include <zima/document/placement_json.hpp>
 #include <chrono>
 #include <iostream>
 #include <numbers>
@@ -56,6 +57,59 @@ void curve_matrix() {
             g.points.pop_back();
         }
     }
+}
+void surface_placement() {
+    kernel::ViewerReferenceGeometry g;
+    auto surface=std::make_shared<kernel::SurfaceGeometry>();
+    surface->kind=kernel::SurfaceGeometry::Kind::Cylinder;
+    surface->origin={3,-2,7};surface->radius=5;surface->axial_min=0;surface->axial_max=20;
+    // Deliberately unrelated displayed triangle: analytical geometry owns
+    // the constraint, including outside the face's axial trim.
+    g.vertices={{100,0,0},{100,1,0},{100,0,1}};g.triangles={0,1,2};
+    g.triangle_references.push_back({"source","face",{},surface});
+    document::ConstructionReference ref{{},"source","face",0,true,"front",true};
+    for(bool reversed:{false,true})for(bool flip:{false,true})for(double offset:{0.0,-0.0,2.0,-2.0}) {
+        surface->reversed=reversed;ref.flip=flip;ref.offset=offset;
+        document::Placement p;p.x=3;p.y=8;p.z=50;p.references={ref};
+        check(document::resolve_placement(p,g),"Cylinder placement failed");
+        near(p.x,3);near(p.y,-2+5+(reversed?-offset:offset));near(p.z,50);
+        near(front(p).y,reversed!=flip?-1:1);
+        check(document::point_constraint_remaining_dof(p.references,g,{p.x,p.y,p.z})==2,"Surface must leave two translations");
+        check(document::orientation_constraint_remaining_dof(p.references,g,true,{p.x,p.y,p.z})==1,"Surface must leave one rotation");
+        p.x=13;p.y=-2;
+        check(document::resolve_placement(p,g),"Cylinder movement failed");
+        near(front(p).x,reversed!=flip?-1:1);
+        auto encoded=nlohmann::json(p);auto restored=encoded.get<document::Placement>();
+        check(restored.references==p.references,"Surface side or mode lost in JSON");
+        check(std::signbit(restored.references[0].offset)==std::signbit(offset),"Signed zero lost");
+    }
+    surface->reversed=false;ref.flip=false;ref.offset=0;ref.use_axis=true;ref.supports_offset=false;
+    document::Placement p;p.x=100;p.y=40;p.z=50;p.references={ref};
+    check(document::resolve_placement(p,g),"Cylinder axis placement failed");
+    near(p.x,3);near(p.y,-2);near(p.z,50);near(front(p).z,1);
+    check(document::point_constraint_remaining_dof(p.references,g,{p.x,p.y,p.z})==1,"Axis must leave one translation");
+    check(nlohmann::json(p).get<document::Placement>().references[0].use_axis,"Axis mode lost");
+    auto plane=std::make_shared<kernel::SurfaceGeometry>();plane->origin={3,-2,0};plane->axis={1,0,0};plane->radial={0,1,0};
+    g.triangle_references.push_back({"plane","face",{},plane});g.triangles.insert(g.triangles.end(),{0,1,2});
+    ref.use_axis=false;ref.supports_offset=true;p.references={ref,{{},"plane","face",0,true}};
+    p.x=8;p.y=-2;
+    check(document::resolve_placement(p,g),"Cylinder/plane intersection failed at singular initial tangent");
+    near(p.x,3);near(std::hypot(p.x-3,p.y+2),5);near(p.z,50);
+    const auto valid=p;plane->origin.x=30;
+    check(!document::resolve_placement(p,g),"Contradictory surface references were accepted");
+    near(p.x,valid.x);near(p.y,valid.y);near(p.z,valid.z);
+    g.triangle_references.pop_back();g.triangles.resize(3);
+    surface->kind=kernel::SurfaceGeometry::Kind::Cone;surface->semi_angle=std::atan(.5);
+    ref.use_axis=false;ref.supports_offset=true;p.references={ref};p.x=13;p.y=-2;p.z=17;
+    check(document::resolve_placement(p,g),"Cone placement failed");
+    near(std::hypot(p.x-3,p.y+2),5+.5*(p.z-7));
+    const auto cone_normal=front(p);near(cone_normal.x,1/std::sqrt(1.25));near(cone_normal.z,-.5/std::sqrt(1.25));
+    g.triangle_references[0].surface.reset();
+    g.vertices.insert(g.vertices.end(),{{0,0,0},{1,0,0},{0,1,0}});
+    g.triangles.insert(g.triangles.end(),{3,4,5});g.triangle_references.push_back({"source","face",{}});
+    const auto before=p;
+    check(!document::resolve_placement(p,g),"Unsupported curved face accepted as first triangle");
+    near(p.x,before.x);near(p.y,before.y);near(p.z,before.z);
 }
 void history() {
     auto doc=document::PartDocument::create_default();
@@ -519,7 +573,7 @@ void sketch_endpoint_assignments(const std::filesystem::path& file) {
 }
 int main(int argc,char** argv){try{
     if(argc>1){saved_endpoint_study(argv[1]);return 0;}
-    verify();curve_matrix();history();boundaries();third_direction();ordered_frames();
+    surface_placement();verify();curve_matrix();history();boundaries();third_direction();ordered_frames();
     const auto root=std::filesystem::temp_directory_path();
     const auto prefix="zima-curve-"+document::PartDocument::create_default().document_id;
     const auto native=root/(prefix+".prtz"),solid=root/(prefix+"-solid.prtz");

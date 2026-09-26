@@ -1,5 +1,11 @@
 # Cylindrical face axis
 
+Current creation uses **Feature > Axis** with the shared **On axis** reference
+mode. The separate creation action has been removed; see
+[Surface placement](SURFACE_PLACEMENT.md). The following describes the existing
+face-derived construction records and their resolver, retained for editing those
+records. Assembly coaxial mates remain unchanged.
+
 The explicit **Cylindrical face axis** command creates a construction Axis
 from one exact cylindrical source face. It is useful for imported STEP/IGES
 geometry and also accepts native cylindrical faces. Existing automatically

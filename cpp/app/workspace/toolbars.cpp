@@ -306,11 +306,12 @@ void AssemblyWorkspaceWindow::rebuild_application_toolbar() {
                     part->session.document().history_order.empty())) { add_symbol_group(); return; }
         }
         add_command(selection_action_);
-        for (auto* action : {cylinder_axis_action_, curve_3d_action_}) {
-            add_command(action);
-        }
-        add_group_separator();
         if(auto* feature=findChild<QAction*>("featurePrototypeAction"))add_command(feature);
+        add_group_separator();
+        for(int i=0;i<6;++i)
+            if(auto* shortcut=findChild<QAction*>(QStringLiteral("featureShortcut%1Action").arg(i)))add_command(shortcut);
+        add_group_separator();
+        add_command(curve_3d_action_);
         add_command(sweep2d_action_);
         add_command(sweep_3d_action_);
         add_command(helical_sweep_action_);
@@ -335,7 +336,7 @@ void AssemblyWorkspaceWindow::rebuild_application_toolbar() {
         add_command(selection_action_);
         add_command(insert_action_);
         add_group_separator();
-        for (auto* action : {construction_point_action_, construction_axis_action_, cylinder_axis_action_,
+        for (auto* action : {construction_point_action_, construction_axis_action_,
                              construction_plane_action_}) {
             add_command(action);
         }

@@ -1,4 +1,5 @@
 #include <zima/document/feature_serialization.hpp>
+#include <zima/document/feature_rotation_span.hpp>
 #include <nlohmann/json.hpp>
 #include <cmath>
 #include <array>
@@ -67,6 +68,11 @@ void validate_feature_parameters(const FeatureParameters& p) {
     static_cast<void>(name(p.result_type,results));
     static_cast<void>(name(p.thin_mode,thin_modes));
     if(!std::isfinite(p.profile_plane_offset)||!positive(p.thin_thickness))invalid();
+    const auto first=p.effective_side(0),second=p.effective_side(1);
+    if(first.operation==FeatureSideOperation::Revolution&&second.operation==FeatureSideOperation::Revolution&&
+        first.rotation_extent!=FeatureRotationExtent::UpTo&&second.rotation_extent!=FeatureRotationExtent::UpTo)
+        validate_feature_rotation_span(first.rotation_extent==FeatureRotationExtent::Full?360:first.angle_degrees,
+            second.rotation_extent==FeatureRotationExtent::Full?360:second.angle_degrees);
     for(const auto& side:p.sides) {
         static_cast<void>(name(side.operation,operations));
         static_cast<void>(name(side.extrusion_extent,conditions));
@@ -105,6 +111,7 @@ nlohmann::json serialize_feature_parameters(const FeatureParameters& p) {
         {"result_type",name(p.result_type,results)},{"thin_thickness",p.thin_thickness},
         {"thin_mode",name(p.thin_mode,thin_modes)},{"symmetric",p.symmetric},
         {"origin_centerline",p.origin_centerline},{"centroid_centerline",p.centroid_centerline},
+        {"show_point",p.show_point},{"show_text",p.show_text},
         {"sides",std::move(sides)}};
 }
 
@@ -123,6 +130,8 @@ FeatureParameters load_feature_parameters(const nlohmann::json& source) {
         p.symmetric=source.at("symmetric").get<bool>();
         p.origin_centerline=source.at("origin_centerline").get<bool>();
         p.centroid_centerline=source.at("centroid_centerline").get<bool>();
+        p.show_point=source.at("show_point").get<bool>();
+        p.show_text=source.at("show_text").get<bool>();
         const auto& sides=source.at("sides");
         if(!sides.is_array()||sides.size()!=2)invalid();
         for(std::size_t i=0;i<2;++i) {

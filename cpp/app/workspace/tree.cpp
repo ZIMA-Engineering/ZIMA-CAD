@@ -101,7 +101,7 @@ void AssemblyWorkspaceWindow::populate_sketch_tree(
     }
     auto* origin = new QTreeWidgetItem(tree_, {
         tr("Počátek kontejneru — %1").arg(QString::fromStdString(sketch.name))});
-    origin->setIcon(0, resource_icon("origin"));
+    origin->setIcon(0, resource_icon("origin-feature"));
     origin->setFlags(Qt::ItemIsEnabled);
     const std::array origin_children{
         std::pair{QObject::tr("Lokální počátek"), "point"},
@@ -472,7 +472,8 @@ void AssemblyWorkspaceWindow::add_pending_tree_item(QTreeWidgetItem* parent,
     } else {
         row->setIcon(0, resource_icon("sketch"));
     }
-    row->setExpanded(true);
+    if (!feature || feature->feature_kind != zima::document::FeatureKind::Feature)
+        row->setExpanded(true);
 }
 
 void AssemblyWorkspaceWindow::add_part_tree_children(
@@ -517,7 +518,7 @@ void AssemblyWorkspaceWindow::add_part_tree_children(
         tree_reference_state_.apply(item,document.document_id,container.id,issue);
         for (int child=0;child<item->childCount();++child) {
             auto* row=item->child(child);
-            if (row->data(0,Qt::UserRole+3).toString()=="part-container-entity")
+            if (row->data(0,Qt::UserRole+3).toString()=="part-container-entity" || row->data(0,Qt::UserRole+3)=="feature-operation")
                 tree_reference_state_.apply(row,document.document_id,container.id,issue);
         }
         if (part && !part->session.calculated_boundaries().empty()) {
@@ -730,6 +731,7 @@ void AssemblyWorkspaceWindow::add_part_tree_children(
             }
             if (!definition) { shade_downstream(row, index); continue; }
             auto* origin = add_origin_tree_item(row, id, false, construction_path);
+            origin->setIcon(0, resource_icon("origin"));
             origin->setText(0, definition->derived_copy ? (definition->derived_copy->pattern?tr("Počátek Pole"):tr("Počátek Zrcadla")) : tr("Počátek tělesa"));
             if(definition->derived_copy) {
                 const auto* source=graph.find(definition->derived_copy->source_id);
@@ -892,6 +894,7 @@ void AssemblyWorkspaceWindow::add_snapshot_tree_children(
         if(!component.derived_source_id.empty()) {
             item->setIcon(0,resource_icon(component.pattern_group?"pattern":"mirror"));
             auto* origin=add_origin_tree_item(item,component.occurrence_id,false,parent_path);
+            origin->setIcon(0, resource_icon("origin-feature"));
             origin->setText(0,component.pattern_group?tr("Počátek Pole"):tr("Počátek Zrcadla"));
         }
         item->setData(0, Qt::UserRole, QString::fromStdString(component.occurrence_id));

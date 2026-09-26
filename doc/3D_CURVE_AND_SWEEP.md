@@ -3,6 +3,11 @@
 A 3D Curve retains original construction points with persistent IDs. Table numbers
 are path positions, not reference identities.
 
+A new point being entered does not extend the route preview until its first
+reference is supplied. Removing all of that draft point's references hides its
+connection again. Existing points, including points defined numerically, remain
+visible when edited. Cancel discards the draft without adding it to the curve.
+
 The point/direction table uses the shared reference-cell presentation, with a
 leading arrow or remove control and independent inspection eyes beside Point
 and Direction Axis. Inspection highlights only the selected point or local axis

@@ -10,6 +10,12 @@ using namespace workspace_detail;
 
 
 void AssemblyWorkspaceWindow::show_tree_item_properties(QTreeWidgetItem* item) {
+    if(item&&item->data(0,Qt::UserRole+3)=="feature-operation") {
+        const int side=item->data(0,Qt::UserRole+5).toInt();
+        show_tree_item_properties(item->parent());
+        if(properties_dialog_)if(auto* mode=properties_dialog_->findChild<QComboBox*>(QString("featureSideMode%1").arg(side)))mode->setFocus();
+        return;
+    }
     if(item&&item->data(0,Qt::UserRole+3).toString().startsWith("body-properties")) {
         const auto role=item->data(0,Qt::UserRole+3)=="body-properties-origin"?Qt::UserRole+5:Qt::UserRole;
         show_mass_properties(item->data(0,role).toString().toStdString());return;

@@ -1,4 +1,9 @@
 {
+  "Combined rotation angle must not exceed 360 degrees.": "Сумма углов вращения не должна превышать 360 градусов.",
+  "Směr": "Направление",
+  "Text": "Текст",
+  "Na ploše": "На поверхности",
+  "V ose": "На оси",
   "Typ prvku": "Тип элемента",
   "Vytažení / Rotace": "Вытягивание / Вращение",
   "Prohodit strany": "Поменять стороны",

@@ -43,6 +43,9 @@ struct ConstructionReference {
     bool offset_locked{};
     // Transient distance measured before confirming a newly selected reference.
     std::optional<double> measured_offset;
+    // Interpret an original analytical face as its symmetry axis. The source
+    // face identity remains unchanged; ordinary references retain their locus.
+    bool use_axis{};
     bool operator==(const ConstructionReference&) const = default;
 };
 

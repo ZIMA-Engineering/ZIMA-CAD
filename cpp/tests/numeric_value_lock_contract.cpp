@@ -88,7 +88,7 @@ int verify_numeric_value_locks(QApplication& application,QWidget& parent) {
     document::ConstructionReference reference{"","plane-a","face",0,true};
     reference.measured_offset=document::measure_placement_reference_offset(reference,geometry,{12,3,4});
     check(reference.measured_offset&&std::abs(*reference.measured_offset-12)<1e-10,"Reference measurement has the wrong distance/sign");
-    auto offset=[&]{return qobject_cast<QDoubleSpinBox*>(section.reference_table()->cellWidget(0,2));};
+    auto offset=[&]{return qobject_cast<QDoubleSpinBox*>(section.reference_table()->cellWidget(0,3));};
     check(offset()&&action(offset()),"Empty reference row has no capture lock");
     action(offset())->trigger();QString error;
     check(section.set_reference(0,reference,"Plane A",&error),"Capture reference was rejected");
@@ -111,7 +111,7 @@ int verify_numeric_value_locks(QApplication& application,QWidget& parent) {
     check(document::resolve_placement(resolved,geometry)&&std::abs(resolved.x-5)<1e-8&&std::abs(resolved.y-6)<1e-8&&std::abs(resolved.z-7)<1e-8,"Point coincidence did not snap onto the point");
     reference.owner_id="plane-a";reference.offset_locked=true;reference.measured_offset.reset();
     section.initialize_from_references({{},reference},[](const auto&){return QString("Plane");});section.refresh_reference_table();
-    auto* surviving=qobject_cast<QDoubleSpinBox*>(section.reference_table()->cellWidget(1,2));
+    auto* surviving=qobject_cast<QDoubleSpinBox*>(section.reference_table()->cellWidget(1,3));
     check(surviving->property("zimaValueLockKey")=="placement:reference_offset:0"&&!section.set_reference_offset(0,9),"An empty row shifted the surviving reference's lock identity");
     action(surviving)->trigger();check(section.set_reference_offset(0,9)&&surviving->value()==9,"Surviving reference could not be edited after unlocking");
     assembly::PartOccurrence component;component.occurrence_id="component";component.name="Component";component.value_locks={"placement:x"};

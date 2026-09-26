@@ -12,8 +12,9 @@ OK/Cancel transaction. The second length is visible only for Two sides. Both
 lengths support numeric locks and inline dimensions. Changing an extent does not
 change the container placement, orientation references or axis direction.
 Existing placement shortcuts that derive display length from two bounding planes
-continue to derive that length. Axis of cylindrical surface remains a separate
-command with its existing automatically calculated span and point visibility.
+continue to derive that length. New face-based axes use Feature > Axis with the
+[On axis reference mode](SURFACE_PLACEMENT.md); existing face-derived construction
+records retain their automatically calculated span and point visibility.
 
 The finite endpoints use the persisted Axis entity as their parent and the
 semantic roles `axis:point:start` and `axis:point:end`. The native construction

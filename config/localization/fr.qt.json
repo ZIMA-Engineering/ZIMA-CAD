@@ -1,4 +1,9 @@
 {
+  "Combined rotation angle must not exceed 360 degrees.": "La somme des angles de révolution ne doit pas dépasser 360 degrés.",
+  "Směr": "Direction",
+  "Text": "Texte",
+  "Na ploše": "Sur la surface",
+  "V ose": "Sur l’axe",
   "Typ prvku": "Type d’élément",
   "Vytažení / Rotace": "Extrusion / Révolution",
   "Prohodit strany": "Permuter les côtés",

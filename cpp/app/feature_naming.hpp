@@ -12,7 +12,7 @@ inline QString feature_name_prefix(document::FeatureType type) {
         case FeatureType::Axis:return QObject::tr("Osa");
         case FeatureType::Plane:return QObject::tr("Rovina");
         case FeatureType::Sketch:return QObject::tr("Skica");
-        case FeatureType::Modeling:return QObject::tr("Prvek");
+        case FeatureType::Modeling:return QObject::tr("Vytažení");
     }
     return {};
 }

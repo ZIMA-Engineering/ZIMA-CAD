@@ -923,7 +923,7 @@ void AssemblyWorkspaceWindow::refresh_scene() {
         for (auto* action : {thread_action_, holes_action_, shaft_thread_action_, drill_point_action_, construction_point_action_,
                              curve_3d_action_,
                              sweep_3d_action_, helical_sweep_action_, sweep2d_action_,
-                             construction_axis_action_, cylinder_axis_action_, construction_plane_action_,
+                             construction_axis_action_, construction_plane_action_,
                              sketch_action_, extrusion_action_, revolution_action_,
                              fillet_action_, chamfer_action_, shell_action_,
                              regenerate_part_action_,
@@ -1758,7 +1758,6 @@ void AssemblyWorkspaceWindow::refresh_scene() {
         helical_sweep_action_->setEnabled(true);
         sweep2d_action_->setEnabled(true);
         construction_axis_action_->setEnabled(true);
-        cylinder_axis_action_->setEnabled(true);
         construction_plane_action_->setEnabled(true);
         extrusion_action_->setEnabled(true);
         if(auto* feature=findChild<QAction*>("featurePrototypeAction"))feature->setEnabled(workspace_.open_part(workspace_.active_document_id())!=nullptr);
@@ -1860,7 +1859,16 @@ void AssemblyWorkspaceWindow::refresh_scene() {
             ? *derived_copy_assembly_preview_ : original;
         const bool active = workspace_.active_document_id() == source.document_id;
         zima::kernel::ViewerMesh mesh;
-        if (construction_parameter_preview_ && active) {
+        if (construction_parameter_preview_ && construction_preview_mesh_ && active &&
+            !construction_parameter_preview_->parent_construction_id.empty()) {
+            // The nested Point preview already contains the pending parent
+            // curve and all construction geometry. Keep the Assembly scene,
+            // but replace its construction layer with that resolved preview.
+            auto displayed = source;
+            displayed.constructions.clear();
+            mesh = displayed.build_scene();
+            append_mesh(mesh, *construction_preview_mesh_);
+        } else if (construction_parameter_preview_ && active) {
             auto displayed = source;
             auto* existing = displayed.find_construction(
                 construction_parameter_preview_->id);
@@ -2260,7 +2268,6 @@ void AssemblyWorkspaceWindow::refresh_scene() {
     helical_sweep_action_->setEnabled(active_part != nullptr);
     sweep2d_action_->setEnabled(active_part != nullptr);
     construction_axis_action_->setEnabled(supports_constructions);
-    cylinder_axis_action_->setEnabled(supports_constructions);
     construction_plane_action_->setEnabled(supports_constructions);
     const bool active_assembly_owner =
         workspace_.open_assembly(workspace_.active_document_id()) != nullptr;

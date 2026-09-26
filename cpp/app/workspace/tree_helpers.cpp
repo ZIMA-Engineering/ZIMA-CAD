@@ -10,7 +10,7 @@ QTreeWidgetItem* add_construction_origin_tree_item(QTreeWidgetItem* parent,
     const zima::assembly::InstancePath& instance_path,
     bool point_kind_container) {
     auto* origin = new QTreeWidgetItem(parent, {QObject::tr("Počátek kontejneru")});
-    origin->setIcon(0, resource_icon("origin"));
+    origin->setIcon(0, resource_icon("origin-feature"));
     origin->setData(0, Qt::UserRole, QString::fromStdString(container_origin.id));
     origin->setData(0, Qt::UserRole + 1,
         QString::fromStdString(instance_path.encoded()));
@@ -94,7 +94,15 @@ QString feature_icon_name(const zima::document::HistoryContainer& feature) {
             case FeatureType::Axis:return QStringLiteral("axis");
             case FeatureType::Plane:return QStringLiteral("plane");
             case FeatureType::Sketch:return QStringLiteral("sketch");
-            case FeatureType::Modeling:return QStringLiteral("protrusion");
+            case FeatureType::Modeling: {
+                bool extrusion=false,rotation=false;
+                for(std::size_t side=0;side<2;++side) {
+                    const auto op=feature.feature.effective_side(side).operation;
+                    extrusion|=op==zima::document::FeatureSideOperation::Extrusion;
+                    rotation|=op==zima::document::FeatureSideOperation::Revolution;
+                }
+                return extrusion?(rotation?"protrusion-revolve":"protrusion"):(rotation?"revolve":"sketch");
+            }
         }
     }
     return feature_icon_name(feature.feature_kind);
@@ -246,7 +254,9 @@ void add_history_container_tree_children(QTreeWidgetItem* parent,
             add_hole_part(QObject::tr("Závitový drát"), "cylinder", "thread");
         }
     }
-    if (owned_sketch != nullptr) {
+    if (owned_sketch != nullptr &&
+        (container.feature_kind != zima::document::FeatureKind::Feature ||
+         container.feature.uses_sketch())) {
         auto* plane = new QTreeWidgetItem(parent, {QObject::tr("Rovina")});
         plane->setIcon(0, resource_icon("plane"));
         plane->setData(0, Qt::UserRole,
@@ -261,7 +271,28 @@ void add_history_container_tree_children(QTreeWidgetItem* parent,
         sketch->setData(0, Qt::UserRole + 3,
             assembly_owned ? "assembly-sketch" : "part-sketch");
     }
-    if (container.feature_kind == zima::document::FeatureKind::Sketch) return;
+    if (container.feature_kind == zima::document::FeatureKind::Sketch ||
+        (container.feature_kind == zima::document::FeatureKind::Feature &&
+         container.feature.type == zima::document::FeatureType::Sketch)) return;
+    if(container.feature_kind==zima::document::FeatureKind::Feature &&
+        container.feature.type==zima::document::FeatureType::Modeling) {
+        for(std::size_t side=0;side<(container.feature.symmetric?1u:2u);++side) {
+            const auto operation=container.feature.effective_side(side).operation;
+            if(operation==zima::document::FeatureSideOperation::None)continue;
+            const bool rotation=operation==zima::document::FeatureSideOperation::Revolution;
+            const auto name=rotation?QObject::tr("Rotace"):QObject::tr("Vytažení");
+            const auto direction=container.feature.symmetric?QObject::tr("Obě strany"):
+                side==0?QObject::tr("Strana 1"):QObject::tr("Strana 2");
+            auto* row=new QTreeWidgetItem(parent,{name+QStringLiteral(" — ")+direction});
+            row->setIcon(0,resource_icon(rotation?"revolve":"protrusion",container.is_surface_result()));
+            row->setData(0,Qt::UserRole,QString::fromStdString(container.id));
+            row->setData(0,Qt::UserRole+1,QString::fromStdString(instance_path.encoded()));
+            row->setData(0,Qt::UserRole+3,"feature-operation");
+            row->setData(0,Qt::UserRole+6,QString::fromStdString(container.id));
+            row->setData(0,Qt::UserRole+5,static_cast<int>(side));
+        }
+        return;
+    }
     const QString feature_label = container.feature_kind ==
             zima::document::FeatureKind::Thread
         ? QObject::tr("Plochy závitu")

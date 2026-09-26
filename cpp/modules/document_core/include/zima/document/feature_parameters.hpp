@@ -39,6 +39,8 @@ struct FeatureParameters {
     bool symmetric{};
     bool origin_centerline{};
     bool centroid_centerline{};
+    bool show_point{true};
+    bool show_text{true};
     // UI Side 1 is End; Side 2 is Start. Order never changes with geometry.
     std::array<FeatureSideParameters,2> sides{{
         {FeatureSideOperation::Extrusion}, {FeatureSideOperation::None}}};

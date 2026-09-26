@@ -18,8 +18,9 @@ zima::kernel::ViewerMesh PartDocument::feature_result_mesh(const HistoryContaine
     mesh.points.back().display_owner_id=feature.id;
     mesh.original_references.points=mesh.points;
     // Keep the persisted point available to reference-taking commands, while
-    // ordinary modeling results show their origin dot only on interaction.
-    mesh.points.back().always_visible=feature.feature.type!=FeatureType::Modeling;
+    // visibility switches affect presentation only, never reference identity.
+    mesh.points.back().always_visible=feature.feature.show_point;
+    if(!feature.feature.show_text)mesh.points.back().label.clear();
     if(feature.feature.type==FeatureType::Axis) {
         const double forward=feature.feature.effective_side(0).length;
         const double reverse=feature.feature.effective_side(1).length;

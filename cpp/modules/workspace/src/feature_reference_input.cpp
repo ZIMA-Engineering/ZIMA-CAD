@@ -18,7 +18,7 @@ document::HistoryContainer assign_feature_reference(document::HistoryContainer v
     const bool face=std::ranges::any_of(geometry.triangle_references,[&](const auto& ref){return ref.owner_id==source.owner_id&&ref.semantic_key==source.semantic_key&&ref.instance_path==source.instance_path;});
     if(!point&&!axis&&!edge&&!face)reject("reference_not_found","The original feature placement reference is unavailable.");
     if((index>=3||!face)&&source.offset!=0)reject("parameter_not_editable","The placement parameter is unknown, constrained or locked.");
-    source.supports_offset=face;source.orientation_only=false;source.orientation_role="none";source.orientation_drives_rotation=false;source.measured_offset.reset();
+    source.supports_offset=face&&!source.use_axis;source.orientation_only=false;source.orientation_role="none";source.orientation_drives_rotation=false;source.measured_offset.reset();
     std::vector<Ref> position,orientation(2);std::array<bool,3> empty_locks{};
     for(const auto& ref:value.placement.references) {
         if(ref.orientation_only&&ref.orientation_role!="direction") {

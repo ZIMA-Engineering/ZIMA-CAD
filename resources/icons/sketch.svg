@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" role="img" aria-labelledby="title">
   <title id="title">Sketch</title>
-  <g fill="none" stroke="#AD6E2E" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+  <g fill="none" stroke="#FFFFFF" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
     <rect x="3.5" y="4" width="12.5" height="15.5" rx="1.2"/>
     <path d="M6.5 15l3-3 2.2 1.7 2.8-4"/>
   </g>

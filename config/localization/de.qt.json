@@ -1,4 +1,9 @@
 {
+  "Combined rotation angle must not exceed 360 degrees.": "Die Summe der Rotationswinkel darf 360 Grad nicht überschreiten.",
+  "Směr": "Richtung",
+  "Text": "Text",
+  "Na ploše": "Auf Fläche",
+  "V ose": "Auf Achse",
   "Typ prvku": "Elementtyp",
   "Vytažení / Rotace": "Extrusion / Rotation",
   "Prohodit strany": "Seiten tauschen",

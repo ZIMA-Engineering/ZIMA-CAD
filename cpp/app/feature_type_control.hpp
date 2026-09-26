@@ -9,7 +9,7 @@ inline QComboBox* feature_type_control(QWidget* parent,document::FeatureType typ
         bool editable=true) {
     auto* control=new QComboBox(parent);control->setObjectName("featureType");
     control->addItems({QObject::tr("Bod"),QObject::tr("Osa"),QObject::tr("Rovina"),
-        QObject::tr("Skica"),QObject::tr("Vytažení / Rotace")});
+        QObject::tr("Skica"),QObject::tr("Vytažení")});
     control->setCurrentIndex(static_cast<int>(type));control->setEnabled(editable);
     return control;
 }

@@ -87,6 +87,9 @@ void AssemblyWorkspaceWindow::create_layout() {
     tree_->setSelectionMode(QAbstractItemView::ExtendedSelection);
     tree_->setColumnCount(1);
     tree_->setItemDelegate(new ReferenceTreeDelegate(tree_));
+    // Square icons retain their natural size; mixed Features use two slots.
+    const int tree_icon_size=tree_->style()->pixelMetric(QStyle::PM_SmallIconSize,nullptr,tree_);
+    tree_->setIconSize(QSize(2*tree_icon_size,tree_icon_size));
     tree_->setHeaderLabels({QString{}});
     tree_->setMinimumWidth(280);
     tree_->header()->setMinimumHeight(38);
@@ -2087,7 +2090,7 @@ void AssemblyWorkspaceWindow::create_layout() {
                         "document-result", part->session.calculated_boundaries().back().mesh.edges, {});
                 else viewer_->confirm_result_body();
             } else if (item->data(0, Qt::UserRole + 3).toString() ==
-                           "part-container-entity") {
+                           "part-container-entity" || item->data(0,Qt::UserRole+3)=="feature-operation") {
                 viewer_->confirm_container(
                     item->data(0, Qt::UserRole + 6).toString().toStdString());
             } else if (item->data(0, Qt::UserRole + 3).toString() ==
@@ -2178,7 +2181,7 @@ void AssemblyWorkspaceWindow::create_layout() {
             if(role.endsWith("-occurrence")&&!path.empty()) {
                 assembly_dimension_path_=path;update_assembly_dimension_visibility();return;
             }
-            if(role=="part-container"||role=="part-container-entity"||role=="part-opening-component"||
+            if(role=="part-container"||role=="part-container-entity"||role=="feature-operation"||role=="part-opening-component"||
                 role=="part-body"||role=="part-construction"||role=="assembly-construction"||
                 role=="assembly-cut"||role=="assembly-sketch-container"||role=="part-sketch"||
                 role=="assembly-sketch"||role=="document-section") {
@@ -2254,6 +2257,14 @@ void AssemblyWorkspaceWindow::create_layout() {
                 return;
             }
             const auto step_kind = item->data(0, Qt::UserRole + 3).toString();
+            if(step_kind=="feature-operation") {
+                if(properties_dialog_)return;
+                QMenu menu(this);
+                auto* properties=menu.addAction(resource_icon("properties"),tr("Vlastnosti…"));
+                properties->setObjectName("featureOperationPropertiesAction");
+                if(exec_tree_menu(menu,item,position)==properties)show_tree_item_properties(item);
+                return;
+            }
             if(step_kind=="template-image"&&!properties_dialog_) {
                 const auto id=item->data(0,Qt::UserRole).toString().toStdString();QMenu menu(this);
                 auto* properties=menu.addAction(resource_icon("properties"),tr("Vlastnosti…"));auto* remove=menu.addAction(resource_icon("delete"),tr("Odstranit"));

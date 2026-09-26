@@ -700,7 +700,7 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
         name_->setObjectName("featureName");
         feature_automatic_name_=initial.feature.automatic_name;
         feature_panel_=new FeatureParameterPanel(this,initial.feature);
-        header_form->insertRow(0,tr("Typ prvku"),feature_panel_->type_control());
+        header_form->insertRow(0,tr("Typ prvku"),feature_panel_->type_row());
         feature_panel_->set_subtract(initial.combine_mode==zima::document::CombineMode::Subtract);
         auto* feature_scroll=new QScrollArea(this);
         feature_scroll->setObjectName("featureParametersScroll");
@@ -803,6 +803,13 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
             if(reference_highlights_changed_)reference_highlights_changed_();
         });
         feature_panel_->on_change([this]{notify_preview();});
+        placement_->set_axis_extent_callback([this](double length) {
+            if(feature_panel_->parameters().type!=zima::document::FeatureType::Axis || length<=0)return;
+            for(std::size_t side=0;side<2;++side) {
+                auto* field=feature_panel_->side_value(side);QSignalBlocker block(field);
+                field->setValue(length*.5);
+            }
+        });
     } else if (initial.feature_kind == zima::document::FeatureKind::Extrusion ||
                initial.feature_kind == zima::document::FeatureKind::Revolution) {
         const bool revolve = initial.feature_kind ==

@@ -4,6 +4,7 @@
 #include <zima/document/part_document.hpp>
 #include <zima/document/document_session.hpp>
 #include <zima/document/profile_serialization.hpp>
+#include <zima/document/feature_rotation_span.hpp>
 #include <zima/document/viewer_packet_json.hpp>
 #include <nlohmann/json.hpp>
 #include <iostream>
@@ -535,6 +536,47 @@ void native_feature_history(const kernel::OcctKernel& kernel) {
         near(kernel.evaluate_history(roundtrip.kernel_operations()).back().volume,0);
     }
 }
+void bounded_feature_rotations(const kernel::OcctKernel& kernel) {
+    auto baseline=fixture(true);baseline.history.front().revolution.angle_degrees=360;
+    const auto full_volume=kernel.evaluate_history(baseline.kernel_operations()).back().volume;
+    auto part=fixture(true);const auto axis=part.history.front().revolution.axis_segment_id;
+    auto& feature=part.history.front();feature.feature_kind=document::FeatureKind::Feature;
+    auto& p=feature.feature;p.sketch_id=part.sketches.front().id;p.axis_segment_id=axis;
+    for(auto& side:p.sides){side.operation=document::FeatureSideOperation::Revolution;side.angle_degrees=180;}
+    near(kernel.evaluate_history(part.kernel_operations()).back().volume,full_volume);
+    check(!part.feature_preview_edges(feature).empty(),"Two half-turn preview missing");
+    p.sides[0].angle_degrees=300;document::normalize_feature_rotations(p,0);
+    near(kernel.evaluate_history(part.kernel_operations()).back().volume,full_volume);
+    p.sides[0].rotation_extent=document::FeatureRotationExtent::Full;document::normalize_feature_rotations(p,0);
+    near(kernel.evaluate_history(part.kernel_operations()).back().volume,full_volume);
+    const auto reopened=document::PartDocument::from_serialized(part.serialized());
+    check(reopened.history.front().feature==p,"Rotation normalization did not survive serialization");
+    p.sides[0].rotation_extent=document::FeatureRotationExtent::UpTo;
+    p.sides[1].operation=document::FeatureSideOperation::Revolution;
+    p.sides[1].rotation_extent=document::FeatureRotationExtent::UpTo;
+    for(auto& side:p.sides) {
+        document::ExtrusionParameters::EndTarget target;target.kind=document::EndTargetKind::Plane;
+        target.reference={"target","face:plane",{}};target.fallback_normal={1,0,0};side.targets={target};
+    }
+    near(kernel.evaluate_history(part.kernel_operations()).back().volume,full_volume);
+    check(!part.feature_preview_edges(feature).empty(),"Reference-limited full-turn preview missing");
+    p.sides[0].targets[0].fallback_normal={-1,0,0};
+    const auto targets=p.sides;
+    const auto rejected=[&](auto action) {
+        try{action();}catch(const std::exception& e){
+            check(std::string(e.what())=="Combined rotation angle must not exceed 360 degrees.","Wrong rotation conflict");return;
+        }throw std::runtime_error("Overlapping reference-limited rotations were accepted");
+    };
+    rejected([&]{static_cast<void>(part.kernel_operations());});
+    rejected([&]{static_cast<void>(part.feature_preview_edges(feature));});
+    check(p.sides==targets,"Rotation conflict changed an oriented target");
+    p.symmetric=true;
+    rejected([&]{static_cast<void>(part.kernel_operations());});
+    rejected([&]{static_cast<void>(part.feature_preview_edges(feature));});
+    p.symmetric=false;p.sides[1].operation=document::FeatureSideOperation::Extrusion;p.sides[1].length=20;
+    check(!part.feature_preview_edges(feature).empty(),"Mixed operation preview was restricted");
+    check(kernel.evaluate_history(part.kernel_operations()).back().volume>0,"Mixed rotation/extrusion was restricted");
+}
 void grouped_surface_history(const kernel::OcctKernel& kernel) {
     auto base=fixture(false).kernel_operations().front();
     const auto solid=kernel.evaluate_history({base}).back();
@@ -566,6 +608,7 @@ int main(){try {
  request.outer_profile=E::CurvedProfile{{parabola,E::LineCurve{{1,0,0},{-1,0,0}}}};near(kernel::profile_centerlines::centroid(request),{0,.2,0});
  request.centerlines.origin={3,5,7};request.centerlines.normal={1,0,0};request.outer_profile=E::PolygonProfile{{{3,5,7},{3,15,7},{3,15,13},{3,5,13}}};near(kernel::profile_centerlines::centroid(request),{3,10,10});
  kernel::OcctKernel kernel;
+ bounded_feature_rotations(kernel);
  inactive_profile_history(kernel);
  inactive_profile_regions(kernel);
  inactive_cap_target(kernel);

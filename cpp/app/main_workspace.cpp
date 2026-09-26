@@ -3439,7 +3439,7 @@ int verify_body_history_ui(QApplication& application, const std::filesystem::pat
     if (!verify(body_references!=nullptr,"Body does not use the shared placement reference table")) return 1;
     tree->setCurrentItem(row("document-origin",part.document_id+":origin"));flush();
     if (!verify(body_dialog()->first_empty_position_index()==3,"Body Origin selection did not fill its three planes")) return 1;
-    auto* offset=qobject_cast<QDoubleSpinBox*>(body_references->cellWidget(2,2));
+    auto* offset=qobject_cast<QDoubleSpinBox*>(body_references->cellWidget(2,3));
     if (!verify(offset && offset->isEnabled(),"Body placement does not expose the plane offset")) return 1;
     offset->setValue(5);flush();
     zima::viewer::ViewerCandidate offset_dimension;
@@ -3477,7 +3477,7 @@ int verify_body_history_ui(QApplication& application, const std::filesystem::pat
         QApplication::sendEvent(editor,&enter);flush();
         if (!body_dialog()) return false;
         // Updating constraints rebuilds the reference table's cell editors.
-        const auto* current_offset=qobject_cast<QDoubleSpinBox*>(body_references->cellWidget(2,2));
+        const auto* current_offset=qobject_cast<QDoubleSpinBox*>(body_references->cellWidget(2,3));
         return current_offset && std::abs(current_offset->value()-expected)<1e-8 &&
             viewer->candidate_dimension_value(offset_dimension)==expected;
     };
@@ -6417,12 +6417,12 @@ int verify_owned_profile_frames(QApplication& application, const std::filesystem
                 // The public extent setter is the same callback used by the
                 // purple handle. Repeated updates must retain reference editors.
                 check(references && references->rowCount()>0, "Missing profile reference table");
-                QPointer<QWidget> first_offset = references->cellWidget(0, 2);
+                QPointer<QWidget> first_offset = references->cellWidget(0, 3);
                 for (int step=0; step<30; ++step) {
                     dialog()->set_forward_extent_and_direction(10+step, false);
                     check(std::abs(dialog()->forward_extent_length()-(10+step))<1e-8,
                         "Extent callback did not update its parameter");
-                    check(first_offset && references->cellWidget(0, 2)==first_offset,
+                    check(first_offset && references->cellWidget(0, 3)==first_offset,
                         "Extent update recreated a reference editor");
                 }
                 std::cout << "Profile extent updates " << (revolve?"revolution":"extrusion")
@@ -6753,7 +6753,7 @@ int verify_assembly_owned_profiles(QApplication& application,const std::filesyst
             if(!verify(properties,"Referenced Assembly profile Properties did not open"))return 1;
             std::cout<<"Assembly reference Properties opened"<<std::endl;
             auto* table=properties->findChild<QTableWidget*>("primitiveReferenceTable");
-            auto* offset=table?qobject_cast<QDoubleSpinBox*>(table->cellWidget(0,2)):nullptr;
+            auto* offset=table?qobject_cast<QDoubleSpinBox*>(table->cellWidget(0,3)):nullptr;
             if(!verify(offset&&offset->isEnabled()&&std::abs(offset->value()-1)<1e-6,
                 "Assembly Properties did not receive the CLI reference offset"))return 1;
             std::cout<<"Assembly reference offset verified; rejecting command"<<std::endl;
@@ -6763,7 +6763,7 @@ int verify_assembly_owned_profiles(QApplication& application,const std::filesyst
             if(!verify(!blocked.ok&&blocked.code=="editing_in_progress","Reference command interrupted Assembly Properties"))return 1;
             // Reacquire the field after exercising the console adapter.
             table=properties->findChild<QTableWidget*>("primitiveReferenceTable");
-            offset=table?qobject_cast<QDoubleSpinBox*>(table->cellWidget(0,2)):nullptr;
+            offset=table?qobject_cast<QDoubleSpinBox*>(table->cellWidget(0,3)):nullptr;
             if(!verify(offset&&offset->isEnabled(),"Assembly reference field disappeared after rejected command"))return 1;
             std::cout<<"Assembly "<<prefix<<" reference changing offset"<<std::endl;
             offset->setValue(2);

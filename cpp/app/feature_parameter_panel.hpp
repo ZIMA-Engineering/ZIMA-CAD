@@ -7,6 +7,8 @@
 #include <zima/ui/container_placement_section.hpp>
 #include <zima/ui/numeric_value_lock.hpp>
 #include <zima/document/feature_parameters.hpp>
+#include <zima/document/feature_rotation_span.hpp>
+#include <QScopedValueRollback>
 #include "sketch_button_style.hpp"
 #include "resource_icon.hpp"
 #include "tool_button_style.hpp"
@@ -36,6 +38,9 @@ public:
         : QWidget(parent), initial_(std::move(initial)) {
         content_=new QVBoxLayout(this);content_->setContentsMargins(0,0,0,0);
         type_=feature_type_control(this,initial_.type);
+        show_point_=new QCheckBox(tr("Bod"),this);show_point_->setObjectName("featureShowPoint");
+        show_text_=new QCheckBox(tr("Text"),this);show_text_->setObjectName("featureShowText");
+        show_point_->setChecked(initial_.show_point);show_text_->setChecked(initial_.show_text);
         plane_group_=new QGroupBox(tr("Rovina"),this);
         plane_group_->setObjectName("featurePlaneGroup");
         auto* sketch_form=new QFormLayout(plane_group_);
@@ -89,6 +94,7 @@ public:
             }
             changing_operation_=false;
             refresh_operations();
+            normalize_rotations(0);
         });
         profile->addRow(tr("Operace"),operations_);
         auto* thickness=number("featureThickness",false);thickness->setMinimum(.001);thickness->setValue(1);
@@ -153,6 +159,13 @@ public:
             refresh_type();changing_operation_=false;
         });
         refresh_type();
+        for(int i=0;i<2;++i) {
+            connect(sides_[i].mode,&QComboBox::currentIndexChanged,this,[this,i]{normalize_rotations(i);});
+            connect(sides_[i].end,&QComboBox::currentIndexChanged,this,[this,i]{normalize_rotations(i);});
+            connect(sides_[i].value,&QDoubleSpinBox::valueChanged,this,[this,i]{normalize_rotations(i);});
+        }
+        connect(symmetric,&QCheckBox::toggled,this,[this]{normalize_rotations(0);});
+        connect(type_,&QComboBox::currentIndexChanged,this,[this]{normalize_rotations(0);});
     }
     [[nodiscard]] document::FeatureParameters parameters() const {
         auto value=initial_;value.type=selected_type();
@@ -162,11 +175,18 @@ public:
         value.result_type=result_->currentIndex()==1?document::ProfileResultType::Surface:
             result_->currentIndex()==2?document::ProfileResultType::Thin:document::ProfileResultType::Solid;
         value.symmetric=symmetric_;value.origin_centerline=origin_axis_->isChecked();
+        value.show_point=show_point_->isChecked();value.show_text=show_text_->isChecked();
         value.centroid_centerline=centroid_axis_->isChecked();
         for(int i=0;i<2;++i)value.sides[i]=capture_side(sides_[i],sides_[i].mode->currentIndex());
         return value;
     }
     QComboBox* type_control() const { return type_; }
+    QWidget* type_row() {
+        auto* row=new QWidget(this);auto* layout=new QHBoxLayout(row);layout->setContentsMargins(0,0,0,0);
+        type_->setSizePolicy(QSizePolicy::Fixed,QSizePolicy::Fixed);
+        layout->addWidget(type_);layout->addWidget(show_point_);layout->addWidget(show_text_);layout->addStretch();
+        return row;
+    }
     QComboBox* plane_control() const { return plane_; }
     QDoubleSpinBox* offset_control() const { return offset_; }
     QDoubleSpinBox* thickness_control() const { return thickness_; }
@@ -202,12 +222,14 @@ public:
         for(int i=0;i<2;++i)refresh_side_lock(i);
     }
     void on_change(std::function<void()> changed) {
-        const auto notify=[this,changed]{if(!changing_operation_)changed();};
+        const auto notify=[this,changed]{if(!changing_operation_&&!refreshing_side_&&!normalizing_rotations_)changed();};
         for(auto* box:findChildren<QComboBox*>())connect(box,&QComboBox::currentIndexChanged,this,notify);
         for(auto* box:findChildren<QDoubleSpinBox*>())connect(box,&QDoubleSpinBox::valueChanged,this,notify);
         for(auto* box:findChildren<QCheckBox*>())connect(box,&QCheckBox::toggled,this,notify);
         connect(operation_group_,&QButtonGroup::idClicked,this,notify);
         if(type_->parentWidget()!=this)connect(type_,&QComboBox::currentIndexChanged,this,notify);
+        if(!isAncestorOf(show_point_))connect(show_point_,&QCheckBox::toggled,this,notify);
+        if(!isAncestorOf(show_text_))connect(show_text_,&QCheckBox::toggled,this,notify);
     }
 private:
     struct Side {
@@ -219,6 +241,7 @@ private:
     };
     QVBoxLayout* content_{};
     QComboBox* type_{};
+    QCheckBox *show_point_{},*show_text_{};
     QGroupBox *plane_group_{},*sketch_group_{},*result_group_{};
     QCheckBox* symmetric_control_{};
     QWidget* options_row_{};
@@ -229,6 +252,7 @@ private:
     QButtonGroup* operation_group_{};
     int last_operation_{};
     bool changing_operation_{};
+    bool refreshing_side_{},normalizing_rotations_{};
     std::array<int,2> saved_modes_{{1,0}};
     document::FeatureParameters initial_;
     std::array<Side,2> sides_{};
@@ -285,6 +309,7 @@ private:
         value->setRange(-1000000,1000000);value->setSuffix(angle?QString::fromUtf8(" °"):QString(" mm"));return value;
     }
     void refresh_side(int index) {
+        QScopedValueRollback refreshing(refreshing_side_,true);
         auto& s=sides_[index];const int saved_mode=s.mode->currentIndex();
         s.pending=capture_side(s,s.previous_mode);s.previous_mode=saved_mode;
         s.displayed_axis=selected_type()==document::FeatureType::Axis;
@@ -306,6 +331,26 @@ private:
     void refresh_side_lock(int index) {
         if(locks_)ui::bind_numeric_value_lock(sides_[index].value,
             "side"+std::to_string(index)+(!sides_[index].displayed_axis&&sides_[index].mode->currentIndex()==2?"_angle":"_length"),*locks_,locks_changed_);
+    }
+    void normalize_rotations(std::size_t edited) {
+        if(refreshing_side_||normalizing_rotations_||changing_operation_)return;
+        auto next=parameters();document::normalize_feature_rotations(next,edited);
+        if(next==parameters())return;
+        QScopedValueRollback normalizing(normalizing_rotations_,true);
+        QScopedValueRollback changing(changing_operation_,true);
+        std::vector<std::unique_ptr<QSignalBlocker>> blocked;
+        for(auto& side:sides_) {
+            blocked.push_back(std::make_unique<QSignalBlocker>(side.mode));
+            blocked.push_back(std::make_unique<QSignalBlocker>(side.end));
+            blocked.push_back(std::make_unique<QSignalBlocker>(side.value));
+        }
+        for(int i=0;i<2;++i) {
+            auto& side=sides_[i];side.pending=next.sides[i];
+            side.previous_mode=0;side.displayed_axis=false;
+            side.mode->setCurrentIndex(static_cast<int>(side.pending.operation));refresh_side(i);
+        }
+        // Keep the ordinary symmetry handler responsible for its layout.
+        symmetric_control_->setChecked(next.symmetric);
     }
 };
 }

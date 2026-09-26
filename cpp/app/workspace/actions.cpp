@@ -473,9 +473,6 @@ void AssemblyWorkspaceWindow::create_actions() {
     helical_sweep_action_->setToolTip(tr("Šroubovicové tažení profilu."));
     connect(helical_sweep_action_, &QAction::triggered, this, [this] { show_helical_sweep_properties(); });
     construction_axis_action_ = make_action(tr("Osa"), "axis");
-    cylinder_axis_action_ = make_action(tr("Osa válcové plochy"), "axis");
-    cylinder_axis_action_->setObjectName("cylinderAxisAction");
-    connect(cylinder_axis_action_, &QAction::triggered, this, [this] { show_cylinder_axis_properties(); });
     construction_plane_action_ = make_action(tr("Rovina"), "plane");
     construction_point_action_->setObjectName("constructionPointAction");
     curve_3d_action_->setObjectName("curve3DAction");
@@ -484,13 +481,27 @@ void AssemblyWorkspaceWindow::create_actions() {
     construction_plane_action_->setObjectName("constructionPlaneAction");
     extrusion_action_ = make_action(tr("Vytažení"), "protrusion");
     extrusion_action_->setObjectName("extrusionAction");
-    auto* feature_prototype=make_action(tr("Prvek"),"protrusion");
+    auto* feature_prototype=make_action(tr("Prvek"),"feature");
     feature_prototype->setObjectName("featurePrototypeAction");
     connect(feature_prototype,&QAction::triggered,this,[this]{
         if(properties_dialog_||!active_sketch_id_.empty())return;
         show_primitive_properties(zima::document::FeatureKind::Feature);
     });
     connect(extrusion_action_,&QAction::changed,this,[this,feature_prototype]{feature_prototype->setEnabled(extrusion_action_->isEnabled());});
+    const std::array feature_labels{tr("Bod"),tr("Osa"),tr("Rovina"),tr("Skica"),tr("Vytažení"),tr("Rotace")};
+    const std::array feature_icons{"point","axis","plane","sketch","protrusion","revolve"};
+    for(std::size_t i=0;i<feature_labels.size();++i) {
+        auto* shortcut=make_action(feature_labels[i],feature_icons[i]);
+        shortcut->setObjectName(QStringLiteral("featureShortcut%1Action").arg(i));
+        connect(shortcut,&QAction::triggered,this,[this,i] {
+            if(properties_dialog_||!active_sketch_id_.empty())return;
+            show_primitive_properties(zima::document::FeatureKind::Feature,{},false,
+                static_cast<zima::document::FeatureType>(std::min<std::size_t>(i,4)),i==5);
+        });
+        connect(feature_prototype,&QAction::changed,shortcut,[feature_prototype,shortcut] {
+            shortcut->setEnabled(feature_prototype->isEnabled());
+        });
+    }
 
     revolution_action_ = make_action(tr("Rotace"), "revolve");
     revolution_action_->setObjectName("revolutionAction");
