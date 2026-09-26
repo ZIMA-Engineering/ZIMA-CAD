@@ -631,14 +631,6 @@ void ConstructionPropertiesDialog::initialize_sweep_ui() {
     }
     add_sweep_operation_->setObjectName("sweep3DAddOperation");
     subtract_sweep_operation_->setObjectName("sweep3DSubtractOperation");
-    add_sweep_operation_->setStyleSheet(
-        "QPushButton{border:2px solid #2d5670;border-radius:6px;font-weight:700;"
-        "padding:7px 14px} QPushButton:checked{background:#00d1ff;color:#101510;"
-        "border-color:#6fe3ff}");
-    subtract_sweep_operation_->setStyleSheet(
-        "QPushButton{border:2px solid #713d3d;border-radius:6px;font-weight:700;"
-        "padding:7px 14px} QPushButton:checked{background:#c64b4b;color:#ffffff;"
-        "border-color:#ed7777}");
     const bool subtract = sweep_combine_mode_ ==
         zima::document::CombineMode::Subtract;
     add_sweep_operation_->setChecked(!subtract);
@@ -1308,9 +1300,9 @@ void ConstructionPropertiesDialog::refresh_curve_points() {
     }
     const int offered_row=static_cast<int>(curve_points_.size());
     auto* offered=new zima::ui::ReferenceCellItem(tr("Nový bod…"));
-    // Creation action: use the same light green/dark text as Sketch buttons.
+    // Creation action uses the shared azure entry accent.
     // The shared active-input outline remains a separate reference state.
-    offered->setForeground(QColor("#4dd811"));
+    offered->setForeground(QColor("#00D1FF"));
     auto offered_font=curve_points_table_->font();offered_font.setBold(true);
     offered->setFont(offered_font);
     curve_points_table_->setItem(offered_row,0,offered);
@@ -1394,7 +1386,7 @@ void ConstructionPropertiesDialog::refresh_curve_points() {
         axis_choice->setCurrentIndex(mode==Mode::PositiveY||mode==Mode::NegativeY?1:
             mode==Mode::PositiveZ||mode==Mode::NegativeZ?2:0);
         axis_choice->setEnabled(curve_points_[index].curve_tangent_enabled);
-        if(axis_item->is_inspected())axis_choice->setStyleSheet("QComboBox{background:#00d1ff;color:#102027}");
+        if(axis_item->is_inspected())axis_choice->setStyleSheet("QComboBox{background:#4DD811;color:#102027}");
         connect(axis_choice,&QComboBox::currentIndexChanged,this,[this,index](int axis){
             auto& mode=curve_points_[index].curve_tangent;
             const bool negative=mode==Mode::NegativeX||mode==Mode::NegativeY||mode==Mode::NegativeZ;

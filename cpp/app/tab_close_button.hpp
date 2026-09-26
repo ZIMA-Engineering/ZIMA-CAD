@@ -12,7 +12,7 @@ protected:
         QPushButton::paintEvent(event);
         QPainter painter(this);
         painter.setRenderHint(QPainter::Antialiasing);
-        painter.setPen(QPen(Qt::white, 1.5, Qt::SolidLine, Qt::RoundCap));
+        painter.setPen(QPen(palette().color(QPalette::ButtonText), 1.5, Qt::SolidLine, Qt::RoundCap));
         const QPointF center(width() / 2.0, height() / 2.0);
         constexpr qreal radius = 3.5;
         painter.drawLine(center + QPointF(-radius, -radius), center + QPointF(radius, radius));

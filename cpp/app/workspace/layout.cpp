@@ -46,14 +46,6 @@ void AssemblyWorkspaceWindow::create_layout() {
     tabs_->setExpanding(false);
     tabs_->setUsesScrollButtons(true);
     tabs_->setIconSize(QSize(18, 18));
-    tabs_->setStyleSheet(
-        "QTabBar::tab { padding:7px 12px; margin-right:2px;"
-        " border:1px solid rgba(255,255,255,35); border-bottom:none;"
-        " border-top-left-radius:5px; border-top-right-radius:5px; }"
-        "QTabBar::tab:selected { background:#00D1FF; color:#102027;"
-        " font-weight:700; border-color:#00D1FF; }"
-        "QTabBar::tab:!selected { background:rgba(255,255,255,18); }"
-        "QTabBar::tab:hover { background:#4DD811; color:#102027; }");
     document_splitter_ = new QSplitter(Qt::Horizontal, central);
     document_splitter_->setObjectName("documentSplitter");
     auto* history_tree = new zima::app::HistoryTreeWidget(document_splitter_);
@@ -113,10 +105,6 @@ void AssemblyWorkspaceWindow::create_layout() {
     document_kind_button_->setStyleSheet(command_button_style());
     connect(document_kind_button_, &QToolButton::clicked, this,
         [this] { navigate_document_kind(); });
-    tree_->setStyleSheet(
-        "QTreeWidget::item:selected, QTreeWidget::item:selected:active,"
-        " QTreeWidget::item:selected:!active { background-color:#00D1FF;"
-        " color:#102027; } QTreeWidget::item:hover, QTreeWidget::item:selected:hover:active, QTreeWidget::item:selected:hover:!active { background-color:#4dd811; color:#102027; }");
     tree_->setMouseTracking(true);
     viewer_ = new zima::viewer::MeshView;
     initialize_symbol_handles();

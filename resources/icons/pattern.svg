@@ -2,6 +2,6 @@
   <title id="title">Pattern</title>
   <g fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
     <rect x="4" y="4" width="5.5" height="5.5"/>
-    <g stroke="#80AA1A"><rect x="14.5" y="4" width="5.5" height="5.5"/><rect x="4" y="14.5" width="5.5" height="5.5"/><rect x="14.5" y="14.5" width="5.5" height="5.5"/></g>
+    <g stroke="#00D1FF"><rect x="14.5" y="4" width="5.5" height="5.5"/><rect x="4" y="14.5" width="5.5" height="5.5"/><rect x="14.5" y="14.5" width="5.5" height="5.5"/></g>
   </g>
 </svg>

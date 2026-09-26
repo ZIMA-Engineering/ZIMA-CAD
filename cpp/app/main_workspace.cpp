@@ -1349,7 +1349,7 @@ int verify_template_commands(QApplication& application,zima::app::AssemblyWorksp
                     flush();const auto image=view->grab().toImage();const auto p=anchor_pixel*image.devicePixelRatio();
                     for(int y=static_cast<int>(p.y())-6;y<=p.y()+6;++y)for(int x=static_cast<int>(p.x())-6;x<=p.x()+6;++x) {
                         if(x<0||y<0||x>=image.width()||y>=image.height())continue;const auto c=image.pixelColor(x,y);
-                        if(selected?(c.red()<80&&c.green()>180&&c.blue()>190):(c.red()<140&&c.green()>180&&c.blue()<100))return true;
+                        if(selected?(c.red()<140&&c.green()>180&&c.blue()<100):(c.red()<80&&c.green()>180&&c.blue()>190))return true;
                     }
                     return false;
                 };
@@ -2616,7 +2616,7 @@ int verify_pending_container_tree(QApplication& application,
         const auto origin_id = assembly ? parent_dialog->pending_value().container_origin.id
             : parent_dialog->pending_sweep_value().container_origin.id;
         auto* pending = find(assembly ? "assembly-construction" : "part-container", parent_id);
-        if (!verify(pending && pending->background(0).color() == QColor("#00D1FF") &&
+        if (!verify(pending && pending->background(0).color() == QColor("#4DD811") &&
                 !find(marker), "Pending container did not replace insertion marker in green")) return 1;
         click_row(find("construction-origin", origin_id));
         if (!verify(parent_dialog->populated_references().empty(),
@@ -3222,7 +3222,7 @@ int verify_body_history_ui(QApplication& application, const std::filesystem::pat
         for (QTreeWidgetItemIterator it(target_tree); *it; ++it)
             if ((*it)->data(0,Qt::UserRole+3).toString()=="part-body" &&
                     (*it)->data(0,Qt::UserRole).toString().toStdString()==a)
-                return (*it)->background(0).color()==QColor("#00D1FF");
+                return (*it)->background(0).color()==QColor("#4DD811");
         return false;
     };
     if (!verify(first_body_active(window) && !window.findChild<QAction*>("undoAction")->isEnabled(),
@@ -4349,7 +4349,7 @@ int verify_application_tools_ui(QApplication& application,const std::filesystem:
         check(cut_length->value()>13.,"Dragging the Sheet Cut purple endpoint did not update its length");
         cut_forward->setCurrentIndex(cut_forward->findData("up_to"));flush();
         auto* cut_target=sheet_cut->findChild<QLineEdit*>("extrusionForwardEndTarget");
-        check(cut_target&&cut_target->isVisible()&&cut_target->styleSheet().contains("#4dd811")&&
+        check(cut_target&&cut_target->isVisible()&&cut_target->styleSheet().contains("#00D1FF")&&
             !cut_length->isVisible(),"Sheet Cut Up-to does not arm the shared target reference field");
         cut_forward->setCurrentIndex(cut_forward->findData("through_all"));
         cut_extent->setCurrentIndex(cut_extent->findData("two_sides"));
@@ -4701,7 +4701,7 @@ int verify_application_tools_ui(QApplication& application,const std::filesystem:
         check(bend->findChild<QDoubleSpinBox*>("bendAngle")->value()==90.&&bend->findChild<QDoubleSpinBox*>("bendRadius")->value()==2.&&radius_override->isEnabled(),"Disabling hem must restore pending Bend parameters");
         for(const auto* button_name:{"bendPathSketchButton","sketchOpenButton","bendEndSketchButton"}) {
             auto* button=bend->findChild<QPushButton*>(button_name);check(button,"One of the three Bend Sketch editors is missing");
-            check(button->styleSheet().contains("#4DD811"),"Bend Sketch button does not use the shared green style");
+            check(button->styleSheet().contains("#00D1FF"),"Bend Sketch button does not use the shared green style");
             button->click();flush();check(!bend->isVisible(),"Bend properties did not yield to owned Sketch editor");
             auto* finish=window.findChild<QAction*>("finishSketchAction");check(finish&&finish->isEnabled(),"Owned Bend Sketch did not activate");
             finish->trigger();flush();check(bend->isVisible(),"Owned Bend Sketch did not return to properties");
@@ -5374,7 +5374,7 @@ int verify_sketch_endpoint_priority_ui(QApplication& application,const std::file
                 int azure=0;
                 for(int y=qRound(sample.y()*ratio)-5;y<=qRound(sample.y()*ratio)+5;++y)
                     for(int x=qRound(sample.x()*ratio)-5;x<=qRound(sample.x()*ratio)+5;++x)
-                        if(frame.valid(x,y)){const auto c=frame.pixelColor(x,y);if(c.red()<50&&c.green()>170&&c.blue()>220)++azure;}
+                        if(frame.valid(x,y)){const auto c=frame.pixelColor(x,y);if(c.red()<110&&c.green()>170&&c.blue()<65)++azure;}
                 check(azure>3,"Confirmed Sketch segment is not azure");
                 frame.save(QString::fromStdString((directory/"sketch-selection-azure.png").string()));
                 click(screen(30,40));
@@ -7133,11 +7133,11 @@ int verify_nested_body_sketch_ui(QApplication& application, const std::filesyste
         window.grab().save(QString::fromStdString((directory/"sketch-return-assembly.png").string()));
         QMenu menu(&window);auto* offered=menu.addAction("Menu hover verification");menu.addAction("Unselected item");
         menu.popup(window.mapToGlobal(QPoint(200,200)));flush();menu.setActiveAction(offered);flush();
-        const auto menu_image=menu.grab().toImage();int green=0;
-        for(int y=0;y<menu_image.height();++y)for(int x=0;x<menu_image.width();++x){const auto c=menu_image.pixelColor(x,y);if(c.green()>190&&c.red()<100&&c.blue()<50)++green;}
-        menu_image.save(QString::fromStdString((directory/"context-menu-green.png").string()));menu.close();flush();
-        if(!verify(green>100,"Context-menu offered row is not green"))return 1;
-        std::cout<<"Sketch return preserved rotated Body/Part/Assembly coordinates and unique curves; menu hover is green\n";
+        menu.grab().save(QString::fromStdString((directory/"context-menu-native.png").string()));
+        if(!verify(menu.activeAction()==offered && menu.styleSheet().isEmpty() && window.styleSheet().isEmpty(),
+            "Context-menu selection is not delegated to the native Qt style"))return 1;
+        menu.close();flush();
+        std::cout<<"Sketch return preserved rotated Body/Part/Assembly coordinates and unique curves; menu uses native feedback\n";
         return 0;
     }
     const auto has_later=[&](const std::string& path) {
@@ -10536,7 +10536,7 @@ int verify_startup_contract(
             }
         }
     }
-    if (!verify(up_to_field->styleSheet().contains("#4dd811"),
+    if (!verify(up_to_field->styleSheet().contains("#00D1FF"),
                 "Selecting Up-to did not activate its green target field")) {
         return 1;
     }
@@ -10555,7 +10555,7 @@ int verify_startup_contract(
     QApplication::sendEvent(up_to_viewer, &up_to_press);
     application.processEvents();
     if (!verify(!up_to_field->text().isEmpty() &&
-                    !up_to_field->styleSheet().contains("#4dd811"),
+                    !up_to_field->styleSheet().contains("#00D1FF"),
                 "LMB accepted the Up-to hover candidate but did not transfer "
                 "its persisted Face reference into the target field")) {
         return 1;
@@ -10687,7 +10687,7 @@ int verify_startup_contract(
     if (!verify(edit_dialog != nullptr && rollback_extrusion != nullptr &&
                     downstream_box != nullptr &&
                     rollback_extrusion->background(0).color() ==
-                        QColor("#00D1FF") &&
+                        QColor("#4DD811") &&
                     downstream_box->foreground(0).color() ==
                         QColor(125, 125, 125),
                 "history edit did not keep the active item azure and suppress downstream items")) {
@@ -11004,7 +11004,7 @@ int verify_startup_contract(
                     rollback_dialog->findChild<QListWidget*>(
                         "assemblyCutTargets") != nullptr &&
                     rollback_cut_item != nullptr &&
-                    rollback_cut_item->background(0).color() == QColor("#00D1FF"),
+                    rollback_cut_item->background(0).color() == QColor("#4DD811"),
                 "Assembly cut Properties did not enter persisted rollback")) {
         return 1;
     }
@@ -12371,14 +12371,14 @@ int verify_startup_contract(
                 "Opening fixture did not start with incomplete active placement")) return 1;
         ending->setCurrentIndex(ending->findData("up_to"));
         application.processEvents();
-        if (!verify(active_placement_cells()==0 && target->styleSheet().contains("#4dd811"),
+        if (!verify(active_placement_cells()==0 && target->styleSheet().contains("#00D1FF"),
                 "Opening Up To did not take exclusive input from placement")) return 1;
         const auto* up_to_tip=opening_properties->findChild<QCheckBox*>("threadDrillPoint");
         if (!verify(up_to_tip && !up_to_tip->isChecked() && !up_to_tip->isEnabled(),
                 "Opening Up To retained a drill point past its target surface")) return 1;
         ending->setCurrentIndex(ending->findData("length"));
         application.processEvents();
-        if (!verify(active_placement_cells()==0 && !target->styleSheet().contains("#4dd811"),
+        if (!verify(active_placement_cells()==0 && !target->styleSheet().contains("#00D1FF"),
                 "Leaving Opening Up To retained a stale selection state")) return 1;
         ending->setCurrentIndex(ending->findData("up_to"));
         application.processEvents();
@@ -12401,7 +12401,7 @@ int verify_startup_contract(
             view->mapToGlobal(target_position->toPoint()),Qt::LeftButton,Qt::NoButton,Qt::NoModifier);
         QApplication::sendEvent(view,&release);
         application.processEvents();
-        if (!verify(!target->text().isEmpty() && !target->styleSheet().contains("#4dd811") &&
+        if (!verify(!target->text().isEmpty() && !target->styleSheet().contains("#00D1FF") &&
                 active_placement_cells()==0 && opening_properties->first_empty_position_index()==0,
                 "Up To click did not set its target independently of placement")) return 1;
         auto* thread_end=opening_properties->findChild<QComboBox*>("threadLengthEnd");
@@ -12409,8 +12409,8 @@ int verify_startup_contract(
         if (!verify(thread_end && thread_target,"Thread length target controls missing")) return 1;
         thread_end->setCurrentIndex(thread_end->findData("up_to"));
         application.processEvents();
-        if (!verify(thread_target->styleSheet().contains("#4dd811") &&
-                !target->styleSheet().contains("#4dd811") && active_placement_cells()==0,
+        if (!verify(thread_target->styleSheet().contains("#00D1FF") &&
+                !target->styleSheet().contains("#00D1FF") && active_placement_cells()==0,
                 "Thread Up To did not exclusively own target entry")) return 1;
         QApplication::sendEvent(view,&move);
         QApplication::sendEvent(view,&press);

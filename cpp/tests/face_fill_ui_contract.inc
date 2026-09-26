@@ -22,17 +22,17 @@ static void verify_face_fill(QApplication& application,QWidget& parent) {
     move({2,2});view.clear_selection();const auto idle=view.grabFramebuffer();
     move(left);require(view.hovered_candidate()&&view.hovered_candidate()->semantic_key=="left","Face fill fixture selected the wrong face");
     const auto hover=view.grabFramebuffer();const auto h=pixel(hover,left),base=pixel(idle,left);
-    require(h.green()>h.red()+15&&h.green()>h.blue()+15&&h!=base,"Face interior has no green hover fill");
+    require(h.green()>h.red()+15&&h.blue()>h.red()+15&&h!=base,"Face interior has no azure hover fill");
     require(pixel(hover,right)==pixel(idle,right),"Face hover tinted an adjacent face of the same solid");
     view.confirm_reference("solid","left",{},viewer::CandidateKind::Face);application.processEvents();
     const auto selected=view.grabFramebuffer();const auto s=pixel(selected,left);
     selected.save("interaction-face-selected.png");hover.save("interaction-face-hover.png");
-    if(!(s.blue()>s.red()+30&&s.green()>s.red()+30))
+    if(!(s.green()>s.red()+30&&s.green()>s.blue()+30))
         std::cerr<<"Face colors idle="<<base.name().toStdString()<<" hover="<<h.name().toStdString()<<" selected="<<s.name().toStdString()
             <<" confirmed="<<bool(view.confirmed_candidate())<<'\n';
-    require(s.blue()>s.red()+30&&s.green()>s.red()+30,"Confirmed face interior is not azure");
+    require(s.green()>s.red()+30&&s.green()>s.blue()+30,"Confirmed face interior is not green");
     move({2,2});view.clear_selection();view.set_inspected_faces({{viewer::CandidateKind::Face,0,0,"solid","left",{},viewer::CandidateGeometry::OriginalReference}});
-    application.processEvents();require(pixel(view.grabFramebuffer(),left)==s,"Face inspection does not use the confirmed azure fill");
+    application.processEvents();require(pixel(view.grabFramebuffer(),left)==s,"Face inspection does not use the confirmed green fill");
     view.set_inspected_faces({});view.clear_selection();
     for(auto& reference:mesh.triangle_references)reference.semantic_key="plane";
     mesh.original_references.triangle_references=mesh.triangle_references;view.set_mesh(mesh,false);

@@ -227,7 +227,7 @@ Q_NEVER_INLINE static int verify_feature_prototype(QApplication& application,Ass
         const auto icon_color=[](QPushButton* button){const auto icon=button->icon().pixmap({18,18}).toImage();return icon.pixelColor(icon.width()/2,icon.height()/2);};
         check(icon_color(plus)==QColor("#4DD811"),"Add icon is not green at rest");
         QEnterEvent enter(QPointF(2,2),QPointF(2,2),QPointF(plus->mapToGlobal(QPoint(2,2))));QApplication::sendEvent(plus,&enter);
-        check(icon_color(plus)==QColor(Qt::black),"Add icon is not black on hover");
+        check(icon_color(plus)==QColor("#4DD811"),"Add icon lost its green identity on hover");
         QEvent leave(QEvent::Leave);QApplication::sendEvent(plus,&leave);
         check(icon_color(plus)==QColor("#4DD811"),"Add icon did not restore green after hover");
         plus->click();QApplication::sendEvent(plus,&leave);

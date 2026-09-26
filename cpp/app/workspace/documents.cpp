@@ -420,7 +420,7 @@ void AssemblyWorkspaceWindow::refresh_tabs() {
     }
     for (int index = 0; index < tabs_->count(); ++index) {
         // Reserve an explicit right inset inside the tab button slot. Native
-        // styles can otherwise place the red button against/outside the tab edge.
+        // styles can otherwise place the close button against/outside the tab edge.
         auto* close_slot = new QWidget(tabs_);
         close_slot->setFixedSize(48, 22);
         auto* close_layout = new QHBoxLayout(close_slot);
@@ -440,14 +440,8 @@ void AssemblyWorkspaceWindow::refresh_tabs() {
         close->setFocusPolicy(Qt::NoFocus);
         close->setToolTip(tr("Zavřít dokument"));
         close->setAccessibleName(tr("Zavřít dokument"));
-        // Match the reference-row remove button. An actual styled widget
+        // Match the reference-row remove button. An actual widget
         // avoids the platform-specific QTabBar close subcontrol/icon.
-        close->setStyleSheet(
-            "QPushButton{color:#ffffff;background:#8b2424;"
-            "border:1px solid #b94a4a;border-radius:4px;"
-            "font-size:16px;font-weight:700;padding:0}"
-            "QPushButton:hover{background:#4DD811;color:#102027;border-color:#4DD811}"
-            "QPushButton:pressed{background:#6f1d1d}");
         const auto document_id = tabs_->tabData(index);
         connect(close, &QPushButton::clicked, this, [this, document_id] {
             for (int current = 0; current < tabs_->count(); ++current) {

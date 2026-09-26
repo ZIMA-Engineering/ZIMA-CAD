@@ -42,8 +42,6 @@ QPushButton* create_origin_selection_button(QWidget* parent) {
     button->setObjectName("containerOriginSelectionButton");
     button->setCheckable(true);
     button->setAutoDefault(false);
-    button->setStyleSheet(
-        "QPushButton:checked{background:#4dd811;color:#102010;font-weight:700;}");
     button->setToolTip(QObject::tr(
         "Kliknutím zobrazit nebo skrýt lokální Počátky kontejnerů"));
     return button;
@@ -268,9 +266,6 @@ PropertiesSubWindow::PropertiesSubWindow(const QString& title, QWidget* parent)
     close->setIcon(style()->standardIcon(QStyle::SP_TitleBarCloseButton));
     close->setIconSize(QSize(16, 16));
     close->setToolTip(tr("Zrušit"));
-    close->setStyleSheet(
-        "QPushButton { border:none; border-radius:4px; font-weight:700; }"
-        "QPushButton:hover { background:#4DD811; color:#102027; }");
     connect(close, &QPushButton::clicked, this, &QDialog::reject);
     title_layout->addWidget(close);
     title_layout->setAlignment(close, Qt::AlignVCenter);

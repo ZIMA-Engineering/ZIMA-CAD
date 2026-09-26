@@ -3,6 +3,6 @@
   <g fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
     <path d="M12 3v18" stroke-dasharray="2 2" stroke="#AD6E2E"/>
     <path d="M3 7v10h6z"/>
-    <path d="M21 7v10h-6z" stroke="#80AA1A"/>
+    <path d="M21 7v10h-6z" stroke="#00D1FF"/>
   </g>
 </svg>

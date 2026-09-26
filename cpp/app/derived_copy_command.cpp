@@ -253,7 +253,7 @@ void AssemblyWorkspaceWindow::show_derived_copy_properties(const std::string& id
                 if((*i)->data(0,Qt::UserRole+1).toString().toStdString()==prefix){parent=*i;break;}
             if(parent){auto* row=new QTreeWidgetItem(parent,{QString::fromStdString(dialog->pending.name)});
                 row->setData(0,Qt::UserRole,QString::fromStdString(dialog->pending.id));row->setData(0,Qt::UserRole+3,"copy-draft");
-                row->setIcon(0,resource_icon(dialog->derived_copy.pattern?"pattern":"mirror"));row->setBackground(0,QBrush(QColor("#00D1FF")));row->setForeground(0,QBrush(QColor("#102027")));}
+                row->setIcon(0,resource_icon(dialog->derived_copy.pattern?"pattern":"mirror"));row->setBackground(0,QBrush(QColor("#4DD811")));row->setForeground(0,QBrush(QColor("#102027")));}
         }
         std::set<viewer::EdgeKey> highlights;
         bool inspecting=false;

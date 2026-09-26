@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" role="img" aria-labelledby="title">
   <title id="title">Revolution</title>
   <g fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
-    <path d="M12 4a8 8 0 1 0 8 8M17 15l3-3 3 3" stroke="#80AA1A"/>
+    <path d="M12 4a8 8 0 1 0 8 8M17 15l3-3 3 3" stroke="#00D1FF"/>
   </g>
 </svg>

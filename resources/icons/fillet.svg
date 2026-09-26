@@ -2,6 +2,6 @@
   <title id="title">Fillet</title>
   <g fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
     <path d="M4 4V20H20"/>
-    <path d="M4 4a16 16 0 0 0 16 16" stroke="#80AA1A"/>
+    <path d="M4 4a16 16 0 0 0 16 16" stroke="#00D1FF"/>
   </g>
 </svg>

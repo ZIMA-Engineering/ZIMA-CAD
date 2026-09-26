@@ -54,7 +54,7 @@ void AssemblyWorkspaceWindow::show_mass_properties(const std::string& object) {
     // The information feature consumes the solid immediately before its row.
     // Suppress downstream tree rows visually only for this edit session.
     for(QTreeWidgetItemIterator it(tree_);*it;++it)if((*it)->data(0,Qt::UserRole).toString().toStdString()==edit.initial.id) {
-        auto* row=*it;row->setBackground(0,QColor("#00D1FF"));row->setForeground(0,QColor("#102027"));auto* parent=row->parent();
+        auto* row=*it;row->setBackground(0,QColor("#4DD811"));row->setForeground(0,QColor("#102027"));auto* parent=row->parent();
         if(parent)for(int i=parent->indexOfChild(row)+1;i<parent->childCount();++i)parent->child(i)->setForeground(0,QColor("#888888"));
         break;
     }

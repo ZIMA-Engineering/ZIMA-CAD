@@ -22,7 +22,7 @@ inline void style_reference_table(QTableWidget* table, int action_column,
 inline void append_face_reference_entry(QTableWidget* table) {
     const int row=table->rowCount();table->insertRow(row);
     auto* field=new ui::ReferenceCellItem(QObject::tr("Vyberte plochu…"));
-    field->setForeground(QColor("#4dd811"));
+    field->setForeground(QColor("#00D1FF"));
     field->set_active_input(table->property("referenceEntryActive").toBool());
     table->setItem(row,1,field);
     table->setCellWidget(row,0,ui::centered_cell_widget(ui::build_reference_row_indicator({})));

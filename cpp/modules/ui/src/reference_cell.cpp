@@ -61,21 +61,23 @@ public:
         if (index.data(missing_reference_role).toBool()) {
             clean.backgroundBrush = QColor(164, 45, 45);
         } else if (inspected) {
-            clean.backgroundBrush = QColor(QStringLiteral("#00d1ff"));
+            clean.backgroundBrush = QColor(QStringLiteral("#4DD811"));
         }
         if (populated) {
-            // Never inherit the active/inactive window palette for stored
-            // references. A dialog focus change must not turn a valid
-            // reference into low-contrast or effectively invisible text.
-            text_color = QColor(QStringLiteral("#e6edf3"));
+            // Use the table text palette on its ordinary background; fixed
+            // inspection/error backgrounds retain their contrasting text below.
+            text_color = option.palette.color(QPalette::Active, QPalette::Text);
         } else {
             const auto foreground = index.data(Qt::ForegroundRole).value<QBrush>();
             text_color = foreground.style() == Qt::NoBrush
                 ? QColor(QStringLiteral("#8d969f")) : foreground.color();
         }
+        if (index.data(missing_reference_role).toBool()) text_color = Qt::white;
+        if (inspected && !index.data(missing_reference_role).toBool())
+            text_color = QColor("#102027");
         if (index == hovered_ && index.data(reference_entry_role).toBool() &&
             table_->isEnabled() && (index.flags() & Qt::ItemIsEnabled)) {
-            clean.backgroundBrush = QColor("#4dd811");
+            clean.backgroundBrush = QColor("#00D1FF");
             text_color = QColor("#102027");
         }
         for (const auto group : {QPalette::Active, QPalette::Inactive,
@@ -89,7 +91,7 @@ public:
         table_->style()->drawControl(QStyle::CE_ItemViewItem, &clean, painter, table_);
         if (!active) return;
         painter->save();
-        QPen pen(QColor(QStringLiteral("#4dd811")), 2.0);
+        QPen pen(QColor(QStringLiteral("#00D1FF")), 2.0);
         pen.setJoinStyle(Qt::MiterJoin);
         painter->setPen(pen);
         painter->setBrush(Qt::NoBrush);
@@ -121,7 +123,7 @@ QIcon reference_arrow_icon(Qt::ArrowType direction) {
     painter.translate(10,10);
     painter.rotate(direction==Qt::UpArrow?-90:direction==Qt::DownArrow?90:direction==Qt::LeftArrow?180:0);
     QFont font; font.setPixelSize(16);font.setWeight(QFont::Bold);
-    painter.setFont(font);painter.setPen(QColor("#4dd811"));
+    painter.setFont(font);painter.setPen(QColor("#00D1FF"));
     painter.drawText(QRect(-10,-10,20,20),Qt::AlignCenter,QStringLiteral("\u2192"));
     painter.end();
     return QIcon(image);
@@ -138,18 +140,12 @@ QWidget* build_reference_row_indicator(std::function<void()> remove_callback) {
     arrow_label->setAlignment(Qt::AlignCenter);
     arrow_label->setToolTip(QObject::tr("Zadejte referenci"));
     arrow_label->setStyleSheet(
-        "QLabel{color:#4dd811;font-size:16px;font-weight:700}");
+        "QLabel{color:#00D1FF;font-size:16px;font-weight:700}");
     arrow_label->setFixedSize(30, 30);
 
     auto* remove_button = new QPushButton(QStringLiteral("\u00d7"), container);
     remove_button->setFixedSize(30, 30);
     remove_button->setToolTip(QObject::tr("Odstranit referenci"));
-    remove_button->setStyleSheet(
-        "QPushButton{color:#ffffff;background:#8b2424;"
-        "border:1px solid #b94a4a;border-radius:4px;"
-        "font-size:16px;font-weight:700;padding:0}"
-        "QPushButton:hover{background:#4DD811;color:#102027;border-color:#4DD811}"
-        "QPushButton:pressed{background:#6f1d1d}");
     if (remove_callback) {
         QObject::connect(remove_button, &QPushButton::clicked, container,
             [callback = std::move(remove_callback)] { callback(); });
@@ -188,15 +184,6 @@ QWidget* build_reference_row_flip_button(
     button->setToolTip(enabled
         ? QObject::tr("Obrátit směr reference")
         : QObject::tr("Obrácení směru není pro tuto referenci k dispozici"));
-    button->setStyleSheet(
-        "QToolButton{color:#dddddd;background:#2f3339;"
-        "border:1px solid #4a4f57;border-radius:4px;"
-        "font-size:14px;font-weight:700;padding:0}"
-        "QToolButton:hover:enabled{background:#4DD811;color:#102027;border-color:#4DD811}"
-        "QToolButton:checked{color:#102027;background:#00d1ff;"
-        "border-color:#00D1FF}"
-        "QToolButton:disabled{color:#666666;background:#26282c;"
-        "border-color:#35383e}");
     if (toggled_callback) {
         QObject::connect(button, &QToolButton::toggled, button,
             [callback = std::move(toggled_callback)](bool value) { callback(value); });
@@ -223,15 +210,6 @@ QToolButton* build_reference_inspection_button(
     button->setToolTip(enabled
         ? QObject::tr("Zobrazit nebo skrýt tuto referenci ve View")
         : QObject::tr("Nejprve zadejte referenci"));
-    button->setStyleSheet(
-        "QToolButton{color:#dddddd;background:#2f3339;"
-        "border:1px solid #4a4f57;border-radius:4px;"
-        "font-size:14px;padding:0}"
-        "QToolButton:hover:enabled{background:#4DD811;color:#102027;border-color:#4DD811}"
-        "QToolButton:checked{color:#102027;background:#00d1ff;"
-        "border-color:#00D1FF}"
-        "QToolButton:disabled{color:#666666;background:#26282c;"
-        "border-color:#35383e}");
     if (toggled_callback) {
         QObject::connect(button, &QToolButton::toggled, button,
             [callback = std::move(toggled_callback)](bool value) {
@@ -285,7 +263,7 @@ void ReferenceCellItem::set_inspected(bool value) {
     setData(inspected_role, value);
     // QStyledItemDelegate initializes its paint options again from the model;
     // an option-only background is discarded by that second initialization.
-    setBackground(value ? QBrush(QColor(QStringLiteral("#00d1ff"))) : QBrush{});
+    setBackground(value ? QBrush(QColor(QStringLiteral("#4DD811"))) : QBrush{});
 }
 
 }  // namespace zima::ui

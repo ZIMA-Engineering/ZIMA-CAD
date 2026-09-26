@@ -4,6 +4,7 @@
 #include <QByteArray>
 #include <QFile>
 #include <QHash>
+#include <QIconEngine>
 #include <QPainter>
 #include <QPalette>
 #include <QPixmap>
@@ -18,16 +19,19 @@
 namespace zima::app {
 namespace {
 
-QIcon svg_icon(const QString& path, bool palette_color) {
+QIcon svg_icon(const QString& path, bool palette_color, bool neutral_origin = false) {
     QFile source(path);
     if (!source.open(QIODevice::ReadOnly)) return {};
     QByteArray svg = source.readAll();
+    if (neutral_origin) svg.replace("#FF0000", "currentColor");
+    const QByteArray original = svg;
     QString color;
     if (palette_color && qApp != nullptr) {
         color = qApp->palette().color(QPalette::WindowText).name();
         svg.replace("currentColor", color.toUtf8());
     }
-    const QString cache_key = path + QLatin1Char('|') + color;
+    const QString cache_key = path + QLatin1Char('|') + color +
+        QString::number(neutral_origin) + QString::number(qApp ? qApp->palette().cacheKey() : 0);
     static QHash<QString, QIcon> cache;
     if (const auto found = cache.constFind(cache_key); found != cache.constEnd()) {
         return *found;
@@ -42,9 +46,16 @@ QIcon svg_icon(const QString& path, bool palette_color) {
         renderer.render(&painter);
         painter.end();
         icon.addPixmap(pixmap);
-        if(path.endsWith("/origin.svg")) {
+        if((path.endsWith("/origin.svg") && !neutral_origin) || path.endsWith("/active-check.svg")) {
             icon.addPixmap(pixmap,QIcon::Active);
             icon.addPixmap(pixmap,QIcon::Selected);
+        } else if (palette_color && original.contains("currentColor") && qApp) {
+            auto selected_svg = original;
+            selected_svg.replace("currentColor", qApp->palette().color(QPalette::HighlightedText).name().toUtf8());
+            QSvgRenderer selected_renderer(selected_svg);
+            QPixmap selected(QSize(size,size)); selected.fill(Qt::transparent);
+            QPainter selected_painter(&selected); selected_renderer.render(&selected_painter); selected_painter.end();
+            icon.addPixmap(selected,QIcon::Selected);
         }
     }
     cache.insert(cache_key, icon);
@@ -60,9 +71,7 @@ void install_dialog_button_icons() {
         explicit ButtonIcons(QObject* parent) : QObject(parent) {}
         bool eventFilter(QObject* object, QEvent* event) override {
             const auto type = event->type();
-            if (type != QEvent::Show && type != QEvent::Polish &&
-                type != QEvent::Enter && type != QEvent::Leave &&
-                type != QEvent::EnabledChange)
+            if (type != QEvent::Show && type != QEvent::Polish)
                 return false;
             auto* button = qobject_cast<QAbstractButton*>(object);
             if (!button) return false;
@@ -79,28 +88,6 @@ void install_dialog_button_icons() {
                 button->setIcon(resource_icon(ok ? "active-check" : "dialog-cancel"));
                 button->setIconSize(QSize(18,18));
             }
-            const auto normal = resource_icon("active-check");
-            static const QIcon hovered = [normal] {
-                QIcon icon;
-                for (const int size : {16,18,20,24,32,48}) {
-                    auto pixmap = normal.pixmap(size,size,QIcon::Normal);
-                    QPainter tint(&pixmap);
-                    tint.setCompositionMode(QPainter::CompositionMode_SourceIn);
-                    tint.fillRect(pixmap.rect(),Qt::black);
-                    tint.end();
-                    icon.addPixmap(pixmap);
-                    icon.addPixmap(pixmap,QIcon::Active);
-                }
-                return icon;
-            }();
-            if (button->icon().cacheKey() == normal.cacheKey() ||
-                button->icon().cacheKey() == hovered.cacheKey()) {
-                // Qt styles do not consistently request QIcon::Active for a
-                // hovered QPushButton. Select the icon explicitly on enter/leave.
-                const bool hover = button->isEnabled() && type != QEvent::Leave &&
-                    (type == QEvent::Enter || button->underMouse());
-                button->setIcon(hover ? hovered : normal);
-            }
             return false;
         }
     };
@@ -108,13 +95,14 @@ void install_dialog_button_icons() {
     qApp->installEventFilter(new ButtonIcons(qApp));
 }
 
-QIcon resource_icon(const QString& name, bool surface) {
-    if (name == "origin-document" || name == "origin-feature") {
+static QIcon raster_resource_icon(const QString& name, bool surface) {
+    if (name == "origin-document") return svg_icon(QStringLiteral(":/zima/icons/origin.svg"),true,true);
+    if (name == "origin-feature") {
         static QHash<QString,QIcon> origins;
         if (origins.contains(name)) return origins.value(name);
         QIcon icon;
         const auto source = resource_icon("origin");
-        const QColor color(name == "origin-document" ? "#FFFFFF" : "#4DD811");
+        const QColor color(name == "origin-document" ? "#FFFFFF" : "#00D1FF");
         for (const int size : {16,18,20,24,32,48}) {
             auto pixmap = source.pixmap(size,size);
             QPainter painter(&pixmap);
@@ -129,8 +117,9 @@ QIcon resource_icon(const QString& name, bool surface) {
         return icon;
     }
     if(name=="protrusion-revolve") {
-        static QHash<bool,QIcon> combined;
-        if(combined.contains(surface))return combined.value(surface);
+        static QHash<QString,QIcon> combined;
+        const auto key=QString::number(surface)+QString::number(qApp ? qApp->palette().cacheKey() : 0);
+        if(combined.contains(key))return combined.value(key);
         QIcon icon;const auto first=resource_icon("protrusion",surface),second=resource_icon("revolve",surface);
         for(const int size:{16,18,20,24,32,48}) {
             QPixmap pixmap(2*size,size);pixmap.fill(Qt::transparent);
@@ -138,7 +127,7 @@ QIcon resource_icon(const QString& name, bool surface) {
             painter.drawPixmap(0,0,first.pixmap(size,size));
             painter.drawPixmap(size,0,second.pixmap(size,size));painter.end();icon.addPixmap(pixmap);
         }
-        combined.insert(surface,icon);return icon;
+        combined.insert(key,icon);return icon;
     }
     if(surface) {
         QIcon icon;
@@ -154,6 +143,49 @@ QIcon resource_icon(const QString& name, bool surface) {
     }
     return svg_icon(QStringLiteral(":/zima/icons/") + name + QStringLiteral(".svg"),
                     true);
+}
+
+// Existing QAction/Tree icons follow palette changes without rebuilding the model.
+// Rasterization remains cached; repainting with an unchanged palette reuses it.
+class PaletteIconEngine final : public QIconEngine {
+public:
+    PaletteIconEngine(QString name, bool surface) : name_(std::move(name)),surface_(surface) {}
+    QIconEngine* clone() const override { return new PaletteIconEngine(name_,surface_); }
+    bool isNull() override { return current().isNull(); }
+    QSize actualSize(const QSize& size,QIcon::Mode mode,QIcon::State state) override {
+        return current().actualSize(size,mode,state);
+    }
+    QList<QSize> availableSizes(QIcon::Mode mode,QIcon::State state) override {
+        return current().availableSizes(mode,state);
+    }
+    QPixmap pixmap(const QSize& size,QIcon::Mode mode,QIcon::State state) override {
+        return current().pixmap(size,mode,state);
+    }
+    QPixmap scaledPixmap(const QSize& size,QIcon::Mode mode,QIcon::State state,qreal scale) override {
+        return current().pixmap(size,scale,mode,state);
+    }
+    void paint(QPainter* painter,const QRect& rect,QIcon::Mode mode,QIcon::State state) override {
+        current().paint(painter,rect,Qt::AlignCenter,mode,state);
+    }
+private:
+    const QIcon& current() {
+        const auto key=qApp ? qApp->palette().cacheKey() : 0;
+        if(icon_.isNull() || palette_key_!=key) {
+            icon_=raster_resource_icon(name_,surface_);palette_key_=key;
+        }
+        return icon_;
+    }
+    QString name_;
+    bool surface_;
+    qint64 palette_key_=-1;
+    QIcon icon_;
+};
+
+QIcon resource_icon(const QString& name,bool surface) {
+    static QHash<QString,QIcon> icons;
+    const auto key=name+QLatin1Char('|')+QString::number(surface);
+    if (!icons.contains(key)) icons.insert(key,QIcon(new PaletteIconEngine(name,surface)));
+    return icons.value(key);
 }
 
 QIcon application_icon() {

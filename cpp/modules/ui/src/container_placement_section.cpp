@@ -68,7 +68,7 @@ ContainerPlacementSection::ContainerPlacementSection(
     if (!with_orientation_) remaining_rotation_dof_ = 0;
     if (!with_orientation_) rotation_constraint_state_.remaining_dof = 0;
     reference_status_ = new QLabel(parent_widget_);
-    reference_status_->setStyleSheet("color:#4dd811;font-weight:700;");
+    reference_status_->setStyleSheet("color:#00D1FF;font-weight:700;");
     reference_status_->setWordWrap(true);
     reference_status_->setSizePolicy(QSizePolicy::Preferred,QSizePolicy::Maximum);
     reference_status_->setObjectName("containerPlacementStatusLabel");

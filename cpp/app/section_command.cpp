@@ -200,7 +200,7 @@ void AssemblyWorkspaceWindow::update_section_ui(){
         item->setData(0,Qt::UserRole,QString::fromStdString(key));item->setData(0,Qt::UserRole+3,type);
         item->setFlags(item->flags()&~Qt::ItemIsUserCheckable);
         item->setIcon(0,resource_icon(key.empty()?"section-normal":"section-cut"));
-        if(active){item->setBackground(0,QColor("#00D1FF"));item->setForeground(0,QColor("#102027"));auto font=item->font(0);font.setBold(true);item->setFont(0,font);}
+        if(active){item->setBackground(0,QColor("#4DD811"));item->setForeground(0,QColor("#102027"));auto font=item->font(0);font.setBold(true);item->setFont(0,font);}
         return item;
     };
     row(tr("Bez řezu"),{},"document-section-normal",std::ranges::none_of(sections,[](const auto& s){return s.show_cut;}));

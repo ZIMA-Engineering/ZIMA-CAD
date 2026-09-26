@@ -1,5 +1,54 @@
 # Modeling and Sheet Metal visual conventions
 
+## Light and dark theme contrast (2026-09-26)
+
+Neutral document-Origin, Sketch and Insert Symbol artwork uses the Qt text
+palette instead of fixed white. Shared UI icons resolve the current palette at
+paint time, retaining cached raster data until the palette changes; existing
+Tree/action icons follow theme changes without model refresh or calculation.
+Neutral selected icons use the highlighted-text color. Semantic icon accents,
+Body Origin red and confirmation green retain their meanings.
+Stored reference labels use the table text palette on ordinary backgrounds;
+inspection and error backgrounds keep their explicit contrasting text.
+The Part, Body and Assembly **Insert here** Tree markers use red (`#D03030`).
+No labels, reference ownership, insertion behavior or model data are changed.
+
+Verification passed after rebuilding the Windows GUI and Drawing harness:
+full UI and Drawing UI contracts, five-language catalog/UI validation, and
+the Windows 11 interaction check. The theme fixture switches the same icons
+light/dark/light, checks selected-Origin contrast and ordinary reference text,
+and confirms that unavailable icon resources still report null.
+
+## Native controls and interaction colors (2026-09-26)
+
+This agreement supersedes the historical GUI color rules below. Ordinary Qt
+Tree selection, tabs, menus, buttons, hover, pressed and checked feedback use
+the platform style and palette. Do not force green or azure widget backgrounds.
+The existing command-active property is painted as a native checked state.
+
+Application-specific state remains explicit: View hover and reference entry use
+azure (`#00D1FF`); confirmed geometry, inspected references, pending wire and
+active/editing Tree rows use green (`#4DD811`). An active/editing row remains
+distinct from ordinary Tree selection. Input ownership and independent eye
+inspection retain their behavior. Inspected fields use dark text for contrast.
+Icon accents and toolbar separators use azure. Confirmation checkmarks and the
+add-operation sign remain green in every enabled state, including hover; they
+never switch to black. Error red, construction orange, model axes brown and
+persisted Drawing/symbol pen colors are unchanged.
+
+Verification: rebuilt the Windows GUI/CLI and Drawing harness. The complete UI
+contract and Drawing UI contract passed, including reference input/inspection,
+placement, cancellation and dialog interactions. Five-language catalog/UI,
+whole-Origin and selection-filter checks passed. The interaction fixture also
+passed with the Windows 11 style, checking native button backgrounds, unchanged
+green checkmarks and azure/green geometry. No user-visible strings were added or
+changed; existing localized labels/tooltips remain in all five languages.
+The console UI contract also passed. The broad workspace startup run stops at
+its Unicode Save As fixture under the user's `RemoveDiacritics=true` setting:
+the fixture expects the original accented filename. The isolated Save Copy
+contract passes with diacritic preservation. The saving implementation and user
+configuration were not changed; the remainder of that broad run is unverified.
+
 The toolbar icons are native SVG assets under `resources/icons`, using a
 24 × 24 view box. Keep silhouettes simple enough to read at the application's
 16 px toolbar size. The revised line icons use 1.75-unit strokes with rounded

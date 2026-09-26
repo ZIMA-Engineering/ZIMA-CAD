@@ -9,16 +9,19 @@ The first clean SVG icon set for ZIMA-CAD.
 - Stroke width: `1.75`
 - Line caps and joins: `round`
 - Transparent background
-- Green accent: `#80AA1A`
+- Azure accent: `#00D1FF`
 - No gradients, shadows, or embossed effects
 
-`currentColor` lets icons adapt automatically to light/dark application themes.
+`currentColor` follows the current Qt text palette, including live theme changes
+and highlighted-text contrast for selected items. Neutral Sketch, Insert Symbol
+and document-Origin icons use this rule; white detailing inside filled artwork
+and semantic color accents retain their meaning.
 
 ### Recommended colors
 
 - Light theme: `#1E1E1E`
 - Dark theme: `#F2F2F2`
-- Active/highlighted: `#80AA1A`
+- Interaction accent: `#00D1FF`; confirmation checkmark: `#4DD811`
 - Disabled: `#909090`
 
 ## Contents

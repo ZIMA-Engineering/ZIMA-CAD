@@ -48,8 +48,8 @@ QWidget* build_reference_row_flip_button(
     bool enabled, bool checked, std::function<void(bool)> toggled_callback);
 
 // Installs the shared reference-cell delegate on a table. The delegate draws
-// the two reference-entry states on the exact item only: a green outline for
-// the single active input and an azure fill for independently inspected
+// the two reference-entry states on the exact item only: an azure outline for
+// the single active input and a green fill for independently inspected
 // stored geometry. It deliberately ignores QTableWidget's selection palette.
 void install_reference_cell_delegate(QTableWidget* table);
 

@@ -2,6 +2,6 @@
   <title id="title">Opening</title>
   <g fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
     <rect x="4" y="4" width="16" height="16"/>
-    <circle cx="12" cy="12" r="4" stroke="#80AA1A"/>
+    <circle cx="12" cy="12" r="4" stroke="#00D1FF"/>
   </g>
 </svg>

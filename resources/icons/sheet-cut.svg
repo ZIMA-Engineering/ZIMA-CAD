@@ -2,6 +2,6 @@
   <title id="title">Sheet Cut</title>
   <g fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
     <rect x="4" y="4" width="16" height="16" stroke="#39C5E8"/>
-    <path d="M7 17L17 7" stroke="#80AA1A"/>
+    <path d="M7 17L17 7" stroke="#00D1FF"/>
   </g>
 </svg>

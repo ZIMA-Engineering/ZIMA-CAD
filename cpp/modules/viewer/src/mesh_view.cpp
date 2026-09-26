@@ -3018,7 +3018,7 @@ void MeshView::paintGL() {
             paint_embedded_image(painter,image.data_base64,image.format,target);
             const auto matches=[&](const auto& c){return c && c->kind==CandidateKind::TemplateImage && c->owner_id==image.reference.owner_id && c->semantic_key==image.reference.semantic_key;};
             if(matches(impl_->confirmed_candidate)||matches(hovered_candidate())) {
-                painter.setPen(QPen(matches(impl_->confirmed_candidate)?QColor("#00D1FF"):interaction::hover,2));painter.setBrush(Qt::NoBrush);painter.drawPolygon(target);
+                painter.setPen(QPen(matches(impl_->confirmed_candidate)?interaction::selected:interaction::hover,2));painter.setBrush(Qt::NoBrush);painter.drawPolygon(target);
             }
         }
         const auto draw_reference_segment = [&](const QPointF& first,
@@ -3755,7 +3755,7 @@ if (impl_->show_origins) {
             paint_embedded_image(painter,image.data_base64,image.format,target);
             const auto matches=[&](const auto& c){return c && c->kind==CandidateKind::TemplateImage && c->owner_id==image.reference.owner_id && c->semantic_key==image.reference.semantic_key;};
             if(matches(impl_->confirmed_candidate)||matches(hovered_candidate())) {
-                painter.setPen(QPen(matches(impl_->confirmed_candidate)?QColor("#00D1FF"):interaction::hover,2));painter.setBrush(Qt::NoBrush);painter.drawPolygon(target);
+                painter.setPen(QPen(matches(impl_->confirmed_candidate)?interaction::selected:interaction::hover,2));painter.setBrush(Qt::NoBrush);painter.drawPolygon(target);
             }
         }
         const auto draw_reference_segment = [&](const QPointF& first,

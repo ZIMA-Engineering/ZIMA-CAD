@@ -1292,11 +1292,6 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
         treatment_reverse_->setChecked(initial.edge_treatment.reverse);
         for (auto* button : {treatment_flip_, treatment_reverse_}) {
             button->setMinimumHeight(34);
-            button->setStyleSheet(
-                "QPushButton{border:2px solid #2d5670;border-radius:6px;"
-                "font-weight:700;padding:6px 12px}"
-                "QPushButton:checked{background:#00d1ff;color:#101510;"
-                "border-color:#6fe3ff}");
             form->addRow(button);
         }
         refresh_edge_treatment_fields();
@@ -1314,8 +1309,6 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
         edge_list_->header()->moveSection(edge_list_->header()->visualIndex(2),0);
         edge_list_->header()->moveSection(edge_list_->header()->visualIndex(3),1);
         edge_list_->setMouseTracking(true);
-        edge_list_->setStyleSheet("QTreeWidget::item:hover{background:#4dd811;color:#102027;}"
-            "QTreeWidget::item:selected{background:#00d1ff;color:#102027;}");
         edge_list_->header()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
         edge_list_->header()->setSectionResizeMode(1, QHeaderView::Stretch);
         edge_list_->setMinimumHeight(90);
@@ -1782,7 +1775,7 @@ void PrimitivePropertiesDialog::set_edge_groups(std::vector<EdgeGroup> groups) {
     // makes the offered input visible without creating an empty model route.
     auto* offered=new QTreeWidgetItem(edge_list_);
     offered->setText(1,tr("Vybrat referenci"));
-    offered->setForeground(1,QColor("#4dd811"));
+    offered->setForeground(1,QColor("#00D1FF"));
     offered->setText(2,QString::number(edge_groups_.size()+1));
     offered->setSizeHint(0,QSize(0,34));
     edge_list_->setItemWidget(offered,3,zima::ui::centered_cell_widget(
@@ -1999,10 +1992,10 @@ void PrimitivePropertiesDialog::refresh_extrusion_target_styles() {
                           bool active, bool highlighted, bool populated) {
         if (edit == nullptr) return;
         const QString background = highlighted
-            ? QStringLiteral("background:#00d1ff;color:#102027;")
+            ? QStringLiteral("background:#4DD811;color:#102027;")
             : QString{};
         const QString border = active
-            ? QStringLiteral("border:2px solid #4dd811;")
+            ? QStringLiteral("border:2px solid #00D1FF;")
             : QStringLiteral("border:1px solid palette(mid);");
         edit->setStyleSheet(QStringLiteral("QLineEdit{%1%2padding:2px 5px}")
             .arg(background, border));

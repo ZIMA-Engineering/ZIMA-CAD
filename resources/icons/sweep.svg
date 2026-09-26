@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" role="img" aria-labelledby="title">
   <title id="title">3D Sweep</title>
   <g fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
-    <path d="M4 18 C4 8 8 5 12 12 S20 16 20 5M17 8.5L20 5l3 3.5" stroke="#80AA1A"/>
+    <path d="M4 18 C4 8 8 5 12 12 S20 16 20 5M17 8.5L20 5l3 3.5" stroke="#00D1FF"/>
   </g>
 </svg>

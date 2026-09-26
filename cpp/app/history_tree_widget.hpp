@@ -134,7 +134,7 @@ protected:
         QTreeWidget::paintEvent(event);
         if (!insertion_y_) return;
         QPainter painter(viewport());
-        painter.setPen(QPen(QColor("#4DD811"), 2));
+        painter.setPen(QPen(QColor("#00D1FF"), 2));
         painter.drawLine(4, *insertion_y_, viewport()->width() - 4, *insertion_y_);
     }
 

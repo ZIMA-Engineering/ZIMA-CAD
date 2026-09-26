@@ -393,7 +393,7 @@ int verify_drawing_ui() {
         // QWidget positions are logical pixels; the grabbed image uses device pixels.
         const auto handle_pixel=(*caption*hover_image.devicePixelRatio()).toPoint();
         const int handle_radius=qCeil(6*hover_image.devicePixelRatio());
-        for(int y=-handle_radius;y<=handle_radius;++y)for(int x=-handle_radius;x<=handle_radius;++x){const auto pixel=hover_image.pixelColor(handle_pixel+QPoint(x,y));green_handle|=pixel.red()<120&&pixel.green()>180&&pixel.blue()<80;}
+        for(int y=-handle_radius;y<=handle_radius;++y)for(int x=-handle_radius;x<=handle_radius;++x){const auto pixel=hover_image.pixelColor(handle_pixel+QPoint(x,y));green_handle|=pixel.red()<80&&pixel.green()>180&&pixel.blue()>210;}
         if(!green_handle){std::filesystem::create_directories("Projects/test/drawing-ui");hover_image.save("Projects/test/drawing-ui/caption-hover-failure.png");}
         require(green_handle,"Hover did not highlight the caption manipulation point");
         mouse(canvas,QEvent::MouseButtonPress,*caption+QPointF(18,0),Qt::LeftButton,Qt::LeftButton);
@@ -986,15 +986,15 @@ int verify_drawing_ui() {
             // A vertical normal-view dimension has upright text along the vertical support line, to its left.
             // Scan the glyphs immediately left of the handle, excluding the
             // support line. Thin antialiased text need not contain full RGB.
-            int cyan_pixels=0;const auto ratio=selected_image.devicePixelRatio();
+            int green_pixels=0;const auto ratio=selected_image.devicePixelRatio();
             for(int y=-int(20*ratio);y<int(20*ratio);++y)
                 for(int x=-int(20*ratio);x<-int(3*ratio);++x) {
                     const auto pixel=selected_image.pixelColor(handle_pixel+QPoint(x,y));
-                    if(pixel.red()<40&&pixel.green()>110&&pixel.blue()>150&&
-                       std::abs(pixel.green()*255-pixel.blue()*209)<1000)++cyan_pixels;
+                    if(pixel.red()<140&&pixel.green()>110&&pixel.blue()<65&&
+                       std::abs(pixel.red()*216-pixel.green()*77)<1000)++green_pixels;
                 }
-            const bool cyan_dimension=cyan_pixels>2;
-            require(cyan_dimension,"Selected dimension text is not cyan");
+            const bool green_dimension=green_pixels>2;
+            require(green_dimension,"Selected dimension text is not green");
             mouse(canvas,QEvent::MouseButtonPress,*point,Qt::LeftButton,Qt::LeftButton);mouse(canvas,QEvent::MouseMove,*point+QPointF(30,20),Qt::NoButton,Qt::LeftButton);mouse(canvas,QEvent::MouseButtonRelease,*point+QPointF(30,20),Qt::LeftButton,Qt::NoButton);
             const auto moved=window.annotation_handle_for_test(d.id,0,true);require(moved&&std::abs(moved->x()-point->x()-30)<1e-6&&std::abs(moved->y()-point->y()-20)<1e-6,"Dimension handle moved opposite to the mouse");
         }

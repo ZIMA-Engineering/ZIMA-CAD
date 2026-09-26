@@ -69,10 +69,8 @@ int verify_cylinder_axis_ui(QApplication& application, zima::app::AssemblyWorksp
             QApplication::sendEvent(view,&move);flush();
             button=command_button();
             check(!button->underMouse()&&!button->isDown(),"Cylinder axis retains hover/press after moving to View");
-            const auto image=button->grab().toImage();
-            check(image.pixelColor(qRound((button->width()-8)*image.devicePixelRatio()),
-                qRound(button->height()/2.0*image.devicePixelRatio()))==QColor("#00D1FF"),
-                "Cylinder axis command is not azure while Properties are open");
+            check(button->property("zimaCommandActive").toBool(),
+                "Cylinder axis command lost its native active feedback while Properties are open");
             current->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Cancel)->click();flush();
             check(!action->property("zimaCommandActive").toBool(),"Closed command retained active feedback");
             window.grab().save(QString::fromStdString((directory/"interaction-colors.png").string()));

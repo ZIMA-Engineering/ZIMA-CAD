@@ -2,6 +2,6 @@
   <g fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
     <path d="M4 6V18M20 6V18M5 9H19"/>
     <path d="M5 9L8 7M5 9L8 11M19 9L16 7M19 9L16 11"/>
-    <path d="M7 15H17" stroke="#80AA1A"/>
+    <path d="M7 15H17" stroke="#00D1FF"/>
   </g>
 </svg>

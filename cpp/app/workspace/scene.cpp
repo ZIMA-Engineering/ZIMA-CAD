@@ -1014,7 +1014,7 @@ void AssemblyWorkspaceWindow::refresh_scene() {
             root->setData(0, Qt::UserRole, QString::fromStdString(document.document_id));
             root->setData(0, Qt::UserRole + 3, "part-result-body");
             if (document.body_history.active_body_id().empty() && !properties_dialog_) {
-                root->setBackground(0, QBrush(QColor("#00D1FF"))); root->setForeground(0, QBrush(QColor("#102027")));
+                root->setBackground(0, QBrush(QColor("#4DD811"))); root->setForeground(0, QBrush(QColor("#102027")));
                 auto font = root->font(0); font.setBold(true); root->setFont(0, font);
             }
             add_part_tree_children(root, body_dialog_preview_ ? *body_dialog_preview_ : document);

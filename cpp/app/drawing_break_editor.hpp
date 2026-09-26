@@ -62,7 +62,7 @@ protected:
             auto z=screen(b.vertical?drawing::Point2{cross,b.start+b.length}:drawing::Point2{b.start+b.length,-bounds.center().y()});
             // The segment is perpendicular to both construction boundaries.
             if(b.vertical){a.setX(width()/2.+pan_.x());z.setX(a.x());}
-            const auto color=active?QColor("#4DD811"):QColor("#9B7546");
+            const auto color=active?QColor("#00D1FF"):QColor("#9B7546");
             QRectF strip=b.vertical?QRectF(0,std::min(a.y(),z.y()),width(),std::abs(a.y()-z.y())):QRectF(std::min(a.x(),z.x()),0,std::abs(a.x()-z.x()),height());
             p.fillRect(strip,QColor(80,130,60,35));p.setPen(QPen(color,1,Qt::DashLine));
             for(auto q:{a,z})if(b.vertical)p.drawLine(QPointF(0,q.y()),QPointF(width(),q.y()));else p.drawLine(QPointF(q.x(),0),QPointF(q.x(),height()));
@@ -85,7 +85,7 @@ protected:
         };
         for(const auto& value:{draft_first,draft_second})if(value)boundary(*value,draft_vertical,QColor("#9B7546"));
         if(picking&&pointer_inside_) {
-            const QColor color("#4DD811");boundary(drawing::break_axis(model(pointer_),vertical),vertical,color);
+            const QColor color("#00D1FF");boundary(drawing::break_axis(model(pointer_),vertical),vertical,color);
             p.setBrush(color);p.setPen(QPen(color,1));p.drawEllipse(pointer_,4,4);
         }
     }

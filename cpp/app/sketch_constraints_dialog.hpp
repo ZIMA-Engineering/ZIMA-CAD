@@ -28,7 +28,6 @@ public:
             choose->setEnabled(kind.has_value() || action->isEnabled());
             choose->setAutoDefault(false);
             choose->setCheckable(kind.has_value());
-            choose->setStyleSheet("QPushButton:checked { background: #00D1FF; border: 1px solid #00D1FF; color: #102027; } QPushButton:hover:enabled {background:#4DD811;color:#102027;}");
             choices_->addButton(choose);
             connect(action,&QAction::changed,this,[choose,action,kind] {
                 if (!kind) choose->setEnabled(action->isEnabled());
@@ -46,7 +45,6 @@ public:
             auto* enabled=new QPushButton(this);
             enabled->setObjectName(action->objectName()+"Automatic");
             enabled->setCheckable(true);enabled->setChecked(pending_.enabled(*kind));
-            enabled->setStyleSheet("QPushButton:checked { background: #00D1FF; border: 1px solid #00D1FF; color: #102027; } QPushButton:hover:enabled {background:#4DD811;color:#102027;}");
             const auto update=[enabled](bool checked){enabled->setText(checked ? tr("✓ Zapnuto") : tr("Vypnuto"));};
             update(enabled->isChecked());
             connect(enabled,&QPushButton::toggled,this,[this,kind,update](bool checked){

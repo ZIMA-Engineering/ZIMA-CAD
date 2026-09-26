@@ -2,6 +2,6 @@
   <title id="title">Shell</title>
   <g fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
     <path d="M3.5 4v12a4 4 0 0 0 4 4h9a4 4 0 0 0 4-4V4M3.5 4h4M16.5 4h4"/>
-    <path d="M7.5 4v11a1 1 0 0 0 1 1h7a1 1 0 0 0 1-1V4" stroke="#80AA1A"/>
+    <path d="M7.5 4v11a1 1 0 0 0 1 1h7a1 1 0 0 0 1-1V4" stroke="#00D1FF"/>
   </g>
 </svg>

@@ -4,7 +4,7 @@
     <path d="M12 3V21" stroke-dasharray="2.5 2.5"/>
     <path d="M9 6L4 9V17L9 19"/>
     <path d="M15 6L20 9V17L15 19"/>
-    <circle cx="9" cy="6" r="1.35" fill="#80AA1A"/>
-    <circle cx="15" cy="6" r="1.35" fill="#80AA1A"/>
+    <circle cx="9" cy="6" r="1.35" fill="#00D1FF"/>
+    <circle cx="15" cy="6" r="1.35" fill="#00D1FF"/>
   </g>
 </svg>

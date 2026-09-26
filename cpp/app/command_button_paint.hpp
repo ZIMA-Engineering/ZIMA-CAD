@@ -117,8 +117,6 @@ protected:
             button_->isChecked()?QIcon::On:QIcon::Off);
         const int left=icon.isNull()?6:icon_rect.right()+5;
         auto palette=button_->palette();
-        if (button_->isEnabled() && (option.state & (QStyle::State_MouseOver|QStyle::State_Sunken|QStyle::State_On)))
-            palette.setColor(QPalette::ButtonText,QColor("#102027"));
         button_->style()->drawItemText(&painter,button_->rect().adjusted(left,0,-16,0),
             Qt::AlignLeft|Qt::AlignVCenter|Qt::TextShowMnemonic,
             palette,button_->isEnabled(),button_->text(),QPalette::ButtonText);

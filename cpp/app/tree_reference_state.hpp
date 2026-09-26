@@ -23,7 +23,7 @@ public:
         marked.palette.setColor(QPalette::Text,Qt::white);
         QStyledItemDelegate::paint(painter,marked,index);
         if (selected) {
-            painter->save();painter->setPen(QColor(0,209,255));
+            painter->save();painter->setPen(option.palette.color(QPalette::Highlight));
             painter->setBrush(Qt::NoBrush);painter->drawRect(option.rect.adjusted(0,0,-1,-1));painter->restore();
         }
     }

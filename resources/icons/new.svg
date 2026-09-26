@@ -4,7 +4,7 @@
 
     <path d="M6 3.5h8l4 4V20H6z"/>
     <path d="M14 3.5V8h4"/>
-    <path d="M15 15h5M17.5 12.5v5" stroke="#80AA1A"/>
+    <path d="M15 15h5M17.5 12.5v5" stroke="#00D1FF"/>
 
   </g>
 </svg>

@@ -2,6 +2,6 @@
   <title id="title">Holes</title>
   <g fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
     <rect x="2.5" y="5" width="19" height="14"/>
-    <g stroke="#80AA1A"><circle cx="7.5" cy="12" r="3"/><circle cx="16.5" cy="12" r="3"/></g>
+    <g stroke="#00D1FF"><circle cx="7.5" cy="12" r="3"/><circle cx="16.5" cy="12" r="3"/></g>
   </g>
 </svg>

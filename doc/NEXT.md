@@ -8,14 +8,18 @@ user instructions and completed native features supersede older pending items.
 
 ### Next session agreed on 2026-09-26
 
-- Swap the existing green and azure interaction colors consistently throughout
-  the application, as requested on 2026-09-26: current green hover/input states
-  become azure; current azure confirmed-selection/inspection states become
-  green. Audit every workspace, Tree, View, reference field, icon, separator and
-  shared control using these colors; preserve behavior and independent state
-  ownership.
-  Apply this as one coordinated change, not separate command exceptions.
-  This is deferred work; Windows build 2026092601 retains the current colors.
+- **Implemented locally (2026-09-26):** ordinary Qt Tree selection, tabs,
+  menus and buttons now use the platform style. Explicit CAD hover/input states
+  are azure; confirmed geometry, inspection, pending wire and active/editing
+  Tree rows are green. Icon accents and separators were audited together;
+  persisted Drawing/symbol pens retain their original colors. Confirmation
+  checkmarks remain green on hover. See [visual conventions](UI_VISUAL_CONVENTIONS.md).
+  UI, Drawing UI, five-language catalog/UI validation, whole-Origin placement,
+  selection filters and a Windows 11 interaction check passed. This is a local
+  development update; the published Windows build 2026092601 is unchanged.
+  Follow-up: neutral icons/reference text now follow live light/dark theme
+  changes; Insert here markers are red. Theme switching, selected-icon contrast,
+  UI, Drawing and five-language checks passed.
 - Complete Point placement persistence on circular/curved surfaces. Preserve
   the intuitive first View click at the picked position and numeric locks;
   verify reopening, regeneration, Undo/Redo and both surface sides.

@@ -2,7 +2,7 @@
   <title id="title">Drawing frame</title>
   <g fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
     <path d="M2.5 4.5h19v15h-19z"/>
-    <path d="M5 7h14v10H5z" stroke="#80AA1A"/>
+    <path d="M5 7h14v10H5z" stroke="#00D1FF"/>
     <path d="M8 4.5v1.2M12 4.5v1.2M16 4.5v1.2M8 18.3v1.2M12 18.3v1.2M16 18.3v1.2"/>
   </g>
 </svg>

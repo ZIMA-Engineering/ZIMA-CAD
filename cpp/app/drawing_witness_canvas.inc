@@ -129,7 +129,7 @@
             (dimension_command_&&dimension_command_->value().id==handle.key.id))
             for(const auto& grip:handle.geometry.grips)painter.drawEllipse(grip.point,4,4);
         if(dimension_command_&&!dimension_command_->inspected_witness().empty()) {
-            painter.setPen(QPen(QColor("#00D1FF"),2));
+            painter.setPen(QPen(QColor("#4DD811"),2));
             for(const auto& handle:witness_handles_)if(handle.key.id==dimension_command_->value().id)
                 for(const auto& grip:handle.geometry.grips)if(grip.id==dimension_command_->inspected_witness())painter.drawEllipse(grip.point,6,6);
         }

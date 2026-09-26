@@ -69,10 +69,10 @@ private:
     }
     void paint_crop(QPainter& painter) {
         if(!crop_edit_)return;
-        painter.save();painter.setPen(QPen(QColor("#4DD811"),2));painter.setBrush(Qt::NoBrush);
+        painter.save();painter.setPen(QPen(QColor("#00D1FF"),2));painter.setBrush(Qt::NoBrush);
         if(crop_anchor_ready_){auto shown=*crop_edit_;shown.crop=crop_value_;painter.drawPath(drawing_render::crop_screen_path(shown,raw_view_origin(shown),canvas_zoom()*shown.scale));
             for(auto p:crop_grips()){painter.setBrush(QColor("#E040FB"));painter.drawEllipse(crop_screen(p),4,4);}
-        }else if(crop_offer_){painter.setBrush(QColor("#4DD811"));painter.drawEllipse(crop_screen(*crop_offer_),4,4);}
+        }else if(crop_offer_){painter.setBrush(QColor("#00D1FF"));painter.drawEllipse(crop_screen(*crop_offer_),4,4);}
         const auto instruction=!crop_error_.isEmpty()?crop_error_:!crop_anchor_ready_?tr("Vyberte kotevní bod na geometrii pohledu."):crop_modifying_?tr("Přesuňte body hranice. Enter potvrdí, Esc zruší."):crop_value_.shape==drawing::ViewCropShape::Spline?tr("Zadejte body spline. Kliknutím na první bod nebo Enter hranici uzavřete."):tr("Kliknutím určete velikost hranice. Esc zruší.");
         const auto area=QFontMetricsF(font()).boundingRect(instruction).adjusted(-8,-6,8,6);painter.fillRect(QRectF(QPointF(10,10),area.size()),QColor("#171A1D"));painter.drawText(QPointF(18,28),instruction);painter.restore();
     }

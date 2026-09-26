@@ -699,3 +699,17 @@ roadmap automatically. New user instructions take precedence.
 - Use the interaction green #4DD811 for reference-entry outlines, entry arrows and command hover, matching Sketch/New point actions. Keep inspection cyan and confirmed-selection styling distinct. Command hover must follow the actual pointer and clear after leaving or opening a command; it must not become a persistent selected state.
 
 - The interaction colour contract agreed on 2026-09-24 is defined in `doc/UI_VISUAL_CONVENTIONS.md`. Active GUI and Tree backgrounds are azure; hover is green. Confirmed selections, inspected references and pending feature wire are always azure, independent of add/subtract/surface operation. Sketch construction stays orange, model/Drawing axes brown, and Origin icons red. Do not reintroduce active green Tree text or orange hover.
+
+## Native GUI color override (2026-09-26)
+
+The current user agreement supersedes earlier green/azure presentation rules
+above. Ordinary Qt Tree selection, tabs, menus and button feedback follow the
+platform style. Explicit application states use azure for View hover/reference
+entry and green for confirmed geometry, independent inspection, preview wire
+and active/editing Tree rows. Preserve all existing state ownership and behavior.
+Confirmation checkmarks remain green on hover; do not substitute black icons.
+See `doc/UI_VISUAL_CONVENTIONS.md` for the current presentation contract.
+
+Neutral UI icons and ordinary reference labels follow the current Qt text
+palette in both light and dark themes, including existing icons after a theme
+change. Tree Insert here markers use red. Semantic icon colors remain explicit.

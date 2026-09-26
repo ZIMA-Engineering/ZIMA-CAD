@@ -317,8 +317,8 @@ int verify_sketch_line_styles(QApplication& application, QWidget& parent) {
                 std::abs(actual.blue() - expected.blue()) < 35;
         };
         for (const auto& [frame, color] : std::array{
-                std::pair{hover, QColor("#4DD811")},
-                std::pair{selected, QColor(0, 209, 255)}}) {
+                std::pair{hover, QColor("#00D1FF")},
+                std::pair{selected, QColor(77,216,17)}}) {
             int original = 0, highlighted = 0, common = 0;
             for (int y = 10; y < idle.height() - 10; ++y)
                 for (int x = 10; x < idle.width() - 10; ++x) {
@@ -602,8 +602,8 @@ void verify_point_marker_colours(QApplication& application,QWidget& parent) {
         view.confirm_reference(references[i].owner_id,references[i].semantic_key,
             references[i].instance_path,viewer::CandidateKind::Vertex);
         application.processEvents();
-        require(framebuffer_contains_color_near(view.grabFramebuffer(),view.size(),{250,180},QColor("#00D1FF"),8),
-            "Point base colour replaced confirmed cyan highlighting");
+        require(framebuffer_contains_color_near(view.grabFramebuffer(),view.size(),{250,180},QColor("#4DD811"),8),
+            "Point base colour replaced confirmed green highlighting");
     }
     kernel::ViewerMesh solid;
     {
@@ -612,7 +612,7 @@ void verify_point_marker_colours(QApplication& application,QWidget& parent) {
         for(auto& edge:mesh.edges)edge.display_owner_id="sketch-container";
         view.set_mesh(mesh);view.set_active_sketch_owner({});view.set_selection_contract({viewer::CandidateKind::Container});
         view.confirm_container("sketch-container");application.processEvents();
-        require(framebuffer_contains_color_near(view.grabFramebuffer(),view.size(),{250,180},QColor("#00D1FF"),4),
+        require(framebuffer_contains_color_near(view.grabFramebuffer(),view.size(),{250,180},QColor("#4DD811"),4),
             "Selecting the Sketch container omitted its owned circle-center point");
     }
     solid.vertices={{-10,-10,-10},{10,-10,-10},{10,10,-10},{-10,10,-10},
@@ -710,22 +710,27 @@ int main(int argc, char* argv[]) {
             application.processEvents();
             command.setAttribute(Qt::WA_UnderMouse,true);
             const auto hovered=command.grab().toImage();
-            if(!framebuffer_contains_color_near(hovered,command.size(),{160,20},QColor("#4dd811"),3)) {
-                const auto expected=command.mapToGlobal(command.rect().center());
-                const auto actual=QCursor::pos();
-                std::cerr<<"Hover cursor expected="<<expected.x()<<','<<expected.y()
-                    <<" actual="<<actual.x()<<','<<actual.y()
-                    <<" hitsCommand="<<(QApplication::widgetAt(actual)==&command)
-                    <<" platform="<<QApplication::platformName().toStdString()<<'\n';
-            }
-            require(framebuffer_contains_color_near(hovered,command.size(),{160,20},QColor("#4dd811"),3),
-                "Command hover did not use the shared green");
+            const auto native_background = [&](QStyle::State state) {
+                QImage image(command.size(),QImage::Format_ARGB32_Premultiplied);
+                image.fill(command.palette().color(QPalette::Window));
+                QPainter painter(&image);QStyleOptionToolButton option;option.initFrom(&command);
+                option.state &= ~(QStyle::State_MouseOver|QStyle::State_On|QStyle::State_Sunken);
+                option.state |= state;option.iconSize=command.iconSize();
+                option.toolButtonStyle=Qt::ToolButtonTextBesideIcon;
+                command.style()->drawComplexControl(QStyle::CC_ToolButton,&option,&painter,&command);
+                return image.pixelColor(160,20);
+            };
+            const auto background = [](const QImage& image) {
+                return image.pixelColor(qRound(160*image.devicePixelRatio()),qRound(20*image.devicePixelRatio()));
+            };
+            require(background(hovered)==native_background(QStyle::State_MouseOver),
+                "Command hover differs from the native Qt style");
             QCursor::setPos(parent.mapToGlobal(QPoint(400,200)));
             application.processEvents();
             command.setAttribute(Qt::WA_UnderMouse,true); // Simulate a lost Leave after a command.
             const auto stale=command.grab().toImage();
-            require(!framebuffer_contains_color_near(stale,command.size(),{160,20},QColor("#4dd811"),3),
-                "Command retained a stale green hover after the cursor left");
+            require(background(stale)==native_background(QStyle::State_None),
+                "Command retained hover after the cursor left");
             // A command can replace the toolbar/open Properties while Qt is
             // dispatching mouse release. Recover even if Leave/release never
             // reaches that button; repaint alone must not be the recovery trigger.
@@ -744,16 +749,16 @@ int main(int argc, char* argv[]) {
                 "Command retained hover/press state after a missed Leave/release and movement into View");
             command.setCheckable(true);command.setChecked(true);
             const auto active=command.grab().toImage();
-            require(framebuffer_contains_color_near(active,command.size(),{160,20},QColor("#00D1FF"),3),
-                "Active command background is not azure");
+            require(background(active)==native_background(QStyle::State_On),
+                "Active command differs from the native checked style");
             QCursor::setPos(command.mapToGlobal(command.rect().center()));application.processEvents();
             command.setAttribute(Qt::WA_UnderMouse,true);
-            require(framebuffer_contains_color_near(command.grab().toImage(),command.size(),{160,20},QColor("#4DD811"),3),
-                "Hover did not temporarily override active command azure");
+            require(background(command.grab().toImage())==native_background(QStyle::State_On|QStyle::State_MouseOver),
+                "Checked command hover differs from the native style");
             QCursor::setPos(parent.mapToGlobal(QPoint(400,200)));application.processEvents();
             command.setAttribute(Qt::WA_UnderMouse,false);
-            require(framebuffer_contains_color_near(command.grab().toImage(),command.size(),{160,20},QColor("#00D1FF"),3),
-                "Leaving active command did not restore azure");
+            require(background(command.grab().toImage())==native_background(QStyle::State_On),
+                "Leaving active command did not restore native checked feedback");
             command.setChecked(false);command.setCheckable(false);
             int clicks=0;
             QObject::connect(&command,&QToolButton::clicked,[&]{++clicks;});
@@ -1036,8 +1041,8 @@ int main(int argc, char* argv[]) {
                     const auto frame=tree.viewport()->grab().toImage();
                     const int y=tree.visualItemRect(rows.back()).bottom()+1;
                     const auto scale=frame.devicePixelRatio();
-                    require(frame.pixelColor(qRound(8*scale),qRound(y*scale))==QColor("#4DD811"),
-                        "History drag did not draw green line at sibling boundary");
+                    require(frame.pixelColor(qRound(8*scale),qRound(y*scale))==QColor("#00D1FF"),
+                        "History drag did not draw azure line at sibling boundary");
                 }
                 QMouseEvent release(QEvent::MouseButtonRelease,QPointF(destination),QPointF(tree.viewport()->mapToGlobal(destination)),
                     Qt::LeftButton,Qt::NoButton,Qt::NoModifier);
@@ -1744,7 +1749,7 @@ int main(int argc, char* argv[]) {
                     treatment_candidate->owner_id == "fillet-container" &&
                     framebuffer_contains_color_near(shaded_treatment_frame,
                         shaded_treatment_view.size(), treatment_pointer,
-                        QColor("#4DD811")),
+                        QColor("#00D1FF")),
                 "Plain Shaded mode did not show the exact orange persisted "
                 "Fillet/Chamfer boundary edge offered by the common picker");
         shaded_treatment_view.set_feature_hover_edge_indices({});
@@ -1756,9 +1761,9 @@ int main(int argc, char* argv[]) {
             shaded_treatment_view.grabFramebuffer();
         require(framebuffer_contains_color_near(selected_treatment_frame,
                     shaded_treatment_view.size(), treatment_pointer,
-                    QColor(0, 209, 255)),
+                    QColor(77,216,17)),
                 "Confirmed Fillet/Chamfer did not show its exact boundary edge "
-                "in cyan");
+                "in green");
 
         // A selected internal wire must survive solid occlusion in every
         // display mode, without confirming an object during dimension edit.
@@ -1791,7 +1796,7 @@ int main(int argc, char* argv[]) {
             internal_wire_view.set_display_mode(mode);
             application.processEvents();
             require(framebuffer_contains_color_near(internal_wire_view.grabFramebuffer(),
-                internal_wire_view.size(),QPointF(250,180),QColor(0,209,255)),
+                internal_wire_view.size(),QPointF(250,180),QColor(77,216,17)),
                 "Solid occluded the inspected internal wire");
         }
         internal_wire_view.clear_selection();
@@ -1800,7 +1805,7 @@ int main(int argc, char* argv[]) {
         internal_wire_view.confirm_container_component("opening","bore",{0},"part-a");
         application.processEvents();
         require(framebuffer_contains_color_near(internal_wire_view.grabFramebuffer(),
-            internal_wire_view.size(),QPointF(250,180),QColor(0,209,255)),
+            internal_wire_view.size(),QPointF(250,180),QColor(77,216,17)),
             "Tree component selection remained hidden inside the solid");
         internal_wire_view.hide();
 
@@ -1902,7 +1907,7 @@ int main(int argc, char* argv[]) {
         application.processEvents();
         const auto selected_dot_visible = [&] {
             return framebuffer_contains_color_near(rounded_route_view.grabFramebuffer(),
-                rounded_route_view.size(),QPointF(250,180),QColor("#00D1FF"),3);
+                rounded_route_view.size(),QPointF(250,180),QColor("#4DD811"),3);
         };
         const auto idle_dot_visible = [&] {
             return framebuffer_contains_color_near(rounded_route_view.grabFramebuffer(),
@@ -1970,24 +1975,24 @@ int main(int argc, char* argv[]) {
         c=center_color();require(c.green()>c.blue()+30,"Face material cache stale");
         cache_view.set_body_surface_colors(QColor("#FF0000"),{},{});
         c=center_color();require(c.red()>c.green()+30,"Colour setter retained old batches");
-        const auto cyan_pixels=[&]{
+        const auto green_pixels=[&]{
             const auto f=render_cache();int count=0;
             for(int y=0;y<f.height();++y)for(int x=0;x<f.width();++x){
-                const auto p=f.pixelColor(x,y);if(p.red()<40&&p.green()>160&&p.blue()>210)++count;
+                const auto p=f.pixelColor(x,y);if(p.red()<110&&p.green()>160&&p.blue()<65)++count;
             }return count;
         };
         cache_view.set_constraint_reference_highlights({},{{"body","surface","part"}});
-        require(cyan_pixels()>30,"Face boundary missing");
+        require(green_pixels()>30,"Face boundary missing");
         auto camera=cache_view.camera_state();camera[5]+=12;cache_view.set_camera_state(camera);
-        require(cyan_pixels()>30,"Camera change lost face boundary");
+        require(green_pixels()>30,"Camera change lost face boundary");
         cache_view.set_constraint_reference_highlights({},{});
-        require(cyan_pixels()==0,"Cleared reference retained boundary");
+        require(green_pixels()==0,"Cleared reference retained boundary");
         cache_view.set_constraint_reference_highlights({},{{"body","surface","part"}});
-        require(cyan_pixels()>30,"Rearmed reference did not rebuild boundary");
+        require(green_pixels()>30,"Rearmed reference did not rebuild boundary");
         cache_view.set_body_surface_styles(red,{{"part",green}}, {},{});
         cache_mesh.triangle_references={{"other","other","other"},{"other","other","other"}};
         cache_view.set_mesh(cache_mesh,false);
-        require(cyan_pixels()==0,"Replacement mesh retained old boundary");
+        require(green_pixels()==0,"Replacement mesh retained old boundary");
         c=center_color();require(c.red()>c.green()+30,"Replacement mesh retained old material");
         cache_view.hide();
         }
@@ -2010,17 +2015,17 @@ int main(int argc, char* argv[]) {
             {{"point-origin","origin:plane:xy","first"}});
         application.processEvents();
         require(framebuffer_contains_color_near(plane_inspection_view.grabFramebuffer(),
-            plane_inspection_view.size(), QPointF(250,180), QColor(0,209,255)),
+            plane_inspection_view.size(), QPointF(250,180), QColor(77,216,17)),
             "Coincident plane erased the inspected local plane frame");
         plane_inspection_view.set_constraint_reference_highlights({}, {});
         application.processEvents();
         require(!framebuffer_contains_color_near(plane_inspection_view.grabFramebuffer(),
-            plane_inspection_view.size(), QPointF(250,180), QColor(0,209,255)),
+            plane_inspection_view.size(), QPointF(250,180), QColor(77,216,17)),
             "Turning off inspection retained the local plane highlight");
         plane_inspection_view.confirm_origin("point-origin", "first");
         application.processEvents();
         require(framebuffer_contains_color_near(plane_inspection_view.grabFramebuffer(),
-            plane_inspection_view.size(), QPointF(250,180), QColor("#00D1FF")),
+            plane_inspection_view.size(), QPointF(250,180), QColor("#4DD811")),
             "Coincident plane erased the Tree-selected Origin frame");
         plane_inspection_view.set_candidate_filter([](const auto&) { return true; }, false);
         plane_inspection_view.confirm_origin("point-origin", "first");
@@ -2375,25 +2380,25 @@ int main(int argc, char* argv[]) {
         zero_dimension_view.confirm_reference("sketch","constraint:on-axis",{},zima::viewer::CandidateKind::SketchConstraint);
         application.processEvents();
         const auto participant_frame=zero_dimension_view.grabFramebuffer();
-        std::size_t cyan_pixels=0;
+        std::size_t green_pixels=0;
         for (int y=0;y<participant_frame.height();++y)
             for (int x=0;x<participant_frame.width();++x) {
                 const auto pixel=participant_frame.pixelColor(x,y);
-                if (pixel.red()<70 && pixel.green()>180 && pixel.blue()>210) ++cyan_pixels;
+                if (pixel.red()<110 && pixel.green()>180 && pixel.blue()<65) ++green_pixels;
             }
-        require(cyan_pixels>300,"Selected constraint highlighted its glyph but not its participating axis");
+        require(green_pixels>300,"Selected constraint highlighted its glyph but not its participating axis");
         zero_dimension_view.confirm_reference("sketch", "dimension:zero-y", {},
             zima::viewer::CandidateKind::Dimension);
         application.processEvents();
         const auto dimension_participants=zero_dimension_view.grabFramebuffer();
-        std::size_t dimension_cyan_pixels=0;
+        std::size_t dimension_green_pixels=0;
         for (int y=0;y<dimension_participants.height();++y)
             for (int x=0;x<dimension_participants.width();++x) {
                 const auto pixel=dimension_participants.pixelColor(x,y);
-                if (pixel.red()<70 && pixel.green()>180 && pixel.blue()>210)
-                    ++dimension_cyan_pixels;
+                if (pixel.red()<110 && pixel.green()>180 && pixel.blue()<65)
+                    ++dimension_green_pixels;
             }
-        require(dimension_cyan_pixels>300,
+        require(dimension_green_pixels>300,
             "Selected dimension did not highlight its participating axis and point");
         const auto zero_dimension_candidate =
             zero_dimension_view.confirmed_candidate();
@@ -3369,7 +3374,7 @@ int main(int argc, char* argv[]) {
         require(next_box_reference != nullptr &&
                     next_box_reference->is_active_input() &&
                     !active_box_reference->is_active_input(),
-                "Sequential placement did not move the green active state to "
+                "Sequential placement did not move the azure active state to "
                 "the newly offered reference field");
         box_reference_dialog->set_active_reference_index(0);
         auto* box_eye_cell = box_reference_table->cellWidget(0, 4);
@@ -3404,16 +3409,15 @@ int main(int argc, char* argv[]) {
         const auto inactive_reference_cell = paint_reference_cell(
             QStyle::State_Enabled);
         require(focused_reference_cell == inactive_reference_cell,
-                "Stored reference text or cyan inspection changed when the "
+                "Stored reference text or green inspection changed when the "
                 "Properties window gained/lost focus");
         require(framebuffer_contains_color_near(
                     focused_reference_cell, focused_reference_cell.size(),
-                    QPointF(60.0, 18.0), QColor(QStringLiteral("#e6edf3")), 42),
-                "Inspection eye changed the stored reference label away from "
-                "the normal light-on-dark text colour");
+                    QPointF(60.0, 18.0), QColor(QStringLiteral("#102027")), 42),
+                "Inspected reference label lacks dark text on the green background");
         require(framebuffer_contains_color_near(focused_reference_cell, focused_reference_cell.size(),
-                    QPointF(235,18), QColor(QStringLiteral("#00d1ff")), 3),
-                "Inspected reference did not paint its azure background");
+                    QPointF(235,18), QColor(QStringLiteral("#4DD811")), 3),
+                "Inspected reference did not paint its green background");
         box_reference_dialog->set_active_reference_index(std::nullopt);
         {
             active_box_reference->set_active_input(true);
@@ -3424,8 +3428,8 @@ int main(int argc, char* argv[]) {
             QApplication::sendEvent(box_reference_table->viewport(), &move);
             const auto hovered = paint_reference_cell(QStyle::State_Enabled);
             require(framebuffer_contains_color_near(hovered,hovered.size(),
-                QPointF(235,18),QColor("#4dd811"),3),
-                "Reference entry hover did not turn the exact cell green");
+                QPointF(235,18),QColor("#00D1FF"),3),
+                "Reference entry hover did not turn the exact cell azure");
             box_reference_table->setEnabled(false);
             require(paint_reference_cell(QStyle::State_Enabled) == inactive_reference_cell,
                 "Disabled reference retained hover feedback");
@@ -4624,7 +4628,7 @@ int main(int argc, char* argv[]) {
         forward_end->setCurrentIndex(forward_end->findData("length"));
         forward_end->setCurrentIndex(forward_end->findData("up_to"));
         require(target_requests == 1 &&
-                    forward_target->styleSheet().contains("#4dd811"),
+                    forward_target->styleSheet().contains("#00D1FF"),
                 "Selecting Up-to in the end-condition menu did not immediately "
                 "arm its exact target field");
         QMouseEvent replace_target(
@@ -4632,7 +4636,7 @@ int main(int argc, char* argv[]) {
             Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
         QApplication::sendEvent(forward_target, &replace_target);
         require(target_requests == 2 &&
-                    forward_target->styleSheet().contains("#4dd811") &&
+                    forward_target->styleSheet().contains("#00D1FF") &&
                     extrusion_dialog->highlighted_reference_entries().empty(),
                 "Clicking populated Up-to text did not arm one-shot "
                 "replacement independently of inspection");
@@ -4644,7 +4648,7 @@ int main(int argc, char* argv[]) {
         const auto highlighted_targets =
             extrusion_dialog->highlighted_reference_entries();
         require(target_highlight_updates == 1 &&
-                    forward_target->styleSheet().contains("#00d1ff") &&
+                    forward_target->styleSheet().contains("#4DD811") &&
                     std::any_of(highlighted_targets.begin(),
                         highlighted_targets.end(), [](const auto& reference) {
                             return reference.owner_id == "datum-plane" &&
@@ -4662,8 +4666,8 @@ int main(int argc, char* argv[]) {
             Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
         QApplication::sendEvent(forward_target, &request_target);
         require(target_requests == 3 &&
-                    forward_target->styleSheet().contains("#4dd811") &&
-                    !forward_target->styleSheet().contains("#00d1ff"),
+                    forward_target->styleSheet().contains("#00D1FF") &&
+                    !forward_target->styleSheet().contains("#4DD811"),
                 "Clicking an empty Up-to field did not arm explicit face picking");
         extrusion_dialog->set_extrusion_target(
             {"datum-plane", "plane", {}}, {0.0, 0.0, 30.0}, {0.0, 0.0, 1.0});
@@ -5651,7 +5655,7 @@ int main(int argc, char* argv[]) {
                     zima::viewer::CandidateKind::SketchPoint &&
                     framebuffer_contains_color_near(hover_point_frame,
                         box_selection_view.size(), *shared_corner_position,
-                        QColor("#4DD811")) &&
+                        QColor("#00D1FF")) &&
                     !framebuffer_contains_color_near(hover_point_frame,
                         box_selection_view.size(), *shared_corner_position,
                         QColor("#D05CFF")),
@@ -5706,11 +5710,11 @@ int main(int argc, char* argv[]) {
                     selected_point_id == "shared-corner" &&
                     framebuffer_contains_color_near(pressed_point_frame,
                         box_selection_view.size(), *shared_corner_position,
-                        QColor("#00D1FF")) &&
+                        QColor("#4DD811")) &&
                     !framebuffer_contains_color_near(pressed_point_frame,
                         box_selection_view.size(), *shared_corner_position,
                         QColor("#D05CFF")),
-                "LMB-confirmed SketchPoint was not cyan before its drag");
+                "LMB-confirmed SketchPoint was not green before its drag");
         QMouseEvent point_click_release(QEvent::MouseButtonRelease,
             *shared_corner_position, *shared_corner_position,
             *shared_corner_position, Qt::LeftButton, Qt::NoButton,
@@ -5726,9 +5730,9 @@ int main(int argc, char* argv[]) {
                     selected_point_id == "shared-corner" &&
                     framebuffer_contains_color_near(clicked_point_frame,
                         box_selection_view.size(), *shared_corner_position,
-                        QColor("#00D1FF")),
+                        QColor("#4DD811")),
                 "SketchPoint click-release without movement lost its confirmed "
-                "cyan selection or callback ID needed by Delete");
+                "green selection or callback ID needed by Delete");
 
         QMouseEvent corner_drag_press(QEvent::MouseButtonPress,
             *shared_corner_position, *shared_corner_position,
@@ -5749,8 +5753,8 @@ int main(int argc, char* argv[]) {
                     dragged_corner->semantic_key == "point:shared-corner" &&
                     framebuffer_contains_color_near(dragged_point_frame,
                         box_selection_view.size(), *shared_corner_position,
-                        QColor("#00D1FF")),
-                "Dragged SketchPoint lost its cyan confirmed state");
+                        QColor("#4DD811")),
+                "Dragged SketchPoint lost its green confirmed state");
         QMouseEvent corner_release(QEvent::MouseButtonRelease,
             corner_drag_position, corner_drag_position,
             corner_drag_position, Qt::LeftButton, Qt::NoButton,
@@ -5766,8 +5770,8 @@ int main(int argc, char* argv[]) {
                     point_drag_updates == 1 && point_drag_ends == 2 &&
                     framebuffer_contains_color_near(released_point_frame,
                         box_selection_view.size(), *shared_corner_position,
-                        QColor("#00D1FF")),
-                "Released SketchPoint did not remain cyan and confirmed");
+                        QColor("#4DD811")),
+                "Released SketchPoint did not remain green and confirmed");
 
         std::cout << "C++ properties-window contracts passed\n";
         return 0;

@@ -27,7 +27,7 @@ private:
         QPixmap pixmap(QSize(18,18)*scale);pixmap.setDevicePixelRatio(scale);pixmap.fill(Qt::transparent);
         QPainter painter(&pixmap);
         painter.setPen(Qt::NoPen);
-        painter.setBrush(add_?((hovered||isChecked())&&isEnabled()?QColor(Qt::black):QColor("#4DD811")):QColor("#FF0000"));
+        painter.setBrush(add_?QColor("#4DD811"):QColor("#FF0000"));
         painter.drawRect(3,8,12,3);
         if(add_)painter.drawRect(8,3,3,12);
         painter.end();setIcon(QIcon(pixmap));setIconSize({18,18});
