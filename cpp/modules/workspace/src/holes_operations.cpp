@@ -1,4 +1,5 @@
 #include <zima/workspace/holes_operations.hpp>
+#include <zima/workspace/origin_display_operations.hpp>
 #include <zima/workspace/part_transactions.hpp>
 #include <zima/document/holes.hpp>
 #include <zima/document/sketch_placement.hpp>
@@ -48,6 +49,8 @@ bool commit_holes(Workspace& live, const kernel::OcctKernel& kernel,
             old_sketch == before.sketches.end() || old_sketch->owner_container_id != feature.id)
             throw std::invalid_argument("Úprava musí zachovat identitu kontejneru a skici.");
         if (*existing == feature && old_sketch->serialized() == sketch.serialized() && !layout_changed) return false;
+        if(!layout_changed && old_sketch->serialized()==sketch.serialized())
+            if(const auto changed=commit_origin_display_only(live,id,feature))return *changed;
     } else if (feature.id.empty() || feature.feature_id.empty() || old_sketch != before.sketches.end()) {
         throw std::invalid_argument("Nové Otvory musí mít vlastní kontejner a skicu.");
     }

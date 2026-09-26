@@ -537,6 +537,11 @@ add_executable(zima_cpp_precision_benchmark tests/precision_benchmark.cpp)
 target_link_libraries(zima_cpp_precision_benchmark PRIVATE zima_workspace zima_drawing_render Qt6::Gui)
 target_compile_options(zima_cpp_precision_benchmark PRIVATE $<$<CXX_COMPILER_ID:MSVC>:/utf-8>)
 
+add_executable(zima_cpp_sweep_precision_benchmark tests/sweep_precision_benchmark.cpp)
+target_link_libraries(zima_cpp_sweep_precision_benchmark PRIVATE
+    zima_document_core zima_kernel_occt zima_viewer TKTopAlgo TKGeomAlgo)
+target_compile_options(zima_cpp_sweep_precision_benchmark PRIVATE $<$<CXX_COMPILER_ID:MSVC>:/utf-8>)
+
 add_executable(zima_cpp_performance_benchmark
     tests/performance_benchmark.cpp)
 target_link_libraries(zima_cpp_performance_benchmark PRIVATE

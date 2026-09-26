@@ -52,7 +52,7 @@ Values read_ini(const fs::path& path,bool catalogue=false){
         if(!catalogue && !full_key.starts_with("DocumentNames/") && full_key!="Application/Language" && full_key!="Paths/Templates" && full_key!="Paths/Localization" && full_key!="Paths/Materials" &&
             full_key!="Templates/Part" && full_key!="Templates/Assembly" && full_key!="Units/Length" &&
             full_key!="Units/Angle" && full_key!="Units/Mass" && full_key!="Units/Time" &&
-            full_key!="Units/Temperature" && full_key!="Units/Stress" && full_key!="SheetMetal/CutTolerance")continue;
+            full_key!="Units/Temperature" && full_key!="Units/Stress" && full_key!="SheetMetal/CutTolerance" && !full_key.starts_with("SweepPrecision/"))continue;
         if(catalogue&&section!="QtTranslations")continue;
         values[section+"/"+key]=catalogue?trim(line.substr(equals+1)):value_text(line.substr(equals+1));
     }
@@ -113,6 +113,12 @@ Settings load_settings(const fs::path& executable,const fs::path& working,const 
         result.documents.templates.sheet_cut_tolerance=.05;
         std::cerr<<"Warning: invalid SheetMetal/CutTolerance; using 0.05 mm. "<<error.what()<<'\n';
     }
+    const auto sweep_default=[&](const char* key,const char* fallback) {
+        try {return document::parse_sweep_tolerance(value(key,fallback));}
+        catch(const std::exception&) {std::cerr<<"Warning: invalid "<<key<<"; using "<<fallback<<" mm.\n";return document::parse_sweep_tolerance(fallback);}
+    };
+    result.documents.sweep_precision_defaults={sweep_default("SweepPrecision/Sweep2D","0.001"),
+        sweep_default("SweepPrecision/Sweep3D","0.001"),sweep_default("SweepPrecision/HelicalSweep","0.1")};
     for(const auto& [key,fallback]:Values{{"Length","mm"},{"Angle","deg"},{"Mass","kg"},{"Time","s"},{"Temperature","C"},{"Stress","MPa"}})
         result.documents.units[key]=value(("Units/"+key).c_str(),fallback.c_str());
     const auto language=value("Application/Language","cs");

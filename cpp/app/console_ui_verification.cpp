@@ -65,6 +65,8 @@
 #include <iostream>
 #include <stdexcept>
 
+#include "confirmed_face_hit.hpp"
+
 namespace zima::app {
 // Specialized GUI suites must not inherit the large general console suite's
 // local document snapshots on the Windows main-thread stack.
@@ -252,6 +254,7 @@ Q_NEVER_INLINE static int verify_feature_prototype(QApplication& application,Ass
         verify_feature_sketch_visibility(application,window,directory);
         verify_feature_modeling(application,window,directory);
         verify_feature_operation_tree(application,window,directory);
+        verify_placed_origin_visibility(application,window,directory);
         std::cout<<"Feature GUI: parameter modes, Sketch creation, OK, Cancel and Undo/Redo passed\n";return 0;
     }catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}
 }

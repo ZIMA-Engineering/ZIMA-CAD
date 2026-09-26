@@ -25,16 +25,16 @@ int main(){try{
     kernel::OcctKernel k;
     {
         auto doc=document::PartDocument::create_default();doc.history={fixture()};
-        doc.document_precision["linear_tolerance"]="0.01";
+        doc.history.front().sweep_precision.custom_tolerance=.01;
         const auto coarse=doc.kernel_operations();
-        doc.document_precision["linear_tolerance"]="0.00001";
+        doc.history.front().sweep_precision.custom_tolerance=.00001;
         const auto fine=doc.kernel_operations();
         const auto& a=std::get<kernel::Sweep3DRequest>(coarse.front().primitive);
         const auto& b=std::get<kernel::Sweep3DRequest>(fine.front().primitive);
         require(a.linear_tolerance==0.01&&b.linear_tolerance==0.00001,
-            "Document tolerance did not reach sweep request");
+            "Feature tolerance did not reach sweep request");
         require(b.path_segments.size()>a.path_segments.size(),
-            "Sweep approximation ignored document precision");
+            "Sweep approximation ignored feature precision");
         require(kernel::history_fingerprint(coarse,1)!=kernel::history_fingerprint(fine,1),
             "Precision change reused a stale body fingerprint");
         auto cylinder=zima::test::circular_feature(doc,40,50);doc.history={cylinder};
@@ -90,6 +90,16 @@ int main(){try{
                 require(ref.surface&&std::abs(document::helical_geometry::dot(tangent,ref.surface->axis))>1-1e-6,"Cap is not normal to the endpoint tangent");
             }
         require(caps.size()==2,"Start/end caps lost their persisted profile-region parents");
+        std::set<std::string> checked_faces;
+        bool side_rejected=false;
+        for(const auto& ref:result.back().mesh.original_references.triangle_references) {
+            if(ref.owner_id!=c.id || !checked_faces.insert(ref.semantic_key).second)continue;
+            document::Placement placement;placement.references={{{},ref.owner_id,ref.semantic_key}};
+            const bool offered=document::resolve_placement(placement,result.back().mesh.original_references);
+            if(caps.contains(ref.semantic_key))require(offered,"Helical endpoint cap rejected for placement");
+            else {require(!offered,"Helical curved side offered as a placement surface");side_rejected=true;}
+        }
+        require(side_rejected,"Helical placement filter test did not exercise a side face");
         if(!left&&!rectangle){
             const auto file=std::filesystem::temp_directory_path()/"zima-helical-contract.prtz";
             doc.save(file,result);std::vector<kernel::BodyResult> loaded_bodies;

@@ -185,7 +185,7 @@ void AssemblyWorkspaceWindow::create_layout() {
         }
         if (primitive_reference_dialog_ != nullptr &&
             pending_primitive_reference_index_) {
-            accept_primitive_reference(candidate);
+            accept_primitive_reference(candidate,true);
             return;
         }
         if (shell_face_selection_active_) {

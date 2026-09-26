@@ -1,4 +1,5 @@
 #include <zima/workspace/imported_feature_operations.hpp>
+#include <zima/workspace/origin_display_operations.hpp>
 #include <zima/workspace/feature_reference_input.hpp>
 #include <zima/workspace/part_transactions.hpp>
 #include <zima/document/metadata.hpp>
@@ -42,6 +43,7 @@ bool commit_imported_feature(Workspace& live, const kernel::OcctKernel& kernel,
             throw ImportOperationError("missing_input", "Imported subtraction requires an earlier calculated body.");
     }
     if (value == original) return false;
+    if(const auto changed=commit_origin_display_only(live,id,value))return *changed;
     PartCalculationPolicy policy;
     policy.reject_errors = true;
     policy.edited_document_id = id;

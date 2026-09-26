@@ -149,6 +149,12 @@ ApplicationSettings ApplicationSettings::load(const QString& working_directory, 
         result.sheet_cut_tolerance=.05;
         std::cerr<<"Warning: invalid SheetMetal/CutTolerance; using 0.05 mm. "<<error.what()<<'\n';
     }
+    const auto sweep_default=[&](const char* key,double fallback) {
+        try {return document::parse_sweep_tolerance(value(key,QString::number(fallback,'g',17)).toStdString());}
+        catch(const std::exception&) {std::cerr<<"Warning: invalid "<<key<<"; using "<<fallback<<" mm.\n";return fallback;}
+    };
+    result.sweep_precision_defaults={sweep_default("SweepPrecision/Sweep2D",.001),
+        sweep_default("SweepPrecision/Sweep3D",.001),sweep_default("SweepPrecision/HelicalSweep",.1)};
     for (const auto& key : path_keys) {
         QString origin;
         const auto fallback = installed && key == "WorkingDirectory" ? qpath(installed->root / "Projects") : path_defaults.value(key);
@@ -307,8 +313,8 @@ bool ApplicationSettings::save(QString* error) const {
     for(const auto& folder:{drawing_pdf_directory,drawing_dxf_directory})if(folder.trimmed().isEmpty()||QDir::isAbsolutePath(QDir::fromNativeSeparators(folder))||folder.contains(':')) {
         if(error)*error=QObject::tr("Složka rychlého exportu musí být relativní k výkresu.");return false;
     }
-    try {zima::document::validate_sheet_cut_tolerance(sheet_cut_tolerance);}
-    catch(const std::exception& issue){if(error)*error=QString::fromUtf8(issue.what());return false;}
+    try {zima::document::validate_sheet_cut_tolerance(sheet_cut_tolerance);sweep_precision_defaults.validate();}
+    catch(const std::exception& issue){if(error)*error=QObject::tr(issue.what());return false;}
     QMap<QString, QVariant> common{
         {"Drawing/PdfDirectory",drawing_pdf_directory},
         {"Drawing/DxfDirectory",drawing_dxf_directory},
@@ -319,6 +325,9 @@ bool ApplicationSettings::save(QString* error) const {
         {"DocumentNames/RemoveDiacritics", document_naming.remove_diacritics},
         {"DocumentNames/ReplaceSpaces", document_naming.replace_spaces},
         {"SheetMetal/CutTolerance",sheet_cut_tolerance},
+        {"SweepPrecision/Sweep2D",sweep_precision_defaults.sweep2d},
+        {"SweepPrecision/Sweep3D",sweep_precision_defaults.sweep3d},
+        {"SweepPrecision/HelicalSweep",sweep_precision_defaults.helical},
         {"Templates/Part", part_template}, {"Templates/Assembly", assembly_template}};
     for (auto it = units.cbegin(); it != units.cend(); ++it) common.insert("Units/" + it.key(), it.value());
     QMap<QString, QVariant> paths;

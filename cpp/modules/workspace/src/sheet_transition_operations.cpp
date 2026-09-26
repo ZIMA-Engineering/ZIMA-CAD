@@ -1,5 +1,6 @@
 #include <zima/workspace/sheet_transition_operations.hpp>
 #include <zima/workspace/part_transactions.hpp>
+#include <zima/workspace/origin_display_operations.hpp>
 #include <zima/document/sheet_transition.hpp>
 #include <zima/document/metadata.hpp>
 #include <zima/workspace/feature_reference_input.hpp>
@@ -11,6 +12,7 @@ bool commit_sheet_transition(Workspace& live,const kernel::OcctKernel& kernel,co
     const auto* body=existing?before.body_owner_for_object(feature.id):before.body_history.find(before.body_history.active_body_id());
     if(!body||body->derived_copy||body->scope.id!=before.body_history.active_body_id())throw std::invalid_argument("Activate an editable Body before creating a sheet transition.");
     document::validate_native_metadata_text(feature.name);if(feature.name.empty())throw std::invalid_argument("Specify a sheet transition name.");
+    if(const auto changed=commit_origin_display_only(live,id,feature))return *changed;
     auto next=before;const auto owner=feature.id;
     if(existing)*next.find_container(owner)=std::move(feature);else {next.insert_history_entry(document::PartHistoryKind::Feature,owner);next.history.push_back(std::move(feature));}
     auto references=construction_reference_source_geometry(state->session.calculated_boundaries());

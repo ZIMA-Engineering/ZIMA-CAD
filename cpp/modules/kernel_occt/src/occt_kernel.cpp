@@ -1304,7 +1304,18 @@ PrimitiveData make_transported_sweep_data(const Sweep3DRequest& request,const st
     }
     BOPAlgo_ArgumentAnalyzer check;
     check.SetShape1(result.shape);check.SelfInterMode()=true;check.Perform();
-    if(check.HasFaulty())throw std::runtime_error("Tažený průřez se protíná; upravte průřez nebo dráhu");
+    if(check.HasFaulty()) {
+        // A relaxed pipe approximation can introduce numerical self-contacts
+        // even for a separated helix. Tolerance is an upper error allowance:
+        // retry its surface construction once at the established precision,
+        // keeping the same authored path and source identities. Never accept
+        // the faulty coarse body or bypass the strict intersection check.
+        if(request.linear_tolerance>.001) {
+            auto refined=request;refined.linear_tolerance=.001;
+            return make_transported_sweep_data(refined,owner_id,prepared);
+        }
+        throw std::runtime_error("Tažený průřez se protíná; upravte průřez nebo dráhu");
+    }
     return result;
 }
 

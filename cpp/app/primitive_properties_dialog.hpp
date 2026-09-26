@@ -1,4 +1,5 @@
 #pragma once
+#include "origin_display_controls.hpp"
 
 #include "placement_reference_dialog.hpp"
 
@@ -200,6 +201,7 @@ private:
     std::vector<std::string> accepted_target_baseline_;
     CommitCallback commit_;
     QLineEdit* name_{};
+    OriginDisplayControls* origin_display_{};
     std::string feature_automatic_name_;
     std::function<std::string(zima::document::FeatureType)> feature_name_provider_;
     QComboBox* operation_{};

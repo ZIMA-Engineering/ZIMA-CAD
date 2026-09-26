@@ -200,6 +200,9 @@ private:
     ReferenceLabelResolver reference_label_resolver_;
     std::set<std::string> value_locks_;
     std::array<bool,3> empty_reference_locks_{};
+    // Keep picked coordinates at full precision while their rounded fields
+    // remain untouched. Display precision must not quantize a surface hit.
+    std::array<std::optional<std::pair<double,double>>,3> picked_translation_values_{};
     QWidget* parent_widget_;
     bool with_orientation_;
     bool position_rows_can_define_rotation_;

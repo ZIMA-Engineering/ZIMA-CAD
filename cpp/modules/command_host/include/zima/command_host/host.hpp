@@ -14,6 +14,7 @@ struct Settings {
     workspace::NativeTemplateSettings templates;
     std::map<std::string,std::string> units;
     std::function<std::string(const std::string&)> normalize_document_name;
+    document::SweepPrecisionDefaults sweep_precision_defaults;
 };
 struct Interaction {
     bool editing{};

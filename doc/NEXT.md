@@ -6,6 +6,22 @@ user instructions and completed native features supersede older pending items.
 
 ## Performance and Scaling
 
+### Next session agreed on 2026-09-26
+
+- Complete Point placement persistence on circular/curved surfaces. Preserve
+  the intuitive first View click at the picked position and numeric locks;
+  verify reopening, regeneration, Undo/Redo and both surface sides.
+- Complete engineering symbol support, particularly geometric tolerances,
+  datum-related annotations and weld symbols, using the existing native
+  annotation and localization contracts.
+- General NURBS surface placement remains future work when native surface
+  support is available; imported general STEP surfaces need their own persisted
+  support representation. Do not infer an infinite plane from one display triangle.
+- The 2026-09-26 all-dialog layout audit reports vertical movement of
+  `mirrorReferences` and `patternLinearDirections` when enlarging Linear Pattern.
+  Reproduced in cs/en/de/fr/ru at 1366 and 1920 pixel window widths (10 of 300
+  dialog combinations). This is separate from the Feature/Sweep changes.
+
 - Keep performance work as a continuing project priority and test routinely on
   real Parts with dense sketches, long feature histories and many successive
   fillets; small demonstration models are not sufficient performance tests.

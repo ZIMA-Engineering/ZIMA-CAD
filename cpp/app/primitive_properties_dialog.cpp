@@ -1,4 +1,5 @@
 #include "feature_parameter_panel.hpp"
+#include <zima/document/container_origin_display.hpp>
 #include "reference_table_style.hpp"
 #include "sketch_button_style.hpp"
 #include "work_plane_selection.hpp"
@@ -144,6 +145,12 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
         initial.feature_kind == zima::document::FeatureKind::Shell;
     if (!treatment) header_form->addRow(tr("Název"), name_);
     else name_->hide();
+    if (initial.feature_kind != zima::document::FeatureKind::Feature &&
+        zima::document::has_origin_display_controls(initial.feature_kind)) {
+        origin_display_=new OriginDisplayControls(initial.origin_point_visible,initial.origin_text_visible,
+            this,[this]{notify_preview();});
+        header_form->addRow(QString{},origin_display_);
+    }
     // Opening and Drill Point are always subtractive; neither
     // exposes a user-selectable operation even though both share this dialog.
     if (!treatment && initial.feature_kind !=
@@ -1501,6 +1508,10 @@ zima::document::HistoryContainer PrimitivePropertiesDialog::values() const {
     const QString name = name_->text().trimmed();
     auto result = initial_;
     result.name = name.toStdString();
+    if(origin_display_) {
+        result.origin_point_visible=origin_display_->point();
+        result.origin_text_visible=origin_display_->text();
+    }
     if (operation_ != nullptr) {
         result.combine_mode = operation_->currentData().toString() == "subtract"
             ? zima::document::CombineMode::Subtract

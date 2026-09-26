@@ -1,4 +1,5 @@
 #include <zima/workspace/primitive_operations.hpp>
+#include <zima/workspace/origin_display_operations.hpp>
 #include <cmath>
 #include <algorithm>
 #include <type_traits>
@@ -87,6 +88,7 @@ bool commit_primitive(Workspace& workspace, const kernel::OcctKernel& kernel,
         : before.body_history.find(before.body_history.active_body_id());
     if(body && body->derived_copy)
         throw PrimitiveOperationError("read_only_body", "A derived Body cannot be edited directly.");
+    if(mode==PrimitiveEditMode::Replace)if(const auto changed=commit_origin_display_only(workspace,document_id,committed))return *changed;
     auto next = before;
     if(mode == PrimitiveEditMode::Replace) *next.find_container(committed.id) = std::move(committed);
     else {

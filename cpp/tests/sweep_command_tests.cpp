@@ -53,7 +53,11 @@ void verify_sweep_references(const kernel::OcctKernel& kernel,const fs::path& di
     const std::string prefix=helical?"helical":kind==document::FeatureKind::Sweep2D?"sweep2d":"sweep3d";
     const auto command=prefix+".reference.set",name=prefix+"-references";
     Fixture f(kernel,directory);f.run("new",{{"type","part"},{"name",name}});
-    const auto definition=test_support::sweep_fixture(kind);const auto id=definition.id;
+    auto definition=test_support::sweep_fixture(kind);const auto id=definition.id;
+    // This contract compares mesh bounds at 1e-5 mm after rigid placement.
+    // Keep its established calculation precision explicit, independently of
+    // the new configurable approximation default used by creation tests.
+    definition.sweep_precision.custom_tolerance=.001;
     const auto owner=f.live.active_document_id();
     workspace::commit_sweep(f.live,kernel,owner,definition,workspace::SweepEditMode::Create);
     const double volume=helical?std::numbers::pi*.25*std::hypot(4*std::numbers::pi*10,10):80*std::numbers::pi;
@@ -107,6 +111,7 @@ void verify_sweep_references(const kernel::OcctKernel& kernel,const fs::path& di
 void verify_sweep_commands(const kernel::OcctKernel& kernel, const fs::path& directory, document::FeatureKind kind) {
     const bool helical = kind == document::FeatureKind::HelicalSweep;
     const std::string prefix = helical ? "helical" : kind == document::FeatureKind::Sweep2D ? "sweep2d" : "sweep3d";
+    std::cout<<"Sweep command fixture: "<<prefix<<std::endl;
     Fixture f(kernel, directory);
     const auto missing = f.host.execute({{"command", prefix + ".get"}, {"arguments", {{"container", "absent"}}}});
     require(missing.code == "unsupported_document", "Sweep query without a Part was not rejected");
@@ -121,6 +126,22 @@ void verify_sweep_commands(const kernel::OcctKernel& kernel, const fs::path& dir
     const auto get = f.run(prefix + ".get", {{"container", id}});
     require(get.at("feature") == definition.feature_id && get.at("body") == body &&
         f.state().session.revision() == revision && f.state().session.calculated_boundaries().data() == cache && !f.host.change(), "Sweep query changed calculated data or lost ownership");
+    require(get.at("precision_mm")==definition.sweep_precision.effective()&&!get.at("custom_precision").get<bool>(),
+        "Sweep query lost its default precision");
+    f.reject(prefix+".set",{{"container",id},{"precision_mm",0}},"sweep_rejected");
+    const auto precision=f.run(prefix+".set",{{"container",id},{"precision_mm",.05}});
+    require(precision.at("precision_mm")==.05&&precision.at("custom_precision").get<bool>(),"Custom sweep precision not committed");
+    f.run("undo");require(!f.state().session.document().find_container(id)->sweep_precision.custom_tolerance,"Undo lost default precision");
+    f.run("redo");require(f.state().session.document().find_container(id)->sweep_precision.custom_tolerance==.05,"Redo lost custom precision");
+    const auto precision_file=directory/(prefix+"-precision.prtz");
+    f.state().session.document().save(precision_file,f.state().session.calculated_boundaries());
+    auto precise_saved=document::PartDocument::load(precision_file);
+    precise_saved.document_precision["linear_tolerance"]="0.0001";
+    const auto saved_request=precise_saved.kernel_operations();
+    require(std::get<kernel::Sweep3DRequest>(saved_request.back().primitive).linear_tolerance==.05 &&
+        saved_request.back().boolean_tolerance==.0001,"Saved feature precision changed with document Boolean tolerance");
+    f.run(prefix+".set",{{"container",id},{"custom_precision",false}});
+    require(!f.state().session.document().find_container(id)->sweep_precision.custom_tolerance,"Cannot restore saved sweep default");
     const auto field = helical ? "pitch_mm" : "thickness_mm";
     Json patch = {{"container", id}, {field, helical ? 10.0 : .5}, {"name", "Upravené tažení"}};
     if (helical) patch["left_handed"] = true;

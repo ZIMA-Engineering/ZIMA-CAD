@@ -107,6 +107,13 @@ int verify_translations(QApplication& application, QWidget& parent) {
             !settings.translations.contains("Zamknout hodnotu"), "INI sections were mixed");
         app::apply_application_translations(application, settings);
         {
+            app::SweepPrecisionControls controls({},&parent,{});
+            check(controls.findChild<QCheckBox*>("sweepCustomPrecision")->text()==settings.qt_translations.value("Vlastní přesnost"),
+                "Sweep precision label is not localized");
+            check(controls.toolTip()==settings.qt_translations.value("Tolerance aproximace tažení. Menší hodnota znamená přesnější a obvykle pomalejší výpočet."),
+                "Sweep precision tooltip is not localized");
+        }
+        {
             auto part=document::PartDocument::create_default();
             const char* sources[]={"Bod","Osa","Rovina","Skica","Vytažení"};
             for(int type=0;type<5;++type)

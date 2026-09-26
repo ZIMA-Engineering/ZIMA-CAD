@@ -1,5 +1,6 @@
 #include <zima/workspace/opening_operations.hpp>
 #include <zima/workspace/hole_operations.hpp>
+#include <zima/workspace/origin_display_operations.hpp>
 #include <zima/workspace/profile_operations.hpp>
 #include <zima/workspace/part_transactions.hpp>
 #include <zima/document/hole_profiles.hpp>
@@ -80,6 +81,7 @@ bool commit_hole(Workspace& live,const kernel::OcctKernel& kernel,const std::str
     if(body&&body->derived_copy)throw HoleOperationError("read_only_body","A derived Body cannot be edited directly.");
     if(body&&body->scope.id!=before.body_history.active_body_id())throw HoleOperationError("inactive_body","Activate the owning Body before editing its Hole.");
     const auto container_id=feature.id;
+    if(mode==HoleEditMode::Replace)if(const auto changed=commit_origin_display_only(live,id,feature))return *changed;
     auto next=before;
     if(existing)*next.find_container(feature.id)=std::move(feature);
     else {next.insert_history_entry(document::PartHistoryKind::Feature,feature.id);next.history.push_back(std::move(feature));}

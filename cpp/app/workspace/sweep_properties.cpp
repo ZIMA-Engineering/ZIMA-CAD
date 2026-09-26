@@ -1,4 +1,5 @@
 #include "workspace_internal.hpp"
+#include <zima/document/container_origin_display.hpp>
 #include <zima/workspace/sweep_operations.hpp>
 #include <zima/workspace/sheet_transition_operations.hpp>
 #include <zima/document/metadata.hpp>
@@ -65,6 +66,7 @@ void AssemblyWorkspaceWindow::show_sweep_properties(zima::document::FeatureKind 
     const bool planar=kind==zima::document::FeatureKind::Sweep2D;
     const bool transition=kind==zima::document::FeatureKind::SheetTransition;
     auto initial=transition?zima::document::create_sheet_transition():planar?zima::document::PartDocument::create_sweep2d_container():zima::document::PartDocument::create_helical_sweep_container();
+    if(!transition)initial.sweep_precision.default_tolerance=planar?application_settings_.sweep_precision_defaults.sweep2d:application_settings_.sweep_precision_defaults.helical;
     initial.name=tr(initial.name.c_str()).toStdString();
     const auto localize_sketch = [](std::string& data) {
         auto sketch=zima::sketcher::Sketch::from_serialized(data);
@@ -168,6 +170,7 @@ void AssemblyWorkspaceWindow::show_sweep_properties(zima::document::FeatureKind 
         zima::document::ConstructionObject origin;origin.id=c.id;origin.entity_id=c.feature_id;origin.container_origin=c.container_origin;
         origin.kind=zima::document::ConstructionKind::Point;origin.origin={c.placement.x,c.placement.y,c.placement.z};origin.rotation={c.placement.rotation_x,c.placement.rotation_y,c.placement.rotation_z};origin.reference_valid=false;
         preview.constructions.push_back(origin);primitive_origin_preview_mesh_=preview.construction_viewer_mesh(c.id);
+        primitive_origin_preview_mesh_->points.push_back(zima::document::container_origin_marker(c,true));
         if(transition)zima::document::reframe_sheet_transition(c);
         parameter_dimension_preview_=c;construction_dimension_object_id_=c.id;
         viewer_->set_feature_preview_owners({c.feature_id,c.container_origin.id});
@@ -272,6 +275,7 @@ void AssemblyWorkspaceWindow::show_sweep3d_properties(
     auto initial = edit_mode ? *edited
         : zima::document::PartDocument::create_sweep3d_container();
     if (!edit_mode) {
+        initial.sweep_precision.default_tolerance=application_settings_.sweep_precision_defaults.sweep3d;
         initial.name=tr(initial.name.c_str()).toStdString();
         initial.sweep3d.path.name=tr(initial.sweep3d.path.name.c_str()).toStdString();
     }
@@ -342,6 +346,7 @@ void AssemblyWorkspaceWindow::show_sweep3d_properties(
             carrier.constructions.push_back(display_path);
             construction_preview_mesh_ =
                 carrier.construction_viewer_mesh(display_path.id, 0.0, true);
+            construction_preview_mesh_->points.push_back(zima::document::container_origin_marker(*resolved,true));
             append_mesh(*construction_preview_mesh_,
                 zima::document::sweep3d_profiles_viewer_mesh(*resolved));
             zima::document::visit_feature_sketches(*resolved,[&](const auto& data,std::size_t){

@@ -144,6 +144,10 @@ struct MeshView::Impl {
     std::vector<std::size_t> sketch_constraint_indices;
     QOpenGLShaderProgram program;
     QOpenGLBuffer vertices{QOpenGLBuffer::VertexBuffer};
+    QOpenGLBuffer face_fill{QOpenGLBuffer::VertexBuffer};
+    using FaceFillKey=std::tuple<CandidateGeometry,std::string,std::string,std::string>;
+    std::vector<FaceFillKey> face_fill_keys;
+    std::vector<std::pair<int,int>> face_fill_ranges;
     QOpenGLBuffer triangles{QOpenGLBuffer::IndexBuffer};
     QOpenGLBuffer transparent_triangles{QOpenGLBuffer::IndexBuffer};
     QOpenGLBuffer lines{QOpenGLBuffer::VertexBuffer};
@@ -762,6 +766,7 @@ MeshView::~MeshView() {
         makeCurrent();
         impl_->vertex_array.destroy();
         impl_->vertices.destroy();
+        impl_->face_fill.destroy();
         impl_->triangles.destroy();
         impl_->transparent_triangles.destroy();
         impl_->lines.destroy();
@@ -798,6 +803,8 @@ void MeshView::set_mesh(zima::kernel::ViewerMesh mesh, bool fit_view) {
     if(impl_->dimension_layout_resolver)for(auto& d:mesh.dimensions)
         if(!d.rotation_handle)if(auto layout=impl_->dimension_layout_resolver(d.reference))d=kernel::layout_dimension(d,impl_->object_bounds.contains({d.reference.owner_id,d.reference.instance_path})&&impl_->object_bounds.at({d.reference.owner_id,d.reference.instance_path}).valid?impl_->object_bounds.at({d.reference.owner_id,d.reference.instance_path}):impl_->dimension_bounds,*layout);
     impl_->mesh = std::move(mesh);
+    impl_->face_fill_keys.clear();
+    impl_->face_fill_ranges.clear();
     impl_->surface_batches_dirty = true;
     impl_->reference_boundaries_dirty = true;
     std::erase_if(impl_->mesh.edges, [](const auto& edge) {
@@ -2778,6 +2785,7 @@ void main(){
     impl_->vertex_array.create();
     impl_->vertex_array.bind();
     impl_->vertices.create();
+    impl_->face_fill.create();
     impl_->triangles.create();
     impl_->transparent_triangles.create();
     impl_->lines.create();
@@ -3592,6 +3600,50 @@ if (impl_->show_origins) {
         highlighted=impl_->inspected_faces.front();
         highlight_color=interaction::rgba(interaction::selected);
     }
+    // Exact solid faces reuse their calculated picking triangles. Datum planes
+    // retain their screen-constant wire presentation. Cache the GPU upload by
+    // face identity and invalidate it whenever the displayed mesh changes.
+    std::vector<ViewerCandidate> filled_faces;
+    std::vector<QVector4D> filled_colors;
+    std::vector<Impl::FaceFillKey> fill_keys;
+    const auto add_face=[&](const ViewerCandidate& candidate,QVector4D color) {
+        if(candidate.kind!=CandidateKind::Face || candidate.semantic_key=="plane" ||
+           candidate.semantic_key.starts_with("origin:plane:"))return;
+        // A confirmed/inspected face may use Display triangles while hover
+        // names the same persisted face through OriginalReference triangles.
+        // Its selection color wins; never blend green over that same face.
+        if(std::ranges::any_of(filled_faces,[&](const auto& face) {
+            return face.owner_id==candidate.owner_id && face.semantic_key==candidate.semantic_key &&
+                face.instance_path==candidate.instance_path;
+        }))return;
+        const Impl::FaceFillKey key{candidate.geometry,candidate.owner_id,candidate.semantic_key,candidate.instance_path};
+        fill_keys.push_back(key);filled_faces.push_back(candidate);color.setW(.28f);filled_colors.push_back(color);
+    };
+    for(const auto& face:impl_->inspected_faces)add_face(face,interaction::rgba(interaction::selected));
+    if(impl_->confirmed_candidate)add_face(*impl_->confirmed_candidate,interaction::rgba(interaction::selected));
+    if(!impl_->candidates.empty())add_face(impl_->candidates[impl_->active_candidate],interaction::rgba(interaction::hover));
+    if(fill_keys!=impl_->face_fill_keys) {
+        std::vector<float> vertices;impl_->face_fill_ranges.clear();
+        for(const auto& face:filled_faces) {
+            const auto first=static_cast<int>(vertices.size()/6);
+            for(const auto& p:candidate_face_triangles(face))
+                vertices.insert(vertices.end(),{static_cast<float>(p.x),static_cast<float>(p.y),static_cast<float>(p.z),0,0,1});
+            impl_->face_fill_ranges.emplace_back(first,static_cast<int>(vertices.size()/6)-first);
+        }
+        impl_->face_fill.bind();impl_->face_fill.allocate(vertices.data(),static_cast<int>(vertices.size()*sizeof(float)));
+        impl_->face_fill_keys=std::move(fill_keys);
+    }
+    if(!filled_faces.empty()) {
+        bind_attributes(impl_->face_fill);impl_->program.setUniformValue("unlit",1);
+        glEnable(GL_DEPTH_TEST);glDepthFunc(GL_LEQUAL);glDepthMask(GL_FALSE);
+        glEnable(GL_BLEND);glBlendFuncSeparate(GL_SRC_ALPHA,GL_ONE_MINUS_SRC_ALPHA,GL_ZERO,GL_ONE);
+        glEnable(GL_POLYGON_OFFSET_FILL);glPolygonOffset(-1.f,-1.f);
+        for(std::size_t i=0;i<impl_->face_fill_ranges.size();++i) {
+            impl_->program.setUniformValue("color",filled_colors[i]);
+            glDrawArrays(GL_TRIANGLES,impl_->face_fill_ranges[i].first,impl_->face_fill_ranges[i].second);
+        }
+        glDisable(GL_POLYGON_OFFSET_FILL);glDisable(GL_BLEND);glDepthMask(GL_TRUE);glDepthFunc(GL_LESS);
+    }
     impl_->program.disableAttributeArray(0);
     impl_->program.disableAttributeArray(1);
     impl_->program.release();
@@ -3642,7 +3694,8 @@ if (impl_->show_origins) {
     // moment another construction command starts picking references.
     const bool always_visible_point_present = std::any_of(
         impl_->mesh.points.begin(), impl_->mesh.points.end(),
-        [](const auto& point) { return point.always_visible; });
+        [](const auto& point) { return point.always_visible ||
+            (!point.label.empty() && point.display_owner_id==point.reference.owner_id); });
     const bool points_visible =
         ((impl_->show_points || points_selectable || point_containers_selectable ||
           always_visible_point_present) &&
@@ -4438,8 +4491,8 @@ if (impl_->show_origins) {
                 // normal visibility rules.
                 if (point.reference.semantic_key ==
                         "sketch:origin-marker" ||
-                    point.reference.semantic_key ==
-                        "container:origin-marker") continue;
+                    (point.reference.semantic_key ==
+                        "container:origin-marker" && !point.always_visible && point.label.empty())) continue;
                 const bool external = point.reference.semantic_key.starts_with(
                         "external_point:") &&
                     point.reference.semantic_key !=
@@ -4451,7 +4504,7 @@ if (impl_->show_origins) {
                 if (origin) continue;
                 if ((origin && !impl_->show_origins && !points_selectable) ||
                     (!origin && !external && !point.always_visible &&
-                     !impl_->show_points &&
+                     !impl_->show_points && (point.label.empty() || point.display_owner_id!=point.reference.owner_id) &&
                      !points_selectable && !point_container_candidate) ||
                     (external && !impl_->show_sketches)) continue;
                 if (external) {
@@ -4526,7 +4579,8 @@ if (impl_->show_origins) {
                     // the states above gives it a meaningful color.
                     const bool hidden_marker = !point.always_visible && !selected &&
                         !hovered && !referenced && !creation_preview;
-                    const bool feature_label = point.reference.semantic_key == "point" &&
+                    const bool feature_label = (point.reference.semantic_key == "point" ||
+                        point.reference.semantic_key == "container:origin-marker") &&
                         point.display_owner_id == point.reference.owner_id;
                     if (hidden_marker && !feature_label) continue;
                     // A live work-plane preview is one visual object: its
@@ -4555,7 +4609,7 @@ if (impl_->show_origins) {
                         : point.reference.semantic_key.starts_with(
                                 "corner_radius_handle:")
                             ? QColor(255, 255, 255)
-                        : point.reference.semantic_key == "point" ||
+                        : point.reference.semantic_key == "point" || point.reference.semantic_key == "container:origin-marker" ||
                             (point.reference.semantic_key.starts_with("sweep:path-point:") || point.reference.semantic_key.starts_with("profile:path-point:") || point.reference.semantic_key.starts_with("axis:point:"))
                             ? interaction::axis
                             : QColor(0, 0, 0);

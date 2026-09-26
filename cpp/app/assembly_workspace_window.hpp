@@ -808,7 +808,7 @@ private:
     void start_primitive_reference_selection(
         std::size_t index, bool auto_advance = false);
     void accept_primitive_reference(
-        const zima::viewer::ViewerCandidate& candidate);
+        const zima::viewer::ViewerCandidate& candidate, bool from_view = false);
     // Embedded component placement-reference picking (ComponentPropertiesDialog):
     // mirrors start_construction_reference_selection()/accept_construction_reference()
     // but resolves candidates against MateReferenceKind (Face/Axis/Point)

@@ -257,6 +257,13 @@ stations, the complete profile list, 3D path, and 2D path-plane reference. It sh
 Properties commit, explicit calculation, and Undo. Examples and ownership rules:
 [SWEEP_COMMANDS.md](SWEEP_COMMANDS.md).
 
+All three create/set commands accept `precision_mm` (enables an explicit
+approximation tolerance) and `custom_precision` (false restores the feature's
+saved default). Get returns `precision_mm`, `custom_precision`, and
+`default_precision_mm`. Configuration defaults are copied at creation and do
+not retroactively change saved features. See [precision measurements and
+configuration](benchmarks/SWEEP_PRECISION_20260926.md).
+
 `thread.catalog metric M10` reads the thread catalog without an open document, even
 outside the project directory. All dimensions are mm. Pagination and designations:
 [THREAD_CATALOG.md](THREAD_CATALOG.md).

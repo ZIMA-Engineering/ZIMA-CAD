@@ -73,6 +73,33 @@ for both sides. The Feature icon follows its active operations: extrusion,
 revolution, or both icons side by side. Operation rows open the shared Feature
 properties. A new pending Feature starts collapsed in the tree.
 Document Origin icons are white, Body Origins red, and feature Origins green.
+
+Point and Text visibility is also available for placed extrusions, revolutions,
+2D/3D/helical sweeps, Hole/Thread, imported bodies, Holes, Flat, Bend, Twisted Sheet
+and Sheet Transition. Other operations, including Fillet, Chamfer, Shell and
+Unbend/Bend Back, do not expose these controls. New non-Feature controls default
+to off to preserve the ordinary display. Their flags persist with the history
+container; changing only these flags reuses the calculated body and remains
+undoable. The complete Origin is visible during Properties for every Feature type.
+
+Editing an owned profile Sketch from the tree opens its owning operation's
+transaction and then its embedded Sketcher. Finish returns to the owning
+Properties; only its OK commits the edit. Cancel restores the original profile.
+
+The first face reference picked in the View seeds placement at the ray's hit
+point on that confirmed face. Analytical support geometry determines the final
+point and normal. Numeric coordinate locks and the reference's distance-capture
+lock retain their entry behavior. Later references and Tree reference entry do
+not reseed the position. The hit is transient; no tessellation triangle identity
+is stored in the native reference.
+Picked coordinates retain full precision independently of the numeric fields'
+display rounding. Editing a coordinate replaces that coordinate normally.
+
+Solid-face hover fills only the exact offered face with translucent green;
+confirmation and independent reference inspection use translucent azure.
+The viewer reuses the calculated face triangles with depth testing and caches
+the GPU upload by face/occurrence identity until either selection or mesh changes.
+This does not calculate geometry, recolor the entire body, or fill datum planes.
 The internal Sketch data is retained when changing types; hiding a Tree row does
 not delete geometry or change reference identity. Pending and committed rows use
 the same builder in Part and Assembly trees.
@@ -97,11 +124,12 @@ signed offsets and sides, axis interpretation, reference serialization, intersec
 constraints, and failed solves retaining the last valid frame. The GUI contract
 checks all six shortcuts, cylinder-axis creation, full-face extent initialization,
 OK, Cancel, Undo/Redo, save/reopen, and new Part/Assembly template activation.
-The GUI geometry reference is supplied through the dialog's reference setter;
-this test does not simulate a pointer pick on the cylinder.
+The GUI contract also confirms an actual cylinder candidate with a pointer
+click and verifies the resulting position against its analytical support.
 
-The placement, construction, feature type/prototype, dialog layout, translation,
-and new-document options contracts passed. The broad UI contract passed on retry
-after an initial file-dialog assertion failure. An additional family-table UI run
-stopped at its family-row/source-order assertion before reaching template checks;
-that failure remains outside this change and has not been diagnosed.
+The current placement, feature type/prototype, common UI, translation and
+new-document options contracts passed. The broader dialog layout audit found
+ten Linear Pattern table-resizing failures out of 300 combinations; these are
+recorded separately in [the release verification](releases/2026092601.md).
+A prior family-table UI run stopped at its family-row/source-order assertion;
+that separate issue has not been diagnosed by this change.

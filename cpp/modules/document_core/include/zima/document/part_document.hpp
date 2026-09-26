@@ -1,5 +1,6 @@
 #pragma once
 #include <cmath>
+#include <zima/document/sweep_precision.hpp>
 #include <zima/document/family_document.hpp>
 #include <zima/document/profile_parameters.hpp>
 #include <zima/document/feature_parameters.hpp>
@@ -587,6 +588,9 @@ struct HistoryContainer {
     std::string feature_id;
     std::string feature_parent_id;
     std::string name{"Prvek"};
+    bool origin_point_visible{};
+    bool origin_text_visible{};
+    SweepPrecision sweep_precision;
     FeatureKind feature_kind{FeatureKind::Feature};
     ContainerOrigin container_origin;
     CombineMode combine_mode{CombineMode::Add};
@@ -783,12 +787,12 @@ public:
     static std::size_t ensure_sweep2d_profile(HistoryContainer&, const std::string& point_id, bool incoming);
     static void resolve_sweep2d_planes(HistoryContainer&, const zima::kernel::ViewerReferenceGeometry&);
     [[nodiscard]] static bool sweep2d_accepts_path_plane(const ConstructionReference&, const zima::kernel::ViewerReferenceGeometry&);
-    [[nodiscard]] static zima::kernel::Sweep3DRequest sweep2d_request(const HistoryContainer&, double linear_tolerance = 0.001);
+    [[nodiscard]] static zima::kernel::Sweep3DRequest sweep2d_request(const HistoryContainer&, std::optional<double> linear_tolerance = std::nullopt);
     [[nodiscard]] static std::vector<zima::kernel::ViewerEdge> sweep2d_sketch_edges(const HistoryContainer& container);
     [[nodiscard]] static zima::kernel::ViewerMesh sweep2d_preview_mesh(const HistoryContainer&);
     [[nodiscard]] static HistoryContainer create_helical_sweep_container();
     static void reframe_helical_sketches(HistoryContainer& container, unsigned through_stage = 2);
-    [[nodiscard]] static zima::kernel::Sweep3DRequest helical_sweep_request(const HistoryContainer& container, double linear_tolerance = 0.001);
+    [[nodiscard]] static zima::kernel::Sweep3DRequest helical_sweep_request(const HistoryContainer& container, std::optional<double> linear_tolerance = std::nullopt);
     [[nodiscard]] static std::vector<zima::kernel::ViewerEdge> helical_preview_edges(const HistoryContainer& container);
     [[nodiscard]] static std::vector<zima::kernel::ViewerEdge> helical_sketch_edges(const HistoryContainer& container);
 

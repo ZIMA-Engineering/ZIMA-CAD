@@ -49,6 +49,19 @@ int main(int argc, char** argv) {
         require(settings.resolved_paths["WorkingDirectory"] == root + "/Projects", "portable project default wrong");
         const auto cli = zima::cli::load_settings(std::filesystem::u8path(exe.toStdString()), std::filesystem::u8path((root + "/Projects").toStdString()), {});
         require(cli.documents.units.at("Length") == "cm", "CLI/common settings differ");
+        require(settings.sweep_precision_defaults.sweep2d==.001&&settings.sweep_precision_defaults.sweep3d==.001&&
+            settings.sweep_precision_defaults.helical==.1&&cli.documents.sweep_precision_defaults.helical==.1,
+            "Missing sweep settings lost factory defaults");
+        {
+            QSettings values(root+"/config/config.ini",QSettings::IniFormat);
+            values.setValue("SweepPrecision/Sweep2D",.02);values.setValue("SweepPrecision/Sweep3D",.03);
+            values.setValue("SweepPrecision/HelicalSweep",.5);values.sync();
+            const auto gui=zima::app::ApplicationSettings::load(root+"/Projects",exe);
+            const auto console=zima::cli::load_settings(std::filesystem::u8path(exe.toStdString()),std::filesystem::u8path((root+"/Projects").toStdString()),{});
+            require(gui.sweep_precision_defaults.sweep2d==.02&&gui.sweep_precision_defaults.sweep3d==.03&&gui.sweep_precision_defaults.helical==.5&&
+                console.documents.sweep_precision_defaults.sweep2d==.02&&console.documents.sweep_precision_defaults.sweep3d==.03&&console.documents.sweep_precision_defaults.helical==.5,
+                "GUI/CLI configured sweep defaults differ");
+        }
         require(settings.document_naming.normalize(sample)==sample&&cli.documents.normalize_document_name(sample.toStdString())==sample.toStdString(),"Missing configuration enabled name conversion");
         {
             QSettings names(root+"/config/config.ini",QSettings::IniFormat);
@@ -71,6 +84,8 @@ int main(int argc, char** argv) {
         QSettings saved(root + "/config/config.ini", QSettings::IniFormat);
         require(saved.value("Application/Language") == "fr" && !saved.contains("Paths/Localization"), "save pinned version paths");
         require(saved.value("SheetMetal/CutTolerance").toDouble()==.075,"Sheet Cut default was not saved");
+        require(saved.value("SweepPrecision/Sweep2D").toDouble()==.001&&saved.value("SweepPrecision/HelicalSweep").toDouble()==.1,
+            "Sweep defaults were not saved");
         const auto drawing_settings=zima::app::ApplicationSettings::load(root+"/Projects",exe);
         require(drawing_settings.drawing_pdf_directory=="output/pdf"&&drawing_settings.drawing_dxf_directory=="output/dxf"&&drawing_settings.drawing_view_style=="shaded_with_edges","Drawing settings did not survive reload");
         auto invalid_directory=settings;invalid_directory.drawing_pdf_directory=root;

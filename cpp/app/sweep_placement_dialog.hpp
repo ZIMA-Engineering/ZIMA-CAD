@@ -1,5 +1,7 @@
 #include <zima/ui/numeric_value_lock.hpp>
 #pragma once
+#include "origin_display_controls.hpp"
+#include "sweep_precision_controls.hpp"
 #include "placement_reference_dialog.hpp"
 #include "feature_operation_buttons.hpp"
 #include <zima/ui/container_placement_section.hpp>
@@ -28,6 +30,16 @@ public:
             [this](bool subtract){pending.combine_mode=subtract?document::CombineMode::Subtract:document::CombineMode::Add;if(changed)changed();});
     }
     void install_placement() {
+        if(pending.feature_kind==document::FeatureKind::Sweep2D || pending.feature_kind==document::FeatureKind::HelicalSweep) {
+            precision_=new SweepPrecisionControls(pending.sweep_precision,this,[this]{pending.sweep_precision=precision_->value();if(changed)changed();});
+            content_layout()->addWidget(precision_);
+        }
+        auto* display=new OriginDisplayControls(pending.origin_point_visible,pending.origin_text_visible,this,{});
+        content_layout()->addWidget(display);
+        for(auto* box:display->findChildren<QCheckBox*>())connect(box,&QCheckBox::toggled,this,[this,display] {
+            pending.origin_point_visible=display->point();pending.origin_text_visible=display->text();
+            if(changed)changed();
+        });
         placement_=new ui::ContainerPlacementSection(this,content_layout(),true,true,ui::numeric_decimal_places(this));
         placement_->initialize_from_references(pending.placement.references,[](const std::string& key){return QString::fromStdString(key);});
         placement_->initialize_numeric_values(pending.placement);
@@ -87,5 +99,6 @@ public:
     }
 private:
     ui::ContainerPlacementSection* placement_{};
+    SweepPrecisionControls* precision_{};
 };
 }

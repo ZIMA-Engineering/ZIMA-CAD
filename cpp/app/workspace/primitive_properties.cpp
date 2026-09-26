@@ -2,6 +2,7 @@
 #include <zima/workspace/hole_operations.hpp>
 #include "../feature_naming.hpp"
 #include "workspace_internal.hpp"
+#include <zima/document/container_origin_display.hpp>
 #include "../feature_view_cues.hpp"
 #include "sheet_cut_wire_preview.hpp"
 #include <zima/workspace/primitive_operations.hpp>
@@ -682,8 +683,7 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
                 if(point.reference.owner_id==preview.id&&point.reference.semantic_key=="point") {
                     point.always_visible=true;point.label=preview.name;
                 }
-            if(preview.feature.type!=zima::document::FeatureType::Point &&
-               preview.feature.type!=zima::document::FeatureType::Plane) {
+            {
                 zima::document::PartDocument carrier;
                 carrier.constructions.push_back(resolved_plane);
                 append_mesh(*primitive_origin_preview_mesh_,carrier.construction_viewer_mesh(plane.id));
@@ -1088,6 +1088,8 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
             preview_geometry.constructions.push_back(std::move(origin_preview));
             primitive_origin_preview_mesh_ =
                 preview_geometry.construction_viewer_mesh(resolved_preview.id);
+            if(zima::document::has_origin_display_controls(resolved_preview.feature_kind))
+                primitive_origin_preview_mesh_->points.push_back(zima::document::container_origin_marker(resolved_preview,true));
             if (resolved_preview.feature_kind == zima::document::FeatureKind::TwistedSheet) {
                 // The operation axis passes through the strip centre, while
                 // the placed Origin remains at the selected attachment point.

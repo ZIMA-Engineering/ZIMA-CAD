@@ -1,6 +1,7 @@
 #include <zima/workspace/feature_reference_input.hpp>
 #include <zima/workspace/part_transactions.hpp>
 #include <zima/workspace/sweep_operations.hpp>
+#include <zima/workspace/origin_display_operations.hpp>
 #include <zima/document/feature_sketches.hpp>
 #include <zima/document/sweep_inputs.hpp>
 #include <zima/workspace/history_policy.hpp>
@@ -264,6 +265,7 @@ void commit_sweep(Workspace& live, const kernel::OcctKernel& kernel, const std::
     if (body && body->scope.id != before.body_history.active_body_id())
         throw SweepOperationError("inactive_body", "Activate the owning Body before editing its history.");
     auto next = before;
+    if(mode==SweepEditMode::Replace && commit_origin_display_only(live,id,feature).has_value())return;
     if (mode == SweepEditMode::AdoptSources || mode == SweepEditMode::ReplaceAdoptSources) adopt_sources(next, feature, existing);
     if (existing) *next.find_container(feature.id) = std::move(feature);
     else {

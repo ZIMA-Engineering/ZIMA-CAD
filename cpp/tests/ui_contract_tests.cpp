@@ -687,6 +687,8 @@ int verify_stable_placement_rows() {
 
 #include "interaction_color_verification.inc"
 
+#include "origin_display_ui_contract.inc"
+#include "face_fill_ui_contract.inc"
 int main(int argc, char* argv[]) {
     QApplication application(argc, argv);
     zima::app::install_dialog_button_icons();
@@ -797,6 +799,8 @@ int main(int argc, char* argv[]) {
             delete treatment;
         }
         std::cout << "Treatment Origin policy passed for creation and editing" << std::endl;
+        verify_origin_display_and_pick_seed(parent);
+        verify_face_fill(application,parent);
         verify_sketch_line_styles(application,parent);
         verify_curve_placement_picker(application,parent);
         verify_sketch_endpoint_dialog(parent);

@@ -2,6 +2,7 @@
 #include <zima/document/feature_serialization.hpp>
 #include <zima/workspace/part_transactions.hpp>
 #include <zima/workspace/profile_operations.hpp>
+#include <zima/workspace/origin_display_operations.hpp>
 #include <algorithm>
 #include <cmath>
 
@@ -174,10 +175,11 @@ void commit_profile(Workspace& live, const kernel::OcctKernel& kernel, const std
     }
     // Confirming an unchanged definition must keep its current calculation and
     // Undo boundary. The owned Sketch is part of the edit, not just its owner.
-    if (mode == ProfileEditMode::Replace && existing && *existing == value) {
+    if (mode == ProfileEditMode::Replace && existing) {
         const auto original_profile = std::ranges::find(before.sketches, sketch_id, &sketcher::Sketch::id);
         if (original_profile != before.sketches.end() &&
-            original_profile->serialized() == profile->serialized()) return;
+            original_profile->serialized() == profile->serialized() &&
+            commit_origin_display_only(live,id,value).has_value()) return;
     }
     const auto container_id = value.id;
     if (existing) *next.find_container(container_id) = std::move(value);

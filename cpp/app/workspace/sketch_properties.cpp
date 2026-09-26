@@ -6,6 +6,7 @@
 #include <zima/document/bend.hpp>
 #include <zima/workspace/bend_operations.hpp>
 #include <zima/document/flat.hpp>
+#include <zima/document/container_origin_display.hpp>
 #include <zima/workspace/flat_operations.hpp>
 #include <cmath>
 #include <numbers>
@@ -26,6 +27,19 @@ void AssemblyWorkspaceWindow::show_sketch_properties(const std::string& sketch_i
         [&](const auto& sketch) { return sketch.id == sketch_id; });
     const bool edit_mode = found != sketches.end();
     if (!sketch_id.empty() && !edit_mode) return;
+    if(edit_mode && !holes_mode && !bend_mode && !flat_mode) {
+        const auto* owner=part ? part->session.document().find_container(found->owner_container_id)
+            : assembly->session.document().find_sketch_container(found->owner_container_id);
+        if(!owner && assembly)if(const auto* cut=assembly->session.document().find_cut(found->owner_container_id))owner=&cut->definition;
+        if(owner && (owner->feature_kind==zima::document::FeatureKind::Feature ||
+            owner->feature_kind==zima::document::FeatureKind::Extrusion || owner->feature_kind==zima::document::FeatureKind::Revolution)) {
+            const auto kind=owner->feature_kind;const auto id=owner->id;
+            show_primitive_properties(kind,id);
+            if(properties_dialog_)if(auto* button=properties_dialog_->findChild<QPushButton*>(
+                kind==zima::document::FeatureKind::Feature?"featureSketchButton":"primitiveOwnSketchButton"))button->click();
+            return;
+        }
+    }
     auto initial = edit_mode ? *found : zima::sketcher::Sketch::create_default();
     std::optional<zima::document::HistoryContainer> new_sketch_container;
     if (!edit_mode) {
@@ -164,6 +178,13 @@ void AssemblyWorkspaceWindow::show_sketch_properties(const std::string& sketch_i
             selected_sketch_id_ = selected_id;
         }, this);
     dialog->set_reference_document_id(owner_id);
+    if(sketch_feature) {
+        auto* display=new OriginDisplayControls(sketch_feature->origin_point_visible,sketch_feature->origin_text_visible,dialog,{});
+        dialog->content_layout()->insertWidget(1,display);
+        for(auto* box:display->findChildren<QCheckBox*>())connect(box,&QCheckBox::toggled,dialog,[display,sketch_feature] {
+            sketch_feature->origin_point_visible=display->point();sketch_feature->origin_text_visible=display->text();
+        });
+    }
     if (sketch_feature) {
         const auto edit_owned_sketch=[this, dialog, prepared_sketch,sketch_feature,owner_id](std::optional<std::size_t> stage) {
                 const auto* source=workspace_.open_part(owner_id);
@@ -430,6 +451,17 @@ void AssemblyWorkspaceWindow::show_sketch_properties(const std::string& sketch_i
             resolved_plane.reference_valid = true;
             primitive_origin_preview_mesh_ =
                 preview_document.construction_viewer_mesh(plane.id);
+            if(sketch_feature) {
+                auto marker=zima::document::container_origin_marker(*sketch_feature,true);
+                marker.position=resolved_sketch.resolved_origin;
+                auto& points=primitive_origin_preview_mesh_->points;
+                const auto existing=std::ranges::find_if(points,[&](const auto& point) {
+                    return point.reference.owner_id==marker.reference.owner_id &&
+                        point.reference.semantic_key==marker.reference.semantic_key;
+                });
+                if(existing==points.end())points.push_back(std::move(marker));
+                else *existing=std::move(marker);
+            }
             // Placement dimensions belong to the Sketch Properties
             // interaction and must therefore be present even for a brand-new
             // Sketch whose owning container is not in the real document yet.

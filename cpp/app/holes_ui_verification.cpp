@@ -101,12 +101,29 @@ int verify_holes_ui(QApplication& application, AssemblyWorkspaceWindow& window,
             }
             flush();
         };
-        const auto hit=[&](const auto& matches) -> QPointF {
+        int hit_attempt=0;
+        const auto hit=[&](const auto& matches,bool cycle=false) -> QPointF {
+            ++hit_attempt;
             for(int y=12;y<view->height()-12;y+=6) for(int x=12;x<view->width()-12;x+=6) {
                 const auto offered=view->selection_candidates_at(QPointF(x,y));
-                if(!offered.empty()&&matches(offered.front()))return QPointF(x,y);
+                for(std::size_t index=0;index<offered.size()&&(cycle||index==0);++index)if(matches(offered[index])) {
+                    const QPointF position(x,y),global(view->mapToGlobal(QPoint(x,y)));
+                    QMouseEvent move(QEvent::MouseMove,position,global,Qt::NoButton,Qt::NoButton,Qt::NoModifier);
+                    QApplication::sendEvent(view,&move);
+                    for(std::size_t step=0;step<offered.size();++step) {
+                        const auto selected=view->hovered_candidate();
+                        if(selected&&matches(*selected))return position;
+                        for(auto type:{QEvent::MouseButtonPress,QEvent::MouseButtonRelease}) {
+                            QMouseEvent event(type,position,global,Qt::RightButton,
+                                type==QEvent::MouseButtonPress?Qt::RightButton:Qt::NoButton,Qt::NoModifier);
+                            QApplication::sendEvent(view,&event);
+                        }
+                    }
+                    throw std::runtime_error("Common candidate cycling did not select the requested source");
+                }
             }
-            throw std::runtime_error("Sketcher did not offer the requested common-picker candidate");
+            window.grab().save(QString::fromStdString((directory/"holes-picker-failure.png").string()));
+            throw std::runtime_error("Sketcher did not offer the requested common-picker candidate at attempt "+std::to_string(hit_attempt));
         };
         const auto mouse=[&](QEvent::Type type,QPointF position,Qt::MouseButton button,Qt::MouseButtons buttons) {
             QMouseEvent event(type,position,QPointF(view->mapToGlobal(position.toPoint())),button,buttons,Qt::NoModifier);
@@ -176,34 +193,52 @@ int verify_holes_ui(QApplication& application, AssemblyWorkspaceWindow& window,
                   "Owned Sketch reference tools unavailable");
             segment->trigger();flush();
             const auto origin=hit([&](const auto& value){return value.owner_id==before.id &&
-                value.semantic_key=="external_point:sketch_origin";});
+                value.semantic_key=="external_point:sketch_origin";},true);
             check(window.grab().save(QString::fromStdString((directory/capture).string())),"Sketch screenshot failed");
             click(origin);click(origin+QPointF(85,-55));
             external->trigger();flush();
             check(external->isChecked(),"External reference mode did not start");
             const auto projectable=[&](const auto& value) {
-                if(value.owner_id!=box || value.kind!=viewer::CandidateKind::Edge ||
-                   value.geometry!=viewer::CandidateGeometry::OriginalReference)return false;
+                if(value.owner_id!=box || value.kind!=viewer::CandidateKind::Edge)return false;
                 const auto edge=view->candidate_edge(value);
                 if(!edge || edge->points.size()<2)return false;
                 const auto a=before.local_point(edge->points.front()),b=before.local_point(edge->points.back());
                 return std::hypot(a[0]-b[0],a[1]-b[1])>1;
             };
-            const auto source_hit=hit(projectable);
-            const auto source_key=view->selection_candidates_at(source_hit).front().semantic_key;
+            const auto source_hit=hit([&](const auto& value){return projectable(value)&&
+                value.geometry==viewer::CandidateGeometry::OriginalReference;},true);
+            const auto source_key=view->hovered_candidate()->semantic_key;
+            const auto source_edge=*view->candidate_edge(*view->hovered_candidate());
+            const auto source_a=before.local_point(source_edge.points.front()),source_b=before.local_point(source_edge.points.back());
             click(source_hit);
-            const auto reference_status=window.findChild<QLabel*>("workspaceState")->text();
             profile->trigger();flush();
             check(profile->isChecked(),"Reference to outline mode did not start");
-            click(hit([&](const auto& value){return projectable(value)&&value.semantic_key!=source_key;}));
-            const auto profile_status=window.findChild<QLabel*>("workspaceState")->text();
+            // Reference-to-outline projects the actual input-body edge;
+            // ordinary external references continue to use original objects.
+            const auto profile_hit=hit([&](const auto& value){
+                if(!projectable(value)||value.semantic_key==source_key||value.geometry!=viewer::CandidateGeometry::Display)return false;
+                const auto edge=*view->candidate_edge(value);
+                const auto a=before.local_point(edge.points.front()),b=before.local_point(edge.points.back());
+                // Start/end rims can project to the same line in this normal
+                // view. Exercise a genuinely different projected edge.
+                return std::hypot(a[0]+b[0]-source_a[0]-source_b[0],a[1]+b[1]-source_a[1]-source_b[1])>2;
+            },true);
+            const auto profile_key=view->hovered_candidate()->semantic_key;
+            click(profile_hit);
             finish->trigger();flush();
             check(dialog()==pending,"Sketcher did not return to its owning Holes dialog");
             const auto after=pending->pending_value().first;
-            if(after.external_references.size()!=before.external_references.size()+2)
-                std::cerr<<"Reference click: "<<reference_status.toStdString()<<"; outline click: "<<profile_status.toStdString()<<'\n';
-            check(after.external_references.size()==before.external_references.size()+2,
-                  "Holes Sketch lost externally picked references");
+            // Projecting a finite line also stores its two endpoint supports.
+            // Verify the actual edge sources rather than counting all kinds.
+            const auto has_source=[&](const std::string& key,bool body_edge) {
+                return std::ranges::any_of(after.external_references,[&](const auto& reference) {
+                    return reference.kind==sketcher::ExternalReferenceKind::Edge &&
+                        reference.source_owner_id==box && reference.source_semantic_key==key &&
+                        reference.body_edge==body_edge;
+                });
+            };
+            check(has_source(source_key,false)&&has_source(profile_key,true),
+                  "Holes Sketch lost an externally picked edge source");
             check(after.segments.size()==before.segments.size()+2,
                   "Holes Sketch lost the mouse-drawn segment or projected outline");
             check(std::ranges::any_of(after.constraints,[](const auto& constraint){
@@ -269,7 +304,8 @@ int verify_holes_ui(QApplication& application, AssemblyWorkspaceWindow& window,
         check(window.grab().save(QString::fromStdString((directory/"holes-properties.png").string())),"Holes screenshot failed");
         pending->buttons()->button(QDialogButtonBox::Cancel)->click();flush();run("save");
         const auto cancelled=document::PartDocument::load(file);
-        check(cancelled.find_container(owner)->holes.diameter==6 && cancelled.sketches.front().segments.size()==1,"Cancel retained a diameter or Sketch edit");
+        const auto cancelled_sketch=std::ranges::find(cancelled.sketches,sketch,&sketcher::Sketch::id);
+        check(cancelled.find_container(owner)->holes.diameter==6 && cancelled_sketch!=cancelled.sketches.end() && cancelled_sketch->segments.size()==1,"Cancel retained a diameter or Sketch edit");
         edit();pending=dialog();
         pending->findChild<QDoubleSpinBox*>("holesDiameter")->setValue(8);
         pending->buttons()->button(QDialogButtonBox::Ok)->click();flush();
@@ -286,7 +322,8 @@ int verify_holes_ui(QApplication& application, AssemblyWorkspaceWindow& window,
         direct_value("parameter:profile_offset","7");
         check(view->candidate_dimension_value(dimension_candidate("parameter:profile_offset"))==7,"Direct plane-offset edit reverted in View");
         run("save");const auto moved=document::PartDocument::load(file);
-        check(moved.sketches.front().plane_offset==7,"Direct plane-offset edit was not saved");
+        const auto moved_sketch=std::ranges::find(moved.sketches,sketch,&sketcher::Sketch::id);
+        check(moved_sketch!=moved.sketches.end() && moved_sketch->plane_offset==7,"Direct plane-offset edit was not saved");
         const auto moved_axis=std::ranges::find(view->mesh().axes,owner,[](const auto& axis){return axis.reference.owner_id;});
         check(moved_axis!=view->mesh().axes.end() && std::abs(moved_axis->point.z-7)<1e-8,"Direct offset did not move the drilling axis");
         run("undo");check(view->candidate_dimension_value(dimension_candidate("parameter:profile_offset"))==3,"Direct offset Undo failed");

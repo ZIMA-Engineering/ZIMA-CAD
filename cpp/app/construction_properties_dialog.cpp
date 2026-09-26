@@ -534,6 +534,11 @@ ConstructionPropertiesDialog::ConstructionPropertiesDialog(
             "ConstructionPropertiesDialog Sweep constructor requires Sweep3D");
     }
     initial_sweep_ = initial;
+    sweep_precision_=new SweepPrecisionControls(initial.sweep_precision,this,[this]{notify_preview();});
+    content_layout()->insertWidget(1,sweep_precision_);
+    origin_display_=new OriginDisplayControls(initial.origin_point_visible,initial.origin_text_visible,
+        this,[this]{notify_preview();});
+    content_layout()->insertWidget(1,origin_display_);
     setProperty("zimaValueLockOwner",QString::fromStdString(initial.id));
     sweep_commit_ = std::move(commit);
     sweep_profiles_ = initial.sweep3d.profiles;
@@ -945,6 +950,9 @@ zima::document::HistoryContainer
 ConstructionPropertiesDialog::pending_sweep_value() const {
     if (!initial_sweep_) return {};
     auto container = *initial_sweep_;
+    container.origin_point_visible=origin_display_->point();
+    container.origin_text_visible=origin_display_->text();
+    container.sweep_precision=sweep_precision_->value();
     auto dialog_path = current_value();
     container.name = dialog_path.name;
     container.combine_mode = sweep_combine_mode_;

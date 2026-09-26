@@ -30,6 +30,15 @@ height divided by pitch, not radial-curve arc length.
 
 ## Calculation and references
 
+The factory approximation tolerance is 0.1 mm. **Custom precision** in Properties
+enables a per-feature value in mm; clearing it restores the default saved when
+the feature was created. `SweepPrecision/HelicalSweep` in configuration changes
+the default for new features only. The setting affects body construction, not
+just its display tessellation. See [the measured comparison](benchmarks/SWEEP_PRECISION_20260926.md).
+
+Placement references offer the two endpoint caps. The curved helical side is
+not a supported placement surface; whole-feature selection remains available.
+
 Inputs → means → outputs: three Sketches and pitch → analytic spatial path,
 controlled approximation, explicit OCCT Sweep → solid added/subtracted in one history boundary.
 

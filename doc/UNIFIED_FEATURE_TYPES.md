@@ -3,7 +3,7 @@
 ## Agreed behavior
 
 One Modeling command opens one Feature Properties dialog. Its top-level type
-selector offers Point, Axis, Plane, Sketch and Extrusion / Revolution. The last
+selector offers Point, Axis, Plane, Sketch and Extrusion. The last
 choice retains the independent operation on each side, symmetry, Boolean
 operation, solid/surface/thin result and optional origin/centroid paths.
 
@@ -28,7 +28,7 @@ value even when the numeric control displays fewer decimal places.
 | Axis | Work plane, offset, independent lengths and symmetry | Axis, its origin and both endpoints, and the Feature name |
 | Plane | Work plane and offset | Offset plane, its origin and the Feature name |
 | Sketch | Work plane, offset and Sketcher entry | Sketch geometry, origin and Feature name |
-| Extrusion / Revolution | Full existing profile controls | The selected result and optional authored paths |
+| Extrusion | Independent Extrusion/Revolution side controls | The selected result and optional authored paths |
 
 The Axis is always the origin axis normal to the selected work plane. Its
 origin lies on the offset plane; lengths are measured from this point. The
@@ -40,16 +40,18 @@ modeling-axis checkbox controls its visibility. Hovering or selecting a Plane
 highlights its border as well as its origin, and coincident unselected planes
 cannot cover that highlight. Selecting an Axis highlights its
 line and its three defining markers, without adding a fourth midpoint marker.
-For Extrusion / Revolution, the origin dot is hidden in the normal idle state;
-it appears with hover, selection, reference inspection or the live preview.
-Its name remains anchored at the work-frame origin.
+The **Point** and **Text** checkboxes control the idle origin marker and name.
+While Feature Properties is open, the complete Origin is exposed for every
+type, including Point. The same presentation controls are available for other
+meaningful placed modeling and sheet containers; see [surface placement and
+Origin display](SURFACE_PLACEMENT.md).
 
 ## Automatic names and Tree icons
 
 New standalone Features receive a localized type name followed by a three-digit
-number, for example `Bod 001`, `Osa 001`, `Rovina 001`, `Skica 001` or `Prvek 001`
-in Czech. The combined Extrusion / Revolution type retains the general Feature
-prefix because its two sides can use different operations. Allocation uses the
+number, for example `Bod 001`, `Osa 001`, `Rovina 001`, `Skica 001` or `Vytažení 001`
+in Czech. The Extrusion type uses that name even when one or both sides rotate.
+Allocation uses the
 first available number for that prefix and checks existing history and
 construction names in the Part. Numbers can exceed three digits.
 
@@ -92,9 +94,20 @@ migrated in this change.
 
 ## Removal scope
 
-Standalone Point, Axis, Plane, Sketch, Extrusion and Revolution buttons are
-replaced in Part Modeling by the common Feature command. Their shared geometry
-and the operations consumed by other commands remain available as needed.
+Point, Axis, Plane, Sketch, Extrusion and Revolution toolbar entries are shortcuts
+to the common Feature command. Revolution initializes the Extrusion feature
+with both side operation modes set to rotation. Feature sits immediately below
+Select, with its green radial icon and a green separator below it. The separate
+Cylinder Surface Axis command is retired; select the cylinder's Axis reference
+interpretation in Feature placement instead.
+
+Tree rows follow the actual Feature type. Point, Axis and Plane have no visible
+owned Sketch row. Sketch exposes its profile once. Extrusion exposes its owned
+Sketch and active side operations, with extrusion/revolution icons matching the
+actual operations (both icons for mixed sides). New pending Features stay
+collapsed. Opening an owned profile from the Tree enters the owning operation's
+Sketcher transaction; Finish returns to its Properties and Cancel restores the
+original definition. Hidden rows never delete retained Sketch data.
 
 The Box, Sphere, Cylinder, Cone, Pyramid and Wedge modeling types are removed
 completely, including GUI/CLI commands, native parameters and serializers,

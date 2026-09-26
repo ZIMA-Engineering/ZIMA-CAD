@@ -30,6 +30,9 @@ Json sweep_details(const workspace::PartState& state, const document::HistoryCon
         {"combine", feature.combine_mode == document::CombineMode::Add ? "add" : "subtract"},
         {"value_locks", feature.value_locks}, {"reference_valid", feature.placement.reference_valid && (helical ? feature.helical.reference_valid
             : planar ? feature.sweep2d.reference_valid : feature.sweep3d.path.reference_valid)},
+        {"precision_mm",feature.sweep_precision.effective()},
+        {"default_precision_mm",feature.sweep_precision.default_tolerance},
+        {"custom_precision",feature.sweep_precision.custom_tolerance.has_value()},
         {"revision", state.session.revision()}};
     if (helical) {
         auto sketches = Json::array();
@@ -140,6 +143,12 @@ void sweep_properties(document::HistoryContainer& value, const Json& args,
             throw Error("invalid_arguments", "Unknown Sweep parameter option.");
         return result;
     };
+    if(args.contains("precision_mm"))value.sweep_precision.custom_tolerance=args.at("precision_mm").get<double>();
+    if(args.contains("custom_precision")) {
+        if(!args.at("custom_precision").get<bool>())value.sweep_precision.custom_tolerance.reset();
+        else if(!value.sweep_precision.custom_tolerance)value.sweep_precision.custom_tolerance=value.sweep_precision.default_tolerance;
+    }
+    static_cast<void>(value.sweep_precision.effective());
     if (args.contains("name")) {
         const auto name = args.at("name").get<std::string>();
         document::validate_native_metadata_text(name);
@@ -247,7 +256,7 @@ void Host::register_sweep_commands() {
     for (const auto kind : {Kind::Sweep2D, Kind::Sweep3D}) {
         std::vector<commands::Argument> fields{{"source_path", true}, {"profiles", true, Type::Array}, {"name", false}, {"combine", false},
          {"placement", false, Type::Object}, {"result_type", false}, {"thin_mode", false},
-         {"thickness_mm", false, Type::Number}, {"document", false}};
+         {"thickness_mm", false, Type::Number}, {"precision_mm",false,Type::Number}, {"custom_precision",false,Type::Boolean}, {"document", false}};
         if (kind == Kind::Sweep2D) fields.push_back({"path_plane", false, Type::Object});
         dispatcher_.add({kind == Kind::Sweep2D ? "sweep2d.create" : "sweep3d.create",
             tr(kind == Kind::Sweep2D ? "Create a 2D Sweep by adopting a path Sketch and profile Sketches."
@@ -262,6 +271,8 @@ void Host::register_sweep_commands() {
                 auto feature = kind == Kind::Sweep2D ? workspace::sweep2d_from_sources(state->session.document(), path, profiles)
                     : workspace::sweep3d_from_sources(state->session.document(), path,
                         workspace::read_placement(workspace_, id, path).placement, profiles);
+                const auto defaults=options_.settings?options_.settings().sweep_precision_defaults:document::SweepPrecisionDefaults{};
+                feature.sweep_precision.default_tolerance=kind==Kind::Sweep2D?defaults.sweep2d:defaults.sweep3d;
                 const auto placement_owner = kind == Kind::Sweep2D
                     ? std::ranges::find(state->session.document().sketches, path, &sketcher::Sketch::id)->owner_container_id : path;
                 sweep_properties(feature, args, workspace_, id, placement_owner); const auto container = feature.id;
@@ -279,6 +290,7 @@ void Host::register_sweep_commands() {
     dispatcher_.add({"helical.create", tr("Create a Helical Sweep by adopting three standalone Sketches."),
         {{"base_sketch", true}, {"guide_sketch", true}, {"profile_sketch", true}, {"circle", true}, {"start_point", true},
          {"guide_start_point", true}, {"pitch_mm", false, Type::Number}, {"left_handed", false, Type::Boolean},
+         {"precision_mm",false,Type::Number}, {"custom_precision",false,Type::Boolean},
          {"base_offset_mm", false, Type::Number}, {"placement", false, Type::Object}, {"name", false}, {"combine", false}, {"document", false}}, true},
         [this](const Json& args) {
             const auto check = target(args); if (!check.ok) return check;
@@ -288,6 +300,7 @@ void Host::register_sweep_commands() {
                 const workspace::HelicalSources inputs{{args.at("base_sketch"), args.at("guide_sketch"), args.at("profile_sketch")},
                     args.at("circle"), args.at("start_point"), args.at("guide_start_point")};
                 auto feature = workspace::helical_from_sources(state->session.document(), inputs);
+                feature.sweep_precision.default_tolerance=options_.settings?options_.settings().sweep_precision_defaults.helical:.1;
                 const auto owner = std::ranges::find(state->session.document().sketches, inputs.sketches[0], &sketcher::Sketch::id)->owner_container_id;
                 sweep_properties(feature, args, workspace_, id, owner); const auto container = feature.id;
                 workspace::commit_sweep(workspace_, kernel_, id, std::move(feature), workspace::SweepEditMode::AdoptSources);
@@ -331,6 +344,7 @@ void Host::register_sweep_commands() {
             } catch (const Error& error) { return Result::failure(error.code, tr(error.what())); }
         });
         std::vector<commands::Argument> fields{{"container", true}, {"name", false}, {"combine", false},
+            {"precision_mm",false,Type::Number}, {"custom_precision",false,Type::Boolean},
             {"placement", false, Type::Object}, {"document", false}};
         if (kind == Kind::HelicalSweep) {
             fields.push_back({"pitch_mm", false, Type::Number}); fields.push_back({"left_handed", false, Type::Boolean});

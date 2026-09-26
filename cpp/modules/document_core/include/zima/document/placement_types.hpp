@@ -3,6 +3,7 @@
 #include <set>
 #include <optional>
 #include <vector>
+#include <array>
 
 namespace zima::document {
 
@@ -46,6 +47,9 @@ struct ConstructionReference {
     // Interpret an original analytical face as its symmetry axis. The source
     // face identity remains unchanged; ordinary references retain their locus.
     bool use_axis{};
+    // Transient first-click seed in the owning container's coordinate frame.
+    // Consumed by reference entry, never serialized as reference identity.
+    std::optional<std::array<double,3>> picked_position;
     bool operator==(const ConstructionReference&) const = default;
 };
 

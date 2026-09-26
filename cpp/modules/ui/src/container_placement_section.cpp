@@ -19,6 +19,7 @@
 #include <QPalette>
 #include <QPushButton>
 #include <QSignalBlocker>
+#include <cmath>
 #include <QSizePolicy>
 #include <QStyle>
 #include <QTableWidget>
@@ -269,6 +270,7 @@ void ContainerPlacementSection::set_origin_selection_mode_active(bool active) {
 void ContainerPlacementSection::initialize_numeric_values(
         const zima::document::Placement& placement) {
     value_locks_=placement.value_locks;
+    picked_translation_values_={};
     const std::array position{placement.x, placement.y, placement.z};
     absolute_rotation_values_ = {placement.absolute_rotation_x,
         placement.absolute_rotation_y, placement.absolute_rotation_z};
@@ -320,8 +322,11 @@ void ContainerPlacementSection::set_orientation_back(bool back) {
 zima::document::Placement ContainerPlacementSection::numeric_placement() const {
     zima::document::Placement result;
     result.value_locks=value_locks_;
-    result.x = translation_[0]->value(); result.y = translation_[1]->value();
-    result.z = translation_[2]->value();
+    const auto coordinate=[&](std::size_t i) {
+        const auto& picked=picked_translation_values_[i];
+        return picked&&translation_[i]->value()==picked->first ? picked->second : translation_[i]->value();
+    };
+    result.x=coordinate(0);result.y=coordinate(1);result.z=coordinate(2);
     if (rotation_[0]) {
         result.rotation_x = resolved_rotation_values_[0];
         result.rotation_y = resolved_rotation_values_[1];
@@ -356,6 +361,7 @@ void ContainerPlacementSection::set_translation_constraint_state(
         if (state.constrained_axes[i]) {
             const QSignalBlocker blocker(translation_[i]);
             translation_[i]->setValue(values[i]);
+            if(picked_translation_values_[i])picked_translation_values_[i]=std::pair{translation_[i]->value(),values[i]};
         }
     }
 }
@@ -559,6 +565,9 @@ void ContainerPlacementSection::initialize_from_references(
 bool ContainerPlacementSection::set_reference(std::size_t index,
     zima::document::ConstructionReference reference, const QString& label,
     QString* error_text, bool derive_orientation) {
+    const auto picked=reference.picked_position;
+    reference.picked_position.reset();
+    const bool seed=index==0 && references_.empty() && !empty_reference_locks_[0];
     const auto result=zima::document::assign_placement_reference(
         {references_,orientation_references_,empty_reference_locks_},
         with_orientation_,index,std::move(reference),derive_orientation);
@@ -573,6 +582,14 @@ bool ContainerPlacementSection::set_reference(std::size_t index,
         return false;
     }
     if(error_text)error_text->clear();
+    if(seed && picked)for(std::size_t axis=0;axis<3;++axis) {
+        const char* key=axis==0?"x":axis==1?"y":"z";
+        if(!value_locks_.contains(key) && std::isfinite((*picked)[axis])) {
+            const QSignalBlocker blocked(translation_[axis]);
+            translation_[axis]->setValue((*picked)[axis]);
+            picked_translation_values_[axis]=std::pair{translation_[axis]->value(),(*picked)[axis]};
+        }
+    }
     if(index>=3) {
         const auto slot=index-3;
         if(orientation_labels_.size()<=slot)orientation_labels_.resize(slot+1);

@@ -846,6 +846,16 @@ the open document's path. See [Drawing commands](DRAWING_COMMANDS.md) and
 
 ## 2D Sweep and profile stations
 
+2D, 3D and Helical Sweep Properties offer **Custom precision**, followed by
+the approximation tolerance in mm. Smaller values generally take longer and
+produce a closer approximation. Factory defaults are 0.001 mm for 2D/3D Sweep
+and 0.1 mm for Helical Sweep. Each feature saves its own default and optional
+override; clearing the checkbox restores that feature's saved default.
+The `SweepPrecision` configuration section sets defaults for new features.
+This affects the calculated body, unlike the display-only mesh deflection
+used for STEP import. [Measured examples](benchmarks/SWEEP_PRECISION_20260926.md)
+show the timing and geometry tradeoff.
+
 2D Sweep, 3D Sweep and Helical Sweep are separate tools. Loft is a profile-transition
 option inside 2D/3D Sweep.
 

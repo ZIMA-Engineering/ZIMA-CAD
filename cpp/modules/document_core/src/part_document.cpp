@@ -18,6 +18,7 @@
 #include <zima/document/appearance.hpp>
 #include <zima/document/document_copy_json.hpp>
 #include <zima/document/part_document.hpp>
+#include <zima/document/container_origin_display.hpp>
 #include <zima/document/sketch_placement.hpp>
 #include <zima/document/feature_sketches.hpp>
 #include <zima/kernel/curve_constraints.hpp>
@@ -5630,16 +5631,25 @@ zima::kernel::ViewerMesh PartDocument::construction_viewer_mesh(
             if(!excluded_features.contains(container.id))append_body_mesh(mesh,feature_result_mesh(container));
             continue;
         }
-        const bool basic_solid = container.feature_kind == FeatureKind::TwistedSheet;
+        const bool basic_solid = has_origin_display_controls(container.feature_kind);
         const bool profile_feature =
             container.feature_kind == FeatureKind::Feature ||
+            container.feature_kind == FeatureKind::Flat || container.feature_kind == FeatureKind::Bend ||
+            container.feature_kind == FeatureKind::Holes ||
             container.feature_kind == FeatureKind::Extrusion ||
             container.feature_kind == FeatureKind::Revolution;
-        if ((!basic_solid && !profile_feature) || container.suppressed) continue;
+        if ((!basic_solid && !profile_feature) || container.suppressed || excluded_features.contains(container.id)) continue;
+        const bool established_marker=container.feature_kind==FeatureKind::TwistedSheet ||
+            container.feature_kind==FeatureKind::Extrusion || container.feature_kind==FeatureKind::Revolution;
+        if(!established_marker && !container.origin_point_visible && !container.origin_text_visible &&
+           editing_object_id!=container.id)continue;
         zima::kernel::Vec3 marker{container.placement.x, container.placement.y,
                                  container.placement.z};
         if (profile_feature) {
-            const auto sketch_id = container.feature_kind == FeatureKind::Feature ? container.feature.sketch_id : container.feature_kind == FeatureKind::Extrusion
+            const auto sketch_id = container.feature_kind == FeatureKind::Flat ? container.flat.sketch_id :
+                container.feature_kind == FeatureKind::Bend ? container.bend.sketch_id :
+                container.feature_kind == FeatureKind::Holes ? container.holes.sketch_id :
+                container.feature_kind == FeatureKind::Feature ? container.feature.sketch_id : container.feature_kind == FeatureKind::Extrusion
                 ? container.extrusion.sketch_id : container.revolution.sketch_id;
             const auto sketch = std::find_if(sketches.begin(), sketches.end(),
                 [&](const auto& value) { return value.id == sketch_id; });
@@ -5654,9 +5664,9 @@ zima::kernel::ViewerMesh PartDocument::construction_viewer_mesh(
                 if (origin != sketch_mesh.points.end()) marker = origin->position;
             }
         }
-        mesh.points.push_back({
-            marker,
-            {container.id, "container:origin-marker", {}}, {}, false});
+        auto point=container_origin_marker(container,editing_object_id==container.id);
+        point.position=marker;
+        mesh.points.push_back(std::move(point));
     }
     for(const auto& sketch:sketches) {
         const auto* owner=find_container(sketch.owner_container_id);
@@ -7892,7 +7902,8 @@ if (sweep.separate_segments) {
 }
 }
 
-zima::kernel::Sweep3DRequest PartDocument::sweep2d_request(const HistoryContainer& input,double tolerance) {
+zima::kernel::Sweep3DRequest PartDocument::sweep2d_request(const HistoryContainer& input,std::optional<double> override_tolerance) {
+    const double tolerance=override_tolerance.value_or(input.sweep_precision.effective());
     auto c=input;reframe_sweep2d_sketches(c);const auto route=sweep2d_route(c,tolerance);
     kernel::Sweep3DRequest request;request.linear_tolerance=tolerance;request.separate_segments=true;
     request.attachment_endpoints=true;
@@ -7963,6 +7974,7 @@ zima::kernel::ViewerMesh PartDocument::sweep2d_preview_mesh(const HistoryContain
 HistoryContainer PartDocument::create_helical_sweep_container() {
     auto c=create_sweep3d_container();
     c.feature_kind=FeatureKind::HelicalSweep;c.name="H-tažení";
+    c.sweep_precision.default_tolerance=0.1;
     c.sweep3d={};
     for(unsigned i=0;i<3;++i){
         auto s=zima::sketcher::Sketch::create_default();s.owner_container_id=c.id;s.plane=zima::sketcher::SketchPlane::XZ;s.refresh_default_frame();
@@ -8002,7 +8014,8 @@ void PartDocument::reframe_helical_sketches(HistoryContainer& c,unsigned through
     section.resolved_y_axis=unit(cross(section.resolved_normal,section.resolved_x_axis));
     c.helical.sketches[2]=section.serialized();
 }
-zima::kernel::Sweep3DRequest PartDocument::helical_sweep_request(const HistoryContainer& input, double linear_tolerance) {
+zima::kernel::Sweep3DRequest PartDocument::helical_sweep_request(const HistoryContainer& input, std::optional<double> override_tolerance) {
+    const double linear_tolerance=override_tolerance.value_or(input.sweep_precision.effective());
     if(!std::isfinite(linear_tolerance)||linear_tolerance<=0)throw std::invalid_argument("Invalid sweep tolerance");
     using namespace helical_geometry;
     auto c=input; reframe_helical_sketches(c);
@@ -9466,10 +9479,10 @@ std::vector<zima::kernel::HistoryOperation> PartDocument::kernel_operations(
             primitive = twisted_sheet_request(container, boolean_tolerance);
         } else if (container.feature_kind == FeatureKind::Sweep2D) {
             if(!container.sweep2d.reference_valid)throw std::runtime_error("Neplatné reference 2D tažení");
-            primitive = sweep2d_request(container, boolean_tolerance);
+            primitive = sweep2d_request(container, container.sweep_precision.effective());
         } else if (container.feature_kind == FeatureKind::HelicalSweep) {
             if(!container.helical.reference_valid)throw std::runtime_error("Neplatné reference šroubovicového tažení");
-            primitive = helical_sweep_request(container, boolean_tolerance);
+            primitive = helical_sweep_request(container, container.sweep_precision.effective());
         } else if (container.feature_kind == FeatureKind::Sweep3D) {
             auto resolved_container = container;
             auto& path = resolved_container.sweep3d.path;
@@ -9493,7 +9506,7 @@ std::vector<zima::kernel::HistoryOperation> PartDocument::kernel_operations(
             sweep.attachment_endpoints=true;
             sweep.separate_segments = path.curve_type == Curve3DType::Polyline &&
                 !path.curve_rounding_enabled;
-            sweep.linear_tolerance = boolean_tolerance;
+            sweep.linear_tolerance = container.sweep_precision.effective();
             const auto& thin = container.sweep3d;
             if (thin.result_type == ProfileResultType::Thin) {
                 require_positive(thin.thickness, "Tloušťka Sweep/Loftu");
@@ -10362,6 +10375,14 @@ PartDocument PartDocument::from_serialized(const nlohmann::json& root,
         container.feature_parent_id =
             source.at("feature_parent_id").get<std::string>();
         container.name = source.at("name").get<std::string>();
+        container.origin_point_visible=source.at("origin_point_visible").get<bool>();
+        container.origin_text_visible=source.at("origin_text_visible").get<bool>();
+        if(container.feature_kind==FeatureKind::Sweep2D || container.feature_kind==FeatureKind::Sweep3D || container.feature_kind==FeatureKind::HelicalSweep) {
+            const auto& precision=source.at("sweep_precision");
+            container.sweep_precision.default_tolerance=precision.at("default_mm").get<double>();
+            if(!precision.at("custom_mm").is_null())container.sweep_precision.custom_tolerance=precision.at("custom_mm").get<double>();
+            static_cast<void>(container.sweep_precision.effective());
+        }
         if (container.id.empty() || !container_ids.insert(container.id).second) {
             throw std::runtime_error("History container IDs must be non-empty and unique");
         }
@@ -11454,6 +11475,8 @@ nlohmann::json PartDocument::serialized(
                 : container.feature_kind == FeatureKind::DrillPoint
                     ? "drill_point" : "hole"},
             {"name", container.name},
+            {"origin_point_visible",container.origin_point_visible},
+            {"origin_text_visible",container.origin_text_visible},
             {"combine", container.combine_mode == CombineMode::Subtract
                 ? "subtract" : "add"}, {"suppressed", container.suppressed},
             {"container_origin", {
@@ -11464,6 +11487,11 @@ nlohmann::json PartDocument::serialized(
                 {"children", nlohmann::json::array()},
             }},
         };
+        if(container.feature_kind==FeatureKind::Sweep2D || container.feature_kind==FeatureKind::Sweep3D || container.feature_kind==FeatureKind::HelicalSweep) {
+            static_cast<void>(container.sweep_precision.effective());
+            serialized["sweep_precision"]={{"default_mm",container.sweep_precision.default_tolerance},
+                {"custom_mm",container.sweep_precision.custom_tolerance?nlohmann::json(*container.sweep_precision.custom_tolerance):nlohmann::json(nullptr)}};
+        }
         for (const auto& child : container.container_origin.children) {
             serialized["container_origin"]["children"].push_back({
                 {"id", child.id}, {"parent_id", child.parent_id},

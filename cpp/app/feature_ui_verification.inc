@@ -43,6 +43,40 @@ static void verify_feature_surface_placement(QApplication& application, Assembly
             preset.sides[1].operation==document::FeatureSideOperation::Revolution,"Rotation shortcut did not preset both sides");
         dialog()->reject();flush();
     }
+    // Confirm an actual View candidate away from the cylinder's default station.
+    window.findChild<QAction*>("featureShortcut0Action")->trigger();flush();
+    auto* pick_view=dynamic_cast<viewer::MeshView*>(window.findChild<QOpenGLWidget*>());
+    auto* input=dialog()->findChild<QTableWidget*>("primitiveReferenceTable");
+    check(pick_view&&input,"Click placement controls missing");
+    input->cellClicked(0,1);flush();pick_view->fit_all();flush();
+    std::optional<QPointF> click_position;std::optional<kernel::Vec3> expected;
+    for(int y=20;y<pick_view->height()-20&&!click_position;y+=12)
+        for(int x=20;x<pick_view->width()-20&&!click_position;x+=12) {
+            const QPointF position(x,y);const auto candidates=pick_view->selection_candidates_at(position);
+            if(candidates.empty()||candidates.front().kind!=viewer::CandidateKind::Face||
+               candidates.front().owner_id!=face->owner_id||candidates.front().semantic_key!=face->semantic_key)continue;
+            const auto ray=pick_view->ray_at(position);if(!ray)continue;
+            const auto hit=confirmed_face_hit(pick_view->candidate_face_triangles(candidates.front()),ray->first,ray->second);
+            if(!hit||hit->z<3||hit->z>17)continue;
+            auto seeded=dialog()->pending_value().placement;
+            seeded.x=hit->x;seeded.y=hit->y;seeded.z=hit->z;
+            seeded.references={{{},face->owner_id,face->semantic_key,0,true}};
+            check(document::resolve_placement(seeded,calculated.back().mesh.original_references),"Clicked cylinder point cannot resolve");
+            click_position=position;expected=kernel::Vec3{seeded.x,seeded.y,seeded.z};
+        }
+    check(click_position.has_value(),"No cylinder View candidate for click placement");
+    for(const auto type:{QEvent::MouseMove,QEvent::MouseButtonPress,QEvent::MouseButtonRelease}) {
+        QMouseEvent event(type,*click_position,QPointF(pick_view->mapToGlobal(click_position->toPoint())),
+            type==QEvent::MouseMove?Qt::NoButton:Qt::LeftButton,
+            type==QEvent::MouseButtonPress?Qt::LeftButton:Qt::NoButton,Qt::NoModifier);
+        QApplication::sendEvent(pick_view,&event);flush();
+    }
+    auto clicked=dialog()->pending_value().placement;
+    check(!clicked.references.empty(),"View click did not create a placement reference");
+    check(document::resolve_placement(clicked,calculated.back().mesh.original_references),"Clicked placement invalid");
+    check(std::abs(clicked.x-expected->x)<1e-5&&std::abs(clicked.y-expected->y)<1e-5&&std::abs(clicked.z-expected->z)<1e-5,
+        "First View reference did not place the Feature at the clicked surface point");
+    dialog()->reject();flush();
     window.findChild<QAction*>("featurePrototypeAction")->trigger();flush();check(dialog(),"Axis Feature dialog missing");
     dialog()->findChild<QComboBox*>("featureType")->setCurrentIndex(1);
     check(dialog()->set_reference(0,{{},face->owner_id,face->semantic_key,0,true,"front",true},"Cylinder"),"Cylinder cannot be selected");flush();
@@ -159,6 +193,49 @@ static void verify_feature_operation_tree(QApplication& application,AssemblyWork
         }
         check(window.execute_console_command("close").ok,"Operation tree document did not close");flush();
     }
+}
+
+static void verify_placed_origin_visibility(QApplication& application,AssemblyWorkspaceWindow& window,
+    const std::filesystem::path& directory) {
+    const auto check=[](bool ok,const char* why){if(!ok)throw std::runtime_error(why);};
+    const auto flush=[&]{application.processEvents();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);application.processEvents();};
+    auto part=document::PartDocument::create_default();auto sketch=sketcher::Sketch::create_default();
+    static_cast<void>(sketch.add_rectangle(0,0,10,8));
+    auto value=document::PartDocument::create_extrusion_container(sketch.id);sketch.owner_container_id=value.id;
+    part.history={value};part.sketches={sketch};document::BodyHistoryGraph graph;const auto body=graph.create_body("Origin display");
+    graph.insert({document::PartHistoryKind::Feature,value.id});part.set_body_history(graph);part.resolve_constructions();
+    const auto calculated=kernel::OcctKernel{}.evaluate_history(part.kernel_operations());
+    const auto file=directory/("origin-display-"+value.id+".prtz");part.save(file,calculated);
+    check(window.open_document_path(QString::fromStdString(file.string())),"Origin fixture cannot open");flush();
+    const auto run=[&](const char* command,commands::Json args=commands::Json::object()) {
+        check(window.execute_console_command(QString::fromStdString(commands::Json{{"command",command},{"arguments",args}}.dump())).ok,"Origin display command failed");flush();
+    };
+    run("body.activate",{{"body",body}});
+    const auto edit=[&]() -> PrimitivePropertiesDialog* {
+        auto* tree=window.findChild<QTreeWidget*>("documentTree");QTreeWidgetItem* row{};
+        for(QTreeWidgetItemIterator i(tree);*i;++i)if((*i)->data(0,Qt::UserRole).toString().toStdString()==value.id&&(*i)->data(0,Qt::UserRole+3)=="part-container"){row=*i;break;}
+        check(row,"Placed feature missing from tree");window.show_tree_item_properties(row);flush();
+        for(auto* candidate:window.findChildren<QDialog*>())if(candidate->isVisible())
+            if(auto* dialog=dynamic_cast<PrimitivePropertiesDialog*>(candidate))return dialog;
+        throw std::runtime_error("Placed feature editor missing");
+    };
+    auto* dialog=edit();
+    dialog->findChild<QCheckBox*>("originShowPoint")->setChecked(true);
+    dialog->findChild<QCheckBox*>("originShowText")->setChecked(true);
+    dialog->buttons()->button(QDialogButtonBox::Ok)->click();flush();run("save");
+    std::vector<kernel::BodyResult> cache;auto saved=document::PartDocument::load(file,&cache);
+    check(saved.find_container(value.id)->origin_point_visible&&saved.find_container(value.id)->origin_text_visible,"Origin flags were not persisted");
+    check(cache.size()==calculated.size()&&cache.back().volume==calculated.back().volume&&
+        cache.back().kernel_shape==calculated.back().kernel_shape&&
+        cache.back().source_fingerprint==calculated.back().source_fingerprint,"Visibility edit changed calculated body");
+    auto* view=dynamic_cast<viewer::MeshView*>(window.findChild<QOpenGLWidget*>());
+    const auto marker=std::ranges::find_if(view->mesh().points,[&](const auto& p){return p.reference.owner_id==value.id&&p.reference.semantic_key=="container:origin-marker";});
+    check(marker!=view->mesh().points.end()&&marker->always_visible&&marker->label==value.name,"Idle feature marker did not use saved flags");
+    dialog=edit();check(dialog->findChild<QCheckBox*>("originShowText")->isChecked(),"Reopened editor lost Origin flags");
+    dialog->findChild<QCheckBox*>("originShowText")->setChecked(false);dialog->reject();flush();run("save");
+    check(document::PartDocument::load(file).find_container(value.id)->origin_text_visible,"Cancel changed Origin flags");
+    run("undo");run("save");check(!document::PartDocument::load(file).find_container(value.id)->origin_point_visible,"Visibility Undo failed");
+    run("redo");run("save");check(document::PartDocument::load(file).find_container(value.id)->origin_point_visible,"Visibility Redo failed");
 }
 
 // Exercises the public action, embedded Sketcher and one real native commit.
@@ -425,6 +502,18 @@ static void verify_feature_sketch_visibility(QApplication& application, Assembly
             check(row,"Feature wire row missing");window.show_tree_item_properties(row);flush();check(dialog(),"Feature wire properties missing");
         };
         expect();fit_wire();
+        {
+            QTreeWidgetItem* child{};
+            for(QTreeWidgetItemIterator it(tree);*it;++it)if((*it)->data(0,Qt::UserRole).toString().toStdString()==sketch.id &&
+                (*it)->data(0,Qt::UserRole+3)=="part-sketch") {child=*it;break;}
+            check(child,"Owned Sketch child missing");window.show_tree_item_properties(child);flush();
+            auto* finish=window.findChild<QAction*>("finishSketchAction");
+            check(finish&&finish->isEnabled(),"Owned Sketch tree entry did not enter its owner's Sketcher");
+            finish->trigger();flush();check(dialog(),"Owned Sketch did not return to Feature properties");
+            dialog()->reject();flush();run("save");
+            check(document::PartDocument::load(path).sketches.front().serialized()==original,"Owned Sketch Cancel changed the saved profile");
+            QEventLoop restore;QTimer::singleShot(950,&restore,&QEventLoop::quit);restore.exec();flush();
+        }
         if(!axis_only) {
             for(int type=0;type<5;++type) {
                 open_properties();
@@ -433,6 +522,8 @@ static void verify_feature_sketch_visibility(QApplication& application, Assembly
                 check(selector&&selector->count()==5,"Feature type selector missing");
                 selector->setCurrentIndex(type);flush();
                 const auto pending=dialog()->pending_value();
+                check(std::ranges::count_if(view->mesh().axes,[&](const auto& axis){return axis.reference.owner_id==pending.container_origin.id;})>=3,
+                    "A Feature type omitted its full editing Origin");
                 const char* prefixes[]={"Bod","Osa","Rovina","Skica","Vytažení"};
                 check(pending.name==QObject::tr(prefixes[type]).toStdString()+" 001" && pending.feature.automatic_name==pending.name,
                     "GUI type switch did not update its automatic name");

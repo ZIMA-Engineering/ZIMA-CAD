@@ -1,4 +1,5 @@
 #include "workspace_internal.hpp"
+#include "../confirmed_face_hit.hpp"
 #include <zima/document/placement_surface.hpp>
 
 namespace zima::app {
@@ -1024,7 +1025,7 @@ void AssemblyWorkspaceWindow::accept_component_placement_reference(
 }
 
 void AssemblyWorkspaceWindow::accept_primitive_reference(
-    const zima::viewer::ViewerCandidate& candidate) {
+    const zima::viewer::ViewerCandidate& candidate, bool from_view) {
     if (!placement_origin_allowed(candidate.owner_id)) return;
     if (primitive_reference_dialog_ == nullptr ||
         !pending_primitive_reference_index_ || candidate.owner_id.empty() ||
@@ -1090,8 +1091,34 @@ void AssemblyWorkspaceWindow::accept_primitive_reference(
             proposed_reference, baseline_references);
     }
     auto committed_reference = proposed_reference;
+    if(from_view && selected_index==0 && baseline_references.empty() &&
+       primitive_reference_dialog_->first_empty_position_index()==0 && candidate.kind==zima::viewer::CandidateKind::Face) {
+        if(const auto ray=viewer_->ray_at(viewer_->last_pointer_position()))
+        if(auto hit=confirmed_face_hit(viewer_->candidate_face_triangles(candidate),ray->first,ray->second)) {
+            const auto path=zima::assembly::InstancePath::decode(workspace_.active_occurrence_path());
+            if(!path.occurrence_ids.empty())*hit=workspace_.occurrence_point_from_scene(workspace_.displayed_document_id(),path,*hit);
+            if(const auto* part=workspace_.open_part(workspace_.active_document_id());part && body_dialog_step_id_.empty()) {
+                const auto& doc=part->session.document();
+                const auto* body=doc.body_owner_for_object(primitive_parameter_owner_id_);
+                if(!body)body=doc.body_history.find(sketch_properties_body_id_.empty()?doc.body_history.active_body_id():sketch_properties_body_id_);
+                if(body)*hit=container_dimension_frame(body->scope.placement).inverse_point(*hit);
+            }
+            auto seeded=baseline_placement;
+            if(!seeded.value_locks.contains("x"))seeded.x=hit->x;
+            if(!seeded.value_locks.contains("y"))seeded.y=hit->y;
+            if(!seeded.value_locks.contains("z"))seeded.z=hit->z;
+            seeded.references={proposed_reference};
+            if(zima::document::resolve_placement(seeded,primitive_reference_geometry_))
+                committed_reference.picked_position=std::array{seeded.x,seeded.y,seeded.z};
+        }
+    }
     baseline_references.push_back(proposed_reference);
     auto proposed_placement = baseline_placement;
+    if(committed_reference.picked_position) {
+        proposed_placement.x=(*committed_reference.picked_position)[0];
+        proposed_placement.y=(*committed_reference.picked_position)[1];
+        proposed_placement.z=(*committed_reference.picked_position)[2];
+    }
     proposed_placement.references = baseline_references;
     if (!zima::document::resolve_placement(proposed_placement, primitive_reference_geometry_)) {
         state_->setText(tr("Navržené reference umístění prvku nelze vyřešit."));
