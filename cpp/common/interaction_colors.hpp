@@ -4,7 +4,8 @@
 
 namespace zima::interaction {
 inline const QColor hover{"#00D1FF"};
-inline const QColor selected{"#4DD811"};
+inline const QColor selected{"#00D1FF"};
+inline constexpr double selected_wire_width = 2.5;
 inline const QColor subtract{"#FF0000"};
 inline const QColor surface{"#FFD400"};
 inline const QColor construction{"#FF8C00"};

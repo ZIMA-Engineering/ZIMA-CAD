@@ -1,5 +1,41 @@
 # Modeling and Sheet Metal visual conventions
 
+## Azure wire and checked controls (2026-09-26 follow-up)
+
+This agreement supersedes the selected-wire and checked-button colours below.
+Hover, confirmed geometry, inspected geometry and pending wires use azure
+(`#00D1FF`). Confirmed/inspected wire uses a 2.5 logical-pixel stroke in the
+existing overlay pass; ordinary hover remains thinner. Pending wire stays solid.
+Only symbolic through-all terminal outlines use the existing dashed preview
+role; longitudinal connectors and finite terminals remain solid. Existing
+construction/centreline patterns retain their meaning.
+
+Checked toolbar controls and active commands use an azure surface with dark
+text and contrasting neutral icon marks. Idle controls, menus, tabs and ordinary
+Tree selection retain their native Qt presentation. Confirmation checkmarks stay
+green. The container Origin icon is green in every enabled state; Body Origin
+red and document Origin palette contrast remain unchanged. Active/editing Tree
+rows and reference-field inspection retain their existing background colours.
+
+The application monogram uses a graphite Z with a light outline and an azure C
+with a graphite outline. SVG and multi-resolution Windows ICO artwork agree and
+were inspected at small sizes on both light and dark backgrounds.
+
+The change adds no mesh traversal, geometry regeneration or rendering pass.
+Paired measurements of the same 400-edge selected-wire scene at 800 x 600
+(80 framebuffer samples after 10 warm-up frames, three alternating runs) gave
+median frame times of 3.78/3.68/3.75 ms before and 3.63/3.66/3.67 ms after.
+No slowdown was observed in this fixture; this is not a universal GPU guarantee.
+The optional `ZIMA_BENCHMARK_SELECTION_WIRE` UI-test mode reproduces the check.
+
+Localization review: no product UI strings were added or changed.
+Verification passed for shared UI, Drawing UI, Sketch Offset, whole-Origin,
+compact-window and five-language translation contracts. The interaction colour
+fixture also passed with the Windows 11 style, including checked-button contrast,
+unchanged green confirmation marks, green container Origin icons, selected-wire
+thickness and through-all dash preservation. The native Windows GUI and embedded
+ICO resource were rebuilt; this follow-up has not been published as a new release.
+
 ## Light and dark theme contrast (2026-09-26)
 
 Neutral document-Origin, Sketch and Insert Symbol artwork uses the Qt text

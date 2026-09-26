@@ -27,12 +27,12 @@ static void verify_face_fill(QApplication& application,QWidget& parent) {
     view.confirm_reference("solid","left",{},viewer::CandidateKind::Face);application.processEvents();
     const auto selected=view.grabFramebuffer();const auto s=pixel(selected,left);
     selected.save("interaction-face-selected.png");hover.save("interaction-face-hover.png");
-    if(!(s.green()>s.red()+30&&s.green()>s.blue()+30))
+    if(!(s.green()>s.red()+15&&s.blue()>s.red()+15))
         std::cerr<<"Face colors idle="<<base.name().toStdString()<<" hover="<<h.name().toStdString()<<" selected="<<s.name().toStdString()
             <<" confirmed="<<bool(view.confirmed_candidate())<<'\n';
-    require(s.green()>s.red()+30&&s.green()>s.blue()+30,"Confirmed face interior is not green");
+    require(s.green()>s.red()+15&&s.blue()>s.red()+15,"Confirmed face interior is not azure");
     move({2,2});view.clear_selection();view.set_inspected_faces({{viewer::CandidateKind::Face,0,0,"solid","left",{},viewer::CandidateGeometry::OriginalReference}});
-    application.processEvents();require(pixel(view.grabFramebuffer(),left)==s,"Face inspection does not use the confirmed green fill");
+    application.processEvents();require(pixel(view.grabFramebuffer(),left)==s,"Face inspection does not use the confirmed azure fill");
     view.set_inspected_faces({});view.clear_selection();
     for(auto& reference:mesh.triangle_references)reference.semantic_key="plane";
     mesh.original_references.triangle_references=mesh.triangle_references;view.set_mesh(mesh,false);

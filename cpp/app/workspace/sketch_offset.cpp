@@ -70,7 +70,7 @@ void AssemblyWorkspaceWindow::update_sketch_offset_preview() {
         }
         if(dialog->inspecting())for(auto edge:sketch->viewer_mesh().edges) {
             const auto colon=edge.reference.semantic_key.find(':');
-            if(colon!=std::string::npos&&edge.reference.semantic_key.substr(colon+1)==pending.source_id){edge.color="#4DD811";edges.push_back(std::move(edge));}
+            if(colon!=std::string::npos&&edge.reference.semantic_key.substr(colon+1)==pending.source_id){edge.color="#00D1FF";edges.push_back(std::move(edge));}
         }
         dialog->set_error({});
     }catch(const std::exception& e){edges.clear();dialog->set_error(QString::fromUtf8(e.what()));}

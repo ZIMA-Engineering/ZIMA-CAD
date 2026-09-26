@@ -1500,7 +1500,7 @@ protected:
                 preview_=std::move(placement);placement_background_zoom_=zoom;placement_background_origin_=origin;
             }
             painter.drawImage(QPointF{},placement_background_);
-            painter.save();painter.setPen(QPen(QColor("#4DD811"),1));painter.setBrush(Qt::NoBrush);
+            painter.save();painter.setPen(QPen(interaction::selected,1));painter.setBrush(Qt::NoBrush);
             painter.drawRect(view_bounds(*preview_));painter.restore();
         }else {placement_background_={};paint_sheet(painter,canvas_zoom(),canvas_origin(canvas_zoom()),false);}
         paint_crop(painter);
@@ -1539,8 +1539,8 @@ protected:
             }
             if(symbol_editor_&&symbol_editor_->inspected())if(const auto& ref=symbol_editor_->pending_placement().reference;ref)
                 for(const auto& view:sheet_->views)if(view.id==symbol_reference_view_)highlight(view,{ref->owner_id,ref->semantic_key,ref->instance_path},interaction::selected);
-            if(dimension_command_)for(const auto& view:sheet_->views)if(view.id==dimension_command_->value().view_id)for(const auto& ref:dimension_command_->inspected_references())highlight(view,ref,QColor("#4DD811"));
-            if(balloon_command_&&balloon_command_->inspecting_attachment())if(const auto* b=balloon_command_->selected_balloon())for(const auto& view:sheet_->views)if(view.id==b->view_id)highlight(view,b->attachment.reference,QColor("#4DD811"));
+            if(dimension_command_)for(const auto& view:sheet_->views)if(view.id==dimension_command_->value().view_id)for(const auto& ref:dimension_command_->inspected_references())highlight(view,ref,interaction::selected);
+            if(balloon_command_&&balloon_command_->inspecting_attachment())if(const auto* b=balloon_command_->selected_balloon())for(const auto& view:sheet_->views)if(view.id==b->view_id)highlight(view,b->attachment.reference,interaction::selected);
         }
         if(sheet_&&!snap_view_.empty())for(const auto& view:sheet_->views)if(view.id==snap_view_) {
             const auto screen=[&](drawing::Point2 p){return view_screen_point(view,{p.x/view.scale,p.y/view.scale});};

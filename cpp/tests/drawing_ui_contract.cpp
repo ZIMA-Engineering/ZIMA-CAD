@@ -990,11 +990,11 @@ int verify_drawing_ui() {
             for(int y=-int(20*ratio);y<int(20*ratio);++y)
                 for(int x=-int(20*ratio);x<-int(3*ratio);++x) {
                     const auto pixel=selected_image.pixelColor(handle_pixel+QPoint(x,y));
-                    if(pixel.red()<140&&pixel.green()>110&&pixel.blue()<65&&
-                       std::abs(pixel.red()*216-pixel.green()*77)<1000)++green_pixels;
+                    if(pixel.red()<65&&pixel.green()>110&&pixel.blue()>130&&
+                       std::abs(pixel.green()*255-pixel.blue()*209)<1500)++green_pixels;
                 }
             const bool green_dimension=green_pixels>2;
-            require(green_dimension,"Selected dimension text is not green");
+            require(green_dimension,"Selected dimension text is not azure");
             mouse(canvas,QEvent::MouseButtonPress,*point,Qt::LeftButton,Qt::LeftButton);mouse(canvas,QEvent::MouseMove,*point+QPointF(30,20),Qt::NoButton,Qt::LeftButton);mouse(canvas,QEvent::MouseButtonRelease,*point+QPointF(30,20),Qt::LeftButton,Qt::NoButton);
             const auto moved=window.annotation_handle_for_test(d.id,0,true);require(moved&&std::abs(moved->x()-point->x()-30)<1e-6&&std::abs(moved->y()-point->y()-20)<1e-6,"Dimension handle moved opposite to the mouse");
         }
@@ -1321,7 +1321,7 @@ int verify_drawing_breaks_ui() {
         arm(0,2);require(static_cast<ui::ReferenceCellItem*>(table->item(0,2))->is_active_input()&&!static_cast<ui::ReferenceCellItem*>(table->item(0,3))->is_active_input(),"Break input ownership must belong only to first position");
         const auto pointer=canvas->screen({200,40});mouse(canvas,QEvent::MouseMove,pointer,Qt::NoButton,Qt::NoButton);
         const auto offer=canvas->grab().toImage();const auto pixel=offer.pixelColor((pointer*offer.devicePixelRatio()).toPoint());
-        require(pixel.green()>150&&pixel.red()<120&&pixel.blue()<100,"Pending break boundary has no green point under cursor");
+        require(pixel.green()>150&&pixel.red()<80&&pixel.blue()>180,"Pending break boundary has no azure point under cursor");
         click(canvas,pointer);require(canvas->view().breaks.empty()&&!editor.buttons()->button(QDialogButtonBox::Ok)->isEnabled(),"Partial break was committed or accepted");
         arm(0,3);mouse(canvas,QEvent::MouseButtonPress,canvas->rect().center(),Qt::MiddleButton,Qt::MiddleButton);mouse(canvas,QEvent::MouseButtonRelease,canvas->rect().center(),Qt::MiddleButton,Qt::NoButton);
         require(!canvas->picking&&!static_cast<ui::ReferenceCellItem*>(table->item(0,3))->is_active_input()&&canvas->draft_first.has_value(),"Short MMB must end boundary entry without deleting first position");

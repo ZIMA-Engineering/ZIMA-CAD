@@ -942,7 +942,7 @@ void AssemblyWorkspaceWindow::create_actions() {
     toolbar_spacer->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
     main_toolbar_->addWidget(toolbar_spacer);
     auto* logo = new QLabel(QStringLiteral(
-        "<span style=\"color:#80AA1A\">ZIMA</span>-CAD"), main_toolbar_);
+        "ZIMA<span style=\"color:#00D1FF\">-CAD</span>"), main_toolbar_);
     auto logo_font = logo->font();
     logo_font.setBold(true);
     logo_font.setPointSizeF(std::max(11.0, logo_font.pointSizeF()));

@@ -3,11 +3,11 @@
   <!-- Compact ZIMA-CAD monogram for window and application icons. -->
   <path
     d="M8 22H62V38L29 90H62V106H8V90L41 38H8Z"
-    fill="#80AA1A"
+    fill="#26313B" stroke="#F3F6F8" stroke-width="2.5" stroke-linejoin="round"
   />
   <path
     d="M120 40C113 27 102 21 90 21C70 21 58 38 58 64C58 90 70 107 90 107C102 107 113 101 120 88L106 80C102 87 97 91 90 91C80 91 74 81 74 64C74 47 80 37 90 37C97 37 102 41 106 48Z"
     stroke="#26313B" stroke-width="4" stroke-linejoin="round"
-    fill="#FFFFFF"
+    fill="#00D1FF"
   />
 </svg>

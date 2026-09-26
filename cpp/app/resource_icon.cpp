@@ -46,6 +46,16 @@ QIcon svg_icon(const QString& path, bool palette_color, bool neutral_origin = fa
         renderer.render(&painter);
         painter.end();
         icon.addPixmap(pixmap);
+        // Checked tool controls use the bright azure surface. Keep semantic
+        // colours (confirmation green, Origin red) and contrast neutral marks.
+        auto checked_svg=original;
+        checked_svg.replace("currentColor", "#102027");
+        checked_svg.replace("#00D1FF", "#102027");
+        QSvgRenderer checked_renderer(checked_svg);
+        QPixmap checked(QSize(size,size));checked.fill(Qt::transparent);
+        QPainter checked_painter(&checked);checked_renderer.render(&checked_painter);checked_painter.end();
+        icon.addPixmap(checked,QIcon::Normal,QIcon::On);
+        icon.addPixmap(checked,QIcon::Active,QIcon::On);
         if((path.endsWith("/origin.svg") && !neutral_origin) || path.endsWith("/active-check.svg")) {
             icon.addPixmap(pixmap,QIcon::Active);
             icon.addPixmap(pixmap,QIcon::Selected);
@@ -102,7 +112,7 @@ static QIcon raster_resource_icon(const QString& name, bool surface) {
         if (origins.contains(name)) return origins.value(name);
         QIcon icon;
         const auto source = resource_icon("origin");
-        const QColor color(name == "origin-document" ? "#FFFFFF" : "#00D1FF");
+        const QColor color("#4DD811");
         for (const int size : {16,18,20,24,32,48}) {
             auto pixmap = source.pixmap(size,size);
             QPainter painter(&pixmap);

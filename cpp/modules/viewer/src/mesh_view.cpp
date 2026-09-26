@@ -3961,7 +3961,7 @@ if (impl_->show_origins) {
                         edge.reference.owner_id);
                 if (selected) {
                     edge_pen.setColor(interaction::selected);
-                    if (!edge.construction && !external && !external_face) edge_pen.setWidthF(1.8);
+                    if (!edge.construction && !external && !external_face) edge_pen.setWidthF(interaction::selected_wire_width);
                 } else if (hovered) {
                     edge_pen.setColor(interaction::hover);
                     if (!edge.construction && !external && !external_face) edge_pen.setWidthF(1.8);
@@ -4175,7 +4175,7 @@ if (impl_->show_origins) {
                     draw_reference_segment(project(plane_point(edge.points[index - 1])),
                         project(plane_point(edge.points[index])),
                         plane_color,
-                        origin ? 1.5 : 1.4);
+                        ((exact_highlight && impl_->confirmed_candidate) || referenced) ? interaction::selected_wire_width : origin ? 1.5 : 1.4);
                 }
                 if (origin && !edge.points.empty()) {
                     painter.setPen(QPen(plane_color, 1.5));
@@ -4373,7 +4373,8 @@ if (impl_->show_origins) {
                     const QColor presentation_color = !origin &&
                             !exact_highlight && !referenced && !creation_preview
                         ? interaction::axis : color;
-                    painter.setPen(QPen(presentation_color, origin ? 2.0 : 1.5,
+                    const double axis_width=((exact_highlight && impl_->confirmed_candidate) || referenced) ? interaction::selected_wire_width : origin ? 2.0 : 1.5;
+                    painter.setPen(QPen(presentation_color, axis_width,
                         Qt::SolidLine));
                     const double first = origin ? 0.0 : -axis.display_length * 0.5;
                     const double second = origin
@@ -4416,13 +4417,13 @@ if (impl_->show_origins) {
                                 const double dash_end = std::min(offset + dash, total_length);
                                 draw_reference_segment(pattern_start + unit * offset,
                                     pattern_start + unit * dash_end,
-                                    presentation_color, 1.5);
+                                    presentation_color, axis_width);
                                 const double dot_start = std::min(offset + dash + gap, total_length);
                                 const double dot_end = std::min(dot_start + dot, total_length);
                                 if (dot_end > dot_start) {
                                     draw_reference_segment(pattern_start + unit * dot_start,
                                         pattern_start + unit * dot_end,
-                                        presentation_color, 1.5);
+                                        presentation_color, axis_width);
                                 }
                                 offset += pattern;
                             }
@@ -4672,7 +4673,7 @@ if (impl_->show_origins) {
         // whole-body tint or OCCT topology lookup is involved.
         impl_->prepare_reference_boundaries();
         for (const auto& [first, second] : impl_->reference_boundaries)
-            draw_reference_segment(project(first), project(second), interaction::selected, 1.5);
+            draw_reference_segment(project(first), project(second), interaction::selected, interaction::selected_wire_width);
         // Relation participants come directly from the persisted Sketch marker.
         auto relation_keys=impl_->sketch_relation_highlights;
         QColor relation_color=interaction::hover;
@@ -4720,7 +4721,7 @@ if (impl_->show_origins) {
                 const QColor& color = interaction::selected) {
             for (std::size_t i = 1; i < edge.points.size(); ++i)
                 draw_reference_segment(project(edge.points[i - 1]),
-                    project(edge.points[i]), color, 1.5);
+                    project(edge.points[i]), color, interaction::selected_wire_width);
         };
         for (const auto& edge : impl_->container_inspection_wire) draw_selected_wire(edge);
         const auto* treatment_wire = exact_edge_treatment_wire(impl_->confirmed_candidate);
@@ -4747,10 +4748,11 @@ if (impl_->show_origins) {
         for (const auto& edge : confirmed_component_wire())
             for (std::size_t i=1;i<edge.points.size();++i)
                 draw_reference_segment(project(edge.points[i-1]),project(edge.points[i]),
-                    interaction::selected,1.5);
+                    interaction::selected,interaction::selected_wire_width);
         if (highlighted) {
             const QColor color = impl_->confirmed_candidate
                 ? interaction::selected : interaction::hover;
+            const double wire_width = impl_->confirmed_candidate ? interaction::selected_wire_width : 1.5;
             std::set<std::string> selected_sketch_owners;
             if(highlighted->kind==CandidateKind::Container)for(const auto& edge:impl_->mesh.edges) {
                 const auto& key=edge.reference.semantic_key;
@@ -4801,7 +4803,7 @@ if (impl_->show_origins) {
                     };
                     for (std::size_t index = 1; index < edge->points.size(); ++index) {
                         draw_reference_segment(project(display_point(edge->points[index - 1])),
-                            project(display_point(edge->points[index])), color, 1.5);
+                            project(display_point(edge->points[index])), color, wire_width);
                     }
                 }
             }
@@ -4810,7 +4812,7 @@ if (impl_->show_origins) {
                 // Highlight its persisted ZIMA curves together, while
                 // active Sketcher still highlights individual entities via
                 // SketchSegment/SketchCurve candidates.
-                painter.setPen(QPen(color, 1.8, Qt::SolidLine, Qt::RoundCap));
+                painter.setPen(QPen(color, wire_width, Qt::SolidLine, Qt::RoundCap));
                 painter.setBrush(color);
                 for (const auto& edge : impl_->mesh.edges) {
                     if (!selected_sketch_owners.contains(edge.reference.owner_id) ||
@@ -4847,7 +4849,7 @@ if (impl_->show_origins) {
                 // This is the persisted source object itself. Draw its wire
                 // once in screen space, with no thicker duplicate result-body
                 // overlay and no OCCT work on hover.
-                painter.setPen(QPen(color, 1.0, Qt::SolidLine, Qt::RoundCap));
+                painter.setPen(QPen(color, wire_width, Qt::SolidLine, Qt::RoundCap));
                 painter.setBrush(Qt::NoBrush);
                 for (const auto edge_index : *edge_indices) {
                     if (edge_index >=
@@ -4883,7 +4885,7 @@ if (impl_->show_origins) {
                 const auto highlighted=std::optional<ViewerCandidate>(face_overlay);
                 const bool inspected=std::any_of(impl_->inspected_faces.begin(),impl_->inspected_faces.end(),[&](const auto& face){
                     return face.owner_id==face_overlay.owner_id && face.semantic_key==face_overlay.semantic_key && face.instance_path==face_overlay.instance_path;});
-                painter.setPen(QPen(inspected?QColor("#29b6ff"):color, 1.5));
+                painter.setPen(QPen(inspected?interaction::selected:color, inspected?interaction::selected_wire_width:wire_width));
                 painter.setBrush(Qt::NoBrush);
                 const bool original = highlighted->geometry ==
                     CandidateGeometry::OriginalReference;
@@ -5025,7 +5027,7 @@ if (impl_->show_origins) {
                   (selectable_edges[highlighted->geometry_index].construction ||
                    selectable_edges[highlighted->geometry_index].dash_dot) &&
                   !selectable_edges[highlighted->geometry_index].filled_text)) {
-                painter.setPen(QPen(color, 1.5, Qt::SolidLine, Qt::RoundCap));
+                painter.setPen(QPen(color, wire_width, Qt::SolidLine, Qt::RoundCap));
                 if (highlighted->kind == CandidateKind::SketchText || highlighted->kind == CandidateKind::Symbol ||
                     (highlighted->kind == CandidateKind::SketchExternalReference &&
                      highlighted->semantic_key.starts_with("external_face:"))) {
@@ -5129,7 +5131,7 @@ if (impl_->show_origins) {
                 break;
             }
         }
-        painter.setPen(QPen(interaction::selected, 2.0,
+        painter.setPen(QPen(interaction::selected, interaction::selected_wire_width,
                             Qt::SolidLine, Qt::RoundCap));
         painter.setBrush(interaction::selected);
         for (const auto& selected : impl_->sketch_box_selected_candidates) {
