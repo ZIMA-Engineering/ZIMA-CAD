@@ -2,6 +2,14 @@
 
 ## Scope and status
 
+Windows build **2026092603** is signed and published. It unifies azure geometry
+feedback and checked controls, strengthens confirmed wire, preserves through-all
+dash meaning and ships the approved angular ZC icon in both Windows executables.
+Six focused native contracts, Windows 11 interaction checks, paired rendering
+measurements, committed-source packaging, signed archive smoke, production trust,
+packaged lifecycle and compact-window checks passed. Downloaded public assets
+and production update discovery were verified. See [the release record](releases/2026092603.md).
+
 Windows build **2026092602** is signed and published. It fixes compact-window
 sizing, adapts View contrast to light/dark system appearance, outlines the taskbar
 icon and adds four ISO 2553 A weld definitions alongside bilateral ISO 1101 frames.
