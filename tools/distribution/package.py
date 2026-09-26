@@ -246,8 +246,17 @@ def smoke(root, version, gui=True):
         if len(records) != len(items) or not all(r.get('ok') for r in records):
             raise ValueError('CLI smoke command failed')
         return records
-    records = commands(['new part package-smoke', 'box.create 10 20 30', 'save'])
-    owner = records[1]['data']['container']
+    records = commands(['new part package-smoke', {'command': 'sketch.create',
+        'arguments': {'name': 'Package profile', 'plane': 'XY'}}, 'save'])
+    sketch = records[1]['data']['sketch']
+    corners = [(-5, -10), (5, -10), (5, 10), (-5, 10)]
+    profile = [{'command': 'sketch.segment.create', 'arguments': {
+        'sketch': sketch, 'first': corners[i], 'second': corners[(i + 1) % 4],
+        'snap_mm': 0.000001}} for i in range(4)]
+    records = commands(['open package-smoke.prtz', *profile,
+        {'command': 'extrusion.create', 'arguments': {'sketch': sketch,
+            'extent': 'symmetric', 'length_forward_mm': 15}}, 'save'])
+    owner = records[-2]['data']['container']
     result = commands(['open package-smoke.prtz', {'command': 'measurement.evaluate', 'arguments': {
         'references': [{'kind': 'object', 'owner': owner}]}}])
     if abs(result[1]['data']['values'][0]['volume']['value'] - 6000) > 1e-6:
