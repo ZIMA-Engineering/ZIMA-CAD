@@ -6,7 +6,7 @@
     fill="#26313B" stroke="#F3F6F8" stroke-width="2.5" stroke-linejoin="round"
   />
   <path
-    d="M116 22H86Q66 22 66 42V86Q66 106 86 106H114L124 90H88Q82 90 82 84V44Q82 38 88 38H116Z"
+    d="M124 22H86Q66 22 66 42V86Q66 106 86 106H116V90H88Q82 90 82 84V44Q82 38 88 38H114Z"
     fill="#00D1FF"
   />
 </svg>

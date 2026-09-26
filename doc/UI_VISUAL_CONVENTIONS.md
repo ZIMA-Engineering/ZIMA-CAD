@@ -18,8 +18,8 @@ red and document Origin palette contrast remain unchanged. Active/editing Tree
 rows and reference-field inspection retain their existing background colours.
 
 The application monogram uses a graphite Z with a light outline and an unoutlined
-azure C. The C has straight arms, rounded rectangular transitions, a square upper
-terminal and a longer lower arm with a bevelled terminal. SVG and multi-resolution
+azure C. The C has straight arms, rounded rectangular transitions, a square lower
+terminal and a longer upper arm bevelled inward toward its opening. SVG and multi-resolution
 Windows ICO artwork agree and were inspected at 16, 24, 32 and 48 pixels on both
 light and dark backgrounds. This artwork-only refinement changes no UI text.
 
