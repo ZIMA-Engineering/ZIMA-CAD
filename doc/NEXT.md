@@ -8,6 +8,14 @@ user instructions and completed native features supersede older pending items.
 
 ### Next session agreed on 2026-09-26
 
+- Swap the existing green and azure interaction colors consistently throughout
+  the application, as requested on 2026-09-26: current green hover/input states
+  become azure; current azure confirmed-selection/inspection states become
+  green. Audit every workspace, Tree, View, reference field, icon, separator and
+  shared control using these colors; preserve behavior and independent state
+  ownership.
+  Apply this as one coordinated change, not separate command exceptions.
+  This is deferred work; Windows build 2026092601 retains the current colors.
 - Complete Point placement persistence on circular/curved surfaces. Preserve
   the intuitive first View click at the picked position and numeric locks;
   verify reopening, regeneration, Undo/Redo and both surface sides.
