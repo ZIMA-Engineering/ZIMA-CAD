@@ -59,13 +59,13 @@ void AssemblyWorkspaceWindow::show_sweep2d_properties(const std::string& id) {
 void AssemblyWorkspaceWindow::show_helical_sweep_properties(const std::string& id) {
     show_sweep_properties(zima::document::FeatureKind::HelicalSweep,id);
 }
-void AssemblyWorkspaceWindow::show_sweep_properties(zima::document::FeatureKind kind,const std::string& id) {
+void AssemblyWorkspaceWindow::show_sweep_properties(zima::document::FeatureKind kind,const std::string& id,bool rectangular) {
     if(properties_dialog_||!active_sketch_id_.empty())return;
     auto* part=workspace_.open_part(workspace_.active_document_id());if(!part)return;
     const auto occurrence=resolve_active_occurrence(part->session.document().document_id);if(!occurrence)return;
     const bool planar=kind==zima::document::FeatureKind::Sweep2D;
     const bool transition=kind==zima::document::FeatureKind::SheetTransition;
-    auto initial=transition?zima::document::create_sheet_transition():planar?zima::document::PartDocument::create_sweep2d_container():zima::document::PartDocument::create_helical_sweep_container();
+    auto initial=transition?zima::document::create_sheet_transition(rectangular):planar?zima::document::PartDocument::create_sweep2d_container():zima::document::PartDocument::create_helical_sweep_container();
     if(!transition)initial.sweep_precision.default_tolerance=planar?application_settings_.sweep_precision_defaults.sweep2d:application_settings_.sweep_precision_defaults.helical;
     initial.name=tr(initial.name.c_str()).toStdString();
     const auto localize_sketch = [](std::string& data) {

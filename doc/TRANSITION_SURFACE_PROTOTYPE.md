@@ -80,13 +80,13 @@ reopens and cold-regenerates the dependent model without changing references.
 It also unfolds and bends back the combined transition and attached Bend as one
 connected solid.
 
-Current limits are deliberate: only the stated circular half-profiles are
-accepted, and only orientations for which both corner strips and connecting
-panels pass developability, planarity and intersection checks. Arbitrary
-two-axis tilt or twist is **not** guaranteed. Incompatible input is rejected,
-not replaced with a stretched loft. Reversed bends and radii that consume an
-entire panel are rejected. Press-brake tool access, forming sequence and
-optional cutting notches remain outside this command's verification.
+The September 26 extension below adds rectangular L/U profiles and triangulated
+walls for incompatible common-tangent orientations. Inputs must still pass
+developability, planarity and intersection checks; arbitrary angles are not a
+guarantee of a manufacturable shape. Both bend directions retain positive inside
+radii and their material-side identity. Radii that consume an entire panel and
+folds reaching 180 degrees are rejected. Press-brake tool access and forming
+sequence remain outside this command's verification.
 
 Native transaction tests cover creation, unchanged OK, invalid-edit atomicity,
 save/reopen, cold regeneration, Undo/Redo, selection of the owning feature for
@@ -374,3 +374,81 @@ existing calculated original-reference packet. It joins the authored circular
 centre to the midpoint of the two open half-rectangle endpoints, including Sketch
 offsets and feature/Body placement. It is a reference axis, not another bend line.
 It neither changes the manufactured sheet nor adds kernel work during selection.
+
+## Transition extensions (2026-09-26)
+
+Inputs are two authored profile Sketches, their relative rigid frame, material
+thickness, inside bend radius and K-factor. The available implementation uses
+the existing transition history feature, shared placement dialog, native Sketch
+dimensions and explicit OCCT calculation. The required output is one connected
+finite-thickness solid with a connected, metric-preserving developed blank.
+Independent checks include per-panel distances and areas, tangent continuity,
+solid validity, material volume and restoration of the authored state.
+
+The rectangular variant uses two rectangular Sketches and offers two adjacent
+walls (L) or three walls (U). Four walls are not offered. Construction edges
+retain the complete rectangular dimension envelope. Side selection changes the
+construction state of the left wall, preserving the identities of the Sketches,
+their curves and points. The second Origin retains the existing three translation
+and three rotation controls. Both variants use the same internal properties
+dialog and reference-entry implementation.
+
+The profile choice and side count are defined by the two existing owned Sketch
+records. No additional file, external cache or persistent schema field is
+required. The rectangular parser validates the complete axis-aligned local
+rectangles and matching L/U selections. Arbitrary spatial orientation belongs to
+the Sketch frames and second Origin, not to a replacement world coordinate system.
+
+For incompatible common-tangent half-transitions, the extended path uses
+explicit diagonal bends between planar triangles. Finite-radius construction
+clips all neighboring panels before calculating the remaining bend contact
+intervals. A following planar material region is anchored on its incoming bend's
+final tangent; an arbitrary first polygon vertex is not a valid attachment after
+both neighboring corners have been trimmed.
+
+The document's agreed sheet calculation limit remains 0.05 mm. State deformation
+first uses that configured limit. It verifies B-Rep validity and preserves the
+input solid count; a numerically disconnected development is not accepted just
+because its individual solids are valid. A failed compound-junction reconstruction
+is retried once using the finer source budget. Ordinary regions retain the
+document limit, and both attempts use immutable contributions.
+
+Bend loft fitting uses 1e-5 mm accuracy; joining reserves one eighth
+of that budget, including compilation inside a Body. The former 1e-3 mm fitting
+budget produced an unorientable joined face in the native two-axis half-profile
+test, while broad Boolean tolerances could erase its small trims. Tightening
+the source calculation addresses both conditions. Restoring authored contributions uses their
+original joining tolerance. This separates material approximation from joining
+small boundaries; it does not change the saved document precision or placement
+solving.
+
+Windows source verification passed:
+
+- Half-transition X/Y angle pairs (radians) `(0.15, 0)`, `(0, -0.2)` and
+  `(0.15, -0.2)`: one valid formed, directly developed and native Unbend solid,
+  followed by Bend Back. Adjacent transformed tangent corners agree within
+  1e-6 mm. Flat volume error is below 0.02%; restoration agrees within 1e-5 mm3.
+- Rectangular L and U: axial twist `0.2` radians, and combined XYZ rotations
+  `(0.13, -0.17, 0.2)` radians, with the same validity and volume criteria.
+- Native Part transactions at XYZ `(8, -10, 12)` degrees for both L and U:
+  creation, Undo/Redo, Unbend/Bend Back, native file save/reopen and cold
+  recalculation. Switching L/U preserves the tested unchanged wall's ancestry.
+  The native half-profile transaction also passes combined `(8, -10, 0)` degrees
+  with the rectangle at the main Origin and the semicircle at the second Origin.
+- Application creation, three rotation controls, translated side selector,
+  Cancel, reopening, native persistence and Undo/Redo. The existing half-profile
+  placement, whole-Origin, Sketcher and confirmation checks also pass.
+- Five-language source coverage, catalog validation and actual dialog text;
+  existing sheet-state kernel, cone, command, GUI and chained Twisted Sheet
+  contracts. Three stale test fixtures were updated with the already-required
+  Origin visibility fields; no legacy loader was introduced.
+
+The ten focused contracts passed with adaptive refinement. The extended kernel
+matrix took 123.42 seconds, the native transition transaction suite 94.54 seconds
+and the transition GUI contract 21.85 seconds. These are suite times, not
+single-operation timings. For comparison, forcing the fine reconstruction on
+every compound region took 212.43 seconds for the same kernel matrix.
+Visual captures were
+inspected for the rectangular dialog and calculated three-axis L transition.
+These changes have not been published as a Windows release. Tooling access,
+forming sequence and untested near-singular input remain outside this evidence.

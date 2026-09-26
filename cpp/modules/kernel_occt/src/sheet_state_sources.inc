@@ -10,6 +10,8 @@ struct Contribution {
     // Newly created sheet material belongs to that creator even where its
     // Boolean joining cap inherits a face from the preceding sheet region.
     std::string created_region;
+    double boolean_tolerance{1e-7};
+    double material_tolerance{std::numeric_limits<double>::max()};
 };
 using Sources=std::shared_ptr<const Contribution>;
 
@@ -37,7 +39,8 @@ std::vector<sheet_material::Transition> transitions_to(const Contribution& sourc
     return transitions;
 }
 Sources capture(Sources sources,const PrimitiveData& before,const PrimitiveData& after,
-        const std::vector<SheetMaterialDefinition>& regions,const HistoryOperation& operation,double tolerance) {
+        const std::vector<SheetMaterialDefinition>& regions,const HistoryOperation& operation,double tolerance,
+        double material_tolerance=std::numeric_limits<double>::max()) {
     if(operation.suppressed||std::holds_alternative<SheetStateRequest>(operation.primitive)||regions.empty())return sources;
     if(!sources&&!before.shape.IsNull())sources=std::make_shared<Contribution>(Contribution{before,{},BooleanOperation::Add,{}});
     const auto domains=sources;
@@ -55,7 +58,7 @@ Sources capture(Sources sources,const PrimitiveData& before,const PrimitiveData&
                 face.reference.sheet_role=SheetFaceRole::ThicknessFace;
             face.reference.sheet_owner=region;
         }
-        sources=std::make_shared<Contribution>(Contribution{std::move(material),regions,mode,sources,std::move(region)});
+        sources=std::make_shared<Contribution>(Contribution{std::move(material),regions,mode,sources,std::move(region),operation.boolean_tolerance,material_tolerance});
     };
     const bool treatment=std::holds_alternative<FilletRequest>(operation.primitive)||
         std::holds_alternative<ChamferRequest>(operation.primitive)||std::holds_alternative<ShellRequest>(operation.primitive);
@@ -88,28 +91,42 @@ Sources capture(Sources sources,const PrimitiveData& before,const PrimitiveData&
 }
 
 PrimitiveData calculate(Sources sources,const std::vector<SheetMaterialDefinition>& target,
-        double tolerance,const std::string& owner) {
+        double tolerance,const std::string& owner,std::size_t expected_solids) {
     std::vector<Sources> ordered;for(auto source=sources;source;source=source->previous)ordered.push_back(source);
-    PrimitiveData result;
-    for(auto it=ordered.rbegin();it!=ordered.rend();++it) {
-        const auto& source=**it;const auto transitions=transitions_to(source,target);
-        auto material=sheet_state_geometry::transform(source.material,transitions,tolerance,owner,source.created_region);
-        if(result.shape.IsNull()){result=std::move(material);continue;}
-        const auto combine=[&](auto& algorithm) {
-            set_boolean_inputs(algorithm,result.shape,material.shape);algorithm.SetToFillHistory(true);
-            algorithm.SetFuzzyValue(tolerance/8);algorithm.Build();
-            if(!algorithm.IsDone())throw std::runtime_error("Cannot reconstruct sheet material in the requested state.");
-            result.faces=propagate_topology(algorithm,result.faces,material.faces);
-            result.edges=propagate_topology(algorithm,result.edges,material.edges);
-            result.vertices=propagate_topology(algorithm,result.vertices,material.vertices);result.shape=algorithm.Shape();
-        };
-        if(source.operation==BooleanOperation::Subtract){BRepAlgoAPI_Cut cut;combine(cut);}
-        else {BRepAlgoAPI_Fuse fuse;combine(fuse);}
+    const bool restoring_authored=std::ranges::all_of(ordered,[&](const auto& source){return transitions_to(*source,target).empty();});
+    const auto reconstruct=[&](bool refine) {
+        PrimitiveData result;
+        for(auto it=ordered.rbegin();it!=ordered.rend();++it) {
+            const auto& source=**it;const auto transitions=transitions_to(source,target);
+            const double effective_tolerance=std::min(tolerance,source.material_tolerance);
+            auto material=sheet_state_geometry::transform(source.material,transitions,refine?effective_tolerance:tolerance,owner,source.created_region);
+            if(result.shape.IsNull()){result=std::move(material);continue;}
+            const auto combine=[&](auto& algorithm) {
+                set_boolean_inputs(algorithm,result.shape,material.shape);algorithm.SetToFillHistory(true);
+                algorithm.SetFuzzyValue(restoring_authored?source.boolean_tolerance:effective_tolerance/8);algorithm.Build();
+                if(!algorithm.IsDone())throw std::runtime_error("Cannot reconstruct sheet material in the requested state.");
+                result.faces=propagate_topology(algorithm,result.faces,material.faces);
+                result.edges=propagate_topology(algorithm,result.edges,material.edges);
+                result.vertices=propagate_topology(algorithm,result.vertices,material.vertices);result.shape=algorithm.Shape();
+            };
+            if(source.operation==BooleanOperation::Subtract){BRepAlgoAPI_Cut cut;combine(cut);}
+            else {BRepAlgoAPI_Fuse fuse;combine(fuse);}
+        }
+        if(result.shape.IsNull()||!BRepCheck_Analyzer(result.shape).IsValid())throw std::runtime_error("Reconstructed sheet state is not a valid solid.");
+        std::size_t solids=0;for(TopExp_Explorer it(result.shape,TopAbs_SOLID);it.More();it.Next())++solids;
+        if(solids!=expected_solids)throw std::runtime_error("Reconstructed sheet state is not a valid solid.");
+        result.edges=complete_boolean_edges(result.shape,result.faces,result.edges,owner,"sheet-state");
+        result.vertices=complete_boolean_vertices(result.shape,result.faces,result.edges,result.vertices,owner,"sheet-state");
+        sheet_state_geometry::identify(result,owner);
+        return result;
+    };
+    // Use the document's permitted approximation first. Only compound sheet
+    // junctions which fail validity/connectivity need their finer source budget.
+    // Both attempts rebuild immutable contributions; no partial result escapes.
+    try {return reconstruct(false);}
+    catch(const std::runtime_error&) {
+        if(!std::ranges::any_of(ordered,[&](const auto& source){return source->material_tolerance<tolerance;}))throw;
+        return reconstruct(true);
     }
-    if(result.shape.IsNull()||!BRepCheck_Analyzer(result.shape).IsValid())throw std::runtime_error("Reconstructed sheet state is not a valid solid.");
-    result.edges=complete_boolean_edges(result.shape,result.faces,result.edges,owner,"sheet-state");
-    result.vertices=complete_boolean_vertices(result.shape,result.faces,result.edges,result.vertices,owner,"sheet-state");
-    sheet_state_geometry::identify(result,owner);
-    return result;
 }
 } // namespace sheet_state_sources

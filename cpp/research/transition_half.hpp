@@ -9,6 +9,12 @@ struct HalfModel {
     double radius{80},width{200},depth{160},corner_radius{20};
     std::array<std::size_t,2> corner_facets{4,4};
 };
+struct RectangularModel {
+    Frame first_origin;
+    Frame second_relative{{0,0,150}};
+    std::array<double,2> width{200,140},depth{160,100};
+    unsigned sides{3}; // Two adjacent walls (L), or three walls (U).
+};
 struct HalfFace {std::vector<Vec3> folded,unfolded;Vec3 normal;};
 struct HalfResult {
     Failure failure{Failure::None};
@@ -19,5 +25,6 @@ struct HalfResult {
     [[nodiscard]] bool valid()const{return failure==Failure::None;}
 };
 [[nodiscard]] HalfResult calculate(const HalfModel&);
+[[nodiscard]] HalfResult calculate(const RectangularModel&);
 [[nodiscard]] kernel::ViewerMesh mesh(const HalfResult&,bool unfolded=false);
 }

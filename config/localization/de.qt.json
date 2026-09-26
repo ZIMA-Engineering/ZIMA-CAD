@@ -1774,5 +1774,12 @@
   "Osa těžiště": "Schwerpunktachse",
   "Editor skici připojíme po schválení návrhu GUI.": "Der Skizzeneditor wird nach Freigabe des GUI-Entwurfs angeschlossen.",
   "Plná rotace": "Vollständige Rotation",
-  "Směr tloušťky": "Wandstärkenrichtung"
+  "Směr tloušťky": "Wandstärkenrichtung",
+  "Obdélníkový přechod plechu": "Rechteckiger Blechübergang",
+  "Skica prvního obdélníku": "Skizze des ersten Rechtecks",
+  "Skica druhého obdélníku": "Skizze des zweiten Rechtecks",
+  "2 sousední strany (L)": "2 benachbarte Seiten (L)",
+  "3 strany (U)": "3 Seiten (U)",
+  "Počet stran": "Anzahl der Seiten",
+  "Transition requires two rectangular profiles with two or three adjacent sides.": "Der Übergang erfordert zwei rechteckige Profile mit zwei oder drei benachbarten Seiten."
 }

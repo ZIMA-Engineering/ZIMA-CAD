@@ -1774,5 +1774,12 @@
   "Osa těžiště": "Ось центра тяжести",
   "Editor skici připojíme po schválení návrhu GUI.": "Редактор эскиза будет подключён после согласования интерфейса.",
   "Plná rotace": "Полный оборот",
-  "Směr tloušťky": "Направление толщины"
+  "Směr tloušťky": "Направление толщины",
+  "Obdélníkový přechod plechu": "Прямоугольный переход листа",
+  "Skica prvního obdélníku": "Эскиз первого прямоугольника",
+  "Skica druhého obdélníku": "Эскиз второго прямоугольника",
+  "2 sousední strany (L)": "2 смежные стороны (L)",
+  "3 strany (U)": "3 стороны (U)",
+  "Počet stran": "Количество сторон",
+  "Transition requires two rectangular profiles with two or three adjacent sides.": "Для перехода требуются два прямоугольных профиля с двумя или тремя смежными сторонами."
 }

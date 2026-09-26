@@ -19,7 +19,7 @@ void check_solid(const kernel::BodyResult& body){
     TopoDS_Shape shape;BRep_Builder builder;std::istringstream stream(body.kernel_shape);BRepTools::Read(shape,stream,builder);
     check(!shape.IsNull()&&BRepCheck_Analyzer(shape).IsValid(),"Invalid transition B-Rep");
     std::size_t count=0;for(TopExp_Explorer it(shape,TopAbs_SOLID);it.More();it.Next())++count;
-    check(count==1,"Transition is not one connected solid");
+    if(count!=1)throw std::runtime_error("Transition solid count: "+std::to_string(count));
 }
 int main()try {
     const auto start=std::chrono::steady_clock::now();HalfModel model;SheetOptions options;
@@ -84,6 +84,69 @@ int main()try {
         const auto bent=manufacture(tilted,{1,1,.35});
         check_solid(kernel.evaluate_history({sheet_operation(bent,"tilted")}).back());
         check_solid(kernel.evaluate_history({sheet_operation(bent,"tilted"),{"tilted-flat",kernel::SheetStateRequest{true,true,{}}}}).back());
+    }
+    for(unsigned sides:{2u,3u}) {
+        RectangularModel rectangular;rectangular.sides=sides;
+        const auto made=manufacture(rectangular,options);
+        const auto op=sheet_operation(made,"rectangle");
+        check_solid(kernel.evaluate_history({op}).back());
+        check_solid(kernel.evaluate_history({op,{"flat",kernel::SheetStateRequest{true,true,{}}}}).back());
+    }
+    for(const auto angles:std::array<std::array<double,2>,3>{{{.15,0},{0,-.2},{.15,-.2}}}) {
+        HalfModel tilted;const double x=angles[0],y=angles[1];
+        tilted.second_relative.x={std::cos(y),0,-std::sin(y)};
+        tilted.second_relative.y={std::sin(y)*std::sin(x),std::cos(x),std::cos(y)*std::sin(x)};
+        tilted.second_relative.z={std::sin(y)*std::cos(x),-std::sin(x),std::cos(y)*std::cos(x)};
+        std::cout<<"Combined tilt "<<x<<", "<<y<<std::endl;
+        const auto made=manufacture(tilted,options);
+        const auto combined=sheet_operation(made,"combined");
+        std::cout<<"Direct developed combined tilt"<<std::endl;
+        check_solid(kernel.evaluate_history({{"direct-flat",sheet_request(made,true)}}).back());
+        auto material=kernel::sheet_material::regions_before({combined},1);
+        const auto source_regions=material.regions;
+        static_cast<void>(kernel::sheet_material::change(material,{true,true,{}}));
+        for(std::size_t bend=0;bend<made.bends.size();++bend) {
+            const auto& b=made.bends[bend];
+            const auto owner="combined:bend:"+std::to_string(bend);
+            const auto source=std::ranges::find(source_regions,owner,&kernel::SheetMaterialDefinition::owner_id);
+            const auto target=std::ranges::find(material.regions,owner,&kernel::SheetMaterialDefinition::owner_id);
+            for(unsigned end=0;end<2;++end) {
+                const auto panel_owner="combined:panel:"+std::to_string(b.boundary_index+end);
+                const auto psource=std::ranges::find(source_regions,panel_owner,&kernel::SheetMaterialDefinition::owner_id);
+                const auto ptarget=std::ranges::find(material.regions,panel_owner,&kernel::SheetMaterialDefinition::owner_id);
+                const auto& section=end?b.sections.back():b.sections.front();
+                for(auto p:section) {
+                    const auto on_bend=kernel::sheet_material::Transition{*source,*target}.map(p);
+                    const auto on_panel=kernel::sheet_material::Transition{*psource,*ptarget}.map(p);
+                    const double gap=distance(on_bend,on_panel);
+                    if(gap>1e-6)throw std::runtime_error("Developed tangent gap at bend "+std::to_string(bend)+" end "+std::to_string(end)+": "+std::to_string(gap));
+                }
+            }
+        }
+        const auto formed=kernel.evaluate_history({combined}).back();check_solid(formed);
+        const kernel::HistoryOperation flatten{"flat",kernel::SheetStateRequest{true,true,{}}};
+        const kernel::HistoryOperation restore{"restore",kernel::SheetStateRequest{false,true,{}}};
+        std::cout<<"Unfolding combined tilt"<<std::endl;
+        const auto flat=kernel.evaluate_history({combined,flatten}).back();check_solid(flat);
+        std::cout<<"Restoring combined tilt"<<std::endl;
+        const auto restored=kernel.evaluate_history({combined,flatten,restore}).back();check_solid(restored);
+        check(std::abs(formed.volume-restored.volume)<1e-5,"Combined tilt did not restore its material");
+        check(std::abs(formed.volume-flat.volume)<formed.volume*2e-4,"Combined tilt lost material on unfolding");
+    }
+    for(unsigned sides:{2u,3u})for(bool combined:{false,true}) {
+        RectangularModel rectangular;rectangular.sides=sides;
+        const double x=combined?.13:0,y=combined?-.17:0,z=.2;
+        const double cx=std::cos(x),sx=std::sin(x),cy=std::cos(y),sy=std::sin(y),cz=std::cos(z),sz=std::sin(z);
+        rectangular.second_relative={{0,0,150},{cz*cy,sz*cy,-sy},{cz*sy*sx-sz*cx,sz*sy*sx+cz*cx,cy*sx},{cz*sy*cx+sz*sx,sz*sy*cx-cz*sx,cy*cx}};
+        std::cout<<"Rectangular twist, sides "<<sides<<", combined "<<combined<<std::endl;
+        const auto made=manufacture(rectangular,options);const auto op=sheet_operation(made,"rectangular-twist");
+        const auto formed=kernel.evaluate_history({op}).back();check_solid(formed);
+        const kernel::HistoryOperation unfold{"rectangle-flat",kernel::SheetStateRequest{true,true,{}}};
+        const kernel::HistoryOperation restore{"rectangle-restore",kernel::SheetStateRequest{false,true,{}}};
+        const auto flat=kernel.evaluate_history({op,unfold}).back();check_solid(flat);
+        const auto restored=kernel.evaluate_history({op,unfold,restore}).back();check_solid(restored);
+        check(std::abs(formed.volume-flat.volume)<formed.volume*2e-4,"Rectangular twist lost material in development");
+        check(std::abs(formed.volume-restored.volume)<1e-5,"Rectangular twist did not restore authored material");
     }
     std::cout<<"Finite-radius sheet study: "<<std::chrono::duration<double>(std::chrono::steady_clock::now()-start).count()<<" s\n";
     return 0;

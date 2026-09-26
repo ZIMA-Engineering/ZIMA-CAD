@@ -709,7 +709,7 @@ private:
     bool accept_family_reference(const zima::viewer::ViewerCandidate&, bool show_dimensions = false);
     void edit_file_settings(bool sheet_metal = false);
     void show_sheet_state_properties(bool unfold,const std::string& container_id={});
-    void show_sheet_transition_properties(const std::string& container_id={});
+    void show_sheet_transition_properties(const std::string& container_id={},bool rectangular=false);
     void regenerate_assembly();
     void start_edge_treatment(zima::document::FeatureKind kind);
     [[nodiscard]] bool is_edge_treatment_feature(
@@ -785,7 +785,7 @@ private:
         zima::document::FeatureKind feature_kind,
         const std::string& container_id = {}, bool sheet_metal = false,
         std::optional<zima::document::FeatureType> feature_preset = {}, bool rotation_preset = false);
-    void show_sweep_properties(zima::document::FeatureKind kind, const std::string& container_id);
+    void show_sweep_properties(zima::document::FeatureKind kind, const std::string& container_id,bool rectangular=false);
     void show_sweep2d_properties(const std::string& container_id = {});
     void show_helical_sweep_properties(const std::string& container_id = {});
     void show_sweep3d_properties(const std::string& container_id = {});

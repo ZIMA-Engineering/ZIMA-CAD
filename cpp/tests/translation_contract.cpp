@@ -140,6 +140,13 @@ int verify_translations(QApplication& application, QWidget& parent) {
             check(transition.windowTitle()==settings.qt_translations.value("Vlastnosti přechodu plechu"),"Transition title is untranslated");
             check(transition.findChild<QPushButton*>("transitionSketch0")->text()==settings.qt_translations.value("Skica půlkruhu"),"Transition profile prompt is untranslated");
             transition.hide();
+            auto rectangular_feature=document::create_sheet_transition(true);
+            app::SheetTransitionDialog rectangular(rectangular_feature,[](auto){},&parent);
+            rectangular.setAttribute(Qt::WA_DeleteOnClose,false);rectangular.show();application.processEvents();
+            check(rectangular.findChild<QPushButton*>("transitionSketch0")->text()==settings.qt_translations.value("Skica druhého obdélníku"),"Rectangular profile prompt is untranslated");
+            const auto* sides=rectangular.findChild<QComboBox*>("transitionSides");
+            check(sides&&sides->itemText(0)==settings.qt_translations.value("2 sousední strany (L)")&&sides->itemText(1)==settings.qt_translations.value("3 strany (U)"),"Rectangular side selector is untranslated");
+            rectangular.hide();
         }
         {
             app::DrawingDetailDialog detail(drawing::DrawingView{},&parent);

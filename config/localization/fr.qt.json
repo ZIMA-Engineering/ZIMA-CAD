@@ -1774,5 +1774,12 @@
   "Osa těžiště": "Axe du centre de gravité",
   "Editor skici připojíme po schválení návrhu GUI.": "L’éditeur d’esquisse sera intégré après validation de l’interface.",
   "Plná rotace": "Révolution complète",
-  "Směr tloušťky": "Direction de l’épaisseur"
+  "Směr tloušťky": "Direction de l’épaisseur",
+  "Obdélníkový přechod plechu": "Transition de tôle rectangulaire",
+  "Skica prvního obdélníku": "Esquisse du premier rectangle",
+  "Skica druhého obdélníku": "Esquisse du second rectangle",
+  "2 sousední strany (L)": "2 côtés adjacents (L)",
+  "3 strany (U)": "3 côtés (U)",
+  "Počet stran": "Nombre de côtés",
+  "Transition requires two rectangular profiles with two or three adjacent sides.": "La transition nécessite deux profils rectangulaires avec deux ou trois côtés adjacents."
 }

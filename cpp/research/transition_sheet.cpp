@@ -4,6 +4,7 @@
 namespace zima::research::transition {
 namespace {
 using namespace kernel::sheet_material;
+constexpr double loft_tolerance=.00001;
 double length(Vec3 v){return std::sqrt(dot(v,v));}
 using Poly=std::vector<Vec3>;
 Poly clip(const Poly& poly,Vec3 origin,Vec3 inward,double offset) {
@@ -17,7 +18,8 @@ Poly clip(const Poly& poly,Vec3 origin,Vec3 inward,double offset) {
 }
 Vec3 centroid(const Poly& poly){Vec3 p{};for(auto q:poly)p=add(p,q);return mul(p,1./poly.size());}
 }
-SheetResult manufacture(const HalfModel& model,const SheetOptions& options) {
+template<class Model>
+SheetResult manufacture_model(const Model& model,const SheetOptions& options) {
     using namespace kernel::sheet_material;
     if(!std::isfinite(options.thickness)||options.thickness<=0||!std::isfinite(options.inside_radius)||options.inside_radius<=0||
         !std::isfinite(options.k_factor)||options.k_factor<0||options.k_factor>1)throw std::invalid_argument("Invalid transition sheet parameters");
@@ -28,30 +30,69 @@ SheetResult manufacture(const HalfModel& model,const SheetOptions& options) {
     for(const auto& face:surface.faces)result.panels.push_back({face.folded,{},face.normal});
     const Vec3 cap0=model.first_origin.origin,normal0=model.first_origin.z;
     const Vec3 cap1=model.first_origin.point(model.second_relative.origin),normal1=model.first_origin.direction(model.second_relative.z);
+    // Trim every panel before constructing a bend. A triangulated wall can
+    // have two active bends meeting at a rim vertex; the second trim changes
+    // the first bend's available tangent interval.
+    for(std::size_t i=0;i<surface.folds.size();++i) {
+        const auto& fold=surface.folds[i];const double angle=fold.signed_angle_radians;
+        if(std::abs(angle)<1e-8)continue;
+        const auto along=unit(sub(fold.second,fold.first));
+        const double radius=angle>0?outer_radius:options.inside_radius;
+        const double setback=radius*std::tan(std::abs(angle)/2);
+        for(auto panel:{i,i+1}) {
+            auto inward=unit(cross(surface.faces[panel].normal,along));
+            if(dot(sub(centroid(surface.faces[panel].folded),fold.first),inward)<0)inward=mul(inward,-1);
+            result.panels[panel].outer=clip(result.panels[panel].outer,fold.first,inward,setback);
+        }
+    }
     for(std::size_t i=0;i<surface.folds.size();++i) {
         const auto& fold=surface.folds[i];const auto& before=surface.faces[i];const auto& after=surface.faces[i+1];
         shifts[i+1]=shifts[i];const double angle=fold.signed_angle_radians;
         if(std::abs(angle)<1e-8)continue;
-        if(angle<=0||angle>=std::numbers::pi-1e-6)throw std::invalid_argument("Unsupported reverse transition bend");
+        const double sign=angle>0?1.:-1.,sweep=std::abs(angle);
+        if(sweep>=std::numbers::pi-1e-6)throw std::invalid_argument("Unsupported reverse transition bend");
+        const double reference_radius=sign>0?outer_radius:options.inside_radius;
         const auto along=unit(sub(fold.second,fold.first));
-        auto in_before=unit(cross(before.normal,along));if(dot(sub(centroid(before.folded),fold.first),in_before)<0)in_before=mul(in_before,-1);
-        auto in_after=unit(cross(after.normal,along));if(dot(sub(centroid(after.folded),fold.first),in_after)<0)in_after=mul(in_after,-1);
-        const double setback=outer_radius*std::tan(angle/2);
-        result.panels[i].outer=clip(result.panels[i].outer,fold.first,in_before,setback);
-        result.panels[i+1].outer=clip(result.panels[i+1].outer,fold.first,in_after,setback);
+        const double setback=reference_radius*std::tan(sweep/2);
         const auto flat_a=after.unfolded[0],flat_b=after.unfolded[1],flat_along=unit(sub(flat_b,flat_a));
         auto across=Vec3{-flat_along.y,flat_along.x,0};if(dot(sub(centroid(after.unfolded),flat_a),across)<0)across=mul(across,-1);
-        const double allowance=neutral_radius*angle;
+        const double allowance=neutral_radius*sweep;
         shifts[i+1]=add(shifts[i],mul(across,allowance-2*setback));
-        SheetBend bend;bend.boundary_index=i;bend.along=along;bend.angle=angle;bend.outer_radius=outer_radius;bend.neutral_radius=neutral_radius;bend.thickness=options.thickness;
-        bend.center=add(fold.first,mul(add(before.normal,after.normal),outer_radius/(1+dot(before.normal,after.normal))));
-        bend.start_radial=mul(before.normal,-1);bend.turn_tangent=cross(along,bend.start_radial);
+        SheetBend bend;bend.boundary_index=i;bend.along=along;bend.angle=sweep;bend.outer_radius=outer_radius;bend.neutral_radius=neutral_radius;bend.thickness=options.thickness;
+        bend.center=add(fold.first,mul(add(before.normal,after.normal),sign*reference_radius/(1+dot(before.normal,after.normal))));
+        bend.start_radial=mul(before.normal,-sign);bend.turn_tangent=mul(cross(along,bend.start_radial),sign);
+        const auto tangent_interval=[&](std::size_t panel,Vec3 radial) {
+            const auto base=add(bend.center,mul(radial,reference_radius));
+            const auto& polygon=result.panels[panel].outer;
+            double low=-1e100,high=1e100;
+            for(std::size_t edge=0;edge<polygon.size();++edge) {
+                const auto a=polygon[edge],direction=unit(sub(polygon[(edge+1)%polygon.size()],a));
+                const double constant=dot(cross(direction,sub(base,a)),surface.faces[panel].normal);
+                const double slope=dot(cross(direction,along),surface.faces[panel].normal);
+                if(slope>1e-9)low=std::max(low,-constant/slope);
+                else if(slope<-1e-9)high=std::min(high,-constant/slope);
+            }
+            return std::array<double,2>{low,high};
+        };
+        const auto entry=tangent_interval(i,bend.start_radial);
+        const auto exit=tangent_interval(i+1,mul(after.normal,-sign));
+        const auto shared_vertex=[&](std::size_t other) {
+            const auto& adjacent=surface.folds[other];
+            if(std::abs(adjacent.signed_angle_radians)<1e-8)return false;
+            return length(sub(fold.first,adjacent.first))<1e-7||length(sub(fold.second,adjacent.second))<1e-7;
+        };
+        const bool junction=(i&&shared_vertex(i-1))||(i+1<surface.folds.size()&&shared_vertex(i+1));
         // Resolve end extents against authored profile planes at each angular station.
         if(std::abs(dot(normal0,along))<1e-8||std::abs(dot(normal1,along))<1e-8)throw std::invalid_argument("Bend axis parallel to transition rim");
         const auto section=[&](double parameter,bool developed) {
             const auto radial=add(mul(bend.start_radial,std::cos(parameter)),mul(bend.turn_tangent,std::sin(parameter)));
-            const auto base=add(bend.center,mul(radial,outer_radius));
-            const double first=dot(sub(cap0,base),normal0)/dot(along,normal0),last=dot(sub(cap1,base),normal1)/dot(along,normal1);
+            const auto base=add(bend.center,mul(radial,reference_radius));
+            double first=dot(sub(cap0,base),normal0)/dot(along,normal0),last=dot(sub(cap1,base),normal1)/dot(along,normal1);
+            if(junction) {
+                const double fraction=parameter/sweep;
+                first=entry[0]*(1-fraction)+exit[0]*fraction;
+                last=entry[1]*(1-fraction)+exit[1]*fraction;
+            }
             if(last<=first)throw std::invalid_argument("Reversed transition bend extent");
             if(developed) {
                 const auto origin=add(add(flat_a,shifts[i]),mul(across,neutral_radius*parameter-setback));
@@ -60,15 +101,15 @@ SheetResult manufacture(const HalfModel& model,const SheetOptions& options) {
                 return std::array<Vec3,4>{a,b,add(b,{0,0,options.thickness}),add(a,{0,0,options.thickness})};
             }
             const auto a=add(base,mul(along,first)),b=add(base,mul(along,last));
-            return std::array<Vec3,4>{a,b,sub(b,mul(radial,options.thickness)),sub(a,mul(radial,options.thickness))};
+            return std::array<Vec3,4>{a,b,sub(b,mul(radial,sign*options.thickness)),sub(a,mul(radial,sign*options.thickness))};
         };
-        const std::size_t steps=std::max<std::size_t>(4,static_cast<std::size_t>(std::ceil(angle/(std::numbers::pi/90))));
-        for(std::size_t j=0;j<=steps;++j){const double u=angle*j/steps;bend.sections.push_back(section(u,false));bend.developed_sections.push_back(section(u,true));}
-        const auto mid=section(angle/2,true);result.axes.push_back({mid[3],mid[2],PatternRole::BendAxis,angle});
+        const std::size_t steps=std::max<std::size_t>(4,static_cast<std::size_t>(std::ceil(sweep/(std::numbers::pi/90))));
+        for(std::size_t j=0;j<=steps;++j){const double u=sweep*j/steps;bend.sections.push_back(section(u,false));bend.developed_sections.push_back(section(u,true));}
+        const auto mid=section(sweep/2,true);result.axes.push_back({mid[3],mid[2],PatternRole::BendAxis,angle});
         auto& material=bend.material;material.kind=kernel::SheetMaterialDefinition::Kind::Cylinder;
         material.origin=add(bend.center,mul(bend.start_radial,options.inside_radius));
-        material.along=along;material.tangent=bend.turn_tangent;material.radial=bend.start_radial;
-        material.radius=options.inside_radius;material.neutral_radius=neutral_radius;material.angle=angle;material.thickness=options.thickness;material.thickness_sign=1;
+        material.along=mul(along,sign);material.tangent=bend.turn_tangent;material.radial=bend.start_radial;
+        material.radius=options.inside_radius;material.neutral_radius=neutral_radius;material.angle=sweep;material.thickness=options.thickness;material.thickness_sign=1;
         result.bends.push_back(std::move(bend));
     }
     for(std::size_t i=0;i<surface.faces.size();++i) {
@@ -86,13 +127,17 @@ SheetResult manufacture(const HalfModel& model,const SheetOptions& options) {
             else if(on_rim(cap1,normal1))panel.edge_roles.push_back("rectangle-rim");
             else {
                 const auto middle=mul(add(a,b),.5);
-                const auto distance_to=[&](std::size_t edge){const auto start=source.folded[edge],direction=unit(sub(source.folded[(edge+1)%source.folded.size()],start));return length(cross(sub(middle,start),direction));};
-                panel.edge_roles.push_back(distance_to(0)<distance_to(2)?"entry":"exit");
+                const auto distance_to=[&](Vec3 a,Vec3 b){return length(cross(sub(middle,a),unit(sub(b,a))));};
+                const double entry=i?distance_to(surface.folds[i-1].first,surface.folds[i-1].second):distance_to(source.folded[0],source.folded[1]);
+                const double exit=i<surface.folds.size()?distance_to(surface.folds[i].first,surface.folds[i].second):distance_to(source.folded.back(),source.folded.front());
+                panel.edge_roles.push_back(entry<exit?"entry":"exit");
             }
         }
     }
     return result;
 }
+SheetResult manufacture(const HalfModel& model,const SheetOptions& options) {return manufacture_model(model,options);}
+SheetResult manufacture(const RectangularModel& model,const SheetOptions& options) {return manufacture_model(model,options);}
 kernel::FeatureGroupRequest sheet_request(const SheetResult& sheet,bool unfolded) {
     using namespace kernel::sheet_material;
     kernel::FeatureGroupRequest group;
@@ -108,7 +153,7 @@ kernel::FeatureGroupRequest sheet_request(const SheetResult& sheet,bool unfolded
     }
     for(std::size_t i=0;i<sheet.bends.size();++i) {
         const auto& bend=sheet.bends[i];const auto& sections=unfolded?bend.developed_sections:bend.sections;
-        kernel::Sweep3DRequest request;request.smooth_loft=true;request.fixed_section_frames=true;request.linear_tolerance=.001;
+        kernel::Sweep3DRequest request;request.smooth_loft=true;request.fixed_section_frames=true;request.linear_tolerance=loft_tolerance;
         const auto parent="transition:authored-bend:"+std::to_string(i);
         for(std::size_t j=0;j<sections.size();++j) {
             const auto point_id=parent+(j==0?":start":j+1==sections.size()?":end":":interior");
@@ -130,6 +175,9 @@ kernel::HistoryOperation sheet_operation(const SheetResult& sheet,const std::str
     using namespace kernel::sheet_material;
     const auto source=sheet_request(sheet);kernel::FeatureGroupRequest ordered;
     kernel::HistoryOperation result;result.owner_id=owner;
+    // Join approximated bend skins within a fraction of their fitting budget.
+    // The document's coarser tolerance can erase the small converging trims.
+    result.boolean_tolerance=loft_tolerance/8;
     std::string parent;
     const auto append=[&](const auto& primitive,kernel::SheetMaterialDefinition material,const std::string& role){
         material.owner_id=owner+":"+role;material.feature_owner_id=owner;material.parent_owner_id=parent;parent=material.owner_id;
@@ -138,6 +186,11 @@ kernel::HistoryOperation sheet_operation(const SheetResult& sheet,const std::str
     for(std::size_t i=0;i<sheet.panels.size();++i) {
         const auto& panel=sheet.panels[i];kernel::SheetMaterialDefinition plane;plane.kind=kernel::SheetMaterialDefinition::Kind::Plane;
         plane.origin=panel.outer.front();plane.along=unit(sub(panel.outer[1],panel.outer[0]));plane.radial=mul(panel.inward,-1);plane.tangent=cross(plane.radial,plane.along);plane.thickness=sheet.thickness;plane.thickness_sign=-1;
+        // A child plane attaches on its parent's final tangent, not on an
+        // arbitrary polygon vertex after clipping both neighboring bends.
+        // This point has the exact final angular material coordinate.
+        if(i)for(const auto& bend:sheet.bends)if(bend.boundary_index+1==i)
+            plane.origin=bend.sections.back()[0];
         append(source.children[i],plane,"panel:"+std::to_string(i));
         for(std::size_t b=0;b<sheet.bends.size();++b)if(sheet.bends[b].boundary_index==i) {
             auto material=sheet.bends[b].material;material.curved_source_id="transition:authored-bend:"+std::to_string(b)+":span";

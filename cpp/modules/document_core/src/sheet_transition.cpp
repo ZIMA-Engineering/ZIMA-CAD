@@ -14,10 +14,49 @@ ContainerOrigin sheet_transition_end_origin(const HistoryContainer& feature) {
     result.parent_id=feature.container_origin.id;
     return result;
 }
-HistoryContainer create_sheet_transition() {
+bool rectangular_sheet_transition(const HistoryContainer& feature) {
+    const auto sketch=sketcher::Sketch::from_serialized(feature.sheet_transition.sketches[0]);
+    return sketch.arcs.empty()&&sketch.segments.size()==4;
+}
+void set_rectangular_transition_sides(HistoryContainer& feature,unsigned sides) {
+    if(!rectangular_sheet_transition(feature)||(sides!=2&&sides!=3))
+        throw std::invalid_argument("Transition requires two rectangular profiles with two or three adjacent sides.");
+    static_cast<void>(research::transition::read_rectangular_sketches(
+        sketcher::Sketch::from_serialized(feature.sheet_transition.sketches[1]),
+        sketcher::Sketch::from_serialized(feature.sheet_transition.sketches[0])));
+    auto pending=feature.sheet_transition.sketches;
+    for(auto& data:pending) {
+        auto sketch=sketcher::Sketch::from_serialized(data);
+        double xmin=1e100;
+        for(const auto& line:sketch.segments)for(const auto& id:{line.first_point_id,line.second_point_id})
+            xmin=std::min(xmin,sketch.find_point(id)->x);
+        for(auto& line:sketch.segments) {
+            const auto* a=sketch.find_point(line.first_point_id);const auto* b=sketch.find_point(line.second_point_id);
+            if(std::abs(a->x-xmin)<1e-7&&std::abs(b->x-xmin)<1e-7)line.construction=sides==2;
+        }
+        data=sketch.serialized();
+    }
+    feature.sheet_transition.sketches=std::move(pending);
+}
+HistoryContainer create_sheet_transition(bool rectangular) {
     auto feature=PartDocument::create_sketch_container();feature.feature_kind=FeatureKind::SheetTransition;feature.name="Přechod plechu";
     feature.sheet_transition.end_origin_id=sheet_transition_end_origin(feature).id;
     auto round=sketcher::Sketch::create_default(),rectangle=sketcher::Sketch::create_default();
+    if(rectangular) {
+        feature.name="Obdélníkový přechod plechu";
+        for(unsigned end=0;end<2;++end) {
+            auto& sketch=end?round:rectangle;const double width=end?140:200,depth=end?100:160;
+            sketch.name=end?"Skica druhého obdélníku":"Skica prvního obdélníku";
+            const auto sides=sketch.add_rectangle(-width/2,-depth/2,width/2,depth/2);
+            std::ranges::find(sketch.segments,sides[0],&sketcher::SketchSegment::id)->construction=true;
+            sketch.apply_dimension(sketch.create_segment_dimension(sides[0]));
+            sketch.apply_dimension(sketch.create_segment_dimension(sides[1]));
+            sketch.plane_reference_owner_id=end?feature.sheet_transition.end_origin_id:feature.container_origin.id;
+            sketch.owner_container_id=feature.id;
+        }
+        feature.sheet_transition.sketches={round.serialized(),rectangle.serialized()};
+        reframe_sheet_transition(feature);return feature;
+    }
     round.name="Skica půlkruhu";rectangle.name="Skica zaobleného půlobdélníku";
     static_cast<void>(round.add_arc(0,0,80,0,-80,0));
     const auto sides=rectangle.add_rectangle(-100,0,100,80);
@@ -80,8 +119,14 @@ kernel::ViewerMesh sheet_transition_preview(const HistoryContainer& source) {
     }
     // Disposable ZIMA surface edges only; no kernel calculation during placement.
     try {
-        auto input=research::transition::read_sketches(sketches[0],sketches[1]);input.model.corner_facets={feature.sheet_transition.facets[0],feature.sheet_transition.facets[1]};
-        auto surface=research::transition::mesh(research::transition::calculate(input.model));
+        kernel::ViewerMesh surface;
+        if(rectangular_sheet_transition(feature)) {
+            const auto input=research::transition::read_rectangular_sketches(sketches[1],sketches[0]);
+            surface=research::transition::mesh(research::transition::calculate(input.model));
+        }else {
+            auto input=research::transition::read_sketches(sketches[0],sketches[1]);input.model.corner_facets={feature.sheet_transition.facets[0],feature.sheet_transition.facets[1]};
+            surface=research::transition::mesh(research::transition::calculate(input.model));
+        }
         result.edges.insert(result.edges.end(),surface.edges.begin(),surface.edges.end());
     }catch(const std::exception&){}
     return result;
@@ -89,25 +134,32 @@ kernel::ViewerMesh sheet_transition_preview(const HistoryContainer& source) {
 kernel::HistoryOperation sheet_transition_operation(const PartDocument&,const HistoryContainer& feature) {
     auto framed=feature;reframe_sheet_transition(framed);const auto& parameters=framed.sheet_transition;
     if(feature.combine_mode!=CombineMode::Add)throw std::invalid_argument("Invalid transition sheet parameters");
-    auto input=research::transition::read_sketches(sketcher::Sketch::from_serialized(parameters.sketches[0]),sketcher::Sketch::from_serialized(parameters.sketches[1]));input.model.corner_facets={parameters.facets[0],parameters.facets[1]};
-    auto operation=research::transition::sheet_operation(research::transition::manufacture(input.model,
-        {parameters.thickness,parameters.inside_radius,parameters.k_factor}),feature.id);
+    const auto first=sketcher::Sketch::from_serialized(parameters.sketches[1]),second=sketcher::Sketch::from_serialized(parameters.sketches[0]);
+    kernel::HistoryOperation operation;std::set<std::string> parents;kernel::Vec3 round_center,rectangle_center;
+    const research::transition::SheetOptions options{parameters.thickness,parameters.inside_radius,parameters.k_factor};
+    if(rectangular_sheet_transition(framed)) {
+        const auto input=research::transition::read_rectangular_sketches(first,second);
+        operation=research::transition::sheet_operation(research::transition::manufacture(input.model,options),feature.id);
+        parents.insert(input.parents.begin(),input.parents.end());
+        rectangle_center=input.model.first_origin.origin;round_center=input.model.first_origin.point(input.model.second_relative.origin);
+    }else {
+        auto input=research::transition::read_sketches(second,first);input.model.corner_facets={parameters.facets[0],parameters.facets[1]};
+        operation=research::transition::sheet_operation(research::transition::manufacture(input.model,options),feature.id);
+        parents.insert(input.arc_parents.begin(),input.arc_parents.end());
+        parents.insert(input.corner_parents.begin(),input.corner_parents.end());
+        parents.insert(input.straight_parents.begin(),input.straight_parents.end());
+        round_center=input.model.first_origin.origin;rectangle_center=input.model.first_origin.point(input.model.second_relative.origin);
+    }
     // Embed source ancestry in all generated profile keys, before OCCT runs.
     // The transition is jointly driven by both profiles. Store the complete
     // authored curve ancestry, not just the two Sketch labels. Length prefixes
     // make identifiers with embedded separators unambiguous.
-    std::set<std::string> parents;
-    parents.insert(input.arc_parents.begin(),input.arc_parents.end());
-    parents.insert(input.corner_parents.begin(),input.corner_parents.end());
-    parents.insert(input.straight_parents.begin(),input.straight_parents.end());
     std::string ancestry=":parents:"+std::to_string(parents.size());
     for(const auto& parent:parents)ancestry+=":"+std::to_string(parent.size())+":"+parent;
     const auto remap=[&](std::string& id){if(!id.empty())id="transition:"+feature.feature_id+":"+id+ancestry;};
     auto& group=std::get<kernel::FeatureGroupRequest>(operation.primitive);
     // Profile centres come from authored Sketch geometry, not result topology.
     // Use the existing primary-axis identity and persisted reference pipeline.
-    const auto round_center=input.model.first_origin.origin;
-    const auto rectangle_center=input.model.first_origin.point(input.model.second_relative.origin);
     const auto delta=sub(round_center,rectangle_center);
     const double axis_length=std::sqrt(dot(delta,delta));
     if(axis_length>1e-9)

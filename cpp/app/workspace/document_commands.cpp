@@ -105,8 +105,8 @@ void AssemblyWorkspaceWindow::export_sheet_dxf() {
     }catch(const std::exception& error){finish_status_operation(tr(error.what()),false);}
 }
 
-void AssemblyWorkspaceWindow::show_sheet_transition_properties(const std::string& container_id) {
-    show_sweep_properties(document::FeatureKind::SheetTransition,container_id);
+void AssemblyWorkspaceWindow::show_sheet_transition_properties(const std::string& container_id,bool rectangular) {
+    show_sweep_properties(document::FeatureKind::SheetTransition,container_id,rectangular);
 }
 
 void AssemblyWorkspaceWindow::show_sheet_state_properties(bool unfold,const std::string& container_id) {

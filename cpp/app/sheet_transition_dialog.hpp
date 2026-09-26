@@ -2,6 +2,7 @@
 #include "sweep_placement_dialog.hpp"
 #include "sketch_button_style.hpp"
 #include <zima/document/sheet_transition.hpp>
+#include <transition_sketches.hpp>
 #include <QPushButton>
 #include <zima/document/part_document.hpp>
 #include <QComboBox>
@@ -35,15 +36,25 @@ public:
         thickness_=value(tr("Tloušťka"),"transitionThickness",pending.sheet_transition.thickness,.001,1000," mm");
         radius_=value(tr("Vnitřní poloměr ohybu"),"transitionRadius",pending.sheet_transition.inside_radius,.001,1000," mm");
         factor_=value(tr("K-faktor"),"transitionKFactor",pending.sheet_transition.k_factor,0,1,{});
-        for(std::size_t i=0;i<2;++i){counts_[i]=new QSpinBox(this);counts_[i]->setObjectName(i==0?"transitionRightFacets":"transitionLeftFacets");counts_[i]->setRange(2,128);counts_[i]->setValue(pending.sheet_transition.facets[i]);form->addRow(i==0?tr("Počet plošek pravého rohu"):tr("Počet plošek levého rohu"),counts_[i]);}
+        const bool rectangular=document::rectangular_sheet_transition(pending);
+        if(rectangular) {
+            auto* sides=new QComboBox(this);sides->setObjectName("transitionSides");
+            sides->addItem(tr("2 sousední strany (L)"),2);sides->addItem(tr("3 strany (U)"),3);
+            const auto input=research::transition::read_rectangular_sketches(sketcher::Sketch::from_serialized(pending.sheet_transition.sketches[1]),sketcher::Sketch::from_serialized(pending.sheet_transition.sketches[0]));
+            sides->setCurrentIndex(input.model.sides==2?0:1);form->addRow(tr("Počet stran"),sides);
+            connect(sides,&QComboBox::currentIndexChanged,this,[this,sides]{
+                try {document::set_rectangular_transition_sides(pending,sides->currentData().toUInt());notify();}
+                catch(const std::exception& error){set_status(tr(error.what()));}
+            });
+        }else for(std::size_t i=0;i<2;++i){counts_[i]=new QSpinBox(this);counts_[i]->setObjectName(i==0?"transitionRightFacets":"transitionLeftFacets");counts_[i]->setRange(2,128);counts_[i]->setValue(pending.sheet_transition.facets[i]);form->addRow(i==0?tr("Počet plošek pravého rohu"):tr("Počet plošek levého rohu"),counts_[i]);}
         for(unsigned i:{1u,0u}) {
-            auto* button=new QPushButton(i==0?tr("Skica půlkruhu"):tr("Skica zaobleného půlobdélníku"),this);
+            auto* button=new QPushButton(rectangular?(i==0?tr("Skica druhého obdélníku"):tr("Skica prvního obdélníku")):(i==0?tr("Skica půlkruhu"):tr("Skica zaobleného půlobdélníku")),this);
             button->setObjectName(QString("transitionSketch%1").arg(i));style_sketch_button(button);form->addRow(button);
             connect(button,&QPushButton::clicked,this,[this,i]{if(edit_sketch)edit_sketch(i);});
         }
         status_=new QLabel(this);status_->setWordWrap(true);form->addRow(status_);
         for(auto* field:{thickness_,radius_,factor_})connect(field,&QDoubleSpinBox::valueChanged,this,[this]{read_parameters();notify();});
-        for(auto* field:counts_)connect(field,&QSpinBox::valueChanged,this,[this]{read_parameters();notify();});
+        for(auto* field:counts_)if(field)connect(field,&QSpinBox::valueChanged,this,[this]{read_parameters();notify();});
     }
     bool owns_reference_owner(const std::string& owner) const override {return owner==pending.sheet_transition.end_origin_id||SweepPlacementDialog::owns_reference_owner(owner);}
     void set_status(const QString& text) override {status_->setText(text);}
@@ -57,7 +68,7 @@ public:
     }
 private:
     void notify(){if(changed)changed();}
-    void read_parameters(){auto& p=pending.sheet_transition;p.thickness=thickness_->value();p.inside_radius=radius_->value();p.k_factor=factor_->value();for(unsigned i=0;i<2;++i)p.facets[i]=counts_[i]->value();}
+    void read_parameters(){auto& p=pending.sheet_transition;p.thickness=thickness_->value();p.inside_radius=radius_->value();p.k_factor=factor_->value();for(unsigned i=0;i<2;++i)if(counts_[i])p.facets[i]=counts_[i]->value();}
     bool submit()override {
         try {read_parameters();document::reframe_sheet_transition(pending);commit_(pending);return true;}
         catch(const std::exception& error){set_status(tr(error.what()));return false;}

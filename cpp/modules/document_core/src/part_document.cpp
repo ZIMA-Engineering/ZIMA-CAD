@@ -8876,7 +8876,9 @@ std::vector<zima::kernel::HistoryOperation> PartDocument::kernel_operations(
             throw std::runtime_error("A surface cannot subtract material.");
         if(container.feature_kind==FeatureKind::SheetTransition) {
             auto operation=sheet_transition_operation(*this,container);
-            operation.boolean_tolerance=boolean_tolerance;operation.mesh_deflection=mesh_deflection;
+            // Preserve the transition's tighter joining budget at its small
+            // converging trims instead of using the broader document tolerance.
+            operation.boolean_tolerance=std::min(boolean_tolerance,operation.boolean_tolerance);operation.mesh_deflection=mesh_deflection;
             operations.push_back(std::move(operation));continue;
         }
         const auto profile_id = container.feature_kind == FeatureKind::Feature
@@ -9707,7 +9709,9 @@ std::vector<zima::kernel::HistoryOperation> PartDocument::kernel_operations(
             return local.at(entry.id);
         });
         for (auto& operation : compiled) {
-            operation.boolean_tolerance = boolean_tolerance;
+            const auto* feature=find_container(operation.owner_id);
+            operation.boolean_tolerance = feature&&feature->feature_kind==FeatureKind::SheetTransition
+                ? std::min(boolean_tolerance,operation.boolean_tolerance) : boolean_tolerance;
             if (!local.contains(operation.owner_id)) operation.mesh_deflection = mesh_deflection;
         }
         return compiled;

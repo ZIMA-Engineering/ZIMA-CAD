@@ -1,7 +1,9 @@
 #pragma once
 #include <zima/document/part_document.hpp>
 namespace zima::document {
-[[nodiscard]] HistoryContainer create_sheet_transition();
+[[nodiscard]] HistoryContainer create_sheet_transition(bool rectangular=false);
+[[nodiscard]] bool rectangular_sheet_transition(const HistoryContainer&);
+void set_rectangular_transition_sides(HistoryContainer&,unsigned sides);
 void reframe_sheet_transition(HistoryContainer&);
 [[nodiscard]] kernel::ViewerMesh sheet_transition_preview(const HistoryContainer&);
 [[nodiscard]] kernel::ViewerReferenceGeometry sheet_transition_end_references(const HistoryContainer&);

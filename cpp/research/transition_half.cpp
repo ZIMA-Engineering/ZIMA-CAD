@@ -1,5 +1,6 @@
 #include "transition_half.hpp"
 #include <algorithm>
+#include <numbers>
 
 namespace zima::research::transition {
 namespace {
@@ -38,6 +39,93 @@ bool intersects(const HalfFace& a,const HalfFace& b) {
     return false;
 }
 QuarterArc transformed(QuarterArc arc,const Frame& frame){return {frame.point(arc.center),frame.direction(arc.first_axis),frame.direction(arc.second_axis)};}
+
+// A twisted ruled wall is not a planar quadrilateral. Keep its authored rim
+// vertices and introduce an explicit diagonal bend, rather than projecting it
+// onto an invented plane. Every returned panel has an isometric development.
+HalfResult polygon_strip(std::vector<Vec3> A,std::vector<Vec3> B,const Frame& root) {
+    HalfResult result;
+    try {
+        if(A.size()!=B.size()||A.size()<2||!root.valid())throw Failure::InvalidInput;
+        std::vector<Vec3> a{A.front()},b{B.front()};
+        for(std::size_t i=0;i+1<A.size();++i) {
+            if(norm(sub(A[i],A[i+1]))>tolerance&&norm(sub(B[i],B[i+1]))>tolerance) {
+                const auto n=unit(cross(sub(B[i],A[i]),sub(B[i+1],A[i])));
+                if(std::abs(dot(sub(A[i+1],A[i]),n))>tolerance) {
+                    a.push_back(A[i]);b.push_back(B[i+1]);
+                }
+            }
+            a.push_back(A[i+1]);b.push_back(B[i+1]);
+        }
+        Vec3 flat_a{},flat_b{norm(sub(b[0],a[0])),0,0},old_center{};
+        for(std::size_t i=0;i+1<a.size();++i) {
+            HalfFace face;face.folded={a[i],b[i],b[i+1],a[i+1]};
+            for(std::size_t j=face.folded.size();j-->0;) {
+                const auto next=(j+1)%face.folded.size();
+                if(norm(sub(face.folded[j],face.folded[next]))<tolerance)
+                    face.folded.erase(face.folded.begin()+static_cast<std::ptrdiff_t>(j));
+            }
+            if(face.folded.size()<3)throw Failure::InvalidFacet;
+            // Preserve the incoming ruling as vertices 0/1 in both charts,
+            // including triangles whose outgoing ruling shares vertex B.
+            const auto first=std::ranges::find_if(face.folded,[&](Vec3 p){return norm(sub(p,a[i]))<tolerance;});
+            if(first==face.folded.end())throw Failure::InvalidFacet;
+            std::rotate(face.folded.begin(),first,face.folded.end());
+            face.normal=unit(cross(sub(face.folded[1],face.folded[0]),sub(face.folded[2],face.folded[0])));
+            for(std::size_t j=0;j<face.folded.size();++j) {
+                const auto p=face.folded[j],e=sub(face.folded[(j+1)%face.folded.size()],p),next=sub(face.folded[(j+2)%face.folded.size()],face.folded[(j+1)%face.folded.size()]);
+                if(dot(cross(e,next),face.normal)<=tolerance*norm(e))throw Failure::InvalidFacet;
+                result.maximum_planarity_error=std::max(result.maximum_planarity_error,std::abs(dot(sub(p,face.folded[0]),face.normal)));
+            }
+            if(result.maximum_planarity_error>tolerance)throw Failure::InvalidFacet;
+            const auto direction=unit(sub(flat_b,flat_a));auto perpendicular=Vec3{-direction.y,direction.x,0};
+            if(i&&dot(sub(old_center,flat_a),perpendicular)>0)perpendicular=mul(perpendicular,-1);
+            const auto spatial_direction=unit(sub(b[i],a[i]));
+            const auto spatial_perpendicular=unit(cross(face.normal,spatial_direction));
+            const auto place=[&](Vec3 p){const auto delta=sub(p,a[i]);return add(flat_a,add(mul(direction,dot(delta,spatial_direction)),mul(perpendicular,dot(delta,spatial_perpendicular))));};
+            for(auto p:face.folded)face.unfolded.push_back(place(p));
+            const auto next_a=place(a[i+1]),next_b=place(b[i+1]);
+            old_center=mul(add(flat_a,flat_b),.5);flat_a=next_a;flat_b=next_b;
+            for(std::size_t j=0;j<face.folded.size();++j)for(std::size_t k=0;k<j;++k)
+                result.maximum_metric_error=std::max(result.maximum_metric_error,std::abs(norm(sub(face.folded[j],face.folded[k]))-norm(sub(face.unfolded[j],face.unfolded[k]))));
+            if(result.maximum_metric_error>tolerance)throw Failure::MetricMismatch;
+            for(const auto& previous:result.faces) {
+                if(overlap(previous.unfolded,face.unfolded,{0,0,1}))throw Failure::UnfoldedIntersection;
+                if(intersects(previous,face))throw Failure::FoldedIntersection;
+            }
+            if(i) {const auto n=result.faces.back().normal;result.folds.push_back({a[i],b[i],std::atan2(dot(spatial_direction,cross(n,face.normal)),dot(n,face.normal))});}
+            result.folded_area+=area(face.folded);result.unfolded_area+=area(face.unfolded);result.faces.push_back(std::move(face));
+        }
+        for(auto& face:result.faces){for(auto& p:face.folded)p=root.point(p);face.normal=root.direction(face.normal);}
+        for(auto& fold:result.folds){fold.first=root.point(fold.first);fold.second=root.point(fold.second);}
+    }catch(Failure failure){result.failure=failure;result.faces.clear();result.folds.clear();}
+    return result;
+}
+
+HalfResult triangulated_half(const HalfModel& model) {
+    const double r=model.corner_radius,w=model.width/2,h=model.depth/2,R=model.radius;
+    const std::array<QuarterArc,2> top{{{{},{R,0,0},{0,R,0}},{{},{0,R,0},{-R,0,0}}}};
+    const std::array<QuarterArc,2> bottom{{{{w-r,h-r,0},{r,0,0},{0,r,0}},{{-w+r,h-r,0},{0,r,0},{-r,0,0}}}};
+    std::vector<Vec3> A{top[0].point(0)},B{model.second_relative.point({w,0,0})};
+    double deviation=0;
+    for(unsigned corner=0;corner<2;++corner) {
+        const auto count=model.corner_facets[corner];
+        if(count<2||count>128)throw Failure::InvalidInput;
+        const double step=(std::numbers::pi/2)/(count-1);
+        for(std::size_t i=0;i<=count;++i) {
+            const double angle=i==0?0:i==count?std::numbers::pi/2:step*(i-.5);
+            const double factor=i==0||i==count?1:1/std::cos(step/2);
+            const auto at=[&](const QuarterArc& arc){return add(arc.center,mul(sub(arc.point(angle),arc.center),factor));};
+            A.push_back(at(top[corner]));B.push_back(model.second_relative.point(at(bottom[corner])));
+        }
+        deviation=std::max(deviation,std::max(R,r)*(1/std::cos(step/2)-1));
+    }
+    A.push_back(A.back());B.push_back(model.second_relative.point({-w,0,0}));
+    if(model.second_relative.origin.z<0){std::reverse(A.begin(),A.end());std::reverse(B.begin(),B.end());}
+    auto result=polygon_strip(std::move(A),std::move(B),model.first_origin);
+    result.boundary_deviation={Deviation{0,deviation},Deviation{0,deviation}};
+    return result;
+}
 }
 HalfResult calculate(const HalfModel& model) {
     HalfResult result;
@@ -54,7 +142,10 @@ HalfResult calculate(const HalfModel& model) {
         for(std::size_t i=0;i<2;++i) {
             Options options;options.facets=model.corner_facets[i];
             corners[i]=calculate(top[i],transformed(bottom[i],model.second_relative),options);
-            if(!corners[i].valid())throw corners[i].failure;
+            if(!corners[i].valid()) {
+                if(corners[i].failure==Failure::IncompatibleEndpoints)return triangulated_half(model);
+                throw corners[i].failure;
+            }
         }
         std::vector<Vec3> A{top[0].point(0)},B{model.second_relative.point({w,0,0})};
         for(const auto& corner:corners) {
@@ -102,6 +193,20 @@ HalfResult calculate(const HalfModel& model) {
         for(auto& fold:result.folds){fold.first=model.first_origin.point(fold.first);fold.second=model.first_origin.point(fold.second);}
     }catch(Failure failure){result.failure=failure;result.faces.clear();result.folds.clear();}
     return result;
+}
+HalfResult calculate(const RectangularModel& model) {
+    HalfResult failed;failed.failure=Failure::InvalidInput;
+    if(!model.first_origin.valid()||!model.second_relative.valid()||(model.sides!=2&&model.sides!=3))return failed;
+    for(double value:{model.width[0],model.width[1],model.depth[0],model.depth[1]})
+        if(!std::isfinite(value)||value<.001||value>10000)return failed;
+    std::vector<Vec3> A,B;
+    for(unsigned end=0;end<2;++end) {
+        const double w=model.width[end]/2,h=model.depth[end]/2;
+        const std::array<Vec3,4> rim{{{w,-h,0},{w,h,0},{-w,h,0},{-w,-h,0}}};
+        for(unsigned i=0;i<=model.sides;++i)(end?B:A).push_back(end?model.second_relative.point(rim[i]):rim[i]);
+    }
+    if(model.second_relative.origin.z<0){std::reverse(A.begin(),A.end());std::reverse(B.begin(),B.end());}
+    return polygon_strip(std::move(A),std::move(B),model.first_origin);
 }
 kernel::ViewerMesh mesh(const HalfResult& result,bool unfolded) {
     kernel::ViewerMesh output;if(!result.valid())return output;

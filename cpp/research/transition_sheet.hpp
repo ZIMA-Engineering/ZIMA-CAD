@@ -20,6 +20,7 @@ struct SheetResult {
 };
 // Explicit calculation only. Throws on invalid or collapsed finite-radius geometry.
 [[nodiscard]] SheetResult manufacture(const HalfModel&,const SheetOptions&);
+[[nodiscard]] SheetResult manufacture(const RectangularModel&,const SheetOptions&);
 [[nodiscard]] kernel::FeatureGroupRequest sheet_request(const SheetResult&,bool unfolded=false);
 [[nodiscard]] kernel::HistoryOperation sheet_operation(const SheetResult&,const std::string& owner);
 }

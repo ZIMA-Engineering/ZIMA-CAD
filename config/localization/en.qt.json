@@ -1774,5 +1774,12 @@
   "Osa těžiště": "Centroid axis",
   "Editor skici připojíme po schválení návrhu GUI.": "The sketch editor will be connected after approval of the GUI design.",
   "Plná rotace": "Full revolution",
-  "Směr tloušťky": "Thickness direction"
+  "Směr tloušťky": "Thickness direction",
+  "Obdélníkový přechod plechu": "Rectangular sheet transition",
+  "Skica prvního obdélníku": "First rectangle sketch",
+  "Skica druhého obdélníku": "Second rectangle sketch",
+  "2 sousední strany (L)": "2 adjacent sides (L)",
+  "3 strany (U)": "3 sides (U)",
+  "Počet stran": "Number of sides",
+  "Transition requires two rectangular profiles with two or three adjacent sides.": "Transition requires two rectangular profiles with two or three adjacent sides."
 }

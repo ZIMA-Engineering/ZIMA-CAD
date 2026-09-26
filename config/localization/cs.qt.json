@@ -1774,5 +1774,12 @@
   "Osa těžiště": "Osa těžiště",
   "Editor skici připojíme po schválení návrhu GUI.": "Editor skici připojíme po schválení návrhu GUI.",
   "Plná rotace": "Plná rotace",
-  "Směr tloušťky": "Směr tloušťky"
+  "Směr tloušťky": "Směr tloušťky",
+  "Obdélníkový přechod plechu": "Obdélníkový přechod plechu",
+  "Skica prvního obdélníku": "Skica prvního obdélníku",
+  "Skica druhého obdélníku": "Skica druhého obdélníku",
+  "2 sousední strany (L)": "2 sousední strany (L)",
+  "3 strany (U)": "3 strany (U)",
+  "Počet stran": "Počet stran",
+  "Transition requires two rectangular profiles with two or three adjacent sides.": "Přechod vyžaduje dva obdélníkové profily se dvěma nebo třemi sousedními stranami."
 }

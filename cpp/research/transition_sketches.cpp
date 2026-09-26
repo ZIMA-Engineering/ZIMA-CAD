@@ -86,4 +86,42 @@ SketchInputs read_sketches(const sketcher::Sketch& authored_round,const sketcher
     output.model.second_relative={relative(sub(rectangle_frame.origin,root.origin)),relative(rectangle_frame.x),relative(rectangle_frame.y),relative(rectangle_frame.z)};
     output.model.width=2*w;output.model.depth=2*h;output.model.corner_radius=r;return output;
 }
+RectangularSketchInputs read_rectangular_sketches(const sketcher::Sketch& first,const sketcher::Sketch& second) {
+    RectangularSketchInputs result;std::array<Frame,2> frames;unsigned sides=0;
+    for(unsigned end=0;end<2;++end) {
+        const auto& sketch=end?second:first;supported(sketch);
+        if(!sketch.arcs.empty()||sketch.segments.size()!=4)
+            throw std::invalid_argument("Transition requires two rectangular profiles with two or three adjacent sides.");
+        double xmin=1e100,xmax=-1e100,ymin=1e100,ymax=-1e100;
+        for(const auto& line:sketch.segments)for(const auto& id:{line.first_point_id,line.second_point_id}) {
+            const auto p=local(sketch,id);xmin=std::min(xmin,p.x);xmax=std::max(xmax,p.x);ymin=std::min(ymin,p.y);ymax=std::max(ymax,p.y);
+        }
+        const std::array<Vec3,4> rim{{{xmax,ymin,0},{xmax,ymax,0},{xmin,ymax,0},{xmin,ymin,0}}};
+        std::array<bool,4> found{},active{};
+        for(const auto& line:sketch.segments) {
+            const auto a=local(sketch,line.first_point_id),b=local(sketch,line.second_point_id);bool matched=false;
+            for(unsigned edge=0;edge<4;++edge) {
+                const auto c=rim[edge],d=rim[(edge+1)%4];
+                if((near(a,c)&&near(b,d))||(near(a,d)&&near(b,c))) {
+                    if(found[edge])throw std::invalid_argument("Duplicate transition side.");
+                    found[edge]=true;active[edge]=!line.construction;matched=true;
+                    // Keep the authored rectangular envelope in ancestry even
+                    // when a wall is inactive, so L/U does not rename the
+                    // unchanged walls' parent identities.
+                    result.parents.push_back(line.id);
+                }
+            }
+            if(!matched)throw std::invalid_argument("Transition requires two rectangular profiles with two or three adjacent sides.");
+        }
+        const unsigned count=active[2]?3:2;
+        if(!active[0]||!active[1]||active[3]||(end&&sides!=count))
+            throw std::invalid_argument("Transition requires two rectangular profiles with two or three adjacent sides.");
+        sides=count;result.model.width[end]=xmax-xmin;result.model.depth[end]=ymax-ymin;
+        frames[end]=world_frame(sketch,{(xmin+xmax)/2,(ymin+ymax)/2,0},{1,0,0},{0,1,0});
+    }
+    result.model.sides=sides;result.model.first_origin=frames[0];const auto& root=frames[0];
+    const auto relative=[&](Vec3 p){return Vec3{dot(p,root.x),dot(p,root.y),dot(p,root.z)};};
+    result.model.second_relative={relative(sub(frames[1].origin,root.origin)),relative(frames[1].x),relative(frames[1].y),relative(frames[1].z)};
+    return result;
+}
 }

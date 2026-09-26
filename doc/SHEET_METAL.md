@@ -7,7 +7,7 @@ See [Sheet Profile corner closure](SHEET_CORNER.md) for the optional curved
 transition at either endpoint, its gap allowance and verification.
 
 The current material-creation commands are **Flat**, **Sheet Profile**,
-**Revolved Sheet**, **Twisted Sheet** and **Sheet transition**, followed by **Sheet Cut**, **Unbend**
+**Revolved Sheet**, **Twisted Sheet**, **Sheet transition** and **Rectangular sheet transition**, followed by **Sheet Cut**, **Unbend**
 and **Bend Back**. Earlier sections use Bend and
 Sheet Revolution for the latter two creators; their internal feature and CLI
 identifiers remain unchanged. See [Sheet Cut and material-space boundaries](#sheet-cut-and-material-space-boundaries-2026-09-17)
@@ -23,6 +23,30 @@ planar panels and finite-radius bends, with inward thickness and neutral-layer
 development. See [Sheet transition](TRANSITION_SURFACE_PROTOTYPE.md#native-sheet-transition-command)
 for inputs, supported orientations and verification. Its inner-skin bend axes
 are available through the same Drawing Show/Erase mechanism.
+
+**Rectangular sheet transition** joins two rectangular profiles with either
+**2 adjacent sides (L)** or **3 sides (U)**. In the Sheet Metal command panel,
+choose this command, select the side count and use the two SKETCH buttons to
+edit the first and second rectangle dimensions. The unused edges remain
+construction geometry so the rectangular envelopes stay dimensionable.
+The main Origin positions the first rectangle; the second Origin controls its
+relative XYZ position and all three rotations, including axial twist. Warped
+walls are divided into planar triangles joined by finite-radius bends.
+
+Both transition commands share the existing placement references and internal
+properties window. OK calculates and commits; Cancel discards the pending
+change. Reopen Properties to edit the profiles, side count, Origins, thickness,
+inside bend radius or K-factor. Unbend and Bend Back use the native history
+and retained material. Two-axis tilt of the semicircle transition also uses
+triangulated panels when its common-tangent construction is incompatible.
+Configurations with intersecting panels, overlapping developments or bend radii
+that consume a panel are rejected. These geometric checks do not establish
+press-brake tooling clearance or a material-specific K-factor.
+
+The rectangular variant stores its dimensions and L/U selection in its two
+owned Sketches inside the Part file. It requires no sidecar or format change.
+Implementation and verification status are recorded in
+[Transition extensions](TRANSITION_SURFACE_PROTOTYPE.md#transition-extensions-2026-09-26).
 
 Unbend and Bend Back process all eligible regions by default. Check **Select
 individual features** to pick a subset in the View or Tree; a second click

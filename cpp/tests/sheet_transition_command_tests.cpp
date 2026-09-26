@@ -27,6 +27,59 @@ void check_solid(const kernel::BodyResult& body) {
 }
 }
 int main()try {
+    {
+        auto part=document::PartDocument::create_default();auto feature=document::create_sheet_transition();
+        feature.sheet_transition.end_rotation={8,-10,0};kernel::OcctKernel kernel;
+        std::cout<<"Native two-axis half-transition"<<std::endl;
+        check_solid(kernel.evaluate_history({document::sheet_transition_operation(part,feature)}).back());
+    }
+    for(unsigned sides:{2u,3u}) {
+        auto rectangular=document::create_sheet_transition(true);
+        document::set_rectangular_transition_sides(rectangular,sides);
+        const auto parsed=research::transition::read_rectangular_sketches(sketcher::Sketch::from_serialized(rectangular.sheet_transition.sketches[1]),sketcher::Sketch::from_serialized(rectangular.sheet_transition.sketches[0]));
+        check(parsed.model.sides==sides&&parsed.model.width[0]==200&&parsed.model.width[1]==140,"Rectangular profile interpretation changed its sides or dimensions");
+        auto doc=document::PartDocument::create_default();static_cast<void>(doc.body_history.create_body("Rectangular transition"));
+        auto alternative=rectangular;document::set_rectangular_transition_sides(alternative,sides==2?3:2);
+        const auto original_operation=document::sheet_transition_operation(doc,rectangular);
+        const auto changed_operation=document::sheet_transition_operation(doc,alternative);
+        const auto& original_group=std::get<kernel::FeatureGroupRequest>(original_operation.primitive);
+        const auto& changed_group=std::get<kernel::FeatureGroupRequest>(changed_operation.primitive);
+        const auto& original_panel=std::get<kernel::ExtrusionRequest>(original_group.children.front());
+        const auto& changed_panel=std::get<kernel::ExtrusionRequest>(changed_group.children.front());
+        check(original_panel.profile_region_id==changed_panel.profile_region_id&&original_panel.outer_edge_source_ids==changed_panel.outer_edge_source_ids,"L/U renamed an unchanged wall's source ancestry");
+        rectangular.sheet_transition.end_rotation={8,-10,12};
+        workspace::Workspace test;kernel::OcctKernel geometry;const auto document_id=doc.document_id;
+        std::cout<<"Rotated rectangular transition, sides "<<sides<<std::endl;
+        check_solid(geometry.evaluate_history({document::sheet_transition_operation(doc,rectangular)}).back());
+        std::cout<<"Committing rotated rectangular transition"<<std::endl;
+        test.add_part(doc,workspace::calculate_part_with_resolved_references(geometry,doc));test.activate(document_id);
+        check(workspace::commit_sheet_transition(test,geometry,document_id,rectangular),"Rectangular transition failed to commit");
+        auto* state=test.open_part(document_id);check_solid(state->session.calculated_boundaries().back());
+        const auto committed=state->session.document().serialized();
+        auto loaded=document::PartDocument::from_serialized(committed);
+        check(document::rectangular_sheet_transition(*loaded.find_container(rectangular.id)),"Rectangular transition lost its profile mode");
+        check(loaded.find_container(rectangular.id)->sheet_transition.end_rotation==rectangular.sheet_transition.end_rotation,"Rectangular transition lost its three-axis rotation");
+        check_solid(workspace::calculate_part_with_resolved_references(geometry,loaded).back());
+        check(workspace::step_part_document_history(test,document_id,false),"Rectangular Undo failed");
+        check(workspace::step_part_document_history(test,document_id,true),"Rectangular Redo failed");
+        check(state->session.document().serialized()==committed,"Rectangular Redo changed authored data");
+        const double volume=state->session.calculated_boundaries().back().volume;
+        for(bool unfold:{true,false}) {
+            auto change=document::PartDocument::create_sketch_container();
+            change.feature_kind=unfold?document::FeatureKind::Unbend:document::FeatureKind::BendBack;
+            change.sheet_state.all=true;
+            check(workspace::commit_sheet_state(test,geometry,document_id,change),"Rectangular state change failed");
+            const auto& result=state->session.calculated_boundaries().back();check_solid(result);
+            check(std::abs(result.volume-volume)<(unfold?volume*2e-4:1e-5),"Rectangular state changed material volume");
+        }
+        const auto file=std::filesystem::path("build/transition-model")/("native-rectangular-"+std::to_string(sides)+".prtz");
+        std::filesystem::create_directories(file.parent_path());
+        state->session.document().save(file,state->session.calculated_boundaries());
+        auto reopened=document::PartDocument::load(file);kernel::OcctKernel cold;
+        const auto recalculated=workspace::calculate_part_with_resolved_references(cold,reopened);
+        check_solid(recalculated.back());
+        check(std::abs(recalculated.back().volume-volume)<1e-5,"Cold rectangular state restoration changed volume");
+    }
     auto part=document::PartDocument::create_default();
     static_cast<void>(part.body_history.create_body("Transition test"));
     kernel::OcctKernel kernel;workspace::Workspace live;const auto id=part.document_id;
@@ -74,7 +127,7 @@ int main()try {
     check(workspace::commit_sheet_transition(live,kernel,id,placed),"Rigid placement did not commit");
     check(std::abs(state->session.calculated_boundaries().back().volume-volume)<1e-4,"Rigid placement changed volume");
     check(workspace::step_part_document_history(live,id,false)&&state->session.document().serialized()==created,"Rigid placement Undo failed");
-    for(const auto rotation:std::array<kernel::Vec3,2>{{{0,-15,0},{0,15,0}}}) {
+    for(const auto rotation:std::array<kernel::Vec3,3>{{{0,-15,0},{0,15,0},{8,-10,0}}}) {
         auto rotated=feature;rotated.sheet_transition.end_rotation=rotation;
         std::cout<<"Manufacturing relative tilt "<<rotation.x<<','<<rotation.y<<','<<rotation.z<<std::endl;
         check(workspace::commit_sheet_transition(live,kernel,id,rotated),"Relative rotated solid failed");

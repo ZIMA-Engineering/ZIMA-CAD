@@ -6115,12 +6115,19 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                     regions.regions,operations[current_operation],sheet_state_tolerance);
                 else {
                     const auto& compound=operations[current_operation];
+                    // Preserve the loft accuracy across a compound sheet's
+                    // converging bend junctions. Coarser deformation tolerances
+                    // can merge its closely spaced panel trims.
+                    double material_tolerance=std::numeric_limits<double>::max();
+                    if(const auto* group=std::get_if<FeatureGroupRequest>(&compound.primitive))
+                        for(const auto& primitive:group->children)if(const auto* sweep=std::get_if<Sweep3DRequest>(&primitive))
+                            material_tolerance=std::min(material_tolerance,sweep->linear_tolerance);
                     for(std::size_t i=0;i<compound.sheet_regions.size();++i) {
                         auto child=compound;child.sheet_regions.clear();child.sheet_material=compound.sheet_regions[i];
                         // Each child retains its own material domain, including
                         // the ownership needed for enclosed cuts before unfolding.
                         sheet_sources=sheet_state_sources::capture(sheet_sources,sheet_input,group_inputs[i],
-                            regions.regions,child,sheet_state_tolerance);
+                            regions.regions,child,sheet_state_tolerance,material_tolerance);
                     }
                 }
             }
@@ -6317,8 +6324,10 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
             if(const auto* state=std::get_if<SheetStateRequest>(&operation.primitive)) {
                 auto regions=sheet_material::regions_before(operations,operation_index);
                 static_cast<void>(sheet_material::change(regions,*state));
+                std::size_t expected_solids=0;
+                for(TopExp_Explorer it(result_shape,TopAbs_SOLID);it.More();it.Next())++expected_solids;
                 auto changed=sheet_state_sources::calculate(sheet_sources,
-                    regions.regions,state->tolerance,operation.owner_id);
+                    regions.regions,state->tolerance,operation.owner_id,expected_solids);
                 const auto bend_lines=sheet_material::bend_lines(operations,operation_index,regions,operation.owner_id);
                 // A state feature owns a new original solid. Earlier source
                 // objects remain immutable; every new child carries its input
