@@ -2,6 +2,15 @@
 
 ## Scope and status
 
+Windows build **2026092601** is signed and verified locally, not published.
+It includes Feature placement feedback, exact face highlighting, Origin display
+controls and configurable sweep precision. Twenty focused regression contracts
+and the five-language lifecycle contract passed, followed by committed-source
+packaging, signed archive smoke and production trust checks. The user-requested
+global green/azure swap is recorded for the next session and is not included.
+See [the acceptance record](releases/2026092601.md#signed-windows-acceptance)
+for the exact source, archive hash and separate Linear Pattern layout limitation.
+
 Windows build **2026092402** is signed and published. It adds expanding metadata
 tables, the Sheet Transition centre axis, template/material defaults for imported
 Parts and a cached area-weighted surface centroid. Ten focused regression
