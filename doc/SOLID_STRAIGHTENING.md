@@ -10,12 +10,15 @@ The Part Modeling commands are **Straighten** and **Restore shape** (Czech UI:
 formed and straight states can be used in Family Tables and drawings.
 
 Inputs are additive solid revolutions and sweeps, including helical sweeps,
-with a constant cross-section. Sheet metal, surfaces, subtractive features and
-variable cross-sections are outside the requested scope. Unsupported geometry
-must not be silently replaced by a constant initial section.
+with a constant cross-section. Sheet metal, surfaces and variable cross-sections
+are outside the requested scope. Subtractive features are not independently
+straightenable sources; supported holes in a source solid must nevertheless be
+preserved as described below. Unsupported geometry must not be silently replaced
+by a constant initial section.
 
-The output of straightening is an extrusion of the original cross-section.
-Its length is the length of the trajectory of the cross-section's area centroid,
+The base straightened solid is an extrusion of the original cross-section,
+with supported subsequent modifications retained. Its length is the length of
+the trajectory of the cross-section's area centroid,
 multiplied by a positive dimensionless coefficient. The reference is the section
 centroid trajectory, not the centroid of the complete solid or necessarily the
 authored guide curve. Cross-section dimensions remain unchanged.
@@ -25,8 +28,15 @@ authored guide curve. Cross-section dimensions remain unchanged.
 - `1.1` lengthens it by ten percent.
 
 This coefficient is a length multiplier, not a sheet-metal neutral-axis K-factor.
-Restore shape returns to the original authored geometry; repeated state changes
-must not accumulate coefficient multiplications.
+Restore shape restores the authored curved trajectory while retaining supported
+modifications added in the straight state. Repeated state changes must not
+accumulate coefficient multiplications or replace the current history with an
+old geometry snapshot.
+
+Representative inputs are L sections, rectangular hollow sections and wire.
+Straightening preserves the complete section, including inner and outer corner
+radii, wall thickness and enclosed voids. The coefficient changes only the
+developed length, not the cross-section dimensions.
 
 ## Verification targets
 
@@ -43,9 +53,58 @@ drawing source geometry. It must preserve source identities and use the existing
 in-application properties and reference-entry contracts. Geometry calculation
 belongs to explicit confirmation or regeneration.
 
-The treatment of later cuts, holes, fillets and other body modifications is
-awaiting clarification: a clean stock extrusion and a deformation preserving
-those modifications are different geometric operations.
+## Preservation of subsequent modifications
+
+The user confirmed on 2026-09-26 that fillets must survive straightening and
+holes in straight portions must be preserved. Producing clean stock while
+discarding those features does not satisfy the command's requirements.
+
+A hole intersecting a curved portion is explicitly unsupported in the first
+version. The user approved rejecting that operation with an explanation. The
+operation must leave the document and its calculated geometry unchanged; it must
+not remove the hole, move it speculatively, or partially commit other sources.
+Classifying only a hole's center is insufficient: its complete removed-material
+extent must lie in a supported straight portion. A hole crossing a straight/curved
+boundary is therefore unsupported as well.
+
+Fillets already present in the source profile remain part of that profile.
+Subsequent Fillet history operations require their corresponding edges to be
+resolved on the straightened geometry and their authored radii and contour
+direction to be retained. A nonlinear deformation of a finished fillet surface
+alone does not prove that the specified radius survived. Where an edge vanishes
+or a requested radius becomes impossible, reject the state change rather than
+silently suppress the fillet or reduce its radius.
+
+This preservation also applies in the opposite direction. The user explicitly
+confirmed the sequence `Source -> Straighten -> Fillet -> Restore shape`: the
+new Fillet must remain on the restored curved source. Reapply the authored
+treatment to the corresponding segment/edges in the target state, preserving
+its parameters and ancestry. Restoring only the geometry cached before
+Straighten would incorrectly discard that later edit.
+
+The current implementation exposes the required starting information through
+`HistoryContainer::edge_treatment` and `kernel::FilletRequest`: persisted edge
+references, radius values, the constant/linear mode, reversal and contour-start
+vertices. Sweeps and extrusions use different semantic edge roles. A later
+implementation must explicitly map their ancestry; copying an old edge key or
+matching edges by OCCT traversal order is not a valid correspondence.
+
+Additional acceptance cases are required before this capability is complete:
+
+| Case | Required result |
+| --- | --- |
+| Rounded source cross-section | Preserve the complete section, including its arcs |
+| Fillet applied after the source solid | Retain the authored fillet definition on corresponding edges |
+| Hole wholly inside a straight portion | Preserve the hole with that portion in the straightened state |
+| Hole intersecting a curved portion or transition | Explain the unsupported case and commit no changes |
+| Fillet invalid after straightening or coefficient change | Report the failed modification and commit no changes |
+| Restore shape after an accepted state change | Recover the authored shape with its holes and fillets |
+| New Fillet after Straighten, followed by Restore shape | Retain the new fillet on the corresponding restored segment |
+| Save/reopen, Undo/Redo and Family Table state changes | Preserve the same modifications and reference identities |
+
+These are implementation and verification requirements, not results of completed
+geometry tests. The treatment of other cuts and body modifications has not been
+generalized from the confirmed hole and fillet behavior.
 
 ## Command icons
 
