@@ -468,8 +468,9 @@ single-operation timings. For comparison, forcing the fine reconstruction on
 every compound region took 212.43 seconds for the same kernel matrix.
 Visual captures were
 inspected for the rectangular dialog and calculated three-axis L transition.
-These changes have not been published as a Windows release. Tooling access,
-forming sequence and untested near-singular input remain outside this evidence.
+These changes, including the apex follow-up below, are published in
+[Windows 2026092605](releases/2026092605.md). Tooling access, forming sequence
+and untested near-singular input remain outside this evidence.
 
 After the apex-relief and Boolean-volume checks, the same ten contracts passed
 again in 184.06 seconds. The geometry suite took 112.77 seconds, the native

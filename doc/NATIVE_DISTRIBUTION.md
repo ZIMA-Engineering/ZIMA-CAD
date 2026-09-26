@@ -2,6 +2,15 @@
 
 ## Scope and status
 
+Windows build **2026092605** is signed and published. It adds two-axis tilted
+half-transitions and rectangular L/U sheet transitions, blunts converging tips
+with weld relief, preserves sheet material during Unbend reconstruction and
+uses a straight-rim rectangular icon. Ten focused source contracts, fresh
+committed-source packaging, signed smoke/trust, packaged lifecycle, compact
+window, Drawing and transition GUI checks passed. Public asset hashes and
+production update discovery were verified. See [the release record](releases/2026092605.md)
+and [transition capability review](TRANSITION_COVERAGE.md).
+
 Windows build **2026092604** is signed and published. It fixes invisible/white-block
 Drawing views caused by incompatible OpenGL context formats and makes enabled
 Sketch entry buttons consistently azure. Six focused native checks, a fresh
