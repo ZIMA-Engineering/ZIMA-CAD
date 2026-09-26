@@ -2,6 +2,14 @@
 
 ## Scope and status
 
+Windows build **2026092604** is signed and published. It fixes invisible/white-block
+Drawing views caused by incompatible OpenGL context formats and makes enabled
+Sketch entry buttons consistently azure. Six focused native checks, a fresh
+committed-source build, candidate/signed smoke, production trust, packaged
+lifecycle, compact-window and Drawing checks passed. Downloaded public assets
+and production update discovery were verified. Solid straightening and the
+additional transition features are not included. See [the release record](releases/2026092604.md).
+
 Windows build **2026092603** is signed and published. It unifies azure geometry
 feedback and checked controls, strengthens confirmed wire, preserves through-all
 dash meaning and ships the approved angular ZC icon in both Windows executables.
