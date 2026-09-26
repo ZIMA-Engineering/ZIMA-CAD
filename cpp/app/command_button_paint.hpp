@@ -109,17 +109,18 @@ protected:
         if (button_->menu()) option.features|=QStyleOptionToolButton::HasMenu;
         QPainter painter(button_);
         button_->style()->drawComplexControl(QStyle::CC_ToolButton,&option,&painter,button_);
-        const bool active=button_->isEnabled() && (option.state & QStyle::State_On);
-        if(active) painter.fillRect(button_->rect().adjusted(1,1,-1,-1),QColor("#00D1FF"));
+        const bool highlighted=button_->isEnabled() &&
+            ((option.state & QStyle::State_On) || button_->property("zimaCommandAccent").toBool());
+        if(highlighted) painter.fillRect(button_->rect().adjusted(1,1,-1,-1),QColor("#00D1FF"));
         const int extent=button_->iconSize().width();
         const QRect icon_rect(6,(button_->height()-extent)/2,extent,extent);
         const auto icon=button_->icon();
         if (!icon.isNull()) icon.paint(&painter,icon_rect,Qt::AlignCenter,
             button_->isEnabled()?QIcon::Normal:QIcon::Disabled,
-            active?QIcon::On:QIcon::Off);
+            highlighted?QIcon::On:QIcon::Off);
         const int left=icon.isNull()?6:icon_rect.right()+5;
         auto palette=button_->palette();
-        if(active)palette.setColor(QPalette::ButtonText,QColor("#102027"));
+        if(highlighted)palette.setColor(QPalette::ButtonText,QColor("#102027"));
         button_->style()->drawItemText(&painter,button_->rect().adjusted(left,0,-16,0),
             Qt::AlignLeft|Qt::AlignVCenter|Qt::TextShowMnemonic,
             palette,button_->isEnabled(),button_->text(),QPalette::ButtonText);

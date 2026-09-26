@@ -149,6 +149,7 @@ void AssemblyWorkspaceWindow::rebuild_application_toolbar() {
         if (auto* button=qobject_cast<QToolButton*>(tools_toolbar_->widgetForAction(action))) {
             new LeftAlignedCommandLabel(button);
             button->setObjectName("applicationCommandButton");
+            button->setProperty("zimaCommandAccent", action == sketch_action_);
             button->setProperty("zimaCommandActive",action->property("zimaCommandActive"));
             if(!action->property("zimaActiveFeedbackInstalled").toBool()) {
                 action->setProperty("zimaActiveFeedbackInstalled",true);

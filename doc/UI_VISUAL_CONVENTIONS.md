@@ -1,5 +1,16 @@
 # Modeling and Sheet Metal visual conventions
 
+## Sketch command accent (after Windows 2026092603)
+
+The enabled Sketch command uses an azure background with dark text and icon
+marks, including while idle, to make the entry point easier to find. Disabled
+Sketch commands retain native disabled feedback. This presentation-only accent
+does not check the action or change command activation. Other idle commands keep
+their existing appearance. No user-visible text or translation keys changed.
+The Windows GUI rebuilt successfully; the existing shared UI and five-language
+translation contracts passed. This follow-up is not part of the published
+2026092603 archive.
+
 ## Azure wire and checked controls (2026-09-26 follow-up)
 
 This agreement supersedes the selected-wire and checked-button colours below.
