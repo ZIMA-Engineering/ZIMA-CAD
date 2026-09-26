@@ -38,6 +38,28 @@ Straightening preserves the complete section, including inner and outer corner
 radii, wall thickness and enclosed voids. The coefficient changes only the
 developed length, not the cross-section dimensions.
 
+## Attached downstream features
+
+The user explicitly requires downstream features attached to the final curved
+end face to follow that face when the source is straightened. Their positions
+and orientations must follow the corresponding target end frame. Restore shape
+must carry them back through the same dependency chain. This applies to features
+already present before a state change and to supported additions made in the
+straightened state; neither case may leave detached geometry at its old world
+coordinates.
+
+Consume the existing placement and explicit dependency-regeneration contracts.
+Retain the exact source identity, selected geometry side, orientation references
+and authored offsets. Do not copy world-space positions into persistent placement
+or silently redirect a reference to a nearby face. An unavailable or ambiguous
+correspondence must reject the change without partially committing it.
+
+Verification must include a source bend/sweep, a feature attached to its end face,
+and another feature attached to that child. Check both state directions, changed
+length coefficient, nonzero offsets, opposite sides at zero offset, save/reopen,
+Undo/Redo and Family Table regeneration. The existing shared placement solver is
+protected; this requirement does not authorize changing its general contract.
+
 ## Verification targets
 
 For a circular centroid trajectory of radius `R` and angular travel `theta` in
@@ -103,8 +125,67 @@ Additional acceptance cases are required before this capability is complete:
 | Save/reopen, Undo/Redo and Family Table state changes | Preserve the same modifications and reference identities |
 
 These are implementation and verification requirements, not results of completed
-geometry tests. The treatment of other cuts and body modifications has not been
+command tests. The treatment of other cuts and body modifications has not been
 generalized from the confirmed hole and fillet behavior.
+
+## Kernel feasibility check (2026-09-26)
+
+A disposable native C++ probe exercised the existing kernel operations without
+adding state commands or changing document data. It manually constructed both
+the formed and straight definitions, so it does not verify automatic conversion,
+state persistence, GUI behavior or source-reference remapping.
+
+- An L section with 20 mm legs and 4 mm thickness has area 144 mm2. Its centroid
+  was calculated independently from two rectangles. For a quarter-turn about the
+  test axis, straight extrusion volumes at coefficients 0.9, 1.0 and 1.1 agreed
+  with `area * centroid-trajectory length * coefficient` within 0.00001 mm3.
+- The same persisted longitudinal-edge reference and a 1 mm Fillet request
+  evaluated successfully on both the extruded and revolved versions. This proves
+  reuse for that specific original-edge case, not a general mapping for every
+  generated, split or treatment-created edge.
+- A two-segment L Sweep with a straight leg followed by a quarter-circle and its
+  manually straightened counterpart retained the hole in the straight leg.
+  Each subtraction removed `4 * pi` mm3 within 0.0001 mm3. The same subsequent
+  Fillet request also evaluated on both definitions.
+- A 20 x 20 mm hollow section with a 16 x 16 mm void retained the independently
+  expected 144 mm2 section area. A circular wire of radius 4 mm retained its
+  expected section area. Their straight extrusion volumes agreed with the
+  independent length/area calculations within 0.00001 mm3.
+
+The probe did not test automatic exclusion of curved-region holes, arbitrary
+Sweep transport, Helical Sweep, multiple bodies, or newly created Fillet topology
+referenced through a state container. Those remain required implementation work.
+
+The user identified a general spherical surface as a subsequent Part feature.
+It is outside this straightening implementation and outside the 2026092604
+Drawing maintenance release.
+
+## Pending approval: reference evaluation across a state boundary
+
+The existing `calculate_part_reference_state()` in
+`cpp/modules/workspace/src/model_calculation.cpp` supplies calculated original
+reference geometry to `PartDocument::resolve_constructions()`. Existing sheet
+state operations publish their own derived topology while earlier original
+reference packets remain immutable. Reusing that mechanism alone would leave a
+feature attached to the original curved end face at its original frame.
+
+The proposed extension is a history-boundary-specific reference view for solid
+state operations. It would resolve the same persisted source/semantic identity
+to the corresponding straight or restored end frame before the existing placement
+solver evaluates downstream containers. Descendants would then follow through
+the existing dependency passes. Authored source geometry and reference keys,
+side choices, offsets, input controls and the placement solver equations must
+remain unchanged. The reference view must be derived from native history and
+calculated reference data, including after a cold reopen; opening Properties
+must not invoke OCCT.
+
+This changes the geometry supplied to the protected shared placement contract.
+Explicit user approval was requested on 2026-09-26 and is still pending at this
+checkpoint. No shared placement or reference-resolution implementation has been
+edited for this proposal. Approval must precede those edits. The downstream
+chain, side, zero-offset, cold-reopen and Undo/Redo checks listed above remain
+acceptance gates, together with unchanged placement behavior in documents that
+contain no solid state operation.
 
 ## Command icons
 
