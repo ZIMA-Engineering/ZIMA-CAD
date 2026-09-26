@@ -23,8 +23,10 @@ terminal and a longer upper arm bevelled inward toward its opening. SVG and mult
 Windows ICO artwork agree and were inspected at 16, 24, 32 and 48 pixels on both
 light and dark backgrounds. This artwork-only refinement changes no UI text.
 
-The Windows GUI and portable `ZIMA-CAD.exe` launcher embed the same ICO resource;
-shortcuts use executable icon index 0. Linux installs the same SVG as
+The Windows GUI and portable `ZIMA-CAD.exe` launcher embed the same ICO resource.
+Development shortcuts explicitly use `cpp/app/windows/app-icon.ico`, avoiding
+the stale implicit EXE icon retained by an existing taskbar pin; portable
+shortcuts can use executable icon index 0. Linux installs the same SVG as
 `share/icons/hicolor/scalable/apps/zima-cad.svg`. The `zima-cad.desktop` entry
 uses `Icon=zima-cad`, matching the application's `setDesktopFileName("zima-cad")`
 identity for desktop/taskbar integration. Existing Linux installations need the
@@ -33,6 +35,11 @@ establish Linux panel behaviour or refresh an older installed Linux release.
 Windows verification extracted the shell icon from both rebuilt EXEs and obtained
 identical PNG hashes. The local desktop shortcut was refreshed with the
 repository-owned shortcut script. Linux panel verification remains pending.
+An existing development taskbar pin was subsequently updated from its implicit
+`,0` icon to the explicit ICO path, preserving its target, arguments and working
+directory. A targeted Windows `SHChangeNotify(SHCNE_UPDATEITEM)` notification was
+sent for the icon and shortcuts; Explorer and running applications were not
+restarted. Final taskbar appearance requires the user's visual confirmation.
 
 The change adds no mesh traversal, geometry regeneration or rendering pass.
 Paired measurements of the same 400-edge selected-wire scene at 800 x 600

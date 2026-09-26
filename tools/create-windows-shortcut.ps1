@@ -12,7 +12,8 @@ $shortcut = $shell.CreateShortcut([IO.Path]::GetFullPath($Destination))
 $shortcut.TargetPath = $executable
 $shortcut.Arguments = '--working-directory "' + $projectRoot + '"'
 $shortcut.WorkingDirectory = $projectRoot
-$shortcut.IconLocation = "$executable,0"
+$icon = Join-Path $projectRoot 'cpp\app\windows\app-icon.ico'
+$shortcut.IconLocation = if (Test-Path -LiteralPath $icon -PathType Leaf) { "$icon,0" } else { "$executable,0" }
 $shortcut.Description = 'ZIMA-CAD'
 $shortcut.WindowStyle = 1
 $shortcut.Save()
