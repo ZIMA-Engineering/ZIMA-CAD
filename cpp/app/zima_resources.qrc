@@ -23,6 +23,8 @@
     <file alias="icons/sheet-cut.svg">../../resources/icons/sheet-cut.svg</file>
     <file alias="icons/unbend.svg">../../resources/icons/unbend.svg</file>
     <file alias="icons/bend-back.svg">../../resources/icons/bend-back.svg</file>
+    <file alias="icons/straighten.svg">../../resources/icons/straighten.svg</file>
+    <file alias="icons/restore-shape.svg">../../resources/icons/restore-shape.svg</file>
     <file alias="icons/drawing-balloon.svg">../../resources/icons/drawing-balloon.svg</file>
     <file alias="icons/drawing-detail.svg">../../resources/icons/drawing-detail.svg</file>
     <file alias="icons/drawing-jog.svg">../../resources/icons/drawing-jog.svg</file>
