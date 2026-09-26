@@ -31,6 +31,26 @@ also uses an OpenGL paint surface for sheet lines, labels and annotations.
 Headless platforms retain their raster canvas; unavailable OpenGL geometry
 rendering falls back to the established exact software path.
 
+### Consistent GPU painter profile (2026-09-26)
+
+Offscreen sheet captures inherit the current canvas's OpenGL format, or the
+application default when no context is current. They must not force a legacy
+OpenGL 2.0 context alongside the application's core-profile canvas. That mixture
+caused Qt's image shader compilation to fail after placement/capture: a committed
+view retained its model geometry but appeared as a white rectangle or empty frame.
+
+The source-picker regression checks actual model strokes in the native GPU
+framebuffer, the captured window and the framebuffer after capture, for both Part
+and Assembly sources. It rejects both opaque white rectangles and missing strokes.
+The failure was reproduced before the fix; native GPU rendering and copies of two
+local saved Part models rendered correctly after matching the painter profiles.
+No source geometry, projection tolerance, persistence, placement convention or
+localization text changed. Linux native-driver verification remains separate.
+The Windows GUI and Drawing harness were rebuilt. Drawing UI, source insertion,
+view controls, breaks, details and the five-language translation contracts passed
+(six checks). Evidence is retained in ignored `build/drawing-*.log` and the native
+framebuffer/window captures.
+
 The Drawing owns an immutable source mesh snapshot for deferred output. Native
 Drawing format 21 / payload 13 saves shared source packets inside the `.drwz`,
 along with interactive edge depths. Part and Assembly formats are unchanged.

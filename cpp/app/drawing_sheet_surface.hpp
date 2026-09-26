@@ -15,7 +15,12 @@ class DrawingSheetSurface {
     bool available_{};
 public:
     DrawingSheetSurface() {
-        QSurfaceFormat format;format.setVersion(2,0);format.setDepthBufferSize(24);format.setStencilBufferSize(8);
+        // Qt's GPU painter must use the same shader profile for the sheet and
+        // its offscreen captures. Mixing a legacy capture with a core canvas
+        // invalidates the painter's image shaders when the canvas resumes.
+        QSurfaceFormat format=QOpenGLContext::currentContext()
+            ?QOpenGLContext::currentContext()->format():QSurfaceFormat::defaultFormat();
+        format.setDepthBufferSize(24);format.setStencilBufferSize(8);
         surface_.setFormat(format);surface_.create();context_.setFormat(surface_.format());available_=context_.create();
     }
     QImage render(QSize size,double ratio,const std::function<void(QPainter&)>& paint) {

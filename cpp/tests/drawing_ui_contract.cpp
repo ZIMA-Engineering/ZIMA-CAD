@@ -123,6 +123,37 @@ int verify_drawing_source_picker() {
                 require(properties&&properties->isVisible(),"Insert View did not continue from placement to properties");
                 properties->findChild<QDialogButtonBox*>()->button(accept?QDialogButtonBox::Ok:QDialogButtonBox::Cancel)->click();flush();
                 require(window.document_for_test().sheets.front().views.size()==(accept?1u:0u),"View OK/Cancel did not preserve the insertion transaction");
+                if(accept)require(!window.document_for_test().sheets.front().views.front().projected_edges.empty()&&
+                    !window.document_for_test().sheets.front().views.front().projected_triangles.empty(),
+                    "Committed Drawing view contains no model geometry");
+                if(accept&&QGuiApplication::platformName()!="offscreen"&&QGuiApplication::platformName()!="minimal") {
+                    const auto center=window.view_rectangle_center_for_test(window.document_for_test().sheets.front().views.front().id);
+                    auto* surface=canvas->findChild<QOpenGLWidget*>("drawingGpuSurface");
+                    require(center&&surface,"Committed view has no GPU surface or bounds");
+                    const auto frame=surface->grabFramebuffer();
+                    frame.save("build/drawing-insert-framebuffer.png");
+                    const auto verify_strokes=[](const QImage& frame,QPointF center,double scale) {
+                        const auto sample=QRect(qRound(center.x()*scale)-10,qRound(center.y()*scale)-10,20,20).intersected(frame.rect());
+                        int bright=0;for(int y=sample.top();y<=sample.bottom();++y)for(int x=sample.left();x<=sample.right();++x)
+                            bright+=qGray(frame.pixel(x,y))>220;
+                        require(!sample.isEmpty()&&bright<sample.width()*sample.height()*0.8,
+                            "Inserted wire view is an opaque white rectangle on the GPU canvas");
+                        int geometry_ink=0;
+                        const auto interior=QRect(qRound(center.x()*scale)-60,qRound(center.y()*scale)-60,120,120).intersected(frame.rect());
+                        for(int y=interior.top();y<=interior.bottom();++y)for(int x=interior.left();x<=interior.right();++x) {
+                            const auto color=frame.pixelColor(x,y);
+                            geometry_ink+=color.red()>50&&std::abs(color.red()-color.green())<5&&std::abs(color.red()-color.blue())<5;
+                        }
+                        require(geometry_ink>20,"Inserted Drawing view has no visible model strokes on the GPU canvas");
+                    };
+                    verify_strokes(frame,*center,frame.width()/double(surface->width()));
+                    // Capturing the widget uses a second GPU paint surface and
+                    // must not invalidate the live canvas's image shaders.
+                    const auto capture=window.grab().toImage();
+                    capture.save("build/drawing-insert-capture.png");
+                    verify_strokes(capture,canvas->mapTo(&window,center->toPoint()),capture.width()/double(window.width()));
+                    verify_strokes(surface->grabFramebuffer(),*center,frame.width()/double(surface->width()));
+                }
             }
             insert->trigger();flush();
             click(canvas,canvas->rect().center()+QPoint(180,0));
