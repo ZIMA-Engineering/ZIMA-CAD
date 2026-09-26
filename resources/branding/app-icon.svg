@@ -6,8 +6,7 @@
     fill="#26313B" stroke="#F3F6F8" stroke-width="2.5" stroke-linejoin="round"
   />
   <path
-    d="M120 40C113 27 102 21 90 21C70 21 58 38 58 64C58 90 70 107 90 107C102 107 113 101 120 88L106 80C102 87 97 91 90 91C80 91 74 81 74 64C74 47 80 37 90 37C97 37 102 41 106 48Z"
-    stroke="#26313B" stroke-width="4" stroke-linejoin="round"
+    d="M116 22H86Q66 22 66 42V86Q66 106 86 106H114L124 90H88Q82 90 82 84V44Q82 38 88 38H116Z"
     fill="#00D1FF"
   />
 </svg>
