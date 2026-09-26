@@ -39,7 +39,7 @@ An existing development taskbar pin was subsequently updated from its implicit
 `,0` icon to the explicit ICO path, preserving its target, arguments and working
 directory. A targeted Windows `SHChangeNotify(SHCNE_UPDATEITEM)` notification was
 sent for the icon and shortcuts; Explorer and running applications were not
-restarted. Final taskbar appearance requires the user's visual confirmation.
+restarted. The user subsequently confirmed the updated Windows taskbar icon.
 
 The change adds no mesh traversal, geometry regeneration or rendering pass.
 Paired measurements of the same 400-edge selected-wire scene at 800 x 600
@@ -54,7 +54,8 @@ compact-window and five-language translation contracts. The interaction colour
 fixture also passed with the Windows 11 style, including checked-button contrast,
 unchanged green confirmation marks, green container Origin icons, selected-wire
 thickness and through-all dash preservation. The native Windows GUI and embedded
-ICO resource were rebuilt; this follow-up has not been published as a new release.
+ICO resource were rebuilt. Windows release acceptance for this follow-up is
+recorded in [2026092603](releases/2026092603.md).
 
 ## Light and dark theme contrast (2026-09-26)
 
