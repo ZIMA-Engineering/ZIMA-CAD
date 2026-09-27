@@ -2,6 +2,17 @@
 
 ## Scope and status
 
+Windows build **2026092701** is signed and published. It adds explicit placement
+solution branches, parameter ordering and transition attachment/interaction
+updates. Focused source contracts, the full Bend suite, five-language GUI and
+Windows 11 interaction checks, fresh committed-source packaging, signed smoke
+and trust passed. Packaged lifecycle, compact-window, Drawing, transition and
+placement checks passed; downloaded public asset hashes and production update
+discovery were verified. The broader
+layout audit retains 20 independently reproduced existing failures, documented
+in [the release record](releases/2026092701.md). The agreed
+[desktop integration follow-up](DESKTOP_INTEGRATION.md) is not part of this build.
+
 Windows build **2026092605** is signed and published. It adds two-axis tilted
 half-transitions and rectangular L/U sheet transitions, blunts converging tips
 with weld relief, preserves sheet material during Unbend reconstruction and

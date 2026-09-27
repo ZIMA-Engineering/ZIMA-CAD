@@ -1,5 +1,18 @@
 # Linux build and distribution handoff — 2026-09-15
 
+## Supported desktop scope (2026-09-27)
+
+The user limited Linux desktop support and verification to **KDE Plasma and
+GNOME**. Other desktop environments are outside the supported scope. The next
+desktop-integration work must cover application launch, native document file
+associations and application/document icons in both supported environments.
+Record the tested desktop and session versions on the Linux host; Windows
+verification does not establish either environment's acceptance. This is a
+scope requirement for follow-up work, not a claim that registration or icon
+integration has already been implemented and verified.
+The agreed first-launch/Settings workflow is recorded in
+[Desktop integration](DESKTOP_INTEGRATION.md).
+
 ## Native Linux follow-up (2026-09-17)
 
 The repository now has a pinned OCCT SDK builder and a committed-source Linux
