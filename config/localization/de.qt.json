@@ -1,4 +1,13 @@
 {
+  "Desktop integration": "Desktop-Integration",
+  "Keep current registration": "Aktuelle Registrierung beibehalten",
+  "Register or repair": "Registrieren oder reparieren",
+  "Remove this registration": "Diese Registrierung entfernen",
+  "Register .prtz, .asmz, .drwz, .frmz and .tblz with their icons for this user. Existing default applications are preserved.": "Dateitypen .prtz, .asmz, .drwz, .frmz und .tblz mit ihren Symbolen für diesen Benutzer registrieren. Bestehende Standardanwendungen bleiben erhalten.",
+  "Default applications": "Standardanwendungen",
+  "Desktop integration is registered.": "Die Desktop-Integration ist registriert.",
+  "Desktop integration is not registered or needs repair.": "Die Desktop-Integration ist nicht registriert oder muss repariert werden.",
+  "Desktop integration could not be updated. Check write permissions and try again.": "Die Desktop-Integration konnte nicht aktualisiert werden. Prüfen Sie die Schreibrechte und versuchen Sie es erneut.",
   "A Part can contain only one sheet transition.": "Ein Teil darf nur einen Blechübergang enthalten.",
   "Větev řešení": "Lösungszweig",
   "Invalid placement solution branch": "Ungültiger Lösungszweig der Platzierung",

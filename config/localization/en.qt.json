@@ -1,4 +1,13 @@
 {
+  "Desktop integration": "Desktop integration",
+  "Keep current registration": "Keep current registration",
+  "Register or repair": "Register or repair",
+  "Remove this registration": "Remove this registration",
+  "Register .prtz, .asmz, .drwz, .frmz and .tblz with their icons for this user. Existing default applications are preserved.": "Register .prtz, .asmz, .drwz, .frmz and .tblz with their icons for this user. Existing default applications are preserved.",
+  "Default applications": "Default applications",
+  "Desktop integration is registered.": "Desktop integration is registered.",
+  "Desktop integration is not registered or needs repair.": "Desktop integration is not registered or needs repair.",
+  "Desktop integration could not be updated. Check write permissions and try again.": "Desktop integration could not be updated. Check write permissions and try again.",
   "A Part can contain only one sheet transition.": "A Part can contain only one sheet transition.",
   "Větev řešení": "Solution branch",
   "Invalid placement solution branch": "Invalid placement solution branch",

@@ -1,4 +1,5 @@
 #include "global_settings_dialog.hpp"
+#include "desktop_integration.hpp"
 #include "file_dialog.hpp"
 #include "updatespage.h"
 #include "updateservice.h"
@@ -173,6 +174,8 @@ GlobalSettingsDialog::GlobalSettingsDialog(
         : settings_.installation_root + "/config/config.ini";
     ai_ = new AiSettingsPage(ai_preferences_path_, sections_);
     sections_->addTab(ai_, tr("AI"));
+    desktop_ = desktop::settings_page(sections_);
+    sections_->addTab(desktop_, tr("Desktop integration"));
     connect(this, &QDialog::finished, updates_, [this] { updates_->cancelPendingInstallation(); });
     connect(this, &QDialog::rejected, this, [] {
         if (UpdateService::get()->busy()) UpdateService::get()->cancel();
@@ -226,7 +229,11 @@ bool GlobalSettingsDialog::submit() {
     const auto previous_ai = CadAi::preferences(ai_preferences_path_);
     if (updates_->save(&error)) {
         if (CadAi::savePreferences(ai_->values(), ai_preferences_path_, &error)) {
-            if (settings_.save(&error)) return true;
+            if (settings_.save(&error)) {
+                if (desktop::submit_settings(desktop_)) return true;
+                sections_->setCurrentWidget(desktop_);
+                return false;
+            }
             QString restore_ai_error;
             if (!CadAi::savePreferences(previous_ai, ai_preferences_path_, &restore_ai_error)) error += '\n' + restore_ai_error;
         }

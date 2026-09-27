@@ -1,4 +1,13 @@
 {
+  "Desktop integration": "Интеграция с рабочим столом",
+  "Keep current registration": "Сохранить текущую регистрацию",
+  "Register or repair": "Зарегистрировать или исправить",
+  "Remove this registration": "Удалить эту регистрацию",
+  "Register .prtz, .asmz, .drwz, .frmz and .tblz with their icons for this user. Existing default applications are preserved.": "Зарегистрировать .prtz, .asmz, .drwz, .frmz и .tblz с их значками для этого пользователя. Существующие приложения по умолчанию сохраняются.",
+  "Default applications": "Приложения по умолчанию",
+  "Desktop integration is registered.": "Интеграция с рабочим столом зарегистрирована.",
+  "Desktop integration is not registered or needs repair.": "Интеграция с рабочим столом не зарегистрирована или требует исправления.",
+  "Desktop integration could not be updated. Check write permissions and try again.": "Не удалось обновить интеграцию с рабочим столом. Проверьте права на запись и повторите попытку.",
   "A Part can contain only one sheet transition.": "Деталь может содержать только один переход листового металла.",
   "Větev řešení": "Ветвь решения",
   "Invalid placement solution branch": "Недопустимая ветвь решения размещения",

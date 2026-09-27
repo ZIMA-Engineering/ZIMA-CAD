@@ -8,9 +8,9 @@ same service. Do not maintain independent registration implementations for
 setup and the application.
 
 Supported desktop targets are Windows, KDE Plasma and GNOME. Other Linux
-desktop environments are outside the supported scope. This document records
-the agreed follow-up; the complete workflow is not yet implemented or verified
-and is not part of Windows build 2026092701.
+desktop environments are outside the supported scope. The native implementation
+is in `cpp/app/desktop_integration.cpp`; it is not included in the published
+Windows build 2026092702. Linux desktop acceptance remains required on Linux.
 
 ## User interaction
 
@@ -30,11 +30,48 @@ installation and preserve unrelated associations and user files.
 
 ## Platform boundaries
 
-Windows already has `tools/register-windows-file-types.ps1` for current-user
-registration of `.prtz`, `.asmz`, `.drwz`, `.frmz` and `.tblz`. It currently points
-at a selected executable. Trace and reuse its supported type definitions while
-adding the stable-launcher and application workflow; its existence does not
-establish completion of this design.
+`tools/register-windows-file-types.ps1` delegates to the native service used by
+Settings. It supports `-Action register`, `repair`, `remove` and `status`.
+The application exposes the same operations as
+`--desktop-integration=register|repair|remove|status`; status exits with 0 for
+complete registration, 1 for missing/incomplete registration, and 2 for errors.
+These operations do not open or change CAD documents.
+
+Settings contains a Desktop integration page. Select an operation and confirm
+with OK; Cancel leaves the registration unchanged. An installed runtime offers
+registration once for each user and installation location. Dismissing that
+offer preserves portable operation. Development builds expose the Settings
+page without an automatic offer and register their current executable.
+
+Installed runtimes resolve their installation using the existing validated
+runtime layout and register `ZIMA-CAD.exe` or `ZIMA-CAD.sh` in its root.
+The launcher path determines a separate registration identity for each copy.
+Version changes within that root retain the same identity. Moving a copy gives
+it a new identity and a fresh offer; entries for the previous location are not
+silently taken over. Remove a registration from its original location before
+moving or deleting that installation.
+
+Windows writes only current-user application capabilities, per-installation
+ProgIDs and OpenWith entries, document icons and a Start menu shortcut.
+It does not assign extension defaults or change protected UserChoice entries.
+The Default applications button opens the Windows settings page. Removal
+checks the stored owner before removing registration records, and checks the
+shortcut target before deleting it. Existing registrations from the former
+standalone script are not silently removed.
+
+Linux writes an application desktop entry, a shared-MIME-info package and SVG
+icons under the user's XDG data directory, then refreshes the MIME and desktop
+databases using `update-mime-database` and `update-desktop-database`.
+These tools must be installed on the Linux host. No `mimeapps.list` defaults
+are overwritten. Common document MIME icons are retained on removal because
+another installation can still use them. User-authored documents are never
+part of registration or removal.
+
+The five native extensions are `.prtz`, `.asmz`, `.drwz`, `.frmz` and `.tblz`.
+Document icons reuse the application's existing Part, Assembly, Drawing,
+Format and Title Block assets. Windows ICO files embed a 256-pixel PNG and
+Linux uses the original SVG assets. Icons are derived user-local resources,
+not native-document storage dependencies.
 
 Windows registration and the user's default-app selection are distinct.
 Register supported handlers and icons using supported mechanisms. When the
@@ -50,6 +87,22 @@ define the common integration layer. Complete Linux execution and acceptance on
 the Linux host; Windows tests cannot establish Linux desktop behavior.
 
 ## Acceptance for implementation
+
+Windows development verification on 2026-09-27 passed the native GUI build,
+the focused CTest contracts (desktop integration, translation coverage and
+construction reference Tree), and a separate native-registry run. The registry
+run used only `HKCU\Software\ZIMA-CAD-Tests\<temporary-id>` and temporary
+shortcuts/assets, then removed the test records. It covered registration,
+damaged-command repair, removal, foreign-owner protection, two installation
+identities, preserved existing defaults, Unicode/spaced launcher paths, and
+Windows loading all five ICO files. Five-language page checks and the real
+Settings page/Cancel GUI check passed. First-offer Cancel and declining without
+repeat were also checked. The existing registration wrapper passed `-WhatIf`.
+
+These checks do not establish file-manager/default-application acceptance on a
+real installed release. No actual user associations were changed by verification.
+KDE/GNOME execution and file-manager acceptance remain outstanding as described
+in [the Linux handoff](LINUX_RELEASE_HANDOFF.md).
 
 Verify registration, repair, removal and the unregistered portable path.
 Exercise opening each supported native file type from the file manager, paths

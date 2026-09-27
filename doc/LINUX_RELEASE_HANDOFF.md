@@ -13,6 +13,31 @@ integration has already been implemented and verified.
 The agreed first-launch/Settings workflow is recorded in
 [Desktop integration](DESKTOP_INTEGRATION.md).
 
+## Desktop integration implementation handoff (2026-09-27)
+
+The native shared service now has a Linux backend in
+`cpp/app/desktop_integration.cpp`, an internal first-launch offer, a Settings
+page, and `--desktop-integration=register|repair|remove|status`. Installed
+runtimes target the root `ZIMA-CAD.sh`. The backend writes user-local desktop,
+MIME and SVG resources, preserves default-app choices, and refreshes caches
+with `update-mime-database` and `update-desktop-database`.
+
+This backend has not been compiled or accepted on Linux. On the Linux host:
+
+1. Build the GUI and `zima_desktop_integration_tests` with the native toolchain.
+2. Validate the generated desktop entry with `desktop-file-validate` and the
+   MIME package with `update-mime-database` in an isolated XDG data directory.
+3. Test first-offer OK/Cancel, registration, repair, removal and Settings in
+   separate KDE Plasma and GNOME sessions; record session and desktop versions.
+4. Open all five supported native types from the file manager, including
+   paths with spaces and Unicode, and inspect application/document icons.
+5. Verify pre-existing default choices, two installation roots, version
+   switching, relocation and portable operation. Remove an old location's
+   registration before moving it; registration does not adopt another root.
+
+Windows registry and GUI results do not replace these gates. No Linux release
+or acceptance is claimed by this handoff.
+
 ## Native Linux follow-up (2026-09-17)
 
 The repository now has a pinned OCCT SDK builder and a committed-source Linux

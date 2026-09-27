@@ -1,4 +1,13 @@
 {
+  "Desktop integration": "Intégration au bureau",
+  "Keep current registration": "Conserver l’enregistrement actuel",
+  "Register or repair": "Enregistrer ou réparer",
+  "Remove this registration": "Supprimer cet enregistrement",
+  "Register .prtz, .asmz, .drwz, .frmz and .tblz with their icons for this user. Existing default applications are preserved.": "Enregistrer .prtz, .asmz, .drwz, .frmz et .tblz avec leurs icônes pour cet utilisateur. Les applications par défaut existantes sont conservées.",
+  "Default applications": "Applications par défaut",
+  "Desktop integration is registered.": "L’intégration au bureau est enregistrée.",
+  "Desktop integration is not registered or needs repair.": "L’intégration au bureau n’est pas enregistrée ou doit être réparée.",
+  "Desktop integration could not be updated. Check write permissions and try again.": "Impossible de mettre à jour l’intégration au bureau. Vérifiez les droits d’écriture et réessayez.",
   "A Part can contain only one sheet transition.": "Une pièce ne peut contenir qu’une seule transition de tôle.",
   "Větev řešení": "Branche de solution",
   "Invalid placement solution branch": "Branche de solution de placement non valide",

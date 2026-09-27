@@ -41,6 +41,7 @@
 #include "assembly_workspace_window.hpp"
 #include "application_settings.hpp"
 #include "startup_arguments.hpp"
+#include "desktop_integration.hpp"
 #include "instance_verification.hpp"
 #include "measurement_ui_verification.hpp"
 #include <QSettings>
@@ -12631,6 +12632,7 @@ int main(int argc, char* argv[]) {
     application.setApplicationName("ZIMA-CAD");
     application.setDesktopFileName("zima-cad");
     application.setWindowIcon(zima::app::application_icon());
+    if (const int result = zima::app::desktop::command_line(); result >= 0) return result;
     const auto arguments = application.arguments();
     auto startup = zima::app::parse_startup_arguments(arguments);
     QString startup_directory = startup.working_directory;
@@ -12707,6 +12709,7 @@ int main(int argc, char* argv[]) {
     zima::app::install_instance_verification(window, startup_directory);
     UpdateService::get()->acknowledgeStartup();
     UpdateService::get()->scheduleStartupCheck();
+    zima::app::desktop::offer_first_launch(&window);
     const int result = application.exec();
     if (!window.restart_state()) return result;
     startup_directory = window.restart_state()->working_directory;

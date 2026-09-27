@@ -1,4 +1,13 @@
 {
+  "Desktop integration": "Integrace do systému",
+  "Keep current registration": "Ponechat současnou registraci",
+  "Register or repair": "Zaregistrovat nebo opravit",
+  "Remove this registration": "Odebrat tuto registraci",
+  "Register .prtz, .asmz, .drwz, .frmz and .tblz with their icons for this user. Existing default applications are preserved.": "Zaregistrovat .prtz, .asmz, .drwz, .frmz a .tblz s jejich ikonami pro tohoto uživatele. Stávající výchozí aplikace zůstanou zachovány.",
+  "Default applications": "Výchozí aplikace",
+  "Desktop integration is registered.": "Integrace do systému je zaregistrována.",
+  "Desktop integration is not registered or needs repair.": "Integrace do systému není zaregistrována nebo potřebuje opravu.",
+  "Desktop integration could not be updated. Check write permissions and try again.": "Integraci do systému se nepodařilo aktualizovat. Zkontrolujte oprávnění k zápisu a zkuste to znovu.",
   "A Part can contain only one sheet transition.": "Díl může obsahovat pouze jeden přechod plechu.",
   "Větev řešení": "Větev řešení",
   "Invalid placement solution branch": "Neplatná větev řešení umístění",

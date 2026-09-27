@@ -13,6 +13,7 @@
 #include "sketch_properties_dialog.hpp"
 #include <zima/workspace/sketch_operations.hpp>
 #include <QTabBar>
+#include <QTabWidget>
 #include <QLabel>
 #include <zima/document/dimension_layout_json.hpp>
 #include <zima/drawing/drawing_template.hpp>
@@ -281,6 +282,23 @@ static int verify_general_command_console(QApplication& application,AssemblyWork
     const auto flush=[&]{application.processEvents();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);application.processEvents();};
     const auto run=[&](const QString& command){auto result=window.execute_console_command(command);if(!result.ok)throw std::runtime_error(command.toStdString()+": "+result.code+": "+result.message);return result;};
     try {
+        if(qEnvironmentVariableIsSet("ZIMA_VERIFY_DESKTOP_SETTINGS")) {
+            window.showMaximized();flush();
+            auto* action=window.findChild<QAction*>("globalSettingsAction");
+            check(action,"Settings action missing");action->trigger();flush();
+            auto* dialog=window.findChild<QDialog*>("globalSettingsDialog");
+            auto* page=dialog?dialog->findChild<QWidget*>("desktopIntegrationPage"):nullptr;
+            auto* tabs=dialog?dialog->findChild<QTabWidget*>():nullptr;
+            check(page&&tabs&&dialog->windowFlags().testFlag(Qt::SubWindow),"Desktop Settings page missing");
+            tabs->setCurrentWidget(page);flush();
+            auto* choice=page->findChild<QComboBox*>("desktopIntegrationAction");
+            check(choice&&choice->count()==3,"Desktop registration actions missing");
+            choice->setCurrentIndex(1);
+            window.grab().save(QString::fromStdString((directory/"desktop-settings.png").string()));
+            dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Cancel)->click();flush();
+            check(!window.findChild<QDialog*>("globalSettingsDialog"),"Cancel did not close Settings");
+            std::cout<<"Desktop integration Settings and Cancel passed\n";return 0;
+        }
         if(qEnvironmentVariableIsSet("ZIMA_VERIFY_PENDING_CURVE_POINT_ONLY")) {
             window.showMaximized();flush();
             for(const char* kind:{"part","assembly"}) {

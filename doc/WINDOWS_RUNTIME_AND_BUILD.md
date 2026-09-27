@@ -42,8 +42,12 @@ After a local build, `tools/create-windows-shortcut.ps1` creates or refreshes
 `zima-cad.lnk` on the Desktop. It points directly to the selected executable,
 sets the repository working directory and passes `--working-directory`.
 There is no console or script-host process in the ordinary desktop launch.
-Run `tools/register-windows-file-types.ps1` after building to associate the
-current document/template extensions with this EXE for the current user.
+Use Settings > Desktop integration or `tools/register-windows-file-types.ps1`
+after building to offer the current document/template handlers for this user.
+Both use the same native service. Installed runtimes register the stable
+installation-root launcher; local development registers the current EXE.
+Existing default applications are preserved; select defaults through Windows
+Default applications. See [Desktop integration](DESKTOP_INTEGRATION.md).
 External launches create separate processes; [instance numbering and project
 isolation](MULTIPLE_INSTANCES.md) apply to every external launch. The Window menu
 only switches documents within the current instance.

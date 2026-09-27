@@ -33,6 +33,7 @@ private:
     QTabWidget* sections_{};
     UpdatesPage* updates_{};
     AiSettingsPage* ai_{};
+    QWidget* desktop_{};
     QString ai_preferences_path_;
     QComboBox* language_{};
     QCheckBox* application_font_{};
