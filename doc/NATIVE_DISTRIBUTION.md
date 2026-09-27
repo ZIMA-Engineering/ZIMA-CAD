@@ -2,6 +2,14 @@
 
 ## Scope and status
 
+Windows build **2026092702** is signed and published. It adds Boundary Surface
+from four Sketch/3D Curve boundaries. Nine focused contracts, a complete
+committed-source rebuild, candidate/signed smoke, production trust and packaged
+lifecycle, compact-window, Drawing and Boundary Surface checks passed. All
+three downloaded public assets matched acceptance; production update discovery
+from 2026092701 passed. See [the release record](releases/2026092702.md) for
+scope, native-format changes and the existing unrelated layout-test limitations.
+
 Windows build **2026092701** is signed and published. It adds explicit placement
 solution branches, parameter ordering and transition attachment/interaction
 updates. Focused source contracts, the full Bend suite, five-language GUI and
