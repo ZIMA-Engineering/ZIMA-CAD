@@ -204,6 +204,12 @@ freedom (DOF), remove or replace a reference before adding another constraint.
 A missing stable reference never silently switches to another object by index,
 name or proximity; its retained independent values preserve meaningful state.
 
+A red Tree background reports a missing or invalid reference, not remaining
+degrees of freedom. Partially constrained 3D Curve points are valid. Their
+persisted Origin planes and axes remain valid reference owners even when those
+datums are hidden outside point editing. Repairing a missing reference clears
+the red Tree state.
+
 Every container has a complete local frame, including Point, Axis and Plane.
 Position uses up to three references, while two separate orientation slots define
 the base orientation. A vertex can constrain three translations. A straight axis

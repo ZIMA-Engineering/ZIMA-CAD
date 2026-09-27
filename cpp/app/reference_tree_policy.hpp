@@ -1,6 +1,7 @@
 #pragma once
 #include <zima/workspace/reference_index.hpp>
 #include <zima/assembly/assembly_document.hpp>
+#include "construction_reference_index.hpp"
 #include <algorithm>
 #include <set>
 #include <tuple>
@@ -117,6 +118,8 @@ inline zima::workspace::ReferenceIndex assembly_reference_index(const assembly::
     auto reference_document=document;
     for (auto& component : reference_document.components) component.visible=true;
     index.add_geometry(reference_document.build_scene().original_references);
+    for(const auto& object:document.constructions)
+        add_construction_origin_references(index,object);
     return index;
 }
 inline std::string occurrence_reference_issue(const assembly::PartOccurrence& component,const zima::workspace::ReferenceIndex& index) {
