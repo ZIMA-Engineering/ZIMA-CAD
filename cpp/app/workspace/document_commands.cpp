@@ -187,24 +187,24 @@ void AssemblyWorkspaceWindow::refresh_drawing_tree() {
     const QSignalBlocker blocker(tree_);
     tree_->clear(); tree_->setHeaderLabels({QString{}});
     auto* root=new QTreeWidgetItem(tree_,{QString::fromStdString(state->path.empty()?document.name:state->path.filename().string())});
-    root->setIcon(0,resource_icon("drawing"));
+    root->setIcon(0,resource_tree_icon("drawing"));
     root->setData(0,Qt::UserRole,QString::fromStdString(document.document_id));
     root->setData(0,Qt::UserRole+3,"drawing-document");
     const auto entity=[](QTreeWidgetItem* parent,const QString& label,const std::string& id,const char* icon) {
         auto* child=new QTreeWidgetItem(parent,{label});
         child->setData(0,Qt::UserRole,QString::fromStdString(id));
         child->setData(0,Qt::UserRole+3,"drawing-entity");
-        child->setIcon(0,resource_icon(icon));
+        child->setIcon(0,resource_tree_icon(icon));
     };
     for(const auto& sheet:document.sheets) {
         auto* sheet_item=new QTreeWidgetItem(root,{QString::fromStdString(sheet.name)});
-        sheet_item->setIcon(0,resource_icon("drawing-sheet"));
+        sheet_item->setIcon(0,resource_tree_icon("drawing-sheet"));
         sheet_item->setData(0,Qt::UserRole,QString::fromStdString(sheet.id));
         sheet_item->setData(0,Qt::UserRole+3,"drawing-sheet");
         for(const auto& symbol:sheet.symbol_annotations)entity(sheet_item,QString::fromStdString(symbols::Definition::from_serialized(symbol.symbol.definition).name),"drawing-symbol:"+symbol.symbol.id,"symbol");
         for(const auto& view:sheet.views) {
             auto* item=new QTreeWidgetItem(sheet_item,{QString::fromStdString(view.name)});
-            item->setIcon(0,resource_icon("drawing-view"));
+            item->setIcon(0,resource_tree_icon("drawing-view"));
             item->setData(0,Qt::UserRole,QString::fromStdString(view.id));
             item->setData(0,Qt::UserRole+3,"drawing-view");
             if(view.show_caption)entity(item,QString::fromStdString(view.name),"drawing-caption:"+view.id,"text");
@@ -216,7 +216,7 @@ void AssemblyWorkspaceWindow::refresh_drawing_tree() {
                 QTreeWidgetItem* group=nullptr;
                 for(const auto& annotation:view.model_annotations) {
                     if(annotation.kind!=kind||!annotation.visible)continue;
-                    if(!group){group=new QTreeWidgetItem(item,{kind==drawing::ModelAnnotationKind::Dimension?tr("Kóty"):kind==drawing::ModelAnnotationKind::Axis?tr("Osy"):kind==drawing::ModelAnnotationKind::Symbol?tr("Symboly"):tr("Konstrukční geometrie")});group->setIcon(0,resource_icon(kind==drawing::ModelAnnotationKind::Dimension?"drawing-dimension":kind==drawing::ModelAnnotationKind::Axis?"axis":kind==drawing::ModelAnnotationKind::Symbol?"symbol":"sketch"));}
+                    if(!group){group=new QTreeWidgetItem(item,{kind==drawing::ModelAnnotationKind::Dimension?tr("Kóty"):kind==drawing::ModelAnnotationKind::Axis?tr("Osy"):kind==drawing::ModelAnnotationKind::Symbol?tr("Symboly"):tr("Konstrukční geometrie")});group->setIcon(0,resource_tree_icon(kind==drawing::ModelAnnotationKind::Dimension?"drawing-dimension":kind==drawing::ModelAnnotationKind::Axis?"axis":kind==drawing::ModelAnnotationKind::Symbol?"symbol":"sketch"));}
                     const auto key=model_annotation_key(annotation.source);
                     auto label=QString::fromStdString(annotation.text);
                     if(annotation.model_symbol)label=QString::fromStdString(symbols::Definition::from_serialized(annotation.model_symbol->symbol.definition).name);
@@ -228,11 +228,11 @@ void AssemblyWorkspaceWindow::refresh_drawing_tree() {
                     child->setData(0,Qt::UserRole+4,QString::fromStdString(view.id));
                     child->setData(0,Qt::UserRole+5,QString::fromStdString(key));
                     child->setToolTip(0,QString::fromStdString(annotation.source.owner_id+" / "+annotation.source.semantic_id));
-                    child->setIcon(0,resource_icon(kind==drawing::ModelAnnotationKind::Dimension?"drawing-dimension":kind==drawing::ModelAnnotationKind::Axis?"axis":kind==drawing::ModelAnnotationKind::Symbol?"symbol":"sketch"));
+                    child->setIcon(0,resource_tree_icon(kind==drawing::ModelAnnotationKind::Dimension?"drawing-dimension":kind==drawing::ModelAnnotationKind::Axis?"axis":kind==drawing::ModelAnnotationKind::Symbol?"symbol":"sketch"));
                 }
                 if(kind==drawing::ModelAnnotationKind::Dimension)for(const auto& dimension:sheet.dimensions) {
                     if(dimension.view_id!=view.id)continue;
-                    if(!group){group=new QTreeWidgetItem(item,{tr("Kóty")});group->setIcon(0,resource_icon("drawing-dimension"));}
+                    if(!group){group=new QTreeWidgetItem(item,{tr("Kóty")});group->setIcon(0,resource_tree_icon("drawing-dimension"));}
                     auto label=QString::fromStdString(document.dimension_identifiers.identifier(document.document_id,"dimension:"+dimension.id));
                     if(label.isEmpty())label=tr("Měřená kóta");
                     const auto evaluation=drawing::evaluate_drawing_dimension(view,dimension);
@@ -242,7 +242,7 @@ void AssemblyWorkspaceWindow::refresh_drawing_tree() {
                     child->setData(0,Qt::UserRole+3,"drawing-dimension");
                     child->setData(0,Qt::UserRole+4,QString::fromStdString(view.id));
                     child->setData(0,Qt::UserRole+5,QString::fromStdString(dimension.id));
-                    child->setIcon(0,resource_icon("drawing-dimension"));
+                    child->setIcon(0,resource_tree_icon("drawing-dimension"));
                     if(dimension.kind==drawing::DrawingDimensionKind::Chain&&dimension.chain_group.empty()&&!dimension.chain_datum_only)for(std::size_t i=0;i<dimension.segments.size();++i) {
                         const auto& segment=dimension.segments[i];
                         auto text=QString::number(i+1);
@@ -252,7 +252,7 @@ void AssemblyWorkspaceWindow::refresh_drawing_tree() {
                         branch->setData(0,Qt::UserRole+3,"drawing-dimension");
                         branch->setData(0,Qt::UserRole+4,QString::fromStdString(view.id));
                         branch->setData(0,Qt::UserRole+5,QString::fromStdString(dimension.id));
-                        branch->setIcon(0,resource_icon("drawing-dimension"));
+                        branch->setIcon(0,resource_tree_icon("drawing-dimension"));
                     }
                 }
             }

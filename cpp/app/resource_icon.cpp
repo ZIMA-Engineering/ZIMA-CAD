@@ -159,23 +159,23 @@ static QIcon raster_resource_icon(const QString& name, bool surface) {
 // Rasterization remains cached; repainting with an unchanged palette reuses it.
 class PaletteIconEngine final : public QIconEngine {
 public:
-    PaletteIconEngine(QString name, bool surface) : name_(std::move(name)),surface_(surface) {}
-    QIconEngine* clone() const override { return new PaletteIconEngine(name_,surface_); }
+    PaletteIconEngine(QString name, bool surface, bool tree = false) : name_(std::move(name)),surface_(surface),tree_(tree) {}
+    QIconEngine* clone() const override { return new PaletteIconEngine(name_,surface_,tree_); }
     bool isNull() override { return current().isNull(); }
     QSize actualSize(const QSize& size,QIcon::Mode mode,QIcon::State state) override {
-        return current().actualSize(size,mode,state);
+        return current().actualSize(size,mode,tree_?QIcon::Off:state);
     }
     QList<QSize> availableSizes(QIcon::Mode mode,QIcon::State state) override {
-        return current().availableSizes(mode,state);
+        return current().availableSizes(mode,tree_?QIcon::Off:state);
     }
     QPixmap pixmap(const QSize& size,QIcon::Mode mode,QIcon::State state) override {
-        return current().pixmap(size,mode,state);
+        return current().pixmap(size,mode,tree_?QIcon::Off:state);
     }
     QPixmap scaledPixmap(const QSize& size,QIcon::Mode mode,QIcon::State state,qreal scale) override {
-        return current().pixmap(size,scale,mode,state);
+        return current().pixmap(size,scale,mode,tree_?QIcon::Off:state);
     }
     void paint(QPainter* painter,const QRect& rect,QIcon::Mode mode,QIcon::State state) override {
-        current().paint(painter,rect,Qt::AlignCenter,mode,state);
+        current().paint(painter,rect,Qt::AlignCenter,mode,tree_?QIcon::Off:state);
     }
 private:
     const QIcon& current() {
@@ -187,6 +187,8 @@ private:
     }
     QString name_;
     bool surface_;
+    // Tree expansion is not a checked command with an azure background.
+    bool tree_;
     qint64 palette_key_=-1;
     QIcon icon_;
 };
@@ -200,6 +202,12 @@ QIcon resource_icon(const QString& name,bool surface) {
 
 QIcon application_icon() {
     return svg_icon(QStringLiteral(":/zima/branding/app-icon.svg"), false);
+}
+
+QIcon resource_tree_icon(const QString& name) {
+    static QHash<QString,QIcon> icons;
+    if(!icons.contains(name))icons.insert(name,QIcon(new PaletteIconEngine(name,false,true)));
+    return icons.value(name);
 }
 
 }  // namespace zima::app

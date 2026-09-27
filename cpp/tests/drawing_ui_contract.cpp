@@ -26,6 +26,7 @@
 #include <zima/kernel/occt_kernel.hpp>
 #include "drawing_projection_fixture.hpp"
 #include "drawing_window.hpp"
+#include "resource_icon.hpp"
 #include <zima/workspace/workspace.hpp>
 #include <QAction>
 #include <QApplication>
@@ -90,6 +91,24 @@ void verify_drawing_depth_rendering() {
 
 int verify_drawing_source_picker() {
     try {
+        const auto original_palette=QApplication::palette();
+        const auto tree_icon=zima::app::resource_tree_icon("drawing-sheet");
+        for(const bool dark:{false,true}) {
+            auto palette=original_palette;palette.setColor(QPalette::WindowText,dark?Qt::white:Qt::black);
+            QApplication::setPalette(palette);
+            for(const auto* name:{"drawing","drawing-sheet","drawing-view","drawing-dimension","text","axis"}) {
+                const auto icon=zima::app::resource_tree_icon(name);
+                for(const auto mode:{QIcon::Normal,QIcon::Selected})
+                    require(icon.pixmap(24,24,mode,QIcon::On).toImage()==icon.pixmap(24,24,mode,QIcon::Off).toImage(),
+                        "Expanded drawing tree icon uses checked-command colours");
+            }
+            const auto image=tree_icon.pixmap(24,24).toImage();int opaque=0;
+            for(int y=0;y<image.height();++y)for(int x=0;x<image.width();++x)if(image.pixelColor(x,y).alpha()>200) {
+                ++opaque;require((image.pixelColor(x,y).lightness()>128)==dark,"Existing tree icon did not follow the palette");
+            }
+            require(opaque>10,"Drawing tree icon is blank");
+        }
+        QApplication::setPalette(original_palette);
         QTemporaryDir temporary;require(temporary.isValid(),"Cannot create drawing source fixtures");
         const auto directory=std::filesystem::u8path(temporary.path().toStdString());
         auto part=zima::document::PartDocument::create_default();
@@ -118,9 +137,27 @@ int verify_drawing_source_picker() {
                 insert->trigger();flush();
                 require(canvas->cursor().shape()==Qt::ArrowCursor,"View placement must retain the arrow cursor");
                 require(!unexpected_picker,"Insert View must directly start placement for a linked Drawing");
+                auto* preview_surface=canvas->findChild<QOpenGLWidget*>("drawingGpuSurface");
+                const auto before_preview=preview_surface?preview_surface->grabFramebuffer():QImage{};
+                const auto preview_start=std::chrono::steady_clock::now();
                 click(canvas,canvas->rect().center());
                 auto* properties=window.findChild<QDialog*>("drawingViewProperties");
                 require(properties&&properties->isVisible(),"Insert View did not continue from placement to properties");
+                if(preview_surface&&!before_preview.isNull()) {
+                    const auto image=preview_surface->grabFramebuffer();
+                    const double scale=image.width()/double(preview_surface->width());
+                    const auto center=canvas->rect().center();
+                    const auto area=QRect(qRound(center.x()*scale)-60,qRound(center.y()*scale)-60,120,120).intersected(image.rect());
+                    int changed=0;for(int y=area.top();y<=area.bottom();++y)for(int x=area.left();x<=area.right();++x) {
+                        const auto color=image.pixelColor(x,y);
+                        changed+=image.pixel(x,y)!=before_preview.pixel(x,y)&&color.red()>50&&
+                            std::abs(color.red()-color.green())<5&&std::abs(color.red()-color.blue())<5;
+                    }
+                    image.save("build/drawing-insert-properties-preview.png");
+                    require(changed>20,"Placed view properties display only a frame instead of model geometry");
+                }
+                std::cout<<"Placed "<<source_path.extension().string()<<" preview "
+                    <<std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-preview_start).count()<<" ms\n";
                 properties->findChild<QDialogButtonBox*>()->button(accept?QDialogButtonBox::Ok:QDialogButtonBox::Cancel)->click();flush();
                 require(window.document_for_test().sheets.front().views.size()==(accept?1u:0u),"View OK/Cancel did not preserve the insertion transaction");
                 if(accept)require(!window.document_for_test().sheets.front().views.front().projected_edges.empty()&&

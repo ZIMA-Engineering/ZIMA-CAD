@@ -307,8 +307,10 @@ verification below supersede its pending correction list.
 Placement now uses separate rectangular bounds, never a placeholder model edge.
 Ordinary and projected placement reuse available source bounds without opening
 the native source. A first view with no available bounds uses a provisional
-40 by 30 model-unit frame. New-view properties retain this frame until OK;
-explicit geometry-dependent tools still prepare their real input when invoked.
+40 by 30 model-unit frame. As updated on 2026-09-27, clicking the placement
+opens Properties with an interactive model preview instead of retaining the
+frame until OK. This consumes calculated viewer geometry through the existing
+depth-tested preview path, without exact vector hidden-line subdivision.
 Selection changes only the cyan view rectangle, leaving geometry colors intact.
 
 Existing-view previews reuse projection and measurement data when only name,
@@ -473,3 +475,35 @@ Evidence: `build/drawing-commit-baseline.log`,
 rebuilt successfully for `zima-cad.bat`. Profiling is opt-in through
 `ZIMA_DRAWING_PROFILE_COMMIT=1`; the real-file GUI probe additionally accepts
 `ZIMA_DRAWING_PROFILE_WHEEL=1` for mouse-wheel input.
+
+## Placed-view preview and tree contrast (2026-09-27)
+
+New-view Properties now uses the same cached projection path as existing-view
+Properties. Placement movement remains frame-only. Position, name, scale and
+display changes reuse the prepared geometry; source, orientation and section
+changes invalidate it. OK remains the only insertion transaction and Cancel
+discards the preview. PDF and vector export retain their exact output path.
+
+Drawing tree icons use palette-aware tree rendering for both collapsed and
+expanded items. Expansion no longer selects the dark icon variant intended for
+checked commands on an azure background. Existing icons still follow palette
+changes, and selected icons retain the highlighted-text colour.
+
+The source-picker GUI contract covers Part and Assembly insertion previews,
+framebuffer content before confirmation, OK/Cancel and light/dark tree icon
+states. The Feature GUI contract also checks operation-button hover stability:
+unchanged plus/minus icons are no longer recreated on Enter/Leave or toggling;
+they are regenerated only when the device pixel ratio changes. No UI strings
+or native document formats changed.
+
+Verification: the Feature hover test, five Drawing GUI contracts (general,
+view controls, breaks, details and source picker), three Drawing command
+contracts (views, dimensions and hatching), and translation coverage passed.
+The native Windows source-picker probe measured 103-132 ms for placement click
+through preview capture on its small generated Part/Assembly fixtures. These
+numbers include framebuffer readback and are not a large-assembly benchmark.
+The earlier DGST fixture could not be remeasured because its saved Sketch format
+is no longer supported; it was not modified. Logs are
+`build/ui-hover-drawing-tests.log`, `build/drawing-preview-source-test.log` and
+`build/drawing-preview-core-tests.log`. The current application was rebuilt for
+the unchanged `zima-cad.bat` launcher.

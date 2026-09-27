@@ -9,20 +9,17 @@ class ProfileOperationButton final : public QPushButton {
 public:
     ProfileOperationButton(bool add,const QString& text,QWidget* parent)
         : QPushButton(text,parent),add_(add) {
-        connect(this,&QPushButton::toggled,this,[this]{update_icon(underMouse());});
-        update_icon(false);
+        update_icon();
     }
 protected:
     bool event(QEvent* event) override {
         const bool handled=QPushButton::event(event);
-        if(event->type()==QEvent::Enter)update_icon(true);
-        else if(event->type()==QEvent::Leave)update_icon(false);
-        else if(event->type()==QEvent::EnabledChange)update_icon(underMouse());
+        if(event->type()==QEvent::DevicePixelRatioChange)update_icon();
         return handled;
     }
 private:
     bool add_;
-    void update_icon(bool hovered) {
+    void update_icon() {
         const qreal scale=devicePixelRatioF();
         QPixmap pixmap(QSize(18,18)*scale);pixmap.setDevicePixelRatio(scale);pixmap.fill(Qt::transparent);
         QPainter painter(&pixmap);

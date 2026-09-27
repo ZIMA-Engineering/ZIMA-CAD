@@ -2930,9 +2930,9 @@ void DrawingWindow::show_view_properties(zima::drawing::DrawingView view, bool c
                 commit_view(std::move(accepted),sheet_id,creating,cache.get());
                 return true;
             } catch (const std::exception& exception) { error(tr(exception.what())); return false; }
-        }, [this,project,error,creating](auto pending) {
+        }, [this,project,error](auto pending) {
             if(!pending){canvas_->set_preview({});return;}
-            try { if(!creating)project(*pending,true); canvas_->set_preview(std::move(pending),creating); error({}); }
+            try { project(*pending,true); canvas_->set_preview(std::move(pending)); error({}); }
             catch (const std::exception& exception) { canvas_->set_preview({});error(tr(exception.what())); }
         },[this](const auto& id,auto path){
             if(path.is_relative()&&!path_.empty())path=path_.parent_path()/path;

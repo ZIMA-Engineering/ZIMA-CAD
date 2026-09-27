@@ -114,6 +114,28 @@ int main(int argc,char** argv) {
     const auto flush=[&] {QElapsedTimer timer;timer.start();while(timer.elapsed()<50){application.processEvents();QThread::msleep(2);}};
     auto* type=dialog.findChild<QComboBox*>("featureType");
     try {
+        const auto initial_type=type->currentIndex();type->setCurrentIndex(4);flush();
+        QCursor::setPos(parent.mapToGlobal(QPoint(5,parent.height()-5)));flush();
+        auto* result_group=dialog.findChild<QGroupBox*>("featureResultGroup");
+        auto* add=dialog.findChild<QPushButton*>("featureAdd");
+        auto* subtract=dialog.findChild<QPushButton*>("featureSubtract");
+        const auto result_rect=result_group->geometry(),add_rect=add->geometry(),subtract_rect=subtract->geometry();
+        const auto dialog_rect=dialog.geometry();
+        const auto initial_parameters=dialog.pending_value().feature;
+        for(int pass=0;pass<3;++pass)for(auto* button:{subtract,add}) {
+            const auto icon_key=button->icon().cacheKey();
+            QCursor::setPos(button->mapToGlobal(button->rect().center()));flush();
+            QEnterEvent enter(button->rect().center(),button->rect().center(),button->mapToGlobal(button->rect().center()));
+            QApplication::sendEvent(button,&enter);flush();
+            if(button->icon().cacheKey()!=icon_key)
+                throw std::runtime_error("Operation hover replaces its unchanged icon and invalidates layout");
+            if(result_group->geometry()!=result_rect||add->geometry()!=add_rect||subtract->geometry()!=subtract_rect||dialog.geometry()!=dialog_rect)
+                throw std::runtime_error("Hovering a Feature operation changes the parameter block geometry");
+            QCursor::setPos(parent.mapToGlobal(QPoint(5,parent.height()-5)));flush();
+            if(result_group->geometry()!=result_rect||dialog.pending_value().feature!=initial_parameters)
+                throw std::runtime_error("Leaving a Feature operation changes geometry or parameters");
+        }
+        type->setCurrentIndex(initial_type);flush();
         auto* first=dialog.findChild<QComboBox*>("featureSideMode0");
         auto* second=dialog.findChild<QComboBox*>("featureSideMode1");
         auto* first_end=dialog.findChild<QComboBox*>("featureSideEnd0");
