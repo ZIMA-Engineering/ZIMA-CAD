@@ -9,7 +9,7 @@ inline kernel::Appearance component_appearance(const PartDocument& doc) {
             appearance.groups.push_back({"face-"+key,"Plochy "+std::to_string(appearance.groups.size()+1),{},kernel::SurfaceStyle{color,.55,0},{key}});
     appearance.owner_bodies.clear();
     for(const auto& feature:doc.history)if(const auto* body=doc.body_history.owner(feature.id))appearance.owner_bodies[feature.id]=body->scope.id;
-    for(const auto& body:doc.body_history.bodies())if(body.derived_copy)appearance.owner_bodies[body.scope.id]=body.scope.id;
+    for(const auto& body:doc.body_history.bodies())if(body.derived_copy||body.scale||body.link)appearance.owner_bodies[body.scope.id]=body.scope.id;
     return appearance;
 }
 inline void append_component_mesh(zima::kernel::ViewerMesh& target,
@@ -73,7 +73,7 @@ inline zima::kernel::BodyResult component_source(const PartDocument& document, c
         mesh.axes.clear();
         mesh.constraint_markers.clear();
         if (const auto* body = document.body_owner_for_object(sketch.id)) {
-            if (!body->visible) continue;
+            if (!body->visible || body->suppressed) continue;
             mesh = document.place_body_mesh(std::move(mesh),body->scope.id);
         }
         append_component_mesh(result.mesh,mesh);

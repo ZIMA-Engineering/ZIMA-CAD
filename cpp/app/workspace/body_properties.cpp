@@ -1,5 +1,9 @@
 #include "workspace_internal.hpp"
 #include <zima/workspace/body_operations.hpp>
+#include <zima/workspace/body_link_operations.hpp>
+#include <zima/document/body_origin_attachment.hpp>
+#include <zima/document/file_path.hpp>
+#include <zima/kernel/stable_id.hpp>
 
 namespace zima::app {
 using namespace workspace_detail;
@@ -25,7 +29,7 @@ void AssemblyWorkspaceWindow::activate_first_part_body() {
     const auto& graph = part->session.document().body_history;
     for (const auto& id : graph.order()) {
         const auto* body = graph.find(id);
-        if (body && !body->derived_copy) {
+        if (body && !body->derived_copy && !body->scale && !body->link && !body->suppressed) {
             part->session.activate_body(id);
             return;
         }
@@ -41,15 +45,35 @@ void AssemblyWorkspaceWindow::activate_body(const std::string& id) {
     preserve_view_on_refresh_ = true; refresh_tabs(); refresh_scene();
 }
 
-void AssemblyWorkspaceWindow::show_body_properties(const std::string& id) {
+void AssemblyWorkspaceWindow::insert_linked_body(const QString& requested_file) {
+    if(properties_dialog_)return;
+    const auto* part=workspace_.open_part(workspace_.active_document_id());
+    if(!part||!part->session.document().body_history.active_body_id().empty())return;
+    const auto file=requested_file.isEmpty()?open_file(this,tr("Insert Body from Part"),
+        QString::fromStdString(zima::document::path_to_utf8(working_directory_)),tr("ZIMA-CAD Part (*.prtz)"),application_settings_.translations):requested_file;
+    if(file.isEmpty())return;
+    try {
+        const auto source=workspace::read_body_link_source(workspace_,std::filesystem::u8path(file.toStdString()));
+        const auto available=workspace::body_link_source_bodies(source);
+        if(available.empty())throw std::invalid_argument("The selected source Body is unavailable.");
+        zima::document::BodyHistory body;body.scope.id=zima::kernel::make_stable_id();
+        body.name=source.document.name;body.scope.placement=zima::document::body_origin_attachment(part->session.document().document_id);
+        body.link=workspace::body_link_from_source(source,available.front(),body.scope.id);
+        show_body_properties({},std::move(body));
+    }catch(const std::exception& error){state_->setText(tr(error.what()));}
+}
+
+void AssemblyWorkspaceWindow::show_body_properties(const std::string& id,std::optional<zima::document::BodyHistory> link_draft) {
     if (properties_dialog_) return;
     const auto document_id = workspace_.active_document_id();
     auto* part = workspace_.open_part(document_id);
     if (!part || document_id != workspace_.displayed_document_id()) return;
     auto pending = part->session.document();
     if(!id.empty() && !pending.body_history.find(id))return;
-    const auto edit=workspace::prepare_body_edit(pending,id,
+    const bool linked=link_draft.has_value()||(!id.empty()&&pending.body_history.find(id)->link.has_value());
+    auto edit=linked?workspace::prepare_body_link_edit(pending,id):workspace::prepare_body_edit(pending,id,
         tr("Těleso %1").arg(pending.body_history.bodies().size()+1).toStdString());
+    if(link_draft){edit.object_id=link_draft->scope.id;static_cast<void>(edit.pending.create_link(*link_draft));}
     auto graph=edit.pending;
     const auto edited=edit.object_id;
     const auto* source = graph.find(edited);
@@ -60,10 +84,30 @@ void AssemblyWorkspaceWindow::show_body_properties(const std::string& id) {
     const auto position = static_cast<std::size_t>(std::distance(graph.order().begin(), std::ranges::find(graph.order(), edited)));
     body_dialog_context_ = graph.available_before(position);
     auto* dialog = new BodyPropertiesDialog(*source, graph.active_body_id() == edited,
-        [this, edit](zima::document::BodyHistory value, bool active) {
-            try {static_cast<void>(workspace::commit_body_edit(workspace_,kernel_,edit,std::move(value),active));}
+        [this, edit,linked](zima::document::BodyHistory value, bool active) {
+            try {if(linked)static_cast<void>(workspace::commit_body_link(workspace_,kernel_,edit,std::move(value)));
+                else static_cast<void>(workspace::commit_body_edit(workspace_,kernel_,edit,std::move(value),active));}
             catch(const workspace::BodyOperationError& error) {throw std::runtime_error(tr(error.what()).toStdString());}
         }, this, document_decimal_places(part->session.document()));
+    if(linked) {
+        dialog->setObjectName("bodyLinkDialog");
+        try {
+            auto input=std::make_shared<workspace::BodyLinkSource>(workspace::read_body_link_source(workspace_,source->link->source_path,source->link->document_id));
+            auto* form=new QFormLayout;auto* file=new QLineEdit(QString::fromStdString(zima::document::path_to_utf8(input->path)),dialog);
+            file->setReadOnly(true);form->addRow(tr("Source Part"),file);
+            auto* choices=new QComboBox(dialog);choices->setObjectName("bodyLinkSourceBody");
+            for(const auto& candidate:workspace::body_link_source_bodies(*input)) {
+                const auto* body=input->document.body_history.find(candidate);const auto* boolean=input->document.body_history.find_boolean(candidate);
+                choices->addItem(QString::fromStdString(body?body->name:boolean->name),QString::fromStdString(candidate));
+            }
+            choices->setCurrentIndex(choices->findData(QString::fromStdString(source->link->body_id)));
+            form->addRow(tr("Source Body"),choices);dialog->content_layout()->insertLayout(1,form);
+            connect(choices,&QComboBox::currentIndexChanged,dialog,[this,dialog,choices,input,edited](int) {
+                try {dialog->set_link_source(workspace::body_link_from_source(*input,choices->currentData().toString().toStdString(),edited));}
+                catch(const std::exception& error){state_->setText(tr(error.what()));}
+            });
+        }catch(const std::exception& error){delete dialog;body_dialog_preview_.reset();body_dialog_context_.reset();body_dialog_step_id_.clear();state_->setText(tr(error.what()));return;}
+    }
     primitive_reference_geometry_ = part->session.calculated_boundaries().empty()
         ? zima::kernel::ViewerReferenceGeometry{} : part->session.calculated_boundaries().back().mesh.original_references;
     append_reference_geometry(primitive_reference_geometry_, pending.origin_viewer_mesh().original_references);
@@ -100,12 +144,20 @@ void AssemblyWorkspaceWindow::show_body_properties(const std::string& id) {
         dialog->set_resolved_rotation({placement.rotation_x,placement.rotation_y,placement.rotation_z},valid);
         auto graph=body_dialog_preview_->body_history;
         if (value.name.empty()) value.name=graph.find(edited)->name;
-        graph.update_body(std::move(value));graph.activate(edited);
+        const bool linked=value.link.has_value();
+        graph.update_body(std::move(value));if(!linked)graph.activate(edited);
         body_dialog_preview_->set_body_history(std::move(graph));
         const auto active_reference=pending_primitive_reference_index_;
         preserve_view_on_refresh_=true;refresh_scene();
         if (active_reference) start_primitive_reference_selection(*active_reference);
         viewer_->set_constraint_reference_highlights({},highlighted_reference_edge_keys(*dialog));
+        if(linked) {
+            const auto* body=body_dialog_preview_->body_history.find(edited);
+            zima::kernel::ViewerMesh wire;wire.edges=body->link->calculated->mesh.edges;
+            wire=body_dialog_preview_->place_body_mesh(std::move(wire),edited);
+            for(auto& edge:wire.edges)edge.overlay=true;
+            viewer_->set_transient_edges(std::move(wire.edges));
+        }
     };
     dialog->set_preview_callback(preview);
     connect(dialog,&QDialog::finished,this,[this,dialog] {
@@ -114,6 +166,7 @@ void AssemblyWorkspaceWindow::show_body_properties(const std::string& id) {
         pending_primitive_reference_index_.reset();primitive_reference_auto_advance_=false;
         tree_->setProperty("commandSelectionActive",false);
         viewer_->set_constraint_reference_highlights({},{});
+        if(dialog->objectName()=="bodyLinkDialog")viewer_->set_transient_edges({});
     });
     finish_body_dialog(dialog);
     preview(dialog->pending_value());

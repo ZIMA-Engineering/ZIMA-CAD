@@ -462,6 +462,8 @@ void AssemblyWorkspaceWindow::create_actions() {
     pattern_action_=make_action(tr("Pole"),"pattern");pattern_action_->setObjectName("patternAction");
     pattern_action_->setToolTip(tr("Lineární nebo kruhové kopie vybraného tělesa či komponenty."));
     connect(pattern_action_,&QAction::triggered,this,[this]{show_derived_copy_properties({},true);});
+    body_scale_action_=make_action(tr("Body scale"),"scale");body_scale_action_->setObjectName("bodyScaleAction");
+    connect(body_scale_action_,&QAction::triggered,this,[this]{show_body_scale_properties();});
     sweep_3d_action_ = make_action(tr("3D tažení"), "sweep");
     sweep_3d_action_->setToolTip(tr("3D tažení / přechod mezi profily podél prostorové dráhy."));
     sweep2d_action_ = make_action(tr("2D tažení"), "sweep2d");

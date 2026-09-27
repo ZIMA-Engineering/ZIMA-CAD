@@ -48,7 +48,7 @@ bool commit_body_edit(Workspace& workspace,const kernel::OcctKernel& kernel,
     auto& state=checked(workspace,edit);
     const auto* initial=edit.pending.find(edit.object_id);
     if(!initial || value.scope.id!=edit.object_id || value.entries!=initial->entries ||
-        value.cursor!=initial->cursor || value.dependencies!=initial->dependencies || value.derived_copy!=initial->derived_copy)
+        value.cursor!=initial->cursor || value.dependencies!=initial->dependencies || value.derived_copy!=initial->derived_copy || value.scale!=initial->scale || value.link!=initial->link)
         throw BodyOperationError("body_identity_changed","Body properties cannot replace identity, contents or dependencies.");
     auto graph=edit.pending;graph.update_body(std::move(value));
     if(active)graph.activate(edit.object_id);
@@ -77,6 +77,20 @@ bool activate_part_body(Workspace& workspace,const std::string& id,const std::st
     if(state.session.document().body_history.active_body_id()==body_id)return false;
     auto next=state.session.document();next.body_history.activate(body_id);
     state.session.commit(std::move(next),state.session.calculated_boundaries());return true;
+}
+bool set_part_body_suppressed(Workspace& workspace,const kernel::OcctKernel& kernel,
+    const std::string& id,const std::string& body_id,bool suppressed) {
+    auto& state=part(workspace,id);auto graph=state.session.document().body_history;
+    if(suppressed&&graph.active_body_id()==body_id)
+        throw BodyOperationError("active_body","An active Body cannot be suppressed.");
+    if(const auto* body=graph.find(body_id)) {
+        if(body->suppressed==suppressed)return false;
+        auto value=*body;value.suppressed=suppressed;graph.update_body(std::move(value));
+    } else if(const auto* operation=graph.find_boolean(body_id)) {
+        if(operation->suppressed==suppressed)return false;
+        auto value=*operation;value.suppressed=suppressed;graph.update_boolean(std::move(value));
+    } else throw BodyOperationError("body_not_found","The requested Body does not exist.");
+    return calculate_and_commit(state,kernel,std::move(graph),false);
 }
 bool set_body_history_cursor(Workspace& workspace,const std::string& id,std::size_t index,const std::string& body_id) {
     auto& state=part(workspace,id);auto next=state.session.document();

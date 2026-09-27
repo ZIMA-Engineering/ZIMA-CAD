@@ -132,6 +132,41 @@ int main() {
             return kernel::HistoryOperation{entry.id, zima::test::ProfilePrism{10,10,10}};
         };
         kernel::OcctKernel kernel;
+        {
+            document::BodyHistoryGraph source_graph;
+            const auto source=source_graph.create_body("Source");
+            source_graph.insert({document::PartHistoryKind::Feature,"source-box"});
+            auto hidden=*source_graph.find(source);hidden.suppressed=true;
+            const auto before=source_graph.serialized();
+            rejects([&]{source_graph.update_body(hidden);});
+            require(source_graph.serialized()==before,"Suppressing active Body partly committed");
+            document::BodyHistory reflected;reflected.name="Mirror";
+            reflected.derived_copy=document::DerivedCopyParameters{};
+            reflected.derived_copy->source_id=source;
+            reflected.derived_copy->resolved_plane={{0,0,0},{1,0,0}};
+            const auto mirror=source_graph.create_derived_copy(reflected);
+            const auto both=kernel.evaluate_history(source_graph.compile(compiler));
+            volume(both.back(),2000);
+            source_graph.update_body(hidden);
+            rejects([&]{source_graph.activate(source);});
+            rejects([&]{source_graph.move_body(mirror,0);});
+            rejects([&]{source_graph.move_body(source,1);});
+            require(source_graph.visible_context()==std::vector<std::string>{mirror},"Suppressed source remains visible");
+            auto operations=source_graph.compile(compiler);
+            const auto result=kernel.evaluate_history_incremental(operations,both);
+            volume(result.back(),1000);
+            volume(result.back().body_outputs.at(source),1000);
+            volume(result.back().body_outputs.at(mirror),1000);
+            require(source_graph.find(source)->entries.size()==1,"Body suppression removed source history");
+            const auto restored=document::BodyHistoryGraph::from_serialized(source_graph.serialized());
+            require(restored==source_graph,"Body suppression did not survive persistence");
+            std::get<kernel::ExtrusionRequest>(operations.front().primitive).direction.z=20;
+            const auto changed=kernel.evaluate_history_incremental(operations,result);
+            volume(changed.back(),2000);
+            volume(changed.back().body_outputs.at(mirror),2000);
+            operations.back().body.result_suppressed=true;
+            volume(kernel.evaluate_history_incremental(operations,changed).back(),0);
+        }
         volume(kernel.evaluate_history(graph.compile(compiler)).back(), 500);
 
         auto part = document::PartDocument::create_default();

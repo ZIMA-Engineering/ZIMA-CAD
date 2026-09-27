@@ -949,6 +949,11 @@ void AssemblyWorkspaceWindow::create_layout() {
             if (candidate.kind == zima::viewer::CandidateKind::Container) {
                 const auto* active=workspace_.open_part(workspace_.active_document_id());
                 const auto* body=active?active->session.document().body_history.find(candidate.owner_id):nullptr;
+                if(body&&body->scale) {
+                    QMenu menu(this);auto* properties=menu.addAction(resource_icon("properties"),tr("Vlastnosti"));
+                    if(menu.exec(global_position)==properties)show_body_scale_properties(candidate.owner_id);
+                    return;
+                }
                 if(body&&body->derived_copy) {
                     QMenu menu(this);auto* source=menu.addAction(resource_icon("properties"),tr("Vlastnosti zdroje"));
                     auto* settings=menu.addAction(resource_icon("properties"),body->derived_copy->pattern?tr("Vlastnosti Pole"):tr("Vlastnosti Zrcadla"));
@@ -1736,7 +1741,7 @@ void AssemblyWorkspaceWindow::create_layout() {
                 candidate.kind=workspace_.open_part(workspace_.active_document_id())?zima::viewer::CandidateKind::Container:zima::viewer::CandidateKind::Occurrence;
                 if(accept_family_reference(candidate))return;
             }
-            if(accept_derived_copy_tree_reference(item))return;
+            if(accept_body_scale_tree_reference(item)||accept_derived_copy_tree_reference(item))return;
             if(properties_dialog_&&(properties_dialog_->objectName()=="sheetStateDialog"||properties_dialog_->objectName()=="boundarySurfaceDialog")&&feature_reference_pick_) {
                 const auto role=item->data(0,Qt::UserRole+3).toString();
                 if(role!="part-container"&&role!="part-container-entity"&&!(properties_dialog_->objectName()=="boundarySurfaceDialog"&&role=="part-construction"))return;
@@ -2109,6 +2114,7 @@ void AssemblyWorkspaceWindow::create_layout() {
         &AssemblyWorkspaceWindow::update_body_color_actions);
     connect(tree_, &QTreeWidget::itemClicked, this,
         [this, synchronize_tree_selection](QTreeWidgetItem* item, int) {
+            if(item&&accept_body_scale_tree_reference(item))return;
             if (local_origin_selection_active_ && item) {
                 auto id = item->data(0, Qt::UserRole).toString().toStdString();
                 if (id.ends_with(":origin")) id.resize(id.size() - 7);
@@ -2286,6 +2292,10 @@ void AssemblyWorkspaceWindow::create_layout() {
                     activate->setIcon(resource_icon("active-check"));
                 auto* create_body = menu.addAction(resource_icon("result-body"), tr("Vytvořit těleso"));
                 create_body->setObjectName("createBodyFromPartAction");
+                auto* insert_body=menu.addAction(resource_icon("insert-component"),tr("Insert Body from Part…"));
+                insert_body->setObjectName("insertLinkedBodyAction");
+                const auto* link_target=workspace_.open_part(workspace_.active_document_id());
+                insert_body->setEnabled(link_target&&workspace_.active_document_id()==workspace_.displayed_document_id()&&link_target->session.document().body_history.active_body_id().empty());
                 auto* parameters = menu.addAction(resource_icon("parameters"), tr("Parametry…"));
                 parameters->setObjectName("treeDocumentParametersAction");
                 auto* family = menu.addAction(resource_icon("family-table"), family_table_action_->text());
@@ -2295,6 +2305,7 @@ void AssemblyWorkspaceWindow::create_layout() {
                 else if (selected==family) edit_family_table_for_document(workspace_.displayed_document_id());
                 else if (selected==activate) activate_body({});
                 else if (selected==create_body) { activate_body({});show_body_properties(); }
+                else if (selected==insert_body) insert_linked_body();
                 return;
             }
             if (step_kind=="drawing-sheet") {
@@ -2337,21 +2348,31 @@ void AssemblyWorkspaceWindow::create_layout() {
                 menu.setObjectName("partActivationMenu");
                 auto* edit = menu.addAction(resource_icon("properties"),tr("Vlastnosti"));
                 const auto* body=part->session.document().body_history.find(id);
-                auto* dimensions=body && !body->derived_copy ? menu.addAction(tr("Edit")) : nullptr;
+                auto* dimensions=body && !body->derived_copy && !body->scale ? menu.addAction(tr("Edit")) : nullptr;
                 if(dimensions)dimensions->setObjectName("editBodyDimensionsAction");
                 auto* source_properties=body&&body->derived_copy ? menu.addAction(resource_icon("properties"),tr("Vlastnosti zdroje")) : nullptr;
                 auto* visibility=body ? menu.addAction(resource_icon(body->visible ? "hide" : "show"), body->visible ? tr("Skrýt") : tr("Zobrazit")) : nullptr;
                 if(visibility)visibility->setObjectName("bodyVisibilityAction");
-                QAction* activate = step_kind == "part-body" && !(body&&body->derived_copy) ? menu.addAction(tr("Aktivní")) : nullptr;
+                const bool suppressed=body?body->suppressed:part->session.document().body_history.find_boolean(id)->suppressed;
+                auto* suppression=menu.addAction(resource_icon(suppressed?"restore":"suppress"),suppressed?tr("Obnovit"):tr("Potlačit"));
+                suppression->setObjectName("bodySuppressionAction");
+                suppression->setEnabled(part->session.document().body_history.active_body_id()!=id);
+                QAction* activate = step_kind == "part-body" && !(body&&(body->derived_copy||body->scale||body->link)) ? menu.addAction(tr("Aktivní")) : nullptr;
                 if (activate) {
                     menu.insertAction(menu.actions().front(),activate);
                     activate->setObjectName("activateBodyAction");
+                    activate->setEnabled(!suppressed);
                     if(part->session.document().body_history.active_body_id()==id)activate->setIcon(resource_icon("active-check"));
                 }
                 auto* remove=part->session.document().body_history.active_body_id().empty()?menu.addAction(resource_icon("delete"),tr("Smazat")):nullptr;
                 if(remove)remove->setObjectName("deleteBodyAction");
                 const auto selected = exec_tree_menu(menu,item,position);
                 if(remove&&selected==remove)delete_part_object(id,QStringLiteral("part-body"));
+                else if(selected==suppression) {
+                    try {static_cast<void>(workspace::set_part_body_suppressed(workspace_,kernel_,workspace_.active_document_id(),id,!suppressed));}
+                    catch(const std::exception& error){state_->setText(tr(error.what()));}
+                    preserve_view_on_refresh_=true;refresh_tabs();refresh_scene();
+                }
                 else if (selected == edit) show_tree_item_properties(item);
                 else if(dimensions&&selected==dimensions)show_parameter_dimensions(id);
                 else if(visibility&&selected==visibility) {

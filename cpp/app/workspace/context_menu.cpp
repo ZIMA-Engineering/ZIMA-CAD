@@ -70,7 +70,8 @@ void AssemblyWorkspaceWindow::show_tree_item_properties(QTreeWidgetItem* item) {
     if (kind == "part-body") {
         const auto* part=workspace_.open_part(workspace_.active_document_id());
         const auto* body=part?part->session.document().body_history.find(id):nullptr;
-        if(body&&body->derived_copy)show_derived_copy_properties(id);else show_body_properties(id);return;
+        if(body&&body->scale)show_body_scale_properties(id);
+        else if(body&&body->derived_copy)show_derived_copy_properties(id);else show_body_properties(id);return;
     }
     if (kind == "part-body-boolean") { show_body_boolean_properties(id); return; }
 

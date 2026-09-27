@@ -125,6 +125,7 @@
     <file alias="icons/chamfer.svg">../../resources/icons/chamfer.svg</file>
     <file alias="icons/active-check.svg">../../resources/icons/active-check.svg</file>
     <file alias="icons/mirror.svg">../../resources/icons/mirror.svg</file>
+    <file alias="icons/scale.svg">../../resources/icons/scale.svg</file>
     <file alias="icons/shell.svg">../../resources/icons/shell.svg</file>
     <file alias="icons/result-body.svg">../../resources/icons/result-body.svg</file>
     <file alias="fonts/osifont-lgpl3fe.ttf">../../config/fonts/osifont-lgpl3fe.ttf</file>

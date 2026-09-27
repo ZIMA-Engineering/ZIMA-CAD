@@ -9,7 +9,8 @@ namespace {
 struct SourceFile {std::filesystem::path path;assembly::ComponentSourceKind kind;};
 class DocumentDependencies {
 public:
-    DocumentDependencies(const Workspace& live,std::string owner):live_(live),owner_(std::move(owner)) {
+    DocumentDependencies(const Workspace& live,std::string owner,const std::string& source,const std::filesystem::path& path):live_(live),owner_(std::move(owner)) {
+        if(!path.empty())files_.try_emplace(source,SourceFile{path,assembly::ComponentSourceKind::Part});
         for(const auto& state:live.documents()) {
             if(const auto* part=std::get_if<PartState>(&state))files_.try_emplace(part->session.document().document_id,SourceFile{part->path,assembly::ComponentSourceKind::Part});
             if(const auto* assembly=std::get_if<AssemblyState>(&state)) {
@@ -26,6 +27,11 @@ public:
         visiting_.insert(family_id);
         const auto& workspace=source_workspace(id);
         std::vector<std::string> dependencies;
+        if(const auto* part=workspace.open_part(id))for(const auto& body:part->session.document().body_history.bodies())if(body.link) {
+            auto path=body.link->source_path;if(path.is_relative())path=part->path.parent_path()/path;
+            files_.try_emplace(body.link->document_id,SourceFile{path,assembly::ComponentSourceKind::Part});
+            dependencies.push_back(body.link->document_id);
+        }
         if(const auto* assembly=workspace.open_assembly(id)) {
             register_components(assembly->session.document(),assembly->path);
             for(const auto& component:assembly->session.document().components)
@@ -96,10 +102,10 @@ private:
     }
 };
 }
-void require_acyclic_document_dependency(const Workspace& live,const std::string& owner,const std::string& source) {
+void require_acyclic_document_dependency(const Workspace& live,const std::string& owner,const std::string& source,const std::filesystem::path& path) {
     if(owner.empty()||source.empty())throw DocumentDependencyError("invalid_dependency","Document dependency identities are required.");
     if (const auto* part=live.open_part(owner); part && assembly::is_skeleton_file(part->path) && owner!=source)
         throw DocumentDependencyError("skeleton_dependency", "Skeleton geometry cannot depend on another document.");
-    DocumentDependencies(live,owner).visit(source);
+    DocumentDependencies(live,owner,source,path).visit(source);
 }
 } // namespace zima::workspace

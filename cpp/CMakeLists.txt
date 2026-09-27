@@ -313,6 +313,8 @@ add_library(zima_workspace modules/workspace/src/workspace.cpp
     modules/workspace/src/flat_operations.cpp
     modules/workspace/src/opening_component_operations.cpp
     modules/workspace/src/template_operations.cpp modules/workspace/src/template_object_operations.cpp
+    modules/workspace/src/body_scale_operations.cpp
+    modules/workspace/src/body_link_operations.cpp
     modules/workspace/src/symbol_operations.cpp
     modules/workspace/src/opening_targets.cpp
     modules/workspace/src/shaft_thread_operations.cpp
@@ -436,9 +438,10 @@ target_link_libraries(zima_interchange PUBLIC zima_sketcher zima_document_core z
 include(app/workspace/sources.cmake)
 
 add_executable(zima-cad-cpp
+    app/body_link_ui_verification.cpp
     ${ZIMA_WORKSPACE_SOURCES}
     app/command_console.cpp app/console_ui_verification.cpp app/holes_ui_verification.cpp app/edge_treatment_ui_verification.cpp app/rotation_handle_ui_verification.cpp
-    app/main_workspace.cpp app/appearance_dialog.cpp app/appearance_command.cpp app/section_command.cpp app/section_ui_verification.cpp app/assembly_workspace_window.cpp app/template_command.cpp app/symbol_command.cpp app/numeric_value_lock_command.cpp app/shaft_thread_command.cpp app/cylinder_axis_command.cpp app/derived_copy_command.cpp
+    app/main_workspace.cpp app/appearance_dialog.cpp app/appearance_command.cpp app/section_command.cpp app/section_ui_verification.cpp app/assembly_workspace_window.cpp app/template_command.cpp app/symbol_command.cpp app/numeric_value_lock_command.cpp app/shaft_thread_command.cpp app/cylinder_axis_command.cpp app/derived_copy_command.cpp app/body_scale_command.cpp app/body_scale_ui_verification.cpp
     app/application_settings.cpp app/global_settings_dialog.cpp app/measurement_command.cpp app/measurement_ui_verification.cpp app/mass_properties_command.cpp
     app/document_tools_dialogs.cpp app/updates_ui_verification.cpp app/ai_settings_page.cpp
     app/drawing_window.cpp app/show_erase_dialog.cpp app/file_dialog.cpp app/resource_icon.cpp
@@ -933,6 +936,14 @@ if(ZIMA_BUILD_TESTS)
     set_tests_properties(zima_cpp_material_library_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
 
     add_executable(zima_cpp_family_table_tests tests/family_table_tests.cpp)
+    add_executable(zima_cpp_body_scale_tests tests/body_scale_tests.cpp)
+    add_executable(zima_cpp_body_link_tests tests/body_link_tests.cpp)
+    target_link_libraries(zima_cpp_body_link_tests PRIVATE zima_workspace)
+    add_test(NAME zima_cpp_body_link_tests COMMAND zima_cpp_body_link_tests)
+    add_executable(zima_refresh_start_templates EXCLUDE_FROM_ALL tools/refresh_start_templates.cpp)
+    target_link_libraries(zima_refresh_start_templates PRIVATE zima_workspace)
+    target_link_libraries(zima_cpp_body_scale_tests PRIVATE zima_workspace)
+    add_test(NAME zima_cpp_body_scale_tests COMMAND zima_cpp_body_scale_tests)
     target_link_libraries(zima_cpp_family_table_tests PRIVATE zima_command_host)
     add_test(NAME zima_cpp_family_table_tests COMMAND zima_cpp_family_table_tests)
     set_tests_properties(zima_cpp_family_table_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
@@ -1334,6 +1345,14 @@ if(ZIMA_BUILD_TESTS)
         TIMEOUT 90)
     add_test(NAME zima_cpp_assembly_refresh_ui_contract COMMAND zima-cad-cpp --verify-startup)
     add_test(NAME zima_cpp_family_table_ui_contract COMMAND zima-cad-cpp --verify-startup)
+    add_test(NAME zima_cpp_body_scale_ui_contract COMMAND zima-cad-cpp --verify-startup)
+    add_test(NAME zima_cpp_body_link_ui_contract COMMAND zima-cad-cpp --verify-startup)
+    set_tests_properties(zima_cpp_body_link_ui_contract PROPERTIES
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_BODY_LINK_ONLY=1"
+        TIMEOUT 120 WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
+    set_tests_properties(zima_cpp_body_scale_ui_contract PROPERTIES
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_BODY_SCALE_ONLY=1"
+        TIMEOUT 120 WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
     set_tests_properties(zima_cpp_family_table_ui_contract PROPERTIES
         ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_FAMILY_ONLY=1"
         TIMEOUT 120 WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")

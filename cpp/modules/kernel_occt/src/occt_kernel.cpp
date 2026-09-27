@@ -7,6 +7,7 @@
 #include <zima/kernel/occt_curve_data.hpp>
 #include <zima/kernel/pattern_geometry.hpp>
 #include <zima/kernel/mirror_geometry.hpp>
+#include <zima/kernel/scale_geometry.hpp>
 #include <BRepOffsetAPI_MakeOffset.hxx>
 #include <zima/kernel/shaft_thread_geometry.hpp>
 #include <zima/kernel/occt_kernel.hpp>
@@ -5635,6 +5636,28 @@ void append_body_viewer(ViewerMesh& destination, const ViewerMesh& source) {
 
 } // namespace
 
+BodyResult OcctKernel::scale_body(const BodyResult& source,double factor,Vec3 center,const std::string& owner) const {
+    validate_body_scale(factor,center);
+    if(source.kernel_shape.empty())throw std::invalid_argument("The scale source has no calculated Body.");
+    gp_Trsf scaling;scaling.SetScale(gp_Pnt(center.x,center.y,center.z),factor);
+    BRepBuilderAPI_Transform transform(read_kernel_shape(source),scaling,true);transform.Build();
+    if(!transform.IsDone()||!BRepCheck_Analyzer(transform.Shape()).IsValid())
+        throw std::runtime_error("Body scale did not produce valid geometry.");
+    BodyResult result;result.kernel_shape=serialize_kernel_shape(transform.Shape());
+    result.mesh=scaled_body_mesh(source.mesh,factor,center,owner);
+    result.volume=source.volume*factor*factor*factor;result.surface_area=source.surface_area*factor*factor;
+    if(source.surface_centroid)result.surface_centroid=scaled_body_point(*source.surface_centroid,factor,center);
+    if(source.volume_integrals) {
+        result.volume_integrals=source.volume_integrals;
+        result.volume_integrals->centroid=scaled_body_point(result.volume_integrals->centroid,factor,center);
+        for(auto& value:result.volume_integrals->inertia)value*=std::pow(factor,5);
+    }
+    HistoryOperation key;key.owner_id=owner;key.body.id=owner;key.body.combination=BodyCombination::Scale;
+    key.body.scale_factor=factor;key.body.scale_center=center;
+    result.source_fingerprint=source.source_fingerprint+":scale:"+history_fingerprint({key},1);
+    return result;
+}
+
 BodyResult OcctKernel::mirror_body(const BodyResult& source,MirrorPlane plane,const std::string& owner_id,
     Vec3 translation,Vec3 rotation) const {
     plane=normalized_mirror_plane(plane);
@@ -5786,7 +5809,7 @@ std::vector<BodyResult> OcctKernel::evaluate_body_histories(
             scope.combination != BodyCombination::Add &&
             scope.combination != BodyCombination::Subtract &&
             scope.combination != BodyCombination::Intersect &&
-            scope.combination != BodyCombination::Mirror && scope.combination != BodyCombination::Pattern)
+            scope.combination != BodyCombination::Mirror && scope.combination != BodyCombination::Pattern && scope.combination != BodyCombination::Scale)
             throw std::invalid_argument("Invalid body combination");
         if (operation.owner_id.empty() || !owners.insert(operation.owner_id).second)
             throw std::invalid_argument("Body features require distinct persistent owners");
@@ -5800,6 +5823,14 @@ std::vector<BodyResult> OcctKernel::evaluate_body_histories(
             if (scope.combination == BodyCombination::Separate) {
                 if (!scope.target_id.empty() || !scope.source_id.empty())
                     throw std::invalid_argument("Independent body cannot define a Boolean");
+                if(scope.linked_body&&(operation.suppressed||scope.linked_body->kernel_shape.empty()||
+                    !scope.linked_body->calculation_errors.empty()))
+                    throw std::invalid_argument("The linked Body source has no valid calculated geometry.");
+            } else if(scope.combination==BodyCombination::Scale) {
+                if(!available.contains(scope.source_id)||!scope.target_id.empty()||!scope.source_feature_id.empty()||operation.suppressed||
+                    scope.translation!=Vec3{}||scope.rotation_degrees!=Vec3{})
+                    throw std::invalid_argument("A scaled Body requires a preceding source and cannot own a modeling history or placement.");
+                validate_body_scale(scope.scale_factor,scope.scale_center);
             } else if(scope.combination==BodyCombination::Mirror||scope.combination==BodyCombination::Pattern) {
                 if(!(scope.source_feature_id.empty()?available.contains(scope.source_id):seen.contains(scope.source_id))||
                     (!scope.target_id.empty()&&(scope.source_feature_id.empty()||!available.contains(scope.target_id)))||operation.suppressed)
@@ -5816,7 +5847,7 @@ std::vector<BodyResult> OcctKernel::evaluate_body_histories(
             }
             available.insert(scope.id);
             branches.push_back({scope, {}});
-        } else if (!(branches.back().scope == scope) || !scope.source_id.empty()) {
+        } else if (!(branches.back().scope == scope) || !scope.source_id.empty() || scope.linked_body) {
             throw std::invalid_argument("Inconsistent body history scope");
         }
         auto local = operation;
@@ -5863,7 +5894,7 @@ std::vector<BodyResult> OcctKernel::evaluate_body_histories(
         context.require_original_faces=std::ranges::any_of(requested_faces,[&](const auto& reference) {
             return std::ranges::any_of(branch.operations,[&](const auto& operation){return operation.owner_id==reference.owner_id;});
         });
-        auto local = branch.scope.source_id.empty()
+        auto local = branch.scope.linked_body?std::vector<BodyResult>{*branch.scope.linked_body}:branch.scope.source_id.empty()
             ? (recover_errors ? evaluate_flat_history_recovering(branch.operations,
                     cached == previous.body_boundaries.end() ? std::vector<BodyResult>{} : cached->second,context)
                 : evaluate_flat_history(branch.operations,
@@ -5891,6 +5922,7 @@ std::vector<BodyResult> OcctKernel::evaluate_body_histories(
         placement_key.body = branch.scope;
         // Combination changes do not invalidate the raw placed branch.
         placement_key.body.combination = BodyCombination::Separate;
+        placement_key.body.result_suppressed = false;
         placement_key.body.target_id.clear();
         const auto input_key = branch.scope.source_id.empty()
             ? local.back().source_fingerprint + ":placed:" + history_fingerprint({placement_key}, 1)
@@ -5935,7 +5967,16 @@ std::vector<BodyResult> OcctKernel::evaluate_body_histories(
         if (!branch.scope.target_id.empty() &&
             !document.body_outputs.at(branch.scope.target_id)->calculation_errors.empty())
             throw std::runtime_error("Cílové těleso obsahuje nevypočítaný prvek.");
-        if(branch.scope.combination==BodyCombination::Mirror||branch.scope.combination==BodyCombination::Pattern) {
+        if(branch.scope.combination==BodyCombination::Scale) {
+            const auto& source=document.body_outputs.at(branch.scope.source_id).get();
+            HistoryOperation key;key.owner_id=branch.scope.id;key.body.id=branch.scope.id;
+            key.body.combination=BodyCombination::Scale;key.body.scale_factor=branch.scope.scale_factor;key.body.scale_center=branch.scope.scale_center;
+            const auto fingerprint=source.source_fingerprint+":scale:"+history_fingerprint({key},1);
+            const auto old=previous.body_outputs.find(branch.scope.id);
+            if(old!=previous.body_outputs.end()&&old->second->calculation_errors.empty()&&old->second->source_fingerprint==fingerprint)output=old->second;
+            else output=scale_body(source,branch.scope.scale_factor,branch.scope.scale_center,branch.scope.id);
+            document.body_inputs.emplace(branch.scope.id,output);
+        } else if(branch.scope.combination==BodyCombination::Mirror||branch.scope.combination==BodyCombination::Pattern) {
             // The source is already in document coordinates; only the plane
             // belongs to the Mirror container's resolved placement.
             const auto& feature=branch.scope.source_feature_id;
@@ -6005,6 +6046,11 @@ std::vector<BodyResult> OcctKernel::evaluate_body_histories(
     BRep_Builder builder;
     TopoDS_Compound compound;
     builder.MakeCompound(compound);
+    // Keep intermediate packets for dependent operations; only final assembly,
+    // export and physical properties omit suppressed Body results.
+    for(const auto& branch:branches)if(branch.scope.result_suppressed&&available.erase(branch.scope.id))
+        append_reference_geometry(document.mesh.original_references,
+            document.body_outputs.at(branch.scope.id)->mesh.original_references);
     for (const auto& id : available) {
         const auto& output = document.body_outputs.at(id).get();
         if (!output.kernel_shape.empty()) builder.Add(compound, read_kernel_shape(output));

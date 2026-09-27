@@ -34,6 +34,7 @@ public:
         Vec3 target_translation,
         Vec3 target_rotation_degrees,
         double linear_tolerance = 0.001, double mesh_deflection = 0.1) const;
+    [[nodiscard]] BodyResult scale_body(const BodyResult& source,double factor,Vec3 center,const std::string& owner) const;
     [[nodiscard]] BodyResult mirror_body(const BodyResult& source,MirrorPlane plane,
         const std::string& owner_id={},Vec3 source_translation={},Vec3 source_rotation={}) const override;
     [[nodiscard]] BodyResult pattern_body(const BodyResult& source,const PatternRequest& pattern,

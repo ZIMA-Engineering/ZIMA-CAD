@@ -118,6 +118,37 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
         unchanged_geometry();
     }
     const auto original_graph=state->session.document().body_history;
+    {
+        const auto revision=state->session.revision();
+        require(host.execute({{"command","body.suppress"},{"arguments",{{"body",tool},{"suppressed",true}}}}).code=="active_body" &&
+            state->session.revision()==revision,"Active Body suppression changed the document");
+        run(host,"body.suppress",{{"body",first},{"suppressed",true}});volume(*state,64);
+        require(state->session.document().body_history.find(first)->suppressed &&
+            !state->session.document().find_container(first_box)->suppressed,"Body suppression changed feature suppression");
+        const auto changed_revision=state->session.revision();
+        require(run(host,"body.suppress",{{"body",first},{"suppressed",true}}).data.at("changed")==false &&
+            state->session.revision()==changed_revision,"No-op suppression created a transaction");
+        run(host,"undo");volume(*state,1064);
+        run(host,"redo");volume(*state,64);
+        require(!host.execute({{"command","body.activate"},{"arguments",{{"body",first}}}}).ok,
+            "Suppressed Body became active");
+        run(host,"body.suppress",{{"body",first},{"suppressed",false}});volume(*state,1064);
+        require(state->session.document().body_history==original_graph,"Restoring Body changed history");
+    }
+    {
+        require(host.execute({{"command","body.scale"},{"arguments",{{"source",first},{"factor",2}}}}).code=="active_body",
+            "Scale creation bypassed active Body context");
+        run(host,"body.activate");
+        const auto scaled=run(host,"body.scale",{{"source",first},{"factor",2},{"name","Scaled"}}).data;
+        require(scaled.at("derived")==true&&scaled.at("history").empty()&&scaled.at("scale").at("source")==first,
+            "Scale command created a feature history or lost its source");volume(*state,9064);
+        const auto revision=state->session.revision();
+        require(!host.execute({{"command","body.scale"},{"arguments",{{"source",first},{"factor",-1}}}}).ok&&
+            state->session.revision()==revision,"Invalid Scale partly committed");
+        run(host,"body.suppress",{{"body",first},{"suppressed",true}});volume(*state,8064);
+        run(host,"undo");volume(*state,9064);run(host,"undo");volume(*state,1064);run(host,"undo");
+        require(state->session.document().body_history==original_graph,"Scale Undo did not restore editing context");
+    }
     const auto cut=run(host,"body.boolean.create",{{"operation","subtract"},{"target",first},{"tool",tool}}).data.at("boolean").get<std::string>();
     volume(*state,936);require(state->session.document().body_history.active_body_id().empty(),"Boolean did not finish Body editing");
     require(state->session.document().body_history.find(first)->entries==original_graph.find(first)->entries &&
@@ -185,6 +216,24 @@ int main() {
         kernel::OcctKernel kernel;
         const auto directory=fs::canonical(fs::temp_directory_path())/("zima-body-commands-"+document::PartDocument::create_default().document_id);
         fs::create_directory(directory);verify(kernel,directory);
+        {
+            workspace::Workspace live;command_host::Options options;
+            options.settings=[] {return command_host::Settings{{fs::absolute("config/templates"),"START_PART.prtz","START_ASSEMBLY.asmz","Body"},{}};};
+            auto working=directory;command_host::Host host(live,kernel,working,options);
+            run(host,"new",{{"type","part"},{"name","linked-source"}});
+            const auto source=live.active_document_id();const auto source_body=live.open_part(source)->session.document().body_history.active_body_id();
+            test::rectangular_commands([&](const char* n,commands::Json a){return run(host,n,std::move(a));},{{"length_mm","10"},{"width_mm","10"},{"height_mm","10"}});
+            run(host,"body.activate");run(host,"save");
+            run(host,"new",{{"type","part"},{"name","linked-target"}});run(host,"body.activate");
+            const auto target=live.active_document_id();
+            const auto created=run(host,"body.link",{{"file","linked-source.prtz"},{"source_body",source_body}}).data;
+            const auto body=created.at("body").get<std::string>();volume(*live.open_part(target),1000);
+            require(created.at("link").at("document")==source&&created.at("link").at("body")==source_body,"CLI lost source identities");
+            require(!run(host,"body.link",{{"file","linked-source.prtz"},{"source_body",source_body},{"body",body}}).data.at("changed").get<bool>(),"CLI no-op link created a transaction");
+            run(host,"save");
+            const auto self=host.execute({{"command","body.link"},{"arguments",{{"file","linked-target.prtz"},{"source_body",body}}}});
+            require(!self.ok&&self.code=="dependency_cycle","CLI did not reject a document cycle");
+        }
         require(directory.parent_path()==fs::canonical(fs::temp_directory_path()),"Unsafe cleanup directory");fs::remove_all(directory);
         std::cout<<"Bodies, origin references, ownership, Boolean volumes, cursors, no-op, failures and history passed without Qt\n";return 0;
     }catch(const std::exception& error){std::cerr<<error.what()<<'\n';return 1;}

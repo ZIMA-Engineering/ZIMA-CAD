@@ -34,6 +34,8 @@ public:
         form->addRow(tr("Název"), name_);
         active_ = new QCheckBox(tr("Aktivní těleso"), this);
         active_->setObjectName("bodyActive"); active_->setChecked(active);
+        active_->setEnabled(!initial_.suppressed&&!initial_.link);
+        if(initial_.link)active_->hide();
         visible_ = new QCheckBox(tr("Viditelné"), this);
         visible_->setChecked(initial_.visible);
         form->addRow(active_); form->addRow(visible_);
@@ -49,6 +51,9 @@ public:
         set_initial_size({360, 360});
     }
     void set_preview_callback(std::function<void(zima::document::BodyHistory)> callback) { preview_=std::move(callback); }
+    void set_link_source(zima::document::BodyLink value) {
+        initial_.link=std::move(value);if(preview_)preview_(pending_value());
+    }
     void set_reference_request_callback(std::function<void(std::size_t)> callback) { placement_->set_reference_request_callback(std::move(callback)); }
     void set_reference_highlights_changed_callback(std::function<void()> callback) { placement_->set_highlights_changed_callback(std::move(callback)); }
     void set_forbidden_owner(std::function<bool(const std::string&)> callback) { forbidden_=std::move(callback); }

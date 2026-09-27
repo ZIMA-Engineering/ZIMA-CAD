@@ -2,6 +2,7 @@
 #include <zima/workspace/profile_operations.hpp>
 #include <zima/workspace/opening_operations.hpp>
 #include <zima/workspace/part_transactions.hpp>
+#include <zima/workspace/body_link_operations.hpp>
 #include <zima/workspace/sketch_operations.hpp>
 #include <zima/workspace/sketch_reference_operations.hpp>
 #include <zima/document/viewer_packet_json.hpp>
@@ -197,6 +198,7 @@ PartRegenerationResult regenerate_part(Workspace& workspace,
     if (!part) throw std::invalid_argument("Regeneration requires an open Part document");
     const auto& previous = part->session.document();
     auto next = previous;
+    refresh_body_links(workspace,next,part->path);
     // Explicit Regenerate recalculates geometry even when parameters match
     // the persisted cache (for example after a kernel calculation fix).
     auto calculated = calculate_part_with_resolved_references(kernel, next, nullptr, policy);

@@ -10,6 +10,7 @@
 #include "feature_naming.hpp"
 #include "sheet_transition_dialog.hpp"
 #include "boundary_surface_dialog.hpp"
+#include "body_scale_dialog.hpp"
 #include "mass_properties_dialog.hpp"
 #include <QAction>
 #include <QApplication>
@@ -109,6 +110,17 @@ int verify_translations(QApplication& application, QWidget& parent) {
             !settings.translations.contains("Zamknout hodnotu"), "INI sections were mixed");
         app::apply_application_translations(application, settings);
         {
+            document::BodyHistory body;body.name="Authored scale";body.scale=document::BodyScale{};
+            app::BodyScaleDialog scale(body,[](auto){},&parent);scale.setAttribute(Qt::WA_DeleteOnClose,false);
+            scale.show();application.processEvents();
+            const auto labels=scale.findChildren<QLabel*>();
+            check(std::ranges::any_of(labels,[&](const auto* label){return label->text()==settings.qt_translations.value("Scale factor");}),
+                "Scale factor label is untranslated");
+            const auto* source=scale.findChild<QTableWidget*>("bodyScaleSource");
+            check(source&&source->item(0,1)->text()==settings.qt_translations.value("Zdroj")&&
+                source->item(0,2)->text()==settings.qt_translations.value("Vyberte…"),"Scale source field is untranslated");
+            check(scale.findChild<QLineEdit*>("bodyScaleName")->text()=="Authored scale","Scale translated an authored name");
+            scale.hide();
             std::cerr<<"Boundary translations: "<<languages[language].toStdString()<<std::endl;
             auto feature=document::create_boundary_surface();feature.name="Authored surface name";
             app::BoundarySurfaceDialog dialog(feature,[](auto){},&parent);

@@ -6,6 +6,7 @@
 #include <zima/kernel/geometry_kernel.hpp>
 #include <string_view>
 #include <functional>
+#include <filesystem>
 
 namespace zima::document {
 
@@ -28,7 +29,26 @@ struct BodyBoolean {
     std::string target_id;
     std::string tool_id;
     bool visible{true};
+    bool suppressed{};
     bool operator==(const BodyBoolean&) const = default;
+};
+
+struct BodyScale {
+    std::string source_id;
+    double factor{1};
+    zima::kernel::Vec3 center;
+    bool operator==(const BodyScale&) const = default;
+};
+
+struct BodyLink {
+    std::string document_id, body_id;
+    std::filesystem::path source_path;
+    std::shared_ptr<const zima::kernel::BodyResult> calculated;
+    bool operator==(const BodyLink& other) const {
+        return document_id==other.document_id&&body_id==other.body_id&&source_path==other.source_path&&
+            ((!calculated&&!other.calculated)||(calculated&&other.calculated&&
+                calculated->source_fingerprint==other.calculated->source_fingerprint));
+    }
 };
 
 struct BodyHistory {
@@ -40,6 +60,9 @@ struct BodyHistory {
     // Explicit placement/reference dependencies between independent bodies.
     std::vector<std::string> dependencies;
     std::optional<DerivedCopyParameters> derived_copy;
+    bool suppressed{};
+    std::optional<BodyScale> scale;
+    std::optional<BodyLink> link;
     [[nodiscard]] ContainerOrigin origin() const { return create_container_origin(scope.id); }
     bool operator==(const BodyHistory&) const = default;
 };
@@ -52,6 +75,7 @@ struct BodyHistoryBoundary {
 
 class BodyHistoryGraph {
 public:
+    void prepare_link_file_rebase(class FileRelocationEdits&, const std::filesystem::path& owning_file = {});
     using CompileEntry = std::function<std::optional<zima::kernel::HistoryOperation>(const PartHistoryEntry&)>;
     [[nodiscard]] const std::vector<BodyHistory>& bodies() const { return bodies_; }
     [[nodiscard]] const std::vector<BodyBoolean>& booleans() const { return booleans_; }
@@ -69,6 +93,8 @@ public:
     [[nodiscard]] std::string create_body(std::string name);
     void update_body(BodyHistory body);
     [[nodiscard]] std::string create_derived_copy(BodyHistory body);
+    [[nodiscard]] std::string create_scale(BodyHistory body);
+    [[nodiscard]] std::string create_link(BodyHistory body);
     void activate(const std::string& id);
     void set_insertion_cursor(std::size_t cursor);
     void set_history_cursor(const std::string& body_id, std::size_t cursor);

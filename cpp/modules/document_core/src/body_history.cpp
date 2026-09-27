@@ -1,7 +1,11 @@
 #include <zima/document/derived_copy_json.hpp>
 #include <zima/document/body_history.hpp>
+#include <zima/document/file_relocation.hpp>
 #include <zima/document/placement_json.hpp>
 #include <zima/kernel/stable_id.hpp>
+#include <zima/kernel/scale_geometry.hpp>
+#include <zima/document/viewer_packet_json.hpp>
+#include <zima/document/file_path.hpp>
 #include <nlohmann/json.hpp>
 #include <algorithm>
 #include <cmath>
@@ -9,6 +13,10 @@
 #include <stdexcept>
 
 namespace zima::document {
+void BodyHistoryGraph::prepare_link_file_rebase(FileRelocationEdits& edits,const std::filesystem::path& owning_file) {
+    for(auto& body:bodies_)if(body.link)
+        edits.source_reference(body.link->document_id,body.link->source_path,owning_file);
+}
 
 const BodyHistory* BodyHistoryGraph::find(const std::string& id) const {
     const auto found = std::ranges::find_if(bodies_, [&](const auto& body) { return body.scope.id == id; });
@@ -32,6 +40,7 @@ void BodyHistoryGraph::erase_step(const std::string& id) {
     if(found==next.order_.end())throw std::invalid_argument("Body history object does not exist");
     for(const auto& body:next.bodies_)if(body.scope.id!=id&&
         (std::ranges::find(body.dependencies,id)!=body.dependencies.end() ||
+         (body.scale&&body.scale->source_id==id) ||
          (body.derived_copy&&(body.derived_copy->source_id==id||
              (owner(body.derived_copy->source_id)&&owner(body.derived_copy->source_id)->scope.id==id)))))
         throw std::invalid_argument("Objekt používá navazující těleso: "+body.name);
@@ -77,6 +86,17 @@ void BodyHistoryGraph::validate() const {
         if (const auto* body = find(id)) {
             if (body->name.empty() || body->cursor > body->entries.size())
                 throw std::invalid_argument("Invalid body name or history cursor");
+            if(body->link&&(body->derived_copy||body->scale||!body->entries.empty()||body->cursor||
+                body->link->document_id.empty()||body->link->body_id.empty()||body->link->source_path.empty()||
+                !body->link->calculated||body->link->calculated->kernel_shape.empty()||
+                body->link->calculated->source_fingerprint.empty()||!body->link->calculated->calculation_errors.empty()))
+                throw std::invalid_argument("A linked Body requires a valid native source and cannot own a modeling history.");
+            if(body->scale) {
+                if(body->derived_copy||!body->entries.empty()||body->cursor||
+                    !available.contains(body->scale->source_id)||body->scope.placement!=Placement{})
+                    throw std::invalid_argument("A scaled Body requires a preceding source and cannot own a modeling history or placement.");
+                zima::kernel::validate_body_scale(body->scale->factor,body->scale->center);
+            }
             if(body->derived_copy) {
                 const auto* source_owner=owner(body->derived_copy->source_id);
                 const auto source=source_owner?source_owner->scope.id:body->derived_copy->source_id;
@@ -120,7 +140,9 @@ void BodyHistoryGraph::validate() const {
         preceding.insert(id);
         available.insert(id);
     }
-    if (!active_.empty() && (!find(active_) || find(active_)->derived_copy)) throw std::invalid_argument("Active body does not exist");
+    if (!active_.empty() && (!find(active_) || find(active_)->derived_copy || find(active_)->scale || find(active_)->link)) throw std::invalid_argument("Active body does not exist");
+    if(!active_.empty() && find(active_)->suppressed)
+        throw std::invalid_argument("An active Body cannot be suppressed.");
 }
 
 std::string BodyHistoryGraph::create_boolean(std::string name, zima::kernel::BodyCombination operation,
@@ -178,9 +200,30 @@ void BodyHistoryGraph::update_body(BodyHistory body) {
     *this = std::move(next);
 }
 
+std::string BodyHistoryGraph::create_scale(BodyHistory body) {
+    if(!body.scale)throw std::invalid_argument("Body scale parameters are missing.");
+    if(body.scope.id.empty())body.scope.id=zima::kernel::make_stable_id();
+    const auto id=body.scope.id;auto next=*this;
+    next.order_.insert(next.order_.begin()+static_cast<std::ptrdiff_t>(cursor_),id);
+    next.bodies_.push_back(std::move(body));next.sort_bodies();++next.cursor_;next.active_.clear();
+    next.validate();*this=std::move(next);return id;
+}
+
+std::string BodyHistoryGraph::create_link(BodyHistory body) {
+    if(!body.link)throw std::invalid_argument("A linked Body requires a valid native source and cannot own a modeling history.");
+    if(body.scope.id.empty())body.scope.id=zima::kernel::make_stable_id();
+    const auto id=body.scope.id;auto next=*this;
+    next.order_.insert(next.order_.begin()+static_cast<std::ptrdiff_t>(cursor_),id);
+    next.bodies_.push_back(std::move(body));next.sort_bodies();++next.cursor_;next.active_.clear();
+    next.validate();*this=std::move(next);return id;
+}
+
 void BodyHistoryGraph::activate(const std::string& id) {
     if (!id.empty() && !find(id)) throw std::invalid_argument("Body does not exist");
+    if(!id.empty()&&find(id)->suppressed)throw std::invalid_argument("Restore the Body before activating it.");
     if(!id.empty()&&find(id)->derived_copy)throw std::invalid_argument("Geometrie kopie se upravuje u zdroje.");
+    if(!id.empty()&&find(id)->scale)throw std::invalid_argument("A scaled Body cannot be activated for modeling.");
+    if(!id.empty()&&find(id)->link)throw std::invalid_argument("A linked Body is edited in its source Part.");
     active_ = id;
 }
 
@@ -277,7 +320,7 @@ std::vector<std::string> BodyHistoryGraph::visible_context() const {
     }
     std::vector<std::string> result;
     for (const auto& id : order_)
-        if (available.contains(id) && (find(id) ? find(id)->visible : find_boolean(id)->visible))
+        if (available.contains(id) && (find(id) ? find(id)->visible && !find(id)->suppressed : find_boolean(id)->visible && !find_boolean(id)->suppressed))
             result.push_back(id);
     return result;
 }
@@ -296,17 +339,33 @@ std::vector<zima::kernel::HistoryOperation> BodyHistoryGraph::compile(const Comp
             operation.body.combination = boolean->operation;
             operation.body.target_id = boolean->target_id;
             operation.body.source_id = boolean->tool_id;
+            operation.body.result_suppressed = boolean->suppressed;
             result.push_back(std::move(operation));
             calculated.insert(id);
             continue;
         }
         const auto& body = *find(id);
+        if(body.link) {
+            zima::kernel::HistoryOperation operation;operation.owner_id=id;operation.body.id=id;
+            operation.body.result_suppressed=body.suppressed;operation.body.linked_body=body.link->calculated;
+            operation.body.translation=body.scope.translation();operation.body.rotation_degrees=body.scope.rotation_degrees();
+            result.push_back(std::move(operation));calculated.insert(id);continue;
+        }
+        if(body.scale) {
+            if(!calculated.contains(body.scale->source_id))throw std::invalid_argument("The scale source has no calculated Body.");
+            zima::kernel::HistoryOperation operation;operation.owner_id=id;operation.body.id=id;
+            operation.body.result_suppressed=body.suppressed;
+            operation.body.combination=zima::kernel::BodyCombination::Scale;
+            operation.body.source_id=body.scale->source_id;operation.body.scale_factor=body.scale->factor;
+            operation.body.scale_center=body.scale->center;result.push_back(std::move(operation));calculated.insert(id);continue;
+        }
         if(body.derived_copy) {
             const auto* source_owner=owner(body.derived_copy->source_id);
             const auto source=source_owner?source_owner->scope.id:body.derived_copy->source_id;
             if(!calculated.contains(source)||!body.derived_copy->reference_valid)
                 throw std::invalid_argument("Kopie nemá platný zdroj nebo referenci.");
             zima::kernel::HistoryOperation operation;operation.owner_id=id;operation.body.id=id;
+            operation.body.result_suppressed=body.suppressed;
             operation.body.combination=zima::kernel::BodyCombination::Mirror;operation.body.source_id=source;
             if(source_owner)operation.body.source_feature_id=body.derived_copy->source_id;
             if(body.derived_copy->subtract_source)operation.body.target_id=copy_target_before(body.derived_copy->source_id,
@@ -325,6 +384,7 @@ std::vector<zima::kernel::HistoryOperation> BodyHistoryGraph::compile(const Comp
                     throw std::invalid_argument("Feature copy requires a preceding source in the same Body.");
                 preceding_features.insert(operation->owner_id);
                 operation->body.id = id;
+                operation->body.result_suppressed = body.suppressed;
                 operation->body.translation = body.scope.translation();
                 operation->body.rotation_degrees = body.scope.rotation_degrees();
                 result.push_back(std::move(*operation));
@@ -346,14 +406,18 @@ std::string BodyHistoryGraph::serialized() const {
         auto entries = nlohmann::json::array();
         for (const auto& entry : body.entries) entries.push_back({{"kind", static_cast<int>(entry.kind)}, {"id", entry.id}});
         const auto& scope = body.scope;
-        bodies.push_back({{"id", scope.id}, {"name", body.name}, {"visible", body.visible},
+        bodies.push_back({{"id", scope.id}, {"name", body.name}, {"visible", body.visible}, {"suppressed",body.suppressed},
+            {"link",body.link?nlohmann::json{{"document",body.link->document_id},{"body",body.link->body_id},
+                {"path",path_to_utf8(body.link->source_path)},{"calculated",serialize_body_result(*body.link->calculated)}}:nlohmann::json(nullptr)},
+            {"scale",body.scale?nlohmann::json{{"source",body.scale->source_id},{"factor",body.scale->factor},
+                {"center",{body.scale->center.x,body.scale->center.y,body.scale->center.z}}}:nlohmann::json(nullptr)},
             {"placement", scope.placement},{"derived_copy",body.derived_copy?nlohmann::json(*body.derived_copy):nlohmann::json(nullptr)},
             {"entries", std::move(entries)}, {"cursor", body.cursor}, {"dependencies", body.dependencies}});
     }
     auto booleans = nlohmann::json::array();
     for (const auto& op : booleans_)
         booleans.push_back({{"id", op.id}, {"name", op.name}, {"operation", static_cast<int>(op.operation)},
-            {"target", op.target_id}, {"tool", op.tool_id}, {"visible", op.visible}});
+            {"target", op.target_id}, {"tool", op.tool_id}, {"visible", op.visible}, {"suppressed",op.suppressed}});
     return nlohmann::json{{"bodies", std::move(bodies)}, {"booleans", std::move(booleans)},
         {"order", order_}, {"active", active_}, {"cursor", cursor_}}.dump();
 }
@@ -368,6 +432,17 @@ BodyHistoryGraph BodyHistoryGraph::from_serialized(std::string_view source) {
         body.scope.id = row.at("id").get<std::string>();
         body.name = row.at("name").get<std::string>();
         body.visible = row.at("visible").get<bool>();
+        body.suppressed = row.at("suppressed").get<bool>();
+        if(!row.at("link").is_null()) {
+            const auto& link=row.at("link");body.link=BodyLink{link.at("document").get<std::string>(),
+                link.at("body").get<std::string>(),std::filesystem::u8path(link.at("path").get<std::string>()),
+                std::make_shared<const zima::kernel::BodyResult>(load_body_result(link.at("calculated")))};
+        }
+        if(!row.at("scale").is_null()) {
+            const auto& scale=row.at("scale");const auto& center=scale.at("center");
+            body.scale=BodyScale{scale.at("source").get<std::string>(),scale.at("factor").get<double>(),
+                {center.at(0).get<double>(),center.at(1).get<double>(),center.at(2).get<double>()}};
+        }
         body.scope.placement = row.at("placement").get<Placement>();
         if(!row.at("derived_copy").is_null())body.derived_copy=row.at("derived_copy").get<DerivedCopyParameters>();
         body.cursor = row.at("cursor").get<std::size_t>();
@@ -380,7 +455,7 @@ BodyHistoryGraph BodyHistoryGraph::from_serialized(std::string_view source) {
     for (const auto& row : root.at("booleans"))
         graph.booleans_.push_back({row.at("id").get<std::string>(), row.at("name").get<std::string>(),
             static_cast<zima::kernel::BodyCombination>(row.at("operation").get<int>()),
-            row.at("target").get<std::string>(), row.at("tool").get<std::string>(), row.at("visible").get<bool>()});
+            row.at("target").get<std::string>(), row.at("tool").get<std::string>(), row.at("visible").get<bool>(),row.at("suppressed").get<bool>()});
     graph.sort_bodies();
     graph.validate();
     return graph;

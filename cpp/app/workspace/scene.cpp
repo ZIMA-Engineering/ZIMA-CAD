@@ -1698,7 +1698,7 @@ void AssemblyWorkspaceWindow::refresh_scene() {
             std::set<std::string> visible_bodies;
             for (const auto& body : document.body_history.bodies())
             {
-                if(body.visible)visible_bodies.insert(body.scope.id);
+                if(body.visible&&!body.suppressed)visible_bodies.insert(body.scope.id);
                 for (const auto& entry : body.entries) owners.emplace(entry.id, body.scope.id);
             }
             // Original-reference packets also contain native child Sketches.

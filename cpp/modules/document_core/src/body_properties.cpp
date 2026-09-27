@@ -46,10 +46,12 @@ std::vector<BodyPropertiesInput> body_properties_inputs(const PartDocument& doc,
     } else if(!doc.body_history.bodies().empty()) {
         const auto end=boundary(doc.body_history.order(),record.after_object_id);
         for(const auto& id:doc.body_history.available_before(end)) {
+            if(const auto* body=doc.body_history.find(id);body&&body->suppressed)continue;
+            if(const auto* operation=doc.body_history.find_boolean(id);operation&&operation->suppressed)continue;
             const auto found=calculated.back().body_outputs.find(id);
             if(found==calculated.back().body_outputs.end()) {
                 const auto* body=doc.body_history.find(id);
-                if(body&&operations(body->entries,body->entries.size())==0&&!body->derived_copy)continue;
+                if(body&&operations(body->entries,body->entries.size())==0&&!body->derived_copy&&!body->scale&&!body->link)continue;
                 throw std::invalid_argument("Regenerate the model before measuring body properties.");
             }
             out.push_back({&found->second.get()});

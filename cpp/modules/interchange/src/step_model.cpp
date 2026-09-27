@@ -192,8 +192,8 @@ kernel::StepProduct step_product(const document::PartDocument& doc,const std::ve
     const auto& output=calculated.back();
     if(doc.body_history.bodies().empty())root.body=output;
     else for(const auto& id:doc.body_history.available_before(doc.body_history.order().size())) {
-        if(const auto* body=doc.body_history.find(id);body&&!body->visible)continue;
-        if(const auto* boolean=doc.body_history.find_boolean(id);boolean&&!boolean->visible)continue;
+        if(const auto* body=doc.body_history.find(id);body&&(!body->visible||body->suppressed))continue;
+        if(const auto* boolean=doc.body_history.find_boolean(id);boolean&&(!boolean->visible||boolean->suppressed))continue;
         const auto found=output.body_outputs.find(id);if(found==output.body_outputs.end())continue;
         if(found->second->kernel_shape.empty())continue;
         kernel::StepProduct child;child.definition_id=id;child.body=found->second;

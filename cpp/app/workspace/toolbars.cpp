@@ -284,7 +284,8 @@ void AssemblyWorkspaceWindow::rebuild_application_toolbar() {
         const bool active_body=modeling_part&&!modeling_part->session.document().body_history.active_body_id().empty();
         mirror_action_->setEnabled(!properties_dialog_);
         pattern_action_->setEnabled(!properties_dialog_);
-        if(!active_body){add_command(mirror_action_);add_command(pattern_action_);}
+        body_scale_action_->setEnabled(modeling_part&&!properties_dialog_&&!active_body);
+        if(!active_body){add_command(mirror_action_);add_command(pattern_action_);add_command(body_scale_action_);}
         if (const auto* part = workspace_.open_part(workspace_.active_document_id());
             part && workspace_.active_document_id() == workspace_.displayed_document_id()) {
             if (!create_body_action_) {

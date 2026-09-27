@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" role="img" aria-labelledby="title">
+  <title id="title">Body scale</title>
+  <g fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M3 12v9h9v-9z"/>
+    <path d="M3 8V3h18v18h-5" stroke="#00D1FF"/>
+    <path d="m11 13 6-6m-5 0h5v5"/>
+  </g>
+</svg>

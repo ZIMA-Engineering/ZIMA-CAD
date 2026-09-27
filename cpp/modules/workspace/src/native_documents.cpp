@@ -86,8 +86,10 @@ bool PreparedNativeDocument::rebase_native_files(std::span<const document::FileR
     document::FileRelocationEdits edits(files);
     std::visit([&](auto& value) {
         using T = std::decay_t<decltype(value)>;
-        if constexpr (std::is_same_v<T, Part>)
+        if constexpr (std::is_same_v<T, Part>) {
             edits.document_name(value.document.document_id, value.document.name);
+            value.document.body_history.prepare_link_file_rebase(edits,path_);
+        }
         else if constexpr (std::is_same_v<T, assembly::AssemblyDocument>)
             assembly::collect_file_relocation_edits(value, edits, path_);
         else drawing::collect_file_relocation_edits(value, edits, path_);

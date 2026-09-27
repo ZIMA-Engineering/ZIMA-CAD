@@ -684,7 +684,7 @@ void AssemblyWorkspaceWindow::add_part_tree_children(
             auto font = insert_here->font(0);
             font.setBold(true);
             insert_here->setFont(0, font);
-            insert_here->setForeground(0, QBrush(QColor("#D03030")));
+            insert_here->setForeground(0, QBrush(QColor("#00D1FF")));
             parent->insertChild(std::min(cursor_position + 1, parent->childCount()), insert_here);
         }
     }
@@ -703,7 +703,7 @@ void AssemblyWorkspaceWindow::add_part_tree_children(
             auto* row = new QTreeWidgetItem(owner, {QObject::tr("← Vložit zde")});
             row->setData(0, Qt::UserRole, QString::fromStdString(id));
             row->setData(0, Qt::UserRole + 3, kind);
-            row->setForeground(0, QBrush(QColor("#D03030"))); return row;
+            row->setForeground(0, QBrush(QColor("#00D1FF"))); return row;
         };
         auto active_position = std::ranges::find(graph.order(),body_dialog_step_id_);
         if(active_position==graph.order().end())
@@ -723,19 +723,28 @@ void AssemblyWorkspaceWindow::add_part_tree_children(
             if (index == graph.order().size()) break;
             const auto& id = graph.order()[index];
             const auto* definition = graph.find(id);
+            const bool suppressed=definition?definition->suppressed:graph.find_boolean(id)->suppressed;
             auto* row = new QTreeWidgetItem(parent, {QString::fromStdString(
-                definition ? definition->name : graph.find_boolean(id)->name)});
-            row->setIcon(0, resource_icon(definition&&definition->derived_copy ? (definition->derived_copy->pattern?"pattern":"mirror") : "result-body"));
+                definition ? definition->name : graph.find_boolean(id)->name)+(suppressed?tr(" [potlačeno]"):QString{})});
+            row->setIcon(0, resource_icon(definition&&definition->scale?"scale":definition&&definition->derived_copy ? (definition->derived_copy->pattern?"pattern":"mirror") : "result-body"));
             row->setData(0, Qt::UserRole, QString::fromStdString(id));
             row->setData(0, Qt::UserRole + 3, definition ? "part-body" : "part-body-boolean");
+            if(suppressed) {
+                row->setForeground(0,QBrush(QColor(125,125,125)));
+                auto font=row->font(0);font.setItalic(true);font.setStrikeOut(true);row->setFont(0,font);
+            }
             if (id == graph.active_body_id() || id == body_dialog_step_id_) {
                 row->setBackground(0, QBrush(QColor("#4DD811"))); row->setForeground(0, QBrush(QColor("#102027")));
                 auto font = row->font(0); font.setBold(true); row->setFont(0, font);
             }
             if (!definition) { shade_downstream(row, index); continue; }
+            if(definition->scale) {
+                shade_downstream(row,index);continue;
+            }
             auto* origin = add_origin_tree_item(row, id, false, construction_path);
             origin->setIcon(0, resource_icon("origin"));
             origin->setText(0, definition->derived_copy ? (definition->derived_copy->pattern?tr("Počátek Pole"):tr("Počátek Zrcadla")) : tr("Počátek tělesa"));
+            if(definition->link) {shade_downstream(row,index);continue;}
             if(definition->derived_copy) {
                 const auto* source=graph.find(definition->derived_copy->source_id);
                 const auto* feature=document.find_container(definition->derived_copy->source_id);
@@ -852,7 +861,7 @@ void AssemblyWorkspaceWindow::add_assembly_tree_children(
         auto font = insert_here->font(0);
         font.setBold(true);
         insert_here->setFont(0, font);
-        insert_here->setForeground(0, QBrush(QColor("#D03030")));
+        insert_here->setForeground(0, QBrush(QColor("#00D1FF")));
     }    if (assembly_document_id == workspace_.active_document_id())
         add_pending_tree_item(parent, assembly_document_id, parent_path, true);
 

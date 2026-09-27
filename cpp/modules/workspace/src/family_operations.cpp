@@ -134,9 +134,12 @@ void presence(document::PartDocument& doc,const FamilyColumn& binding,bool prese
         auto* f=doc.find_container(binding.owner_id);if(!f)throw std::invalid_argument("Family feature no longer exists.");f->suppressed=!present;return;
     }
     if(binding.kind=="body") {
-        const auto* body=doc.body_history.find(binding.owner_id);
-        if(!body||body->derived_copy)throw std::invalid_argument("Family Body no longer exists.");
-        if(!present)for(const auto& entry:body->entries)if(auto* f=doc.find_container(entry.id))f->suppressed=true;
+        if(!present&&doc.body_history.active_body_id()==binding.owner_id)doc.body_history.activate({});
+        if(const auto* body=doc.body_history.find(binding.owner_id)) {
+            auto value=*body;value.suppressed=!present;doc.body_history.update_body(std::move(value));
+        } else if(const auto* operation=doc.body_history.find_boolean(binding.owner_id)) {
+            auto value=*operation;value.suppressed=!present;doc.body_history.update_boolean(std::move(value));
+        } else throw std::invalid_argument("Family Body no longer exists.");
         return;
     }
     throw std::invalid_argument("Invalid Part family presence reference.");
@@ -171,10 +174,12 @@ std::vector<FamilyReference> family_references(const Workspace& live,const std::
     std::vector<FamilyReference> out;
     if(const auto* state=live.open_part(id)) {
         const auto& doc=state->session.document();
-        for(const auto& body:doc.body_history.bodies())if(!body.derived_copy) {
-            bool present=false;for(const auto& entry:body.entries)if(const auto* f=doc.find_container(entry.id);f&&!f->suppressed)present=true;
+        for(const auto& body:doc.body_history.bodies()) {
+            const bool present=!body.suppressed;
             out.push_back({{"body",body.scope.id,{}},body.name,body.name,present?"yes":"no"});
         }
+        for(const auto& id:doc.body_history.order())if(const auto* body=doc.body_history.find_boolean(id))
+            out.push_back({{"body",id,{}},body->name,body->name,body->suppressed?"no":"yes"});
         for(const auto& f:doc.history) {
             add_feature_references(out,doc,f);
             document::visit_feature_sketches(f,[&](const auto& serialized,std::size_t){add_sketch_references(out,doc,sketcher::Sketch::from_serialized(serialized));});
@@ -243,9 +248,7 @@ template<class Doc> Doc merge_member(const Doc& base,const Doc& before,Doc next)
                 throw std::invalid_argument("Cannot restore the generic family dimension.");
         } else if constexpr(std::is_same_v<Doc,document::PartDocument>) {
             if(binding.kind=="body") {
-                const auto* body=base.body_history.find(binding.owner_id);
-                if(body)for(const auto& entry:body->entries)
-                    if(auto* f=next.find_container(entry.id))if(const auto* original=base.find_container(entry.id))f->suppressed=original->suppressed;
+                presence(next,binding,generic->value=="yes");
             } else if(auto* f=next.find_container(binding.owner_id))f->suppressed=base.find_container(binding.owner_id)->suppressed;
         } else presence(next,binding,generic->value=="yes");
     }

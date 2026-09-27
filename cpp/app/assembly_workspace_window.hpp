@@ -25,6 +25,7 @@
 #include <set>
 
 class QDockWidget;
+class QApplication;
 class QAction;
 class QActionGroup;
 class QComboBox;
@@ -68,6 +69,7 @@ class MeasurementDialog;
 class SketchOffsetDialog;
 
 class AssemblyWorkspaceWindow final : public QMainWindow {
+    friend int verify_body_link(QApplication&,AssemblyWorkspaceWindow&,const std::filesystem::path&);
 public:
     explicit AssemblyWorkspaceWindow(
         const QString& working_directory = {}, const QString& settings_directory = {});
@@ -363,10 +365,14 @@ private:
     QAction* body_boolean_action_{};
     QAction* mirror_action_{};
     QAction* pattern_action_{};
+    QAction* body_scale_action_{};
+    void show_body_scale_properties(const std::string& id = {});
+    bool accept_body_scale_tree_reference(QTreeWidgetItem* item);
     void show_derived_copy_properties(const std::string& id = {},bool pattern=false);
     bool accept_derived_copy_tree_reference(QTreeWidgetItem* item);
     void show_derived_source(const std::string& id,bool properties);
-    void show_body_properties(const std::string& id = {});
+    void show_body_properties(const std::string& id = {},std::optional<zima::document::BodyHistory> link_draft = {});
+    void insert_linked_body(const QString& file = {});
     void show_body_boolean_properties(const std::string& id = {});
     void activate_first_part_body();
     void activate_body(const std::string& id);

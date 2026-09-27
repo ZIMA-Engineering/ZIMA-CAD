@@ -1,5 +1,10 @@
 #include <zima/command_host/host.hpp>
 #include <zima/workspace/body_operations.hpp>
+#include <zima/workspace/body_scale_operations.hpp>
+#include <zima/workspace/body_link_operations.hpp>
+#include <zima/workspace/document_dependencies.hpp>
+#include <zima/document/body_origin_attachment.hpp>
+#include <zima/document/file_path.hpp>
 #include <zima/workspace/body_reference_operations.hpp>
 #include <zima/document/placement_json.hpp>
 #include <algorithm>
@@ -39,7 +44,11 @@ Json body_data(const workspace::PartState& state,const std::string& id) {
     Json entries=Json::array();for(const auto& entry:body->entries)entries.push_back(entry.id);
     return {{"document",document.document_id},{"body",id},{"kind","body"},{"name",body->name},
         {"origin",body->origin().id},{"active",document.body_history.active_body_id()==id},
-        {"visible",body->visible},{"derived",body->derived_copy.has_value()},
+        {"visible",body->visible},{"suppressed",body->suppressed},{"derived",body->derived_copy.has_value()||body->scale.has_value()||body->link.has_value()},
+        {"link",body->link?Json{{"document",body->link->document_id},{"body",body->link->body_id},
+            {"path",document::path_to_utf8(body->link->source_path)}}:Json(nullptr)},
+        {"scale",body->scale?Json{{"source",body->scale->source_id},{"factor",body->scale->factor},
+            {"center",{body->scale->center.x,body->scale->center.y,body->scale->center.z}}}:Json(nullptr)},
         {"history",std::move(entries)},{"cursor",body->cursor},{"dependencies",body->dependencies},
         {"placement",body->scope.placement},{"revision",state.session.revision()}};
 }
@@ -47,7 +56,7 @@ Json boolean_data(const workspace::PartState& state,const std::string& id) {
     const auto& document=state.session.document();const auto* value=document.body_history.find_boolean(id);
     if(!value)throw workspace::BodyOperationError("boolean_not_found","The requested Body Boolean does not exist.");
     return {{"document",document.document_id},{"boolean",id},{"kind","boolean"},{"name",value->name},
-        {"visible",value->visible},{"operation",mode_name(value->operation)},
+        {"visible",value->visible},{"suppressed",value->suppressed},{"operation",mode_name(value->operation)},
         {"target",value->target_id},{"tool",value->tool_id},{"revision",state.session.revision()}};
 }
 Json graph_data(const workspace::PartState& state) {
@@ -73,6 +82,7 @@ void Host::register_body_commands() {
                 if(changes && result.value("changed",false))change_=Change{ChangeKind::Model,workspace_.active_document_id(),clear_selection};
                 return Result::success(std::move(result));
             } catch(const workspace::BodyOperationError& error) {return Result::failure(error.code,tr(error.what()));}
+              catch(const workspace::DocumentDependencyError& error) {return Result::failure(error.code,tr(error.what()));}
         });
     };
     add({"body.list",tr("Read Bodies, Boolean results and their history order."),{{"document",false}},false},[this](const Json& args) {
@@ -118,6 +128,41 @@ void Host::register_body_commands() {
         source.offset=args.value("offset_mm",0.0);source.flip=args.value("flip",false);
         const auto body=args.at("body").get<std::string>();const auto changed=workspace::set_body_placement_reference(workspace_,kernel_,state.session.document().document_id,body,args.at("index").get<std::size_t>(),std::move(source),args.value("derive_orientation",true));
         auto result=body_data(state,body);result["changed"]=changed;return result;
+    });
+    add({"body.suppress",tr("Exclude a Body result while retaining its geometry for dependent Bodies."),
+        {{"body",true},{"suppressed",true,commands::ArgumentType::Boolean},{"document",false}},true},[this](const Json& args) {
+        auto& state=part(workspace_,args);
+        const auto changed=workspace::set_part_body_suppressed(workspace_,kernel_,state.session.document().document_id,
+            args.at("body").get<std::string>(),args.at("suppressed").get<bool>());
+        auto result=graph_data(state);result["changed"]=changed;return result;
+    });
+    add({"body.link",tr("Insert or edit a linked Body from a native Part."),
+        {{"file",true},{"source_body",true},{"source_document",false},{"body",false},{"name",false},{"document",false}},true},[this](const Json& args) {
+        auto& state=part(workspace_,args);const auto edit=workspace::prepare_body_link_edit(state.session.document(),args.value("body",std::string{}));
+        auto file=std::filesystem::u8path(args.at("file").get<std::string>());if(file.is_relative())file=directory_/file;
+        const auto source=workspace::read_body_link_source(workspace_,file,args.value("source_document",std::string{}));
+        document::BodyHistory value;
+        if(const auto* initial=state.session.document().body_history.find(edit.object_id))value=*initial;
+        else {value.scope.id=edit.object_id;value.name=source.document.name;value.scope.placement=document::body_origin_attachment(state.session.document().document_id);}
+        if(args.contains("name"))value.name=name(args.at("name").get<std::string>());
+        value.link=workspace::body_link_from_source(source,args.at("source_body").get<std::string>(),value.scope.id);
+        const auto changed=workspace::commit_body_link(workspace_,kernel_,edit,std::move(value));
+        auto result=body_data(state,edit.object_id);result["changed"]=changed;return result;
+    });
+    add({"body.scale",tr("Create or edit a scaled result of a source Body."),
+        {{"source",true},{"factor",true,commands::ArgumentType::Number},{"body",false},{"name",false},
+         {"center_x",false,commands::ArgumentType::Number},{"center_y",false,commands::ArgumentType::Number},
+         {"center_z",false,commands::ArgumentType::Number},{"document",false}},true},[this](const Json& args) {
+        auto& state=part(workspace_,args);const auto id=args.value("body",std::string{});
+        const auto edit=workspace::prepare_body_scale_edit(state.session.document(),id);
+        document::BodyHistory value;
+        if(!id.empty())value=*state.session.document().body_history.find(id);
+        else {value.scope.id=edit.object_id;value.name=tr("Body scale");value.scale=document::BodyScale{};}
+        if(args.contains("name"))value.name=name(args.at("name").get<std::string>());
+        auto& scale=*value.scale;scale.source_id=args.at("source").get<std::string>();scale.factor=args.at("factor").get<double>();
+        scale.center={args.value("center_x",scale.center.x),args.value("center_y",scale.center.y),args.value("center_z",scale.center.z)};
+        const auto changed=workspace::commit_body_scale(workspace_,kernel_,edit,std::move(value));
+        auto result=body_data(state,edit.object_id);result["changed"]=changed;return result;
     });
     add({"body.activate",tr("Activate a Body; omit its ID to deactivate it."),{{"body",false},{"document",false}},true},[this](const Json& args) {
         auto& state=part(workspace_,args);

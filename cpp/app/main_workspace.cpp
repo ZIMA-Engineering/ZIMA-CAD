@@ -119,6 +119,8 @@
 #include <tuple>
 
 namespace zima::app { int verify_sections(QApplication&,AssemblyWorkspaceWindow&,const std::filesystem::path&); }
+namespace zima::app { int verify_body_scale(QApplication&,AssemblyWorkspaceWindow&,const std::filesystem::path&); }
+namespace zima::app { int verify_body_link(QApplication&,AssemblyWorkspaceWindow&,const std::filesystem::path&); }
 
 namespace {
 
@@ -1103,7 +1105,9 @@ int verify_derived_copy_commands(QApplication& application,zima::app::AssemblyWo
     const auto saved_assembly=assembly::AssemblyDocument::load(assembly_path);
     if(!verify(saved_assembly.find_occurrence(assembly_mirror)&&saved_assembly.find_occurrence(assembly_mirror)->derived_copy,"Assembly Mirror not persisted"))return 1;
     const auto before=saved_assembly.find_occurrence(assembly_mirror)->calculated_source->mesh.vertices.front();
-    if(!verify(std::abs(before.x+calculated.back().mesh.vertices.front().x+20)<1e-7,"Assembly Mirror used the wrong source placement"))return 1;
+    // The open source Part was edited above and is authoritative for both occurrences.
+    const auto current_source=saved_assembly.find_occurrence(occurrence.occurrence_id)->calculated_source->mesh.vertices.front();
+    if(!verify(std::abs(before.x+current_source.x+20)<1e-7,"Assembly Mirror used the wrong source placement"))return 1;
     window.show_tree_item_properties(row(assembly_mirror,"part-occurrence"));flush();
     dialog=dynamic_cast<app::DerivedCopyDialog*>(window.findChild<QDialog*>("mirrorDialog"));
     if(!verify(dialog&&dialog->pending.id==assembly_mirror,"Assembly Mirror container properties missing"))return 1;
@@ -8465,6 +8469,10 @@ int verify_startup_contract(
         return verify_family_table(application,window,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_DERIVED_COPY_ONLY"))
         return verify_derived_copy_commands(application,window,test_directory);
+    if (qEnvironmentVariableIsSet("ZIMA_VERIFY_BODY_SCALE_ONLY"))
+        return zima::app::verify_body_scale(application,window,test_directory);
+    if (qEnvironmentVariableIsSet("ZIMA_VERIFY_BODY_LINK_ONLY"))
+        return zima::app::verify_body_link(application,window,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_SWEEP2D_ONLY"))
         return verify_sweep2d_command(application,window,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_HELICAL_SWEEP_ONLY"))

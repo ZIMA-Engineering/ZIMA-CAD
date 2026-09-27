@@ -80,9 +80,13 @@ void DocumentSession::rebase_native_files(std::span<const FileRelocation> files)
 }
 void DocumentSession::prepare_native_file_rebase(FileRelocationEdits& edits) {
     const auto before = edits.edit_count();
-    edits.document_name(current_->document.document_id, current_->document.name);
-    for (auto& state : undo_) edits.document_name(state->document.document_id, state->document.name);
-    for (auto& state : redo_) edits.document_name(state->document.document_id, state->document.name);
+    const auto collect=[&](PartDocument& doc) {
+        edits.document_name(doc.document_id,doc.name);
+        doc.body_history.prepare_link_file_rebase(edits);
+    };
+    collect(current_->document);
+    for (auto& state : undo_) collect(state->document);
+    for (auto& state : redo_) collect(state->document);
     if (edits.edit_count() != before) edits.track_generation(data_generation_);
 }
 

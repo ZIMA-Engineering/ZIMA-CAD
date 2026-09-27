@@ -419,12 +419,11 @@ void AssemblyWorkspaceWindow::refresh_tabs() {
         }, state);
     }
     for (int index = 0; index < tabs_->count(); ++index) {
-        // Reserve an explicit right inset inside the tab button slot. Native
-        // styles can otherwise place the close button against/outside the tab edge.
+        // Keep the slot width stable, with the close button near the tab's right edge.
         auto* close_slot = new QWidget(tabs_);
         close_slot->setFixedSize(48, 22);
         auto* close_layout = new QHBoxLayout(close_slot);
-        close_layout->setContentsMargins(0, 0, 10, 0);
+        close_layout->setContentsMargins(8, 0, 2, 0);
         close_layout->setSpacing(0);
         // The dirty marker owns a fixed slot: saving must not resize the tab.
         auto* dirty_marker=new QLabel(close_slot);dirty_marker->setObjectName("documentTabDirtyMarker");

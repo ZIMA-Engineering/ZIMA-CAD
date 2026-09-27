@@ -788,7 +788,8 @@ struct PatternRequest {
     std::array<LinearPatternDirection,3> linear{{{0}, {}, {}}};
     bool operator==(const PatternRequest&) const = default;
 };
-enum class BodyCombination { Separate, Add, Subtract, Intersect, Mirror, Pattern };
+enum class BodyCombination { Separate, Add, Subtract, Intersect, Mirror, Pattern, Scale };
+struct BodyResult;
 struct BodyHistoryScope {
     std::string id;
     BodyCombination combination{BodyCombination::Separate};
@@ -802,6 +803,11 @@ struct BodyHistoryScope {
     // Optional solid feature within source_id. Copies its original operand,
     // never the accumulated Body result at that feature's history boundary.
     std::string source_feature_id;
+    // Body suppression excludes its result, not the geometry needed by children.
+    bool result_suppressed{};
+    double scale_factor{1};
+    Vec3 scale_center;
+    std::shared_ptr<const BodyResult> linked_body;
     bool operator==(const BodyHistoryScope&) const = default;
 };
 
@@ -1031,10 +1037,17 @@ struct PlacedBody {
                 for (const unsigned char value : text) byte(value);
             }
             byte(static_cast<std::uint8_t>(operation.body.combination));
+            byte(operation.body.result_suppressed);
             for (const auto value : {operation.body.translation.x, operation.body.translation.y,
                     operation.body.translation.z, operation.body.rotation_degrees.x,
                     operation.body.rotation_degrees.y, operation.body.rotation_degrees.z})
                 u64(number_bits(value));
+        }
+        if(operation.body.combination==BodyCombination::Scale)
+            for(double v:{operation.body.scale_factor,operation.body.scale_center.x,operation.body.scale_center.y,operation.body.scale_center.z})u64(number_bits(v));
+        if(operation.body.linked_body) {
+            const auto& stamp=operation.body.linked_body->source_fingerprint;
+            u64(stamp.size());for(unsigned char c:stamp)byte(c);
         }
         if(operation.body.combination==BodyCombination::Mirror)
             for(double v:{operation.body.mirror_plane.point.x,operation.body.mirror_plane.point.y,operation.body.mirror_plane.point.z,
