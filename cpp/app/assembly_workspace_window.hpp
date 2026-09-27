@@ -46,6 +46,8 @@ class QTreeWidgetItem;
 class QStackedWidget;
 class QSplitter;
 
+namespace zima::ui { class ContainerPlacementSection; }
+
 namespace zima::viewer { class MeshView; struct ViewerCandidate; }
 
 namespace zima::command_host { class Host; struct Change; }
@@ -738,6 +740,12 @@ private:
     void apply_extrusion_target_selection_contract();
     void accept_extrusion_target(const zima::viewer::ViewerCandidate& candidate);
     void finish_extrusion_target_selection();
+    QPointer<zima::ui::ContainerPlacementSection> placement_branch_section_;
+    std::vector<zima::document::Placement> placement_branch_choices_;
+    bool placement_branch_picking_{};
+    void show_placement_branches(zima::ui::ContainerPlacementSection*, QDialog*, bool picking);
+    void end_placement_branch_selection();
+    bool accept_placement_branch(const zima::viewer::ViewerCandidate&);
     [[nodiscard]] bool finish_active_reference_selection();
     void set_primitive_properties_dimension_selection();
     void set_construction_properties_dimension_selection();

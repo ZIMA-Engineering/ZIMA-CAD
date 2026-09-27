@@ -4,10 +4,13 @@
 
 namespace zima::document {
 inline void to_json(nlohmann::json& j,const ConstructionReference& v) {
-    j={{"instance_path",v.instance_path},{"owner_id",v.owner_id},{"semantic_key",v.semantic_key},{"offset",v.offset},{"supports_offset",v.supports_offset},{"orientation_role",v.orientation_role},{"orientation_drives_rotation",v.orientation_drives_rotation},{"orientation_only",v.orientation_only},{"flip",v.flip},{"offset_locked",v.offset_locked},{"use_axis",v.use_axis}};
+    j={{"instance_path",v.instance_path},{"owner_id",v.owner_id},{"semantic_key",v.semantic_key},{"offset",v.offset},{"supports_offset",v.supports_offset},{"orientation_role",v.orientation_role},{"orientation_drives_rotation",v.orientation_drives_rotation},{"orientation_only",v.orientation_only},{"flip",v.flip},{"offset_locked",v.offset_locked},{"use_axis",v.use_axis},{"solution_branch",v.solution_branch},{"branch_sources",v.branch_sources}};
 }
 inline void from_json(const nlohmann::json& j,ConstructionReference& v) {
     j.at("instance_path").get_to(v.instance_path);j.at("owner_id").get_to(v.owner_id);j.at("semantic_key").get_to(v.semantic_key);j.at("offset").get_to(v.offset);j.at("supports_offset").get_to(v.supports_offset);j.at("orientation_role").get_to(v.orientation_role);j.at("orientation_drives_rotation").get_to(v.orientation_drives_rotation);j.at("orientation_only").get_to(v.orientation_only);j.at("flip").get_to(v.flip);
+    j.at("solution_branch").get_to(v.solution_branch);j.at("branch_sources").get_to(v.branch_sources);
+    if(v.solution_branch < -1 || v.solution_branch > 1 || (v.solution_branch==0)!=v.branch_sources.empty())
+        throw std::invalid_argument("Invalid placement solution branch");
     v.offset_locked=j.value("offset_locked",false);v.measured_offset.reset();v.use_axis=j.value("use_axis",false);
 }
 inline void to_json(nlohmann::json& j,const Placement& v) {

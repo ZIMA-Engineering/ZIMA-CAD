@@ -36,6 +36,9 @@ int main()try {
     for(unsigned sides:{2u,3u}) {
         auto rectangular=document::create_sheet_transition(true);
         document::set_rectangular_transition_sides(rectangular,sides);
+        const auto preview=document::sheet_transition_preview(rectangular);
+        check(std::ranges::count_if(preview.edges,[](const auto& edge){return edge.preview_terminal_dashed;})==
+            (sides==2?5:2),"Omitted rectangular walls must have dashed envelope edges");
         const auto parsed=research::transition::read_rectangular_sketches(sketcher::Sketch::from_serialized(rectangular.sheet_transition.sketches[1]),sketcher::Sketch::from_serialized(rectangular.sheet_transition.sketches[0]));
         check(parsed.model.sides==sides&&parsed.model.width[0]==200&&parsed.model.width[1]==140,"Rectangular profile interpretation changed its sides or dimensions");
         auto doc=document::PartDocument::create_default();static_cast<void>(doc.body_history.create_body("Rectangular transition"));
@@ -102,7 +105,24 @@ int main()try {
     const auto start=std::chrono::steady_clock::now();
     check(workspace::commit_sheet_transition(live,kernel,id,feature),"Creation did not commit");
     auto* state=live.open_part(id);const auto created=state->session.document().serialized();
+    for(bool rectangular:{false,true}) {
+        bool rejected=false;
+        try{static_cast<void>(workspace::commit_sheet_transition(live,kernel,id,document::create_sheet_transition(rectangular)));}
+        catch(const std::invalid_argument& e){rejected=std::string_view(e.what())=="A Part can contain only one sheet transition.";}
+        check(rejected&&state->session.document().serialized()==created,"Second transition was not rejected atomically");
+    }
     const auto volume=state->session.calculated_boundaries().back().volume;check(volume>1000,"Missing transition solid");
+    {
+        auto multiple_bodies=state->session.document();
+        static_cast<void>(multiple_bodies.body_history.create_body("Second Body"));
+        multiple_bodies.find_container(feature.id)->suppressed=true;
+        workspace::Workspace other;other.add_part(multiple_bodies);other.activate(id);
+        bool blocked=false;
+        try{static_cast<void>(workspace::commit_sheet_transition(other,kernel,id,document::create_sheet_transition(true)));}
+        catch(const std::invalid_argument& e){blocked=std::string_view(e.what())=="A Part can contain only one sheet transition.";}
+        check(blocked&&other.open_part(id)->session.document().serialized()==multiple_bodies.serialized(),
+            "Another Body or suppression bypassed the Part transition limit");
+    }
     check(!workspace::commit_sheet_transition(live,kernel,id,feature),"Unchanged OK created an Undo transaction");
     check(workspace::step_part_document_history(live,id,false),"Undo failed");
     check(!state->session.document().find_container(feature.id),"Undo retained feature");

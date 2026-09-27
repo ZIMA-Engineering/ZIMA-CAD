@@ -243,6 +243,7 @@ struct MeshView::Impl {
     std::vector<zima::kernel::ViewerEdge> transient_edges;
     std::vector<zima::kernel::ViewerDimension> transient_dimensions;
     std::vector<zima::kernel::ViewerPoint> command_snap_points;
+    bool command_snap_points_visible{};
     std::vector<zima::kernel::Vec3> transient_points;
     std::vector<std::pair<zima::kernel::Vec3, std::string>> transient_labels;
     std::optional<zima::kernel::Vec3> sketch_cursor;
@@ -1980,7 +1981,8 @@ std::size_t MeshView::base_mesh_revision() const {
     return impl_->base_mesh_revision;
 }
 
-void MeshView::set_command_snap_points(std::vector<zima::kernel::ViewerPoint> points) {
+void MeshView::set_command_snap_points(std::vector<zima::kernel::ViewerPoint> points,bool visible) {
+    impl_->command_snap_points_visible=visible;
     impl_->command_snap_points=std::move(points);
     impl_->candidates.clear();
     impl_->active_candidate=0;
@@ -3717,7 +3719,7 @@ if (impl_->show_origins) {
     const bool dimensions_visible = !impl_->mesh.dimensions.empty() ||
         !impl_->transient_dimensions.empty();
     const bool overlay_edges_visible=std::ranges::any_of(impl_->mesh.edges,[](const auto& edge){return edge.overlay&&edge.reference.semantic_key=="section:sketch";});
-    if (overlay_edges_visible || axes_visible || points_visible || planes_visible ||
+    if (impl_->command_snap_points_visible || overlay_edges_visible || axes_visible || points_visible || planes_visible ||
         sketch_geometry_visible || curve3d_geometry_visible ||
         dimensions_visible ||
         !impl_->transient_edges.empty() || !impl_->transient_points.empty() ||
@@ -5119,6 +5121,13 @@ if (impl_->show_origins) {
                         QString::fromStdString(point.label));
                 }
             }
+        }
+        if(impl_->command_snap_points_visible)for(const auto& point:impl_->command_snap_points) {
+            const auto hovered=hovered_candidate();
+            const bool hover=hovered && hovered->owner_id==point.reference.owner_id &&
+                hovered->semantic_key==point.reference.semantic_key && hovered->instance_path==point.reference.instance_path;
+            draw_circular_marker(painter,project(point.position),hover?interaction::hover:
+                point.construction?interaction::selected:palette().color(QPalette::Text),6.0);
         }
         if (impl_->component_origin_handle) {
             const auto& key = *impl_->component_origin_handle;

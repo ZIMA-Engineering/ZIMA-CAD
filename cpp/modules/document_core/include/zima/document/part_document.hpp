@@ -197,6 +197,11 @@ struct ConstructionObject {
 
 [[nodiscard]] bool resolve_axis_extents(ConstructionObject&,
     const zima::kernel::ViewerReferenceGeometry&);
+// Branch identity is retained even when two intersections coincide at tangency.
+void initialize_placement_solution_branch(std::vector<ConstructionReference>&,
+    const zima::kernel::ViewerReferenceGeometry&, zima::kernel::Vec3 seed);
+[[nodiscard]] std::vector<Placement> placement_solution_branches(Placement,
+    const zima::kernel::ViewerReferenceGeometry&);
 [[nodiscard]] bool resolve_construction(
     ConstructionObject& object,
     const zima::kernel::ViewerReferenceGeometry& references);

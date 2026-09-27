@@ -142,6 +142,7 @@ void AssemblyWorkspaceWindow::create_layout() {
             return;
         }
 
+        if(accept_placement_branch(candidate))return;
         if (curve_axis_dialog_ != nullptr && pending_curve_axis_index_) {
             accept_curve_axis_reference(candidate);
             return;

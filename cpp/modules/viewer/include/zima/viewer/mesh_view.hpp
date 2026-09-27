@@ -230,7 +230,7 @@ public:
     // they are transient, non-pickable and always rendered in inference orange.
     void set_transient_points(std::vector<zima::kernel::Vec3> points);
     // Command-owned points participate in the same hover/click candidate list.
-    void set_command_snap_points(std::vector<zima::kernel::ViewerPoint> points);
+    void set_command_snap_points(std::vector<zima::kernel::ViewerPoint> points, bool visible = false);
     void set_transient_labels(std::vector<std::pair<zima::kernel::Vec3,
         std::string>> labels);
     // Sketch placement cursor: white in free space, orange when a persisted

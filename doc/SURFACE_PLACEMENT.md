@@ -1,5 +1,39 @@
 # Surface placement reference modes
 
+## Explicit solution branches
+
+The shared placement update was approved after the September 26 handoff.
+The first curved reference prelocks the two empty positional rows. Filling one
+captures the current signed distance once, then releases that row for deliberate
+numeric editing. View candidate validation uses the same assignment policy as
+the table; it must not validate a temporary zero offset instead of that distance.
+
+Native circles and ellipses use their exact rational quadratic representation.
+Cylinder/plane and conic/plane intersections retain an explicit branch sign and
+the identities/order of the defining planes. The sign remains distinct at
+tangency and survives numeric edits, regeneration, Undo/Redo and native files.
+Reference replacement/removal starts a new branch choice. Orientation-only edits
+do not discard it. An unreachable selected branch leaves the last valid frame
+and marks the reference invalid; the solver never clamps a requested distance.
+
+The shared **Solution branch** field arms the common View candidate pipeline.
+Hover offers the candidate, RMB cycles and LMB confirms. The independent eye
+inspects the current solution. Closing or cancelling the dialog retires temporary
+markers. Candidate evaluation uses persisted ZIMA geometry without OCCT.
+
+For example, a radius-50 cylinder at a fixed station intersected by X=30 has
+Y=+40 and Y=-40 solutions. X=50 joins them at tangency, while X=60 is invalid.
+A single plane parallel to the cylinder axis has two generator branches; markers
+represent their positions at the current free axial station. Continuous curves
+without a discrete branch retain ordinary placement controls. This implementation
+does not claim arbitrary NURBS branch enumeration or feasible-range annotations.
+
+Part JSON/INI versions are 66/42 and Assembly JSON/INI versions are 46/34.
+Branch identity lives in the native document. Start templates are regenerated
+with the current serializer; no sidecar or legacy-format migration is required.
+
+## Current implementation
+
 The shared container-placement table has a **Type** column immediately after
 **Reference**. Empty rows have an empty, disabled selector. A selected face uses
 **On surface** by default. Cylindrical and conical source faces additionally

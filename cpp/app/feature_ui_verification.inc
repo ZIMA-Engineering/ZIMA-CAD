@@ -3,6 +3,7 @@ static void verify_feature_surface_placement(QApplication& application, Assembly
                                             const std::filesystem::path& directory) {
     const auto check=[](bool ok,const char* message){if(!ok)throw std::runtime_error(message);};
     const auto flush=[&]{application.processEvents();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);application.processEvents();};
+    window.show();window.raise();window.activateWindow();flush();
     const auto run=[&](const char* command,commands::Json args=commands::Json::object()) {
         const auto result=window.execute_console_command(QString::fromStdString(commands::Json{{"command",command},{"arguments",args}}.dump()));
         if(!result.ok)throw std::runtime_error(result.message);flush();
@@ -77,6 +78,72 @@ static void verify_feature_surface_placement(QApplication& application, Assembly
     check(std::abs(clicked.x-expected->x)<1e-5&&std::abs(clicked.y-expected->y)<1e-5&&std::abs(clicked.z-expected->z)<1e-5,
         "First View reference did not place the Feature at the clicked surface point");
     dialog()->reject();flush();
+    // Explicit branch selection uses the same View candidate pipeline as hover.
+    window.findChild<QAction*>("featureShortcut0Action")->trigger();flush();
+    check(dialog()->set_reference(0,{{},face->owner_id,face->semantic_key,0,true},"Cylinder"),"Branch cylinder entry failed");flush();
+    document::ConstructionReference xref{{},source.container_origin.id,"origin:plane:yz",0,true};
+    xref.measured_offset=3;
+    check(dialog()->set_reference(1,xref,"X"),"Branch X entry failed");flush();
+    check(dialog()->pending_value().placement.references[1].offset==3,"Curved reference did not capture the next plane distance");
+    document::ConstructionReference zref{{},source.container_origin.id,"origin:plane:xy",0,true};
+    zref.measured_offset=7;
+    check(dialog()->set_reference(2,zref,"Z"),"Branch Z entry failed");flush();
+    check(dialog()->pending_value().placement.references[2].offset==7,"Curved reference did not capture the third plane distance");
+    auto* branches=dialog()->findChild<QTableWidget*>("placementSolutionBranchTable");
+    check(branches && branches->isVisible(),"Solution branch field missing");
+    auto* branch_references=dialog()->findChild<QTableWidget*>("primitiveReferenceTable");
+    check(branch_references && branch_references->rowCount()==3 &&
+        branch_references->rowViewportPosition(2)+branch_references->rowHeight(2)<=branch_references->viewport()->height(),
+        "Solution branch field clipped the third placement reference");
+    branches->cellClicked(0,1);flush();
+    check(dynamic_cast<ui::ReferenceCellItem*>(branches->item(0,1))->is_active_input(),"Branch field did not own input");
+    std::optional<QPointF> branch_click;
+    for(int y=0;y<pick_view->height()&&!branch_click;y+=3)
+        for(int x=0;x<pick_view->width()&&!branch_click;x+=3) {
+            const auto candidates=pick_view->selection_candidates_at({double(x),double(y)});
+            if(!candidates.empty()&&candidates.front().owner_id=="placement-solution-branch")branch_click=QPointF(x,y);
+        }
+    check(branch_click.has_value(),"Solution points were not offered by the common picker");
+    for(const auto type:{QEvent::MouseMove,QEvent::MouseButtonPress,QEvent::MouseButtonRelease}) {
+        QMouseEvent event(type,*branch_click,QPointF(pick_view->mapToGlobal(branch_click->toPoint())),
+            type==QEvent::MouseMove?Qt::NoButton:Qt::LeftButton,
+            type==QEvent::MouseButtonPress?Qt::LeftButton:Qt::NoButton,Qt::NoModifier);
+        QApplication::sendEvent(pick_view,&event);flush();
+    }
+    const auto branch_value=dialog()->pending_value();const auto branch_id=branch_value.id;
+    check(branch_value.placement.references.front().solution_branch!=0,"View choice did not persist the branch");
+    check(!dynamic_cast<ui::ReferenceCellItem*>(branches->item(0,1))->is_active_input(),"Branch click did not end entry");
+    auto* eye=branches->cellWidget(0,2)->findChild<QToolButton*>();eye->click();flush();
+    check(dynamic_cast<ui::ReferenceCellItem*>(branches->item(0,1))->is_inspected(),"Branch eye did not inspect independently");
+    if(branch_references->rowViewportPosition(2)+branch_references->rowHeight(2)>branch_references->viewport()->height() ||
+        branches->geometry().top()<=branch_references->geometry().bottom())
+        throw std::runtime_error("Branch inspection clipped references: table="+std::to_string(branch_references->height())+
+            " viewport="+std::to_string(branch_references->viewport()->height())+
+            " header="+std::to_string(branch_references->horizontalHeader()->height())+
+            " hint="+std::to_string(branch_references->horizontalHeader()->sizeHint().height())+
+            " bottom="+std::to_string(branch_references->geometry().bottom())+
+            " branch="+std::to_string(branches->geometry().top()));
+    window.grab().save(QString::fromStdString((directory/"placement-solution-branch.png").string()));
+    dialog()->buttons()->button(QDialogButtonBox::Ok)->click();flush();check(!dialog(),"Branch OK failed");run("save");
+    auto branch_saved=document::PartDocument::load(path);
+    const auto committed_branch=branch_saved.find_container(branch_id)->placement.references;
+    const auto same_branch=[&](const auto& refs) {
+        return refs.size()==committed_branch.size() && refs.front().solution_branch==branch_value.placement.references.front().solution_branch &&
+            refs.front().branch_sources==branch_value.placement.references.front().branch_sources &&
+            refs.front().owner_id==branch_value.placement.references.front().owner_id &&
+            refs.front().semantic_key==branch_value.placement.references.front().semantic_key;
+    };
+    check(same_branch(committed_branch),"Native file lost branch selection");
+    run("undo");run("save");check(!document::PartDocument::load(path).find_container(branch_id),"Branch creation Undo failed");
+    run("redo");run("save");check(document::PartDocument::load(path).find_container(branch_id),"Branch creation Redo failed");
+    QTreeWidgetItem* branch_row{};
+    for(QTreeWidgetItemIterator row(window.findChild<QTreeWidget*>("documentTree"));*row;++row)
+        if((*row)->data(0,Qt::UserRole).toString().toStdString()==branch_id){branch_row=*row;break;}
+    check(branch_row,"Branch tree row missing");window.show_tree_item_properties(branch_row);flush();
+    check(dialog()&&same_branch(dialog()->pending_value().placement.references),"Reopened branch changed");
+    branches=dialog()->findChild<QTableWidget*>("placementSolutionBranchTable");branches->cellClicked(0,1);flush();
+    dialog()->reject();flush();run("save");
+    check(document::PartDocument::load(path).find_container(branch_id)->placement.references==committed_branch,"Cancel changed saved branch");
     window.findChild<QAction*>("featurePrototypeAction")->trigger();flush();check(dialog(),"Axis Feature dialog missing");
     dialog()->findChild<QComboBox*>("featureType")->setCurrentIndex(1);
     check(dialog()->set_reference(0,{{},face->owner_id,face->semantic_key,0,true,"front",true},"Cylinder"),"Cylinder cannot be selected");flush();

@@ -403,7 +403,7 @@ int main() {
         const std::string assembly_text(
             std::istreambuf_iterator<char>(assembly_file), {});
         require(assembly_text.find("[Document]\n") != std::string::npos &&
-                    assembly_text.find("format_version=33\n") != std::string::npos &&
+                    assembly_text.find("format_version=34\n") != std::string::npos &&
                     assembly_text.find("[DocumentUnits]\n") != std::string::npos &&
                     assembly_text.find("[DocumentPrecision]\n") != std::string::npos &&
                     assembly_text.find("[Material]\n") == std::string::npos &&
@@ -1836,7 +1836,7 @@ int main() {
                     loaded_curve_assembly.find_construction(
                         assembly_curve_first_id) != nullptr,
                 "Shared construction codec did not round-trip an Assembly 3D-Curve");
-        const auto dependent_face = *std::find_if(
+        const auto dependent_face_it = std::find_if(
             datum_scene.original_references.triangle_references.begin(),
             datum_scene.original_references.triangle_references.end(),
             [&](const auto& reference) {
@@ -1845,6 +1845,8 @@ int main() {
                     (reference.semantic_key == "start:from:6:region" ||
                         reference.semantic_key == "end:from:6:region");
             });
+        require(dependent_face_it!=datum_scene.original_references.triangle_references.end(),"Assembly datum fixture cap identity missing");
+        const auto dependent_face=*dependent_face_it;
         auto associative_assembly = assembly;
         auto referenced_plane =
             zima::assembly::AssemblyDocument::create_construction(

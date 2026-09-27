@@ -1,4 +1,7 @@
 {
+  "A Part can contain only one sheet transition.": "A Part can contain only one sheet transition.",
+  "Větev řešení": "Solution branch",
+  "Invalid placement solution branch": "Invalid placement solution branch",
   "Combined rotation angle must not exceed 360 degrees.": "Combined rotation angle must not exceed 360 degrees.",
   "Směr": "Direction",
   "Text": "Text",

@@ -1,3 +1,5 @@
+#include <zima/ui/close_button.hpp>
+
 void benchmark_selection_wire(QApplication& application,QWidget& parent) {
     using namespace zima;
     viewer::MeshView view(&parent);view.resize(800,600);
@@ -39,6 +41,33 @@ void verify_interaction_colors(QApplication& application,QWidget& parent) {
             palette.setColor(QPalette::Base,dark?QColor("#202020"):QColor("#FFFFFF"));
             palette.setColor(QPalette::HighlightedText,Qt::white);
             application.setPalette(palette);
+            {
+                ui::CloseButton close(&parent);close.setGeometry(20,20,30,28);close.show();close.raise();
+                const auto cursor=QCursor::pos();
+                QCursor::setPos(parent.mapToGlobal(QPoint(250,200)));application.processEvents();
+                close.setAttribute(Qt::WA_UnderMouse,false);
+                QHoverEvent leave(QEvent::HoverLeave,QPointF(-1,-1),QPointF(5,5));QApplication::sendEvent(&close,&leave);
+                const auto idle=close.grab().toImage();
+                const auto red=idle.pixelColor(6,6);
+                require(red.red()>150&&red.green()<70&&red.blue()<70,"Close/remove control lost its red background");
+                QCursor::setPos(close.mapToGlobal(close.rect().center()));application.processEvents();
+                close.setAttribute(Qt::WA_UnderMouse,true);
+                QHoverEvent enter(QEvent::HoverEnter,QPointF(5,5),QPointF(-1,-1));QApplication::sendEvent(&close,&enter);
+                const auto hover=close.grab().toImage();
+                require(hover!=idle,"Close/remove control has no hover feedback");
+                std::filesystem::create_directories("build");
+                require(hover.save(dark?"build/close-hover-dark.png":"build/close-hover-light.png"),"Cannot save close-control verification image");
+                QCursor::setPos(cursor);close.hide();
+                QToolButton tool(&parent);tool.setGeometry(20,20,80,32);tool.setText("Tool");
+                tool.setAutoRaise(true);tool.setStyleSheet(app::command_button_style());tool.show();tool.raise();
+                QCursor::setPos(parent.mapToGlobal(QPoint(250,200)));application.processEvents();
+                tool.setAttribute(Qt::WA_UnderMouse,false);
+                const auto tool_idle=tool.grab().toImage();
+                QCursor::setPos(tool.mapToGlobal(tool.rect().center()));application.processEvents();
+                tool.setAttribute(Qt::WA_UnderMouse,true);
+                require(tool.grab().toImage()!=tool_idle,"Toolbar command has no system-palette hover feedback");
+                QCursor::setPos(cursor);
+            }
             QToolButton toggle;
             toggle.setStyleSheet(app::command_button_style());toggle.setText("Orto");
             toggle.setToolButtonStyle(Qt::ToolButtonTextBesideIcon);

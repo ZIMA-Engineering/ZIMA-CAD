@@ -1,4 +1,7 @@
 {
+  "A Part can contain only one sheet transition.": "Деталь может содержать только один переход листового металла.",
+  "Větev řešení": "Ветвь решения",
+  "Invalid placement solution branch": "Недопустимая ветвь решения размещения",
   "Combined rotation angle must not exceed 360 degrees.": "Сумма углов вращения не должна превышать 360 градусов.",
   "Směr": "Направление",
   "Text": "Текст",

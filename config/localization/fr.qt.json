@@ -1,4 +1,7 @@
 {
+  "A Part can contain only one sheet transition.": "Une pièce ne peut contenir qu’une seule transition de tôle.",
+  "Větev řešení": "Branche de solution",
+  "Invalid placement solution branch": "Branche de solution de placement non valide",
   "Combined rotation angle must not exceed 360 degrees.": "La somme des angles de révolution ne doit pas dépasser 360 degrés.",
   "Směr": "Direction",
   "Text": "Texte",

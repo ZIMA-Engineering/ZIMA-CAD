@@ -50,6 +50,11 @@ struct ConstructionReference {
     // Transient first-click seed in the owning container's coordinate frame.
     // Consumed by reference entry, never serialized as reference identity.
     std::optional<std::array<double,3>> picked_position;
+    // Explicit intersection branch, independent of normal/offset side. The
+    // signed branch survives coincident roots at tangency. Source identities
+    // bind its meaning to the defining references, never to a viewer index.
+    int solution_branch{};
+    std::vector<std::array<std::string,3>> branch_sources;
     bool operator==(const ConstructionReference&) const = default;
 };
 

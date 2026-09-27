@@ -6,6 +6,19 @@ namespace zima::app {
 using namespace workspace_detail;
 
 namespace {
+document::ConstructionReference prepare_placement_pick(PlacementReferenceDialog* dialog,
+        std::size_t index,document::ConstructionReference ref,
+        const kernel::ViewerReferenceGeometry& geometry,const kernel::Vec3& origin) {
+    const auto measured=document::measure_placement_reference_offset(ref,geometry,origin);
+    ref.measured_offset=measured;
+    if(auto* widget=dynamic_cast<QWidget*>(dialog))
+        for(auto* object:widget->findChildren<QObject*>())
+            if(auto* section=dynamic_cast<ui::ContainerPlacementSection*>(object)) {
+                ref=section->prepare_reference(index,std::move(ref));break;
+            }
+    ref.measured_offset=measured;
+    return ref;
+}
 zima::assembly::MateReferenceKind component_reference_kind(
     const zima::viewer::ViewerCandidate& candidate, const zima::kernel::ViewerMesh& mesh) {
     using namespace zima;
@@ -26,7 +39,76 @@ zima::assembly::MateReferenceKind component_reference_kind(
 }
 }
 
+void AssemblyWorkspaceWindow::end_placement_branch_selection() {
+    if(!placement_branch_section_)return;
+    placement_branch_section_->end_branch_entry();placement_branch_section_.clear();
+    placement_branch_choices_.clear();placement_branch_picking_=false;
+    viewer_->set_command_snap_points({});viewer_->clear_selection();
+    if(primitive_reference_dialog_)set_primitive_properties_dimension_selection();
+    else if(construction_reference_dialog_)set_construction_properties_dimension_selection();
+}
+
+void AssemblyWorkspaceWindow::show_placement_branches(zima::ui::ContainerPlacementSection* section,
+        QDialog* dialog,bool picking) {
+    const bool inspected=section->branch_inspected();
+    if(placement_branch_section_!=section || placement_branch_picking_)end_placement_branch_selection();
+    else {placement_branch_section_.clear();viewer_->set_command_snap_points({});}
+    if(!picking && !inspected)return;
+    if(!picking)section->set_branch_inspected(true);
+    if(picking) {
+        static_cast<void>(finish_active_reference_selection());
+        section->set_branch_entry_active(true);
+    }
+    placement_branch_section_=section;placement_branch_picking_=picking;
+    placement_branch_choices_=section->solution_branches();
+    std::vector<kernel::ViewerPoint> points;
+    const auto current=section->references();
+    for(std::size_t i=0;i<placement_branch_choices_.size();++i) {
+        const auto& p=placement_branch_choices_[i];
+        const bool selected=std::ranges::any_of(p.references,[&](const auto& ref) {
+            return ref.solution_branch && std::ranges::any_of(current,[&](const auto& stored) {
+                return stored.owner_id==ref.owner_id && stored.semantic_key==ref.semantic_key &&
+                    stored.instance_path==ref.instance_path && stored.solution_branch==ref.solution_branch;
+            });
+        });
+        if(!picking && !selected)continue;
+        kernel::Vec3 point{p.x,p.y,p.z};
+        if(dialog==dynamic_cast<QDialog*>(primitive_reference_dialog_)) {
+            if(const auto* part=workspace_.open_part(workspace_.active_document_id());part && body_dialog_step_id_.empty()) {
+                const auto& doc=part->session.document();
+                const auto* body=doc.body_owner_for_object(primitive_parameter_owner_id_);
+                if(!body)body=doc.body_history.find(sketch_properties_body_id_.empty()?doc.body_history.active_body_id():sketch_properties_body_id_);
+                if(body)point=container_dimension_frame(body->scope.placement).point(point);
+            }
+        }
+        const auto path=assembly::InstancePath::decode(workspace_.active_occurrence_path());
+        if(!path.occurrence_ids.empty())point=workspace_.occurrence_point_to_scene(workspace_.displayed_document_id(),path,point);
+        kernel::ViewerPoint marker{point,{"placement-solution-branch",std::to_string(i),{}}};
+        marker.construction=selected;points.push_back(std::move(marker));
+    }
+    viewer_->set_command_snap_points(std::move(points),true);
+    if(picking) {
+        tree_->setProperty("commandSelectionActive",true);
+        viewer_->set_selection_contract({viewer::CandidateKind::Vertex});
+        viewer_->set_candidate_filter([](const auto& c){return c.owner_id=="placement-solution-branch";});
+    }
+}
+
+bool AssemblyWorkspaceWindow::accept_placement_branch(const viewer::ViewerCandidate& candidate) {
+    if(!placement_branch_picking_ || !placement_branch_section_)return false;
+    if(candidate.owner_id!="placement-solution-branch")return true;
+    std::size_t index=0;
+    while(index<placement_branch_choices_.size() && candidate.semantic_key!=std::to_string(index))++index;
+    if(index==placement_branch_choices_.size())return true;
+    auto* section=placement_branch_section_.data();const auto chosen=placement_branch_choices_[index];
+    end_placement_branch_selection();section->select_solution_branch(chosen);
+    if(primitive_reference_dialog_)set_primitive_properties_dimension_selection();
+    else if(construction_reference_dialog_)set_construction_properties_dimension_selection();
+    return true;
+}
+
 bool AssemblyWorkspaceWindow::finish_active_reference_selection() {
+    end_placement_branch_selection();
     if(feature_reference_end_&&properties_dialog_){feature_reference_end_();return true;}
     if (shaft_thread_dialog_ != nullptr) { shaft_thread_dialog_->end_reference_entry();return true; }
     if (finish_drill_point_face_selection()) return true;
@@ -190,6 +272,16 @@ zima::kernel::ViewerMesh AssemblyWorkspaceWindow::selected_container_origins(
 void AssemblyWorkspaceWindow::bind_local_origin_selection(QDialog* dialog) {
     for (auto* object : dialog->findChildren<QObject*>()) {
         if (auto* section = dynamic_cast<zima::ui::ContainerPlacementSection*>(object)) {
+            section->set_branch_geometry_resolver([this,dialog]() -> const kernel::ViewerReferenceGeometry& {
+                return dialog==dynamic_cast<QDialog*>(construction_reference_dialog_)
+                    ? construction_reference_geometry_:primitive_reference_geometry_;
+            });
+            section->set_branch_request_callback([this,section,dialog](bool picking) {
+                show_placement_branches(section,dialog,picking);
+            });
+            connect(dialog,&QDialog::finished,this,[this,section] {
+                if(placement_branch_section_==section)end_placement_branch_selection();
+            });
             section->set_surface_resolver([this,dialog](const auto& reference) {
                 return zima::document::placement_surface(reference,
                     dialog==dynamic_cast<QDialog*>(construction_reference_dialog_)
@@ -340,6 +432,7 @@ void AssemblyWorkspaceWindow::toggle_local_origin_visibility(
 void AssemblyWorkspaceWindow::start_construction_reference_selection(
     std::size_t index, bool auto_advance) {
     if (construction_reference_dialog_ == nullptr) return;
+    end_placement_branch_selection();
     // A construction placement field and a Curve Point direction field share
     // one Viewer candidate stream. Switching to a placement/reference field
     // must retire the old axis mode first; otherwise hover follows the new
@@ -495,6 +588,8 @@ void AssemblyWorkspaceWindow::start_construction_reference_selection(
             candidate_reference.orientation_only = true;
             if (direction_reference) candidate_reference.supports_offset = false;
         }
+        candidate_reference=prepare_placement_pick(construction_reference_dialog_,index,
+            std::move(candidate_reference),construction_reference_geometry_,orientation_origin);
         auto proposed = baseline_references;
         proposed.push_back(std::move(candidate_reference));
         const int proposed_dof = orientation_reference || direction_reference
@@ -621,6 +716,8 @@ void AssemblyWorkspaceWindow::accept_construction_reference(
         proposed_reference.orientation_only = true;
         if (direction_reference) proposed_reference.supports_offset = false;
     }
+    proposed_reference=prepare_placement_pick(construction_reference_dialog_,selected_index,
+        std::move(proposed_reference),construction_reference_geometry_,orientation_origin);
     baseline_references.push_back(proposed_reference);
     const int proposed_dof = orientation_reference || direction_reference
         ? zima::document::orientation_constraint_remaining_dof(
@@ -756,6 +853,7 @@ void AssemblyWorkspaceWindow::accept_construction_reference(
 void AssemblyWorkspaceWindow::start_primitive_reference_selection(
     std::size_t index, bool auto_advance) {
     if (primitive_reference_dialog_ == nullptr) return;
+    end_placement_branch_selection();
     if (extrusion_target_dialog_ != nullptr)
         finish_extrusion_target_selection();
     primitive_reference_auto_advance_ = auto_advance;
@@ -870,6 +968,8 @@ void AssemblyWorkspaceWindow::start_primitive_reference_selection(
             assign_automatic_orientation_role(
                 candidate_reference, baseline_references);
         }
+        candidate_reference=prepare_placement_pick(primitive_reference_dialog_,index,
+            std::move(candidate_reference),primitive_reference_geometry_,orientation_origin);
         auto proposed = baseline_references;
         proposed.push_back(std::move(candidate_reference));
         auto proposed_placement = baseline_placement;
@@ -1090,6 +1190,8 @@ void AssemblyWorkspaceWindow::accept_primitive_reference(
         assign_automatic_orientation_role(
             proposed_reference, baseline_references);
     }
+    proposed_reference=prepare_placement_pick(primitive_reference_dialog_,selected_index,
+        std::move(proposed_reference),primitive_reference_geometry_,orientation_origin);
     auto committed_reference = proposed_reference;
     if(from_view && selected_index==0 && baseline_references.empty() &&
        primitive_reference_dialog_->first_empty_position_index()==0 && candidate.kind==zima::viewer::CandidateKind::Face) {

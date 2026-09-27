@@ -38,6 +38,15 @@ class ReferenceCellItem;
 // preview) and, for Plane-kind containers, enables the orientation table.
 class ContainerPlacementSection : public QObject {
 public:
+    using GeometryResolver = std::function<const zima::kernel::ViewerReferenceGeometry&()>;
+    void set_branch_geometry_resolver(GeometryResolver resolver);
+    void set_branch_request_callback(std::function<void(bool)> callback) { branch_request_=std::move(callback); }
+    [[nodiscard]] std::vector<zima::document::Placement> solution_branches() const;
+    void select_solution_branch(const zima::document::Placement&);
+    void end_branch_entry();
+    void set_branch_entry_active(bool active);
+    void set_branch_inspected(bool inspected);
+    [[nodiscard]] bool branch_inspected() const { return branch_inspected_; }
     using ReferenceLabelResolver = std::function<std::optional<QString>(
         const zima::document::ConstructionReference&)>;
     void set_reference_label_resolver(ReferenceLabelResolver resolver);
@@ -121,6 +130,9 @@ public:
     bool set_reference(std::size_t index,
         zima::document::ConstructionReference reference, const QString& label,
         QString* error_text, bool derive_orientation = true);
+    // Preview the shared lock/capture policy before the View validates a pick.
+    [[nodiscard]] zima::document::ConstructionReference prepare_reference(
+        std::size_t index, zima::document::ConstructionReference reference) const;
 
     void set_remaining_translation_dof(int dof);
     void set_remaining_rotation_dof(int dof);
@@ -197,6 +209,13 @@ public:
     bool set_reference_offset(std::size_t populated_index, double value);
 
 private:
+    GeometryResolver branch_geometry_;
+    std::function<void(bool)> branch_request_;
+    QTableWidget* branch_table_{};
+    ReferenceCellItem* branch_item_{};
+    QToolButton* branch_eye_{};
+    bool branch_inspected_{};
+    void refresh_solution_branch();
     ReferenceLabelResolver reference_label_resolver_;
     std::set<std::string> value_locks_;
     std::array<bool,3> empty_reference_locks_{};

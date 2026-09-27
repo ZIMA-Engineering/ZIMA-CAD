@@ -948,7 +948,7 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
                 body_id, std::move(reference_geometry));
         } else {
             const auto& document = assembly->session.document();
-            reference_geometry = document.build_scene().original_references;
+            reference_geometry = document.build_drawing_scene().original_references;
             append_reference_geometry(reference_geometry,
                 document.origin_viewer_mesh().original_references);
             append_reference_geometry(reference_geometry,

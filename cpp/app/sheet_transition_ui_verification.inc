@@ -34,6 +34,7 @@ int verify_sheet_transition_ui(QApplication& application,const std::filesystem::
         check(!window.findChild<QDialog*>("sheetTransitionDialog"),"Rectangular transition did not commit");
         const auto rectangular_saved=save();check(rectangular_saved.history.size()==part.history.size()+1,"Rectangular transition did not insert one history row");
         const auto rectangular_feature=rectangular_saved.history.back();
+        check(!action->isEnabled()&&!rectangular->isEnabled(),"A second transition is offered in the same Part");
         auto* rectangular_view=dynamic_cast<viewer::MeshView*>(window.findChild<QWidget*>("modelWorkspace"));
         check(rectangular_view,"Rectangular transition View missing");
         rectangular_view->fit_all();flush();
@@ -49,6 +50,7 @@ int verify_sheet_transition_ui(QApplication& application,const std::filesystem::
         window.findChild<QAction*>("undoAction")->trigger();flush();check(save().history.size()==part.history.size(),"Rectangular UI Undo failed");
         window.findChild<QAction*>("redoAction")->trigger();flush();check(save().find_container(rectangular_feature.id),"Rectangular UI Redo failed");
         window.findChild<QAction*>("undoAction")->trigger();flush();
+        check(action->isEnabled()&&rectangular->isEnabled(),"Undo did not restore transition creation");
         action->trigger();flush();dialog()->reject();flush();check(save().history.size()==part.history.size(),"Creation Cancel modified history");
         action->trigger();flush();auto* d=dialog();
         check(d->windowType()==Qt::SubWindow,"Transition properties are not an internal subwindow");

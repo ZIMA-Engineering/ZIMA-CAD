@@ -24,6 +24,13 @@ the unchanged published 2026092603 executable.
 
 ## Azure wire and checked controls (2026-09-26 follow-up)
 
+The September 27 follow-up restores a red rectangle with a white cross for
+removable reference fields, internal-window close buttons and document-tab
+close buttons. The shared visual control preserves each caller's existing
+clear/remove/close semantics. Disabled controls follow the disabled palette.
+Toolbar and Tree command buttons show hover and pressed feedback from the
+system palette; checked/active commands retain the explicit azure state.
+
 This agreement supersedes the selected-wire and checked-button colours below.
 Hover, confirmed geometry, inspected geometry and pending wires use azure
 (`#00D1FF`). Confirmed/inspected wire uses a 2.5 logical-pixel stroke in the

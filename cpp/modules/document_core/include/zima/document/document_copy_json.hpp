@@ -34,6 +34,11 @@ inline void remap_document_identity(nlohmann::json& value,
         for (auto it=value.begin();it!=value.end();++it)
             remap_document_identity(it.value(),old_id,new_id,it.key(),source_directory,target_path);
     } else if (value.is_array()) {
+        if(field=="branch_sources") {
+            for(auto& source:value)
+                remap_document_identity(source.at(1),old_id,new_id,"owner_id",source_directory,target_path);
+            return;
+        }
         for (auto& item:value) remap_document_identity(item,old_id,new_id,field,source_directory,target_path);
     } else if (value.is_string()) {
         auto text=value.get<std::string>();

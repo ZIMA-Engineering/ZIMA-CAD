@@ -225,7 +225,7 @@ void AssemblyWorkspaceWindow::show_construction_properties(
                     construction_parameter_preview_ = *resolved;
                 }
                 mesh = next.construction_viewer_mesh(preview.id);
-                reference_geometry = next.build_scene().original_references;
+                reference_geometry = next.build_drawing_scene().original_references;
             }
             construction_reference_geometry_ = reference_geometry;
             if (construction_reference_dialog_ != nullptr) {
@@ -369,7 +369,7 @@ void AssemblyWorkspaceWindow::start_curve_axis_selection(
         next.name = source.name;
         next.constructions = source.constructions;
         source.constructions.clear();
-        reference_geometry = source.build_scene().original_references;
+        reference_geometry = source.build_drawing_scene().original_references;
     }
     if (auto* target = next.find_construction(curve.id)) {
         *target = curve;
@@ -546,7 +546,7 @@ void AssemblyWorkspaceWindow::show_curve_point_properties(
                 next.constructions = source.constructions;
                 source.constructions.clear();
                 reference_geometry =
-                    source.build_scene().original_references;
+                    source.build_drawing_scene().original_references;
             }
             if (parent_guard->is_sweep()) {
                 auto sweep = parent_guard->pending_sweep_value();

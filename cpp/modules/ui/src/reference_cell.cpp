@@ -1,3 +1,4 @@
+#include <zima/ui/close_button.hpp>
 #include "zima/ui/reference_cell.hpp"
 
 #include <QHBoxLayout>
@@ -143,7 +144,7 @@ QWidget* build_reference_row_indicator(std::function<void()> remove_callback) {
         "QLabel{color:#00D1FF;font-size:16px;font-weight:700}");
     arrow_label->setFixedSize(30, 30);
 
-    auto* remove_button = new QPushButton(QStringLiteral("\u00d7"), container);
+    auto* remove_button = new CloseButton(container);
     remove_button->setFixedSize(30, 30);
     remove_button->setToolTip(QObject::tr("Odstranit referenci"));
     if (remove_callback) {

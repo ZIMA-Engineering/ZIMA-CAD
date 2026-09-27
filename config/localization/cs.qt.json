@@ -1,4 +1,7 @@
 {
+  "A Part can contain only one sheet transition.": "Díl může obsahovat pouze jeden přechod plechu.",
+  "Větev řešení": "Větev řešení",
+  "Invalid placement solution branch": "Neplatná větev řešení umístění",
   "Combined rotation angle must not exceed 360 degrees.": "Součet úhlů rotace nesmí překročit 360 stupňů.",
   "Směr": "Směr",
   "Text": "Text",

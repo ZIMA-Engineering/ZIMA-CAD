@@ -101,6 +101,8 @@ protected:
             CommandButtonHoverTracker::instance().watch(button_);
         if (hit!=button_ && !(hit && button_->isAncestorOf(hit)))
             option.state &= ~QStyle::State_MouseOver;
+        option.subControls=QStyle::SC_ToolButton;
+        if(option.state & QStyle::State_MouseOver)option.activeSubControls=QStyle::SC_ToolButton;
         option.iconSize=button_->iconSize();
         option.toolButtonStyle=Qt::ToolButtonTextBesideIcon;
         if (button_->isDown()) option.state|=QStyle::State_Sunken;

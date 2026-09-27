@@ -240,8 +240,8 @@ struct ViewerEdge {
     std::optional<double> measured_length; // Exact source curve length in mm.
     std::optional<BSplineGeometry> exact_spline;
     bool surface_result{};
-    // Transient preview only; not serialized. End-condition symbolism must not
-    // change the semantic roles consumed by sheet-cut footprint estimation.
+    // Transient end-condition / omitted-wall preview only; not serialized.
+    // Symbolism must not change roles consumed by sheet-cut footprint estimation.
     bool preview_terminal_dashed{};
     std::optional<AnnotationStroke> annotation;
 };

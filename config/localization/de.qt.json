@@ -1,4 +1,7 @@
 {
+  "A Part can contain only one sheet transition.": "Ein Teil darf nur einen Blechübergang enthalten.",
+  "Větev řešení": "Lösungszweig",
+  "Invalid placement solution branch": "Ungültiger Lösungszweig der Platzierung",
   "Combined rotation angle must not exceed 360 degrees.": "Die Summe der Rotationswinkel darf 360 Grad nicht überschreiten.",
   "Směr": "Richtung",
   "Text": "Text",

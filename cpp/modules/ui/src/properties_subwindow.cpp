@@ -1,3 +1,4 @@
+#include <zima/ui/close_button.hpp>
 #include <zima/ui/properties_subwindow.hpp>
 
 #include <QApplication>
@@ -260,11 +261,9 @@ PropertiesSubWindow::PropertiesSubWindow(const QString& title, QWidget* parent)
     title_font.setBold(true);
     title_label_->setFont(title_font);
     title_layout->addWidget(title_label_, 1);
-    auto* close = new QPushButton(title_bar_);
+    auto* close = new CloseButton(title_bar_);
     close->setObjectName("propertiesCloseButton");
     close->setFixedSize(27, 26);
-    close->setIcon(style()->standardIcon(QStyle::SP_TitleBarCloseButton));
-    close->setIconSize(QSize(16, 16));
     close->setToolTip(tr("Zrušit"));
     connect(close, &QPushButton::clicked, this, &QDialog::reject);
     title_layout->addWidget(close);

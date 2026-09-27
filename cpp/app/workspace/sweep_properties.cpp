@@ -65,6 +65,9 @@ void AssemblyWorkspaceWindow::show_sweep_properties(zima::document::FeatureKind 
     const auto occurrence=resolve_active_occurrence(part->session.document().document_id);if(!occurrence)return;
     const bool planar=kind==zima::document::FeatureKind::Sweep2D;
     const bool transition=kind==zima::document::FeatureKind::SheetTransition;
+    if(transition&&id.empty()&&zima::document::has_sheet_transition(part->session.document())) {
+        state_->setText(tr("A Part can contain only one sheet transition."));return;
+    }
     auto initial=transition?zima::document::create_sheet_transition(rectangular):planar?zima::document::PartDocument::create_sweep2d_container():zima::document::PartDocument::create_helical_sweep_container();
     if(!transition)initial.sweep_precision.default_tolerance=planar?application_settings_.sweep_precision_defaults.sweep2d:application_settings_.sweep_precision_defaults.helical;
     initial.name=tr(initial.name.c_str()).toStdString();

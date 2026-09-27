@@ -24,11 +24,20 @@ development. See [Sheet transition](TRANSITION_SURFACE_PROTOTYPE.md#native-sheet
 for inputs, supported orientations and verification. Its inner-skin bend axes
 are available through the same Drawing Show/Erase mechanism.
 
+A Part can contain only one transition, shared between the half-round and
+rectangular commands and across all Bodies. A suppressed transition still owns
+that slot. Both creation commands are disabled once it exists; the operation
+also rejects a second transition without changing the document or Undo history.
+Editing the existing transition and attaching further sheet geometry remain
+available. Undoing or deleting the transition releases the slot.
+
 **Rectangular sheet transition** joins two rectangular profiles with either
 **2 adjacent sides (L)** or **3 sides (U)**. In the Sheet Metal command panel,
 choose this command, select the side count and use the two SKETCH buttons to
 edit the first and second rectangle dimensions. The unused edges remain
 construction geometry so the rectangular envelopes stay dimensionable.
+The transient 3D preview draws omitted envelope edges with dashes, including
+the missing corner generator for the two-wall form.
 The main Origin positions the first rectangle; the second Origin controls its
 relative XYZ position and all three rotations, including axial twist. Warped
 walls are divided into planar triangles joined by finite-radius bends.
@@ -107,9 +116,11 @@ Assembly file settings have no Sheet Metal page.
 The 2026-09-19 attachment correction stores `attachment_material_side` in the
 native feature. The joining face determines this side independently of endpoint
 selection and twist direction. Preview, solid loft and material-space mapping
-use the same side. The native Part format is now INI **41** / JSON **65**;
-the start Part was regenerated with the current serializer and verified through
-the GUI New-document path. Assembly and Drawing formats are unchanged.
+use the same side. The subsequent explicit placement-branch update uses Part
+INI **42** / JSON **66** and Assembly INI **34** / JSON **46**; see
+[placement persistence](SURFACE_PLACEMENT.md#explicit-solution-branches).
+The start templates are regenerated with the current serializer and checked
+through the GUI New-document path. The Drawing format is unchanged.
 Earlier Part formats are unsupported; no migration branch was added.
 
 The reported profile-side example is retained as

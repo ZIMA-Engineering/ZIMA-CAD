@@ -8,6 +8,8 @@ namespace zima::workspace {
 bool commit_sheet_transition(Workspace& live,const kernel::OcctKernel& kernel,const std::string& id,document::HistoryContainer feature) {
     auto* state=live.open_part(id);if(!state||feature.feature_kind!=document::FeatureKind::SheetTransition)throw std::invalid_argument("Sheet transition requires an open Part.");
     const auto& before=state->session.document();const auto* existing=before.find_container(feature.id);
+    if(!existing&&document::has_sheet_transition(before))
+        throw std::invalid_argument("A Part can contain only one sheet transition.");
     if(existing&&(existing->feature_kind!=feature.feature_kind||existing->feature_id!=feature.feature_id||existing->feature_parent_id!=feature.feature_parent_id||existing->container_origin!=feature.container_origin))throw std::invalid_argument("Sheet transition editing must preserve feature identity.");
     const auto* body=existing?before.body_owner_for_object(feature.id):before.body_history.find(before.body_history.active_body_id());
     if(!body||body->derived_copy||body->scope.id!=before.body_history.active_body_id())throw std::invalid_argument("Activate an editable Body before creating a sheet transition.");

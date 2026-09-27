@@ -113,6 +113,27 @@ ContainerPlacementSection::ContainerPlacementSection(
                 reference_request_(static_cast<std::size_t>(row));
         });
 
+    branch_table_=new QTableWidget(1,3,parent_widget_);
+    branch_table_->setObjectName("placementSolutionBranchTable");
+    branch_table_->horizontalHeader()->hide();branch_table_->verticalHeader()->hide();
+    branch_table_->horizontalHeader()->setSectionResizeMode(0,QHeaderView::ResizeToContents);
+    branch_table_->horizontalHeader()->setSectionResizeMode(1,QHeaderView::Stretch);
+    branch_table_->horizontalHeader()->setSectionResizeMode(2,QHeaderView::ResizeToContents);
+    branch_table_->verticalHeader()->setDefaultSectionSize(34);branch_table_->setFixedHeight(36);
+    install_reference_cell_delegate(branch_table_);
+    branch_table_->setCellWidget(0,0,centered_cell_widget(build_reference_row_indicator({})));
+    branch_item_=new ReferenceCellItem(tr("Větev řešení"));
+    branch_item_->set_reference(QStringLiteral("solution-branch"));branch_table_->setItem(0,1,branch_item_);
+    branch_eye_=build_reference_inspection_button(true,false,[this](bool checked) {
+        set_branch_inspected(checked);
+        if(branch_request_)branch_request_(false);
+    });
+    branch_table_->setCellWidget(0,2,centered_cell_widget(branch_eye_));
+    connect(branch_table_,&QTableWidget::cellClicked,this,[this](int,int column) {
+        if(column==1 && branch_request_)branch_request_(true);
+    });
+    layout->addWidget(branch_table_);branch_table_->hide();
+
     if (with_orientation_) {
         orientation_table_ = new QTableWidget(2, 5, parent_widget_);
         orientation_table_->setObjectName("containerPlacementOrientationTable");
@@ -470,6 +491,7 @@ void ContainerPlacementSection::set_highlights_changed_callback(
 
 void ContainerPlacementSection::set_active_reference_index(
     std::optional<std::size_t> index) {
+    if(index)end_branch_entry();
     active_reference_index_ = index;
     apply_reference_visual_states();
 }
@@ -562,6 +584,16 @@ void ContainerPlacementSection::initialize_from_references(
     orientation_labels_ = std::move(orientation_candidate_labels);
 }
 
+zima::document::ConstructionReference ContainerPlacementSection::prepare_reference(
+        std::size_t index,zima::document::ConstructionReference reference) const {
+    auto position=references_;auto orientation=orientation_references_;auto locks=empty_reference_locks_;
+    const auto result=zima::document::assign_placement_reference(
+        {position,orientation,locks},with_orientation_,index,reference);
+    if(result.error==zima::document::PlacementReferenceError::None)
+        return index<3?position[index]:orientation[index-3];
+    return reference; // set_reference reports the existing assignment error.
+}
+
 bool ContainerPlacementSection::set_reference(std::size_t index,
     zima::document::ConstructionReference reference, const QString& label,
     QString* error_text, bool derive_orientation) {
@@ -580,6 +612,20 @@ bool ContainerPlacementSection::set_reference(std::size_t index,
             if(error_text)*error_text=tr("Současnou vzdálenost od reference nelze určit.");
         }
         return false;
+    }
+    if(index<3)for(auto& ref:references_){ref.solution_branch=0;ref.branch_sources.clear();}
+    if(seed && index==0 && !references_[0].use_axis) {
+        const auto* surface=surface_resolver_?surface_resolver_(references_[0]):nullptr;
+        bool curved=surface && surface->kind!=zima::kernel::SurfaceGeometry::Kind::Plane;
+        if(!curved && branch_geometry_) {
+            const auto& ref=references_[0];
+            curved=std::ranges::any_of(branch_geometry_().edges,[&](const auto& edge) {
+                return edge.exact_spline && edge.exact_spline->degree>1 &&
+                    edge.reference.owner_id==ref.owner_id && edge.reference.semantic_key==ref.semantic_key &&
+                    edge.reference.instance_path==ref.instance_path;
+            });
+        }
+        if(curved)empty_reference_locks_[1]=empty_reference_locks_[2]=true;
     }
     if(error_text)error_text->clear();
     if(seed && picked)for(std::size_t axis=0;axis<3;++axis) {
@@ -687,7 +733,9 @@ ContainerPlacementSection::combined_references(std::size_t required) const {
 
 std::vector<zima::document::ConstructionReference>
 ContainerPlacementSection::references_without(std::size_t index) const {
-    return zima::document::combined_placement_references(references_,orientation_references_,index);
+    auto result=zima::document::combined_placement_references(references_,orientation_references_,index);
+    if(index<3)for(auto& ref:result){ref.solution_branch=0;ref.branch_sources.clear();}
+    return result;
 }
 
 std::set<std::string> ContainerPlacementSection::highlighted_reference_owner_ids() const {
@@ -729,7 +777,51 @@ void ContainerPlacementSection::toggle_orientation_highlight(std::size_t row) {
     if (highlights_changed_) highlights_changed_();
 }
 
+void ContainerPlacementSection::set_branch_geometry_resolver(GeometryResolver resolver) {
+    branch_geometry_=std::move(resolver);refresh_solution_branch();
+}
+std::vector<zima::document::Placement> ContainerPlacementSection::solution_branches() const {
+    if(!branch_geometry_)return {};
+    auto p=numeric_placement();p.references=combined_references(3);
+    return zima::document::placement_solution_branches(std::move(p),branch_geometry_());
+}
+void ContainerPlacementSection::refresh_solution_branch() {
+    if(!branch_geometry_)return;
+    const auto p=numeric_placement();
+    zima::document::initialize_placement_solution_branch(references_,branch_geometry_(),{p.x,p.y,p.z});
+    const bool selected=std::ranges::any_of(references_,[](const auto& ref){return ref.solution_branch!=0;});
+    branch_table_->setVisible(selected || !solution_branches().empty());
+    branch_eye_->setEnabled(selected);
+}
+void ContainerPlacementSection::set_branch_entry_active(bool active) {
+    if(active)set_active_reference_index(std::nullopt);
+    branch_item_->set_active_input(active);branch_table_->viewport()->update();
+}
+void ContainerPlacementSection::end_branch_entry() {
+    set_branch_entry_active(false);set_branch_inspected(false);
+}
+void ContainerPlacementSection::set_branch_inspected(bool inspected) {
+    branch_inspected_=inspected;branch_item_->set_inspected(inspected);
+    const QSignalBlocker block(branch_eye_);branch_eye_->setChecked(inspected);branch_table_->viewport()->update();
+}
+void ContainerPlacementSection::select_solution_branch(const zima::document::Placement& p) {
+    for(auto& ref:references_)for(const auto& chosen:p.references)
+        if(ref.owner_id==chosen.owner_id && ref.semantic_key==chosen.semantic_key && ref.instance_path==chosen.instance_path) {
+            ref.solution_branch=chosen.solution_branch;ref.branch_sources=chosen.branch_sources;
+        }
+    const std::array<double,3> point{p.x,p.y,p.z};
+    for(std::size_t i=0;i<3;++i) {
+        const QSignalBlocker block(translation_[i]);translation_[i]->setValue(point[i]);
+        picked_translation_values_[i]=std::pair{translation_[i]->value(),point[i]};
+    }
+    set_branch_entry_active(false);notify_changed();
+}
 void ContainerPlacementSection::notify_changed() {
+    if(branch_item_->is_active_input() || branch_inspected_) {
+        end_branch_entry();
+        if(branch_request_)branch_request_(false);
+    }
+    refresh_solution_branch();
     if (changed_) changed_();
 }
 
@@ -737,6 +829,7 @@ void ContainerPlacementSection::remove_reference(std::size_t index) {
     const auto removed = zima::document::remove_placement_reference(
         {references_, orientation_references_, empty_reference_locks_}, with_orientation_, index);
     if (!removed.changed) return;
+    if(index<3)for(auto& ref:references_){ref.solution_branch=0;ref.branch_sources.clear();}
     if (index < 3) {
         highlighted_reference_rows_.erase(index);
         if (index < reference_labels_.size()) reference_labels_[index].clear();
@@ -889,6 +982,7 @@ void ContainerPlacementSection::refresh_reference_table() {
         connect(type,&QComboBox::currentIndexChanged,this,[this,index,type](int selected) {
             if(selected<0||index>=references_.size()||!type->currentData().isValid())return;
             auto& ref=references_[index];
+            for(auto& stored:references_){stored.solution_branch=0;stored.branch_sources.clear();}
             ref.use_axis=type->currentData().toBool();
             ref.supports_offset=!ref.use_axis;
             if(ref.use_axis)ref.offset=0;
@@ -927,6 +1021,10 @@ void ContainerPlacementSection::refresh_reference_table() {
             3, std::max(spin_width + 2, header_width));
         zima::ui::set_reference_row_populated(indicator, populated);
     }
+    // The empty table can report a zero header hint during construction.
+    // Measure after populating it so the third row stays above the branch field.
+    reference_table_->setFixedHeight(reference_table_->horizontalHeader()->sizeHint().height() +
+        3 * reference_table_->verticalHeader()->defaultSectionSize() + reference_table_->frameWidth() * 2);
     apply_reference_visual_states();
 }
 

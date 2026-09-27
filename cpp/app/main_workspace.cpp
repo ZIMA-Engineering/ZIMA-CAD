@@ -1,4 +1,5 @@
 #include "../tests/gui_profile_fixture.hpp"
+#include "../common/interaction_colors.hpp"
 #include "../tests/profile_solid_fixture.hpp"
 #include <zima/workspace/drawing_sources.hpp>
 #include "symbol_attachment_dialog.hpp"
@@ -1350,16 +1351,17 @@ int verify_template_commands(QApplication& application,zima::app::AssemblyWorksp
                 }
                 const auto anchor_pixel=screen_for(text.anchor_x,text.anchor_y);
                 const auto anchor_colored=[&](bool selected) {
+                    const auto expected=selected?interaction::selected:interaction::hover;
                     flush();const auto image=view->grab().toImage();const auto p=anchor_pixel*image.devicePixelRatio();
                     for(int y=static_cast<int>(p.y())-6;y<=p.y()+6;++y)for(int x=static_cast<int>(p.x())-6;x<=p.x()+6;++x) {
                         if(x<0||y<0||x>=image.width()||y>=image.height())continue;const auto c=image.pixelColor(x,y);
-                        if(selected?(c.red()<140&&c.green()>180&&c.blue()<100):(c.red()<80&&c.green()>180&&c.blue()>190))return true;
+                        if(std::abs(c.red()-expected.red())<25&&std::abs(c.green()-expected.green())<25&&std::abs(c.blue()-expected.blue())<25)return true;
                     }
                     return false;
                 };
-                if(!verify(anchor_colored(false),"Text hover did not highlight its anchor green"))return 1;
+                if(!verify(anchor_colored(false),"Text hover did not highlight its anchor with the shared hover colour"))return 1;
                 click(pixel);
-                if(!verify(anchor_colored(true),"Text confirmation did not highlight its anchor cyan"))return 1;
+                if(!verify(anchor_colored(true),"Text confirmation did not highlight its anchor with the shared selection colour"))return 1;
                 QMouseEvent dbl(QEvent::MouseButtonDblClick,pixel,QPointF(view->mapToGlobal(pixel.toPoint())),Qt::LeftButton,Qt::LeftButton,Qt::NoModifier);
                 QApplication::sendEvent(view,&dbl);flush();
                 auto* properties=window.findChild<QDialog*>("sketchTextProperties");

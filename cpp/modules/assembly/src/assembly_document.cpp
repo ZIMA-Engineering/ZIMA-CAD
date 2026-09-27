@@ -1191,11 +1191,10 @@ void AssemblyDocument::resolve_constructions() {
     carrier.history = sketch_containers;
     for(const auto& sketch:sketches)
         if(find_sketch_container(sketch.owner_container_id))carrier.sketches.push_back(sketch);
-    const bool needs_cylinder_frame = std::ranges::any_of(constructions, [](const auto& object) {
-        return object.definition == zima::document::ConstructionDefinition::CylinderAxis;
-    });
-    carrier.resolve_constructions((needs_cylinder_frame ? source_document.build_drawing_scene()
-        : source_document.build_scene()).original_references);
+    // The shared placement solver consumes exact supporting surfaces in the
+    // same Assembly frame as the points/edges. Ordinary scene packets retain
+    // leaf-local surfaces for mates; use the existing frame conversion here.
+    carrier.resolve_constructions(source_document.build_drawing_scene().original_references);
     constructions = std::move(carrier.constructions);
     sketch_containers = std::move(carrier.history);
     for(auto& sketch:carrier.sketches)
@@ -2057,7 +2056,7 @@ void AssemblyDocument::hydrate_sources(const std::filesystem::path& path, const 
 AssemblyDocument AssemblyDocument::load(const std::filesystem::path& path, const SourceResolver& resolver, bool resolve_sources) {
     document::NativeReadCapture::observe(path);
     const auto ini = read_ini(path);
-    if (ini_value(ini, "Document", "format_version") != "33" ||
+    if (ini_value(ini, "Document", "format_version") != "34" ||
         ini_value(ini, "Document", "type") != "assembly") {
         throw std::runtime_error("Unsupported ZIMA-CAD Assembly document format");
     }
@@ -2081,7 +2080,7 @@ AssemblyDocument AssemblyDocument::load(const std::filesystem::path& path, const
     return document;
 }
 AssemblyDocument AssemblyDocument::from_serialized(const nlohmann::json& root) {
-    if (root.value("format", "") != "zima-cad-cpp" || root.at("format_version") != 45 ||
+    if (root.value("format", "") != "zima-cad-cpp" || root.at("format_version") != 46 ||
         root.value("type", "") != "assembly") {
         throw std::runtime_error("Invalid Assembly Container data");
     }
@@ -2430,7 +2429,7 @@ nlohmann::json AssemblyDocument::serialized(
     }
     static_cast<void>(zima::document::parse_named_views(named_views));
     nlohmann::json root = {
-        {"format", "zima-cad-cpp"}, {"format_version", 45},
+        {"format", "zima-cad-cpp"}, {"format_version", 46},
         {"type", "assembly"}, {"document_id", document_id}, {"name", name},
         {"user_parameters", user_parameters},
         {"user_parameter_order", user_parameter_order},
@@ -2469,7 +2468,7 @@ void AssemblyDocument::save(const std::filesystem::path& path,
     const auto saved_name = root.at("name").get<std::string>();
     IniSections ini;
     ini["Document"] = {
-        {"format_version", "33"},
+        {"format_version", "34"},
         {"type", "assembly"},
         {"document_id", saved_id},
         {"name", saved_name},

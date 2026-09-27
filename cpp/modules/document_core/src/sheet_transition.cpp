@@ -18,6 +18,11 @@ bool rectangular_sheet_transition(const HistoryContainer& feature) {
     const auto sketch=sketcher::Sketch::from_serialized(feature.sheet_transition.sketches[0]);
     return sketch.arcs.empty()&&sketch.segments.size()==4;
 }
+bool has_sheet_transition(const PartDocument& document) {
+    return std::ranges::any_of(document.history,[](const auto& feature) {
+        return feature.feature_kind==FeatureKind::SheetTransition;
+    });
+}
 void set_rectangular_transition_sides(HistoryContainer& feature,unsigned sides) {
     if(!rectangular_sheet_transition(feature)||(sides!=2&&sides!=3))
         throw std::invalid_argument("Transition requires two rectangular profiles with two or three adjacent sides.");
@@ -111,7 +116,10 @@ kernel::ViewerMesh sheet_transition_preview(const HistoryContainer& source) {
     std::array<sketcher::Sketch,2> sketches;
     for(unsigned i=0;i<2;++i) {
         sketches[i]=sketcher::Sketch::from_serialized(feature.sheet_transition.sketches[i]);
-        const auto mesh=sketches[i].viewer_mesh();result.edges.insert(result.edges.end(),mesh.edges.begin(),mesh.edges.end());
+        auto mesh=sketches[i].viewer_mesh();
+        if(rectangular_sheet_transition(feature))for(auto& edge:mesh.edges)
+            edge.preview_terminal_dashed=edge.construction;
+        result.edges.insert(result.edges.end(),mesh.edges.begin(),mesh.edges.end());
         const auto& s=sketches[i];const auto origin=s.plane_reference_owner_id;
         for(const auto& [axis,direction]:std::array<std::pair<const char*,kernel::Vec3>,3>{{{"x",s.resolved_x_axis},{"y",s.resolved_y_axis},{"z",s.resolved_normal}}}) {
             kernel::ViewerEdge edge;edge.points={s.resolved_origin,add(s.resolved_origin,mul(direction,20))};edge.reference={origin,std::string("origin:axis:")+axis,{}};result.edges.push_back(std::move(edge));
@@ -123,6 +131,16 @@ kernel::ViewerMesh sheet_transition_preview(const HistoryContainer& source) {
         if(rectangular_sheet_transition(feature)) {
             const auto input=research::transition::read_rectangular_sketches(sketches[1],sketches[0]);
             surface=research::transition::mesh(research::transition::calculate(input.model));
+            // Complete the authored envelope without implying an extra wall.
+            // A corner shared with an active wall already has a solid generator.
+            if(input.model.sides==2) {
+                kernel::ViewerEdge missing;
+                const auto& model=input.model;
+                missing.points={model.first_origin.point({-model.width[0]/2,-model.depth[0]/2,0}),
+                    model.first_origin.point(model.second_relative.point({-model.width[1]/2,-model.depth[1]/2,0}))};
+                missing.preview_terminal_dashed=true;
+                result.edges.push_back(std::move(missing));
+            }
         }else {
             auto input=research::transition::read_sketches(sketches[0],sketches[1]);input.model.corner_facets={feature.sheet_transition.facets[0],feature.sheet_transition.facets[1]};
             surface=research::transition::mesh(research::transition::calculate(input.model));

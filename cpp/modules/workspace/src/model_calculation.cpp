@@ -116,7 +116,7 @@ void calculate_resolved_assembly_cuts(
     // as Part history containers.  The input universe is the Assembly's real
     // pre-cut component geometry plus its own Origin/constructions; no OCCT
     // topology is traversed to define or recover a reference here.
-    auto reference_geometry = document.build_scene().original_references;
+    auto reference_geometry = document.build_drawing_scene().original_references;
     append_reference_geometry(reference_geometry,
         document.origin_viewer_mesh().original_references);
     append_reference_geometry(reference_geometry,
@@ -183,7 +183,7 @@ void calculate_resolved_assembly_cuts(
     }
     document.calculate_derived_copies(kernel);
     if(!document.sections.empty()){
-        auto geometry=document.build_scene().original_references;
+        auto geometry=document.build_drawing_scene().original_references;
         append_reference_geometry(geometry,document.origin_viewer_mesh().original_references);
         append_reference_geometry(geometry,document.construction_viewer_mesh().original_references);
         zima::document::resolve_section_placements(document.sections,geometry);

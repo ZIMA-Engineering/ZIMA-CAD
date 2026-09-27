@@ -12,6 +12,7 @@
 #include <zima/workspace/sketch_properties.hpp>
 #include <zima/document/sketch_placement.hpp>
 #include <zima/document/placement_json.hpp>
+#include <zima/document/document_copy_json.hpp>
 #include <chrono>
 #include <iostream>
 #include <numbers>
@@ -110,6 +111,78 @@ void surface_placement() {
     const auto before=p;
     check(!document::resolve_placement(p,g),"Unsupported curved face accepted as first triangle");
     near(p.x,before.x);near(p.y,before.y);near(p.z,before.z);
+}
+void solution_branches() {
+    for(bool ellipse:{false,true})for(bool rotated:{false,true}) {
+        auto sketch=sketcher::Sketch::create_default();
+        if(ellipse)static_cast<void>(sketch.add_ellipse(0,0,10,0,0,5));else static_cast<void>(sketch.add_circle(0,0,10));
+        if(rotated){sketch.owner_container_id="rotated-source";sketch.resolved_origin={4,8,12};sketch.resolved_x_axis={0,1,0};sketch.resolved_y_axis={0,0,1};sketch.resolved_normal={1,0,0};}
+        auto geometry=sketch.placement_reference_geometry();
+        auto plane=std::make_shared<kernel::SurfaceGeometry>();
+        plane->origin=rotated?kernel::Vec3{4,8,12}:kernel::Vec3{};
+        plane->axis=rotated?kernel::Vec3{0,1,0}:kernel::Vec3{1,0,0};
+        geometry.triangle_references.push_back({"plane","face",{},plane});
+        const auto& edge=geometry.edges.front();
+        for(bool reverse:{false,true})for(int side:{-1,1}) {
+            document::Placement p;p.x=rotated?4:6;p.y=rotated?14:side*(ellipse?4:8);p.z=rotated?12+side*(ellipse?4:8):0;
+            p.references={{{},edge.reference.owner_id,edge.reference.semantic_key},{{},"plane","face",6,true}};
+            if(reverse)std::reverse(p.references.begin(),p.references.end());
+            if(!document::resolve_placement(p,geometry))throw std::runtime_error("Conic branch did not resolve: ellipse="+std::to_string(ellipse)+" rotated="+std::to_string(rotated)+" reverse="+std::to_string(reverse)+" side="+std::to_string(side)+" refs="+nlohmann::json(p.references).dump());
+            near(rotated?p.z-12:p.y,side*(ellipse?4:8));
+            auto& planar=p.references[reverse?0:1];auto& curved=p.references[reverse?1:0];
+            check(curved.solution_branch!=0,"Conic branch was not persisted");
+            const auto branch=curved.solution_branch;
+            auto document=document::PartDocument::create_default();
+            auto owned=sketcher::Sketch::create_default();
+            auto feature=document::PartDocument::create_feature_container(owned.id);
+            owned.owner_container_id=feature.id;document.sketches.push_back(owned);
+            feature.feature.type=document::FeatureType::Point;
+            feature.placement=p;document.history.push_back(feature);
+            auto construction=document::PartDocument::create_construction(document::ConstructionKind::Point);
+            construction.references=p.references;document.constructions.push_back(construction);
+            auto restored=document::PartDocument::from_serialized(document.serialized());
+            check(restored.history.front().placement.references==p.references &&
+                restored.constructions.front().references==p.references,"Native document lost placement branches");
+            planar.offset=10;check(document::resolve_placement(p,geometry),"Conic tangency rejected");
+            near(rotated?p.z-12:p.y,0);check(curved.solution_branch==branch,"Tangency erased branch");
+            p=nlohmann::json(p).get<document::Placement>();
+            p.references[reverse?0:1].offset=6;
+            check(document::resolve_placement(p,geometry),"Conic branch did not leave tangency");
+            near(rotated?p.z-12:p.y,side*(ellipse?4:8));
+            auto choices=document::placement_solution_branches(p,geometry);
+            check(choices.size()==2,"Conic did not offer both branches");
+            const auto before=p;p.references[reverse?0:1].offset=11;
+            check(!document::resolve_placement(p,geometry),"Unreachable conic offset accepted");
+            near(p.x,before.x);near(p.y,before.y);near(p.z,before.z);
+        }
+    }
+    auto surface=std::make_shared<kernel::SurfaceGeometry>();surface->kind=kernel::SurfaceGeometry::Kind::Cylinder;surface->radius=50;
+    auto x=std::make_shared<kernel::SurfaceGeometry>();x->axis={1,0,0};
+    auto z=std::make_shared<kernel::SurfaceGeometry>();z->axis={0,0,1};
+    kernel::ViewerReferenceGeometry g;g.triangle_references={{"cylinder","face",{},surface},{"x","face",{},x},{"z","face",{},z}};
+    std::array<int,3> order{0,1,2};
+    {
+        auto geometry=g;geometry.triangle_references[1].owner_id="a:origin";
+        document::Placement p;p.x=30;p.y=-40;p.z=7;
+        p.references={{{},"cylinder","face",0,true},{{},"a:origin","face",30,true},{{},"z","face",7,true}};
+        check(document::resolve_placement(p,geometry),"Copy branch fixture failed");
+        auto json=nlohmann::json(p);document::remap_document_identity(json,"a","zz");
+        p=json.get<document::Placement>();geometry.triangle_references[1].owner_id="zz:origin";
+        check(document::resolve_placement(p,geometry),"Save As lost branch source identities");
+        near(p.x,30);near(p.y,-40);near(p.z,7);
+    }
+    do {for(int side:{-1,1}) {
+        document::Placement p;p.x=30;p.y=40*side;p.z=7;
+        const std::vector<document::ConstructionReference> refs={{{},"cylinder","face",0,true},{{},"x","face",30,true},{{},"z","face",7,true}};
+        for(int index:order)p.references.push_back(refs[index]);
+        check(document::resolve_placement(p,g),"Cylinder branch order failed");near(p.y,40*side);
+        const auto set_x=[&](double value){for(auto& ref:p.references)if(ref.owner_id=="x")ref.offset=value;};
+        set_x(50);check(document::resolve_placement(p,g),"Cylinder tangency failed");near(p.y,0);
+        p=nlohmann::json(p).get<document::Placement>();set_x(30);
+        check(document::resolve_placement(p,g),"Cylinder branch lost after tangency/reopen");near(p.y,40*side);
+        const auto choices=document::placement_solution_branches(p,g);check(choices.size()==2,"Cylinder branches missing");
+        set_x(60);const auto before=p;check(!document::resolve_placement(p,g),"Impossible cylinder branch accepted");near(p.x,before.x);near(p.y,before.y);
+    }}while(std::next_permutation(order.begin(),order.end()));
 }
 void history() {
     auto doc=document::PartDocument::create_default();
@@ -289,6 +362,20 @@ void verify() {
     near(attached.x,saved.x);near(attached.rotation_z,saved.rotation_z);
 }
 void boundaries() {
+    {
+        kernel::BSplineGeometry line{1,{{70.14490047893533,-49.51340343634951,155.30243499497485},
+            {170.1234,-49.226,136.44}},{0,0,1,1},{1,1}};
+        auto point=kernel::bspline_value(line,.37);
+        const std::vector<std::pair<kernel::Vec3,double>> planes{{{1,0,0},point.x}};
+        const auto exact=point;
+        for(int i=0;i<20;++i) {
+            check(kernel::solve_curve_constraints({line},planes,point),"Oblique attachment failed");
+            check(point==exact,"Satisfied trimmed edge drifted on repeated solve");
+        }
+        for(auto& pole:line.poles)pole.z+=.1;
+        check(kernel::solve_curve_constraints({line},planes,point),"Changed source edge failed");
+        near(point.z,exact.z+.1,1e-7);
+    }
     auto sketch=sketcher::Sketch::create_default();const auto id=sketch.add_segment(5,0,15,0);
     auto g=sketch.placement_reference_geometry();
     document::Placement p;p.x=10;p.references={{{},sketch.id,"segment:"+id}};
@@ -573,7 +660,7 @@ void sketch_endpoint_assignments(const std::filesystem::path& file) {
 }
 int main(int argc,char** argv){try{
     if(argc>1){saved_endpoint_study(argv[1]);return 0;}
-    surface_placement();verify();curve_matrix();history();boundaries();third_direction();ordered_frames();
+    surface_placement();solution_branches();verify();curve_matrix();history();boundaries();third_direction();ordered_frames();
     const auto root=std::filesystem::temp_directory_path();
     const auto prefix="zima-curve-"+document::PartDocument::create_default().document_id;
     const auto native=root/(prefix+".prtz"),solid=root/(prefix+"-solid.prtz");

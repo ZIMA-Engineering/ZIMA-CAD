@@ -26,6 +26,12 @@ inline bool solve_curve_constraints(const std::vector<BSplineGeometry>& curves,
         return result;
     };
     const auto norm=[](const auto& values){double r=0;for(double v:values)r+=v*v;return r;};
+    // Re-evaluating an already satisfied persisted point must not repeatedly
+    // project it by a few ULPs. Check the actual trimmed curves and equations
+    // using exactly the same residual criterion as the iterative solve below.
+    std::vector<double> existing{initial.x,initial.y,initial.z};
+    existing.insert(existing.end(),parameters.begin(),parameters.end());
+    if(norm(residual(existing,nullptr))<1e-16)return true;
     bool found=false;double best=std::numeric_limits<double>::infinity();Vec3 solution;
     // Alternate seeds are needed when a closed curve starts at a singular
     // tangent (for example a circle center combined with a diametral plane).

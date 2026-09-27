@@ -1,4 +1,5 @@
 #include "workspace_internal.hpp"
+#include <zima/document/sheet_transition.hpp>
 #include "../command_button_paint.hpp"
 
 namespace zima::app {
@@ -397,10 +398,12 @@ void AssemblyWorkspaceWindow::rebuild_application_toolbar() {
             twist->setEnabled(!properties_dialog_);add_command(twist);
             auto* transition=findChild<QAction*>("sheetTransitionAction");
             if(!transition){transition=new QAction(resource_icon("sheet-transition"),tr("Přechod plechu"),this);transition->setObjectName("sheetTransitionAction");connect(transition,&QAction::triggered,this,[this]{show_sheet_transition_properties();});}
-            transition->setEnabled(!properties_dialog_);add_command(transition);
+            const bool transition_available=!properties_dialog_ && !zima::document::has_sheet_transition(
+                workspace_.open_part(workspace_.active_document_id())->session.document());
+            transition->setEnabled(transition_available);add_command(transition);
             auto* rectangular=findChild<QAction*>("rectangularSheetTransitionAction");
             if(!rectangular){rectangular=new QAction(resource_icon("sheet-transition-rectangular"),tr("Obdélníkový přechod plechu"),this);rectangular->setObjectName("rectangularSheetTransitionAction");connect(rectangular,&QAction::triggered,this,[this]{show_sheet_transition_properties({},true);});}
-            rectangular->setEnabled(!properties_dialog_);add_command(rectangular);add_group_separator();
+            rectangular->setEnabled(transition_available);add_command(rectangular);add_group_separator();
             auto* cut=findChild<QAction*>("sheetCutAction");
             if(!cut) {
                 cut=new QAction(resource_icon("sheet-cut"),tr("Řez plechem"),this);cut->setObjectName("sheetCutAction");

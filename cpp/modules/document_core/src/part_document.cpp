@@ -18,6 +18,7 @@
 #include <zima/document/appearance.hpp>
 #include <zima/document/document_copy_json.hpp>
 #include <zima/document/part_document.hpp>
+#include <zima/document/placement_json.hpp>
 #include <zima/document/container_origin_display.hpp>
 #include <zima/document/sketch_placement.hpp>
 #include <zima/document/feature_sketches.hpp>
@@ -543,12 +544,12 @@ void add_json_parameters(
 
 nlohmann::json read_part_ini(const std::filesystem::path& path) {
     const auto ini = read_ini(path);
-    if (ini_value(ini, "Document", "format_version") != "41") {
+    if (ini_value(ini, "Document", "format_version") != "42") {
         throw std::runtime_error("Unsupported ZIMA-CAD Part document format");
     }
     nlohmann::json root = {
         {"format", "zima-cad-cpp"},
-        {"format_version", 65},
+        {"format_version", 66},
         {"document_id", ini_required(ini, "Document", "document_id")},
         {"type", ini_value(ini, "Document", "type", "part")},
         {"name", ini_value(ini, "Document", "name", "Nový díl")},
@@ -704,7 +705,7 @@ void write_part_ini(
     const nlohmann::json& root, const std::filesystem::path& path) {
     IniSections ini;
     ini["Document"] = {
-        {"format_version", "41"},
+        {"format_version", "42"},
         {"type", "part"},
         {"document_id", root.at("document_id").get<std::string>()},
         {"name", root.at("name").get<std::string>()},
@@ -3211,9 +3212,16 @@ bool placement_solve_position_step(
     return true;
 }
 
+#include "placement_branches.inc"
+
 bool placement_solve_position(
     const std::vector<std::reference_wrapper<const ConstructionReference>>& references,
     const zima::kernel::ViewerReferenceGeometry& geometry,zima::kernel::Vec3& origin) {
+    if(const auto branches=placement_branches(references,geometry,origin)) {
+        if(const auto selected=selected_placement_branch(*branches,origin)){origin=*selected;return true;}
+        return false;
+    }
+    if(std::ranges::any_of(references,[](const auto& ref){return ref.get().solution_branch!=0;}))return false;
     const bool curved=std::ranges::any_of(references,[&](const auto& wrapped) {
         const auto& ref=wrapped.get();const auto* surface=placement_surface(ref,geometry);
         return !ref.use_axis&&surface&&surface->kind!=zima::kernel::SurfaceGeometry::Kind::Plane;
@@ -3335,6 +3343,36 @@ PlacementDirections placement_resolve_directions(
 }
 
 }  // namespace
+
+void initialize_placement_solution_branch(std::vector<ConstructionReference>& references,
+        const kernel::ViewerReferenceGeometry& geometry,kernel::Vec3 seed) {
+    std::vector<std::reference_wrapper<const ConstructionReference>> refs;
+    for(const auto& ref:references)if(!ref.orientation_only && !ref.owner_id.empty())refs.push_back(ref);
+    const auto branches=placement_branches(refs,geometry,seed);
+    if(!branches || branches->source->solution_branch)return;
+    const auto chosen=selected_placement_branch(*branches,seed);if(!chosen)return;
+    auto& ref=references[static_cast<std::size_t>(branches->source-references.data())];
+    for(const auto& [branch,point]:branches->points)if(point==*chosen) {
+        ref.solution_branch=branch;ref.branch_sources=branches->sources;break;
+    }
+}
+
+std::vector<Placement> placement_solution_branches(Placement placement,
+        const kernel::ViewerReferenceGeometry& geometry) {
+    for(auto& ref:placement.references){ref.solution_branch=0;ref.branch_sources.clear();}
+    std::vector<std::reference_wrapper<const ConstructionReference>> refs;
+    for(const auto& ref:placement.references)if(!ref.orientation_only)refs.push_back(ref);
+    const auto branches=placement_branches(refs,geometry,{placement.x,placement.y,placement.z});
+    std::vector<Placement> result;if(!branches)return result;
+    const auto index=static_cast<std::size_t>(branches->source-placement.references.data());
+    for(const auto& [branch,point]:branches->points) {
+        auto candidate=placement;candidate.x=point.x;candidate.y=point.y;candidate.z=point.z;
+        candidate.references[index].solution_branch=branch;
+        candidate.references[index].branch_sources=branches->sources;
+        if(resolve_placement(candidate,geometry))result.push_back(std::move(candidate));
+    }
+    return result;
+}
 
 std::optional<double> measure_placement_reference_offset(const ConstructionReference& reference,
         const zima::kernel::ViewerReferenceGeometry& geometry,const zima::kernel::Vec3& point) {
@@ -3667,6 +3705,7 @@ ContainerOrigin create_container_origin(const std::string& parent_id) {
 
 bool resolve_construction(ConstructionObject& object,
     const zima::kernel::ViewerReferenceGeometry& geometry) {
+    initialize_placement_solution_branch(object.references,geometry,object.origin);
     if (object.definition == ConstructionDefinition::CylinderAxis) {
         // Adapt one persisted analytical source face to the existing Axis
         // contract. No result-body lookup, fitting or kernel calculation.
@@ -4245,6 +4284,7 @@ bool resolve_placement(
     Placement& placement, const zima::kernel::ViewerReferenceGeometry& geometry,
     zima::kernel::Vec3* base_rotation,
     bool* orientation_from_reference) {
+    initialize_placement_solution_branch(placement.references,geometry,{placement.x,placement.y,placement.z});
     // Resolution is transactional. A missing persisted reference is a
     // diagnostic state, not permission to replace the last calculated frame
     // with a partial/default solution.
@@ -9823,16 +9863,7 @@ ConstructionObject deserialize_curve_point(
     point.curve_tangent_enabled = source.at(
         "curve_tangent_enabled").get<bool>();
     for (const auto& serialized : source.at("references")) {
-        point.references.push_back({
-            serialized.at("instance_path").get<std::string>(),
-            serialized.at("owner_id").get<std::string>(),
-            serialized.at("semantic_key").get<std::string>(),
-            serialized.at("offset").get<double>(),
-            serialized.at("supports_offset").get<bool>(),
-            serialized.at("orientation_role").get<std::string>(),
-            serialized.at("orientation_drives_rotation").get<bool>(),
-            serialized.value("orientation_only", false),
-            serialized.value("flip", false), serialized.value("offset_locked",false), {}, serialized.value("use_axis",false)});
+        point.references.push_back(serialized.get<ConstructionReference>());
     }
     if (point.id.empty() || point.name.empty() ||
         !construction_ids.insert(point.id).second ||
@@ -9868,17 +9899,7 @@ nlohmann::json serialize_curve_point(
     }
     nlohmann::json references = nlohmann::json::array();
     for (const auto& reference : point.references) {
-        references.push_back({
-            {"instance_path", reference.instance_path},
-            {"owner_id", reference.owner_id},
-            {"semantic_key", reference.semantic_key},
-            {"offset", reference.offset}, {"offset_locked", reference.offset_locked}, {"use_axis", reference.use_axis},
-            {"supports_offset", reference.supports_offset},
-            {"orientation_role", reference.orientation_role},
-            {"orientation_drives_rotation",
-                reference.orientation_drives_rotation},
-            {"orientation_only", reference.orientation_only},
-            {"flip", reference.flip}});
+        references.push_back(reference);
     }
     const auto definition = point.definition == ConstructionDefinition::Absolute
         ? "absolute" : point.definition == ConstructionDefinition::PointReference
@@ -10071,16 +10092,7 @@ std::vector<ConstructionObject> deserialize_construction_objects(
         object.reference_valid = source.at("reference_valid").get<bool>();
         object.suppressed = source.at("suppressed").get<bool>();
         for (const auto& value : source.at("references")) {
-            object.references.push_back({
-                value.at("instance_path").get<std::string>(),
-                value.at("owner_id").get<std::string>(),
-                value.at("semantic_key").get<std::string>(),
-                value.at("offset").get<double>(),
-                value.at("supports_offset").get<bool>(),
-                value.at("orientation_role").get<std::string>(),
-                value.at("orientation_drives_rotation").get<bool>(),
-                value.value("orientation_only", false),
-                value.value("flip", false), value.value("offset_locked",false), {}, value.value("use_axis",false)});
+            object.references.push_back(value.get<ConstructionReference>());
         }
         if (object.kind == ConstructionKind::Curve3D) {
             object.curve_rounding_enabled = source.at("curve_rounding_enabled").get<bool>();
@@ -10201,16 +10213,7 @@ std::string serialize_construction_objects(
             if (reference.owner_id.empty() || reference.semantic_key.empty()) {
                 throw std::runtime_error("Invalid construction reference");
             }
-            references.push_back({{"instance_path", reference.instance_path},
-                {"owner_id", reference.owner_id},
-                {"semantic_key", reference.semantic_key},
-                {"offset", reference.offset}, {"offset_locked", reference.offset_locked}, {"use_axis", reference.use_axis},
-                {"supports_offset", reference.supports_offset},
-                {"orientation_role", reference.orientation_role},
-                {"orientation_drives_rotation",
-                    reference.orientation_drives_rotation},
-                {"orientation_only", reference.orientation_only},
-                {"flip", reference.flip}});
+            references.push_back(reference);
         }
         nlohmann::json axis_ends = nlohmann::json::array();
         for (const auto& end : object.axis_ends)
@@ -10942,16 +10945,7 @@ PartDocument PartDocument::from_serialized(const nlohmann::json& root,
                 placement.value("reference_valid", false);
             if (placement.contains("references")) {
                 for (const auto& serialized : placement.at("references")) {
-                    container.placement.references.push_back({
-                        serialized.at("instance_path").get<std::string>(),
-                        serialized.at("owner_id").get<std::string>(),
-                        serialized.at("semantic_key").get<std::string>(),
-                        serialized.at("offset").get<double>(),
-                        serialized.at("supports_offset").get<bool>(),
-                        serialized.at("orientation_role").get<std::string>(),
-                        serialized.at("orientation_drives_rotation").get<bool>(),
-                        serialized.value("orientation_only", false),
-                        serialized.value("flip", false), serialized.value("offset_locked",false), {}, serialized.value("use_axis",false)});
+                    container.placement.references.push_back(serialized.get<ConstructionReference>());
                 }
             }
         }
@@ -11513,17 +11507,7 @@ nlohmann::json PartDocument::serialized(
                 if (reference.owner_id.empty() || reference.semantic_key.empty()) {
                     throw std::runtime_error("Invalid placement reference");
                 }
-                placement_references.push_back(
-                    {{"instance_path", reference.instance_path},
-                        {"owner_id", reference.owner_id},
-                        {"semantic_key", reference.semantic_key},
-                        {"offset", reference.offset}, {"offset_locked", reference.offset_locked}, {"use_axis", reference.use_axis},
-                        {"supports_offset", reference.supports_offset},
-                        {"orientation_role", reference.orientation_role},
-                        {"orientation_drives_rotation",
-                            reference.orientation_drives_rotation},
-                        {"orientation_only", reference.orientation_only},
-                        {"flip", reference.flip}});
+                placement_references.push_back(reference);
             }
             serialized["placement"] = {
                 {"value_locks",container.placement.value_locks},
@@ -11963,7 +11947,7 @@ nlohmann::json PartDocument::serialized(
     static_cast<void>(zima::document::parse_named_views(named_views));
     nlohmann::json root = {
         {"format", "zima-cad-cpp"},
-        {"format_version", 65},
+        {"format_version", 66},
         {"reference_errors", reference_errors},
         {"document_id", document_id},
         {"type", "part"},

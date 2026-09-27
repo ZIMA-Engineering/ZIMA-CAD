@@ -1,6 +1,8 @@
 #include "resource_icon.hpp"
+#include <QHeaderView>
 #include "../tests/gui_profile_fixture.hpp"
 #include <QCheckBox>
+#include <QToolButton>
 #include <QRadioButton>
 #include <QUuid>
 #include <QGroupBox>
