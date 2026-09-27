@@ -129,8 +129,9 @@ is stored in the native reference.
 Picked coordinates retain full precision independently of the numeric fields'
 display rounding. Editing a coordinate replaces that coordinate normally.
 
-Solid-face hover fills only the exact offered face with translucent green;
-confirmation and independent reference inspection use translucent azure.
+Solid-face hover fills only the exact offered face with translucent azure;
+confirmation and independent reference inspection also use azure, following
+the shared [visual conventions](UI_VISUAL_CONVENTIONS.md).
 The viewer reuses the calculated face triangles with depth testing and caches
 the GPU upload by face/occurrence identity until either selection or mesh changes.
 This does not calculate geometry, recolor the entire body, or fill datum planes.
@@ -162,8 +163,9 @@ The GUI contract also confirms an actual cylinder candidate with a pointer
 click and verifies the resulting position against its analytical support.
 
 The current placement, feature type/prototype, common UI, translation and
-new-document options contracts passed. The broader dialog layout audit found
-ten Linear Pattern table-resizing failures out of 300 combinations; these are
-recorded separately in [the release verification](releases/2026092601.md).
+new-document options contracts passed. The broader dialog layout audit reports
+20 failures out of 300 combinations: Sweep2D cell overflow and Linear Pattern
+table resizing. The previous properties-window implementation reproduces the
+same failures; see [the release verification](releases/2026092701.md).
 A prior family-table UI run stopped at its family-row/source-order assertion;
 that separate issue has not been diagnosed by this change.

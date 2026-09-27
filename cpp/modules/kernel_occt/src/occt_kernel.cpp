@@ -8072,9 +8072,25 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                     standalone_import_result = std::move(operand_result);
                 }
             } else if(!group_inputs.empty()) {
+                // Adjacent authored Sweep children share canonical station
+                // points. Their independent OCCT evaluations can differ by
+                // roundoff. Keep one position for that authored identity, and
+                // reject inconsistent geometry instead of hiding ambiguity.
+                std::map<std::tuple<std::string,std::string,std::string>,Vec3> station_points;
                 for(const auto& child:group_inputs) {
                     auto original=make_operation_result(child.shape,child.faces,
                         child.edges,child.vertices,true,false);
+                    std::erase_if(original.mesh.points,[&](const auto& point) {
+                        const auto& ref=point.reference;
+                        if(!ref.semantic_key.starts_with("sweep:vertex:at:"))return false;
+                        const auto [found,inserted]=station_points.emplace(
+                            std::tuple{ref.owner_id,ref.semantic_key,ref.instance_path},point.position);
+                        if(inserted)return false;
+                        const auto& first=found->second;
+                        if(std::hypot(first.x-point.position.x,first.y-point.position.y,first.z-point.position.z)>Precision::Confusion())
+                            throw std::runtime_error("Shared Sweep station has inconsistent point geometry");
+                        return true;
+                    });
                     append_original_reference_geometry(original_references,std::move(original.mesh));
                 }
                 operand_mesh.axes=axes_for_operation(operation,operand.shape,{});

@@ -7,6 +7,7 @@
 #include <zima/document/dimension_identifiers.hpp>
 #include <zima/ui/properties_subwindow.hpp>
 #include <zima/workspace/family_operations.hpp>
+#include <QPersistentModelIndex>
 
 #include <functional>
 #include <map>
@@ -18,6 +19,7 @@ class QDoubleSpinBox;
 class QSpinBox;
 class QTableWidget;
 class QTabWidget;
+class QPushButton;
 
 namespace zima::app {
 
@@ -46,11 +48,17 @@ private:
     void populate();
     bool read_table();
     void add_row();
+    void add_order_control(int row);
+    void update_order_controls();
+    void move_row(int direction);
     UserParameterData data_;
     QString language_;
     std::function<void(UserParameterData)> accepted_;
     QComboBox* language_combo_{};
     QTableWidget* table_{};
+    QPersistentModelIndex ordering_index_;
+    QPushButton* move_up_{};
+    QPushButton* move_down_{};
 };
 
 class FileSettingsDialog final : public zima::ui::PropertiesSubWindow {

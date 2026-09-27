@@ -34,7 +34,9 @@ bool commit_bend(Workspace& live,const kernel::OcctKernel& kernel,const std::str
     if(feature.name.empty())throw std::invalid_argument("Specify a Bend name.");
     static_cast<void>(document::bend_request(feature,sketch,document::sheet_metal_defaults(before)));
     document::normalize_container_front_references(feature.placement.references);
-    if(old!=before.sketches.end() && old->serialized()==sketch.serialized())
+    // Reuse an existing calculation for a display-only/no-op edit. A missing
+    // body still needs calculation when the user explicitly confirms OK.
+    if(!state->session.calculated_boundaries().empty() && old!=before.sketches.end() && old->serialized()==sketch.serialized())
         if(const auto changed=commit_origin_display_only(live,id,feature))return *changed;
     const auto container=feature.id;auto next=before;
     if(existing) {

@@ -24,6 +24,7 @@
 #include <QPushButton>
 #include <QRegularExpression>
 #include <QSpinBox>
+#include <QSignalBlocker>
 #include <QTableWidget>
 #include <QTabWidget>
 #include <QVBoxLayout>
@@ -32,6 +33,7 @@
 #include <nlohmann/json.hpp>
 
 #include <set>
+#include <algorithm>
 #include <utility>
 
 namespace zima::app {
@@ -81,12 +83,15 @@ UserParametersDialog::UserParametersDialog(
     language_combo_->setCurrentText(language_);
     language_form->addRow(settings.text("label.language", "Jazyk"), language_combo_);
     content_layout()->addLayout(language_form);
-    table_ = new QTableWidget(0, 5, this);
+    table_ = new QTableWidget(0, 6, this);
     table_->setObjectName("documentParametersTable");
     table_->setHorizontalHeaderLabels({QString{},settings.text("column.key", "Klíč"),
         settings.text("column.shared", "Sdílená"),
         settings.text("column.label", "Popisek"),
-        settings.text("column.value", "Hodnota")});
+        settings.text("column.value", "Hodnota"),QString{}});
+    table_->horizontalHeader()->setSectionResizeMode(5,QHeaderView::Fixed);
+    table_->setColumnWidth(5,34);
+    table_->horizontalHeader()->moveSection(5,0);
     table_->verticalHeader()->hide();
     table_->horizontalHeader()->setSectionResizeMode(1, QHeaderView::ResizeToContents);
     table_->horizontalHeader()->setSectionResizeMode(2, QHeaderView::ResizeToContents);
@@ -95,6 +100,19 @@ UserParametersDialog::UserParametersDialog(
     table_->setItemDelegate(new EnterDownDelegate(table_));
     table_->horizontalHeader()->setSectionResizeMode(4, QHeaderView::Stretch);
     content_layout()->addWidget(table_, 1);
+    auto* ordering_buttons=new QHBoxLayout;
+    move_up_=new QPushButton(zima::ui::reference_arrow_icon(Qt::UpArrow),tr("Nahoru"),this);
+    move_down_=new QPushButton(zima::ui::reference_arrow_icon(Qt::DownArrow),tr("Dolů"),this);
+    move_up_->setObjectName("parameterMoveUp");move_down_->setObjectName("parameterMoveDown");
+    for(auto* button:{move_up_,move_down_}) {
+        button->setIconSize({20,20});button->setAutoDefault(false);
+        ordering_buttons->addWidget(button);
+    }
+    ordering_buttons->addStretch();content_layout()->addLayout(ordering_buttons);
+    connect(move_up_,&QPushButton::clicked,this,[this]{move_row(-1);});
+    connect(move_down_,&QPushButton::clicked,this,[this]{move_row(1);});
+    connect(table_,&QTableWidget::itemChanged,this,[this]{update_order_controls();});
+    connect(table_->model(),&QAbstractItemModel::rowsRemoved,this,[this]{update_order_controls();});
     const auto change_language = [this] {
             const QString next_language = language_combo_->currentText();
             if (next_language.trimmed().isEmpty() || next_language == language_) return;
@@ -112,6 +130,8 @@ UserParametersDialog::UserParametersDialog(
 }
 
 void UserParametersDialog::populate() {
+    const auto selected_key=ordering_index_.data().toString().trimmed();
+    const QSignalBlocker block(table_);
     table_->setRowCount(0);
     for (const auto& key : data_.order) {
         const int row = table_->rowCount(); table_->insertRow(row);
@@ -130,7 +150,55 @@ void UserParametersDialog::populate() {
         table_->setItem(row, 4, new QTableWidgetItem(QString::fromStdString(
             shared != values.end() ? shared->second :
             localized != values.end() ? localized->second : std::string{})));
+        add_order_control(row);
+        if(!selected_key.isEmpty()&&selected_key==QString::fromStdString(key))
+            ordering_index_=table_->model()->index(row,1);
     }
+    update_order_controls();
+}
+
+void UserParametersDialog::add_order_control(int row) {
+    auto* check=new QCheckBox(table_);
+    check->setObjectName("parameterOrder");
+    check->setToolTip(tr("Vybrat parametr pro přesun nahoru nebo dolů"));
+    check->setEnabled(table_->item(row,1)&&!table_->item(row,1)->text().trimmed().isEmpty());
+    const QPersistentModelIndex index(table_->model()->index(row,1));
+    connect(check,&QCheckBox::toggled,this,[this,index](bool checked) {
+        if(checked)ordering_index_=index;
+        else if(ordering_index_==index)ordering_index_=QPersistentModelIndex{};
+        update_order_controls();
+    });
+    table_->setCellWidget(row,5,zima::ui::centered_cell_widget(check));
+}
+
+void UserParametersDialog::update_order_controls() {
+    const bool selected=ordering_index_.isValid()&&!ordering_index_.data().toString().trimmed().isEmpty();
+    if(!selected)ordering_index_=QPersistentModelIndex{};
+    bool before=false,after=false;
+    for(int row=0;row<table_->rowCount();++row) {
+        const bool populated=table_->item(row,1)&&!table_->item(row,1)->text().trimmed().isEmpty();
+        if(auto* cell=table_->cellWidget(row,5))if(auto* check=cell->findChild<QCheckBox*>()) {
+            const QSignalBlocker block(check);check->setEnabled(populated);
+            check->setChecked(selected&&ordering_index_.row()==row);
+        }
+        if(populated&&selected) {
+            before|=row<ordering_index_.row();after|=row>ordering_index_.row();
+        }
+    }
+    move_up_->setEnabled(before);move_down_->setEnabled(after);
+}
+
+void UserParametersDialog::move_row(int direction) {
+    if(!ordering_index_.isValid()||!read_table())return;
+    const auto key=ordering_index_.data().toString().trimmed().toStdString();
+    const auto selected=std::ranges::find(data_.order,key);
+    if(selected==data_.order.end())return;
+    const auto index=std::distance(data_.order.begin(),selected);
+    const auto target=index+direction;
+    if(target<0||target>=static_cast<std::ptrdiff_t>(data_.order.size()))return;
+    std::swap(data_.order[index],data_.order[target]);
+    populate();
+    table_->scrollTo(ordering_index_);
 }
 
 bool UserParametersDialog::read_table() {
@@ -180,6 +248,7 @@ void UserParametersDialog::add_row() {
     for(int column:{1,3,4}) table_->setItem(row,column,new QTableWidgetItem);
     auto* check=new QCheckBox(table_);check->setChecked(true);
     table_->setCellWidget(row,2,zima::ui::centered_cell_widget(check));
+    add_order_control(row);
 }
 
 bool UserParametersDialog::submit() {

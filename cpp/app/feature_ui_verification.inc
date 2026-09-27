@@ -115,14 +115,17 @@ static void verify_feature_surface_placement(QApplication& application, Assembly
     check(!dynamic_cast<ui::ReferenceCellItem*>(branches->item(0,1))->is_active_input(),"Branch click did not end entry");
     auto* eye=branches->cellWidget(0,2)->findChild<QToolButton*>();eye->click();flush();
     check(dynamic_cast<ui::ReferenceCellItem*>(branches->item(0,1))->is_inspected(),"Branch eye did not inspect independently");
-    if(branch_references->rowViewportPosition(2)+branch_references->rowHeight(2)>branch_references->viewport()->height() ||
-        branches->geometry().top()<=branch_references->geometry().bottom())
-        throw std::runtime_error("Branch inspection clipped references: table="+std::to_string(branch_references->height())+
-            " viewport="+std::to_string(branch_references->viewport()->height())+
-            " header="+std::to_string(branch_references->horizontalHeader()->height())+
-            " hint="+std::to_string(branch_references->horizontalHeader()->sizeHint().height())+
-            " bottom="+std::to_string(branch_references->geometry().bottom())+
-            " branch="+std::to_string(branches->geometry().top()));
+    const auto check_branch_layout=[&] {
+        check(branch_references->rowViewportPosition(2)+branch_references->rowHeight(2)<=branch_references->viewport()->height() &&
+            branches->geometry().top()>branch_references->geometry().bottom(),
+            "Solution branch inspection overlapped placement references");
+    };
+    check_branch_layout();
+    const auto reference_top=branch_references->geometry().top();
+    const auto natural_size=dialog()->size();
+    dialog()->resize(natural_size+QSize(60,60));flush();check_branch_layout();
+    check(branch_references->geometry().top()==reference_top,"Resizing moved the anchored placement fields");
+    dialog()->resize(natural_size);flush();check_branch_layout();
     window.grab().save(QString::fromStdString((directory/"placement-solution-branch.png").string()));
     dialog()->buttons()->button(QDialogButtonBox::Ok)->click();flush();check(!dialog(),"Branch OK failed");run("save");
     auto branch_saved=document::PartDocument::load(path);

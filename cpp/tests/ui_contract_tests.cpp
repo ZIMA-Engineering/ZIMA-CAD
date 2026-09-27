@@ -209,6 +209,7 @@ int verify_entry_tables(QApplication& application,QWidget& parent) {
     ApplicationSettings settings;
     UserParameterData data;data.order={"a","b"};
     data.values["a"][""]="one";data.values["b"][""]="two";
+    data.labels["b"]={{"cs","druhý"},{"en","second label"}};
     bool committed=false;UserParameterData result;
     auto* dialog=new UserParametersDialog(data,"cs",[&](auto value){committed=true;result=std::move(value);},settings,&parent);
     dialog->show();flush();
@@ -231,15 +232,48 @@ int verify_entry_tables(QApplication& application,QWidget& parent) {
     table->setFocus();flush();edit_table_cell(table,2,1);flush();enter("c",3);
     require(table->rowCount()==4,"Entering the offered row did not offer a fresh row");
     table->setFocus();flush();table->item(2,4)->setText("third");flush();
+    auto* up=dialog->findChild<QPushButton*>("parameterMoveUp");
+    auto* down=dialog->findChild<QPushButton*>("parameterMoveDown");
+    const auto ordering=[&](int row){return table->cellWidget(row,5)->findChild<QCheckBox*>();};
+    require(up&&down&&!up->isEnabled()&&!down->isEnabled()&&!ordering(3)->isEnabled(),
+        "Parameter movement requires an explicit populated row selection");
+    require(table->horizontalHeader()->visualIndex(5)<table->horizontalHeader()->visualIndex(0),
+        "Parameter ordering checkbox must precede removal");
+    ordering(0)->click();flush();require(!up->isEnabled()&&down->isEnabled(),"First parameter boundary is wrong");
+    down->click();flush();require(table->item(1,1)->text()=="a"&&ordering(1)->isChecked(),"Parameter move lost selection identity");
+    down->click();flush();require(table->item(2,1)->text()=="a"&&!down->isEnabled(),"Last parameter boundary is wrong");
+    up->click();flush();up->click();flush();
+    edit_table_cell(table,1,4);flush();require(ordering(0)->isChecked(),"Editing a value changed ordering selection");
+    ordering(1)->click();flush();require(!ordering(0)->isChecked()&&ordering(1)->isChecked(),"Multiple parameters selected for movement");
     auto* remove=table->cellWidget(0,0)->findChild<QPushButton*>();
     require(remove&&remove->isVisible(),"Populated row has no visible red delete action");remove->click();flush();
     require(table->item(0,1)->text()=="b"&&table->rowCount()==3,"Row delete removed the wrong entry");
+    require(ordering(0)->isChecked()&&!up->isEnabled(),"Deleting a preceding row lost the ordering selection");
+    down->click();flush();
+    require(table->item(1,1)->text()=="b"&&table->item(1,4)->text()=="second"&&ordering(1)->isChecked(),
+        "Reordering changed parameter values");
+    auto* language=dialog->findChild<QComboBox*>("parameterLanguage");language->setCurrentText("en");
+    QMetaObject::invokeMethod(language,"activated",Qt::DirectConnection,Q_ARG(int,language->currentIndex()));flush();
+    require(table->item(1,3)->text()=="second label"&&ordering(1)->isChecked(),"Language change lost reordered parameter metadata");
+    up->click();flush();
     const auto directory=std::filesystem::path(__FILE__).parent_path().parent_path().parent_path()/"Projects/test/entry-tables";
     std::filesystem::create_directories(directory);
     dialog->grab().save(QString::fromStdString((directory/"parameters.png").string()));
     dialog->buttons()->button(QDialogButtonBox::Ok)->click();flush();
     require(committed&&result.order==std::vector<std::string>{"b","c"}&&result.flat["b"]=="second"&&result.flat["c"]=="third","Parameters OK stored an empty offered row or lost data");
     delete dialog;
+    bool cancelled_commit=false;
+    auto* cancelled=new UserParametersDialog(result,"en",[&](auto){cancelled_commit=true;},settings,&parent);
+    cancelled->show();flush();
+    auto* cancelled_table=cancelled->findChild<QTableWidget*>("documentParametersTable");
+    cancelled_table->cellWidget(1,5)->findChild<QCheckBox*>()->click();
+    cancelled->findChild<QPushButton*>("parameterMoveUp")->click();flush();
+    require(cancelled_table->item(0,1)->text()=="c","Pending parameter reorder did not occur");
+    cancelled_table->cellWidget(0,0)->findChild<QPushButton*>()->click();flush();
+    require(!cancelled->findChild<QPushButton*>("parameterMoveUp")->isEnabled()&&
+        !cancelled->findChild<QPushButton*>("parameterMoveDown")->isEnabled(),"Removing the selected parameter retained an ordering target");
+    cancelled->buttons()->button(QDialogButtonBox::Cancel)->click();flush();
+    require(!cancelled_commit,"Cancel committed reordered parameters");delete cancelled;
     auto* material=new MaterialDialog({},[](auto){},settings,&parent);material->show();flush();
     auto* materials=material->findChild<QTableWidget*>("materialTable");
     require(materials->rowCount()==1,"Material lacks its offered row");

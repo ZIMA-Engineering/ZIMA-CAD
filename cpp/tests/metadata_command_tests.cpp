@@ -47,6 +47,16 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
         part->session.document().user_parameter_order==std::vector<std::string>({"NUMBER","NAME","mass"}),"Shared/localized parameter storage or order changed");
     require(!run(host,"document.parameters.set",{{"parameters",entries}}).data.at("changed").get<bool>(),"Derived parameter normalization created a spurious Undo entry");
     const auto edited=workspace::user_parameters(live,id);run(host,"undo");require(workspace::user_parameters(live,id)==original,"Parameter Undo did not restore data");run(host,"redo");require(workspace::user_parameters(live,id)==edited,"Parameter Redo lost localized values");
+    auto reordered=edited;std::swap(reordered.order[0],reordered.order[1]);
+    require(workspace::set_user_parameters(live,id,reordered),"Parameter reorder did not create a transaction");
+    require(part->session.calculated_boundaries().back().kernel_shape==cached,"Parameter reorder recalculated geometry");
+    run(host,"save");
+    const auto reordered_part=document::PartDocument::load(dir/"metadata-part.prtz");
+    require(reordered_part.user_parameter_order==reordered.order&&reordered_part.user_parameter_values==reordered.values&&
+        reordered_part.user_parameter_labels==reordered.labels,"Reordered parameters lost order or localized data on reopen");
+    run(host,"undo");require(workspace::user_parameters(live,id)==edited,"Parameter reorder Undo failed");
+    run(host,"redo");require(workspace::user_parameters(live,id)==reordered,"Parameter reorder Redo failed");
+    run(host,"undo");
     const auto reject=[&](const char* name,Json args) {
         const auto revision=part->session.revision(),generation=part->session.data_generation();const auto values=workspace::user_parameters(live,id);const auto settings=workspace::file_settings(live,id);
         require(!host.execute({{"command",name},{"arguments",std::move(args)}}).ok,"Invalid metadata accepted");

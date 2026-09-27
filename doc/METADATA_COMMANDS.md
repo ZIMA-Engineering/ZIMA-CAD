@@ -7,6 +7,15 @@ accept a partial patch.
 
 ## Parameters
 
+In the Parameters window, use the checkbox before the remove control to select
+one parameter for ordering. The bottom Up/Down buttons use the shared arrow
+icons and move that parameter by one row, retaining its selection. Editing a
+cell does not select it for ordering. The blank entry row cannot be moved, and
+the controls disable moves beyond the first and last populated rows.
+Reordering retains shared and localized values and labels. OK commits the
+pending table through the existing metadata transaction; Cancel discards it.
+Native save/reopen and Undo/Redo preserve the order without recalculating geometry.
+
 ```json
 {"command":"document.parameters.get","arguments":{}}
 {"command":"document.parameters.set","arguments":{"parameters":[

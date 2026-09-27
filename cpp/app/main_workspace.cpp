@@ -8853,11 +8853,11 @@ int verify_startup_contract(
     if (!verify(parameters->isEnabled() && parameters_dialog != nullptr &&
                     parameters_dialog->windowFlags().testFlag(Qt::SubWindow) &&
                     parameters_table != nullptr && parameters_table->rowCount() >= 12 &&
-                    parameters_table->columnCount() == 5 &&
+                    parameters_table->columnCount() == 6 &&
                     parameter_language != nullptr && parameter_language->count() >= 4 &&
                     parameters_dialog->findChild<QTableWidget*>(
                         "documentRelationsTable") == nullptr,
-                "Parameters must match the localized Python table contract")) {
+                "Parameters must expose localized data and ordering controls")) {
         return 1;
     }
     parameter_language->setCurrentText("cs");

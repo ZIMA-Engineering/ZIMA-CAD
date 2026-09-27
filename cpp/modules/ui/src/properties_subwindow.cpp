@@ -392,6 +392,13 @@ void PropertiesSubWindow::resizeEvent(QResizeEvent* event) {
 }
 
 bool PropertiesSubWindow::eventFilter(QObject* watched, QEvent* event) {
+    if(watched==this && event->type()==QEvent::LayoutRequest && isVisible()) {
+        // Fields revealed after Show need the same room as initial fields.
+        // A SubWindow does not automatically grow to the new layout minimum.
+        QSize required=minimumSizeHint().expandedTo(size());
+        if(parentWidget())required=required.boundedTo(parentWidget()->size());
+        if(required!=size())resize(required);
+    }
     if (watched == title_bar_) {
         if (event->type() == QEvent::MouseButtonPress) {
             auto* mouse = static_cast<QMouseEvent*>(event);

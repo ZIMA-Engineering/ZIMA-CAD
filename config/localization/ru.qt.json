@@ -1784,5 +1784,7 @@
   "2 sousední strany (L)": "2 смежные стороны (L)",
   "3 strany (U)": "3 стороны (U)",
   "Počet stran": "Количество сторон",
-  "Transition requires two rectangular profiles with two or three adjacent sides.": "Для перехода требуются два прямоугольных профиля с двумя или тремя смежными сторонами."
+  "Transition requires two rectangular profiles with two or three adjacent sides.": "Для перехода требуются два прямоугольных профиля с двумя или тремя смежными сторонами.",
+  "Shared Sweep station has inconsistent point geometry": "Общее сечение протягивания имеет несогласованную геометрию точки.",
+  "Vybrat parametr pro přesun nahoru nebo dolů": "Выбрать параметр для перемещения вверх или вниз"
 }

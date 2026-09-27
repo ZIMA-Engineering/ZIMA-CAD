@@ -1,6 +1,7 @@
 #include <QCheckBox>
 #include <QTableWidget>
 #include "application_settings.hpp"
+#include "document_tools_dialogs.hpp"
 #include "construction_properties_dialog.hpp"
 #include <QComboBox>
 #include "drawing_detail_dialog.hpp"
@@ -122,6 +123,15 @@ int verify_translations(QApplication& application, QWidget& parent) {
                     "Automatic Feature name is not localized");
         }
         {
+            app::UserParameterData parameters;parameters.order={"test"};parameters.values["test"][""]="1";
+            app::UserParametersDialog parameter_dialog(parameters,languages[language],[](auto){},settings,&parent);
+            parameter_dialog.setAttribute(Qt::WA_DeleteOnClose,false);parameter_dialog.show();application.processEvents();
+            check(parameter_dialog.findChild<QPushButton*>("parameterMoveUp")->text()==settings.qt_translations.value("Nahoru")&&
+                parameter_dialog.findChild<QPushButton*>("parameterMoveDown")->text()==settings.qt_translations.value("Dolů"),
+                "Parameter movement buttons are untranslated");
+            check(parameter_dialog.findChild<QCheckBox*>("parameterOrder")->toolTip()==
+                settings.qt_translations.value("Vybrat parametr pro přesun nahoru nebo dolů"),"Parameter ordering tooltip is untranslated");
+            parameter_dialog.hide();
             document::BodyProperties row;row.name="Surface";row.area=300;
             row.surface_centroid=kernel::Vec3{1,2,3};row.density_kg_mm3=.00000785;
             app::MassPropertiesDialog dialog(row,{{"Length","mm"},{"Mass","kg"}},"Surface",[](auto){},[](auto){},&parent);

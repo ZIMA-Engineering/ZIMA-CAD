@@ -1784,5 +1784,7 @@
   "2 sousední strany (L)": "2 adjacent sides (L)",
   "3 strany (U)": "3 sides (U)",
   "Počet stran": "Number of sides",
-  "Transition requires two rectangular profiles with two or three adjacent sides.": "Transition requires two rectangular profiles with two or three adjacent sides."
+  "Transition requires two rectangular profiles with two or three adjacent sides.": "Transition requires two rectangular profiles with two or three adjacent sides.",
+  "Shared Sweep station has inconsistent point geometry": "Shared Sweep station has inconsistent point geometry.",
+  "Vybrat parametr pro přesun nahoru nebo dolů": "Select a parameter to move up or down"
 }

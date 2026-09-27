@@ -541,6 +541,11 @@ void verify(std::filesystem::path directory) {
     {
         const auto unchanged=*state->session.document().find_container(owner);
         const auto unchanged_profile=workspace::document_sketch(live,id,unchanged.bend.sketch_id);
+        const auto calculated_shape=state->session.calculated_boundaries().back().kernel_shape;
+        const auto revision=state->session.revision();
+        check(!workspace::commit_bend(live,kernel,id,unchanged,unchanged_profile)&&
+            state->session.revision()==revision&&state->session.calculated_boundaries().back().kernel_shape==calculated_shape,
+            "Unchanged Bend confirmation recalculated geometry or created an Undo transaction");
         state->session.update_calculated_boundaries({});
         static_cast<void>(workspace::commit_bend(live,kernel,id,unchanged,unchanged_profile));
         check(!state->session.calculated_boundaries().empty(),"Bend OK left its body uncalculated");
@@ -765,6 +770,9 @@ void verify_continuation_side_attachment(std::filesystem::path directory) {
             edge.edge_treatment_endpoint_references.size()==2&&std::abs(edge_length(edge)-20.)<1e-5;
     });
     check(side!=geometry.edges.end(),"Sheet Profile tangent continuation has no selectable longitudinal boundary edge");
+    for(const auto& endpoint:side->edge_treatment_endpoint_references)
+        check(std::ranges::count_if(geometry.points,[&](const auto& point){return point.reference==endpoint;})==1,
+            "Tangent continuation endpoint must have one original reference candidate");
     const auto second=run(host,"bend.create",{{"edge_owner",side->reference.owner_id},{"edge_key",side->reference.semantic_key},
         {"radius_mm",3.},{"angle_degrees",60.}}).data.at("container").get<std::string>();
     const auto& attached=*state->session.document().find_container(second);
@@ -1588,6 +1596,10 @@ int main(int argc,char** argv) {
     }
     if(argc==2&&std::string_view(argv[1])=="--verify-generic-sheet-cut") {
         try{verify_sheet_cut(directory,true);verify_sheet_cut_rotated_origin(directory);verify_sheet_cut_clearance(directory);std::filesystem::remove_all(directory);return 0;}
+        catch(const std::exception& e){std::cerr<<e.what()<<"; fixture: "<<directory<<'\n';return 1;}
+    }
+    if(argc==2&&std::string_view(argv[1])=="--continuation-side-only") {
+        try{verify_continuation_side_attachment(directory);std::filesystem::remove_all(directory);return 0;}
         catch(const std::exception& e){std::cerr<<e.what()<<"; fixture: "<<directory<<'\n';return 1;}
     }
     try{verify_sheet_cut(directory,true);verify_sheet_cut_rotated_origin(directory);verify_sheet_cut_clearance(directory);verify_sheet_cut_tilted_cone_attachment(directory);verify_sheet_cut_cone_orientation(directory);verify_sheet_cut_projection_extent(directory);verify_sheet_cut_bounded_bend_thickness(directory);verify_sheet_cut_cone_orientation(directory,true);verify_sheet_cut_projection_extent(directory,true);verify_sheet_cut(directory);verify_sheet_cut_across_attachment(directory);verify_sheet_revolution(directory);verify_continuation(directory);verify_continuation_side_attachment(directory);verify_cross_branch_box(directory);verify_sheet_attachment(directory);verify_prepared_start();verify_attachment(directory);verify(directory);std::filesystem::remove_all(directory);std::cout<<"Bend geometry, identities, defaults, history and persistence passed\n";return 0;}

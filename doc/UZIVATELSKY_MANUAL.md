@@ -81,11 +81,18 @@ tables allocate sufficient value width by reducing the reference column.
 
 In **Parameters**, Enter commits the cell and starts editing the next row in the
 same column; it does not accept the window. Parameters, Relations, Material and
-Family Table variant lists offer one empty row with a green arrow. Filling it
+Family Table variant lists offer one empty row with an entry arrow. Filling it
 creates another empty row; a red cross deletes a filled entry. The empty offer is
 not saved. The Family Table base row selects original elements or dimensions. Variant rows
 override dimensions or presence; double-click a variant name to generate its
 own tab. See [Family Table](FAMILY_TABLE.md).
+
+In **Parameters**, select one row with its ordering checkbox and use the bottom
+**Up** or **Down** button to move it by one position, as in 3D Curve. The checkbox
+stays with the parameter; editing a value does not change this selection.
+Moves beyond the ends and selection of the empty offer row are disabled.
+Values and language variants follow the parameter. **OK** saves the pending
+order; **Cancel** discards it. Saved order supports Undo/Redo and reopening.
 
 3D Curve points, Sweep profiles, thread references and individual face colors use
 the same row controls. Removing a station's owned profile leaves its station in
