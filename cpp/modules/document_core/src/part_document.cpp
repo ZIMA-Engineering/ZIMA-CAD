@@ -7,6 +7,7 @@
 #include <zima/document/flat.hpp>
 #include <zima/document/sheet_state.hpp>
 #include <zima/document/sheet_transition.hpp>
+#include <zima/document/boundary_surface.hpp>
 #include <zima/document/named_views.hpp>
 #include <zima/document/profile_serialization.hpp>
 #include <zima/document/feature_serialization.hpp>
@@ -544,12 +545,12 @@ void add_json_parameters(
 
 nlohmann::json read_part_ini(const std::filesystem::path& path) {
     const auto ini = read_ini(path);
-    if (ini_value(ini, "Document", "format_version") != "42") {
+    if (ini_value(ini, "Document", "format_version") != "43") {
         throw std::runtime_error("Unsupported ZIMA-CAD Part document format");
     }
     nlohmann::json root = {
         {"format", "zima-cad-cpp"},
-        {"format_version", 66},
+        {"format_version", 67},
         {"document_id", ini_required(ini, "Document", "document_id")},
         {"type", ini_value(ini, "Document", "type", "part")},
         {"name", ini_value(ini, "Document", "name", "Nový díl")},
@@ -705,7 +706,7 @@ void write_part_ini(
     const nlohmann::json& root, const std::filesystem::path& path) {
     IniSections ini;
     ini["Document"] = {
-        {"format_version", "42"},
+        {"format_version", "43"},
         {"type", "part"},
         {"document_id", root.at("document_id").get<std::string>()},
         {"name", root.at("name").get<std::string>()},
@@ -7942,6 +7943,8 @@ if (sweep.separate_segments) {
 }
 }
 
+#include "boundary_surface.inc"
+
 zima::kernel::Sweep3DRequest PartDocument::sweep2d_request(const HistoryContainer& input,std::optional<double> override_tolerance) {
     const double tolerance=override_tolerance.value_or(input.sweep_precision.effective());
     auto c=input;reframe_sweep2d_sketches(c);const auto route=sweep2d_route(c,tolerance);
@@ -8914,6 +8917,12 @@ std::vector<zima::kernel::HistoryOperation> PartDocument::kernel_operations(
         try {
         if(container.is_surface_result() && container.combine_mode==CombineMode::Subtract)
             throw std::runtime_error("A surface cannot subtract material.");
+        if(container.feature_kind==FeatureKind::BoundarySurface) {
+            require_default_sketch_feature_placement(container.placement);
+            operations.push_back({container.id,boundary_surface_request(*this,container),
+                kernel::BooleanOperation::Add,container.suppressed,boolean_tolerance,mesh_deflection});
+            continue;
+        }
         if(container.feature_kind==FeatureKind::SheetTransition) {
             auto operation=sheet_transition_operation(*this,container);
             // Preserve the transition's tighter joining budget at its small
@@ -10346,7 +10355,7 @@ PartDocument PartDocument::from_serialized(const nlohmann::json& root,
             type != "revolution" && type != "sweep3d" && type != "helical_sweep" && type != "sweep2d" &&
             type != "imported_step" &&
             type != "fillet" && type != "chamfer" &&
-            type != "derived_copy" && type != "shell" && type != "twisted_sheet" && type != "sheet_transition" && type != "unbend" && type != "bend_back" &&
+            type != "derived_copy" && type != "shell" && type != "twisted_sheet" && type != "sheet_transition" && type != "boundary_surface" && type != "unbend" && type != "bend_back" &&
             type != "flat" && type != "bend" && type != "holes" && type != "hole" && type != "thread" && type != "shaft_thread" &&
             type != "drill_point") {
             throw std::runtime_error("Unsupported history feature type");
@@ -10365,6 +10374,7 @@ PartDocument PartDocument::from_serialized(const nlohmann::json& root,
             : type == "shell" ? FeatureKind::Shell
             : type == "twisted_sheet" ? FeatureKind::TwistedSheet
             : type == "sheet_transition" ? FeatureKind::SheetTransition
+            : type == "boundary_surface" ? FeatureKind::BoundarySurface
             : type == "flat" ? FeatureKind::Flat
             : type == "unbend" ? FeatureKind::Unbend
             : type == "derived_copy" ? FeatureKind::DerivedCopy
@@ -10689,6 +10699,10 @@ PartDocument PartDocument::from_serialized(const nlohmann::json& root,
             if(!std::isfinite(p.angle_degrees)||p.angle_degrees<=0||p.angle_degrees>36000)
                 throw std::runtime_error("Invalid Twisted Sheet angle");
             static_cast<void>(twisted_sheet_developed_length(p));
+        } else if (container.feature_kind == FeatureKind::BoundarySurface) {
+            const auto& data=source.at("boundary_surface");
+            if(data.size()!=4)throw std::runtime_error("Boundary surface requires four boundaries.");
+            for(std::size_t i=0;i<4;++i)container.boundary_surface.boundaries[i]={data[i].at("owner_id"),data[i].at("curve_id")};
         } else if (container.feature_kind == FeatureKind::SheetTransition) {
             const auto& data=source.at("sheet_transition");auto& p=container.sheet_transition;
             p.sketches=data.at("sketches").get<std::array<std::string,2>>();p.facets=data.at("facets").get<std::array<unsigned,2>>();
@@ -11165,6 +11179,11 @@ nlohmann::json PartDocument::serialized(
             const std::set<std::string> unique(container.sheet_state.owners.begin(),container.sheet_state.owners.end());
             if(container.combine_mode!=CombineMode::Add||unique.size()!=container.sheet_state.owners.size()||
                 unique.contains("")||(!container.sheet_state.all&&unique.empty()))throw std::runtime_error("Invalid sheet state parameters.");
+        } else if (container.feature_kind == FeatureKind::BoundarySurface) {
+            require_default_sketch_feature_placement(container.placement);
+            if(container.combine_mode!=CombineMode::Add)throw std::runtime_error("A surface cannot subtract material.");
+            for(const auto& boundary:container.boundary_surface.boundaries)
+                if(boundary.owner_id.empty())throw std::runtime_error("Boundary surface requires four boundaries.");
         } else if (container.feature_kind == FeatureKind::SheetTransition) {
             const auto& p=container.sheet_transition;
             if(container.combine_mode!=CombineMode::Add||p.sketches[0].empty()||p.sketches[1].empty()||p.sketches[0]==p.sketches[1]||
@@ -11450,6 +11469,7 @@ nlohmann::json PartDocument::serialized(
                     ? "twisted_sheet"
                 : container.feature_kind == FeatureKind::Feature ? "feature"
                 : container.feature_kind == FeatureKind::SheetTransition ? "sheet_transition"
+                : container.feature_kind == FeatureKind::BoundarySurface ? "boundary_surface"
                 : container.feature_kind == FeatureKind::Extrusion
                     ? "extrusion"
                 : container.feature_kind == FeatureKind::Revolution
@@ -11726,6 +11746,11 @@ nlohmann::json PartDocument::serialized(
                 {"reverse",p.reverse},{"sheet_attachment",p.sheet_attachment},
                 {"thickness_override",p.thickness_override},
                 {"attachment_material_side",p.attachment_material_side}};
+        } else if (container.feature_kind == FeatureKind::BoundarySurface) {
+            auto data=nlohmann::json::array();
+            for(const auto& boundary:container.boundary_surface.boundaries)
+                data.push_back({{"owner_id",boundary.owner_id},{"curve_id",boundary.curve_id}});
+            serialized["boundary_surface"]=std::move(data);
         } else if (container.feature_kind == FeatureKind::SheetTransition) {
             const auto& p=container.sheet_transition;serialized["sheet_transition"]={{"sketches",p.sketches},{"end_origin_id",p.end_origin_id},{"end_position",{p.end_position.x,p.end_position.y,p.end_position.z}},{"end_rotation",{p.end_rotation.x,p.end_rotation.y,p.end_rotation.z}},{"facets",p.facets},{"thickness",p.thickness},{"inside_radius",p.inside_radius},{"k_factor",p.k_factor}};
         } else if (container.feature_kind == FeatureKind::Extrusion || container.feature_kind == FeatureKind::Revolution) {
@@ -11947,7 +11972,7 @@ nlohmann::json PartDocument::serialized(
     static_cast<void>(zima::document::parse_named_views(named_views));
     nlohmann::json root = {
         {"format", "zima-cad-cpp"},
-        {"format_version", 66},
+        {"format_version", 67},
         {"reference_errors", reference_errors},
         {"document_id", document_id},
         {"type", "part"},

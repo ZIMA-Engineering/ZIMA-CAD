@@ -28,7 +28,9 @@ represent their positions at the current free axial station. Continuous curves
 without a discrete branch retain ordinary placement controls. This implementation
 does not claim arbitrary NURBS branch enumeration or feasible-range annotations.
 
-Part JSON/INI versions are 66/42 and Assembly JSON/INI versions are 46/34.
+Placement branches introduced Part JSON/INI versions 66/42 and Assembly versions
+46/34. Boundary Surface subsequently advances Part to 67/43; Assembly remains
+46/34.
 Branch identity lives in the native document. Start templates are regenerated
 with the current serializer; no sidecar or legacy-format migration is required.
 

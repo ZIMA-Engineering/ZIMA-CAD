@@ -314,6 +314,11 @@ void AssemblyWorkspaceWindow::rebuild_application_toolbar() {
             if(auto* shortcut=findChild<QAction*>(QStringLiteral("featureShortcut%1Action").arg(i)))add_command(shortcut);
         add_group_separator();
         add_command(curve_3d_action_);
+        auto* boundary=findChild<QAction*>("boundarySurfaceAction");
+        if(!boundary){boundary=new QAction(resource_icon("boundary-surface"),tr("Hraniční plocha"),this);
+            boundary->setObjectName("boundarySurfaceAction");connect(boundary,&QAction::triggered,this,[this]{show_boundary_surface_properties();});}
+        const auto* boundary_body=modeling_part?modeling_part->session.document().body_history.find(modeling_part->session.document().body_history.active_body_id()):nullptr;
+        boundary->setEnabled(boundary_body&&!boundary_body->derived_copy&&!properties_dialog_);add_command(boundary);
         add_command(sweep2d_action_);
         add_command(sweep_3d_action_);
         add_command(helical_sweep_action_);

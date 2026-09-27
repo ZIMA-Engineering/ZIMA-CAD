@@ -245,6 +245,7 @@ target_link_libraries(zima_measurement PUBLIC zima_kernel_api)
 
 add_library(zima_workspace modules/workspace/src/workspace.cpp
     modules/workspace/src/sheet_transition_operations.cpp
+    modules/workspace/src/boundary_surface_operations.cpp
     modules/workspace/src/document_copy.cpp
     modules/workspace/src/document_operations.cpp
     modules/workspace/src/archive_operations.cpp
@@ -697,6 +698,10 @@ if(ZIMA_BUILD_TESTS)
     target_sources(zima_cpp_ui_contract_tests PRIVATE app/sketch_dimension_properties_dialog.cpp)
     target_sources(zima_cpp_ui_contract_tests PRIVATE app/sketch_text_properties_dialog.cpp)
     target_include_directories(zima_cpp_ui_contract_tests PRIVATE app)
+    if(MSVC)
+        # The combined dialog/translation fixtures exceed the default Windows stack.
+        target_link_options(zima_cpp_ui_contract_tests PRIVATE /STACK:8388608)
+    endif()
     target_link_libraries(zima_cpp_ui_contract_tests PRIVATE
         zima_workspace zima_document_core zima_assembly zima_ui zima_viewer
         Qt6::Widgets Qt6::Svg nlohmann_json::nlohmann_json)
@@ -1457,6 +1462,20 @@ if(ZIMA_BUILD_TESTS)
     set_tests_properties(zima_cpp_sheet_cut_wire_preview_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
     add_executable(zima_cpp_bend_command_tests tests/bend_command_tests.cpp)
     add_executable(zima_cpp_sheet_exchange_tests tests/sheet_exchange_tests.cpp)
+    file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/boundary-surface-ui-contract")
+    add_test(NAME zima_cpp_boundary_surface_ui_contract COMMAND zima-cad-cpp --verify-startup
+        --working-directory "${CMAKE_BINARY_DIR}/boundary-surface-ui-contract")
+    set_tests_properties(zima_cpp_boundary_surface_ui_contract PROPERTIES
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_BOUNDARY_SURFACE_ONLY=1"
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 120 RUN_SERIAL TRUE)
+    add_executable(zima_cpp_boundary_surface_dialog_tests tests/boundary_surface_dialog_tests.cpp)
+    target_link_libraries(zima_cpp_boundary_surface_dialog_tests PRIVATE zima_ui zima_document_core Qt6::Widgets)
+    target_compile_options(zima_cpp_boundary_surface_dialog_tests PRIVATE $<$<CXX_COMPILER_ID:MSVC>:/utf-8>)
+    add_test(NAME zima_cpp_boundary_surface_dialog_tests COMMAND zima_cpp_boundary_surface_dialog_tests)
+    set_tests_properties(zima_cpp_boundary_surface_dialog_tests PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+    add_executable(zima_cpp_boundary_surface_tests tests/boundary_surface_tests.cpp)
+    target_link_libraries(zima_cpp_boundary_surface_tests PRIVATE zima_workspace zima_document_core zima_kernel_occt)
+    add_test(NAME zima_cpp_boundary_surface_tests COMMAND zima_cpp_boundary_surface_tests)
     # Isolated surface research: no GUI, OCCT, persistence or placement changes.
     add_executable(zima_cpp_transition_surface_tests tests/transition_surface_tests.cpp research/transition_surface.cpp)
     target_include_directories(zima_cpp_transition_surface_tests PRIVATE research)

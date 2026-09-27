@@ -1737,9 +1737,9 @@ void AssemblyWorkspaceWindow::create_layout() {
                 if(accept_family_reference(candidate))return;
             }
             if(accept_derived_copy_tree_reference(item))return;
-            if(properties_dialog_&&properties_dialog_->objectName()=="sheetStateDialog"&&feature_reference_pick_) {
+            if(properties_dialog_&&(properties_dialog_->objectName()=="sheetStateDialog"||properties_dialog_->objectName()=="boundarySurfaceDialog")&&feature_reference_pick_) {
                 const auto role=item->data(0,Qt::UserRole+3).toString();
-                if(role!="part-container"&&role!="part-container-entity")return;
+                if(role!="part-container"&&role!="part-container-entity"&&!(properties_dialog_->objectName()=="boundarySurfaceDialog"&&role=="part-construction"))return;
                 zima::viewer::ViewerCandidate candidate;
                 candidate.kind=zima::viewer::CandidateKind::Container;
                 candidate.owner_id=item->data(0,role=="part-container-entity"?Qt::UserRole+6:Qt::UserRole).toString().toStdString();

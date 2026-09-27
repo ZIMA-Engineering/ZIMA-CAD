@@ -832,10 +832,20 @@ struct SheetStateRequest {
     bool operator==(const SheetStateRequest&) const = default;
 };
 
+struct BoundarySurfaceRequest {
+    // Four authored open chains, in perimeter order. Exact curve data and
+    // source point/curve identities use the same packet as Sketch profiles.
+    std::array<ExtrusionRequest,4> boundaries;
+    std::array<std::string,4> source_owners;
+    std::string region_id;
+    double tolerance{0.001};
+    static constexpr bool surface_result=true;
+};
+
 using PrimitiveRequest = std::variant<
     ExtrusionRequest, RevolutionRequest, FeatureGroupRequest,
     Sweep3DRequest, StepRequest, FilletRequest, ChamferRequest, ShellRequest,
-    ThreadSurfaceRequest, DrillPointRequest, SheetStateRequest>;
+    ThreadSurfaceRequest, DrillPointRequest, SheetStateRequest, BoundarySurfaceRequest>;
 
 struct HistoryOperation {
     std::string owner_id;
@@ -1635,6 +1645,15 @@ struct PlacedBody {
                     const auto fingerprint = history_fingerprint({cut}, 1);
                     u64(fingerprint.size());
                     for (const unsigned char value : fingerprint) byte(value);
+                }
+            } else if constexpr (std::is_same_v<Request, BoundarySurfaceRequest>) {
+                u64(1);u64(std::bit_cast<std::uint64_t>(primitive.tolerance));
+                const auto text=[&](const std::string& s){u64(s.size());for(unsigned char c:s)byte(c);};
+                text(primitive.region_id);
+                for(std::size_t i=0;i<4;++i) {
+                    text(primitive.source_owners[i]);
+                    HistoryOperation boundary;boundary.primitive=primitive.boundaries[i];
+                    text(history_fingerprint({boundary},1));
                 }
             } else if constexpr (std::is_same_v<Request, SheetStateRequest>) {
                 u64(2);byte(primitive.unfold);byte(primitive.all);

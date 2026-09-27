@@ -1,4 +1,6 @@
 #include <IntCurvesFace_ShapeIntersector.hxx>
+#include <BRepOffsetAPI_MakeFilling.hxx>
+#include <BRepAlgoAPI_Check.hxx>
 #include <zima/kernel/profile_centerlines.hpp>
 #include <zima/kernel/drill_point_identity.hpp>
 #include <zima/kernel/inertia.hpp>
@@ -1131,6 +1133,8 @@ TopoDS_Wire make_profile_wire(
         }
     }, profile_variant);
 }
+
+#include "boundary_surface_geometry.inc"
 
 void validate_sweep3d(const Sweep3DRequest& request) {
     if (!std::isfinite(request.linear_tolerance) || request.linear_tolerance <= 0)
@@ -7996,6 +8000,8 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                 } else if constexpr (std::is_same_v<Request, Sweep3DRequest>) {
                     validate_sweep3d(primitive);
                     return make_sweep3d_data(primitive, operation.owner_id);
+                } else if constexpr (std::is_same_v<Request, BoundarySurfaceRequest>) {
+                    return make_boundary_surface_data(primitive,operation.owner_id);
                 } else if constexpr (std::is_same_v<Request, StepRequest>) {
                     return make_step_data(primitive, operation.owner_id, step_documents);
                 } else {

@@ -31,7 +31,7 @@
 namespace zima::document {
 
 enum class CombineMode { Add, Subtract };
-enum class FeatureKind { Sketch, Extrusion, Revolution, Sweep3D, ImportedStep, Fillet, Chamfer, Shell, Hole, Thread, DrillPoint, ShaftThread, HelicalSweep, Sweep2D, Holes, Bend, Flat, TwistedSheet, Unbend, BendBack, DerivedCopy, SheetTransition, Feature };
+enum class FeatureKind { Sketch, Extrusion, Revolution, Sweep3D, ImportedStep, Fillet, Chamfer, Shell, Hole, Thread, DrillPoint, ShaftThread, HelicalSweep, Sweep2D, Holes, Bend, Flat, TwistedSheet, Unbend, BendBack, DerivedCopy, SheetTransition, Feature, BoundarySurface };
 enum class HoleType { Plain, MetricThread, PipeThread, WhitworthThread };
 enum class ThreadStandard { Metric, Whitworth, Pipe };
 enum class ThreadSide { Automatic, Internal, External };
@@ -588,6 +588,15 @@ struct SheetTransitionParameters {
     double thickness{1},inside_radius{1},k_factor{.5};
     bool operator==(const SheetTransitionParameters&)const=default;
 };
+struct BoundaryCurveSource {
+    std::string owner_id; // Source Sketch container or Curve3D container.
+    std::string curve_id; // Empty selects the whole open chain.
+    bool operator==(const BoundaryCurveSource&)const=default;
+};
+struct BoundarySurfaceParameters {
+    std::array<BoundaryCurveSource,4> boundaries;
+    bool operator==(const BoundarySurfaceParameters&)const=default;
+};
 struct HistoryContainer {
     std::string id;
     std::string feature_id;
@@ -617,13 +626,14 @@ struct HistoryContainer {
     TwistedSheetParameters twisted_sheet;
     SheetStateParameters sheet_state;
     SheetTransitionParameters sheet_transition;
+    BoundarySurfaceParameters boundary_surface;
     ThreadParameters thread;
     ShaftThreadParameters shaft_thread;
     DrillPointParameters drill_point;
     bool suppressed{};
     std::set<std::string> value_locks;
     [[nodiscard]] bool is_surface_result() const {
-        return (feature_kind==FeatureKind::Extrusion && extrusion.result_type==ProfileResultType::Surface) ||
+        return feature_kind==FeatureKind::BoundarySurface || (feature_kind==FeatureKind::Extrusion && extrusion.result_type==ProfileResultType::Surface) ||
             (feature_kind==FeatureKind::Revolution && revolution.result_type==ProfileResultType::Surface) ||
             (feature_kind==FeatureKind::Feature && feature.type==FeatureType::Modeling && feature.result_type==ProfileResultType::Surface);
     }

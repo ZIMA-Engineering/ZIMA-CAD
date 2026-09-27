@@ -851,6 +851,27 @@ application panels and retaining camera/highlight state. Exports do not change
 the open document's path. See [Drawing commands](DRAWING_COMMANDS.md) and
 [View export](VIEW_EXPORT_COMMAND.md).
 
+## Boundary Surface
+
+In Modeling, activate an editable Body and choose **Boundary Surface**. Select
+four boundary curves in perimeter order. Pick individual Sketch curves in the
+View, or complete open Sketch / 3D Curve chains in the Tree. Adjacent boundaries
+must meet at their endpoints. A closed Sketch is not one boundary; select its
+four sides individually instead. Crossing or disconnected contours are invalid.
+
+Each numbered reference row has shared input, clear and inspection controls.
+Click its reference field to replace it; the eye independently highlights that
+boundary. Clearing a reference retains its row. A short middle click ends input
+and clears inspection. **OK**, including middle-button double-click over the
+View, calculates the surface. **Cancel** discards pending changes. Reopen the
+result's Properties to edit the same four references with normal history rollback.
+
+The command creates a surface with no material thickness or volume. The interior
+is generated from the boundaries; this version has no editable interior grid or
+tangency controls. Edit the source curves and explicitly regenerate to update the
+surface. Sheet conversion, unfolding and extrusion up to the surface are separate
+future work. See [Boundary Surface](NETWORK_SURFACE.md).
+
 ## 2D Sweep and profile stations
 
 2D, 3D and Helical Sweep Properties offer **Custom precision**, followed by

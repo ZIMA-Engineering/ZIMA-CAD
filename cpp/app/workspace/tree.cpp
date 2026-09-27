@@ -1,3 +1,4 @@
+#include "../boundary_surface_dialog.hpp"
 #include "workspace_internal.hpp"
 #include "../sheet_state_dialog.hpp"
 #include "../part_reference_index.hpp"
@@ -374,6 +375,8 @@ void AssemblyWorkspaceWindow::add_pending_tree_item(QTreeWidgetItem* parent,
             feature = dialog->pending;
         else if (auto* dialog = dynamic_cast<ShaftThreadDialog*>(tree_edit_dialog_.data()))
             feature = dialog->pending();
+        else if (auto* dialog = dynamic_cast<BoundarySurfaceDialog*>(tree_edit_dialog_.data()))
+            feature = dialog->pending;
         else if (auto* dialog = dynamic_cast<SheetStateDialog*>(tree_edit_dialog_.data()))
             feature = dialog->pending_value();
         else if (auto* dialog = dynamic_cast<SketchPropertiesDialog*>(tree_edit_dialog_.data())) {

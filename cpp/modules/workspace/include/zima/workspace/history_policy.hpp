@@ -100,6 +100,12 @@ struct HistoryDependencyCollector {
         case FeatureKind::HelicalSweep:
             for(const auto& data:feature.helical.sketches){auto owned=sketcher::Sketch::from_serialized(data);owned.plane_reference_owner_id.clear();sketch(owned,root);}
             break;
+        case FeatureKind::BoundarySurface:
+            for(const auto& boundary:feature.boundary_surface.boundaries) {
+                use(root,boundary.owner_id);
+                references.emplace(root,"",boundary.owner_id,boundary.curve_id);
+            }
+            break;
         case FeatureKind::Sweep3D:
             construction(feature.sweep3d.path,root);
             for (const auto& profile : feature.sweep3d.profiles) {

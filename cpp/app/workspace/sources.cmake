@@ -12,6 +12,7 @@ set(ZIMA_WORKSPACE_SOURCES
     app/workspace/dimension_display.cpp
     app/workspace/dimension_edit.cpp
     app/workspace/document_commands.cpp
+    app/workspace/boundary_surface.cpp
     app/workspace/documents.cpp
     app/workspace/edge_preview_helpers.cpp
     app/workspace/edge_treatment.cpp

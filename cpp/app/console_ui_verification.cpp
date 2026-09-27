@@ -7,6 +7,7 @@
 #include <QGroupBox>
 #include "primitive_properties_dialog.hpp"
 #include "orientation_dialog.hpp"
+#include "boundary_surface_dialog.hpp"
 #include <zima/document/named_views.hpp>
 #include <zima/document/placement_json.hpp>
 #include "sketch_properties_dialog.hpp"
@@ -176,6 +177,7 @@ Q_NEVER_INLINE static int verify_sketch_roles(QApplication& application, Assembl
     } catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}
 }
 #include "feature_ui_verification.inc"
+#include "boundary_surface_ui_verification.inc"
 
 Q_NEVER_INLINE static int verify_feature_prototype(QApplication& application,AssemblyWorkspaceWindow& window,const std::filesystem::path& directory) {
     try {

@@ -21,6 +21,7 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
     zima::document::FeatureKind feature_kind,
     const std::string& container_id, bool sheet_metal,
     std::optional<zima::document::FeatureType> feature_preset, bool rotation_preset) {
+    if(feature_kind==zima::document::FeatureKind::BoundarySurface){show_boundary_surface_properties(container_id);return;}
     if(feature_kind==zima::document::FeatureKind::DerivedCopy) {
         show_derived_copy_properties(container_id);return;
     }

@@ -8324,6 +8324,7 @@ int verify_startup_contract(
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_SHEET_EXCHANGE")) return verify_sheet_exchange_ui(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_SHEET_TRANSITION")) return verify_sheet_transition_ui(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_SHEET_CORNER_FILE")) return verify_sheet_corner_ui(application,test_directory);
+    if (qEnvironmentVariableIsSet("ZIMA_VERIFY_BOUNDARY_SURFACE_ONLY")) return zima::app::verify_boundary_surface_ui(application,window,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_SHEET_STATE_ONLY")) return verify_sheet_state_ui(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_CONSOLE_ONLY")) return zima::app::verify_command_console(application,window,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_PROFILE_OFFSET_PLANE_ONLY")) return verify_profile_offset_dimension_plane(application,test_directory);

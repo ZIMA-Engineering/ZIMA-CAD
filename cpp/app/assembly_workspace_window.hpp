@@ -710,6 +710,7 @@ private:
     void update_family_selection();
     bool accept_family_reference(const zima::viewer::ViewerCandidate&, bool show_dimensions = false);
     void edit_file_settings(bool sheet_metal = false);
+    void show_boundary_surface_properties(const std::string& container_id = {});
     void show_sheet_state_properties(bool unfold,const std::string& container_id={});
     void show_sheet_transition_properties(const std::string& container_id={},bool rectangular=false);
     void regenerate_assembly();

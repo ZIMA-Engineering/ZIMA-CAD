@@ -9,6 +9,7 @@
 #include "sweep_station_label.hpp"
 #include "feature_naming.hpp"
 #include "sheet_transition_dialog.hpp"
+#include "boundary_surface_dialog.hpp"
 #include "mass_properties_dialog.hpp"
 #include <QAction>
 #include <QApplication>
@@ -107,6 +108,27 @@ int verify_translations(QApplication& application, QWidget& parent) {
         check(settings.translations.contains("global.language") &&
             !settings.translations.contains("Zamknout hodnotu"), "INI sections were mixed");
         app::apply_application_translations(application, settings);
+        {
+            std::cerr<<"Boundary translations: "<<languages[language].toStdString()<<std::endl;
+            auto feature=document::create_boundary_surface();feature.name="Authored surface name";
+            app::BoundarySurfaceDialog dialog(feature,[](auto){},&parent);
+            dialog.setAttribute(Qt::WA_DeleteOnClose,false);dialog.show();application.processEvents();
+            auto* table=dialog.findChild<QTableWidget*>("boundarySurfaceReferences");
+            check(table&&table->horizontalHeaderItem(0)&&table->horizontalHeaderItem(2)&&table->item(0,2),"Boundary translation controls missing");
+            check(table->horizontalHeaderItem(0)->text()==settings.qt_translations.value("Č.")&&
+                table->horizontalHeaderItem(2)->text()==settings.qt_translations.value("Hraniční křivka")&&
+                table->item(0,2)->text()==settings.qt_translations.value("Vyberte hranici"),
+                "Boundary reference labels are untranslated");
+            auto* clear=table->cellWidget(0,1)->findChild<QPushButton*>();
+            check(clear,"Boundary clear button missing");
+            check(clear->toolTip()==settings.qt_translations.value("Vymazat hranici; řádek zůstane zachován"),
+                "Boundary clearing tooltip is untranslated");
+            auto* name=dialog.findChild<QLineEdit*>("boundarySurfaceName");check(name,"Boundary name field missing");
+            check(name->text()=="Authored surface name",
+                "Changing language translated an authored surface name");
+            dialog.hide();
+            std::cerr<<"Boundary translations checked"<<std::endl;
+        }
         {
             app::SweepPrecisionControls controls({},&parent,{});
             check(controls.findChild<QCheckBox*>("sweepCustomPrecision")->text()==settings.qt_translations.value("Vlastní přesnost"),
