@@ -2,6 +2,15 @@
 
 ## Scope and status
 
+Windows build **2026092801** is signed, published and verified. It includes
+native Part-based drawing libraries and Family variants, symbol leader/grip and
+annotation improvements, Body result suppression/scaling/linked Bodies and
+desktop registration settings. Clean committed-source packaging, signed smoke
+and trust, eight packaged GUI checks, public asset hashes and production update
+discovery from 2026092702 passed. Working-directory cleanup freed approximately
+12.9 GiB while preserving user data and the active development build. See
+[the release record](releases/2026092801.md) for scope and verification details.
+
 Windows build **2026092702** is signed and published. It adds Boundary Surface
 from four Sketch/3D Curve boundaries. Nine focused contracts, a complete
 committed-source rebuild, candidate/signed smoke, production trust and packaged
