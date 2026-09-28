@@ -112,7 +112,7 @@ int main(int argc, char** argv) {
             "Working directory was reopened as a document");
         require(zima::app::parse_startup_arguments({"ZIMA-CAD", "--working-directory=" + option_dir})
                 .working_directory == option_dir, "Equals-form working directory failed");
-        for (const QString extension : {"PRTZ", "ASMZ", "DRWZ", "FRMZ", "TBLZ"}) {
+        for (const QString extension : {"PRTZ", "ASMZ", "DRWZ", "FRMZ", "TBLZ", "SYMZ"}) {
             const auto path = QDir(root).filePath(QString::fromUtf8("výkres s mezerou.") + extension);
             require(zima::app::parse_startup_arguments({"ZIMA-CAD", "--", path}).documents == QStringList{path},
                 "Case-insensitive/Unicode external path was not preserved");
@@ -221,7 +221,23 @@ int main(int argc, char** argv) {
         require(fourth_process.waitForFinished(10000) && fourth_process.exitCode() == 0 &&
             second.waitForFinished(10000) && third.waitForFinished(10000) &&
             second.exitCode() == 0 && third.exitCode() == 0, "Remaining instances did not close cleanly");
-        std::cout << "Independent Part/Assembly/Drawing launch, independent external startup, stable numbering, and argument contracts passed\n";
+        for (const QString source : {"config/formats/ZE-DRAWING-FRAME.frmz",
+                "config/formats/ZE-TITLE-BLOCK-CS.tblz", "config/symbols/annotations/ZE-TEXT.symz"}) {
+            const auto path = QDir(fourth_dir).filePath(QString::fromUtf8("knihovní prvek.") + QFileInfo(source).suffix());
+            require(QFile::copy(source,path), "Cannot copy library launch fixture");
+            QProcess library;
+            library.setProgram(executable);library.setProcessEnvironment(environment);
+            library.setArguments({path});library.start();
+            require(library.waitForStarted(), "Library external launch failed");
+            const auto pid=library.processId();
+            require(until([&]{return !report(root,pid).isEmpty();}), "Library launch did not report startup");
+            const auto data=report(root,pid);
+            require(data["documents"].toArray()==QJsonArray{QFileInfo(path).fileName()} &&
+                data["directory"].toString()==fourth_dir, "Library shell launch did not open the requested document");
+            command(root,pid,"quit");
+            require(library.waitForFinished(10000)&&library.exitCode()==0, "Library instance did not close cleanly");
+        }
+        std::cout << "Independent Part/Assembly/Drawing and library launch, independent external startup, stable numbering, and argument contracts passed\n";
         return 0;
     } catch (const std::exception& error) {
         std::cerr << "Instance contract: " << error.what() << '\n';

@@ -35,7 +35,7 @@ inline StartupArguments parse_startup_arguments(const QStringList& arguments) {
         const QFileInfo candidate(argument);
         if (candidate.isDir()) {
             result.working_directory = candidate.absoluteFilePath();
-        } else if (QStringList{"prtz", "asmz", "drwz", "frmz", "tblz"}
+        } else if (QStringList{"prtz", "asmz", "drwz", "frmz", "tblz", "symz"}
                 .contains(candidate.suffix(), Qt::CaseInsensitive)) {
             result.documents.push_back(candidate.absoluteFilePath());
         }

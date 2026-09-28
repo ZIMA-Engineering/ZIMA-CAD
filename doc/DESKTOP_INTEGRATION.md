@@ -122,6 +122,30 @@ current installation from Desktop integration in Settings, then select its
 handler through Windows Default applications where necessary. Registering a
 new handler alone deliberately does not replace an existing default handler.
 
+The subsequent requested repair registered the current development installation,
+replaced the old handlers' shared executable icons with their document icons,
+and pointed the existing ZIMA-CAD extension entries at this installation's
+handlers after verifying their executable ownership and absence of UserChoice.
+The previously unassigned `.symz` extension received its registered Symbol
+handler. Original legacy icon and extension values were backed up locally before
+the repair; no protected UserChoice entries were written.
+
+External startup also needed `.symz` in its accepted argument extensions. The
+startup contract now checks all six extensions, including uppercase and Unicode
+paths, and opens actual Frame, Title Block and Symbol copies in GUI processes
+in addition to the existing Part, Assembly and Drawing cases. The Windows build
+and expanded `zima_cpp_instance_startup_contract` passed on 2026-09-28. No new
+user-visible strings were introduced by this argument-parser correction.
+
+A real Windows Shell open successfully launched the requested `.symz` document;
+the document tab and normal process exit were verified. The other five extensions
+still resolved to Windows `OpenWith.exe` through `AssocQueryString`, despite
+valid registered ZIMA-CAD commands. Their final default-app selection therefore
+remains pending in Windows Settings. Do not report successful double-click or
+Explorer icon acceptance for these five extensions until that choice and the
+shell checks have completed. The Windows UI automation runtime could not start
+because its sandbox failed to apply deny-read ACLs, including after a reset.
+
 Verify registration, repair, removal and the unregistered portable path.
 Exercise opening each supported native file type from the file manager, paths
 with spaces and Unicode, correct application/document icons, version updates,
