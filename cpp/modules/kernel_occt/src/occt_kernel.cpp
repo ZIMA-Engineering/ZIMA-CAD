@@ -9,6 +9,7 @@
 #include <zima/kernel/mirror_geometry.hpp>
 #include <zima/kernel/scale_geometry.hpp>
 #include <BRepOffsetAPI_MakeOffset.hxx>
+#include <BRepOffsetAPI_DraftAngle.hxx>
 #include <zima/kernel/shaft_thread_geometry.hpp>
 #include <zima/kernel/occt_kernel.hpp>
 
@@ -2130,7 +2131,17 @@ std::vector<PrimitiveData> stationary_profile_data(const Request& request,
             return Vec3{sign*request.direction.x/length,sign*request.direction.y/length,sign*request.direction.z/length};
         } else return request.profile_normal;
     }();
-    const auto profiles=make_body_profiles(request,normal);
+    auto wire_normal=normal;
+    if constexpr(std::is_same_v<Request,ExtrusionRequest>) {
+        // Native polygon/arc winding already follows the authored extrusion
+        // direction. The stationary reverse side must construct its analytic
+        // hole wires in that same frame, even though its datum normal is fixed.
+        const auto directed=[](const auto& loop){return std::holds_alternative<ExtrusionRequest::PolygonProfile>(loop)||
+            std::holds_alternative<ExtrusionRequest::CurvedProfile>(loop);};
+        if(!request.wall&&(directed(request.outer_profile)||std::ranges::any_of(request.inner_profiles,directed)))
+            wire_normal=request.direction;
+    }
+    const auto profiles=make_body_profiles(request,wire_normal);
     std::vector<TopoDS_Wire> wires;
     for(const auto& profile:profiles)wires.push_back(profile.wire);
     const auto base=profile_base(wires,request.surface_result);
@@ -2271,6 +2282,10 @@ PrimitiveData make_extrusion_data(
     const std::optional<Vec3>& circle_radial_direction = std::nullopt,
     double linear_tolerance = 0.001,
     const std::optional<TopoDS_Face>& exact_reverse_target = std::nullopt) {
+    if(!std::isfinite(request.draft_angle_degrees)||std::abs(request.draft_angle_degrees)>=90)
+        throw std::invalid_argument("Draft angle must be between -90 and 90 degrees.");
+    if(request.draft_angle_degrees!=0&&request.surface_result&&!request.open_profile_end_id.empty())
+        throw std::invalid_argument("Surface draft requires a closed profile.");
     auto exact_target=original_exact_target;
     auto normal=request.direction;
     if (request.wall) {
@@ -2520,6 +2535,40 @@ PrimitiveData make_extrusion_data(
     };
     if(forward_boundary)clip_end(*forward_boundary,unit,exact_target,last_cap_reference);
     if(reverse_boundary)clip_end(*reverse_boundary,{-unit.x,-unit.y,-unit.z},reverse_exact,first_cap_reference);
+    if(request.draft_angle_degrees!=0) {
+        BRepOffsetAPI_DraftAngle draft(result.shape);
+        const gp_Dir pull(unit.x,unit.y,unit.z);
+        const gp_Pln neutral(profile_keep_point,pull);
+        for(const auto& owned:result.faces)if(owned.reference.semantic_key.starts_with("generated:")) {
+            const auto support=BRepAdaptor_Surface(TopoDS::Face(owned.shape)).GetType();
+            if(support!=GeomAbs_Plane&&support!=GeomAbs_Cylinder&&support!=GeomAbs_Cone)
+                throw std::runtime_error("Draft supports profiles made of lines and circular arcs.");
+            // A prism of wires retains the wire-oriented surface, opposite to
+            // the material-oriented side of a filled profile's solid prism.
+            draft.Add(TopoDS::Face(owned.shape),pull,
+                (request.surface_result?-1.:1.)*request.draft_angle_degrees*std::numbers::pi/180.,neutral);
+            if(!draft.AddDone())throw std::runtime_error("Draft cannot preserve the profile; reduce the angle or length.");
+        }
+        draft.Build();
+        if(!draft.IsDone()||draft.Shape().IsNull()||!BRepCheck_Analyzer(draft.Shape()).IsValid())
+            throw std::runtime_error("Draft cannot preserve the profile; reduce the angle or length.");
+        const auto preserve=[&](const auto& source) {
+            auto updated=source;
+            TopTools_IndexedMapOfShape actual;
+            TopExp::MapShapes(draft.Shape(),actual);
+            for(auto& item:updated) {
+                const auto replacement=draft.ModifiedShape(item.shape);
+                if(replacement.IsNull()||replacement.ShapeType()!=item.shape.ShapeType()||!actual.Contains(replacement))
+                    throw std::runtime_error("Draft cannot preserve the profile; reduce the angle or length.");
+                item.shape=replacement;
+            }
+            return updated;
+        };
+        result.faces=preserve(result.faces);result.edges=preserve(result.edges);result.vertices=preserve(result.vertices);
+        BOPAlgo_ArgumentAnalyzer check;check.SetShape1(draft.Shape());check.SelfInterMode()=true;check.Perform();
+        if(check.HasFaulty())throw std::runtime_error("Draft cannot preserve the profile; reduce the angle or length.");
+        result.shape=draft.Shape();
+    }
     if (!request.additional_profile_regions.empty()) {
         TopoDS_Compound compound;
         BRep_Builder builder;
@@ -2563,6 +2612,10 @@ PrimitiveData make_extrusion_data(
                 std::make_move_iterator(additional.vertices.end()));
         }
         result.shape = compound;
+        if(request.draft_angle_degrees!=0) {
+            BOPAlgo_ArgumentAnalyzer check;check.SetShape1(result.shape);check.SelfInterMode()=true;check.Perform();
+            if(check.HasFaulty())throw std::runtime_error("Draft cannot preserve the profile; reduce the angle or length.");
+        }
     }
     return result;
 }

@@ -59,8 +59,12 @@ retain their model contact and their separate paper presentation controls.
 Leaders and arrowheads are yellow. Enabling a leader at zero offset supplies an
 initial 15 mm / 5 mm grip offset so the arrow is visible. **Leader perpendicular
 to entity** optionally constrains the first leader segment: normal to a face,
-perpendicular to an edge, or vertical in the current view for a point. In a
-Drawing this applies to a projected straight edge. Without this option the
+or vertical on screen for a model edge or point. In a Drawing the leader remains
+perpendicular to its projected edge. Constrained model leaders retain a fixed
+length in millimetres, derived from the stored contact-to-grip distance, with a
+minimum of twice the arrow length. Orbiting does not change that length; zooming
+magnifies it together with the model. Dragging the elbow adjusts the stored
+distance, while resizing a short shelf leaves that distance unchanged. Without this option the
 leader has a free direction. In both modes exactly one arrow-bearing segment
 joins the horizontal shelf, with no intermediate connector. With perpendicular
 mode enabled, the shelf follows the normal so the connection stays continuous.

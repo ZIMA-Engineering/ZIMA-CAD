@@ -565,6 +565,7 @@ struct ExtrusionRequest {
     std::optional<ProfileWall> wall;
     bool first_cap_is_start{true};
     Vec3 direction{0.0, 0.0, 10.0};
+    double draft_angle_degrees{};
     double start_offset{};
     Extent extent{Extent::Blind};
     // Through-all is directional.  These flags distinguish a forward-only
@@ -1074,6 +1075,10 @@ struct PlacedBody {
         std::visit([&](const auto& primitive) {
             using Request = std::decay_t<decltype(primitive)>;
             if constexpr (std::is_same_v<Request, ExtrusionRequest>) {
+                if(primitive.draft_angle_degrees!=0) {
+                    for(unsigned char c:std::string_view("extrusion-draft-v1"))byte(c);
+                    u64(std::bit_cast<std::uint64_t>(primitive.draft_angle_degrees));
+                }
                 byte(primitive.centerlines.origin_enabled);byte(primitive.centerlines.centroid_enabled);
                 for(const auto& text:{primitive.centerlines.origin_id,primitive.centerlines.profile_id}){u64(text.size());for(unsigned char c:text)byte(c);}
                 for(double value:{primitive.centerlines.origin.x,primitive.centerlines.origin.y,primitive.centerlines.origin.z,primitive.centerlines.normal.x,primitive.centerlines.normal.y,primitive.centerlines.normal.z})u64(std::bit_cast<std::uint64_t>(value));

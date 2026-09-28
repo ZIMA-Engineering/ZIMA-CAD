@@ -19,6 +19,8 @@ struct FeatureSideParameters {
     double angle_degrees{90};
     FeatureRotationExtent rotation_extent{FeatureRotationExtent::Angle};
     std::vector<ExtrusionParameters::EndTarget> targets;
+    // Positive removes material away from the neutral Sketch plane.
+    double draft_angle_degrees{};
     bool operator==(const FeatureSideParameters&) const = default;
 };
 
@@ -50,6 +52,7 @@ struct FeatureParameters {
         if(type==FeatureType::Axis) {
             value.operation=FeatureSideOperation::Extrusion;
             value.extrusion_extent=EndCondition::Length;
+            value.draft_angle_degrees=0;
             value.targets.clear();
         } else if(type!=FeatureType::Modeling) value.operation=FeatureSideOperation::None;
         return value;

@@ -129,7 +129,7 @@ void append_dimension_parameters(std::vector<DimensionParameter>& out,
     case FeatureKind::Sketch:
         add({"profile_offset"}); break;
     case FeatureKind::Feature:
-        add({"profile_offset", "side0_length", "side1_length", "side0_angle", "side1_angle", "thin_thickness"}); break;
+        add({"profile_offset", "side0_length", "side1_length", "side0_angle", "side1_angle", "thin_thickness", "side0_draft_angle", "side1_draft_angle"}); break;
     case FeatureKind::Extrusion:
         add({"profile_offset", "length_forward", "length_reverse", "thin_thickness"}); break;
     case FeatureKind::Revolution:

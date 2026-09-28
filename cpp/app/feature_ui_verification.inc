@@ -381,6 +381,24 @@ static void verify_feature_modeling(QApplication& application, AssemblyWorkspace
         check(found,"Feature placement Tree item missing");return found;
     };
     window.show_tree_item_properties(tree_row(pending.id));flush();
+    auto* draft=dialog()->findChild<QDoubleSpinBox*>("featureSideDraft0");
+    check(draft&&draft->isVisible(),"Extrusion draft field is missing");draft->setValue(3);flush();
+    dialog()->buttons()->button(QDialogButtonBox::Ok)->click();flush();check(!dialog(),"Draft OK did not close properties");run("save");
+    saved=document::PartDocument::load(path,&bodies);
+    const double slope=std::tan(3*std::numbers::pi/180.),draft_volume=800-1800*slope+4000*slope*slope/3;
+    check(saved.find_container(pending.id)->feature.sides[0].draft_angle_degrees==3&&std::abs(bodies.back().volume-draft_volume)<1e-3,
+        "GUI draft did not persist the angle and calculated solid");
+    view->fit_all();flush();window.grab().save(QString::fromStdString((directory/"feature-draft-ui.png").string()));
+    window.show_tree_item_properties(tree_row(pending.id));flush();
+    draft=dialog()->findChild<QDoubleSpinBox*>("featureSideDraft0");check(draft->value()==3,"Reopened draft lost its value");
+    draft->setValue(-5);dialog()->reject();flush();run("save");
+    saved=document::PartDocument::load(path,&bodies);
+    check(saved.find_container(pending.id)->feature.sides[0].draft_angle_degrees==3&&std::abs(bodies.back().volume-draft_volume)<1e-3,
+        "Draft Cancel changed committed geometry");
+    run("undo");run("save");saved=document::PartDocument::load(path,&bodies);
+    check(saved.find_container(pending.id)->feature.sides[0].draft_angle_degrees==0&&std::abs(bodies.back().volume-800)<1e-3,
+        "Draft Undo did not restore the original extrusion");
+    window.show_tree_item_properties(tree_row(pending.id));flush();
     auto* reference_table=dialog()->findChild<QTableWidget*>("primitiveReferenceTable");
     check(reference_table&&reference_table->rowCount()>0,"Feature has no shared reference entry");
     auto* item=reference_table->item(0,1);check(item,"Feature reference field missing");

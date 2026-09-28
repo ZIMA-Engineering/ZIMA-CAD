@@ -779,7 +779,7 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
             forward_end_target_highlighted_=reverse_end_target_highlighted_=false;
             if(picking&&extrusion_target_cancel_)extrusion_target_cancel_();
             std::swap(initial_.feature.sides[0].targets,initial_.feature.sides[1].targets);
-            for(const auto* suffix:{"_length","_angle"}) {
+            for(const auto* suffix:{"_length","_angle","_draft_angle"}) {
                 const auto first=std::string("side0")+suffix,second=std::string("side1")+suffix;
                 const bool a=initial_.value_locks.contains(first),b=initial_.value_locks.contains(second);
                 initial_.value_locks.erase(first);initial_.value_locks.erase(second);
@@ -2724,6 +2724,8 @@ bool PrimitivePropertiesDialog::set_inline_parameter_value(
     if (feature_panel_) {
         if(key=="side0_length" || key=="side0_angle")return set_field(feature_panel_->side_value(0));
         if(key=="side1_length" || key=="side1_angle")return set_field(feature_panel_->side_value(1));
+        if(key=="side0_draft_angle")return set_field(feature_panel_->side_draft(0));
+        if(key=="side1_draft_angle")return set_field(feature_panel_->side_draft(1));
     }
     if (key == "length") return set_field(length_);
     if (key == "width") return set_field(width_);

@@ -92,7 +92,7 @@ kernel::ViewerMesh Placement::viewer_mesh(std::optional<double> paper_frame_angl
                 edge.annotation->kind=0;perpendicular=true;
             }
             if(!perpendicular)edge.annotation->perpendicular=false;
-            edge.points=kernel::annotation_stroke(*edge.annotation,right,up,left,perpendicular);if(paper_frame_angle&&!retain_layout)edge.annotation.reset();
+            edge.points=kernel::annotation_stroke(*edge.annotation,right,up,left,perpendicular,!paper_frame_angle);if(paper_frame_angle&&!retain_layout)edge.annotation.reset();
         }
         if(paper_frame_angle&&paper_extension_start) {
             auto delta=sub(frame.origin,*paper_extension_start);const double length=std::sqrt(dot(delta,delta));

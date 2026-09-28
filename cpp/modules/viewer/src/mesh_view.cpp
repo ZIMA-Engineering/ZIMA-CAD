@@ -788,7 +788,7 @@ void MeshView::update_annotation_presentation() const {
         auto [it,inserted]=impl_->annotation_sides.try_emplace(key,side<=0);
         // Screen-space dead band avoids flicker when orbiting through the shelf center.
         if(std::abs(side)>world_tolerance_for_pixels(2.))it->second=side<=0;
-        edge.points=kernel::annotation_stroke(a,right,up,it->second,true);
+        edge.points=kernel::annotation_stroke(a,right,up,it->second,true,true);
     }
 }
 
@@ -886,7 +886,7 @@ std::optional<QPointF> MeshView::symbol_handle_position(int index)const {
     const auto camera=impl_->view().inverted();const auto r=camera.mapVector(QVector3D(1,0,0)).normalized(),u=camera.mapVector(QVector3D(0,1,0)).normalized();
     const kernel::Vec3 right{r.x(),r.y(),r.z()},up{u.x(),u.y(),u.z()};
     const bool left=kernel::dimension_dot(kernel::dimension_sub(a->contact,a->grip),right)<=0;
-    const auto p=kernel::annotation_handles(*a,right,up,left,true)[index];
+    const auto p=kernel::annotation_handles(*a,right,up,left,true,true)[index];
     auto q=(impl_->projection(width(),height())*impl_->view())*QVector4D(p.x,p.y,p.z,1);
     if(std::abs(q.w())<1e-9)return {};q/=q.w();
     return QPointF((q.x()+1)*width()/2.,(1-q.y())*height()/2.);
@@ -5259,7 +5259,7 @@ void MeshView::mousePressEvent(QMouseEvent* event) {
             else {
                 const auto camera=impl_->view().inverted();const auto r=camera.mapVector(QVector3D(1,0,0)).normalized(),u=camera.mapVector(QVector3D(0,1,0)).normalized();
                 const kernel::Vec3 right{r.x(),r.y(),r.z()},up{u.x(),u.y(),u.z()};const bool left=kernel::dimension_dot(kernel::dimension_sub(a->contact,a->grip),right)<=0;
-                const auto point=kernel::annotation_handles(*a,right,up,left,true)[i];
+                const auto point=kernel::annotation_handles(*a,right,up,left,true,true)[i];
                 impl_->symbol_drag=Impl::SymbolDrag{handles->id,*a,right,up,kernel::dimension_cross(right,up),point,left,i};
             }
             event->accept();return;
@@ -5635,7 +5635,7 @@ void MeshView::mouseMoveEvent(QMouseEvent* event) {
             if(std::abs(denominator)>1e-10) {
                 const kernel::Vec3 offset{handle.anchor.x-ray->first.x,handle.anchor.y-ray->first.y,handle.anchor.z-ray->first.z};
                 const auto t=dot(offset,n)/denominator;
-                const auto moved=kernel::drag_annotation(handle.annotation,handle.right,handle.up,handle.left,true,handle.index,{ray->first.x+t*ray->second.x,ray->first.y+t*ray->second.y,ray->first.z+t*ray->second.z});
+                const auto moved=kernel::drag_annotation(handle.annotation,handle.right,handle.up,handle.left,true,handle.index,{ray->first.x+t*ray->second.x,ray->first.y+t*ray->second.y,ray->first.z+t*ray->second.z},true);
                 impl_->symbol_handle_move(handle.id,handle.index,moved.grip,moved.shelf_length);
             }
         }

@@ -46,6 +46,28 @@ type, including Point. The same presentation controls are available for other
 meaningful placed modeling and sheet containers; see [surface placement and
 Origin display](SURFACE_PLACEMENT.md).
 
+## Extrusion draft angle
+
+For each side whose Type is Extrusion, **Draft angle** appears immediately below
+Type. Zero produces the existing straight extrusion. Positive values taper the
+material inward away from the Sketch plane; negative values expand it. Holes
+therefore grow with positive draft. Every wall receives the same angle, rather
+than a common profile scale factor. For example, a 100 x 50 mm rectangle,
+20 mm extrusion and +5 degrees produces an end approximately 96.5005 x 46.5005 mm.
+
+The two sides have independent angles, and symmetry uses Side 1 on both sides.
+Changing a side to Revolution hides the angle and preserves its value for a
+later switch back. Rotation geometry is unaffected. Swap sides transfers both
+the angle and its lock. OK calculates and commits; Cancel preserves the old
+geometry. An unchanged confirmation does not calculate or create an Undo step.
+
+Profiles made of lines and circular arcs, including circles, are supported.
+Thin results may use an open profile; drafted surface results require a closed
+profile. Open surfaces retain their existing behavior at zero draft.
+Nonzero draft on ellipses or splines is rejected explicitly. Excessive draft or
+length that collapses or crosses the profile must be corrected before OK can
+commit. The operation never silently removes the affected Sketch entities.
+
 ## Automatic names and Tree icons
 
 New standalone Features receive a localized type name followed by a three-digit

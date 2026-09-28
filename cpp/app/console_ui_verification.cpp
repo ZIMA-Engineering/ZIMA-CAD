@@ -235,7 +235,7 @@ Q_NEVER_INLINE static int verify_feature_prototype(QApplication& application,Ass
         QEvent leave(QEvent::Leave);QApplication::sendEvent(plus,&leave);
         check(icon_color(plus)==QColor("#4DD811"),"Add icon did not restore green after hover");
         plus->click();QApplication::sendEvent(plus,&leave);
-        check(icon_color(plus)==QColor(Qt::black),"Selected Add icon is not black after pointer leave");
+        check(plus->isChecked()&&icon_color(plus)==QColor("#4DD811"),"Selected Add lost its checked state or green icon after pointer leave");
         dialog->findChild<QPushButton*>("featureSubtract")->click();
         check(icon_color(plus)==QColor("#4DD811"),"Deselected Add icon did not restore green");
         check(icon_color(dialog->findChild<QPushButton*>("featureSubtract"))==QColor("#FF0000"),"Subtract icon is not red");

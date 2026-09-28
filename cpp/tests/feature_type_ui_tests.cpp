@@ -108,12 +108,16 @@ int main(int argc,char** argv) {
     auto part=zima::document::PartDocument::create_default();
     feature.name=zima::app::next_feature_name(part,feature.feature.type,feature.id);
     feature.feature.automatic_name=feature.name;
+    feature.feature.sides[0].draft_angle_degrees=5.123456789;
+    feature.feature.sides[1].draft_angle_degrees=-3.987654321;
     zima::app::PrimitivePropertiesDialog dialog(feature,true,true,[](auto){},&parent);
     dialog.set_feature_name_provider([&](auto type){return zima::app::next_feature_name(part,type,feature.id);});
     dialog.show();
     const auto flush=[&] {QElapsedTimer timer;timer.start();while(timer.elapsed()<50){application.processEvents();QThread::msleep(2);}};
     auto* type=dialog.findChild<QComboBox*>("featureType");
     try {
+        if(dialog.pending_value().feature.sides!=feature.feature.sides)
+            throw std::runtime_error("Opening Feature properties rounded an authored side parameter");
         const auto initial_type=type->currentIndex();type->setCurrentIndex(4);flush();
         QCursor::setPos(parent.mapToGlobal(QPoint(5,parent.height()-5)));flush();
         auto* result_group=dialog.findChild<QGroupBox*>("featureResultGroup");
@@ -153,6 +157,13 @@ int main(int argc,char** argv) {
         first_angle->setValue(250);verify_rotation(first_angle->value()==180);
         first_end->setCurrentIndex(1);verify_rotation(!symmetry->isChecked()&&second->currentIndex()==0);
         first->setCurrentIndex(1);first_end->setCurrentIndex(0);
+        if(dialog.pending_value().feature.sides[0].draft_angle_degrees!=feature.feature.sides[0].draft_angle_degrees||
+           dialog.pending_value().feature.sides[1].draft_angle_degrees!=feature.feature.sides[1].draft_angle_degrees)
+            throw std::runtime_error("Switching side operations changed stored draft angles");
+        auto* first_draft=dialog.findChild<QDoubleSpinBox*>("featureSideDraft0");
+        auto* second_draft=dialog.findChild<QDoubleSpinBox*>("featureSideDraft1");
+        if(!first_draft||!second_draft)throw std::runtime_error("Missing Feature draft fields");
+        first_draft->setValue(-7.5);second_draft->setValue(2.25);
         for(int pass=0;pass<3;++pass)for(int i=0;i<5;++i) {
             type->setCurrentIndex(i);flush();
             const auto* point_toggle=dialog.findChild<QCheckBox*>("featureShowPoint");
@@ -162,6 +173,8 @@ int main(int argc,char** argv) {
                 throw std::runtime_error("Feature type and visibility switches overlap");
             if(pass==0&&i==4)dialog.grab().save(QDir::tempPath()+"/zima-feature-visibility-properties.png");
             const auto pending=dialog.pending_value();
+            if(pending.feature.sides[0].draft_angle_degrees!=-7.5||pending.feature.sides[1].draft_angle_degrees!=2.25)
+                throw std::runtime_error("Type switch lost independently authored draft angles");
             if(pending.name!=zima::app::next_feature_name(part,pending.feature.type,feature.id)||
                 pending.feature.automatic_name!=pending.name)throw std::runtime_error("Type switch lost automatic naming");
             if(i>=3) {
@@ -174,9 +187,11 @@ int main(int argc,char** argv) {
             if(i==4&&scroll->verticalScrollBar()->maximum()>0&&
                 dialog.height()-scroll->mapTo(&dialog,QPoint(0,scroll->height())).y()>dialog.buttons()->height()+dialog.findChild<QLabel*>("featureValidationError")->height()+4*dialog.layout()->spacing()+dialog.layout()->contentsMargins().bottom())
                 throw std::runtime_error("Unused dialog space hides Feature parameters behind a scrollbar: height="+std::to_string(dialog.height())+" scrollBottom="+std::to_string(scroll->mapTo(&dialog,QPoint(0,scroll->height())).y())+" buttons="+std::to_string(dialog.buttons()->height())+" scroll="+std::to_string(scroll->height())+" maximum="+std::to_string(scroll->maximumHeight())+" minimum="+std::to_string(scroll->minimumHeight()));
-            for(const auto* name:{"featureProfilePlane","featureProfileOffset","featureSideValue0","featureSideValue1","featureThinSide"}) {
+            for(const auto* name:{"featureProfilePlane","featureProfileOffset","featureSideValue0","featureSideValue1","featureThinSide","featureSideDraft0","featureSideDraft1"}) {
                 auto* field=dialog.findChild<QWidget*>(name);
-                const bool shown=QString(name)=="featureThinSide"?i==4:QString(name).startsWith("featureProfile")?i!=0:(i==1||i==4);
+                const bool draft_field=QString(name).startsWith("featureSideDraft");
+                const bool shown=draft_field?i==4&&(QString(name).endsWith('0')?first:second)->currentIndex()==1:
+                    QString(name)=="featureThinSide"?i==4:QString(name).startsWith("featureProfile")?i!=0:(i==1||i==4);
                 if(field->isVisible()!=shown)throw std::runtime_error("Wrong Feature field visibility");
                 if(shown) {
                     const auto* container=field->parentWidget();

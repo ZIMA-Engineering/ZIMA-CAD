@@ -84,6 +84,29 @@ void touching_features(const kernel::OcctKernel& kernel,fs::path directory) {
         near(kernel.evaluate_history(reopened.kernel_operations()).back().volume,2000);
     }
 }
+void drafted_feature(const kernel::OcctKernel& kernel,fs::path directory) {
+    Fixture f(kernel,directory);f.run("new",{{"type","part"},{"name","drafted-feature"}});
+    const auto sketch=f.rectangle(-50,-25,100,50);
+    auto value=workspace::profile_from_sketch(f.doc(),sketch,document::FeatureKind::Feature);
+    const auto id=value.id;value.feature.sides[0].length=20;value.feature.sides[0].draft_angle_degrees=5;
+    workspace::commit_profile(f.live,kernel,f.doc().document_id,value,workspace::ProfileEditMode::TransformSketch);
+    const double h=20,t=std::tan(5*std::numbers::pi/180.),expected=5000*h-150*t*h*h+4*t*t*h*h*h/3.;
+    near(f.volume(),expected);
+    const auto revision=f.part().session.revision();const auto* cache=f.part().session.calculated_boundaries().data();
+    value=*f.doc().find_container(id);
+    workspace::commit_profile(f.live,kernel,f.doc().document_id,value,workspace::ProfileEditMode::Replace);
+    require(f.part().session.revision()==revision&&cache==f.part().session.calculated_boundaries().data(),"Unchanged draft recalculated or created Undo");
+    value.feature.sides[0].draft_angle_degrees=60;const auto before=f.doc().serialized();bool rejected=false;
+    try{workspace::commit_profile(f.live,kernel,f.doc().document_id,value,workspace::ProfileEditMode::Replace);}catch(const std::exception&){rejected=true;}
+    require(rejected&&before==f.doc().serialized()&&f.part().session.revision()==revision&&cache==f.part().session.calculated_boundaries().data(),"Collapsed draft changed live history or cache");
+    value=*f.doc().find_container(id);value.feature.sides[0].draft_angle_degrees=0;
+    workspace::commit_profile(f.live,kernel,f.doc().document_id,value,workspace::ProfileEditMode::Replace);near(f.volume(),100000);
+    f.run("undo");near(f.volume(),expected);f.run("redo");near(f.volume(),100000);f.run("undo");
+    f.run("save");std::vector<kernel::BodyResult> calculated;
+    const auto reopened=document::PartDocument::load(directory/"drafted-feature.prtz",&calculated);
+    near(reopened.find_container(id)->feature.sides[0].draft_angle_degrees,5);near(calculated.back().volume,expected);
+    near(kernel.evaluate_history(reopened.kernel_operations()).back().volume,expected);
+}
 void unified_feature(const kernel::OcctKernel& kernel,fs::path directory) {
     Fixture f(kernel,directory);
     f.run("new",{{"type","part"},{"name","unified-feature-transaction"}});
@@ -429,6 +452,6 @@ void revolution(const kernel::OcctKernel& kernel,fs::path directory){
 }
 }
 int main(){try{const auto root=fs::canonical(fs::temp_directory_path());const auto directory=root/("zima-profile-commands-"+document::PartDocument::create_default().document_id);
-    require(fs::create_directory(directory),"Cannot create fixture directory");kernel::OcctKernel kernel;front_reference();touching_features(kernel,directory);unified_feature(kernel,directory);surfaces(kernel,directory);sheet_cut_methods(kernel,directory);extrusion(kernel,directory);thin_and_cut(kernel,directory);end_targets(kernel,directory);original_body_target_commands(kernel,directory);revolution(kernel,directory);
+    require(fs::create_directory(directory),"Cannot create fixture directory");kernel::OcctKernel kernel;front_reference();touching_features(kernel,directory);drafted_feature(kernel,directory);unified_feature(kernel,directory);surfaces(kernel,directory);sheet_cut_methods(kernel,directory);extrusion(kernel,directory);thin_and_cut(kernel,directory);end_targets(kernel,directory);original_body_target_commands(kernel,directory);revolution(kernel,directory);
     require(directory.parent_path()==root,"Unexpected cleanup path");fs::remove_all(directory);std::cout<<"Profile commands: native ownership, exact solid volumes, Thin walls, cuts, dimensions, locks, atomic errors and Undo/Redo passed\n";return 0;
 }catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}

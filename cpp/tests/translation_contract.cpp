@@ -1,4 +1,5 @@
 #include <QCheckBox>
+#include <QLabel>
 #include <QTableWidget>
 #include "application_settings.hpp"
 #include "document_tools_dialogs.hpp"
@@ -253,7 +254,9 @@ int verify_translations(QApplication& application, QWidget& parent) {
             "Generated Sweep station labels are not translated");
         {
             auto feature=document::PartDocument::create_feature_container("profile");
-            feature.value_locks={"side0_length"};
+            feature.value_locks={"side0_length","side0_draft_angle"};
+            feature.feature.sides[0].draft_angle_degrees=5.123456789;
+            feature.feature.sides[1].draft_angle_degrees=-2.123456789;
             feature.feature.sides[0].length=51.123456789;
             feature.feature.sides[1].operation=document::FeatureSideOperation::Revolution;
             feature.feature.sides[1].angle_degrees=123.123456789;
@@ -271,6 +274,12 @@ int verify_translations(QApplication& application, QWidget& parent) {
             check(mode->itemText(0)==settings.qt_translations.value("Bez operace")&&mode->itemText(2)==settings.qt_translations.value("Rotace"),"Feature side modes are untranslated");
             auto* value=properties.findChild<QDoubleSpinBox*>("featureSideValue0");
             check(value->isReadOnly(),"Feature length lock was not restored");
+            auto* draft=properties.findChild<QDoubleSpinBox*>("featureSideDraft0");
+            check(draft&&draft->isReadOnly(),"Feature draft lock was not restored");
+            bool draft_label=false;
+            for(const auto* label:properties.findChildren<QLabel*>())
+                if(label->text()==settings.qt_translations.value("Úhel úkosu"))draft_label=true;
+            check(draft_label,"Feature draft label is untranslated");
             mode->setCurrentIndex(2);check(!value->isReadOnly(),"Feature angle inherited an unrelated length lock");
             mode->setCurrentIndex(1);check(value->isReadOnly(),"Feature mode switching lost length lock");
             auto* swap=properties.findChild<QPushButton*>("featureSwapSides");
@@ -281,6 +290,7 @@ int verify_translations(QApplication& application, QWidget& parent) {
             check(swapped.id==before.id&&swapped.feature.sides[0]==before.feature.sides[1]&&
                 swapped.feature.sides[1]==before.feature.sides[0],"Feature swap lost settings, reference or precision");
             check(swapped.value_locks.contains("side1_length")&&!swapped.value_locks.contains("side0_length"),"Feature swap did not transfer dimension locks");
+            check(swapped.value_locks.contains("side1_draft_angle")&&!swapped.value_locks.contains("side0_draft_angle"),"Feature swap did not transfer draft locks");
             swap->click();
             check(properties.pending_value().feature==before.feature&&properties.pending_value().value_locks==before.value_locks,"Double swap did not restore the authored definition");
             auto* symmetric=properties.findChild<QCheckBox*>("featureSymmetric");

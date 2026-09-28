@@ -1,4 +1,9 @@
 {
+  "Surface draft requires a closed profile.": "Для уклона поверхности требуется замкнутый профиль.",
+  "Draft supports profiles made of lines and circular arcs.": "Уклон поддерживает профили из отрезков и дуг окружностей.",
+  "Úhel úkosu": "Угол уклона",
+  "Draft angle must be between -90 and 90 degrees.": "Угол уклона должен быть между −90 и 90 градусами.",
+  "Draft cannot preserve the profile; reduce the angle or length.": "Уклон не сохраняет профиль; уменьшите угол или длину.",
   "Svar dokola": "Сварка по всему контуру",
   "Tolerance tvaru nepoužívají základny. Pro ostatní typy zadejte základny níže v pořadí priority.": "Допуски формы не используют базы. Для других типов укажите базы ниже в порядке приоритета.",
   "Varianta razítka…": "Вариант основной надписи…",

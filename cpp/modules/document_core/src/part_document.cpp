@@ -1,4 +1,5 @@
 #include <zima/document/derived_copy_json.hpp>
+#include "draft_preview.hpp"
 #include <zima/document/placement_surface.hpp>
 #include <zima/document/feature_rotation_span.hpp>
 #include <zima/document/native_read_capture.hpp>
@@ -6434,7 +6435,7 @@ std::vector<zima::kernel::ViewerEdge> thin_profile_preview_edges(
 
 std::vector<zima::kernel::ViewerEdge> PartDocument::extrusion_preview_edges(
     const HistoryContainer& container, double through_all_span,
-    double through_all_reverse_span) const {
+    double through_all_reverse_span, double draft_angle_degrees) const {
     if (container.feature_kind != FeatureKind::Extrusion) return {};
     const auto sketch = std::find_if(sketches.begin(), sketches.end(),
         [&](const auto& value) { return value.id == container.extrusion.sketch_id; });
@@ -6521,6 +6522,9 @@ std::vector<zima::kernel::ViewerEdge> PartDocument::extrusion_preview_edges(
         }
         return nearest;
     };
+    std::optional<DraftPreview> draft_preview;
+    if(draft_angle_degrees!=0)draft_preview.emplace(request);
+    const double draft_slope=std::tan(draft_angle_degrees*std::numbers::pi/180.);
     const auto endpoint=[&](const zima::kernel::Vec3& point,bool backwards) {
         const auto condition=backwards?reverse_condition:forward_condition;
         const auto& target=backwards?reverse_target:forward_target;
@@ -6535,7 +6539,25 @@ std::vector<zima::kernel::ViewerEdge> PartDocument::extrusion_preview_edges(
             } else distance=surface_distance(point,ray,target->fallback_triangles);
             if(!std::isfinite(distance)||distance<=1e-9)throw std::runtime_error("Extrusion profile crosses target plane");
         }
-        return zima::kernel::Vec3{point.x+ray.x*distance,point.y+ray.y*distance,point.z+ray.z*distance};
+        if(draft_preview&&condition==EndCondition::UpTo&&target) {
+            bool converged=false;
+            for(int iteration=0;iteration<40;++iteration){
+                const auto shifted=draft_preview->offset(point,distance*draft_slope);
+                const zima::kernel::Vec3 directed{ray.x+(shifted.x-point.x)/distance,
+                    ray.y+(shifted.y-point.y)/distance,ray.z+(shifted.z-point.z)/distance};
+                double next;
+                if(target->kind==EndTargetKind::Plane){const auto n=target->fallback_normal,o=target->fallback_origin;
+                    const double divisor=directed.x*n.x+directed.y*n.y+directed.z*n.z;
+                    if(std::abs(divisor)<1e-12)throw std::runtime_error("Extrusion direction is parallel to target plane");
+                    next=((o.x-point.x)*n.x+(o.y-point.y)*n.y+(o.z-point.z)*n.z)/divisor;
+                }else next=surface_distance(point,directed,target->fallback_triangles);
+                if(!std::isfinite(next)||next<=1e-9)throw std::runtime_error("Extrusion profile crosses target plane");
+                converged=std::abs(next-distance)<1e-8;distance=next;if(converged)break;
+            }
+            if(!converged)throw std::runtime_error("Draft cannot preserve the profile; reduce the angle or length.");
+        }
+        const auto shifted=draft_preview?draft_preview->offset(point,distance*draft_slope):point;
+        return zima::kernel::Vec3{shifted.x+ray.x*distance,shifted.y+ray.y*distance,shifted.z+ray.z*distance};
     };
     std::vector<zima::kernel::ViewerEdge> result;
     const auto profile_edges = parameters.result_type == ProfileResultType::Thin
@@ -6582,7 +6604,7 @@ std::vector<zima::kernel::ViewerEdge> PartDocument::extrusion_preview_edges(
 
 std::vector<zima::kernel::ViewerEdge> PartDocument::extrusion_preview_edges(
     const HistoryContainer& container,
-    const zima::kernel::ViewerMesh& through_all_input) const {
+    const zima::kernel::ViewerMesh& through_all_input, double draft_angle_degrees) const {
     const auto& parameters = container.extrusion;
     const bool needs_input_bounds =
         parameters.extent == ExtrusionExtent::ThroughAll ||
@@ -6591,10 +6613,10 @@ std::vector<zima::kernel::ViewerEdge> PartDocument::extrusion_preview_edges(
          parameters.extent_mode != ProfileExtentMode::Symmetric &&
          parameters.end_condition_reverse == EndCondition::ThroughAll);
     if (!needs_input_bounds) {
-        return extrusion_preview_edges(container);
+        return extrusion_preview_edges(container,1000,0,draft_angle_degrees);
     }
     if (through_all_input.vertices.empty()) {
-        return extrusion_preview_edges(container);
+        return extrusion_preview_edges(container,1000,0,draft_angle_degrees);
     }
     const auto sketch = std::find_if(sketches.begin(), sketches.end(),
         [&](const auto& value) { return value.id == container.extrusion.sketch_id; });
@@ -6635,7 +6657,7 @@ std::vector<zima::kernel::ViewerEdge> PartDocument::extrusion_preview_edges(
     const double margin = std::max(1.0, diagonal * 1.0e-4);
     return extrusion_preview_edges(container,
         std::max(1.0, farthest_forward + margin),
-        std::max(1.0, farthest_reverse + margin));
+        std::max(1.0, farthest_reverse + margin),draft_angle_degrees);
 }
 
 std::vector<zima::kernel::ViewerEdge> PartDocument::primitive_preview_edges(
@@ -7165,7 +7187,7 @@ std::vector<zima::kernel::ViewerEdge> PartDocument::feature_preview_edges(
             p.result_type=definition.result_type;p.thin_mode=definition.thin_mode;p.thin_thickness=definition.thin_thickness;
             p.extent_mode=definition.symmetric?ProfileExtentMode::Symmetric:ProfileExtentMode::OneSide;
             p.end_condition_forward=settings.extrusion_extent;p.end_targets_forward=settings.targets;
-            edges=extrusion_preview_edges(operand,input);
+            edges=extrusion_preview_edges(operand,input,settings.draft_angle_degrees);
         } else {
             operand.feature_kind=FeatureKind::Revolution;
             auto& p=operand.revolution;p.sketch_id=definition.sketch_id;p.axis_segment_id=definition.axis_segment_id;
@@ -9348,6 +9370,7 @@ std::vector<zima::kernel::HistoryOperation> PartDocument::kernel_operations(
                         side==0?ExtrusionDirection::Forward:ExtrusionDirection::Reverse,
                         group.allow_empty&&status==ProfileStatus::Open?ProfileResultType::Surface:
                             p.type==FeatureType::Sketch?ProfileResultType::Solid:p.result_type,p.thin_thickness,p.thin_mode);
+                    request.draft_angle_degrees=inactive?0:settings.draft_angle_degrees;
                     if(!inactive&&settings.extrusion_extent==EndCondition::ThroughAll) {
                         if(container.combine_mode!=CombineMode::Subtract)throw std::runtime_error("Invalid Feature definition.");
                         request.extent=zima::kernel::ExtrusionRequest::Extent::ThroughAll;

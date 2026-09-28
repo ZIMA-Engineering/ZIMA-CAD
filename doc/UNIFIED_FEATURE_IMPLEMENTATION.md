@@ -55,6 +55,47 @@ separately identified endpoint points.
 
 ## Extents and sketch-only mode
 
+### Straight-extrusion draft
+
+Draft is a constant wall angle on every side, rather than uniform
+scaling of a profile. Each authored side stores `draft_angle_degrees`, including
+while its operation is inactive. Zero retains the original extrusion calculation.
+For extrusion, the original Sketch plane is neutral: positive angles remove
+material away from that plane (outer boundaries shrink and holes grow), while
+negative angles add material. The normal offset at distance `h` is
+`h * tan(angle)`. Symmetry applies the same definition on both directed sides.
+The field appears below the side's Type only for an Extrusion operation.
+Switching to Revolution hides it and retains its authored value for switching
+back; it has no effect on the revolution. Side swapping also swaps its numeric
+lock. Axis datum lengths never receive a draft.
+
+The kernel implementation modifies the calculated extrusion with OCCT
+DraftAngle and maps the existing authored topology identities through its
+modification history. It rejects invalid solids and missing source identities.
+Analytical volume tests cover rectangles and circles with and without a hole,
+both angle signs, zero-angle regeneration and a collapsed profile. Parameter
+tests cover independent-side persistence and rejection of non-finite angles or
+angles outside the open interval (-90, 90) degrees. The transient preview
+offsets native line/circle supports without invoking OCCT. Plane and surface
+end conditions intersect those displaced boundaries with the stored target.
+
+Supported profile supports are straight lines and circular arcs, including
+complete circles. Elliptical and spline supports are rejected explicitly for
+nonzero draft; zero draft keeps their existing extrusion behavior. Calculation
+rejects a collapsed, crossed or otherwise invalid result without committing
+partial geometry. There is no automatic trimming or deletion of source curves.
+Open Thin profiles are supported; a Surface result requires a closed profile
+for nonzero draft. The wire-oriented surface prism uses the opposite kernel
+draft sign to the material-oriented solid prism, preserving the same visible
+angle meaning. Area tests verify both signs against analytical tapered surfaces.
+
+Original drafted faces retain their Sketch ancestry and can serve as downstream
+Up To references. Regeneration resolves their current geometry. Revolution Up To
+retains its existing requirement that the target be a plane containing its axis;
+draft does not introduce arbitrary curved-surface clipping for revolutions.
+The angle is a modeling parameter, not a certification of mold release: the
+parting arrangement and other features still determine manufacturability.
+
 Extrusion supports length, original planar/curved Up To references and Through
 All subtraction. Symmetric Up To reflects the target across the profile plane,
 including exact kernel target geometry, while retaining separate side ancestry.

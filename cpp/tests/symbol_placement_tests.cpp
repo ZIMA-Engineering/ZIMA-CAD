@@ -196,5 +196,41 @@ int main(){try {
         p.weld_all_around=true;check(nlohmann::json(p).get<symbols::Placement>()==p,"All-around property failed persistence");
         check(std::ranges::none_of(p.viewer_mesh().edges,[](const auto& e){return e.annotation&&e.annotation->role==6;}),"Non-weld symbol acquired an all-around circle");
     }
+    {
+        kernel::AnnotationStroke a;a.role=1;a.contact={2,3,4};a.grip={14,19,4};
+        a.direction_tip={3,4,5};a.left=0;a.right=10;
+        for(int kind:{0,1,2})for(bool left:{false,true})for(bool short_shelf:{false,true}) {
+            a.kind=kind;a.short_shelf=short_shelf;
+            for(double angle:{0.,.3,1.,1.5707963267948966,2.4,3.14}) {
+                const kernel::Vec3 right{std::cos(angle),std::sin(angle),0},up{0,0,1};
+                const auto line=kernel::annotation_stroke(a,right,up,left,true,true);
+                const auto delta=kernel::dimension_sub(line.back(),line.front());
+                check(std::abs(std::sqrt(kernel::dimension_dot(delta,delta))-20)<1e-8,"Model leader length changed while orbiting");
+                if(kind!=0)check(std::abs(kernel::dimension_dot(delta,right))<1e-8&&std::abs(delta.z)==20,"Edge/point model leader is not screen vertical");
+                const auto handles=kernel::annotation_handles(a,right,up,left,true,true);
+                check(near(handles[1],line.back()),"Fixed-length leader and elbow handle disagree");
+                for(int handle:{1,2}) {
+                    const auto unchanged=kernel::drag_annotation(a,right,up,left,true,handle,handles[handle],true);
+                    check(near(unchanged.grip,a.grip)&&std::abs(unchanged.shelf_length-a.shelf_length)<1e-8,"Picking a fixed-length grip changes its stored placement");
+                }
+                const auto direction=kernel::dimension_scale(delta,1./20);
+                const auto moved=kernel::drag_annotation(a,right,up,left,true,1,kernel::dimension_add(handles[1],kernel::dimension_scale(direction,7)),true);
+                auto next=a;next.grip=moved.grip;
+                const auto changed=kernel::annotation_stroke(next,right,up,left,true,true);
+                check(near(changed.back(),kernel::dimension_add(line.back(),kernel::dimension_scale(direction,7))),"Dragging a model elbow does not adjust its fixed length");
+                if(short_shelf) {
+                    const auto resized=kernel::drag_annotation(a,right,up,left,true,2,kernel::dimension_add(handles[2],kernel::dimension_scale(right,left?4.:-4.)),true);
+                    next=a;next.grip=resized.grip;next.shelf_length=resized.shelf_length;
+                    check(std::abs(resized.shelf_length-7)<1e-8&&near(kernel::annotation_handles(next,right,up,left,true,true)[1],handles[1]),"Resizing a model shelf moved its elbow");
+                }
+            }
+        }
+        a.kind=1;a.short_shelf=false;
+        const kernel::Vec3 right{1,0,0},up{0,1,0};
+        const auto handles=kernel::annotation_handles(a,right,up,true,true,true);
+        const auto moved=kernel::drag_annotation(a,right,up,true,true,1,kernel::dimension_add(handles[1],{-30,0,0}),true);
+        const auto offset=kernel::dimension_sub(moved.grip,a.contact);
+        check(offset.x<0&&std::abs(std::sqrt(kernel::dimension_dot(offset,offset))-20)<1e-8,"Horizontal drag cannot change the model shelf side at fixed length");
+    }
     std::cout<<"Symbol placement contracts passed\n";return 0;
 }catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}

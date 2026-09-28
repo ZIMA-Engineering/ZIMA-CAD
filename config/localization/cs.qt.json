@@ -1,4 +1,9 @@
 {
+  "Surface draft requires a closed profile.": "Úkos povrchu vyžaduje uzavřený profil.",
+  "Draft supports profiles made of lines and circular arcs.": "Úkos podporuje profily složené z úseček a kruhových oblouků.",
+  "Úhel úkosu": "Úhel úkosu",
+  "Draft angle must be between -90 and 90 degrees.": "Úhel úkosu musí být mezi −90 a 90 stupni.",
+  "Draft cannot preserve the profile; reduce the angle or length.": "Úkos nezachovává profil; zmenšete úhel nebo délku.",
   "Svar dokola": "Svar dokola",
   "Tolerance tvaru nepoužívají základny. Pro ostatní typy zadejte základny níže v pořadí priority.": "Tolerance tvaru nepoužívají základny. Pro ostatní typy zadejte základny níže v pořadí priority.",
   "Varianta razítka…": "Varianta razítka…",

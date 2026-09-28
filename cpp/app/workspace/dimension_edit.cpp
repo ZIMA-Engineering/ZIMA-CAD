@@ -565,6 +565,10 @@ void AssemblyWorkspaceWindow::edit_dimension_inline(
                     else if(key=="side0_angle" || key=="side1_angle") {
                         if(next_value<=0 || next_value>360)throw std::runtime_error("Revolution angle must be in (0, 360]");
                         container->feature.sides[key=="side0_angle"?0:1].angle_degrees=next_value;changed=true;
+                    } else if(key=="side0_draft_angle" || key=="side1_draft_angle") {
+                        if(!std::isfinite(next_value)||std::abs(next_value)>=90)
+                            throw std::runtime_error("Draft angle must be between -90 and 90 degrees.");
+                        container->feature.sides[key=="side0_draft_angle"?0:1].draft_angle_degrees=next_value;changed=true;
                     }
                 } else if (container->feature_kind == FeatureKind::Extrusion) {
                     if (key == "length_forward") positive(

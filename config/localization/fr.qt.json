@@ -1,4 +1,9 @@
 {
+  "Surface draft requires a closed profile.": "La dépouille de surface nécessite un profil fermé.",
+  "Draft supports profiles made of lines and circular arcs.": "La dépouille prend en charge les profils composés de segments et d’arcs de cercle.",
+  "Úhel úkosu": "Angle de dépouille",
+  "Draft angle must be between -90 and 90 degrees.": "L’angle de dépouille doit être compris entre −90 et 90 degrés.",
+  "Draft cannot preserve the profile; reduce the angle or length.": "La dépouille ne conserve pas le profil ; réduisez l’angle ou la longueur.",
   "Svar dokola": "Soudure sur tout le pourtour",
   "Tolerance tvaru nepoužívají základny. Pro ostatní typy zadejte základny níže v pořadí priority.": "Les tolérances de forme ne nécessitent aucune référence. Pour les autres types, saisissez les références ci-dessous par ordre de priorité.",
   "Varianta razítka…": "Variante du cartouche…",

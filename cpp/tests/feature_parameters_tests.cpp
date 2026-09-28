@@ -23,6 +23,8 @@ FeatureParameters fixture() {
     p.origin_centerline=p.centroid_centerline=true;
     p.sides[0].length=23.456789;p.sides[0].angle_degrees=135;
     p.sides[1].length=7.25;p.sides[1].angle_degrees=37;
+    p.sides[0].draft_angle_degrees=5.123456789;
+    p.sides[1].draft_angle_degrees=-3.987654321;
     ExtrusionParameters::EndTarget target;
     target.kind=EndTargetKind::Face;target.reference={"parent","end:from:source","sub/part"};
     target.label="User target";target.fallback_origin={-0.0,4,8};target.fallback_normal={0,0,-1};
@@ -88,7 +90,8 @@ int main() { try {
         if(type!=FeatureType::Modeling)check(restored.sketch_only(),"Datum Feature attempted material calculation");
         if(type==FeatureType::Axis) {
             check(restored.effective_side(1).operation==FeatureSideOperation::Extrusion&&
-                restored.effective_side(1).length==p.sides[1].length&&restored.effective_side(1).targets.empty(),
+                restored.effective_side(1).length==p.sides[1].length&&restored.effective_side(1).targets.empty()&&
+                restored.effective_side(1).draft_angle_degrees==0,
                 "Axis must use lengths while preserving inactive rotation/limit settings");
         }
         auto part=PartDocument::create_default();
@@ -158,6 +161,14 @@ int main() { try {
         rejected([&]{static_cast<void>(serialize_feature_parameters(invalid));});
     }
     const auto valid=serialize_feature_parameters(p);
+    for(const double value:{-90.,90.,std::numeric_limits<double>::infinity(),std::numeric_limits<double>::quiet_NaN()}) {
+        auto invalid=p;invalid.sides[0].draft_angle_degrees=value;
+        rejected([&]{static_cast<void>(serialize_feature_parameters(invalid));});
+    }
+    {
+        auto invalid=valid;invalid["sides"][0].erase("draft_angle_degrees");
+        rejected([&]{static_cast<void>(load_feature_parameters(invalid));});
+    }
     for(const auto* field:{"type","sides","sketch_id","thin_mode","origin_centerline"}) {
         auto invalid=valid;invalid.erase(field);
         rejected([&]{static_cast<void>(load_feature_parameters(invalid));});

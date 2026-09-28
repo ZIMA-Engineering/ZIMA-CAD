@@ -4,6 +4,30 @@ int verify_symbol_ui(QApplication& application,zima::app::AssemblyWorkspaceWindo
     const auto flush=[&]{application.processEvents();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);application.processEvents();};
     const auto settle_view=[&]{QEventLoop animation;QTimer::singleShot(950,&animation,&QEventLoop::quit);animation.exec();flush();};
     try {
+        {
+            viewer::MeshView probe;probe.resize(640,480);
+            kernel::AnnotationStroke annotation;annotation.kind=1;annotation.role=1;
+            annotation.grip={12,16,0};annotation.direction_tip={1,1,1};annotation.right=10;
+            kernel::ViewerEdge edge;edge.reference={"fixed-leader","symbol:fixed-leader",{}};edge.annotation=annotation;
+            kernel::ViewerMesh mesh;mesh.edges.push_back(edge);probe.set_mesh(mesh,false);
+            probe.set_symbol_handle_callbacks([&]()->std::optional<viewer::SymbolHandles>{
+                return viewer::SymbolHandles{"fixed-leader",annotation.contact,annotation.grip,{0,0,1}};
+            },{});
+            for(float angle:{0.F,35.F,90.F,150.F}) {
+                const auto rotation=QQuaternion::fromEulerAngles(angle,angle*.7F,angle*.3F);
+                auto camera=probe.camera_state();camera[0]=rotation.scalar();camera[1]=rotation.x();camera[2]=rotation.y();camera[3]=rotation.z();camera[4]=50;
+                probe.set_camera_state(camera);
+                const auto contact=probe.symbol_handle_position(0),elbow=probe.symbol_handle_position(1);
+                check(contact&&elbow&&std::abs(contact->x()-elbow->x())<.001,"Model edge leader is not vertical after orbit");
+                const auto& points=probe.mesh().edges.front().points;
+                const auto delta=kernel::dimension_sub(points.back(),points.front());
+                check(std::abs(std::sqrt(kernel::dimension_dot(delta,delta))-20)<1e-5,"Model orbit changed leader length in mm");
+                const double pixels=QLineF(*contact,*elbow).length();
+                camera[4]=25;probe.set_camera_state(camera);
+                const auto zoom_contact=probe.symbol_handle_position(0),zoom_elbow=probe.symbol_handle_position(1);
+                check(zoom_contact&&zoom_elbow&&std::abs(QLineF(*zoom_contact,*zoom_elbow).length()-2*pixels)<.01,"Model leader does not zoom with its millimetre length");
+            }
+        }
         const auto prepare=[](auto& text){app::rebuild_sketch_text_contours(text,true);};
         const auto target=directory/"symbol-ui.tblz";
         drawing::save_template_sketch(drawing::create_template_sketch(true,"Symbols"),target);

@@ -1,4 +1,9 @@
 {
+  "Surface draft requires a closed profile.": "Surface draft requires a closed profile.",
+  "Draft supports profiles made of lines and circular arcs.": "Draft supports profiles made of lines and circular arcs.",
+  "Úhel úkosu": "Draft angle",
+  "Draft angle must be between -90 and 90 degrees.": "Draft angle must be between -90 and 90 degrees.",
+  "Draft cannot preserve the profile; reduce the angle or length.": "Draft cannot preserve the profile; reduce the angle or length.",
   "Svar dokola": "All-around weld",
   "Tolerance tvaru nepoužívají základny. Pro ostatní typy zadejte základny níže v pořadí priority.": "Form tolerances do not use datums. For other types, enter datums below in order of precedence.",
   "Varianta razítka…": "Title block variant…",

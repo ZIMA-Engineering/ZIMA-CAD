@@ -1,4 +1,9 @@
 {
+  "Surface draft requires a closed profile.": "Eine Flächenentformungsschräge erfordert ein geschlossenes Profil.",
+  "Draft supports profiles made of lines and circular arcs.": "Die Entformungsschräge unterstützt Profile aus Linien und Kreisbögen.",
+  "Úhel úkosu": "Entformungswinkel",
+  "Draft angle must be between -90 and 90 degrees.": "Der Entformungswinkel muss zwischen −90 und 90 Grad liegen.",
+  "Draft cannot preserve the profile; reduce the angle or length.": "Die Entformungsschräge erhält das Profil nicht; verringern Sie den Winkel oder die Länge.",
   "Svar dokola": "Umlaufende Schweißnaht",
   "Tolerance tvaru nepoužívají základny. Pro ostatní typy zadejte základny níže v pořadí priority.": "Formtoleranzen verwenden keine Bezüge. Für andere Arten geben Sie die Bezüge unten in der Rangfolge ein.",
   "Varianta razítka…": "Schriftfeldvariante…",

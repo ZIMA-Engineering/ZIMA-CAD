@@ -55,6 +55,11 @@ public:
         offset_=offset;offset->setValue(initial_.profile_plane_offset);
         offset_display_=offset->value();
         auto* sketch=new QPushButton(tr("Skica"),sketch_group);style_sketch_button(sketch);sketch->setMinimumHeight(40);
+        auto sketch_style=sketch->styleSheet();sketch_style.replace("border-radius:2px","border-radius:6px");sketch->setStyleSheet(sketch_style);
+        auto operation_states=command_button_style();operation_states.replace("QToolButton","QPushButton");operation_states.replace("border-radius:2px","border-radius:6px");
+        const auto feature_button_style=QStringLiteral(
+            "QPushButton {border:1px solid palette(mid);border-radius:6px;padding:4px;}"
+            "QPushButton:enabled {background:palette(button);color:palette(button-text);}")+operation_states;
         sketch_=sketch;sketch->setObjectName("featureSketchButton");
         sketch->setMinimumWidth(100);
         sketch->setSizePolicy(QSizePolicy::Fixed,QSizePolicy::Expanding);
@@ -75,7 +80,7 @@ public:
         for(int operation=0;operation<2;++operation){
             auto* button=new ProfileOperationButton(operation==0,operation==0?tr("Přičíst"):tr("Odečíst"),operations_);
             button->setObjectName(operation==0?"featureAdd":"featureSubtract");button->setCheckable(true);
-            auto style=command_button_style();style.replace("QToolButton","QPushButton");button->setStyleSheet(style);
+            button->setStyleSheet(feature_button_style);button->setFixedHeight(44);
             operation_group->addButton(button,operation);button->setChecked(operation==0);operation_layout->addWidget(button);
         }
         connect(operation_group,&QButtonGroup::idClicked,this,[this](int id){
@@ -132,6 +137,9 @@ public:
             auto* rows=new QFormLayout(s.box);s.rows=rows;
             s.mode=new QComboBox(s.box);s.mode->setObjectName(QString("featureSideMode%1").arg(i));
             s.mode->addItems({tr("Bez operace"),tr("Vytažení"),tr("Rotace")});rows->addRow(tr("Typ"),s.mode);
+            s.draft=number(i==0?"featureSideDraft0":"featureSideDraft1",true);
+            s.draft->setRange(-89.999,89.999);s.draft->setValue(s.pending.draft_angle_degrees);
+            s.displayed_draft=s.draft->value();rows->addRow(tr("Úhel úkosu"),s.draft);
             s.end=new QComboBox(s.box);s.end->setObjectName(QString("featureSideEnd%1").arg(i));rows->addRow(tr("Ukončení"),s.end);
             s.value=number(i==0?"featureSideValue0":"featureSideValue1",false);s.value->setMinimum(.001);s.value->setValue(50);
             s.label=new QLabel(tr("Délka"),s.box);rows->addRow(s.label,s.value);
@@ -200,9 +208,11 @@ public:
             blocked.push_back(std::make_unique<QSignalBlocker>(side.mode));
             blocked.push_back(std::make_unique<QSignalBlocker>(side.end));
             blocked.push_back(std::make_unique<QSignalBlocker>(side.value));
+            blocked.push_back(std::make_unique<QSignalBlocker>(side.draft));
         }
         for(int i=0;i<2;++i) {
             auto& side=sides_[i];side.pending=values.sides[1-i];
+            side.draft->setValue(side.pending.draft_angle_degrees);side.displayed_draft=side.draft->value();
             side.previous_mode=0;side.displayed_axis=false; // Loading must not capture the old displayed number.
             side.mode->setCurrentIndex(static_cast<int>(side.pending.operation));
             refresh_side(i);
@@ -211,6 +221,7 @@ public:
     QLineEdit* target_control(std::size_t side) const { return sides_.at(side).target; }
     QHBoxLayout* target_layout(std::size_t side) const { return sides_.at(side).target_layout; }
     QDoubleSpinBox* side_value(std::size_t side) const { return sides_.at(side).value; }
+    QDoubleSpinBox* side_draft(std::size_t side) const { return sides_.at(side).draft; }
     QGroupBox* side_group(std::size_t side) const { return sides_.at(side).box; }
     bool subtract() const { return result_->currentIndex()!=1 && operation_group_->checkedId()==1; }
     void set_subtract(bool value) {
@@ -233,11 +244,11 @@ public:
     }
 private:
     struct Side {
-        QGroupBox* box{};QComboBox* mode{};QComboBox* end{};QDoubleSpinBox* value{};QLabel* label{};QLineEdit* target{};QHBoxLayout* target_layout{};
+        QGroupBox* box{};QComboBox* mode{};QComboBox* end{};QDoubleSpinBox* value{};QDoubleSpinBox* draft{};QLabel* label{};QLineEdit* target{};QHBoxLayout* target_layout{};
         QFormLayout* rows{};QWidget* target_row{};bool displayed_axis{};
         document::FeatureSideParameters pending;
         int previous_mode{};
-        double displayed_value{},authored_value{};
+        double displayed_value{},authored_value{},displayed_draft{};
     };
     QVBoxLayout* content_{};
     QComboBox* type_{};
@@ -267,6 +278,7 @@ private:
     std::function<void()> locks_changed_;
     static document::FeatureSideParameters capture_side(const Side& side,int mode) {
         auto value=side.pending;value.operation=static_cast<document::FeatureSideOperation>(mode);
+        if(side.draft&&side.draft->value()!=side.displayed_draft)value.draft_angle_degrees=side.draft->value();
         const double number=side.value->value()==side.displayed_value?side.authored_value:side.value->value();
         if(side.displayed_axis)value.length=number;
         else {
@@ -292,6 +304,7 @@ private:
             auto& s=sides_[i];if(!s.box)continue;
             s.box->setVisible(lengths&&(i==0||!symmetric_));
             s.rows->setRowVisible(s.mode,modeling);
+            s.rows->setRowVisible(s.draft,modeling&&s.mode->currentIndex()==1);
             s.rows->setRowVisible(s.end,modeling);
             s.rows->setRowVisible(s.target_row,modeling);
         }
@@ -312,8 +325,11 @@ private:
         QScopedValueRollback refreshing(refreshing_side_,true);
         auto& s=sides_[index];const int saved_mode=s.mode->currentIndex();
         s.pending=capture_side(s,s.previous_mode);s.previous_mode=saved_mode;
+        {const QSignalBlocker blocked(s.draft);s.draft->setValue(s.pending.draft_angle_degrees);s.displayed_draft=s.draft->value();}
         s.displayed_axis=selected_type()==document::FeatureType::Axis;
         const int mode=s.displayed_axis?1:saved_mode;
+        s.draft->setEnabled(selected_type()==document::FeatureType::Modeling&&mode==1);
+        s.rows->setRowVisible(s.draft,selected_type()==document::FeatureType::Modeling&&mode==1);
         s.end->clear();
         if(mode==2)s.end->addItems({tr("Úhel"),tr("Plná rotace"),tr("Až k")});
         else s.end->addItems({tr("Délka"),tr("Až k"),tr("Skrz vše")});
@@ -329,6 +345,8 @@ private:
         refresh_side_lock(index);
     }
     void refresh_side_lock(int index) {
+        if(locks_)ui::bind_numeric_value_lock(sides_[index].draft,
+            "side"+std::to_string(index)+"_draft_angle",*locks_,locks_changed_);
         if(locks_)ui::bind_numeric_value_lock(sides_[index].value,
             "side"+std::to_string(index)+(!sides_[index].displayed_axis&&sides_[index].mode->currentIndex()==2?"_angle":"_length"),*locks_,locks_changed_);
     }

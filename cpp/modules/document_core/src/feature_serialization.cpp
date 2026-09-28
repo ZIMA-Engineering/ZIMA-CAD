@@ -78,6 +78,8 @@ void validate_feature_parameters(const FeatureParameters& p) {
         static_cast<void>(name(side.extrusion_extent,conditions));
         static_cast<void>(name(side.rotation_extent,rotations));
         if(!positive(side.length)||!positive(side.angle_degrees)||side.angle_degrees>360)invalid();
+        if(!std::isfinite(side.draft_angle_degrees)||std::abs(side.draft_angle_degrees)>=90)
+            throw std::invalid_argument("Draft angle must be between -90 and 90 degrees.");
         for(const auto& target:side.targets) {
             static_cast<void>(name(target.kind,target_kinds));
             if(!target.reference.valid()||!finite(target.fallback_origin)||!finite(target.fallback_normal)||
@@ -104,6 +106,7 @@ nlohmann::json serialize_feature_parameters(const FeatureParameters& p) {
         sides.push_back({{"operation",name(side.operation,operations)},{"length",side.length},
             {"extrusion_extent",name(side.extrusion_extent,conditions)},
             {"angle_degrees",side.angle_degrees},{"rotation_extent",name(side.rotation_extent,rotations)},
+            {"draft_angle_degrees",side.draft_angle_degrees},
             {"targets",std::move(targets)}});
     }
     return {{"automatic_name",p.automatic_name},{"type",name(p.type,feature_types)},{"sketch_id",p.sketch_id},{"axis_segment_id",p.axis_segment_id},
@@ -140,6 +143,7 @@ FeatureParameters load_feature_parameters(const nlohmann::json& source) {
             side.length=value.at("length").get<double>();
             side.extrusion_extent=parse(value.at("extrusion_extent"),conditions);
             side.angle_degrees=value.at("angle_degrees").get<double>();
+            side.draft_angle_degrees=value.at("draft_angle_degrees").get<double>();
             side.rotation_extent=parse(value.at("rotation_extent"),rotations);
             const auto& targets=value.at("targets");if(!targets.is_array())invalid();
             for(const auto& t:targets) {
