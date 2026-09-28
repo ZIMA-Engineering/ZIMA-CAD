@@ -1,4 +1,6 @@
 {
+  "Teoreticky přesná kóta (rámeček)": "Theoretically exact dimension (box)",
+  "Teoreticky přesná kóta nemá rozměrové tolerance. Platí i pro úhly, poloměry a průměry.": "A theoretically exact dimension has no dimensional tolerances. This also applies to angles, radii and diameters.",
   "Surface draft requires a closed profile.": "Surface draft requires a closed profile.",
   "Draft supports profiles made of lines and circular arcs.": "Draft supports profiles made of lines and circular arcs.",
   "Úhel úkosu": "Draft angle",

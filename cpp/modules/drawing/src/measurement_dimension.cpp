@@ -605,7 +605,7 @@ void validate_drawing_dimension(const DrawingDimension &d) {
             (a.kind != DimensionAttachmentKind::Intersection && (a.parameter < 0 || a.parameter > 1)) ||
             (a.side != 1 && a.side != -1))
             throw std::invalid_argument("Neplatná vazba kóty.");
-    if (d.style.tolerance_mode != "" && d.style.tolerance_mode != "symmetric" &&
+    if (d.style.tolerance_mode != "" && d.style.tolerance_mode != "basic" && d.style.tolerance_mode != "symmetric" &&
         d.style.tolerance_mode != "single_deviation" && d.style.tolerance_mode != "deviations")
         throw std::invalid_argument("Neplatná tolerance kóty.");
 }

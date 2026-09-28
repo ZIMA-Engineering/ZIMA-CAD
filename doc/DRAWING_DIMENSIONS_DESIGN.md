@@ -28,6 +28,51 @@ does not confirm.
 
 ## Dimension command
 
+### Theoretically exact dimensions (TED)
+
+The shared Value and tolerance page provides **Theoretically exact dimension
+(box)** in Sketcher, Part/Assembly model dimensions, transferred model dimensions
+and manual Drawing dimensions. It applies to lengths, angles, radii, diameters
+and the measured values of running/chain dimensions. The chain's literal zero
+datum marker remains an origin marker rather than a framed measured value.
+
+Enabling the option draws a rectangular frame around the displayed value,
+including its associated unit or radius/diameter symbol, and disables dimensional
+tolerance entry. No symmetric, unilateral or upper/lower deviation is displayed.
+Existing tolerance strings are retained as inactive data. Toggling the box off
+within the same dialog restores the previous pending tolerance mode; reopening
+a saved TED and switching it off starts with no active tolerance.
+
+This is a specification of theoretically exact geometry, not a demand for
+zero manufacturing error. Applicable geometric tolerances control permissible
+variation separately. The terminology and linear/angular scope follow
+[ISO 1101:2017, definition 3.7](https://cdn.standards.iteh.ai/samples/iso/iso-1101-2017/f5b6955583744a52beece32aff282878/iso-1101-2017.pdf).
+The standard's definition also covers rectangular frames containing diameter or
+radius symbols. General dimensional tolerances do not apply to TEDs; see
+[ISO 2768-1, scope](https://www.iso.org/obp/ui/?_escaped_fragment_=iso%3Astd%3A7748%3Aen).
+
+The frame is shared viewer/vector geometry, not a Unicode box character. Font
+metrics determine its size and clearance, and picking includes the frame.
+It is present in model/Sketch display, Drawing display, printing, PDF and DXF.
+OK, Cancel, Undo/Redo and native save/reopen follow ordinary dimension rules.
+The option changes presentation only: values, driving/reference state, solver
+limits, references and model geometry remain unchanged.
+
+The existing native `tolerance_mode` field stores `basic`, mutually exclusive
+with active deviation modes. No new external file or duplicate style field is
+introduced. The same mode is accepted by native Sketch and model-layout CLI
+commands.
+
+Windows verification on 2026-09-28 passed ten focused contracts: shared dimension
+layout/rendering, Drawing measurement geometry and GUI, Sketch dimension commands,
+model-layout commands, real dimension-edit GUI, show/erase, all five translations,
+native templates and New Document GUI activation. Start templates were refreshed
+and remained byte-identical. The four dimension-family frame proof and exported
+PDF were inspected. PDF/DXF and native Drawing save/reopen were exercised by the
+GUI contract. This is targeted verification, not a full-suite or Linux claim.
+
+## Creating and editing dimensions
+
 Dimension replaces the experimental two-parallel-edge workflow. Creation and
 editing use the same window.
 

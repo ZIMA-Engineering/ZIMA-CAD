@@ -295,7 +295,9 @@ Create/set accept optional properties:
 - `text`: strings `prefix`, `suffix`, `text_override`, `tolerance_mode`,
   `symmetric_tolerance`, `single_tolerance`, `upper_tolerance`, `lower_tolerance`.
   Each field is limited to 2048 bytes. Modes: empty string, `symmetric`,
-  `single_deviation`, `deviations`.
+  `single_deviation`, `deviations`, or `basic` (a theoretically exact dimension
+  with a rectangular frame and no displayed dimensional tolerance). Stored
+  deviation strings remain inactive in `basic` mode; solver limits are unchanged.
 - `layout`: `plane_quarter_turns` 0–3, nonnegative `envelope_offset` or null,
   `text_along`, `text_outward`, `line_offset`, `radius_rotation_degrees`, boolean
   `arrows_reversed`, `radius_center_line_hidden`. Angular planes are determined

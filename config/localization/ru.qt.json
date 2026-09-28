@@ -1,4 +1,6 @@
 {
+  "Teoreticky přesná kóta (rámeček)": "Теоретически точный размер (рамка)",
+  "Teoreticky přesná kóta nemá rozměrové tolerance. Platí i pro úhly, poloměry a průměry.": "Теоретически точный размер не имеет размерных допусков. Это также относится к углам, радиусам и диаметрам.",
   "Surface draft requires a closed profile.": "Для уклона поверхности требуется замкнутый профиль.",
   "Draft supports profiles made of lines and circular arcs.": "Уклон поддерживает профили из отрезков и дуг окружностей.",
   "Úhel úkosu": "Угол уклона",

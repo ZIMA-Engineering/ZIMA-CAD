@@ -1,4 +1,6 @@
 {
+  "Teoreticky přesná kóta (rámeček)": "Cote théoriquement exacte (cadre)",
+  "Teoreticky přesná kóta nemá rozměrové tolerance. Platí i pro úhly, poloměry a průměry.": "Une cote théoriquement exacte ne comporte pas de tolérances dimensionnelles. Cela s’applique aussi aux angles, rayons et diamètres.",
   "Surface draft requires a closed profile.": "La dépouille de surface nécessite un profil fermé.",
   "Draft supports profiles made of lines and circular arcs.": "La dépouille prend en charge les profils composés de segments et d’arcs de cercle.",
   "Úhel úkosu": "Angle de dépouille",

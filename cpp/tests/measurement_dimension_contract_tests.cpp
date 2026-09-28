@@ -291,6 +291,10 @@ int main() {
         require(drawing_dimension_text(d, evaluate_drawing_dimension(v, d).presentations[0]) ==
                     "2×40 ±0,2",
                 "Text/tolerance format diverged");
+        d.style.tolerance_mode="basic";
+        require(drawing_dimension_text(d,evaluate_drawing_dimension(v,d).presentations[0])=="2×40","Basic Drawing dimension contains tolerances");
+        require(deserialize_drawing_dimensions(serialize_drawing_dimensions({d}))==std::vector{d},"Basic Drawing dimension persistence lost style");
+        d.style.tolerance_mode="symmetric";
         place_drawing_dimension(v, d, 0, {20, 30});
         refresh_drawing_dimension(v, d);
         const auto original = evaluate_drawing_dimension(v, d).presentations[0];

@@ -189,6 +189,8 @@ class DrawingDimensionDialog final : public ui::PropertiesSubWindow {
             connect(input, qOverload<int>(&QSpinBox::valueChanged), this, [this] { publish(); });
         for (auto *input : text_->findChildren<QComboBox *>())
             connect(input, &QComboBox::currentIndexChanged, this, [this] { publish(); });
+        for (auto *input : text_->findChildren<QCheckBox *>())
+            connect(input, &QCheckBox::toggled, this, [this] { publish(); });
     }
     void enable_chain_command() {
         chain_command_=true;
@@ -220,6 +222,7 @@ class DrawingDimensionDialog final : public ui::PropertiesSubWindow {
         for(auto* input:text_->findChildren<QLineEdit*>())connect(input,&QLineEdit::textChanged,this,[this]{publish();});
         for(auto* input:text_->findChildren<QSpinBox*>())connect(input,qOverload<int>(&QSpinBox::valueChanged),this,[this]{publish();});
         for(auto* input:text_->findChildren<QComboBox*>())connect(input,qOverload<int>(&QComboBox::currentIndexChanged),this,[this]{publish();});
+        for(auto* input:text_->findChildren<QCheckBox*>())connect(input,&QCheckBox::toggled,this,[this]{publish();});
         rebuild();begin_branches();
     }
     void set_changed(std::function<void()> callback) {

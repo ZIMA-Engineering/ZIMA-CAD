@@ -39,6 +39,11 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
     command("sketch.dimension.set",{{"dimension",radius},{"driving",true},{"value",9},{"limits",{{"lower",1},{"upper",12}}},{"position",{12,13}},
         {"text",{{"prefix","TEST "},{"suffix"," mm"},{"tolerance_mode","symmetric"},{"symmetric_tolerance","0.1"}}}});
     require(current().circles.front().radius==9 && dimension().at("position")==Json::array({12,13}) && dimension().at("text").at("prefix")=="TEST ","Dimension properties patch failed");
+    command("sketch.dimension.set",{{"dimension",radius},{"text",{{"tolerance_mode","basic"}}}});
+    require(current().circles.front().radius==9&&dimension().at("text").at("tolerance_mode")=="basic","Basic Sketch dimension changed geometry or lost style");
+    const auto basic_roundtrip=sketcher::Sketch::from_serialized(current().serialized());
+    require(basic_roundtrip.dimensions.front().tolerance_mode=="basic","Sketch serialization lost basic dimension");
+    run(host,"undo");require(dimension().at("text").at("tolerance_mode")=="symmetric","Basic Sketch Undo lost tolerance");
     const auto revision=state->session.revision();const auto saved=current().serialized();const auto labels=state->session.document().dimension_layouts;
     for(const Json& patch:std::vector<Json>{
         {{"value",13},{"layout",{{"text_along",200}}}},{{"value",-1}},{{"layout",{{"plane_quarter_turns",4}}}},

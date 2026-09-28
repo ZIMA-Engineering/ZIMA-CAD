@@ -190,6 +190,12 @@ int verify_measurement_dimension_ui() {
         auto *tolerance = props->findChild<QComboBox *>("sketchDimensionToleranceMode");
         tolerance->setCurrentIndex(tolerance->findData("symmetric"));
         props->findChild<QLineEdit *>("sketchSymmetricTolerance")->setText("0.1");
+        auto* basic=props->findChild<QCheckBox*>("dimensionBasic");
+        require(basic,"Drawing basic dimension checkbox missing");basic->setChecked(true);
+        require(!tolerance->isEnabled()&&props->value().style.tolerance_mode=="basic","Drawing basic dimension permits tolerance");
+        basic->setChecked(false);
+        require(tolerance->isEnabled()&&props->value().style.tolerance_mode=="symmetric","Drawing basic toggle lost tolerance");
+        basic->setChecked(true);
         flush();
         window.grab().save("build/measurement-properties-proof.png");
         mouse(canvas, QEvent::MouseButtonPress, point(40, 30), Qt::MiddleButton, Qt::MiddleButton);
@@ -198,12 +204,16 @@ int verify_measurement_dimension_ui() {
         mouse(canvas, QEvent::MouseButtonDblClick, point(40, 30), Qt::MiddleButton, Qt::MiddleButton);
         require(count() == 1 && !dialog(), "MMB double click did not commit dimension");
         auto linear = window.document_for_test().sheets.front().dimensions.front();
-        require(linear.style.prefix == "2×" && linear.style.symmetric_tolerance == "0.1",
+        require(linear.style.prefix == "2×" && linear.style.symmetric_tolerance == "0.1" && linear.style.tolerance_mode=="basic",
                 "Unified tolerance fields not committed");
         const auto evaluation =
             evaluate_drawing_dimension(*window.document_for_test().find_view(view.id), linear);
         require(std::abs(evaluation.presentations[0].value - 20) < 1e-9,
                 "UI dimension changed projected measurement");
+        window.export_pdf("build/basic-dimension-drawing.pdf");
+        window.export_dxf("build/basic-dimension-drawing.dxf");
+        window.document_for_test().save("build/basic-dimension-drawing.drwz");
+        require(DrawingDocument::load("build/basic-dimension-drawing.drwz").sheets.front().dimensions.front()==linear,"Basic Drawing style did not survive save/reopen");
 
         const auto before_snap=linear;
         // Native Drawing dimensions snap to the same 2D rectangle as model dimensions.

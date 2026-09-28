@@ -113,6 +113,47 @@ Q_NEVER_INLINE void verify_vertical_dimension_clearance() {
 int main(int argc, char **argv) {
     QApplication app(argc, argv);
     try {
+        {
+            kernel::DimensionTextStyle style;style.tolerance_mode="deviations";
+            style.upper_tolerance="0.2";style.lower_tolerance="0.1";
+            app::DimensionTextFields fields(style,nullptr);fields.show();flush();
+            auto* basic=fields.findChild<QCheckBox*>("dimensionBasic");
+            auto* tolerance=fields.findChild<QComboBox*>("sketchDimensionToleranceMode");
+            require(basic&&tolerance,"Shared basic dimension control missing");
+            basic->setChecked(true);flush();
+            require(fields.value().tolerance_mode=="basic"&&!tolerance->isEnabled()&&
+                !fields.findChild<QLineEdit*>("sketchUpperDeviation")->isEnabled(),"Basic dimension still permits tolerances");
+            style=fields.value();
+            require(document::dimension_text_style_from_json(document::dimension_text_style_json(style))==style,"Basic style persistence changed");
+            basic->setChecked(false);flush();
+            require(tolerance->isEnabled()&&fields.value().tolerance_mode=="deviations"&&fields.value().upper_tolerance=="0.2","Basic toggle destroyed pending tolerances");
+            app::DimensionTextFields reopened(style,nullptr);
+            require(reopened.findChild<QCheckBox*>("dimensionBasic")->isChecked()&&!reopened.findChild<QComboBox*>("sketchDimensionToleranceMode")->isEnabled(),"Reopened basic dimension lost its state");
+            QImage proof(800,500,QImage::Format_RGB32);proof.fill(Qt::white);QPainter painter(&proof);
+            QFont font=zima::technical_font();font.setPixelSize(28);
+            int index=0;
+            for(auto kind:{kernel::ViewerDimensionKind::Linear,kernel::ViewerDimensionKind::Angular,kernel::ViewerDimensionKind::Radius,kernel::ViewerDimensionKind::Diameter}) {
+                kernel::ViewerDimension d;d.kind=kind;d.value=kind==kernel::ViewerDimensionKind::Angular?90:25;
+                d.witness_second={100,0,0};d.line_first={0,30,0};d.line_second={100,30,0};
+                if(kind==kernel::ViewerDimensionKind::Angular){d.line_first={60,0,0};d.line_second={0,60,0};d.sweep_degrees=90;}
+                auto current=style;current.suffix=kind==kernel::ViewerDimensionKind::Angular?"°":"";d.source_text_style=current;
+                const auto text=QString::fromStdString(kernel::dimension_text(d,current));
+                require(!text.contains("0,2")&&!text.contains("0,1")&&!text.contains(QChar(0x00b1)),"Basic text includes a deviation");
+                const auto box=viewer::dimension_text_box(font,text,0,true);
+                const auto plain=viewer::dimension_text_box(font,text,0);
+                require(box.contains(plain)&&box.width()>plain.width()&&box.height()>plain.height(),"Frame does not surround the complete value and unit");
+                const auto layout=viewer::dimension_text_presentation(d,[](kernel::Vec3 p){return QPointF(p.x,-p.y);},font,text,2,1.5);
+                require(layout.valid,"Basic dimension presentation failed");
+                const QPointF baseline(90+400*(index%2),130+240*(index/2));
+                const std::array labels{viewer::DimensionTextLabel{text,baseline,0,font,Qt::black,true,1.5}};
+                viewer::paint_dimension_text_layer(painter,labels,2,[](QPainter& p,const QPainterPath& path){p.fillPath(path,Qt::white);});
+                ++index;
+            }
+            painter.end();
+            require(proof.save("build/basic-dimensions-proof.png"),"Cannot save basic dimension proof");
+            const auto border=viewer::dimension_text_box(font,"25",0,true).translated(90,130);
+            require(qGray(proof.pixel(qRound(border.center().x()),qRound(border.top())))<128,"Basic rectangle was not painted");
+        }
         verify_vertical_dimension_clearance();
         {
             kernel::DimensionTextStyle style;style.tolerance_mode="deviations";style.suffix.clear();
@@ -951,6 +992,7 @@ int main(int argc, char **argv) {
                 "Presentation dialog escaped owning application");
         require(dialog.findChild<QDialogButtonBox *>()->button(QDialogButtonBox::Apply) == nullptr,
                 "Presentation dialog exposes Apply");
+        dialog.findChild<QCheckBox*>("dimensionBasic")->setChecked(true);
         dialog.findChild<QDialogButtonBox *>()->button(QDialogButtonBox::Cancel)->click();
         require(dialog_commits == 0, "Cancel committed presentation");
         app::DimensionPropertiesDialog confirm(
@@ -958,9 +1000,11 @@ int main(int argc, char **argv) {
                 require(value.arrows_reversed==persisted.arrows_reversed &&
                             value.text_outward==persisted.text_outward,
                         "Properties discarded arrow direction or text attachment");
+                require(value.text_style&&kernel::dimension_is_basic(*value.text_style),"Properties OK lost basic dimension style");
                 ++dialog_commits;
             }, &owner);
         confirm.show();
+        confirm.findChild<QCheckBox*>("dimensionBasic")->setChecked(true);
         flush();
         mouse(&viewer, QEvent::MouseButtonRelease, {850, 650}, Qt::MiddleButton, Qt::NoButton);
         require(dialog_commits == 0, "Short MMB confirmed presentation");

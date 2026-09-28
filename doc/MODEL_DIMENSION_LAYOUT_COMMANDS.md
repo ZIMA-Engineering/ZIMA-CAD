@@ -34,7 +34,11 @@ Lengths are model mm; radius rotation uses degrees. `plane_quarter_turns` is int
 be finite. Custom `text_style` is a complete object with `prefix`, `suffix`,
 `text_override`, `decimals` (0–12), `tolerance_mode`, `symmetric_tolerance`,
 `single_tolerance`, `upper_tolerance`, and `lower_tolerance`. Tolerance mode is empty,
-`symmetric`, `single_deviation`, or `deviations`; text fields allow at most 2048 UTF-8 bytes.
+`symmetric`, `single_deviation`, `deviations`, or `basic`; text fields allow at most 2048 UTF-8 bytes.
+`basic` selects a theoretically exact dimension with a rectangular frame and no
+displayed dimensional deviations. Stored deviation strings are inactive, and
+the nominal value and geometry remain unchanged. See
+[the shared TED contract](DRAWING_DIMENSIONS_DESIGN.md#theoretically-exact-dimensions-ted).
 
 `reset: true` removes overrides and cannot accompany `layout`. Identical values,
 empty reset, and unchanged defaults create no Undo step. Appearance changes affect

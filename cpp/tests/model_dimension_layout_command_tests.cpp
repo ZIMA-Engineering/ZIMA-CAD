@@ -33,6 +33,14 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
     const auto current=state()->session.revision();const auto* unchanged_cache=state()->session.calculated_boundaries().data();
     require(run("dimension.layout.set",{{"reference",ref},{"layout",layout}}).at("changed")==false&&state()->session.revision()==current&&state()->session.calculated_boundaries().data()==unchanged_cache&&!host.change(),"Repeated layout changed history or cache");
     run("undo");require(get().at("has_override")==false,"Layout Undo failed");run("redo");require(get().at("layout")==layout,"Layout Redo lost complete text properties");
+    auto basic=layout;basic["text_style"]["tolerance_mode"]="basic";
+    require(run("dimension.layout.set",{{"reference",ref},{"layout",basic}}).at("body_calculated")==false,"Basic dimension recalculated the body");
+    require(state()->session.calculated_boundaries().back().kernel_shape==cache.kernel_shape,"Basic style replaced body geometry");
+    state()->session.document().save(dir/"basic-layout.prtz");
+    const auto basic_saved=document::PartDocument::load(dir/"basic-layout.prtz");
+    require(kernel::find_dimension_layout(basic_saved.dimension_layouts,{box,"parameter:length_forward",{}})->text_style->tolerance_mode=="basic","Native Part lost basic dimension style");
+    run("undo");require(get().at("layout")==layout,"Basic style Undo lost deviations");
+    run("redo");require(get().at("layout")==basic,"Basic style Redo lost the box");run("undo");
     const auto fail=[&](Json args,const char* code) {
         const auto before=get();const auto revision=state()->session.revision();const auto* stored_cache=state()->session.calculated_boundaries().data();
         const auto result=host.execute({{"command","dimension.layout.set"},{"arguments",std::move(args)}});

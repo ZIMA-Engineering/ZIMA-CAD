@@ -68,7 +68,7 @@ void patch(Dimension& d,const Json& a) {
         for(const auto& [key,value]:a["text"].items()) {
             const auto field=fields.find(key);if(field==fields.end()||!value.is_string()||value.get_ref<const std::string&>().size()>2048)invalid("Dimension text accepts known string fields of at most 2048 bytes.");*field->second=value.get<std::string>();
         }
-        if(d.tolerance_mode!=""&&d.tolerance_mode!="symmetric"&&d.tolerance_mode!="single_deviation"&&d.tolerance_mode!="deviations")invalid("Unknown dimension tolerance mode.");
+        if(d.tolerance_mode!=""&&d.tolerance_mode!="basic"&&d.tolerance_mode!="symmetric"&&d.tolerance_mode!="single_deviation"&&d.tolerance_mode!="deviations")invalid("Unknown dimension tolerance mode.");
     }
     sketcher::validate_dimension_property_value(d);
 }

@@ -1171,7 +1171,7 @@ std::vector<ViewerCandidate> MeshView::selection_candidates_at(
             continue;
         }
         QTransform text_transform;text_transform.translate(layout.text_baseline.x(),layout.text_baseline.y());text_transform.rotate(layout.text_angle);
-        auto text_bounds=text_transform.mapRect(dimension_text_box(font(),text,0));
+        auto text_bounds=text_transform.mapRect(dimension_text_box(font(),text,0,kernel::dimension_is_basic(dimension)));
         text_bounds.adjust(-hit_radius,-hit_radius,hit_radius,hit_radius);
         // A dimension is an editable annotation, not selectable model
         // geometry. Offer it only over its visible text; witness/leader/arc
@@ -1856,7 +1856,7 @@ std::optional<QPoint> MeshView::candidate_dimension_label_position(
     const auto layout=dimension_text_presentation(dimension,project,font(),text,.5*logicalDpiX()/25.4,1.5);
     if(!layout.valid)return std::nullopt;
     QTransform transform;transform.translate(layout.text_baseline.x(),layout.text_baseline.y());transform.rotate(layout.text_angle);
-    return transform.map(dimension_text_box(font(),text,0).center()).toPoint();
+    return transform.map(dimension_text_box(font(),text,0,kernel::dimension_is_basic(dimension)).center()).toPoint();
 }
 void MeshView::set_dimension_placement_cycle_callback(std::function<bool()> callback) { impl_->dimension_placement_cycle_callback=std::move(callback); }
 
@@ -4282,7 +4282,7 @@ if (impl_->show_origins) {
                 }
                 for(const auto& curve:layout.curves)painter.drawPolyline(curve);
                 for(const auto& [tip,direction]:layout.arrows)painter.drawPolygon(annotation_arrow(tip,direction,10));
-                dimension_texts.push_back({text,layout.text_baseline,layout.text_angle,painter.font(),color});
+                dimension_texts.push_back({text,layout.text_baseline,layout.text_angle,painter.font(),color,kernel::dimension_is_basic(dimension)});
                 painter.setBrush(Qt::NoBrush);
             }
         }

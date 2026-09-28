@@ -29,6 +29,11 @@ class DimensionTextFields final : public QWidget {
         display_text_override_->setObjectName("sketchDimensionDisplayText");
         display_text_override_->setPlaceholderText(tr("Prázdné = zobrazit skutečnou hodnotu"));
         form_->addRow(tr("Text místo hodnoty"), display_text_override_);
+        basic_ = new QCheckBox(tr("Teoreticky přesná kóta (rámeček)"), this);
+        basic_->setObjectName("dimensionBasic");
+        basic_->setToolTip(tr("Teoreticky přesná kóta nemá rozměrové tolerance. Platí i pro úhly, poloměry a průměry."));
+        basic_->setChecked(kernel::dimension_is_basic(initial));
+        form_->addRow(basic_);
         tolerance_mode_ = new QComboBox(this);
         tolerance_mode_->setObjectName("sketchDimensionToleranceMode");
         tolerance_mode_->addItem(tr("Bez tolerance"), "");
@@ -59,6 +64,7 @@ class DimensionTextFields final : public QWidget {
         form_->setRowVisible(decimals_, precision);
         connect(tolerance_mode_, &QComboBox::currentIndexChanged, this,
                 [this] { refresh_tolerance_fields(); });
+        connect(basic_, &QCheckBox::toggled, this, [this] { refresh_tolerance_fields(); });
         refresh_tolerance_fields();
     }
     kernel::DimensionTextStyle value() const {
@@ -66,7 +72,7 @@ class DimensionTextFields final : public QWidget {
         result.prefix = prefix_->text().toStdString();
         result.suffix = suffix_->text().toStdString();
         result.text_override = display_text_override_->text().trimmed().toStdString();
-        result.tolerance_mode = tolerance_mode_->currentData().toString().toStdString();
+        result.tolerance_mode = basic_->isChecked() ? "basic" : tolerance_mode_->currentData().toString().toStdString();
         result.symmetric_tolerance = symmetric_tolerance_->text().trimmed().toStdString();
         result.single_tolerance = single_tolerance_->text().trimmed().toStdString();
         result.upper_tolerance = upper_tolerance_->text().trimmed().toStdString();
@@ -82,8 +88,12 @@ class DimensionTextFields final : public QWidget {
     QLineEdit *prefix_{}, *suffix_{}, *display_text_override_{}, *symmetric_tolerance_{},
         *single_tolerance_{}, *upper_tolerance_{}, *lower_tolerance_{};
     QComboBox *tolerance_mode_{};
+    QCheckBox *basic_{};
     QSpinBox *decimals_{};
     void refresh_tolerance_fields() {
+        tolerance_mode_->setEnabled(!basic_->isChecked());
+        for(auto* field:{symmetric_tolerance_,single_tolerance_,upper_tolerance_,lower_tolerance_})
+            field->setEnabled(!basic_->isChecked());
         const auto mode = tolerance_mode_->currentData().toString();
         form_->setRowVisible(symmetric_tolerance_, mode == "symmetric");
         form_->setRowVisible(single_tolerance_, mode == "single_deviation");

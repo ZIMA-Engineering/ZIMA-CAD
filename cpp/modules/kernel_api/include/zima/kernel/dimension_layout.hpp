@@ -9,6 +9,13 @@
 #include <zima/kernel/geometry_kernel.hpp>
 
 namespace zima::kernel {
+// A basic (theoretically exact) dimension is mutually exclusive with deviations.
+inline bool dimension_is_basic(const DimensionTextStyle& style) {
+    return style.tolerance_mode == "basic";
+}
+inline bool dimension_is_basic(const ViewerDimension& dimension) {
+    return dimension.source_text_style && dimension_is_basic(*dimension.source_text_style);
+}
 inline std::string dimension_unit_text(const std::string& suffix) {
     const auto first=suffix.find_first_not_of(" \t");
     return first!=std::string::npos && suffix.compare(first,2,"mm")==0

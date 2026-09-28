@@ -14,6 +14,7 @@
 #include "body_scale_dialog.hpp"
 #include "symbol_family_dialog.hpp"
 #include "mass_properties_dialog.hpp"
+#include "dimension_properties_fields.hpp"
 #include <QAction>
 #include <QApplication>
 #include <QDialogButtonBox>
@@ -389,6 +390,12 @@ int verify_translations(QApplication& application, QWidget& parent) {
             editing.findChild<QComboBox*>("constructionAxisExtentMode")->setCurrentIndex(2);application.processEvents();
             check(!editing.findChild<QDoubleSpinBox*>("constructionAxisReverseLength")->isVisible(),"Symmetric axis exposes second length");
             editing.reject();application.processEvents();
+        }
+        {
+            app::DimensionTextFields fields({},&parent);
+            const auto* basic=fields.findChild<QCheckBox*>("dimensionBasic");
+            check(basic&&basic->text()==settings.qt_translations.value("Teoreticky přesná kóta (rámeček)"),"Basic dimension label is untranslated");
+            check(basic->toolTip()==settings.qt_translations.value("Teoreticky přesná kóta nemá rozměrové tolerance. Platí i pro úhly, poloměry a průměry."),"Basic dimension tooltip is untranslated");
         }
         std::cout << "Translations verified: " << languages[language].toStdString() << '\n';
     }

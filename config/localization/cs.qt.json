@@ -1,4 +1,6 @@
 {
+  "Teoreticky přesná kóta (rámeček)": "Teoreticky přesná kóta (rámeček)",
+  "Teoreticky přesná kóta nemá rozměrové tolerance. Platí i pro úhly, poloměry a průměry.": "Teoreticky přesná kóta nemá rozměrové tolerance. Platí i pro úhly, poloměry a průměry.",
   "Surface draft requires a closed profile.": "Úkos povrchu vyžaduje uzavřený profil.",
   "Draft supports profiles made of lines and circular arcs.": "Úkos podporuje profily složené z úseček a kruhových oblouků.",
   "Úhel úkosu": "Úhel úkosu",

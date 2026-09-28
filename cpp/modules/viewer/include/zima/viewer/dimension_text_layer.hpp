@@ -43,10 +43,13 @@ inline std::vector<DimensionTextRun> dimension_text_runs(const QFont& font,const
     const double left=metrics.horizontalAdvance(parts[0]+" "),align=std::max(decimal(parts[1]),decimal(parts[2]));
     return {{parts[0],{}},{parts[1],{left+align-decimal(parts[1]),-metrics.height()*tolerance_scale},tolerance_scale},{parts[2],{left+align-decimal(parts[2]),0},tolerance_scale}};
 }
-inline double dimension_text_width(const QFont& font,const QString& text) {
+inline double dimension_frame_padding(const QFont& font) {
+    return .2 * QFontMetricsF(font).capHeight();
+}
+inline double dimension_text_width(const QFont& font,const QString& text,bool basic=false) {
     const QFontMetricsF metrics(font);double width=0;
     for(const auto& run:dimension_text_runs(font,text))width=std::max(width,run.baseline.x()+run.scale*metrics.horizontalAdvance(run.text));
-    return width;
+    return width + (basic ? 2 * dimension_frame_padding(font) : 0);
 }
 struct DimensionTextLabel {
     QString text;
@@ -54,8 +57,10 @@ struct DimensionTextLabel {
     double angle{};
     QFont font;
     QColor color;
+    bool basic{};
+    double frame_width{1.5};
 };
-inline QRectF dimension_text_box(const QFont& font, const QString& text, double padding) {
+inline QRectF dimension_text_box(const QFont& font, const QString& text, double padding, bool basic=false) {
     const QFontMetricsF metrics(font);
     QRectF bounds;
     for(const auto& run:dimension_text_runs(font,text)){
@@ -64,23 +69,30 @@ inline QRectF dimension_text_box(const QFont& font, const QString& text, double 
     }
     bounds.setLeft(std::min(0., bounds.left()));
     bounds.setRight(std::max(dimension_text_width(font,text), bounds.right()));
+    if(basic)padding+=dimension_frame_padding(font);
     return bounds.adjusted(-padding, -padding, padding, padding);
 }
 // Keep the opaque label background clear of its own dimension stroke,
 // including descenders and font rounding at different paper zoom levels.
 inline double dimension_text_clearance(const QFont& font, const QString& text,
-                                       double padding, double stroke_width, double minimum_gap) {
-    return std::max(minimum_gap, dimension_text_box(font,text,padding).bottom()+stroke_width*.5+padding*.5);
+                                       double padding, double stroke_width, double minimum_gap, bool basic=false) {
+    return std::max(minimum_gap, dimension_text_box(font,text,padding,basic).bottom()+stroke_width*.5+padding*.5);
 }
 // Painting, text picking and grip layout must use the same font and clearance.
 template<class Project>
 DimensionPresentation dimension_text_presentation(const kernel::ViewerDimension& dimension,
     Project project, const QFont& font, const QString& text, double padding,
     double stroke_width, double arrow=10, double minimum_gap=3, bool angular_leaders=false) {
-    const auto bounds = dimension_text_box(font,text,padding);
+    const bool basic=kernel::dimension_is_basic(dimension);
+    const auto bounds = dimension_text_box(font,text,padding,basic);
     const double gap = std::max(minimum_gap,bounds.bottom()+stroke_width*.5+padding*.5);
-    return dimension_presentation(dimension,project,dimension_text_width(font,text),arrow,
-        gap,angular_leaders,bounds);
+    auto result=dimension_presentation(dimension,project,dimension_text_width(font,text,basic),arrow,
+        gap,angular_leaders,basic?bounds.translated(dimension_frame_padding(font),0):bounds);
+    if(basic) {
+        const double angle=result.text_angle*std::numbers::pi/180.;
+        result.text_baseline+=dimension_frame_padding(font)*QPointF(std::cos(angle),std::sin(angle));
+    }
+    return result;
 }
 // Stable input order is the annotation order: each later label masks earlier
 // labels as well as all geometry painted before this final text layer.
@@ -93,7 +105,7 @@ void paint_dimension_text_layer(QPainter& painter, std::span<const DimensionText
         transform.translate(label.baseline.x(),label.baseline.y());
         transform.rotate(label.angle);
         QPainterPath mask;
-        mask.addRect(dimension_text_box(label.font,label.text,padding));
+        mask.addRect(dimension_text_box(label.font,label.text,padding,label.basic));
         painter.save();
         background(painter,transform.map(mask));
         painter.setTransform(transform,true);
@@ -101,6 +113,11 @@ void paint_dimension_text_layer(QPainter& painter, std::span<const DimensionText
         painter.setPen(label.color);
         for(const auto& run:dimension_text_runs(label.font,label.text)){
             painter.save();painter.translate(run.baseline);painter.scale(run.scale,run.scale);painter.drawText(QPointF{},run.text);painter.restore();
+        }
+        if(label.basic) {
+            painter.setBrush(Qt::NoBrush);
+            painter.setPen(QPen(label.color,label.frame_width));
+            painter.drawRect(dimension_text_box(label.font,label.text,0,true));
         }
         painter.restore();
     }

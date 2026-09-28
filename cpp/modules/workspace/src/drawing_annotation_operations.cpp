@@ -86,7 +86,7 @@ bool set_drawing_annotation_layout(drawing::DrawingDocument& document,const std:
     catch(const std::invalid_argument&) {throw DrawingOperationError("invalid_arguments","Invalid model annotation layout.");}
     if(layout.text_style) {
         const auto& style=*layout.text_style;
-        if(style.decimals<0||style.decimals>12||(style.tolerance_mode!=""&&style.tolerance_mode!="symmetric"&&
+        if(style.decimals<0||style.decimals>12||(style.tolerance_mode!=""&&style.tolerance_mode!="basic"&&style.tolerance_mode!="symmetric"&&
             style.tolerance_mode!="single_deviation"&&style.tolerance_mode!="deviations"))
             throw DrawingOperationError("invalid_arguments","Invalid model annotation layout.");
     }

@@ -1,4 +1,6 @@
 {
+  "Teoreticky přesná kóta (rámeček)": "Theoretisch exaktes Maß (Rahmen)",
+  "Teoreticky přesná kóta nemá rozměrové tolerance. Platí i pro úhly, poloměry a průměry.": "Ein theoretisch exaktes Maß hat keine Maßtoleranzen. Dies gilt auch für Winkel, Radien und Durchmesser.",
   "Surface draft requires a closed profile.": "Eine Flächenentformungsschräge erfordert ein geschlossenes Profil.",
   "Draft supports profiles made of lines and circular arcs.": "Die Entformungsschräge unterstützt Profile aus Linien und Kreisbögen.",
   "Úhel úkosu": "Entformungswinkel",

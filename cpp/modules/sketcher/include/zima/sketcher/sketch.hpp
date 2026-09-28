@@ -307,7 +307,7 @@ struct SketchDimension {
     bool angle_presentation_reversed{};
     // Presentation metadata belongs to the persisted ZIMA dimension, not to
     // a transient viewer label. Tolerance mode is: empty, symmetric,
-    // single_deviation, or deviations.
+    // single_deviation, deviations, or basic (theoretically exact, no deviations).
     std::string prefix;
     std::string suffix;
     std::string display_text_override;

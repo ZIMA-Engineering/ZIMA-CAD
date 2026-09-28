@@ -19,7 +19,7 @@ viewer::DimensionPresentation chain_dimension_layout(
         result.curves.push_back(QPolygonF{origin,target});
         result.arrows.push_back({tip, source.arrows_reversed ? -direction : direction});
     }
-    const auto bounds=viewer::dimension_text_box(font,text,.5*scale);
+    const auto bounds=viewer::dimension_text_box(font,text,.5*scale,!datum&&kernel::dimension_is_basic(source));
     auto along=QPointF(-direction.y(),direction.x());
     if(along.x() < -1e-9 || (std::abs(along.x())<1e-9 && along.y()>0))along=-along;
     auto outward=tip-witness;
