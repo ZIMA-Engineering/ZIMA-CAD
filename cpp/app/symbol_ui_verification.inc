@@ -48,14 +48,16 @@ int verify_symbol_ui(QApplication& application,zima::app::AssemblyWorkspaceWindo
             auto* attachment_options=new app::SymbolAttachmentDialog(translated_symbol,[](auto){},&window,true);
             check(attachment_options->findChild<QCheckBox*>("symbolPerpendicularLeader")->text()==settings.qt_translations.value("Odkaz kolmý k entitě"),"Perpendicular leader translation differs");
             const auto* shelf=attachment_options->findChild<QComboBox*>("symbolShelfMode");
+            const auto* ending=attachment_options->findChild<QComboBox*>("symbolLeaderEnding");
+            check(ending&&ending->itemText(0)==settings.qt_translations.value("Šipka")&&ending->itemText(1)==settings.qt_translations.value("Trojúhelník")&&ending->itemText(2)==settings.qt_translations.value("Tečka"),"Leader ending choices are untranslated");
             check(shelf&&shelf->itemText(0)==settings.qt_translations.value("Pod symbolem")&&shelf->itemText(1)==settings.qt_translations.value("K uchopovacímu bodu"),"Shelf choices are untranslated");
             attachment_options->reject();flush();
-            const auto weld_definition=symbols::Definition::load(std::filesystem::current_path()/"config/symbols/welding/ZE-FILLET-WELD-ISO2553.symz");
+            const auto weld_definition=symbols::Definition::load(std::filesystem::current_path()/"config/symbols/welding/ZE-WELDING-ISO2553.symz");
             sketcher::SymbolInstance weld;weld.id="localized-weld";weld.definition=weld_definition.serialized();weld.variant=weld_definition.default_variant;
             auto* weld_options=new app::SymbolDialog(weld,{},[](auto){},&window);
             auto* variant=weld_options->findChild<QComboBox*>("symbolVariant");
-            check(variant->itemText(variant->findData("arrow_side"))==settings.qt_translations.value("ISO 2553 A — strana šipky"),"Weld arrow-side label is untranslated");
-            check(variant->itemText(variant->findData("other_side"))==settings.qt_translations.value("ISO 2553 A — opačná strana"),"Weld other-side label is untranslated");
+            check(variant->itemText(variant->findData("FILLET/arrow_side")).endsWith(settings.qt_translations.value("ISO 2553 A — strana šipky")),"Weld arrow-side label is untranslated");
+            check(variant->itemText(variant->findData("FILLET/other_side")).endsWith(settings.qt_translations.value("ISO 2553 A — opačná strana")),"Weld other-side label is untranslated");
             weld_options->reject();flush();
 
         }
@@ -80,9 +82,24 @@ int verify_symbol_ui(QApplication& application,zima::app::AssemblyWorkspaceWindo
         definition.save(editable);
         check(window.open_document_path(QString::fromStdString(editable.string())),"Cannot open native symbol document");flush();
         check(!insert->isEnabled(),"Symbol editor offers recursive symbol insertion");
-        auto* choice=window.findChild<QComboBox*>("symbolSketchChoice");
-        check(choice&&choice->count()==2,"Symbol editor lost variant sketches");
-        choice->setCurrentIndex(1);QMetaObject::invokeMethod(choice,"activated",Qt::DirectConnection,Q_ARG(int,1));flush();
+        check(!window.findChild<QComboBox*>("symbolSketchChoice"),"Obsolete symbol Sketch dropdown remains");
+        const auto enter_symbol_sketch=[&](const std::string& sketch_id){
+            QTreeWidgetItem* item=nullptr;
+            {
+                QTreeWidgetItemIterator it(tree);
+                while(*it){auto* candidate=*it++;if(candidate->data(0,Qt::UserRole).toString().toStdString()==sketch_id&&candidate->data(0,Qt::UserRole+3)=="part-sketch"){item=candidate;break;}}
+            }
+            check(item,"Native symbol Sketch is missing from its Body");window.show_tree_item_properties(item);flush();
+            auto* open=window.findChild<QPushButton*>("sketchOpenButton");check(open,"Native Sketch properties unavailable");open->click();flush();
+        };
+        check(!document::PartDocument::load(editable).body_history.active_body_id().empty(),"Symbol opens without an active Body");
+        const auto symbol_body=document::PartDocument::load(editable).body_history.active_body_id();
+        const auto activate_symbol_body=[&](const std::string& body){
+            const auto result=window.execute_console_command(QString::fromStdString(commands::Json{{"command","body.activate"},{"arguments",{{"body",body}}}}.dump()));flush();check(result.ok,"Symbol Body activation failed");};
+        activate_symbol_body({});auto* symbol_tools=window.findChild<QToolBar*>("toolsToolbar");
+        check(symbol_tools&&!symbol_tools->actions().contains(window.findChild<QAction*>("featurePrototypeAction")),"Symbol Body-list offers modeling commands");
+        activate_symbol_body(symbol_body);
+        check(symbol_tools->actions().contains(window.findChild<QAction*>("featurePrototypeAction")),"Symbol active Body lacks modeling commands");
         save->trigger();flush();
         check(symbols::Definition::load(editable).serialized()==definition.serialized(),"GUI Save changed variant metadata or native format");
         auto* create=window.findChild<QAction*>("newDocumentAction");check(create,"New document action unavailable");create->trigger();flush();
@@ -95,6 +112,7 @@ int verify_symbol_ui(QApplication& application,zima::app::AssemblyWorkspaceWindo
         const auto fresh_path=directory/(fresh_name.toStdString()+".symz");
         check(std::filesystem::exists(fresh_path),"New Symbol GUI Save did not write SYMZ");
         check(symbols::Definition::load(fresh_path).insertion_point==std::array<double,2>{0,0},"New Symbol grip is not the origin");
+        enter_symbol_sketch(symbols::Definition::load(fresh_path).sketches.front().id);
         auto* text_action=window.findChild<QAction*>("sketchTextAction");check(text_action&&text_action->isEnabled(),"Symbol text command unavailable");
         for(bool accept:{false,true}) {
             text_action->trigger();flush();
@@ -104,12 +122,19 @@ int verify_symbol_ui(QApplication& application,zima::app::AssemblyWorkspaceWindo
             check(orientation&&orientation->count()==2&&!orientation->currentData().toBool(),"Symbol text orientation option missing or enabled by default");
             orientation->setCurrentIndex(1);
             text_dialog->findChild<QPlainTextEdit*>("sketchTextValue")->setPlainText("Ra 3.2");
+            auto* text_action_kind=text_dialog->findChild<QComboBox*>("textFieldAction");
+            check(text_action_kind&&text_action_kind->findData("today")==-1,"Symbol text list settings are missing or offer an unsupported action");
+            text_action_kind->setCurrentIndex(text_action_kind->findData("list"));
+            text_dialog->findChild<QPlainTextEdit*>("textFieldChoices")->setPlainText("Ra 3.2\nRa 6.3");
+            text_dialog->findChild<QCheckBox*>("textFieldAllowCustom")->setChecked(false);
             check(!text_dialog->findChild<QCheckBox*>("sketchTextFlipped")->isChecked(),"New symbol text is reflected");
             if(accept)text_dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();else text_dialog->reject();
             flush();save->trigger();flush();
             const auto authored=symbols::Definition::load(fresh_path);
             check(authored.sketches.front().texts.size()==(accept?1:0),"Symbol text OK/Cancel failed");
+            check(authored.fields.size()==(accept?1:0),"Symbol text choice metadata did not follow OK/Cancel");
             if(accept) {
+                check(authored.fields.begin()->second.choices==std::vector<std::string>{"Ra 3.2","Ra 6.3"}&&!authored.fields.begin()->second.allow_custom,"Symbol text choices were not saved");
                 const auto& t=authored.sketches.front().texts.front();
                 check(t.drawing_keep_readable&&t.value=="Ra 3.2"&&!t.modeling_geometry&&t.height==2.5&&!t.flipped,"Symbol text properties lost");
                 auto rebuilt=t;app::rebuild_sketch_text_contours(rebuilt,true);
@@ -119,6 +144,32 @@ int verify_symbol_ui(QApplication& application,zima::app::AssemblyWorkspaceWindo
                 check(reopened_orientation&&reopened_orientation->currentData().toBool(),"Reopened text lost readable setting");
                 reopened_orientation->setCurrentIndex(0);reopened_text->reject();flush();save->trigger();flush();
                 check(symbols::Definition::load(fresh_path).sketches.front().texts.front().drawing_keep_readable,"Cancel changed saved text readability");
+            }
+        }
+        auto* family_action=window.findChild<QAction*>("familyTableAction");check(family_action&&family_action->isEnabled(),"Symbol Family Table unavailable");
+        for(bool accept:{false,true}) {
+            family_action->trigger();flush();auto* family=window.findChild<QDialog*>("symbolFamilyDialog");check(family,"Symbol Family Table opened the model table");
+            auto* table=family->findChild<QTableWidget*>("symbolFamilyTable");check(table&&table->rowCount()==1&&table->columnCount()==3,"Symbol Family Table did not expose Sketch/text visibility");
+            family->findChild<QPushButton*>("symbolVariantAdd")->click();flush();
+            const int row=table->currentRow();table->item(row,0)->setText("Hidden text");table->item(row,2)->setCheckState(Qt::Unchecked);
+            const int old_height=table->height(),row_height=table->rowHeight(0);
+            family->resize(family->width(),family->height()+60);flush();
+            check(table->height()>=old_height+50&&table->rowHeight(0)==row_height,"Resizing the symbol table did not grow its viewport with fixed rows");
+            window.grab().save(QString::fromStdString((directory/"symbol-family-table.png").string()));
+            if(accept) {
+                QMouseEvent confirm(QEvent::MouseButtonDblClick,QPointF(20,20),QPointF(view->mapToGlobal(QPoint(20,20))),Qt::MiddleButton,Qt::MiddleButton,Qt::NoModifier);
+                QApplication::sendEvent(view,&confirm);
+            }else family->reject();flush();save->trigger();flush();
+            const auto authored=symbols::Definition::load(fresh_path);
+            check(authored.variants.size()==(accept?2:1),"Family Table OK/Cancel failed");
+            if(accept) {
+                check(authored.evaluate("Hidden text").front().texts.empty(),"Family text visibility was not evaluated");
+                sketcher::SymbolInstance instance;instance.id="authored-ui";instance.definition=authored.serialized();instance.variant=authored.default_variant;
+                auto* options=new app::SymbolDialog(instance,{},[](auto){},&window);options->show();flush();
+                auto* field=options->findChild<QComboBox*>("symbolField:Ra 3.2");auto* variants=options->findChild<QComboBox*>("symbolVariant");
+                check(field&&field->count()==2&&!field->isEditable()&&variants->count()==2,"Authored variant/text lists missing from insertion properties");
+                variants->setCurrentIndex(variants->findData("Hidden text"));flush();check(!field->isVisible(),"Hidden text field still offered by insertion");
+                options->reject();flush();
             }
         }
         view->fit_all();flush();
@@ -233,6 +284,15 @@ int verify_symbol_ui(QApplication& application,zima::app::AssemblyWorkspaceWindo
             chooser.start(100);insert_sheet->trigger();chooser.stop();flush();
             auto* editor=dynamic_cast<app::SymbolAttachmentDialog*>(window.findChild<QDialog*>("symbolAttachmentDialog"));
             check(editor,"Drawing symbol dialog missing");
+            auto* roughness=editor->findChild<QComboBox*>("symbolField:Specification");
+            auto* process=editor->findChild<QComboBox*>("symbolVariant");
+            check(roughness&&roughness->findText("Ra 6.3")>=0&&process&&process->count()==3,"Roughness variants or value choices are missing from Drawing insertion");
+            auto* scroll=editor->findChild<QScrollArea*>("symbolPropertiesScroll");
+            const auto in_view=[&](QWidget* field){return scroll->viewport()->rect().contains(QRect(field->mapTo(scroll->viewport(),QPoint{}),field->size()));};
+            check(in_view(roughness)&&in_view(process)&&in_view(editor->findChild<QTableWidget*>("symbolReference")),"Initial symbol window hides reference, variant or roughness controls");
+            check(editor->findChild<QTableWidget*>("symbolReference")->mapTo(editor,QPoint{}).y()<process->mapTo(editor,QPoint{}).y(),"Symbol properties reordered attachment below variant");
+            editor->grab().save(QString::fromStdString((directory/"symbol-properties-full.png").string()));
+            roughness->setCurrentText("Ra 6.3");process->setCurrentIndex(process->findData("no_material_removal"));
             const auto rect=drawing_window->sheet_rectangle_for_test();const auto& sheet=drawing_window->document_for_test().sheets.front();
             const double zoom=rect.width()/sheet.width_mm();
             const QPointF point=rect.topLeft()+QPointF(sheet.width_mm()-100,sheet.height_mm()-180)*zoom;
@@ -246,11 +306,19 @@ int verify_symbol_ui(QApplication& application,zima::app::AssemblyWorkspaceWindo
         }
         save->trigger();flush();check(drawing::DrawingDocument::load(drawing_path).sheets.front().symbol_contacts.size()==1,"Drawing symbol reference did not persist");
         const auto sheet_symbol=drawing_window->document_for_test().sheets.front().symbol_annotations.front();
+        check(sheet_symbol.symbol.variant=="no_material_removal"&&sheet_symbol.symbol.text_values.at("Specification")=="Ra 6.3","Drawing did not persist selected roughness variant/value");
         const auto sheet_key="drawing-symbol:"+sheet_symbol.symbol.id;drawing_window->select_tree_entities({sheet_key},sheet_key);flush();
         QMenu sheet_menu;drawing_window->populate_selection_menu(sheet_menu);auto* sheet_properties=sheet_menu.findChild<QAction*>("drawingEntityPropertiesAction");
         check(sheet_properties,"Drawing symbol Properties action missing");sheet_properties->trigger();flush();
         auto* reopened_symbol=dynamic_cast<app::SymbolAttachmentDialog*>(window.findChild<QDialog*>("symbolAttachmentDialog"));
         check(reopened_symbol&&reopened_symbol->pending_placement()==sheet_symbol,"Drawing symbol Properties lost reference or local pose");
+        {
+            auto* scroll=reopened_symbol->findChild<QScrollArea*>("symbolPropertiesScroll");
+            auto* field=reopened_symbol->findChild<QComboBox*>("symbolField:Specification");
+            check(scroll->viewport()->rect().contains(QRect(field->mapTo(scroll->viewport(),QPoint{}),field->size())),"Reopened symbol window hides roughness");
+        }
+        check(reopened_symbol->findChild<QComboBox*>("symbolField:Specification")->currentText()=="Ra 6.3","Reopening roughness lost the chosen text");
+        reopened_symbol->findChild<QComboBox*>("symbolField:Specification")->setCurrentText("Ra 12.5");
         {
             reopened_symbol->findChild<QCheckBox*>("symbolPerpendicularLeader")->setChecked(true);flush();
             auto value=reopened_symbol->pending_placement();
@@ -310,9 +378,10 @@ int verify_symbol_ui(QApplication& application,zima::app::AssemblyWorkspaceWindo
                 check(std::abs(b.x-a.x-dx)<1e-7&&std::abs(b.y-a.y-dy)<1e-7,"GUI view drag detached a symbol stroke");
             }
         }
-        chosen_symbol=std::filesystem::current_path()/"config/symbols/geometric-tolerances/ZE-PERPENDICULARITY-ISO1101.symz";
+        chosen_symbol=std::filesystem::current_path()/"config/symbols/geometric-tolerances/ZE-GEOMETRIC-TOLERANCES-ISO1101.symz";
         chooser.start(100);insert_sheet->trigger();chooser.stop();flush();
         auto* free_symbol=dynamic_cast<app::SymbolAttachmentDialog*>(window.findChild<QDialog*>("symbolAttachmentDialog"));check(free_symbol,"Free Drawing symbol dialog missing");
+        free_symbol->findChild<QComboBox*>("symbolVariant")->setCurrentIndex(free_symbol->findChild<QComboBox*>("symbolVariant")->findData("PERPENDICULARITY/default"));
         free_symbol->findChild<QDoubleSpinBox*>("symbolOrigin0")->setValue(90);free_symbol->findChild<QDoubleSpinBox*>("symbolOrigin1")->setValue(140);
         free_symbol->findChild<QComboBox*>("symbolField:Secondary datum")->setCurrentText("B");
         free_symbol->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
@@ -323,8 +392,8 @@ int verify_symbol_ui(QApplication& application,zima::app::AssemblyWorkspaceWindo
         check(std::filesystem::file_size(directory/"symbol-sheet.pdf")>1000&&std::filesystem::file_size(directory/"symbol-sheet.dxf")>1000,"Symbol export missing");
         auto imported_symbols=sketcher::Sketch::create_default();const auto dxf_check=interchange::import_dxf(directory/"symbol-sheet.dxf",imported_symbols);
         check(dxf_check.imported_entities>10,"Exported symbol DXF has no readable vector geometry");
-        const auto tolerance_definition=symbols::Definition::load(std::filesystem::current_path()/"config/symbols/geometric-tolerances/ZE-PERPENDICULARITY-ISO1101.symz");
-        sketcher::SymbolInstance tolerance;tolerance.id="tolerance-ui";tolerance.definition=tolerance_definition.serialized();tolerance.variant=tolerance_definition.default_variant;
+        const auto tolerance_definition=symbols::Definition::load(std::filesystem::current_path()/"config/symbols/geometric-tolerances/ZE-GEOMETRIC-TOLERANCES-ISO1101.symz");
+        sketcher::SymbolInstance tolerance;tolerance.id="tolerance-ui";tolerance.definition=tolerance_definition.serialized();tolerance.variant="PERPENDICULARITY/default";
         std::optional<sketcher::SymbolInstance> accepted_tolerance;
         auto* tolerance_dialog=new app::SymbolDialog(tolerance,{},[&](auto value){accepted_tolerance=std::move(value);},&window);tolerance_dialog->show();flush();
         const auto tolerance_field=[&](const char* name){return tolerance_dialog->findChild<QComboBox*>(QString("symbolField:")+name);};
@@ -333,7 +402,7 @@ int verify_symbol_ui(QApplication& application,zima::app::AssemblyWorkspaceWindo
         tolerance_field("Tolerance")->setCurrentText("0,05");tolerance_field("Primary datum")->setCurrentText("");submit_tolerance();check(!accepted_tolerance,"Orientation tolerance accepted without datum");
         tolerance_field("Primary datum")->setCurrentText("a");tolerance_field("Tertiary datum")->setCurrentText("C");submit_tolerance();check(!accepted_tolerance,"Gap in datum precedence accepted");
         tolerance_field("Secondary datum")->setCurrentText("B");submit_tolerance();check(accepted_tolerance&&accepted_tolerance->text_values.at("Tolerance")=="0.05"&&accepted_tolerance->text_values.at("Primary datum")=="A","Valid geometric tolerance was not normalized and committed");
-        chosen_symbol=std::filesystem::current_path()/"config/symbols/welding/ZE-FILLET-WELD-ISO2553.symz";
+        chosen_symbol=std::filesystem::current_path()/"config/symbols/welding/ZE-WELDING-ISO2553.symz";
         window.resize(1024,680);flush();
         for(const double offset:{-30.,30.}) {
             const auto before=drawing_window->document_for_test().sheets.front().symbol_annotations.size();
@@ -341,7 +410,7 @@ int verify_symbol_ui(QApplication& application,zima::app::AssemblyWorkspaceWindo
                 chooser.start(100);insert_sheet->trigger();chooser.stop();flush();
                 auto* editor=dynamic_cast<app::SymbolAttachmentDialog*>(window.findChild<QDialog*>("symbolAttachmentDialog"));check(editor,"Weld editor missing");
                 check(editor->findChild<QCheckBox*>("symbolLeader")->isChecked(),"Weld did not default to a leader");
-                auto* variant=editor->findChild<QComboBox*>("symbolVariant");variant->setCurrentIndex(variant->findData(offset<0?"other_side":"arrow_side"));
+                auto* variant=editor->findChild<QComboBox*>("symbolVariant");variant->setCurrentIndex(variant->findData(offset<0?"FILLET/other_side":"FILLET/arrow_side"));
                 const auto prefix=offset<0?"Other":"Arrow";
                 editor->findChild<QDoubleSpinBox*>("symbolOrigin0")->setValue(140);editor->findChild<QDoubleSpinBox*>("symbolOrigin1")->setValue(offset<0?110:80);
                 editor->findChild<QDoubleSpinBox*>("symbolPlacement0")->setValue(offset);editor->findChild<QDoubleSpinBox*>("symbolPlacement1")->setValue(12);

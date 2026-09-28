@@ -57,8 +57,10 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
     invalid_material=material;invalid_material[0]["value"]="line1\nline2";rejected("document.material.set",{{"properties",invalid_material}});
     invalid_material=material;invalid_material[0]["key"]="NAME=VALUE";rejected("document.material.set",{{"properties",invalid_material}});
     const auto box_id=part->session.document().history.front().id;
-    Json family={{"columns",{"NUMBER","LENGTH"}},{"bindings",{{"NUMBER",{{"kind","feature"},{"owner",box_id},{"key",""}}},{"LENGTH",{{"kind","dimension"},{"owner",box_id},{"key","parameter:length_forward"}}}}},{"instances",Json::array({{{"id",""},{"name","Držák 10"},{"values",{{"NUMBER","yes"},{"LENGTH","10"}}}},{{"id",""},{"name","Držák 20"},{"values",{{"LENGTH","20"}}}}})}};
+    Json family={{"columns",{"NUMBER","LENGTH"}},{"bindings",{{"NUMBER",{{"kind","feature"},{"owner",box_id},{"key",""}}},{"LENGTH",{{"kind","dimension"},{"owner",box_id},{"key","parameter:length_forward"}}}}},{"instances",Json::array({{{"id",""},{"shared_name",true},{"labels",nlohmann::json::object()},{"name","Držák 10"},{"values",{{"NUMBER","yes"},{"LENGTH","10"}}}},{{"id",""},{"shared_name",true},{"labels",nlohmann::json::object()},{"name","Držák 20"},{"values",{{"LENGTH","20"}}}}})}};
+    family["instances"][0]["shared_name"]=false;family["instances"][0]["labels"]={{"en","Bracket 10"},{"cs","Drzak 10"}};
     const auto empty_family=part->session.document().family_table;const auto changed_family=run(host,"document.family.set",{{"table",family}}).data.at("table");
+    require(changed_family.at("instances")[0].at("labels")==family.at("instances")[0].at("labels")&&!changed_family.at("instances")[0].at("shared_name").get<bool>(),"Family command lost localization");
     require(changed_family.at("instances")[1].at("values").at("NUMBER")=="","Missing family cells were not normalized");
     require(!run(host,"document.family.set",{{"table",family}}).data.at("changed").get<bool>(),"Family normalization created redundant Undo");
     run(host,"undo");require(part->session.document().family_table==empty_family,"Family Undo failed");run(host,"redo");
@@ -67,6 +69,9 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
     invalid_family=family;invalid_family["instances"][0]["name"]="engineering-part";rejected("document.family.set",{{"table",invalid_family}});
     invalid_family=family;invalid_family["instances"][0]["values"]["unknown"]="5";rejected("document.family.set",{{"table",invalid_family}});
     invalid_family=family;invalid_family["instances"][0]["values"]["LENGTH"]=5;rejected("document.family.set",{{"table",invalid_family}});
+    invalid_family=family;invalid_family["instances"][0]["labels"]["xx"]="Unsupported";rejected("document.family.set",{{"table",invalid_family}});
+    invalid_family=family;invalid_family["instances"][0]["labels"]["en"]=5;rejected("document.family.set",{{"table",invalid_family}});
+    invalid_family=family;invalid_family["instances"][0]["shared_name"]="yes";rejected("document.family.set",{{"table",invalid_family}});
     run(host,"document.relations.set",{{"relations",Json::array()}});
     require(part->session.document().relations.empty() && part->session.document().user_parameters.at("final")=="22.200000000","Removing relations lost the last calculated parameter value");run(host,"undo");
     run(host,"save");const auto saved=document::PartDocument::load(dir/"engineering-part.prtz");

@@ -39,7 +39,7 @@ DocumentSave prepare_document_save(const Workspace& workspace,
                     auto extension=target.extension().string();
                     std::ranges::transform(extension,extension.begin(),[](unsigned char c){return std::tolower(c);});
                     if(extension!=".symz")throw std::invalid_argument("A symbol document requires the symz extension");
-                    job.snapshot_=edited_symbol_definition(workspace,id);
+                    job.snapshot_=DocumentSave::Part{value.session.document(),value.session.calculated_boundaries()};
                 } else job.snapshot_=DocumentSave::Part{value.session.document(),value.session.calculated_boundaries()};
             }
             else job.snapshot_=value.session.document();

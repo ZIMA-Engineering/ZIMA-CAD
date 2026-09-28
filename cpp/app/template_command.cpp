@@ -131,11 +131,19 @@ private:
 const zima::sketcher::Sketch* AssemblyWorkspaceWindow::template_sketch() const {
     const auto* part=workspace_.open_part(workspace_.active_document_id());
     if(!part||part->session.document().sketches.empty())return nullptr;
+    if(part->native_drawing_template) {
+        const auto& sketches=part->session.document().sketches;
+        const auto found=std::ranges::find(sketches,active_sketch_id_,&zima::sketcher::Sketch::id);
+        return found!=sketches.end()&&found->drawing_template?&*found:nullptr;
+    }
     const auto& sketch=part->session.document().sketches.front();return sketch.drawing_template?&sketch:nullptr;
 }
 void AssemblyWorkspaceWindow::save_template_document(bool copy) {
-    const auto* sketch=template_sketch();if(!sketch)return;
     const auto id=workspace_.active_document_id();auto* part=workspace_.open_part(id);
+    if(!part)return;
+    const auto* sketch=template_sketch();
+    if(!sketch&&part->native_drawing_template&&!part->session.document().sketches.empty())sketch=&part->session.document().sketches.front();
+    if(!sketch||!sketch->drawing_template)return;
     const bool title=sketch->drawing_template->kind=="title_block";
     const QString suffix=title?"tblz":"frmz";
     const QString filter=title?tr("Razítko ZIMA-CAD (*.tblz)"):tr("Rámeček ZIMA-CAD (*.frmz)");
@@ -176,9 +184,9 @@ void AssemblyWorkspaceWindow::show_template_region_properties(const std::string&
     const auto* sketch=template_sketch();if(!sketch||properties_dialog_)return;
     if(!initial){const auto found=std::ranges::find(sketch->drawing_template->repeat_regions,id,&zima::sketcher::SketchRepeatRegion::id);if(found==sketch->drawing_template->repeat_regions.end())return;initial=*found;}
     const auto owner=workspace_.active_document_id();
-    auto* dialog=new RepeatRegionDialog(*initial,[this,owner,id](auto region){
+    auto* dialog=new RepeatRegionDialog(*initial,[this,owner,id,sketch_id=sketch->id](auto region){
         auto* part=workspace_.open_part(owner);if(!part)throw std::runtime_error(QObject::tr("Šablona již není otevřená.").toStdString());
-        static_cast<void>(workspace::commit_template_region(workspace_,owner,id,std::move(region)));
+        static_cast<void>(workspace::commit_template_region(workspace_,owner,id,std::move(region),sketch_id));
     },this);properties_dialog_=dialog;
     connect(dialog,&QDialog::finished,this,[this,dialog]{if(properties_dialog_==dialog)properties_dialog_=nullptr;preserve_view_on_refresh_=true;refresh_tabs();refresh_scene();});dialog->show();
 }
@@ -208,9 +216,9 @@ void AssemblyWorkspaceWindow::show_template_image_properties(const std::string& 
         auto preview=*current;auto& images=preview.drawing_template->images;
         const auto found=std::ranges::find(images,id,&zima::sketcher::TemplateImage::id);
         if(found==images.end())images.push_back(image);else *found=image;show_sketch_drag_preview(preview);
-    },[this,owner,id](auto image){
+    },[this,owner,id,sketch_id=sketch->id](auto image){
         auto* part=workspace_.open_part(owner);if(!part)throw std::runtime_error(QObject::tr("Šablona již není otevřená.").toStdString());
-        static_cast<void>(workspace::commit_template_image(workspace_,owner,id,std::move(image)));
+        static_cast<void>(workspace::commit_template_image(workspace_,owner,id,std::move(image),sketch_id));
     },this);
     properties_dialog_=dialog;template_image_anchor_=[dialog](double x,double y){dialog->set_anchor(x,y);};
     viewer_->set_selection_contract({});

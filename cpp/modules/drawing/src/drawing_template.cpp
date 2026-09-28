@@ -187,11 +187,10 @@ zima::sketcher::Sketch load_template_sketch(const std::filesystem::path& path,co
     ini.erase("Sketch");ini.erase("Geometry");ini.erase("FrameGeometry");s.drawing_template->sections=std::move(ini);
     s.validate();return s;
 }
-void save_template_sketch(const zima::sketcher::Sketch& sketch,const std::filesystem::path& path) {
+bool is_native_template_file(const std::filesystem::path& path) { return read(path).contains("Document"); }
+TemplateData template_sketch_data(const zima::sketcher::Sketch& sketch) {
     sketch.validate();if(!sketch.drawing_template)throw std::runtime_error("Skica není šablonou výkresu.");
     auto s=sketch;auto& m=*s.drawing_template;const bool title=m.kind=="title_block";
-    auto ext=path.extension().string();std::transform(ext.begin(),ext.end(),ext.begin(),[](unsigned char c){return std::tolower(c);});
-    if(ext!=(title?".tblz":".frmz"))throw std::runtime_error("Nesprávná přípona šablony.");
     auto& ini=m.sections;
     std::erase_if(ini,[](const auto& p){return p.first.starts_with("Field.")||p.first.starts_with("RepeatRegion.");});
     for(const auto& t:s.texts)if(m.field_ids.contains(t.id)) {
@@ -205,7 +204,7 @@ void save_template_sketch(const zima::sketcher::Sketch& sketch,const std::filesy
     }
     for(const auto& r:m.repeat_regions){validate_repeat_region(r);ini["RepeatRegion."+r.id]={{"Kind","bom"},{"X",num(r.x)},{"Y",num(r.y)},{"Width",num(r.width)},{"Height",num(r.height)},{"Direction",r.direction},{"Step",num(r.step)}};}
     ini[title?"TitleBlock":"Format"]["SchemaVersion"]="4";
-    Ini output=ini;auto& geometry=output[title?"Geometry":"FrameGeometry"];int line_index=0,text_index=0,circle_index=0;
+    Ini output=ini;output.erase("Geometry");output.erase("FrameGeometry");auto& geometry=output[title?"Geometry":"FrameGeometry"];int line_index=0,text_index=0,circle_index=0;
     const auto pen_for=[&](const std::string& id){const auto it=m.pens.find(id);return it==m.pens.end()?std::string("GREEN"):it->second;};
     for(const auto& e:s.viewer_mesh().edges) {
         const auto& key=e.reference.semantic_key;
@@ -219,6 +218,12 @@ void save_template_sketch(const zima::sketcher::Sketch& sketch,const std::filesy
     for(const auto& c:s.circles)if(!c.construction){const auto* p=s.find_point(c.center_point_id);geometry["Circle"+std::to_string(++circle_index)]=num(p->x)+", "+num(p->y)+", "+num(c.radius)+", "+pen_for(c.id);}
     for(const auto& t:s.texts)if(!m.field_ids.contains(t.id))geometry["Text"+std::to_string(++text_index)]=t.value+", "+num(t.anchor_x)+", "+num(t.anchor_y)+", "+num(t.height)+", "+pen(t.color)+", "+align(t.horizontal);
     output["Sketch"]["Data"]=Json::parse(s.serialized()).dump();
+    return output;
+}
+void save_template_sketch(const zima::sketcher::Sketch& sketch,const std::filesystem::path& path) {
+    const auto output=template_sketch_data(sketch);
+    auto ext=path.extension().string();std::transform(ext.begin(),ext.end(),ext.begin(),[](unsigned char c){return std::tolower(c);});
+    if(ext!=(sketch.drawing_template->kind=="title_block"?".tblz":".frmz"))throw std::runtime_error("Nesprávná přípona šablony.");
     // Validate the complete payload before replacing a library file; preserve its previous version.
     std::ostringstream content;for(const auto& [section,values]:output){content<<'['<<section<<"]\n";for(const auto& [k,v]:values)content<<k<<" = "<<v<<'\n';content<<'\n';}
     auto temporary=path;temporary+=".tmp-"+zima::kernel::make_stable_id();
@@ -232,7 +237,9 @@ void save_template_sketch(const zima::sketcher::Sketch& sketch,const std::filesy
 }
 
 void load_template_details(DrawingSheet& sheet,const std::filesystem::path& path,bool title) {
-    const auto ini=read(path);
+    load_template_details(sheet,read(path),title);
+}
+void load_template_details(DrawingSheet& sheet,const TemplateData& ini,bool title) {
     auto& circles=title?sheet.title_block_circles:sheet.frame_circles;circles.clear();
     const auto geometry=ini.find(title?"Geometry":"FrameGeometry");
     const auto drawing_pen=[](const std::string& name){return name=="RED"?DrawingPen::Red:name=="WHITE"?DrawingPen::White:name=="YELLOW"?DrawingPen::Yellow:DrawingPen::Green;};
@@ -286,10 +293,38 @@ void load_template_details(DrawingSheet& sheet,const std::filesystem::path& path
         append({t.value("text_value","-"),{t.at("x"),t.at("y")},t.value("text_height",2.5),drawing_pen(c),t.value("text_horizontal","left"),t.value("text_vertical","bottom"),t.value("text_angle",0.0),t.value("text_flip",true),t.value("text_font","osifont")},t.value("template_field_id",""),id);
     }
 }
+void append_title_block_sketch(DrawingSheet& target,const sketcher::Sketch& source) {
+    auto sketch=source;
+    for(auto& region:sketch.drawing_template->repeat_regions)region.id=sketch.id+":"+region.id;
+    DrawingSheet layer;load_template_data(layer,template_sketch_data(sketch),true);
+    const auto membership=[&](Point2 a,Point2 b) {
+        const auto in=[](const auto& r,Point2 p){return p.x>=r.x-1e-6&&p.x<=r.x+r.width+1e-6&&p.y>=r.y-1e-6&&p.y<=r.y+r.height+1e-6;};
+        for(const auto& r:layer.repeat_regions)if(in(r,a)&&in(r,b))return r.id;return std::string{};
+    };
+    const auto append=[&](const std::string& kind,auto& destination,const auto& values,const auto& bounds) {
+        auto& bindings=target.title_block_repeat_bindings[kind];
+        for(const auto& value:values){const auto [a,b]=bounds(value);bindings.push_back(membership(a,b));}
+        destination.insert(destination.end(),values.begin(),values.end());
+    };
+    append("lines",target.title_block_lines,layer.title_block_lines,[](const auto& v){return std::pair{v.first,v.second};});
+    append("circles",target.title_block_circles,layer.title_block_circles,[](const auto& v){return std::pair{Point2{v.center.x-v.radius,v.center.y-v.radius},Point2{v.center.x+v.radius,v.center.y+v.radius}};});
+    append("texts",target.title_block_texts,layer.title_block_texts,[](const auto& v){return std::pair{v.position,v.position};});
+    append("fields",target.title_block_fields,layer.title_block_fields,[](const auto& v){return std::pair{v.position,v.position};});
+    append("images",target.title_block_images,layer.title_block_images,[](const auto& v){const auto p=v.corners();return std::pair{Point2{p[0][0],p[0][1]},Point2{p[2][0],p[2][1]}};});
+    target.repeat_regions.insert(target.repeat_regions.end(),layer.repeat_regions.begin(),layer.repeat_regions.end());
+    target.title_block_symbols.insert(target.title_block_symbols.end(),layer.title_block_symbols.begin(),layer.title_block_symbols.end());
+    if(const auto found=sketch.drawing_template->sections.find("TitleBlock");found!=sketch.drawing_template->sections.end()&&found->second.contains("Locale"))
+        target.title_block_locale=found->second.at("Locale");
+}
 TemplateLayout title_block_layout(const DrawingSheet& sheet,const TitleBlockContext& context) {
     TemplateLayout result;
     const auto in=[](const auto& r,Point2 p){return p.x>=r.x-1e-6&&p.x<=r.x+r.width+1e-6&&p.y>=r.y-1e-6&&p.y<=r.y+r.height+1e-6;};
-    const auto region_for=[&](Point2 a,Point2 b) -> const SketchRepeatRegion* {
+    const auto region_for=[&](Point2 a,Point2 b,const std::string& kind,std::size_t index) -> const SketchRepeatRegion* {
+        if(const auto found=sheet.title_block_repeat_bindings.find(kind);found!=sheet.title_block_repeat_bindings.end()) {
+            if(index>=found->second.size()||found->second[index].empty())return nullptr;
+            const auto region=std::ranges::find(sheet.repeat_regions,found->second[index],&SketchRepeatRegion::id);
+            return region==sheet.repeat_regions.end()?nullptr:&*region;
+        }
         for(const auto& r:sheet.repeat_regions)if(in(r,a)&&in(r,b))return &r;return nullptr;
     };
     const auto copies=[&](const SketchRepeatRegion* r,const auto& draw) {
@@ -323,12 +358,12 @@ TemplateLayout title_block_layout(const DrawingSheet& sheet,const TitleBlockCont
                 align(text.horizontal),valign(text.vertical),-symbol.angle_degrees-text.angle_degrees,!text.flipped,text.font,"symbol:"+symbol.id});
         }
     }
-    for(const auto& image:sheet.title_block_images) {
+    for(std::size_t index=0;index<sheet.title_block_images.size();++index) {const auto& image=sheet.title_block_images[index];
         const auto box=image.corners();
-        copies(region_for({box[0][0],box[0][1]},{box[2][0],box[2][1]}),[&](Point2 o,const auto&,const auto&){auto i=image;i.x+=o.x;i.y+=o.y;result.images.push_back(std::move(i));});
+        copies(region_for({box[0][0],box[0][1]},{box[2][0],box[2][1]},"images",index),[&](Point2 o,const auto&,const auto&){auto i=image;i.x+=o.x;i.y+=o.y;result.images.push_back(std::move(i));});
     }
-    for(const auto& line:sheet.title_block_lines)copies(region_for(line.first,line.second),[&](Point2 o,const auto&,const auto&){auto l=line;l.first.x+=o.x;l.first.y+=o.y;l.second.x+=o.x;l.second.y+=o.y;result.lines.push_back(l);});
-    for(const auto& circle:sheet.title_block_circles)copies(region_for({circle.center.x-circle.radius,circle.center.y-circle.radius},{circle.center.x+circle.radius,circle.center.y+circle.radius}),[&](Point2 o,const auto&,const auto&){auto c=circle;c.center.x+=o.x;c.center.y+=o.y;result.circles.push_back(c);});
+    for(std::size_t index=0;index<sheet.title_block_lines.size();++index){const auto& line=sheet.title_block_lines[index];copies(region_for(line.first,line.second,"lines",index),[&](Point2 o,const auto&,const auto&){auto l=line;l.first.x+=o.x;l.first.y+=o.y;l.second.x+=o.x;l.second.y+=o.y;result.lines.push_back(l);});}
+    for(std::size_t index=0;index<sheet.title_block_circles.size();++index){const auto& circle=sheet.title_block_circles[index];copies(region_for({circle.center.x-circle.radius,circle.center.y-circle.radius},{circle.center.x+circle.radius,circle.center.y+circle.radius},"circles",index),[&](Point2 o,const auto&,const auto&){auto c=circle;c.center.x+=o.x;c.center.y+=o.y;result.circles.push_back(c);});}
     const auto bind=[&](TemplateText& text,const std::string& expression,std::optional<std::size_t> row,std::string id,bool editable=false){
         const auto tokens=title_block_tokens(expression);
         if(!editable&&std::ranges::none_of(tokens,[](const auto& token){return title_block_token_scope(token)!="system";})){text.field_id.clear();return;}
@@ -336,16 +371,16 @@ TemplateLayout title_block_layout(const DrawingSheet& sheet,const TitleBlockCont
         text.field_id=id;result.edit_targets[id]={expression,row};
     };
     for(std::size_t index=0;index<sheet.title_block_texts.size();++index){const auto& text=sheet.title_block_texts[index];
-        copies(region_for(text.position,text.position),[&](Point2 o,const auto& c,std::optional<std::size_t> row){
+        copies(region_for(text.position,text.position,"texts",index),[&](Point2 o,const auto& c,std::optional<std::size_t> row){
             auto t=text;TitleBlockField f;f.expression=t.text;t.text=resolve_title_block_text(f,c,sheet);t.position.x+=o.x;t.position.y+=o.y;
             bind(t,text.text,row,"text:"+std::to_string(index));result.texts.push_back(std::move(t));
         });
     }
-    for(const auto& field:sheet.title_block_fields) {
+    for(std::size_t index=0;index<sheet.title_block_fields.size();++index) {const auto& field=sheet.title_block_fields[index];
         auto position=field.position;
         if(!field.anchor_position){position.x+=field.alignment=="left"?field.box_width:field.alignment=="center"?field.box_width/2:0;
             position.y+=field.vertical_alignment=="top"?field.box_height:(field.vertical_alignment=="center"||field.vertical_alignment=="middle")?field.box_height/2:0;}
-        copies(region_for(position,position),[&](Point2 o,const auto& c,std::optional<std::size_t> row){
+        copies(region_for(position,position,"fields",index),[&](Point2 o,const auto& c,std::optional<std::size_t> row){
             TemplateText text{resolve_title_block_text(field,c,sheet),{position.x+o.x,position.y+o.y},field.height,field.pen,field.alignment,field.vertical_alignment,field.angle,field.flipped,field.font};
             bind(text,field.expression,row,field.id,field.editable);result.texts.push_back(std::move(text));
         });

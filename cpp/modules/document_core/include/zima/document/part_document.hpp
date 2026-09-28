@@ -697,6 +697,9 @@ public:
     void erase_history_object(const std::string& id);
     std::vector<HistoryContainer> history;
     std::vector<zima::sketcher::Sketch> sketches;
+    // Library insertion metadata is embedded in the native Part alongside its
+    // editable Body history and participates in Undo/Redo.
+    std::optional<std::string> symbol_editor_definition;
     // Persisted diagnostics from reference evaluation, keyed by history owner.
     std::map<std::string,std::string> reference_errors;
     std::vector<ConstructionObject> constructions;

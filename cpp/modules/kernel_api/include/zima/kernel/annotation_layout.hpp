@@ -36,6 +36,13 @@ inline std::vector<Vec3> annotation_stroke(const AnnotationStroke& a,Vec3 right,
     const auto direction=scale(delta,1/length);auto wing=dimension_cross(direction,dimension_cross(right,up));
     if(dimension_dot(wing,wing)<1e-12)wing=right;else wing=dimension_unit(wing);
     const double h=std::min(a.arrow_length,length*.5);const auto base=add(a.contact,scale(direction,h));
+    if(a.role==4)return {a.contact,add(base,scale(wing,h*.5773502691896257)),add(base,scale(wing,-h*.5773502691896257)),a.contact};
+    if(a.role==5) {
+        std::vector<Vec3> circle;constexpr int segments=32;
+        for(int i=0;i<=segments;++i){const double angle=i*2.*std::acos(-1.)/segments;
+            circle.push_back(add(a.contact,add(scale(right,h*.25*std::cos(angle)),scale(up,h*.25*std::sin(angle)))));}
+        return circle;
+    }
     return {add(base,scale(wing,h*.1763269807)),a.contact,add(base,scale(wing,-h*.1763269807))};
 }
 // Three grips share the exact rendering geometry: arrow tip, elbow, shelf end.

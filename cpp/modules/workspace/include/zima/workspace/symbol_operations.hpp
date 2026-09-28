@@ -6,6 +6,7 @@ bool is_symbol_document(const Workspace&,const std::string&);
 std::string open_symbol_document(Workspace&,const std::filesystem::path&);
 std::string create_symbol_document(Workspace&,const std::string&,const std::filesystem::path&);
 symbols::Definition edited_symbol_definition(const Workspace&,const std::string&);
+bool store_symbol_definition(Workspace&,const std::string&,const symbols::Definition&);
 void save_symbol_document(Workspace&,const std::string&,const std::filesystem::path&,bool copy=false);
 // Model annotations belong to the addressed document; Drawing annotations
 // require an explicit sheet. Each successful edit is one Undo transaction.

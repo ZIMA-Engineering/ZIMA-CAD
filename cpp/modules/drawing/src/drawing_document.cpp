@@ -8,6 +8,7 @@
 #include <zima/document/document_copy_json.hpp>
 #include <zima/document/viewer_packet_json.hpp>
 #include <zima/drawing/drawing_document.hpp>
+#include <zima/drawing/drawing_template.hpp>
 #include <zima/drawing/balloon.hpp>
 #include <zima/drawing/symbol_contacts.hpp>
 #include <zima/document/versioned_file.hpp>
@@ -643,6 +644,11 @@ void DrawingDocument::save(const std::filesystem::path& path,
         serialized["frame_texts"]=text_json(sheet.frame_texts);
         serialized["title_block_lines"]=line_json(sheet.title_block_lines);
         serialized["title_block_texts"]=text_json(sheet.title_block_texts);
+        serialized["title_block_definition"]=sheet.title_block_definition;
+        serialized["frame_definition"]=sheet.frame_definition;
+        serialized["frame_variant"]=sheet.frame_variant;
+        serialized["title_block_variant"]=sheet.title_block_variant;
+        serialized["title_block_repeat_bindings"]=sheet.title_block_repeat_bindings;
         serialized["title_block_fields"]=nlohmann::json::array();
         for(const auto& field:sheet.title_block_fields) serialized["title_block_fields"].push_back({
             {"id",field.id},{"expression",field.expression},{"value",field.value},
@@ -871,6 +877,11 @@ DrawingDocument DrawingDocument::load(const std::filesystem::path& path) {
         sheet.frame_texts=parse_texts(serialized.at("frame_texts"));
         sheet.title_block_lines=parse_lines(serialized.at("title_block_lines"));
         sheet.title_block_texts=parse_texts(serialized.at("title_block_texts"));
+        sheet.title_block_definition=serialized.value("title_block_definition",std::string{});
+        sheet.frame_definition=serialized.value("frame_definition",std::string{});
+        sheet.frame_variant=serialized.value("frame_variant",std::string{});
+        sheet.title_block_variant=serialized.value("title_block_variant",std::string{});
+        sheet.title_block_repeat_bindings=serialized.value("title_block_repeat_bindings",decltype(sheet.title_block_repeat_bindings){});
         for(const auto& item:serialized.at("title_block_fields")) sheet.title_block_fields.push_back({
             item.at("id"),item.at("expression"),item.at("value"),
             {item.at("position").at(0),item.at("position").at(1)},item.at("height"),item.at("editable"),
@@ -1009,7 +1020,13 @@ DrawingDocument DrawingDocument::load(const std::filesystem::path& path) {
 }
 
 void load_frame_template(DrawingSheet& sheet, const std::filesystem::path& path) {
-    const auto ini=read_ini(path);
+    load_template_data(sheet,read_ini(path),false);
+}
+void load_title_block_template(DrawingSheet& sheet, const std::filesystem::path& path) {
+    load_template_data(sheet,read_ini(path),true);
+}
+void load_template_data(DrawingSheet& sheet,const TemplateData& ini,bool title) {
+    if(!title) {
     const auto format=ini.find("Format");
     if (format == ini.end() || !format->second.contains("SheetFormat") ||
         format->second.at("SheetFormat") != format_name(sheet.format))
@@ -1020,11 +1037,8 @@ void load_frame_template(DrawingSheet& sheet, const std::filesystem::path& path)
     sheet.frame_trimming_marks=ini.contains("Frame")&&ini.at("Frame").contains("TrimmingMarks")&&ini.at("Frame").at("TrimmingMarks")=="true";
     parse_geometry(geometry->second,sheet.frame_lines,sheet.frame_texts,
         [](double x,double y){ return Point2{x,y}; });
-    load_template_details(sheet,path,false);
-}
-
-void load_title_block_template(DrawingSheet& sheet, const std::filesystem::path& path) {
-    const auto ini=read_ini(path);
+    load_template_details(sheet,ini,false);return;
+    }
     if (!ini.contains("TitleBlock")) throw std::runtime_error("Invalid title-block template");
     const auto locale = ini.at("TitleBlock").find("Locale");
     sheet.title_block_locale = locale == ini.at("TitleBlock").end() ? "cs" : locale->second;
@@ -1058,7 +1072,7 @@ void load_title_block_template(DrawingSheet& sheet, const std::filesystem::path&
         field.write_back=get("WriteBack","no")=="yes";
         sheet.title_block_fields.push_back(std::move(field));
     }
-    load_template_details(sheet,path,true);
+    load_template_details(sheet,ini,true);
 }
 
 namespace {

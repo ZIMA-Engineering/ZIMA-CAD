@@ -733,6 +733,7 @@ int main(int argc, char* argv[]) {
     const auto initial = zima::document::PartDocument::create_twisted_sheet_container();
 
     try {
+        if(qEnvironmentVariableIsSet("ZIMA_VERIFY_TRANSLATIONS_ONLY")) return verify_translations(application,parent);
         if(qEnvironmentVariableIsSet("ZIMA_BENCHMARK_SELECTION_WIRE")){benchmark_selection_wire(application,parent);return 0;}
         {
             QToolButton command(&parent);
@@ -814,7 +815,6 @@ int main(int argc, char* argv[]) {
         if(qEnvironmentVariableIsSet("ZIMA_VERIFY_STABLE_PLACEMENT_ROWS_ONLY")) return 0;
         if(qEnvironmentVariableIsSet("ZIMA_VERIFY_SHEET_ATTACHMENT_DIALOG_ONLY")) {verify_sheet_attachment_dialog(parent);verify_flat_attachment_dialog(parent);return 0;}
         if(qEnvironmentVariableIsSet("ZIMA_VERIFY_PART_DIALOG_LAYOUT_ONLY")) return verify_part_dialog_layout(application,parent);
-        if(qEnvironmentVariableIsSet("ZIMA_VERIFY_TRANSLATIONS_ONLY")) return verify_translations(application,parent);
         if(qEnvironmentVariableIsSet("ZIMA_VERIFY_VALUE_LOCKS_ONLY")) return verify_numeric_value_locks(application,parent);
         if(qEnvironmentVariableIsSet("ZIMA_VERIFY_ENTRY_TABLES_ONLY")) return verify_entry_tables(application,parent);
         if(qEnvironmentVariableIsSet("ZIMA_VERIFY_NUMERIC_ONLY")) return verify_numeric_fields(application,parent);
@@ -5373,7 +5373,7 @@ int main(int argc, char* argv[]) {
 
         bool family_committed = false;
         zima::app::DocumentToolData family_data;
-        family_data.family_table = R"({"columns":["d1"],"bindings":{"d1":{"kind":"dimension","owner":"box","key":"parameter:length"}},"instances":[{"id":"long","name":"LONG","values":{"d1":"20"}}]})";
+        family_data.family_table = R"({"columns":["d1"],"bindings":{"d1":{"kind":"dimension","owner":"box","key":"parameter:length"}},"instances":[{"id":"long","name":"LONG","values":{"d1":"20"},"shared_name":true,"labels":{}}]})";
         auto* family_dialog = new zima::app::FamilyTableDialog(
             "GENERIC", family_data, [&](zima::app::DocumentToolData value) {
                 family_committed = value.family_table.find("LONG") != std::string::npos;

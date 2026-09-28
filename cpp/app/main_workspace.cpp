@@ -313,7 +313,7 @@ int verify_family_rename(QApplication& application,zima::app::AssemblyWorkspaceW
         run("new",{{"type",kind},{"name",std::string("Rename ")+kind+" "+document::PartDocument::create_default().document_id}});
         const auto owner=run("context").at("active_document").get<std::string>();
         run("document.family.set",{{"table",{{"columns",commands::Json::array()},{"bindings",commands::Json::object()},
-            {"instances",commands::Json::array({{{"id",""},{"name","Original"},{"values",commands::Json::object()}}})}}}});
+            {"instances",commands::Json::array({{{"id",""},{"shared_name",true},{"labels",nlohmann::json::object()},{"name","Original"},{"values",commands::Json::object()}}})}}}});
         run("save");run("document.family.open",{{"instance","Original"}});
         const auto member=run("context").at("active_document").get<std::string>();
         const auto original_table=run("document.family.get").at("table");
@@ -371,33 +371,42 @@ int verify_family_table(QApplication& application,zima::app::AssemblyWorkspaceWi
     view->fit_all();auto* dialog=dynamic_cast<app::FamilyTableDialog*>(window.findChild<QDialog*>("familyTableDialog"));
     if(!verify(dialog&&dialog->width()>1000&&dialog->windowFlags().testFlag(Qt::SubWindow),"Family dialog width or internal presentation is wrong"))return 1;
     auto* table=dialog->findChild<QTableWidget*>("familyTableTable");
-    if(!verify(table&&dynamic_cast<ui::ReferenceCellItem*>(table->item(0,2))->is_active_input(),"Family base cell is not armed"))return 1;
+    if(!verify(table&&dynamic_cast<ui::ReferenceCellItem*>(table->item(0,4))->is_active_input(),"Family base cell is not armed"))return 1;
     const auto mouse=[&](QWidget* target,QEvent::Type type,QPointF p,Qt::MouseButton button){QMouseEvent e(type,p,p,QPointF(target->mapToGlobal(p.toPoint())),button,type==QEvent::MouseButtonPress?button:Qt::NoButton,Qt::NoModifier);QApplication::sendEvent(target,&e);flush();};
     const auto click=[&](QWidget* target,QPointF p){mouse(target,QEvent::MouseMove,p,Qt::NoButton);mouse(target,QEvent::MouseButtonPress,p,Qt::LeftButton);mouse(target,QEvent::MouseButtonRelease,p,Qt::LeftButton);};
     std::optional<QPointF> hit;
     for(int y=5;y<view->height()&&!hit;y+=8)for(int x=5;x<view->width();x+=8){const auto candidates=view->selection_candidates_at({double(x),double(y)});if(!candidates.empty()&&candidates[0].kind==viewer::CandidateKind::Container&&candidates[0].owner_id==box.id){hit=QPointF(x,y);break;}}
     if(!verify(hit.has_value(),"Family original solid is absent from the common picker"))return 1;
-    click(view,*hit);if(!verify(table->horizontalHeaderItem(2)->text()=="Block","Family LMB did not bind solid name"))return 1;
+    click(view,*hit);if(!verify(table->horizontalHeaderItem(4)->text()=="Block","Family LMB did not bind solid name"))return 1;
     mouse(view,QEvent::MouseButtonDblClick,*hit,Qt::LeftButton);mouse(view,QEvent::MouseButtonRelease,*hit,Qt::LeftButton);
     viewer::ViewerCandidate dimension;dimension.kind=viewer::CandidateKind::Dimension;dimension.owner_id=box.id;dimension.semantic_key="parameter:length_forward";
     const auto position=view->candidate_dimension_label_position(dimension);
     if(!verify(position.has_value(),"Family double click did not expose source dimensions"))return 1;
     click(view,*position);
     const auto name=part.dimension_identifiers.identifier(box.id,"parameter:length_forward");
-    if(!verify(table->horizontalHeaderItem(2)->text().toStdString()==name,"Family dimension did not bind secondary identifier"))return 1;
-    table->item(1,1)->setText("family-base-V01.prtz");table->item(1,2)->setText("20");flush();
+    if(!verify(table->horizontalHeaderItem(4)->text().toStdString()==name,"Family dimension did not bind secondary identifier"))return 1;
+    table->item(1,1)->setText("family-base-V01.prtz");table->item(1,4)->setText("20");flush();
     dialog->findChild<QPushButton*>("familyAddColumn")->click();flush();
     QTreeWidgetItem* body_row=nullptr;
     for(QTreeWidgetItemIterator it(tree);*it;++it)if((*it)->data(0,Qt::UserRole).toString().toStdString()==body&&(*it)->data(0,Qt::UserRole+3).toString()=="part-body")body_row=*it;
     if(!verify(body_row!=nullptr,"Family Body source missing from Tree"))return 1;
     tree->setCurrentItem(body_row);flush();
-    auto* presence=qobject_cast<QComboBox*>(table->cellWidget(1,4));
+    auto* presence=qobject_cast<QComboBox*>(table->cellWidget(1,6));
     if(!verify(presence&&presence->findData("yes")>0&&presence->findData("no")>0,"Family Body column lacks Yes/No values"))return 1;
     presence->setCurrentIndex(presence->findData("yes"));flush();
-    auto* eye=table->cellWidget(0,3)->findChild<QToolButton*>();eye->click();flush();
-    if(!verify(dynamic_cast<ui::ReferenceCellItem*>(table->item(0,2))->is_inspected(),"Family inspection lost its independent azure state"))return 1;
+    auto* eye=table->cellWidget(0,5)->findChild<QToolButton*>();eye->click();flush();
+    if(!verify(dynamic_cast<ui::ReferenceCellItem*>(table->item(0,4))->is_inspected(),"Family inspection lost its independent azure state"))return 1;
     mouse(view,QEvent::MouseButtonPress,*position,Qt::MiddleButton);mouse(view,QEvent::MouseButtonRelease,*position,Qt::MiddleButton);
-    if(!verify(dialog->active_column()==-1&&!dynamic_cast<ui::ReferenceCellItem*>(table->item(0,2))->is_inspected(),"Family short MMB did not end reference entry"))return 1;
+    if(!verify(dialog->active_column()==-1&&!dynamic_cast<ui::ReferenceCellItem*>(table->item(0,4))->is_inspected(),"Family short MMB did not end reference entry"))return 1;
+    auto* label_language=dialog->findChild<QComboBox*>("familyLabelLanguage");
+    if(!verify(label_language&&table->item(1,2)->checkState()==Qt::Checked,"Family localization controls are missing"))return 1;
+    table->item(1,2)->setCheckState(Qt::Unchecked);label_language->setCurrentText("en");
+    table->item(1,3)->setText("Long block");label_language->setCurrentText("cs");
+    table->item(1,3)->setText("Dlouhy blok");label_language->setCurrentText("en");flush();
+    if(!verify(table->item(1,3)->text()=="Long block"&&table->item(1,4)->text()=="20","Family language switch changed a value or lost a label"))return 1;
+    const auto row_height=table->rowHeight(1),initial_height=table->viewport()->height();
+    dialog->resize(dialog->width(),dialog->height()+100);flush();
+    if(!verify(table->rowHeight(1)==row_height&&table->viewport()->height()>initial_height,"Family resize stretched rows instead of the table viewport"))return 1;
     window.grab().save(QString::fromStdString((directory/"family-table-ui.png").string()));
     auto* open_row=table->verticalHeader()->findChild<QToolButton*>("tableRowOpen1");
     if(!verify(open_row&&open_row->isVisible()&&table->cellWidget(1,0),"Family row lacks its separate Open and first-cell delete actions"))return 1;
@@ -418,6 +427,40 @@ int verify_family_table(QApplication& application,zima::app::AssemblyWorkspaceWi
     const auto stored_table=window.execute_console_command(QString::fromStdString(commands::Json{{"command","document.family.get"},{"arguments",{{"document",part.document_id}}}}.dump()));
     if(!verify(stored_table.ok,"Cannot read GUI-created Family Table"))return 1;
     auto drawing_source_table=document::parse_family_table(stored_table.data.at("table").dump());
+    if(qEnvironmentVariableIsSet("ZIMA_VERIFY_FAMILY_LABELS_ONLY")) {
+        const auto persisted=document::parse_family_table(document::PartDocument::load(path).family_table);
+        if(!verify(persisted==drawing_source_table&&persisted.instances.front().labels.at("en")=="Long block"&&
+            persisted.instances.front().labels.at("cs")=="Dlouhy blok"&&!persisted.instances.front().shared_name,
+            "GUI Family labels did not survive native save/reopen"))return 1;
+        action->trigger();flush();dialog=dynamic_cast<app::FamilyTableDialog*>(window.findChild<QDialog*>("familyTableDialog"));
+        table=dialog->findChild<QTableWidget*>("familyTableTable");
+        table->item(1,3)->setText("Cancelled");dialog->buttons()->button(QDialogButtonBox::Cancel)->click();flush();
+        auto after=window.execute_console_command("document.family.get");
+        if(!verify(after.ok&&after.data.at("table")==stored_table.data.at("table"),"Family localization Cancel changed stored data"))return 1;
+        action->trigger();flush();dialog=dynamic_cast<app::FamilyTableDialog*>(window.findChild<QDialog*>("familyTableDialog"));
+        dialog->findChild<QComboBox*>("familyLabelLanguage")->setCurrentText("en");
+        dialog->findChild<QTableWidget*>("familyTableTable")->item(1,3)->setText("Long confirmed");
+        mouse(view,QEvent::MouseButtonDblClick,QPointF(30,30),Qt::MiddleButton);
+        mouse(view,QEvent::MouseButtonRelease,QPointF(30,30),Qt::MiddleButton);
+        after=window.execute_console_command("document.family.get");
+        if(!verify(!window.findChild<QDialog*>("familyTableDialog")&&after.ok&&after.data.at("table").at("instances")[0].at("labels").at("en")=="Long confirmed",
+            "Middle double-click over View did not commit Family labels"))return 1;
+        for(const auto* type:{"part","assembly"}) {
+            window.findChild<QAction*>("newDocumentAction")->trigger();flush();
+            auto* create=window.findChild<QDialog*>("newDocumentDialog");
+            if(!verify(create,"New native template dialog is unavailable"))return 1;
+            create->findChild<QLineEdit*>("newDocumentFileName")->setText(QString("Family labels %1 %2").arg(type).arg(QUuid::createUuid().toString(QUuid::Id128)));
+            for(auto* radio:create->findChildren<QRadioButton*>())radio->setChecked(radio->property("documentType").toString()==type);
+            create->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
+            const auto command=std::string(type)=="part"?"featurePrototypeAction":"insertComponentAction";
+            if(!verify(!window.findChild<QDialog*>("newDocumentDialog")&&window.findChild<QAction*>(command)->isEnabled(),
+                "Regenerated template has no active editable context"))return 1;
+            action->trigger();flush();dialog=dynamic_cast<app::FamilyTableDialog*>(window.findChild<QDialog*>("familyTableDialog"));
+            if(!verify(dialog&&dialog->findChild<QTableWidget*>("familyTableTable")->rowCount()==2,"New template Family Table is not empty"))return 1;
+            dialog->buttons()->button(QDialogButtonBox::Cancel)->click();flush();
+        }
+        std::cout<<"Family labels: reference picking, languages, resize, native save, Cancel, middle confirmation and start templates passed\n";return 0;
+    }
     auto unopened_variant=drawing_source_table.instances.front();unopened_variant.name="Unopened";unopened_variant.id.clear();
     drawing_source_table.instances.push_back(std::move(unopened_variant));
     static_cast<void>(workspace::set_family_table(drawing_models,part.document_id,drawing_source_table));
@@ -502,7 +545,11 @@ int verify_family_table(QApplication& application,zima::app::AssemblyWorkspaceWi
     drawing_window.edit_workspace_document(drawing.document_id);flush();
     const auto source_generation=drawing_models.open_part(part.document_id)->session.data_generation();
     view_properties=edit_view(main_view);view_source=view_properties->findChild<QComboBox*>("drawingViewSource");
-    if(!verify(view_source->count()>=5&&view_source->currentData().toString().toStdString()==part.document_id&&view_source->mapToGlobal(QPoint(0,0)).y()<view_properties->findChild<QLineEdit*>("drawingViewName")->mapToGlobal(QPoint(0,0)).y(),"Main view omitted family rows or source is not at the top"))return 1;
+    if(!verify(view_source->count()>=5,"Main view omitted family rows"))return 1;
+    if(!verify(view_source->currentData().toString().toStdString()==part.document_id,"Main view selected a different source"))return 1;
+    const auto* view_name=view_properties->findChild<QLineEdit*>("drawingViewName");
+    if(!verify(view_source->parentWidget()->mapToGlobal(QPoint(0,0)).y()==view_name->parentWidget()->mapToGlobal(QPoint(0,0)).y()&&
+        view_source->mapToGlobal(QPoint(0,0)).x()<view_name->mapToGlobal(QPoint(0,0)).x(),"Main view source and name are not in the top row"))return 1;
     view_source->setCurrentIndex(view_source->findData(QString::fromStdString(short_id)));flush();
     if(!verify(drawing_models.open_part(part.document_id)->session.data_generation()==source_generation&&!drawing_models.open_part(part.document_id)->session.document().family.evaluated.contains(short_row),"Selecting an unevaluated row calculated the source before OK"))return 1;
     view_properties->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Cancel)->click();flush();
@@ -518,8 +565,10 @@ int verify_family_table(QApplication& application,zima::app::AssemblyWorkspaceWi
         drawing_window.document_for_test().source_document_id==part.document_id&&
         drawing_models.open_part(part.document_id)->session.document().family.evaluated.contains(short_row),
         "Drawing view source replacement changed an independent root or failed to publish the native row packet"))return 1;
-    double low=1e100,high=-1e100;for(const auto& triangle:drawing_window.document_for_test().find_view(main_view)->projected_triangles)for(const auto& point:triangle.points){low=std::min(low,point.x);high=std::max(high,point.x);}
-    if(!verify(std::abs(high-low-5)<1e-8,"Drawing Replace did not project the short variant's geometry"))return 1;
+    // This fixture is a symmetric Z extrusion: the front-view vertical span
+    // is twice its forward extent; its X width remains eight millimetres.
+    double low=1e100,high=-1e100;for(const auto& triangle:drawing_window.document_for_test().find_view(main_view)->projected_triangles)for(const auto& point:triangle.points){low=std::min(low,point.y);high=std::max(high,point.y);}
+    if(!verify(std::abs(high-low-10)<1e-8,"Drawing Replace did not project the short variant's geometry"))return 1;
     drawing_models.open_drawing(drawing.document_id)->undo();drawing_window.edit_workspace_document(drawing.document_id);flush();
     if(!verify(drawing_window.document_for_test().find_view(grand.id)->source_document_id==part.document_id,"One Undo did not restore the complete view hierarchy"))return 1;
     drawing_models.open_drawing(drawing.document_id)->redo();drawing_window.edit_workspace_document(drawing.document_id);flush();
@@ -549,7 +598,7 @@ int verify_family_table(QApplication& application,zima::app::AssemblyWorkspaceWi
     auto insertion_table=stored_table.data.at("table");std::string body_column;
     for(const auto& [column,binding]:insertion_table.at("bindings").items())if(binding.at("kind")=="body")body_column=column;
     if(!verify(!body_column.empty(),"Family GUI fixture has no Body presence column"))return 1;
-    insertion_table["instances"].push_back({{"id",""},{"name","Without body"},{"values",{{body_column,"no"}}}});
+    insertion_table["instances"].push_back({{"id",""},{"shared_name",true},{"labels",nlohmann::json::object()},{"name","Without body"},{"values",{{body_column,"no"}}}});
     run("document.family.set",{{"table",insertion_table}});
     run("new",{{"type","assembly"},{"name","Family insertion GUI"}});
     const auto rows=[&]{return run("component.list").at("items");};
@@ -623,12 +672,11 @@ int verify_family_table(QApplication& application,zima::app::AssemblyWorkspaceWi
         for(QTreeWidgetItemIterator it(tree);*it;++it)if((*it)->data(0,Qt::UserRole+1).toString().toStdString()==selected_path&&(*it)->data(0,Qt::UserRole+3).toString()=="part-occurrence")return (*it)->data(0,app::missing_reference_role).toBool();
         return false;
     };
-    if(!verify(marked()&&rows()[0].at("source_document")!=member_id&&rows()[0].at("placement_references").size()==1,"Replace blocked missing topology or failed to retain/red-mark its mate"))return 1;
-    window.grab().save(QString::fromStdString((directory/"family-replace-missing-reference.png").string()));
+    // Suppressing the result Body retains authored original references. Test
+    // genuinely missing topology below by replacing it with an unrelated Part.
+    if(!verify(!marked()&&rows()[0].at("source_document")!=member_id&&rows()[0].at("cached_volume_mm3")==0.0&&rows()[0].at("placement_references").size()==1,"Family Body suppression lost its original mate or retained result geometry"))return 1;
     run("undo");if(!verify(!marked()&&rows()[0].at("source_document")==member_id,"Undo did not restore the resolved component"))return 1;
-    run("redo");if(!verify(marked(),"Redo lost the missing-reference marker"))return 1;
-    run("component.set",{{"instance_path",selected_path},{"placement_references",commands::Json::array()}});
-    if(!verify(!marked(),"Repaired references left a stale red component"))return 1;
+    run("redo");if(!verify(!marked()&&rows()[0].at("cached_volume_mm3")==0.0&&rows()[0].at("placement_references").size()==1,"Redo changed suppressed Body references"))return 1;
     auto replacement=document::PartDocument::create_default();replacement.name="Replacement";
     replacement.history={zima::test::rectangular_feature(replacement)};
     const auto replacement_file=directory/"replacement.prtz";
@@ -656,7 +704,12 @@ int verify_family_table(QApplication& application,zima::app::AssemblyWorkspaceWi
     chooser->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
     if(!verify(rows()[0].at("source_document")==replacement.document_id&&rows()[0].at("instance_path")==selected_path,
         "Source OK did not replace the selected occurrence with an unrelated file"))return 1;
-    run("undo");if(!verify(rows()[0].at("source_document")==before_source,"One Undo did not restore the previous source"))return 1;
+    if(!verify(marked()&&rows()[0].at("placement_references").size()==1,"Unrelated source replacement lost the mate or its missing-reference marker"))return 1;
+    window.grab().save(QString::fromStdString((directory/"family-replace-missing-reference.png").string()));
+    run("undo");if(!verify(!marked()&&rows()[0].at("source_document")==before_source,"One Undo did not restore the previous source and resolved references"))return 1;
+    run("redo");if(!verify(marked(),"Redo lost the missing-reference marker"))return 1;
+    run("component.set",{{"instance_path",selected_path},{"placement_references",commands::Json::array()}});
+    if(!verify(!marked(),"Repaired references left a stale red component"))return 1;
     if(!verify(window.open_document_path(QString::fromStdString(assembly_path.string())),"Assembly family insertion source did not open"))return 1;flush();
     run("new",{{"type","assembly"},{"name","Assembly family insertion GUI"}});
     chooser=choose(assembly_model.name);choices=chooser->findChild<QComboBox*>("componentVariant");
@@ -1292,6 +1345,103 @@ int verify_derived_copy_commands(QApplication& application,zima::app::AssemblyWo
     std::cout<<"Mirror and Pattern UI contracts passed\n";return 0;
 }
 
+int verify_native_title_block(QApplication& application,zima::app::AssemblyWorkspaceWindow& window,const std::filesystem::path& directory) {
+    using namespace zima;
+    const auto flush=[&]{application.processEvents();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);application.processEvents();};
+    const auto path=directory/"native-title-block.tblz";
+    std::filesystem::copy_file("config/formats/ZE-TITLE-BLOCK.tblz",path,std::filesystem::copy_options::overwrite_existing);
+    const auto original=document::PartDocument::load(path);
+    if(!verify(window.open_document_path(QString::fromStdString(path.string())),"Native title-block Part did not open"))return 1;
+    window.resize(1500,1000);window.show();flush();
+    if(!verify(original.body_history.bodies().size()==1,"Title block needs ordinary Body ownership"))return 1;
+    const auto body_id=original.body_history.bodies().front().scope.id;
+    const auto activate_body=[&](const std::string& id){
+        const auto result=window.execute_console_command(QString::fromStdString(commands::Json{{"command","body.activate"},{"arguments",{{"body",id}}}}.dump()));flush();return result.ok;
+    };
+    if(!verify(activate_body({}),"Cannot leave title-block Body context"))return 1;
+    auto* tools=window.findChild<QToolBar*>("toolsToolbar");
+    if(!verify(tools&&!tools->actions().contains(window.findChild<QAction*>("featurePrototypeAction")),"Body-list level exposes modeling commands"))return 1;
+    if(!verify(activate_body(body_id),"Cannot activate title-block Body"))return 1;
+    if(!verify(tools->actions().contains(window.findChild<QAction*>("featurePrototypeAction")),"Active Body lacks ordinary modeling commands"))return 1;
+    auto* document_tree=window.findChild<QTreeWidget*>("documentTree");
+    if(!verify(document_tree&&document_tree->topLevelItem(0)->icon(0).pixmap(24,24).toImage()==app::resource_icon("title-block").pixmap(24,24).toImage(),
+        "Title-block tree root displays the Part icon"))return 1;
+    auto* action=window.findChild<QAction*>("familyTableAction");
+    if(!verify(action&&action->isEnabled(),"Native title block did not expose standard Family Table"))return 1;
+    action->trigger();flush();auto* family=window.findChild<QDialog*>("familyTableDialog");
+    if(!verify(family,"Native title block uses a separate variant editor"))return 1;
+    auto* table=family->findChild<QTableWidget*>("familyTableTable");
+    if(!verify(table&&table->rowCount()==7&&table->item(1,1)->text()=="CS"&&table->item(5,1)->text()=="RU","Native Family variants or blank entry row missing"))return 1;
+    family->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Cancel)->click();flush();
+    if(!verify(document::PartDocument::load(path).family_table==original.family_table,"Family Cancel modified library"))return 1;
+    auto* tree=window.findChild<QTreeWidget*>("documentTree");QTreeWidgetItem* language_sketch{};
+    for(QTreeWidgetItemIterator it(tree);*it;++it)if((*it)->data(0,Qt::UserRole).toString()=="ze-title-block-sketch-CS"&&
+        (*it)->data(0,Qt::UserRole+3).toString()=="part-sketch"){language_sketch=*it;break;}
+    if(!verify(language_sketch,"Language Sketch missing from ordinary Part tree"))return 1;
+    window.show_tree_item_properties(language_sketch);flush();
+    auto* open_sketch=window.findChild<QPushButton*>("sketchOpenButton");
+    if(!verify(open_sketch,"Language Sketch properties are unavailable"))return 1;
+    open_sketch->click();flush();
+    QEventLoop orientation_animation;QTimer::singleShot(900,&orientation_animation,&QEventLoop::quit);orientation_animation.exec();flush();
+    auto* region=window.findChild<QAction*>("templateRepeatRegionAction");
+    auto* finish=window.findChild<QAction*>("finishSketchAction");
+    if(!verify(region&&region->isEnabled()&&finish&&finish->isEnabled(),"Language Sketch lacks BOM region or Finish commands"))return 1;
+    auto* view=dynamic_cast<viewer::MeshView*>(window.findChild<QOpenGLWidget*>("modelWorkspace"));
+    const auto& frame=original.sketches.front();
+    if(!verify(view&&std::ranges::any_of(view->mesh().edges,[&](const auto& edge){return edge.reference.owner_id==frame.id||edge.reference.owner_id==frame.owner_container_id;}),
+        "Editing a language Sketch hides its preceding visible Frame"))return 1;
+    const auto& suppressed=original.sketches.at(2);
+    if(!verify(std::ranges::none_of(view->mesh().edges,[&](const auto& edge){return edge.reference.owner_id==suppressed.id||edge.reference.owner_id==suppressed.owner_container_id;}),
+        "Suppressed language Sketch leaked into editing context"))return 1;
+    window.grab().save(QString::fromStdString((directory/"native-title-block-sketch.png").string()));
+    finish->trigger();flush();
+    if(auto* returned=window.findChild<QPushButton*>("sketchOpenButton")) {
+        auto* parent=returned->parentWidget();
+        while(parent&&!qobject_cast<QDialog*>(parent))parent=parent->parentWidget();
+        if(auto* dialog=qobject_cast<QDialog*>(parent))dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();
+        flush();
+    }
+    window.findChild<QAction*>("saveDocumentAction")->trigger();flush();
+    if(!verify(drawing::is_native_template_file(path)&&document::PartDocument::load(path).sketches.size()==6,"Saving title-block editor discarded Part data"))return 1;
+    app::DrawingWindow editor;editor.resize(1250,900);editor.show();flush();
+    editor.load_title_block_for_test(path);flush();
+    auto* choice=editor.findChild<QDialog*>("titleBlockVariantDialog");
+    if(!verify(choice,"Native title-block insertion did not offer Family variants"))return 1;
+    auto* choices=choice->findChild<QTableWidget*>("componentFamilyTable");choices->selectRow(2);
+    const int row_height=choices->rowHeight(0),table_height=choices->height();
+    choice->resize(choice->width()+120,choice->height()+140);flush();
+    if(!verify(choices->height()>table_height&&choices->rowHeight(0)==row_height,"Variant chooser does not expand its table with stable row heights"))return 1;
+    choice->grab().save(QString::fromStdString((directory/"title-block-variant-dialog.png").string()));
+    choice->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
+    if(!verify(editor.document_for_test().sheets.front().title_block_variant=="ze-title-block-variant-EN"&&editor.document_for_test().sheets.front().title_block_locale=="en",
+        "Insertion ignored explicit EN variant"))return 1;
+    editor.grab().save(QString::fromStdString((directory/"native-title-block-en.png").string()));
+    auto* change=editor.findChild<QAction*>("drawingTitleBlockVariantAction");change->trigger();flush();
+    choice=editor.findChild<QDialog*>("titleBlockVariantDialog");choices=choice->findChild<QTableWidget*>("componentFamilyTable");choices->selectRow(1);
+    choice->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Cancel)->click();flush();
+    if(!verify(editor.document_for_test().sheets.front().title_block_variant=="ze-title-block-variant-EN","Variant Cancel modified inserted title block"))return 1;
+    change->trigger();flush();choice=editor.findChild<QDialog*>("titleBlockVariantDialog");choice->findChild<QTableWidget*>("componentFamilyTable")->selectRow(1);
+    choice->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
+    if(!verify(editor.document_for_test().sheets.front().title_block_variant=="ze-title-block-variant-CS","Explicit variant replacement failed"))return 1;
+    editor.load_frame_for_test("config/formats/ZE-DRAWING-FRAME.frmz");flush();
+    auto* frame_choice=editor.findChild<QDialog*>("frameVariantDialog");
+    if(!verify(frame_choice,"Frame insertion did not offer Family variants"))return 1;
+    frame_choice->findChild<QTableWidget*>("componentFamilyTable")->selectRow(2);
+    frame_choice->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
+    if(!verify(editor.document_for_test().sheets.front().format==drawing::SheetFormat::A3&&
+        editor.document_for_test().sheets.front().title_block_variant=="ze-title-block-variant-CS","A3 frame replaced or lost the title block"))return 1;
+    editor.grab().save(QString::fromStdString((directory/"native-frame-a3-title.png").string()));
+    editor.findChild<QAction*>("drawingFrameVariantAction")->trigger();flush();frame_choice=editor.findChild<QDialog*>("frameVariantDialog");
+    frame_choice->findChild<QTableWidget*>("componentFamilyTable")->selectRow(1);
+    frame_choice->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Cancel)->click();flush();
+    if(!verify(editor.document_for_test().sheets.front().format==drawing::SheetFormat::A3,"Frame Cancel changed sheet format"))return 1;
+    editor.document_for_test().save(directory/"native-title-drawing.drwz");
+    const auto reopened=drawing::DrawingDocument::load(directory/"native-title-drawing.drwz");
+    if(!verify(reopened.sheets.front().title_block_definition==editor.document_for_test().sheets.front().title_block_definition,"Drawing save lost embedded Part"))return 1;
+    if(!verify(window.open_document_path(QStringLiteral("config/formats/ZE-DRAWING-FRAME.frmz")),"Native frame Part failed to open"))return 1;flush();
+    if(!verify(tree->topLevelItem(0)->icon(0).pixmap(24,24).toImage()==app::resource_icon("drawing-format").pixmap(24,24).toImage(),"Frame root displays Part icon"))return 1;
+    std::cout<<"Native title-block Part, standard Family Table, insertion, variant change, Cancel and Drawing save passed\n";return 0;
+}
 int verify_template_commands(QApplication& application,zima::app::AssemblyWorkspaceWindow& window,
         const std::filesystem::path& directory) {
     using namespace zima;
@@ -1305,6 +1455,9 @@ int verify_template_commands(QApplication& application,zima::app::AssemblyWorksp
         if(target.extension()==".tblz") {auto fixture=drawing::load_template_sketch(target,prepare);fixture.drawing_template->images.clear();drawing::save_template_sketch(fixture,target);}
         if(!verify(window.open_document_path(QString::fromStdString(target.string())),"Template cannot open in the main application"))return 1;
         flush();QEventLoop animation;QTimer::singleShot(900,&animation,&QEventLoop::quit);animation.exec();flush();
+        auto* template_tree=window.findChild<QTreeWidget*>("documentTree");
+        if(!verify(template_tree&&template_tree->headerItem()->icon(0).pixmap(24,24).toImage()==app::resource_icon(target.extension()==".tblz"?"title-block":"drawing-format").pixmap(24,24).toImage(),
+            "Template Sketch tree does not identify title-block/frame document type"))return 1;
         window.grab().save(QString::fromStdString((directory/(std::string(name)+".png")).string()));
     }
     auto* view=dynamic_cast<viewer::MeshView*>(window.findChild<QOpenGLWidget*>("modelWorkspace"));
@@ -8294,6 +8447,7 @@ int verify_startup_contract(
     }
     if(qEnvironmentVariableIsSet("ZIMA_VERIFY_CYLINDER_AXIS_ONLY"))return verify_cylinder_axis_ui(application,window,test_directory);
     if(qEnvironmentVariableIsSet("ZIMA_VERIFY_SYMBOLS_ONLY"))return verify_symbol_ui(application,window,test_directory);
+    if(qEnvironmentVariableIsSet("ZIMA_VERIFY_NATIVE_TITLE_BLOCK_ONLY"))return verify_native_title_block(application,window,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_NEW_DOCUMENT_OPTIONS_ONLY"))
         return verify_new_document_options(application);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_APPLICATION_LIFECYCLE_ONLY"))

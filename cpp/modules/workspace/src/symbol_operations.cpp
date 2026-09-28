@@ -1,4 +1,7 @@
 #include <zima/workspace/symbol_operations.hpp>
+#include <zima/symbols/native_document.hpp>
+#include <zima/workspace/document_operations.hpp>
+#include <zima/document/engineering_metadata.hpp>
 #include <zima/kernel/stable_id.hpp>
 #include <zima/document/file_path.hpp>
 #include <zima/sketcher/text_geometry.hpp>
@@ -13,14 +16,11 @@ std::filesystem::path checked_path(const std::filesystem::path& source) {
     return path;
 }
 std::string insert(Workspace& live,symbols::Definition definition,const std::filesystem::path& path) {
-    definition.validate();auto part=document::PartDocument::create_default();part.name=definition.name;
-    for(auto sketch:definition.sketches) {
-        auto container=document::PartDocument::create_sketch_container();container.name=sketch.name;
-        sketch.owner_container_id=container.id;
+    auto part=symbols::native_document(definition);
+    for(auto& sketch:part.sketches) {
         for(auto& text:sketch.texts)sketcher::rebuild_text_contours(text,true);
-        part.insert_history_entry(document::PartHistoryKind::Feature,container.id);
-        part.history.push_back(std::move(container));part.sketches.push_back(std::move(sketch));
     }
+    part.symbol_editor_definition=definition.serialized();
     const auto id=part.document_id;live.add_part(std::move(part),{},path);
     live.open_part(id)->symbol_definition=definition.serialized();return id;
 }
@@ -34,7 +34,12 @@ std::string open_symbol_document(Workspace& live,const std::filesystem::path& so
         if(!is_symbol_document(live,*id))throw std::invalid_argument("The path is used by a different document type");
         return *id;
     }
-    return insert(live,symbols::Definition::load(path),path);
+    std::vector<kernel::BodyResult> boundaries;
+    auto part=document::PartDocument::load(path,&boundaries);
+    if(!part.symbol_editor_definition)throw std::invalid_argument("This document is not a symbol");
+    const auto definition=*part.symbol_editor_definition;
+    const auto id=part.document_id;live.add_part(std::move(part),std::move(boundaries),path);
+    live.open_part(id)->symbol_definition=definition;return id;
 }
 std::string create_symbol_document(Workspace& live,const std::string& name,const std::filesystem::path& target) {
     const auto path=checked_path(target);
@@ -46,7 +51,7 @@ std::string create_symbol_document(Workspace& live,const std::string& name,const
 symbols::Definition edited_symbol_definition(const Workspace& live,const std::string& id) {
     const auto* part=live.open_part(id);
     if(!part||!part->symbol_definition)throw std::invalid_argument("This document is not a symbol");
-    auto d=symbols::Definition::from_serialized(*part->symbol_definition);
+    auto d=symbols::native_definition(part->session.document(),false);
     d.sketches=part->session.document().sketches;
     for(auto& sketch:d.sketches)sketch.owner_container_id.clear();
     // Removing a text or curve also removes its associated field/pen metadata.
@@ -65,12 +70,56 @@ symbols::Definition edited_symbol_definition(const Workspace& live,const std::st
     }
     d.validate();return d;
 }
+bool store_symbol_definition(Workspace& live,const std::string& id,const symbols::Definition& definition) {
+    auto* part=live.open_part(id);
+    if(!part||!part->symbol_definition)throw std::invalid_argument("This document is not a symbol");
+    const auto serialized=definition.serialized();
+    if(edited_symbol_definition(live,id).serialized()==serialized)return false;
+    auto next=part->session.document();
+    // Keep carrier container identities when editing an existing Sketch.
+    auto sketches=definition.sketches;
+    for(auto& sketch:sketches) {
+        const auto found=std::ranges::find(next.sketches,sketch.id,&sketcher::Sketch::id);
+        if(found!=next.sketches.end())sketch.owner_container_id=found->owner_container_id;
+        else {
+            if(next.body_history.active_body_id().empty())throw std::invalid_argument("Activate a Body before creating a Sketch");
+            auto container=document::PartDocument::create_sketch_container();container.name=sketch.name;
+            sketch.owner_container_id=container.id;
+            next.insert_history_entry(document::PartHistoryKind::Feature,container.id);
+            next.history.push_back(std::move(container));
+        }
+    }
+    auto generated=symbols::native_document(definition);
+    auto table=document::parse_family_table(generated.family_table);
+    for(auto& [key,binding]:table.bindings) {
+        const auto source=std::ranges::find(generated.sketches,binding.owner_id,&sketcher::Sketch::owner_container_id);
+        binding.owner_id=std::ranges::find(sketches,source->id,&sketcher::Sketch::id)->owner_container_id;
+    }
+    // Symbol text/visibility editing must retain unrelated ordinary Part Family
+    // columns (Body presence and dimensions) and the existing row labels.
+    const auto previous=document::parse_family_table(next.family_table);
+    for(const auto& column:previous.columns)if(!table.bindings.contains(column)) {
+        table.columns.push_back(column);
+        if(const auto binding=previous.bindings.find(column);binding!=previous.bindings.end())table.bindings[column]=binding->second;
+    }
+    for(auto& row:table.instances) {
+        const auto prior=std::ranges::find(previous.instances,row.id,&document::FamilyInstance::id);
+        if(prior==previous.instances.end())continue;
+        row.name=prior->name;row.shared_name=prior->shared_name;row.labels=prior->labels;
+        for(const auto& [column,value]:prior->values)if(!row.values.contains(column))row.values[column]=value;
+    }
+    next.family_table=document::serialize_family_table(table);
+    next.sketches=std::move(sketches);next.symbol_editor_definition=serialized;
+    part->session.commit(std::move(next),part->session.calculated_boundaries());return true;
+}
 void save_symbol_document(Workspace& live,const std::string& id,const std::filesystem::path& target,bool copy) {
-    auto definition=edited_symbol_definition(live,id);const auto path=checked_path(target);
+    if(!is_symbol_document(live,id))throw std::invalid_argument("This document is not a symbol");
+    const auto path=checked_path(target);
     auto* part=live.open_part(id);
     if(const auto owner=live.document_id_for_path(path);owner&&(*owner!=id||copy))throw std::invalid_argument("The target symbol is already open");
-    live.reserve_file(path);definition.save(path);
-    if(!copy){part->path=path;part->session.mark_saved();}
+    live.reserve_file(path);
+    if(copy)static_cast<void>(live.save_copy(id,path));
+    else {const auto saved=prepare_document_save(live,id,path).write();static_cast<void>(complete_document_save(live,saved));}
 }
 const std::vector<symbols::Placement>& symbol_annotations(const Workspace& live,const std::string& id,const std::string& sheet) {
     if(const auto* part=live.open_part(id)) {

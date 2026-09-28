@@ -13,6 +13,7 @@ struct NativeTemplateSettings {
     drawing::SheetFormat drawing_format{drawing::SheetFormat::A4};
     std::filesystem::path drawing_frame_template, drawing_title_block_template;
     std::filesystem::path materials_directory;
+    std::string drawing_frame_variant, drawing_title_block_variant;
 };
 // Uses the existing body-origin attachment contract unchanged.
 [[nodiscard]] document::PartDocument part_from_template(const NativeTemplateSettings& settings);

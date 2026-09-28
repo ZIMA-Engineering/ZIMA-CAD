@@ -22,7 +22,9 @@ std::string create_drawing_sheet(drawing::DrawingDocument&,const SheetSettings&)
 void delete_drawing_sheet(drawing::DrawingDocument&,const std::string&);
 bool set_drawing_sheet(drawing::DrawingDocument&,const std::string&,const SheetSettings&,const DrawingSourceReader& = {});
 bool clear_drawing_template(drawing::DrawingDocument&,const std::string&,bool title_block);
-void load_drawing_template(drawing::DrawingDocument&,const std::string&,const std::filesystem::path&,bool title_block,const Workspace* live=nullptr,const std::filesystem::path& drawing_path={});
+void load_drawing_template(drawing::DrawingDocument&,const std::string&,const std::filesystem::path&,bool title_block,const Workspace* live=nullptr,const std::filesystem::path& drawing_path={},const std::string& variant={});
+void set_title_block_variant(drawing::DrawingDocument&,const std::string& sheet,const std::string& variant);
+void set_frame_variant(drawing::DrawingDocument&,const std::string& sheet,const std::string& variant);
 // Explicit projection/edit only. Uses stored mesh, never calculates OCCT or opens tabs.
 std::pair<std::string,kernel::ViewerMesh> read_drawing_source(const Workspace*,const std::filesystem::path&,const std::string& expected_id={});
 }

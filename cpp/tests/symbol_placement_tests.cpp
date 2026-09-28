@@ -35,6 +35,17 @@ int main(){try {
             for(auto point:a)check(kernel::dimension_dot(kernel::dimension_sub(point,info.grip),up)>-1e-8,"Content falls below shelf");
         }
     }
+    for(const auto ending:{symbols::LeaderEnding::Arrow,symbols::LeaderEnding::Triangle,symbols::LeaderEnding::Dot}) {
+        p.leader_ending=ending;check(nlohmann::json(p).get<symbols::Placement>()==p,"Leader ending failed persistence");
+        const auto strokes=p.viewer_mesh(0.);const int role=ending==symbols::LeaderEnding::Arrow?2:ending==symbols::LeaderEnding::Triangle?4:5;
+        const auto retained=p.viewer_mesh(0.,true);
+        const auto marker=std::ranges::find_if(retained.edges,[&](const auto& edge){return edge.annotation&&edge.annotation->role==role;});
+        check(marker!=retained.edges.end(),"Leader ending has no rendered marker");
+        check(marker->points.size()==(role==2?3:role==4?4:33),"Leader ending geometry differs");
+        check(marker->filled_text==(role==5),"Dot must be filled and datum triangle must be outlined");
+        if(role!=2)check(marker->points.front()==marker->points.back(),"Closed leader marker is open");
+    }
+    p.leader_ending=symbols::LeaderEnding::Arrow;
     p.offset_z=4.;check(nlohmann::json(p).get<symbols::Placement>()==p,"Spatial grip offset lost");p.offset_z=0;
     const auto original=p;const auto original_mesh=p.viewer_mesh();p.refresh_reference({});
     check(p.unresolved&&p.frame==original.frame&&p.reference==original.reference&&p.symbol==original.symbol,"Lost reference altered symbol");
@@ -72,7 +83,7 @@ int main(){try {
     symbols::attach_to_surface(p,face,"source-document",{10,25,37});
     check(near(p.frame.origin,{10,25,37}),"Cylinder contact incorrect");
     const auto outside=p;symbols::attach_to_surface(p,face,"source-document",{10,25,37},true);
-    check(p.frame.origin==outside.frame.origin&&near(p.frame.y,{0,0,-1}),"Opposite cylinder side merged at zero offset");
+    check(p.frame.origin==outside.frame.origin&&near(p.frame.y,{0,-1,0}),"Opposite cylinder side merged at zero offset");
     surface=std::make_shared<kernel::SurfaceGeometry>(*surface);surface->radius=8;face.surface=surface;refs.triangle_references={face};
     check(symbols::refresh_surface_attachment(p,refs)&&near(p.frame.origin,{10,28,37}),"Changed cylinder radius left symbol inside face");
     check(nlohmann::json(p).get<symbols::Placement>()==p,"Analytic contact parameters did not persist");
@@ -81,7 +92,7 @@ int main(){try {
     check(near(p.frame.origin,{15,20,34}),"Cone contact incorrect");
     const auto cone=p;surface->kind=kernel::SurfaceGeometry::Kind::Cylinder;
     check(!symbols::refresh_surface_attachment(p,refs)&&p.frame==cone.frame,"Changed surface type silently reinterpreted attachment");
-    auto roughness=definition;roughness.id="ze:surface-texture:iso21920";
+    auto roughness=definition;roughness.id="custom-company-symbol";
     p.symbol.definition=roughness.serialized();
     for(const auto kind:{kernel::SurfaceGeometry::Kind::Plane,kernel::SurfaceGeometry::Kind::Cylinder,kernel::SurfaceGeometry::Kind::Cone}) {
         surface->kind=kind;surface->origin={0,0,0};surface->axis={0,0,1};surface->radial={1,0,0};surface->radius=5;surface->semi_angle=0;

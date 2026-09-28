@@ -55,6 +55,10 @@ void validate_material(const MaterialData& data) {
         for(const auto& [language,value]:languages){if(!language.empty())nonempty(language);validate_native_metadata_text(value);}
     }
 }
+std::string FamilyInstance::display_name(const std::string& language) const {
+    const auto found=labels.find(language);
+    return !shared_name && found!=labels.end() && !found->second.empty()?found->second:name;
+}
 void validate_family_table(const FamilyTable& table,const std::string& generic_name) {
     if(table.columns.size()>512 || table.instances.size()>4096)throw std::invalid_argument("A family table supports at most 512 columns and 4096 instances.");
     std::set<std::string> columns,names,ids;
@@ -72,6 +76,11 @@ void validate_family_table(const FamilyTable& table,const std::string& generic_n
     for(const auto& instance:table.instances) {
         if(!instance.id.empty()&&!ids.insert(instance.id).second)throw std::invalid_argument("Family variant identities must be unique.");
         nonempty(instance.name);
+        for(const auto& [language,label]:instance.labels) {
+            if(language!="cs" && language!="en" && language!="de" && language!="fr" && language!="ru")
+                throw std::invalid_argument("Unsupported family label language.");
+            validate_native_metadata_text(label);
+        }
         if(instance.name==generic_name || !names.insert(instance.name).second)throw std::invalid_argument("Family variant names must be unique and different from the generic document name.");
         for(const auto& [column,value]:instance.values){if(!columns.contains(column))throw std::invalid_argument("A family value refers to an unknown column.");text(value);
             if(value.empty())continue;
@@ -94,14 +103,15 @@ FamilyTable parse_family_table(const std::string& text) {
         result.bindings.emplace(it.key(),FamilyColumn{b.at("kind").get<std::string>(),b.at("owner").get<std::string>(),b.at("key").get<std::string>()});
     }
     for(const auto& row:data["instances"]) {
-        if(!row.is_object() || !row.contains("name") || !row.contains("values") || row.size()!=3 || !row["values"].is_object())
+        if(!row.is_object() || !row.contains("name") || !row.contains("values") || row.size()!=5 || !row["values"].is_object())
             throw std::invalid_argument("Invalid native family variant structure.");
-        result.instances.push_back({row["name"].get<std::string>(),row["values"].get<std::map<std::string,std::string>>(),row.at("id").get<std::string>()});
+        result.instances.push_back({row["name"].get<std::string>(),row["values"].get<std::map<std::string,std::string>>(),row.at("id").get<std::string>(),
+            row.at("shared_name").get<bool>(),row.at("labels").get<std::map<std::string,std::string>>()});
     }
     return result;
 }
 std::string serialize_family_table(const FamilyTable& table) {
-    nlohmann::json rows=nlohmann::json::array();for(const auto& instance:table.instances)rows.push_back({{"name",instance.name},{"values",instance.values},{"id",instance.id}});
+    nlohmann::json rows=nlohmann::json::array();for(const auto& instance:table.instances)rows.push_back({{"name",instance.name},{"values",instance.values},{"id",instance.id},{"shared_name",instance.shared_name},{"labels",instance.labels}});
     auto bindings=nlohmann::json::object();for(const auto& [name,b]:table.bindings)bindings[name]={{"kind",b.kind},{"owner",b.owner_id},{"key",b.semantic_key}};
     return nlohmann::json{{"columns",table.columns},{"instances",std::move(rows)},{"bindings",std::move(bindings)}}.dump();
 }

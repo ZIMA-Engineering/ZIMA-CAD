@@ -1,6 +1,7 @@
 #include <zima/workspace/workspace.hpp>
 #include <zima/document/document_copy_json.hpp>
 #include <zima/document/viewer_packet_json.hpp>
+#include <zima/document/versioned_file.hpp>
 #include <map>
 #include <algorithm>
 #include <cctype>
@@ -23,13 +24,19 @@ struct StagingDirectory {
 
 std::vector<std::filesystem::path> Workspace::save_copy(
         const std::string& document_id, const fs::path& requested_target,
-        const fs::path& drawing_search_directory) const {
+        const fs::path& drawing_search_directory, bool overwrite_library) const {
     const auto* source=find(document_id);
     if (!source) throw std::invalid_argument("Dokument není otevřený.");
+    const auto* library=std::get_if<PartState>(source);
+    overwrite_library=overwrite_library&&library&&library->native_drawing_template;
     const auto target=normalized(requested_target);
     auto extension=target.extension().string();
     std::transform(extension.begin(),extension.end(),extension.begin(),[](unsigned char c){return std::tolower(c);});
-    const auto expected=std::holds_alternative<PartState>(*source)?".prtz":std::holds_alternative<AssemblyState>(*source)?".asmz":".drwz";
+    std::string expected=std::holds_alternative<PartState>(*source)?".prtz":std::holds_alternative<AssemblyState>(*source)?".asmz":".drwz";
+    if(const auto* part=std::get_if<PartState>(source);part&&(part->native_drawing_template||part->symbol_definition)) {
+        expected=part->path.extension().string();
+        std::ranges::transform(expected,expected.begin(),[](unsigned char c){return std::tolower(c);});
+    }
     if(extension!=expected)throw std::invalid_argument("Kopie musí mít příponu odpovídající typu dokumentu.");
     const auto source_path=std::visit([](const auto& state) { return normalized(state.path); },*source);
     if (target.empty() || target==source_path)
@@ -102,7 +109,7 @@ std::vector<std::filesystem::path> Workspace::save_copy(
     },*source);
 
     const bool family_member=std::visit([](const auto& value){if constexpr(requires{value.session;})return !value.session.document().family.parent_id.empty();else return false;},*source);
-    if (!std::holds_alternative<DrawingState>(*source)&&!family_member) {
+    if (!std::holds_alternative<DrawingState>(*source)&&!family_member&&!(library&&(library->native_drawing_template||library->symbol_definition))) {
         std::vector<DrawingState> drawings;
         std::set<fs::path> open_paths;
         std::set<std::string> seen_ids;
@@ -196,7 +203,7 @@ std::vector<std::filesystem::path> Workspace::save_copy(
     }
     // Preflight the whole set before any destination is written.
     for (const auto& file:pending)
-        if (fs::exists(file.target) || document_id_for_path(file.target))
+        if ((fs::exists(file.target)&&(!overwrite_library||!fs::is_regular_file(file.target))) || document_id_for_path(file.target))
             throw std::invalid_argument("Cílový soubor již existuje: "+zima::document::path_to_utf8(file.target));
     const auto staging_path=target.parent_path()/(".zima-copy-"+new_id);
     if (!fs::create_directory(staging_path)) throw std::runtime_error("Nelze připravit adresář pro kopii.");
@@ -204,6 +211,11 @@ std::vector<std::filesystem::path> Workspace::save_copy(
     for (const auto& file:pending) reserve_file(file.target);
     for (const auto& file:pending) file.write(staging.path/file.target.filename());
     std::vector<fs::path> published;
+    const auto previous=staging.path/"previous-library";
+    if(overwrite_library&&fs::exists(target)) {
+        zima::document::archive_existing_file(target);
+        fs::rename(target,previous);
+    }
     try {
         for (const auto& file:pending) {
             // Atomic publication without overwrite or a partially written
@@ -214,6 +226,7 @@ std::vector<std::filesystem::path> Workspace::save_copy(
         }
     } catch (...) {
         for (const auto& path:published) { std::error_code error; fs::remove(path,error); }
+        if(fs::exists(previous))fs::rename(previous,target);
         throw;
     }
     return published;

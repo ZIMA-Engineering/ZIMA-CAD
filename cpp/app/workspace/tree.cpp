@@ -1,5 +1,7 @@
 #include "../boundary_surface_dialog.hpp"
 #include "workspace_internal.hpp"
+#include "../symbol_labels.hpp"
+#include <zima/workspace/symbol_operations.hpp>
 #include "../sheet_state_dialog.hpp"
 #include "../part_reference_index.hpp"
 
@@ -79,11 +81,11 @@ void AssemblyWorkspaceWindow::populate_sketch_tree(
     const auto& sketch = sketch_trim_active_ && sketch_trim_preview_ && source.id == active_sketch_id_
         ? *sketch_trim_preview_ : source.id == active_sketch_id_ && active_sketch()
             ? *active_sketch() : source;
-    tree_->setHeaderLabels({tr("SKETCHER — %1").arg(
-        QString::fromStdString(sketch.name))});
+    tree_->setHeaderLabels({tr("SKETCHER")});
     if(sketch.drawing_template) {
         const auto* part=workspace_.open_part(workspace_.active_document_id());
         tree_->setHeaderLabels({QString::fromStdString(part->path.empty()?part->session.document().name:part->path.filename().string())});
+        tree_->headerItem()->setIcon(0,resource_icon(sketch.drawing_template->kind=="title_block"?"title-block":"drawing-format"));
         for(const auto& region:sketch.drawing_template->repeat_regions) {
             auto* item=new QTreeWidgetItem(tree_,{tr("Oblast kusovníku")});item->setIcon(0,resource_icon("bom-region"));
             item->setData(0,Qt::UserRole,QString::fromStdString(region.id));item->setData(0,Qt::UserRole+3,"template-repeat-region");

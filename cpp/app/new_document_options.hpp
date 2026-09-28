@@ -1,26 +1,53 @@
 #pragma once
 #include "application_settings.hpp"
 #include <zima/workspace/native_documents.hpp>
+#include <zima/workspace/family_operations.hpp>
+#include <zima/drawing/drawing_template.hpp>
 #include <QDir>
 #include <QSettings>
+#include <QDateTime>
 #include <algorithm>
 
 namespace zima::app {
 struct NewDrawingFormat {
     QString label, path;
     drawing::SheetFormat format{drawing::SheetFormat::A4};
+    std::string variant;
+    QString selection_key() const {return variant.empty()?path:path+"#"+QString::fromStdString(variant);}
 };
 struct NewDrawingOptions {
     std::vector<NewDrawingFormat> formats;
     QString title_block;
+    std::string title_block_variant;
 };
 inline NewDrawingOptions new_drawing_options(const ApplicationSettings& settings) {
     NewDrawingOptions result;
     const auto directory=settings.resolved_paths.value("Formats");
     if(directory.isEmpty()||!QDir(directory).exists())return result;
     const QDir folder(directory);
+    QString signature=folder.absolutePath()+"|"+settings.language;
+    for(const auto& file:folder.entryInfoList({"*.frmz","*.tblz"},QDir::Files,QDir::Name))
+        signature+="|"+file.fileName()+":"+QString::number(file.size())+":"+QString::number(file.lastModified().toMSecsSinceEpoch());
+    static std::optional<std::pair<QString,NewDrawingOptions>> cached;
+    if(cached&&cached->first==signature)return cached->second;
+    const auto finish=[&]{cached=std::pair{signature,result};return result;};
     const QStringList sizes{"A4","A3","A2","A1","A0"};
     for(const auto& file:folder.entryInfoList({"*.frmz"},QDir::Files,QDir::Name)) {
+        const auto path=std::filesystem::path(file.absoluteFilePath().toStdU16String());
+        if(drawing::is_native_template_file(path)) {
+            const auto part=document::PartDocument::load(path);const auto table=document::parse_family_table(part.family_table);
+            for(const auto& row:table.instances) {
+                auto selected=part;workspace::apply_family_variant(selected,table,row);
+                for(const auto& sketch:selected.sketches) {
+                    const auto* owner=selected.find_container(sketch.owner_container_id);
+                    if(!sketch.drawing_template||sketch.drawing_template->kind!="drawing_format"||sketch.suppressed||(owner&&owner->suppressed))continue;
+                    const auto size=QString::fromStdString(sketch.drawing_template->sections.at("Format").at("SheetFormat"));const int index=sizes.indexOf(size);
+                    if(index>=0)result.formats.push_back({size+QStringLiteral(" — ")+file.completeBaseName(),file.absoluteFilePath(),static_cast<drawing::SheetFormat>(index),row.id});
+                    break;
+                }
+            }
+            continue;
+        }
         QSettings frame(file.absoluteFilePath(),QSettings::IniFormat);
         const auto size=frame.value("Format/SheetFormat").toString().toUpper();
         const int index=sizes.indexOf(size);
@@ -28,7 +55,14 @@ inline NewDrawingOptions new_drawing_options(const ApplicationSettings& settings
         const auto name=frame.value("Format/Name",file.completeBaseName()).toString();
         result.formats.push_back({size+QStringLiteral(" — ")+name,file.absoluteFilePath(),static_cast<drawing::SheetFormat>(index)});
     }
-    std::stable_sort(result.formats.begin(),result.formats.end(),[](const auto& a,const auto& b){return a.format<b.format;});
+    std::stable_sort(result.formats.begin(),result.formats.end(),[](const auto& a,const auto& b){
+        return a.format!=b.format?a.format<b.format:!a.variant.empty()&&b.variant.empty();});
+    const auto family=folder.filePath("ZE-TITLE-BLOCK.tblz");
+    if(QFileInfo(family).isFile()&&drawing::is_native_template_file(std::filesystem::path(family.toStdU16String()))) {
+        const auto part=document::PartDocument::load(std::filesystem::path(family.toStdU16String()));const auto table=document::parse_family_table(part.family_table);
+        const auto row=std::ranges::find(table.instances,settings.language.toUpper().toStdString(),&document::FamilyInstance::name);
+        if(row!=table.instances.end()){result.title_block=family;result.title_block_variant=row->id;return finish();}
+    }
     // Prefer the company template in the active language, then any matching
     // locale supplied by the configured library, then the base company block.
     const auto preferred=folder.filePath("ZE-TITLE-BLOCK-"+settings.language.toUpper()+".tblz");
@@ -43,17 +77,19 @@ inline NewDrawingOptions new_drawing_options(const ApplicationSettings& settings
         const auto base=folder.filePath("ZE-TITLE-BLOCK-CS.tblz");
         if(result.title_block.isEmpty()&&QFileInfo(base).isFile())result.title_block=base;
     }
-    return result;
+    return finish();
 }
 inline void configure_new_drawing(workspace::NativeTemplateSettings& templates,
         const NewDrawingOptions& options,const QString& selected_frame={}) {
     templates.drawing_format=drawing::SheetFormat::A4;
     templates.drawing_frame_template.clear();
+    templates.drawing_frame_variant.clear();templates.drawing_title_block_variant=options.title_block_variant;
     templates.drawing_title_block_template=std::filesystem::u8path(options.title_block.toStdString());
     for(const auto& format:options.formats)
-        if(selected_frame.isEmpty()?format.format==drawing::SheetFormat::A4:format.path==selected_frame) {
+        if(selected_frame.isEmpty()?format.format==drawing::SheetFormat::A4:format.selection_key()==selected_frame) {
             templates.drawing_format=format.format;
             templates.drawing_frame_template=std::filesystem::u8path(format.path.toStdString());
+            templates.drawing_frame_variant=format.variant;
             break;
         }
 }

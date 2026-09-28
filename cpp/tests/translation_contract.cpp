@@ -11,6 +11,7 @@
 #include "sheet_transition_dialog.hpp"
 #include "boundary_surface_dialog.hpp"
 #include "body_scale_dialog.hpp"
+#include "symbol_family_dialog.hpp"
 #include "mass_properties_dialog.hpp"
 #include <QAction>
 #include <QApplication>
@@ -109,6 +110,54 @@ int verify_translations(QApplication& application, QWidget& parent) {
         check(settings.translations.contains("global.language") &&
             !settings.translations.contains("Zamknout hodnotu"), "INI sections were mixed");
         app::apply_application_translations(application, settings);
+        {
+            document::FamilyTable model;model.instances={{"Base",{},"stable-row",false,{{"en","English label"},{"cs","Cesky popisek"}}}};
+            app::DocumentToolData data;data.family_table=document::serialize_family_table(model);
+            document::FamilyTable stored;bool accepted=false;
+            app::FamilyTableDialog dialog("Generic",data,[&](auto value){stored=document::parse_family_table(value.family_table);accepted=true;},settings,&parent);
+            dialog.setAttribute(Qt::WA_DeleteOnClose,false);dialog.show();application.processEvents();
+            auto* table=dialog.findChild<QTableWidget*>("familyTableTable");
+            auto* language_box=dialog.findChild<QComboBox*>("familyLabelLanguage");
+            check(language_box&&language_box->count()==5&&!language_box->isEditable()&&language_box->currentText()==settings.language,"Family label language is not restricted or does not follow initial settings");
+            check(table->horizontalHeaderItem(2)->text()==settings.qt_translations.value("Sdílený")&&table->horizontalHeaderItem(3)->text()==settings.qt_translations.value("Lokalizace"),"Family localization headers are untranslated");
+            const auto labels=dialog.findChildren<QLabel*>();
+            check(std::ranges::any_of(labels,[&](auto* label){return label->text()==settings.qt_translations.value("Jazyk popisků");}),"Family label language caption is untranslated");
+            language_box->setCurrentText("en");table->item(1,3)->setText("Authored English");
+            language_box->setCurrentText("de");table->item(1,3)->setText("Deutsch");
+            language_box->setCurrentText("en");check(table->item(1,3)->text()=="Authored English","Changing language discarded pending labels");
+            table->item(1,2)->setCheckState(Qt::Checked);
+            check(!table->item(1,3)->flags().testFlag(Qt::ItemIsEditable),"Shared Family label remains editable");
+            language_box->setCurrentText("de");table->item(1,2)->setCheckState(Qt::Unchecked);
+            check(table->item(1,3)->text()=="Deutsch"&&table->item(1,3)->flags().testFlag(Qt::ItemIsEditable),"Shared toggle lost translations");
+            table->item(1,3)->setText("");language_box->setCurrentText("cs");
+            table->item(1,1)->setText("Renamed");
+            dialog.buttons()->button(QDialogButtonBox::Ok)->click();
+            check(accepted&&stored.instances.size()==1&&stored.instances.front().id=="stable-row"&&stored.instances.front().name=="Renamed"&&
+                stored.instances.front().labels.at("en")=="Authored English"&&stored.instances.front().labels.at("cs")=="Cesky popisek"&&
+                !stored.instances.front().labels.contains("de")&&stored.instances.front().values.empty()&&!stored.instances.front().shared_name,
+                "Family localization OK changed identity, values, or pending translations");
+            data.family_table=document::serialize_family_table(stored);accepted=false;
+            app::FamilyTableDialog reopened("Generic",data,[&](auto value){check(value.family_table==data.family_table,"Unchanged Family UI modified its data");accepted=true;},settings,&parent);
+            reopened.setAttribute(Qt::WA_DeleteOnClose,false);reopened.buttons()->button(QDialogButtonBox::Ok)->click();
+            check(accepted,"Reopened Family did not confirm");accepted=false;
+            app::FamilyTableDialog cancelled("Generic",data,[&](auto){accepted=true;},settings,&parent);
+            cancelled.setAttribute(Qt::WA_DeleteOnClose,false);
+            cancelled.findChild<QTableWidget*>("familyTableTable")->item(1,3)->setText("Discard");
+            cancelled.findChild<QComboBox*>("familyLabelLanguage")->setCurrentText("fr");
+            cancelled.buttons()->button(QDialogButtonBox::Cancel)->click();check(!accepted,"Family Cancel committed labels");
+        }
+        {
+            const auto definition=symbols::Definition::load(catalogue.parent_path()/"symbols/surface-texture/ZE-SURFACE-TEXTURE-ISO21920.symz");
+            bool accepted=false;
+            app::SymbolFamilyDialog dialog(definition,[&](auto value){check(value.serialized()==definition.serialized(),"Localized Family Table changed an untouched definition");accepted=true;},&parent);dialog.setAttribute(Qt::WA_DeleteOnClose,false);
+            dialog.show();application.processEvents();
+            check(!dialog.findChild<QPushButton*>("symbolSketchAdd"),"Symbol Family bypasses ordinary Body Sketch creation");
+            auto* table=dialog.findChild<QTableWidget*>("symbolFamilyTable");
+            check(table->item(0,0)->text()==settings.qt_translations.value("Způsob výroby neurčen"),"Roughness variant is untranslated");
+            check(table->horizontalHeaderItem(table->columnCount()-1)->text()==settings.qt_translations.value("Text")+": "+settings.qt_translations.value("Drsnost"),"Roughness field is untranslated");
+            dialog.findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();
+            check(accepted,"Localized Family Table did not confirm");
+        }
         {
             document::BodyHistory body;body.name="Authored scale";body.scale=document::BodyScale{};
             app::BodyScaleDialog scale(body,[](auto){},&parent);scale.setAttribute(Qt::WA_DeleteOnClose,false);

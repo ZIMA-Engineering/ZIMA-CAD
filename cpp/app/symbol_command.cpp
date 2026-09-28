@@ -20,7 +20,7 @@ const sketcher::Sketch* AssemblyWorkspaceWindow::symbol_document_sketch() const 
     if(!part||!part->symbol_definition)return nullptr;
     const auto& sketches=part->session.document().sketches;
     const auto found=std::ranges::find(sketches,active_sketch_id_,&sketcher::Sketch::id);
-    return found!=sketches.end()?&*found:sketches.empty()?nullptr:&sketches.front();
+    return found!=sketches.end()?&*found:nullptr;
 }
 void AssemblyWorkspaceWindow::save_symbol_document(bool copy) {
     const auto id=workspace_.active_document_id();auto* part=workspace_.open_part(id);
@@ -73,7 +73,10 @@ void AssemblyWorkspaceWindow::start_symbol() {
         sketcher::SymbolInstance instance;instance.id=kernel::make_stable_id();instance.definition=definition.serialized();instance.variant=definition.default_variant;
         instance.use_cad_variant=!definition.variant_source.empty()&&template_sketch();
         if(active_sketch())show_symbol_properties({},std::move(instance));
-        else {symbols::Placement placement;placement.symbol=std::move(instance);placement.perpendicular_leader=true;show_model_symbol_properties({},std::move(placement));}
+        else {symbols::Placement placement;const auto definition=symbols::Definition::from_serialized(instance.definition);
+            placement.leader_ending=definition.leader_ending;placement.leader=definition.frame_layout.has_value()||definition.reference_line_layout.has_value();
+            if(placement.leader&&instance.x==0&&instance.y==0){instance.x=15;instance.y=8;}
+            placement.symbol=std::move(instance);placement.perpendicular_leader=true;show_model_symbol_properties({},std::move(placement));}
     }catch(const std::exception&){QMessageBox::warning(this,tr("Symbol"),tr("Symbol nelze načíst. Zkontrolujte jeho definici."));}
 }
 void AssemblyWorkspaceWindow::show_symbol_properties(const std::string& id,std::optional<sketcher::SymbolInstance> initial) {
@@ -111,7 +114,7 @@ void AssemblyWorkspaceWindow::select_symbol(const std::string& id) {
     QTreeWidgetItemIterator it(tree_);while(*it){auto* item=*it++;const auto kind=item->data(0,Qt::UserRole+3).toString();if((kind=="sketch-symbol"||kind=="model-symbol")&&item->data(0,Qt::UserRole).toString().toStdString()==id){item->setSelected(true);tree_->scrollToItem(item);break;}}
 }
 void AssemblyWorkspaceWindow::append_model_symbols_to_tree() {
-    const auto id=workspace_.active_document_id();if(symbol_document_sketch()||(!workspace_.open_part(id)&&!workspace_.open_assembly(id)))return;
+    const auto id=workspace_.active_document_id();if(workspace::is_symbol_document(workspace_,id)||(!workspace_.open_part(id)&&!workspace_.open_assembly(id)))return;
     const auto& values=workspace::symbol_annotations(workspace_,id);if(values.empty())return;
     QTreeWidgetItem* parent=tree_->topLevelItem(0);if(!parent)return;
     const auto path=workspace_.active_occurrence_path();

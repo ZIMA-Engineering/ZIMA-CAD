@@ -1935,13 +1935,13 @@ static int verify_general_command_console(QApplication& application,AssemblyWork
         const commands::Json family_table={
             {"columns",{"LENGTH"}},
             {"bindings",{{"LENGTH",{{"kind","dimension"},{"owner",metadata_box},{"key","parameter:length_forward"}}}}},
-            {"instances",commands::Json::array({{{"name","Varianta 10"},{"id","console-length-variant"},{"values",{{"LENGTH","10"}}}}})}};
+            {"instances",commands::Json::array({{{"shared_name",true},{"labels",nlohmann::json::object()},{"name","Varianta 10"},{"id","console-length-variant"},{"values",{{"LENGTH","10"}}}}})}};
         json_run("document.family.set",{{"table",family_table}});auto* family_action=window.findChild<QAction*>("familyTableAction");check(family_action,"Family action missing");family_action->trigger();flush();
         auto* family_dialog=window.findChild<QDialog*>("familyTableDialog");auto* family_widget=family_dialog?family_dialog->findChild<QTableWidget*>("familyTableTable"):nullptr;
-        check(family_widget && family_widget->item(1,2)->text()=="10","GUI did not read native family table");family_widget->item(1,2)->setText("20");
+        check(family_widget && family_widget->item(1,4)->text()=="10","GUI did not read native family table");family_widget->item(1,4)->setText("20");
         family_dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
         check(!window.findChild<QDialog*>("familyTableDialog") && run("document.family.get").data.at("table").at("instances")[0].at("values").at("LENGTH")=="20","Family GUI did not commit common data");
-        family_action->trigger();flush();family_dialog=window.findChild<QDialog*>("familyTableDialog");family_dialog->findChild<QTableWidget*>("familyTableTable")->item(1,2)->setText("999");
+        family_action->trigger();flush();family_dialog=window.findChild<QDialog*>("familyTableDialog");family_dialog->findChild<QTableWidget*>("familyTableTable")->item(1,4)->setText("999");
         family_dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Cancel)->click();flush();
         check(run("document.family.get").data.at("table").at("instances")[0].at("values").at("LENGTH")=="20","Family Cancel committed pending values");
         const auto family_after=run("document.family.get").data.at("table");

@@ -124,7 +124,9 @@ SketchTextPropertiesDialog::SketchTextPropertiesDialog(
     if(action_settings) {
         const auto get=[&](const std::string& key,const std::string& fallback){const auto it=action_settings->find(key);return QString::fromStdString(it==action_settings->end()?fallback:it->second);};
         field_action_=new QComboBox(this);field_action_->setObjectName("textFieldAction");
-        field_action_->addItem(tr("Žádná"),"none");field_action_->addItem(tr("Dnešní datum"),"today");field_action_->addItem(tr("Výběr ze seznamu"),"list");
+        field_action_->addItem(tr("Žádná"),"none");
+        if(!symbol_definition)field_action_->addItem(tr("Dnešní datum"),"today");
+        field_action_->addItem(tr("Výběr ze seznamu"),"list");
         field_action_->setCurrentIndex(std::max(0,field_action_->findData(get("kind","none"))));form->addRow(tr("Akce u hodnoty"),field_action_);
         date_format_=new QComboBox(this);date_format_->setObjectName("textFieldDateFormat");date_format_->addItems({"dd.MM.yyyy","yyyy-MM-dd","d. M. yyyy","MM/dd/yyyy"});date_format_->setCurrentText(get("date_format","dd.MM.yyyy"));form->addRow(tr("Formát data"),date_format_);
         choices_=new QPlainTextEdit(this);choices_->setObjectName("textFieldChoices");{QStringList choices;for(const auto& item:QJsonDocument::fromJson(get("choices","[]").toUtf8()).array())choices.push_back(item.toString());choices_->setPlainText(choices.join('\n'));}choices_->setFixedHeight(90);form->addRow(tr("Možnosti (každá na novém řádku)"),choices_);

@@ -62,6 +62,18 @@ int main(int argc,char** argv) {
         const auto root=std::filesystem::current_path();
         const auto historical_path=root/"config/symbols/surface-texture/ZE-SURFACE-TEXTURE-ISO1302-1978.symz";
         if(argc==1) {
+            for(const auto* asset:{"surface-texture/ZE-SURFACE-TEXTURE-ISO1302-1978.symz","surface-texture/ZE-SURFACE-TEXTURE-ISO21920.symz","general/ZE-GENERAL-SURFACE-TEXTURE-ISO21920.symz"}) {
+                auto edited=symbols::Definition::load(root/"config/symbols"/asset);
+                const auto& field=edited.fields.at("Specification");
+                auto& source=*std::ranges::find(edited.sketches,field.sketch_id,&sketcher::Sketch::id);
+                auto& text=*std::ranges::find(source.texts,field.text_id,&sketcher::SketchText::id);
+                text.value="Ra 6.3";sketcher::rebuild_text_contours(text,true);
+                for(const auto& [key,row]:edited.variants) {
+                    const auto sketches=edited.evaluate(key);
+                    const auto& shown=*std::ranges::find(sketches,field.sketch_id,&sketcher::Sketch::id);
+                    check(std::ranges::find(shown.texts,field.text_id,&sketcher::SketchText::id)->value=="Ra 6.3","A redundant roughness row override masks the authored text");
+                }
+            }
             const auto historical=symbols::Definition::load(historical_path);
             check(historical.variants.size()==2,"Historical roughness must have two process variants");
             for(const auto* variant:{"any_process","material_removal"}) {
@@ -215,8 +227,10 @@ int main(int argc,char** argv) {
         }
         const auto tolerance_root=root/"config/symbols/geometric-tolerances";int tolerance_count=0;
         for(const auto& entry:std::filesystem::directory_iterator(tolerance_root))if(entry.path().extension()==".symz") {
-            const auto d=symbols::Definition::load(entry.path());check(d.frame_layout.has_value(),"Tolerance frame has fixed borders");++tolerance_count;
-            sketcher::SymbolInstance i;i.id="frame-test";i.definition=d.serialized();i.variant=d.default_variant;
+            const auto d=symbols::Definition::load(entry.path());check(d.frame_layout.has_value(),"Tolerance frame has fixed borders");
+            if(d.id=="ze:datum-feature"){check(d.leader_ending==symbols::LeaderEnding::Triangle,"Datum default is not a triangle");continue;}
+            tolerance_count+=static_cast<int>(d.variants.size());
+            sketcher::SymbolInstance i;i.id="frame-test";i.definition=d.serialized();i.variant="PERPENDICULARITY/default";
             const auto width=[&](const auto& instance){double a=1e100,b=-1e100;for(const auto& edge:symbols::instance_mesh(instance).edges)for(auto p:edge.points){a=std::min(a,p.x);b=std::max(b,p.x);}return b-a;};
             const auto initial=width(i);i.text_values["Tolerance"]="0.000000123456789";check(width(i)>initial+5,"Tolerance frame did not grow with text");
             if(d.fields.contains("Secondary datum")) {i.text_values["Secondary datum"]="B";const auto two=width(i);i.text_values["Tertiary datum"]="C";check(width(i)>=two+6.9,"Datum cells overlap or fail to grow");}
@@ -251,10 +265,10 @@ int main(int argc,char** argv) {
         }
         int weld_count=0;
         for(const auto& entry:std::filesystem::directory_iterator(root/"config/symbols/welding"))if(entry.path().extension()==".symz") {
-            const auto d=symbols::Definition::load(entry.path());check(d.reference_line_layout.has_value(),"Weld lacks reference-line layout");++weld_count;
+            const auto d=symbols::Definition::load(entry.path());check(d.reference_line_layout.has_value(),"Weld lacks reference-line layout");weld_count+=static_cast<int>(d.variants.size());
             for(const auto& [variant,row]:d.variants) {
                 bilateral(d,variant);
-                const auto prefix=variant=="other_side"?"Other":"Arrow";
+                const auto prefix=variant.ends_with("/other_side")?"Other":"Arrow";
                 const auto measure=[&](const auto& overrides){double left=1e100,right=-1e100;for(const auto& s:d.evaluate(variant,overrides))for(const auto& edge:s.viewer_mesh().edges) {
                     if(edge.reference.semantic_key.starts_with("sketch_axis:"))continue;
                     for(auto p:edge.points){left=std::min(left,p.x);right=std::max(right,p.x);}
@@ -265,7 +279,7 @@ int main(int argc,char** argv) {
             }
             check(symbols::Definition::from_serialized(d.serialized()).serialized()==d.serialized(),"Weld layout persistence changed");
         }
-        check(weld_count==4,"Weld catalog incomplete");
+        check(weld_count==12,"Weld catalog must contain four types on either or both sides");
 
         workspace::Workspace live;auto carrier=workspace::template_part_from_sketch(title,"Symbols");const auto id=carrier.document_id;
         live.add_part(std::move(carrier),{},directory/"undo.tblz");auto* state=live.open_part(id);const auto original=state->session.document().sketches.front();

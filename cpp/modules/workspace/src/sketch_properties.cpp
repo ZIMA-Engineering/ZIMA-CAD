@@ -5,6 +5,7 @@
 #include <zima/workspace/sketch_properties.hpp>
 #include <zima/workspace/part_transactions.hpp>
 #include <zima/document/metadata.hpp>
+#include <zima/drawing/drawing_template.hpp>
 #include <algorithm>
 #include <cmath>
 
@@ -26,6 +27,9 @@ bool commit_part_sketch_properties(Workspace& live,const kernel::OcctKernel& ker
     const auto& before=state->session.document();
     const auto existing=std::ranges::find(before.sketches,sketch.id,&sketcher::Sketch::id);
     const bool create=existing==before.sketches.end();
+    if(create&&state->native_drawing_template&&!sketch.drawing_template) {
+        sketch.drawing_template=drawing::create_template_sketch(state->path.extension()==".tblz",sketch.name).drawing_template;
+    }
     const auto* owner=before.find_container(sketch.owner_container_id);
     if(create){
         if(!new_container||new_container->feature_kind!=document::FeatureKind::Sketch||

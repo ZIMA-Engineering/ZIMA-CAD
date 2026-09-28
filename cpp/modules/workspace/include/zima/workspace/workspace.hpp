@@ -26,8 +26,9 @@ struct PartState {
     // Runtime identity distinguishes closing/reopening the same native document.
     std::shared_ptr<const int> runtime_identity=std::make_shared<const int>(0);
     bool background_import_source{};
-    // Symbol editor carrier: sketches use the existing editing/Undo session;
-    // immutable variant/field metadata is saved only into the native SYMZ.
+    bool native_drawing_template{};
+    // Identifies a Symbol carrier. Editable metadata lives in its Undo session
+    // and is persisted exclusively through the native SYMZ writer.
     std::optional<std::string> symbol_definition;
 
 };
@@ -115,7 +116,8 @@ public:
     // retarget/mark saved/activate the original documents or calculate OCCT.
     [[nodiscard]] std::vector<std::filesystem::path> save_copy(
         const std::string& document_id, const std::filesystem::path& target,
-        const std::filesystem::path& drawing_search_directory = {}) const;
+        const std::filesystem::path& drawing_search_directory = {},
+        bool overwrite_library = false) const;
     [[nodiscard]] bool remove(const std::string& document_id);
 
     [[nodiscard]] std::size_t size() const;

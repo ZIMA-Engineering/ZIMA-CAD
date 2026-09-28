@@ -1,6 +1,8 @@
 #include <zima/drawing/measurement_dimension.hpp>
 #include "../drawing_annotation_layout.hpp"
 #include "workspace_internal.hpp"
+#include "../symbol_family_dialog.hpp"
+#include <zima/workspace/symbol_operations.hpp>
 #include <zima/workspace/metadata_operations.hpp>
 #include <zima/workspace/engineering_metadata_operations.hpp>
 #include <zima/workspace/sheet_state_operations.hpp>
@@ -369,6 +371,16 @@ void AssemblyWorkspaceWindow::edit_family_table() {
 
 void AssemblyWorkspaceWindow::edit_family_table_for_document(std::string document_id) {
     if (properties_dialog_ != nullptr) { properties_dialog_->raise(); return; }
+    if(workspace::is_symbol_document(workspace_,document_id)) {
+        auto* dialog=new SymbolFamilyDialog(workspace::edited_symbol_definition(workspace_,document_id),
+            [this,document_id](auto definition){workspace::store_symbol_definition(workspace_,document_id,definition);},this);
+        properties_dialog_=dialog;
+        connect(dialog,&QDialog::finished,this,[this,dialog]{
+            if(properties_dialog_==dialog)properties_dialog_=nullptr;
+            preserve_view_on_refresh_=true;refresh_tabs();refresh_scene();
+        });
+        dialog->show();return;
+    }
     const auto active_owner=workspace::family_owner(workspace_,workspace_.active_document_id());
     const auto id = workspace::family_owner(workspace_,document_id); DocumentToolData data; QString name;
     if (const auto* part = workspace_.open_part(id)) { const auto& d = part->session.document(); name = QString::fromStdString(d.name); data.family_table = d.family_table; }

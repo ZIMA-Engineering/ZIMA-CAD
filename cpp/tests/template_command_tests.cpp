@@ -33,7 +33,7 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory,bool title) {
         const auto result=host.execute(request(command,std::move(args)));if(result.ok||result.code!=code)throw std::runtime_error(std::string(command)+" expected "+code+", got "+result.code+": "+result.message);
         if(index>=0)require(result.data.at("operation_index")==index,"Batch failure lost operation index");
         require(current().serialized()==before&&state->session.revision()==rev&&state->session.data_generation()==generation&&live.size()==count&&!host.change(),"Rejected template operation mutated workspace");};
-    rejected("extrusion.create",{{"sketch","unsupported-template"}},"unsupported_document");
+    require(state->native_drawing_template&&state->session.document().body_owner_for_object(current().owner_container_id),"New template must use native Part Body ownership");
     rejected("template.sketch.edit",{{"operations",Json::array()}},"invalid_arguments");
     auto invalid=move;invalid.push_back(request("save"));rejected("template.sketch.edit",{{"operations",invalid}},"unknown_command",1);
     invalid=move;invalid.push_back(request("sketch.point.move",{{"point","missing"},{"position",{0,0}}}));rejected("template.sketch.edit",{{"operations",invalid}},"point_not_found",1);

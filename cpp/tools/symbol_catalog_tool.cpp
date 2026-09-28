@@ -1,10 +1,13 @@
 #include <zima/symbols/definition.hpp>
+#include <nlohmann/json.hpp>
+#include <QFile>
 #include <zima/sketcher/text_geometry.hpp>
 #include <QGuiApplication>
 #include <QImage>
 #include <QPainter>
 #include <QPainterPath>
 #include <iostream>
+#include <set>
 #include <cmath>
 using namespace zima;
 namespace {
@@ -52,11 +55,11 @@ symbols::Definition historical_roughness() {
     base.texts.back().anchor_x=1.5;base.texts.back().anchor_y=4.781;
     base.texts.back().drawing_keep_readable=true;sketcher::rebuild_text_contours(base.texts.back(),true);
     auto bar=sketch(d.id+":removal-required");line(bar,"roughness:removal",-1.75,3.031,1.75,3.031);
+    base.name="Base";bar.name="Material removal required";
     d.sketches={base,bar};d.fields["Specification"]={base.id,"roughness:value",{"0,4","0,8","1,6","3,2","6,3","12,5","Ra 0,4","Ra 0,8","Ra 1,6","Ra 3,2","Ra 6,3","Ra 12,5"},true};
     for(const auto* kind:{"any_process","material_removal"}) {
         auto& row=d.variants[kind];row.sketches={base.id};
         if(std::string(kind)=="material_removal")row.sketches.push_back(bar.id);
-        row.text_values["Specification"]="3,2";
     }
     d.default_variant="material_removal";texture_colors(d,sketcher::SketchTextColor::Green);
     d.validate();return d;
@@ -70,10 +73,10 @@ symbols::Definition roughness() {
     auto required=sketch(d.id+":removal-required");line(required,"roughness:removal",-1.75,3.031,1.75,3.031);
     auto forbidden=sketch(d.id+":removal-forbidden");forbidden.points.push_back({"roughness:circle-center",0,1.85,true});
     forbidden.circles.push_back({"roughness:circle","roughness:circle-center",.925,false});
+    base.name="Base";required.name="Material removal required";forbidden.name="Material removal prohibited";
     d.sketches={base,required,forbidden};d.fields["Specification"]={base.id,"roughness:value",{"Ra 0.4","Ra 0.8","Ra 1.6","Ra 3.2","Ra 6.3","Ra 12.5","Rz 6.3","Rz 12.5"},true};
     d.variants["any_process"].sketches={base.id};d.variants["material_removal"].sketches={base.id,required.id};
     d.variants["no_material_removal"].sketches={base.id,forbidden.id};d.default_variant="material_removal";
-    for(auto& [key,row]:d.variants)row.text_values["Specification"]="Ra 3.2";
     texture_colors(d,sketcher::SketchTextColor::Green);
     d.validate();return d;
 }
@@ -86,6 +89,7 @@ symbols::Definition general_roughness() {
     auto d=roughness();d.id="ze:general-surface-texture:iso21920";d.name="ZE-GENERAL-SURFACE-TEXTURE-ISO21920";
     for(auto& [key,row]:d.variants) {
         auto extra=sketch(d.id+":"+key);
+        extra.name=key=="material_removal"?"General material removal":key=="no_material_removal"?"General no material removal":"General any process";
         const double x=26;
         line(extra,key+":left",x-1.75,3.031,x,0);line(extra,key+":right",x,0,x+3.5,6.062);
         line(extra,key+":top",x+3.5,6.062,x+5.5,6.062);line(extra,key+":standard-bar",x-1.2,4.55,x+1.2,4.55);
@@ -190,13 +194,95 @@ symbols::Definition welding(const std::string& kind) {
         for(const auto& c:glyph.segments)d.pens[glyph.id][c.id]="yellow";
         d.sketches.push_back(std::move(size));d.sketches.push_back(std::move(glyph));d.sketches.push_back(std::move(length));
     }
-    d.reference_line_layout->columns={sizes,glyphs,lengths};d.default_variant="arrow_side";d.validate();return d;
+    d.reference_line_layout->columns={sizes,glyphs,lengths};
+    auto both=d.variants.at("arrow_side");const auto& other=d.variants.at("other_side");
+    both.sketches.insert(both.sketches.end(),other.sketches.begin(),other.sketches.end());both.text_values.insert(other.text_values.begin(),other.text_values.end());
+    d.variants["both_sides"]=std::move(both);d.default_variant="arrow_side";d.validate();return d;
+}
+
+symbols::Definition combined_family(const std::vector<symbols::Definition>& sources,const std::string& id,const std::string& name) {
+    auto result=sources.front();result.id=id;result.name=name;result.variants.clear();
+    for(std::size_t i=0;i<sources.size();++i) {
+        const auto& source=sources[i];std::map<std::string,std::string> shared;
+        for(const auto& [key,field]:source.fields)if(result.fields.contains(key))shared[field.sketch_id]=result.fields.at(key).sketch_id;
+        if(i) {
+            for(const auto& sketch:source.sketches)if(!shared.contains(sketch.id))result.sketches.push_back(sketch);
+            for(const auto& [owner,pens]:source.pens)if(!shared.contains(owner))result.pens[owner]=pens;
+            if(source.frame_layout) {
+                std::vector<std::string> glyphs;
+                for(const auto& cell:source.frame_layout->cells)if(!shared.contains(cell))glyphs.push_back(cell);
+                result.frame_layout->cells.insert(result.frame_layout->cells.begin(),glyphs.begin(),glyphs.end());
+            }
+            if(source.reference_line_layout)for(std::size_t column=0;column<source.reference_line_layout->columns.size();++column)
+                for(const auto& cell:source.reference_line_layout->columns[column])if(!shared.contains(cell))result.reference_line_layout->columns[column].push_back(cell);
+            for(const auto& [key,field]:source.fields) {
+                if(!result.fields.contains(key))result.fields[key]=field;
+                else {
+                    auto& combined=result.fields.at(key);
+                    for(const auto& choice:field.choices)if(std::ranges::find(combined.choices,choice)==combined.choices.end())combined.choices.push_back(choice);
+                }
+            }
+        }
+        const auto kind=source.id.substr(source.id.find_last_of(':')+1);
+        for(const auto& [key,original]:source.variants) {
+            auto variant=original;for(auto& sketch:variant.sketches)if(shared.contains(sketch))sketch=shared.at(sketch);
+            const auto row=kind+"/"+key;result.variants[row]=std::move(variant);
+            if(i==0&&key==source.default_variant)result.default_variant=row;
+        }
+    }
+    if(result.frame_layout) {
+        result.frame_layout->cells.clear();
+        for(const auto& sketch:result.sketches)if(std::ranges::none_of(result.fields,[&](const auto& item){return item.second.sketch_id==sketch.id;}))result.frame_layout->cells.push_back(sketch.id);
+        for(const auto* key:{"Tolerance","Primary datum","Secondary datum","Tertiary datum"})if(result.fields.contains(key))result.frame_layout->cells.push_back(result.fields.at(key).sketch_id);
+    }
+    result.validate();return result;
+}
+symbols::Definition datum_feature() {
+    symbols::Definition d;d.id="ze:datum-feature";d.name="ZE-DATUM-FEATURE";d.leader_ending=symbols::LeaderEnding::Triangle;
+    auto label=sketch(d.id+":label");text(label,"letter","A",1,2.2);
+    d.fields["Datum"]={label.id,"letter",{"A","B","C","D","E","F"},true};
+    d.frame_layout=symbols::FrameLayout{};d.frame_layout->cells={label.id};
+    d.default_variant="default";d.variants["default"].sketches={label.id};d.sketches.push_back(std::move(label));d.validate();return d;
 }
 
 }
 int main(int argc,char** argv) {
     QGuiApplication app(argc,argv);
     try {
+        if(argc==4&&std::string(argv[1])=="--verify-replacements") {
+            const auto source=std::filesystem::u8path(argv[2]),target=std::filesystem::u8path(argv[3]);int checked=0;
+            const auto strokes=[](const symbols::Definition& definition,const std::string& variant) {
+                sketcher::SymbolInstance instance;instance.id="comparison";instance.definition=definition.serialized();instance.variant=variant;
+                std::multiset<std::string> result;
+                for(const auto& edge:symbols::instance_mesh(instance).edges) {
+                    nlohmann::json points=nlohmann::json::array();for(const auto& point:edge.points)points.push_back({point.x,point.y,point.z});
+                    result.insert(nlohmann::json{{"points",points},{"filled",edge.filled_text},{"color",edge.color}}.dump());
+                }
+                return result;
+            };
+            for(const auto* directory:{"welding","geometric-tolerances"}) {
+                const bool weld=std::string(directory)=="welding";
+                const auto combined=symbols::Definition::load(target/directory/(weld?"ZE-WELDING-ISO2553.symz":"ZE-GEOMETRIC-TOLERANCES-ISO1101.symz"));
+                for(const auto& entry:std::filesystem::directory_iterator(source/directory)) {
+                    if(entry.path().extension()!=".symz")continue;
+                    QFile file(QString::fromStdWString(entry.path().wstring()));if(!file.open(QIODevice::ReadOnly))throw std::runtime_error("Cannot read source catalog");
+                    const auto bytes=file.readAll();if(!bytes.trimmed().startsWith('{'))continue;
+                    const auto original=symbols::Definition::from_serialized(bytes.toStdString());
+                    const auto kind=original.id.substr(original.id.find_last_of(':')+1);
+                    for(const auto& [key,field]:original.fields) {
+                        if(!combined.fields.contains(key))throw std::runtime_error("Replacement lost text field: "+key);
+                        const auto& replacement=combined.fields.at(key);
+                        if(field.allow_custom!=replacement.allow_custom)throw std::runtime_error("Replacement changed custom text entry: "+key);
+                        for(const auto& choice:field.choices)if(std::ranges::find(replacement.choices,choice)==replacement.choices.end())throw std::runtime_error("Replacement lost text choice: "+key+" / "+choice);
+                    }
+                    for(const auto& [variant,row]:original.variants)
+                        if(strokes(original,variant)!=strokes(combined,kind+"/"+variant))throw std::runtime_error("Replacement geometry differs: "+entry.path().string()+" "+variant);
+                    ++checked;std::cout<<"Verified "<<entry.path().filename().string()<<'\n';
+                }
+            }
+            if(checked!=18)throw std::runtime_error("Expected all 18 original per-type libraries");
+            std::cout<<"All 18 original libraries retain exact rendered geometry, pens, filled contours and text-entry choices in their combined variants\n";return 0;
+        }
         if(argc!=3)throw std::invalid_argument("Expected library root and preview path");
         const auto root=std::filesystem::u8path(argv[1]);
         std::vector<std::pair<std::filesystem::path,symbols::Definition>> definitions{
@@ -205,18 +291,19 @@ int main(int argc,char** argv) {
             {root/"surface-texture/ZE-SURFACE-TEXTURE-ISO21920.symz",roughness()},
             {root/"general/ZE-GENERAL-SURFACE-TEXTURE-ISO21920.symz",general_roughness()},
             {root/"general/ZE-GENERAL-EDGES-ISO13715.symz",edges()}};
-        for(const auto* kind:{"STRAIGHTNESS","FLATNESS","CIRCULARITY","CYLINDRICITY","LINE-PROFILE","SURFACE-PROFILE","PARALLELISM","PERPENDICULARITY","ANGULARITY","POSITION","COAXIALITY","SYMMETRY","CIRCULAR-RUNOUT","TOTAL-RUNOUT"}) {
-            auto definition=geometric_tolerance(kind);definitions.push_back({root/"geometric-tolerances"/(definition.name+".symz"),std::move(definition)});
-        }
-        for(const auto* kind:{"FILLET","SQUARE-BUTT","V-BUTT","BEVEL-BUTT"}) {
-            auto definition=welding(kind);definitions.push_back({root/"welding"/(definition.name+".symz"),std::move(definition)});
-        }
+        std::vector<symbols::Definition> tolerances,welds;
+        for(const auto* kind:{"STRAIGHTNESS","FLATNESS","CIRCULARITY","CYLINDRICITY","LINE-PROFILE","SURFACE-PROFILE","PARALLELISM","PERPENDICULARITY","ANGULARITY","POSITION","COAXIALITY","SYMMETRY","CIRCULAR-RUNOUT","TOTAL-RUNOUT"})tolerances.push_back(geometric_tolerance(kind));
+        for(const auto* kind:{"FILLET","SQUARE-BUTT","V-BUTT","BEVEL-BUTT"})welds.push_back(welding(kind));
+        definitions.push_back({root/"geometric-tolerances/ZE-GEOMETRIC-TOLERANCES-ISO1101.symz",combined_family(tolerances,"ze:geometric-tolerance:family","ZE-GEOMETRIC-TOLERANCES-ISO1101")});
+        definitions.push_back({root/"geometric-tolerances/ZE-DATUM-FEATURE.symz",datum_feature()});
+        definitions.push_back({root/"welding/ZE-WELDING-ISO2553.symz",combined_family(welds,"ze:welding:iso2553:family","ZE-WELDING-ISO2553")});
         int variants=0;for(const auto& entry:definitions)variants+=int(entry.second.variants.size());
         QImage image(1400,200+variants*290,QImage::Format_ARGB32_Premultiplied);image.fill(Qt::white);QPainter painter(&image);painter.setRenderHint(QPainter::Antialiasing);
         int row=0;
         for(const auto& [path,definition]:definitions) {
             std::filesystem::create_directories(path.parent_path());definition.save(path);
-            if(symbols::Definition::load(path).serialized()!=definition.serialized())throw std::runtime_error("Catalog roundtrip differs");
+            if(const auto reopened=symbols::Definition::load(path);reopened.serialized()!=definition.serialized())
+                throw std::runtime_error("Catalog roundtrip differs: "+path.string()+" "+nlohmann::json::diff(nlohmann::json::parse(definition.serialized()),nlohmann::json::parse(reopened.serialized())).dump());
             for(const auto& [variant,value]:definition.variants) {
                 sketcher::SymbolInstance instance;instance.id="preview";instance.definition=definition.serialized();instance.variant=variant;
                 const auto mesh=symbols::instance_mesh(instance);if(mesh.edges.empty())throw std::runtime_error("Empty catalog variant");

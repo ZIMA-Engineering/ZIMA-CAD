@@ -49,7 +49,7 @@ Slots feature_slots(document::HistoryContainer& f) {
 std::string number(double value) { return kernel::dimension_number(value,12); }
 bool has_feature_solid(const document::HistoryContainer& f) { return f.feature_kind!=FeatureKind::Sketch; }
 template<class Doc> void add_feature_references(std::vector<FamilyReference>& out,const Doc& doc,document::HistoryContainer f) {
-    if(has_feature_solid(f))out.push_back({{"feature",f.id,{}},f.name,f.name,f.suppressed?"no":"yes"});
+    if(has_feature_solid(f)||f.feature_kind==FeatureKind::Sketch)out.push_back({{"feature",f.id,{}},f.name,f.name,f.suppressed?"no":"yes"});
     const auto add=[&](const std::string& key,double value) {
         if(f.value_locks.contains(key))return;
         const auto semantic="parameter:"+key;
@@ -166,6 +166,7 @@ template<class Doc> void apply(Doc& doc,const document::FamilyTable& table,const
 bool assign_driving_dimension(document::PartDocument& doc,const document::FamilyColumn& binding,double value) {
     return assign_dimension(doc,binding,value);
 }
+void apply_family_variant(document::PartDocument& doc,const document::FamilyTable& table,const document::FamilyInstance& row) { apply(doc,table,row); }
 bool assign_driving_dimension(assembly::AssemblyDocument& doc,const document::FamilyColumn& binding,double value) {
     return assign_dimension(doc,binding,value);
 }
@@ -469,7 +470,11 @@ std::string open_family_instance(Workspace& live,const kernel::OcctKernel& kerne
             family.evaluated[row->id]=std::make_shared<const nlohmann::json>(next.serialized(cache));
             source->session.update_family_evaluated(std::move(family));
         }
+        const bool native_template=source->native_drawing_template;
+        const auto symbol_definition=source->symbol_definition;
         live.add_part(std::move(next),std::move(cache),path);
+        live.open_part(instance_id)->native_drawing_template=native_template;
+        live.open_part(instance_id)->symbol_definition=symbol_definition;
     } else if(auto* source=live.open_assembly(id)) {
         auto family=source->session.document().family;const auto path=source->path;assembly::AssemblyDocument next;
         if(const auto found=family.evaluated.find(row->id);found!=family.evaluated.end())next=assembly::AssemblyDocument::from_serialized(*found->second);

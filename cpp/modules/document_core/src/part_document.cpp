@@ -561,6 +561,7 @@ nlohmann::json read_part_ini(const std::filesystem::path& path) {
         {"sections", nlohmann::json::parse(ini_value(ini,"Document","sections","[]"))},
         {"measurements", nlohmann::json::parse(ini_value(ini,"Document","measurements","[]"))},
         {"symbol_annotations",nlohmann::json::parse(ini_value(ini,"Document","symbol_annotations","[]"))},
+        {"symbol_editor_definition",nlohmann::json::parse(ini_value(ini,"Document","symbol_editor_definition","null"))},
         {"body_properties", nlohmann::json::parse(ini_value(ini,"Document","body_properties"))},
         {"dimension_layouts", nlohmann::json::parse(ini_value(ini,"Document","dimension_layouts","[]"))},
         {"dimension_identifiers", nlohmann::json::parse(ini_required(ini, "Document", "dimension_identifiers"))},
@@ -716,6 +717,7 @@ void write_part_ini(
         {"sections", root.value("sections",nlohmann::json::array()).dump()},
         {"measurements", root.value("measurements",nlohmann::json::array()).dump()},
         {"symbol_annotations",root.value("symbol_annotations",nlohmann::json::array()).dump()},
+        {"symbol_editor_definition",root.at("symbol_editor_definition").dump()},
         {"body_properties", root.at("body_properties").dump()},
         {"dimension_layouts", root.value("dimension_layouts",nlohmann::json::array()).dump()},
         {"dimension_identifiers", root.at("dimension_identifiers").dump()},
@@ -10336,6 +10338,8 @@ PartDocument PartDocument::from_serialized(const nlohmann::json& root,
     document.sections = parse_sections(root.value("sections",nlohmann::json::array()).dump());
     document.measurements = parse_measurements(root.value("measurements",nlohmann::json::array()).dump());
     document.symbol_annotations=symbols::placements_from_json(root.value("symbol_annotations",nlohmann::json::array()));
+    if(const auto definition=root.value("symbol_editor_definition",nlohmann::json{});!definition.is_null())
+        document.symbol_editor_definition=definition.get<std::string>();
     document.body_properties = parse_body_properties(root.at("body_properties").dump());
     document.dimension_layouts=zima::document::dimension_layouts_from_json(root.value("dimension_layouts",nlohmann::json::array()));
     document.dimension_identifiers = DimensionIdentifiers::from_serialized(root.at("dimension_identifiers").dump());
@@ -11996,6 +12000,7 @@ nlohmann::json PartDocument::serialized(
         {"sections", nlohmann::json::parse(serialize_sections(sections))},
         {"measurements", nlohmann::json::parse(serialize_measurements(measurements))},
         {"symbol_annotations",symbols::placements_json(symbol_annotations)},
+        {"symbol_editor_definition",symbol_editor_definition?nlohmann::json(*symbol_editor_definition):nlohmann::json(nullptr)},
         {"body_properties", nlohmann::json::parse(serialize_body_properties(body_properties))},
         {"body_color", body_color},
         {"appearance", serialize_appearance(appearance)},

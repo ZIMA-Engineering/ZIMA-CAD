@@ -2,6 +2,7 @@
 #include <zima/drawing/drawing_template.hpp>
 #include <zima/sketcher/text_geometry.hpp>
 #include <zima/document/metadata.hpp>
+#include <zima/workspace/document_operations.hpp>
 #include <algorithm>
 #include <cctype>
 namespace zima::workspace {
@@ -36,8 +37,14 @@ void check_target(const Workspace& live,const std::filesystem::path& path,const 
 bool is_drawing_template(const Workspace& live,const std::string& id) {
     const auto* part=live.open_part(id);return part&&!part->session.document().sketches.empty()&&part->session.document().sketches.front().drawing_template.has_value();
 }
-const sketcher::Sketch& drawing_template_sketch(const Workspace& live,const std::string& id) {
+const sketcher::Sketch& drawing_template_sketch(const Workspace& live,const std::string& id,const std::string& selection) {
     if(!is_drawing_template(live,id))throw TemplateOperationError("unsupported_document","This command requires an open drawing template.");
+    if(!selection.empty())for(const auto& sketch:live.open_part(id)->session.document().sketches) {
+        if(!sketch.drawing_template)continue;
+        if(sketch.id==selection||std::ranges::any_of(sketch.drawing_template->repeat_regions,[&](const auto& value){return value.id==selection;})||
+            std::ranges::any_of(sketch.drawing_template->images,[&](const auto& value){return value.id==selection;}))return sketch;
+    }
+    if(!selection.empty())throw TemplateOperationError("object_not_found","The template object does not exist.");
     return live.open_part(id)->session.document().sketches.front();
 }
 document::PartDocument template_part_from_sketch(sketcher::Sketch sketch,std::string name) {
@@ -52,11 +59,18 @@ std::string create_drawing_template(Workspace& live,bool title,const std::string
     document::validate_native_metadata_text(name);const auto path=std::filesystem::absolute(target).lexically_normal();
     if(title_path(path)!=title)throw TemplateOperationError("unsupported_format","The template kind does not match its extension.");
     check_target(live,path,{},false);auto document=template_part_from_sketch(drawing::create_template_sketch(title,name),name);
-    const auto id=document.document_id;live.add_part(std::move(document),{},path);return id;
+    document::BodyHistoryGraph bodies;static_cast<void>(bodies.create_body(name));
+    bodies.insert({document::PartHistoryKind::Feature,document.history.front().id});document.set_body_history(bodies);
+    const auto id=document.document_id;live.add_part(std::move(document),{},path);live.open_part(id)->native_drawing_template=true;return id;
 }
 std::string open_drawing_template(Workspace& live,const std::filesystem::path& target) {
     const auto path=std::filesystem::absolute(target).lexically_normal();static_cast<void>(title_path(path));
     if(const auto opened=opened_at_path(live,path)){static_cast<void>(drawing_template_sketch(live,*opened));return *opened;}
+    if(drawing::is_native_template_file(path)) {
+        std::vector<kernel::BodyResult> cache;auto document=document::PartDocument::load(path,&cache);
+        const auto id=document.document_id;live.add_part(std::move(document),std::move(cache),path);
+        live.open_part(id)->native_drawing_template=true;return id;
+    }
     auto sketch=drawing::load_template_sketch(path,[](auto& text){sketcher::rebuild_text_contours(text,true);});
     auto document=template_part_from_sketch(std::move(sketch),text(path.stem()));const auto id=document.document_id;
     live.add_part(std::move(document),{},path);return id;
@@ -66,17 +80,27 @@ void save_drawing_template(Workspace& live,const std::string& id,const std::file
     const auto path=std::filesystem::absolute(target).lexically_normal(),source=std::filesystem::absolute(state->path).lexically_normal();
     if(title_path(path)!=(sketch.drawing_template->kind=="title_block"))throw TemplateOperationError("unsupported_format","The template kind does not match its extension.");
     if(copy&&same_path(path,source))throw TemplateOperationError("invalid_path","A template copy must use a different target path.");
-    check_target(live,path,id,overwrite||(!copy&&same_path(path,source)));live.reserve_file(path);drawing::save_template_sketch(sketch,path);
+    check_target(live,path,id,overwrite||(!copy&&same_path(path,source)));live.reserve_file(path);
+    if(state->native_drawing_template) {
+        if(copy)static_cast<void>(live.save_copy(id,path,{},overwrite));
+        else {const auto saved=prepare_document_save(live,id,path).write();static_cast<void>(complete_document_save(live,saved));}
+        return;
+    }
+    drawing::save_template_sketch(sketch,path);
     if(!copy){state->path=path;state->session.mark_saved();}
 }
 bool commit_template_sketch(Workspace& live,const std::string& id,sketcher::Sketch sketch) {
-    const auto& original=drawing_template_sketch(live,id);
-    if(!sketch.drawing_template||sketch.id!=original.id||sketch.owner_container_id!=original.owner_container_id||sketch.drawing_template->kind!=original.drawing_template->kind)
+    const auto* state=live.open_part(id);
+    if(!state)throw TemplateOperationError("unsupported_document","This command requires an open drawing template.");
+    const auto found=std::ranges::find(state->session.document().sketches,sketch.id,&sketcher::Sketch::id);
+    if(found==state->session.document().sketches.end())throw TemplateOperationError("identity_changed","Editing must preserve the template and Sketch identities.");
+    const auto& original=*found;
+    if(!sketch.drawing_template||!original.drawing_template||sketch.id!=original.id||sketch.owner_container_id!=original.owner_container_id||sketch.drawing_template->kind!=original.drawing_template->kind)
         throw TemplateOperationError("identity_changed","Editing must preserve the template and Sketch identities.");
     if(!sketch.external_references.empty())throw TemplateOperationError("invalid_reference","A drawing template cannot depend on external model references.");
     sketch.validate();for(const auto& region:sketch.drawing_template->repeat_regions)drawing::validate_repeat_region(region);
     for(const auto& image:sketch.drawing_template->images)image.validate();
     if(sketch.serialized()==original.serialized())return false;
-    auto* part=live.open_part(id);auto next=part->session.document();next.sketches.front()=std::move(sketch);part->session.commit(std::move(next),{});return true;
+    auto* part=live.open_part(id);auto next=part->session.document();*std::ranges::find(next.sketches,sketch.id,&sketcher::Sketch::id)=std::move(sketch);part->session.commit(std::move(next),part->session.calculated_boundaries());return true;
 }
 }

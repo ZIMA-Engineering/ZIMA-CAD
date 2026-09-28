@@ -128,6 +128,8 @@ private:
     void load_frame();
     void remove_frame();
     void load_title_block();
+    void select_title_block_variant(const std::filesystem::path& source={});
+    void select_frame_variant(const std::filesystem::path& source={});
     void remove_title_block();
     void edit_title_block();
     void insert_view();

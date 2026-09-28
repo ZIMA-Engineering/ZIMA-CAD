@@ -14,6 +14,7 @@ void check_value(const TextField& field,const std::string& value) {
 }
 }
 void Definition::validate() const {
+    require(leader_ending>=LeaderEnding::Arrow&&leader_ending<=LeaderEnding::Dot);
     require(!id.empty()&&!name.empty()&&std::isfinite(insertion_point[0])&&std::isfinite(insertion_point[1]));
     require(!sketches.empty()&&variants.contains(default_variant));
     require(variant_source.empty()||variant_source=="drawing.projection_method");
@@ -141,6 +142,7 @@ std::string Definition::serialized() const {
         {"insertion_point",insertion_point},{"default_variant",default_variant},{"variant_source",variant_source},
         {"sketches",Json::array()},{"fields",Json::object()},{"variants",Json::object()}};
     data["pens"]=pens;
+    data["leader_ending"]=static_cast<int>(leader_ending);
     if(frame_layout)data["frame_layout"]={{"cells",frame_layout->cells},{"height",frame_layout->height},{"padding",frame_layout->padding},{"minimum_width",frame_layout->minimum_width}};
     if(reference_line_layout)data["reference_line_layout"]={{"columns",reference_line_layout->columns},{"padding",reference_line_layout->padding},{"minimum_width",reference_line_layout->minimum_width},{"other_side_y",reference_line_layout->other_side_y}};
     for(const auto& sketch:sketches)data["sketches"].push_back(Json::parse(sketch.serialized()));
@@ -154,6 +156,7 @@ Definition Definition::from_serialized(const std::string& data) {
     Definition d;d.id=root.at("id");d.name=root.at("name");d.insertion_point=root.at("insertion_point").get<std::array<double,2>>();
     d.default_variant=root.at("default_variant");d.variant_source=root.at("variant_source");
     d.pens=root.value("pens",decltype(d.pens){});
+    d.leader_ending=static_cast<LeaderEnding>(root.value("leader_ending",0));
     if(root.contains("frame_layout")){const auto& f=root.at("frame_layout");d.frame_layout=FrameLayout{f.at("cells").get<std::vector<std::string>>(),f.at("height"),f.at("padding"),f.at("minimum_width")};}
     if(root.contains("reference_line_layout")){const auto& l=root.at("reference_line_layout");d.reference_line_layout=ReferenceLineLayout{l.at("columns").get<std::vector<std::vector<std::string>>>(),l.at("padding"),l.at("minimum_width"),l.at("other_side_y")};}
     for(const auto& value:root.at("sketches")) {

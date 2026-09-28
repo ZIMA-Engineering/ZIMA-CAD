@@ -215,19 +215,8 @@ void AssemblyWorkspaceWindow::rebuild_application_toolbar() {
 
     if (!active_sketch_id_.empty()) {
         if(symbol_document_sketch()) {
-            auto* choice=new QComboBox(tools_toolbar_);choice->setObjectName("symbolSketchChoice");
-            choice->setToolTip(tr("Skica"));
-            const auto* part=workspace_.open_part(workspace_.active_document_id());
-            for(const auto& s:part->session.document().sketches)
-                choice->addItem(QString::fromStdString(s.name),QString::fromStdString(s.id));
-            choice->setCurrentIndex(choice->findData(QString::fromStdString(active_sketch_id_)));
-            choice->setEnabled(!properties_dialog_);
-            tools_toolbar_->addWidget(choice);
-            connect(choice,&QComboBox::activated,this,[this,choice](int index){
-                const auto id=choice->itemData(index).toString().toStdString();
-                cancel_sketch_segment();clear_selected_sketch_geometry();active_sketch_id_=id;
-                QTimer::singleShot(0,this,[this]{refresh_scene();});
-            });
+            family_table_action_->setEnabled(!properties_dialog_);
+            add_command(family_table_action_,false);
         }
         if(const auto* sketch=template_sketch();sketch&&sketch->drawing_template->kind=="title_block") {
             if(!template_region_action_) {
@@ -270,7 +259,8 @@ void AssemblyWorkspaceWindow::rebuild_application_toolbar() {
         add_command(sketch_text_action_);
         add_command(symbol_action_);
         add_group_separator();
-        if(!template_sketch()&&!symbol_document_sketch())add_command(finish_sketch_action_,false);
+        const auto* template_part=workspace_.open_part(workspace_.active_document_id());
+        if(!template_sketch()||(template_part&&template_part->native_drawing_template))add_command(finish_sketch_action_,false);
         return;
     }
 

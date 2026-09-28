@@ -90,7 +90,7 @@ int verify_new_document_options(QApplication& application) {
                 if(type=="part")modes->setCurrentIndex(mode);
                 if(a3) {
                     int index=-1;for(int i=0;i<formats->count();++i)
-                        if(QFileInfo(formats->itemData(i).toString()).fileName()=="ZE-A3.frmz")index=i;
+                        if(formats->itemData(i).toString().endsWith("ZE-DRAWING-FRAME.frmz#ze-frame-variant-A3"))index=i;
                     check(index>=0,"Configured A3 frame is missing from chooser");formats->setCurrentIndex(index);
                 }
                 const auto capture=std::filesystem::path(__FILE__).parent_path().parent_path().parent_path()/"build"/("new-document-"+language.toStdString()+"-"+type.toStdString()+".png");
@@ -113,6 +113,7 @@ int verify_new_document_options(QApplication& application) {
                 const auto& sheet=view->document_for_test().sheets.front();
                 check(sheet.format==expected&&!sheet.frame_lines.empty()&&!sheet.title_block_lines.empty(),"New Drawing lacks selected frame or title block");
                 check(sheet.title_block_locale==language.toStdString(),"New Drawing has the wrong title-block language");
+                check(!sheet.frame_definition.empty()&&!sheet.title_block_definition.empty(),"New Drawing did not use native library Families");
                 check(!sheet.title_block_images.empty(),"New Drawing did not embed the company logo");
                 check(!view->document_for_test().source_document_id.empty()&&sheet.views.empty(),"Drawing source or initial view state is wrong");
                 window.findChild<QAction*>("saveDocumentAction")->trigger();flush();

@@ -16,7 +16,7 @@ public:
         :SymbolDialog(value.symbol,{},[this,commit=std::move(commit)](auto instance){
             auto value=placement_;value.symbol=std::move(instance);value.validate();commit(std::move(value));
         },parent),placement_(std::move(value)),sheet_(sheet) {
-        setObjectName("symbolAttachmentDialog");set_initial_size({420,530});
+        setObjectName("symbolAttachmentDialog");
         auto* panel=new QWidget(this);auto* form=new QFormLayout(panel);form->setContentsMargins(0,0,0,0);
         table_=new QTableWidget(1,3,panel);table_->setObjectName("symbolReference");
         table_->setHorizontalHeaderLabels({QString(),tr("Reference symbolu"),QString()});
@@ -29,8 +29,13 @@ public:
         eye_=ui::build_reference_inspection_button(false,false,[this](bool on){inspected_=on;refresh();notify();});
         table_->setCellWidget(0,2,ui::centered_cell_widget(eye_));form->addRow(table_);
         connect(table_,&QTableWidget::cellClicked,this,[this](int,int column){if(column==1){active_=true;refresh();notify();}});
-        leader_=new QCheckBox(tr("Odkazová čára se šipkou"),panel);leader_->setObjectName("symbolLeader");leader_->setChecked(placement_.leader);
+        leader_=new QCheckBox(tr("Odkazová čára"),panel);leader_->setObjectName("symbolLeader");leader_->setChecked(placement_.leader);
         form->addRow(leader_);connect(leader_,&QCheckBox::toggled,this,[this](bool on){placement_.leader=on;if(on&&placement_.symbol.x==0&&placement_.symbol.y==0&&placement_.leader_bends.empty())set_anchor(15,5);else notify();});
+        auto* ending=new QComboBox(panel);ending->setObjectName("symbolLeaderEnding");
+        ending->addItems({tr("Šipka"),tr("Trojúhelník"),tr("Tečka")});
+        ending->setCurrentIndex(static_cast<int>(placement_.leader_ending));form->addRow(tr("Zakončení odkazu"),ending);
+        ending->setEnabled(placement_.leader);connect(leader_,&QCheckBox::toggled,ending,&QWidget::setEnabled);
+        connect(ending,&QComboBox::currentIndexChanged,this,[this](int index){placement_.leader_ending=static_cast<symbols::LeaderEnding>(index);notify();});
         {
             auto* perpendicular=new QCheckBox(tr("Odkaz kolmý k entitě"),panel);perpendicular->setObjectName("symbolPerpendicularLeader");
             perpendicular->setChecked(placement_.perpendicular_leader);form->addRow(perpendicular);

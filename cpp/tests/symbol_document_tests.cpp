@@ -1,4 +1,6 @@
 #include <zima/workspace/symbol_operations.hpp>
+#include <zima/symbols/native_document.hpp>
+#include <zima/document/engineering_metadata.hpp>
 #include <zima/workspace/document_operations.hpp>
 #include <zima/workspace/sketch_operations.hpp>
 #include <zima/kernel/stable_id.hpp>
@@ -79,6 +81,15 @@ int main(){try {
     contact_transactions();
     workspace::Workspace live;const auto id=workspace::create_symbol_document(live,"Example",root/"example.symz");
     check(workspace::document_needs_save(live,id),"New symbol incorrectly clean");
+    const auto& native=live.open_part(id)->session.document();
+    check(native.body_history.bodies().size()==1&&!native.body_history.active_body_id().empty(),"Symbol requires an ordinary active Body");
+    check(native.body_owner_for_object(native.sketches.front().owner_container_id)!=nullptr,"Symbol Sketch is outside its Body");
+    auto hidden=native;auto hidden_body=hidden.body_history.bodies().front();hidden_body.visible=false;
+    hidden.body_history.update_body(hidden_body);
+    check(symbols::native_definition(hidden).evaluate("default").empty(),"Hidden Body leaked into symbol insertion");
+    check(symbols::native_definition(hidden,false).variants.at("default").sketches.size()==1,"Hidden Body erased editable Family presence");
+    hidden_body.visible=true;hidden_body.cursor=0;hidden.body_history.update_body(hidden_body);
+    check(symbols::native_definition(hidden).evaluate("default").empty(),"Downstream Sketch leaked past Body history cursor");
     const auto sketch_id=live.open_part(id)->session.document().sketches.front().id;
     workspace::mutate_document_sketch(live,id,sketch_id,[](auto& sketch){static_cast<void>(sketch.add_rectangle(0,0,10,5));});
     auto pending=workspace::prepare_document_save(live,id,root/"example.symz");
@@ -93,6 +104,7 @@ int main(){try {
     check(symbols::Definition::load(root/"copy.symz").serialized()==saved.serialized(),"Copy lost definition");
     workspace::Workspace reopened;const auto reopened_id=workspace::open_symbol_document(reopened,root/"example.symz");
     check(workspace::edited_symbol_definition(reopened,reopened_id).serialized()==saved.serialized(),"Reopen changed definition");
+    check(reopened_id==id&&reopened.open_part(reopened_id)->session.document().body_history==live.open_part(id)->session.document().body_history,"Reopen changed document or Body identity");
     check(workspace::open_symbol_document(reopened,root/"example.symz")==reopened_id&&reopened.size()==1,"Open duplicated tab");
     auto multivariant=symbols::projection_method();multivariant.save(root/"variants.symz");
     const auto multi=workspace::open_symbol_document(live,root/"variants.symz");
@@ -107,5 +119,27 @@ int main(){try {
     check(workspace::edited_symbol_definition(live,fields).fields.empty(),"Deleting text retained dangling editable field");
     check(workspace::step_document_history(live,fields,workspace::HistoryDirection::Undo),"Field deletion Undo failed");
     check(workspace::edited_symbol_definition(live,fields).serialized()==multivariant.serialized(),"Undo failed to restore field metadata");
+    auto revised=multivariant;
+    revised.variant_source.clear();revised.variants["Custom"]=revised.variants.at(revised.default_variant);
+    revised.variants["Custom"].hidden_texts={"Specification"};revised.default_variant="Custom";
+    revised.fields.at("Specification").choices.push_back("Ra 12.5");
+    check(workspace::store_symbol_definition(live,fields,revised),"Symbol metadata edit was not committed");
+    check(!workspace::store_symbol_definition(live,fields,revised),"Unchanged Symbol metadata created a transaction");
+    check(workspace::step_document_history(live,fields,workspace::HistoryDirection::Undo),"Symbol metadata Undo failed");
+    check(workspace::edited_symbol_definition(live,fields).serialized()==multivariant.serialized(),"Symbol metadata Undo lost original definition");
+    check(workspace::step_document_history(live,fields,workspace::HistoryDirection::Redo),"Symbol metadata Redo failed");
+    check(workspace::edited_symbol_definition(live,fields).serialized()==revised.serialized(),"Symbol metadata Redo lost choices or variants");
+    workspace::save_symbol_document(live,fields,root/"fields.symz");
+    check(symbols::Definition::load(root/"fields.symz").serialized()==revised.serialized(),"Edited Symbol metadata did not persist");
+    auto* field_state=live.open_part(fields);auto with_body_column=field_state->session.document();
+    auto family=document::parse_family_table(with_body_column.family_table);
+    family.columns.push_back("Body presence");family.bindings["Body presence"]={"body",with_body_column.body_history.bodies().front().scope.id,{}};
+    for(auto& row:family.instances)row.values["Body presence"]="yes";
+    family.instances.front().shared_name=false;family.instances.front().labels={{"cs","Moje varianta"},{"en","My variant"}};
+    with_body_column.family_table=document::serialize_family_table(family);
+    field_state->session.commit(std::move(with_body_column),field_state->session.calculated_boundaries());
+    auto text_edit=workspace::edited_symbol_definition(live,fields);text_edit.fields.at("Specification").choices.push_back("Ra 25");
+    check(workspace::store_symbol_definition(live,fields,text_edit),"Text choices were not updated");
+    check(document::parse_family_table(field_state->session.document().family_table)==family,"Text choices erased ordinary Family columns or row labels");
     std::filesystem::remove_all(root);std::cout<<"Symbol document creation, edit, save, copy, reopen, variants and Undo/Redo passed\n";return 0;
 }catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}

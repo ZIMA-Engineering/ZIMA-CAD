@@ -56,6 +56,30 @@ the variant name to edit it normally. The generic row cannot be deleted and one
 blank variant row remains available. Material, Parameters and Relations use the
 same first-cell actions with numbered row headers.
 
+## Optional localized variant names
+
+The native Part/Assembly Family Table editor keeps the base variant name and adds
+**Shared** and **Localization** columns before the model-reference columns.
+**Label language** selects one of `cs`, `en`, `de`, `fr`, or `ru`, initially the
+application language. It selects the translation being edited, not the language
+of document content. Switching it preserves pending edits in the other languages.
+
+With Shared checked, consumers use the base name in every language. Unchecking it
+allows a translated label for each supported language. An absent or empty label
+falls back to the base name. Checking Shared disables translation editing without
+deleting already authored translations. Translations are optional, and duplicate
+translated labels do not merge variants: stable row IDs remain authoritative.
+
+Only labels change. Dimensions, presence overrides, model names, drawn text,
+variant identity and placement are independent of the selected label language.
+OK stores all pending languages in the same transaction; Cancel stores none.
+Names, the shared flag and labels live in the native document, including Undo/Redo
+and save/reopen. An unchanged confirmation creates no transaction.
+
+This first stage supplies native Family Table authoring and the common label
+resolver. Symbol-insertion language selection and the proposed common Part-based
+symbol/title-block/frame document format are separate, not yet implemented stages.
+
 ## Linked models, saving and drawings
 
 The 2026-09-17 row-layout change was verified with the entry-table and general UI
@@ -229,18 +253,47 @@ and base `value`. A table uses ordered column names and a binding for each colum
     "Cut": {"kind": "feature", "owner": "<cut-id>", "key": ""}
   },
   "instances": [
-    {"id": "", "name": "Long", "values": {"d7": "20", "Cut": "no"}}
+    {"id": "", "name": "Long", "shared_name": false,
+     "labels": {"en": "Long version", "de": "Lange Variante"},
+     "values": {"d7": "20", "Cut": "no"}}
   ]
 }
 ```
 
-Pass this object as `table` to `document.family.set`. An empty instance `id`
+Pass this object as `table` to `document.family.set`. Each row requires the boolean `shared_name` and
+the `labels` language-to-text object (use `true` and `{}` for a shared name).
+Earlier nonempty row schemas are not migrated. An empty instance `id`
 allocates a stable row identity; subsequent updates retain it, including renames.
 `document.family.get` returns the normalized table. `document.family.open` takes
 `instance: "Long"` and opens the resulting document. Command mutations follow the
 existing active-document and pending-dialog guards.
 
 ## Verification
+
+### Variant-label localization (2026-09-28)
+
+The Windows Release application, CLI, UI tests and Family Table tests build.
+The focused run passed 8/8 contracts in 49.88 seconds: entry tables, all five
+translation catalogs and localized editor states, Family Table data, engineering
+metadata commands, the new Family-label GUI workflow, Family rename, symbols and
+drawing templates. The standalone CLI process suite also passed (32.09 seconds).
+Coverage includes pending multilingual edits, shared-name toggling without label
+loss, fallback, unchanged OK, Cancel, middle-button confirmation over View,
+reference picking/inspection, fixed row heights during resize, stable IDs,
+unchanged cached shapes, Part/Assembly Undo/Redo and native save/reopen.
+
+The start Part, Skeleton and Assembly templates were regenerated and reopened
+using `zima_refresh_start_templates`. Their empty tables serialize identically,
+so this produced no tracked template content changes. The new focused GUI
+contract creates Part and Assembly documents from the configured templates and
+checks their enabled modeling/component commands and empty editable Family Table.
+The Family Table screenshot was inspected for clipping and overlap.
+
+The broader `zima_cpp_family_table_ui_contract` still fails later at
+`Main view omitted family rows or source is not at the top`. A Drawing source-list
+failure was already recorded in `BODY_DERIVATION.md`; this run does not establish
+its cause or certify the complete Drawing-source workflow. That existing test
+and assertion remain enabled. The focused label test is registered separately.
 
 Independent volume checks use a 10 × 8 × 6 mm block, a 2 × 2 × 6 mm subtractive
 feature and a separate 2 × 2 × 2 mm Body. The generic has 464 mm³. Changing length

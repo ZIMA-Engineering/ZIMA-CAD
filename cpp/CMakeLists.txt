@@ -159,7 +159,7 @@ target_link_libraries(zima_sketcher
 
 add_library(zima_symbols modules/symbols/src/file.cpp)
 target_include_directories(zima_symbols PUBLIC modules/symbols/include)
-target_link_libraries(zima_symbols PUBLIC zima_sketcher PRIVATE Qt6::Core nlohmann_json::nlohmann_json)
+target_link_libraries(zima_symbols PUBLIC zima_sketcher PRIVATE zima_document_core Qt6::Core nlohmann_json::nlohmann_json)
 add_executable(zima_symbol_catalog_tool tools/symbol_catalog_tool.cpp)
 target_link_libraries(zima_symbol_catalog_tool PRIVATE zima_symbols Qt6::Gui)
 add_executable(zima_symbol_library_tool tools/symbol_library_tool.cpp)
@@ -523,6 +523,7 @@ if(UNIX AND NOT APPLE)
 endif()
 
 add_executable(zima-cad-drawing-harness
+    app/document_tools_dialogs.cpp
     app/main_drawing.cpp app/drawing_window.cpp app/sketch_text_properties_dialog.cpp app/show_erase_dialog.cpp app/file_dialog.cpp app/application_settings.cpp
     tests/drawing_ui_contract.cpp tests/show_erase_ui_contract.cpp tests/measurement_dimension_ui_contract.cpp tests/drawing_balloon_ui_contract.cpp
     app/resource_icon.cpp app/zima_resources.qrc)
@@ -941,6 +942,10 @@ if(ZIMA_BUILD_TESTS)
     target_link_libraries(zima_cpp_body_link_tests PRIVATE zima_workspace)
     add_test(NAME zima_cpp_body_link_tests COMMAND zima_cpp_body_link_tests)
     add_executable(zima_refresh_start_templates EXCLUDE_FROM_ALL tools/refresh_start_templates.cpp)
+    add_executable(zima_title_block_family_tool tools/title_block_family_tool.cpp)
+    target_link_libraries(zima_title_block_family_tool PRIVATE zima_workspace)
+    add_test(NAME zima_cpp_title_block_family_tests COMMAND zima_title_block_family_tool --verify)
+    set_tests_properties(zima_cpp_title_block_family_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
     target_link_libraries(zima_refresh_start_templates PRIVATE zima_workspace)
     target_link_libraries(zima_cpp_body_scale_tests PRIVATE zima_workspace)
     add_test(NAME zima_cpp_body_scale_tests COMMAND zima_cpp_body_scale_tests)
@@ -1345,6 +1350,14 @@ if(ZIMA_BUILD_TESTS)
         TIMEOUT 90)
     add_test(NAME zima_cpp_assembly_refresh_ui_contract COMMAND zima-cad-cpp --verify-startup)
     add_test(NAME zima_cpp_family_table_ui_contract COMMAND zima-cad-cpp --verify-startup)
+    add_test(NAME zima_cpp_family_labels_ui_contract COMMAND zima-cad-cpp --verify-startup)
+    add_test(NAME zima_cpp_native_title_block_ui_contract COMMAND zima-cad-cpp --verify-startup)
+    set_tests_properties(zima_cpp_native_title_block_ui_contract PROPERTIES
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_NATIVE_TITLE_BLOCK_ONLY=1"
+        TIMEOUT 120 WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
+    set_tests_properties(zima_cpp_family_labels_ui_contract PROPERTIES
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_FAMILY_ONLY=1;ZIMA_VERIFY_FAMILY_LABELS_ONLY=1"
+        TIMEOUT 120 WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
     add_test(NAME zima_cpp_body_scale_ui_contract COMMAND zima-cad-cpp --verify-startup)
     add_test(NAME zima_cpp_body_link_ui_contract COMMAND zima-cad-cpp --verify-startup)
     set_tests_properties(zima_cpp_body_link_ui_contract PROPERTIES

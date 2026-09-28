@@ -1,7 +1,59 @@
 # Shared symbol placement work
 
-Implementation and verification record, 2026-09-24. This describes the initial
-symbol workflow and explicitly lists the remaining authoring and standards scope.
+Implementation and verification record. The latest checkpoint is followed by
+the historical workflow and its authoring and standards scope.
+
+## Native library checkpoint (2026-09-28)
+
+Standalone symbol files now preserve ordinary native Part history, Body ownership
+and Sketch identities. The editor enters Sketches through ordinary Properties
+and Finish, and uses the shared Body activation and context display. Native
+metadata stores symbol text choices, visibility and insertion behavior. Saving
+or copying the library preserves its complete Part model. Insertion currently
+consumes the documented coplanar XY Sketch content.
+
+The four existing weld types are consolidated into twelve Family variants
+(arrow side, other side and both sides). Fourteen tolerance characteristics share
+one library, and a separate datum-feature library supplies the editable boxed
+letter. Per-insertion leader endings include arrow, outlined triangle and filled
+dot. Model surface orientation now uses the actual surface normal and stored side
+for custom symbols as well as factory symbols.
+
+Before removing the eighteen superseded files, the catalog tool compared every
+original variant with its combined replacement. Rendered edge coordinates, pen
+colors and filled contours were identical; named fields, preset choices and
+custom-entry permissions were retained. Existing occurrences keep their embedded
+definitions. References to the former library filenames must be updated when
+selecting a library for a new insertion. The replacement is not an assertion of
+complete ISO weld or tolerance validation; see the user guide for supported types.
+
+The start Part and Skeleton templates were regenerated with the native metadata
+serializer. The unchanged Assembly template was regenerated and reopened too.
+GUI checks create new Part and Assembly documents from the configured templates
+and verify their normal editable context and commands.
+
+The recovery also removed disposable dependency build/package caches and
+generated startup-test directories, freeing 17.1 GiB. Native projects, current
+build dependencies and release packages were retained. After rebuilding, the
+repository directory measured 32.2 decimal GB (30.0 GiB). The normal development
+launcher remains `zima-cad.bat`.
+
+Final Windows verification passed all nineteen focused CTest contracts in
+113.07 seconds, covering the native title/frame families, ordinary Family
+editing and source replacement, start-template creation, balloons, symbol
+library/document/placement/Drawing/integration/GUI and five-language translation
+coverage. Family and symbol GUI tests also passed three consecutive runs each.
+The symbol GUI covers text lists, variant visibility, OK/Cancel, resizing,
+middle-button confirmation, native save/reopen, model/Assembly contacts and
+Drawing PDF/DXF output. Editor, frame/title anchoring and weld/tolerance output
+images were visually reviewed.
+
+Regression fixtures now distinguish symmetric extrusion extent from X width
+and suppressed result geometry from missing original topology. Missing-reference
+markers are tested with an unrelated replacement Part, including Undo/Redo and
+reference repair. Translation-only verification runs directly, independently of
+the unrelated native Windows hover-style animation check. This is focused local
+Windows verification, not a complete application regression run or a release.
 
 ## Agreed behavior
 
@@ -77,9 +129,10 @@ the end-to-end GUI contract described below.
 
 ## Deliberately limited scope
 
-- The symbol editor creates and edits geometry and text. A dedicated UI for
-  authoring named field/variant tables is not included; existing metadata is
-  preserved, and the repository catalog generator defines the supplied fields.
+- The symbol editor now exposes Family Table for Sketch/text visibility and
+  text-list authoring through the shared Text Properties controls. The editable
+  definition participates in the carrier's Undo session and is persisted only
+  in SYMZ; the Part/Assembly native formats are unchanged.
 - Advanced geometric-tolerance modifiers and a complete normative semantic
   checker remain outside this initial library.
 - Direct 3D attachments currently support original planar, cylindrical and

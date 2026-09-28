@@ -4,6 +4,7 @@
 #include <string>
 #include <vector>
 namespace zima::symbols {
+enum class LeaderEnding { Arrow, Triangle, Dot };
 struct TextField {
     std::string sketch_id, text_id;
     std::vector<std::string> choices;
@@ -32,6 +33,7 @@ struct ReferenceLineLayout {
 // independent of the shared history-container placement contract.
 struct Definition {
     std::string id, name;
+    LeaderEnding leader_ending{LeaderEnding::Arrow};
     std::vector<sketcher::Sketch> sketches;
     std::array<double, 2> insertion_point{};
     std::map<std::string, TextField> fields;

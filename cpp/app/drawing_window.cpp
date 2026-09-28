@@ -1,6 +1,8 @@
 #include <zima/kernel/annotation_layout.hpp>
 #include "../common/interaction_colors.hpp"
 #include "symbol_properties_dialog.hpp"
+#include "document_tools_dialogs.hpp"
+#include <zima/drawing/drawing_template.hpp>
 #include <QJsonDocument>
 #include <QJsonArray>
 #include <QOpenGLWidget>
@@ -2168,11 +2170,15 @@ void DrawingWindow::create_actions() {
         [this] { edit_sheet(); });
     edit_sheet_action_->setObjectName("editDrawingSheetAction");
     drawing->addAction(tr("Načíst formát…"), this, [this] { load_frame(); });
+    auto* frame_variant_action=drawing->addAction(tr("Varianta rámečku…"),this,[this]{select_frame_variant();});
+    frame_variant_action->setObjectName("drawingFrameVariantAction");
     auto* remove_frame_action = drawing->addAction(
         tr("Odstranit formát"), this, [this] { remove_frame(); });
     remove_frame_action->setObjectName("removeDrawingFrameAction");
     remove_frame_action->setIcon(resource_icon("delete"));
     drawing->addAction(tr("Načíst razítko…"), this, [this] { load_title_block(); });
+    auto* variant_action=drawing->addAction(tr("Varianta razítka…"),this,[this]{select_title_block_variant();});
+    variant_action->setObjectName("drawingTitleBlockVariantAction");
     auto* remove_title_block_action = drawing->addAction(
         tr("Odstranit razítko"), this, [this] { remove_title_block(); });
     remove_title_block_action->setObjectName("removeDrawingTitleBlockAction");
@@ -2480,6 +2486,7 @@ std::optional<QPointF> DrawingWindow::view_label_center_for_test(const std::stri
 std::optional<QPointF> DrawingWindow::annotation_handle_for_test(const std::string& id,int end,bool dimension)const{return canvas_->annotation_point(id,end,dimension);}
 std::optional<QPointF> DrawingWindow::detail_label_handle_for_test(const std::string& id)const{return canvas_->detail_label_handle(id);}
 void DrawingWindow::load_frame_for_test(const std::filesystem::path& path) {
+    if(drawing::is_native_template_file(path)){select_frame_variant(path);return;}
     auto* sheet = active_sheet(); if (sheet == nullptr) return;
     zima::workspace::load_drawing_template(document_,sheet->id,path,false); refresh();
 }
@@ -2494,6 +2501,7 @@ std::optional<std::string> DrawingWindow::title_field_text_for_test(const std::s
 }
 void DrawingWindow::load_title_block_for_test(const std::filesystem::path& path) {
     auto* sheet = active_sheet(); if (sheet == nullptr) return;
+    if(drawing::is_native_template_file(path)){select_title_block_variant(path);return;}
     zima::workspace::load_drawing_template(document_,sheet->id,path,true,workspace_,path_); refresh();
 }
 void DrawingWindow::open_document() {
@@ -2601,7 +2609,9 @@ void DrawingWindow::load_frame() {
     const auto path=open_file(this,tr("Načíst formát"),formats_directory_,
                                                  tr("Formát výkresu (*.frmz)"));
     if(path.isEmpty()) return;
-    try { zima::workspace::load_drawing_template(document_,sheet->id,std::filesystem::u8path(path.toStdString()),false); refresh(); }
+    try { const auto source=std::filesystem::u8path(path.toStdString());
+        if(drawing::is_native_template_file(source)){select_frame_variant(source);return;}
+        zima::workspace::load_drawing_template(document_,sheet->id,source,false); refresh(); }
     catch(const std::exception& error) { QMessageBox::warning(this,tr("Nelze načíst formát"),error.what()); }
 }
 void DrawingWindow::remove_frame() {
@@ -2615,8 +2625,47 @@ void DrawingWindow::load_title_block() {
     const auto path=open_file(this,tr("Načíst razítko"),formats_directory_,
                                                  tr("Razítko výkresu (*.tblz)"));
     if(path.isEmpty()) return;
-    try { zima::workspace::load_drawing_template(document_,sheet->id,std::filesystem::u8path(path.toStdString()),true,workspace_,path_); refresh(); }
+    try {
+        const auto source=std::filesystem::u8path(path.toStdString());
+        if(drawing::is_native_template_file(source)){select_title_block_variant(source);return;}
+        zima::workspace::load_drawing_template(document_,sheet->id,source,true,workspace_,path_); refresh();
+    }
     catch(const std::exception& error) { QMessageBox::warning(this,tr("Nelze načíst razítko"),error.what()); }
+}
+void DrawingWindow::select_title_block_variant(const std::filesystem::path& source) {
+    const auto* sheet=active_sheet();if(!sheet||raise_open_properties(window()))return;
+    if(source.empty()&&sheet->title_block_definition.empty())return;
+    const auto definition=source.empty()?document::PartDocument::from_serialized(nlohmann::json::parse(sheet->title_block_definition)):document::PartDocument::load(source);
+    const auto table=document::parse_family_table(definition.family_table);
+    auto* dialog=new FamilyInstanceDialog(QString::fromStdString(definition.name),table,source.empty()?sheet->title_block_variant:std::string{},source.empty(),
+        [this,id=sheet->id,source](const std::string& variant){
+            if(source.empty()&&document_.find_sheet(id)->title_block_variant==variant)return;
+            if(source.empty())workspace::set_title_block_variant(document_,id,variant);
+            else workspace::load_drawing_template(document_,id,source,true,workspace_,path_,variant);
+            refresh();
+        },window());
+    dialog->setObjectName("titleBlockVariantDialog");dialog->setAttribute(Qt::WA_DeleteOnClose);
+    dialog->set_internal_title(tr("Varianta razítka…"));
+    view_dialog_=dialog;if(properties_handler_)properties_handler_(dialog);
+    connect(dialog,&QDialog::finished,this,[this,dialog]{if(view_dialog_==dialog){view_dialog_.clear();if(properties_handler_)properties_handler_(nullptr);}update_action_states();});
+    dialog->show();update_action_states();
+}
+void DrawingWindow::select_frame_variant(const std::filesystem::path& source) {
+    const auto* sheet=active_sheet();if(!sheet||raise_open_properties(window()))return;
+    if(source.empty()&&sheet->frame_definition.empty())return;
+    const auto definition=source.empty()?document::PartDocument::from_serialized(nlohmann::json::parse(sheet->frame_definition)):document::PartDocument::load(source);
+    const auto table=document::parse_family_table(definition.family_table);
+    auto* dialog=new FamilyInstanceDialog(QString::fromStdString(definition.name),table,source.empty()?sheet->frame_variant:std::string{},source.empty(),
+        [this,id=sheet->id,source](const std::string& variant){
+            if(source.empty()&&document_.find_sheet(id)->frame_variant==variant)return;
+            if(source.empty())workspace::set_frame_variant(document_,id,variant);
+            else workspace::load_drawing_template(document_,id,source,false,workspace_,path_,variant);
+            refresh();fit_sheet();
+        },window());
+    dialog->setObjectName("frameVariantDialog");dialog->set_internal_title(tr("Varianta rámečku…"));dialog->setAttribute(Qt::WA_DeleteOnClose);
+    view_dialog_=dialog;if(properties_handler_)properties_handler_(dialog);
+    connect(dialog,&QDialog::finished,this,[this,dialog]{if(view_dialog_==dialog){view_dialog_.clear();if(properties_handler_)properties_handler_(nullptr);}update_action_states();});
+    dialog->show();update_action_states();
 }
 void DrawingWindow::edit_title_block() {
     auto* sheet=active_sheet();if(!sheet)return;
@@ -2765,6 +2814,7 @@ void DrawingWindow::show_symbol_properties(const std::string& id) {
         if(path.isEmpty())return;
         try {
             const auto definition=symbols::Definition::load(std::filesystem::path(path.toStdU16String()));
+            initial.leader_ending=definition.leader_ending;
             initial.symbol.id=kernel::make_stable_id();initial.symbol.definition=definition.serialized();initial.symbol.variant=definition.default_variant;
             if(definition.frame_layout||definition.reference_line_layout){initial.leader=true;initial.symbol.x=15;initial.symbol.y=8;}
             initial.frame={{sheet->width_mm()/2,sheet->height_mm()/2,0},{-1,0,0},{0,1,0}};
@@ -3181,6 +3231,8 @@ void DrawingWindow::start_selection() {
 void DrawingWindow::update_action_states() {
     const auto* sheet = active_sheet();
     const bool has_sheet = sheet != nullptr && !view_dialog_;
+    if(auto* action=findChild<QAction*>("drawingTitleBlockVariantAction"))action->setEnabled(has_sheet&&!sheet->title_block_definition.empty());
+    if(auto* action=findChild<QAction*>("drawingFrameVariantAction"))action->setEnabled(has_sheet&&!sheet->frame_definition.empty());
     sheet_controls_->setEnabled(!view_dialog_);
     source_variant_->setEnabled(!view_dialog_&&source_variant_->count()>1);
     const bool has_view = has_sheet && !sheet->views.empty();

@@ -37,6 +37,7 @@ void AssemblyWorkspaceWindow::refresh_scene() {
     update_document_area_visibility();
     tree_->setRootIndex(QModelIndex{});
     tree_->clear();
+    tree_->headerItem()->setIcon(0,{});
     update_document_kind_button();
     viewer_->set_transient_point_transform({});
     if (const auto* sketch = active_sketch()) {
@@ -966,12 +967,7 @@ void AssemblyWorkspaceWindow::refresh_scene() {
             return;
         }
         const auto& document = part->session.document();
-        if(part->symbol_definition&&!document.sketches.empty()&&
-            std::ranges::none_of(document.sketches,[&](const auto& s){return s.id==active_sketch_id_;})) {
-            active_sketch_id_=document.sketches.front().id;
-            QTimer::singleShot(0,this,[this]{if(symbol_document_sketch())align_active_sketch_view(true);});
-        }
-        if(!document.sketches.empty() && document.sketches.front().drawing_template) {
+        if(!part->native_drawing_template&&!document.sketches.empty() && document.sketches.front().drawing_template) {
             const auto& sketch=document.sketches.front();
             if(active_sketch_id_!=sketch.id) {
                 active_sketch_id_=sketch.id;
@@ -1010,7 +1006,9 @@ void AssemblyWorkspaceWindow::refresh_scene() {
         } else {
             auto* root = new QTreeWidgetItem(
                 tree_, {QString::fromStdString(part->path.empty() ? document.name : zima::document::path_to_utf8(part->path.filename()))});
-            root->setIcon(0, resource_icon(zima::assembly::is_skeleton_file(part->path) ? "skeleton" : "part"));
+            const auto extension=QString::fromStdString(part->path.extension().string()).toLower();
+            root->setIcon(0, resource_icon(extension==".symz"?"symbol":extension==".tblz"?"title-block":extension==".frmz"?"drawing-format":
+                zima::assembly::is_skeleton_file(part->path)?"skeleton":"part"));
             root->setData(0, Qt::UserRole, QString::fromStdString(document.document_id));
             root->setData(0, Qt::UserRole + 3, "part-result-body");
             if (document.body_history.active_body_id().empty() && !properties_dialog_) {
@@ -1552,12 +1550,7 @@ void AssemblyWorkspaceWindow::refresh_scene() {
                     viewer_->reference_visible(
                         zima::viewer::ReferenceVisibility::Planes)));
             }
-            if (template_sketch()) display = sketch_viewer_mesh(document.sketches.front());
-            if (const auto* symbol=symbol_document_sketch()) {
-                display=sketch_viewer_mesh(sketch_trim_active_&&sketch_trim_preview_?*sketch_trim_preview_:*symbol);
-                if(!editing_sketch_text_id_.empty())std::erase_if(display.edges,[&](const auto& edge){
-                    const auto text=sketch_text_id_from_key(edge.reference.semantic_key);return text&&*text==editing_sketch_text_id_;});
-            }
+            if (!part->native_drawing_template)if (const auto* selected=template_sketch()) display = sketch_viewer_mesh(*selected);
             viewer_->set_mesh(std::move(display),
                 !preserve_view_on_refresh_ && active_sketch_id_.empty());
             preserve_view_on_refresh_ = false;
@@ -1682,12 +1675,7 @@ void AssemblyWorkspaceWindow::refresh_scene() {
                     }
                 }
             }
-            if (template_sketch()) display = sketch_viewer_mesh(document.sketches.front());
-            if (const auto* symbol=symbol_document_sketch()) {
-                display=sketch_viewer_mesh(sketch_trim_active_&&sketch_trim_preview_?*sketch_trim_preview_:*symbol);
-                if(!editing_sketch_text_id_.empty())std::erase_if(display.edges,[&](const auto& edge){
-                    const auto text=sketch_text_id_from_key(edge.reference.semantic_key);return text&&*text==editing_sketch_text_id_;});
-            }
+            if (!part->native_drawing_template)if (const auto* selected=template_sketch()) display = sketch_viewer_mesh(*selected);
             viewer_->set_mesh(std::move(display),
                 !preserve_view_on_refresh_ && active_sketch_id_.empty());
             preserve_view_on_refresh_ = false;

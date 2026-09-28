@@ -454,14 +454,19 @@ bool RelationsDialog::submit() {
 FamilyInstanceDialog::FamilyInstanceDialog(QString generic_name,const zima::document::FamilyTable& model,
     const std::string& selected_row,bool replacing,std::function<void(const std::string&)> accepted,QWidget* parent)
     : PropertiesSubWindow(replacing?tr("Replace — vybrat variantu"):tr("Vložit — vybrat variantu"),parent),accepted_(std::move(accepted)) {
-    setObjectName("componentFamilyDialog");setMinimumSize(430,240);set_initial_size(QSize(620,380));
-    content_layout()->addWidget(new QLabel(tr("Vyberte výchozí model nebo variantu Family Table."),this));
+    setObjectName("componentFamilyDialog");setProperty("expandBottomTable",true);
+    setMinimumSize(430,280);set_initial_size(QSize(560,360));
+    auto* heading=new QLabel(tr("Vyberte výchozí model nebo variantu Family Table."),this);
+    heading->setWordWrap(true);content_layout()->addWidget(heading);
     table_=new QTableWidget(static_cast<int>(model.instances.size()+1),2,this);
     table_->setObjectName("componentFamilyTable");
     table_->setHorizontalHeaderLabels({tr("Název"),tr("Typ")});
     table_->setEditTriggers(QAbstractItemView::NoEditTriggers);
     table_->setSelectionMode(QAbstractItemView::SingleSelection);table_->setSelectionBehavior(QAbstractItemView::SelectRows);
     table_->verticalHeader()->hide();table_->horizontalHeader()->setSectionResizeMode(0,QHeaderView::Stretch);
+    table_->verticalHeader()->setSectionResizeMode(QHeaderView::Fixed);
+    table_->verticalHeader()->setDefaultSectionSize(std::max(28,table_->fontMetrics().height()+10));
+    table_->setSizePolicy(QSizePolicy::Expanding,QSizePolicy::Expanding);
     table_->horizontalHeader()->setSectionResizeMode(1,QHeaderView::ResizeToContents);
     table_->setItem(0,0,new QTableWidgetItem(std::move(generic_name)));
     table_->item(0,0)->setData(Qt::UserRole,QString{});
@@ -474,7 +479,7 @@ FamilyInstanceDialog::FamilyInstanceDialog(QString generic_name,const zima::docu
         table_->setItem(index,1,new QTableWidgetItem(tr("Varianta")));
         if(row.id==selected_row)selected=index;
     }
-    table_->selectRow(selected);content_layout()->addWidget(table_);
+    table_->selectRow(selected);content_layout()->addWidget(table_,1);
     connect(table_,&QTableWidget::cellDoubleClicked,this,[this]{buttons()->button(QDialogButtonBox::Ok)->click();});
 }
 bool FamilyInstanceDialog::submit() {
@@ -492,26 +497,49 @@ FamilyTableDialog::FamilyTableDialog(
     setProperty("expandBottomTable", true);
     set_initial_size(QSize(2280,440));setSizeGripEnabled(true);
     const auto model=data_.family_table.empty()?zima::document::FamilyTable{}:zima::document::parse_family_table(data_.family_table);
-    table_=new QTableWidget(1,2,this);table_->setObjectName("familyTableTable");
+    auto* language_form=new QFormLayout;
+    language_combo_=new NoWheelComboBox(this);language_combo_->setObjectName("familyLabelLanguage");
+    language_combo_->addItems({"cs","en","de","fr","ru"});
+    language_combo_->setFixedWidth(90);
+    language_combo_->setCurrentText(settings.language);
+    label_language_=language_combo_->currentText();
+    language_form->addRow(tr("Jazyk popisků"),language_combo_);content_layout()->addLayout(language_form);
+    table_=new QTableWidget(1,4,this);table_->setObjectName("familyTableTable");
     table_->setHorizontalHeaderItem(0,new QTableWidgetItem);
     // The shared reference delegate uses the established light reference text.
     auto palette=table_->palette();palette.setColor(QPalette::Base,QColor("#20252b"));
     palette.setColor(QPalette::Text,QColor("#e6edf3"));table_->setPalette(palette);
     table_->setHorizontalHeaderItem(1,new QTableWidgetItem(settings.text("dialog.family_table.instance","Variant")));
+    table_->setHorizontalHeaderItem(2,new QTableWidgetItem(tr("Sdílený")));
+    table_->setHorizontalHeaderItem(3,new QTableWidgetItem(tr("Lokalizace")));
+    table_->setColumnWidth(2,80);table_->setColumnWidth(3,220);
+    for(const int column:{2,3}) {
+        auto* item=new QTableWidgetItem;item->setFlags(Qt::NoItemFlags);table_->setItem(0,column,item);
+    }
     table_->setColumnWidth(1,200);table_->setItem(0,1,new QTableWidgetItem(generic_name_));
     table_->item(0,1)->setFlags(Qt::ItemIsEnabled);zima::ui::install_reference_cell_delegate(table_);
     table_->setContextMenuPolicy(Qt::CustomContextMenu);
     for(const auto& name:model.columns) {
         const auto& binding=model.bindings.at(name);
         columns_.push_back(zima::workspace::FamilyReference{binding,name,name,{}});
-        table_->setColumnCount(2+2*static_cast<int>(columns_.size()));
+        table_->setColumnCount(4+2*static_cast<int>(columns_.size()));
     }
     for(const auto& row:model.instances) {
         add_instance();const int r=table_->rowCount()-1;table_->item(r,1)->setText(QString::fromStdString(row.name));
         table_->item(r,1)->setData(Qt::UserRole,QString::fromStdString(row.id));
+        QVariantMap labels;for(const auto& [language,label]:row.labels)labels[QString::fromStdString(language)]=QString::fromStdString(label);
+        table_->item(r,1)->setData(Qt::UserRole+1,labels);
+        table_->item(r,2)->setCheckState(row.shared_name?Qt::Checked:Qt::Unchecked);
         for(int i=0;i<static_cast<int>(model.columns.size());++i)if(auto found=row.values.find(model.columns[i]);found!=row.values.end())
-            table_->item(r,2+2*i)->setText(QString::fromStdString(found->second));
+            table_->item(r,4+2*i)->setText(QString::fromStdString(found->second));
     }
+    refresh_labels();
+    connect(language_combo_,&QComboBox::currentTextChanged,this,[this](const QString& language){
+        store_labels();label_language_=language;refresh_labels();
+    });
+    connect(table_,&QTableWidget::itemChanged,this,[this](QTableWidgetItem* item){
+        if(item->row()>0 && item->column()==2){store_labels();refresh_labels();}
+    });
     content_layout()->addWidget(new QLabel(settings.text("dialog.family_table.hint",
         "Click a base cell, then pick a solid in View. Double-click the solid to show its dimensions. Use the row header icon to open a variant."),this));
     content_layout()->addWidget(table_, 1);
@@ -520,13 +548,13 @@ FamilyTableDialog::FamilyTableDialog(
     auto* remove=new QPushButton(settings.text("dialog.family_table.delete_column","Delete column"),this);remove->setObjectName("familyDeleteColumn");
     connect(add,&QPushButton::clicked,this,&FamilyTableDialog::add_column);
     connect(remove,&QPushButton::clicked,this,[this]{
-        const int i=active_column_>=0?active_column_:(table_->currentColumn()-2)/2;
-        if(i<0||i>=static_cast<int>(columns_.size())||(active_column_<0&&table_->currentColumn()<2))return;
-        end_entry();table_->removeColumn(2+2*i);table_->removeColumn(2+2*i);columns_.erase(columns_.begin()+i);
+        const int i=active_column_>=0?active_column_:(table_->currentColumn()-4)/2;
+        if(i<0||i>=static_cast<int>(columns_.size())||(active_column_<0&&table_->currentColumn()<4))return;
+        end_entry();table_->removeColumn(4+2*i);table_->removeColumn(4+2*i);columns_.erase(columns_.begin()+i);
         inspected_.clear();refresh_references();
     });
     actions->addWidget(add);actions->addWidget(remove);actions->addStretch();content_layout()->addLayout(actions);
-    connect(table_,&QTableWidget::cellClicked,this,[this](int row,int column){if(row==0&&column>=2&&(column%2)==0)arm_column((column-2)/2);});
+    connect(table_,&QTableWidget::cellClicked,this,[this](int row,int column){if(row==0&&column>=4&&(column%2)==0)arm_column((column-4)/2);});
     const auto open_row=[this](int row){
         if(row<=0||!table_->item(row,1)||table_->item(row,1)->text().trimmed().isEmpty())return;
         requested_instance_=table_->item(row,1)->text().trimmed().toStdString();buttons()->button(QDialogButtonBox::Ok)->click();
@@ -550,7 +578,7 @@ void FamilyTableDialog::set_references(std::vector<zima::workspace::FamilyRefere
 void FamilyTableDialog::refresh_references() {
     const QSignalBlocker blocker(table_);table_->clearSpans();
     for(int i=0;i<static_cast<int>(columns_.size());++i) {
-        const int c=2+2*i;const auto& column=columns_[i];
+        const int c=4+2*i;const auto& column=columns_[i];
         table_->setColumnWidth(c,150);table_->setColumnWidth(c+1,30);
         table_->setHorizontalHeaderItem(c,new QTableWidgetItem(column?QString::fromStdString(column->name):QStringLiteral("+")));
         table_->setHorizontalHeaderItem(c+1,new QTableWidgetItem);
@@ -595,7 +623,7 @@ void FamilyTableDialog::choose_reference(const zima::workspace::FamilyReference&
     auto selected=reference;const auto original=selected.name;int suffix=2;
     const auto used=[&](const std::string& name){for(int i=0;i<static_cast<int>(columns_.size());++i)if(i!=active_column_&&columns_[i]&&columns_[i]->name==name)return true;return false;};
     while(used(selected.name))selected.name=original+" ("+std::to_string(suffix++)+")";
-    const int column=2+2*active_column_;
+    const int column=4+2*active_column_;
     if(!columns_[active_column_]||columns_[active_column_]->binding!=reference.binding)
         for(int row=1;row<table_->rowCount();++row)if(table_->item(row,column))table_->item(row,column)->setText({});
     columns_[active_column_]=std::move(selected);refresh_references();if(entry_changed)entry_changed();
@@ -605,22 +633,49 @@ std::vector<zima::document::FamilyColumn> FamilyTableDialog::inspected_reference
     std::vector<zima::document::FamilyColumn> result;for(const auto i:inspected_)if(columns_[i])result.push_back(columns_[i]->binding);return result;
 }
 void FamilyTableDialog::add_instance() {
+    const QSignalBlocker blocker(table_);
     const int row=table_->rowCount();table_->insertRow(row);
     for(int column=1;column<table_->columnCount();++column)table_->setItem(row,column,new QTableWidgetItem);
+    table_->item(row,2)->setFlags(Qt::ItemIsEnabled|Qt::ItemIsUserCheckable);
+    table_->item(row,2)->setCheckState(Qt::Checked);
+    table_->item(row,3)->setFlags(Qt::ItemIsSelectable);
     refresh_references();
 }
 void FamilyTableDialog::add_column() {
-    const int i=static_cast<int>(columns_.size());columns_.push_back(std::nullopt);table_->setColumnCount(2+2*static_cast<int>(columns_.size()));arm_column(i);
+    const int i=static_cast<int>(columns_.size());columns_.push_back(std::nullopt);table_->setColumnCount(4+2*static_cast<int>(columns_.size()));arm_column(i);
+}
+void FamilyTableDialog::store_labels() {
+    const QSignalBlocker blocker(table_);
+    for(int row=1;row<table_->rowCount();++row) {
+        auto* name=table_->item(row,1);auto* label=table_->item(row,3);
+        if(!name || !label || !label->flags().testFlag(Qt::ItemIsEditable))continue;
+        auto labels=name->data(Qt::UserRole+1).toMap();const auto value=label->text().trimmed();
+        if(value.isEmpty())labels.remove(label_language_);else labels[label_language_]=value;
+        name->setData(Qt::UserRole+1,labels);
+    }
+}
+void FamilyTableDialog::refresh_labels() {
+    const QSignalBlocker blocker(table_);
+    for(int row=1;row<table_->rowCount();++row) {
+        const auto* name=table_->item(row,1);auto* label=table_->item(row,3);
+        const bool shared=table_->item(row,2)->checkState()==Qt::Checked;
+        label->setText(name->data(Qt::UserRole+1).toMap().value(label_language_).toString());
+        label->setFlags(shared?Qt::ItemFlags(Qt::ItemIsSelectable):Qt::ItemIsEnabled|Qt::ItemIsSelectable|Qt::ItemIsEditable);
+        label->setToolTip(tr("Prázdná lokalizace použije název varianty."));
+    }
 }
 zima::document::FamilyTable FamilyTableDialog::read_table() const {
     zima::document::FamilyTable result;
     for(const auto& column:columns_)if(column){result.columns.push_back(column->name);result.bindings[column->name]=column->binding;}
     for(int row=1;row<table_->rowCount();++row) {
-        if(!table_row_has_text(table_,row))continue;
+        if(!table_row_has_text(table_,row)&&table_->item(row,1)->data(Qt::UserRole+1).toMap().isEmpty())continue;
         zima::document::FamilyInstance instance;instance.name=table_->item(row,1)->text().trimmed().toStdString();
         instance.id=table_->item(row,1)->data(Qt::UserRole).toString().toStdString();
+        instance.shared_name=table_->item(row,2)->checkState()==Qt::Checked;
+        const auto labels=table_->item(row,1)->data(Qt::UserRole+1).toMap();
+        for(auto it=labels.begin();it!=labels.end();++it)instance.labels[it.key().toStdString()]=it.value().toString().toStdString();
         for(int i=0;i<static_cast<int>(columns_.size());++i)if(columns_[i]) {
-            auto value=table_->item(row,2+2*i)->text().trimmed();
+            auto value=table_->item(row,4+2*i)->text().trimmed();
             if(columns_[i]->binding.kind=="dimension")value.replace(',','.');
             instance.values[columns_[i]->name]=value.toStdString();
         }
@@ -629,6 +684,7 @@ zima::document::FamilyTable FamilyTableDialog::read_table() const {
     zima::document::validate_family_table(result,generic_name_.toStdString());return result;
 }
 bool FamilyTableDialog::submit() {
+    store_labels();
     data_.family_table=zima::document::serialize_family_table(read_table());accepted_(data_);
     if(!requested_instance_.empty()&&open_instance)open_instance(requested_instance_);
     return true;

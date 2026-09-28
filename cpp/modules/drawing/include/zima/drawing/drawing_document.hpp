@@ -364,6 +364,10 @@ struct DrawingSheet {
     std::vector<zima::symbols::Placement> symbol_annotations;
     std::map<std::string,SymbolContact> symbol_contacts;
     std::string title_block_locale{"cs"};
+    std::string title_block_definition, title_block_variant;
+    std::string frame_definition, frame_variant;
+    // Derived geometry arrays carry explicit per-Sketch repeat membership.
+    std::map<std::string,std::vector<std::string>> title_block_repeat_bindings;
     std::map<std::string, std::string> local_parameters;
 
     [[nodiscard]] double width_mm() const;

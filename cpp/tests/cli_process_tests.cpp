@@ -1096,7 +1096,7 @@ int main(int argc,char** argv){
         const Json family_table_fixture={
             {"columns",{"Stock"}},
             {"bindings",{{"Stock",{{"kind","feature"},{"owner",metadata_part.history.front().id},{"key",""}}}}},
-            {"instances",Json::array({{{"id",""},{"name","Varianta A"},{"values",{{"Stock","yes"}}}}})}};
+            {"instances",Json::array({{{"id",""},{"shared_name",true},{"labels",nlohmann::json::object()},{"name","Varianta A"},{"values",{{"Stock","yes"}}}}})}};
         const auto engineering_family=command({{"command","document.family.set"},{"arguments",{{"table",family_table_fixture}}}});
         result=launch(executable,root,common+QStringList{"--command","open cli-step.prtz","--command",engineering_material,"--command",engineering_relations,"--command",engineering_family,"--command","save"});
         if(result.exit_code!=0)std::cerr<<result.output.toStdString()<<result.diagnostics.toStdString();

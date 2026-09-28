@@ -173,15 +173,36 @@ void family_test(const kernel::OcctKernel& kernel,const fs::path& directory) {
     const auto original=live.open_part(id)->session.calculated_boundaries().back().kernel_shape;
     require(workspace::set_family_table(live,id,table),"Family set failed");
     table=workspace::family_table(live,id);
+    const auto base_table=table;
+    auto& localized=table.instances.front();localized.shared_name=false;
+    localized.labels={{"cs","Dlouha"},{"en","Long version"},{"de","Lang"},{"fr","Longue"},{"ru","Long RU"}};
+    require(localized.display_name("en")=="Long version"&&localized.display_name("missing")==localized.name,"Family label selection or fallback failed");
+    auto shared=localized;shared.shared_name=true;
+    require(shared.display_name("en")==shared.name&&shared.labels==localized.labels,"Shared labels changed saved translations");
+    auto blank=localized;blank.labels["en"]="";require(blank.display_name("en")==blank.name,"Empty translation did not use base name");
+    require(workspace::set_family_table(live,id,table),"Family labels did not commit");
+    require(live.open_part(id)->session.calculated_boundaries().back().kernel_shape==original,"Label-only edit changed calculated geometry");
+    require(live.open_part(id)->session.undo()&&workspace::family_table(live,id)==base_table,"Family label Undo changed values or IDs");
+    require(live.open_part(id)->session.redo()&&workspace::family_table(live,id)==table,"Family label Redo lost translations");
+    auto bad_language=table;bad_language.instances.front().labels["xx"]="Wrong";bool language_rejected=false;
+    try{document::validate_family_table(bad_language,base.name);}catch(const std::invalid_argument&){language_rejected=true;}
+    require(language_rejected,"Unsupported Family label language was accepted");
     require(!workspace::set_family_table(live,id,table),"Family no-op created history");
     require(live.open_part(id)->session.calculated_boundaries().back().kernel_shape==original,"Table editing calculated geometry");
-    live.open_part(id)->session.undo();require(workspace::family_table(live,id).instances.empty(),"Family Undo failed");live.open_part(id)->session.redo();
+    live.open_part(id)->session.undo();live.open_part(id)->session.undo();require(workspace::family_table(live,id).instances.empty(),"Family Undo failed");live.open_part(id)->session.redo();live.open_part(id)->session.redo();
     live.open_part(id)->session.document().save(directory/"base.prtz",cache);
     const auto loaded=document::PartDocument::load(directory/"base.prtz");require(document::parse_family_table(loaded.family_table)==table,"Family identities and references did not persist");
     const auto variant=workspace::open_family_instance(live,kernel,id,"Long");
     require(std::abs(volume(live,variant)-944)<1e-8 && std::abs(volume(live,id)-464)<1e-8,"Variant dimensions changed the generic or copied the wrong operand");
     require(workspace::open_family_instance(live,kernel,id,"Long")==variant && live.size()==2,"Opening a row duplicated its tab");
     auto* held_member=live.open_part(variant);
+    const auto member_shape=held_member->session.calculated_boundaries().back().kernel_shape;
+    auto relabeled=table;relabeled.instances.front().labels["en"]="Long revised";
+    require(workspace::set_family_table(live,id,relabeled),"Open Family label edit did not commit");
+    require(held_member->session.calculated_boundaries().back().kernel_shape==member_shape&&held_member->session.document().family.row_id==table.instances.front().id,
+        "Label edit rebuilt an open member or changed its identity");
+    require(!workspace::set_family_table(live,id,relabeled),"Unchanged localized Family Table created history");
+    static_cast<void>(workspace::set_family_table(live,id,table));
     for(const auto& name:{"First rename","Second rename"}) {auto model=held_member->session.document();model.name=name;held_member->session.commit(std::move(model),held_member->session.calculated_boundaries());}
     require(workspace::family_table(live,id).instances.front().name=="Second rename","Repeated edits through the same open session lost family ownership");
     static_cast<void>(workspace::set_family_table(live,id,table));
@@ -287,6 +308,10 @@ void family_test(const kernel::OcctKernel& kernel,const fs::path& directory) {
     require(workspace::family_table(live,aid).instances.front().name=="Second Assembly rename","Repeated Assembly edits lost family ownership");
     auto assembly_rows=workspace::family_table(live,aid);const auto assembly_row=assembly_rows.instances.front().id;
     assembly_rows.instances.front().name="Assembly table rename";static_cast<void>(workspace::set_family_table(live,aid,assembly_rows));
+    assembly_rows.instances.front().shared_name=false;assembly_rows.instances.front().labels={{"en","Assembly label"},{"cs","Sestava"}};
+    static_cast<void>(workspace::set_family_table(live,aid,assembly_rows));
+    require(live.open_assembly(aid)->session.undo()&&workspace::family_table(live,aid).instances.front().labels.empty(),"Assembly label Undo failed");
+    require(live.open_assembly(aid)->session.redo()&&workspace::family_table(live,aid)==assembly_rows,"Assembly label Redo failed");
     require(live.open_assembly(av)->session.document().name=="Assembly table rename"&&live.open_assembly(av)->session.document().family.row_id==assembly_row,
         "Assembly table rename did not update the existing open member by stable row ID");
     auto changed_assembly=live.open_assembly(av)->session.document();changed_assembly.find_occurrence(component)->name="Shared component";
@@ -294,6 +319,8 @@ void family_test(const kernel::OcctKernel& kernel,const fs::path& directory) {
     require(live.open_assembly(aid)->session.document().find_occurrence(component)->name=="Shared component","Assembly member edit did not propagate to parent");
     const auto assembly_saved=workspace::prepare_document_save(live,av,directory/"base.asmz").write();require(workspace::complete_document_save(live,assembly_saved),"Assembly member Save failed");
     const auto loaded_assembly=workspace::read_family_assembly(nullptr,directory/"base.asmz",av);
+    require(document::parse_family_table(assembly::AssemblyDocument::load(directory/"base.asmz").family_table).instances.front().labels==assembly_rows.instances.front().labels,
+        "Assembly labels did not survive save/reopen");
     require(loaded_assembly.family.parent_id==aid&&loaded_assembly.find_occurrence(component)->suppressed,"Single Assembly file lost evaluated variant");
     auto empty_drawing=drawing::DrawingDocument::create_default();
     empty_drawing.add_data_source({aid,directory/"base.asmz","Assembly"});

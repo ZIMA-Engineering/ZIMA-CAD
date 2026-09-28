@@ -1,5 +1,52 @@
 # Shared symbols
 
+## Native library ownership (2026-09-28)
+
+Standalone SYMZ files now store native Part documents, including Body hierarchy,
+Sketch containers, Family presence bindings and embedded symbol insertion
+metadata. Opening and saving the editor preserves those identities and the
+complete model history. The insertion snapshot remains `zima.symbol` JSON;
+`Definition::load` derives it from the native library. Insertion supports the
+documented coplanar XY Sketch content. Arbitrary solids remain editable and
+persisted but are not converted to symbol strokes.
+
+Body activation, Sketch Properties/Finish and preceding visible context use
+the ordinary Part paths. The symbol Family editor retains its text visibility
+and choice capabilities and stores Sketch presence in the native Family Table.
+New Sketches use the ordinary command, not a separate Family-editor command.
+Insertion observes Body suppression, visibility and the history cursor. Editing
+Family metadata does not erase variant membership merely because a Body is
+temporarily hidden. Text-choice edits preserve existing Body/dimension columns
+and localized row labels in the native Family Table.
+The libraries consolidate the existing four weld types into twelve side variants,
+and fourteen geometric tolerance types into one file. A separate datum-feature
+file uses an editable letter and an outlined triangular leader marker. Each
+placement persists its arrow/triangle/dot choice. Surface attachment orientation
+uses the actual contact frame for all symbols, including user-defined symbols;
+it no longer depends on a factory identifier.
+
+## Earlier symbol authoring checkpoint (2026-09-28)
+
+Family Table now edits named symbol variants using Sketch/text visibility
+checkboxes. Those rows feed the same Variant dropdown used when inserting or
+editing an occurrence. Text Properties reuses the existing list/custom-value
+controls for the symbol's named fields. Definition edits participate in the
+carrier's Undo session. This checkpoint used the standalone definition schema;
+native Part persistence and ordinary Sketch entry now supersede that storage
+and Tree interaction. The redundant command-panel selector remains removed.
+The roughness catalog uses named components and one authored default text,
+without redundant identical text overrides on each variant. This supersedes
+the authoring limitations in the historical checkpoints below.
+
+Verification: the Windows development build passes the symbol GUI, symbol
+document, symbol Drawing, symbol integration and translation contracts (five
+tests, 26.54 seconds). Coverage includes text lists, variant visibility,
+OK/Cancel, metadata Undo/Redo, save/reopen, Drawing roughness choices, table
+resizing and middle-button confirmation over the View. All five UI languages
+are checked. The three roughness assets retain their original geometry and
+identities; their changes are component names, removal of redundant default
+overrides and the current serializer's explicit default readability flag.
+
 ## Current agreement and feasibility review (2026-09-22)
 
 The agreed next design supersedes the single-Sketch grouping prototype described
@@ -19,7 +66,8 @@ associative. Real target regions may still have their own model-space dimensions
 
 The complete category matrix, attachment/3D analysis, implementation gaps and
 verification gates are in [Symbol feasibility review](SYMBOLS_FEASIBILITY.md).
-The implementation now uses the multi-Sketch version-2 schema described below.
+The inserted snapshot uses the multi-Sketch version-2 schema described below;
+the standalone library uses the native Part format described above.
 
 ## Drawing coordinate and anchoring contract
 
@@ -54,7 +102,8 @@ characteristic glyphs.
 
 ## Implementation checkpoint
 
-Native `.symz` version 2 is self-contained UTF-8 JSON (`zima.symbol`, units `mm`).
+The embedded insertion definition is self-contained UTF-8 JSON (`zima.symbol`,
+version 2, units `mm`); a standalone `.symz` stores the complete native Part.
 A definition owns coplanar XY Sketches with one shared local Origin, named variant
 rows and named text fields. Rows select Sketches, hidden fields and text values.
 Fields can restrict values to a list or allow custom input. Definitions reject

@@ -30,6 +30,7 @@ kernel::Vec3 Frame::local(Vec3 p) const {
 }
 void Placement::validate() const {
     symbol.validate();frame.validate();
+    require(leader_ending>=LeaderEnding::Arrow&&leader_ending<=LeaderEnding::Dot);
     require(!paper_tangent||finite(*paper_tangent));require(!paper_extension_start||finite(*paper_extension_start));
     require(std::isfinite(shelf_length)&&shelf_length>=.1);
     require(std::isfinite(arrow_length)&&arrow_length>0&&std::isfinite(offset_z));
@@ -64,7 +65,7 @@ kernel::ViewerMesh Placement::viewer_mesh(std::optional<double> paper_frame_angl
         if(info.kind==3)info.kind=0;
         auto direction=cross(frame.x,frame.y);
         if(reference&&reference->kind==ReferenceKind::Edge)direction=frame.x;
-        else if(Definition::from_serialized(symbol.definition).id=="ze:surface-texture:iso21920")direction=frame.y;
+        else if(reference&&(reference->kind==ReferenceKind::Face||reference->kind==ReferenceKind::Plane))direction=frame.y;
         info.direction_tip={frame.origin.x+direction.x,frame.origin.y+direction.y,frame.origin.z+direction.z};
         info.left=info.bottom=1e100;info.right=-1e100;
         for(const auto& edge:result.edges)for(auto p:edge.points){info.left=std::min(info.left,p.x);info.right=std::max(info.right,p.x);info.bottom=std::min(info.bottom,p.y);}
@@ -72,7 +73,10 @@ kernel::ViewerMesh Placement::viewer_mesh(std::optional<double> paper_frame_angl
         if(structured)info.bottom=-definition.insertion_point[1]*symbol.scale;
         for(auto& edge:result.edges){info.local_points=edge.points;edge.annotation=info;}
         info.local_points.clear();
-        for(int role:{1,2,3}){if(role==3&&structured)continue;info.role=role;kernel::ViewerEdge edge;edge.annotation=info;edge.reference={symbol.id,"symbol:"+symbol.id+(role==3?":shelf":""),{}};edge.overlay=true;edge.color="#F5CD50";result.edges.push_back(std::move(edge));}
+        for(int role:{1,2,3}){if(role==3&&structured)continue;
+            info.role=role==2?(leader_ending==LeaderEnding::Triangle?4:leader_ending==LeaderEnding::Dot?5:2):role;
+            kernel::ViewerEdge edge;edge.annotation=info;edge.filled_text=info.role==5;
+            edge.reference={symbol.id,"symbol:"+symbol.id+(role==3?":shelf":""),{}};edge.overlay=true;edge.color="#F5CD50";result.edges.push_back(std::move(edge));}
         auto right=frame.x,up=frame.y;
         if(paper_frame_angle){const double a=*paper_frame_angle*std::acos(-1.)/180.;
             right={frame.x.x*std::cos(a)-frame.y.x*std::sin(a),frame.x.y*std::cos(a)-frame.y.y*std::sin(a),frame.x.z*std::cos(a)-frame.y.z*std::sin(a)};
@@ -108,6 +112,7 @@ void to_json(nlohmann::json& j,const Placement& p) {
     p.validate();j={{"symbol",p.symbol},{"frame",{{"origin",array(p.frame.origin)},{"x",array(p.frame.x)},{"y",array(p.frame.y)}}},
         {"reference",nullptr},{"unresolved",p.unresolved},{"leader",p.leader},{"leader_bends",p.leader_bends},{"arrow_length",p.arrow_length},{"offset_z",p.offset_z},{"perpendicular_leader",p.perpendicular_leader},{"short_shelf",p.short_shelf},{"shelf_length",p.shelf_length}};
     j["paper_tangent"]=p.paper_tangent?nlohmann::json(array(*p.paper_tangent)):nlohmann::json(nullptr);
+    j["leader_ending"]=static_cast<int>(p.leader_ending);
     j["paper_extension_start"]=p.paper_extension_start?nlohmann::json(array(*p.paper_extension_start)):nlohmann::json(nullptr);
     if(p.reference) {const auto& r=*p.reference;j["reference"]={{"document_id",r.document_id},{"owner_id",r.owner_id},
         {"semantic_key",r.semantic_key},{"instance_path",r.instance_path},{"kind",static_cast<int>(r.kind)},{"reversed",r.reversed},
@@ -123,6 +128,7 @@ void from_json(const nlohmann::json& j,Placement& output) {
         if(!r.at("surface_kind").is_null())p.reference->surface_kind=static_cast<kernel::SurfaceGeometry::Kind>(r.at("surface_kind").get<int>());
         p.reference->surface_parameters=r.at("surface_parameters").get<std::array<double,2>>();}
     p.short_shelf=j.value("short_shelf",false);p.shelf_length=j.value("shelf_length",3.);
+    p.leader_ending=static_cast<LeaderEnding>(j.value("leader_ending",0));
     p.unresolved=j.at("unresolved");p.leader=j.at("leader");
     p.leader_bends=j.at("leader_bends").get<decltype(p.leader_bends)>();p.arrow_length=j.at("arrow_length");p.offset_z=j.value("offset_z",0.);p.perpendicular_leader=j.value("perpendicular_leader",false);
     if(j.contains("paper_tangent")&&!j.at("paper_tangent").is_null())p.paper_tangent=vector(j.at("paper_tangent"));
@@ -170,7 +176,7 @@ void attach_to_surface(Placement& value,const kernel::FaceReference& face,const 
     ref.surface_kind=surface.kind;
     if(surface.kind==kernel::SurfaceGeometry::Kind::Plane)ref.surface_parameters={local.x,local.y};
     else {require(std::hypot(local.x,local.y)>1e-12);ref.surface_parameters={std::atan2(local.y,local.x),local.z};}
-    next.reference=ref;next.frame=contact_frame(surface,ref,Definition::from_serialized(next.symbol.definition).id=="ze:surface-texture:iso21920");next.unresolved=false;next.validate();value=std::move(next);
+    next.reference=ref;next.frame=contact_frame(surface,ref,true);next.unresolved=false;next.validate();value=std::move(next);
 }
 namespace {
 Frame edge_frame(const kernel::ViewerEdge& edge,double t) {
@@ -208,7 +214,7 @@ bool refresh_surface_attachment(Placement& value,const kernel::ViewerReferenceGe
             surface=face.surface.get();
         }
     if(!surface||ref.surface_kind!=surface->kind){value.refresh_reference({});return false;}
-    try {const auto frame=contact_frame(*surface,ref,Definition::from_serialized(value.symbol.definition).id=="ze:surface-texture:iso21920");value.refresh_reference(frame);return true;}
+    try {const auto frame=contact_frame(*surface,ref,true);value.refresh_reference(frame);return true;}
     catch(const std::invalid_argument&){value.refresh_reference({});return false;}
 }
 }

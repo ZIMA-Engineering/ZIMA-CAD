@@ -1,4 +1,7 @@
 #include "workspace_internal.hpp"
+#include <zima/workspace/symbol_operations.hpp>
+#include <QJsonArray>
+#include <QJsonDocument>
 #include <zima/workspace/sketch_operations.hpp>
 #include <zima/workspace/sketch_properties.hpp>
 #include <zima/workspace/holes_operations.hpp>
@@ -704,9 +707,19 @@ void AssemblyWorkspaceWindow::show_sketch_text_properties(
     selected_sketch_geometry_ids_.clear();
     selected_sketch_text_id_ = text_id;
 
-    const auto action_settings=sketch->drawing_template && sketch->drawing_template->kind=="title_block"
+    auto action_settings=sketch->drawing_template && sketch->drawing_template->kind=="title_block"
         ? std::optional{sketch->drawing_template->sections.contains("TextAction."+initial.id)?sketch->drawing_template->sections.at("TextAction."+initial.id):std::map<std::string,std::string>{}}
         : std::nullopt;
+    if(symbol_document_sketch()) {
+        action_settings=std::map<std::string,std::string>{};
+        const auto definition=workspace::edited_symbol_definition(workspace_,workspace_.active_document_id());
+        for(const auto& [key,field]:definition.fields)if(field.sketch_id==sketch_id&&field.text_id==initial.id) {
+            QJsonArray choices;for(const auto& choice:field.choices)choices.append(QString::fromStdString(choice));
+            *action_settings={{"kind",field.choices.empty()?"none":"list"},
+                {"choices",QJsonDocument(choices).toJson(QJsonDocument::Compact).toStdString()},
+                {"allow_custom",field.allow_custom?"yes":"no"}};
+        }
+    }
     auto* dialog = new SketchTextPropertiesDialog(
         std::move(initial), anchor,
         [this, sketch_id](
@@ -724,6 +737,32 @@ void AssemblyWorkspaceWindow::show_sketch_text_properties(
             zima::sketcher::SketchText committed) {
             const std::string committed_id = committed.id;
             const auto field_action=sketch_text_dialog_->field_action();
+            if(symbol_document_sketch()) {
+                if(active_sketch_id_!=sketch_id)throw std::runtime_error("Sketch no longer exists");
+                const auto id=workspace_.active_document_id();
+                auto definition=workspace::edited_symbol_definition(workspace_,id);
+                auto& target=*std::ranges::find(definition.sketches,sketch_id,&sketcher::Sketch::id);
+                auto field=std::ranges::find_if(definition.fields,[&](const auto& item){return item.second.sketch_id==sketch_id&&item.second.text_id==committed_id;});
+                if(!field_action.empty()||field!=definition.fields.end()) {
+                    if(field==definition.fields.end()) {
+                        auto key=committed.value.empty()?committed.id:committed.value;const auto base=key;int n=2;
+                        while(definition.fields.contains(key))key=base+" "+std::to_string(n++);
+                        field=definition.fields.emplace(key,symbols::TextField{sketch_id,committed_id,{},true}).first;
+                    }
+                    auto& settings=field->second;settings.choices.clear();settings.allow_custom=true;
+                    if(!field_action.empty()) {
+                        for(const auto& choice:QJsonDocument::fromJson(QByteArray::fromStdString(field_action.at("choices"))).array())settings.choices.push_back(choice.toString().toStdString());
+                        settings.allow_custom=field_action.at("allow_custom")=="yes";
+                    }
+                    if(!settings.allow_custom&&std::ranges::find(settings.choices,committed.value)==settings.choices.end())
+                        throw std::runtime_error(tr("Výchozí text musí být jednou z povolených možností.").toStdString());
+                    for(auto& [key,row]:definition.variants)if(row.text_values.contains(field->first)&&!settings.allow_custom&&
+                        std::ranges::find(settings.choices,row.text_values.at(field->first))==settings.choices.end())
+                        throw std::runtime_error(tr("Seznam musí obsahovat také hodnoty použité ve variantách.").toStdString());
+                }
+                if(edit_mode)target.update_text(std::move(committed));else target.add_text(std::move(committed));
+                workspace::store_symbol_definition(workspace_,id,definition);selected_sketch_text_id_=committed_id;return;
+            }
             if (active_sketch_id_ != sketch_id ||
                 !mutate_active_sketch([&](auto& target_sketch) {
                     if(target_sketch.drawing_template) {

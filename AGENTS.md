@@ -18,6 +18,24 @@
   any remaining uncertainty.
 - This requirement was agreed with the user on 2026-09-24.
 
+## Part-based library document consistency (mandatory)
+
+- Part-based title blocks, drawing frames and symbols must use the same Body
+  hierarchy, activation, editing context and command availability as ordinary
+  Parts. Sketches and modeling operations belong inside a Body, not beside
+  Bodies at the document root. Creating them requires the same active editable
+  Body context as in an ordinary Part.
+- A library extension selects insertion behavior and explicitly required
+  domain commands (such as BOM repeat regions in a title-block Sketch). It must
+  not bypass ordinary Part ownership, visibility, suppression, history or
+  Undo/Redo rules or expose modeling commands at the Body-list level.
+- Editing a Sketch must retain preceding visible, unsuppressed geometry as
+  context under the ordinary Part rules. Do not replace the complete scene
+  with the active library Sketch alone.
+- Verify Body activation/deactivation, command availability, Sketch context,
+  Family variants and save/reopen when modifying this integration.
+- This requirement was confirmed by the user on 2026-09-28.
+
 ## Performance without behavioral regression (mandatory)
 
 - Optimize unnecessary work, repeated calculations, allocations and data loading

@@ -13,6 +13,9 @@ struct FamilyInstance {
     std::string name;
     std::map<std::string,std::string> values;
     std::string id;
+    bool shared_name{true};
+    std::map<std::string,std::string> labels;
+    [[nodiscard]] std::string display_name(const std::string& language) const;
     bool operator==(const FamilyInstance&) const = default;
 };
 struct FamilyColumn {

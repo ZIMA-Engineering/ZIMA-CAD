@@ -59,7 +59,7 @@ public:
         drawing_format_->setAccessibleName(QObject::tr("Formát výkresu"));
         if(std::ranges::none_of(drawing_options.formats,[](const auto& format){return format.format==drawing::SheetFormat::A4;}))
             drawing_format_->addItem("A4",QString{});
-        for(const auto& format:drawing_options.formats)drawing_format_->addItem(format.label,format.path);
+        for(const auto& format:drawing_options.formats)drawing_format_->addItem(format.label,format.selection_key());
         add_type(layout, QObject::tr("Výkres"), "drawing", "drawing", true,drawing_format_);
         add_type(
             layout, QObject::tr("Formát výkresu"), "drawing_format",

@@ -42,7 +42,9 @@ Host::Host(workspace::Workspace& workspace,const kernel::OcctKernel& kernel,
 Interaction Host::interaction() const {
     auto state=options_.interaction?options_.interaction():Interaction{};
     if(state.active_occurrence.empty())state.active_occurrence=workspace_.active_occurrence_path();
-    state.template_document=state.template_document||workspace::is_drawing_template(workspace_,workspace_.active_document_id());
+    const auto* part=workspace_.open_part(workspace_.active_document_id());
+    state.template_document=!(part&&part->native_drawing_template)&&
+        (state.template_document||workspace::is_drawing_template(workspace_,workspace_.active_document_id()));
     return state;
 }
 std::string Host::tr(const char* text) const{return options_.translate?options_.translate(text):std::string(text);}
@@ -114,7 +116,7 @@ void Host::register_commands(){
         if(!command.changes_state)return Result::success();
         const auto state=interaction();
         const bool template_command=command.name.starts_with("template.")||command.name=="undo"||command.name=="redo"||command.name=="close"||command.name=="activate";
-        if(state.editing&&!(state.template_document&&state.template_editor_ready&&template_command))return Result::failure("editing_in_progress",tr("Nejprve dokončete nebo zrušte otevřenou editaci."));
+        if(state.editing&&!(state.template_editor_ready&&template_command&&workspace::is_drawing_template(workspace_,workspace_.active_document_id())))return Result::failure("editing_in_progress",tr("Nejprve dokončete nebo zrušte otevřenou editaci."));
         if(command.name=="component.activate"||command.name=="component.deactivate")return Result::success();
         if(workspace_.active_document_id()!=workspace_.displayed_document_id()||!state.active_occurrence.empty()) {
             const auto& actual=workspace_.active_occurrence_path();

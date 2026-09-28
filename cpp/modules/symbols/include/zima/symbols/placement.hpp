@@ -31,6 +31,7 @@ struct Placement {
     std::optional<Reference> reference;
     bool unresolved{};
     bool leader{};
+    LeaderEnding leader_ending{LeaderEnding::Arrow};
     bool perpendicular_leader{};
     bool short_shelf{};
     double shelf_length{3.};

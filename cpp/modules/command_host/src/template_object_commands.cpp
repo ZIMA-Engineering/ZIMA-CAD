@@ -113,7 +113,7 @@ void Host::register_template_object_commands() {
                         if(create){next.width=image.width;next.height=image.height;}
                     }
                 }else if(create&&!args.contains("step_mm"))next.step=args.at("height_mm").get<double>();
-                patch(next,before,args,replaced);const bool changed=commit(workspace_,id,create?std::string{}:before.id,std::move(next));
+                patch(next,before,args,replaced);const bool changed=commit(workspace_,id,create?std::string{}:before.id,std::move(next),{});
                 if(changed)change_=Change{ChangeKind::Model,id,true};auto data=properties(read(workspace_,id,before.id));
                 data["document"]=id;data["revision"]=workspace_.open_part(id)->session.revision();data["changed"]=changed;data["body_calculated"]=false;return Result::success(std::move(data));
             });

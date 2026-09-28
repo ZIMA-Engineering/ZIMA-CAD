@@ -1,540 +1,146 @@
-{
-  "default_variant": "first_angle",
-  "fields": {},
-  "format": "zima.symbol",
-  "id": "ze:projection-method",
-  "insertion_point": [
-    0.0,
-    0.0
-  ],
-  "name": "ZE-PROJECTION-METHOD",
-  "pens": {
-    "ze:projection-method:first_angle": {
-      "first_angle:circle-axis-bottom": "green",
-      "first_angle:circle-axis-left": "green",
-      "first_angle:circle-axis-right": "green",
-      "first_angle:circle-axis-top": "green",
-      "first_angle:cone-axis": "green",
-      "first_angle:cone-bottom": "green",
-      "first_angle:cone-large": "green",
-      "first_angle:cone-small": "green",
-      "first_angle:cone-top": "green",
-      "first_angle:inner-circle": "green",
-      "first_angle:outer-circle": "green"
-    },
-    "ze:projection-method:third_angle": {
-      "third_angle:circle-axis-bottom": "green",
-      "third_angle:circle-axis-left": "green",
-      "third_angle:circle-axis-right": "green",
-      "third_angle:circle-axis-top": "green",
-      "third_angle:cone-axis": "green",
-      "third_angle:cone-bottom": "green",
-      "third_angle:cone-large": "green",
-      "third_angle:cone-small": "green",
-      "third_angle:cone-top": "green",
-      "third_angle:inner-circle": "green",
-      "third_angle:outer-circle": "green"
-    }
-  },
-  "sketches": [
-    {
-      "arcs": [],
-      "bsplines": [],
-      "circles": [
-        {
-          "center": "first_angle:circle-center",
-          "construction": false,
-          "id": "first_angle:outer-circle",
-          "radius": 3.0,
-          "centerline": false,
-          "visible_in_3d": true
-        },
-        {
-          "center": "first_angle:circle-center",
-          "construction": false,
-          "id": "first_angle:inner-circle",
-          "radius": 1.5,
-          "centerline": false,
-          "visible_in_3d": true
-        }
-      ],
-      "constraints": [],
-      "corner_radii": [],
-      "curve_supports": [],
-      "curve_trims": [],
-      "dimension_layouts": [],
-      "dimensions": [],
-      "ellipses": [],
-      "elliptical_arcs": [],
-      "external_references": [],
-      "format": "zima-cad-cpp-sketch",
-      "id": "ze:projection-method:first_angle",
-      "import_blocks": [],
-      "name": "first_angle",
-      "offsets": [],
-      "owner_container_id": "",
-      "plane": "xy",
-      "plane_auto": true,
-      "plane_offset": 0.0,
-      "plane_reference_owner_id": "",
-      "points": [
-        {
-          "construction": false,
-          "fixed": true,
-          "id": "first_angle:cone-small-bottom",
-          "x": -7.2,
-          "y": -1.5,
-          "centerline": false,
-          "visible_in_3d": true
-        },
-        {
-          "construction": false,
-          "fixed": true,
-          "id": "first_angle:cone-large-bottom",
-          "x": -1.2000000000000002,
-          "y": -3.0,
-          "centerline": false,
-          "visible_in_3d": true
-        },
-        {
-          "construction": false,
-          "fixed": true,
-          "id": "first_angle:cone-large-top",
-          "x": -1.2000000000000002,
-          "y": 3.0,
-          "centerline": false,
-          "visible_in_3d": true
-        },
-        {
-          "construction": false,
-          "fixed": true,
-          "id": "first_angle:cone-small-top",
-          "x": -7.2,
-          "y": 1.5,
-          "centerline": false,
-          "visible_in_3d": true
-        },
-        {
-          "construction": false,
-          "fixed": true,
-          "id": "first_angle:circle-center",
-          "x": 4.2,
-          "y": 0.0,
-          "centerline": false,
-          "visible_in_3d": true
-        },
-        {
-          "construction": false,
-          "fixed": true,
-          "id": "first_angle:cone-axis-right",
-          "x": -0.6000000000000002,
-          "y": 0.0,
-          "centerline": false,
-          "visible_in_3d": true
-        },
-        {
-          "construction": false,
-          "fixed": true,
-          "id": "first_angle:cone-axis-left",
-          "x": -7.8,
-          "y": 0.0,
-          "centerline": false,
-          "visible_in_3d": true
-        },
-        {
-          "construction": false,
-          "fixed": true,
-          "id": "first_angle:axis-left",
-          "x": 0.6000000000000001,
-          "y": 0.0,
-          "centerline": false,
-          "visible_in_3d": true
-        },
-        {
-          "construction": false,
-          "fixed": true,
-          "id": "first_angle:axis-right",
-          "x": 7.800000000000001,
-          "y": 0.0,
-          "centerline": false,
-          "visible_in_3d": true
-        },
-        {
-          "construction": false,
-          "fixed": true,
-          "id": "first_angle:axis-bottom",
-          "x": 4.2,
-          "y": -3.6,
-          "centerline": false,
-          "visible_in_3d": true
-        },
-        {
-          "construction": false,
-          "fixed": true,
-          "id": "first_angle:axis-top",
-          "x": 4.2,
-          "y": 3.6,
-          "centerline": false,
-          "visible_in_3d": true
-        }
-      ],
-      "resolved_normal": [
-        0.0,
-        0.0,
-        1.0
-      ],
-      "resolved_origin": [
-        0.0,
-        0.0,
-        0.0
-      ],
-      "resolved_x_axis": [
-        1.0,
-        0.0,
-        0.0
-      ],
-      "resolved_y_axis": [
-        0.0,
-        1.0,
-        0.0
-      ],
-      "segments": [
-        {
-          "centerline": false,
-          "construction": false,
-          "first": "first_angle:cone-small-bottom",
-          "id": "first_angle:cone-bottom",
-          "second": "first_angle:cone-large-bottom",
-          "visible_in_3d": true
-        },
-        {
-          "centerline": false,
-          "construction": false,
-          "first": "first_angle:cone-large-bottom",
-          "id": "first_angle:cone-large",
-          "second": "first_angle:cone-large-top",
-          "visible_in_3d": true
-        },
-        {
-          "centerline": false,
-          "construction": false,
-          "first": "first_angle:cone-large-top",
-          "id": "first_angle:cone-top",
-          "second": "first_angle:cone-small-top",
-          "visible_in_3d": true
-        },
-        {
-          "centerline": false,
-          "construction": false,
-          "first": "first_angle:cone-small-top",
-          "id": "first_angle:cone-small",
-          "second": "first_angle:cone-small-bottom",
-          "visible_in_3d": true
-        },
-        {
-          "centerline": false,
-          "construction": true,
-          "first": "first_angle:cone-axis-left",
-          "id": "first_angle:cone-axis",
-          "second": "first_angle:cone-axis-right",
-          "visible_in_3d": true
-        },
-        {
-          "centerline": false,
-          "construction": true,
-          "first": "first_angle:axis-left",
-          "id": "first_angle:circle-axis-left",
-          "second": "first_angle:circle-center",
-          "visible_in_3d": true
-        },
-        {
-          "centerline": false,
-          "construction": true,
-          "first": "first_angle:circle-center",
-          "id": "first_angle:circle-axis-right",
-          "second": "first_angle:axis-right",
-          "visible_in_3d": true
-        },
-        {
-          "centerline": false,
-          "construction": true,
-          "first": "first_angle:axis-bottom",
-          "id": "first_angle:circle-axis-bottom",
-          "second": "first_angle:circle-center",
-          "visible_in_3d": true
-        },
-        {
-          "centerline": false,
-          "construction": true,
-          "first": "first_angle:circle-center",
-          "id": "first_angle:circle-axis-top",
-          "second": "first_angle:axis-top",
-          "visible_in_3d": true
-        }
-      ],
-      "suppressed": false,
-      "symbols": [],
-      "texts": [],
-      "version": 35
-    },
-    {
-      "arcs": [],
-      "bsplines": [],
-      "circles": [
-        {
-          "center": "third_angle:circle-center",
-          "construction": false,
-          "id": "third_angle:outer-circle",
-          "radius": 3.0,
-          "centerline": false,
-          "visible_in_3d": true
-        },
-        {
-          "center": "third_angle:circle-center",
-          "construction": false,
-          "id": "third_angle:inner-circle",
-          "radius": 1.5,
-          "centerline": false,
-          "visible_in_3d": true
-        }
-      ],
-      "constraints": [],
-      "corner_radii": [],
-      "curve_supports": [],
-      "curve_trims": [],
-      "dimension_layouts": [],
-      "dimensions": [],
-      "ellipses": [],
-      "elliptical_arcs": [],
-      "external_references": [],
-      "format": "zima-cad-cpp-sketch",
-      "id": "ze:projection-method:third_angle",
-      "import_blocks": [],
-      "name": "third_angle",
-      "offsets": [],
-      "owner_container_id": "",
-      "plane": "xy",
-      "plane_auto": true,
-      "plane_offset": 0.0,
-      "plane_reference_owner_id": "",
-      "points": [
-        {
-          "construction": false,
-          "fixed": true,
-          "id": "third_angle:cone-small-bottom",
-          "x": 1.2,
-          "y": -1.5,
-          "centerline": false,
-          "visible_in_3d": true
-        },
-        {
-          "construction": false,
-          "fixed": true,
-          "id": "third_angle:cone-large-bottom",
-          "x": 7.2,
-          "y": -3.0,
-          "centerline": false,
-          "visible_in_3d": true
-        },
-        {
-          "construction": false,
-          "fixed": true,
-          "id": "third_angle:cone-large-top",
-          "x": 7.2,
-          "y": 3.0,
-          "centerline": false,
-          "visible_in_3d": true
-        },
-        {
-          "construction": false,
-          "fixed": true,
-          "id": "third_angle:cone-small-top",
-          "x": 1.2,
-          "y": 1.5,
-          "centerline": false,
-          "visible_in_3d": true
-        },
-        {
-          "construction": false,
-          "fixed": true,
-          "id": "third_angle:circle-center",
-          "x": -4.2,
-          "y": 0.0,
-          "centerline": false,
-          "visible_in_3d": true
-        },
-        {
-          "construction": false,
-          "fixed": true,
-          "id": "third_angle:cone-axis-right",
-          "x": 7.8,
-          "y": 0.0,
-          "centerline": false,
-          "visible_in_3d": true
-        },
-        {
-          "construction": false,
-          "fixed": true,
-          "id": "third_angle:cone-axis-left",
-          "x": 0.6,
-          "y": 0.0,
-          "centerline": false,
-          "visible_in_3d": true
-        },
-        {
-          "construction": false,
-          "fixed": true,
-          "id": "third_angle:axis-left",
-          "x": -7.800000000000001,
-          "y": 0.0,
-          "centerline": false,
-          "visible_in_3d": true
-        },
-        {
-          "construction": false,
-          "fixed": true,
-          "id": "third_angle:axis-right",
-          "x": -0.6000000000000001,
-          "y": 0.0,
-          "centerline": false,
-          "visible_in_3d": true
-        },
-        {
-          "construction": false,
-          "fixed": true,
-          "id": "third_angle:axis-bottom",
-          "x": -4.2,
-          "y": -3.6,
-          "centerline": false,
-          "visible_in_3d": true
-        },
-        {
-          "construction": false,
-          "fixed": true,
-          "id": "third_angle:axis-top",
-          "x": -4.2,
-          "y": 3.6,
-          "centerline": false,
-          "visible_in_3d": true
-        }
-      ],
-      "resolved_normal": [
-        0.0,
-        0.0,
-        1.0
-      ],
-      "resolved_origin": [
-        0.0,
-        0.0,
-        0.0
-      ],
-      "resolved_x_axis": [
-        1.0,
-        0.0,
-        0.0
-      ],
-      "resolved_y_axis": [
-        0.0,
-        1.0,
-        0.0
-      ],
-      "segments": [
-        {
-          "centerline": false,
-          "construction": false,
-          "first": "third_angle:cone-small-bottom",
-          "id": "third_angle:cone-bottom",
-          "second": "third_angle:cone-large-bottom",
-          "visible_in_3d": true
-        },
-        {
-          "centerline": false,
-          "construction": false,
-          "first": "third_angle:cone-large-bottom",
-          "id": "third_angle:cone-large",
-          "second": "third_angle:cone-large-top",
-          "visible_in_3d": true
-        },
-        {
-          "centerline": false,
-          "construction": false,
-          "first": "third_angle:cone-large-top",
-          "id": "third_angle:cone-top",
-          "second": "third_angle:cone-small-top",
-          "visible_in_3d": true
-        },
-        {
-          "centerline": false,
-          "construction": false,
-          "first": "third_angle:cone-small-top",
-          "id": "third_angle:cone-small",
-          "second": "third_angle:cone-small-bottom",
-          "visible_in_3d": true
-        },
-        {
-          "centerline": false,
-          "construction": true,
-          "first": "third_angle:cone-axis-left",
-          "id": "third_angle:cone-axis",
-          "second": "third_angle:cone-axis-right",
-          "visible_in_3d": true
-        },
-        {
-          "centerline": false,
-          "construction": true,
-          "first": "third_angle:axis-left",
-          "id": "third_angle:circle-axis-left",
-          "second": "third_angle:circle-center",
-          "visible_in_3d": true
-        },
-        {
-          "centerline": false,
-          "construction": true,
-          "first": "third_angle:circle-center",
-          "id": "third_angle:circle-axis-right",
-          "second": "third_angle:axis-right",
-          "visible_in_3d": true
-        },
-        {
-          "centerline": false,
-          "construction": true,
-          "first": "third_angle:axis-bottom",
-          "id": "third_angle:circle-axis-bottom",
-          "second": "third_angle:circle-center",
-          "visible_in_3d": true
-        },
-        {
-          "centerline": false,
-          "construction": true,
-          "first": "third_angle:circle-center",
-          "id": "third_angle:circle-axis-top",
-          "second": "third_angle:axis-top",
-          "visible_in_3d": true
-        }
-      ],
-      "suppressed": false,
-      "symbols": [],
-      "texts": [],
-      "version": 35
-    }
-  ],
-  "units": "mm",
-  "variant_source": "drawing.projection_method",
-  "variants": {
-    "first_angle": {
-      "hidden_texts": [],
-      "sketches": [
-        "ze:projection-method:first_angle"
-      ],
-      "text_values": {}
-    },
-    "third_angle": {
-      "hidden_texts": [],
-      "sketches": [
-        "ze:projection-method:third_angle"
-      ],
-      "text_values": {}
-    }
-  },
-  "version": 2
-}
+[Children.01a0e70f73147859907957e51263bc0c]
+items=01a0e70f73147859907957e51263bc0d
+
+[Children.01a0e70f73147859907957e51263bc0e]
+items=01a0e70f73147859907957e51263bc0f
+
+[Container.01a0e70f73147859907957e51263bc0c]
+TYPE=SKETCH
+combine_mode=+
+id=01a0e70f73147859907957e51263bc0c
+kind=container
+name=first_angle
+param.cpp_history={"combine":"add","container_origin":{"children":[{"id":"01a0e70f73147859907957e51263bc0c:origin:point","key":"point","kind":"point","locked":true,"name":"Point 0,0,0","parent_id":"01a0e70f73147859907957e51263bc0c:origin"},{"id":"01a0e70f73147859907957e51263bc0c:origin:axis:x","key":"axis:x","kind":"axis","locked":true,"name":"X Axis","parent_id":"01a0e70f73147859907957e51263bc0c:origin"},{"id":"01a0e70f73147859907957e51263bc0c:origin:axis:y","key":"axis:y","kind":"axis","locked":true,"name":"Y Axis","parent_id":"01a0e70f73147859907957e51263bc0c:origin"},{"id":"01a0e70f73147859907957e51263bc0c:origin:axis:z","key":"axis:z","kind":"axis","locked":true,"name":"Z Axis","parent_id":"01a0e70f73147859907957e51263bc0c:origin"},{"id":"01a0e70f73147859907957e51263bc0c:origin:plane:xy","key":"plane:xy","kind":"plane","locked":true,"name":"XY Plane","parent_id":"01a0e70f73147859907957e51263bc0c:origin"},{"id":"01a0e70f73147859907957e51263bc0c:origin:plane:yz","key":"plane:yz","kind":"plane","locked":true,"name":"YZ Plane","parent_id":"01a0e70f73147859907957e51263bc0c:origin"},{"id":"01a0e70f73147859907957e51263bc0c:origin:plane:xz","key":"plane:xz","kind":"plane","locked":true,"name":"XZ Plane","parent_id":"01a0e70f73147859907957e51263bc0c:origin"}],"id":"01a0e70f73147859907957e51263bc0c:origin","locked":true,"name":"Container Origin","parent_id":"01a0e70f73147859907957e51263bc0c"},"feature_id":"01a0e70f73147859907957e51263bc0d","feature_parent_id":"01a0e70f73147859907957e51263bc0c","id":"01a0e70f73147859907957e51263bc0c","name":"first_angle","origin_point_visible":false,"origin_text_visible":false,"placement":{"absolute_rotation_x":0.0,"absolute_rotation_y":0.0,"absolute_rotation_z":0.0,"orientation_back":false,"orientation_quarter_turns":0,"reference_valid":true,"references":[],"rotation_offset_x":0.0,"rotation_offset_y":0.0,"rotation_offset_z":0.0,"rotation_x":0.0,"rotation_y":0.0,"rotation_z":0.0,"value_locks":[],"x":0.0,"y":0.0,"z":0.0},"suppressed":false,"type":"sketch","value_locks":[]}
+param.cpp_kind=history
+rx=0.000000
+ry=0.000000
+rz=0.000000
+show_auxiliary_geometry=false
+suppressed=false
+tree_exposure=public
+user_visible=true
+x=0.000000
+y=0.000000
+z=0.000000
+
+[Container.01a0e70f73147859907957e51263bc0e]
+TYPE=SKETCH
+combine_mode=+
+id=01a0e70f73147859907957e51263bc0e
+kind=container
+name=third_angle
+param.cpp_history={"combine":"add","container_origin":{"children":[{"id":"01a0e70f73147859907957e51263bc0e:origin:point","key":"point","kind":"point","locked":true,"name":"Point 0,0,0","parent_id":"01a0e70f73147859907957e51263bc0e:origin"},{"id":"01a0e70f73147859907957e51263bc0e:origin:axis:x","key":"axis:x","kind":"axis","locked":true,"name":"X Axis","parent_id":"01a0e70f73147859907957e51263bc0e:origin"},{"id":"01a0e70f73147859907957e51263bc0e:origin:axis:y","key":"axis:y","kind":"axis","locked":true,"name":"Y Axis","parent_id":"01a0e70f73147859907957e51263bc0e:origin"},{"id":"01a0e70f73147859907957e51263bc0e:origin:axis:z","key":"axis:z","kind":"axis","locked":true,"name":"Z Axis","parent_id":"01a0e70f73147859907957e51263bc0e:origin"},{"id":"01a0e70f73147859907957e51263bc0e:origin:plane:xy","key":"plane:xy","kind":"plane","locked":true,"name":"XY Plane","parent_id":"01a0e70f73147859907957e51263bc0e:origin"},{"id":"01a0e70f73147859907957e51263bc0e:origin:plane:yz","key":"plane:yz","kind":"plane","locked":true,"name":"YZ Plane","parent_id":"01a0e70f73147859907957e51263bc0e:origin"},{"id":"01a0e70f73147859907957e51263bc0e:origin:plane:xz","key":"plane:xz","kind":"plane","locked":true,"name":"XZ Plane","parent_id":"01a0e70f73147859907957e51263bc0e:origin"}],"id":"01a0e70f73147859907957e51263bc0e:origin","locked":true,"name":"Container Origin","parent_id":"01a0e70f73147859907957e51263bc0e"},"feature_id":"01a0e70f73147859907957e51263bc0f","feature_parent_id":"01a0e70f73147859907957e51263bc0e","id":"01a0e70f73147859907957e51263bc0e","name":"third_angle","origin_point_visible":false,"origin_text_visible":false,"placement":{"absolute_rotation_x":0.0,"absolute_rotation_y":0.0,"absolute_rotation_z":0.0,"orientation_back":false,"orientation_quarter_turns":0,"reference_valid":true,"references":[],"rotation_offset_x":0.0,"rotation_offset_y":0.0,"rotation_offset_z":0.0,"rotation_x":0.0,"rotation_y":0.0,"rotation_z":0.0,"value_locks":[],"x":0.0,"y":0.0,"z":0.0},"suppressed":true,"type":"sketch","value_locks":[]}
+param.cpp_kind=history
+rx=0.000000
+ry=0.000000
+rz=0.000000
+show_auxiliary_geometry=false
+suppressed=true
+tree_exposure=public
+user_visible=true
+x=0.000000
+y=0.000000
+z=0.000000
+
+[Containers]
+items=01a0e70f73147859907957e51263bc0c,01a0e70f73147859907957e51263bc0e
+
+[Document]
+appearance={"bodies":{},"body":{"color":"#B9C2CC","metallic":0.0,"roughness":0.55},"groups":[],"owners":{}}
+body_color=#B9C2CC
+body_history={"active":"01a0e70f73147859907957e51263bc0b","bodies":[{"cursor":2,"dependencies":[],"derived_copy":null,"entries":[{"id":"01a0e70f73147859907957e51263bc0c","kind":0},{"id":"01a0e70f73147859907957e51263bc0e","kind":0}],"id":"01a0e70f73147859907957e51263bc0b","link":null,"name":"ZE-PROJECTION-METHOD","placement":{"absolute_rotation_x":0.0,"absolute_rotation_y":0.0,"absolute_rotation_z":0.0,"orientation_back":false,"orientation_quarter_turns":0,"reference_valid":true,"references":[],"rotation_offset_x":0.0,"rotation_offset_y":0.0,"rotation_offset_z":0.0,"rotation_x":0.0,"rotation_y":0.0,"rotation_z":0.0,"value_locks":[],"x":0.0,"y":0.0,"z":0.0},"scale":null,"suppressed":false,"visible":true}],"booleans":[],"cursor":1,"order":["01a0e70f73147859907957e51263bc0b"]}
+body_properties=[]
+dimension_identifiers={"entries":[{"key":"parameter:placement:rotation_x","number":4,"owner":"01a0e70f73147859907957e51263bc0c"},{"key":"parameter:placement:rotation_y","number":5,"owner":"01a0e70f73147859907957e51263bc0c"},{"key":"parameter:placement:rotation_z","number":6,"owner":"01a0e70f73147859907957e51263bc0c"},{"key":"parameter:placement:x","number":1,"owner":"01a0e70f73147859907957e51263bc0c"},{"key":"parameter:placement:y","number":2,"owner":"01a0e70f73147859907957e51263bc0c"},{"key":"parameter:placement:z","number":3,"owner":"01a0e70f73147859907957e51263bc0c"},{"key":"parameter:profile_offset","number":7,"owner":"01a0e70f73147859907957e51263bc0c"},{"key":"parameter:placement:rotation_x","number":11,"owner":"01a0e70f73147859907957e51263bc0e"},{"key":"parameter:placement:rotation_y","number":12,"owner":"01a0e70f73147859907957e51263bc0e"},{"key":"parameter:placement:rotation_z","number":13,"owner":"01a0e70f73147859907957e51263bc0e"},{"key":"parameter:placement:x","number":8,"owner":"01a0e70f73147859907957e51263bc0e"},{"key":"parameter:placement:y","number":9,"owner":"01a0e70f73147859907957e51263bc0e"},{"key":"parameter:placement:z","number":10,"owner":"01a0e70f73147859907957e51263bc0e"},{"key":"parameter:profile_offset","number":14,"owner":"01a0e70f73147859907957e51263bc0e"}],"next":15}
+dimension_layouts=[]
+document_id=01a0e70f73147859907957e51263bc0a
+family={"evaluated":{},"parent":"","row":""}
+family_table={"bindings":{"ze:projection-method:first_angle":{"key":"","kind":"feature","owner":"01a0e70f73147859907957e51263bc0c"},"ze:projection-method:third_angle":{"key":"","kind":"feature","owner":"01a0e70f73147859907957e51263bc0e"}},"columns":["ze:projection-method:first_angle","ze:projection-method:third_angle"],"instances":[{"id":"first_angle","labels":{},"name":"first_angle","shared_name":true,"values":{"ze:projection-method:first_angle":"yes","ze:projection-method:third_angle":"no"}},{"id":"third_angle","labels":{},"name":"third_angle","shared_name":true,"values":{"ze:projection-method:first_angle":"no","ze:projection-method:third_angle":"yes"}}]}
+format_version=45
+history_cursor=2
+measurements=[]
+name=ZE-PROJECTION-METHOD
+named_views=[]
+reference_errors={}
+sections=[]
+symbol_annotations=[]
+symbol_editor_definition="{\n  \"default_variant\": \"first_angle\",\n  \"fields\": {},\n  \"format\": \"zima.symbol\",\n  \"id\": \"ze:projection-method\",\n  \"insertion_point\": [\n    0.0,\n    0.0\n  ],\n  \"leader_ending\": 0,\n  \"name\": \"ZE-PROJECTION-METHOD\",\n  \"pens\": {\n    \"ze:projection-method:first_angle\": {\n      \"first_angle:circle-axis-bottom\": \"green\",\n      \"first_angle:circle-axis-left\": \"green\",\n      \"first_angle:circle-axis-right\": \"green\",\n      \"first_angle:circle-axis-top\": \"green\",\n      \"first_angle:cone-axis\": \"green\",\n      \"first_angle:cone-bottom\": \"green\",\n      \"first_angle:cone-large\": \"green\",\n      \"first_angle:cone-small\": \"green\",\n      \"first_angle:cone-top\": \"green\",\n      \"first_angle:inner-circle\": \"green\",\n      \"first_angle:outer-circle\": \"green\"\n    },\n    \"ze:projection-method:third_angle\": {\n      \"third_angle:circle-axis-bottom\": \"green\",\n      \"third_angle:circle-axis-left\": \"green\",\n      \"third_angle:circle-axis-right\": \"green\",\n      \"third_angle:circle-axis-top\": \"green\",\n      \"third_angle:cone-axis\": \"green\",\n      \"third_angle:cone-bottom\": \"green\",\n      \"third_angle:cone-large\": \"green\",\n      \"third_angle:cone-small\": \"green\",\n      \"third_angle:cone-top\": \"green\",\n      \"third_angle:inner-circle\": \"green\",\n      \"third_angle:outer-circle\": \"green\"\n    }\n  },\n  \"sketches\": [\n    {\n      \"arcs\": [],\n      \"bsplines\": [],\n      \"circles\": [\n        {\n          \"center\": \"first_angle:circle-center\",\n          \"centerline\": false,\n          \"construction\": false,\n          \"id\": \"first_angle:outer-circle\",\n          \"radius\": 3.0,\n          \"visible_in_3d\": true\n        },\n        {\n          \"center\": \"first_angle:circle-center\",\n          \"centerline\": false,\n          \"construction\": false,\n          \"id\": \"first_angle:inner-circle\",\n          \"radius\": 1.5,\n          \"visible_in_3d\": true\n        }\n      ],\n      \"constraints\": [],\n      \"corner_radii\": [],\n      \"curve_supports\": [],\n      \"curve_trims\": [],\n      \"dimension_layouts\": [],\n      \"dimensions\": [],\n      \"ellipses\": [],\n      \"elliptical_arcs\": [],\n      \"external_references\": [],\n      \"format\": \"zima-cad-cpp-sketch\",\n      \"id\": \"ze:projection-method:first_angle\",\n      \"import_blocks\": [],\n      \"name\": \"first_angle\",\n      \"offsets\": [],\n      \"owner_container_id\": \"\",\n      \"plane\": \"xy\",\n      \"plane_auto\": true,\n      \"plane_offset\": 0.0,\n      \"plane_reference_owner_id\": \"\",\n      \"points\": [\n        {\n          \"centerline\": false,\n          \"construction\": false,\n          \"fixed\": true,\n          \"id\": \"first_angle:cone-small-bottom\",\n          \"visible_in_3d\": true,\n          \"x\": -7.2,\n          \"y\": -1.5\n        },\n        {\n          \"centerline\": false,\n          \"construction\": false,\n          \"fixed\": true,\n          \"id\": \"first_angle:cone-large-bottom\",\n          \"visible_in_3d\": true,\n          \"x\": -1.2000000000000002,\n          \"y\": -3.0\n        },\n        {\n          \"centerline\": false,\n          \"construction\": false,\n          \"fixed\": true,\n          \"id\": \"first_angle:cone-large-top\",\n          \"visible_in_3d\": true,\n          \"x\": -1.2000000000000002,\n          \"y\": 3.0\n        },\n        {\n          \"centerline\": false,\n          \"construction\": false,\n          \"fixed\": true,\n          \"id\": \"first_angle:cone-small-top\",\n          \"visible_in_3d\": true,\n          \"x\": -7.2,\n          \"y\": 1.5\n        },\n        {\n          \"centerline\": false,\n          \"construction\": false,\n          \"fixed\": true,\n          \"id\": \"first_angle:circle-center\",\n          \"visible_in_3d\": true,\n          \"x\": 4.2,\n          \"y\": 0.0\n        },\n        {\n          \"centerline\": false,\n          \"construction\": false,\n          \"fixed\": true,\n          \"id\": \"first_angle:cone-axis-right\",\n          \"visible_in_3d\": true,\n          \"x\": -0.6000000000000002,\n          \"y\": 0.0\n        },\n        {\n          \"centerline\": false,\n          \"construction\": false,\n          \"fixed\": true,\n          \"id\": \"first_angle:cone-axis-left\",\n          \"visible_in_3d\": true,\n          \"x\": -7.8,\n          \"y\": 0.0\n        },\n        {\n          \"centerline\": false,\n          \"construction\": false,\n          \"fixed\": true,\n          \"id\": \"first_angle:axis-left\",\n          \"visible_in_3d\": true,\n          \"x\": 0.6000000000000001,\n          \"y\": 0.0\n        },\n        {\n          \"centerline\": false,\n          \"construction\": false,\n          \"fixed\": true,\n          \"id\": \"first_angle:axis-right\",\n          \"visible_in_3d\": true,\n          \"x\": 7.800000000000001,\n          \"y\": 0.0\n        },\n        {\n          \"centerline\": false,\n          \"construction\": false,\n          \"fixed\": true,\n          \"id\": \"first_angle:axis-bottom\",\n          \"visible_in_3d\": true,\n          \"x\": 4.2,\n          \"y\": -3.6\n        },\n        {\n          \"centerline\": false,\n          \"construction\": false,\n          \"fixed\": true,\n          \"id\": \"first_angle:axis-top\",\n          \"visible_in_3d\": true,\n          \"x\": 4.2,\n          \"y\": 3.6\n        }\n      ],\n      \"resolved_normal\": [\n        0.0,\n        0.0,\n        1.0\n      ],\n      \"resolved_origin\": [\n        0.0,\n        0.0,\n        0.0\n      ],\n      \"resolved_x_axis\": [\n        1.0,\n        0.0,\n        0.0\n      ],\n      \"resolved_y_axis\": [\n        0.0,\n        1.0,\n        0.0\n      ],\n      \"segments\": [\n        {\n          \"centerline\": false,\n          \"construction\": false,\n          \"first\": \"first_angle:cone-small-bottom\",\n          \"id\": \"first_angle:cone-bottom\",\n          \"second\": \"first_angle:cone-large-bottom\",\n          \"visible_in_3d\": true\n        },\n        {\n          \"centerline\": false,\n          \"construction\": false,\n          \"first\": \"first_angle:cone-large-bottom\",\n          \"id\": \"first_angle:cone-large\",\n          \"second\": \"first_angle:cone-large-top\",\n          \"visible_in_3d\": true\n        },\n        {\n          \"centerline\": false,\n          \"construction\": false,\n          \"first\": \"first_angle:cone-large-top\",\n          \"id\": \"first_angle:cone-top\",\n          \"second\": \"first_angle:cone-small-top\",\n          \"visible_in_3d\": true\n        },\n        {\n          \"centerline\": false,\n          \"construction\": false,\n          \"first\": \"first_angle:cone-small-top\",\n          \"id\": \"first_angle:cone-small\",\n          \"second\": \"first_angle:cone-small-bottom\",\n          \"visible_in_3d\": true\n        },\n        {\n          \"centerline\": false,\n          \"construction\": true,\n          \"first\": \"first_angle:cone-axis-left\",\n          \"id\": \"first_angle:cone-axis\",\n          \"second\": \"first_angle:cone-axis-right\",\n          \"visible_in_3d\": true\n        },\n        {\n          \"centerline\": false,\n          \"construction\": true,\n          \"first\": \"first_angle:axis-left\",\n          \"id\": \"first_angle:circle-axis-left\",\n          \"second\": \"first_angle:circle-center\",\n          \"visible_in_3d\": true\n        },\n        {\n          \"centerline\": false,\n          \"construction\": true,\n          \"first\": \"first_angle:circle-center\",\n          \"id\": \"first_angle:circle-axis-right\",\n          \"second\": \"first_angle:axis-right\",\n          \"visible_in_3d\": true\n        },\n        {\n          \"centerline\": false,\n          \"construction\": true,\n          \"first\": \"first_angle:axis-bottom\",\n          \"id\": \"first_angle:circle-axis-bottom\",\n          \"second\": \"first_angle:circle-center\",\n          \"visible_in_3d\": true\n        },\n        {\n          \"centerline\": false,\n          \"construction\": true,\n          \"first\": \"first_angle:circle-center\",\n          \"id\": \"first_angle:circle-axis-top\",\n          \"second\": \"first_angle:axis-top\",\n          \"visible_in_3d\": true\n        }\n      ],\n      \"suppressed\": false,\n      \"symbols\": [],\n      \"texts\": [],\n      \"version\": 35\n    },\n    {\n      \"arcs\": [],\n      \"bsplines\": [],\n      \"circles\": [\n        {\n          \"center\": \"third_angle:circle-center\",\n          \"centerline\": false,\n          \"construction\": false,\n          \"id\": \"third_angle:outer-circle\",\n          \"radius\": 3.0,\n          \"visible_in_3d\": true\n        },\n        {\n          \"center\": \"third_angle:circle-center\",\n          \"centerline\": false,\n          \"construction\": false,\n          \"id\": \"third_angle:inner-circle\",\n          \"radius\": 1.5,\n          \"visible_in_3d\": true\n        }\n      ],\n      \"constraints\": [],\n      \"corner_radii\": [],\n      \"curve_supports\": [],\n      \"curve_trims\": [],\n      \"dimension_layouts\": [],\n      \"dimensions\": [],\n      \"ellipses\": [],\n      \"elliptical_arcs\": [],\n      \"external_references\": [],\n      \"format\": \"zima-cad-cpp-sketch\",\n      \"id\": \"ze:projection-method:third_angle\",\n      \"import_blocks\": [],\n      \"name\": \"third_angle\",\n      \"offsets\": [],\n      \"owner_container_id\": \"\",\n      \"plane\": \"xy\",\n      \"plane_auto\": true,\n      \"plane_offset\": 0.0,\n      \"plane_reference_owner_id\": \"\",\n      \"points\": [\n        {\n          \"centerline\": false,\n          \"construction\": false,\n          \"fixed\": true,\n          \"id\": \"third_angle:cone-small-bottom\",\n          \"visible_in_3d\": true,\n          \"x\": 1.2,\n          \"y\": -1.5\n        },\n        {\n          \"centerline\": false,\n          \"construction\": false,\n          \"fixed\": true,\n          \"id\": \"third_angle:cone-large-bottom\",\n          \"visible_in_3d\": true,\n          \"x\": 7.2,\n          \"y\": -3.0\n        },\n        {\n          \"centerline\": false,\n          \"construction\": false,\n          \"fixed\": true,\n          \"id\": \"third_angle:cone-large-top\",\n          \"visible_in_3d\": true,\n          \"x\": 7.2,\n          \"y\": 3.0\n        },\n        {\n          \"centerline\": false,\n          \"construction\": false,\n          \"fixed\": true,\n          \"id\": \"third_angle:cone-small-top\",\n          \"visible_in_3d\": true,\n          \"x\": 1.2,\n          \"y\": 1.5\n        },\n        {\n          \"centerline\": false,\n          \"construction\": false,\n          \"fixed\": true,\n          \"id\": \"third_angle:circle-center\",\n          \"visible_in_3d\": true,\n          \"x\": -4.2,\n          \"y\": 0.0\n        },\n        {\n          \"centerline\": false,\n          \"construction\": false,\n          \"fixed\": true,\n          \"id\": \"third_angle:cone-axis-right\",\n          \"visible_in_3d\": true,\n          \"x\": 7.8,\n          \"y\": 0.0\n        },\n        {\n          \"centerline\": false,\n          \"construction\": false,\n          \"fixed\": true,\n          \"id\": \"third_angle:cone-axis-left\",\n          \"visible_in_3d\": true,\n          \"x\": 0.6,\n          \"y\": 0.0\n        },\n        {\n          \"centerline\": false,\n          \"construction\": false,\n          \"fixed\": true,\n          \"id\": \"third_angle:axis-left\",\n          \"visible_in_3d\": true,\n          \"x\": -7.800000000000001,\n          \"y\": 0.0\n        },\n        {\n          \"centerline\": false,\n          \"construction\": false,\n          \"fixed\": true,\n          \"id\": \"third_angle:axis-right\",\n          \"visible_in_3d\": true,\n          \"x\": -0.6000000000000001,\n          \"y\": 0.0\n        },\n        {\n          \"centerline\": false,\n          \"construction\": false,\n          \"fixed\": true,\n          \"id\": \"third_angle:axis-bottom\",\n          \"visible_in_3d\": true,\n          \"x\": -4.2,\n          \"y\": -3.6\n        },\n        {\n          \"centerline\": false,\n          \"construction\": false,\n          \"fixed\": true,\n          \"id\": \"third_angle:axis-top\",\n          \"visible_in_3d\": true,\n          \"x\": -4.2,\n          \"y\": 3.6\n        }\n      ],\n      \"resolved_normal\": [\n        0.0,\n        0.0,\n        1.0\n      ],\n      \"resolved_origin\": [\n        0.0,\n        0.0,\n        0.0\n      ],\n      \"resolved_x_axis\": [\n        1.0,\n        0.0,\n        0.0\n      ],\n      \"resolved_y_axis\": [\n        0.0,\n        1.0,\n        0.0\n      ],\n      \"segments\": [\n        {\n          \"centerline\": false,\n          \"construction\": false,\n          \"first\": \"third_angle:cone-small-bottom\",\n          \"id\": \"third_angle:cone-bottom\",\n          \"second\": \"third_angle:cone-large-bottom\",\n          \"visible_in_3d\": true\n        },\n        {\n          \"centerline\": false,\n          \"construction\": false,\n          \"first\": \"third_angle:cone-large-bottom\",\n          \"id\": \"third_angle:cone-large\",\n          \"second\": \"third_angle:cone-large-top\",\n          \"visible_in_3d\": true\n        },\n        {\n          \"centerline\": false,\n          \"construction\": false,\n          \"first\": \"third_angle:cone-large-top\",\n          \"id\": \"third_angle:cone-top\",\n          \"second\": \"third_angle:cone-small-top\",\n          \"visible_in_3d\": true\n        },\n        {\n          \"centerline\": false,\n          \"construction\": false,\n          \"first\": \"third_angle:cone-small-top\",\n          \"id\": \"third_angle:cone-small\",\n          \"second\": \"third_angle:cone-small-bottom\",\n          \"visible_in_3d\": true\n        },\n        {\n          \"centerline\": false,\n          \"construction\": true,\n          \"first\": \"third_angle:cone-axis-left\",\n          \"id\": \"third_angle:cone-axis\",\n          \"second\": \"third_angle:cone-axis-right\",\n          \"visible_in_3d\": true\n        },\n        {\n          \"centerline\": false,\n          \"construction\": true,\n          \"first\": \"third_angle:axis-left\",\n          \"id\": \"third_angle:circle-axis-left\",\n          \"second\": \"third_angle:circle-center\",\n          \"visible_in_3d\": true\n        },\n        {\n          \"centerline\": false,\n          \"construction\": true,\n          \"first\": \"third_angle:circle-center\",\n          \"id\": \"third_angle:circle-axis-right\",\n          \"second\": \"third_angle:axis-right\",\n          \"visible_in_3d\": true\n        },\n        {\n          \"centerline\": false,\n          \"construction\": true,\n          \"first\": \"third_angle:axis-bottom\",\n          \"id\": \"third_angle:circle-axis-bottom\",\n          \"second\": \"third_angle:circle-center\",\n          \"visible_in_3d\": true\n        },\n        {\n          \"centerline\": false,\n          \"construction\": true,\n          \"first\": \"third_angle:circle-center\",\n          \"id\": \"third_angle:circle-axis-top\",\n          \"second\": \"third_angle:axis-top\",\n          \"visible_in_3d\": true\n        }\n      ],\n      \"suppressed\": false,\n      \"symbols\": [],\n      \"texts\": [],\n      \"version\": 35\n    }\n  ],\n  \"units\": \"mm\",\n  \"variant_source\": \"drawing.projection_method\",\n  \"variants\": {\n    \"first_angle\": {\n      \"hidden_texts\": [],\n      \"sketches\": [\n        \"ze:projection-method:first_angle\"\n      ],\n      \"text_values\": {}\n    },\n    \"third_angle\": {\n      \"hidden_texts\": [],\n      \"sketches\": [\n        \"ze:projection-method:third_angle\"\n      ],\n      \"text_values\": {}\n    }\n  },\n  \"version\": 2\n}\n"
+type=part
+
+[DocumentPrecision]
+angular_tolerance=0.001
+decimal_places=3
+linear_tolerance=0.001
+mesh_deflection=0.1
+sheet_cut_tolerance=0.05
+
+[DocumentUnits]
+Angle=deg
+Length=mm
+Mass=kg
+Stress=MPa
+Temperature=C
+Time=s
+
+[Entity.01a0e70f73147859907957e51263bc0d]
+combine_mode=+
+id=01a0e70f73147859907957e51263bc0d
+kind=sketch
+name=first_angle
+param.cpp_feature_id=01a0e70f73147859907957e51263bc0d
+param.feature_id=01a0e70f73147859907957e51263bc0d
+param.feature_parent_id=01a0e70f73147859907957e51263bc0c
+param.operation=add
+param.origin_point_visible=false
+param.origin_text_visible=false
+param.unit=mm
+param.value_locks=[]
+rx=0.000000
+ry=0.000000
+rz=0.000000
+show_auxiliary_geometry=false
+suppressed=false
+tree_exposure=internal
+user_visible=true
+x=0.000000
+y=0.000000
+z=0.000000
+
+[Entity.01a0e70f73147859907957e51263bc0f]
+combine_mode=+
+id=01a0e70f73147859907957e51263bc0f
+kind=sketch
+name=third_angle
+param.cpp_feature_id=01a0e70f73147859907957e51263bc0f
+param.feature_id=01a0e70f73147859907957e51263bc0f
+param.feature_parent_id=01a0e70f73147859907957e51263bc0e
+param.operation=add
+param.origin_point_visible=false
+param.origin_text_visible=false
+param.unit=mm
+param.value_locks=[]
+rx=0.000000
+ry=0.000000
+rz=0.000000
+show_auxiliary_geometry=false
+suppressed=true
+tree_exposure=internal
+user_visible=true
+x=0.000000
+y=0.000000
+z=0.000000
+
+[Material]
+Name=
+
+[Sketch.ze:projection-method:first_angle]
+data={"arcs":[],"bsplines":[],"circles":[{"center":"first_angle:circle-center","centerline":false,"construction":false,"id":"first_angle:outer-circle","radius":3.0,"visible_in_3d":true},{"center":"first_angle:circle-center","centerline":false,"construction":false,"id":"first_angle:inner-circle","radius":1.5,"visible_in_3d":true}],"constraints":[],"corner_radii":[],"curve_supports":[],"curve_trims":[],"dimension_layouts":[],"dimensions":[],"ellipses":[],"elliptical_arcs":[],"external_references":[],"format":"zima-cad-cpp-sketch","id":"ze:projection-method:first_angle","import_blocks":[],"name":"first_angle","offsets":[],"owner_container_id":"01a0e70f73147859907957e51263bc0c","plane":"xy","plane_auto":true,"plane_offset":0.0,"plane_reference_owner_id":"","points":[{"centerline":false,"construction":false,"fixed":true,"id":"first_angle:cone-small-bottom","visible_in_3d":true,"x":-7.2,"y":-1.5},{"centerline":false,"construction":false,"fixed":true,"id":"first_angle:cone-large-bottom","visible_in_3d":true,"x":-1.2000000000000002,"y":-3.0},{"centerline":false,"construction":false,"fixed":true,"id":"first_angle:cone-large-top","visible_in_3d":true,"x":-1.2000000000000002,"y":3.0},{"centerline":false,"construction":false,"fixed":true,"id":"first_angle:cone-small-top","visible_in_3d":true,"x":-7.2,"y":1.5},{"centerline":false,"construction":false,"fixed":true,"id":"first_angle:circle-center","visible_in_3d":true,"x":4.2,"y":0.0},{"centerline":false,"construction":false,"fixed":true,"id":"first_angle:cone-axis-right","visible_in_3d":true,"x":-0.6000000000000002,"y":0.0},{"centerline":false,"construction":false,"fixed":true,"id":"first_angle:cone-axis-left","visible_in_3d":true,"x":-7.8,"y":0.0},{"centerline":false,"construction":false,"fixed":true,"id":"first_angle:axis-left","visible_in_3d":true,"x":0.6000000000000001,"y":0.0},{"centerline":false,"construction":false,"fixed":true,"id":"first_angle:axis-right","visible_in_3d":true,"x":7.800000000000001,"y":0.0},{"centerline":false,"construction":false,"fixed":true,"id":"first_angle:axis-bottom","visible_in_3d":true,"x":4.2,"y":-3.6},{"centerline":false,"construction":false,"fixed":true,"id":"first_angle:axis-top","visible_in_3d":true,"x":4.2,"y":3.6}],"resolved_normal":[0.0,0.0,1.0],"resolved_origin":[0.0,0.0,0.0],"resolved_x_axis":[1.0,0.0,0.0],"resolved_y_axis":[0.0,1.0,0.0],"segments":[{"centerline":false,"construction":false,"first":"first_angle:cone-small-bottom","id":"first_angle:cone-bottom","second":"first_angle:cone-large-bottom","visible_in_3d":true},{"centerline":false,"construction":false,"first":"first_angle:cone-large-bottom","id":"first_angle:cone-large","second":"first_angle:cone-large-top","visible_in_3d":true},{"centerline":false,"construction":false,"first":"first_angle:cone-large-top","id":"first_angle:cone-top","second":"first_angle:cone-small-top","visible_in_3d":true},{"centerline":false,"construction":false,"first":"first_angle:cone-small-top","id":"first_angle:cone-small","second":"first_angle:cone-small-bottom","visible_in_3d":true},{"centerline":false,"construction":true,"first":"first_angle:cone-axis-left","id":"first_angle:cone-axis","second":"first_angle:cone-axis-right","visible_in_3d":true},{"centerline":false,"construction":true,"first":"first_angle:axis-left","id":"first_angle:circle-axis-left","second":"first_angle:circle-center","visible_in_3d":true},{"centerline":false,"construction":true,"first":"first_angle:circle-center","id":"first_angle:circle-axis-right","second":"first_angle:axis-right","visible_in_3d":true},{"centerline":false,"construction":true,"first":"first_angle:axis-bottom","id":"first_angle:circle-axis-bottom","second":"first_angle:circle-center","visible_in_3d":true},{"centerline":false,"construction":true,"first":"first_angle:circle-center","id":"first_angle:circle-axis-top","second":"first_angle:axis-top","visible_in_3d":true}],"suppressed":false,"symbols":[],"texts":[],"version":35}
+
+[Sketch.ze:projection-method:third_angle]
+data={"arcs":[],"bsplines":[],"circles":[{"center":"third_angle:circle-center","centerline":false,"construction":false,"id":"third_angle:outer-circle","radius":3.0,"visible_in_3d":true},{"center":"third_angle:circle-center","centerline":false,"construction":false,"id":"third_angle:inner-circle","radius":1.5,"visible_in_3d":true}],"constraints":[],"corner_radii":[],"curve_supports":[],"curve_trims":[],"dimension_layouts":[],"dimensions":[],"ellipses":[],"elliptical_arcs":[],"external_references":[],"format":"zima-cad-cpp-sketch","id":"ze:projection-method:third_angle","import_blocks":[],"name":"third_angle","offsets":[],"owner_container_id":"01a0e70f73147859907957e51263bc0e","plane":"xy","plane_auto":true,"plane_offset":0.0,"plane_reference_owner_id":"","points":[{"centerline":false,"construction":false,"fixed":true,"id":"third_angle:cone-small-bottom","visible_in_3d":true,"x":1.2,"y":-1.5},{"centerline":false,"construction":false,"fixed":true,"id":"third_angle:cone-large-bottom","visible_in_3d":true,"x":7.2,"y":-3.0},{"centerline":false,"construction":false,"fixed":true,"id":"third_angle:cone-large-top","visible_in_3d":true,"x":7.2,"y":3.0},{"centerline":false,"construction":false,"fixed":true,"id":"third_angle:cone-small-top","visible_in_3d":true,"x":1.2,"y":1.5},{"centerline":false,"construction":false,"fixed":true,"id":"third_angle:circle-center","visible_in_3d":true,"x":-4.2,"y":0.0},{"centerline":false,"construction":false,"fixed":true,"id":"third_angle:cone-axis-right","visible_in_3d":true,"x":7.8,"y":0.0},{"centerline":false,"construction":false,"fixed":true,"id":"third_angle:cone-axis-left","visible_in_3d":true,"x":0.6,"y":0.0},{"centerline":false,"construction":false,"fixed":true,"id":"third_angle:axis-left","visible_in_3d":true,"x":-7.800000000000001,"y":0.0},{"centerline":false,"construction":false,"fixed":true,"id":"third_angle:axis-right","visible_in_3d":true,"x":-0.6000000000000001,"y":0.0},{"centerline":false,"construction":false,"fixed":true,"id":"third_angle:axis-bottom","visible_in_3d":true,"x":-4.2,"y":-3.6},{"centerline":false,"construction":false,"fixed":true,"id":"third_angle:axis-top","visible_in_3d":true,"x":-4.2,"y":3.6}],"resolved_normal":[0.0,0.0,1.0],"resolved_origin":[0.0,0.0,0.0],"resolved_x_axis":[1.0,0.0,0.0],"resolved_y_axis":[0.0,1.0,0.0],"segments":[{"centerline":false,"construction":false,"first":"third_angle:cone-small-bottom","id":"third_angle:cone-bottom","second":"third_angle:cone-large-bottom","visible_in_3d":true},{"centerline":false,"construction":false,"first":"third_angle:cone-large-bottom","id":"third_angle:cone-large","second":"third_angle:cone-large-top","visible_in_3d":true},{"centerline":false,"construction":false,"first":"third_angle:cone-large-top","id":"third_angle:cone-top","second":"third_angle:cone-small-top","visible_in_3d":true},{"centerline":false,"construction":false,"first":"third_angle:cone-small-top","id":"third_angle:cone-small","second":"third_angle:cone-small-bottom","visible_in_3d":true},{"centerline":false,"construction":true,"first":"third_angle:cone-axis-left","id":"third_angle:cone-axis","second":"third_angle:cone-axis-right","visible_in_3d":true},{"centerline":false,"construction":true,"first":"third_angle:axis-left","id":"third_angle:circle-axis-left","second":"third_angle:circle-center","visible_in_3d":true},{"centerline":false,"construction":true,"first":"third_angle:circle-center","id":"third_angle:circle-axis-right","second":"third_angle:axis-right","visible_in_3d":true},{"centerline":false,"construction":true,"first":"third_angle:axis-bottom","id":"third_angle:circle-axis-bottom","second":"third_angle:circle-center","visible_in_3d":true},{"centerline":false,"construction":true,"first":"third_angle:circle-center","id":"third_angle:circle-axis-top","second":"third_angle:axis-top","visible_in_3d":true}],"suppressed":false,"symbols":[],"texts":[],"version":35}
+
+[Sketches]
+items=ze:projection-method:first_angle,ze:projection-method:third_angle
+
+[UserParameters]
+Order=
+

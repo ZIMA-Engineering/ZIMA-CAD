@@ -24,27 +24,33 @@ void validate_locks(const std::set<std::string>& locks,bool region) {
 }
 }
 const sketcher::TemplateImage& template_image(const Workspace& live,const std::string& id,const std::string& object) {
-    return find(drawing_template_sketch(live,id).drawing_template->images,object);
+    return find(drawing_template_sketch(live,id,object).drawing_template->images,object);
 }
 const sketcher::SketchRepeatRegion& template_region(const Workspace& live,const std::string& id,const std::string& object) {
-    return find(drawing_template_sketch(live,id).drawing_template->repeat_regions,object);
+    return find(drawing_template_sketch(live,id,object).drawing_template->repeat_regions,object);
 }
-bool commit_template_image(Workspace& live,const std::string& id,const std::string& previous,sketcher::TemplateImage image) {
-    image.validate();validate_locks(image.value_locks,false);auto sketch=drawing_template_sketch(live,id);
+bool commit_template_image(Workspace& live,const std::string& id,const std::string& previous,sketcher::TemplateImage image,const std::string& selected) {
+    image.validate();validate_locks(image.value_locks,false);auto sketch=drawing_template_sketch(live,id,selected.empty()?previous:selected);
     replace(sketch.drawing_template->images,previous,std::move(image),sketch.drawing_template->kind);
     return commit_template_sketch(live,id,std::move(sketch));
 }
-bool commit_template_region(Workspace& live,const std::string& id,const std::string& previous,sketcher::SketchRepeatRegion region) {
-    drawing::validate_repeat_region(region);validate_locks(region.value_locks,true);auto sketch=drawing_template_sketch(live,id);
+bool commit_template_region(Workspace& live,const std::string& id,const std::string& previous,sketcher::SketchRepeatRegion region,const std::string& selected) {
+    drawing::validate_repeat_region(region);validate_locks(region.value_locks,true);auto sketch=drawing_template_sketch(live,id,selected.empty()?previous:selected);
     replace(sketch.drawing_template->repeat_regions,previous,std::move(region),sketch.drawing_template->kind);
     return commit_template_sketch(live,id,std::move(sketch));
 }
 bool remove_template_image(Workspace& live,const std::string& id,const std::string& object) {
-    auto sketch=drawing_template_sketch(live,id);std::erase_if(sketch.drawing_template->images,[&](const auto& image){return image.id==object;});
+    static_cast<void>(drawing_template_sketch(live,id));
+    const auto& sketches=live.open_part(id)->session.document().sketches;
+    if(std::ranges::none_of(sketches,[&](const auto& s){return s.drawing_template&&std::ranges::any_of(s.drawing_template->images,[&](const auto& image){return image.id==object;});}))return false;
+    auto sketch=drawing_template_sketch(live,id,object);std::erase_if(sketch.drawing_template->images,[&](const auto& image){return image.id==object;});
     return commit_template_sketch(live,id,std::move(sketch));
 }
 bool remove_template_region(Workspace& live,const std::string& id,const std::string& object) {
-    auto sketch=drawing_template_sketch(live,id);std::erase_if(sketch.drawing_template->repeat_regions,[&](const auto& region){return region.id==object;});
+    static_cast<void>(drawing_template_sketch(live,id));
+    const auto& sketches=live.open_part(id)->session.document().sketches;
+    if(std::ranges::none_of(sketches,[&](const auto& s){return s.drawing_template&&std::ranges::any_of(s.drawing_template->repeat_regions,[&](const auto& region){return region.id==object;});}))return false;
+    auto sketch=drawing_template_sketch(live,id,object);std::erase_if(sketch.drawing_template->repeat_regions,[&](const auto& region){return region.id==object;});
     return commit_template_sketch(live,id,std::move(sketch));
 }
 }

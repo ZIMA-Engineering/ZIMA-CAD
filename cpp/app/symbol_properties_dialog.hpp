@@ -1,4 +1,5 @@
 #pragma once
+#include "symbol_labels.hpp"
 #include <zima/symbols/definition.hpp>
 #include <zima/ui/properties_subwindow.hpp>
 #include <zima/ui/numeric_value_lock.hpp>
@@ -27,7 +28,8 @@ public:
     using Instance=sketcher::SymbolInstance;
     SymbolDialog(Instance value,std::function<void(const Instance&)> preview,std::function<void(Instance)> commit,QWidget* parent)
         :PropertiesSubWindow(tr("Vlastnosti symbolu"),parent),value_(std::move(value)),definition_(symbols::Definition::from_serialized(value_.definition)),preview_(std::move(preview)),commit_(std::move(commit)) {
-        setObjectName("symbolPropertiesDialog");setAttribute(Qt::WA_DeleteOnClose);set_initial_size({420,360});
+        setObjectName("symbolPropertiesDialog");setAttribute(Qt::WA_DeleteOnClose);
+        setProperty("expandBottomTable",true);
         auto* scroll=new QScrollArea(this);scroll->setObjectName("symbolPropertiesScroll");
         scroll->setWidgetResizable(true);scroll->setFrameShape(QFrame::NoFrame);
         auto* editor=new QWidget(scroll);editor_layout_=new QVBoxLayout(editor);editor_layout_->setContentsMargins(0,0,0,0);
@@ -66,6 +68,19 @@ public:
     void set_anchor(double x,double y) {const QSignalBlocker a(values_[0]),b(values_[1]);values_[0]->setValue(x);values_[1]->setValue(y);update_preview();}
     void set_preview_callback(std::function<void(const Instance&)> callback) {preview_=std::move(callback);update_preview();}
 protected:
+    void showEvent(QShowEvent* event) override {
+        for(auto* widget:findChildren<QWidget*>())widget->ensurePolished();
+        editor_layout_->activate();
+        auto* scroll=findChild<QScrollArea*>("symbolPropertiesScroll");
+        const auto content=editor_layout_->sizeHint().expandedTo(editor_layout_->minimumSize());
+        const auto chrome=sizeHint()-scroll->sizeHint();
+        const int frame=2*scroll->frameWidth();
+        // Use the complete form rather than QScrollArea's capped size hint.
+        // The shared window helper bounds it to the owner; scrolling remains
+        // available when the owner's viewport cannot contain the whole form.
+        set_initial_size((content+chrome+QSize(frame,frame)).expandedTo(QSize(420,360)));
+        ui::PropertiesSubWindow::showEvent(event);
+    }
     QVBoxLayout* editor_layout()const{return editor_layout_;}
     bool submit() override {
         auto value=pending();value.validate();
@@ -74,7 +89,8 @@ protected:
             const double number=tolerance.toDouble(&numeric);
             if(!numeric||!std::isfinite(number)||number<=0)throw std::invalid_argument(tr("Tolerance musí být kladné číslo.").toStdString());
             value.text_values["Tolerance"]=tolerance.toStdString();
-            if(fields_.contains("Primary datum")) {
+            const auto& selected=definition_.variants.at(value.variant);
+            if(fields_.contains("Primary datum")&&std::ranges::find(selected.sketches,definition_.fields.at("Primary datum").sketch_id)!=selected.sketches.end()) {
                 bool gap=false;std::set<QString> datums;
                 for(const auto* key:{"Primary datum","Secondary datum","Tertiary datum"}) {
                     const auto datum=fields_.at(key)->currentText().trimmed().toUpper();
@@ -83,55 +99,41 @@ protected:
                         throw std::invalid_argument(tr("Základny zadejte v pořadí bez mezer, velkými písmeny.").toStdString());
                     value.text_values[key]=datum.toStdString();
                 }
-                const bool profile=definition_.id.ends_with("LINE-PROFILE")||definition_.id.ends_with("SURFACE-PROFILE");
+                const bool profile=definition_.id.ends_with("LINE-PROFILE")||definition_.id.ends_with("SURFACE-PROFILE")||value.variant.starts_with("LINE-PROFILE/")||value.variant.starts_with("SURFACE-PROFILE/");
                 if(!profile&&value.text_values["Primary datum"].empty())throw std::invalid_argument(tr("Tato tolerance vyžaduje primární základnu.").toStdString());
             }
         }
         if(definition_.reference_line_layout) {
-            const auto prefix=value.variant=="other_side"?"Other":"Arrow";
-            const std::string key=std::string(prefix)+" size";
-            auto size=fields_.at(key)->currentText().trimmed();size.replace(',', '.');
-            const auto match=QRegularExpression("^[asz]?([0-9]+(?:[.][0-9]+)?)$").match(size);
-            if(!match.hasMatch()||match.captured(1).toDouble()<=0)
-                throw std::invalid_argument(tr("Rozměr svaru musí být kladné číslo s volitelnou značkou a, z nebo s.").toStdString());
-            value.text_values[key]=size.toStdString();
+            for(const std::string key:{"Arrow size","Other size"}) {
+                const auto& field=definition_.fields.at(key);
+                const auto& row=definition_.variants.at(value.variant);
+                if(std::ranges::find(row.sketches,field.sketch_id)==row.sketches.end()||std::ranges::find(row.hidden_texts,key)!=row.hidden_texts.end())continue;
+                auto size=fields_.at(key)->currentText().trimmed();size.replace(',', '.');
+                const auto match=QRegularExpression("^[asz]?([0-9]+(?:[.][0-9]+)?)$").match(size);
+                if(!match.hasMatch()||match.captured(1).toDouble()<=0)
+                    throw std::invalid_argument(tr("Rozměr svaru musí být kladné číslo s volitelnou značkou a, z nebo s.").toStdString());
+                value.text_values[key]=size.toStdString();
+            }
         }
         commit_(std::move(value));return true;
     }
 private:
-    QString field_label(const std::string& key) const {
-        if(!definition_.id.starts_with("ze:"))return QString::fromStdString(key);
-        if(key=="Arrow size")return tr("Rozměr svaru na straně šipky");
-        if(key=="Other size")return tr("Rozměr svaru na opačné straně");
-        if(key=="Arrow length")return tr("Délka / počet / rozteč na straně šipky");
-        if(key=="Other length")return tr("Délka / počet / rozteč na opačné straně");
-        if(key=="Text")return tr("Text");
-        if(key=="Specification")return tr("Drsnost");
-        if(key=="Tolerance")return tr("Hodnota tolerance");
-        if(key=="Primary datum")return tr("Primární základna");
-        if(key=="Secondary datum")return tr("Sekundární základna");
-        if(key=="Tertiary datum")return tr("Terciární základna");
-        if(key=="External edges")return tr("Vnější hrany");
-        if(key=="Internal edges")return tr("Vnitřní hrany");
-        if(key=="All edges")return tr("Všechny hrany");
-        if(key=="Exception")return tr("Výjimka");
-        return QString::fromStdString(key);
-    }
+    QString field_label(const std::string& key) const { return symbol_field_name(definition_,key); }
     QString variant_label(const std::string& key) const {
-        if(definition_.reference_line_layout)return key=="other_side"?tr("ISO 2553 A — opačná strana"):tr("ISO 2553 A — strana šipky");
+        if(key.find('/')!=std::string::npos)return symbol_variant_name(definition_,key);
+        if(definition_.reference_line_layout&&(key=="other_side"||key=="arrow_side"))return key=="other_side"?tr("ISO 2553 A — opačná strana"):tr("ISO 2553 A — strana šipky");
         if(definition_.id=="ze:annotation:text"&&key=="text")return tr("Text");
         if(definition_.id.starts_with("ze:geometric-tolerance:")&&key=="default")return tr("Geometrická tolerance");
         if(definition_.id=="ze:general-edges:iso13715") {
             const auto scope=key.substr(0,key.find('_'));
+            if((scope!="general"&&scope!="external"&&scope!="internal"&&scope!="all")||
+                (key!=scope&&key!=scope+"_exception"&&key!=scope+"_exceptions"))return QString::fromStdString(key);
             auto label=scope=="general"?tr("Vnější a vnitřní hrany"):scope=="external"?tr("Vnější hrany"):scope=="internal"?tr("Vnitřní hrany"):tr("Všechny hrany");
             if(key.ends_with("_exceptions"))return tr("%1 — více výjimek").arg(label);
             if(key.ends_with("_exception"))return tr("%1 — jedna výjimka").arg(label);
             return label;
         }
-        if(definition_.id=="ze:surface-texture:iso1302-1978"||definition_.id=="ze:surface-texture:iso21920"||definition_.id=="ze:general-surface-texture:iso21920") {
-            auto label=key=="material_removal"?tr("Úběr materiálu požadován"):key=="no_material_removal"?tr("Úběr materiálu nepřípustný"):tr("Způsob výroby neurčen");
-            return definition_.id=="ze:general-surface-texture:iso21920"?tr("Celková drsnost — %1").arg(label):label;
-        }
+        if(is_surface_texture(definition_))return symbol_variant_name(definition_,key);
         return QString::fromStdString(key);
     }
     Instance pending() const {

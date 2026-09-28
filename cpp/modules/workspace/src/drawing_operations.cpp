@@ -3,6 +3,8 @@
 #include <zima/workspace/drawing_sources.hpp>
 #include <zima/drawing/balloon.hpp>
 #include <zima/drawing/measurement_dimension.hpp>
+#include <zima/drawing/drawing_template.hpp>
+#include <nlohmann/json.hpp>
 #include <algorithm>
 #include <cmath>
 #include <cctype>
@@ -47,9 +49,10 @@ drawing::DrawingSheet& sheet(drawing::DrawingDocument& doc,const std::string& id
 void text(const std::string& s,std::size_t max){if(s.empty()||s.size()>max||std::ranges::any_of(s,[](unsigned char c){return c<32||c==127;}))throw DrawingOperationError("invalid_arguments","Drawing names and language codes must be non-empty bounded single-line text.");}
 void assign(drawing::DrawingSheet& s,const SheetSettings& v){s.name=v.name;s.format=v.format;s.projection_method=v.projection;s.default_scale=v.scale;s.thick_line_mm=v.thick_line_mm;s.thin_line_mm=v.thin_line_mm;s.red_line_mm=v.red_line_mm;s.title_block_locale=v.locale;}
 bool clear(drawing::DrawingSheet& s,bool title){
-    if(!title){const bool changed=s.frame_trimming_marks||!s.frame_lines.empty()||!s.frame_texts.empty()||!s.frame_circles.empty();s.frame_lines.clear();s.frame_texts.clear();s.frame_circles.clear();s.frame_trimming_marks=false;return changed;}
+    if(!title){const bool changed=!s.frame_definition.empty()||s.frame_trimming_marks||!s.frame_lines.empty()||!s.frame_texts.empty()||!s.frame_circles.empty();s.frame_lines.clear();s.frame_texts.clear();s.frame_circles.clear();s.frame_trimming_marks=false;s.frame_definition.clear();s.frame_variant.clear();return changed;}
     const bool changed=!s.title_block_lines.empty()||!s.title_block_texts.empty()||!s.title_block_fields.empty()||!s.title_block_circles.empty()||!s.title_block_images.empty()||!s.repeat_regions.empty()||!s.title_block_symbols.empty();
-    s.title_block_lines.clear();s.title_block_texts.clear();s.title_block_fields.clear();s.title_block_circles.clear();s.title_block_images.clear();s.repeat_regions.clear();s.title_block_symbols.clear();return changed;
+    s.title_block_lines.clear();s.title_block_texts.clear();s.title_block_fields.clear();s.title_block_circles.clear();s.title_block_images.clear();s.repeat_regions.clear();s.title_block_symbols.clear();
+    s.title_block_definition.clear();s.title_block_variant.clear();s.title_block_repeat_bindings.clear();return changed;
 }
 }
 SheetSettings sheet_settings(const drawing::DrawingSheet& s){return {s.name,s.format,s.projection_method,s.default_scale,s.thick_line_mm,s.thin_line_mm,s.red_line_mm,s.title_block_locale};}
@@ -85,18 +88,74 @@ bool set_drawing_sheet(drawing::DrawingDocument& doc,const std::string& id,const
     target=std::move(next);return true;
 }
 bool clear_drawing_template(drawing::DrawingDocument& doc,const std::string& id,bool title){return clear(sheet(doc,id),title);}
-void load_drawing_template(drawing::DrawingDocument& doc,const std::string& id,const std::filesystem::path& path,bool title,const Workspace* live,const std::filesystem::path& drawing_path){
+void set_title_block_variant(drawing::DrawingDocument& doc,const std::string& id,const std::string& variant) {
+    auto& target=sheet(doc,id);if(target.title_block_definition.empty())throw DrawingOperationError("unsupported_format","Invalid title-block template");
+    auto part=document::PartDocument::from_serialized(nlohmann::json::parse(target.title_block_definition));
+    const auto table=document::parse_family_table(part.family_table);document::validate_family_table(table,part.name);
+    if(!variant.empty()) {
+        const auto found=std::ranges::find(table.instances,variant,&document::FamilyInstance::id);
+        if(found==table.instances.end())throw DrawingOperationError("invalid_arguments","Family variant no longer exists.");
+        apply_family_variant(part,table,*found);
+    }
+    auto next=target;clear(next,true);next.title_block_definition=target.title_block_definition;next.title_block_variant=variant;
+    for(const auto& sketch:part.sketches) {
+        const auto* container=part.find_container(sketch.owner_container_id);
+        const auto* body=part.body_owner_for_object(sketch.owner_container_id);
+        if(sketch.suppressed||(container&&container->suppressed)||(body&&body->suppressed))continue;
+        if(!sketch.drawing_template||sketch.drawing_template->kind!="title_block")continue;
+        drawing::append_title_block_sketch(next,sketch);
+    }
+    target=std::move(next);
+}
+void set_frame_variant(drawing::DrawingDocument& doc,const std::string& id,const std::string& variant) {
+    auto& target=sheet(doc,id);
+    auto part=document::PartDocument::from_serialized(nlohmann::json::parse(target.frame_definition));
+    const auto table=document::parse_family_table(part.family_table);document::validate_family_table(table,part.name);
+    if(!variant.empty()) {
+        const auto found=std::ranges::find(table.instances,variant,&document::FamilyInstance::id);
+        if(found==table.instances.end())throw DrawingOperationError("invalid_arguments","Family variant no longer exists.");
+        apply_family_variant(part,table,*found);
+    }
+    auto next=target;clear(next,false);next.frame_definition=target.frame_definition;next.frame_variant=variant;
+    std::optional<drawing::SheetFormat> format;
+    for(const auto& sketch:part.sketches) {
+        const auto* container=part.find_container(sketch.owner_container_id);
+        const auto* body=part.body_owner_for_object(sketch.owner_container_id);
+        if(sketch.suppressed||(container&&container->suppressed)||(body&&body->suppressed)||
+            !sketch.drawing_template||sketch.drawing_template->kind!="drawing_format")continue;
+        const auto data=drawing::template_sketch_data(sketch);
+        const std::map<std::string,drawing::SheetFormat> formats{{"A4",drawing::SheetFormat::A4},{"A3",drawing::SheetFormat::A3},
+            {"A2",drawing::SheetFormat::A2},{"A1",drawing::SheetFormat::A1},{"A0",drawing::SheetFormat::A0}};
+        const auto selected=formats.at(data.at("Format").at("SheetFormat"));
+        if(format&&*format!=selected)throw DrawingOperationError("invalid_arguments","Invalid drawing sheet format or projection method.");
+        format=selected;drawing::DrawingSheet layer;layer.format=selected;drawing::load_template_data(layer,data,false);
+        next.frame_lines.insert(next.frame_lines.end(),layer.frame_lines.begin(),layer.frame_lines.end());
+        next.frame_texts.insert(next.frame_texts.end(),layer.frame_texts.begin(),layer.frame_texts.end());
+        next.frame_circles.insert(next.frame_circles.end(),layer.frame_circles.begin(),layer.frame_circles.end());
+        next.frame_trimming_marks=next.frame_trimming_marks||layer.frame_trimming_marks;
+    }
+    if(format)next.format=*format;
+    target=std::move(next);
+}
+void load_drawing_template(drawing::DrawingDocument& doc,const std::string& id,const std::filesystem::path& path,bool title,const Workspace* live,const std::filesystem::path& drawing_path,const std::string& variant){
     auto& target=sheet(doc,id);auto next=target;
     auto ext=path.extension().string();std::ranges::transform(ext,ext.begin(),[](unsigned char c){return static_cast<char>(std::tolower(c));});
     if(ext!=(title?".tblz":".frmz"))throw DrawingOperationError("unsupported_format","Use a native frmz frame or tblz title-block template.");
     if(title) {
-        drawing::load_title_block_template(next,path);
+        if(drawing::is_native_template_file(path)) {
+            auto source=document::PartDocument::load(path);
+            auto draft=doc;draft.find_sheet(id)->title_block_definition=source.serialized().dump();
+            set_title_block_variant(draft,id,variant);next=*draft.find_sheet(id);
+        } else {clear(next,true);drawing::load_title_block_template(next,path);}
         next.bom_source_document_id=next.selected_source_document_id.empty()?doc.source_document_id:next.selected_source_document_id;
         auto source_path=doc.data_source_path(next.bom_source_document_id);
         if(source_path.is_relative()&&!drawing_path.empty())source_path=drawing_path.parent_path()/source_path;
         next.bom_rows=build_bom_rows_for_source(next.bom_source_document_id,source_path,live);
         drawing::refresh_balloons(next);
-    } else drawing::load_frame_template(next,path);
+    } else if(drawing::is_native_template_file(path)) {
+        auto source=document::PartDocument::load(path);auto draft=doc;
+        draft.find_sheet(id)->frame_definition=source.serialized().dump();set_frame_variant(draft,id,variant);next=*draft.find_sheet(id);
+    } else {clear(next,false);drawing::load_frame_template(next,path);}
     validate_sheet_settings(sheet_settings(next));target=std::move(next);
 }
 std::pair<std::string,kernel::ViewerMesh> read_drawing_source(const Workspace* live,const std::filesystem::path& path,const std::string& expected){

@@ -7,6 +7,7 @@
 #include <zima/document/precision.hpp>
 #include <zima/workspace/appearance_operations.hpp>
 #include <zima/workspace/drawing_sources.hpp>
+#include <zima/workspace/drawing_operations.hpp>
 #include <zima/assembly/physical_properties.hpp>
 #include <set>
 #include <nlohmann/json.hpp>
@@ -64,9 +65,9 @@ drawing::DrawingDocument drawing_from_template(const NativeTemplateSettings& set
     sheet.name=settings.first_sheet_name;
     sheet.format=settings.drawing_format;
     if(!settings.drawing_frame_template.empty())
-        drawing::load_frame_template(sheet,settings.drawing_frame_template);
+        load_drawing_template(document,sheet.id,settings.drawing_frame_template,false,nullptr,{},settings.drawing_frame_variant);
     if(!settings.drawing_title_block_template.empty())
-        drawing::load_title_block_template(sheet,settings.drawing_title_block_template);
+        load_drawing_template(document,sheet.id,settings.drawing_title_block_template,true,nullptr,{},settings.drawing_title_block_variant);
     return document;
 }
 NativeDocumentType PreparedNativeDocument::type() const {

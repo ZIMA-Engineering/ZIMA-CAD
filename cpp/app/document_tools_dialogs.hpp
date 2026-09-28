@@ -118,8 +118,12 @@ private:
     void add_column();
     void refresh_references();
     void arm_column(int);
+    void refresh_labels();
+    void store_labels();
     zima::document::FamilyTable read_table() const;
     QTableWidget* table_{};
+    QComboBox* language_combo_{};
+    QString label_language_;
     QString generic_name_;
     DocumentToolData data_;
     ToolDataAccepted accepted_;

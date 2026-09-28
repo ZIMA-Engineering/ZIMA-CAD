@@ -12,6 +12,7 @@ struct FamilyReference {
 // Persisted model data only. No geometry calculation or activation.
 std::vector<FamilyReference> family_references(const Workspace&, const std::string& document);
 void validate_family_references(const Workspace&, const std::string&, const document::FamilyTable&);
+void apply_family_variant(document::PartDocument&,const document::FamilyTable&,const document::FamilyInstance&);
 // Mutate a private model draft using the same parameter bindings as family tables.
 bool assign_driving_dimension(document::PartDocument&, const document::FamilyColumn&, double);
 bool assign_driving_dimension(assembly::AssemblyDocument&, const document::FamilyColumn&, double);
