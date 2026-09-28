@@ -2,6 +2,14 @@
 
 ## Scope and status
 
+Windows build **2026092802** is signed, published and verified. It adds constant
+wall draft to straight-extrusion Features, stable model leader lengths and
+matching rounded Feature buttons with their existing toggle behavior. Eighteen
+focused source contracts, committed-source packaging, signed smoke and trust,
+five packaged GUI contracts, public asset hashes and production update discovery
+from 2026092801 passed. Temporary release cleanup freed approximately 3.85 GiB.
+See [the release record](releases/2026092802.md) for exact scope and profile limits.
+
 Windows build **2026092801** is signed, published and verified. It includes
 native Part-based drawing libraries and Family variants, symbol leader/grip and
 annotation improvements, Body result suppression/scaling/linked Bodies and
