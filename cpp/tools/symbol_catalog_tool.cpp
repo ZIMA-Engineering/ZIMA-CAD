@@ -171,10 +171,11 @@ symbols::Definition geometric_tolerance(const std::string& kind) {
 symbols::Definition welding(const std::string& kind) {
     symbols::Definition d;d.id="ze:welding:iso2553:"+kind;d.name="ZE-"+kind+"-WELD-ISO2553";
     d.reference_line_layout=symbols::ReferenceLineLayout{};
+    d.reference_line_layout->other_side_y=-1.; // Factory drafting style, in mm.
     std::vector<std::string> sizes,glyphs,lengths;
     for(bool other:{false,true}) {
         const std::string side=other?"other_side":"arrow_side",prefix=other?"Other":"Arrow";
-        const double y=other?-3.:0.,sign=other?-1.:1.;
+        const double y=other?d.reference_line_layout->other_side_y:0.,sign=other?-1.:1.;
         auto glyph=sketch(d.id+":"+side+":glyph");
         const auto ln=[&](const char* id,double x,double a,double u,double b){line(glyph,id,x,y+sign*a,u,y+sign*b);};
         if(kind=="FILLET"){ln("vertical",0,0,0,4);ln("slope",0,4,4,0);}
@@ -234,12 +235,13 @@ symbols::Definition combined_family(const std::vector<symbols::Definition>& sour
         result.frame_layout->cells.clear();
         for(const auto& sketch:result.sketches)if(std::ranges::none_of(result.fields,[&](const auto& item){return item.second.sketch_id==sketch.id;}))result.frame_layout->cells.push_back(sketch.id);
         for(const auto* key:{"Tolerance","Primary datum","Secondary datum","Tertiary datum"})if(result.fields.contains(key))result.frame_layout->cells.push_back(result.fields.at(key).sketch_id);
+        if(result.variants.contains("POSITION/default"))result.default_variant="POSITION/default";
     }
     result.validate();return result;
 }
 symbols::Definition datum_feature() {
     symbols::Definition d;d.id="ze:datum-feature";d.name="ZE-DATUM-FEATURE";d.leader_ending=symbols::LeaderEnding::Triangle;
-    auto label=sketch(d.id+":label");text(label,"letter","A",1,2.2);
+    auto label=sketch(d.id+":label");text(label,"letter","A",1,-1.3);
     d.fields["Datum"]={label.id,"letter",{"A","B","C","D","E","F"},true};
     d.frame_layout=symbols::FrameLayout{};d.frame_layout->cells={label.id};
     d.default_variant="default";d.variants["default"].sketches={label.id};d.sketches.push_back(std::move(label));d.validate();return d;

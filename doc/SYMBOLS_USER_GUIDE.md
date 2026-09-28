@@ -24,8 +24,11 @@ empty sheet space for a free placement. Reference hover, confirmation and cyclin
 use the existing reference-selection workflow.
 
 Enable **Leader line** to connect the contact point to the symbol grip. **Leader
-ending** selects an arrow, outlined triangle or filled dot. The datum-feature
-library defaults to a triangle; the choice persists with each insertion.
+ending** selects an arrow, filled triangle or filled dot. The datum-feature
+library defaults to a yellow triangle with its base on the referenced entity
+and its apex toward the leader. A triangle always enforces perpendicularity;
+the corresponding checkbox is checked and disabled. The choice persists with
+each insertion. On monochrome output, the fill follows the drawing ink.
 In **Under symbol** mode, the grip is the center of a horizontal shelf whose
 width follows the actual symbol or text, including its scale. The glyph is above
 the shelf. **To attachment point** uses a short shelf ending at the authored
@@ -130,8 +133,8 @@ The material-removal variants and editable specification text are available in
 the common properties window.
 
 Symbol Properties opens at the natural size of its complete form. Attachment
-controls remain first, followed by the symbol variant, placement values and
-text choices. Scrolling is needed only when the main window cannot accommodate
+controls remain first, followed by the symbol variant, text choices and numeric
+placement values. Scrolling is needed only when the main window cannot accommodate
 the complete form or the user manually reduces the dialog.
 
 The historical and current surface-texture definitions, including general
@@ -252,7 +255,14 @@ straightness, flatness, circularity, cylindricity, line/surface profile,
 parallelism, perpendicularity, angularity, position, coaxiality, symmetry and
 circular/total run-out. Enter the positive tolerance and, where applicable,
 ordered primary/secondary/tertiary datums. Cells grow with their text; empty
-optional datum cells are omitted.
+optional datum cells are omitted. New insertions default to **Position** so the
+datum fields are immediately available. **Tolerance**, **Primary datum**,
+**Secondary datum** and **Tertiary datum** appear in that order before numeric
+placement controls. Enter A, B and C (or other datum identifiers) in these
+fields; the secondary and tertiary entries start empty. Switching to a form
+tolerance hides these inapplicable fields and displays an explanation. Switching
+back restores entered values. Filled cells, including the separate datum letter,
+are centered horizontally and vertically using their actual contour bounds.
 
 `welding/ZE-WELDING-ISO2553.symz` contains fillet, square-butt, V-butt and
 bevel-butt variants using ISO 2553 system A. Choose the type and **Arrow side**,
@@ -261,16 +271,31 @@ size and length/count/pitch indication. The solid and dashed reference lines
 retain their meaning when the leader is moved. Size examples (`a3`, `z4`, `s5`)
 and length examples are editable presets, not calculated weld requirements.
 The opposite-side row lies on the dashed reference line. These definitions cover
-single- and double-sided elementary indications; mixed-type combined welds, all-around/site flags,
+single- and double-sided elementary indications; mixed-type combined welds, site flags,
 finish/contour symbols and process tails are not provided by this catalog.
+
+**All-around weld** adds an unfilled circle at the junction of the leader and
+solid reference line. It belongs to the placement and follows the junction when
+the approach side changes. Its diameter follows the leader arrow length
+(2.5 mm by default), and adjoining strokes stop at its perimeter. Turning the
+leader off hides the ring without discarding the option. The factory dashed
+line is now 1 mm below the solid line at scale 1, with other-side glyphs moved
+with it. This is an application drafting-style choice, not a verified mandatory
+ISO distance. Existing embedded definitions retain their authored gap.
 
 New tolerance/weld insertions enable the leader automatically. Move the symbol
 left or right of its contact to change the approached end. The leader meets a
-tolerance frame at the middle of its nearest side and a weld at the nearest end
+tolerance frame through a horizontal landing at the middle of its nearest side
+and a weld at the nearest end
 of its reference line. Text, glyphs, datum order and weld-side meaning never
 mirror. The reference line grows with the visible fields. Use the same Properties
 dialog for creation and editing; OK commits once and Cancel discards the preview.
 Long forms scroll while confirmation buttons remain outside the scroll area.
+The same three purple manipulation handles are available for welds, framed
+tolerances, datum indicators and text: contact, elbow and landing end. For a
+framed symbol, **Shelf length** controls the horizontal landing (initially
+3 mm). Dragging its frame-side handle changes this length while keeping the
+elbow fixed; dragging the elbow translates the frame and landing together.
 Instances embed their definition and values in the Drawing; changing the library
 does not rewrite previously inserted copies.
 
@@ -284,3 +309,18 @@ The separate datum-feature indicator follows the rectangle/letter and triangle
 description in [KEYENCE's datum guide](https://www.keyence.com/ss/products/measure-sys/gd-and-t/basic/datum.jsp).
 Attaching an indicator to a surface does not create a semantic datum axis or
 solve a tolerance specification.
+
+Additional checks used [KEYENCE's feature-control-frame guide](https://www.keyence.com/ss/products/measure-sys/gd-and-t/basic/tolerance-entry-frame.jsp)
+for ordered datum compartments and its [form-tolerance guide](https://www.keyence.com/ss/products/measure-sys/gd-and-t/type/form-tolerance.jsp)
+for the absence of datum references in form controls.
+[AutoCAD Mechanical's datum command](https://help.autodesk.com/cloudhelp/2025/ENU/AutoCAD-Mechanical/files/GUID-A0347CAE-3654-4D01-8C1B-4643B3E6AF64.htm)
+confirms the perpendicular first-segment convention. The triangle reversal and
+yellow display fill implement the requested ZIMA presentation.
+[SOLIDWORKS weld properties](https://help.solidworks.com/2024/English/SolidWorks/sldworks/HIDD_WELD.htm)
+place the all-around circle at the leader bend;
+[Inventor's weld style](https://help.autodesk.com/cloudhelp/2023/ENU/Inventor-Help/files/GUID-5CCDE668-DFA2-4C33-8154-F88E24003DD5.htm)
+treats identification-line spacing as a configurable offset related to text
+height. The public sources reviewed do not establish a universal spacing in mm.
+The current datum-system standard is [ISO 5459:2024](https://www.iso.org/standard/87855.html).
+These checks cover the stated presentation rules, not every modifier or
+application rule in the full standards.

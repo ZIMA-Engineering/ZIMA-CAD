@@ -614,7 +614,7 @@ void SheetRenderer::paint_sheet(QPainter& painter,double zoom,QPointF origin,boo
             QPainterPath stroke;std::map<QRgb,QPainterPath> fills;painter.save();
             for(const auto& edge:symbol.viewer_mesh(std::atan2(symbol.frame.x.y,-symbol.frame.x.x)*180/std::acos(-1.),true).edges) {
                 if(edge.points.empty())continue;
-                if(edge.annotation&&edge.annotation->role==3){const auto& layout=*edge.annotation;const kernel::Vec3 right{-1,0,0},up{0,1,0};const bool left=kernel::dimension_dot(kernel::dimension_sub(layout.contact,layout.grip),right)<=0;const auto points=kernel::annotation_handles(layout,right,up,left,true);grip=points[1];shelf_end=points[2];}
+                if(edge.annotation&&edge.annotation->role==1){const auto& layout=*edge.annotation;const kernel::Vec3 right{-1,0,0},up{0,1,0};const bool left=kernel::dimension_dot(kernel::dimension_sub(layout.contact,layout.grip),right)<=0;const auto points=kernel::annotation_handles(layout,right,up,left,true);grip=points[1];shelf_end=points[2];}
                 const auto color=annotation_color(key,printing?ink:symbol.unresolved?QColor("#E05050"):edge.color=="#FFFFFF"?ink:QColor(QString::fromStdString(edge.color)),printing);
                 QPen pen(color,width(false));if(edge.dash_dot)pen.setDashPattern({8*zoom/pen.widthF(),1.5*zoom/pen.widthF(),.5*zoom/pen.widthF(),1.5*zoom/pen.widthF()});
                 painter.setPen(pen);painter.setBrush(Qt::NoBrush);QPolygonF polygon;for(const auto p:edge.points)polygon<<screen(p);

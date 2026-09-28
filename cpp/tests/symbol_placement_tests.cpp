@@ -42,10 +42,34 @@ int main(){try {
         const auto marker=std::ranges::find_if(retained.edges,[&](const auto& edge){return edge.annotation&&edge.annotation->role==role;});
         check(marker!=retained.edges.end(),"Leader ending has no rendered marker");
         check(marker->points.size()==(role==2?3:role==4?4:33),"Leader ending geometry differs");
-        check(marker->filled_text==(role==5),"Dot must be filled and datum triangle must be outlined");
+        check(marker->filled_text==(role==4||role==5)&&marker->color=="#F5CD50","Triangle/dot must use a yellow fill");
         if(role!=2)check(marker->points.front()==marker->points.back(),"Closed leader marker is open");
     }
     p.leader_ending=symbols::LeaderEnding::Arrow;
+    {
+        auto triangle=p;triangle.frame={};triangle.symbol.x=20;triangle.symbol.y=15;
+        triangle.leader_ending=symbols::LeaderEnding::Triangle;triangle.perpendicular_leader=false;
+        triangle.paper_tangent=kernel::Vec3{1,1,0};
+        const auto mesh=triangle.viewer_mesh(0.,true);
+        const auto leader=std::ranges::find_if(mesh.edges,[](const auto& e){return e.annotation&&e.annotation->role==1;});
+        const auto marker=std::ranges::find_if(mesh.edges,[](const auto& e){return e.annotation&&e.annotation->role==4;});
+        const auto d=kernel::dimension_sub(leader->points.back(),leader->points.front());
+        check(std::abs(d.x+d.y)<1e-8,"Triangle ignored mandatory perpendicularity on a Drawing edge");
+        check(near(kernel::dimension_scale(kernel::dimension_add(marker->points[1],marker->points[2]),.5),triangle.frame.origin),"Triangle base is not centered on the entity");
+        check(kernel::dimension_dot(kernel::dimension_sub(marker->points[0],triangle.frame.origin),d)>0,"Triangle apex was not reversed toward the leader");
+        triangle.paper_tangent.reset();triangle.reference->kind=symbols::ReferenceKind::Edge;
+        const auto spatial=triangle.viewer_mesh();
+        const auto line=std::ranges::find_if(spatial.edges,[](const auto& e){return e.annotation&&e.annotation->role==1;});
+        check(std::abs(line->points.back().x-line->points.front().x)<1e-8,"Triangle ignored mandatory perpendicularity in the model");
+        for(bool reversed:{false,true}) {
+            triangle.reference->kind=symbols::ReferenceKind::Face;triangle.reference->reversed=reversed;triangle.frame.y={0,reversed?-1.:1.,0};
+            const auto side_mesh=triangle.viewer_mesh();
+            const auto side_line=std::ranges::find_if(side_mesh.edges,[](const auto& e){return e.annotation&&e.annotation->role==1;});
+            const auto direction=kernel::dimension_sub(side_line->points.back(),side_line->points.front());
+            check(std::abs(direction.x)<1e-8&&direction.y*(reversed?-1.:1.)>0,"Triangle lost the selected face side at zero contact offset");
+            check(nlohmann::json(triangle).get<symbols::Placement>()==triangle,"Triangle side choice failed persistence");
+        }
+    }
     p.offset_z=4.;check(nlohmann::json(p).get<symbols::Placement>()==p,"Spatial grip offset lost");p.offset_z=0;
     const auto original=p;const auto original_mesh=p.viewer_mesh();p.refresh_reference({});
     check(p.unresolved&&p.frame==original.frame&&p.reference==original.reference&&p.symbol==original.symbol,"Lost reference altered symbol");
@@ -148,6 +172,29 @@ int main(){try {
         }
         p.short_shelf=true;p.shelf_length=7.5;check(nlohmann::json(p).get<symbols::Placement>()==p,"Shelf settings did not persist");
         auto invalid=p;invalid.shelf_length=0;rejects([&]{invalid.validate();});
+    }
+    {
+        kernel::AnnotationStroke a;a.contact={0,0,0};a.grip={20,10,0};a.perpendicular=false;a.left=0;a.right=21;a.framed=true;a.shelf_length=3;
+        const kernel::Vec3 right{1,0,0},up{0,1,0};
+        for(bool left:{true,false}) {
+            auto handles=kernel::annotation_handles(a,right,up,left,true);
+            check(near(handles[2],{20+(left?-10.5:10.5),10,0}),"Tolerance landing misses the frame side midpoint");
+            check(near(kernel::dimension_sub(handles[2],handles[1]),{left?3.:-3.,0,0}),"Tolerance has no horizontal landing outside its frame");
+            a.role=1;const auto leader=kernel::annotation_stroke(a,right,up,left,true);
+            check(near(leader.back(),handles[1]),"Leader/landing junction differs from the manipulation handle");
+            const auto moved=kernel::drag_annotation(a,right,up,left,true,2,kernel::dimension_add(handles[2],{left?4.:-4.,0,0}));
+            auto next=a;next.grip=moved.grip;next.shelf_length=moved.shelf_length;
+            check(moved.shelf_length==7&&near(kernel::annotation_handles(next,right,up,left,true)[1],handles[1]),"Frame handle cannot resize landing without moving elbow");
+        }
+        a.framed=false;a.all_around=true;a.role=6;
+        for(bool left:{true,false}) {
+            const auto handles=kernel::annotation_handles(a,right,up,left,true);
+            const auto circle=kernel::annotation_stroke(a,right,up,left,true);
+            check(circle.size()==33&&near(circle.front(),circle.back()),"All-around circle is not closed");
+            for(auto point:circle)check(std::abs(std::sqrt(kernel::dimension_dot(kernel::dimension_sub(point,handles[1]),kernel::dimension_sub(point,handles[1])))-1.25)<1e-8,"All-around circle is not at the junction");
+        }
+        p.weld_all_around=true;check(nlohmann::json(p).get<symbols::Placement>()==p,"All-around property failed persistence");
+        check(std::ranges::none_of(p.viewer_mesh().edges,[](const auto& e){return e.annotation&&e.annotation->role==6;}),"Non-weld symbol acquired an all-around circle");
     }
     std::cout<<"Symbol placement contracts passed\n";return 0;
 }catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}

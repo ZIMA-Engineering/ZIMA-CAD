@@ -20,7 +20,7 @@ temporarily hidden. Text-choice edits preserve existing Body/dimension columns
 and localized row labels in the native Family Table.
 The libraries consolidate the existing four weld types into twelve side variants,
 and fourteen geometric tolerance types into one file. A separate datum-feature
-file uses an editable letter and an outlined triangular leader marker. Each
+file uses an editable centered letter and a filled triangular leader marker. Each
 placement persists its arrow/triangle/dot choice. Surface attachment orientation
 uses the actual contact frame for all symbols, including user-defined symbols;
 it no longer depends on a factory identifier.

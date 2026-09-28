@@ -18,6 +18,7 @@ void native_annotations(const std::filesystem::path& root) {
     auto definition=symbols::projection_method();symbols::Placement annotation;
     annotation.symbol.id="native-annotation";annotation.symbol.definition=definition.serialized();annotation.symbol.variant=definition.default_variant;
     annotation.symbol.x=12;annotation.symbol.y=8;annotation.leader=true;annotation.frame.origin={20,30,40};
+    annotation.weld_all_around=true;
     for(const auto& id:{part_id,assembly_id,drawing_id}) {
         live.activate(id);const auto target=id==drawing_id?sheet:std::string{};
         annotation.reference=symbols::Reference{id,id+":origin","plane:xy","",symbols::ReferenceKind::Plane,true};

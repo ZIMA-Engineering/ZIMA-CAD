@@ -33,6 +33,7 @@ struct Placement {
     bool leader{};
     LeaderEnding leader_ending{LeaderEnding::Arrow};
     bool perpendicular_leader{};
+    bool weld_all_around{};
     bool short_shelf{};
     double shelf_length{3.};
     // Optional bends in annotation-plane coordinates, from contact to grip.

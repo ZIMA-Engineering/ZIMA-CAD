@@ -188,10 +188,12 @@ struct AnnotationStroke {
     std::vector<Vec3> local_points;
     double left{}, right{}, bottom{}, arrow_length{2.5};
     int kind{2}; // face normal, edge tangent, free point
-    int role{}; // glyph, leader, arrow, shelf
+    int role{}; // glyph, leader, arrow, shelf, triangle, dot, all-around circle
     bool perpendicular{true};
     bool short_shelf{};
     double shelf_length{3.};
+    bool framed{}; // Shelf joins the midpoint of the nearest frame side.
+    bool all_around{}; // Weld circle at the leader/reference-line junction.
 };
 template<class Transform> inline void transform_annotation(AnnotationStroke& a,Transform transform) {
     a.contact=transform(a.contact);a.grip=transform(a.grip);a.direction_tip=transform(a.direction_tip);

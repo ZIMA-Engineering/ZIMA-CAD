@@ -59,7 +59,8 @@ kernel::ViewerMesh Placement::viewer_mesh(std::optional<double> paper_frame_angl
         const auto definition=Definition::from_serialized(symbol.definition);
         const bool structured=definition.frame_layout.has_value()||definition.reference_line_layout.has_value();
         kernel::AnnotationStroke info;info.contact=frame.origin;
-        info.grip=frame.world({symbol.x,symbol.y,offset_z});info.arrow_length=arrow_length;info.perpendicular=perpendicular_leader;
+        info.grip=frame.world({symbol.x,symbol.y,offset_z});info.arrow_length=arrow_length;info.perpendicular=perpendicular_leader||leader_ending==LeaderEnding::Triangle;
+        info.framed=definition.frame_layout.has_value();info.all_around=weld_all_around&&definition.reference_line_layout.has_value();
         info.short_shelf=short_shelf&&!structured;info.shelf_length=shelf_length;
         info.kind=reference?static_cast<int>(reference->kind):2;
         if(info.kind==3)info.kind=0;
@@ -73,9 +74,9 @@ kernel::ViewerMesh Placement::viewer_mesh(std::optional<double> paper_frame_angl
         if(structured)info.bottom=-definition.insertion_point[1]*symbol.scale;
         for(auto& edge:result.edges){info.local_points=edge.points;edge.annotation=info;}
         info.local_points.clear();
-        for(int role:{1,2,3}){if(role==3&&structured)continue;
+        for(int role:{1,2,3,6}){if((role==3&&definition.reference_line_layout)||(role==6&&!info.all_around))continue;
             info.role=role==2?(leader_ending==LeaderEnding::Triangle?4:leader_ending==LeaderEnding::Dot?5:2):role;
-            kernel::ViewerEdge edge;edge.annotation=info;edge.filled_text=info.role==5;
+            kernel::ViewerEdge edge;edge.annotation=info;edge.filled_text=info.role==4||info.role==5;
             edge.reference={symbol.id,"symbol:"+symbol.id+(role==3?":shelf":""),{}};edge.overlay=true;edge.color="#F5CD50";result.edges.push_back(std::move(edge));}
         auto right=frame.x,up=frame.y;
         if(paper_frame_angle){const double a=*paper_frame_angle*std::acos(-1.)/180.;
@@ -83,8 +84,8 @@ kernel::ViewerMesh Placement::viewer_mesh(std::optional<double> paper_frame_angl
             up={frame.x.x*std::sin(a)+frame.y.x*std::cos(a),frame.x.y*std::sin(a)+frame.y.y*std::cos(a),frame.x.z*std::sin(a)+frame.y.z*std::cos(a)};}
         const bool left=dot(sub(info.contact,info.grip),right)<=0;
         for(auto& edge:result.edges){
-            bool perpendicular=!paper_frame_angle;
-            if(paper_frame_angle&&paper_tangent&&perpendicular_leader) {
+            bool perpendicular=!paper_frame_angle||leader_ending==LeaderEnding::Triangle;
+            if(paper_frame_angle&&paper_tangent&&info.perpendicular) {
                 auto normal=cross(cross(right,up),*paper_tangent);
                 if(dot(normal,sub(info.grip,info.contact))<0)normal={-normal.x,-normal.y,-normal.z};
                 edge.annotation->direction_tip={info.contact.x+normal.x,info.contact.y+normal.y,info.contact.z+normal.z};
@@ -113,6 +114,7 @@ void to_json(nlohmann::json& j,const Placement& p) {
         {"reference",nullptr},{"unresolved",p.unresolved},{"leader",p.leader},{"leader_bends",p.leader_bends},{"arrow_length",p.arrow_length},{"offset_z",p.offset_z},{"perpendicular_leader",p.perpendicular_leader},{"short_shelf",p.short_shelf},{"shelf_length",p.shelf_length}};
     j["paper_tangent"]=p.paper_tangent?nlohmann::json(array(*p.paper_tangent)):nlohmann::json(nullptr);
     j["leader_ending"]=static_cast<int>(p.leader_ending);
+    j["weld_all_around"]=p.weld_all_around;
     j["paper_extension_start"]=p.paper_extension_start?nlohmann::json(array(*p.paper_extension_start)):nlohmann::json(nullptr);
     if(p.reference) {const auto& r=*p.reference;j["reference"]={{"document_id",r.document_id},{"owner_id",r.owner_id},
         {"semantic_key",r.semantic_key},{"instance_path",r.instance_path},{"kind",static_cast<int>(r.kind)},{"reversed",r.reversed},
@@ -129,6 +131,7 @@ void from_json(const nlohmann::json& j,Placement& output) {
         p.reference->surface_parameters=r.at("surface_parameters").get<std::array<double,2>>();}
     p.short_shelf=j.value("short_shelf",false);p.shelf_length=j.value("shelf_length",3.);
     p.leader_ending=static_cast<LeaderEnding>(j.value("leader_ending",0));
+    p.weld_all_around=j.value("weld_all_around",false);
     p.unresolved=j.at("unresolved");p.leader=j.at("leader");
     p.leader_bends=j.at("leader_bends").get<decltype(p.leader_bends)>();p.arrow_length=j.at("arrow_length");p.offset_z=j.value("offset_z",0.);p.perpendicular_leader=j.value("perpendicular_leader",false);
     if(j.contains("paper_tangent")&&!j.at("paper_tangent").is_null())p.paper_tangent=vector(j.at("paper_tangent"));

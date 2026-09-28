@@ -87,16 +87,17 @@ std::vector<sketcher::Sketch> Definition::evaluate(const std::string& variant,co
         const auto& layout=*frame_layout;double left=0;
         for(const auto& id:layout.cells) {
             const auto found=std::ranges::find(result,id,&sketcher::Sketch::id);if(found==result.end())continue;
-            auto& sketch=*found;double xmin=1e100,xmax=-1e100;
+            auto& sketch=*found;double xmin=1e100,xmax=-1e100,ymin=1e100,ymax=-1e100;
             for(const auto& edge:sketch.viewer_mesh().edges) {
                 const auto& key=edge.reference.semantic_key;if(key.starts_with("sketch_axis:")||key.starts_with("dimension:"))continue;
-                for(const auto p:edge.points){xmin=std::min(xmin,p.x);xmax=std::max(xmax,p.x);}
+                for(const auto p:edge.points){xmin=std::min(xmin,p.x);xmax=std::max(xmax,p.x);ymin=std::min(ymin,p.y);ymax=std::max(ymax,p.y);}
             }
             if(xmin>xmax)continue;
             const double width=std::max(layout.minimum_width,xmax-xmin+2*layout.padding);
             const double shift=left+(width-(xmax-xmin))/2-xmin;
-            for(auto& point:sketch.points)point.x+=shift;
-            for(auto& text:sketch.texts){text.anchor_x+=shift;sketcher::rebuild_text_contours(text,true);}
+            const double vertical_shift=-(ymin+ymax)/2;
+            for(auto& point:sketch.points){point.x+=shift;point.y+=vertical_shift;}
+            for(auto& text:sketch.texts){text.anchor_x+=shift;text.anchor_y+=vertical_shift;sketcher::rebuild_text_contours(text,true);}
             const auto segment=[&](const std::string& suffix,double x,double y,double u,double v){
                 const auto key=id+":frame:"+suffix;sketch.points.push_back({key+":a",x,y,true});sketch.points.push_back({key+":b",u,v,true});sketch.segments.push_back({key,key+":a",key+":b"});
             };

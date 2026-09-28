@@ -1,4 +1,5 @@
 #include "../tests/gui_profile_fixture.hpp"
+#include <zima/kernel/annotation_layout.hpp>
 #include "../common/interaction_colors.hpp"
 #include "../tests/profile_solid_fixture.hpp"
 #include <zima/workspace/drawing_sources.hpp>

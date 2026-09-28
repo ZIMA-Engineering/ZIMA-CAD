@@ -228,6 +228,15 @@ int main(int argc,char** argv) {
         const auto tolerance_root=root/"config/symbols/geometric-tolerances";int tolerance_count=0;
         for(const auto& entry:std::filesystem::directory_iterator(tolerance_root))if(entry.path().extension()==".symz") {
             const auto d=symbols::Definition::load(entry.path());check(d.frame_layout.has_value(),"Tolerance frame has fixed borders");
+            for(const auto& [key,row]:d.variants)for(const auto& cell:d.evaluate(key, d.id=="ze:datum-feature"?std::map<std::string,std::string>{{"Datum","A"}}:std::map<std::string,std::string>{{"Primary datum","A"},{"Secondary datum","B"},{"Tertiary datum","C"}})) {
+                double ymin=1e100,ymax=-1e100;
+                for(const auto& edge:cell.viewer_mesh().edges) {
+                    const auto& semantic=edge.reference.semantic_key;
+                    if(semantic.starts_with("sketch_axis:")||semantic.starts_with("dimension:")||semantic.find(":frame:")!=std::string::npos)continue;
+                    for(auto point:edge.points){ymin=std::min(ymin,point.y);ymax=std::max(ymax,point.y);}
+                }
+                if(ymin<=ymax)check(std::abs(ymin+ymax)<1e-7,"Frame contents are not vertically centered");
+            }
             if(d.id=="ze:datum-feature"){check(d.leader_ending==symbols::LeaderEnding::Triangle,"Datum default is not a triangle");continue;}
             tolerance_count+=static_cast<int>(d.variants.size());
             sketcher::SymbolInstance i;i.id="frame-test";i.definition=d.serialized();i.variant="PERPENDICULARITY/default";
@@ -241,11 +250,11 @@ int main(int argc,char** argv) {
             symbols::Placement a;a.symbol.id="bilateral";a.symbol.definition=d.serialized();a.symbol.variant=variant;
             a.leader=true;a.symbol.x=40;a.symbol.y=15;
             auto b=a;b.symbol.id="bilateral-other";b.symbol.x=-40;
-            const auto left=a.viewer_mesh(0.),right=b.viewer_mesh(0.);
+            const auto left=a.viewer_mesh(0.,true),right=b.viewer_mesh(0.,true);
             check(left.edges.size()==right.edges.size(),"Changing leader end changed symbol topology");
             for(std::size_t e=0;e<left.edges.size();++e) {
                 check(left.edges[e].filled_text==right.edges[e].filled_text,"Leader end changed text semantics");
-                if(e+2<left.edges.size()) {
+                if(left.edges[e].annotation&&left.edges[e].annotation->role==0) {
                     check(left.edges[e].points.size()==right.edges[e].points.size(),"Leader end changed glyph size");
                     for(std::size_t i=0;i<left.edges[e].points.size();++i) {
                         const auto p=left.edges[e].points[i],q=right.edges[e].points[i];
@@ -253,8 +262,8 @@ int main(int argc,char** argv) {
                     }
                 }
             }
-            const auto& l=left.edges[left.edges.size()-2].points;
-            const auto& r=right.edges[right.edges.size()-2].points;
+            const auto& l=std::ranges::find_if(left.edges,[](const auto& e){return e.annotation&&e.annotation->role==1;})->points;
+            const auto& r=std::ranges::find_if(right.edges,[](const auto& e){return e.annotation&&e.annotation->role==1;})->points;
             check(l.front()==a.frame.origin&&r.front()==b.frame.origin,"Arrow contact moved");
             check(l.back().x<40&&r.back().x>-40,"Leader did not join the nearest side");
             check(std::abs(l.back().y-15)<1e-8&&std::abs(r.back().y-15)<1e-8,"Leader did not meet frame centre/reference line");
@@ -266,6 +275,13 @@ int main(int argc,char** argv) {
         int weld_count=0;
         for(const auto& entry:std::filesystem::directory_iterator(root/"config/symbols/welding"))if(entry.path().extension()==".symz") {
             const auto d=symbols::Definition::load(entry.path());check(d.reference_line_layout.has_value(),"Weld lacks reference-line layout");weld_count+=static_cast<int>(d.variants.size());
+            check(d.reference_line_layout->other_side_y==-1.,"Factory weld identification-line gap is not 1 mm");
+            symbols::Placement around;around.symbol.id="all-around";around.symbol.definition=d.serialized();around.symbol.variant=d.default_variant;
+            around.leader=true;around.weld_all_around=true;around.symbol.x=40;around.symbol.y=15;
+            for(double side:{-1.,1.}) {
+                around.symbol.x=40*side;const auto mesh=around.viewer_mesh(0.,true);
+                check(std::ranges::count_if(mesh.edges,[](const auto& e){return e.annotation&&e.annotation->role==6&&!e.filled_text;})==1,"Weld all-around ring missing or filled");
+            }
             for(const auto& [variant,row]:d.variants) {
                 bilateral(d,variant);
                 const auto prefix=variant.ends_with("/other_side")?"Other":"Arrow";

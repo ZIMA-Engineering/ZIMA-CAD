@@ -48,13 +48,20 @@ int verify_symbol_ui(QApplication& application,zima::app::AssemblyWorkspaceWindo
             auto* attachment_options=new app::SymbolAttachmentDialog(translated_symbol,[](auto){},&window,true);
             check(attachment_options->findChild<QCheckBox*>("symbolPerpendicularLeader")->text()==settings.qt_translations.value("Odkaz kolmý k entitě"),"Perpendicular leader translation differs");
             const auto* shelf=attachment_options->findChild<QComboBox*>("symbolShelfMode");
-            const auto* ending=attachment_options->findChild<QComboBox*>("symbolLeaderEnding");
+            auto* ending=attachment_options->findChild<QComboBox*>("symbolLeaderEnding");
             check(ending&&ending->itemText(0)==settings.qt_translations.value("Šipka")&&ending->itemText(1)==settings.qt_translations.value("Trojúhelník")&&ending->itemText(2)==settings.qt_translations.value("Tečka"),"Leader ending choices are untranslated");
             check(shelf&&shelf->itemText(0)==settings.qt_translations.value("Pod symbolem")&&shelf->itemText(1)==settings.qt_translations.value("K uchopovacímu bodu"),"Shelf choices are untranslated");
+            auto* perpendicular=attachment_options->findChild<QCheckBox*>("symbolPerpendicularLeader");
+            ending->setCurrentIndex(1);check(perpendicular->isChecked()&&!perpendicular->isEnabled()&&attachment_options->pending_placement().perpendicular_leader,"Triangle does not enforce perpendicular entry");
+            ending->setCurrentIndex(0);check(perpendicular->isEnabled(),"Arrow retained the triangle input restriction");
             attachment_options->reject();flush();
             const auto weld_definition=symbols::Definition::load(std::filesystem::current_path()/"config/symbols/welding/ZE-WELDING-ISO2553.symz");
             sketcher::SymbolInstance weld;weld.id="localized-weld";weld.definition=weld_definition.serialized();weld.variant=weld_definition.default_variant;
-            auto* weld_options=new app::SymbolDialog(weld,{},[](auto){},&window);
+            symbols::Placement weld_placement;weld_placement.symbol=weld;weld_placement.leader=true;
+            auto* weld_options=new app::SymbolAttachmentDialog(weld_placement,[](auto){},&window);
+            auto* around=weld_options->findChild<QCheckBox*>("symbolWeldAllAround");
+            check(around&&around->text()==settings.qt_translations.value("Svar dokola"),"All-around option is untranslated");
+            around->setChecked(true);check(weld_options->pending_placement().weld_all_around,"All-around checkbox does not update pending annotation");
             auto* variant=weld_options->findChild<QComboBox*>("symbolVariant");
             check(variant->itemText(variant->findData("FILLET/arrow_side")).endsWith(settings.qt_translations.value("ISO 2553 A — strana šipky")),"Weld arrow-side label is untranslated");
             check(variant->itemText(variant->findData("FILLET/other_side")).endsWith(settings.qt_translations.value("ISO 2553 A — opačná strana")),"Weld other-side label is untranslated");
@@ -200,7 +207,8 @@ int verify_symbol_ui(QApplication& application,zima::app::AssemblyWorkspaceWindo
             if(accept)attachment->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();else attachment->reject();flush();save->trigger();flush();
             check(document::PartDocument::load(model_path).symbol_annotations.size()==(accept?1:0),"Model symbol OK/Cancel failed");
         }
-        QTreeWidgetItem* model_symbol=nullptr;QTreeWidgetItemIterator rows(tree);while(*rows){auto* row=*rows++;if(row->data(0,Qt::UserRole+3)=="model-symbol"){model_symbol=row;break;}}
+        QTreeWidgetItem* model_symbol=nullptr;
+        {QTreeWidgetItemIterator rows(tree);while(*rows){auto* row=*rows++;if(row->data(0,Qt::UserRole+3)=="model-symbol"){model_symbol=row;break;}}}
         check(model_symbol,"Model symbol Tree row missing");tree->setCurrentItem(model_symbol);flush();
         check(view->confirmed_candidate()&&view->confirmed_candidate()->kind==viewer::CandidateKind::Symbol,"Model Tree/View symbol selection failed");
         const auto contact_handle=view->symbol_handle_position(0),grip_handle=view->symbol_handle_position(1);
@@ -246,6 +254,17 @@ int verify_symbol_ui(QApplication& application,zima::app::AssemblyWorkspaceWindo
         attachment->reject();flush();save->trigger();flush();
         check(document::PartDocument::load(model_path).symbol_annotations.front()==stored,"Cancel committed handle preview");
         view->clear_selection();view->fit_all();flush();window.grab().save(QString::fromStdString((directory/"symbol-attachment.png").string()));
+        const auto previous_library=chosen_symbol;
+        for(const auto* library:{"welding/ZE-WELDING-ISO2553.symz","geometric-tolerances/ZE-GEOMETRIC-TOLERANCES-ISO1101.symz","geometric-tolerances/ZE-DATUM-FEATURE.symz"}) {
+            chosen_symbol=std::filesystem::current_path()/"config/symbols"/library;
+            chooser.start(100);insert->trigger();chooser.stop();flush();
+            auto* editor=dynamic_cast<app::SymbolAttachmentDialog*>(window.findChild<QDialog*>("symbolAttachmentDialog"));check(editor,"Structured model symbol editor missing");
+            editor->end_entry();flush();
+            for(int handle=0;handle<3;++handle)check(view->symbol_handle_position(handle).has_value(),"Weld/tolerance/datum model preview has no manipulation handles");
+            editor->reject();flush();
+        }
+        chosen_symbol=previous_library;save->trigger();flush();
+        check(document::PartDocument::load(model_path).symbol_annotations==std::vector{stored},"Cancelling structured symbols changed the Part");
         auto assembly_model=assembly::AssemblyDocument::create_default();assembly::PartOccurrence occurrence;
         occurrence.occurrence_id="symbol-ui-occurrence";occurrence.name="symbol-attachment.prtz";occurrence.source_document_id=model.document_id;occurrence.source_path=model_path;
         occurrence.calculated_source=document::component_source(model,kernel.evaluate_history(model.kernel_operations()));assembly_model.components.push_back(occurrence);
@@ -397,6 +416,13 @@ int verify_symbol_ui(QApplication& application,zima::app::AssemblyWorkspaceWindo
         std::optional<sketcher::SymbolInstance> accepted_tolerance;
         auto* tolerance_dialog=new app::SymbolDialog(tolerance,{},[&](auto value){accepted_tolerance=std::move(value);},&window);tolerance_dialog->show();flush();
         const auto tolerance_field=[&](const char* name){return tolerance_dialog->findChild<QComboBox*>(QString("symbolField:")+name);};
+        auto* tolerance_variants=tolerance_dialog->findChild<QComboBox*>("symbolVariant");
+        for(const auto& [variant,row]:tolerance_definition.variants) {
+            tolerance_variants->setCurrentIndex(tolerance_variants->findData(QString::fromStdString(variant)));flush();
+            const bool uses_datums=std::ranges::find(row.sketches,tolerance_definition.fields.at("Primary datum").sketch_id)!=row.sketches.end();
+            for(const auto* field:{"Primary datum","Secondary datum","Tertiary datum"})check(tolerance_field(field)->isVisible()==uses_datums,"Datum fields do not follow the selected tolerance type");
+        }
+        tolerance_variants->setCurrentIndex(tolerance_variants->findData("PERPENDICULARITY/default"));flush();
         const auto submit_tolerance=[&]{tolerance_dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();};
         tolerance_field("Tolerance")->setCurrentText("-0.1");submit_tolerance();check(!accepted_tolerance,"Negative geometric tolerance accepted");
         tolerance_field("Tolerance")->setCurrentText("0,05");tolerance_field("Primary datum")->setCurrentText("");submit_tolerance();check(!accepted_tolerance,"Orientation tolerance accepted without datum");
@@ -404,6 +430,37 @@ int verify_symbol_ui(QApplication& application,zima::app::AssemblyWorkspaceWindo
         tolerance_field("Secondary datum")->setCurrentText("B");submit_tolerance();check(accepted_tolerance&&accepted_tolerance->text_values.at("Tolerance")=="0.05"&&accepted_tolerance->text_values.at("Primary datum")=="A","Valid geometric tolerance was not normalized and committed");
         chosen_symbol=std::filesystem::current_path()/"config/symbols/welding/ZE-WELDING-ISO2553.symz";
         window.resize(1024,680);flush();
+        const auto drag_pending_symbol=[&](app::SymbolAttachmentDialog* editor,int handle,QPointF delta) {
+            editor->end_entry();flush();
+            // The GPU child owns painting and updates the on-screen pick handles.
+            if(auto* surface=canvas->findChild<QOpenGLWidget*>())surface->repaint();else canvas->repaint();
+            flush();
+            const auto value=editor->pending_placement();
+            const auto mesh=value.viewer_mesh(std::atan2(value.frame.x.y,-value.frame.x.x)*180/std::acos(-1.),true);
+            const auto edge=std::ranges::find_if(mesh.edges,[](const auto& e){return e.annotation&&e.annotation->role==1;});
+            check(edge!=mesh.edges.end(),"Structured symbol has no shared manipulation layout");
+            const auto& a=*edge->annotation;const kernel::Vec3 right{-1,0,0},up{0,1,0};
+            const bool left=kernel::dimension_dot(kernel::dimension_sub(a.contact,a.grip),right)<=0;
+            const auto point=kernel::annotation_handles(a,right,up,left,true)[handle];
+            const auto rect=drawing_window->sheet_rectangle_for_test();const auto& page=drawing_window->document_for_test().sheets.front();const double zoom=rect.width()/page.width_mm();
+            const auto start=rect.topLeft()+QPointF(page.width_mm()-point.x,page.height_mm()-point.y)*zoom;
+            const auto send=[&](QEvent::Type type,QPointF p,Qt::MouseButton button,Qt::MouseButtons buttons){QMouseEvent event(type,p,QPointF(canvas->mapToGlobal(p.toPoint())),button,buttons,Qt::NoModifier);QApplication::sendEvent(canvas,&event);flush();};
+            send(QEvent::MouseButtonPress,start,Qt::LeftButton,Qt::LeftButton);send(QEvent::MouseMove,start+delta,Qt::NoButton,Qt::LeftButton);send(QEvent::MouseButtonRelease,start+delta,Qt::LeftButton,Qt::NoButton);
+            const auto& moved=editor->pending_placement();
+            const auto moved_mesh=moved.viewer_mesh(std::atan2(moved.frame.x.y,-moved.frame.x.x)*180/std::acos(-1.),true);
+            const auto moved_edge=std::ranges::find_if(moved_mesh.edges,[](const auto& e){return e.annotation&&e.annotation->role==1;});
+            check(moved_edge!=moved_mesh.edges.end(),"Dragging lost the shared manipulation layout");
+            const auto& moved_layout=*moved_edge->annotation;
+            const bool moved_left=kernel::dimension_dot(kernel::dimension_sub(moved_layout.contact,moved_layout.grip),right)<=0;
+            // Perpendicular placement projects authored X/Y onto the contact normal.
+            // Resizing can change the visible grip through shelf length alone.
+            const auto displacement=kernel::dimension_sub(kernel::annotation_handles(moved_layout,right,up,moved_left,true)[handle],point);
+            if(kernel::dimension_dot(displacement,displacement)<1e-8) {
+                window.grab().save(QString::fromStdString((directory/"symbol-grip-failure.png").string()));
+                throw std::runtime_error("Structured symbol grip does not move its preview: "+symbols::Definition::from_serialized(value.symbol.definition).id+" handle "+std::to_string(handle));
+            }
+            check(editor->pending_placement().reference==value.reference,"Dragging a structured symbol changed its reference");
+        };
         for(const double offset:{-30.,30.}) {
             const auto before=drawing_window->document_for_test().sheets.front().symbol_annotations.size();
             for(bool accept:{false,true}) {
@@ -411,6 +468,7 @@ int verify_symbol_ui(QApplication& application,zima::app::AssemblyWorkspaceWindo
                 auto* editor=dynamic_cast<app::SymbolAttachmentDialog*>(window.findChild<QDialog*>("symbolAttachmentDialog"));check(editor,"Weld editor missing");
                 check(editor->findChild<QCheckBox*>("symbolLeader")->isChecked(),"Weld did not default to a leader");
                 auto* variant=editor->findChild<QComboBox*>("symbolVariant");variant->setCurrentIndex(variant->findData(offset<0?"FILLET/other_side":"FILLET/arrow_side"));
+                editor->findChild<QCheckBox*>("symbolWeldAllAround")->setChecked(true);
                 const auto prefix=offset<0?"Other":"Arrow";
                 editor->findChild<QDoubleSpinBox*>("symbolOrigin0")->setValue(140);editor->findChild<QDoubleSpinBox*>("symbolOrigin1")->setValue(offset<0?110:80);
                 editor->findChild<QDoubleSpinBox*>("symbolPlacement0")->setValue(offset);editor->findChild<QDoubleSpinBox*>("symbolPlacement1")->setValue(12);
@@ -418,6 +476,7 @@ int verify_symbol_ui(QApplication& application,zima::app::AssemblyWorkspaceWindo
                 editor->findChild<QComboBox*>(QString("symbolField:%1 length").arg(prefix))->setCurrentText("3 x 50 (100)");
                 auto* ok=editor->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok);
                 check(window.rect().contains(QRect(ok->mapTo(&window,QPoint()),ok->size())),"Weld OK button is outside laptop window");
+                drag_pending_symbol(editor,1,{15,8});
                 if(accept)ok->click();else editor->reject();flush();
                 check(drawing_window->document_for_test().sheets.front().symbol_annotations.size()==before+(accept?1:0),"Weld OK/Cancel differs");
             }
@@ -425,6 +484,32 @@ int verify_symbol_ui(QApplication& application,zima::app::AssemblyWorkspaceWindo
             check(drawing_window->document_for_test().sheets.front().symbol_annotations.size()==before,"Weld Undo failed");
             window.findChild<QAction*>("redoAction")->trigger();flush();
             check(drawing_window->document_for_test().sheets.front().symbol_annotations.size()==before+1,"Weld Redo failed");
+        }
+        for(const bool datum:{false,true}) {
+            chosen_symbol=std::filesystem::current_path()/"config/symbols/geometric-tolerances"/(datum?"ZE-DATUM-FEATURE.symz":"ZE-GEOMETRIC-TOLERANCES-ISO1101.symz");
+            for(bool accept:{false,true}) {
+                const auto before=drawing_window->document_for_test().sheets.front().symbol_annotations;
+                chooser.start(100);insert_sheet->trigger();chooser.stop();flush();
+                auto* editor=dynamic_cast<app::SymbolAttachmentDialog*>(window.findChild<QDialog*>("symbolAttachmentDialog"));check(editor,"Framed symbol editor missing");
+                editor->findChild<QDoubleSpinBox*>("symbolOrigin0")->setValue(130);editor->findChild<QDoubleSpinBox*>("symbolOrigin1")->setValue(datum?35:60);
+                editor->findChild<QDoubleSpinBox*>("symbolPlacement0")->setValue(30);editor->findChild<QDoubleSpinBox*>("symbolPlacement1")->setValue(12);
+                check(editor->findChild<QDoubleSpinBox*>("symbolShelfLength")->isVisible(),"Tolerance has no editable horizontal landing");
+                if(!datum) {
+                    auto* scroll=editor->findChild<QScrollArea*>("symbolPropertiesScroll");
+                    for(const auto* key:{"Primary datum","Secondary datum","Tertiary datum"}) {
+                        auto* field=editor->findChild<QComboBox*>(QString("symbolField:")+key);check(field&&field->isVisible(),"Default tolerance does not expose datum entries");
+                        check(scroll->viewport()->rect().contains(QRect(field->mapTo(scroll->viewport(),QPoint{}),field->size())),"Default tolerance hides datum entries below the viewport");
+                    }
+                    editor->findChild<QComboBox*>("symbolField:Secondary datum")->setCurrentText("B");editor->findChild<QComboBox*>("symbolField:Tertiary datum")->setCurrentText("C");
+                    editor->grab().save(QString::fromStdString((directory/"tolerance-properties.png").string()));
+                }
+                drag_pending_symbol(editor,1,{12,8});
+                const auto length=editor->pending_placement().shelf_length;drag_pending_symbol(editor,2,{12,0});
+                check(std::abs(editor->pending_placement().shelf_length-length)>.1,"Tolerance end grip does not resize the horizontal landing");
+                if(accept)editor->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();else editor->reject();flush();
+                if(!accept)check(drawing_window->document_for_test().sheets.front().symbol_annotations==before,"Cancel committed tolerance grip edits");
+                else check(drawing_window->document_for_test().sheets.front().symbol_annotations.size()==before.size()+1,"Tolerance/datum insertion failed");
+            }
         }
         save->trigger();flush();
         const auto reopened=drawing::DrawingDocument::load(drawing_path);

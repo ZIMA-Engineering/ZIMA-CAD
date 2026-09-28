@@ -873,7 +873,7 @@ std::optional<kernel::AnnotationStroke> MeshView::symbol_handle_annotation()cons
     if(!impl_->show_symbols||!impl_->symbol_handles)return {};
     const auto handles=impl_->symbol_handles();if(!handles)return {};
     for(const auto* edges:{&impl_->transient_edges,&impl_->mesh.edges})for(const auto& edge:*edges)
-        if(edge.annotation&&edge.annotation->role==3&&edge.reference.owner_id==handles->id) {
+        if(edge.annotation&&edge.annotation->role==1&&edge.reference.owner_id==handles->id) {
             const auto d=kernel::dimension_sub(edge.annotation->grip,handles->grip);
             if(kernel::dimension_dot(d,d)<1e-12)return edge.annotation;
         }

@@ -3,6 +3,58 @@
 Implementation and verification record. The latest checkpoint is followed by
 the historical workflow and its authoring and standards scope.
 
+## Shared leader detail update (2026-09-28)
+
+Inputs are persisted symbol geometry, the selected characteristic/fields and
+the original attachment frame. The means are the existing `AnnotationStroke`
+layout, shared Properties window and viewer handles. Outputs are consistent
+model/Drawing strokes, editable grips and native annotation persistence; this
+path performs no OCCT calculation and does not alter container placement.
+
+Handle discovery now uses the leader stroke, available for every leader-bearing
+symbol, instead of requiring a separate full-width shelf. This repairs missing
+model handles and coincident Drawing handles for structured weld/tolerance
+symbols. Framed annotations use the same layout with an external horizontal
+landing ending at the nearest side midpoint. The frame-side grip adjusts the
+landing length and the elbow grip translates the annotation.
+
+Triangle endings are filled yellow, have their base centered on the reference
+contact and always enforce perpendicularity, including on projected edges.
+Frame cells center actual geometry/text bounds in both directions. The default
+tolerance variant is Position; datum fields appear before placement controls,
+and form-only variants explain why they have no datums. Existing per-variant
+applicability and datum-order validation remain in force.
+
+`Placement::weld_all_around` persists the weld-junction circle. It is effective
+only for a leader-bearing reference-line symbol and shares the same junction
+and camera/paper axes as the leader. Its diameter is the arrow length. It does
+not add a Body, change a source reference or replace the weld geometry.
+The factory identification-line gap changes from 3 mm to 1 mm, an application
+style choice rather than a claimed ISO requirement. The user guide records
+the reviewed primary sources and the limits of that review.
+
+New regression checks cover all fourteen tolerance variants, datum-entry
+visibility, centered cells, triangle direction/fill/perpendicularity, framed
+landings on both sides, all-around circle placement, model/Drawing handles,
+drag/Cancel, native round-trip and five UI languages.
+
+Windows verification passed all thirteen focused contracts: symbol library,
+placement, document, Drawing, integration and GUI; drawing annotation commands,
+model dimension layout, balloon backend/GUI, dimension layout GUI, translation
+coverage and new-document GUI. The complete interrupted native build and the
+final application rebuild succeeded. The three affected factory libraries were
+regenerated with their original document, Body, container and feature identities
+retained by matching their named objects, then reopened. Start Part, Skeleton and Assembly templates were
+rewritten with the current serializer and remained byte-identical; GUI creation
+from those templates passed its active-context and command-availability checks.
+
+The GUI drag check repaints the actual GPU child before picking and checks the
+rendered handle displacement, including perpendicular placement where changing
+shelf length can move the frame without changing authored X/Y. The tolerance
+properties screenshot and exported PDF were visually reviewed; DXF reimport
+passed. This is focused local Windows verification, not a full application
+regression run or a portable release.
+
 ## Native library checkpoint (2026-09-28)
 
 Standalone symbol files now preserve ordinary native Part history, Body ownership

@@ -1602,7 +1602,7 @@ protected:
                 symbol_drag_original_=value;symbol_drag_start_=event->position();symbol_contact_drag_=handle.key.end==1;symbol_drag_handle_=handle.key.end==2?2:1;
                 symbol_drag_restore_=symbol_capture_contact_?symbol_capture_contact_():std::function<void()>{};
                 symbol_drag_layout_.reset();const auto mesh=value.viewer_mesh(std::atan2(value.frame.x.y,-value.frame.x.x)*180/std::acos(-1.),true);
-                for(const auto& edge:mesh.edges)if(edge.annotation&&edge.annotation->role==3){symbol_drag_layout_=edge.annotation;break;}
+                for(const auto& edge:mesh.edges)if(edge.annotation&&edge.annotation->role==1){symbol_drag_layout_=edge.annotation;break;}
                 event->accept();return;
             }
             if(symbol_editor_->active()&&symbol_pick_) {
@@ -1691,7 +1691,7 @@ protected:
                     }else if(candidate.key.kind==AnnotationKind::Symbol){
                         const auto found=std::ranges::find(sheet_->symbol_annotations,candidate.key.id,[](const auto& p){return p.symbol.id;});
                         if(found!=sheet_->symbol_annotations.end()){symbol_drag_original_=*found;symbol_drag_start_=event->position();symbol_contact_drag_=candidate.key.end==1||!found->leader;symbol_drag_handle_=candidate.key.end==2?2:1;
-                            symbol_drag_layout_.reset();if(found->leader){const auto mesh=found->viewer_mesh(std::atan2(found->frame.x.y,-found->frame.x.x)*180/std::acos(-1.),true);for(const auto& edge:mesh.edges)if(edge.annotation&&edge.annotation->role==3){symbol_drag_layout_=edge.annotation;break;}}
+                            symbol_drag_layout_.reset();if(found->leader){const auto mesh=found->viewer_mesh(std::atan2(found->frame.x.y,-found->frame.x.x)*180/std::acos(-1.),true);for(const auto& edge:mesh.edges)if(edge.annotation&&edge.annotation->role==1){symbol_drag_layout_=edge.annotation;break;}}
                             const auto contact=sheet_->symbol_contacts.find(found->symbol.id);symbol_contact_original_=contact==sheet_->symbol_contacts.end()?std::nullopt:std::optional(contact->second);}
                     }else if(candidate.key.kind==AnnotationKind::SectionEnd){dragged_section_end_=candidate;section_end_drag_start_=event->position();section_end_moved_=false;}
                 }

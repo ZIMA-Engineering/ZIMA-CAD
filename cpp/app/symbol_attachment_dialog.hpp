@@ -35,11 +35,11 @@ public:
         ending->addItems({tr("Šipka"),tr("Trojúhelník"),tr("Tečka")});
         ending->setCurrentIndex(static_cast<int>(placement_.leader_ending));form->addRow(tr("Zakončení odkazu"),ending);
         ending->setEnabled(placement_.leader);connect(leader_,&QCheckBox::toggled,ending,&QWidget::setEnabled);
-        connect(ending,&QComboBox::currentIndexChanged,this,[this](int index){placement_.leader_ending=static_cast<symbols::LeaderEnding>(index);notify();});
+        connect(ending,&QComboBox::currentIndexChanged,this,[this](int index){placement_.leader_ending=static_cast<symbols::LeaderEnding>(index);refresh_perpendicular();notify();});
         {
-            auto* perpendicular=new QCheckBox(tr("Odkaz kolmý k entitě"),panel);perpendicular->setObjectName("symbolPerpendicularLeader");
-            perpendicular->setChecked(placement_.perpendicular_leader);form->addRow(perpendicular);
-            connect(perpendicular,&QCheckBox::toggled,this,[this](bool on){placement_.perpendicular_leader=on;notify();});
+            perpendicular_=new QCheckBox(tr("Odkaz kolmý k entitě"),panel);perpendicular_->setObjectName("symbolPerpendicularLeader");
+            refresh_perpendicular();form->addRow(perpendicular_);
+            connect(perpendicular_,&QCheckBox::toggled,this,[this](bool on){placement_.perpendicular_leader=on;notify();});
         }
         shelf_mode_=new QComboBox(panel);shelf_mode_->setObjectName("symbolShelfMode");
         shelf_mode_->addItems({tr("Pod symbolem"),tr("K uchopovacímu bodu")});shelf_mode_->setCurrentIndex(placement_.short_shelf?1:0);
@@ -55,13 +55,22 @@ public:
             placement_.short_shelf=false;
             const QSignalBlocker blocked(shelf_mode_);shelf_mode_->setCurrentIndex(0);
             form->labelForField(shelf_mode_)->hide();shelf_mode_->hide();
-            form->labelForField(shelf_length_)->hide();shelf_length_->hide();
+            if(definition.reference_line_layout){form->labelForField(shelf_length_)->hide();shelf_length_->hide();}
+            else shelf_length_->setEnabled(true);
         }
+        if(definition.reference_line_layout) {
+            auto* around=new QCheckBox(tr("Svar dokola"),panel);around->setObjectName("symbolWeldAllAround");
+            around->setChecked(placement_.weld_all_around);around->setEnabled(placement_.leader);form->addRow(around);
+            connect(leader_,&QCheckBox::toggled,around,&QWidget::setEnabled);
+            connect(around,&QCheckBox::toggled,this,[this](bool on){placement_.weld_all_around=on;notify();});
+        }
+        auto* origin_panel=new QWidget(this);auto* origin_form=new QFormLayout(origin_panel);origin_form->setContentsMargins(0,0,0,0);
+        editor_layout()->insertWidget(editor_layout()->count()-1,origin_panel);
         const std::array labels{tr("Počátek X"),tr("Počátek Y"),tr("Počátek Z")};
-        for(std::size_t i=0;i<3;++i){origin_[i]=new QDoubleSpinBox(panel);origin_[i]->setObjectName(QString("symbolOrigin%1").arg(i));
-            origin_[i]->setRange(-1000000,1000000);origin_[i]->setDecimals(ui::numeric_decimal_places(parent));form->addRow(labels[i],origin_[i]);
+        for(std::size_t i=0;i<3;++i){origin_[i]=new QDoubleSpinBox(origin_panel);origin_[i]->setObjectName(QString("symbolOrigin%1").arg(i));
+            origin_[i]->setRange(-1000000,1000000);origin_[i]->setDecimals(ui::numeric_decimal_places(parent));origin_form->addRow(labels[i],origin_[i]);
             connect(origin_[i],&QDoubleSpinBox::valueChanged,this,[this]{placement_.frame.origin={origin_[0]->value(),origin_[1]->value(),origin_[2]->value()};notify();});}
-        if(sheet_){form->labelForField(origin_[2])->hide();origin_[2]->hide();}
+        if(sheet_){origin_form->labelForField(origin_[2])->hide();origin_[2]->hide();}
         unresolved_=new QLabel(tr("Reference není dostupná. Symbol zachovává poslední polohu."),panel);unresolved_->setWordWrap(true);form->addRow(unresolved_);
         editor_layout()->insertWidget(0,panel);active_=!placement_.reference;refresh();
         set_preview_callback([this](const auto& instance){placement_.symbol=instance;notify();});
@@ -82,9 +91,15 @@ private:
     symbols::Placement placement_;bool active_{},inspected_{},sheet_{};
     QTableWidget* table_{};ui::ReferenceCellItem* field_{};QWidget* indicator_{};QToolButton* eye_{};
     QComboBox* shelf_mode_{};QDoubleSpinBox* shelf_length_{};
-    QCheckBox* leader_{};QLabel* unresolved_{};std::array<QDoubleSpinBox*,3> origin_{};
+    QCheckBox* leader_{},*perpendicular_{};QLabel* unresolved_{};std::array<QDoubleSpinBox*,3> origin_{};
     void notify(){if(changed)changed();}
+    void refresh_perpendicular(){
+        const bool triangle=placement_.leader_ending==symbols::LeaderEnding::Triangle;
+        if(triangle)placement_.perpendicular_leader=true;
+        const QSignalBlocker blocked(perpendicular_);perpendicular_->setChecked(placement_.perpendicular_leader);perpendicular_->setEnabled(!triangle);
+    }
     void refresh(){
+        refresh_perpendicular();
         const auto identity=placement_.reference?QString::fromStdString(placement_.reference->semantic_key):QString{};
         field_->setText(identity.isEmpty()?(sheet_?tr("Vyberte geometrii nebo polohu na listu."):tr("Vyberte plochu, hranu nebo bod.")):(tr("Reference symbolu")));field_->setToolTip(identity);
         if(identity.isEmpty())field_->clear_reference();else field_->set_reference(identity);

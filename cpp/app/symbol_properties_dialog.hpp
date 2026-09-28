@@ -41,17 +41,18 @@ public:
         for(const auto& [key,row]:definition_.variants)variant_->addItem(variant_label(key),QString::fromStdString(key));
         variant_->setCurrentIndex(variant_->findData(QString::fromStdString(value_.variant.empty()?definition_.default_variant:value_.variant)));
         form->addRow(tr("Varianta"),variant_);
+        if(definition_.id.starts_with("ze:geometric-tolerance:")) {
+            datum_hint_=new QLabel(tr("Tolerance tvaru nepoužívají základny. Pro ostatní typy zadejte základny níže v pořadí priority."),this);
+            datum_hint_->setWordWrap(true);datum_hint_->setObjectName("symbolDatumHint");form->addRow(datum_hint_);
+        }
         automatic_=new QCheckBox(tr("Podle nastavení výkresu"),this);automatic_->setObjectName("symbolCadVariant");
         automatic_->setChecked(value_.use_cad_variant);automatic_->setVisible(!definition_.variant_source.empty());form->addRow({},automatic_);
         variant_->setEnabled(!automatic_->isChecked());
-        const std::array labels{tr("X"),tr("Y"),tr("Úhel"),tr("Měřítko")};
-        const std::array values{value_.x,value_.y,value_.angle_degrees,value_.scale};
-        for(std::size_t i=0;i<4;++i) {
-            values_[i]=new QDoubleSpinBox(this);values_[i]->setObjectName(QString("symbolPlacement%1").arg(i));
-            values_[i]->setRange(i==3?0.01:-100000,100000);values_[i]->setDecimals(ui::numeric_decimal_places(parent));values_[i]->setValue(values[i]);
-            form->addRow(labels[i],values_[i]);connect(values_[i],&QDoubleSpinBox::valueChanged,this,[this]{update_preview();});
-        }
-        for(const auto& [key,field]:definition_.fields) {
+        std::vector<std::string> field_order;
+        for(const auto* key:{"Tolerance","Primary datum","Secondary datum","Tertiary datum"})if(definition_.fields.contains(key))field_order.emplace_back(key);
+        for(const auto& [key,field]:definition_.fields)if(std::ranges::find(field_order,key)==field_order.end())field_order.push_back(key);
+        for(const auto& key:field_order) {
+            const auto& field=definition_.fields.at(key);
             auto* input=new QComboBox(this);input->setEditable(field.allow_custom);input->setObjectName(QString::fromStdString("symbolField:"+key));
             for(const auto& choice:field.choices)input->addItem(QString::fromStdString(choice));
             const auto row=definition_.variants.at(variant_->currentData().toString().toStdString());
@@ -60,6 +61,13 @@ public:
             if(value_.text_values.contains(key))overrides_.insert(key);
             auto* row_widget=new QWidget(this);auto* layout=new QHBoxLayout(row_widget);layout->setContentsMargins(0,0,0,0);layout->addWidget(input,1);field_rows_[key]=row_widget;form->addRow(field_label(key),row_widget);field_labels_[key]=form->labelForField(row_widget);
             connect(input,&QComboBox::currentTextChanged,this,[this,key]{overrides_.insert(key);update_preview();});
+        }
+        const std::array labels{tr("X"),tr("Y"),tr("Úhel"),tr("Měřítko")};
+        const std::array values{value_.x,value_.y,value_.angle_degrees,value_.scale};
+        for(std::size_t i=0;i<4;++i) {
+            values_[i]=new QDoubleSpinBox(this);values_[i]->setObjectName(QString("symbolPlacement%1").arg(i));
+            values_[i]->setRange(i==3?0.01:-100000,100000);values_[i]->setDecimals(ui::numeric_decimal_places(parent));values_[i]->setValue(values[i]);
+            form->addRow(labels[i],values_[i]);connect(values_[i],&QDoubleSpinBox::valueChanged,this,[this]{update_preview();});
         }
         connect(variant_,&QComboBox::currentIndexChanged,this,[this]{update_preview();});
         connect(automatic_,&QCheckBox::toggled,this,[this](bool on){variant_->setEnabled(!on);update_preview();});
@@ -143,6 +151,7 @@ private:
     }
     void update_preview(){
         const auto row=definition_.variants.at(variant_->currentData().toString().toStdString());
+        if(datum_hint_)datum_hint_->setVisible(!definition_.fields.contains("Primary datum")||std::ranges::find(row.sketches,definition_.fields.at("Primary datum").sketch_id)==row.sketches.end());
         for(const auto& [key,input]:fields_) {
             const auto& field=definition_.fields.at(key);
             const bool visible=std::ranges::find(row.sketches,field.sketch_id)!=row.sketches.end()&&std::ranges::find(row.hidden_texts,key)==row.hidden_texts.end();
@@ -157,6 +166,7 @@ private:
     }
     Instance value_;symbols::Definition definition_;std::function<void(const Instance&)> preview_;std::function<void(Instance)> commit_;
     QVBoxLayout* editor_layout_{};
+    QLabel* datum_hint_{};
     QComboBox* variant_{};QCheckBox* automatic_{};std::array<QDoubleSpinBox*,4> values_{};std::map<std::string,QComboBox*> fields_;std::set<std::string> overrides_;std::map<std::string,QWidget*> field_rows_,field_labels_;
 };
 }
