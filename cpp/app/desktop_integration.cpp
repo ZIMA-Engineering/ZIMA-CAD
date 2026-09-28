@@ -34,7 +34,8 @@ namespace zima::app::desktop {
 namespace {
 struct Type { const char* extension; const char* name; const char* icon; };
 constexpr Type types[]={{"prtz","Part","part"},{"asmz","Assembly","assembly"},
-    {"drwz","Drawing","drawing"},{"frmz","Format","drawing-format"},{"tblz","TitleBlock","title-block"}};
+    {"drwz","Drawing","drawing"},{"frmz","Format","drawing-format"},{"tblz","TitleBlock","title-block"},
+    {"symz","Symbol","symbol"}};
 QString mime(const Type& t) { return "application/x-zima-"+QString(t.extension); }
 QString progid(const Context& c,const Type& t) { return "ZIMA.CAD."+c.id+'.'+t.name; }
 QString asset_root(const Context& c) { return c.data+"/zima-cad/desktop/"+c.id; }
@@ -239,7 +240,7 @@ public:
         auto* target=new QLabel(QDir::toNativeSeparators(context.launcher),this);target->setWordWrap(true);layout->addWidget(target);
         action=new QComboBox(this);action->setObjectName("desktopIntegrationAction");
         action->addItem(tr("Keep current registration"));action->addItem(tr("Register or repair"));action->addItem(tr("Remove this registration"));layout->addWidget(action);
-        auto* note=new QLabel(tr("Register .prtz, .asmz, .drwz, .frmz and .tblz with their icons for this user. Existing default applications are preserved."),this);note->setWordWrap(true);layout->addWidget(note);
+        auto* note=new QLabel(tr("Register .prtz, .asmz, .drwz, .frmz, .tblz and .symz with their icons for this user. Existing default applications are preserved."),this);note->setWordWrap(true);layout->addWidget(note);
 #ifdef Q_OS_WIN
         auto* defaults=new QPushButton(tr("Default applications"),this);layout->addWidget(defaults);
         connect(defaults,&QPushButton::clicked,this,[]{QDesktopServices::openUrl(QUrl("ms-settings:defaultapps"));});

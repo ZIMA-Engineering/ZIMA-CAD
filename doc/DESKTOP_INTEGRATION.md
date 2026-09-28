@@ -9,8 +9,8 @@ setup and the application.
 
 Supported desktop targets are Windows, KDE Plasma and GNOME. Other Linux
 desktop environments are outside the supported scope. The native implementation
-is in `cpp/app/desktop_integration.cpp`; it is not included in the published
-Windows build 2026092702. Linux desktop acceptance remains required on Linux.
+is in `cpp/app/desktop_integration.cpp` and shipped in Windows build 2026092801.
+Linux desktop acceptance remains required on Linux.
 
 ## User interaction
 
@@ -67,9 +67,9 @@ are overwritten. Common document MIME icons are retained on removal because
 another installation can still use them. User-authored documents are never
 part of registration or removal.
 
-The five native extensions are `.prtz`, `.asmz`, `.drwz`, `.frmz` and `.tblz`.
+The six native extensions are `.prtz`, `.asmz`, `.drwz`, `.frmz`, `.tblz` and `.symz`.
 Document icons reuse the application's existing Part, Assembly, Drawing,
-Format and Title Block assets. Windows ICO files embed a 256-pixel PNG and
+Format, Title Block and Symbol assets. Windows ICO files embed a 256-pixel PNG and
 Linux uses the original SVG assets. Icons are derived user-local resources,
 not native-document storage dependencies.
 
@@ -103,6 +103,24 @@ These checks do not establish file-manager/default-application acceptance on a
 real installed release. No actual user associations were changed by verification.
 KDE/GNOME execution and file-manager acceptance remain outstanding as described
 in [the Linux handoff](LINUX_RELEASE_HANDOFF.md).
+
+The 2026-09-28 follow-up added the missing `.symz` Symbol handler and icon to
+the shared registration list and updated all five translations. The native
+Windows application and desktop-integration test targets built successfully.
+The translation and desktop-integration CTest contracts passed, followed by
+the separate `--native-registry` test. These checks covered all six ICO files,
+the Symbol capability mapping, detection and repair of a missing Symbol icon,
+and the existing ownership, removal and default-preservation behavior.
+
+A read-only inspection of the development machine found older generic
+`ZIMA.CAD.*` handlers for the five previously registered extensions. Their
+`DefaultIcon` entries all pointed to the application executable, explaining
+the shared application icon instead of distinct document icons. `.symz` had
+no handler, and the per-installation registration was absent. This audit did
+not change the machine's actual registrations or defaults. Register the
+current installation from Desktop integration in Settings, then select its
+handler through Windows Default applications where necessary. Registering a
+new handler alone deliberately does not replace an existing default handler.
 
 Verify registration, repair, removal and the unregistered portable path.
 Exercise opening each supported native file type from the file manager, paths

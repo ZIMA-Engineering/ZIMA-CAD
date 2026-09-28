@@ -59,7 +59,7 @@
   "Keep current registration": "Aktuelle Registrierung beibehalten",
   "Register or repair": "Registrieren oder reparieren",
   "Remove this registration": "Diese Registrierung entfernen",
-  "Register .prtz, .asmz, .drwz, .frmz and .tblz with their icons for this user. Existing default applications are preserved.": "Dateitypen .prtz, .asmz, .drwz, .frmz und .tblz mit ihren Symbolen für diesen Benutzer registrieren. Bestehende Standardanwendungen bleiben erhalten.",
+  "Register .prtz, .asmz, .drwz, .frmz, .tblz and .symz with their icons for this user. Existing default applications are preserved.": "Dateitypen .prtz, .asmz, .drwz, .frmz, .tblz und .symz mit ihren Symbolen für diesen Benutzer registrieren. Bestehende Standardanwendungen bleiben erhalten.",
   "Default applications": "Standardanwendungen",
   "Desktop integration is registered.": "Die Desktop-Integration ist registriert.",
   "Desktop integration is not registered or needs repair.": "Die Desktop-Integration ist nicht registriert oder muss repariert werden.",

@@ -46,11 +46,11 @@ int main(int argc,char** argv) {
         if(native) { c.registry=test_registry;c.registry_format=QSettings::NativeFormat; }
         check(installation_id(c.launcher)==installation_id(QFileInfo(c.launcher).absolutePath()+"/./"+QFileInfo(c.launcher).fileName()),"Unstable installation identity");
         check(installation_id(c.launcher)!=installation_id(c.launcher+"other"),"Installations share identity");
-        const auto entry=desktop_entry(c);check(entry.contains("%f")&&entry.contains("application/x-zima-prtz;"),"Missing desktop file handler");
+        const auto entry=desktop_entry(c);check(entry.contains("%f")&&entry.contains("application/x-zima-prtz;")&&entry.contains("application/x-zima-symz;"),"Missing desktop file handler");
         check(desktop_exec("/a b/100%/\"$`x").contains("100%%"),"Desktop percent field was not escaped");
         QXmlStreamReader xml(mime_package());int types=0;
         while(!xml.atEnd()){xml.readNext();if(xml.isStartElement()&&xml.name()=="mime-type")++types;}
-        check(!xml.hasError()&&types==5,"Invalid MIME XML");
+        check(!xml.hasError()&&types==6,"Invalid MIME XML");
         QWidget parent;parent.resize(900,600);parent.show();
         c.installed=true;offer_first_launch(&parent,c);app.processEvents();
         auto* offer=parent.findChild<QDialog*>("desktopIntegrationOffer");
@@ -83,7 +83,7 @@ int main(int argc,char** argv) {
         install(c);check(registered(c),"Registration incomplete");
         check(registry.value("Classes/.prtz/.").toString()=="Other.CAD","Default overwritten");
         check(registry.value("UserChoice/ProgId").toString()=="Other.CAD","UserChoice overwritten");
-        for(const auto* ext:{"prtz","asmz","drwz","frmz","tblz"}) {
+        for(const auto* ext:{"prtz","asmz","drwz","frmz","tblz","symz"}) {
             QFile icon(c.data+"/zima-cad/desktop/"+c.id+'/'+ext+".ico");
             check(icon.open(QIODevice::ReadOnly),"Document icon missing");
             const auto bytes=icon.readAll();
@@ -94,6 +94,10 @@ int main(int argc,char** argv) {
             check(shell_icon!=nullptr,"Windows cannot load the document icon");DestroyIcon(shell_icon);
         }
         const QString command="Classes/ZIMA.CAD."+c.id+".Part/shell/open/command/.";
+        const QString symbol="Classes/ZIMA.CAD."+c.id+".Symbol";
+        check(registry.value("ZIMA-CAD/Desktop/"+c.id+"/Capabilities/FileAssociations/.symz").toString()=="ZIMA.CAD."+c.id+".Symbol","Symbol capability missing");
+        registry.remove(symbol+"/DefaultIcon");registry.sync();
+        check(!registered(c),"Missing symbol icon not detected");install(c);check(registered(c),"Symbol icon repair failed");
         registry.setValue(command,"broken");registry.sync();
         check(!registered(c),"Broken command not detected");install(c);check(registered(c),"Repair failed");
         Context other=c;other.id=installation_id(dir.path()+"/second");install(other);
