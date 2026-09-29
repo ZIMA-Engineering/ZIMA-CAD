@@ -2,6 +2,14 @@
 
 ## Scope and status
 
+Windows build **2026092905** is signed, published and verified. It fixes Unbend
+of closely separated sheet pieces through bounded finer reconstruction while
+retaining solid-count and validity checks. Focused geometry and translation
+tests, six packaged GUI contracts, the reported document in the packaged CLI,
+public hashes and update discovery from 2026092904 passed. Release cleanup
+freed about 5.47 GiB. See [the release record](releases/2026092905.md) for
+verification scope and remaining unrelated GUI/regression limitations.
+
 Windows build **2026092904** is signed, published and verified. It adds transition
 end notches, short bend axes and individual rectangular-end reliefs, hides smooth
 transition junctions, and simplifies Bend to a circular trajectory with separate
