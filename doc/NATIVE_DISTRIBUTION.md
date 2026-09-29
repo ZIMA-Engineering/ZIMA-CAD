@@ -2,6 +2,14 @@
 
 ## Scope and status
 
+Windows build **2026092902** is signed, published and verified. It unifies saved
+view selection, displays transition end planes and consistent endpoint colors,
+adds manufacturing DXF layers and bend axes, and uses the receiving user's home
+as the packaged factory working directory. Focused source checks, clean packaging,
+production trust, four packaged GUI contracts, public asset hashes and update
+discovery from 2026092901 passed. See [the release record](releases/2026092902.md)
+for scope and the two unresolved broader UI-test failures.
+
 Windows build **2026092901** is signed, published and verified. It improves
 sheet-transition construction, material previews and assembly datums, placement,
 drawing annotations and filename-based BOM grouping. Fourteen focused source
