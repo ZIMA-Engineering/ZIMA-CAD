@@ -261,6 +261,27 @@ int main(){try {
         auto& outline=document.sketches.back();static_cast<void>(outline.add_rectangle(0,0,40,15));document.resolve_constructions(geometry);
         auto operations=document.kernel_operations();const auto before=kernel.evaluate_history(operations).back();
         const auto stored_placement=document.history.back().placement;
+        // A separate Flat only 0.02 mm beyond the Bend cap must remain a
+        // separate piece: the ordinary 0.05 mm fitting budget must not weld it.
+        {
+            auto separated=document;
+            for(auto& point:separated.sketches.back().points)if(std::abs(point.y)<1e-9)point.y=.02;
+            auto gap_operations=separated.kernel_operations();
+            const auto gap_folded=kernel.evaluate_history(gap_operations).back();
+            kernel::HistoryOperation gap_state;gap_state.owner_id="gap-unbend";
+            gap_state.primitive=kernel::SheetStateRequest{};gap_operations.push_back(gap_state);
+            const auto coarse=kernel.evaluate_history(gap_operations).back();
+            auto fine_operations=gap_operations;
+            std::get<kernel::SheetStateRequest>(fine_operations.back().primitive).tolerance=.001;
+            kernel::OcctKernel independent;
+            const auto fine=independent.evaluate_history(fine_operations).back();
+            close(coarse.volume,fine.volume,1e-5);vertices_close(fine,coarse,1e-5);
+            gap_state.owner_id="gap-back";gap_state.primitive=kernel::SheetStateRequest{false,true,{}};
+            gap_operations.push_back(gap_state);
+            const auto gap_restored=kernel.evaluate_history(gap_operations).back();
+            close(gap_restored.volume,gap_folded.volume,1e-5);references_close(gap_folded,gap_restored);
+        }
+
         kernel::HistoryOperation unbend;unbend.owner_id="attached-unbend";unbend.primitive=kernel::SheetStateRequest{};operations.push_back(unbend);
         const auto unfolded=kernel.evaluate_history(operations).back();
         auto back=unbend;back.owner_id="attached-back";back.primitive=kernel::SheetStateRequest{false,true,{}};operations.push_back(back);

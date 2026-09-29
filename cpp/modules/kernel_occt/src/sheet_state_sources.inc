@@ -14,6 +14,11 @@ struct Contribution {
     double material_tolerance{std::numeric_limits<double>::max()};
 };
 using Sources=std::shared_ptr<const Contribution>;
+// Keep connectivity failure distinct from an invalid boundary or lost material.
+// A coarse deformation may merge nearby, intentionally separate sheet pieces.
+struct ConnectivityError : std::runtime_error {
+    ConnectivityError():std::runtime_error("Reconstructed sheet state is not a valid solid."){}
+};
 
 PrimitiveData difference(const PrimitiveData& a,const PrimitiveData& b,
         const std::string& owner) {
@@ -94,12 +99,12 @@ PrimitiveData calculate(Sources sources,const std::vector<SheetMaterialDefinitio
         double tolerance,const std::string& owner,std::size_t expected_solids) {
     std::vector<Sources> ordered;for(auto source=sources;source;source=source->previous)ordered.push_back(source);
     const bool restoring_authored=std::ranges::all_of(ordered,[&](const auto& source){return transitions_to(*source,target).empty();});
-    const auto reconstruct=[&](bool refine) {
+    const auto reconstruct=[&](bool refine,double requested_tolerance) {
         PrimitiveData result;
         for(auto it=ordered.rbegin();it!=ordered.rend();++it) {
             const auto& source=**it;const auto transitions=transitions_to(source,target);
-            const double effective_tolerance=std::min(tolerance,source.material_tolerance);
-            auto material=sheet_state_geometry::transform(source.material,transitions,refine?effective_tolerance:tolerance,owner,source.created_region);
+            const double effective_tolerance=std::min(requested_tolerance,source.material_tolerance);
+            auto material=sheet_state_geometry::transform(source.material,transitions,refine?effective_tolerance:requested_tolerance,owner,source.created_region);
             if(result.shape.IsNull()){result=std::move(material);continue;}
             const auto combine=[&](auto& algorithm) {
                 // A valid single solid can still be an incomplete Boolean
@@ -109,7 +114,7 @@ PrimitiveData calculate(Sources sources,const std::vector<SheetMaterialDefinitio
                     GProp_GProps properties;BRepGProp::VolumeProperties(shape,properties);
                     return std::abs(properties.Mass());
                 };
-                const bool check_addition=source.operation==BooleanOperation::Add&&source.material_tolerance<tolerance;
+                const bool check_addition=source.operation==BooleanOperation::Add&&source.material_tolerance<requested_tolerance;
                 const double minimum_volume=check_addition?std::max(volume(result.shape),volume(material.shape)):0;
                 set_boolean_inputs(algorithm,result.shape,material.shape);algorithm.SetToFillHistory(true);
                 algorithm.SetFuzzyValue(restoring_authored?source.boolean_tolerance:effective_tolerance/8);algorithm.Build();
@@ -125,7 +130,7 @@ PrimitiveData calculate(Sources sources,const std::vector<SheetMaterialDefinitio
         }
         if(result.shape.IsNull()||!BRepCheck_Analyzer(result.shape).IsValid())throw std::runtime_error("Reconstructed sheet state is not a valid solid.");
         std::size_t solids=0;for(TopExp_Explorer it(result.shape,TopAbs_SOLID);it.More();it.Next())++solids;
-        if(solids!=expected_solids)throw std::runtime_error("Reconstructed sheet state is not a valid solid.");
+        if(solids!=expected_solids)throw ConnectivityError();
         result.edges=complete_boolean_edges(result.shape,result.faces,result.edges,owner,"sheet-state");
         result.vertices=complete_boolean_vertices(result.shape,result.faces,result.edges,result.vertices,owner,"sheet-state");
         sheet_state_geometry::identify(result,owner);
@@ -135,10 +140,23 @@ PrimitiveData calculate(Sources sources,const std::vector<SheetMaterialDefinitio
     // junctions which fail validity/connectivity or lose material on addition
     // need their finer source budget.
     // Both attempts rebuild immutable contributions; no partial result escapes.
-    try {return reconstruct(false);}
-    catch(const std::runtime_error&) {
-        if(!std::ranges::any_of(ordered,[&](const auto& source){return source->material_tolerance<tolerance;}))throw;
-        return reconstruct(true);
+    const auto attempt=[&](double requested_tolerance) {
+        try {return reconstruct(false,requested_tolerance);}
+        catch(const std::runtime_error&) {
+            if(!std::ranges::any_of(ordered,[&](const auto& source){return source->material_tolerance<requested_tolerance;}))throw;
+            return reconstruct(true,requested_tolerance);
+        }
+    };
+    double requested_tolerance=tolerance;
+    for(int refinement=0;;++refinement) {
+        try {return attempt(requested_tolerance);}
+        catch(const ConnectivityError&) {
+            // Retry only a connectivity mismatch, never waive the original
+            // validity/count checks. Rebuild immutable material at a finer
+            // precision; do not alter the document's settings or cache input.
+            if(refinement==3||requested_tolerance<=1e-7)throw;
+            requested_tolerance=std::max(1e-7,requested_tolerance*.1);
+        }
     }
 }
 } // namespace sheet_state_sources

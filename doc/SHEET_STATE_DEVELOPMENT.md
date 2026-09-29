@@ -269,3 +269,29 @@ measurement dimensions, profile-on-sheet GUI, bend attachment GUI and applicatio
 tools GUI. Together the final runs passed **18 distinct contracts**. The regression
 log is `build/sheet-lines-regression-tests.log`; no full-suite or release-signing
 claim is implied.
+
+
+## Separate-material unfolding precision — 2026-09-29
+
+The reported `01.prtz` contains three separate solids in its converted sheet
+Body. At the ordinary 0.05 mm deformation tolerance, Unbend merged nearby
+pieces and correctly rejected the changed solid count. This was a reconstruction
+precision failure, not unsupported circular Bend trajectories.
+
+Reconstruction now distinguishes connectivity failure from invalid boundaries
+and material-loss failures. Only a connectivity mismatch permits up to three
+successively finer attempts, each using one tenth of the preceding tolerance
+and rebuilding immutable material contributions. All validity and solid-count
+checks remain mandatory. Document settings, placement, authored geometry and
+reference ownership are unchanged; ordinary successful reconstruction is unchanged.
+
+A generated regression separates an attached Flat from its Bend by 0.02 mm at
+45, 90 and 180 degrees. Default-tolerance Unbend is compared with an independent
+0.001 mm calculation for volume and vertices. Bend Back after the default
+Unbend restores volume and reference geometry. The reported document was tested
+on copies at its original 0.05 mm setting: Unbend, native save/reopen and Bend
+Back pass. The original project is not modified.
+
+The focused sheet-state, transition command, transition marking and arc-only
+Bend contracts pass. Five-language translation coverage passes; this kernel-only
+change adds no UI text and reuses the existing localized validation message.
