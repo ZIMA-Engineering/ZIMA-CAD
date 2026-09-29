@@ -1,12 +1,37 @@
 #include <zima/document/sheet_transition.hpp>
 #include <transition_sketches.hpp>
 #include <transition_sheet.hpp>
+#include <zima/document/container_origin_display.hpp>
 #include <algorithm>
 namespace zima::document {
 namespace {
 using namespace kernel::sheet_material;
 research::transition::Frame frame(kernel::Vec3 origin,kernel::Vec3 rotation) {
     return {origin,construction_direction_from_local_axis("x",rotation),construction_direction_from_local_axis("y",rotation),construction_direction_from_local_axis("z",rotation)};
+}
+kernel::ViewerMesh transition_material_wire(const research::transition::SheetResult& sheet) {
+    kernel::ViewerMesh result;
+    const auto line=[&](kernel::Vec3 a,kernel::Vec3 b) {
+        kernel::ViewerEdge edge;edge.points={a,b};result.edges.push_back(std::move(edge));
+    };
+    for(const auto& panel:sheet.panels) {
+        const auto thickness=mul(panel.inward,sheet.thickness);
+        for(std::size_t i=0;i<panel.outer.size();++i) {
+            const auto a=panel.outer[i],b=panel.outer[(i+1)%panel.outer.size()];
+            line(a,b);line(add(a,thickness),add(b,thickness));line(a,add(a,thickness));
+        }
+    }
+    for(const auto& bend:sheet.bends) {
+        if(bend.sections.empty())continue;
+        for(std::size_t corner=0;corner<4;++corner) {
+            kernel::ViewerEdge edge;
+            for(const auto& section:bend.sections)edge.points.push_back(section[corner]);
+            result.edges.push_back(std::move(edge));
+            for(const auto* section:{&bend.sections.front(),&bend.sections.back()})
+                line((*section)[corner],(*section)[(corner+1)%4]);
+        }
+    }
+    return result;
 }
 }
 ContainerOrigin sheet_transition_end_origin(const HistoryContainer& feature) {
@@ -109,7 +134,42 @@ kernel::ViewerReferenceGeometry sheet_transition_end_references(const HistoryCon
     for(auto& e:result.edges)for(auto& p:e.points)p=point(p);
     for(auto& p:result.points)p.position=point(p.position);
     for(auto& axis:result.axes){axis.point=point(axis.point);axis.direction=vector(axis.direction);}
+    const auto plane=sheet_transition_profile_plane(feature);
+    const auto offset=static_cast<std::uint32_t>(result.vertices.size());
+    result.vertices.insert(result.vertices.end(),plane.vertices.begin(),plane.vertices.end());
+    for(auto index:plane.triangles)result.triangles.push_back(offset+index);
+    result.triangle_references.insert(result.triangle_references.end(),plane.triangle_references.begin(),plane.triangle_references.end());
     return result;
+}
+kernel::ViewerReferenceGeometry sheet_transition_profile_plane(const HistoryContainer& source) {
+    auto feature=source;reframe_sheet_transition(feature);
+    const auto& data=feature.sheet_transition.sketches[0];
+    const auto sketch=sketcher::Sketch::from_serialized(data);
+    const auto center=sheet_transition_axis_points(feature)[1].position;
+    kernel::ViewerReferenceGeometry result;
+    for(const auto [x,y]:std::array<std::pair<double,double>,4>{{{-20,-20},{20,-20},{20,20},{-20,20}}})
+        result.vertices.push_back(add(center,add(mul(sketch.resolved_x_axis,x),mul(sketch.resolved_y_axis,y))));
+    result.triangles={0,1,2,0,2,3};
+    result.triangle_references.assign(2,{feature.id,"plane:end",{}});
+    return result;
+}
+std::array<kernel::ViewerPoint,2> sheet_transition_axis_points(const HistoryContainer& source,bool editing) {
+    auto feature=source;reframe_sheet_transition(feature);
+    const auto first=sketcher::Sketch::from_serialized(feature.sheet_transition.sketches[1]);
+    const auto second=sketcher::Sketch::from_serialized(feature.sheet_transition.sketches[0]);
+    kernel::Vec3 start,end;
+    if(rectangular_sheet_transition(feature)) {
+        const auto model=research::transition::read_rectangular_sketches(first,second).model;
+        start=model.first_origin.origin;end=model.first_origin.point(model.second_relative.origin);
+    }else {
+        const auto model=research::transition::read_sketches(second,first).model;
+        start=model.first_origin.point(model.second_relative.origin);end=model.first_origin.origin;
+    }
+    auto a=container_origin_marker(feature,editing),b=a;
+    a.position=start;b.position=end;
+    a.reference.semantic_key="axis:start";b.reference.semantic_key="axis:end";
+    b.label.clear(); // The feature name labels the pair only once.
+    return {a,b};
 }
 kernel::ViewerMesh sheet_transition_preview(const HistoryContainer& source) {
     auto feature=source;reframe_sheet_transition(feature);kernel::ViewerMesh result;
@@ -117,36 +177,27 @@ kernel::ViewerMesh sheet_transition_preview(const HistoryContainer& source) {
     for(unsigned i=0;i<2;++i) {
         sketches[i]=sketcher::Sketch::from_serialized(feature.sheet_transition.sketches[i]);
         auto mesh=sketches[i].viewer_mesh();
-        if(rectangular_sheet_transition(feature))for(auto& edge:mesh.edges)
-            edge.preview_terminal_dashed=edge.construction;
+        std::erase_if(mesh.edges,[](const auto& edge){return edge.construction;});
         result.edges.insert(result.edges.end(),mesh.edges.begin(),mesh.edges.end());
         const auto& s=sketches[i];const auto origin=s.plane_reference_owner_id;
         for(const auto& [axis,direction]:std::array<std::pair<const char*,kernel::Vec3>,3>{{{"x",s.resolved_x_axis},{"y",s.resolved_y_axis},{"z",s.resolved_normal}}}) {
             kernel::ViewerEdge edge;edge.points={s.resolved_origin,add(s.resolved_origin,mul(direction,20))};edge.reference={origin,std::string("origin:axis:")+axis,{}};result.edges.push_back(std::move(edge));
         }
     }
-    // Disposable ZIMA surface edges only; no kernel calculation during placement.
+    // Disposable ZIMA wire only; no kernel calculation during placement.
     try {
         kernel::ViewerMesh surface;
+        const research::transition::SheetOptions options{feature.sheet_transition.thickness,
+            feature.sheet_transition.inside_radius,feature.sheet_transition.k_factor};
         if(rectangular_sheet_transition(feature)) {
             const auto input=research::transition::read_rectangular_sketches(sketches[1],sketches[0]);
-            surface=research::transition::mesh(research::transition::calculate(input.model));
-            // Complete the authored envelope without implying an extra wall.
-            // A corner shared with an active wall already has a solid generator.
-            if(input.model.sides==2) {
-                kernel::ViewerEdge missing;
-                const auto& model=input.model;
-                missing.points={model.first_origin.point({-model.width[0]/2,-model.depth[0]/2,0}),
-                    model.first_origin.point(model.second_relative.point({-model.width[1]/2,-model.depth[1]/2,0}))};
-                missing.preview_terminal_dashed=true;
-                result.edges.push_back(std::move(missing));
-            }
+            surface=transition_material_wire(research::transition::manufacture(input.model,options));
         }else {
             auto input=research::transition::read_sketches(sketches[0],sketches[1]);input.model.corner_facets={feature.sheet_transition.facets[0],feature.sheet_transition.facets[1]};
-            surface=research::transition::mesh(research::transition::calculate(input.model));
+            surface=transition_material_wire(research::transition::manufacture(input.model,options));
         }
         result.edges.insert(result.edges.end(),surface.edges.begin(),surface.edges.end());
-    }catch(const std::exception&){}
+    }catch(const std::exception&){throw;}
     return result;
 }
 kernel::HistoryOperation sheet_transition_operation(const PartDocument&,const HistoryContainer& feature) {
@@ -176,6 +227,13 @@ kernel::HistoryOperation sheet_transition_operation(const PartDocument&,const Hi
     for(const auto& parent:parents)ancestry+=":"+std::to_string(parent.size())+":"+parent;
     const auto remap=[&](std::string& id){if(!id.empty())id="transition:"+feature.feature_id+":"+id+ancestry;};
     auto& group=std::get<kernel::FeatureGroupRequest>(operation.primitive);
+    const auto end_plane=sheet_transition_profile_plane(framed);
+    group.reference_planes.push_back({end_plane.triangle_references.front(),
+        {end_plane.vertices[0],end_plane.vertices[1],end_plane.vertices[2],end_plane.vertices[3]}});
+    for(auto point:sheet_transition_axis_points(framed)) {
+        point.label.clear();point.always_visible=false;
+        group.reference_points.push_back(std::move(point));
+    }
     // Profile centres come from authored Sketch geometry, not result topology.
     // Use the existing primary-axis identity and persisted reference pipeline.
     const auto delta=sub(round_center,rectangle_center);

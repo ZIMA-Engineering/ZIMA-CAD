@@ -540,7 +540,7 @@ void SheetRenderer::paint_sheet(QPainter& painter,double zoom,QPointF origin,boo
                 const auto color=annotation_color(key,evaluation.state==drawing::MeasurementState::Unresolved?QColor("#C62828"):printing?ink:QColor("#FFD400"),printing);
                 const auto text=datum?QStringLiteral("0"):viewer::dimension_render_text(dimension.style,QString::fromStdString(drawing::drawing_dimension_text(dimension,source,evaluation.state==drawing::MeasurementState::Unresolved)));
                 auto layout=chain?chain_dimension_layout(source,screen,painter.font(),text,zoom,datum):
-                    viewer::dimension_text_presentation(source,screen,painter.font(),text,.5*zoom,width(false),2.5*zoom,.75*zoom,index<evaluation.angular_leaders.size()&&evaluation.angular_leaders[index]);
+                    viewer::dimension_text_presentation(source,screen,painter.font(),text,.5*zoom,width(false),2.5*zoom,.75*zoom,index<evaluation.angular_leaders.size()&&evaluation.angular_leaders[index],1.5*zoom);
                 if(!layout.valid)continue;
                 if(dimension.kind==drawing::DrawingDimensionKind::Linear||chain) {
                     auto edits=dimension.segments[segment].witness_edits;

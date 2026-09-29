@@ -128,6 +128,29 @@ bool assign_placement_dimension(document::ConstructionObject& value,
         {&value.rotation_offset_x, &value.rotation_offset_y, &value.rotation_offset_z},
         value.references, value.value_locks, "placement:"}, geometry, key, number);
 }
+bool assign_placement_dimension(document::HistoryContainer& container,
+    const kernel::ViewerReferenceGeometry& geometry,std::string_view key,double number) {
+    if(container.feature_kind!=document::FeatureKind::Feature || container.feature.type!=document::FeatureType::Point)
+        return assign_placement_dimension(container.placement,geometry,key,number);
+    auto effective=container.placement;
+    const auto derived=document::point_circle_plane_offsets(effective.references,geometry);
+    for(std::size_t i=0;i<derived.size();++i)if(derived[i]) {
+        effective.references[i].offset=*derived[i];effective.references[i].offset_locked=true;
+    }
+    const bool suspend_branch=std::ranges::any_of(derived,[](const auto& d){return d.has_value();}) &&
+        document::point_constraint_state(effective.references,geometry,{effective.x,effective.y,effective.z}).remaining_dof>0;
+    if(suspend_branch)for(auto& ref:effective.references){ref.solution_branch=0;ref.branch_sources.clear();}
+    if(!assign_placement_dimension(effective,geometry,key,number))return false;
+    for(std::size_t i=0;i<derived.size();++i)if(derived[i]) {
+        effective.references[i].offset=container.placement.references[i].offset;
+        effective.references[i].offset_locked=container.placement.references[i].offset_locked;
+    }
+    if(suspend_branch)for(std::size_t i=0;i<effective.references.size();++i) {
+        effective.references[i].solution_branch=container.placement.references[i].solution_branch;
+        effective.references[i].branch_sources=container.placement.references[i].branch_sources;
+    }
+    container.placement=std::move(effective);return true;
+}
 void commit_part_parameter_edit(PartState& part, const kernel::OcctKernel& kernel,
     document::PartDocument next, const std::string& owner, bool parameter,
     const PartCalculationPolicy& policy) {
@@ -294,7 +317,7 @@ bool set_placement_values(Workspace& live, const kernel::OcctKernel& kernel,
             next.body_history.update_body(std::move(body));
         } else {
             auto* value = next.find_container(object);
-            apply_values(value->placement, geometry, patch);
+            apply_values(*value, geometry, patch);
             if (value->placement == info.placement) return false;
         }
         PartCalculationPolicy policy; policy.reject_errors = true;

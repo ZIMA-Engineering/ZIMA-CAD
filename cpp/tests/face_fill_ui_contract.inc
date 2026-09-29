@@ -34,6 +34,12 @@ static void verify_face_fill(QApplication& application,QWidget& parent) {
     move({2,2});view.clear_selection();view.set_inspected_faces({{viewer::CandidateKind::Face,0,0,"solid","left",{},viewer::CandidateGeometry::OriginalReference}});
     application.processEvents();require(pixel(view.grabFramebuffer(),left)==s,"Face inspection does not use the confirmed azure fill");
     view.set_inspected_faces({});view.clear_selection();
+    view.set_constraint_reference_highlights({},{{"solid","left",{}}});application.processEvents();
+    const auto reference=view.grabFramebuffer();
+    require(pixel(reference,left)==s,"Placement reference eye retained the obsolete wire-only face highlight");
+    require(pixel(reference,right)==pixel(idle,right),"Placement reference eye tinted a sibling face");
+    view.set_constraint_reference_highlights({},{});application.processEvents();
+    require(pixel(view.grabFramebuffer(),left)==pixel(idle,left),"Ending placement inspection retained the face fill");
     for(auto& reference:mesh.triangle_references)reference.semantic_key="plane";
     mesh.original_references.triangle_references=mesh.triangle_references;view.set_mesh(mesh,false);
     const auto plane_idle=view.grabFramebuffer();

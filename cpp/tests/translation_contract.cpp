@@ -1,6 +1,7 @@
 #include <QCheckBox>
 #include <QLabel>
 #include <QTableWidget>
+#include <QVBoxLayout>
 #include "application_settings.hpp"
 #include "document_tools_dialogs.hpp"
 #include "construction_properties_dialog.hpp"
@@ -15,6 +16,7 @@
 #include "symbol_family_dialog.hpp"
 #include "mass_properties_dialog.hpp"
 #include "dimension_properties_fields.hpp"
+#include "component_properties_dialog.hpp"
 #include <QAction>
 #include <QApplication>
 #include <QDialogButtonBox>
@@ -112,6 +114,14 @@ int verify_translations(QApplication& application, QWidget& parent) {
         check(settings.translations.contains("global.language") &&
             !settings.translations.contains("Zamknout hodnotu"), "INI sections were mixed");
         app::apply_application_translations(application, settings);
+        {
+            assembly::PartOccurrence occurrence;occurrence.name="Source";
+            app::ComponentPropertiesDialog dialog(occurrence,[](auto){},&parent);
+            dialog.setAttribute(Qt::WA_DeleteOnClose,false);
+            auto* option=dialog.findChild<QCheckBox*>("componentBomIgnoreVariant");
+            check(option&&option->text()==settings.qt_translations.value("V kusovníku ignorovat variantu"),"Component BOM option is untranslated");
+            check(option->toolTip()==settings.qt_translations.value("Použít název zdrojového souboru a sloučit jeho označené varianty do jedné položky kusovníku. Strom a geometrie se nemění."),"Component BOM tooltip is untranslated");
+        }
         {
             document::FamilyTable model;model.instances={{"Base",{},"stable-row",false,{{"en","English label"},{"cs","Cesky popisek"}}}};
             app::DocumentToolData data;data.family_table=document::serialize_family_table(model);
@@ -396,6 +406,23 @@ int verify_translations(QApplication& application, QWidget& parent) {
             const auto* basic=fields.findChild<QCheckBox*>("dimensionBasic");
             check(basic&&basic->text()==settings.qt_translations.value("Teoreticky přesná kóta (rámeček)"),"Basic dimension label is untranslated");
             check(basic->toolTip()==settings.qt_translations.value("Teoreticky přesná kóta nemá rozměrové tolerance. Platí i pro úhly, poloměry a průměry."),"Basic dimension tooltip is untranslated");
+        }
+        {
+            QWidget owner(&parent);QVBoxLayout layout(&owner);
+            ui::ContainerPlacementSection section(&owner,&layout,true);
+            auto sketch=sketcher::Sketch::create_default();static_cast<void>(sketch.add_circle(0,0,10));
+            auto geometry=sketch.placement_reference_geometry();
+            auto plane=std::make_shared<kernel::SurfaceGeometry>();plane->axis={0,0,1};
+            geometry.triangle_references.push_back({"plane","face",{},plane});
+            const auto edge=geometry.edges.front().reference;
+            section.initialize_from_references({{{},edge.owner_id,edge.semantic_key},{{},"plane","face",7,true}},[](const auto& key){return QString::fromStdString(key);});
+            section.set_point_circle_plane_policy(true);
+            section.set_branch_geometry_resolver([&]() -> const kernel::ViewerReferenceGeometry& {return geometry;});
+            section.refresh_reference_table();
+            const auto text=settings.qt_translations.value("Vzdálenost je daná kružnicí. Původní hodnota se obnoví při naklonění roviny.");
+            bool found=false;for(auto* field:owner.findChildren<QDoubleSpinBox*>())
+                if(field->property("pointCircleDerivedOffset").toBool()){check(field->isReadOnly() && field->toolTip()==text,"Derived circle plane tooltip untranslated");found=true;}
+            check(found,"Derived circle plane UI missing in language test");
         }
         std::cout << "Translations verified: " << languages[language].toStdString() << '\n';
     }

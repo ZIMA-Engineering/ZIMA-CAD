@@ -519,6 +519,13 @@ struct HelicalSweepParameters {
     zima::kernel::Vec3* base_rotation = nullptr,
     bool* orientation_from_reference = nullptr);
 
+// Point-only policy: a plane parallel to the first circular reference has a
+// derived distance. Authored offsets remain persisted for a later tilt.
+[[nodiscard]] std::vector<std::optional<double>> point_circle_plane_offsets(
+    const std::vector<ConstructionReference>&, const kernel::ViewerReferenceGeometry&);
+[[nodiscard]] bool resolve_point_placement(Placement&, const kernel::ViewerReferenceGeometry&,
+    kernel::Vec3* base_rotation = nullptr, bool* orientation_from_reference = nullptr);
+
 struct HolesParameters {
     std::string sketch_id;
     double diameter{5.0};

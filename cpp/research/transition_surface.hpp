@@ -16,6 +16,10 @@ struct Options {
     std::size_t facets{4}; // Four faces, three internal folds, endpoint tangency.
     double linear_tolerance{1e-7};
     double deviation_resolution{0.1}; // Maximum sampling step in mm, not model tolerance.
+    // Faceted approximation only: keep both rims' endpoints and the second
+    // rim's endpoint tangents. The first rim's endpoint tangency may differ;
+    // its actual boundary deviation is still measured and reported.
+    bool second_rim_endpoint_planes{};
 };
 enum class Failure {
     None, InvalidInput, IncompatibleEndpoints, AmbiguousCorrespondence,

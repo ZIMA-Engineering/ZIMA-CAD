@@ -101,6 +101,13 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
     rejected({{"instance_path",path(first)},{"placement_references",Json::array({cycle})}});
     const auto edit=workspace::prepare_component_edit(live,id,second);set(second,{{"name","Updated"}});
     bool stale=false;try{static_cast<void>(workspace::commit_component_properties(live,edit,edit.initial));}catch(const workspace::ComponentOperationError& e){stale=std::string(e.code)=="document_changed";}require(stale,"Stale Properties accepted");
+    const auto bom_packet=current(second).calculated_source;
+    const auto bom_placement=current(second).placement;
+    set(second,{{"bom_ignore_variant",true}});
+    require(current(second).bom_ignore_variant&&current(second).placement==bom_placement&&current(second).calculated_source.shares_with(bom_packet),
+        "BOM option recalculated placement or geometry");
+    run(host,"undo");require(!current(second).bom_ignore_variant,"BOM option did not undo");
+    run(host,"redo");require(current(second).bom_ignore_variant,"BOM option did not redo");
     run(host,"save");const auto native=assembly::AssemblyDocument::load(dir/"properties.asmz");
     require(workspace::component_properties(*native.find_occurrence(second))==workspace::component_properties(current(second)),"Native file lost component properties");
     near(native.find_occurrence(second)->calculated_source->volume,6000);

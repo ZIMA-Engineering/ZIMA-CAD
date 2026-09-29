@@ -32,6 +32,7 @@ public:
         for(int column:{0,1,3}){table_->horizontalHeader()->setSectionResizeMode(column,QHeaderView::Fixed);table_->setColumnWidth(column,34);}
         table_->horizontalHeader()->setSectionResizeMode(2,QHeaderView::Stretch);
         for(int row=0;row<4;++row) {
+            inspected_[row]=!pending.boundary_surface.boundaries[row].owner_id.empty();
             table_->setRowHeight(row,34);table_->setItem(row,0,new QTableWidgetItem(QString::number(row+1)));
             auto* indicator=ui::build_reference_row_indicator([this,row]{pending.boundary_surface.boundaries[row]={};inspected_[row]=false;active_=row;refresh();notify();});
             indicator->findChild<QPushButton*>()->setToolTip(tr("Vymazat hranici; řádek zůstane zachován"));table_->setCellWidget(row,1,indicator);
@@ -50,7 +51,7 @@ public:
     void set_boundary(document::BoundaryCurveSource source){
         if(active_<0)return;
         for(int row=0;row<4;++row)if(row!=active_&&pending.boundary_surface.boundaries[row]==source)return;
-        pending.boundary_surface.boundaries[active_]=std::move(source);inspected_[active_]=false;
+        pending.boundary_surface.boundaries[active_]=std::move(source);inspected_[active_]=true;
         active_=-1;for(int i=0;i<4;++i)if(pending.boundary_surface.boundaries[i].owner_id.empty()){active_=i;break;}
         refresh();notify();
     }

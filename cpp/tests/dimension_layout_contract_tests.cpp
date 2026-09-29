@@ -254,6 +254,8 @@ int main(int argc, char **argv) {
             angle.line_first=angle.line_second={10,0,0};angle.sweep_degrees=0;
             const auto shown=viewer::dimension_presentation(angle,[](kernel::Vec3 p){return QPointF(p.x*5,-p.y*5);},25);
             require(shown.valid,"Zero angle disappeared");
+            near(QLineF(shown.curves[0].back(),shown.handles[1]).length(),1.5);
+            near(QLineF(shown.curves[1].back(),shown.handles[2]).length(),1.5);
             for(const auto& arrow:shown.arrows)near(arrow.second.x(),0);
         }
         {
@@ -344,6 +346,13 @@ int main(int argc, char **argv) {
                 return QPointF((p.x - p.y) * 7, (-p.x - p.y) * 3.5 - p.z * 7);
             };
             auto centered = viewer::dimension_presentation(d, front, 50);
+            near(QLineF(centered.curves[0].back(),centered.handles[1]).length(),1.5);
+            near(QLineF(centered.curves[1].back(),centered.handles[2]).length(),1.5);
+            require(centered.curves[0].back().y()<centered.handles[1].y(),"Witness overrun is on the wrong side of the arrow");
+            for(double zoom:{.5,2.,10.}) {
+                const auto paper=viewer::dimension_presentation(d,[&](kernel::Vec3 p){return QPointF(p.x*zoom,-p.y*zoom);},5,2.5*zoom,.75*zoom,false,{},1.5*zoom);
+                near(QLineF(paper.curves[0].back(),paper.handles[1]).length()/zoom,1.5);
+            }
             require(centered.valid && !centered.oblique && !centered.outside,
                     "Normal dimension did not center its label");
             near(centered.handles[0].x(), 100);

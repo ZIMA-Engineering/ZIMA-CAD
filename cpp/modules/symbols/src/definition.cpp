@@ -190,7 +190,8 @@ kernel::ViewerMesh instance_mesh(const sketcher::SymbolInstance& instance,const 
             for(auto& p:edge.points){const double x=(p.x-d.insertion_point[0])*instance.scale,y=(p.y-d.insertion_point[1])*instance.scale;p={instance.x+c*x-s*y,instance.y+s*x+c*y,0};}
             const auto separator=key.find(':');
             const auto curve=separator==std::string::npos?key:key.substr(separator+1);
-            const auto pen=d.pens.contains(sketch.id)&&d.pens.at(sketch.id).contains(curve)?d.pens.at(sketch.id).at(curve):(d.reference_line_layout&&sketch.id==d.id+":reference-line"?"yellow":"white");
+            const bool tolerance_frame=d.id.starts_with("ze:geometric-tolerance:")&&curve.starts_with(sketch.id+":frame:");
+            const auto pen=d.pens.contains(sketch.id)&&d.pens.at(sketch.id).contains(curve)?d.pens.at(sketch.id).at(curve):(tolerance_frame||(d.reference_line_layout&&sketch.id==d.id+":reference-line")?"yellow":"white");
             const bool text=key.starts_with("text:");
             const std::string text_color=key.ends_with(":green")?"#4DD811":key.ends_with(":yellow")?"#F5CD50":key.ends_with(":red")?"#FF0000":"#FFFFFF";
             edge.reference={instance.id,"symbol:"+instance.id,{}};edge.overlay=true;edge.exact_spline.reset();

@@ -167,7 +167,7 @@ void properties(Feature& value, const Json& args, const workspace::Workspace& li
         const auto geometry=workspace::placement_edit_geometry(live,document,value.id);
         for(const auto& [key,v]:args.at("placement").items()) {
             if(!v.is_number()||!std::isfinite(v.get<double>()))throw Error("invalid_arguments","Placement parameters must be finite JSON numbers.");
-            if(!workspace::assign_placement_dimension(value.placement,geometry,key,v.get<double>()))
+            if(!workspace::assign_placement_dimension(value,geometry,key,v.get<double>()))
                 throw Error("parameter_not_editable","The placement parameter is unknown, constrained or locked.");
         }
     }

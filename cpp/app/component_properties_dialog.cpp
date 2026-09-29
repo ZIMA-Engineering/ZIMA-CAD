@@ -195,6 +195,11 @@ ComponentPropertiesDialog::ComponentPropertiesDialog(
     variant_->setVisible(false);
     identity_layout->addWidget(variant_);
     form->addRow(identity);
+    bom_ignore_variant_ = new QCheckBox(tr("V kusovníku ignorovat variantu"), this);
+    bom_ignore_variant_->setObjectName("componentBomIgnoreVariant");
+    bom_ignore_variant_->setChecked(initial.bom_ignore_variant);
+    bom_ignore_variant_->setToolTip(tr("Použít název zdrojového souboru a sloučit jeho označené varianty do jedné položky kusovníku. Strom a geometrie se nemění."));
+    form->addRow(bom_ignore_variant_);
     const auto placement = [this](double value, bool angular) {
         auto* field = new QDoubleSpinBox(this);
         field->setRange(angular ? -180.0 : -1'000'000.0,
@@ -762,6 +767,7 @@ void ComponentPropertiesDialog::refresh_placement_table() {
 
 zima::assembly::PartOccurrence ComponentPropertiesDialog::current_value() const {
     auto result = initial_;
+    result.bom_ignore_variant = bom_ignore_variant_->isChecked();
     result.placement = {
         translation_[0]->value(), translation_[1]->value(), translation_[2]->value(),
         rotation_[0]->value(), rotation_[1]->value(), rotation_[2]->value(),

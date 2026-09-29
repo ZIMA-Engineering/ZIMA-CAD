@@ -1,4 +1,6 @@
 {
+"Vzdálenost je daná kružnicí. Původní hodnota se obnoví při naklonění roviny.":"Расстояние определяется окружностью. При наклоне плоскости исходное значение восстанавливается.",
+"V kusovníku ignorovat variantu":"Игнорировать вариант в спецификации","Použít název zdrojového souboru a sloučit jeho označené varianty do jedné položky kusovníku. Strom a geometrie se nemění.":"Использовать имя исходного файла и объединять отмеченные варианты в одну позицию спецификации. Дерево и геометрия не изменяются.",
   "Teoreticky přesná kóta (rámeček)": "Теоретически точный размер (рамка)",
   "Teoreticky přesná kóta nemá rozměrové tolerance. Platí i pro úhly, poloměry a průměry.": "Теоретически точный размер не имеет размерных допусков. Это также относится к углам, радиусам и диаметрам.",
   "Surface draft requires a closed profile.": "Для уклона поверхности требуется замкнутый профиль.",

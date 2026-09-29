@@ -68,14 +68,16 @@ std::vector<zima::drawing::BomRow> build_bom_rows_for_source(
     if (assembly == nullptr && !source_path.empty() && source_extension(source_path) == ".asmz") {
         loaded = read_family_assembly(workspace,source_path,source_id); assembly = &*loaded;
     }
-    const auto append=[&](const std::string& id,std::filesystem::path path,const std::string& name,const std::string& occurrence) {
+    const auto append=[&](const std::string& id,std::filesystem::path path,const std::string& name,const std::string& occurrence,bool ignore_variant=false) {
         if(!path.empty()&&path.is_relative()&&!source_path.empty())path=source_path.parent_path()/path;
-        const auto key=id+"|"+zima::document::path_to_utf8(path.lexically_normal());
+        const auto source=ignore_variant?id.substr(0,id.find(":family:")):id;
+        const auto key=ignore_variant ? "file:"+zima::document::path_to_utf8(path.filename())
+            : id+"|"+zima::document::path_to_utf8(path.lexically_normal());
         const auto existing=std::ranges::find(bom,key,&zima::drawing::BomRow::designation);
         if(existing!=bom.end()){++existing->quantity;existing->occurrence_paths.push_back(occurrence);return;}
-        auto context=build_title_block_context_for_source(id,path,workspace);
-        zima::drawing::BomRow row{static_cast<int>(bom.size()+1),1,name.empty()?context.file_stem:name,key,{}};
-        row.source_document_id=id;row.source_path=path;row.occurrence_paths.push_back(occurrence);
+        auto context=build_title_block_context_for_source(source,path,workspace);
+        zima::drawing::BomRow row{static_cast<int>(bom.size()+1),1,ignore_variant||name.empty()?context.file_stem:name,key,{}};
+        row.source_document_id=source;row.source_path=path;row.occurrence_paths.push_back(occurrence);
         row.mass_unit=context.mass_unit;
         row.file_stem=context.file_stem;row.parameters=std::move(context.parameters);
         row.parameter_values=std::move(context.parameter_values);row.parameter_aliases=std::move(context.parameter_aliases);
@@ -84,7 +86,7 @@ std::vector<zima::drawing::BomRow> build_bom_rows_for_source(
     if(assembly) {
         const auto suppressed=assembly->effectively_suppressed_occurrences();
         for(const auto& component:assembly->components)if(!assembly::is_skeleton(component)&&!suppressed.contains(component.occurrence_id))
-            append(component.source_document_id,component.source_path,component.name,assembly::InstancePath{}.child(component.occurrence_id).encoded());
+            append(component.source_document_id,component.source_path,component.name,assembly::InstancePath{}.child(component.occurrence_id).encoded(),component.bom_ignore_variant);
     }
     else if((workspace&&workspace->open_part(source_id))||source_extension(source_path)==".prtz")
         append(source_id,!source_path.empty()&&source_path.is_relative()?std::filesystem::absolute(source_path):source_path,zima::document::path_to_utf8(source_path.stem()),{});

@@ -40,6 +40,7 @@ class ContainerPlacementSection : public QObject {
 public:
     using GeometryResolver = std::function<const zima::kernel::ViewerReferenceGeometry&()>;
     void set_branch_geometry_resolver(GeometryResolver resolver);
+    void set_point_circle_plane_policy(bool enabled);
     void set_branch_request_callback(std::function<void(bool)> callback) { branch_request_=std::move(callback); }
     [[nodiscard]] std::vector<zima::document::Placement> solution_branches() const;
     void select_solution_branch(const zima::document::Placement&);
@@ -209,6 +210,8 @@ public:
     bool set_reference_offset(std::size_t populated_index, double value);
 
 private:
+    bool point_circle_plane_policy_{};
+    void refresh_derived_offsets();
     GeometryResolver branch_geometry_;
     std::function<void(bool)> branch_request_;
     QTableWidget* branch_table_{};
@@ -223,6 +226,8 @@ private:
     // remain untouched. Display precision must not quantize a surface hit.
     std::array<std::optional<std::pair<double,double>>,3> picked_translation_values_{};
     QWidget* parent_widget_;
+    bool placement_confirmation_blocked_{};
+    bool placement_previous_ok_enabled_{};
     bool with_orientation_;
     bool position_rows_can_define_rotation_;
     int decimal_places_{3};

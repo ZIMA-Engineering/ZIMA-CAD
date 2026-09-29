@@ -117,7 +117,7 @@ int main()try {
         tilted.second_relative.z={std::sin(y)*std::cos(x),-std::sin(x),std::cos(y)*std::cos(x)};
         std::cout<<"Combined tilt "<<x<<", "<<y<<std::endl;
         const auto made=manufacture(tilted,options);
-        if(x!=0)check_reliefs(made);
+        if(calculate(tilted).faces.size()>11)check_reliefs(made);
         const auto combined=sheet_operation(made,"combined");
         std::cout<<"Direct developed combined tilt"<<std::endl;
         check_solid(kernel.evaluate_history({{"direct-flat",sheet_request(made,true)}}).back());

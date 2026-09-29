@@ -1,6 +1,7 @@
 #include <zima/ui/numeric_value_lock.hpp>
 #include <zima/document/placement_reference_assignment.hpp>
 #include <zima/document/placement_surface.hpp>
+#include <zima/document/placement_mesh_surface.hpp>
 #include "zima/ui/container_placement_section.hpp"
 #include <zima/ui/properties_subwindow.hpp>
 
@@ -10,6 +11,7 @@
 #include <QColor>
 #include <QComboBox>
 #include <QDoubleSpinBox>
+#include <QDialogButtonBox>
 #include <QHeaderView>
 #include <QFormLayout>
 #include <QGridLayout>
@@ -419,6 +421,22 @@ void ContainerPlacementSection::set_orientation_base_rotation(
 
 void ContainerPlacementSection::set_resolved_rotation(
         const zima::kernel::Vec3& value, bool valid) {
+    // Failed references must not be committed, regardless of whether the
+    // source is a general face, an analytic face or a curve. Preserve each
+    // dialog's other existing confirmation rules.
+    for(auto* owner=parent_widget_;owner;owner=owner->parentWidget()) {
+        auto* properties=dynamic_cast<PropertiesSubWindow*>(owner);if(!properties)continue;
+        auto* ok=properties->buttons()->button(QDialogButtonBox::Ok);if(!ok)break;
+        if(!valid) {
+            if(!placement_confirmation_blocked_)placement_previous_ok_enabled_=ok->isEnabled();
+            placement_confirmation_blocked_=true;ok->setEnabled(false);
+            reference_status_->setText(tr("Navržené reference umístění prvku nelze vyřešit."));
+        } else if(placement_confirmation_blocked_) {
+            placement_confirmation_blocked_=false;ok->setEnabled(placement_previous_ok_enabled_);
+            set_remaining_translation_dof(remaining_translation_dof_);
+        }
+        break;
+    }
     if (!valid) return;
     resolved_rotation_values_ = {value.x, value.y, value.z};
     refresh_rotation_field_states();
@@ -619,7 +637,8 @@ bool ContainerPlacementSection::set_reference(std::size_t index,
         bool curved=surface && surface->kind!=zima::kernel::SurfaceGeometry::Kind::Plane;
         if(!curved && branch_geometry_) {
             const auto& ref=references_[0];
-            curved=std::ranges::any_of(branch_geometry_().edges,[&](const auto& edge) {
+            const auto& geometry=branch_geometry_();
+            curved=zima::document::placement_mesh::is_surface(ref,geometry) || std::ranges::any_of(geometry.edges,[&](const auto& edge) {
                 return edge.exact_spline && edge.exact_spline->degree>1 &&
                     edge.reference.owner_id==ref.owner_id && edge.reference.semantic_key==ref.semantic_key &&
                     edge.reference.instance_path==ref.instance_path;
@@ -780,18 +799,56 @@ void ContainerPlacementSection::toggle_orientation_highlight(std::size_t row) {
 void ContainerPlacementSection::set_branch_geometry_resolver(GeometryResolver resolver) {
     branch_geometry_=std::move(resolver);refresh_solution_branch();
 }
+void ContainerPlacementSection::set_point_circle_plane_policy(bool enabled) {
+    if(point_circle_plane_policy_==enabled)return;
+    point_circle_plane_policy_=enabled;refresh_solution_branch();
+}
+void ContainerPlacementSection::refresh_derived_offsets() {
+    if(!branch_geometry_)return;
+    const auto derived=point_circle_plane_policy_
+        ? zima::document::point_circle_plane_offsets(references_,branch_geometry_())
+        : std::vector<std::optional<double>>(references_.size());
+    for(std::size_t i=0;i<references_.size() && i<reference_offset_fields_.size();++i) {
+        auto* field=reference_offset_fields_[i];
+        if(!field || (references_[i].owner_id.empty() && references_[i].semantic_key.empty()))continue;
+        const QSignalBlocker block(field);
+        const bool was_derived=field->property("pointCircleDerivedOffset").toBool();
+        if(derived[i] || was_derived) {
+            field->setValue(derived[i].value_or(references_[i].offset));
+            field->setReadOnly(derived[i].has_value() || references_[i].offset_locked);
+            if(auto* lock=field->findChild<QToolButton*>("numericValueLockButton"))lock->setEnabled(!derived[i]);
+            field->setProperty("pointCircleDerivedOffset",derived[i].has_value());
+            field->setToolTip(derived[i] ? tr("Vzdálenost je daná kružnicí. Původní hodnota se obnoví při naklonění roviny.") : QString{});
+        }
+    }
+}
 std::vector<zima::document::Placement> ContainerPlacementSection::solution_branches() const {
     if(!branch_geometry_)return {};
     auto p=numeric_placement();p.references=combined_references(3);
+    if(point_circle_plane_policy_) {
+        const auto derived=zima::document::point_circle_plane_offsets(p.references,branch_geometry_());
+        for(std::size_t i=0;i<derived.size();++i)if(derived[i])p.references[i].offset=*derived[i];
+    }
     return zima::document::placement_solution_branches(std::move(p),branch_geometry_());
 }
 void ContainerPlacementSection::refresh_solution_branch() {
     if(!branch_geometry_)return;
+    refresh_derived_offsets();
     const auto p=numeric_placement();
-    zima::document::initialize_placement_solution_branch(references_,branch_geometry_(),{p.x,p.y,p.z});
+    auto effective=references_;
+    if(point_circle_plane_policy_) {
+        const auto derived=zima::document::point_circle_plane_offsets(effective,branch_geometry_());
+        for(std::size_t i=0;i<derived.size();++i)if(derived[i])effective[i].offset=*derived[i];
+    }
+    zima::document::initialize_placement_solution_branch(effective,branch_geometry_(),{p.x,p.y,p.z});
+    for(std::size_t i=0;i<references_.size();++i) {
+        references_[i].solution_branch=effective[i].solution_branch;
+        references_[i].branch_sources=effective[i].branch_sources;
+    }
     const bool selected=std::ranges::any_of(references_,[](const auto& ref){return ref.solution_branch!=0;});
-    branch_table_->setVisible(selected || !solution_branches().empty());
-    branch_eye_->setEnabled(selected);
+    const bool alternatives=!solution_branches().empty();
+    branch_table_->setVisible(selected || alternatives);
+    branch_eye_->setEnabled(selected || alternatives);
 }
 void ContainerPlacementSection::set_branch_entry_active(bool active) {
     if(active)set_active_reference_index(std::nullopt);
@@ -946,7 +1003,7 @@ void ContainerPlacementSection::refresh_reference_table() {
             offset->setEnabled(!missing && references_[index].supports_offset);
             connect(offset, &QDoubleSpinBox::valueChanged, this,
                 [this, index](double value) {
-                    if (index < references_.size()) {
+                    if (index < references_.size() && !reference_offset_fields_[index]->property("pointCircleDerivedOffset").toBool()) {
                         references_[index].offset = value;
                         notify_changed();
                     }
@@ -1025,6 +1082,7 @@ void ContainerPlacementSection::refresh_reference_table() {
     // Measure after populating it so the third row stays above the branch field.
     reference_table_->setFixedHeight(reference_table_->horizontalHeader()->sizeHint().height() +
         3 * reference_table_->verticalHeader()->defaultSectionSize() + reference_table_->frameWidth() * 2);
+    refresh_derived_offsets();
     apply_reference_visual_states();
 }
 

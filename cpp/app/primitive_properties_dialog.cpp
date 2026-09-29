@@ -182,6 +182,8 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
                 return readable_placement_reference_kind(semantic);
             });
         placement_->initialize_numeric_values(initial.placement);
+        placement_->set_point_circle_plane_policy(initial.feature_kind==zima::document::FeatureKind::Feature &&
+            initial.feature.type==zima::document::FeatureType::Point);
         const bool has_orientation_reference = std::any_of(
             initial.placement.references.begin(), initial.placement.references.end(),
             [](const auto& reference) {
@@ -2169,6 +2171,8 @@ void PrimitivePropertiesDialog::set_reverse_extent_and_direction(
 }
 
 void PrimitivePropertiesDialog::notify_preview() {
+    if(placement_ && feature_panel_)
+        placement_->set_point_circle_plane_policy(feature_panel_->parameters().type==zima::document::FeatureType::Point);
     if (profile_plane_ && profile_plane_changed_)
         profile_plane_changed_(static_cast<zima::sketcher::SketchPlane>(selected_work_plane(profile_plane_).toInt()), automatic_work_plane(profile_plane_));
     if (preview_) preview_(values());

@@ -10,6 +10,7 @@ std::array<double,6> coordinates(const assembly::ComponentPlacement& p){return {
 void assign(assembly::PartOccurrence& target,const ComponentProperties& value) {
     target.name=value.name;target.placement=value.placement;target.placement_references=value.references;
     target.value_locks=value.value_locks;target.visible=value.visible;target.suppressed=value.suppressed;target.grounded=value.grounded;
+    target.bom_ignore_variant=value.bom_ignore_variant;
 }
 void validate_values(const ComponentEdit& edit,const ComponentProperties& value) {
     document::validate_native_metadata_text(value.name);
@@ -62,7 +63,7 @@ void validate_references(const assembly::AssemblyDocument& doc,const ComponentEd
 }
 }
 ComponentProperties component_properties(const assembly::PartOccurrence& value) {
-    return {value.name,value.placement,value.placement_references,value.value_locks,value.visible,value.suppressed,value.grounded};
+    return {value.name,value.placement,value.placement_references,value.value_locks,value.visible,value.suppressed,value.grounded,value.bom_ignore_variant};
 }
 ComponentEdit prepare_component_edit(const Workspace& live,const std::string& id,const std::string& occurrence) {
     const auto* state=live.open_assembly(id);

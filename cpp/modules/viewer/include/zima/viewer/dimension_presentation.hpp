@@ -37,7 +37,7 @@ inline std::optional<QPointF> dimension_plane_drag(QPointF move,QPointF along,QP
 template <class Project>
 DimensionPresentation dimension_presentation(const kernel::ViewerDimension &d, Project project,
                                              double text_width, double arrow = 10, double gap = 3, bool angular_leaders = false,
-                                             const QRectF& text_bounds = {}) {
+                                             const QRectF& text_bounds = {}, double witness_extension = 1.5) {
     DimensionPresentation out;
     auto a = project(d.line_first), b = project(d.line_second);
     const auto w1 = project(d.witness_first), w2 = project(d.witness_second);
@@ -90,6 +90,10 @@ DimensionPresentation dimension_presentation(const kernel::ViewerDimension &d, P
             kernel::dimension_scale(normal, kernel::dimension_dot(offset, normal)));
     }
     QPolygonF line;
+    const auto witness=[&](QPointF start,QPointF tip) {
+        const auto delta=tip-start;const double length=std::hypot(delta.x(),delta.y());
+        out.curves.push_back({start,length>1e-9?tip+delta*(witness_extension/length):tip});
+    };
     if (angular) {
         const auto u = kernel::dimension_sub(d.line_first, d.witness_first),
                    v = kernel::dimension_cross(normal, u);
@@ -101,16 +105,16 @@ DimensionPresentation dimension_presentation(const kernel::ViewerDimension &d, P
         }
         a = line.front();
         b = line.back();
-        out.curves.push_back({w1, a});
-        out.curves.push_back({w1, b});
+        witness(w1,a);
+        witness(w1,b);
     } else if (radial) {
         b = w2;
         a = d.kind == kernel::ViewerDimensionKind::Diameter ? w1 - (b - w1) : w1;
         line = {a, b};
     } else {
         line = {a, b};
-        out.curves.push_back({w1, a});
-        out.curves.push_back({w2, b});
+        witness(w1,a);
+        witness(w2,b);
     }
     for (auto p : line)
         if (!std::isfinite(p.x()) || !std::isfinite(p.y()))

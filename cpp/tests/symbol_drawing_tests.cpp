@@ -51,6 +51,27 @@ int main(){try {
     attached_view.camera={{1,0,0},{0,1,0},{0,0,1}};attached_view.x=100;attached_view.y=80;attached_view.scale=2;
     kernel::ViewerMesh geometry;kernel::ViewerEdge edge;edge.reference={"profile","original:curve","occurrence"};edge.points={{0,0,0},{10,0,0}};geometry.edges={edge};
     drawing::capture_measurement_geometry(attached_view,geometry);sheet.views={attached_view};
+    for(const auto* name:{"ZE-SURFACE-TEXTURE-ISO1302-1978.symz","ZE-SURFACE-TEXTURE-ISO21920.symz"}) {
+        const auto root=std::filesystem::path(__FILE__).parent_path().parent_path().parent_path();
+        const auto definition=symbols::Definition::load(root/"config/symbols/surface-texture"/name);
+        for(const auto end:{kernel::Vec3{10,0,0},kernel::Vec3{0,10,0},kernel::Vec3{10,10,0},kernel::Vec3{-10,-10,0}}) {
+            auto mesh=geometry;mesh.edges.front().points.back()=end;
+            auto view=attached_view;drawing::capture_measurement_geometry(view,mesh);
+            symbols::Placement mark;mark.symbol.id="roughness-contact";mark.symbol.definition=definition.serialized();mark.symbol.variant=definition.default_variant;
+            drawing::DimensionAttachment pick;pick.reference=edge.reference;pick.parameter=.4;
+            drawing::attach_symbol_to_view(mark,view,pick);check(mark.paper_tangent.has_value(),"Roughness contact tangent missing");
+            const auto shown=mark.viewer_mesh(0.);
+            auto expected=mark.symbol;double angle=std::atan2(end.y,end.x)*180./std::acos(-1.);
+            if(angle>90.)angle-=180.;else if(angle<=-90.)angle+=180.;expected.angle_degrees=angle;
+            const auto local=symbols::instance_mesh(expected,{},0.);
+            check(shown.edges.size()==local.edges.size(),"Direct roughness stroke count changed");
+            for(std::size_t e=0;e<shown.edges.size();++e)for(std::size_t p=0;p<shown.edges[e].points.size();++p) {
+                const auto a=shown.edges[e].points[p],b=mark.frame.world(local.edges[e].points[p]);
+                check(std::hypot(a.x-b.x,a.y-b.y,a.z-b.z)<1e-8,"Drawing roughness did not follow its entity tangent");
+            }
+            check(symbols::placements_from_json(symbols::placements_json({mark})).front()==mark,"Roughness contact did not round trip");
+        }
+    }
     drawing::DimensionAttachment attachment;attachment.reference=edge.reference;attachment.parameter=.25;
     {
         auto split=edge;split.points={{8,0,0},{6,0,0}};
@@ -113,6 +134,21 @@ int main(){try {
         check(leader!=strokes.edges.end(),"Arc leader missing");
         const auto p=leader->points.front(),q=leader->points.back(),t=*mark.paper_tangent;
         check(std::abs((q.x-p.x)*t.x+(q.y-p.y)*t.y)<1e-8,"Arc leader is not perpendicular to its local tangent");
+        const auto root=std::filesystem::path(__FILE__).parent_path().parent_path().parent_path();
+        const auto roughness=symbols::Definition::load(root/"config/symbols/surface-texture/ZE-SURFACE-TEXTURE-ISO21920.symz");
+        mark.symbol.definition=roughness.serialized();mark.symbol.variant=roughness.default_variant;mark.leader=false;
+        drawing::attach_symbol_to_view(mark,v,a);
+        const auto& base=roughness.sketches.front();
+        const auto end=std::ranges::find(base.points,std::string("roughness:top:b"),&sketcher::SketchPoint::id);
+        check(end!=base.points.end(),"Roughness top line missing");const double width=end->x-3.5;
+        bool checked=false;
+        for(const auto& line:mark.viewer_mesh(0.).edges)if(!line.filled_text&&line.points.size()==2) {
+            const auto a=line.points.front(),b=line.points.back();const double dx=b.x-a.x,dy=b.y-a.y;
+            if(std::abs(std::hypot(dx,dy)-width)<1e-8) {
+                check(std::abs(dx*mark.paper_tangent->y-dy*mark.paper_tangent->x)<1e-7,"Direct roughness does not follow curved contact tangent");checked=true;
+            }
+        }
+        check(checked,"No direct roughness upper line was verified");
     }
     const auto path=std::filesystem::temp_directory_path()/("zima-symbol-drawing-"+kernel::make_stable_id()+".drwz");
     sheet_document.save(path);const auto reopened=drawing::DrawingDocument::load(path);std::filesystem::remove(path);

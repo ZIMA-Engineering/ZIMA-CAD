@@ -52,8 +52,13 @@ inline std::vector<WitnessGeometry> apply_witness_edits(viewer::DimensionPresent
         const auto line=layout.curves[i];if(line.size()!=2)continue;
         const int side=chain?(datum?0:1):i;
         if(QLineF(line.front(),line.back()).length()<1e-5)continue;
-        auto geometry=witness_geometry(line.front(),line.back(),side,edits,scale);
-        shifts[side]=geometry.curves.back().back()-line.back();result.push_back(std::move(geometry));
+        const auto tip=layout.handles[side+1];
+        auto geometry=witness_geometry(line.front(),tip,side,edits,scale);
+        shifts[side]=geometry.curves.back().back()-tip;
+        // Edits retain their original geometry-to-arrow parameterization.
+        // The paper overrun belongs after the edited witness, beyond the arrow.
+        geometry.curves.back().push_back(line.back()+shifts[side]);
+        result.push_back(std::move(geometry));
     }
     const auto translate=[&](QPointF p) {
         const auto delta=b-a;const auto squared=viewer::dimension_screen_dot(delta,delta);

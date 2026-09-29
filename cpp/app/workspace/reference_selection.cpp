@@ -63,9 +63,11 @@ void AssemblyWorkspaceWindow::show_placement_branches(zima::ui::ContainerPlaceme
     placement_branch_choices_=section->solution_branches();
     std::vector<kernel::ViewerPoint> points;
     const auto current=section->references();
+    const auto current_placement=section->numeric_placement();
     for(std::size_t i=0;i<placement_branch_choices_.size();++i) {
         const auto& p=placement_branch_choices_[i];
-        const bool selected=std::ranges::any_of(p.references,[&](const auto& ref) {
+        const bool selected=(std::ranges::none_of(p.references,[](const auto& ref){return ref.solution_branch!=0;}) &&
+            std::hypot(p.x-current_placement.x,p.y-current_placement.y,p.z-current_placement.z)<1e-6) || std::ranges::any_of(p.references,[&](const auto& ref) {
             return ref.solution_branch && std::ranges::any_of(current,[&](const auto& stored) {
                 return stored.owner_id==ref.owner_id && stored.semantic_key==ref.semantic_key &&
                     stored.instance_path==ref.instance_path && stored.solution_branch==ref.solution_branch;

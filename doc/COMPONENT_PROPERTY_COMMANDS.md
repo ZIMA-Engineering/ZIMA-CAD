@@ -1,5 +1,16 @@
 # Component properties in GUI and CLI
 
+## BOM representation option (2026-09-29)
+
+**Ignore variant in BOM** is an occurrence-owned boolean, also exposed as
+`bom_ignore_variant` by `component.set` and direct component queries. Checked
+occurrences use the source filename and group their detail variants into one
+BOM item; unchecked occurrences retain their existing grouping. The source
+document, actual variant, tree label, placement and geometry are unchanged.
+The option is saved in the owning Assembly and participates in its normal
+Cancel and Undo/Redo behavior. Changing this option alone does not solve mates
+or calculate body geometry. See [the library identity audit](LIBRARY_COMPONENT_IDENTITY_AUDIT.md).
+
 ## Distance annotations and preview cost (2026-09-21)
 
 Plane-distance annotations project the moving face anchor onto the target plane.

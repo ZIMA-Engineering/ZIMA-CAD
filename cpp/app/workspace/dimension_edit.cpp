@@ -512,7 +512,7 @@ void AssemblyWorkspaceWindow::edit_dimension_inline(
                     const auto geometry = workspace::placement_edit_geometry(
                         workspace_, workspace_.active_document_id(), candidate.owner_id);
                     changed = workspace::assign_placement_dimension(
-                        container->placement, geometry, placement_key, next_value);
+                        *container, geometry, placement_key, next_value);
                 } else if (container->feature_kind == FeatureKind::Sketch &&
                            key == "profile_offset") {
                     const auto sketch = std::find_if(next.sketches.begin(),

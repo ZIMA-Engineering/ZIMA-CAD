@@ -321,7 +321,8 @@ uses the source's current calculated data even before saving it. Examples, range
 locks, and directional-combination counts: [DERIVED_COPY_COMMANDS.md](DERIVED_COPY_COMMANDS.md).
 
 `component.set` edits immediate component properties using the exact `instance_path`
-from `component.list/get`: name, visibility, suppression, grounding, numerical
+from `component.list/get`: name, visibility, suppression, grounding,
+`bom_ignore_variant`, numerical
 `placement`, and complete `placement_references` (up to three plane, angle, axis,
 or point mates). It shares GUI Properties commit and solver, locks, and one Undo
 step. Contract, units, and examples: [COMPONENT_PROPERTY_COMMANDS.md](COMPONENT_PROPERTY_COMMANDS.md).

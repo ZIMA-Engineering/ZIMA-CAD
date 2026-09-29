@@ -9,6 +9,7 @@
 #include <zima/document/bend.hpp>
 #include <zima/workspace/bend_operations.hpp>
 #include <transition_sketches.hpp>
+#include <transition_sheet.hpp>
 #include <BRepTools.hxx>
 #include <BRep_Builder.hxx>
 #include <BRepCheck_Analyzer.hxx>
@@ -25,8 +26,107 @@ void check_solid(const kernel::BodyResult& body) {
     unsigned solids=0;for(TopExp_Explorer it(shape,TopAbs_SOLID);it.More();it.Next())++solids;
     if(solids!=1)throw std::runtime_error("Transition solid count: "+std::to_string(solids));
 }
+void check_material_preview(document::HistoryContainer feature) {
+    using namespace kernel::sheet_material;
+    document::reframe_sheet_transition(feature);
+    const auto& p=feature.sheet_transition;
+    const auto material=[&] {
+        const auto a=sketcher::Sketch::from_serialized(p.sketches[0]),b=sketcher::Sketch::from_serialized(p.sketches[1]);
+        if(document::rectangular_sheet_transition(feature))
+            return research::transition::manufacture(research::transition::read_rectangular_sketches(b,a).model,{p.thickness,p.inside_radius,p.k_factor});
+        auto input=research::transition::read_sketches(a,b);input.model.corner_facets={p.facets[0],p.facets[1]};
+        return research::transition::manufacture(input.model,{p.thickness,p.inside_radius,p.k_factor});
+    }();
+    const auto started=std::chrono::steady_clock::now();
+    const auto preview=document::sheet_transition_preview(feature);
+    const auto ms=std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-started).count();
+    check(std::ranges::none_of(preview.edges,[](const auto& e){return e.construction;}),"Half transition exposed construction closure in cyan wire");
+    const auto has=[&](kernel::Vec3 expected) {
+        return std::ranges::any_of(preview.edges,[&](const auto& edge) {
+            return std::ranges::any_of(edge.points,[&](auto actual){const auto d=sub(actual,expected);return std::hypot(d.x,d.y,d.z)<1e-7;});
+        });
+    };
+    for(const auto& panel:material.panels)for(auto outer:panel.outer) {
+        check(has(outer),"Preview omitted a finite-radius panel boundary");
+        check(has(add(outer,mul(panel.inward,material.thickness))),"Preview omitted inner skin / thickness");
+    }
+    for(const auto& bend:material.bends)for(const auto* section:{&bend.sections.front(),&bend.sections.back()})
+        for(auto point:*section)check(has(point),"Tilted preview omitted an outer/inner bend junction");
+    std::cout<<"Material preview "<<p.end_rotation.x<<","<<p.end_rotation.y<<","<<p.end_rotation.z<<": "<<ms<<" ms, "<<preview.edges.size()<<" edges\n";
+}
+void check_assembly_datums(const kernel::BodyResult& body,const std::string& owner) {
+    auto assembly=assembly::AssemblyDocument::create_default();
+    assembly::PartOccurrence fixed;fixed.occurrence_id="fixed";fixed.source_document_id="transition";fixed.grounded=true;
+    fixed.calculated_source=kernel::BodySnapshot(body);fixed.placement.x=30;
+    auto moving=fixed;moving.occurrence_id="moving";moving.grounded=false;moving.placement.x=-25;
+    assembly.components={fixed,moving};
+    const auto reference=[&](const char* occurrence,assembly::MateReferenceKind kind,const char* key) {
+        return assembly::MateReference{kind,assembly::InstancePath{}.child(occurrence),owner,key};
+    };
+    for(const auto* key:{"axis:start","axis:end"})
+        check(assembly.resolve_point(reference("fixed",assembly::MateReferenceKind::Point,key)).status==assembly::MateStatus::Valid,"Assembly cannot resolve transition endpoint");
+    check(assembly.resolve_plane(reference("fixed",assembly::MateReferenceKind::Face,"plane:end")).status==assembly::MateStatus::Valid,"Assembly cannot resolve transition end plane");
+    assembly.components[1].placement_references={
+        {assembly::MateKind::PointCoincident,reference("moving",assembly::MateReferenceKind::Point,"axis:end"),reference("fixed",assembly::MateReferenceKind::Point,"axis:end")},
+        {assembly::MateKind::PlaneCoincident,reference("moving",assembly::MateReferenceKind::Face,"plane:end"),reference("fixed",assembly::MateReferenceKind::Face,"plane:end")}};
+    assembly.calculate_placement_references();
+    const auto moving_point=assembly.resolve_point(reference("moving",assembly::MateReferenceKind::Point,"axis:end")).point;
+    const auto fixed_point=assembly.resolve_point(reference("fixed",assembly::MateReferenceKind::Point,"axis:end")).point;
+    const auto delta=kernel::sheet_material::sub(moving_point,fixed_point);
+    check(std::hypot(delta.x,delta.y,delta.z)<1e-6,"Assembly did not mate transition end datums");
+    assembly.components[1].placement_references.back().flip=true;
+    assembly.calculate_placement_references();
+    const auto a=assembly.resolve_plane(reference("moving",assembly::MateReferenceKind::Face,"plane:end")).plane;
+    const auto b=assembly.resolve_plane(reference("fixed",assembly::MateReferenceKind::Face,"plane:end")).plane;
+    check(kernel::sheet_material::dot(a.normal,b.normal)<-1+1e-7,"End plane lost opposite-side choice at zero offset");
+}
 }
 int main()try {
+    if(const auto* path=std::getenv("ZIMA_VERIFY_TRANSITION_SOURCE")) {
+        std::vector<kernel::BodyResult> cached;auto part=document::PartDocument::load(path,&cached);
+        const auto found=std::ranges::find(part.history,document::FeatureKind::SheetTransition,&document::HistoryContainer::feature_kind);
+        check(found!=part.history.end(),"Saved transition missing");
+        auto feature=*found;document::reframe_sheet_transition(feature);
+        check_material_preview(feature);
+        const auto input=research::transition::read_sketches(sketcher::Sketch::from_serialized(feature.sheet_transition.sketches[0]),sketcher::Sketch::from_serialized(feature.sheet_transition.sketches[1]));
+        std::cout<<"Saved transition: radius="<<input.model.radius<<" width="<<input.model.width<<" depth="<<input.model.depth<<" corner="<<input.model.corner_radius<<" thickness="<<feature.sheet_transition.thickness<<std::endl;
+        const auto preview=document::sheet_transition_preview(feature);
+        std::cout<<"Preview edges="<<preview.edges.size()<<std::endl;
+        kernel::OcctKernel kernel;const auto result=kernel.evaluate_history({document::sheet_transition_operation(part,feature)}).back();
+        check_solid(result);std::cout<<"Saved transition BRep valid, one solid, volume="<<result.volume<<std::endl;
+        if(std::getenv("ZIMA_VERIFY_ENDPOINT_PLANES")) {
+            auto model=input.model;
+            model.corner_facets={feature.sheet_transition.facets[0],feature.sheet_transition.facets[1]};
+            const auto surface=research::transition::calculate(model);
+            check(surface.valid() && surface.faces.size()==model.corner_facets[0]+model.corner_facets[1]+3,"Endpoint candidate added diagonal panels");
+            const auto& p=feature.sheet_transition;
+            for(const double factor:{p.k_factor,.5}) {
+            const auto material=research::transition::manufacture(model,{p.thickness,p.inside_radius,factor});
+            std::cout<<"No-diagonal candidate: panels="<<material.panels.size()<<" bends="<<material.bends.size()<<std::endl;
+            const auto operation=research::transition::sheet_operation(material,"endpoint-candidate");
+            const kernel::HistoryOperation flat{"flat",kernel::SheetStateRequest{true,true,{}}};
+            const kernel::HistoryOperation restore{"restore",kernel::SheetStateRequest{false,true,{}}};
+            const auto states=kernel.evaluate_history({operation,flat,restore});
+            for(const auto& body:states) {
+                for(const auto& [owner,error]:body.calculation_errors)std::cerr<<owner<<": "<<error<<std::endl;
+                check(body.calculation_errors.empty(),"Endpoint candidate calculation failed");
+            }
+            check_solid(states.back());
+            check_solid(kernel.evaluate_history({operation}).back());
+            check_solid(kernel.evaluate_history({operation,flat}).back());
+            std::cout<<"No-diagonal K="<<factor<<" formed/flat/restored: "<<states[0].volume<<", "<<states[1].volume<<", "<<states[2].volume<<std::endl;
+            // Constant-thickness folded/flat volumes agree for the mid-thickness
+            // neutral layer. Other K factors intentionally change bend allowance.
+            if(factor==.5)check(std::abs(states[0].volume-states[1].volume)<states[0].volume*2e-4,"Endpoint candidate lost material in unfolding");
+            check(std::abs(states[0].volume-states[2].volume)<1e-5,"Endpoint candidate did not restore material");
+            }
+        }
+        return 0;
+    }
+    for(auto angle:std::array<kernel::Vec3,4>{{{0,0,0},{5,0,0},{-5,0,0},{8,-10,0}}}) {
+        auto feature=document::create_sheet_transition();feature.sheet_transition.end_rotation=angle;
+        feature.sheet_transition.thickness=3;check_material_preview(feature);
+    }
     {
         auto part=document::PartDocument::create_default();auto feature=document::create_sheet_transition();
         feature.sheet_transition.end_rotation={8,-10,0};kernel::OcctKernel kernel;
@@ -37,8 +137,8 @@ int main()try {
         auto rectangular=document::create_sheet_transition(true);
         document::set_rectangular_transition_sides(rectangular,sides);
         const auto preview=document::sheet_transition_preview(rectangular);
-        check(std::ranges::count_if(preview.edges,[](const auto& edge){return edge.preview_terminal_dashed;})==
-            (sides==2?5:2),"Omitted rectangular walls must have dashed envelope edges");
+        check(std::ranges::none_of(preview.edges,[](const auto& edge){return edge.preview_terminal_dashed||edge.construction;}),
+            "Material preview retained the dashed rectangular envelope");
         const auto parsed=research::transition::read_rectangular_sketches(sketcher::Sketch::from_serialized(rectangular.sheet_transition.sketches[1]),sketcher::Sketch::from_serialized(rectangular.sheet_transition.sketches[0]));
         check(parsed.model.sides==sides&&parsed.model.width[0]==200&&parsed.model.width[1]==140,"Rectangular profile interpretation changed its sides or dimensions");
         auto doc=document::PartDocument::create_default();static_cast<void>(doc.body_history.create_body("Rectangular transition"));
@@ -51,6 +151,7 @@ int main()try {
         const auto& changed_panel=std::get<kernel::ExtrusionRequest>(changed_group.children.front());
         check(original_panel.profile_region_id==changed_panel.profile_region_id&&original_panel.outer_edge_source_ids==changed_panel.outer_edge_source_ids,"L/U renamed an unchanged wall's source ancestry");
         rectangular.sheet_transition.end_rotation={8,-10,12};
+        rectangular.sheet_transition.thickness=3;check_material_preview(rectangular);
         workspace::Workspace test;kernel::OcctKernel geometry;const auto document_id=doc.document_id;
         std::cout<<"Rotated rectangular transition, sides "<<sides<<std::endl;
         check_solid(geometry.evaluate_history({document::sheet_transition_operation(doc,rectangular)}).back());
@@ -58,6 +159,7 @@ int main()try {
         test.add_part(doc,workspace::calculate_part_with_resolved_references(geometry,doc));test.activate(document_id);
         check(workspace::commit_sheet_transition(test,geometry,document_id,rectangular),"Rectangular transition failed to commit");
         auto* state=test.open_part(document_id);check_solid(state->session.calculated_boundaries().back());
+        check_assembly_datums(state->session.calculated_boundaries().back(),rectangular.id);
         const auto committed=state->session.document().serialized();
         auto loaded=document::PartDocument::from_serialized(committed);
         check(document::rectangular_sheet_transition(*loaded.find_container(rectangular.id)),"Rectangular transition lost its profile mode");
@@ -177,6 +279,14 @@ int main()try {
     check(!recalculated.empty()&&recalculated.back().calculation_errors.empty(),"Cold regeneration failed");
     check(std::abs(recalculated.back().volume-volume)<1e-5,"Cold regeneration changed volume");
     for(const kernel::BodyResult* result:{static_cast<const kernel::BodyResult*>(&cache.back()),&recalculated.back()}) {
+        check_assembly_datums(*result,feature.id);
+        for(const auto& expected:document::sheet_transition_axis_points(*loaded.find_container(feature.id))) {
+            const auto& points=result->mesh.original_references.points;
+            const auto found=std::ranges::find(points,expected.reference,&kernel::ViewerPoint::reference);
+            check(found!=points.end(),"Native calculation lost an axis endpoint");
+            const auto delta=kernel::sheet_material::sub(found->position,expected.position);
+            check(std::hypot(delta.x,delta.y,delta.z)<1e-8,"Native endpoint moved away from its profile centre");
+        }
         const auto& axes=result->mesh.original_references.axes;
         const auto axis=std::ranges::find_if(axes,[&](const auto& a){return a.reference.owner_id==feature.id&&a.reference.semantic_key=="axis:primary";});
         check(axis!=axes.end(),"Transition centre axis was not persisted or regenerated");
@@ -184,6 +294,13 @@ int main()try {
             "Transition axis does not connect the two profile centres");
         check(std::ranges::any_of(result->mesh.axes,[&](const auto& a){return a.reference==axis->reference;}),
             "Transition centre axis is missing from ordinary display");
+    }
+    {
+        auto shown=loaded;shown.find_container(feature.id)->origin_point_visible=true;
+        const auto count=[&](const auto& mesh){return std::ranges::count_if(mesh.points,[&](const auto& point){return point.reference.owner_id==feature.id&&(point.reference.semantic_key=="axis:start"||point.reference.semantic_key=="axis:end")&&point.always_visible;});};
+        check(count(shown.construction_viewer_mesh())==2,"Point checkbox did not show both endpoints");
+        shown.find_container(feature.id)->origin_point_visible=false;
+        check(count(shown.construction_viewer_mesh())==0,"Point checkbox did not hide both endpoints");
     }
     {
         auto shifted=placed;shifted.sheet_transition.end_position={0,0,180};

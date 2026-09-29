@@ -151,6 +151,7 @@ void AssemblyWorkspaceWindow::cancel_sketch_segment() {
     pending_elliptical_arc_start_.reset();
     pending_elliptical_arc_reversed_ = false;
     pending_curve_point_snaps_.clear();
+    if(!pending_bspline_points_.empty())viewer_->set_command_snap_points({});
     pending_bspline_points_.clear();
     pending_coincident_point_id_.clear();
     pending_midpoint_point_id_.clear();
@@ -1110,7 +1111,7 @@ bool AssemblyWorkspaceWindow::accept_sketch_bspline_ray(
     if(pending_bspline_points_.size()>=3) {
         const auto& first=pending_bspline_points_.front();
         viewer_->set_command_snap_points({{sketch->world_point(first[0],first[1]),
-            {active_sketch_id_,"point:pending-spline-start",{}}}});
+            {active_sketch_id_,"point:pending-spline-start",{}}}},true);
     }
     pending_curve_point_snaps_.push_back({
         std::exchange(pending_sketch_snap_geometry_id_, {}),

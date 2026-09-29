@@ -168,6 +168,7 @@ struct PartOccurrence {
     bool source_missing{};
     // Runtime display metadata, hydrated from the native source document.
     std::string source_name;
+    bool bom_ignore_variant{};
 };
 
 inline bool is_skeleton(const PartOccurrence& value) {

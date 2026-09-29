@@ -14,7 +14,8 @@ viewer::DimensionPresentation chain_dimension_layout(
     const auto tip = datum ? origin : target;
     const auto label = datum ? origin : project(source.label_position.value_or(source.line_second));
     const auto witness = project(datum ? source.witness_first : source.witness_second);
-    result.curves.push_back(QPolygonF{witness, tip});
+    const auto witness_delta=tip-witness;const double witness_length=QLineF(witness,tip).length();
+    result.curves.push_back(QPolygonF{witness,witness_length>1e-9?tip+witness_delta*(1.5*scale/witness_length):tip});
     if (!datum) {
         result.curves.push_back(QPolygonF{origin,target});
         result.arrows.push_back({tip, source.arrows_reversed ? -direction : direction});

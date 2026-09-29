@@ -1011,11 +1011,18 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
             }
             zima::kernel::Vec3 base_rotation;
             bool orientation_from_reference = false;
-            const bool placement_valid = zima::document::resolve_placement(
+            const bool point=resolved_preview.feature_kind==zima::document::FeatureKind::Feature &&
+                resolved_preview.feature.type==zima::document::FeatureType::Point;
+            const bool placement_valid = (point ? zima::document::resolve_point_placement : zima::document::resolve_placement)(
                 placement, primitive_reference_geometry_, &base_rotation,
                 &orientation_from_reference);
+            auto effective_references=placement.references;
+            if(point) {
+                const auto derived=zima::document::point_circle_plane_offsets(effective_references,primitive_reference_geometry_);
+                for(std::size_t i=0;i<derived.size();++i)if(derived[i])effective_references[i].offset=*derived[i];
+            }
             const auto constraint_state = zima::document::point_constraint_state(
-                placement.references, primitive_reference_geometry_, {placement.x,placement.y,placement.z});
+                effective_references, primitive_reference_geometry_, {placement.x,placement.y,placement.z});
             primitive_translation_dof_ = constraint_state.remaining_dof;
             primitive_reference_dialog_->set_translation_constraint_state(
                 constraint_state,

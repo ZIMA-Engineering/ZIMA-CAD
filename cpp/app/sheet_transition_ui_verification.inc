@@ -3,6 +3,26 @@ int verify_sheet_transition_ui(QApplication& application,const std::filesystem::
     const auto check=[](bool value,const char* message){if(!value)throw std::runtime_error(message);};
     const auto flush=[&]{application.processEvents();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);application.processEvents();};
     try {
+        if(qEnvironmentVariableIsSet("ZIMA_VERIFY_TRANSITION_SOURCE")) {
+            std::vector<kernel::BodyResult> bodies;
+            auto part=document::PartDocument::load(qEnvironmentVariable("ZIMA_VERIFY_TRANSITION_SOURCE").toStdString(),&bodies);
+            const auto source=std::ranges::find(part.history,document::FeatureKind::SheetTransition,&document::HistoryContainer::feature_kind);
+            check(source!=part.history.end(),"Saved transition missing");const auto id=source->id;
+            const auto path=directory/"transition-source-copy.prtz";part.save(path,bodies);
+            app::AssemblyWorkspaceWindow window(QString::fromStdString(directory.string()));window.resize(1400,1000);window.show();
+            check(window.open_document_path(QString::fromStdString(path.string())),"Saved transition cannot open");flush();
+            auto* view=dynamic_cast<viewer::MeshView*>(window.findChild<QWidget*>("modelWorkspace"));check(view,"Saved transition View missing");
+            view->fit_all();flush();
+            window.grab().save(QString::fromStdString((directory/"transition-source-native.png").string()));
+            auto* tree=window.findChild<QTreeWidget*>("documentTree");QTreeWidgetItem* row{};
+            for(QTreeWidgetItemIterator it(tree);*it;++it)if((*it)->data(0,Qt::UserRole).toString().toStdString()==id){row=*it;break;}
+            check(row,"Saved transition Tree row missing");window.show_tree_item_properties(row);flush();
+            auto* dialog=window.findChild<QDialog*>("sheetTransitionDialog");check(dialog,"Saved transition Properties missing");
+            window.grab().save(QString::fromStdString((directory/"transition-source-preview.png").string()));
+            dialog->reject();flush();
+            check(document::PartDocument::load(path).serialized()==part.serialized(),"Saved transition inspection changed source");
+            std::cout<<"Saved transition native/preview inspection and Cancel passed\n";return 0;
+        }
         auto part=document::PartDocument::load(qEnvironmentVariable("ZIMA_VERIFY_SHEET_TRANSITION").toStdString());
         const auto source=std::ranges::find_if(part.history,[](const auto& f){return f.feature_kind==document::FeatureKind::SheetTransition;});
         check(source!=part.history.end(),"Transition GUI fixture has no transition");const auto initial=*source;
@@ -26,6 +46,7 @@ int verify_sheet_transition_ui(QApplication& application,const std::filesystem::
         check(save().history.size()==part.history.size(),"Rectangular creation Cancel modified history");
         rectangular->trigger();flush();rectangular_editor=dynamic_cast<app::SheetTransitionDialog*>(dialog());
         sides=rectangular_editor->findChild<QComboBox*>("transitionSides");sides->setCurrentIndex(0);
+        rectangular_editor->findChild<QCheckBox*>("originShowPoint")->setChecked(true);
         check(!rectangular_editor->findChild<QSpinBox*>("transitionRightFacets"),"Rectangular transition exposed arc segmentation");
         rectangular_editor->findChild<QDoubleSpinBox*>("sweepTranslation0")->setValue(25);
         for(unsigned i=0;i<3;++i)rectangular_editor->findChild<QDoubleSpinBox*>(QString("transitionEndRotation%1").arg(i))->setValue(std::array<double,3>{8,-10,12}[i]);
@@ -40,6 +61,8 @@ int verify_sheet_transition_ui(QApplication& application,const std::filesystem::
         rectangular_view->fit_all();flush();
         window.grab().save(QString::fromStdString((directory/"rectangular-transition-native.png").string()));
         check(document::rectangular_sheet_transition(rectangular_feature)&&std::abs(rectangular_feature.placement.x-25)<1e-8,"Rectangular transition lost placement or profile mode");
+        check(rectangular_feature.origin_point_visible,"Rectangular endpoint display was not saved");
+        check(std::ranges::none_of(rectangular_view->mesh().edges,[](const auto& edge){return edge.preview_terminal_dashed;}),"Rectangular material preview retained dashed envelope");
         check(rectangular_feature.sheet_transition.end_rotation==kernel::Vec3{8,-10,12},"Rectangular transition lost its three-axis rotation");
         auto* rectangular_tree=window.findChild<QTreeWidget*>("documentTree");QTreeWidgetItem* rectangular_row=nullptr;
         for(QTreeWidgetItemIterator it(rectangular_tree);*it;++it)if((*it)->data(0,Qt::UserRole).toString().toStdString()==rectangular_feature.id){rectangular_row=*it;break;}
@@ -84,6 +107,9 @@ int verify_sheet_transition_ui(QApplication& application,const std::filesystem::
         check(editor->set_inline_parameter_value("placement:reference_offset:0",12),"Reference placement offset is not editable");flush();
         const auto expected_placement=editor->pending.placement;
         check(editor->set_inline_parameter_value("end_z",175),"Second Origin dimension is not editable");flush();
+        editor->findChild<QDoubleSpinBox*>("transitionEndRotation0")->setValue(5);
+        editor->findChild<QDoubleSpinBox*>("transitionThickness")->setValue(3);flush();
+        editor->findChild<QCheckBox*>("originShowPoint")->setChecked(true);flush();
         auto* mesh_view=dynamic_cast<viewer::MeshView*>(window.findChild<QWidget*>("modelWorkspace"));check(mesh_view,"Mesh View missing");
         check(std::ranges::any_of(mesh_view->mesh().dimensions,[&](const auto& dimension){return dimension.reference.owner_id==editor->pending.id&&dimension.reference.semantic_key=="parameter:end_z";}),"Relative Origin dimension missing from View");
         const auto profile=sketcher::Sketch::from_serialized(editor->pending.sheet_transition.sketches[0]);
@@ -95,6 +121,10 @@ int verify_sheet_transition_ui(QApplication& application,const std::filesystem::
         check(!window.findChild<QDialog*>("sheetTransitionDialog"),"MMB double-click did not commit transition");
         const auto saved=save();check(saved.history.size()==part.history.size()+1,"Creation did not insert one feature");const auto feature=saved.history.back();
         check(feature.feature_kind==document::FeatureKind::SheetTransition&&feature.sheet_transition.end_position.z==175&&feature.placement.references.size()>=3,"UI lost transition parameters");
+        check(feature.sheet_transition.end_rotation.x==5&&feature.sheet_transition.thickness==3,"Tilted transition lost rotation or thickness");
+        check(feature.origin_point_visible,"Half-round endpoint display was not saved");
+        for(const auto* key:{"axis:start","axis:end"})
+            check(std::ranges::any_of(mesh_view->mesh().points,[&](const auto& point){return point.reference.owner_id==feature.id&&point.reference.semantic_key==key&&point.always_visible;}),"Visible transition endpoint missing from View");
         check(std::hypot(feature.placement.x-expected_placement.x,feature.placement.y-expected_placement.y,feature.placement.z-expected_placement.z)<1e-8,"OK lost reference placement");
         window.findChild<QAction*>("undoAction")->trigger();flush();check(save().history.size()==part.history.size(),"Transition UI Undo failed");
         window.findChild<QAction*>("redoAction")->trigger();flush();check(save().history.size()==saved.history.size(),"Transition UI Redo failed");
@@ -103,7 +133,7 @@ int verify_sheet_transition_ui(QApplication& application,const std::filesystem::
         check(row,"Transition absent from Tree");window.show_tree_item_properties(row);flush();
         d=dialog();
         check(std::ranges::any_of(mesh_view->mesh().dimensions,[&](const auto& dimension){return dimension.reference.owner_id==feature.id&&dimension.reference.semantic_key=="parameter:end_z";}),"Reopened container has no editable distance");
-        d->findChild<QDoubleSpinBox*>("transitionThickness")->setValue(3);d->reject();flush();
+        d->findChild<QDoubleSpinBox*>("transitionThickness")->setValue(4);d->reject();flush();
         check(save().find_container(feature.id)->sheet_transition==feature.sheet_transition,"Edit Cancel changed transition");
         window.show_parameter_dimensions(feature.id);flush();
         const auto dimension=std::ranges::find_if(mesh_view->mesh().dimensions,[&](const auto& value){return value.reference.owner_id==feature.id&&value.reference.semantic_key=="parameter:end_z";});

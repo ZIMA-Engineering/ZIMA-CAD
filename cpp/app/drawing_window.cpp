@@ -2815,6 +2815,7 @@ void DrawingWindow::show_symbol_properties(const std::string& id) {
         try {
             const auto definition=symbols::Definition::load(std::filesystem::path(path.toStdU16String()));
             initial.leader_ending=definition.leader_ending;
+            if(is_surface_texture(definition))initial.perpendicular_leader=true;
             initial.symbol.id=kernel::make_stable_id();initial.symbol.definition=definition.serialized();initial.symbol.variant=definition.default_variant;
             if(definition.frame_layout||definition.reference_line_layout){initial.leader=true;initial.symbol.x=15;initial.symbol.y=8;}
             initial.frame={{sheet->width_mm()/2,sheet->height_mm()/2,0},{-1,0,0},{0,1,0}};
@@ -2835,11 +2836,11 @@ void DrawingWindow::show_symbol_properties(const std::string& id) {
         drawing::refresh_symbol_contacts(next);*sheet=std::move(next);canvas_->set_symbol_preview({});refresh();
     },window(),true);
     const QPointer<SymbolAttachmentDialog> guarded(dialog);view_dialog_=dialog;
-    dialog->changed=[this,guarded,contact]{if(!guarded)return;if(!guarded->pending_placement().reference)contact->reset();canvas_->set_symbol_reference_view(*contact?(**contact).view_id:std::string{});canvas_->set_symbol_preview(guarded->pending_placement());};
+    dialog->changed=[this,guarded,contact]{if(!guarded)return;if(!guarded->pending_placement().reference)contact->reset();canvas_->set_symbol_reference_view(*contact?(**contact).view_id:std::string{});canvas_->set_symbol_preview(guarded->pending_placement().reference?std::optional{guarded->pending_placement()}:std::nullopt);};
     canvas_->set_symbol_editor(dialog,[guarded,contact](const auto* view,const auto* attachment,auto point){
         if(!guarded)return;auto value=guarded->pending_placement();
         if(view&&attachment){try {drawing::attach_symbol_to_view(value,*view,*attachment);}catch(const std::exception&){QMessageBox::warning(guarded,tr("Symbol"),tr("Symbol nelze připojit k vybrané geometrii."));return;}*contact=drawing::SymbolContact{view->id,attachment->parameter};}
-        else {value.reference.reset();value.paper_tangent.reset();value.paper_extension_start.reset();value.unresolved=false;value.frame={{point.x,point.y,0},{-1,0,0},{0,1,0}};contact->reset();}
+        else return;
         guarded->set_planar_placement(std::move(value));
     },[this,guarded,contact,sheet_id](drawing::Point2 point){
         if(!guarded||!*contact)return;

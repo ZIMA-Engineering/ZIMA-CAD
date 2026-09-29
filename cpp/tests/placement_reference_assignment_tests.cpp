@@ -117,6 +117,22 @@ void removal_widget() {
     require(callbacks==std::vector<std::size_t>{99,88,2}&&section.references().size()==2&&section.references()[1]==second,
         "GUI did not remove trailing position while retaining the earlier hole");
 }
+void mesh_capture() {
+    QWidget owner;auto* layout=new QVBoxLayout(&owner);ui::ContainerPlacementSection section(&owner,layout,true);
+    kernel::ViewerReferenceGeometry geometry;
+    geometry.vertices={{0,0,0},{10,0,0},{0,10,0},{10,10,5}};
+    geometry.triangles={0,1,2,1,3,2};geometry.triangle_references={{"mesh","face",{}},{"mesh","face",{}}};
+    section.set_branch_geometry_resolver([&]() -> const kernel::ViewerReferenceGeometry& {return geometry;});
+    auto first=plane("mesh");first.semantic_key="face";first.picked_position=std::array{2.,3.,0.};
+    require(section.set_reference(0,first,QStringLiteral("Mesh"),nullptr),"General face input failed");
+    for(std::size_t i=1;i<3;++i) {
+        auto next=plane("plane-"+std::to_string(i));
+        require(!section.set_reference(i,next,{},nullptr),"Mesh did not arm the next one-shot distance lock");
+        next.measured_offset=i*2.5;
+        require(section.set_reference(i,next,{},nullptr),"Measured mesh reference rejected");
+        require(section.references()[i].offset==i*2.5&&!section.references()[i].offset_locked,"Mesh capture did not release its one-shot lock");
+    }
+}
 void repeated_source() {
     std::vector<ConstructionReference> position,orientation;std::array<bool,3> locks{};const auto first=plane("A");
     require(document::assign_placement_reference({position,orientation,locks},true,0,first).error==Error::None,"Initial reference failed");
@@ -124,4 +140,4 @@ void repeated_source() {
     require(orientation[1].owner_id.empty(),"Replacing a position reference with itself duplicated its automatic FRONT into TOP");
 }
 }
-int main(int argc,char** argv){QApplication app(argc,argv);try{model();widget();repeated_source();removal_model();removal_widget();std::cout<<"Placement reference rows, exact occurrences, locks, orientation and GUI adapter passed\n";return 0;}catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}
+int main(int argc,char** argv){QApplication app(argc,argv);try{model();widget();repeated_source();removal_model();removal_widget();mesh_capture();std::cout<<"Placement reference rows, exact occurrences, locks, orientation and GUI adapter passed\n";return 0;}catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}

@@ -173,7 +173,10 @@ void AssemblyWorkspaceWindow::show_sweep_properties(zima::document::FeatureKind 
         zima::document::ConstructionObject origin;origin.id=c.id;origin.entity_id=c.feature_id;origin.container_origin=c.container_origin;
         origin.kind=zima::document::ConstructionKind::Point;origin.origin={c.placement.x,c.placement.y,c.placement.z};origin.rotation={c.placement.rotation_x,c.placement.rotation_y,c.placement.rotation_z};origin.reference_valid=false;
         preview.constructions.push_back(origin);primitive_origin_preview_mesh_=preview.construction_viewer_mesh(c.id);
-        primitive_origin_preview_mesh_->points.push_back(zima::document::container_origin_marker(c,true));
+        if(transition) {
+            const auto points=zima::document::sheet_transition_axis_points(c,true);
+            primitive_origin_preview_mesh_->points.insert(primitive_origin_preview_mesh_->points.end(),points.begin(),points.end());
+        }else primitive_origin_preview_mesh_->points.push_back(zima::document::container_origin_marker(c,true));
         if(transition)zima::document::reframe_sheet_transition(c);
         parameter_dimension_preview_=c;construction_dimension_object_id_=c.id;
         viewer_->set_feature_preview_owners({c.feature_id,c.container_origin.id});
@@ -195,7 +198,7 @@ void AssemblyWorkspaceWindow::show_sweep_properties(zima::document::FeatureKind 
             else if(transition)preview_mesh=zima::document::sheet_transition_preview(c);
             else edges=zima::document::PartDocument::helical_preview_edges(c);
             dialog->set_status(transition?tr("Upravte obě skici a polohu druhého počátku. OK vytvoří plech."):tr("Dráha připravena. OK vytvoří těleso."));
-        }catch(const std::exception& e){dialog->set_status(QString::fromUtf8(e.what()));}
+        }catch(const std::exception& e){dialog->set_status(transition?tr(e.what()):QString::fromUtf8(e.what()));}
         auto sketches=transition?std::vector<zima::kernel::ViewerEdge>{}:planar?zima::document::PartDocument::sweep2d_sketch_edges(c):
             zima::document::PartDocument::helical_sketch_edges(c);
         edges.insert(edges.end(),std::make_move_iterator(sketches.begin()),std::make_move_iterator(sketches.end()));

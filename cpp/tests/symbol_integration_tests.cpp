@@ -60,6 +60,24 @@ void factory(const std::filesystem::path& root) {
 int main(int argc,char** argv) {
     try {
         const auto root=std::filesystem::current_path();
+        {
+            const auto definition=symbols::Definition::load(root/"config/symbols/annotations/ZE-TEXT.symz");
+            symbols::Placement note;note.symbol.id="text-shelf";note.symbol.definition=definition.serialized();note.symbol.variant=definition.default_variant;
+            note.leader=true;note.symbol.x=40;note.symbol.y=20;
+            double previous=0;
+            for(const auto* text:{"A","Long text 123456789"}) {
+                note.symbol.text_values["Text"]=text;const auto mesh=note.viewer_mesh(0.,true);
+                const auto shelf=std::ranges::find_if(mesh.edges,[](const auto& edge){return edge.annotation&&edge.annotation->role==3;});
+                check(shelf!=mesh.edges.end()&&shelf->points.size()==2,"Text shelf missing");
+                const auto a=shelf->points.front(),b=shelf->points.back();const double length=std::hypot(b.x-a.x,b.y-a.y,b.z-a.z);
+                check(std::abs(length-(shelf->annotation->right-shelf->annotation->left))<1e-8&&length>previous,
+                    "Under-symbol shelf does not follow actual text bounds");previous=length;
+            }
+            note.short_shelf=true;note.shelf_length=3.;const auto mesh=note.viewer_mesh(0.,true);
+            const auto shelf=std::ranges::find_if(mesh.edges,[](const auto& edge){return edge.annotation&&edge.annotation->role==3;});
+            const auto a=shelf->points.front(),b=shelf->points.back();
+            check(std::abs(std::hypot(b.x-a.x,b.y-a.y,b.z-a.z)-3.)<1e-8,"Fixed shelf followed text instead of its chosen length");
+        }
         const auto historical_path=root/"config/symbols/surface-texture/ZE-SURFACE-TEXTURE-ISO1302-1978.symz";
         if(argc==1) {
             for(const auto* asset:{"surface-texture/ZE-SURFACE-TEXTURE-ISO1302-1978.symz","surface-texture/ZE-SURFACE-TEXTURE-ISO21920.symz","general/ZE-GENERAL-SURFACE-TEXTURE-ISO21920.symz"}) {
@@ -208,6 +226,14 @@ int main(int argc,char** argv) {
             check(layout.lines.size()==expected_lines,"Text outlines were stroked as template lines");
             if(definition.id=="ze:surface-texture:iso21920"||definition.id=="ze:general-surface-texture:iso21920") {
                 const bool local=definition.id=="ze:surface-texture:iso21920";
+                for(const auto& sketch:definition.sketches)for(const auto& text:sketch.texts)if(text.id=="roughness:value") {
+                    double top=-1e100;for(const auto& contour:text.contours)for(const auto& point:contour)top=std::max(top,point[1]);
+                    check(std::abs(6.062-top-1.)<1e-6&&std::abs(text.anchor_x-5.)<1e-9,"New roughness text lost its 1 mm top gap/right shift");
+                    auto maximum=text;maximum.value="Ra 12,5";sketcher::rebuild_text_contours(maximum,true);
+                    double right=-1e100;for(const auto& contour:maximum.contours)for(const auto& point:contour)right=std::max(right,point[0]);
+                    const auto end=std::ranges::find(sketch.points,std::string("roughness:top:b"),&sketcher::SketchPoint::id);
+                    check(end!=sketch.points.end()&&std::abs(end->x-right-1.)<1e-6&&end->x<19.,"Roughness top line does not fit Ra 12,5 with 1 mm reserve");
+                }
                 check(std::ranges::all_of(layout.lines,[](const auto& line){return line.pen==drawing::DrawingPen::Yellow;}),"Surface texture strokes must be yellow");
                 check(std::ranges::all_of(layout.texts,[&](const auto& text){return text.pen==drawing::DrawingPen::Green;}),"Surface texture text pen differs");
                 for(const auto& [variant,row]:definition.variants) {
@@ -228,6 +254,11 @@ int main(int argc,char** argv) {
         const auto tolerance_root=root/"config/symbols/geometric-tolerances";int tolerance_count=0;
         for(const auto& entry:std::filesystem::directory_iterator(tolerance_root))if(entry.path().extension()==".symz") {
             const auto d=symbols::Definition::load(entry.path());check(d.frame_layout.has_value(),"Tolerance frame has fixed borders");
+            if(d.id.starts_with("ze:geometric-tolerance:"))for(const auto& [key,row]:d.variants) {
+                sketcher::SymbolInstance colored;colored.id="tolerance-colors";colored.definition=d.serialized();colored.variant=key;
+                for(const auto& edge:symbols::instance_mesh(colored).edges)
+                    check(edge.color==(edge.filled_text?"#4DD811":"#F5CD50"),"Tolerance geometry/frame must be yellow and text green");
+            }
             for(const auto& [key,row]:d.variants)for(const auto& cell:d.evaluate(key, d.id=="ze:datum-feature"?std::map<std::string,std::string>{{"Datum","A"}}:std::map<std::string,std::string>{{"Primary datum","A"},{"Secondary datum","B"},{"Tertiary datum","C"}})) {
                 double ymin=1e100,ymax=-1e100;
                 for(const auto& edge:cell.viewer_mesh().edges) {

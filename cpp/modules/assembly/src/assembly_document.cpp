@@ -2188,6 +2188,7 @@ AssemblyDocument AssemblyDocument::from_serialized(const nlohmann::json& root) {
         component.suppressed = source.at("suppressed").get<bool>();
         component.visible = source.at("visible").get<bool>();
         component.grounded = source.at("grounded").get<bool>();
+        component.bom_ignore_variant = source.value("bom_ignore_variant",false);
         if(!source.at("derived_copy").is_null()) {
             component.derived_copy=source.at("derived_copy").get<document::DerivedCopyParameters>();
             component.copy_placement=source.at("copy_placement").get<document::Placement>();
@@ -2353,6 +2354,7 @@ nlohmann::json AssemblyDocument::serialized(
             {"suppressed", component.suppressed},
             {"visible", component.visible},
             {"grounded", component.grounded},
+            {"bom_ignore_variant", component.bom_ignore_variant},
             {"derived_copy",component.derived_copy?nlohmann::json(*component.derived_copy):nlohmann::json(nullptr)},
             {"copy_placement",component.derived_copy?nlohmann::json(component.copy_placement):nlohmann::json(nullptr)},
             {"placement", {

@@ -3,6 +3,8 @@
 #include <string_view>
 
 namespace zima::workspace {
+[[nodiscard]] bool assign_placement_dimension(document::HistoryContainer&,
+    const kernel::ViewerReferenceGeometry&, std::string_view key, double value);
 [[nodiscard]] bool placement_angle_uses_reference_correction(
     const std::vector<document::ConstructionReference>&,
     const kernel::ViewerReferenceGeometry&, const kernel::Vec3& origin, std::size_t axis);

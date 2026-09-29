@@ -654,13 +654,22 @@ int verify_family_table(QApplication& application,zima::app::AssemblyWorkspaceWi
         if(!found)throw std::runtime_error("Tree Properties action missing");return active_properties();
     };
     chooser=replace_menu();choices=chooser->findChild<QComboBox*>("componentVariant");
+    auto* bom_option=chooser->findChild<QCheckBox*>("componentBomIgnoreVariant");
+    if(!verify(bom_option&&!bom_option->isChecked(),"Component BOM option is missing or enabled by default"))return 1;
+    bom_option->setChecked(true);
     if(!verify(choices->currentIndex()==1,"Replace did not preselect the current instance"))return 1;
     choices->setCurrentIndex(0);chooser->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Cancel)->click();flush();
     if(!verify(rows()[0].at("source_document")==member_id,"Replace Cancel changed its source"))return 1;
+    if(!verify(!rows()[0].at("bom_ignore_variant").get<bool>(),"Cancel committed the BOM option"))return 1;
     chooser=replace_menu();chooser->findChild<QComboBox*>("componentVariant")->setCurrentIndex(0);
+    chooser->findChild<QCheckBox*>("componentBomIgnoreVariant")->setChecked(true);
     chooser->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
     if(!verify(rows()[0].at("source_document")==part.document_id&&rows()[0].at("instance_path")==selected_path&&rows()[1].at("source_document")==part.document_id,"Replace changed occurrence identity or the other occurrence"))return 1;
     if(!verify(variant_label()=="family-base.prtz","Returning to generic did not restore the real filename label"))return 1;
+    if(!verify(rows()[0].at("bom_ignore_variant").get<bool>(),"OK lost the BOM option"))return 1;
+    chooser=replace_menu();
+    if(!verify(chooser->findChild<QCheckBox*>("componentBomIgnoreVariant")->isChecked(),"Reopened Properties lost the BOM option"))return 1;
+    chooser->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Cancel)->click();flush();
     run("undo");if(!verify(rows()[0].at("source_document")==member_id,"GUI Replace did not undo to its original variant"))return 1;
     if(!verify(variant_label()=="family-base-V01.prtz","Undo did not restore the variant Tree label"))return 1;
     std::string face_key;for(const auto& ref:cache.back().mesh.original_references.triangle_references)if(ref.owner_id==box.id){face_key=ref.semantic_key;break;}
@@ -2329,12 +2338,16 @@ int verify_spline_tangent_selection(QApplication& application,
     using namespace zima::document;
     auto doc=PartDocument::create_default();
     auto container=PartDocument::create_sketch_container();
+    container.feature_kind=FeatureKind::Feature;container.feature.type=FeatureType::Sketch;
     auto sketch=zima::sketcher::Sketch::create_default();
     sketch.owner_container_id=container.id;
     const auto first=sketch.add_bspline({{0,0},{4,0},{6,2},{10,0}},3);
     const auto second=sketch.add_bspline({{10,0},{12,5},{18,4},{20,0}},3);
     const auto loop=sketch.add_bspline({{0,15},{10,15},{10,25},{-5,20},{0,15}},3);
+    container.feature.sketch_id=sketch.id;
     doc.history={container};doc.sketches={sketch};
+    BodyHistoryGraph graph;const auto spline_body=graph.create_body("Spline tangent");
+    graph.insert({PartHistoryKind::Feature,container.id});doc.set_body_history(graph);doc.resolve_constructions();
     const auto path=directory/"spline-tangent-ui.prtz";
     doc.save(path);
     zima::app::AssemblyWorkspaceWindow window(QString::fromStdString(directory.string()));
@@ -2342,6 +2355,7 @@ int verify_spline_tangent_selection(QApplication& application,
     if(!verify(window.open_document_path(QString::fromStdString(path.string())),
         "Cannot open spline tangent fixture"))return 1;
     application.processEvents();
+    if(!verify(activate_test_body(application,window,spline_body),"Spline Body cannot activate"))return 1;
     auto* tree=window.findChild<QTreeWidget*>("documentTree");
     QTreeWidgetItem* item{};
     for(QTreeWidgetItemIterator i(tree);*i;++i)
@@ -2350,6 +2364,7 @@ int verify_spline_tangent_selection(QApplication& application,
     if(!verify(item!=nullptr,"Spline fixture Sketch is missing"))return 1;
     window.show_tree_item_properties(item);application.processEvents();
     auto* open=window.findChild<QPushButton*>("sketchOpenButton");
+    if(!open)open=window.findChild<QPushButton*>("featureSketchButton");
     if(!verify(open!=nullptr,"Cannot enter spline Sketch"))return 1;
     open->click();application.processEvents();
     // Finish the entry camera animation before retaining pixel coordinates.
@@ -2380,7 +2395,25 @@ int verify_spline_tangent_selection(QApplication& application,
     if(!verify(pick(first) && pick(second),"Connected splines cannot be selected for tangency"))return 1;
     if(!verify(pick(loop) && pick(loop,true),"Self tangent cannot select the same spline twice"))return 1;
     auto* save=window.findChild<QAction*>("saveDocumentAction");
-    save->trigger();application.processEvents();
+    const auto save_and_reopen=[&] {
+        window.findChild<QAction*>("finishSketchAction")->trigger();application.processEvents();
+        auto* properties=window.findChild<QDialog*>("featurePropertiesDialog");
+        if(!verify(properties,"Spline did not return to Feature properties"))return false;
+        properties->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();application.processEvents();
+        QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
+        save->trigger();application.processEvents();
+        QTreeWidgetItem* current{};
+        for(QTreeWidgetItemIterator i(tree);*i;++i)if((*i)->data(0,Qt::UserRole).toString().toStdString()==container.id){current=*i;break;}
+        if(!verify(current,"Spline container disappeared"))return false;
+        window.show_tree_item_properties(current);application.processEvents();
+        auto* edit=window.findChild<QPushButton*>("featureSketchButton");
+        if(!verify(edit,"Spline Feature cannot reopen"))return false;
+        edit->click();application.processEvents();
+        QEventLoop settled;QTimer::singleShot(900,&settled,&QEventLoop::quit);settled.exec();
+        QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
+        return true;
+    };
+    if(!save_and_reopen())return 1;
     const auto loaded=PartDocument::load(path);
     if(!verify(loaded.sketches.front().constraints.size()==2,
         "Spline tangent clicks did not persist both tangent constraints"))return 1;
@@ -2424,22 +2457,44 @@ int verify_spline_tangent_selection(QApplication& application,
             application.processEvents();
         }
     }
-    const auto closure_candidates=view->selection_candidates_at(inputs.front());
+    const auto closure_position=inputs.front()+QPointF(2,1);
+    const auto closure_candidates=view->selection_candidates_at(closure_position);
     if(!verify(!closure_candidates.empty() &&
         closure_candidates.front().semantic_key=="point:pending-spline-start",
         "Drawn spline start was not offered for closing"))return 1;
-    click(inputs.front());
+    QMouseEvent closure_hover(QEvent::MouseMove,closure_position,
+        QPointF(view->mapToGlobal(closure_position.toPoint())),Qt::NoButton,Qt::NoButton,Qt::NoModifier);
+    QApplication::sendEvent(view,&closure_hover);application.processEvents();
+    if(!verify(view->hovered_candidate()&&view->hovered_candidate()->semantic_key=="point:pending-spline-start",
+        "Spline closure hover did not offer the first point"))return 1;
+    view->grabFramebuffer().save(QString::fromStdString((directory/(std::string(action_name)+"-closure.png")).string()));
+    click(closure_position);
     QMouseEvent finish(QEvent::MouseButtonDblClick,inputs.front(),
         QPointF(view->mapToGlobal(inputs.front().toPoint())),
         Qt::MiddleButton,Qt::MiddleButton,Qt::NoModifier);
     QApplication::sendEvent(view,&finish);application.processEvents();
-    save->trigger();application.processEvents();
+    if(!save_and_reopen())return 1;
     const auto closed_doc=PartDocument::load(path);
     const auto& splines=closed_doc.sketches.front().bsplines;
     if(!verify(splines.size()==++expected_splines && splines.back().control_point_ids.size()==5 &&
         splines.back().control_point_ids.front()==splines.back().control_point_ids.back(),
         "Clicking the first spline point did not persist a single shared endpoint"))return 1;
+    const auto closed_id=splines.back().id;
+    tangent->trigger();application.processEvents();
+    if(!verify(pick(closed_id)&&pick(closed_id,true),"Drawn closed spline cannot receive self tangency"))return 1;
+    if(!save_and_reopen())return 1;
+    const auto tangent_doc=PartDocument::load(path);
+    const auto& result=tangent_doc.sketches.front();
+    if(!verify(result.constraints.size()==closed_doc.sketches.front().constraints.size()+1&&
+        result.constraints.back().kind==zima::sketcher::ConstraintKind::Tangent&&
+        result.constraints.back().geometry_id==closed_id&&result.constraints.back().second_geometry_id==closed_id,
+        "Drawn spline self tangency did not persist"))return 1;
+    const auto& ids=result.bsplines.back().control_point_ids;
+    const auto* c=result.find_point(ids.front());const auto* a=result.find_point(ids[1]);const auto* b=result.find_point(ids[ids.size()-2]);
+    const double ax=a->x-c->x,ay=a->y-c->y,bx=b->x-c->x,by=b->y-c->y;
+    if(!verify(std::abs(ax*by-ay*bx)<1e-6&&ax*bx+ay*by<0,"Drawn spline tangent seam is not smooth"))return 1;
     }
+    std::cout<<"Both spline types: first-point hover, nearby closure click, shared endpoint, self T and persistence passed\n";
     return 0;
 }
 
@@ -5378,13 +5433,14 @@ int verify_sketch_arc_direction_ui(QApplication& application,const std::filesyst
     try {
         const auto check=[](bool ok,const char* message){if(!ok)throw std::runtime_error(message);};
         const auto flush=[&]{application.processEvents();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);application.processEvents();};
-        for(shape=0;shape<3;++shape)for(flips=0;flips<3;++flips) {
+        for(shape=0;shape<5;++shape)for(flips=0;flips<3;++flips) {
             auto part=document::PartDocument::create_default();auto feature=document::PartDocument::create_sketch_container();
             auto sketch=sketcher::Sketch::create_default();sketch.owner_container_id=feature.id;
-            const bool ellipse=shape!=0,negative_minor=shape==2;
-            const std::array<double,2> center{12,22},start=ellipse?std::array{24.,30.}:std::array{12.,10.},end=ellipse?std::array{-4.,28.}:std::array{24.,22.};
+            const bool ellipse=shape==1||shape==2,negative_minor=shape==2,axis_snap=shape>=3;
+            const std::array<double,2> center{12,22},start=axis_snap?std::array{37.,22.}:ellipse?std::array{24.,30.}:std::array{12.,10.},
+                end=shape==3?std::array{12.+std::sqrt(141.),0.}:shape==4?std::array{0.,22.+std::sqrt(481.)}:ellipse?std::array{-4.,28.}:std::array{24.,22.};
             const auto fixed=[&](std::array<double,2> p){const auto id=sketch.add_point(p[0],p[1]);std::ranges::find(sketch.points,id,&sketcher::SketchPoint::id)->fixed=true;return id;};
-            const auto center_id=fixed(center),start_id=fixed(start),end_id=fixed(end);
+            const auto center_id=fixed(center),start_id=fixed(start),end_id=axis_snap?std::string{}:fixed(end);
             fixed({-30,-20});fixed({40,40});
             const std::array<double,2> major{32,22},minor{12,negative_minor?12.:32.};
             if(ellipse){fixed(major);fixed(minor);}
@@ -5416,7 +5472,13 @@ int verify_sketch_arc_direction_ui(QApplication& application,const std::filesyst
             }
             // A rejected zero-sweep endpoint must not poison the next click.
             if(shape==0&&flips==1)click(start);
-            click(end);
+            auto endpoint_cursor=end;
+            // Deliberately click along the axis away from the exact circle
+            // intersection. C must select the intersection, not project the
+            // cursor back off the axis, in either arc direction.
+            if(shape==3)endpoint_cursor[0]-=1.0;
+            if(shape==4)endpoint_cursor[1]-=1.0;
+            click(endpoint_cursor);
             const auto kind=ellipse?std::string("elliptical_arc:"):std::string("arc:");
             const auto count=std::ranges::count_if(view->mesh().edges,[&](const auto& edge){return edge.reference.owner_id==sketch.id&&edge.reference.semantic_key.starts_with(kind);});
             check(count==1,"Arc endpoint was not committed after direction switching");
@@ -5425,15 +5487,24 @@ int verify_sketch_arc_direction_ui(QApplication& application,const std::filesyst
             check(properties,"Arc test did not return to Sketch Properties");const auto result=properties->pending_value().first;result.validate();
             const bool swapped=flips%2!=0,clockwise=negative_minor!=swapped;
             const auto verify_arc=[&](const auto& arc,double sweep) {
+                if(axis_snap) {
+                    const auto terminal=swapped?arc.start_point_id:arc.end_point_id;
+                    const auto* point=result.find_point(terminal);
+                    check(point&&std::hypot(point->x-end[0],point->y-end[1])<1e-7,"Arc C endpoint did not land on the exact origin-axis intersection");
+                    check(std::ranges::any_of(result.constraints,[&](const auto& constraint){return constraint.kind==sketcher::ConstraintKind::PointOnLine&&constraint.first_point_id==terminal&&constraint.geometry_id==(shape==3?"sketch_axis:x":"sketch_axis:y");}),"Arc endpoint lost its C axis constraint");
+                    return;
+                }
                 check(arc.center_point_id==center_id&&arc.start_point_id==(swapped?end_id:start_id)&&arc.end_point_id==(swapped?start_id:end_id),"Arc reversal reassigned the user's point references");
                 check(std::abs(sweep-(clockwise?1.5:.5)*3.14159265358979323846)<1e-7,"Arc committed the opposite sweep from the selected direction");
             };
             if(ellipse){check(result.elliptical_arcs.size()==1,"Elliptical arc missing");const auto& arc=result.elliptical_arcs.front();verify_arc(arc,arc.end_parameter-arc.start_parameter);}
-            else {check(result.arcs.size()==1,"Circular arc missing");const auto& arc=result.arcs.front();verify_arc(arc,arc.end_angle-arc.start_angle);}
+            else {check(result.arcs.size()==1,"Circular arc missing");const auto& arc=result.arcs.front();verify_arc(arc,arc.end_angle-arc.start_angle);
+                if(axis_snap)check(std::abs(arc.radius-25.)<1e-7,"Arc axis snapping changed the radius");}
             for(const auto& point:sketch.points){const auto* p=result.find_point(point.id);check(p&&std::hypot(p->x-point.x,p->y-point.y)<1e-7,"Arc direction changed a fixed source point");}
             properties->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();window.findChild<QAction*>("saveDocumentAction")->trigger();flush();
             const auto loaded=document::PartDocument::load(path);loaded.sketches.front().validate();
             check(loaded.sketches.front().arcs==result.arcs&&loaded.sketches.front().elliptical_arcs==result.elliptical_arcs,"Arc direction did not survive save/reopen");
+            if(axis_snap)check(loaded.sketches.front().constraints==result.constraints,"Arc C axis constraint did not survive save/reopen");
         }
         std::cout<<"Circular/elliptical arc RMB reversal, both ellipse-axis orientations, repeated flips, endpoint references and native persistence passed\n";return 0;
     }catch(const std::exception& error){std::cerr<<"Arc shape="<<shape<<", flips="<<flips<<": "<<error.what()<<'\n';return 1;}
@@ -5539,7 +5610,7 @@ int verify_sketch_endpoint_priority_ui(QApplication& application,const std::file
                 int azure=0;
                 for(int y=qRound(sample.y()*ratio)-5;y<=qRound(sample.y()*ratio)+5;++y)
                     for(int x=qRound(sample.x()*ratio)-5;x<=qRound(sample.x()*ratio)+5;++x)
-                        if(frame.valid(x,y)){const auto c=frame.pixelColor(x,y);if(c.red()<110&&c.green()>170&&c.blue()<65)++azure;}
+                        if(frame.valid(x,y)){const auto c=frame.pixelColor(x,y);if(c.red()<110&&c.green()>170&&c.blue()>170)++azure;}
                 check(azure>3,"Confirmed Sketch segment is not azure");
                 frame.save(QString::fromStdString((directory/"sketch-selection-azure.png").string()));
                 click(screen(30,40));
@@ -8485,6 +8556,7 @@ int verify_startup_contract(
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_SHEET_TRANSITION")) return verify_sheet_transition_ui(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_SHEET_CORNER_FILE")) return verify_sheet_corner_ui(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_BOUNDARY_SURFACE_ONLY")) return zima::app::verify_boundary_surface_ui(application,window,test_directory);
+    if (qEnvironmentVariableIsSet("ZIMA_VERIFY_SPLINE_TANGENT_ONLY")) return verify_spline_tangent_selection(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_SHEET_STATE_ONLY")) return verify_sheet_state_ui(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_CONSOLE_ONLY")) return zima::app::verify_command_console(application,window,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_PROFILE_OFFSET_PLANE_ONLY")) return verify_profile_offset_dimension_plane(application,test_directory);

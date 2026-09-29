@@ -3177,7 +3177,8 @@ std::vector<Owned> propagate_topology(
 
 std::vector<OwnedEdge> complete_boolean_edges(const TopoDS_Shape&,
     const std::vector<OwnedFace>&,const std::vector<OwnedEdge>&,
-    const std::string&,std::string_view);
+    const std::string&,std::string_view,
+    const std::vector<OwnedFace>& = {},const std::vector<OwnedVertex>& = {});
 std::vector<OwnedVertex> complete_boolean_vertices(const TopoDS_Shape&,
     const std::vector<OwnedFace>&,const std::vector<OwnedEdge>&,
     const std::vector<OwnedVertex>&,const std::string&,std::string_view);
@@ -4290,7 +4291,9 @@ std::vector<OwnedEdge> complete_boolean_edges(
     const std::vector<OwnedFace>& faces,
     const std::vector<OwnedEdge>& propagated_edges,
     const std::string& operation_owner,
-    std::string_view operation_role) {
+    std::string_view operation_role,
+    const std::vector<OwnedFace>& generated_supports,
+    const std::vector<OwnedVertex>& source_vertices) {
     const TopologyReferenceIndex<FaceReference, OwnedFace> face_references(faces);
     TopTools_IndexedDataMapOfShapeListOfShape edge_faces;
     TopExp::MapShapesAndAncestors(
@@ -4337,15 +4340,28 @@ std::vector<OwnedEdge> complete_boolean_edges(
         // from the two persisted adjacent faces below instead of exposing an
         // ambiguous reference.
 
-        const auto adjacent_faces = referenced_ancestor_tokens(
+        auto adjacent_faces = referenced_ancestor_tokens(
             edge_faces, edge, face_references);
+        for(const auto& support:generated_supports)
+            if(support.shape.IsSame(edge))adjacent_faces.insert(encoded_topology_reference(support.reference));
         if (adjacent_faces.empty()) continue;
         std::set<std::string> endpoint_supports;
         TopTools_IndexedMapOfShape vertices;
         TopExp::MapShapes(edge, TopAbs_VERTEX, vertices);
         for (int index = 1; index <= vertices.Extent(); ++index) {
-            const auto support = referenced_ancestor_tokens(
+            auto support = referenced_ancestor_tokens(
                 vertex_faces, vertices.FindKey(index), face_references);
+            if(!generated_supports.empty()) {
+                for(const auto& source:source_vertices)
+                    if(source.shape.IsSame(vertices.FindKey(index)))
+                        support.insert(encoded_topology_reference(source.reference));
+                for(const auto& source:generated_supports) {
+                    TopTools_IndexedMapOfShape endpoints;
+                    TopExp::MapShapes(source.shape,TopAbs_VERTEX,endpoints);
+                    if(endpoints.Contains(vertices.FindKey(index)))
+                        support.insert(encoded_topology_reference(source.reference));
+                }
+            }
             if (!support.empty()) {
                 endpoint_supports.insert(
                     encoded_topology_reference_set(support));
@@ -8086,6 +8102,13 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                     if(!grouped)grouped.emplace();
                     grouped->profile_references.points.insert(grouped->profile_references.points.end(),
                         primitive.reference_points.begin(),primitive.reference_points.end());
+                    for(const auto& plane:primitive.reference_planes) {
+                        auto& refs=grouped->profile_references;
+                        const auto offset=static_cast<std::uint32_t>(refs.vertices.size());
+                        refs.vertices.insert(refs.vertices.end(),plane.corners.begin(),plane.corners.end());
+                        refs.triangles.insert(refs.triangles.end(),{offset,offset+1,offset+2,offset,offset+2,offset+3});
+                        refs.triangle_references.insert(refs.triangle_references.end(),2,plane.reference);
+                    }
                     for(const auto& profile:primitive.reference_profiles)std::visit([&](const auto& request) {
                         auto datums=stationary_profile_data(request,operation.owner_id);
                         group_inputs.insert(group_inputs.end(),std::make_move_iterator(datums.begin()),std::make_move_iterator(datums.end()));
@@ -8225,6 +8248,10 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
             operand_mesh.axes.insert(operand_mesh.axes.end(),operand.profile_references.axes.begin(),operand.profile_references.axes.end());
             operand_mesh.edges.insert(operand_mesh.edges.end(),operand.profile_references.edges.begin(),operand.profile_references.edges.end());
             operand_mesh.points.insert(operand_mesh.points.end(),operand.profile_references.points.begin(),operand.profile_references.points.end());
+            const auto datum_offset=static_cast<std::uint32_t>(operand_mesh.vertices.size());
+            operand_mesh.vertices.insert(operand_mesh.vertices.end(),operand.profile_references.vertices.begin(),operand.profile_references.vertices.end());
+            for(auto index:operand.profile_references.triangles)operand_mesh.triangles.push_back(datum_offset+index);
+            operand_mesh.triangle_references.insert(operand_mesh.triangle_references.end(),operand.profile_references.triangle_references.begin(),operand.profile_references.triangle_references.end());
             if (!imported_step) {
                 append_original_reference_geometry(
                     original_references, std::move(operand_mesh));
@@ -8335,6 +8362,7 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                 for(TopExp_Explorer it(result_shape,TopAbs_SOLID);it.More();it.Next()){builder.Add(solid_input,it.Current());solids=true;}
                 for(TopExp_Explorer it(result_shape,TopAbs_FACE,TopAbs_SOLID);it.More();it.Next()){builder.Add(surface_input,it.Current());surfaces=true;}
                 LiveCache::Topology cut_topology;
+                std::vector<OwnedFace> sheet_intersection_supports;
                 const auto trim=[&](const TopoDS_Shape& input) {
                     BRepAlgoAPI_Cut algorithm;
                     set_boolean_inputs(algorithm,input,operand.shape);
@@ -8350,6 +8378,11 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                     append(cut_topology.faces,propagate_topology(algorithm,owned_topology->faces,operand.faces));
                     append(cut_topology.edges,propagate_topology(algorithm,owned_topology->edges,operand.edges));
                     append(cut_topology.vertices,propagate_topology(algorithm,owned_topology->vertices,operand.vertices));
+                    if(surfaces)for(const auto& face:operand.faces) {
+                        for(TopTools_ListIteratorOfListOfShape it(algorithm.Generated(face.shape));it.More();it.Next())
+                            if(it.Value().ShapeType()==TopAbs_EDGE&&members.Contains(it.Value()))
+                                sheet_intersection_supports.push_back({it.Value(),face.reference});
+                    }
                     for(const auto& edge:propagate_display_edges(algorithm,owned_topology->hidden_display_edges))
                         if(members.Contains(edge))cut_topology.hidden_display_edges.push_back(edge);
                     return algorithm.Shape();
@@ -8358,7 +8391,7 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                 else result_shape=trim(result_shape);
                 cut_topology.edges = complete_boolean_edges(
                     result_shape, cut_topology.faces, cut_topology.edges,
-                    operation.owner_id, "subtract");
+                    operation.owner_id, "subtract",sheet_intersection_supports,cut_topology.vertices);
                 cut_topology.vertices = complete_boolean_vertices(result_shape, cut_topology.faces,
                     cut_topology.edges, cut_topology.vertices, operation.owner_id, "subtract");
                 owned_topology = std::make_shared<LiveCache::Topology>(
@@ -8429,6 +8462,16 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                 } else {
                     *existing = edge;
                 }
+            }
+            // Boolean intersection endpoints have their own persisted ancestry,
+            // just like the surviving edges above. Expose those exact vertices
+            // to reference consumers instead of only retaining tool corners.
+            for (const auto& point : boundaries.back().mesh.points) {
+                if (!subtract_owner_ids.contains(point.reference.owner_id)) continue;
+                const auto existing = std::ranges::find_if(original_references.points,
+                    [&](const auto& value) { return value.reference == point.reference; });
+                if (existing == original_references.points.end()) original_references.points.push_back(point);
+                else *existing = point;
             }
             for (const auto& surface : technological_surfaces) {
                 ViewerMesh persisted_surface;

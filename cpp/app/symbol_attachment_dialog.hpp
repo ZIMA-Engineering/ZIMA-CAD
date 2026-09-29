@@ -5,6 +5,7 @@
 #include <QHeaderView>
 #include <QTableWidget>
 #include <QToolButton>
+#include <QPushButton>
 
 namespace zima::app {
 // The definition/variant editor is shared with Sketch insertion. This panel
@@ -88,6 +89,10 @@ public:
         active_=false;refresh();notify();
     }
 private:
+    bool submit() override {
+        if(sheet_&&(!placement_.reference||placement_.unresolved))return false;
+        return SymbolDialog::submit();
+    }
     symbols::Placement placement_;bool active_{},inspected_{},sheet_{};
     QTableWidget* table_{};ui::ReferenceCellItem* field_{};QWidget* indicator_{};QToolButton* eye_{};
     QComboBox* shelf_mode_{};QDoubleSpinBox* shelf_length_{};
@@ -101,13 +106,14 @@ private:
     void refresh(){
         refresh_perpendicular();
         const auto identity=placement_.reference?QString::fromStdString(placement_.reference->semantic_key):QString{};
-        field_->setText(identity.isEmpty()?(sheet_?tr("Vyberte geometrii nebo polohu na listu."):tr("Vyberte plochu, hranu nebo bod.")):(tr("Reference symbolu")));field_->setToolTip(identity);
+        field_->setText(identity.isEmpty()?tr("Vyberte plochu, hranu nebo bod."):(tr("Reference symbolu")));field_->setToolTip(identity);
         if(identity.isEmpty())field_->clear_reference();else field_->set_reference(identity);
         field_->set_active_input(active_);field_->set_inspected(inspected_);ui::set_reference_row_populated(indicator_,placement_.reference.has_value());
         eye_->setEnabled(placement_.reference.has_value());eye_->setChecked(inspected_);table_->viewport()->update();
         const auto& p=placement_.frame.origin;const std::array values{p.x,p.y,p.z};
         for(std::size_t i=0;i<3;++i){const QSignalBlocker blocked(origin_[i]);origin_[i]->setValue(values[i]);origin_[i]->setEnabled(!placement_.reference);}
         unresolved_->setVisible(placement_.unresolved);
+        buttons()->button(QDialogButtonBox::Ok)->setEnabled(!sheet_||(placement_.reference&&!placement_.unresolved));
     }
 };
 }

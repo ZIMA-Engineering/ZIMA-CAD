@@ -66,6 +66,23 @@ void AssemblyWorkspaceWindow::refresh_scene() {
     }
     setProperty("zimaDocumentDecimalPlaces",decimal_places);
     viewer_->set_dimension_decimal_places(decimal_places);
+    const auto append_boundary_input_sketches = [this](zima::kernel::ViewerMesh& mesh,
+            const zima::document::PartDocument& document) {
+        if (!part_rollback_ || part_rollback_->part_document_id != document.document_id ||
+            !properties_dialog_ || properties_dialog_->objectName() != "boundarySurfaceDialog") return;
+        for (const auto& sketch : document.sketches) {
+            if (!sketch_visible_outside_sketcher(document, sketch)) continue;
+            const auto owner = std::ranges::find(document.history, sketch.owner_container_id,
+                &zima::document::HistoryContainer::id);
+            if (owner == document.history.end() ||
+                static_cast<std::size_t>(owner - document.history.begin()) >= part_rollback_->history_limit) continue;
+            auto profile = sketch_viewer_mesh(sketch);
+            remove_sketch_computation_points(profile);
+            sketch.filter_hidden_3d_geometry(profile);
+            keep_only_inactive_sketch_profile(profile, sketch.owner_container_id);
+            append_mesh(mesh, std::move(profile));
+        }
+    };
     const auto append_curve_radii = [](zima::kernel::ViewerMesh& mesh,
             const zima::document::ConstructionObject* object) {
         if (!object || object->kind != zima::document::ConstructionKind::Curve3D) return;
@@ -1503,6 +1520,7 @@ void AssemblyWorkspaceWindow::refresh_scene() {
                     display = part->session.body_context_mesh(&context);
                 }
             }
+            append_boundary_input_sketches(display, document);
             // Sketcher keeps the complete View context visible. Selection
             // tools narrow what can be confirmed through their candidate
             // contracts; presentation itself is never filtered.
@@ -2120,6 +2138,7 @@ void AssemblyWorkspaceWindow::refresh_scene() {
         if (active_part != nullptr) {
             zima::kernel::BodyResult boundary = part_rollback_->input_body
                 .value_or(zima::kernel::BodyResult{});
+            append_boundary_input_sketches(boundary.mesh, active_part->session.document());
             if(editing_sketch&&active_part->session.document().document_id==workspace_.active_document_id()) {
                 boundary.mesh=sketch_input_mesh(active_part->session);
                 append_mesh(boundary.mesh,sketch_viewer_mesh(*editing_sketch));

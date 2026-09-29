@@ -27,8 +27,16 @@ document::HistoryContainer assign_feature_reference(document::HistoryContainer v
         }else position.push_back(ref);
     }
     if(position.size()>3)reject("invalid_placement","The feature has too many position reference rows.");
+    const bool point_feature=value.feature_kind==document::FeatureKind::Feature && value.feature.type==document::FeatureType::Point;
+    const auto solve=[&](document::Placement& placement) {
+        return point_feature ? document::resolve_point_placement(placement,geometry) : document::resolve_placement(placement,geometry);
+    };
     auto baseline=value.placement;baseline.references=combined(position,orientation,index);
-    if(!document::resolve_placement(baseline,geometry))reject("invalid_placement","Existing feature placement references cannot be resolved.");
+    if(!solve(baseline))reject("invalid_placement","Existing feature placement references cannot be resolved.");
+    if(point_feature) {
+        const auto derived=document::point_circle_plane_offsets(baseline.references,geometry);
+        for(std::size_t i=0;i<derived.size();++i)if(derived[i])baseline.references[i].offset=*derived[i];
+    }
     const kernel::Vec3 origin{baseline.x,baseline.y,baseline.z};
     const auto translation=document::point_constraint_remaining_dof(baseline.references,geometry,origin);
     const auto rotation=document::orientation_constraint_remaining_dof(baseline.references,geometry,true,origin);
@@ -56,7 +64,7 @@ document::HistoryContainer assign_feature_reference(document::HistoryContainer v
     value.placement.references=combined(position,orientation);
     for(auto& ref:value.placement.references)ref.measured_offset.reset();
     if(value.feature_kind==document::FeatureKind::Sketch)document::normalize_container_front_references(value.placement.references);
-    if(!document::resolve_placement(value.placement,geometry))reject("invalid_reference","The proposed feature placement references cannot be resolved.");
+    if(!solve(value.placement))reject("invalid_reference","The proposed feature placement references cannot be resolved.");
     return value;
 }
 }

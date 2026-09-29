@@ -11,6 +11,7 @@
 
 class QDoubleSpinBox;
 class QComboBox;
+class QCheckBox;
 class QLabel;
 class QLineEdit;
 class QToolButton;
@@ -100,6 +101,7 @@ protected:
 private:
     ReferenceLabelResolver reference_label_resolver_;
     zima::assembly::PartOccurrence initial_;
+    QCheckBox* bom_ignore_variant_{};
     CommitCallback commit_;
     std::array<QDoubleSpinBox*, 3> translation_{};
     std::array<QDoubleSpinBox*, 3> rotation_{};

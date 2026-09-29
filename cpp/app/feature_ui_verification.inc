@@ -1,3 +1,4 @@
+#include "mesh_surface_ui_verification.inc"
 // Surface modes use the public Feature editor and real persisted cylinder data.
 static void verify_feature_surface_placement(QApplication& application, AssemblyWorkspaceWindow& window,
                                             const std::filesystem::path& directory) {
@@ -79,6 +80,32 @@ static void verify_feature_surface_placement(QApplication& application, Assembly
         "First View reference did not place the Feature at the clicked surface point");
     dialog()->reject();flush();
     // Explicit branch selection uses the same View candidate pipeline as hover.
+    // A point on the end rim cannot move to a different axial station. This
+    // reproduces the saved POKUS point edited through its plane-offset field.
+    window.findChild<QAction*>("featureShortcut0Action")->trigger();flush();
+    const auto rim=std::ranges::find_if(calculated.back().mesh.original_references.edges,[](const auto& edge) {
+        return edge.exact_spline && edge.exact_spline->degree>1 &&
+            std::ranges::all_of(edge.exact_spline->poles,[](const auto& p){return std::abs(p.z-20)<1e-7;});
+    });
+    check(rim!=calculated.back().mesh.original_references.edges.end(),"End rim fixture missing");
+    document::ConstructionReference rim_ref{{},rim->reference.owner_id,rim->reference.semantic_key,0,false,"front",true};
+    check(dialog()->set_reference(0,rim_ref,"Rim"),"End rim reference rejected");flush();
+    document::ConstructionReference axial_ref{{},source.container_origin.id,"origin:plane:xy",0,true,"top",true};
+    axial_ref.measured_offset=20;
+    check(dialog()->set_reference(1,axial_ref,"Station"),"End station reference rejected");flush();
+    check(dialog()->buttons()->button(QDialogButtonBox::Ok)->isEnabled(),"Valid circular-edge contact disabled OK");
+    const auto station_field=[&] {return qobject_cast<QDoubleSpinBox*>(dialog()->findChild<QTableWidget*>("primitiveReferenceTable")->cellWidget(1,3));};
+    check(station_field() && station_field()->isReadOnly(),"Parallel circle plane offset is editable");
+    check(std::abs(station_field()->value()-20)<1e-6,"Parallel circle plane did not display actual distance");
+    document::ConstructionReference tilted_ref{{},source.container_origin.id,"origin:plane:yz",0,true};
+    tilted_ref.measured_offset=3;
+    check(dialog()->set_reference(1,tilted_ref,"Tilted station"),"Tilted station rejected");flush();
+    check(station_field() && !station_field()->isReadOnly(),"Tilted plane distance stayed read-only");
+    station_field()->setValue(17);flush();
+    check(!dialog()->buttons()->button(QDialogButtonBox::Ok)->isEnabled(),"Impossible tilted circle plane allowed OK");
+    check(dialog()->set_reference(1,axial_ref,"Station"),"Parallel station replacement rejected");flush();
+    check(station_field()->isReadOnly() && dialog()->buttons()->button(QDialogButtonBox::Ok)->isEnabled(),"Parallel station did not recover");
+    dialog()->reject();flush();
     window.findChild<QAction*>("featureShortcut0Action")->trigger();flush();
     check(dialog()->set_reference(0,{{},face->owner_id,face->semantic_key,0,true},"Cylinder"),"Branch cylinder entry failed");flush();
     document::ConstructionReference xref{{},source.container_origin.id,"origin:plane:yz",0,true};
@@ -194,6 +221,7 @@ static void verify_feature_surface_placement(QApplication& application, Assembly
         !document::PartDocument::load(path).find_container(axis_id)->feature.show_text,"Cancel changed visibility");
     run("close");check(window.open_document_path(QString::fromStdString(path.string())),"Saved axis cannot reopen");flush();
     check(!window.findChild<QAction*>("cylinderAxisAction"),"Retired cylinder axis action remains");
+    verify_mesh_surface_placement(application,window,directory);
     for(const auto* type:{"part","assembly"}) {
         window.findChild<QAction*>("newDocumentAction")->trigger();flush();
         auto* create=window.findChild<QDialog*>("newDocumentDialog");

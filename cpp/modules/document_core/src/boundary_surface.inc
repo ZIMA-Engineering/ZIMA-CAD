@@ -20,7 +20,9 @@ bool boundary_surface_source_allowed(const PartDocument& part,const std::string&
     if(const auto* curve=part.find_construction(source.owner_id))
         return curve->kind==ConstructionKind::Curve3D&&!curve->suppressed&&source.curve_id.empty();
     const auto* container=part.find_container(source.owner_id);
-    if(!container||container->feature_kind!=FeatureKind::Sketch||container->suppressed)return false;
+    if(!container||container->suppressed)return false;
+    if(container->feature_kind!=FeatureKind::Sketch&&
+       !(container->feature_kind==FeatureKind::Feature&&container->feature.shows_sketch()))return false;
     if(source.curve_id.empty())return true;
     const auto sketch=std::ranges::find(part.sketches,source.owner_id,&sketcher::Sketch::owner_container_id);
     if(sketch==part.sketches.end())return false;

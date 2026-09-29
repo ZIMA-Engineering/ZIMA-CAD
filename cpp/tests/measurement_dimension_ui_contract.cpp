@@ -566,7 +566,8 @@ int verify_measurement_dimension_ui() {
                 require(layout.valid&&layout.arrows.size()==1&&layout.text_angle==0,
                         "Running ordinate must have one arrow and upright text");
                 require(layout.curves.size()==2,"Branch needs its witness and a connection to zero");
-                require(layout.curves.front().back()==projection(ordinate.line_second),"Witness extends underneath the chain value");
+                require(std::abs(QLineF(layout.curves.front().back(),projection(ordinate.line_second)).length()-1.5)<1e-8,
+                    "Running witness does not extend 1.5 paper mm past its arrow");
             }
             // Both sides of horizontal, vertical and oblique spines: text is
             // perpendicular, readable and outside the witness half-plane.

@@ -327,6 +327,17 @@ int verify_symbol_ui(QApplication& application,zima::app::AssemblyWorkspaceWindo
             chooser.start(100);insert_sheet->trigger();chooser.stop();flush();
             auto* editor=dynamic_cast<app::SymbolAttachmentDialog*>(window.findChild<QDialog*>("symbolAttachmentDialog"));
             check(editor,"Drawing symbol dialog missing");
+            check(!editor->buttons()->button(QDialogButtonBox::Ok)->isEnabled(),"Drawing symbol can commit without an entity");
+            check(editor->pending_placement().perpendicular_leader,"Drawing roughness does not default to a perpendicular leader");
+            const QPointF empty(15,15);
+            for(const auto type:{QEvent::MouseButtonPress,QEvent::MouseButtonRelease}) {
+                QMouseEvent event(type,empty,QPointF(canvas->mapToGlobal(empty.toPoint())),Qt::LeftButton,
+                    type==QEvent::MouseButtonPress?Qt::LeftButton:Qt::NoButton,Qt::NoModifier);
+                QApplication::sendEvent(canvas,&event);
+            }
+            flush();check(!editor->pending_placement().reference&&editor->active()&&!editor->buttons()->button(QDialogButtonBox::Ok)->isEnabled(),
+                "Empty Drawing click placed or disarmed a symbol");
+            window.grab().save(QString::fromStdString((directory/"symbol-before-reference.png").string()));
             auto* roughness=editor->findChild<QComboBox*>("symbolField:Specification");
             auto* process=editor->findChild<QComboBox*>("symbolVariant");
             check(roughness&&roughness->findText("Ra 6.3")>=0&&process&&process->count()==3,"Roughness variants or value choices are missing from Drawing insertion");
@@ -343,6 +354,7 @@ int verify_symbol_ui(QApplication& application,zima::app::AssemblyWorkspaceWindo
             QMouseEvent press(QEvent::MouseButtonPress,point,QPointF(canvas->mapToGlobal(point.toPoint())),Qt::LeftButton,Qt::LeftButton,Qt::NoModifier);QApplication::sendEvent(canvas,&press);
             QMouseEvent release(QEvent::MouseButtonRelease,point,QPointF(canvas->mapToGlobal(point.toPoint())),Qt::LeftButton,Qt::NoButton,Qt::NoModifier);QApplication::sendEvent(canvas,&release);flush();
             check(editor->pending_placement().reference.has_value(),"Drawing common picker did not attach symbol");
+            check(editor->buttons()->button(QDialogButtonBox::Ok)->isEnabled(),"Drawing symbol stayed disabled after entity selection");
             editor->findChild<QCheckBox*>("symbolLeader")->setChecked(true);editor->findChild<QDoubleSpinBox*>("symbolPlacement0")->setValue(20);
             if(accept)editor->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();else editor->reject();flush();
             check(drawing_window->document_for_test().sheets.front().symbol_annotations.size()==(accept?1:0),"Drawing symbol Cancel/OK failed");
@@ -421,14 +433,43 @@ int verify_symbol_ui(QApplication& application,zima::app::AssemblyWorkspaceWindo
                 check(std::abs(b.x-a.x-dx)<1e-7&&std::abs(b.y-a.y-dy)<1e-7,"GUI view drag detached a symbol stroke");
             }
         }
+        const auto attach_pending_symbol=[&](app::SymbolAttachmentDialog* editor) {
+            const auto& page=drawing_window->document_for_test().sheets.front();
+            const auto contact=page.symbol_contacts.at(sheet_symbol.symbol.id);
+            const auto& view=*std::ranges::find(page.views,contact.view_id,&drawing::DrawingView::id);
+            drawing::DimensionAttachment attachment;attachment.reference={sheet_symbol.reference->owner_id,sheet_symbol.reference->semantic_key,sheet_symbol.reference->instance_path};attachment.parameter=contact.parameter;
+            const auto location=drawing::resolve_dimension_attachment(view,attachment);check(location.has_value(),"Symbol target missing");
+            const auto rect=drawing_window->sheet_rectangle_for_test();const double zoom=rect.width()/page.width_mm();
+            const QPointF point=rect.topLeft()+QPointF(page.width_mm()-view.x+location->x*view.scale,page.height_mm()-view.y-location->y*view.scale)*zoom;
+            for(const auto type:{QEvent::MouseMove,QEvent::MouseButtonPress,QEvent::MouseButtonRelease}) {
+                QMouseEvent event(type,point,QPointF(canvas->mapToGlobal(point.toPoint())),type==QEvent::MouseMove?Qt::NoButton:Qt::LeftButton,
+                    type==QEvent::MouseButtonPress?Qt::LeftButton:Qt::NoButton,Qt::NoModifier);QApplication::sendEvent(canvas,&event);flush();
+            }
+            check(editor->pending_placement().reference.has_value(),"Symbol did not attach to Drawing entity");
+        };
         chosen_symbol=std::filesystem::current_path()/"config/symbols/geometric-tolerances/ZE-GEOMETRIC-TOLERANCES-ISO1101.symz";
         chooser.start(100);insert_sheet->trigger();chooser.stop();flush();
         auto* free_symbol=dynamic_cast<app::SymbolAttachmentDialog*>(window.findChild<QDialog*>("symbolAttachmentDialog"));check(free_symbol,"Free Drawing symbol dialog missing");
         free_symbol->findChild<QComboBox*>("symbolVariant")->setCurrentIndex(free_symbol->findChild<QComboBox*>("symbolVariant")->findData("PERPENDICULARITY/default"));
         free_symbol->findChild<QDoubleSpinBox*>("symbolOrigin0")->setValue(90);free_symbol->findChild<QDoubleSpinBox*>("symbolOrigin1")->setValue(140);
         free_symbol->findChild<QComboBox*>("symbolField:Secondary datum")->setCurrentText("B");
+        check(!free_symbol->buttons()->button(QDialogButtonBox::Ok)->isEnabled(),"Tolerance can commit without an entity");
+        {
+            const auto& page=drawing_window->document_for_test().sheets.front();
+            const auto contact=page.symbol_contacts.at(sheet_symbol.symbol.id);
+            const auto& view=*std::ranges::find(page.views,contact.view_id,&drawing::DrawingView::id);
+            drawing::DimensionAttachment attachment;attachment.reference={sheet_symbol.reference->owner_id,sheet_symbol.reference->semantic_key,sheet_symbol.reference->instance_path};attachment.parameter=contact.parameter;
+            const auto location=drawing::resolve_dimension_attachment(view,attachment);check(location.has_value(),"Tolerance target missing");
+            const auto rect=drawing_window->sheet_rectangle_for_test();const double zoom=rect.width()/page.width_mm();
+            const QPointF point=rect.topLeft()+QPointF(page.width_mm()-view.x+location->x*view.scale,page.height_mm()-view.y-location->y*view.scale)*zoom;
+            for(const auto type:{QEvent::MouseMove,QEvent::MouseButtonPress,QEvent::MouseButtonRelease}) {
+                QMouseEvent event(type,point,QPointF(canvas->mapToGlobal(point.toPoint())),type==QEvent::MouseMove?Qt::NoButton:Qt::LeftButton,
+                    type==QEvent::MouseButtonPress?Qt::LeftButton:Qt::NoButton,Qt::NoModifier);QApplication::sendEvent(canvas,&event);flush();
+            }
+            check(free_symbol->pending_placement().reference.has_value(),"Tolerance did not attach to Drawing entity");
+        }
         free_symbol->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
-        check(drawing_window->document_for_test().sheets.front().symbol_annotations.size()==2,"Free Drawing symbol was not committed");
+        check(drawing_window->document_for_test().sheets.front().symbol_annotations.size()==2,"Attached Drawing tolerance was not committed");
         save->trigger();flush();
         drawing_window->render_sheet_for_test(false).save(QString::fromStdString((directory/"symbol-sheet.png").string()));
         drawing_window->export_pdf(directory/"symbol-sheet.pdf");drawing_window->export_dxf(directory/"symbol-sheet.dxf");
@@ -495,6 +536,7 @@ int verify_symbol_ui(QApplication& application,zima::app::AssemblyWorkspaceWindo
                 editor->findChild<QCheckBox*>("symbolWeldAllAround")->setChecked(true);
                 const auto prefix=offset<0?"Other":"Arrow";
                 editor->findChild<QDoubleSpinBox*>("symbolOrigin0")->setValue(140);editor->findChild<QDoubleSpinBox*>("symbolOrigin1")->setValue(offset<0?110:80);
+                attach_pending_symbol(editor);
                 editor->findChild<QDoubleSpinBox*>("symbolPlacement0")->setValue(offset);editor->findChild<QDoubleSpinBox*>("symbolPlacement1")->setValue(12);
                 editor->findChild<QComboBox*>(QString("symbolField:%1 size").arg(prefix))->setCurrentText("a4");
                 editor->findChild<QComboBox*>(QString("symbolField:%1 length").arg(prefix))->setCurrentText("3 x 50 (100)");
@@ -516,6 +558,7 @@ int verify_symbol_ui(QApplication& application,zima::app::AssemblyWorkspaceWindo
                 chooser.start(100);insert_sheet->trigger();chooser.stop();flush();
                 auto* editor=dynamic_cast<app::SymbolAttachmentDialog*>(window.findChild<QDialog*>("symbolAttachmentDialog"));check(editor,"Framed symbol editor missing");
                 editor->findChild<QDoubleSpinBox*>("symbolOrigin0")->setValue(130);editor->findChild<QDoubleSpinBox*>("symbolOrigin1")->setValue(datum?35:60);
+                attach_pending_symbol(editor);
                 editor->findChild<QDoubleSpinBox*>("symbolPlacement0")->setValue(30);editor->findChild<QDoubleSpinBox*>("symbolPlacement1")->setValue(12);
                 check(editor->findChild<QDoubleSpinBox*>("symbolShelfLength")->isVisible(),"Tolerance has no editable horizontal landing");
                 if(!datum) {

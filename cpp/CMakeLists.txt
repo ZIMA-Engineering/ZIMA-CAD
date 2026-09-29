@@ -161,7 +161,7 @@ add_library(zima_symbols modules/symbols/src/file.cpp)
 target_include_directories(zima_symbols PUBLIC modules/symbols/include)
 target_link_libraries(zima_symbols PUBLIC zima_sketcher PRIVATE zima_document_core Qt6::Core nlohmann_json::nlohmann_json)
 add_executable(zima_symbol_catalog_tool tools/symbol_catalog_tool.cpp)
-target_link_libraries(zima_symbol_catalog_tool PRIVATE zima_symbols Qt6::Gui)
+target_link_libraries(zima_symbol_catalog_tool PRIVATE zima_symbols zima_document_core Qt6::Gui)
 add_executable(zima_symbol_library_tool tools/symbol_library_tool.cpp)
 target_link_libraries(zima_symbol_library_tool PRIVATE zima_symbols Qt6::Gui)
 
@@ -733,6 +733,9 @@ if(ZIMA_BUILD_TESTS)
     add_test(NAME zima_cpp_translations_contract COMMAND zima_cpp_ui_contract_tests)
     set_tests_properties(zima_cpp_translations_contract PROPERTIES
         ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_TRANSLATIONS_ONLY=1")
+    add_test(NAME zima_cpp_face_inspection_contract COMMAND zima_cpp_ui_contract_tests)
+    set_tests_properties(zima_cpp_face_inspection_contract PROPERTIES
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_FACE_FILL_ONLY=1")
     add_test(NAME zima_cpp_numeric_value_locks_contract COMMAND zima_cpp_ui_contract_tests)
     set_tests_properties(zima_cpp_numeric_value_locks_contract PROPERTIES
         ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_VALUE_LOCKS_ONLY=1")
@@ -749,6 +752,9 @@ if(ZIMA_BUILD_TESTS)
     endif()
     add_executable(zima_cpp_viewer_contract_tests tests/viewer_contract_tests.cpp)
     add_executable(zima_cpp_curve_placement_contract_tests tests/curve_placement_contract_tests.cpp)
+    add_executable(zima_cpp_mesh_surface_placement_tests tests/mesh_surface_placement_tests.cpp)
+    target_link_libraries(zima_cpp_mesh_surface_placement_tests PRIVATE zima_document_core zima_kernel_occt)
+    add_test(NAME zima_cpp_mesh_surface_placement_tests COMMAND zima_cpp_mesh_surface_placement_tests)
     target_link_libraries(zima_cpp_curve_placement_contract_tests PRIVATE zima_command_host)
     add_test(NAME zima_cpp_curve_placement_contract_tests COMMAND zima_cpp_curve_placement_contract_tests)
     add_test(NAME zima_cpp_whole_origin_ui_contract COMMAND zima-cad-cpp --verify-startup)
@@ -1470,6 +1476,11 @@ if(ZIMA_BUILD_TESTS)
     add_test(NAME zima_cpp_sketch_offset_ui_contract COMMAND zima-cad-cpp --verify-startup)
     add_test(NAME zima_cpp_sketch_endpoint_priority_ui_contract COMMAND zima-cad-cpp --verify-startup)
     add_test(NAME zima_cpp_sketch_arc_direction_ui_contract COMMAND zima-cad-cpp --verify-startup)
+    add_test(NAME zima_cpp_spline_tangent_ui_contract COMMAND zima-cad-cpp --verify-startup)
+    set_tests_properties(zima_cpp_spline_tangent_ui_contract PROPERTIES
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.."
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_SPLINE_TANGENT_ONLY=1"
+        TIMEOUT 120)
     set_tests_properties(zima_cpp_sketch_arc_direction_ui_contract PROPERTIES
         WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.."
         ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_SKETCH_ARC_DIRECTION_ONLY=1"
@@ -1511,7 +1522,7 @@ if(ZIMA_BUILD_TESTS)
     add_test(NAME zima_cpp_boundary_surface_dialog_tests COMMAND zima_cpp_boundary_surface_dialog_tests)
     set_tests_properties(zima_cpp_boundary_surface_dialog_tests PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
     add_executable(zima_cpp_boundary_surface_tests tests/boundary_surface_tests.cpp)
-    target_link_libraries(zima_cpp_boundary_surface_tests PRIVATE zima_workspace zima_document_core zima_kernel_occt)
+    target_link_libraries(zima_cpp_boundary_surface_tests PRIVATE zima_workspace zima_document_core zima_kernel_occt zima_viewer)
     add_test(NAME zima_cpp_boundary_surface_tests COMMAND zima_cpp_boundary_surface_tests)
     # Isolated surface research: no GUI, OCCT, persistence or placement changes.
     add_executable(zima_cpp_transition_surface_tests tests/transition_surface_tests.cpp research/transition_surface.cpp)

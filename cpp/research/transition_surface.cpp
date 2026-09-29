@@ -125,9 +125,9 @@ Result calculate(const QuarterArc& input_a,const QuarterArc& input_b,const Optio
             !std::isfinite(options.deviation_resolution)||options.deviation_resolution<.001||options.deviation_resolution>1.)throw Failure::InvalidInput;
         // Translate to a nearby origin before triple products/plane intersections.
         QuarterArc a=input_a,b=input_b;const auto origin=a.center;a.center={};b.center=sub(b.center,origin);
-        if(std::abs(residual(a,b,0,0))>1e-9||std::abs(residual(a,b,half_pi,half_pi))>1e-9)throw Failure::IncompatibleEndpoints;
+        if(!options.second_rim_endpoint_planes && (std::abs(residual(a,b,0,0))>1e-9||std::abs(residual(a,b,half_pi,half_pi))>1e-9))throw Failure::IncompatibleEndpoints;
         double previous=-1.;
-        for(std::size_t i=0;i<=512;++i) {
+        for(std::size_t i=0;!options.second_rim_endpoint_planes && i<=512;++i) {
             const double u=half_pi*i/512,v=corresponding(a,b,u);
             if(v<=previous||(!i&&v>1e-8)||(i==512&&std::abs(v-half_pi)>1e-8))throw Failure::NonMonotoneCorrespondence;
             previous=v;const auto d=sub(b.point(v),a.point(u));
@@ -137,6 +137,11 @@ Result calculate(const QuarterArc& input_a,const QuarterArc& input_b,const Optio
         }
         std::vector<Plane> planes;
         for(std::size_t i=0;i<options.facets;++i) {
+            if(options.second_rim_endpoint_planes && (i==0 || i+1==options.facets)) {
+                const double t=i==0?0:half_pi;
+                const auto n=unit(cross(b.tangent(t),sub(b.point(t),a.point(t))));
+                planes.push_back({n,dot(n,a.point(t))});continue;
+            }
             const double u=half_pi*i/(options.facets-1),v=corresponding(a,b,u);
             const auto n=unit(cross(a.tangent(u),sub(b.point(v),a.point(u))));planes.push_back({n,dot(n,a.point(u))});
         }

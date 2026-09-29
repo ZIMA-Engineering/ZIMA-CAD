@@ -10,6 +10,60 @@ std::array<std::string,3> placement_branch_key(const ConstructionReference& ref)
     return {ref.instance_path,ref.owner_id,ref.semantic_key};
 }
 
+struct PlacementConic { kernel::Vec3 center, a, b; double scale; };
+std::optional<PlacementConic> placement_conic(const kernel::BSplineGeometry& spline) {
+    const auto* ellipse=&spline;
+    if(ellipse->degree!=2 || ellipse->poles.size()!=9 || ellipse->weights.size()!=9 || ellipse->knots.size()!=12)return {};
+    if(ellipse->weights[0]<=0)return {};
+    const double start=ellipse->knots.front(),span=ellipse->knots.back()-start;
+    if(span<=0)return {};
+    const std::array<double,12> knots{0,0,0,.25,.25,.5,.5,.75,.75,1,1,1};
+    for(std::size_t i=0;i<knots.size();++i)
+        if(std::abs((ellipse->knots[i]-start)/span-knots[i])>1e-12)return {};
+    const auto center=placement_vec_scale(placement_vec_add(ellipse->poles[0],ellipse->poles[4]),.5);
+    const auto a=placement_vec_sub(ellipse->poles[0],center),b=placement_vec_sub(ellipse->poles[2],center);
+    const std::array<std::pair<double,double>,9> coefficients{{{1,0},{1,1},{0,1},{-1,1},{-1,0},{-1,-1},{0,-1},{1,-1},{1,0}}};
+    const double scale=std::max({1.,std::hypot(a.x,a.y,a.z),std::hypot(b.x,b.y,b.z)});
+    for(std::size_t i=0;i<9;++i) {
+        const auto expected=placement_vec_add(center,placement_vec_add(placement_vec_scale(a,coefficients[i].first),placement_vec_scale(b,coefficients[i].second)));
+        const auto delta=placement_vec_sub(expected,ellipse->poles[i]);
+        if(std::hypot(delta.x,delta.y,delta.z)>1e-10*scale ||
+           std::abs(ellipse->weights[i]/ellipse->weights[0]-(i%2?std::sqrt(.5):1.))>1e-12)return {};
+    }
+    const auto area=placement_vec_cross(a,b);
+    if(std::hypot(area.x,area.y,area.z)<1e-12)return {};
+    return PlacementConic{center,a,b,scale};
+}
+
+std::optional<PlacementConic> placement_circle(const kernel::BSplineGeometry& s) {
+    if(const auto conic=placement_conic(s)) {
+        const auto& [center,a,b,scale]=*conic;
+        const double ra=std::hypot(a.x,a.y,a.z),rb=std::hypot(b.x,b.y,b.z);
+        if(std::abs(ra-rb)<=1e-10*scale && std::abs(placement_vec_dot(a,b))<=1e-10*ra*rb)return conic;
+        return {};
+    }
+    // Persisted body circles use three exact rational 120-degree arcs.
+    // Validate the full representation; do not fit arbitrary curved edges.
+    if(s.degree!=2 || s.poles.size()!=7 || s.weights.size()!=7 || s.knots.size()!=10 || s.weights[0]<=0)return {};
+    const double span=s.knots.back()-s.knots.front();if(span<=0)return {};
+    const std::array<double,10> knots{0,0,0,1./3,1./3,2./3,2./3,1,1,1};
+    for(std::size_t i=0;i<knots.size();++i)
+        if(std::abs((s.knots[i]-s.knots.front())/span-knots[i])>1e-12)return {};
+    const auto center=placement_vec_scale(placement_vec_add(placement_vec_add(s.poles[0],s.poles[2]),s.poles[4]),1./3);
+    const auto a=placement_vec_sub(s.poles[0],center),v=placement_vec_sub(s.poles[2],center);
+    const double radius=std::hypot(a.x,a.y,a.z),scale=std::max(1.,radius);if(radius<1e-12)return {};
+    const auto normal=placement_vec_normalized(placement_vec_cross(a,v));
+    const auto b=placement_vec_cross(normal,a);
+    for(std::size_t i=0;i<7;++i) {
+        const double angle=static_cast<double>(i)*std::numbers::pi/3;
+        const auto expected=placement_vec_add(center,placement_vec_scale(placement_vec_add(
+            placement_vec_scale(a,std::cos(angle)),placement_vec_scale(b,std::sin(angle))),i%2?2.:1.));
+        const auto delta=placement_vec_sub(expected,s.poles[i]);
+        if(std::hypot(delta.x,delta.y,delta.z)>1e-10*scale || std::abs(s.weights[i]/s.weights[0]-(i%2?.5:1.))>1e-12)return {};
+    }
+    return PlacementConic{center,a,b,scale};
+}
+
 std::optional<PlacementBranchSet> placement_branches(
     const std::vector<std::reference_wrapper<const ConstructionReference>>& references,
     const kernel::ViewerReferenceGeometry& geometry, kernel::Vec3 seed) {
@@ -54,25 +108,9 @@ std::optional<PlacementBranchSet> placement_branches(
         // Exact four rational quadratic quarters, as used by native circles
         // and ellipses. Verify the representation before using conic algebra;
         // arbitrary splines keep their existing solver.
-        if(ellipse->degree!=2 || ellipse->poles.size()!=9 || ellipse->weights.size()!=9 || ellipse->knots.size()!=12)return {};
-        if(ellipse->weights[0]<=0)return {};
-        const double start=ellipse->knots.front(),span=ellipse->knots.back()-start;
-        if(span<=0)return {};
-        const std::array<double,12> knots{0,0,0,.25,.25,.5,.5,.75,.75,1,1,1};
-        for(std::size_t i=0;i<knots.size();++i)
-            if(std::abs((ellipse->knots[i]-start)/span-knots[i])>1e-12)return {};
-        const auto center=placement_vec_scale(placement_vec_add(ellipse->poles[0],ellipse->poles[4]),.5);
-        const auto a=placement_vec_sub(ellipse->poles[0],center),b=placement_vec_sub(ellipse->poles[2],center);
-        const std::array<std::pair<double,double>,9> coefficients{{{1,0},{1,1},{0,1},{-1,1},{-1,0},{-1,-1},{0,-1},{1,-1},{1,0}}};
-        const double scale=std::max({1.,std::hypot(a.x,a.y,a.z),std::hypot(b.x,b.y,b.z)});
-        for(std::size_t i=0;i<9;++i) {
-            const auto expected=placement_vec_add(center,placement_vec_add(placement_vec_scale(a,coefficients[i].first),placement_vec_scale(b,coefficients[i].second)));
-            const auto delta=placement_vec_sub(expected,ellipse->poles[i]);
-            if(std::hypot(delta.x,delta.y,delta.z)>1e-10*scale ||
-               std::abs(ellipse->weights[i]/ellipse->weights[0]-(i%2?std::sqrt(.5):1.))>1e-12)return {};
-        }
-        const auto area=placement_vec_cross(a,b);
-        if(std::hypot(area.x,area.y,area.z)<1e-12)return {};
+        const auto conic=placement_conic(*ellipse);
+        if(!conic)return {};
+        const auto [center,a,b,scale]=*conic;
         for(const auto& p:planes) {
             const double x=placement_vec_dot(p.normal,a),y=placement_vec_dot(p.normal,b);
             const double radius=std::hypot(x,y),rhs=p.rhs-placement_vec_dot(p.normal,center);

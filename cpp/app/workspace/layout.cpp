@@ -11,6 +11,25 @@ using namespace workspace_detail;
 
 namespace {
 
+class DocumentTabBar final : public QTabBar {
+public:
+    using QTabBar::QTabBar;
+protected:
+    void tabLayoutChange() override {
+        QTabBar::tabLayoutChange();
+        // Native tab styles reserve their own trailing padding in addition
+        // to our slot margin. Measure the visible button against the tab,
+        // giving it the same inset on the top, bottom and right.
+        for(int index=0;index<count();++index) {
+            auto* slot=tabButton(index,QTabBar::RightSide);
+            auto* close=slot?slot->findChild<QPushButton*>("documentTabCloseButton"):nullptr;
+            if(!close)continue;
+            const auto tab=tabRect(index);
+            const int inset=std::max(0,(tab.height()-close->height())/2);
+            slot->move(tab.right()+1-inset-slot->width()+2,tab.top()+inset);
+        }
+    }
+};
 
 class StatusOperationProgressBar final : public QProgressBar {
 public:
@@ -39,7 +58,7 @@ void AssemblyWorkspaceWindow::create_layout() {
     auto* layout = new QVBoxLayout(central);
     layout->setContentsMargins(0, 0, 0, 0);
     layout->setSpacing(0);
-    tabs_ = new QTabBar(central);
+    tabs_ = new DocumentTabBar(central);
     tabs_->setObjectName("documentTabs");
     tabs_->setTabsClosable(false); // Explicit styled buttons below, independent of native tab-close painting.
     tabs_->setMovable(false);
@@ -1744,10 +1763,19 @@ void AssemblyWorkspaceWindow::create_layout() {
             if(accept_body_scale_tree_reference(item)||accept_derived_copy_tree_reference(item))return;
             if(properties_dialog_&&(properties_dialog_->objectName()=="sheetStateDialog"||properties_dialog_->objectName()=="boundarySurfaceDialog")&&feature_reference_pick_) {
                 const auto role=item->data(0,Qt::UserRole+3).toString();
-                if(role!="part-container"&&role!="part-container-entity"&&!(properties_dialog_->objectName()=="boundarySurfaceDialog"&&role=="part-construction"))return;
+                const bool boundary=properties_dialog_->objectName()=="boundarySurfaceDialog";
+                if(role!="part-container"&&role!="part-container-entity"&&!(boundary&&(role=="part-construction"||role=="part-sketch")))return;
                 zima::viewer::ViewerCandidate candidate;
                 candidate.kind=zima::viewer::CandidateKind::Container;
                 candidate.owner_id=item->data(0,role=="part-container-entity"?Qt::UserRole+6:Qt::UserRole).toString().toStdString();
+                if(boundary&&role=="part-sketch") {
+                    const auto* part=workspace_.open_part(workspace_.active_document_id());
+                    if(!part)return;
+                    const auto& sketches=part->session.document().sketches;
+                    const auto sketch=std::ranges::find(sketches,candidate.owner_id,&sketcher::Sketch::id);
+                    if(sketch==sketches.end())return;
+                    candidate.owner_id=sketch->owner_container_id;
+                }
                 // Active Part container rows inherit their occurrence from
                 // the enclosing component row; entity rows carry it directly.
                 for(auto* row=item;row&&candidate.instance_path.empty();row=row->parent())

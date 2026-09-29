@@ -714,6 +714,9 @@ struct FeatureGroupRequest {
     // Ordinary empty groups remain invalid calculation requests.
     bool allow_empty{};
     std::vector<ViewerPoint> reference_points;
+    struct ReferencePlane { FaceReference reference; std::array<Vec3,4> corners; };
+    // Authored planar datums; no material and no OCCT-derived identity.
+    std::vector<ReferencePlane> reference_planes;
 };
 
 struct FilletRequest {
@@ -1275,6 +1278,16 @@ struct PlacedBody {
                         u64(text->size());for(const unsigned char value:*text)byte(value);
                     }
                     for(double value:{point.position.x,point.position.y,point.position.z})u64(std::bit_cast<std::uint64_t>(value));
+                }
+                if(!primitive.reference_planes.empty()) {
+                    for(const unsigned char c:std::string_view("reference-planes"))byte(c);
+                    u64(primitive.reference_planes.size());
+                    for(const auto& plane:primitive.reference_planes) {
+                        for(const auto* text:{&plane.reference.owner_id,&plane.reference.semantic_key,&plane.reference.instance_path}) {
+                            u64(text->size());for(const unsigned char value:*text)byte(value);
+                        }
+                        for(const auto& p:plane.corners)for(double value:{p.x,p.y,p.z})u64(std::bit_cast<std::uint64_t>(value));
+                    }
                 }
                 u64(primitive.children.size());
                 u64(primitive.axes.size());

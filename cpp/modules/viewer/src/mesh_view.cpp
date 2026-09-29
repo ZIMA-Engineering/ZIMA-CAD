@@ -286,100 +286,29 @@ struct MeshView::Impl {
     std::map<std::string, QColor> body_surface_instance_colors;
     zima::kernel::SurfaceStyle surface_style;
     std::map<std::string,zima::kernel::SurfaceStyle> instance_styles, owner_styles, face_styles;
-    // Camera changes only project these segments; geometry/reference changes invalidate them.
-    bool reference_boundaries_dirty{true};
-    std::vector<std::pair<zima::kernel::Vec3, zima::kernel::Vec3>> reference_boundaries;
-    void prepare_reference_boundaries() {
-        if (!reference_boundaries_dirty) return;
-        reference_boundaries.clear();
-        if (!constraint_reference_edges.empty()) {
-            using RoundedPoint = std::array<long long, 3>;
-            struct FaceBoundarySegment {
-                zima::kernel::Vec3 first;
-                zima::kernel::Vec3 second;
-                std::size_t uses{};
-            };
-            std::map<std::pair<RoundedPoint, RoundedPoint>, FaceBoundarySegment>
-                boundary;
-            const auto rounded = [](const zima::kernel::Vec3& point) {
-                constexpr double scale = 1.0e7;
-                return RoundedPoint{std::llround(point.x * scale),
-                    std::llround(point.y * scale),
-                    std::llround(point.z * scale)};
-            };
-            std::set<EdgeKey> displayed_references;
-            for (const auto& reference :
-                 mesh.triangle_references) {
-                const EdgeKey key{reference.owner_id,
-                    reference.semantic_key, reference.instance_path};
-                if (constraint_reference_edges.contains(key) &&
-                    reference.semantic_key != "plane" &&
-                    !reference.semantic_key.starts_with(
-                        "origin:plane:")) {
-                    displayed_references.insert(std::move(key));
-                }
+    // Face identities are stable across camera changes; source/reference changes invalidate them.
+    bool reference_faces_dirty{true};
+    std::vector<ViewerCandidate> reference_faces;
+    void prepare_reference_faces() {
+        if(!reference_faces_dirty)return;
+        reference_faces.clear();
+        std::set<EdgeKey> found;
+        const auto append=[&](const auto& source,CandidateGeometry geometry) {
+            for(std::size_t i=0;i<source.triangle_references.size();++i) {
+                const auto& face=source.triangle_references[i];
+                const EdgeKey key{face.owner_id,face.semantic_key,face.instance_path};
+                if(!constraint_reference_edges.contains(key) || face.semantic_key=="plane" ||
+                    face.semantic_key.starts_with("origin:plane:") || i*3+2>=source.triangles.size() || !found.insert(key).second)continue;
+                reference_faces.push_back({CandidateKind::Face,0,i,face.owner_id,face.semantic_key,face.instance_path,geometry});
             }
-            const auto append_boundaries =
-                [&](const auto& source, bool original_fallback) {
-                    for (std::size_t triangle = 0;
-                         triangle <
-                            source.triangle_references.size();
-                         ++triangle) {
-                        const auto& reference =
-                            source.triangle_references[triangle];
-                        const EdgeKey key{reference.owner_id,
-                            reference.semantic_key,
-                            reference.instance_path};
-                        if (!constraint_reference_edges.contains(
-                                key) ||
-                            (original_fallback &&
-                             displayed_references.contains(key)) ||
-                            reference.semantic_key == "plane" ||
-                            reference.semantic_key.starts_with(
-                                "origin:plane:") ||
-                            triangle * 3 + 2 >=
-                                source.triangles.size()) {
-                            continue;
-                        }
-                        const std::array<std::uint32_t, 3> indices{
-                            source.triangles[triangle * 3],
-                            source.triangles[triangle * 3 + 1],
-                            source.triangles[triangle * 3 + 2]};
-                        if (std::ranges::any_of(indices,
-                                [&](const auto index) {
-                                    return index >=
-                                        source.vertices.size();
-                                })) {
-                            continue;
-                        }
-                        for (std::size_t side = 0; side < 3; ++side) {
-                            const auto& first =
-                                source.vertices[indices[side]];
-                            const auto& second = source.vertices[
-                                indices[(side + 1) % 3]];
-                            auto first_key = rounded(first);
-                            auto second_key = rounded(second);
-                            if (second_key < first_key) {
-                                std::swap(first_key, second_key);
-                            }
-                            auto& segment =
-                                boundary[{first_key, second_key}];
-                            if (segment.uses++ == 0) {
-                                segment.first = first;
-                                segment.second = second;
-                            }
-                        }
-                    }
-                };
-            append_boundaries(mesh, false);
-            append_boundaries(
-                mesh.original_references, true);
-            for (const auto& [key, segment] : boundary) {
-                if (segment.uses == 1)
-                    reference_boundaries.emplace_back(segment.first, segment.second);
-            }
+        };
+        // Keep the existing visible-fragment preference and exact occurrence
+        // identity, then use the same fill and silhouette path as face selection.
+        if(!constraint_reference_edges.empty()) {
+            append(mesh,CandidateGeometry::Display);
+            append(mesh.original_references,CandidateGeometry::OriginalReference);
         }
-        reference_boundaries_dirty = false;
+        reference_faces_dirty=false;
     }
     struct SurfaceBatch {
         std::size_t first, count;
@@ -809,7 +738,7 @@ void MeshView::set_mesh(zima::kernel::ViewerMesh mesh, bool fit_view) {
     impl_->face_fill_keys.clear();
     impl_->face_fill_ranges.clear();
     impl_->surface_batches_dirty = true;
-    impl_->reference_boundaries_dirty = true;
+    impl_->reference_faces_dirty = true;
     std::erase_if(impl_->mesh.edges, [](const auto& edge) {
         return edge.parameter_seam;
     });
@@ -862,7 +791,7 @@ std::optional<QPointF> MeshView::dimension_handle_position(const ViewerCandidate
     const auto project=[&](kernel::Vec3 p){auto q=mvp*QVector4D(p.x,p.y,p.z,1);if(std::abs(q.w())>1e-9)q/=q.w();return QPointF((q.x()+1)*width()/2.,(1-q.y())*height()/2.);};
     const auto raw_text=!d->display_text_override.empty()?QString::fromStdString(d->display_text_override):QString::fromStdString(d->label_prefix)+QString::fromStdString(kernel::dimension_number(d->value,impl_->dimension_decimal_places))+QString::fromStdString(kernel::dimension_unit_text(d->unit_suffix));
         const auto text=dimension_render_text(*d,raw_text);
-    const auto layout=dimension_text_presentation(*d,project,font(),text,.5*logicalDpiX()/25.4,1.5);
+    const auto layout=dimension_text_presentation(*d,project,font(),text,.5*logicalDpiX()/25.4,1.5,10,3,false,1.5*logicalDpiX()/25.4);
     return layout.valid?std::optional(layout.handles[index]):std::nullopt;
 }
 void MeshView::set_symbol_handle_callbacks(std::function<std::optional<SymbolHandles>()> provider,
@@ -1165,7 +1094,7 @@ std::vector<ViewerCandidate> MeshView::selection_candidates_at(
                 QString::fromStdString(kernel::dimension_number(dimension.value,impl_->dimension_decimal_places)) +
                 QString::fromStdString(kernel::dimension_unit_text(dimension.unit_suffix));
         const auto text=dimension_render_text(dimension,raw_text);
-        const auto layout=dimension_text_presentation(dimension,project,font(),text,.5*logicalDpiX()/25.4,1.5);
+        const auto layout=dimension_text_presentation(dimension,project,font(),text,.5*logicalDpiX()/25.4,1.5,10,3,false,1.5*logicalDpiX()/25.4);
         if(!layout.valid) {
             std::erase_if(candidates,[index](const auto& c){return c.kind==CandidateKind::Dimension && c.geometry_index==index;});
             continue;
@@ -1853,7 +1782,7 @@ std::optional<QPoint> MeshView::candidate_dimension_label_position(
             QString::fromStdString(kernel::dimension_unit_text(dimension.unit_suffix));
         const auto text=dimension_render_text(dimension,raw_text);
     const QFontMetricsF metrics(font());
-    const auto layout=dimension_text_presentation(dimension,project,font(),text,.5*logicalDpiX()/25.4,1.5);
+    const auto layout=dimension_text_presentation(dimension,project,font(),text,.5*logicalDpiX()/25.4,1.5,10,3,false,1.5*logicalDpiX()/25.4);
     if(!layout.valid)return std::nullopt;
     QTransform transform;transform.translate(layout.text_baseline.x(),layout.text_baseline.y());transform.rotate(layout.text_angle);
     return transform.map(dimension_text_box(font(),text,0,kernel::dimension_is_basic(dimension)).center()).toPoint();
@@ -2154,7 +2083,7 @@ void MeshView::set_constraint_reference_highlights(
     impl_->constraint_reference_owner_ids = std::move(owner_ids);
     if (impl_->constraint_reference_edges != edges) {
         impl_->constraint_reference_edges = std::move(edges);
-        impl_->reference_boundaries_dirty = true;
+        impl_->reference_faces_dirty = true;
     }
     update();
 }
@@ -3601,8 +3530,14 @@ if (impl_->show_origins) {
         highlighted = impl_->candidates[impl_->active_candidate];
         highlight_color = interaction::rgba(interaction::hover);
     }
-    if (!highlighted && !impl_->inspected_faces.empty()) {
-        highlighted=impl_->inspected_faces.front();
+    impl_->prepare_reference_faces();
+    auto inspected_faces=impl_->inspected_faces;
+    for(const auto& reference:impl_->reference_faces)
+        if(std::ranges::none_of(inspected_faces,[&](const auto& face) {
+            return face.owner_id==reference.owner_id && face.semantic_key==reference.semantic_key && face.instance_path==reference.instance_path;
+        }))inspected_faces.push_back(reference);
+    if (!highlighted && !inspected_faces.empty()) {
+        highlighted=inspected_faces.front();
         highlight_color=interaction::rgba(interaction::selected);
     }
     // Exact solid faces reuse their calculated picking triangles. Datum planes
@@ -3624,7 +3559,7 @@ if (impl_->show_origins) {
         const Impl::FaceFillKey key{candidate.geometry,candidate.owner_id,candidate.semantic_key,candidate.instance_path};
         fill_keys.push_back(key);filled_faces.push_back(candidate);color.setW(.28f);filled_colors.push_back(color);
     };
-    for(const auto& face:impl_->inspected_faces)add_face(face,interaction::rgba(interaction::selected));
+    for(const auto& face:inspected_faces)add_face(face,interaction::rgba(interaction::selected));
     if(impl_->confirmed_candidate)add_face(*impl_->confirmed_candidate,interaction::rgba(interaction::selected));
     if(!impl_->candidates.empty())add_face(impl_->candidates[impl_->active_candidate],interaction::rgba(interaction::hover));
     if(fill_keys!=impl_->face_fill_keys) {
@@ -4269,7 +4204,7 @@ if (impl_->show_origins) {
                         QString::fromStdString(kernel::dimension_number(dimension.value,impl_->dimension_decimal_places)) +
                         QString::fromStdString(kernel::dimension_unit_text(dimension.unit_suffix));
         const auto text=dimension_render_text(dimension,raw_text);
-                const auto layout=dimension_text_presentation(dimension,project,font(),text,.5*logicalDpiX()/25.4,1.5);
+                const auto layout=dimension_text_presentation(dimension,project,font(),text,.5*logicalDpiX()/25.4,1.5,10,3,false,1.5*logicalDpiX()/25.4);
                 if(!layout.valid)continue;
                 if (dimension.rotation_handle) {
                     const QColor purple("#D05CFF");
@@ -4664,18 +4599,8 @@ if (impl_->show_origins) {
                 }
             }
         }
-        // A populated placement-reference row can identify a persisted Face.
-        // Faces live in triangle reference data, whereas the normal cyan
-        // reference state above colours ViewerEdges.  Draw the exact semantic
-        // face boundary from the current display fragments carrying that
-        // persisted identity. Fall back to the original-reference packet only
-        // when the identity has no visible fragment. This is the same
-        // visible-fragment -> stable-source contract used by picking.
-        // Internal tessellation diagonals occur twice and are removed; no
-        // whole-body tint or OCCT topology lookup is involved.
-        impl_->prepare_reference_boundaries();
-        for (const auto& [first, second] : impl_->reference_boundaries)
-            draw_reference_segment(project(first), project(second), interaction::selected, interaction::selected_wire_width);
+        // Face reference inspection uses the shared face overlays below.
+        // Edge, point and datum-plane inspection keep their existing paths.
         // Relation participants come directly from the persisted Sketch marker.
         auto relation_keys=impl_->sketch_relation_highlights;
         QColor relation_color=interaction::hover;
@@ -4878,14 +4803,14 @@ if (impl_->show_origins) {
                     draw_circular_marker(painter, project(point.position), color);
                 }
             }
-            auto face_overlays=impl_->inspected_faces;
+            auto face_overlays=inspected_faces;
             if(candidate_uses_face_boundary_overlay(*highlighted) &&
                 std::none_of(face_overlays.begin(),face_overlays.end(),[&](const auto& face){
                     return face.owner_id==highlighted->owner_id && face.semantic_key==highlighted->semantic_key && face.instance_path==highlighted->instance_path;}))
                 face_overlays.push_back(*highlighted);
             for(const auto& face_overlay:face_overlays) {
                 const auto highlighted=std::optional<ViewerCandidate>(face_overlay);
-                const bool inspected=std::any_of(impl_->inspected_faces.begin(),impl_->inspected_faces.end(),[&](const auto& face){
+                const bool inspected=std::any_of(inspected_faces.begin(),inspected_faces.end(),[&](const auto& face){
                     return face.owner_id==face_overlay.owner_id && face.semantic_key==face_overlay.semantic_key && face.instance_path==face_overlay.instance_path;});
                 painter.setPen(QPen(inspected?interaction::selected:color, inspected?interaction::selected_wire_width:wire_width));
                 painter.setBrush(Qt::NoBrush);
@@ -5662,7 +5587,7 @@ void MeshView::mouseMoveEvent(QMouseEvent* event) {
             // outside placement can put these far apart in an oblique view).
             const auto raw_text=!d.display_text_override.empty()?QString::fromStdString(d.display_text_override):QString::fromStdString(d.label_prefix)+QString::fromStdString(kernel::dimension_number(d.value,impl_->dimension_decimal_places))+QString::fromStdString(kernel::dimension_unit_text(d.unit_suffix));
         const auto text=dimension_render_text(d,raw_text);
-            const auto initial_grip=dimension_text_presentation(d,project,font(),text,.5*logicalDpiX()/25.4,1.5).handles[0];
+            const auto initial_grip=dimension_text_presentation(d,project,font(),text,.5*logicalDpiX()/25.4,1.5,10,3,false,1.5*logicalDpiX()/25.4).handles[0];
             const auto correction=initial_grip-project(label);
             if(const auto offset=dimension_plane_drag(correction,a,b)) {
                 drag.current.text_along+=offset->x();drag.current.text_outward+=offset->y();

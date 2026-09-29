@@ -1,6 +1,8 @@
 #include <zima/document/boundary_surface.hpp>
 #include <zima/kernel/occt_kernel.hpp>
 #include <zima/kernel/surface_results.hpp>
+#include <zima/kernel/curve_evaluation.hpp>
+#include <zima/viewer/picking.hpp>
 #include <filesystem>
 #include <cstdlib>
 #include <zima/workspace/boundary_surface_operations.hpp>
@@ -26,6 +28,66 @@ int main(){try{
     require(kernel::has_surface_results(flat.mesh),"Surface classification lost");
     require(flat.mesh.original_references.edges.size()==4,"Boundary edge identities missing");
     require(flat.mesh.original_references.points.size()==4,"Corner identities missing");
+    const auto verify_cut_points=[](const kernel::BodyResult& result,const std::string& owner) {
+        std::size_t count=0;
+        for(const auto& point:result.mesh.points) {
+            if(point.reference.owner_id!=owner||!point.reference.semantic_key.starts_with("boolean:subtract:vertex"))continue;
+            ++count;
+            const auto found=std::ranges::find_if(result.mesh.original_references.points,
+                [&](const auto& reference){return reference.reference==point.reference;});
+            require(found!=result.mesh.original_references.points.end(),"Cut endpoint missing from persisted reference geometry");
+            require(std::hypot(found->position.x-point.position.x,found->position.y-point.position.y,found->position.z-point.position.z)<1e-9,
+                "Cut endpoint reference has the wrong position");
+            const auto candidates=viewer::ordered_viewer_candidates(result.mesh,
+                {point.position.x,point.position.y,point.position.z+1000},{0,0,-1},1e-5);
+            require(std::ranges::any_of(candidates,[&](const auto& candidate){return candidate.kind==viewer::CandidateKind::Vertex&&
+                candidate.owner_id==point.reference.owner_id&&candidate.semantic_key==point.reference.semantic_key&&
+                candidate.geometry==viewer::CandidateGeometry::OriginalReference;}),"Common picker omitted a persisted cut endpoint");
+        }
+        require(count>=2,"Cut produced no independently identified endpoints");
+    };
+    kernel::ExtrusionRequest tool;
+    tool.outer_profile=kernel::ExtrusionRequest::PolygonProfile{{{40,-10,-10},{60,-10,-10},{60,90,-10},{40,90,-10}}};
+    tool.direction={0,0,20};tool.profile_region_id="cut-region";
+    tool.outer_edge_source_ids={"e0","e1","e2","e3"};tool.outer_vertex_source_ids={"p0","p1","p2","p3"};
+    const auto cut=k.evaluate_history({{"boundary",rectangle()},{"cut",tool,kernel::BooleanOperation::Subtract}});
+    require(cut.back().calculation_errors.empty()&&std::abs(cut.back().surface_area-6400)<.01,"Boundary strip cut failed");
+    verify_cut_points(cut.back(),"cut");
+    auto wider=tool;std::get<kernel::ExtrusionRequest::PolygonProfile>(wider.outer_profile).vertices[1].x=65;
+    std::get<kernel::ExtrusionRequest::PolygonProfile>(wider.outer_profile).vertices[2].x=65;
+    const auto changed_cut=k.evaluate_history({{"boundary",rectangle()},{"cut",wider,kernel::BooleanOperation::Subtract}});
+    verify_cut_points(changed_cut.back(),"cut");
+    for(const auto& point:cut.back().mesh.points)if(point.reference.owner_id=="cut")
+        require(std::ranges::any_of(changed_cut.back().mesh.points,[&](const auto& changed){return changed.reference==point.reference;}),
+            "Changing cut width changed endpoint ancestry");
+    if(const auto* file=std::getenv("ZIMA_VERIFY_BOUNDARY_SOURCE")) {
+        const auto example=document::PartDocument::load(std::filesystem::path(file));
+        const auto operations=example.kernel_operations();
+        const auto calculated=k.evaluate_history(operations);
+        require(!calculated.empty()&&calculated.back().calculation_errors.empty(),"User cut example failed calculation");
+        verify_cut_points(calculated.back(),operations.back().owner_id);
+        std::size_t curves=0;
+        for(const auto& edge:calculated.back().mesh.original_references.edges) {
+            if(edge.reference.owner_id!=operations.back().owner_id||!edge.reference.semantic_key.starts_with("boolean:subtract:"))continue;
+            require(edge.exact_spline.has_value(),"Cut curve lacks exact geometry");
+            ++curves;
+            const auto& spline=*edge.exact_spline;
+            const auto p=kernel::bspline_value(spline,.5);
+            document::Placement placed;placed.x=p.x;placed.y=p.y;placed.z=p.z;
+            placed.references={{{},edge.reference.owner_id,edge.reference.semantic_key}};
+            require(document::resolve_placement(placed,calculated.back().mesh.original_references),"Cut curve placement failed");
+            require(std::hypot(placed.x-p.x,placed.y-p.y,placed.z-p.z)<1e-6,"Cut curve forced placement to its endpoint");
+        }
+        require(curves>0,"User cut has no intersection curves");
+        const auto copy=std::filesystem::temp_directory_path()/"zima-boundary-cut-reference-test.prtz";
+        example.save(copy,calculated);
+        std::vector<kernel::BodyResult> restored;
+        static_cast<void>(document::PartDocument::load(copy,&restored));
+        require(!restored.empty(),"User cut cache was not restored");
+        verify_cut_points(restored.back(),operations.back().owner_id);
+        std::filesystem::remove(copy);
+        std::cout<<"User cut endpoints: calculated and native save/reopen passed\n";
+    }
     const auto first_corner=std::ranges::find_if(flat.mesh.original_references.points,[](const auto& p){return p.reference.semantic_key=="boundary:source:source0:vertex:from:a";});
     require(first_corner!=flat.mesh.original_references.points.end()&&std::hypot(first_corner->position.x,first_corner->position.y)<1e-9,"Source corner identity was attached to the wrong endpoint");
     auto cycled=rectangle();std::rotate(cycled.boundaries.begin(),cycled.boundaries.begin()+1,cycled.boundaries.end());
@@ -63,6 +125,16 @@ int main(){try{
     for(unsigned i=0;i<4;++i)feature.boundary_surface.boundaries[i]={container.id,sketch.add_segment(lines[i][0],lines[i][1],lines[i][2],lines[i][3])};
     part.history={container,feature};part.sketches={sketch};graph.insert({document::PartHistoryKind::Feature,container.id});graph.insert({document::PartHistoryKind::Feature,feature.id});part.set_body_history(graph);part.resolve_constructions();
     const auto output=k.evaluate_history(part.kernel_operations());require(output.back().calculation_errors.empty(),"Native Sketch boundary failed");
+    auto current=part;auto* current_source=current.find_container(container.id);
+    current_source->feature_kind=document::FeatureKind::Feature;
+    current_source->feature.type=document::FeatureType::Sketch;
+    current_source->feature.sketch_id=sketch.id;
+    require(document::boundary_surface_source_allowed(current,feature.id,{container.id,{}}),"Current Sketch Feature was rejected as a whole boundary");
+    const auto current_output=k.evaluate_history(current.kernel_operations());
+    require(current_output.back().calculation_errors.empty()&&std::abs(current_output.back().surface_area-output.back().surface_area)<1e-7,
+        "Current Sketch Feature boundaries changed the calculated surface");
+    current_source->feature.type=document::FeatureType::Modeling;
+    require(!document::boundary_surface_source_allowed(current,feature.id,{container.id,{}}),"Solid modeling Feature was offered as a Sketch boundary");
     const auto saved=document::PartDocument::from_serialized(part.serialized());
     require(saved.find_container(feature.id)->boundary_surface==feature.boundary_surface,"Boundary persistence failed");
     auto changed=part;changed.sketches.front().points.front().x+=2;

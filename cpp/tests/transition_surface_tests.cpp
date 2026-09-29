@@ -24,6 +24,18 @@ Vec3 rotation(Vec3 p) {
 QuarterArc transformed(QuarterArc a) {a.first_axis=rotation(a.first_axis);a.second_axis=rotation(a.second_axis);a.center=rotation(a.center);a.center.x+=10000;a.center.y-=12000;a.center.z+=9000;return a;}
 }
 int main()try {
+    if(std::getenv("ZIMA_VERIFY_ENDPOINT_PLANES")) {
+        for(double degrees:{-15.,-5.,5.,15.,30.}) {
+            const double angle=degrees*std::numbers::pi/180;
+            QuarterArc round{{0,0,150},{80,0,0},{0,80*std::cos(angle),80*std::sin(angle)}};
+            QuarterArc corner{{80,60,0},{20,0,0},{0,20,0}};
+            Options options;options.second_rim_endpoint_planes=true;
+            const auto candidate=calculate(round,corner,options);
+            std::cout<<"Endpoint planes tilt "<<degrees<<": failure="<<static_cast<int>(candidate.failure)<<" facets="<<candidate.facets.size()<<" planar="<<candidate.maximum_planarity_error<<" metric="<<candidate.maximum_metric_error<<" deviation="<<candidate.boundary_deviation[0].upper<<","<<candidate.boundary_deviation[1].upper<<std::endl;
+            valid(candidate,4);
+        }
+        return 0;
+    }
     const auto start=std::chrono::steady_clock::now();
     const QuarterArc a{{0,0,0},{20,0,0},{0,20,0}},b{{0,0,150},{100,0,0},{0,100,0}};
     const auto cone=calculate(a,b);valid(cone,4);

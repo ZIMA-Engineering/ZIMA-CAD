@@ -51,7 +51,18 @@ void Placement::refresh_reference(const std::optional<Frame>& resolved) {
     resolved->validate();frame=*resolved;unresolved=false;
 }
 kernel::ViewerMesh Placement::viewer_mesh(std::optional<double> paper_frame_angle,bool retain_layout) const {
-    validate();auto result=instance_mesh(symbol,{},paper_frame_angle);
+    validate();auto displayed=symbol;
+    if(paper_frame_angle&&!leader&&paper_tangent) {
+        const auto definition=Definition::from_serialized(symbol.definition);
+        if(definition.id=="ze:surface-texture:iso1302-1978"||definition.id=="ze:surface-texture:iso21920") {
+            // The contact tangent was already resolved from the actual projected
+            // entity. Keep the grip fixed and orient the direct mark to it.
+            double angle=std::atan2(dot(*paper_tangent,frame.y),dot(*paper_tangent,frame.x))*180./std::acos(-1.);
+            if(angle>90.)angle-=180.;else if(angle<=-90.)angle+=180.;
+            displayed.angle_degrees+=angle;
+        }
+    }
+    auto result=instance_mesh(displayed,{},paper_frame_angle);
     if(!symbol.visible)return result;
     if(leader) {
         auto glyph=symbol;glyph.x=glyph.y=0;glyph.angle_degrees=0;

@@ -1,5 +1,6 @@
 #include "profile_solid_fixture.hpp"
 #include <zima/workspace/drawing_sources.hpp>
+#include <zima/drawing/balloon.hpp>
 #include <zima/workspace/metadata_operations.hpp>
 #include <zima/workspace/family_operations.hpp>
 #include <zima/workspace/engineering_metadata_operations.hpp>
@@ -92,12 +93,82 @@ void component_test(const kernel::OcctKernel& kernel,const fs::path& directory) 
     require(cli.ok&&live.open_assembly(owner)->session.document().find_occurrence(first)->source_document_id==root,"CLI cannot replace an instance by the generic");
     static_cast<void>(workspace::replace_component(live,kernel,owner,first,long_id));
     static_cast<void>(workspace::replace_component(live,kernel,owner,second,short_id));
+    {
+        auto bom_live=live;
+        const auto rows=[&]{return workspace::build_bom_rows_for_source(owner,assembly_file,&bom_live);};
+        require(rows().size()==2,"Ordinary Family variants no longer have separate BOM items");
+        auto pending=bom_live.open_assembly(owner)->session.document();
+        pending.find_occurrence(first)->bom_ignore_variant=true;
+        bom_live.open_assembly(owner)->session.commit(pending);
+        require(rows().size()==2,"BOM option changed an unchecked occurrence");
+        pending.find_occurrence(second)->bom_ignore_variant=true;
+        bom_live.open_assembly(owner)->session.commit(pending);
+        const auto grouped=rows();
+        require(grouped.size()==1&&grouped.front().quantity==2&&grouped.front().name=="component-family"&&
+            grouped.front().source_document_id==root&&grouped.front().occurrence_paths.size()==2,
+            "Filename BOM failed to merge detail variants or lost balloon occurrence paths");
+        drawing::DrawingSheet sheet;sheet.bom_source_document_id=owner;sheet.bom_rows=grouped;
+        drawing::DrawingView view;view.source_document_id=owner;
+        for(const auto& occurrence:{first,second})
+            require(drawing::balloon_bom_row(sheet,view,{box.id,"face",assembly::InstancePath{}.child(occurrence).encoded()})==&sheet.bom_rows.front(),
+                "Merged BOM item did not resolve both occurrence balloons");
+        require(pending.find_occurrence(first)->source_document_id==long_id&&pending.find_occurrence(second)->source_document_id==short_id,
+            "BOM grouping replaced actual variants");
+        pending.find_occurrence(second)->source_path=directory/"different-filename.prtz";
+        bom_live.open_assembly(owner)->session.commit(pending);
+        require(rows().size()==2,"BOM merged differently named files by document identity");
+    }
     // Missing feature topology keeps the new variant and the repairable old reference.
     auto face_mate=live.open_assembly(owner)->session.document();auto& row=face_mate.find_occurrence(first)->placement_references.front();
     for(const auto& ref:live.open_part(long_id)->session.calculated_boundaries().back().mesh.original_references.triangle_references)
         if(ref.owner_id==box.id){row.component_reference.owner_id=ref.owner_id;row.component_reference.semantic_key=ref.semantic_key;break;}
     require(row.component_reference.owner_id==box.id&&face_mate.resolve_plane(row.component_reference).status==assembly::MateStatus::Valid,"Missing-reference fixture lacks an original face");
     face_mate.calculate_placement_references();live.open_assembly(owner)->session.commit(face_mate);const auto before_failure=live.open_assembly(owner)->session.revision();
+    // Library copies need distinct document IDs while retaining local topology
+    // identities for Replace. A filename alone cannot disambiguate open sources.
+    {
+        auto audit=live;
+        bool duplicate_rejected=false;
+        try {audit.add_part(part,{},directory/"duplicate-document-id.prtz");}
+        catch(const std::invalid_argument&) {duplicate_rejected=true;}
+        require(duplicate_rejected,"Workspace accepted a second file with the same document identity");
+        const auto copy_file=directory/"library-copy.prtz";
+        static_cast<void>(audit.save_copy(root,copy_file,{}));
+        std::vector<kernel::BodyResult> copy_cache;
+        auto copied=document::PartDocument::load(copy_file,&copy_cache);
+        const auto copy_id=copied.document_id;
+        require(copy_id!=root&&copied.find_container(box.id),"Save Copy failed to separate document and local geometry identities");
+        audit.add_part(std::move(copied),std::move(copy_cache),copy_file);
+        const auto original_reference=face_mate.find_occurrence(first)->placement_references.front();
+        require(workspace::replace_component(audit,kernel,owner,first,copy_id),"Replace by independent library copy failed");
+        const auto& result=audit.open_assembly(owner)->session.document();
+        const auto* occurrence=result.find_occurrence(first);
+        require(occurrence->placement_references.front()==original_reference&&
+            result.resolve_plane(occurrence->placement_references.front().component_reference).status==assembly::MateStatus::Valid,
+            "Replace by independent copy lost the original face reference");
+        require(std::abs(occurrence->calculated_source->volume-480)<1e-8&&
+            std::abs(result.find_occurrence(second)->calculated_source->volume-240)<1e-8,
+            "Independent sources with shared topology IDs confused their geometry");
+        require(workspace::step_document_history(audit,owner,workspace::HistoryDirection::Undo)&&
+            audit.open_assembly(owner)->session.document().find_occurrence(first)->source_document_id==long_id,
+            "Independent-copy Replace did not undo");
+        require(workspace::step_document_history(audit,owner,workspace::HistoryDirection::Redo)&&
+            audit.open_assembly(owner)->session.document().find_occurrence(first)->source_document_id==copy_id,
+            "Independent-copy Replace did not redo");
+        const auto source_saved=workspace::prepare_document_save(audit,root,file).write();
+        static_cast<void>(workspace::complete_document_save(audit,source_saved));
+        const auto audit_file=directory/"library-replace-audit.asmz";
+        const auto assembly_saved=workspace::prepare_document_save(audit,owner,audit_file).write();
+        static_cast<void>(workspace::complete_document_save(audit,assembly_saved));
+        const auto cold_copy=assembly::AssemblyDocument::load(audit_file);
+        const auto* reopened_copy=cold_copy.find_occurrence(first);
+        require(reopened_copy->source_document_id==copy_id&&
+            cold_copy.resolve_plane(reopened_copy->placement_references.front().component_reference).status==assembly::MateStatus::Valid&&
+            std::abs(reopened_copy->calculated_source->volume-480)<1e-8&&
+            std::abs(cold_copy.find_occurrence(second)->calculated_source->volume-240)<1e-8,
+            "Save/reopen confused copied-source geometry or lost its face mate");
+        std::cout<<"Library copy: distinct document IDs, preserved face mate, isolated geometry, Replace Undo/Redo and cold reopen passed\n";
+    }
     require(workspace::replace_component(live,kernel,owner,first,empty_id),"Missing mate geometry blocked Replace");
     const auto& missing=live.open_assembly(owner)->session.document();const auto* unresolved=missing.find_occurrence(first);
     require(missing.resolve_plane(unresolved->placement_references.front().component_reference).status==assembly::MateStatus::MissingReference&&unresolved->placement_references==face_mate.find_occurrence(first)->placement_references&&live.open_assembly(owner)->session.revision()>before_failure,"Replace discarded or rebound the missing mate reference");
@@ -131,6 +202,18 @@ void component_test(const kernel::OcctKernel& kernel,const fs::path& directory) 
         "Opening a cached Assembly family member did not hydrate its native Part source");
     nested_cold.activate(top_id);static_cast<void>(workspace::replace_component(nested_cold,kernel,top_id,nested,owner));
     require(nested_cold.open_assembly(top_id)->session.document().find_occurrence(native_nested)->source_document_id==owner,"Nested replacement changed its sibling");
+    {
+        auto bom_live=live;auto pending=bom_live.open_assembly(top_id)->session.document();
+        const auto before=pending.occurrence_snapshot();
+        for(auto& occurrence:pending.components)occurrence.bom_ignore_variant=true;
+        bom_live.open_assembly(top_id)->session.commit(pending);
+        const auto rows=workspace::build_bom_rows_for_source(top_id,top_file,&bom_live);
+        require(rows.size()==1&&rows.front().quantity==2&&rows.front().name=="component-owner"&&pending.occurrence_snapshot()==before,
+            "Subassembly BOM option changed nested Tree identity or failed to group variants");
+        const auto persisted=assembly::AssemblyDocument::from_serialized(pending.serialized());
+        require(std::ranges::all_of(persisted.components,[](const auto& occurrence){return occurrence.bom_ignore_variant;}),
+            "Subassembly occurrence BOM options did not persist");
+    }
     bool cycle=false;try{nested_cold.activate(owner);static_cast<void>(workspace::insert_component(nested_cold,owner,assembly_variant));}catch(const std::exception&){cycle=true;}
     require(cycle,"Assembly accepted an instance of its own family as a child");
     auto replacement_workspace=live;replacement_workspace.activate(owner);

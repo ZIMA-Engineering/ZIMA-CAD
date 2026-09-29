@@ -33,6 +33,67 @@ kernel::Vec3 top(const document::Placement& p) {
         cy=std::cos(p.rotation_y*r),sy=std::sin(p.rotation_y*r),cz=std::cos(p.rotation_z*r),sz=std::sin(p.rotation_z*r);
     return {cz*sy*cx+sz*sx,sz*sy*cx-cz*sx,cy*cx};
 }
+void point_circle_parallel_plane() {
+    for(bool rotated:{false,true})for(bool reversed:{false,true})for(bool flip:{false,true}) {
+        auto sketch=sketcher::Sketch::create_default();static_cast<void>(sketch.add_circle(0,0,10));
+        if(rotated){sketch.owner_container_id="rotated-circle";sketch.resolved_origin={4,8,12};sketch.resolved_x_axis={0,1,0};sketch.resolved_y_axis={0,0,1};sketch.resolved_normal={1,0,0};}
+        auto geometry=sketch.placement_reference_geometry();
+        auto plane=std::make_shared<kernel::SurfaceGeometry>();
+        plane->origin=rotated?kernel::Vec3{1,8,12}:kernel::Vec3{0,0,-3};
+        plane->axis=rotated?kernel::Vec3{1,0,0}:kernel::Vec3{0,0,1};
+        plane->radial=rotated?kernel::Vec3{0,1,0}:kernel::Vec3{1,0,0};plane->reversed=reversed;
+        geometry.triangle_references.push_back({"plane","face","instance",plane});
+        const auto vertex=static_cast<std::uint32_t>(geometry.vertices.size());
+        geometry.vertices.insert(geometry.vertices.end(),rotated
+            ? std::initializer_list<kernel::Vec3>{{1,8,12},{1,9,12},{1,8,13}}
+            : std::initializer_list<kernel::Vec3>{{0,0,-3},{1,0,-3},{0,1,-3}});
+        geometry.triangles.insert(geometry.triangles.end(),{vertex,vertex+1,vertex+2});
+        const auto edge=geometry.edges.front().reference;
+        document::Placement p;p.x=rotated?4:10;p.y=rotated?18:0;p.z=rotated?12:0;
+        p.references={{{},edge.owner_id,edge.semantic_key},{"instance","plane","face",6,true,"top",true,false,flip}};
+        const auto original=p.references;
+        auto strict=p;check(!document::resolve_placement(strict,geometry),"Ordinary placement lost strict plane distance");
+        const auto derived=document::point_circle_plane_offsets(p.references,geometry);
+        check(derived[1].has_value(),"Parallel circle plane not recognized");near(*derived[1],reversed?-3:3);
+        check(document::resolve_point_placement(p,geometry),"Derived circle plane rejected Point");
+        near(p.references[1].offset,6);check(p.references[1].flip==flip,"Plane orientation side changed");
+        auto doc=document::PartDocument::create_default();
+        auto point=document::PartDocument::create_feature_container(sketch.id);point.feature.type=document::FeatureType::Point;
+        point.placement=p;doc.history.push_back(point);doc.resolve_constructions(geometry);
+        check(doc.find_container(point.id)->placement.reference_valid,"Point history did not use derived plane");
+        check(!workspace::assign_placement_dimension(point,geometry,"reference_offset:1",42),"Derived offset editable through dimension/CLI");
+        near(point.placement.references[1].offset,6);
+        if(!workspace::assign_placement_dimension(point,geometry,rotated?"z":"y",rotated?16:4))
+            throw std::runtime_error("Free circular coordinate stopped working rotated="+std::to_string(rotated)+" reversed="+std::to_string(reversed)+" flip="+std::to_string(flip)+" placement="+nlohmann::json(point.placement).dump());
+        near(point.placement.references[1].offset,6);
+        auto restored=nlohmann::json(p).get<document::Placement>();
+        near(restored.references[1].offset,6);
+        const auto old_origin=plane->origin;
+        plane->origin=rotated?kernel::Vec3{4,8,12}:kernel::Vec3{};
+        for(double zero:{0.,-0.}) {
+            auto at_zero=p;at_zero.references[1].offset=zero;
+            const auto offsets=document::point_circle_plane_offsets(at_zero.references,geometry);
+            check(offsets[1] && std::signbit(*offsets[1])==std::signbit(zero),"Derived zero lost side");
+            check(document::resolve_point_placement(at_zero,geometry) && std::signbit(at_zero.references[1].offset)==std::signbit(zero),"Point solving changed authored signed zero");
+        }
+        plane->origin=old_origin;
+        plane->axis=rotated?kernel::Vec3{0,1,0}:kernel::Vec3{1,0,0};
+        plane->radial=rotated?kernel::Vec3{0,0,1}:kernel::Vec3{0,1,0};
+        check(!document::point_circle_plane_offsets(restored.references,geometry)[1],"Tilted plane remained derived");
+        check(document::resolve_point_placement(restored,geometry),"Authored offset not restored after tilt");
+        near(rotated?restored.y-8:restored.x,reversed?-6:6);
+        restored.references[1].offset=30;
+        check(!document::resolve_point_placement(restored,geometry),"Impossible tilted plane was accepted");
+        plane->axis=rotated?kernel::Vec3{1,0,0}:kernel::Vec3{0,0,1};
+        plane->radial=rotated?kernel::Vec3{0,1,0}:kernel::Vec3{1,0,0};
+        check(document::resolve_point_placement(restored,geometry),"Returning to parallel did not recover");
+        near(restored.references[1].offset,30);
+        auto other=sketcher::Sketch::create_default();static_cast<void>(other.add_ellipse(0,0,10,0,0,5));
+        auto eg=other.placement_reference_geometry();eg.triangle_references=geometry.triangle_references;
+        restored.references[0].owner_id=eg.edges.front().reference.owner_id;restored.references[0].semantic_key=eg.edges.front().reference.semantic_key;
+        check(!document::point_circle_plane_offsets(restored.references,eg)[1],"Ellipse incorrectly opted into Point circle policy");
+    }
+}
 void curve_matrix() {
     for(bool transformed:{false,true}) {
         auto s=sketcher::Sketch::create_default();
@@ -108,9 +169,9 @@ void surface_placement() {
     g.triangle_references[0].surface.reset();
     g.vertices.insert(g.vertices.end(),{{0,0,0},{1,0,0},{0,1,0}});
     g.triangles.insert(g.triangles.end(),{3,4,5});g.triangle_references.push_back({"source","face",{}});
-    const auto before=p;
-    check(!document::resolve_placement(p,g),"Unsupported curved face accepted as first triangle");
-    near(p.x,before.x);near(p.y,before.y);near(p.z,before.z);
+    check(document::resolve_placement(p,g),"General source triangles cannot resolve");
+    check(p.x>=0&&p.y>=0&&p.x+p.y<=1+1e-7&&std::abs(p.z)<1e-7,
+        "General surface extrapolated the plane of its first triangle");
 }
 void solution_branches() {
     for(bool ellipse:{false,true})for(bool rotated:{false,true}) {
@@ -659,8 +720,40 @@ void sketch_endpoint_assignments(const std::filesystem::path& file) {
 }
 }
 int main(int argc,char** argv){try{
+    if(const auto* path=std::getenv("ZIMA_VERIFY_INVALID_PLACEMENT_SOURCE")) {
+        std::vector<kernel::BodyResult> cache;
+        auto part=document::PartDocument::load(path,&cache);
+        const auto found=std::ranges::find(part.history,std::string("Bod 001"),&document::HistoryContainer::name);
+        check(found!=part.history.end(),"Requested saved point was not found");
+        auto draft=*found;
+        auto geometry=part.construction_reference_geometry_for(draft.id,workspace::construction_reference_source_geometry(cache));
+        auto resolved=draft.placement;
+        check(!document::resolve_placement(resolved,geometry),"Saved contradictory point unexpectedly resolved");
+        const auto measured=document::measure_placement_reference_offset(draft.placement.references[1],geometry,
+            {draft.placement.x,draft.placement.y,draft.placement.z});
+        check(measured.has_value(),"Saved plane distance cannot be measured");
+        std::cout<<"Saved point: requested plane offset "<<draft.placement.references[1].offset<<", actual "<<*measured<<"\n";
+        workspace::Workspace live;const auto id=part.document_id;live.add_part(part,cache);live.activate(id);kernel::OcctKernel kernel;
+        const auto before=live.open_part(id)->session.document().serialized();const auto revision=live.open_part(id)->session.revision();
+        const double authored=draft.placement.references[1].offset;
+        draft.name+=" validation";
+        workspace::commit_profile(live,kernel,id,draft,workspace::ProfileEditMode::Replace);
+        auto& session=live.open_part(id)->session;
+        check(session.document().find_container(draft.id)->placement.reference_valid,"Saved circle Point stayed invalid");
+        near(session.document().find_container(draft.id)->placement.references[1].offset,authored);
+        const auto committed=session.document().serialized();
+        check(session.undo() && session.document().serialized()==before,"Circle Point Undo lost authored values");
+        check(session.redo() && session.document().serialized()==committed,"Circle Point Redo changed values");
+        const auto copy=std::filesystem::temp_directory_path()/("zima-derived-circle-"+draft.id+".prtz");
+        session.document().save(copy,session.calculated_boundaries());
+        auto reopened=document::PartDocument::load(copy);
+        near(reopened.find_container(draft.id)->placement.references[1].offset,authored);
+        check(reopened.find_container(draft.id)->placement.reference_valid,"Reopened Point invalid");
+        std::filesystem::remove(copy);
+        std::cout<<"Saved Point derived distance, authored offset, Undo/Redo and native reopen passed\n";return 0;
+    }
     if(argc>1){saved_endpoint_study(argv[1]);return 0;}
-    surface_placement();solution_branches();verify();curve_matrix();history();boundaries();third_direction();ordered_frames();
+    point_circle_parallel_plane();surface_placement();solution_branches();verify();curve_matrix();history();boundaries();third_direction();ordered_frames();
     const auto root=std::filesystem::temp_directory_path();
     const auto prefix="zima-curve-"+document::PartDocument::create_default().document_id;
     const auto native=root/(prefix+".prtz"),solid=root/(prefix+"-solid.prtz");

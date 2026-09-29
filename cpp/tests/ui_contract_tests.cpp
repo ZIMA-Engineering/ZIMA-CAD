@@ -734,6 +734,7 @@ int main(int argc, char* argv[]) {
 
     try {
         if(qEnvironmentVariableIsSet("ZIMA_VERIFY_TRANSLATIONS_ONLY")) return verify_translations(application,parent);
+        if(qEnvironmentVariableIsSet("ZIMA_VERIFY_FACE_FILL_ONLY")) {verify_face_fill(application,parent);return 0;}
         if(qEnvironmentVariableIsSet("ZIMA_BENCHMARK_SELECTION_WIRE")){benchmark_selection_wire(application,parent);return 0;}
         {
             QToolButton command(&parent);
@@ -5027,6 +5028,10 @@ int main(int argc, char* argv[]) {
         zima::document::Placement sketch_placement;
         int sketch_commits = 0;
         bool sketch_entry_requested = true;
+        zima::kernel::ViewerReferenceGeometry sketch_reference_geometry;
+        sketch_reference_geometry.vertices = {{0,0,0},{10,0,0},{0,0,10}};
+        sketch_reference_geometry.triangles = {0,1,2};
+        sketch_reference_geometry.triangle_references = {{"source-plane","plane",{}}};
         auto* sketch_dialog = new zima::app::SketchPropertiesDialog(
             sketch, sketch_placement, false, {},
             [&](zima::sketcher::Sketch committed,
@@ -5037,6 +5042,7 @@ int main(int argc, char* argv[]) {
                 sketch_placement = std::move(committed_placement);
                 sketch_entry_requested = enter_sketch;
             }, &parent);
+        sketch_dialog->set_reference_geometry(sketch_reference_geometry);
         sketch_dialog->show();
         require(sketch_dialog->windowFlags().testFlag(Qt::SubWindow),
                 "Sketch Properties is not an internal SubWindow");
@@ -5110,6 +5116,7 @@ int main(int argc, char* argv[]) {
                 zima::document::Placement, bool enter_sketch) {
                 explicit_sketch_entry_requested = enter_sketch;
             }, &parent);
+        sketch_entry_dialog->set_reference_geometry(sketch_reference_geometry);
         sketch_entry_dialog->show();
         application.processEvents();
         auto* open_sketch_button = sketch_entry_dialog->findChild<QPushButton*>(

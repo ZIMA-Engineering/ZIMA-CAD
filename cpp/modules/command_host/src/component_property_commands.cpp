@@ -65,7 +65,7 @@ void Host::register_component_property_commands() {
     using Type=commands::ArgumentType;
     dispatcher_.add({"component.set",tr("Edit an owned component's properties and placement references through the shared Properties transaction."),
         {{"instance_path",true},{"name",false},{"visible",false,Type::Boolean},{"suppressed",false,Type::Boolean},{"grounded",false,Type::Boolean},
-         {"placement",false,Type::Object},{"placement_references",false,Type::Array},{"document",false}},true},[this](const Json& args) {
+         {"bom_ignore_variant",false,Type::Boolean},{"placement",false,Type::Object},{"placement_references",false,Type::Array},{"document",false}},true},[this](const Json& args) {
         const auto check=target(args);if(!check.ok)return check;
         if(interaction().template_document)return Result::failure("unsupported_document",tr("Component commands require an open Assembly."));
         try {
@@ -77,6 +77,7 @@ void Host::register_component_property_commands() {
             if(args.contains("visible"))value.visible=args.at("visible").get<bool>();
             if(args.contains("suppressed"))value.suppressed=args.at("suppressed").get<bool>();
             if(args.contains("grounded"))value.grounded=args.at("grounded").get<bool>();
+            if(args.contains("bom_ignore_variant"))value.bom_ignore_variant=args.at("bom_ignore_variant").get<bool>();
             if(args.contains("placement_references"))value.references=references(args.at("placement_references"),edit.initial);
             if(args.contains("placement")) {
                 std::map<std::string,double> patch;for(const auto& [key,n]:args.at("placement").items())patch.emplace(key,number(n));

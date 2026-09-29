@@ -19,9 +19,20 @@ one change; **Cancel** discards the preview. Middle-button double-click confirms
 
 In a model, arm the reference field and select an original planar, cylindrical
 or conical face, an original edge or a point. The contact follows that reference. The numeric origin can also
-place a free symbol. In a Drawing, select original projected geometry or click
-empty sheet space for a free placement. Reference hover, confirmation and cycling
+place a free symbol. In a Drawing, select projected geometry before insertion:
+the preview is hidden and OK is disabled until an entity is selected. Clicking
+empty sheet space keeps reference entry active. Reference hover, confirmation and cycling
 use the existing reference-selection workflow.
+
+Direct Drawing surface-texture marks follow the local tangent of their selected
+edge. Their leader mode defaults to perpendicular contact, using the same
+projected tangent as datum-feature leaders. Manual rotation remains an offset.
+The ISO 21920 factory library places the text 1 mm below its upper line and
+1 mm farther right than the previous layout. That line fits `Ra 12,5` with
+1 mm of right clearance. These dimensions are application styling choices.
+Geometric-tolerance library geometry and frames are yellow; lettering is green.
+Existing inserted symbols retain their embedded library geometry and text colors;
+insert from the updated library to use the revised factory layout.
 
 Enable **Leader line** to connect the contact point to the symbol grip. **Leader
 ending** selects an arrow, filled triangle or filled dot. The datum-feature

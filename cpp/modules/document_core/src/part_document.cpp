@@ -1,6 +1,7 @@
 #include <zima/document/derived_copy_json.hpp>
 #include "draft_preview.hpp"
 #include <zima/document/placement_surface.hpp>
+#include <zima/document/placement_mesh_surface.hpp>
 #include <zima/document/feature_rotation_span.hpp>
 #include <zima/document/native_read_capture.hpp>
 #include <zima/document/holes.hpp>
@@ -3217,10 +3218,16 @@ bool placement_solve_position_step(
 }
 
 #include "placement_branches.inc"
+#include "placement_mesh_constraints.inc"
 
 bool placement_solve_position(
     const std::vector<std::reference_wrapper<const ConstructionReference>>& references,
     const zima::kernel::ViewerReferenceGeometry& geometry,zima::kernel::Vec3& origin) {
+    if(const auto mesh=placement_mesh_solutions(references,geometry,origin)) {
+        if(mesh->points.empty())return false;
+        origin=*std::ranges::min_element(mesh->points,{},[&](auto p){return placement_mesh::square(placement_mesh::sub(p,origin));});
+        return true;
+    }
     if(const auto branches=placement_branches(references,geometry,origin)) {
         if(const auto selected=selected_placement_branch(*branches,origin)){origin=*selected;return true;}
         return false;
@@ -3332,7 +3339,7 @@ PlacementDirections placement_resolve_directions(
         if (const auto axis = placement_reference_axis(reference, geometry, origin,
                 placement_uses_secondary_direction(reference, result.front.has_value())))
             direction = axis->direction;
-        else if (const auto plane = placement_reference_plane(reference, geometry, origin))
+        else if (const auto plane = placement_contact_plane(reference, geometry, origin))
             direction = plane->normal;
         else if (reference.orientation_role == "direction")
             if (const auto point = placement_reference_point(reference, geometry))
@@ -3366,6 +3373,17 @@ std::vector<Placement> placement_solution_branches(Placement placement,
     for(auto& ref:placement.references){ref.solution_branch=0;ref.branch_sources.clear();}
     std::vector<std::reference_wrapper<const ConstructionReference>> refs;
     for(const auto& ref:placement.references)if(!ref.orientation_only)refs.push_back(ref);
+    if(const auto mesh=placement_mesh_solutions(refs,geometry,{placement.x,placement.y,placement.z},true)) {
+        std::vector<Placement> result;
+        if(!mesh->discrete)return result;
+        for(const auto point:mesh->points) {
+            auto candidate=placement;candidate.x=point.x;candidate.y=point.y;candidate.z=point.z;
+            // The persisted resolved position anchors this solution. Triangle
+            // indices and tessellation order are never persisted as branches.
+            if(resolve_placement(candidate,geometry))result.push_back(std::move(candidate));
+        }
+        return result;
+    }
     const auto branches=placement_branches(refs,geometry,{placement.x,placement.y,placement.z});
     std::vector<Placement> result;if(!branches)return result;
     const auto index=static_cast<std::size_t>(branches->source-placement.references.data());
@@ -3381,7 +3399,7 @@ std::vector<Placement> placement_solution_branches(Placement placement,
 std::optional<double> measure_placement_reference_offset(const ConstructionReference& reference,
         const zima::kernel::ViewerReferenceGeometry& geometry,const zima::kernel::Vec3& point) {
     if(!reference.supports_offset)return std::nullopt;
-    const auto plane=placement_reference_plane(reference,geometry,point);if(!plane)return std::nullopt;
+    const auto plane=placement_contact_plane(reference,geometry,point);if(!plane)return std::nullopt;
     return (point.x-plane->point.x)*plane->normal.x+(point.y-plane->point.y)*plane->normal.y+(point.z-plane->point.z)*plane->normal.z;
 }
 
@@ -4284,6 +4302,53 @@ bool resolve_construction(ConstructionObject& object,
     return object.reference_valid;
 }
 
+std::vector<std::optional<double>> point_circle_plane_offsets(
+    const std::vector<ConstructionReference>& references, const kernel::ViewerReferenceGeometry& geometry) {
+    std::vector<std::optional<double>> result(references.size());
+    const auto first=std::ranges::find_if(references,[](const auto& ref) {
+        return !ref.orientation_only && (!ref.owner_id.empty() || !ref.semantic_key.empty());
+    });
+    if(first==references.end() || first->use_axis || first->offset!=0)return result;
+    const auto edge=std::ranges::find_if(geometry.edges,[&](const auto& e) {
+        return e.exact_spline && placement_reference_matches(e.reference,*first);
+    });
+    if(edge==geometry.edges.end())return result;
+    const auto conic=placement_circle(*edge->exact_spline);
+    if(!conic)return result;
+    const auto& [center,a,b,scale]=*conic;
+    const double ra=std::hypot(a.x,a.y,a.z),rb=std::hypot(b.x,b.y,b.z);
+    if(std::abs(ra-rb)>1e-10*scale || std::abs(placement_vec_dot(a,b))>1e-10*ra*rb)return result;
+    for(std::size_t i=static_cast<std::size_t>(first-references.begin())+1;i<references.size();++i) {
+        const auto& ref=references[i];
+        if(ref.orientation_only || !construction_reference_is_planar_face(ref,geometry))continue;
+        const auto plane=placement_reference_plane(ref,geometry);
+        if(!plane || std::hypot(placement_vec_dot(plane->normal,a),placement_vec_dot(plane->normal,b))>=1e-12*scale)continue;
+        const double distance=placement_vec_dot(plane->normal,placement_vec_sub(center,plane->point));
+        result[i]=distance==0 ? std::copysign(0.,ref.offset) : distance;
+    }
+    return result;
+}
+
+bool resolve_point_placement(Placement& placement,const kernel::ViewerReferenceGeometry& geometry,
+    kernel::Vec3* base_rotation,bool* orientation_from_reference) {
+    const auto derived=point_circle_plane_offsets(placement.references,geometry);
+    auto effective=placement;
+    for(std::size_t i=0;i<derived.size();++i)if(derived[i])effective.references[i].offset=*derived[i];
+    // A selected intersection branch is temporarily inactive when the plane
+    // contains the whole circle. Keep it for a later tilt, like the offset.
+    const bool suspend_branch=std::ranges::any_of(derived,[](const auto& d){return d.has_value();}) &&
+        point_constraint_state(effective.references,geometry,{effective.x,effective.y,effective.z}).remaining_dof>0;
+    if(suspend_branch)for(auto& ref:effective.references){ref.solution_branch=0;ref.branch_sources.clear();}
+    const bool valid=resolve_placement(effective,geometry,base_rotation,orientation_from_reference);
+    for(std::size_t i=0;i<derived.size();++i)if(derived[i])effective.references[i].offset=placement.references[i].offset;
+    if(suspend_branch)for(std::size_t i=0;i<effective.references.size();++i) {
+        effective.references[i].solution_branch=placement.references[i].solution_branch;
+        effective.references[i].branch_sources=placement.references[i].branch_sources;
+    }
+    placement=std::move(effective);
+    return valid;
+}
+
 bool resolve_placement(
     Placement& placement, const zima::kernel::ViewerReferenceGeometry& geometry,
     zima::kernel::Vec3* base_rotation,
@@ -4488,8 +4553,8 @@ PointConstraintState point_constraint_state(
                 append_axis_rows(axis->direction);
             continue;
         }
-        if(placement_surface(reference,geometry)) {
-            if(const auto plane=placement_reference_plane(reference,geometry,origin))
+        if(placement_surface(reference,geometry) || placement_mesh::is_surface(reference,geometry)) {
+            if(const auto plane=placement_contact_plane(reference,geometry,origin))
                 rows.push_back(plane->normal);
             continue;
         }
@@ -5685,8 +5750,15 @@ zima::kernel::ViewerMesh PartDocument::construction_viewer_mesh(
         if ((!basic_solid && !profile_feature) || container.suppressed || excluded_features.contains(container.id)) continue;
         const bool established_marker=container.feature_kind==FeatureKind::TwistedSheet ||
             container.feature_kind==FeatureKind::Extrusion || container.feature_kind==FeatureKind::Revolution;
+        if(container.feature_kind==FeatureKind::SheetTransition)
+            append_reference_geometry(mesh.original_references,sheet_transition_profile_plane(container));
         if(!established_marker && !container.origin_point_visible && !container.origin_text_visible &&
            editing_object_id!=container.id)continue;
+        if(container.feature_kind==FeatureKind::SheetTransition) {
+            const auto points=sheet_transition_axis_points(container,editing_object_id==container.id);
+            mesh.points.insert(mesh.points.end(),points.begin(),points.end());
+            continue;
+        }
         zima::kernel::Vec3 marker{container.placement.x, container.placement.y,
                                  container.placement.z};
         if (profile_feature) {
@@ -6110,7 +6182,9 @@ void PartDocument::resolve_constructions(
     };
     const auto resolve_feature = [&](HistoryContainer& container) {
         if (container.suppressed) return;
-        static_cast<void>(resolve_placement(container.placement, source_geometry));
+        if(container.feature_kind==FeatureKind::Feature && container.feature.type==FeatureType::Point)
+            static_cast<void>(resolve_point_placement(container.placement, source_geometry));
+        else static_cast<void>(resolve_placement(container.placement, source_geometry));
         if (!container.placement.reference_valid) return;
         if(container.feature_kind==FeatureKind::TwistedSheet&&
             container.twisted_sheet.sheet_attachment) {

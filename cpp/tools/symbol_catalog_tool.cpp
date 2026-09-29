@@ -1,9 +1,11 @@
 #include <zima/symbols/definition.hpp>
+#include <zima/symbols/native_document.hpp>
 #include <nlohmann/json.hpp>
 #include <QFile>
 #include <zima/sketcher/text_geometry.hpp>
 #include <QGuiApplication>
 #include <QImage>
+#include <QFontDatabase>
 #include <QPainter>
 #include <QPainterPath>
 #include <iostream>
@@ -68,8 +70,14 @@ symbols::Definition roughness() {
     symbols::Definition d;d.id="ze:surface-texture:iso21920";d.name="ZE-SURFACE-TEXTURE-ISO21920";
     auto base=sketch(d.id+":base");
     line(base,"roughness:left",-1.75,3.031,0,0);line(base,"roughness:right",0,0,3.5,6.062);
-    line(base,"roughness:top",3.5,6.062,19,6.062);line(base,"roughness:standard-bar",-1.2,4.55,1.2,4.55);
-    text(base,"roughness:value","Ra 3.2",4.0,1.0);
+    line(base,"roughness:standard-bar",-1.2,4.55,1.2,4.55);
+    text(base,"roughness:value","Ra 3.2",5.0,5.062);
+    base.texts.back().vertical=sketcher::TextVerticalAlignment::Top;
+    base.texts.back().drawing_keep_readable=true;
+    sketcher::rebuild_text_contours(base.texts.back(),true);
+    auto longest=base.texts.back();longest.value="Ra 12,5";sketcher::rebuild_text_contours(longest,true);
+    double right=0;for(const auto& contour:longest.contours)for(const auto& point:contour)right=std::max(right,point[0]);
+    line(base,"roughness:top",3.5,6.062,right+1.,6.062);
     auto required=sketch(d.id+":removal-required");line(required,"roughness:removal",-1.75,3.031,1.75,3.031);
     auto forbidden=sketch(d.id+":removal-forbidden");forbidden.points.push_back({"roughness:circle-center",0,1.85,true});
     forbidden.circles.push_back({"roughness:circle","roughness:circle-center",.925,false});
@@ -166,6 +174,7 @@ symbols::Definition geometric_tolerance(const std::string& kind) {
         row.sketches.push_back(datum.id);d.frame_layout->cells.push_back(datum.id);d.sketches.push_back(datum);
     }
     for(auto& s:d.sketches){for(auto& p:s.points)p.y-=3.5;for(auto& t:s.texts){t.anchor_y-=3.5;sketcher::rebuild_text_contours(t,true);}}
+    texture_colors(d,sketcher::SketchTextColor::Green);
     d.default_variant="default";d.insertion_point={0,0};d.validate();return d;
 }
 symbols::Definition welding(const std::string& kind) {
@@ -251,6 +260,56 @@ symbols::Definition datum_feature() {
 int main(int argc,char** argv) {
     QGuiApplication app(argc,argv);
     try {
+        if(argc==4&&std::string(argv[1])=="--preview") {
+            const auto font_path=std::filesystem::path(__FILE__).parent_path().parent_path().parent_path()/"config/fonts/osifont-lgpl3fe.ttf";
+            const int font_id=QFontDatabase::addApplicationFont(QString::fromStdString(font_path.string()));
+            const auto definition=symbols::Definition::load(std::filesystem::u8path(argv[2]));
+            QImage image(1200,220*int((definition.variants.size()+2)/3),QImage::Format_ARGB32_Premultiplied);image.fill(QColor("#303840"));
+            QPainter painter(&image);painter.setRenderHint(QPainter::Antialiasing);if(font_id>=0)painter.setFont(QFont(QFontDatabase::applicationFontFamilies(font_id).front(),9));int index=0;
+            for(const auto& [key,variant]:definition.variants) {
+                sketcher::SymbolInstance value;value.id="preview";value.definition=definition.serialized();value.variant=key;
+                if(definition.fields.contains("Specification"))value.text_values["Specification"]="Ra 12,5";
+                painter.save();painter.translate(30+(index%3)*400,40+(index/3)*220);painter.setPen(Qt::white);painter.drawText(QPointF(0,0),QString::fromStdString(key));
+                painter.translate(25,100);painter.scale(8,-8);
+                std::map<QRgb,QPainterPath> fills;
+                for(const auto& edge:symbols::instance_mesh(value).edges) {
+                    QPolygonF points;for(const auto p:edge.points)points<<QPointF(p.x,p.y);
+                    const QColor color(QString::fromStdString(edge.color));painter.setPen(QPen(color,.2));
+                    if(edge.filled_text)fills[color.rgba()].addPolygon(points);else painter.drawPolyline(points);
+                }
+                for(const auto& [rgba,path]:fills)painter.fillPath(path,QColor::fromRgba(rgba));
+                painter.restore();++index;
+            }
+            painter.end();if(!image.save(QString::fromUtf8(argv[3])))throw std::runtime_error("Cannot save symbol preview");return 0;
+        }
+        if(argc==3&&std::string(argv[1])=="--update-tolerance-colors") {
+            const auto path=std::filesystem::u8path(argv[2]);auto part=document::PartDocument::load(path);
+            auto definition=symbols::native_definition(part);
+            if(!definition.id.starts_with("ze:geometric-tolerance:"))throw std::runtime_error("Expected geometric tolerance library");
+            texture_colors(definition,sketcher::SketchTextColor::Green);
+            for(auto& sketch:part.sketches)for(auto& value:sketch.texts)value.color=sketcher::SketchTextColor::Green;
+            part.symbol_editor_definition=definition.serialized();part.save(path);
+            static_cast<void>(symbols::Definition::load(path));
+            std::cout<<"Updated tolerance pens, retaining native document identities\n";return 0;
+        }
+        if(argc==3&&std::string(argv[1])=="--update-roughness-layout") {
+            const auto root=std::filesystem::u8path(argv[2]);
+            const auto generated=roughness();const auto layout=generated.sketches.front().texts.front();
+            for(const auto* relative:{"surface-texture/ZE-SURFACE-TEXTURE-ISO21920.symz","general/ZE-GENERAL-SURFACE-TEXTURE-ISO21920.symz"}) {
+                const auto path=root/relative;auto part=document::PartDocument::load(path);bool updated=false;
+                for(auto& sketch:part.sketches)for(auto& value:sketch.texts)if(value.id=="roughness:value") {
+                    value.anchor_x=layout.anchor_x;value.anchor_y=layout.anchor_y;value.vertical=layout.vertical;
+                    value.drawing_keep_readable=true;sketcher::rebuild_text_contours(value,true);updated=true;
+                }
+                const auto& generated_points=generated.sketches.front().points;
+                const auto end=std::ranges::find(generated_points,std::string("roughness:top:b"),&sketcher::SketchPoint::id);
+                for(auto& sketch:part.sketches)for(auto& point:sketch.points)if(point.id=="roughness:top:b")point.x=end->x;
+                if(!updated)throw std::runtime_error("Surface texture text field missing");
+                part.symbol_editor_definition=symbols::native_definition(part).serialized();part.save(path);
+                static_cast<void>(symbols::Definition::load(path));
+            }
+            std::cout<<"Updated surface texture text layout, retaining native document identities\n";return 0;
+        }
         if(argc==4&&std::string(argv[1])=="--verify-replacements") {
             const auto source=std::filesystem::u8path(argv[2]),target=std::filesystem::u8path(argv[3]);int checked=0;
             const auto strokes=[](const symbols::Definition& definition,const std::string& variant) {

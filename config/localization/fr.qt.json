@@ -1,4 +1,6 @@
 {
+"Vzdálenost je daná kružnicí. Původní hodnota se obnoví při naklonění roviny.":"La distance est déterminée par le cercle. La valeur initiale est rétablie lorsque le plan est incliné.",
+"V kusovníku ignorovat variantu":"Ignorer la variante dans la nomenclature","Použít název zdrojového souboru a sloučit jeho označené varianty do jedné položky kusovníku. Strom a geometrie se nemění.":"Utiliser le nom du fichier source et regrouper ses variantes cochées dans une seule ligne de nomenclature. La géométrie et les noms restent inchangés.",
   "Teoreticky přesná kóta (rámeček)": "Cote théoriquement exacte (cadre)",
   "Teoreticky přesná kóta nemá rozměrové tolerance. Platí i pro úhly, poloměry a průměry.": "Une cote théoriquement exacte ne comporte pas de tolérances dimensionnelles. Cela s’applique aussi aux angles, rayons et diamètres.",
   "Surface draft requires a closed profile.": "La dépouille de surface nécessite un profil fermé.",

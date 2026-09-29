@@ -9,6 +9,7 @@ struct ComponentProperties {
     std::vector<assembly::ComponentPlacementReference> references;
     std::set<std::string> value_locks;
     bool visible{true},suppressed{},grounded{};
+    bool bom_ignore_variant{};
     bool operator==(const ComponentProperties&) const = default;
 };
 struct ComponentEdit {

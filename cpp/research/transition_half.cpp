@@ -127,7 +127,7 @@ HalfResult triangulated_half(const HalfModel& model) {
     return result;
 }
 }
-HalfResult calculate(const HalfModel& model) {
+static HalfResult calculate_half(const HalfModel& model,bool endpoint_planes) {
     HalfResult result;
     try {
         if(!model.first_origin.valid()||!model.second_relative.valid())throw Failure::InvalidInput;
@@ -142,8 +142,11 @@ HalfResult calculate(const HalfModel& model) {
         for(std::size_t i=0;i<2;++i) {
             Options options;options.facets=model.corner_facets[i];
             corners[i]=calculate(top[i],transformed(bottom[i],model.second_relative),options);
+            if(!corners[i].valid() && corners[i].failure==Failure::IncompatibleEndpoints && endpoint_planes) {
+                options.second_rim_endpoint_planes=true;
+                corners[i]=calculate(top[i],transformed(bottom[i],model.second_relative),options);
+            }
             if(!corners[i].valid()) {
-                if(corners[i].failure==Failure::IncompatibleEndpoints)return triangulated_half(model);
                 throw corners[i].failure;
             }
         }
@@ -193,6 +196,16 @@ HalfResult calculate(const HalfModel& model) {
         for(auto& fold:result.folds){fold.first=model.first_origin.point(fold.first);fold.second=model.first_origin.point(fold.second);}
     }catch(Failure failure){result.failure=failure;result.faces.clear();result.folds.clear();}
     return result;
+}
+HalfResult calculate(const HalfModel& model) {
+    auto result=calculate_half(model,false);
+    if(result.valid() || result.failure!=Failure::IncompatibleEndpoints)return result;
+    // Prefer the authored facet count and planar quadrilaterals. Endpoint
+    // planes preserve both profiles' endpoints and the straight-wall joins.
+    // Keep the established triangulated solution for inputs where this
+    // constrained faceted approximation cannot pass the full strip checks.
+    result=calculate_half(model,true);
+    return result.valid()?result:triangulated_half(model);
 }
 HalfResult calculate(const RectangularModel& model) {
     HalfResult failed;failed.failure=Failure::InvalidInput;

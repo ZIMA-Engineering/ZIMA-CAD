@@ -379,6 +379,29 @@ AssemblyWorkspaceWindow::sketch_candidate_snap_ray(
                  ((*cursor)[1] - line->first[1]) * line->second[1]) /
                 length_squared;
             if (finite_line) parameter = std::clamp(parameter, 0.0, 1.0);
+            if (sketch_arc_active_ && pending_arc_center_ && pending_arc_start_) {
+                // The terminal point is confined to the circle fixed by the
+                // first two clicks. Projecting onto the line and then radially
+                // onto that circle loses C whenever the center is off the line.
+                // Preview and confirmation both consume this exact intersection.
+                const auto& center=*pending_arc_center_;
+                const double radius=std::hypot((*pending_arc_start_)[0]-center[0],
+                    (*pending_arc_start_)[1]-center[1]);
+                const double foot=((center[0]-line->first[0])*line->second[0]+
+                    (center[1]-line->first[1])*line->second[1])/length_squared;
+                const double dx=line->first[0]+foot*line->second[0]-center[0];
+                const double dy=line->first[1]+foot*line->second[1]-center[1];
+                const double remaining=radius*radius-dx*dx-dy*dy;
+                if(remaining < -1.0e-12*std::max(1.0,radius*radius))return std::nullopt;
+                const double offset=std::sqrt(std::max(0.0,remaining)/length_squared);
+                std::optional<double> nearest;
+                for(const double value:{foot-offset,foot+offset}) {
+                    if(finite_line&&(value<0.0||value>1.0))continue;
+                    if(!nearest||std::abs(value-parameter)<std::abs(*nearest-parameter))nearest=value;
+                }
+                if(!nearest)return std::nullopt;
+                parameter=*nearest;
+            }
             position = std::array{
                 line->first[0] + parameter * line->second[0],
                 line->first[1] + parameter * line->second[1]};

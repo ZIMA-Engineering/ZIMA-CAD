@@ -42,6 +42,11 @@ int verify_body_scale(QApplication& application,AssemblyWorkspaceWindow& window,
         auto* slot=tabs->tabButton(tabs->currentIndex(),QTabBar::RightSide);
         auto* close=slot->findChild<QPushButton*>("documentTabCloseButton");
         check(close&&slot->width()-close->geometry().right()-1==2,"Tab close button is not at the right inset");
+        const auto tab=tabs->tabRect(tabs->currentIndex());
+        const QRect button(close->mapTo(tabs,QPoint{}),close->size());
+        const int tab_top=button.top()-tab.top(),bottom=tab.bottom()-button.bottom(),right=tab.right()-button.right();
+        check(std::abs(tab_top-bottom)<=1&&right==tab_top,"Tab close button outer gaps are not balanced");
+        tabs->grab().save(QString::fromStdString((directory/"document-tab-spacing.png").string()));
         const auto row=[&](const std::string& id)->QTreeWidgetItem*{
             for(QTreeWidgetItemIterator it(tree);*it;++it)if((*it)->data(0,Qt::UserRole).toString().toStdString()==id&&
                 (*it)->data(0,Qt::UserRole+3).toString()=="part-body")return *it;return nullptr;};
