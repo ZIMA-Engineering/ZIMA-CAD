@@ -47,6 +47,16 @@ int main(int argc, char** argv) {
         require(settings.language == "de" && settings.units["Length"] == "cm", "common overrides lost");
         require(QDir::cleanPath(settings.resolved_paths["Templates"]) == root + "/config/my-templates", "platform-relative path wrong");
         require(settings.resolved_paths["WorkingDirectory"] == root + "/Projects", "portable project default wrong");
+        // Release factory config resolves the receiving user's home, not the build host.
+        write(factory, factory_bytes + "[Paths]\nWorkingDirectory=~\n");
+        require(zima::app::ApplicationSettings::load(root + "/Projects", exe).resolved_paths["WorkingDirectory"] == QDir::homePath(), "release home default wrong");
+        {
+            QSettings overrides(root + "/config/" + platform + "/config.ini", QSettings::IniFormat);
+            overrides.setValue("Paths/WorkingDirectory", "../user-projects"); overrides.sync();
+            require(QDir::cleanPath(zima::app::ApplicationSettings::load(root + "/Projects", exe).resolved_paths["WorkingDirectory"]) == root + "/config/user-projects", "home default replaced user override");
+            overrides.remove("Paths/WorkingDirectory"); overrides.sync();
+        }
+        write(factory, factory_bytes);
         const auto cli = zima::cli::load_settings(std::filesystem::u8path(exe.toStdString()), std::filesystem::u8path((root + "/Projects").toStdString()), {});
         require(cli.documents.units.at("Length") == "cm", "CLI/common settings differ");
         require(settings.sweep_precision_defaults.sweep2d==.001&&settings.sweep_precision_defaults.sweep3d==.001&&

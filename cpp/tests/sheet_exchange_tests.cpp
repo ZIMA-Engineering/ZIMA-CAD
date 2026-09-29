@@ -1,3 +1,4 @@
+#include <zima/kernel/sheet_exchange.hpp>
 #include <zima/document/part_document.hpp>
 #include <zima/kernel/occt_kernel.hpp>
 #include <zima/workspace/sheet_exchange_operations.hpp>
@@ -43,6 +44,14 @@ void contract() {
         auto cache=workspace::calculate_part_with_resolved_references(kernel,part);
         const double expected=(8000-2*(200+25*std::numbers::pi)-36*std::numbers::pi)*3;
         near(cache.back().body_outputs.at(source)->volume,expected,.001);
+        if(!reverse) {
+            auto flat_body=cache.back().body_outputs.at(source).get();
+            flat_body.mesh.axes.push_back({{50,20,0},{1,0,0},100,{"fixture","sheet-bend-line:from:slot",{}},""});
+            const auto clipped=kernel::sheet_flat_contour(flat_body,3,.05);
+            check(clipped.bend_axes.size()==2,"Bend axis did not split at the stadium slot");
+            double length=0;for(const auto& axis:clipped.bend_axes)length+=std::hypot(axis[1].x-axis[0].x,axis[1].y-axis[0].y);
+            near(length,70,1e-5); // 100 mm width minus the 30 mm slot at its centre.
+        }
         check(document::profile_status(part.sketches.front())==document::ProfileStatus::Closed,"Slot profile is not editable as a closed profile");
         check(!document::flat_preview(part.history.front(),part.sketches.front(),document::sheet_metal_defaults(part)).edges.empty(),"Multi-slot Flat lacks an edit preview");
         const auto seed=*std::ranges::max_element(cache.back().mesh.original_references.triangle_references,{},[](const auto& f){return f.surface&&f.surface->kind==kernel::SurfaceGeometry::Kind::Plane?f.measured_area.value_or(0):0;});
@@ -127,6 +136,11 @@ void contract() {
         const double folded_volume=converted.calculated.back().body_outputs.at(target)->volume;
         near(folded_volume,cache.back().body_outputs.at(source)->volume,.01);
         const auto dxf=workspace::prepare_sheet_dxf(converted.document,converted.calculated,kernel);
+        check(dxf.export_options.bend_axis_ids.size()==1,"Unfolded sheet lost its bend axis");
+        for(const auto& line:dxf.contour.segments)if(dxf.export_options.bend_axis_ids.contains(line.id)) {
+            const auto* a=dxf.contour.find_point(line.first_point_id);const auto* b=dxf.contour.find_point(line.second_point_id);
+            near(std::hypot(a->x-b->x,a->y-b->y),60,.001);
+        }
         near(dxf.volume,folded_volume,.05);
         converted.document.erase_history_object(wall.id);converted.document.erase_history_object(bend.id);converted.document.erase_history_object(flat.id);
         converted.document.body_history.erase_step(source);
@@ -193,7 +207,7 @@ int main(int argc,char** argv) {
             }
             const auto result=zima::workspace::prepare_sheet_dxf(part,cache,kernel);
             if(before!=part.serialized())throw std::runtime_error("Sheet DXF changed its input document");
-            zima::interchange::export_dxf(argv[2],result.contour);
+            zima::interchange::export_dxf(argv[2],result.contour,result.export_options);
             std::cout<<"Exported contour lines="<<result.contour.segments.size()<<" arcs="<<result.contour.arcs.size()<<" circles="<<result.contour.circles.size()<<" splines="<<result.contour.bsplines.size()<<" volume="<<result.volume<<'\n';return 0;
         }
         const auto& packet=cache.back().mesh.original_references;

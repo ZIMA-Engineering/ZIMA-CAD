@@ -1,3 +1,4 @@
+#include <zima/document/named_views.hpp>
 #include "profile_solid_fixture.hpp"
 #include <zima/symbols/definition.hpp>
 #include <zima/drawing_render/sheet_renderer.hpp>
@@ -114,9 +115,11 @@ int verify_drawing_source_picker() {
         auto part=zima::document::PartDocument::create_default();
         part.history.push_back(zima::test::rectangular_feature(part));part.resolve_constructions();
         zima::kernel::OcctKernel kernel;const auto calculated=kernel.evaluate_history(part.kernel_operations());
+        part.named_views=zima::document::serialize_named_views({{"Quarter",{.5F,.5F,.5F,.5F,2,30,-20,4}}});
         const auto part_path=directory/"source.prtz";part.save(part_path,calculated);
         auto assembly=zima::assembly::AssemblyDocument::create_default();
         assembly.components.push_back(zima::assembly::AssemblyDocument::create_part_occurrence("Source",part.document_id,part_path,calculated.back()));
+        assembly.named_views=part.named_views;
         const auto assembly_path=directory/"source.asmz";assembly.save(assembly_path);
         for(const auto& source_path:{part_path,assembly_path}) {
             zima::workspace::Workspace workspace;auto drawing=zima::drawing::DrawingDocument::create_default();
@@ -202,6 +205,19 @@ int verify_drawing_source_picker() {
             require(views.size()==2&&views.front().orientation==zima::drawing::ViewOrientation::Isometric&&
                 views.back().orientation==zima::drawing::ViewOrientation::Front,
                 "Front view was rejected after an isometric view");
+            insert->trigger();flush();click(canvas,canvas->rect().center()+QPoint(0,180));
+            auto* named_properties=window.findChild<QDialog*>("drawingViewProperties");
+            require(named_properties,"Named view properties missing");
+            auto* choices=named_properties->findChild<QComboBox*>("drawingViewOrientation");
+            const auto named_index=choices->findText("Quarter");require(named_index>=8,"Source saved view missing from Drawing choices");
+            choices->setCurrentIndex(named_index);
+            named_properties->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
+            const auto& named_view=window.document_for_test().sheets.front().views.back();
+            require(std::abs(named_view.camera.horizontal.z-1)<1e-6&&std::abs(named_view.camera.vertical.x-1)<1e-6&&std::abs(named_view.camera.depth.y+1)<1e-6,
+                "Saved camera changed handedness or orientation in Drawing");
+            window.document_for_test().save(directory/"named-view.drwz");
+            const auto reopened=zima::drawing::DrawingDocument::load(directory/"named-view.drwz");
+            require(std::abs(reopened.sheets.front().views.back().camera.horizontal.z-1)<1e-6,"Saved drawing lost named orientation");
             require(workspace.documents().size()==1,"Drawing insertion opened extra model tabs");
         }
         {

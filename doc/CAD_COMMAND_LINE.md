@@ -209,6 +209,9 @@ window is created. `--help` does not initialize graphics. CLI still does not con
 another running CAD instance or automatically save native documents at exit.
 See [DRAWING_COMMANDS.md](DRAWING_COMMANDS.md).
 
+For Sketch/model manufacturing layers, bend axes and marking text, see
+[Model and flat-pattern DXF](MODEL_DXF.md).
+
 Drawing DXF uses the same command as Sketch DXF, with `sheet` instead of `sketch`:
 
 ```json

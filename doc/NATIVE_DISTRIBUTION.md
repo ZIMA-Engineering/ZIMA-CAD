@@ -232,8 +232,12 @@ GUI global preferences save to the common file. Changed directory paths save
 to the OS-specific file; relative paths belong to the file supplying them.
 Unchanged inherited paths are not saved as overrides: switching versions must
 use the new version's factory templates/resources. Project-specific settings
-continue to save to the project file. WorkingDirectory defaults to installation
-`Projects/`; development defaults to the repository's `Projects/`.
+continue to save to the project file. Windows and Linux package builders set
+`Paths/WorkingDirectory=~` in the version's factory global config. The GUI resolves
+this value to the current user's home directory at startup; no build-machine
+home path is embedded. Existing common, platform and project overrides retain
+priority. Development configuration remains unchanged. The CLI retains its
+explicit working-directory/current-directory contract.
 
 User resource directories start empty. A custom resource library is selected
 through the corresponding directory setting. Until then, the program reads the

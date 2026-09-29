@@ -101,7 +101,7 @@ void AssemblyWorkspaceWindow::export_sheet_dxf() {
             kernel::OcctKernel kernel;
             const auto prepared=workspace::prepare_sheet_dxf(document,cache,kernel);
             std::filesystem::create_directories(directory);
-            workspace::write_export_file(target,true,[&](const auto& file){interchange::export_dxf(file,prepared.contour);});
+            workspace::write_export_file(target,true,[&](const auto& file){interchange::export_dxf(file,prepared.contour,prepared.export_options);});
         });
         finish_status_operation(tr("Export uložen: %1").arg(QString::fromStdWString(target.wstring())));
     }catch(const std::exception& error){finish_status_operation(tr(error.what()),false);}

@@ -4,6 +4,7 @@
 namespace zima::workspace {
 [[nodiscard]] std::vector<document::NamedView> named_views(const Workspace& live,const std::string& id);
 [[nodiscard]] document::NamedView named_view(const Workspace& live,const std::string& id,const std::string& name);
+bool set_named_views(Workspace& live,const std::string& id,const std::vector<document::NamedView>& views);
 bool set_named_view(Workspace& live,const std::string& id,document::NamedView view);
 bool delete_named_view(Workspace& live,const std::string& id,const std::string& name);
 }

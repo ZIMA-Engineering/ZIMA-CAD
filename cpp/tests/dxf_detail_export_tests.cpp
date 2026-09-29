@@ -29,7 +29,7 @@ void verify_document_structure(const fs::path& path) {
     }
     for(const auto& pointer:pointers)require(handles.contains(pointer),"DXF contains a dangling object reference");
     for(const auto* name:{"HEADER","TABLES","BLOCKS","ENTITIES","OBJECTS"})require(sections.contains(name),"DXF document section is missing");
-    require(layers.contains("PROFILE")&&layers.contains("CONSTRUCTION")&&model_entities>0,"DXF layer table or model ownership is missing");
+    require(layers.contains("CUT")&&layers.contains("BEND")&&layers.contains("MARK")&&model_entities>0,"DXF layer table or model ownership is missing");
 }
 void verify(const fs::path& dir) {
     auto sketch=test::dxf_detail_fixture();const auto before=sketch.serialized();const auto path=dir/"detail.dxf";
@@ -40,6 +40,20 @@ void verify(const fs::path& dir) {
     std::size_t vertices=0;for(const auto& text:sketch.texts)for(const auto& contour:text.contours)vertices+=contour.size();
     require(imported.arcs.size()==1&&std::abs(imported.arcs[0].radius-2)<1e-8&&imported.segments.size()==vertices+2,"DXF outline/fillet roundtrip lost editable curves");
     require(report.warnings.empty(),"Unexpected unsupported DXF detail entity");
+    {
+        auto production=sketcher::Sketch::create_default();
+        static_cast<void>(production.add_segment(0,0,10,0));
+        const auto bend=production.add_segment(0,5,10,5,1e-7,true);
+        production.set_segment_centerline(bend,true);
+        static_cast<void>(production.add_segment(-5,-5,20,20,1e-7,true));
+        const auto file=dir/"manufacturing.dxf";
+        interchange::export_dxf(file,production,{{bend}});verify_document_structure(file);
+        const auto entities=test::read_dxf_entities(file);
+        require(entities.size()==2,"Manufacturing DXF leaked construction geometry");
+        require(entities[1].type=="LINE"&&entities[1].values.at(8)[0]=="BEND"&&entities[1].number(11)==10&&entities[1].number(21)==5,"Bend axis is not a finite, correctly layered segment");
+        auto imported=sketcher::Sketch::create_default();static_cast<void>(interchange::import_dxf(file,imported));
+        require(imported.segments.size()==2&&imported.segments.back().construction,"Imported bend axis became cutting geometry");
+    }
     const auto protected_bytes=bytes(path);
     for(int failure=0;failure<3;++failure) {
         auto invalid=sketch;

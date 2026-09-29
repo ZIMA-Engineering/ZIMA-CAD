@@ -361,6 +361,7 @@ int main()try {
     }
     const auto dxf=workspace::prepare_sheet_dxf(state->session.document(),state->session.calculated_boundaries(),kernel);
     check(!dxf.contour.segments.empty()||!dxf.contour.bsplines.empty(),"DXF has no flat contour");
+    check(dxf.export_options.bend_axis_ids.size()>=6,"Transition DXF lost development bend axes");
     for(bool unfold:{true,false}) {
         auto operation=document::PartDocument::create_sketch_container();
         operation.feature_kind=unfold?document::FeatureKind::Unbend:document::FeatureKind::BendBack;

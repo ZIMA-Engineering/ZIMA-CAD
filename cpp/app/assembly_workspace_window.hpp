@@ -767,6 +767,7 @@ private:
     void begin_normal_view_selection();
     void accept_normal_view_reference(const zima::viewer::ViewerCandidate& candidate);
     void show_orientation_dialog();
+    void refresh_named_view_choices();
     void accept_orientation_reference(const zima::viewer::ViewerCandidate& candidate);
     void save_active_assembly();
     void save_active_document();

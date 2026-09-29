@@ -6,6 +6,8 @@
 #include <BRepAdaptor_Surface.hxx>
 #include <BRepAlgoAPI_Section.hxx>
 #include <BRepGProp.hxx>
+#include <BRepAlgoAPI_Common.hxx>
+#include <BRepBuilderAPI_MakeEdge.hxx>
 #include <GProp_GProps.hxx>
 #include <TopExp.hxx>
 #include <TopExp_Explorer.hxx>
@@ -57,6 +59,23 @@ FlatContour sheet_flat_contour(const BodyResult& body,double thickness,double to
         result.curves.push_back(std::move(*curve));
     }
     if(result.curves.empty()&&result.arcs.empty())throw std::runtime_error("Sheet DXF contour calculation failed.");
+    // Reuse the same persisted, finite development axes as Drawing views.
+    // Put each in the middle material plane, then clip it against the real
+    // solid so holes and trimming gaps remain gaps in the manufacturing file.
+    for(const auto& axis:body.mesh.axes) {
+        if(!is_bend_line(axis.reference)||axis.display_length<=1e-9)continue;
+        const auto center=sub(axis.point,mul(normal,dot(sub(axis.point,result.origin),normal)));
+        const auto half=mul(unit(axis.direction),axis.display_length*.5);
+        const auto a=sub(center,half),b=add(center,half);
+        BRepBuilderAPI_MakeEdge line(gp_Pnt(a.x,a.y,a.z),gp_Pnt(b.x,b.y,b.z));
+        BRepAlgoAPI_Common clipped(shape,line.Edge());
+        if(!clipped.IsDone())throw std::runtime_error("Sheet DXF contour calculation failed.");
+        for(TopExp_Explorer edge(clipped.Shape(),TopAbs_EDGE);edge.More();edge.Next()) {
+            BRepAdaptor_Curve curve(TopoDS::Edge(edge.Current()));
+            const auto first=local(curve.Value(curve.FirstParameter())),last=local(curve.Value(curve.LastParameter()));
+            if(dot(sub(first,last),sub(first,last))>1e-14)result.bend_axes.push_back({first,last});
+        }
+    }
     return result;
 }
 }

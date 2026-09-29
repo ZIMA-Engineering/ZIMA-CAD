@@ -18,6 +18,7 @@ class QLineEdit;
 class QListWidget;
 class QListWidgetItem;
 class QTableWidget;
+class QToolButton;
 class QWidget;
 
 namespace zima::ui { class ReferenceCellItem; }
@@ -92,6 +93,10 @@ public:
     // picked in the 3D view for the currently active row.
     void accept_reference(const std::string& descriptor, const QString& label);
     void remove_row(std::size_t row);
+    void end_entry();
+    void set_inspection_callback(std::function<void(std::vector<std::string>)> callback) { inspection_=std::move(callback); }
+    void set_commit_callback(std::function<void(const std::vector<OrientationSavedView>&)> callback) { commit_=std::move(callback); }
+
     [[nodiscard]] std::vector<OrientationReferenceRow> orientation_rows() const;
     [[nodiscard]] std::size_t active_row() const { return active_row_; }
     void append_saved_view(OrientationSavedView view);
@@ -106,6 +111,9 @@ private:
     std::array<QCheckBox*, 2> flip_checks_{};
     std::array<zima::ui::ReferenceCellItem*, 2> reference_items_{};
     std::array<QWidget*, 2> row_indicators_{};
+    std::array<QToolButton*,2> inspection_buttons_{};
+    std::function<void(std::vector<std::string>)> inspection_;
+    std::function<void(const std::vector<OrientationSavedView>&)> commit_;
     std::size_t active_row_{0};
     std::set<std::size_t> highlighted_rows_;
     QListWidget* view_list_{};

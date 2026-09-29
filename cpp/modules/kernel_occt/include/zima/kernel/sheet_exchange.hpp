@@ -7,6 +7,7 @@ struct FlatContour {
     Vec3 origin, x_axis, y_axis;
     std::vector<BSplineGeometry> curves;
     std::vector<FlatContourArc> arcs;
+    std::vector<std::array<Vec3,2>> bend_axes;
 };
 // Explicit export calculation. Curves are returned in millimetres in XY.
 [[nodiscard]] FlatContour sheet_flat_contour(const BodyResult&,double thickness,double tolerance);

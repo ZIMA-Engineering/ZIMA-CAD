@@ -40,6 +40,10 @@ SheetDxfResult prepare_sheet_dxf(const document::PartDocument& source,
         auto& spline=*std::ranges::find(result.contour.bsplines,id,&sketcher::SketchBSpline::id);
         spline.knots=curve.knots;spline.weights=curve.weights;
     }
+    for(const auto& axis:outline.bend_axes) {
+        const auto id=result.contour.add_segment(axis[0].x,axis[0].y,axis[1].x,axis[1].y,1e-7,true);
+        result.export_options.bend_axis_ids.insert(id);
+    }
     result.contour.validate();return result;
 }
 }

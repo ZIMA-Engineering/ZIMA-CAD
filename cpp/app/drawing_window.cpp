@@ -1,3 +1,7 @@
+#include <zima/drawing/view_orientation.hpp>
+#include "standard_view_labels.hpp"
+#include <zima/document/named_views.hpp>
+#include <QQuaternion>
 #include <zima/kernel/annotation_layout.hpp>
 #include "../common/interaction_colors.hpp"
 #include "symbol_properties_dialog.hpp"
@@ -136,6 +140,7 @@ struct DrawingSourceChoice {
     std::filesystem::path path;
     QString name;
     bool evaluated{true};
+    std::vector<zima::document::NamedView> named_views;
 };
 std::vector<DrawingSourceChoice> family_source_choices(const zima::workspace::Workspace*,
     const std::string&,const std::filesystem::path&);
@@ -244,9 +249,10 @@ std::vector<DrawingSourceChoice> family_source_choices(const zima::workspace::Wo
     auto root=requested.substr(0,requested.find(":family:"));
     if(root.empty()&&live)if(const auto open=live->document_id_for_path(path))root=open->substr(0,open->find(":family:"));
     const auto append=[&](const auto& model,const auto& source_path) {
-        result.push_back({model.document_id,source_path,QString::fromStdString(model.name)+" — "+QObject::tr("Výchozí (nativní)")});
+        const auto views=zima::document::parse_named_views(model.named_views);
+        result.push_back({model.document_id,source_path,QString::fromStdString(model.name)+" — "+QObject::tr("Výchozí (nativní)"),true,views});
         for(const auto& row:zima::document::parse_family_table(model.family_table).instances)
-            result.push_back({model.document_id+":family:"+row.id,source_path,QString::fromStdString(row.name),model.family.evaluated.contains(row.id)});
+            result.push_back({model.document_id+":family:"+row.id,source_path,QString::fromStdString(row.name),model.family.evaluated.contains(row.id),views});
     };
     if(live) {
         if(const auto* part=live->open_part(root)){append(part->session.document(),part->path);return result;}
@@ -357,12 +363,13 @@ public:
         });
         orientation_ = new QComboBox(content);
         orientation_->setObjectName("drawingViewOrientation");
-        const char* orientations[]{QT_TR_NOOP("Přední"), QT_TR_NOOP("Zadní"), QT_TR_NOOP("Levý"), QT_TR_NOOP("Pravý"), QT_TR_NOOP("Horní"), QT_TR_NOOP("Dolní"), QT_TR_NOOP("Izometrický")};
-        for (int i=0; i<7; ++i) orientation_->addItem(QObject::tr(orientations[i]), i);
+        const char* orientations[]{"front","back","left","right","top","bottom","default"};
+        for (int i=0; i<7; ++i) orientation_->addItem(zima::app::standard_view_label(orientations[i]), i);
         orientation_->addItem(tr("Vlastní orientace"),-1);
         const auto standard=zima::drawing::standard_camera(value_.orientation);
         const auto equal=[](auto a,auto b){return std::abs(a.x-b.x)+std::abs(a.y-b.y)+std::abs(a.z-b.z)<1e-9;};
         orientation_->setCurrentIndex(equal(standard.horizontal,value_.camera.horizontal)&&equal(standard.vertical,value_.camera.vertical)&&equal(standard.depth,value_.camera.depth)?static_cast<int>(value_.orientation):7);
+        refresh_named_orientations();
         orientation_->setEnabled(value_.parent_view_id.empty());
         display_ = new QComboBox(content);
         display_->setObjectName("drawingViewDisplay");
@@ -452,7 +459,7 @@ public:
         auto* scroll=new QScrollArea(this);scroll->setObjectName("drawingViewPropertiesScroll");scroll->setWidgetResizable(true);scroll->setWidget(content);scroll->setMinimumHeight(420);scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);content_layout()->addWidget(scroll,1);
         setMinimumWidth(760);set_initial_size({800,760});
         load_sections(value_.section_id);
-        connect(source_,&QComboBox::currentIndexChanged,this,[this]{load_sections({});});
+        connect(source_,&QComboBox::currentIndexChanged,this,[this]{refresh_named_orientations();load_sections({});});
         connect(section_,&QComboBox::currentIndexChanged,this,[this]{set_section_components();preview_values();});
         components_->changed=[this]{preview_values();};
         connect(marker_table_,&QTableWidget::itemChanged,this,[this]{preview_values();});
@@ -462,8 +469,15 @@ public:
         zima::ui::bind_numeric_value_lock(y_,"y",value_.value_locks,preview_change);
         zima::ui::bind_numeric_value_lock(scale_,"scale",value_.value_locks,preview_change);
         connect(orientation_,&QComboBox::currentIndexChanged,this,[this](int index){
-            if(index>=0&&index<7){value_.orientation=static_cast<zima::drawing::ViewOrientation>(index);value_.camera=zima::drawing::standard_camera(value_.orientation);rotation_base_=value_.camera;
-                for(auto* spin:rotation_values_){QSignalBlocker block(spin);spin->setValue(0);}preview_values();}
+            if(index<0||index==7)return;
+            if(index<7){value_.orientation=static_cast<zima::drawing::ViewOrientation>(index);value_.camera=zima::drawing::standard_camera(value_.orientation);}
+            else {
+                const auto source=source_->currentIndex();
+                if(source<0||source>=static_cast<int>(sources_.size())||index-8>=static_cast<int>(sources_[source].named_views.size()))return;
+                value_.camera=named_camera(sources_[source].named_views[index-8]);
+            }
+            rotation_base_=value_.camera;
+            for(auto* spin:rotation_values_){QSignalBlocker block(spin);spin->setValue(0);}preview_values();
         });
         for (auto* combo : {source_, display_, scale_mode_,tangent_style_})
             connect(combo, &QComboBox::currentIndexChanged, this, [this,preview_change] {
@@ -539,6 +553,26 @@ private:
             v.value_locks,v.section_id,document::serialize_sections(v.section_markers),
             document::serialize_sections(v.section_snapshot?std::vector{*v.section_snapshot}:std::vector<document::SectionDefinition>{}),
             v.hidden_hatch_components,breaks,crop(v.crop),hatch}).dump();
+    }
+    static drawing::ProjectionCamera named_camera(const document::NamedView& view) {
+        const auto& q=view.camera;
+        const auto inverse=QQuaternion(q[0],q[1],q[2],q[3]).normalized().conjugated();
+        const auto axis=[&](QVector3D v){const auto p=inverse.rotatedVector(v);return kernel::Vec3{p.x(),p.y(),p.z()};};
+        // Model screen X/Y become local view X/Y. Depth points into the screen;
+        // the sheet's right-hand anchor remains a separate rendering transform.
+        return {axis({1,0,0}),axis({0,1,0}),axis({0,0,-1})};
+    }
+    void refresh_named_orientations() {
+        const QSignalBlocker block(orientation_);
+        while(orientation_->count()>8)orientation_->removeItem(8);
+        const auto source=source_->currentIndex();
+        int selected=7;
+        if(drawing::same_view_orientation(value_.camera,drawing::standard_camera(value_.orientation)))selected=static_cast<int>(value_.orientation);
+        if(source>=0&&source<static_cast<int>(sources_.size()))for(const auto& view:sources_[source].named_views) {
+            orientation_->addItem(QString::fromStdString(view.name));
+            if(drawing::same_view_orientation(value_.camera,named_camera(view)))selected=orientation_->count()-1;
+        }
+        orientation_->setCurrentIndex(selected);
     }
     std::optional<std::string> initial_settings_;
     zima::drawing::DrawingView value_;

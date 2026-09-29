@@ -135,6 +135,7 @@ def main():
         shutil.copy2(build / name, runtime / 'bin' / name)
     for name in ('config', 'resources'):
         shutil.copytree(source / name, runtime / name, ignore=shutil.ignore_patterns('.gitkeep', '*.ini.[0-9]*', '*.frmz.[0-9]*', '*.tblz.[0-9]*'))
+    shared.prepare_factory_config(runtime)
     metadata.update(deploy(runtime, sdk))
     metadata['occt_sdk'] = json.loads((sdk / 'sdk.json').read_text())
     shutil.copy2(source / 'LICENSE', root / 'LICENSE')

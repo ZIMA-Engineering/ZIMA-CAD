@@ -1,4 +1,5 @@
 {
+"Koncová rovina":"End plane",
 "Vzdálenost je daná kružnicí. Původní hodnota se obnoví při naklonění roviny.":"The distance is determined by the circle. The original value is restored when the plane is tilted.",
 "V kusovníku ignorovat variantu":"Ignore variant in BOM","Použít název zdrojového souboru a sloučit jeho označené varianty do jedné položky kusovníku. Strom a geometrie se nemění.":"Use the source filename and combine its checked variants into one BOM item. The tree and geometry are unchanged.",
   "Teoreticky přesná kóta (rámeček)": "Theoretically exact dimension (box)",

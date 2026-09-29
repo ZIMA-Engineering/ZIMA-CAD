@@ -29,6 +29,7 @@ document::NamedView named_view(const Workspace& live,const std::string& id,const
     if(found==views.end())throw std::out_of_range("Named view not found.");
     return *found;
 }
+bool set_named_views(Workspace& live,const std::string& id,const std::vector<document::NamedView>& views) { return publish(live,id,views); }
 bool set_named_view(Workspace& live,const std::string& id,document::NamedView view) {
     document::normalize_named_view(view);
     auto views=named_views(live,id);const auto found=std::ranges::find(views,view.name,&document::NamedView::name);

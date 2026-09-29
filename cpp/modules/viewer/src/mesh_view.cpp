@@ -102,7 +102,7 @@ double screen_segment_distance(const QPointF& point, const QPointF& first,
 }
 
 bool is_screen_constant_plane(const std::string& semantic_key) {
-    return semantic_key == "border" ||
+    return semantic_key == "border" || semantic_key == "plane:end" ||
         semantic_key.starts_with("origin:plane:");
 }
 
@@ -516,7 +516,7 @@ struct MeshView::Impl {
         // same fixed apparent LCD size. The picker consumes this exact scaled
         // rectangle too, so hover and confirmation cannot drift from it.
         for (const auto& edge : mesh.edges) {
-            if (edge.reference.semantic_key != "border" &&
+            if (edge.reference.semantic_key != "border" && edge.reference.semantic_key != "plane:end" &&
                 !edge.reference.semantic_key.starts_with("origin:plane:")) continue;
             if (edge.points.size() < 4) continue;
             auto scaled = edge;
@@ -547,7 +547,7 @@ struct MeshView::Impl {
                 mesh.original_references.triangle_references[triangle];
             if (has_local_display_faces && reference.instance_path.empty() && !offer_original_containers && !offer_original_faces) continue;
             if (reference.semantic_key.starts_with("origin:plane:") ||
-                reference.semantic_key == "plane") continue;
+                (reference.semantic_key == "plane" || reference.semantic_key == "plane:end")) continue;
             if (triangle * 3 + 2 >= mesh.original_references.triangles.size()) continue;
             const auto base = static_cast<std::uint32_t>(target.vertices.size());
             for (std::size_t corner = 0; corner < 3; ++corner) {
@@ -734,6 +734,30 @@ void MeshView::set_mesh(zima::kernel::ViewerMesh mesh, bool fit_view) {
     impl_->source_dimensions=mesh.dimensions;
     if(impl_->dimension_layout_resolver)for(auto& d:mesh.dimensions)
         if(!d.rotation_handle)if(auto layout=impl_->dimension_layout_resolver(d.reference))d=kernel::layout_dimension(d,impl_->object_bounds.contains({d.reference.owner_id,d.reference.instance_path})&&impl_->object_bounds.at({d.reference.owner_id,d.reference.instance_path}).valid?impl_->object_bounds.at({d.reference.owner_id,d.reference.instance_path}):impl_->dimension_bounds,*layout);
+    // Show the already persisted end-profile datum in Parts and Assembly
+    // occurrences. Its border and picking share the same screen-sized plane;
+    // displaying the reference never asks the kernel to calculate geometry.
+    std::map<EdgeKey, std::vector<kernel::Vec3>> end_planes;
+    const auto& refs = mesh.original_references;
+    for (std::size_t i=0;i<refs.triangle_references.size();++i) {
+        const auto& ref=refs.triangle_references[i];
+        if(ref.semantic_key!="plane:end" || i*3+2>=refs.triangles.size())continue;
+        auto& corners=end_planes[{ref.owner_id,ref.semantic_key,ref.instance_path}];
+        for(std::size_t j=0;j<3;++j) {
+            const auto index=refs.triangles[i*3+j];
+            if(index>=refs.vertices.size())continue;
+            const auto p=refs.vertices[index];
+            // Calculated and construction packets may repeat the same datum,
+            // and triangles need not share vertex-array indices.
+            if(std::ranges::none_of(corners,[&](const auto& q){return std::hypot(p.x-q.x,p.y-q.y,p.z-q.z)<1e-8;}))corners.push_back(p);
+        }
+    }
+    for(const auto& [key,corners]:end_planes) {
+        if(corners.size()!=4 || std::ranges::any_of(mesh.edges,[&](const auto& edge){return edge_key(edge.reference)==key;}))continue;
+        kernel::ViewerEdge edge;edge.reference={key.owner_id,key.semantic_key,key.instance_path};
+        edge.construction=true;edge.overlay=true;edge.display_owner_id=key.owner_id;
+        edge.points=corners;edge.points.push_back(edge.points.front());mesh.edges.push_back(std::move(edge));
+    }
     impl_->mesh = std::move(mesh);
     impl_->face_fill_keys.clear();
     impl_->face_fill_ranges.clear();
@@ -1323,17 +1347,14 @@ std::set<std::size_t> MeshView::edge_treatment_boundary_edge_indices(
 
 std::optional<zima::kernel::Vec3> MeshView::candidate_face_normal(
     const ViewerCandidate& candidate) const {
-    if (candidate.kind != CandidateKind::Face) return std::nullopt;
-    // NOTE: a Plane's Face candidate (owner "border"/"origin:plane:<key>",
-    // see ordered_viewer_candidates) carries a *border-edge* index in
-    // geometry_index, not a triangle index -- it is picked through its
-    // rectangular outline, never its filled interior. This helper only
-    // supports true triangle-mesh Face candidates; do not call it for a
-    // Plane pick. It self-checks the owner/semantic/instance match below, so
-    // an accidental call safely returns nullopt in the overwhelming case,
-    // but callers must not rely on that.
+    if (candidate.kind != CandidateKind::Face && candidate.kind != CandidateKind::Plane) return std::nullopt;
     const auto resolve = [&](const auto& mesh) -> std::optional<zima::kernel::Vec3> {
-        const std::size_t triangle = candidate.geometry_index;
+        std::size_t triangle = candidate.geometry_index;
+        if(candidate.kind==CandidateKind::Plane) {
+            const auto found=std::ranges::find_if(mesh.triangle_references,[&](const auto& reference){return reference.owner_id==candidate.owner_id&&reference.semantic_key==candidate.semantic_key&&reference.instance_path==candidate.instance_path;});
+            if(found==mesh.triangle_references.end())return std::nullopt;
+            triangle=static_cast<std::size_t>(found-mesh.triangle_references.begin());
+        }
         if (triangle * 3 + 2 >= mesh.triangles.size() ||
             triangle >= mesh.triangle_references.size()) return std::nullopt;
         const auto& reference = mesh.triangle_references[triangle];
@@ -1362,6 +1383,10 @@ std::optional<zima::kernel::Vec3> MeshView::candidate_face_normal(
         normal.x /= length; normal.y /= length; normal.z /= length;
         return normal;
     };
+    if(candidate.kind==CandidateKind::Plane) {
+        if(auto normal=resolve(impl_->mesh.original_references))return normal;
+        return resolve(impl_->mesh);
+    }
     return candidate.geometry == CandidateGeometry::OriginalReference
         ? resolve(impl_->mesh.original_references) : resolve(impl_->mesh);
 }
@@ -2867,7 +2892,7 @@ void MeshView::paintGL() {
     std::vector<const zima::kernel::ViewerEdge*> plane_edges;
     for (const auto& edge : impl_->mesh.edges) {
         if (!impl_->origin_visible({edge.reference.owner_id,edge.reference.semantic_key,edge.reference.instance_path})) continue;
-        if (edge.reference.semantic_key == "border" ||
+        if (edge.reference.semantic_key == "border" || edge.reference.semantic_key == "plane:end" ||
             edge.reference.semantic_key.starts_with("origin:plane:"))
             plane_edges.push_back(&edge);
     }
@@ -3648,7 +3673,7 @@ if (impl_->show_origins) {
     const bool planes_visible = (impl_->show_planes || impl_->show_origins ||
         planes_selectable || impl_->editing_origin_visible) && std::any_of(
         impl_->mesh.edges.begin(), impl_->mesh.edges.end(), [](const auto& edge) {
-            return edge.reference.semantic_key == "border" ||
+            return edge.reference.semantic_key == "border" || edge.reference.semantic_key == "plane:end" ||
                 edge.reference.semantic_key.starts_with("origin:plane:");
         });
     const bool dimensions_visible = !impl_->mesh.dimensions.empty() ||
@@ -4019,7 +4044,7 @@ if (impl_->show_origins) {
                 const auto& edge = *plane_edge;
                 const bool origin = edge.reference.semantic_key.starts_with(
                     "origin:plane:");
-                if (edge.reference.semantic_key != "border" && !origin) continue;
+                if (edge.reference.semantic_key != "border" && edge.reference.semantic_key != "plane:end" && !origin) continue;
                 const bool creation_preview = !origin &&
                     impl_->feature_preview_owner_ids.contains(
                         edge.reference.owner_id);
@@ -4551,6 +4576,7 @@ if (impl_->show_origins) {
                                 "corner_radius_handle:")
                             ? QColor(255, 255, 255)
                         : point.reference.semantic_key == "point" || point.reference.semantic_key == "container:origin-marker" ||
+                            point.reference.semantic_key == "axis:start" || point.reference.semantic_key == "axis:end" ||
                             (point.reference.semantic_key.starts_with("sweep:path-point:") || point.reference.semantic_key.starts_with("profile:path-point:") || point.reference.semantic_key.starts_with("axis:point:"))
                             ? interaction::axis
                             : QColor(0, 0, 0);

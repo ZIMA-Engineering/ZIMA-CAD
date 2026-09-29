@@ -1371,6 +1371,7 @@ void AssemblyWorkspaceWindow::create_layout() {
         },
         [this] { end_sketch_trim_gesture(); });
     viewer_->set_short_middle_click_callback([this] {
+        if(orientation_dialog_){orientation_dialog_->end_entry();viewer_->clear_selection();return true;}
         if(auto* family=dynamic_cast<FamilyTableDialog*>(properties_dialog_)){family->end_entry();viewer_->clear_selection();return true;}
         if(sketch_offset_dialog_){sketch_offset_dialog_->end_entry();return true;}
         if(measurement_dialog_){measurement_dialog_->end_entry();return true;}

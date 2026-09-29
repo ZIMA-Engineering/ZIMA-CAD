@@ -6,6 +6,26 @@ using namespace workspace_detail;
 
 
 
+void AssemblyWorkspaceWindow::refresh_named_view_choices() {
+    if(!standard_view_combo_ || !standard_views_menu_)return;
+    const auto id=workspace_.active_document_id();
+    std::vector<document::NamedView> views;
+    if(workspace_.open_part(id)||workspace_.open_assembly(id))views=workspace::named_views(workspace_,id);
+    const auto signature=QString::fromStdString(id+document::serialize_named_views(views));
+    if(standard_view_combo_->property("namedViewsSignature").toString()==signature)return;
+    const QSignalBlocker block(standard_view_combo_);
+    while(standard_view_combo_->count()>8)standard_view_combo_->removeItem(8);
+    const auto actions=standard_views_menu_->actions();
+    for(auto* action:actions)if(action->property("namedView").toBool())delete action;
+    for(const auto& view:views) {
+        const auto name=QString::fromStdString(view.name);
+        standard_view_combo_->addItem(name,name);
+        auto* action=standard_views_menu_->addAction(name);action->setProperty("namedView",true);
+        connect(action,&QAction::triggered,this,[this,view]{if(viewer_)viewer_->animate_camera_state(view.camera);});
+    }
+    standard_view_combo_->setProperty("namedViewsSignature",signature);
+}
+
 void AssemblyWorkspaceWindow::begin_normal_view_selection() {
     if (viewer_ == nullptr || properties_dialog_ != nullptr) return;
     normal_view_selection_active_ = true;
@@ -51,7 +71,8 @@ void AssemblyWorkspaceWindow::show_orientation_dialog() {
     orientation_dialog_ = dialog;
     orientation_dialog_original_camera_ = viewer_->camera_state();
     orientation_reference_candidates_.clear();
-    viewer_->set_selection_contract({zima::viewer::CandidateKind::Face});
+    viewer_->set_selection_contract({zima::viewer::CandidateKind::Face,zima::viewer::CandidateKind::Plane});
+    viewer_->set_candidate_filter([this](const auto&) { return orientation_dialog_ != nullptr && orientation_dialog_->active_row() < 2; });
     dialog->set_reference_request_callback([this](std::size_t index) {
         pending_orientation_reference_index_ = index;
         state_->setText(index == 0
@@ -160,18 +181,30 @@ void AssemblyWorkspaceWindow::show_orientation_dialog() {
         if (viewer_ == nullptr) return;
         zima::document::NamedView view{name.toStdString(), viewer_->camera_state()};
         zima::document::normalize_named_view(view);
-        zima::workspace::set_named_view(workspace_, document_id, view);
         dialog->append_saved_view({name, {}, view.camera});
     });
-    dialog->set_delete_view_callback(
-        [this, document_id](const QString& name) {
-        zima::workspace::delete_named_view(workspace_, document_id, name.toStdString());
+    dialog->set_commit_callback([this,document_id](const auto& pending) {
+        std::vector<document::NamedView> views;
+        for(const auto& view:pending)views.push_back({view.name.toStdString(),view.camera_state});
+        workspace::set_named_views(workspace_,document_id,views);
+        refresh_named_view_choices();
+    });
+    dialog->set_inspection_callback([this](const auto& references) {
+        std::vector<viewer::ViewerCandidate> faces;std::set<viewer::EdgeKey> planes;
+        for(const auto& reference:references)if(const auto it=orientation_reference_candidates_.find(reference);it!=orientation_reference_candidates_.end()) {
+            const auto& candidate=it->second;
+            if(candidate.kind==viewer::CandidateKind::Plane)planes.insert({candidate.semantic_key=="plane"?candidate.owner_id+":entity":candidate.owner_id,candidate.semantic_key=="plane"?"border":candidate.semantic_key,candidate.instance_path});
+            else faces.push_back(candidate);
+        }
+        viewer_->set_inspected_faces(std::move(faces));viewer_->set_constraint_reference_highlights({},std::move(planes));
     });
     connect(dialog, &QObject::destroyed, this, [this] {
         orientation_dialog_ = nullptr;
         orientation_reference_candidates_.clear();
         pending_orientation_reference_index_ = 0;
         if (viewer_ != nullptr) {
+            viewer_->set_inspected_faces({});viewer_->set_constraint_reference_highlights({},{});
+            viewer_->set_selection_contract({viewer::CandidateKind::Container});
             viewer_->set_candidate_filter({});
             viewer_->clear_selection();
         }
@@ -195,7 +228,7 @@ void AssemblyWorkspaceWindow::accept_orientation_reference(
     const auto label = candidate.semantic_key.starts_with("origin:plane:")
         ? tr("Rovina %1").arg(QString::fromStdString(
             candidate.semantic_key.substr(std::string("origin:plane:").size())).toUpper())
-        : tr("Plocha");
+        : candidate.kind==viewer::CandidateKind::Plane ? tr("Rovina") : tr("Plocha");
     orientation_dialog_->accept_reference(descriptor, label);
     viewer_->clear_selection();
 }

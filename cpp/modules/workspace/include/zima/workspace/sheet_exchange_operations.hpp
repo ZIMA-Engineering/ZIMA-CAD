@@ -1,9 +1,10 @@
 #pragma once
 #include <zima/workspace/workspace.hpp>
 #include <zima/kernel/occt_kernel.hpp>
+#include <zima/interchange/dxf.hpp>
 
 namespace zima::workspace {
-struct SheetDxfResult {sketcher::Sketch contour;double thickness{};double volume{};};
+struct SheetDxfResult {sketcher::Sketch contour;interchange::DxfExportOptions export_options;double thickness{};double volume{};};
 [[nodiscard]] SheetDxfResult prepare_sheet_dxf(const document::PartDocument&,
     const std::vector<kernel::BodyResult>&,const kernel::OcctKernel&);
 struct SheetBodyConversion {

@@ -6,6 +6,7 @@
 #include <string>
 #include <stdexcept>
 #include <vector>
+#include <set>
 
 namespace zima::interchange {
 
@@ -23,7 +24,8 @@ struct DxfImportResult {
 class DxfExportError : public std::runtime_error { public: using std::runtime_error::runtime_error; };
 // Validate native outlines and exact corner materialization before opening output.
 void validate_dxf_export(const zima::sketcher::Sketch& sketch);
+struct DxfExportOptions { std::set<std::string> bend_axis_ids; };
 void export_dxf(
-    const std::filesystem::path& path, const zima::sketcher::Sketch& sketch);
+    const std::filesystem::path& path, const zima::sketcher::Sketch& sketch, const DxfExportOptions& options = {});
 
 }  // namespace zima::interchange

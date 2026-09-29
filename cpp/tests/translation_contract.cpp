@@ -1,3 +1,4 @@
+#include "standard_view_labels.hpp"
 #include <QCheckBox>
 #include <QLabel>
 #include <QTableWidget>
@@ -424,6 +425,8 @@ int verify_translations(QApplication& application, QWidget& parent) {
                 if(field->property("pointCircleDerivedOffset").toBool()){check(field->isReadOnly() && field->toolTip()==text,"Derived circle plane tooltip untranslated");found=true;}
             check(found,"Derived circle plane UI missing in language test");
         }
+        check(app::standard_view_label("front")==settings.qt_translations.value("Front – XZ"),"Normal and Drawing view labels differ after language change");
+        for(const auto* key:{"Koncová rovina","Odstranit pohled"})check(QObject::tr(key)==settings.qt_translations.value(QString::fromUtf8(key)),"Transition/view label is untranslated");
         std::cout << "Translations verified: " << languages[language].toStdString() << '\n';
     }
     auto settings = load("en");

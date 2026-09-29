@@ -1,3 +1,4 @@
+#include <zima/workspace/named_view_operations.hpp>
 #include "workspace_internal.hpp"
 #include <zima/workspace/document_operations.hpp>
 #include "tool_button_style.hpp"
@@ -990,8 +991,10 @@ void AssemblyWorkspaceWindow::create_actions() {
     connect(standard_view_combo_, &QComboBox::currentIndexChanged, this,
         [this](int index) {
             if (index <= 0 || viewer_ == nullptr) return;
-            viewer_->set_standard_view(static_cast<zima::viewer::StandardView>(
+            if(index<8)viewer_->set_standard_view(static_cast<zima::viewer::StandardView>(
                 standard_view_combo_->itemData(index).toInt()));
+            else viewer_->animate_camera_state(workspace::named_view(workspace_,workspace_.active_document_id(),
+                standard_view_combo_->itemData(index).toString().toStdString()).camera);
             standard_view_combo_->setCurrentIndex(0);
         });
     view_toolbar_->addWidget(standard_view_combo_);

@@ -617,14 +617,16 @@ void verify_point_marker_colours(QApplication& application,QWidget& parent) {
     view.set_document_origin("document:origin");
     view.set_reference_visibility(viewer::ReferenceVisibility::Origins,true);
     view.set_reference_visibility(viewer::ReferenceVisibility::Points,true);
-    const std::array<kernel::VertexReference,7> references{{
+    const std::array<kernel::VertexReference,9> references{{
         {"document:origin","origin:point",{}},
         {"feature:origin","origin:point",{}},
         {"document:origin","origin:point","occurrence"},
         {"construction","point",{}},
         {"sketch","point:regular",{}},
         {"sketch","point:construction",{}},
-        {"feature","point:from:end",{}}}};
+        {"feature","point:from:end",{}},
+        {"feature","axis:start",{}},
+        {"feature","axis:end",{}}}};
     for(std::size_t i=0;i<references.size();++i) {
         kernel::ViewerMesh mesh;mesh.vertices={{-1,-1,0},{1,1,0}};
         mesh.points.push_back({{0,0,0},references[i]});mesh.original_references.points=mesh.points;
@@ -733,6 +735,7 @@ int main(int argc, char* argv[]) {
     const auto initial = zima::document::PartDocument::create_twisted_sheet_container();
 
     try {
+        if(qEnvironmentVariableIsSet("ZIMA_VERIFY_POINT_MARKERS_ONLY")){verify_point_marker_colours(application,parent);return 0;}
         if(qEnvironmentVariableIsSet("ZIMA_VERIFY_TRANSLATIONS_ONLY")) return verify_translations(application,parent);
         if(qEnvironmentVariableIsSet("ZIMA_VERIFY_FACE_FILL_ONLY")) {verify_face_fill(application,parent);return 0;}
         if(qEnvironmentVariableIsSet("ZIMA_BENCHMARK_SELECTION_WIRE")){benchmark_selection_wire(application,parent);return 0;}

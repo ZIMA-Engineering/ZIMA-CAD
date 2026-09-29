@@ -2,6 +2,7 @@
 #include <iomanip>
 #include <ostream>
 #include <sstream>
+#include <string_view>
 
 namespace zima::interchange::dxf_detail {
 inline void pair(std::ostream& out,int code,const auto& value) {out<<std::setw(3)<<code<<'\n'<<value<<'\n';}
@@ -17,7 +18,7 @@ inline void table(std::ostream& out,const char* name,unsigned id,int count) {
 inline void symbol(std::ostream& out,const char* type,unsigned id,unsigned owner,const char* subclass,const char* name) {
     record(out,type,id,owner);pair(out,100,"AcDbSymbolTableRecord");pair(out,100,subclass);pair(out,2,name);
 }
-// Fixed infrastructure handles occupy 1..1E; exported entities start at 20.
+// Fixed infrastructure handles occupy 1..20; exported entities start at 30.
 // Every model entity owns a handle and refers to the Model_Space block record.
 inline void prologue(std::ostream& out,unsigned next_handle) {
     section(out,"HEADER");pair(out,9,"$ACADVER");pair(out,1,"AC1015");
@@ -27,12 +28,16 @@ inline void prologue(std::ostream& out,unsigned next_handle) {
     section(out,"CLASSES");pair(out,0,"ENDSEC");section(out,"TABLES");
     table(out,"VPORT",1,1);symbol(out,"VPORT",2,1,"AcDbViewportTableRecord","*Active");pair(out,70,0);
     pair(out,10,0.);pair(out,20,0.);pair(out,11,1.);pair(out,21,1.);point(out,16,0,0,1);point(out,17,0,0);pair(out,40,1000.);pair(out,41,1.);pair(out,0,"ENDTAB");
-    table(out,"LTYPE",3,3);
+    table(out,"LTYPE",3,4);
     unsigned id=4;for(const auto* name:{"ByBlock","ByLayer","Continuous"}) {
         symbol(out,"LTYPE",id++,3,"AcDbLinetypeTableRecord",name);pair(out,70,0);pair(out,3,"");pair(out,72,65);pair(out,73,0);pair(out,40,0.);
-    }pair(out,0,"ENDTAB");
-    table(out,"LAYER",7,3);id=8;for(const auto* name:{"0","PROFILE","CONSTRUCTION"}) {
-        symbol(out,"LAYER",id++,7,"AcDbLayerTableRecord",name);pair(out,70,0);pair(out,62,7);pair(out,6,"Continuous");pair(out,370,-3);
+    }
+    symbol(out,"LTYPE",0x20,3,"AcDbLinetypeTableRecord","CENTER");pair(out,70,0);pair(out,3,"Center line");pair(out,72,65);pair(out,73,4);pair(out,40,12.);
+    for(double dash:{8.,-1.5,1.,-1.5}){pair(out,49,dash);pair(out,74,0);}pair(out,0,"ENDTAB");
+    table(out,"LAYER",7,4);id=8;
+    for(const auto* name:{"0","CUT","BEND","MARK"}) {
+        const bool bend=std::string_view(name)=="BEND",mark=std::string_view(name)=="MARK";
+        symbol(out,"LAYER",mark?0x1F:id++,7,"AcDbLayerTableRecord",name);pair(out,70,0);pair(out,62,bend?4:mark?3:7);pair(out,6,bend?"CENTER":"Continuous");pair(out,370,-3);
     }pair(out,0,"ENDTAB");
     table(out,"STYLE",0xB,1);symbol(out,"STYLE",0xC,0xB,"AcDbTextStyleTableRecord","Standard");
     pair(out,70,0);pair(out,40,0.);pair(out,41,1.);pair(out,50,0.);pair(out,71,0);pair(out,42,2.5);pair(out,3,"txt");pair(out,4,"");pair(out,0,"ENDTAB");

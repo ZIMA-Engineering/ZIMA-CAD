@@ -152,6 +152,14 @@ void add_history_container_tree_children(QTreeWidgetItem* parent,
     }
     if(container.feature_kind==zima::document::FeatureKind::SheetTransition){
         auto* main_origin=parent->child(0);
+        auto* end_plane=new QTreeWidgetItem(parent,{QObject::tr("Koncová rovina")});
+        end_plane->setIcon(0,resource_icon("plane"));
+        end_plane->setData(0,Qt::UserRole,QString::fromStdString(container.id));
+        end_plane->setData(0,Qt::UserRole+1,QString::fromStdString(instance_path.encoded()));
+        end_plane->setData(0,Qt::UserRole+3,"origin-reference");
+        end_plane->setData(0,Qt::UserRole+5,"plane:end");
+        end_plane->setData(0,Qt::UserRole+6,QString::fromStdString(container.id));
+
         auto* end_origin=add_construction_origin_tree_item(main_origin,zima::document::sheet_transition_end_origin(container),container.name,instance_path);
         end_origin->setText(0,QObject::tr("Druhý počátek"));
         for(unsigned i=0;i<2;++i){

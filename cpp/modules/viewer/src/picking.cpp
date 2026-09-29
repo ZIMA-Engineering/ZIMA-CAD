@@ -521,7 +521,7 @@ std::vector<ViewerCandidate> ordered_viewer_candidates(
             // must not be selectable -- see the matching border-edge
             // Face/Container generation below, which is the sole way a Plane
             // is now offered/selected.
-            if (face.reference.semantic_key == "plane" ||
+            if (face.reference.semantic_key == "plane" || face.reference.semantic_key == "plane:end" ||
                 face.reference.semantic_key.starts_with("origin:plane:")) continue;
             const bool origin_reference =
                 face.reference.semantic_key.starts_with("origin:");
@@ -606,7 +606,7 @@ std::vector<ViewerCandidate> ordered_viewer_candidates(
             // in the rebuilt persisted-reference packet.
             if (geometry == CandidateGeometry::Display &&
                 edge.edge < source.edges.size() && source.edges[edge.edge].overlay &&
-                (edge.reference.semantic_key == "border" ||
+                (edge.reference.semantic_key == "border" || edge.reference.semantic_key == "plane:end" ||
                  edge.reference.semantic_key.starts_with("origin:plane:"))) {
                 continue;
             }
@@ -639,7 +639,7 @@ std::vector<ViewerCandidate> ordered_viewer_candidates(
             // matches on CandidateKind::Face) and the ordinary whole-object
             // Container selection keep working -- only the pickable region
             // moved from the interior quad to its outline.
-            if (edge.reference.semantic_key == "border" ||
+            if (edge.reference.semantic_key == "border" || edge.reference.semantic_key == "plane:end" ||
                 edge.reference.semantic_key.starts_with("origin:plane:")) {
                 constexpr std::string_view entity_suffix{":entity"};
                 const bool datum_entity =

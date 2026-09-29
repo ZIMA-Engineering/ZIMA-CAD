@@ -18,6 +18,16 @@ class PackageTests(unittest.TestCase):
         self.assertIn(str(Path(os.environ['SystemRoot']) / 'System32'), environment['PATH'])
         self.assertFalse(any(k.upper().startswith(('QT_', 'QML', 'CSF_')) for k in environment))
 
+    def test_factory_working_directory_is_portable_home(self):
+        with tempfile.TemporaryDirectory() as temp:
+            runtime = Path(temp)
+            (runtime / 'config').mkdir()
+            config = runtime / 'config/config.ini'
+            config.write_text('[Paths]\nTemplates=templates\nWorkingDirectory=C:/build/private\n[Other]\nWorkingDirectory=keep\n', encoding='utf-8')
+            package.prepare_factory_config(runtime)
+            self.assertEqual(config.read_text(encoding='utf-8'),
+                '[Paths]\nTemplates=templates\nWorkingDirectory=~\n[Other]\nWorkingDirectory=keep\n')
+
     def test_build_ids(self):
         self.assertEqual(package.version_id('2024022901'), '2024022901')
         for value in ('2026022901', '2026091500', '../2026091501', '20260915', '2026130101'):

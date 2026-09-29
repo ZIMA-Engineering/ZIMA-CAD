@@ -86,3 +86,16 @@ contracts. The tests check endpoint resolution and point/plane coincidence for
 two occurrences, including opposite plane sides at zero offset, and native Part
 save/reopen/regeneration. All existing UI labels are reused; no new translation
 keys are needed.
+
+## End reference display
+
+Both transition types display `axis:start` and `axis:end` with the ordinary datum
+point color; hover and selection retain their common colors. The existing
+`plane:end` reference now has a screen-sized outline, using the same display and
+picking path as a construction plane. Its identity and occurrence path are
+unchanged. A localized End plane leaf appears directly below the transition in
+the Tree. Plane visibility follows the existing plane visibility control.
+
+The outline is derived from already persisted reference corners. Repeated vertices
+in calculated and construction packets are deduplicated for display only. This
+neither changes persistent topology nor invokes OCCT during view updates.

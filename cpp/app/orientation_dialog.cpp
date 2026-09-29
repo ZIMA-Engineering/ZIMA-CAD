@@ -1,6 +1,10 @@
 #include "orientation_dialog.hpp"
+#include "standard_view_labels.hpp"
 
 #include <zima/ui/reference_cell.hpp>
+#include <zima/ui/close_button.hpp>
+#include <QToolButton>
+#include <QSignalBlocker>
 
 #include <QAbstractItemView>
 #include <QCheckBox>
@@ -17,21 +21,6 @@
 #include <algorithm>
 
 namespace zima::app {
-namespace {
-
-QString standard_view_label(const std::string& key) {
-    if (key == "default") return QObject::tr("Výchozí (izometrický)");
-    if (key == "front") return QObject::tr("Zepředu");
-    if (key == "back") return QObject::tr("Zezadu");
-    if (key == "top") return QObject::tr("Shora");
-    if (key == "bottom") return QObject::tr("Zdola");
-    if (key == "left") return QObject::tr("Zleva");
-    if (key == "right") return QObject::tr("Zprava");
-    return QString::fromStdString(key);
-}
-
-}  // namespace
-
 OrientationDialog::OrientationDialog(
     std::vector<OrientationSavedView> custom_views, QWidget* parent)
     : PropertiesSubWindow(tr("Pohledy"), parent),
@@ -42,11 +31,11 @@ OrientationDialog::OrientationDialog(
         tr("Vyberte plochu nebo rovinu pro první (FRONT) a volitelně druhý "
            "(orientační) směr pohledu."), this));
 
-    reference_table_ = new QTableWidget(2, 4, this);
+    reference_table_ = new QTableWidget(2, 6, this);
     reference_table_->setObjectName("orientationReferenceTable");
     reference_table_->setSelectionMode(QAbstractItemView::NoSelection);
     reference_table_->setHorizontalHeaderLabels({QString(),
-        tr("Reference"), tr("Směr"), tr("Obrátit")});
+        tr("Reference"), tr("Směr"), tr("Obrátit"),QString(),QStringLiteral("#")});
     reference_table_->verticalHeader()->hide();
     zima::ui::install_reference_cell_delegate(reference_table_);
     auto* header = reference_table_->horizontalHeader();
@@ -54,6 +43,9 @@ OrientationDialog::OrientationDialog(
     header->setSectionResizeMode(1, QHeaderView::Stretch);
     header->setSectionResizeMode(2, QHeaderView::ResizeToContents);
     header->setSectionResizeMode(3, QHeaderView::ResizeToContents);
+    header->setSectionResizeMode(4,QHeaderView::Fixed);header->resizeSection(4,34);
+    header->setSectionResizeMode(5,QHeaderView::Fixed);header->resizeSection(5,28);
+    header->moveSection(5,0);
     reference_table_->verticalHeader()->setDefaultSectionSize(34);
     for (int row = 0; row < reference_table_->rowCount(); ++row)
         reference_table_->setRowHeight(row, 34);
@@ -88,6 +80,13 @@ OrientationDialog::OrientationDialog(
         flip_checks_[row] = flip;
         reference_table_->setCellWidget(static_cast<int>(row), 3, flip);
 
+        auto* eye=zima::ui::build_reference_inspection_button(false,false,[this,row](bool checked){
+            if(checked)highlighted_rows_.insert(row);else highlighted_rows_.erase(row);update_highlights();
+        });
+        inspection_buttons_[row]=eye;
+        reference_table_->setCellWidget(static_cast<int>(row),4,zima::ui::centered_cell_widget(eye));
+        auto* number=new QTableWidgetItem(QString::number(row+1));number->setFlags(Qt::ItemIsEnabled);
+        reference_table_->setItem(static_cast<int>(row),5,number);
         reference_table_->setRowHidden(static_cast<int>(row), row != 0);
     }
     connect(reference_table_, &QTableWidget::cellClicked, this,
@@ -132,11 +131,6 @@ OrientationDialog::OrientationDialog(
     connect(save_button, &QPushButton::clicked, this,
         [this] { handle_save_clicked(); });
     name_row->addWidget(save_button);
-    auto* delete_button = new QPushButton(tr("Odstranit"), this);
-    delete_button->setObjectName("orientationDeleteViewButton");
-    connect(delete_button, &QPushButton::clicked, this,
-        [this] { handle_delete_clicked(); });
-    name_row->addWidget(delete_button);
     content_layout()->addLayout(name_row);
     error_ = new QLabel(this);
     error_->setObjectName("orientationViewError");
@@ -184,30 +178,14 @@ void OrientationDialog::activate_row(std::size_t row) {
 
 void OrientationDialog::handle_reference_cell_clicked(int row, int column) {
     if (column != 1 || row < 0 || static_cast<std::size_t>(row) >= 2) return;
-    auto* reference = reference_items_[static_cast<std::size_t>(row)];
-    if (reference == nullptr) return;
-    if (!reference->has_reference()) {
-        activate_row(static_cast<std::size_t>(row));
-        return;
-    }
-    // A populated reference is a persistent value, not an on/off control;
-    // clicking it only toggles its viewer highlight, matching the reference
-    // table used by "Umístit kontejner".
-    reference->set_checked(true);
-    const auto index = static_cast<std::size_t>(row);
-    if (highlighted_rows_.count(index)) {
-        highlighted_rows_.erase(index);
-    } else {
-        highlighted_rows_.insert(index);
-    }
-    update_highlights();
-    reference_table_->clearSelection();
+    activate_row(static_cast<std::size_t>(row));
 }
 
 bool OrientationDialog::references_independent(
     const std::string& candidate_descriptor) const {
     if (!independence_check_) return true;
     for (std::size_t index = 0; index < 2; ++index) {
+        if(index==active_row_)continue;
         const auto* reference = reference_items_[index];
         if (reference == nullptr || !reference->has_reference()) continue;
         if (!independence_check_(
@@ -235,19 +213,14 @@ void OrientationDialog::accept_reference(
     reference->setText(label);
     reference->set_checked(true);
     reference->setForeground(QBrush());
-    // Mirrors Python's OrientationDialog: the camera only reorients once the
-    // *last* row has been filled in (selectionCompleted), not after the
-    // first reference alone -- the second reference affects the final roll,
-    // so applying the view after just one reference would show an
-    // intermediate, not-yet-final orientation.
     const bool was_last_row = active_row_ + 1 >= 2;
     if (!was_last_row) {
         activate_row(active_row_ + 1);
     } else {
-        reference->set_active_input(false);
+        end_entry();
     }
     update_highlights();
-    if (was_last_row) notify_rows_changed();
+    notify_rows_changed();
 }
 
 void OrientationDialog::remove_row(std::size_t row) {
@@ -311,15 +284,25 @@ void OrientationDialog::refresh_reference_table() {
     }
 }
 
+void OrientationDialog::end_entry() {
+    active_row_=2;highlighted_rows_.clear();
+    for(auto* reference:reference_items_)reference->set_active_input(false);
+    update_highlights();
+}
+
 void OrientationDialog::update_highlights() {
+    std::vector<std::string> inspected;
     for (std::size_t index = 0; index < 2; ++index) {
         auto* reference = reference_items_[index];
         const bool highlighted = highlighted_rows_.count(index) != 0;
         reference->set_inspected(highlighted);
+        {const QSignalBlocker block(inspection_buttons_[index]);inspection_buttons_[index]->setEnabled(reference->has_reference());inspection_buttons_[index]->setChecked(highlighted);}
+        if(highlighted&&reference->has_reference())inspected.push_back(reference->reference().toStdString());
         zima::ui::set_reference_row_populated(
             row_indicators_[index], reference->has_reference());
     }
     reference_table_->viewport()->update();
+    if(inspection_)inspection_(std::move(inspected));
 }
 
 void OrientationDialog::notify_rows_changed() {
@@ -332,7 +315,14 @@ void OrientationDialog::refresh_view_list() {
     for (const auto& view : custom_views_) {
         auto* item = new QListWidgetItem(view.name, view_list_);
         item->setData(Qt::UserRole, view.is_custom());
-        view_list_->addItem(item);
+        if(view.is_custom()) {
+            auto* row=new QWidget(view_list_);auto* layout=new QHBoxLayout(row);layout->setContentsMargins(4,2,4,2);
+            auto* name=new QLabel(view.name,row);layout->addWidget(name,1);
+            auto* remove=new zima::ui::CloseButton(row);remove->setFixedSize(24,24);
+            remove->setToolTip(tr("Odstranit pohled"));remove->setObjectName("orientationDeleteViewButton");
+            connect(remove,&QPushButton::clicked,this,[this,item]{view_list_->setCurrentItem(item);handle_delete_clicked();});
+            layout->addWidget(remove);item->setText({});item->setSizeHint(row->sizeHint());view_list_->setItemWidget(item,row);
+        }
     }
 }
 
@@ -397,6 +387,9 @@ void OrientationDialog::remove_saved_view(const QString& name) {
     refresh_view_list();
 }
 
-bool OrientationDialog::submit() { return true; }
+bool OrientationDialog::submit() {
+    if(commit_){std::vector<OrientationSavedView> views;for(const auto& view:custom_views_)if(view.is_custom())views.push_back(view);commit_(views);}
+    return true;
+}
 
 }  // namespace zima::app

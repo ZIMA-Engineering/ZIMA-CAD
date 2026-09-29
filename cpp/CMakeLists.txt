@@ -730,6 +730,9 @@ if(ZIMA_BUILD_TESTS)
     add_test(NAME zima_cpp_part_dialog_layout_contract COMMAND zima_cpp_ui_contract_tests)
     set_tests_properties(zima_cpp_part_dialog_layout_contract PROPERTIES
         ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_PART_DIALOG_LAYOUT_ONLY=1")
+    add_test(NAME zima_cpp_point_marker_colors_contract COMMAND zima_cpp_ui_contract_tests)
+    set_tests_properties(zima_cpp_point_marker_colors_contract PROPERTIES
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_POINT_MARKERS_ONLY=1")
     add_test(NAME zima_cpp_translations_contract COMMAND zima_cpp_ui_contract_tests)
     set_tests_properties(zima_cpp_translations_contract PROPERTIES
         ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_TRANSLATIONS_ONLY=1")
@@ -1310,6 +1313,10 @@ if(ZIMA_BUILD_TESTS)
     set_tests_properties(zima_cpp_axis_up_to_ui_contract PROPERTIES
         ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_CONSOLE_ONLY=1;ZIMA_VERIFY_AXIS_UP_TO_ONLY=1"
         WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 90)
+    add_test(NAME zima_cpp_named_views_ui_contract COMMAND zima-cad-cpp --verify-startup)
+    set_tests_properties(zima_cpp_named_views_ui_contract PROPERTIES
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_CONSOLE_ONLY=1;ZIMA_VERIFY_NAMED_VIEWS_ONLY=1"
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." RUN_SERIAL TRUE TIMEOUT 90)
     add_test(NAME zima_cpp_console_ui_contract COMMAND zima-cad-cpp --verify-startup)
     add_test(NAME zima_cpp_updates_ui_contract COMMAND zima-cad-cpp --verify-startup)
     add_test(NAME zima_cpp_fonts_ui_contract COMMAND zima-cad-cpp --verify-startup)

@@ -36,7 +36,7 @@ inline kernel::BSplineGeometry dxf_spline(const DxfEntity& entity) {
 inline sketcher::Sketch dxf_curve_fixture() {
     auto sketch=sketcher::Sketch::create_default();
     static_cast<void>(sketch.add_ellipse(10,20,15,20,10,23));
-    static_cast<void>(sketch.add_ellipse(30,20,32,20,30,27,true));
+    static_cast<void>(sketch.add_ellipse(30,20,32,20,30,27));
     const double r=.5,rx=2,ry=7;const auto position=[&](double t){return std::array{60+rx*std::cos(t)*std::cos(r)+ry*std::sin(t)*std::sin(r),20+rx*std::cos(t)*std::sin(r)-ry*std::sin(t)*std::cos(r)};};
     const auto a=position(5.5),b=position(7.5);
     static_cast<void>(sketch.add_elliptical_arc(60,20,60+rx*std::cos(r),20+rx*std::sin(r),60+ry*std::sin(r),20-ry*std::cos(r),a[0],a[1],b[0],b[1],true));
@@ -56,13 +56,11 @@ inline void check_dxf_curves(const std::filesystem::path& path,bool standalone_p
     const auto require=[](bool value,const char* text){if(!value)throw std::runtime_error(text);};
     const auto near=[](double a,double b){return std::abs(a-b)<1e-8;};
     std::map<std::string,std::vector<DxfEntity>> types;for(auto& entity:read_dxf_entities(path))types[entity.type].push_back(std::move(entity));
-    require(types["ELLIPSE"].size()==3&&types["SPLINE"].size()==6&&types["LINE"].size()==1&&types["XLINE"].size()==1,"DXF curve entities were lost or duplicated");
-    require(types["POINT"].size()==(standalone_point?1:0),"DXF exported editing handles or lost a standalone point");
-    if(standalone_point)require(near(types["POINT"][0].number(10),123)&&near(types["POINT"][0].number(20),456)&&types["POINT"][0].values.at(8)[0]=="CONSTRUCTION","DXF standalone point changed");
-    require(near(types["XLINE"][0].number(11),.6)&&near(types["XLINE"][0].number(21),.8),"DXF centerline direction was not normalized");
+    require(types["ELLIPSE"].size()==3&&types["SPLINE"].size()==6&&types["LINE"].size()==1&&types["XLINE"].empty(),"DXF curve entities were lost or duplicated");
+    require(types["POINT"].empty(),"DXF exported construction points or editing handles");
     const auto& first=types["ELLIPSE"][0];const auto& second=types["ELLIPSE"][1];const auto& arc=types["ELLIPSE"][2];
     require(near(first.number(11),5)&&near(first.number(40),.6)&&near(first.number(42),2*std::numbers::pi),"DXF ellipse changed its exact axes");
-    require(near(second.number(11),0)&&near(second.number(21),7)&&near(second.number(40),2./7)&&second.values.at(8)[0]=="CONSTRUCTION","DXF did not normalize a longer second ellipse axis");
+    require(near(second.number(11),0)&&near(second.number(21),7)&&near(second.number(40),2./7)&&second.values.at(8)[0]=="CUT","DXF did not normalize a longer second ellipse axis");
     double start=arc.number(41),end=arc.number(42);if(end<=start)end+=2*std::numbers::pi;
     for(int i=0;i<=20;++i) {
         const double f=i/20.,t=start+f*(end-start),sign=arc.number(230),ratio=arc.number(40);
@@ -104,17 +102,16 @@ inline void check_dxf_details(const std::filesystem::path& path,const sketcher::
     const auto require=[](bool value,const char* text){if(!value)throw std::runtime_error(text);};
     const auto near=[](double a,double b){return std::abs(a-b)<1e-8;};
     std::map<std::string,std::vector<DxfEntity>> types;for(auto& entity:read_dxf_entities(path))types[entity.type].push_back(std::move(entity));
-    require(types["LINE"].size()==2&&types["ARC"].size()==1&&types["POINT"].size()==1,"DXF corner duplicated a source line or exported an editing handle");
+    require(types["LINE"].size()==2&&types["ARC"].size()==1&&types["POINT"].empty(),"DXF corner duplicated a source line or exported an editing handle");
     const auto& arc=types["ARC"].front();double sweep=arc.number(51)-arc.number(50);if(sweep<0)sweep+=360;
     require(near(arc.number(10),2)&&near(arc.number(20),2)&&near(arc.number(40),2)&&near(sweep,90),"DXF corner is not the analytic R2 quarter-circle at (2,2)");
     double length=0;for(const auto& line:types["LINE"])length+=std::hypot(line.number(11)-line.number(10),line.number(21)-line.number(20));
     require(near(length,16),"DXF source segments were not trimmed to the tangent points");
-    require(near(types["POINT"][0].number(10),50)&&near(types["POINT"][0].number(20),50),"DXF standalone point was replaced by a sharp corner handle");
     std::size_t index=0;double area=0;
     for(const auto& text:source.texts)for(const auto& contour:text.contours) {
         require(index<types["LWPOLYLINE"].size(),"DXF lost a stored text outline");const auto& polyline=types["LWPOLYLINE"][index++];
         require(polyline.number(70)==1&&polyline.number(90)==contour.size()&&polyline.values.at(10).size()==contour.size()&&polyline.values.at(20).size()==contour.size(),"DXF text contour is open or has wrong vertex counts");
-        require(polyline.values.at(8)[0]==(text.modeling_geometry?"PROFILE":"CONSTRUCTION"),"DXF lost the text modeling/annotation distinction");
+        require(polyline.values.at(8)[0]=="MARK","DXF text is not on the marking layer");
         for(std::size_t i=0;i<contour.size();++i) {
             const auto j=(i+1)%contour.size();
             require(near(polyline.number(10,i),contour[i][0])&&near(polyline.number(20,i),contour[i][1]),"DXF rebuilt or transformed an already positioned glyph");

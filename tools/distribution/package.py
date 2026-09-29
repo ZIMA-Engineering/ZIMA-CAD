@@ -37,6 +37,25 @@ def git(repo, *args):
     return run(['git', '-C', repo, *args], stdout=subprocess.PIPE).stdout
 
 
+def prepare_factory_config(runtime):
+    """Set portable release defaults without modifying source or user config."""
+    config = runtime / 'config/config.ini'
+    contents = config.read_text(encoding='utf-8')
+    lines = contents.splitlines(keepends=True)
+    section = ''
+    replaced = 0
+    for index, line in enumerate(lines):
+        text = line.strip()
+        if text.startswith('[') and text.endswith(']'):
+            section = text[1:-1]
+        elif section == 'Paths' and re.match(r'^WorkingDirectory\s*=', text):
+            lines[index] = 'WorkingDirectory=~\n'
+            replaced += 1
+    if replaced != 1:
+        raise ValueError('Expected exactly one factory Paths/WorkingDirectory')
+    config.write_text(''.join(lines), encoding='utf-8')
+
+
 def version_id(value):
     if not re.fullmatch(r'[0-9]{10}', value) or value[8:] == '00':
         raise ValueError('Build ID must be YYYYMMDDNN, sequence 01-99')
@@ -372,6 +391,7 @@ def package(args):
     deploy_dependencies(runtime, args.installed, args.redist, args.dumpbin)
     for name in ('config', 'resources'):
         shutil.copytree(source / name, runtime / name, ignore=shutil.ignore_patterns('.gitkeep', '*.ini.[0-9]*', '*.frmz.[0-9]*', '*.tblz.[0-9]*'))
+    prepare_factory_config(runtime)
     shutil.copytree(args.installed / 'share/opencascade/resources', runtime / 'resources/occt')
     licenses = runtime / 'licenses'; licenses.mkdir()
     shutil.copy2(source / 'LICENSE', root / 'LICENSE')

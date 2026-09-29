@@ -12,6 +12,7 @@ namespace {
 
 
 void AssemblyWorkspaceWindow::update_document_area_visibility() {
+    refresh_named_view_choices();
     const bool has_document = workspace_.size() != 0;
     if (tabs_ != nullptr) tabs_->setVisible(has_document);
     if (document_splitter_ != nullptr) document_splitter_->setVisible(has_document);

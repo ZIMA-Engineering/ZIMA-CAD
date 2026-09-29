@@ -78,6 +78,7 @@ QString locate_base_config_path() {
 
 QString resolved_path(const QString& config_path, const QString& value) {
     const QString portable = QDir::fromNativeSeparators(value.trimmed());
+    if (portable == "~") return QDir::homePath();
     if (QDir::isAbsolutePath(portable)) return QDir::cleanPath(portable);
     return QDir(QFileInfo(config_path).absolutePath()).absoluteFilePath(portable);
 }

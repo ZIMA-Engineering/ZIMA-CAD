@@ -1,4 +1,5 @@
 {
+"Koncová rovina":"Конечная плоскость",
 "Vzdálenost je daná kružnicí. Původní hodnota se obnoví při naklonění roviny.":"Расстояние определяется окружностью. При наклоне плоскости исходное значение восстанавливается.",
 "V kusovníku ignorovat variantu":"Игнорировать вариант в спецификации","Použít název zdrojového souboru a sloučit jeho označené varianty do jedné položky kusovníku. Strom a geometrie se nemění.":"Использовать имя исходного файла и объединять отмеченные варианты в одну позицию спецификации. Дерево и геометрия не изменяются.",
   "Teoreticky přesná kóta (rámeček)": "Теоретически точный размер (рамка)",

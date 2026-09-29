@@ -1,6 +1,6 @@
 # Named views in GUI and CLI
 
-Implementation status: 2026-09-15. Named Part/Assembly views store complete camera
+Implementation status: 2026-09-29. Named Part/Assembly views store complete camera
 state. The original dialog wrote only pan and scales, losing rotation after reopening.
 Assembly also read `named_views` but did not write it.
 
@@ -53,10 +53,25 @@ Edits are metadata with `body_calculated=false`: no OCCT, mate solving, or depen
 regeneration. Calculated geometry remains shared unchanged. Undo/Redo restores the
 list and full saved camera state.
 
-The dialog commits through the shared operation before updating its list. Errors
-appear inside the window, preserving pending names or selected deletion items.
-Existing behavior remains: Save/Delete explicitly modify bookmarks; Cancel restores
-the pre-dialog camera, while OK retains the selected view.
+The Normal View dialog stages additions and removals locally. Its Save control
+captures the current camera into the pending list; each custom row has the shared
+remove cross. Built-in directions cannot be removed. OK commits the complete list
+as one metadata transaction and retains the selected camera. Cancel discards the
+pending list and restores the pre-dialog camera. An unchanged OK creates no Undo.
+
+Normal View, the Standard Views menu/toolbar and Drawing view properties use the
+same localized standard direction labels. Custom views belong to the source Part
+or Assembly and appear under their exact user-authored names. The model selector
+restores the full camera; Drawing uses its orientation only, preserving the Drawing
+view's own scale and sheet position. Drawing persists that selected orientation in
+its existing camera data, so subsequent bookmark edits do not silently alter an
+already placed view. Open source documents are authoritative.
+
+Reference text arms entry or replacement; an independent eye inspects the stored
+reference. The first reference already establishes a normal view, and the optional
+second reference controls orientation. A short middle click ends entry and clears
+inspection without deleting values. Planes use their persisted reference geometry;
+no kernel calculation is required to obtain their normal.
 
 ## Native files and verification
 

@@ -197,7 +197,7 @@ DxfImportResult import_dxf(
             values.try_emplace(pairs[index].code, pairs[index].value);
             ++index;
         }
-        const bool construction = values.contains(8) && values.at(8) == "CONSTRUCTION";
+        const bool construction = values.contains(8) && (values.at(8) == "CONSTRUCTION" || values.at(8) == "BEND" || values.at(8) == "MARK");
         if (values.contains(67) && number(values,67) == 1) continue; // paper space
         try {
             if (type == "POINT" || type == "LINE" || type == "CIRCLE" || type == "ARC" ||
