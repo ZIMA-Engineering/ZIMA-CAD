@@ -257,7 +257,7 @@ int verify_drawing_source_picker() {
                 "Sheet Variant selection changed an independent Drawing view");
             require(window.title_field_text_for_test("NAME")==std::optional<std::string>{"Generic parameter"},
                 "Changing the chooser rebound the title block");
-            window.load_title_block_for_test(std::filesystem::absolute("config/formats/ZE-TITLE-BLOCK-CS.tblz"));flush();
+            window.load_title_block_for_test(std::filesystem::absolute("tests/fixtures/drawing-library/ZE-TITLE-BLOCK-CS.tblz"));flush();
             require(window.document_for_test().sheets.front().bom_source_document_id==variant&&
                 window.title_field_text_for_test("NAME")==std::optional<std::string>{"Variant"},"Inserted title did not capture the selected variant");
             const int native_index=choices->findData(QString::fromStdString(family_part.document_id));
@@ -698,7 +698,7 @@ int verify_drawing_ui() {
             model.user_parameter_labels["drawn_by"]["cs"]="kreslil";
             workspace.open_part(part.document_id)->session.commit(model,{cache});
             const auto revision=workspace.open_part(part.document_id)->session.revision();
-            const auto library=std::filesystem::path(__FILE__).parent_path().parent_path().parent_path()/"config/formats/ZE-TITLE-BLOCK-CS.tblz";
+            const auto library=std::filesystem::path(__FILE__).parent_path().parent_path().parent_path()/"tests/fixtures/drawing-library/ZE-TITLE-BLOCK-CS.tblz";
             window.load_title_block_for_test(library);flush();
             require(!state.sheets.front().title_block_fields.empty(),"Library title block did not insert");
             auto* edit=action("editDrawingTitleBlockAction");
@@ -1356,7 +1356,7 @@ int verify_drawing_ui() {
                 props->grab().save(QString("build/text-field-action-%1.png").arg(language));props->buttons()->button(QDialogButtonBox::Ok)->click();flush();
                 require(commits==1&&accepted.at("kind")=="list"&&accepted.at("allow_custom")=="no"&&accepted.at("choices")=="[\"A\",\"B\"]","Text property action was not committed");
                 auto factory=zima::drawing::DrawingDocument::create_default();
-                const auto title_path=catalogs.parent_path()/"formats"/("ZE-TITLE-BLOCK-"+QString(language).toUpper().toStdString()+".tblz");
+                const auto title_path=catalogs.parent_path().parent_path()/"tests/fixtures/drawing-library"/("ZE-TITLE-BLOCK-"+QString(language).toUpper().toStdString()+".tblz");
                 zima::drawing::load_title_block_template(factory.sheets.front(),title_path);
                 workspace.add_drawing(factory);window.edit_workspace_document(factory.document_id);flush();
                 window.findChild<QAction*>("editDrawingTitleBlockAction")->trigger();flush();
@@ -1372,7 +1372,7 @@ int verify_drawing_ui() {
             zima::app::apply_application_translations(*qApp,saved_settings);
         }
         {
-            auto symbol=zima::drawing::DrawingDocument::create_default();zima::drawing::load_title_block_template(symbol.sheets.front(),"config/formats/ZE-TITLE-BLOCK-CS.tblz");
+            auto symbol=zima::drawing::DrawingDocument::create_default();zima::drawing::load_title_block_template(symbol.sheets.front(),"tests/fixtures/drawing-library/ZE-TITLE-BLOCK-CS.tblz");
             require(symbol.sheets.front().dimensions.empty(),"Template Sketch dimensions leaked into Drawing");
             zima::drawing_render::SheetRenderer renderer;renderer.set_render_sheet(&symbol.sheets.front());QImage proof(360,200,QImage::Format_ARGB32_Premultiplied);proof.fill(Qt::white);QPainter painter(&proof);
             renderer.paint_sheet(painter,30,{-4600,-7530},true);painter.end();proof.save("build/projection-symbol-proof.png");

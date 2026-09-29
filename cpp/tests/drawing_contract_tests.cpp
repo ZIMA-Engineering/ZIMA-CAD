@@ -201,7 +201,7 @@ Data={"points":{"a":{"x":-10,"y":-5},"b":{"x":-20,"y":-5}},"geometry":{"line":{"
             const double anchor_y=std::string(vertical)=="top"?corners[0][1]:std::string(vertical)=="bottom"?corners[2][1]:(corners[0][1]+corners[2][1])/2;
             require(anchor_x==logo.x&&anchor_y==logo.y,"Image alignment moved the placement anchor");
         }
-        for(const auto& entry:std::filesystem::directory_iterator("config/formats")) {
+        for(const auto& entry:std::filesystem::directory_iterator("tests/fixtures/drawing-library")) {
             if(entry.path().extension()!=".frmz"&&entry.path().extension()!=".tblz")continue;
             std::cerr<<"Template import: "<<entry.path().filename()<<'\n';
             auto sketch=zima::drawing::load_template_sketch(entry.path(),prepare);
@@ -417,9 +417,9 @@ Data={"points":{"a":{"x":-10,"y":-5},"b":{"x":-20,"y":-5}},"geometry":{"line":{"
             {2, 4, "Washer", "WS-002", "A2"},
         };
         zima::drawing::load_frame_template(
-            drawing.sheets.front(), "config/formats/ZE-A4.frmz");
+            drawing.sheets.front(), "tests/fixtures/drawing-library/ZE-A4.frmz");
         zima::drawing::load_title_block_template(
-            drawing.sheets.front(), "config/formats/ZE-TITLE-BLOCK-EN.tblz");
+            drawing.sheets.front(), "tests/fixtures/drawing-library/ZE-TITLE-BLOCK-EN.tblz");
         require(!drawing.sheets.front().frame_lines.empty() &&
                     !drawing.sheets.front().title_block_lines.empty() &&
                     !drawing.sheets.front().title_block_fields.empty() &&

@@ -19,7 +19,7 @@ sketcher::SymbolInstance projection() {
 }
 void factory(const std::filesystem::path& root) {
     for(const auto* language:{"CS","EN","DE","FR","RU"}) {
-        const auto path=root/"config/formats"/(std::string("ZE-TITLE-BLOCK-")+language+".tblz");
+        const auto path=root/"tests/fixtures/drawing-library"/(std::string("ZE-TITLE-BLOCK-")+language+".tblz");
         auto sketch=drawing::load_template_sketch(path,[](auto& text){sketcher::rebuild_text_contours(text,true);});
         std::erase_if(sketch.points,[](const auto& v){return v.id.starts_with("projection:");});
         std::erase_if(sketch.segments,[](const auto& v){return v.id.starts_with("projection:");});
@@ -145,7 +145,7 @@ int main(int argc,char** argv) {
             for(std::size_t i=0;i<ordinary.edges.size();++i)check(ordinary.edges[i].points==unchanged.edges[i].points,"Disabled readability changed text");
         }
         for(const auto* language:{"CS","EN","DE","FR","RU"}) {
-            drawing::DrawingSheet sheet;drawing::load_title_block_template(sheet,root/"config/formats"/(std::string("ZE-TITLE-BLOCK-")+language+".tblz"));
+            drawing::DrawingSheet sheet;drawing::load_title_block_template(sheet,root/"tests/fixtures/drawing-library"/(std::string("ZE-TITLE-BLOCK-")+language+".tblz"));
             for(const auto* id:{"ACCURACY","TOLERANCING"}) {
                 const auto f=std::ranges::find(sheet.title_block_fields,id,&drawing::TitleBlockField::id);
                 check(f!=sheet.title_block_fields.end()&&f->editable&&!f->write_back&&f->expression.empty(),"Tolerance field still writes a model parameter");
@@ -195,7 +195,7 @@ int main(int argc,char** argv) {
         check(std::abs(first.lines.front().first.x-symbol.x-7.2)<1e-9,"First-angle cone is mirrored by paper coordinates");
         for(const auto* frame:{"ZE-A0.frmz","ZE-A4.frmz"}) {
             drawing.sheets.front().format=std::string(frame)=="ZE-A0.frmz"?drawing::SheetFormat::A0:drawing::SheetFormat::A4;
-            drawing::load_frame_template(drawing.sheets.front(),root/"config/formats"/frame);
+            drawing::load_frame_template(drawing.sheets.front(),root/"tests/fixtures/drawing-library"/frame);
             const auto resized=drawing::title_block_layout(drawing.sheets.front(),{});
             check(resized.lines.size()==first.lines.size(),"Frame replacement changed the title-block symbol");
             for(std::size_t i=0;i<first.lines.size();++i) {

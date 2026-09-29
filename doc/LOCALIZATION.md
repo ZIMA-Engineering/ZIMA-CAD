@@ -84,8 +84,9 @@ dynamic text, user-content boundaries and visible layout when adding UI.
 
 ## Localized company title blocks
 
-`config/formats/ZE-TITLE-BLOCK-CS.tblz` is the Czech source template. Language variants
-are `ZE-TITLE-BLOCK-{CS,EN,DE,FR,RU}.tblz`. Each embeds the company SVG logo from
+`config/formats/ZE-TITLE-BLOCK.tblz` contains CS, EN, DE, FR and RU Family rows.
+The original Czech source and language reference fixtures are in
+`tests/fixtures/drawing-library/ZE-TITLE-BLOCK-{CS,EN,DE,FR,RU}.tblz`. Each embeds the company SVG logo from
 `config/formats/ZIMA-Engineering.svg`, with its aspect ratio preserved, and
 retains the original geometry, constraints, data fields and BOM tokens.
 
@@ -94,6 +95,10 @@ To regenerate variants after updating the Czech source, run:
 ```powershell
 python tools/localize-title-block.py --cli build/cpp-windows-release/zima-cad-cli.exe
 ```
+
+This updates the reference fixtures. Then regenerate the combined factory Family
+with `zima_title_block_family_tool config/formats/ZE-TITLE-BLOCK.tblz` and verify
+all five language rows with `zima_title_block_family_tool --verify`.
 
 The generator uses native `template.sketch.edit` and `template.save` commands
 to rebuild translated font outlines. It checks unchanged geometry and field

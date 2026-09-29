@@ -5,7 +5,7 @@ Basic usage is also in the [user manual](UZIVATELSKY_MANUAL.md#basic-drawing-wor
 
 ## Frame trimming marks
 
-All factory frames `ZE-A0.frmz` through `ZE-A4.frmz` enable
+All factory variants A0 through A4 in `ZE-DRAWING-FRAME.frmz` enable
 `Frame/TrimmingMarks=true`. Each trimmed-paper corner contains two overlapping
 filled rectangles, 10 by 5 mm, forming an L with 5 mm arms. Dimensions stay in
 paper millimetres regardless of the model/view scale. Marks are white in the
@@ -122,8 +122,8 @@ right, without hidden compensation.
 
 Supplied title blocks:
 
-- `ZE-TITLE-BLOCK-CS.tblz`: Czech labels and localized parameter names.
-- `ZE-TITLE-BLOCK-EN.tblz`: English labels and localized parameter names.
+- `ZE-TITLE-BLOCK.tblz`, CS Family row: Czech labels and localized parameter names.
+- `ZE-TITLE-BLOCK.tblz`, EN Family row: English labels and localized parameter names.
 
 Text starting with `&` references a parameter. Internal keys such as `name` and
 localized labels (`&Název`, `&Name`, `&Наименование`) identify the same parameter.
@@ -263,8 +263,8 @@ uses the existing parameter write-back transaction; Cancel discards pending
 values. The five factory language templates configure their date field with the
 date action. Users configure their own lists; no tolerance classes are assumed.
 
-The obsolete unqualified `ZE-TITLE-BLOCK.tblz` is removed; CS, EN, DE, FR and RU
-variants remain. The projection glyph in each variant has concentric circles
+The shared `ZE-TITLE-BLOCK.tblz` contains CS, EN, DE, FR and RU Family
+variants. Single-language originals are retained only as test fixtures. The projection glyph in each variant has concentric circles
 sharing a single center and dimensioned profile/axis positions. Two Sketch
 centerlines replace the fragmented solid center strokes. Template insertion,
 Drawing persistence and the shared screen/PDF/DXF renderer retain their thin

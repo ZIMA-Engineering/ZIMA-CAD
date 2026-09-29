@@ -29,7 +29,7 @@ bool repeats(const sketcher::Sketch& s,const sketcher::SketchSegment& line) {
 }
 document::PartDocument make_family() {
     std::vector<sketcher::Sketch> sources;
-    for(const auto& language:languages)sources.push_back(drawing::load_template_sketch(fs::path("config/formats")/("ZE-TITLE-BLOCK-"+language+".tblz"),[](auto&){}));
+    for(const auto& language:languages)sources.push_back(drawing::load_template_sketch(fs::path("tests/fixtures/drawing-library")/("ZE-TITLE-BLOCK-"+language+".tblz"),[](auto&){}));
     std::set<std::string> common;
     for(const auto& line:sources.front().segments) {
         if(repeats(sources.front(),line))continue;
@@ -80,7 +80,7 @@ document::PartDocument make_frames() {
     auto part=document::PartDocument::create_default();part.document_id="ze-drawing-frame-family";part.name="ZE-DRAWING-FRAME";
     document::BodyHistoryGraph bodies;static_cast<void>(bodies.create_body("Frame"));document::FamilyTable table;
     for(const auto* format:{"A4","A3","A2","A1","A0"}) {
-        auto sketch=drawing::load_template_sketch(fs::path("config/formats")/(std::string("ZE-")+format+".frmz"),[](auto& text){sketcher::rebuild_text_contours(text,true);});
+        auto sketch=drawing::load_template_sketch(fs::path("tests/fixtures/drawing-library")/(std::string("ZE-")+format+".frmz"),[](auto& text){sketcher::rebuild_text_contours(text,true);});
         auto container=document::PartDocument::create_sketch_container();container.name=format;container.suppressed=std::string(format)!="A4";
         sketch.id=std::string("ze-frame-sketch-")+format;sketch.name=format;sketch.owner_container_id=container.id;
         bodies.insert({document::PartHistoryKind::Feature,container.id});part.history.push_back(container);part.sketches.push_back(std::move(sketch));
@@ -96,7 +96,7 @@ document::PartDocument make_frames() {
     part.resolve_constructions();part.validate_body_ownership();return part;
 }
 void verify_frames_and_bom(const fs::path& directory) {
-    const auto frames=make_frames();const auto frame_path=directory/"ZE-DRAWING-FRAME.frmz";frames.save(frame_path);
+    const auto frames=document::PartDocument::load("config/formats/ZE-DRAWING-FRAME.frmz");const auto frame_path=directory/"ZE-DRAWING-FRAME.frmz";frames.save(frame_path);
     workspace::Workspace live;auto pin=document::PartDocument::create_default(),plate=document::PartDocument::create_default();
     live.add_part(pin);live.add_part(plate);auto assembly=assembly::AssemblyDocument::create_default();kernel::BodyResult empty;
     auto a=assembly::AssemblyDocument::create_part_occurrence("Pin",pin.document_id,{},empty);a.occurrence_id="a";
@@ -112,7 +112,7 @@ void verify_frames_and_bom(const fs::path& directory) {
     const auto balloons=sheet.balloons;
     for(const auto& row:document::parse_family_table(frames.family_table).instances) {
         workspace::load_drawing_template(doc,sheet.id,frame_path,false,nullptr,{},row.id);
-        drawing::DrawingSheet legacy;legacy.format=sheet.format;drawing::load_frame_template(legacy,fs::path("config/formats")/("ZE-"+row.name+".frmz"));
+        drawing::DrawingSheet legacy;legacy.format=sheet.format;drawing::load_frame_template(legacy,fs::path("tests/fixtures/drawing-library")/("ZE-"+row.name+".frmz"));
         check(sheet.frame_lines.size()==legacy.frame_lines.size()&&sheet.frame_texts.size()==legacy.frame_texts.size(),"Frame family geometry differs from original format");
         check(sheet.title_block_variant=="ze-title-block-variant-CS"&&sheet.balloons==balloons,"Frame replacement changed title block or positions");
     }
@@ -159,7 +159,7 @@ void verify(const document::PartDocument& part,const fs::path& directory) {
         for(std::size_t n=0;n<sheet.bom_rows.size();++n){sheet.bom_rows[n].item_number=int(n+1);sheet.bom_rows[n].quantity=2;}
         const auto result=drawing::title_block_layout(sheet,{});
         drawing::DrawingSheet legacy;legacy.bom_rows=sheet.bom_rows;
-        drawing::load_title_block_template(legacy,fs::path("config/formats")/("ZE-TITLE-BLOCK-"+languages[i]+".tblz"));
+        drawing::load_title_block_template(legacy,fs::path("tests/fixtures/drawing-library")/("ZE-TITLE-BLOCK-"+languages[i]+".tblz"));
         const auto expected=drawing::title_block_layout(legacy,{});
         check(result.lines.size()==expected.lines.size(),"Family variant changed frame/repeated line count");
         check(result.texts.size()==expected.texts.size(),"Family variant changed text/BOM count");
@@ -194,7 +194,7 @@ int main(int argc,char** argv){try{
     const auto part=argc==2&&fs::path(argv[1]).extension()==".frmz"?make_frames():make_family();
     if(argc==2&&std::string(argv[1])=="--verify") {
         const auto directory=fs::temp_directory_path()/("zima-title-family-"+kernel::make_stable_id());fs::create_directory(directory);
-        verify(part,directory);std::cout<<"Native six-Sketch title block and five Family variants verified at "<<directory<<'\n';
+        verify(document::PartDocument::load("config/formats/ZE-TITLE-BLOCK.tblz"),directory);std::cout<<"Native six-Sketch title block and five Family variants verified at "<<directory<<'\n';
     } else {
         check(argc==2,"Specify the output tblz path or --verify");part.save(fs::path(argv[1]));
         std::cout<<"Wrote native Part title block with five shared-name variants\n";

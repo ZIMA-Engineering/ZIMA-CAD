@@ -415,8 +415,8 @@ void family_test(const kernel::OcctKernel& kernel,const fs::path& directory) {
     require(empty_drawing.sheets.front().selected_source_document_id==av&&empty_drawing.sheets.front().bom_rows.empty()&&
         empty_drawing.find_sheet(generic_sheet)->selected_source_document_id==aid&&empty_drawing.find_sheet(generic_sheet)->bom_rows.empty(),
         "Drawing sheets did not retain independent Assembly variants and their actual BOM quantities");
-    workspace::load_drawing_template(empty_drawing,empty_drawing.sheets.front().id,fs::absolute("config/formats/ZE-TITLE-BLOCK-CS.tblz"),true,&live);
-    workspace::load_drawing_template(empty_drawing,generic_sheet,fs::absolute("config/formats/ZE-TITLE-BLOCK-CS.tblz"),true,&live);
+    workspace::load_drawing_template(empty_drawing,empty_drawing.sheets.front().id,fs::absolute("tests/fixtures/drawing-library/ZE-TITLE-BLOCK-CS.tblz"),true,&live);
+    workspace::load_drawing_template(empty_drawing,generic_sheet,fs::absolute("tests/fixtures/drawing-library/ZE-TITLE-BLOCK-CS.tblz"),true,&live);
     const auto variant_title=workspace::prepare_drawing_title_edit(
         empty_drawing,empty_drawing.sheets.front().id,&live,directory/"assembly.drwz");
     const auto generic_title=workspace::prepare_drawing_title_edit(

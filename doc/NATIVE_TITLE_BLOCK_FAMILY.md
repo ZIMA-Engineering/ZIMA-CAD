@@ -35,8 +35,9 @@ and Family variants A4, A3, A2, A1 and A0. Insertion or explicit frame variant
 replacement changes the sheet format without removing the title block or its
 right-hand anchor. The Drawing embeds the frame definition and selected row.
 New frame/title-block creation also creates a native Part with an active Body.
-Existing single-Sketch frame/title-block factory files remain available for
-comparison. Native symbol libraries use the same Body ownership rules; see
+Original single-Sketch frames and title blocks live in
+`tests/fixtures/drawing-library` for generation and regression comparison, outside
+the selectable factory library. Native symbol libraries use the same Body ownership rules; see
 [Symbol user guide](SYMBOLS_USER_GUIDE.md).
 The prototype renders template Sketch content; arbitrary Part solids are not
 converted into printed title-block geometry. Replacing a variant rebuilds its
@@ -55,7 +56,7 @@ visibility, suppressed variants, frame/title-block tree icons, table resizing
 and A3 frame insertion without losing the title block. It writes screenshots
 under `Projects/test`.
 
-Regenerate the factory file from the original language libraries with
+Regenerate the factory file from the reference fixtures with
 `zima_title_block_family_tool config/formats/ZE-TITLE-BLOCK.tblz`.
 The same tool generates the frame family when its output extension is `.frmz`.
 Its backend checks include grouped Assembly BOM rows and automatic Drawing
@@ -71,3 +72,21 @@ three consecutive runs each. Backend comparisons
 include exact line coordinates/styles and text positions/orientation, not just
 primitive counts. Editor and inserted Drawing screenshots were visually checked.
 This does not constitute a complete application regression run or a release.
+
+## Factory library cleanup (2026-09-29)
+
+Only the two combined native Family documents remain in `config/formats`.
+The ten original single-Sketch inputs were moved byte-for-byte to
+`tests/fixtures/drawing-library`; comparison, editing and generation tools now
+read that directory explicitly. User-created documents and configuration were
+not changed. New Drawing discovery continues to select a language Family row
+and enumerate all five sheet formats through the existing implementation.
+
+Verification now compares the actual committed factory Family documents against
+the reference fixtures, including geometry, text, BOM and save/reopen behavior.
+The focused Windows build and ten CTest contracts passed: native documents,
+Drawing commands, Family Table, native title-block UI, new-document options UI,
+thread Drawing, Drawing templates, template editing UI, symbol integration and
+five-language translations. The packaging suite passed eight checks with two
+platform/environment skips. No user-visible text or translations changed.
+Existing published ZIPs were not rebuilt by this repository cleanup.

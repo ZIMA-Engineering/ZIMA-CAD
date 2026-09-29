@@ -38,9 +38,9 @@ Omitted edit fields retain values. Identical edits and clearing an already-empty
 template create no history entry.
 
 ```json
-{"command":"drawing.sheet.create","arguments":{"name":"Detail","format":"A3","scale":2}}
+{"command":"drawing.sheet.create","arguments":{"name":"Detail","format":"A4","scale":2}}
 {"command":"drawing.sheet.set","arguments":{"sheet":"SHEET_ID","scale":0.5,"locale":"cs"}}
-{"command":"drawing.frame.load","arguments":{"sheet":"SHEET_ID","path":"config/formats/ZE-A3.frmz"}}
+{"command":"drawing.frame.load","arguments":{"sheet":"SHEET_ID","path":"config/formats/ZE-DRAWING-FRAME.frmz"}}
 ```
 
 Sheet scale affects only views with `use_sheet_scale`. For sections this explicit

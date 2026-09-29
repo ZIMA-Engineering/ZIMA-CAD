@@ -222,7 +222,7 @@ int main(int argc, char** argv) {
             second.waitForFinished(10000) && third.waitForFinished(10000) &&
             second.exitCode() == 0 && third.exitCode() == 0, "Remaining instances did not close cleanly");
         for (const QString source : {"config/formats/ZE-DRAWING-FRAME.frmz",
-                "config/formats/ZE-TITLE-BLOCK-CS.tblz", "config/symbols/annotations/ZE-TEXT.symz"}) {
+                "tests/fixtures/drawing-library/ZE-TITLE-BLOCK-CS.tblz", "config/symbols/annotations/ZE-TEXT.symz"}) {
             const auto path = QDir(fourth_dir).filePath(QString::fromUtf8("knihovní prvek.") + QFileInfo(source).suffix());
             require(QFile::copy(source,path), "Cannot copy library launch fixture");
             QProcess library;

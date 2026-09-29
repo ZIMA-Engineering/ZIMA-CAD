@@ -32,8 +32,8 @@ The dialog still asks for the source Part or Assembly before creating the tab.
 
 Creating a Drawing with the Tree's Drawing button on a Part or Assembly starts
 with A4. Both creation paths insert the matching frame and a company title block.
-The current-language `ZE-TITLE-BLOCK-<LANGUAGE>.tblz` takes priority, followed by
-another title block declaring that locale, then the base `ZE-TITLE-BLOCK-CS.tblz`.
+The current-language Family row in `ZE-TITLE-BLOCK.tblz` is selected automatically.
+The shared `ZE-DRAWING-FRAME.frmz` provides A4 through A0 Family rows.
 Missing optional library resources leave the corresponding frame or title block
 empty; a missing A4 frame leaves a blank A4 sheet. A corrupt selected template
 reports an error before creating a document. Existing drawings are not modified.

@@ -176,7 +176,7 @@ void verify(){
     for(const auto format:{drawing::SheetFormat::A0,drawing::SheetFormat::A1,drawing::SheetFormat::A2,drawing::SheetFormat::A3,drawing::SheetFormat::A4}) {
         auto marked=drawing::DrawingDocument::create_default();auto& frame=marked.sheets.front();frame.format=format;
         const auto name=std::string("ZE-A")+std::to_string(int(drawing::SheetFormat::A0)-int(format));
-        drawing::load_frame_template(frame,std::filesystem::path("config/formats")/(name+".frmz"));
+        drawing::load_frame_template(frame,std::filesystem::path("tests/fixtures/drawing-library")/(name+".frmz"));
         require(frame.frame_trimming_marks,"Factory frame lacks ISO trimming marks");
         marked.save(folder/(name+".drwz"));
         require(drawing::DrawingDocument::load(folder/(name+".drwz")).sheets.front().frame_trimming_marks,"Trimming marks lost on Drawing reopen");

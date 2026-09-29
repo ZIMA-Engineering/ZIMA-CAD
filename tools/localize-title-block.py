@@ -48,7 +48,7 @@ def main():
     parser.add_argument('--cli', required=True, type=Path)
     args = parser.parse_args()
     root = Path(__file__).resolve().parent.parent
-    source = root / 'config/formats/ZE-TITLE-BLOCK-CS.tblz'
+    source = root / 'tests/fixtures/drawing-library/ZE-TITLE-BLOCK-CS.tblz'
     original = source.read_bytes()
     _, sketch = read(source)
     unchanged = {'[Kg]', 'ISO 2768-m', 'ISO 8015:2011', 'ZIMA-Engineering', 'www.zima-engineering.cz',

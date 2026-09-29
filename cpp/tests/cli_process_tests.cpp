@@ -1199,7 +1199,7 @@ int main(int argc,char** argv){
         require(result.exit_code==0 && result.results().size()==5,"CLI drawing sheet creation and history failed");
         const auto sheet_id=result.results()[1].at("data").at("sheet").get<std::string>();
         const auto sheet_edit=command({{"command","drawing.sheet.set"},{"arguments",{{"sheet",sheet_id},{"scale",.5},{"locale","en"}}}});
-        const auto sheet_frame=command({{"command","drawing.frame.load"},{"arguments",{{"sheet",sheet_id},{"path",document::path_to_utf8(repository/"config/formats/ZE-A3.frmz")}}}});
+        const auto sheet_frame=command({{"command","drawing.frame.load"},{"arguments",{{"sheet",sheet_id},{"path",document::path_to_utf8(repository/"tests/fixtures/drawing-library/ZE-A3.frmz")}}}});
         result=launch(executable,root,common+QStringList{"--command","open cli-sheets.drwz","--command",sheet_edit,"--command",sheet_frame,"--command","save"});
         require(result.exit_code==0,"CLI drawing settings or native frame load failed");
         const auto saved_sheets=drawing::DrawingDocument::load(project/"cli-sheets.drwz");

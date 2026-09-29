@@ -1460,7 +1460,7 @@ int verify_template_commands(QApplication& application,zima::app::AssemblyWorksp
     const auto prepare=[](auto& text){app::rebuild_sketch_text_contours(text,true);};
     window.resize(1280,960);window.show();
     for(const auto name:{"ZE-A4.frmz","ZE-TITLE-BLOCK-CS.tblz"}) {
-        const auto source=std::filesystem::current_path()/"config/formats"/name;
+        const auto source=std::filesystem::current_path()/"tests/fixtures/drawing-library"/name;
         const auto target=directory/name;std::filesystem::copy_file(source,target,std::filesystem::copy_options::overwrite_existing);
         // The image-editing fixture starts empty, independently of factory logos.
         if(target.extension()==".tblz") {auto fixture=drawing::load_template_sketch(target,prepare);fixture.drawing_template->images.clear();drawing::save_template_sketch(fixture,target);}
@@ -1639,7 +1639,7 @@ int verify_template_commands(QApplication& application,zima::app::AssemblyWorksp
     if(!verify(stored.drawing_template->images.size()==2&&stored.drawing_template->images.back().format=="svg"&&QByteArray::fromBase64(QByteArray::fromStdString(stored.drawing_template->images.back().data_base64))==svg,"SVG was rasterized or lost on save"))return 1;
     window.grab().save(QString::fromStdString((directory/"template-images-editor.png").string()));
     app::DrawingWindow drawing_preview;drawing_preview.resize(1100,900);drawing_preview.show();
-    drawing_preview.load_frame_for_test(std::filesystem::current_path()/"config/formats/ZE-A4.frmz");
+    drawing_preview.load_frame_for_test(std::filesystem::current_path()/"tests/fixtures/drawing-library/ZE-A4.frmz");
     drawing_preview.load_title_block_for_test(target);flush();
     const auto drawn=drawing_preview.grab().toImage();drawn.save(QString::fromStdString((directory/"template-logo-drawing.png").string()));
     int red_pixels=0,blue_pixels=0,magenta_pixels=0;
@@ -12117,9 +12117,9 @@ int verify_startup_contract(
                     "Drawing template removal coverage requires the window and actions")) {
             return 1;
         }
-        drawing_window_for_template->load_frame_for_test("config/formats/ZE-A4.frmz");
+        drawing_window_for_template->load_frame_for_test("tests/fixtures/drawing-library/ZE-A4.frmz");
         drawing_window_for_template->load_title_block_for_test(
-            "config/formats/ZE-TITLE-BLOCK-EN.tblz");
+            "tests/fixtures/drawing-library/ZE-TITLE-BLOCK-EN.tblz");
         application.processEvents();
         if (!verify(!drawing_window_for_template->document_for_test()
                             .sheets.front().frame_lines.empty() &&
