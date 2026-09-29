@@ -1,4 +1,15 @@
 {
+"Výroba":"Výroba",
+
+"Zářezy na koncích ohybů":"Zářezy na koncích ohybů",
+"Hloubka zářezu":"Hloubka zářezu",
+"Osy ohybů pouze na koncích":"Osy ohybů pouze na koncích",
+"Délka konce osy":"Délka konce osy",
+"Odlehčit obdélníkové konce vybraných ohybů":"Odlehčit obdélníkové konce vybraných ohybů",
+"Hloubka odlehčení":"Hloubka odlehčení",
+"Čísla ohybů jsou v náhledu. Změna počtu plošek zruší výběr odlehčení.":"Čísla ohybů jsou v náhledu. Změna počtu plošek zruší výběr odlehčení.",
+"Ohyb %1":"Ohyb %1",
+
 "Koncová rovina":"Koncová rovina",
 "Vzdálenost je daná kružnicí. Původní hodnota se obnoví při naklonění roviny.":"Vzdálenost je daná kružnicí. Původní hodnota se obnoví při naklonění roviny.",
 "V kusovníku ignorovat variantu":"V kusovníku ignorovat variantu","Použít název zdrojového souboru a sloučit jeho označené varianty do jedné položky kusovníku. Strom a geometrie se nemění.":"Použít název zdrojového souboru a sloučit jeho označené varianty do jedné položky kusovníku. Strom a geometrie se nemění.",

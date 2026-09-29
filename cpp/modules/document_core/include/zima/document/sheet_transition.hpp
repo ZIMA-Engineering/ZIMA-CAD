@@ -6,6 +6,7 @@ namespace zima::document {
 [[nodiscard]] bool rectangular_sheet_transition(const HistoryContainer&);
 void set_rectangular_transition_sides(HistoryContainer&,unsigned sides);
 void reframe_sheet_transition(HistoryContainer&);
+[[nodiscard]] std::vector<std::string> sheet_transition_bend_keys(const HistoryContainer&);
 [[nodiscard]] kernel::ViewerMesh sheet_transition_preview(const HistoryContainer&);
 [[nodiscard]] std::array<kernel::ViewerPoint,2> sheet_transition_axis_points(const HistoryContainer&,bool editing=false);
 [[nodiscard]] kernel::ViewerReferenceGeometry sheet_transition_profile_plane(const HistoryContainer&);

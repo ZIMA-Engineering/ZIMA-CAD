@@ -703,6 +703,7 @@ struct Sweep3DRequest {
 // One semantic feature may own ordinary modeling primitives at one history
 // boundary. All child identities are authored before kernel calculation.
 struct FeatureGroupRequest {
+    double bend_line_end_length{}; // Zero keeps the complete development axis.
     using Child = std::variant<ExtrusionRequest, RevolutionRequest, Sweep3DRequest>;
     std::vector<Child> children;
     std::vector<ViewerAxis> axes;
@@ -1271,6 +1272,7 @@ struct PlacedBody {
                     for (const unsigned char c : primitive.wall->end_point_id) byte(c);
                 }
             } else if constexpr (std::is_same_v<Request, FeatureGroupRequest>) {
+                if(primitive.bend_line_end_length!=0){for(unsigned char c:std::string_view("bend-line-ends"))byte(c);u64(std::bit_cast<std::uint64_t>(primitive.bend_line_end_length));}
                 byte(primitive.allow_empty);
                 u64(primitive.reference_points.size());
                 for(const auto& point:primitive.reference_points) {

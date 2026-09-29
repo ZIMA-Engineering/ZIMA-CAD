@@ -23,7 +23,9 @@ template<class Model>
 SheetResult manufacture_model(const Model& model,const SheetOptions& options) {
     using namespace kernel::sheet_material;
     if(!std::isfinite(options.thickness)||options.thickness<=0||!std::isfinite(options.inside_radius)||options.inside_radius<=0||
-        !std::isfinite(options.k_factor)||options.k_factor<0||options.k_factor>1)throw std::invalid_argument("Invalid transition sheet parameters");
+        !std::isfinite(options.k_factor)||options.k_factor<0||options.k_factor>1||
+        !std::isfinite(options.end_notch_depth)||options.end_notch_depth<0||
+        !std::isfinite(options.rectangle_relief_depth)||options.rectangle_relief_depth<0)throw std::invalid_argument("Invalid transition sheet parameters");
     const auto surface=calculate(model);if(!surface.valid())throw std::invalid_argument("Invalid transition surface");
     SheetResult result;result.thickness=options.thickness;
     const double outer_radius=options.inside_radius+options.thickness,neutral_radius=options.inside_radius+options.k_factor*options.thickness;
@@ -115,6 +117,16 @@ SheetResult manufacture_model(const Model& model,const SheetOptions& options) {
                 const double fraction=parameter/sweep;
                 first=entry[0]*(1-fraction)+exit[0]*fraction;
                 last=entry[1]*(1-fraction)+exit[1]*fraction;
+            }
+            if(parameter>=sweep-1e-12&&!developed)bend.untrimmed_exit=add(base,mul(along,first));
+            if(options.end_notch_depth>0) {
+                // Straight notch bottoms across the developed bend allowance.
+                first=std::max(first,std::max(entry[0],exit[0])+options.end_notch_depth);
+                last=std::min(last,std::min(entry[1],exit[1])-options.end_notch_depth);
+            }
+            if constexpr(std::is_same_v<Model,HalfModel>) {
+                if(options.rectangle_relief_bends.contains(result.bends.size()))
+                    last=std::min(last,std::min(entry[1],exit[1])-options.rectangle_relief_depth-options.end_notch_depth);
             }
             if(last<=first)throw std::invalid_argument("Reversed transition bend extent");
             if(developed) {
@@ -222,7 +234,7 @@ kernel::HistoryOperation sheet_operation(const SheetResult& sheet,const std::str
         // arbitrary polygon vertex after clipping both neighboring bends.
         // This point has the exact final angular material coordinate.
         if(i)for(const auto& bend:sheet.bends)if(bend.boundary_index+1==i)
-            plane.origin=bend.sections.back()[0];
+            plane.origin=bend.untrimmed_exit;
         append(source.children[i],plane,"panel:"+std::to_string(i));
         for(std::size_t b=0;b<sheet.bends.size();++b)if(sheet.bends[b].boundary_index==i) {
             auto material=sheet.bends[b].material;material.curved_source_id="transition:authored-bend:"+std::to_string(b)+":span";

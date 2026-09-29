@@ -593,6 +593,9 @@ struct SheetTransitionParameters {
     zima::kernel::Vec3 end_position{0,0,150},end_rotation{};
     std::array<unsigned,2> facets{4,4};
     double thickness{1},inside_radius{1},k_factor{.5};
+    bool end_notches{},short_bend_axes{},rectangle_reliefs{};
+    double end_notch_depth{1.5},bend_axis_end_length{20},rectangle_relief_depth{1.5};
+    std::set<std::string> relieved_bends;
     bool operator==(const SheetTransitionParameters&)const=default;
 };
 struct BoundaryCurveSource {

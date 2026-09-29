@@ -426,7 +426,7 @@ int verify_translations(QApplication& application, QWidget& parent) {
             check(found,"Derived circle plane UI missing in language test");
         }
         check(app::standard_view_label("front")==settings.qt_translations.value("Front – XZ"),"Normal and Drawing view labels differ after language change");
-        for(const auto* key:{"Koncová rovina","Odstranit pohled"})check(QObject::tr(key)==settings.qt_translations.value(QString::fromUtf8(key)),"Transition/view label is untranslated");
+        for(const auto* key:{"Koncová rovina","Odstranit pohled","Zářezy na koncích ohybů","Osy ohybů pouze na koncích","Odlehčit obdélníkové konce vybraných ohybů","Výroba"})check(QObject::tr(key)==settings.qt_translations.value(QString::fromUtf8(key)),"Transition/view label is untranslated");
         std::cout << "Translations verified: " << languages[language].toStdString() << '\n';
     }
     auto settings = load("en");

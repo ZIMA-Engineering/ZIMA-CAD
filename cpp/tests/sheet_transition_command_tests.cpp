@@ -1,3 +1,5 @@
+#include <zima/kernel/sheet_exchange.hpp>
+#include <zima/kernel/transition_edge_display.hpp>
 #include <zima/workspace/sheet_transition_operations.hpp>
 #include <zima/workspace/sheet_state_operations.hpp>
 #include <zima/workspace/part_transactions.hpp>
@@ -20,6 +22,17 @@
 using namespace zima;
 namespace {
 void check(bool condition,const char* message){if(!condition)throw std::runtime_error(message);}
+void check_transition_lines(const kernel::BodyResult& body) {
+    unsigned hidden=0,borders=0;
+    for(const auto& edge:body.mesh.edges) {
+        if(kernel::smooth_transition_junction(edge))++hidden;
+        if(kernel::sheet_edge_role(edge)==kernel::SheetEdgeRole::Boundary) {
+            check(!kernel::smooth_transition_junction(edge),"Transition border was hidden");++borders;
+        }
+    }
+    std::cout<<"Transition display: "<<hidden<<" smooth junctions, "<<borders<<" borders"<<std::endl;
+    check(hidden>0&&borders>0,"Transition display did not distinguish smooth junctions from borders");
+}
 void check_solid(const kernel::BodyResult& body) {
     TopoDS_Shape shape;BRep_Builder builder;std::istringstream stream(body.kernel_shape);BRepTools::Read(shape,stream,builder);
     check(!shape.IsNull()&&BRepCheck_Analyzer(shape).IsValid(),"Transition has invalid B-Rep");
@@ -82,6 +95,36 @@ void check_assembly_datums(const kernel::BodyResult& body,const std::string& own
 }
 }
 int main()try {
+    if(std::getenv("ZIMA_VERIFY_TRANSITION_MARKS")) {
+        auto feature=document::create_sheet_transition();
+        const auto input=research::transition::read_sketches(sketcher::Sketch::from_serialized(feature.sheet_transition.sketches[0]),sketcher::Sketch::from_serialized(feature.sheet_transition.sketches[1]));
+        for(const auto angle:std::array<kernel::Vec3,2>{{{0,0,0},{8,-10,0}}}) {
+            feature.sheet_transition.end_rotation=angle;document::reframe_sheet_transition(feature);
+            const auto model=research::transition::read_sketches(sketcher::Sketch::from_serialized(feature.sheet_transition.sketches[0]),sketcher::Sketch::from_serialized(feature.sheet_transition.sketches[1])).model;
+            for(bool relief:{false,true}) {
+                research::transition::SheetOptions options;options.end_notch_depth=1.5;
+                if(relief){options.rectangle_relief_depth=2;options.rectangle_relief_bends={0,2};}
+                const auto sheet=research::transition::manufacture(model,options);
+                auto operation=research::transition::sheet_operation(sheet,"marking-test");
+                std::get<kernel::FeatureGroupRequest>(operation.primitive).bend_line_end_length=20;
+                kernel::OcctKernel geometry;
+                const kernel::HistoryOperation flat{"flat",kernel::SheetStateRequest{true,true,{}}};
+                const kernel::HistoryOperation restore{"restore",kernel::SheetStateRequest{false,true,{}}};
+                const auto states=geometry.evaluate_history({operation,flat,restore});
+                for(const auto& body:states){for(const auto& [owner,error]:body.calculation_errors)std::cerr<<owner<<": "<<error<<std::endl;check(body.calculation_errors.empty(),"Marked transition calculation failed");}
+                check_solid(states.back());check_solid(geometry.evaluate_history({operation}).back());
+                const auto unfolded=geometry.evaluate_history({operation,flat}).back();check_solid(unfolded);
+                const auto contour=kernel::sheet_flat_contour(unfolded,options.thickness,1e-5);
+                check(contour.bend_axes.size()==sheet.bends.size()*2,"DXF did not retain two end marks per bend");
+                for(const auto& axis:contour.bend_axes){const auto d=kernel::sheet_material::sub(axis[1],axis[0]);check(std::abs(std::hypot(d.x,d.y,d.z)-20)<1e-4,"DXF end axis has wrong length");}
+                check(std::abs(states[0].volume-states[1].volume)<states[0].volume*2e-4,"Marked unfold lost material");
+                check(std::abs(states[0].volume-states[2].volume)<1e-5,"Marked transition did not restore volume");
+                std::cout<<"Notches / relief="<<relief<<" tilt="<<angle.x<<","<<angle.y<<" volumes="<<states[0].volume<<","<<states[1].volume<<","<<states[2].volume<<std::endl;
+            }
+        }
+        return 0;
+    }
+
     if(const auto* path=std::getenv("ZIMA_VERIFY_TRANSITION_SOURCE")) {
         std::vector<kernel::BodyResult> cached;auto part=document::PartDocument::load(path,&cached);
         const auto found=std::ranges::find(part.history,document::FeatureKind::SheetTransition,&document::HistoryContainer::feature_kind);
@@ -174,7 +217,7 @@ int main()try {
             change.feature_kind=unfold?document::FeatureKind::Unbend:document::FeatureKind::BendBack;
             change.sheet_state.all=true;
             check(workspace::commit_sheet_state(test,geometry,document_id,change),"Rectangular state change failed");
-            const auto& result=state->session.calculated_boundaries().back();check_solid(result);
+            const auto& result=state->session.calculated_boundaries().back();check_solid(result);check_transition_lines(result);
             check(std::abs(result.volume-volume)<(unfold?volume*2e-4:1e-5),"Rectangular state changed material volume");
         }
         const auto file=std::filesystem::path("build/transition-model")/("native-rectangular-"+std::to_string(sides)+".prtz");
@@ -235,9 +278,23 @@ int main()try {
     check(rejected&&state->session.document().serialized()==created,"Invalid edit mutated document");
     auto edited=feature;edited.sheet_transition.facets={6,3};edited.sheet_transition.thickness=1.2;
     edited.sheet_transition.inside_radius=1.4;edited.sheet_transition.k_factor=.4;
+    edited.sheet_transition.end_notches=true;edited.sheet_transition.short_bend_axes=true;edited.sheet_transition.rectangle_reliefs=true;
+    edited.sheet_transition.relieved_bends.insert(document::sheet_transition_bend_keys(edited).front());
     check(workspace::commit_sheet_transition(live,kernel,id,edited),"Parameter edit did not commit");
     check(state->session.document().find_container(feature.id)->sheet_transition==edited.sheet_transition,"Parameter edit lost values");
     check(state->session.calculated_boundaries().back().volume>volume,"Thickness edit did not change solid");
+    check(document::PartDocument::from_serialized(state->session.document().serialized()).find_container(feature.id)->sheet_transition==edited.sheet_transition,"Manufacturing settings did not survive serialization");
+    {
+        const auto file=std::filesystem::absolute("build/transition-model/native-transition-marked.prtz");
+        std::filesystem::create_directories(file.parent_path());state->session.document().save(file,state->session.calculated_boundaries());
+        std::vector<kernel::BodyResult> cache;auto reopened=document::PartDocument::load(file,&cache);
+        check(reopened.find_container(feature.id)->sheet_transition==edited.sheet_transition,"Native save/reopen lost manufacturing choices");
+        kernel::OcctKernel cold;const auto recalculated=workspace::calculate_part_with_resolved_references(cold,reopened);
+        check_solid(recalculated.back());
+        check(std::abs(recalculated.back().volume-state->session.calculated_boundaries().back().volume)<1e-5,"Marked native regeneration changed volume");
+        const auto dxf=workspace::prepare_sheet_dxf(reopened,recalculated,cold);
+        check(!dxf.export_options.bend_axis_ids.empty(),"Marked DXF lost bend axes");
+    }
     check(workspace::step_part_document_history(live,id,false)&&state->session.document().serialized()==created,"Edit Undo failed");
     auto moved=feature;moved.sheet_transition.end_position.z=200;
     check(workspace::commit_sheet_transition(live,kernel,id,moved),"Second Origin movement did not commit");
@@ -259,7 +316,7 @@ int main()try {
             auto change=document::PartDocument::create_sketch_container();change.feature_kind=unfold?document::FeatureKind::Unbend:document::FeatureKind::BendBack;
             change.sheet_state.all=true;
             check(workspace::commit_sheet_state(live,kernel,id,change),"Rotated transition state change failed");
-            const auto& result=state->session.calculated_boundaries().back();check_solid(result);
+            const auto& result=state->session.calculated_boundaries().back();check_solid(result);check_transition_lines(result);
             // Tilted finite-radius lofts and flat reconstruction are approximate.
             // Bound the flat volume error to 0.02%; Bend Back restores the
             // original material and must agree to numerical roundoff.
@@ -351,7 +408,7 @@ int main()try {
         for(bool unfold:{true,false}) {
             auto change=document::PartDocument::create_sketch_container();change.feature_kind=unfold?document::FeatureKind::Unbend:document::FeatureKind::BendBack;change.sheet_state.all=true;
             check(workspace::commit_sheet_state(live,kernel,id,change),"Attached transition state change failed");
-            const auto& result=state->session.calculated_boundaries().back();check_solid(result);
+            const auto& result=state->session.calculated_boundaries().back();check_solid(result);check_transition_lines(result);
             check(std::abs(result.volume-attached_volume)<(unfold?attached_volume*2e-4:1e-6),"Attached transition state lost material");
         }
         check(workspace::step_part_document_history(live,id,false)&&workspace::step_part_document_history(live,id,false),"Attached state Undo failed");

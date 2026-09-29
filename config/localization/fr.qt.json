@@ -1,4 +1,15 @@
 {
+"Výroba":"Fabrication",
+
+"Zářezy na koncích ohybů":"Encoches aux extrémités des plis",
+"Hloubka zářezu":"Profondeur de l’encoche",
+"Osy ohybů pouze na koncích":"Axes de pliage aux extrémités uniquement",
+"Délka konce osy":"Longueur des extrémités d’axe",
+"Odlehčit obdélníkové konce vybraných ohybů":"Dégager les plis sélectionnés côté rectangulaire",
+"Hloubka odlehčení":"Profondeur du dégagement",
+"Čísla ohybů jsou v náhledu. Změna počtu plošek zruší výběr odlehčení.":"Les numéros des plis figurent dans l’aperçu. Modifier le nombre de facettes efface la sélection des dégagements.",
+"Ohyb %1":"Pli %1",
+
 "Koncová rovina":"Plan de fin",
 "Vzdálenost je daná kružnicí. Původní hodnota se obnoví při naklonění roviny.":"La distance est déterminée par le cercle. La valeur initiale est rétablie lorsque le plan est incliné.",
 "V kusovníku ignorovat variantu":"Ignorer la variante dans la nomenclature","Použít název zdrojového souboru a sloučit jeho označené varianty do jedné položky kusovníku. Strom a geometrie se nemění.":"Utiliser le nom du fichier source et regrouper ses variantes cochées dans une seule ligne de nomenclature. La géométrie et les noms restent inchangés.",

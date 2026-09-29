@@ -1,3 +1,4 @@
+#include <zima/kernel/transition_edge_display.hpp>
 #include "../../../common/datum_display.hpp"
 #include "../../../common/interaction_colors.hpp"
 #include <zima/kernel/tangent_edge_route.hpp>
@@ -773,7 +774,7 @@ void MeshView::set_mesh(zima::kernel::ViewerMesh mesh, bool fit_view) {
     impl_->surface_batches_dirty = true;
     impl_->reference_faces_dirty = true;
     std::erase_if(impl_->mesh.edges, [](const auto& edge) {
-        return edge.parameter_seam;
+        return edge.parameter_seam || zima::kernel::smooth_transition_junction(edge);
     });
     impl_->candidates.clear();
     impl_->confirmed_candidate.reset();
@@ -1452,6 +1453,7 @@ void MeshView::confirm_container_component_wire(const std::string& owner_id,
         const std::string& component,std::vector<zima::kernel::ViewerEdge> wire,
         const std::string& instance_path) {
     confirm_container_component(owner_id,component,{},instance_path);
+    std::erase_if(wire, zima::kernel::smooth_transition_junction);
     impl_->component_wire=std::move(wire);
     update();
 }

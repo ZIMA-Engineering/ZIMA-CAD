@@ -1,4 +1,15 @@
 {
+"Výroba":"Производство",
+
+"Zářezy na koncích ohybů":"Вырезы на концах сгибов",
+"Hloubka zářezu":"Глубина выреза",
+"Osy ohybů pouze na koncích":"Оси сгибов только на концах",
+"Délka konce osy":"Длина концевого участка оси",
+"Odlehčit obdélníkové konce vybraných ohybů":"Разгрузить выбранные сгибы у прямоугольного конца",
+"Hloubka odlehčení":"Глубина разгрузки",
+"Čísla ohybů jsou v náhledu. Změna počtu plošek zruší výběr odlehčení.":"Номера сгибов показаны в предпросмотре. Изменение числа граней сбрасывает выбор разгрузок.",
+"Ohyb %1":"Сгиб %1",
+
 "Koncová rovina":"Конечная плоскость",
 "Vzdálenost je daná kružnicí. Původní hodnota se obnoví při naklonění roviny.":"Расстояние определяется окружностью. При наклоне плоскости исходное значение восстанавливается.",
 "V kusovníku ignorovat variantu":"Игнорировать вариант в спецификации","Použít název zdrojového souboru a sloučit jeho označené varianty do jedné položky kusovníku. Strom a geometrie se nemění.":"Использовать имя исходного файла и объединять отмеченные варианты в одну позицию спецификации. Дерево и геометрия не изменяются.",

@@ -1,3 +1,4 @@
+#include <zima/kernel/transition_edge_display.hpp>
 #include <zima/viewer/picking.hpp>
 
 #include <algorithm>
@@ -178,7 +179,7 @@ bool candidate_recolors_wire_edge(
 bool candidate_uses_original_container_wire_edge(
     const ViewerCandidate& candidate,
     const zima::kernel::ViewerEdge& edge) {
-    if(candidate.semantic_key=="container:display")return false;
+    if(candidate.semantic_key=="container:display"||zima::kernel::smooth_transition_junction(edge))return false;
     return candidate.kind == CandidateKind::Container &&
         (candidate.semantic_key.empty() || candidate.semantic_key == "solid") &&
         !edge.construction && !edge.overlay && edge.reference.valid() &&

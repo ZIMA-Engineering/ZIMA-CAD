@@ -314,6 +314,16 @@ inline std::vector<ViewerAxis> bend_lines(const std::vector<HistoryOperation>& o
         }
         result.push_back({point(region,{(low+high)/2,region.angle*region.neutral_radius/2,region.thickness_sign<0?-region.thickness:0}),
             region.along,high-low,{owner,"sheet-bend-line:from:"+region.owner_id+":"+region.curved_source_id,{}},"Osa ohybu"});
+        if(group->bend_line_end_length>0&&high-low>2*group->bend_line_end_length) {
+            auto last=result.back();auto& first=result.back();
+            const double length=group->bend_line_end_length;
+            const auto shift=mul(unit(first.direction),(first.display_length-length)/2);
+            first.point=sub(first.point,shift);last.point=add(last.point,shift);
+            first.display_length=last.display_length=length;
+            // Retain the existing infinite-axis identity on the first displayed end.
+            last.reference.semantic_key+=":end";
+            result.push_back(std::move(last));
+        }
     }
     return result;
 }

@@ -1,3 +1,4 @@
+#include <zima/kernel/transition_edge_display.hpp>
 #include <zima/viewer/picking.hpp>
 #include <zima/viewer/shading.hpp>
 
@@ -14,6 +15,30 @@ void require(bool condition, const char* message) {
 
 int main() {
     try {
+        {
+            using namespace zima::kernel;
+            ViewerEdge edge;edge.reference={"transition","junction",{}};
+            edge.points={{0,0,0},{0,0,100}};
+            FaceReference panel{"transition","transition:authored-panel:0",{}},bend{"transition","transition:authored-bend:0",{}};
+            panel.sheet_role=bend.sheet_role=SheetFaceRole::SideA;
+            edge.edge_treatment_side_references={panel,bend};
+            edge.edge_treatment_side_directions={{{1,0,0},{1,0,0}},{{-1,0,0},{-1,0,0}}};
+            require(smooth_transition_junction(edge),"Smooth outer junction remains visible");
+            require(!zima::viewer::candidate_uses_original_container_wire_edge(
+                {zima::viewer::CandidateKind::Container,0,0,"transition"},edge),"Container highlights smooth junction");
+            for(auto& ref:edge.edge_treatment_side_references)ref.sheet_role=SheetFaceRole::SideB;
+            require(smooth_transition_junction(edge),"Smooth inner junction remains visible");
+            edge.edge_treatment_side_directions[1][1]={0,1,0};
+            require(!smooth_transition_junction(edge),"Sharp crease hidden");
+            edge.edge_treatment_side_directions[1][1]={-1,0,0};
+            edge.edge_treatment_side_references[1].sheet_role=SheetFaceRole::ThicknessFace;
+            require(!smooth_transition_junction(edge),"Thickness border hidden");
+            edge.edge_treatment_side_references[1]=panel;
+            require(!smooth_transition_junction(edge),"Repeated reference treated as a junction");
+            edge.edge_treatment_side_references[0]=panel;edge.edge_treatment_side_references[1].semantic_key="transition:authored-panel:1";
+            require(smooth_transition_junction(edge),"Coplanar transition panel seam remains visible");
+        }
+
         {
             using namespace zima::viewer;
             const std::vector<std::pair<ViewerCandidate, SelectionFilter>> examples{

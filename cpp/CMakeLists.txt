@@ -1565,6 +1565,10 @@ if(ZIMA_BUILD_TESTS)
     add_test(NAME zima_cpp_sheet_transition_command_tests COMMAND zima_cpp_sheet_transition_command_tests)
     set_tests_properties(zima_cpp_sheet_transition_command_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 180)
     set_tests_properties(zima_cpp_sheet_transition_command_tests PROPERTIES FIXTURES_SETUP sheet_transition_fixture)
+    add_test(NAME zima_cpp_sheet_transition_marking_contract COMMAND zima_cpp_sheet_transition_command_tests)
+    set_tests_properties(zima_cpp_sheet_transition_marking_contract PROPERTIES
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 180
+        ENVIRONMENT "ZIMA_VERIFY_TRANSITION_MARKS=1")
     add_test(NAME zima_cpp_sheet_transition_ui_contract COMMAND zima-cad-cpp --verify-startup)
     set_tests_properties(zima_cpp_sheet_transition_ui_contract PROPERTIES
         WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." RUN_SERIAL TRUE TIMEOUT 120

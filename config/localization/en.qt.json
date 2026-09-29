@@ -1,4 +1,15 @@
 {
+"Výroba":"Manufacturing",
+
+"Zářezy na koncích ohybů":"Notches at bend ends",
+"Hloubka zářezu":"Notch depth",
+"Osy ohybů pouze na koncích":"Bend axes at ends only",
+"Délka konce osy":"Axis end length",
+"Odlehčit obdélníkové konce vybraných ohybů":"Relieve selected bends at the rectangular end",
+"Hloubka odlehčení":"Relief depth",
+"Čísla ohybů jsou v náhledu. Změna počtu plošek zruší výběr odlehčení.":"Bend numbers appear in the preview. Changing facet counts clears the relief selection.",
+"Ohyb %1":"Bend %1",
+
 "Koncová rovina":"End plane",
 "Vzdálenost je daná kružnicí. Původní hodnota se obnoví při naklonění roviny.":"The distance is determined by the circle. The original value is restored when the plane is tilted.",
 "V kusovníku ignorovat variantu":"Ignore variant in BOM","Použít název zdrojového souboru a sloučit jeho označené varianty do jedné položky kusovníku. Strom a geometrie se nemění.":"Use the source filename and combine its checked variants into one BOM item. The tree and geometry are unchanged.",

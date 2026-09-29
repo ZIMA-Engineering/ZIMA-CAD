@@ -1,4 +1,15 @@
 {
+"Výroba":"Fertigung",
+
+"Zářezy na koncích ohybů":"Kerben an Biegeenden",
+"Hloubka zářezu":"Kerbtiefe",
+"Osy ohybů pouze na koncích":"Biegeachsen nur an den Enden",
+"Délka konce osy":"Länge der Achsenenden",
+"Odlehčit obdélníkové konce vybraných ohybů":"Ausgewählte Biegungen am rechteckigen Ende freistellen",
+"Hloubka odlehčení":"Freistellungstiefe",
+"Čísla ohybů jsou v náhledu. Změna počtu plošek zruší výběr odlehčení.":"Die Biegenummern erscheinen in der Vorschau. Eine Änderung der Facettenanzahl löscht die Freistellungsauswahl.",
+"Ohyb %1":"Biegung %1",
+
 "Koncová rovina":"Endebene",
 "Vzdálenost je daná kružnicí. Původní hodnota se obnoví při naklonění roviny.":"Der Abstand wird durch den Kreis bestimmt. Beim Neigen der Ebene wird der ursprüngliche Wert wiederhergestellt.",
 "V kusovníku ignorovat variantu":"Variante in der Stückliste ignorieren","Použít název zdrojového souboru a sloučit jeho označené varianty do jedné položky kusovníku. Strom a geometrie se nemění.":"Den Quelldateinamen verwenden und die markierten Varianten zu einer Stücklistenposition zusammenfassen. Baum und Geometrie bleiben unverändert.",
