@@ -14,7 +14,7 @@ available tools; the displayed top-level Assembly remains unchanged.
 Application selection is disabled during feature editing and Sketcher sessions.
 Sketcher supplies its own tools. Drawing and Assembly retain their existing tool
 headings. Sheet Metal offers Selection and **Sheet Metal Properties...**, a shortcut
-to the Part's File Settings > Sheet Metal page, followed by Flat, Sheet Profile,
+to the Part's File Settings > Sheet Metal page, followed by Flat, Bend,
 Revolved Sheet, the direct sketch-free Twisted Sheet, Sheet Cut, Unbend and Bend
 Back. See [Sheet Metal](SHEET_METAL.md) for the implemented contracts.
 

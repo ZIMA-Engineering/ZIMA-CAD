@@ -48,7 +48,7 @@ void AssemblyWorkspaceWindow::show_sheet_from_body() {
                         kernel::OcctKernel kernel;result=workspace::prepare_sheet_from_body(source,cache,face,thickness,kernel);
                     });
                     for(auto& feature:result.document.history)if(std::ranges::find(result.created,feature.id)!=result.created.end()) {
-                        feature.name=(feature.feature_kind==document::FeatureKind::Flat?tr("Tabule"):tr("Profil plechu")).toStdString();
+                        feature.name=(feature.feature_kind==document::FeatureKind::Flat?tr("Tabule"):tr("Ohyb")).toStdString();
                         for(auto& sketch:result.document.sketches)if(sketch.owner_container_id==feature.id)sketch.name=feature.name;
                     }
                     workspace::commit_part_document(workspace_,document_id,std::move(result.document),std::move(result.calculated));

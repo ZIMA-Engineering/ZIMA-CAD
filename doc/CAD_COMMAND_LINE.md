@@ -19,7 +19,7 @@ Sheet state operations share their GUI workspace transaction:
 `unbend.create`, `unbend.set`, `bend_back.create`, and `bend_back.set`.
 Use `all: true` or an `owners` array of original sheet creator IDs; edit commands
 also require `container`. See [Sheet state operations](SHEET_STATE_DEVELOPMENT.md).
-The Sheet Profile commands no longer accept the former `state` argument.
+The Bend commands no longer accept the former `state` argument.
 
 ## Build and first run
 

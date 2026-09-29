@@ -647,7 +647,7 @@
   "Regenerace Partu selhala": "Part regeneration failed",
   "Change selected sheet regions at this history boundary; preserve intervening material edits.": "Change selected sheet regions at this history boundary; preserve intervening material edits.",
   "Read a Bend and its effective document defaults without calculation.": "Read a Bend and its effective document defaults without calculation.",
-  "Create or edit a Sheet Profile.": "Create or edit a Sheet Profile.",
+  "Create or edit a Bend.": "Create or edit a Bend.",
   "Read a Flat sheet and its effective document thickness without calculation.": "Read a Flat sheet and its effective document thickness without calculation.",
   "Create or edit a Flat sheet from an owned closed Sketch.": "Create or edit a Flat sheet from an owned closed Sketch.",
   "Read Sketch-driven drilling channels without calculation.": "Read Sketch-driven drilling channels without calculation.",

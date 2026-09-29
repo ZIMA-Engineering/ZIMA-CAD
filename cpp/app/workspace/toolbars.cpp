@@ -375,7 +375,7 @@ void AssemblyWorkspaceWindow::rebuild_application_toolbar() {
             flat->setEnabled(!properties_dialog_);add_command(flat);
             auto* bend=findChild<QAction*>("bendAction");
             if(!bend) {
-                bend=new QAction(resource_icon("bend"),tr("Profil plechu"),this);bend->setObjectName("bendAction");
+                bend=new QAction(resource_icon("bend"),tr("Ohyb"),this);bend->setObjectName("bendAction");
                 connect(bend,&QAction::triggered,this,[this]{show_sketch_properties({},false,true);});
             }
             bend->setEnabled(!properties_dialog_);add_command(bend);

@@ -1618,6 +1618,14 @@ if(ZIMA_BUILD_TESTS)
     set_tests_properties(zima_cpp_flat_command_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
     target_link_libraries(zima_cpp_bend_command_tests PRIVATE zima_command_host)
     target_compile_options(zima_cpp_bend_command_tests PRIVATE $<$<CXX_COMPILER_ID:MSVC>:/utf-8>)
+    add_test(NAME zima_cpp_bend_arc_only_contract COMMAND zima_cpp_bend_command_tests --arc-only)
+    set_tests_properties(zima_cpp_bend_arc_only_contract PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
+    file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/bend-arc-ui-contract")
+    add_test(NAME zima_cpp_bend_arc_ui_contract COMMAND zima-cad-cpp --verify-startup
+        --working-directory "${CMAKE_BINARY_DIR}/bend-arc-ui-contract")
+    set_tests_properties(zima_cpp_bend_arc_ui_contract PROPERTIES
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_ARC_ONLY_BEND=1"
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 120 RUN_SERIAL TRUE)
     add_test(NAME zima_cpp_bend_command_tests COMMAND zima_cpp_bend_command_tests)
     set_tests_properties(zima_cpp_bend_command_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
     add_executable(zima_cpp_twisted_sheet_tests tests/twisted_sheet_tests.cpp)

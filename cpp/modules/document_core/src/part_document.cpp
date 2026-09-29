@@ -9766,7 +9766,7 @@ std::vector<zima::kernel::HistoryOperation> PartDocument::kernel_operations(
             container.combine_mode == CombineMode::Subtract
                 ? zima::kernel::BooleanOperation::Subtract
                 : zima::kernel::BooleanOperation::Add,
-            container.suppressed || (container.feature_kind==FeatureKind::Bend && container.bend.angle_degrees==0 && bend_straight_length(container)==0),
+            container.suppressed || (container.feature_kind==FeatureKind::Bend && container.bend.angle_degrees==0),
             boolean_tolerance,
             feature_mesh_deflection,
         });

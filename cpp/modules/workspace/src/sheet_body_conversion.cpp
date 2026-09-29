@@ -195,7 +195,7 @@ SheetBodyConversion prepare_sheet_from_body(const document::PartDocument& source
         auto next=result.document;auto profile=sketcher::Sketch::create_default();
         auto added=document::PartDocument::create_sketch_container();profile.owner_container_id=added.id;
         added.feature_kind=bend?document::FeatureKind::Bend:document::FeatureKind::Flat;
-        added.name=bend?"Profil plechu":"Tabule";profile.name=added.name;
+        added.name=bend?"Ohyb":"Tabule";profile.name=added.name;
         if(bend) {
             const auto incoming=normal(node.face,node.entry.points.front()),outgoing=normal(node.face,exit_edge->points.front());
             added.bend.angle_degrees=std::acos(std::clamp(dot(incoming,outgoing),-1.,1.))*180/std::numbers::pi;

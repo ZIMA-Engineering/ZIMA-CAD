@@ -81,7 +81,7 @@ void AssemblyWorkspaceWindow::show_sketch_properties(const std::string& sketch_i
             if(owner && owner->feature_kind!=zima::document::FeatureKind::Bend)return;
             auto value=owner?*owner:*new_sketch_container;
             if(!owner) {
-                value.feature_kind=zima::document::FeatureKind::Bend;value.name=tr("Profil plechu").toStdString();value.bend.sketch_id=initial.id;
+                value.feature_kind=zima::document::FeatureKind::Bend;value.name=tr("Ohyb").toStdString();value.bend.sketch_id=initial.id;
                 const auto defaults=zima::document::sheet_metal_defaults(part->session.document());
                 value.bend.thickness=defaults.thickness_mm.value_or(1);value.bend.k_factor=defaults.k_factor;
                 value.bend.radius_follows_thickness=true;
@@ -89,14 +89,6 @@ void AssemblyWorkspaceWindow::show_sketch_properties(const std::string& sketch_i
             }
             const auto defaults=zima::document::sheet_metal_defaults(part->session.document());
             zima::document::prepare_bend_sketches(value,initial,defaults);
-            if(!owner) {
-                auto path=zima::sketcher::Sketch::from_serialized(value.bend.auxiliary_sketches[0]);
-                const auto arc=path.arcs.front();const auto join=*path.find_point(arc.end_point_id);
-                const double direction=arc.end_angle+std::numbers::pi/2;
-                static_cast<void>(path.add_segment(join.x,join.y,
-                    join.x+20*std::cos(direction),join.y+20*std::sin(direction)));
-                zima::document::accept_bend_sketch(value,initial,0,std::move(path),defaults);
-            }
             initial.name=value.name;sketch_feature=std::make_shared<zima::document::HistoryContainer>(std::move(value));
         }
         if(sketch_feature) {

@@ -1,6 +1,6 @@
-# Sheet Profile corner closure
+# Bend corner closure
 
-Sheet Profile properties expose **Corner closure** independently for the first
+Bend properties expose **Corner closure** independently for the first
 and second profile endpoints. Enable the meeting endpoint on each neighbouring
 profile. The existing end-profile extension dimensions still define the terminal
 width; this option curves the transition to that width through the bend.
@@ -45,7 +45,7 @@ onto an analytic cylinder within the existing kernel tolerance.
 The native Bend parameter block optionally stores `corner_closure` with `ends`
 (two booleans) and `gap` in millimetres. An absent block represents the disabled
 default. No document version change, sidecar or external geometry is required.
-Factory start documents contain no Sheet Profile; their default behavior remains
+Factory start documents contain no Bend; their default behavior remains
 unchanged.
 
 `bend.create` and `bend.set` accept `corner_first`, `corner_last` and
@@ -77,7 +77,7 @@ introduced. All three factory start documents were opened and saved with the
 current native writer without content changes, and new-document GUI verification
 confirmed their normal initial editing contexts.
 
-Closing Sheet Profile properties with OK or Cancel retires the editing
+Closing Bend properties with OK or Cancel retires the editing
 dimension owner and transient dimension previews before refreshing the normal
 scene. Otherwise the saved trajectory and end-profile Sketches repopulate the
 dimensions after the preview mesh is cleared. Reopening restores the editing

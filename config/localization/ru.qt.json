@@ -647,7 +647,7 @@
   "Regenerace Partu selhala": "Ошибка перестроения детали",
   "Change selected sheet regions at this history boundary; preserve intervening material edits.": "Изменить выбранные области листа на этой границе истории; сохранить промежуточные изменения материала.",
   "Read a Bend and its effective document defaults without calculation.": "Прочитать сгиб и действующие настройки документа без расчёта.",
-  "Create or edit a Sheet Profile.": "Создать или изменить профиль листа.",
+  "Create or edit a Bend.": "Создать или изменить сгиб.",
   "Read a Flat sheet and its effective document thickness without calculation.": "Прочитать плоский лист и действующую толщину документа без расчёта.",
   "Create or edit a Flat sheet from an owned closed Sketch.": "Создать или изменить плоский лист из собственного замкнутого эскиза.",
   "Read Sketch-driven drilling channels without calculation.": "Прочитать сверлёные каналы, заданные эскизом, без расчёта.",

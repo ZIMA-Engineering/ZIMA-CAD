@@ -4289,6 +4289,8 @@ int verify_owned_profile_external_reference(QApplication& application,const std:
 }
 
 #include "sheet_corner_ui_verification.inc"
+#include "bend_arc_ui_verification.inc"
+
 int verify_application_tools_ui(QApplication& application,const std::filesystem::path& directory) {
     using namespace zima;
     try {
@@ -4938,8 +4940,9 @@ int verify_application_tools_ui(QApplication& application,const std::filesystem:
         bend->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();check(!bend_dialog(),"Bend OK failed to close");
         window.findChild<QAction*>("saveDocumentAction")->trigger();flush();const auto saved_bend=document::PartDocument::load(bend_path);
         check(saved_bend.history.size()==1&&saved_bend.history.front().feature_kind==document::FeatureKind::Bend,"Sheet Profile was not committed as one history feature");
-        check(std::abs(document::bend_straight_length(saved_bend.history.front())-20)<1e-6,
-            "New Sheet Profile lacks its default tangent continuation");
+        const auto initial_path=sketcher::Sketch::from_serialized(saved_bend.history.front().bend.auxiliary_sketches[0]);
+        check(initial_path.arcs.size()==1 && std::ranges::none_of(initial_path.segments,[](const auto& line){return !line.construction;}),
+            "New Bend must contain only a circular trajectory");
         QTreeWidgetItem* bend_row{};for(QTreeWidgetItemIterator it(tree);*it;++it)if((*it)->data(0,Qt::UserRole).toString().toStdString()==saved_bend.history.front().id&&(*it)->data(0,Qt::UserRole+3)=="part-container"){bend_row=*it;break;}
         check(bend_row,"Bend history row missing");window.show_tree_item_properties(bend_row);flush();bend=bend_dialog();check(bend,"First Bend history edit cannot enter rollback");
         QApplication::sendEvent(model_view,&middle);flush();check(!bend_dialog(),"Bend middle double-click did not confirm");
@@ -4981,26 +4984,6 @@ int verify_application_tools_ui(QApplication& application,const std::filesystem:
         check(std::abs(definition.bend.radius-8)<1e-6&&std::abs(definition.bend.angle_degrees-45)<1e-6,"Bend inline dimensions did not update feature parameters");
         const auto extensions=document::bend_profile_extensions(definition);
         check(std::abs(extensions[0]-3)<1e-6&&std::abs(extensions[1]-10)<1e-6,"Endpoint difference edits did not persist");
-        check(window.finish_parameter_dimensions(),"Bend inspection did not finish before continuation edit");flush();
-        bend_row=nullptr;for(QTreeWidgetItemIterator it(tree);*it;++it)if((*it)->data(0,Qt::UserRole).toString().toStdString()==bend_id&&(*it)->data(0,Qt::UserRole+3)=="part-container"){bend_row=*it;break;}
-        check(bend_row,"Bend row missing before continuation edit");window.show_tree_item_properties(bend_row);flush();bend=bend_dialog();
-        const auto trajectory_id=sketcher::Sketch::from_serialized(definition.bend.auxiliary_sketches[0]).id;
-        check(bend&&dynamic_cast<app::SketchPropertiesDialog*>(bend)->mutate_sketch(trajectory_id,[](auto& path) {
-            const auto arc=path.arcs.front();const auto p=*path.find_point(arc.end_point_id);
-            const double a=arc.end_angle+std::numbers::pi/2;
-            const auto segment=std::ranges::find_if(path.segments,[](const auto& value){return !value.construction;});
-            auto* tip=path.find_point(segment->first_point_id==arc.end_point_id?segment->second_point_id:segment->first_point_id);
-            tip->x=p.x+20*std::cos(a);tip->y=p.y+20*std::sin(a);
-        }),"Properties rejected tangent continuation");
-        bend->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();check(!bend_dialog(),"Continuation OK failed");
-        window.show_parameter_dimensions(bend_id);flush();inline_edit(":length","30");
-        window.findChild<QAction*>("saveDocumentAction")->trigger();flush();
-        check(std::abs(document::bend_straight_length(document::PartDocument::load(bend_path).history.front())-30)<1e-6,"View continuation length did not persist");
-        window.grab().save("build/bend-continuation-view.png");
-        check(window.finish_parameter_dimensions(),"Continuation inspection did not finish");flush();
-        window.findChild<QAction*>("undoAction")->trigger();flush();
-        window.findChild<QAction*>("undoAction")->trigger();flush();
-        window.show_parameter_dimensions(bend_id);flush();
         window.grab().save("build/bend-three-sketch-view.png");
         check(window.finish_parameter_dimensions(),"Bend inspection did not finish");flush();
         check(!model_view->findChild<QPushButton*>("bendViewStateButton"),"Obsolete Bend state button appeared after inspection");
@@ -8553,6 +8536,7 @@ int verify_startup_contract(
             return 1;
         }
     }
+    if (qEnvironmentVariableIsSet("ZIMA_VERIFY_ARC_ONLY_BEND")) return verify_arc_only_bend_ui(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_SHEET_EXCHANGE")) return verify_sheet_exchange_ui(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_SHEET_TRANSITION")) return verify_sheet_transition_ui(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_SHEET_CORNER_FILE")) return verify_sheet_corner_ui(application,test_directory);

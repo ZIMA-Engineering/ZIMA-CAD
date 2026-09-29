@@ -133,6 +133,18 @@ void contract() {
         const auto target=part.body_history.create_body("Converted");
         auto converted=workspace::prepare_sheet_from_body(part,cache,*seed,2,kernel);
         check(converted.created.size()==3&&converted.skipped==0,"Converter failed to follow the cylinder and its next wall");
+        int flats=0,bends=0;
+        for(const auto& owner:converted.created) {
+            const auto& item=*converted.document.find_container(owner);
+            if(item.feature_kind==document::FeatureKind::Flat)++flats;
+            if(item.feature_kind==document::FeatureKind::Bend) {
+                ++bends;
+                const auto trajectory=sketcher::Sketch::from_serialized(item.bend.auxiliary_sketches[0]);
+                check(trajectory.arcs.size()==1&&std::ranges::none_of(trajectory.segments,[](const auto& line){return !line.construction;}),
+                    "Sheet from Body must create arc-only Bends with separate Flat walls");
+            }
+        }
+        check(flats==2&&bends==1,"Sheet from Body merged a flat wall into the Bend");
         const double folded_volume=converted.calculated.back().body_outputs.at(target)->volume;
         near(folded_volume,cache.back().body_outputs.at(source)->volume,.01);
         const auto dxf=workspace::prepare_sheet_dxf(converted.document,converted.calculated,kernel);

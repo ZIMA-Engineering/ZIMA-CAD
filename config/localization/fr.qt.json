@@ -647,7 +647,7 @@
   "Regenerace Partu selhala": "Échec de la régénération de la pièce",
   "Change selected sheet regions at this history boundary; preserve intervening material edits.": "Modifier les régions de tôle sélectionnées à cette limite d’historique ; préserver les modifications de matière intermédiaires.",
   "Read a Bend and its effective document defaults without calculation.": "Lire un pli et ses valeurs par défaut effectives du document sans calcul.",
-  "Create or edit a Sheet Profile.": "Créer ou modifier un profil de tôle.",
+  "Create or edit a Bend.": "Créer ou modifier un pli.",
   "Read a Flat sheet and its effective document thickness without calculation.": "Lire une tôle plane et son épaisseur effective du document sans calcul.",
   "Create or edit a Flat sheet from an owned closed Sketch.": "Créer ou modifier une tôle plane à partir d’une esquisse fermée propre.",
   "Read Sketch-driven drilling channels without calculation.": "Lire les canaux de perçage pilotés par esquisse sans calcul.",

@@ -3,10 +3,10 @@
 See [Sheet from Body and flat-pattern DXF](SHEET_EXCHANGE.md) for independent
 solid-to-sheet reconstruction and the active Body's direct manufacturing export.
 
-See [Sheet Profile corner closure](SHEET_CORNER.md) for the optional curved
+See [Bend corner closure](SHEET_CORNER.md) for the optional curved
 transition at either endpoint, its gap allowance and verification.
 
-The current material-creation commands are **Flat**, **Sheet Profile**,
+The current material-creation commands are **Flat**, **Bend**,
 **Revolved Sheet**, **Twisted Sheet**, **Sheet transition** and **Rectangular sheet transition**, followed by **Sheet Cut**, **Unbend**
 and **Bend Back**. Earlier sections use Bend and
 Sheet Revolution for the latter two creators; their internal feature and CLI
@@ -66,7 +66,7 @@ individual features** to pick a subset in the View or Tree; a second click
 on a selected feature removes it from the list. All and individual selection
 are mutually exclusive checkboxes; the active mode cannot be unchecked without
 selecting the other mode. The developed result displays a bend axis
-on the inner skin of each Sheet Profile and Revolved Sheet, halfway through its
+on the inner skin of each Bend and Revolved Sheet, halfway through its
 angular span. Use Drawing **Show/Erase > Axes** to display the line and attach a
 drawing dimension to it. A cone's line follows the middle generator of its
 developed sector. The original rotation axis is hidden while the Revolved Sheet
@@ -100,7 +100,7 @@ can change its K factor while leaving the document thickness intact.
 OK commits the settings together. Cancel discards pending edits. The shared
 properties-window behavior includes confirmation by middle-button double-click
 over the owning View. Undo/Redo and native save/reopen retain the settings.
-Changing the material defaults calculates Parts containing Flat, Sheet Profile
+Changing the material defaults calculates Parts containing Flat, Bend
 or Revolved Sheet before committing
 the settings and geometry together. Calculation errors leave the previous state
 intact. Parts without sheet features keep their calculated geometry. The settings
@@ -198,7 +198,7 @@ intervening cut boundaries through the same forward material law.
 
 ## Edge attachment and unfolded presentation
 
-Flat, Sheet Profile, Revolved Sheet and Twisted Sheet consume an eligible sheet
+Flat, Bend, Revolved Sheet and Twisted Sheet consume an eligible sheet
 boundary through the common View candidate stream. Hover and LMB therefore use
 the active selection filter and confirm the same edge. One confirmed edge is an
 atomic attachment input: the feature derives and persists the boundary edge,
@@ -238,7 +238,7 @@ the pending sheet without invoking the solid kernel.
 ### Automatic Flat attachment to sheet end faces
 
 Flat retains ordinary free placement. Selecting a straight outer boundary of a
-Sheet Profile or Revolved Sheet Start or End cap in the first reference field
+Bend or Revolved Sheet Start or End cap in the first reference field
 activates automatic attachment. The boundary must belong to the persisted
 Side A skin and a terminal thickness face. This includes straight generators
 at the ends of cylindrical and conical Revolved Sheets. Inner boundaries,
@@ -473,28 +473,16 @@ Editing evaluates the existing history boundary before the Bend.
   plane can locate the origin instead. Point-first placement still anchors the
   origin directly to that point. Reference order and identity are persisted in
   the native document; no additional geometry file or cache is required.
-- One history container owns three prepared Sketches: the start profile (initially
-  a 40 mm segment from 0 to +40), a circular trajectory with a tangent straight
-  continuation, and the end profile. A new Sheet Profile starts with a 20 mm
-  continuation, its tangent constraint and a driving length dimension. Their editors are
-  available in the same properties window. The end frame follows the path tangent
-  automatically at the end of the arc; it has no independent twist.
-- To restore a deleted straight continuation, draw one non-construction segment
-  from the arc's end in the trajectory Sketch. It must share that endpoint and
-  extend forward. OK aligns it with the outgoing tangent, stores a tangent
-  constraint and adds an editable length dimension unless the segment already has one.
-  Initial H/V inference on that new segment is replaced by its feature-owned
-  tangent direction, so a later angle edit does not pin it to a Sketch axis.
-  Deleting the segment restores an arc-only Sheet Profile.
-  Both original profile Sketches remain at the ends of the arc; the continuation
-  uses the end profile's width without further taper. Its length is unchanged by
-  angle/radius edits and Unbend. The native auxiliary Sketch stores the segment,
-  its endpoints, constraint and dimension; no new format field is required.
-  Either long boundary edge of that tangent continuation is a valid automatic
-  attachment for another Sheet Profile. The shared arc-to-line station has one
-  persisted point identity, so both longitudinal edges retain unambiguous endpoint
-  references. A downstream profile follows continuation-length and angle edits,
-  native save/reopen and fresh regeneration without rebinding its selected edge.
+- One Bend owns three prepared Sketches: the start profile (initially a
+  40 mm segment from 0 to +40), one circular trajectory, and the end profile.
+  Their editors share the same properties window. The end frame follows the
+  arc tangent automatically; it has no independent twist.
+- The trajectory accepts one circular arc and no non-construction straight
+  segment. Attach a separate **Flat** to the Bend's terminal sheet boundary
+  to define the adjoining sheet outline in its own Sketch. Its placement
+  follows the Bend through the existing sheet attachment references. Elliptical
+  trajectories are not supported. Invalid trajectory edits leave the feature
+  unchanged.
 - Each profile has one non-construction straight segment. The end editor includes
   a fixed construction copy of the start segment and two endpoint difference
   dimensions. Their initial values are zero. Positive entry preserves the current
@@ -525,7 +513,7 @@ Editing evaluates the existing history boundary before the Bend.
   translation along the attachment edge may still be edited numerically.
 - Thickness and K factor follow the Part settings. **Local value** enables an
   override for each separately. A missing Part thickness evaluates as 1 mm.
-- **Sheet Profile** carries the section along the circular trajectory,
+- **Bend** carries the section along the circular trajectory,
   interpolating endpoint differences across the sweep. Matching profiles use
   exact revolution; a width transition uses a two-section sweep. Separate
   **Unbend** uses `angle_radians * (R + K*t)` for its material coordinate map.
@@ -534,7 +522,6 @@ Editing evaluates the existing history boundary before the Bend.
 - At exactly zero degrees an arc-only feature contributes no material, keeps its history
   identity and can be edited back to a positive angle. It has no selectable faces
   at that boundary. This avoids a degenerate OCCT solid.
-  If a continuation exists, its straight material remains at zero degrees.
   The trajectory editor is disabled at zero angle; change the property angle to
   restore it. The last nondegenerate path retains its curve and point identities.
 - An inside radius of zero is supported for **matching profiles**, including a
@@ -547,12 +534,12 @@ Editing evaluates the existing history boundary before the Bend.
   on the next calculation; switching tabs does not regenerate them.
 
 Start and End face/rim identities derive from the feature, section, source
-segment and endpoints. Sheet Profile always retains its original authored
+segment and endpoints. Bend always retains its original authored
 geometry. Unbend and Bend Back publish new original children with explicit
 ancestry; they do not overwrite that source geometry or its placement.
 Neither OCCT traversal order nor preview edges define persistent references.
 
-Double-click the Sheet Profile in View to inspect its dimensions. Radius, angle
+Double-click the Bend in View to inspect its dimensions. Radius, angle
 and endpoint differences support inline editing. All three Sketch editors remain
 pending until the owning properties window is confirmed. Cancel discards them
 together. State changes use separate history commands, with their own OK/Cancel
@@ -809,32 +796,22 @@ across `build/release-1704-recovery-tests.log` and
 Tree diagnostics, regeneration recovery, saved failed states and kernel prefix
 reference retention. Earlier failed attempts remain diagnostic logs only.
 
-## Tangent continuation verification (after Windows 2026091704)
+## Arc-only Bend (2026-09-29)
 
-The optional straight continuation is a local development change after the
-published 2026091704 package. The existing root `zima-cad.bat` launches the rebuilt
-development application; the published archive remains unchanged.
+The former Sheet Profile command is named **Bend** again. Its internal feature
+kind and `bend.create` / `bend.set` command identifiers are unchanged. Straight
+continuation geometry is intentionally unsupported; use an attached Flat.
+Start/end width differences, signed-zero endpoint sides, corner closure and
+shared placement retain their existing contracts.
 
-Eight distinct focused suites passed across
-`build/bend-continuation-final-tests.log` (six suites, 105.61 seconds) and
-`build/bend-continuation-final-tests2.log` (four suites, 70.72 seconds, two repeated).
-The latter run verifies the final direction and inference handling. Coverage
-includes actual Properties acceptance and View length editing, Flat attachment,
-Sketcher, recovering history, general kernel contracts and 3D sweeps.
+Sheet from Body already separates planar walls and circular bends. Conversion
+now uses the Bend name and verifies a Flat/Bend/Flat result with an arc-only
+trajectory, independent source removal, unfolding, refolding and manufacturing
+DXF. No source migration or ellipse implementation is included.
 
-The Bend regression checks analytic volumes at 0, 45, 90 and 180 degrees,
-180-degree entry through the actual Sketch angle dimension, unchanged continuation
-length through property/state changes, Unbend, zero-inner-radius Hem, native
-save/reopen, deletion and Undo/Redo. Original arc face identities remain present;
-the new end exposes a native sheet boundary edge. Both arc profile Sketches keep
-their original placement and identity. New H/V line inference is replaced by T;
-the prepared forward direction resolves the tangent solver's opposite branch
-when changing angle. An existing authored length dimension is reused.
-
-The GUI acceptance screenshot is `build/bend-continuation-view.png` and was
-visually inspected. Earlier failed exploratory test logs are superseded by the
-final passing runs. This is focused verification, not a full repository test run.
-
+The focused arc-only backend and GUI contracts, sheet-state geometry, conversion
+backend/GUI and five-language coverage pass. See [the release verification
+record](releases/2026092904.md) for the unresolved broader-test findings.
 
 ## Sheet Revolution
 
@@ -926,8 +903,7 @@ need a seam definition and are rejected. See [the state-operation contract](SHEE
 
 ## Sheet Cut and material-space boundaries (2026-09-17)
 
-The material-creating commands are now labelled **Sheet Profile** (formerly
-Bend) and **Revolved Sheet** (formerly Sheet Revolution). Their internal feature
+The material-creating commands are labelled **Bend** and **Revolved Sheet**. Their internal feature
 kinds and command identifiers remain unchanged. State changes are separate
 Unbend and Bend Back history operations.
 
@@ -939,7 +915,7 @@ All ending. The profile is projected within that range onto the reference side
 (Side A) of intersected sheet regions
 in the current Body. Each projected domain is carried normally through the full
 local sheet thickness. It supports planar, cylindrical and conical source skins,
-including Sheet Profile and Revolved Sheet. A profile missing every supported
+including Bend and Revolved Sheet. A profile missing every supported
 sheet region is rejected without committing a history item.
 
 Sheet Cut is valid after **Unbend**. The cut is authored in the developed
@@ -1124,8 +1100,7 @@ the fixed subtraction mode has no redundant Operation row, and SKETCH and
 OK/Cancel remain separate without overlap.
 
 The calculation regression checks independently derived removed volumes for a
-Flat, cylindrical Revolved Sheet, curved Sheet Profile and the same Profile with
-a tangent straight continuation. Eight cone cases combine positive/negative
+Flat, cylindrical Revolved Sheet and curved Bend. Eight cone cases combine positive/negative
 taper, reversed generator direction and reversed rotation axis, with exact
 independent volume expectations. Separate cases cut through a Flat and an
 attached Profile or conical Revolved Sheet with one operation and verify both

@@ -161,4 +161,3 @@ Verification: the viewer contract and both transition geometry suites pass.
 The native GUI check covers creation, manufacturing options, facet-selection
 reset, Cancel, Undo/Redo and save/reopen. The unfolded screenshot was reviewed
 after filtering coplanar junctions; real rim notches and short axes remain.
-

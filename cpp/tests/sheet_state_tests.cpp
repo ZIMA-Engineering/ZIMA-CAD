@@ -172,21 +172,6 @@ int main(){try {
         unbend.owner_id="width-flat-again";operations.push_back(unbend);
         vertices_close(cut_flat,kernel.evaluate_history(operations).back(),1e-6);
     }
-    for(double angle:{45.,90.,180.}) {
-        std::cout<<"Straight continuation "<<angle<<std::endl;
-        auto document=part(angle);auto& feature=document.history.front();auto& start=document.sketches.front();
-        auto path=sketcher::Sketch::from_serialized(feature.bend.auxiliary_sketches[0]);
-        const auto& arc=path.arcs.front();const auto join=*path.find_point(arc.end_point_id);
-        const double radians=angle*std::numbers::pi/180;
-        static_cast<void>(path.add_segment(join.x,join.y,join.x+15*std::cos(radians),join.y+15*std::sin(radians)));
-        document::accept_bend_sketch(feature,start,0,path,document::sheet_metal_defaults(document));
-        document.resolve_constructions();auto operations=document.kernel_operations();const auto before=kernel.evaluate_history(operations).back();
-        kernel::HistoryOperation unbend;unbend.owner_id="continuation-unbend";unbend.primitive=kernel::SheetStateRequest{};operations.push_back(unbend);
-        const auto flat=kernel.evaluate_history(operations).back();
-        close(flat.volume,40*2*(operations.front().sheet_material->neutral_radius*radians+15),.05);
-        auto back=unbend;back.owner_id="continuation-back";back.primitive=kernel::SheetStateRequest{false,true,{}};operations.push_back(back);
-        vertices_close(before,kernel.evaluate_history(operations).back(),1e-9);
-    }
     {
         std::cout<<"Selective independent regions"<<std::endl;
         auto document=part(65),second=part(110);second.history.front().placement.x=80;

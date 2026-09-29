@@ -64,7 +64,7 @@ void Host::register_bend_commands() {
         for(const auto* key:{"radius_mm","angle_degrees","thickness_mm","k_factor","first_extension_mm","last_extension_mm","corner_gap_mm"})arguments.push_back({key,false,Type::Number});
         for(const auto* key:{"thickness_override","k_factor_override","radius_follows_thickness","origin_last","corner_first","corner_last"})arguments.push_back({key,false,Type::Boolean});
         for(const auto* key:{"name","document","edge_owner","edge_key"})arguments.push_back({key,false});
-        dispatcher_.add({create?"bend.create":"bend.set",tr("Create or edit a Sheet Profile."),arguments,true},[this,create](const Json& args){
+        dispatcher_.add({create?"bend.create":"bend.set",tr("Create or edit a Bend."),arguments,true},[this,create](const Json& args){
             if(auto result=target(args);!result.ok)return result;
             try {
                 const auto id=workspace_.active_document_id();const auto* state=workspace_.open_part(id);
@@ -72,7 +72,7 @@ void Host::register_bend_commands() {
                 auto feature=create?document::PartDocument::create_sketch_container():bend(state,args.at("container"));
                 sketcher::Sketch sketch;
                 if(create) {
-                    feature.feature_kind=document::FeatureKind::Bend;feature.name=tr("Profil plechu");
+                    feature.feature_kind=document::FeatureKind::Bend;feature.name=tr("Ohyb");
                     sketch=sketcher::Sketch::create_default();sketch.owner_container_id=feature.id;feature.bend.sketch_id=sketch.id;
                     const auto defaults=document::sheet_metal_defaults(state->session.document());
                     feature.bend.thickness=defaults.thickness_mm.value_or(1);feature.bend.k_factor=defaults.k_factor;

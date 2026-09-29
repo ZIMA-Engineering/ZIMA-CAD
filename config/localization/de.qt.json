@@ -647,7 +647,7 @@
   "Regenerace Partu selhala": "Teilregenerierung fehlgeschlagen",
   "Change selected sheet regions at this history boundary; preserve intervening material edits.": "Gewählte Blechbereiche an dieser Verlaufsgrenze ändern; dazwischenliegende Materialänderungen erhalten.",
   "Read a Bend and its effective document defaults without calculation.": "Biegung und ihre wirksamen Dokumentvorgaben ohne Berechnung lesen.",
-  "Create or edit a Sheet Profile.": "Blechprofil erstellen oder bearbeiten.",
+  "Create or edit a Bend.": "Biegung erstellen oder bearbeiten.",
   "Read a Flat sheet and its effective document thickness without calculation.": "Flachblech und seine wirksame Dokumentdicke ohne Berechnung lesen.",
   "Create or edit a Flat sheet from an owned closed Sketch.": "Flachblech aus einer eigenen geschlossenen Skizze erstellen oder bearbeiten.",
   "Read Sketch-driven drilling channels without calculation.": "Skizzengesteuerte Bohrkanäle ohne Berechnung lesen.",
