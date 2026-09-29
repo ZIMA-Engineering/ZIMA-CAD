@@ -2,6 +2,13 @@
 
 ## Scope and status
 
+Windows build **2026092903** is signed, published and verified. It restores
+context conversion shortcuts for unified Sketch Features, admits persisted
+transition end planes for placement and ships the consolidated drawing library.
+Focused source checks, clean packaging, production trust, four packaged GUI
+contracts, public asset hashes and update discovery from 2026092902 passed.
+See [the release record](releases/2026092903.md) for scope and verification limits.
+
 Windows build **2026092902** is signed, published and verified. It unifies saved
 view selection, displays transition end planes and consistent endpoint colors,
 adds manufacturing DXF layers and bend axes, and uses the receiving user's home
