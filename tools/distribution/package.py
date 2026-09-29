@@ -265,24 +265,24 @@ def smoke(root, version, gui=True):
         if len(records) != len(items) or not all(r.get('ok') for r in records):
             raise ValueError('CLI smoke command failed')
         return records
-    records = commands(['new part package-smoke', {'command': 'sketch.create',
+    records = commands(['new part PACKAGE-SMOKE', {'command': 'sketch.create',
         'arguments': {'name': 'Package profile', 'plane': 'XY'}}, 'save'])
     sketch = records[1]['data']['sketch']
     corners = [(-5, -10), (5, -10), (5, 10), (-5, 10)]
     profile = [{'command': 'sketch.segment.create', 'arguments': {
         'sketch': sketch, 'first': corners[i], 'second': corners[(i + 1) % 4],
         'snap_mm': 0.000001}} for i in range(4)]
-    records = commands(['open package-smoke.prtz', *profile,
+    records = commands(['open PACKAGE-SMOKE.prtz', *profile,
         {'command': 'extrusion.create', 'arguments': {'sketch': sketch,
             'extent': 'symmetric', 'length_forward_mm': 15}}, 'save'])
     owner = records[-2]['data']['container']
-    result = commands(['open package-smoke.prtz', {'command': 'measurement.evaluate', 'arguments': {
+    result = commands(['open PACKAGE-SMOKE.prtz', {'command': 'measurement.evaluate', 'arguments': {
         'references': [{'kind': 'object', 'owner': owner}]}}])
     if abs(result[1]['data']['values'][0]['volume']['value'] - 6000) > 1e-6:
         raise ValueError('Saved/reopened Part has an incorrect volume')
-    drawing = commands(['new drawing package-drawing', 'drawing.sheet.list', 'save'])
+    drawing = commands(['new drawing PACKAGE-DRAWING', 'drawing.sheet.list', 'save'])
     sheet = drawing[1]['data']['items'][0]['sheet']
-    commands(['open package-drawing.drwz',
+    commands(['open PACKAGE-DRAWING.drwz',
               {'command': 'export.pdf', 'arguments': {'path': 'smoke.pdf'}},
               {'command': 'export.image', 'arguments': {'path': 'smoke.jpg', 'sheet': sheet, 'dpi': 30}}])
     if not (project / 'smoke.pdf').read_bytes().startswith(b'%PDF-') or not (project / 'smoke.jpg').read_bytes().startswith(b'\xff\xd8'):
