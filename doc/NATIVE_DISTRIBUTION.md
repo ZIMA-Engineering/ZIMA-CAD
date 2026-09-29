@@ -2,6 +2,14 @@
 
 ## Scope and status
 
+Windows build **2026092904** is signed, published and verified. It adds transition
+end notches, short bend axes and individual rectangular-end reliefs, hides smooth
+transition junctions, and simplifies Bend to a circular trajectory with separate
+attached Flat walls. Focused geometry, UI, conversion and translation checks,
+clean packaging, production trust, six packaged GUI contracts, public hashes and
+update discovery from 2026092903 passed. Broader regression findings remain;
+see [the release record](releases/2026092904.md) for exact scope and limits.
+
 Windows build **2026092903** is signed, published and verified. It restores
 context conversion shortcuts for unified Sketch Features, admits persisted
 transition end planes for placement and ships the consolidated drawing library.
