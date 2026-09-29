@@ -1,3 +1,4 @@
+#include "../common/datum_display.hpp"
 #include "../tests/gui_profile_fixture.hpp"
 #include <zima/kernel/annotation_layout.hpp>
 #include "../common/interaction_colors.hpp"

@@ -1,3 +1,4 @@
+#include "../../../common/datum_display.hpp"
 #include <zima/document/derived_copy_json.hpp>
 #include "draft_preview.hpp"
 #include <zima/document/placement_surface.hpp>
@@ -92,8 +93,7 @@ double opening_target_depth(const ExtrusionParameters::EndTarget& target,
 // geometry. Each axis length is deliberately derived from half of its Origin
 // plane size so the arrow tip terminates exactly on the plane rectangle edge.
 constexpr double kDocumentOriginPlaneSize = 10.0;
-constexpr double kContainerOriginPlaneSize = 5.0;
-
+constexpr double kContainerOriginPlaneSize = presentation::container_origin_plane_size;
 void append_reference_geometry(
     zima::kernel::ViewerReferenceGeometry& target,
     const zima::kernel::ViewerReferenceGeometry& source) {

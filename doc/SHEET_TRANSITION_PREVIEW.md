@@ -99,3 +99,7 @@ the Tree. Plane visibility follows the existing plane visibility control.
 The outline is derived from already persisted reference corners. Repeated vertices
 in calculated and construction packets are deduplicated for display only. This
 neither changes persistent topology nor invokes OCCT during view updates.
+
+Transition end-plane borders use the same base size and camera scaling as
+container Origin planes. This changes display/picking only; persisted plane
+positions, normals and reference identities remain unchanged.

@@ -126,6 +126,7 @@ int verify_sheet_transition_ui(QApplication& application,const std::filesystem::
         const auto end_normal=mesh_view->candidate_face_normal({viewer::CandidateKind::Plane,0,0,feature.id,"plane:end",{},viewer::CandidateGeometry::OriginalReference});
         check(end_normal&&std::abs(std::hypot(end_normal->x,end_normal->y,end_normal->z)-1)<1e-8,"Transition plane cannot orient a normal view");
         check(std::ranges::any_of(mesh_view->mesh().edges,[&](const auto& edge){return edge.reference.owner_id==feature.id&&edge.reference.semantic_key=="plane:end"&&edge.points.size()==5;}),"Transition end plane has no displayed border");
+        for(const auto& edge:mesh_view->mesh().edges)if(edge.reference.owner_id==feature.id&&edge.reference.semantic_key=="plane:end"&&edge.points.size()==5)check(std::abs(std::hypot(edge.points[1].x-edge.points[0].x,edge.points[1].y-edge.points[0].y,edge.points[1].z-edge.points[0].z)-presentation::container_origin_plane_size)<1e-8,"Transition end plane differs from container Origin size");
         for(const auto* key:{"axis:start","axis:end"})
             check(std::ranges::any_of(mesh_view->mesh().points,[&](const auto& point){return point.reference.owner_id==feature.id&&point.reference.semantic_key==key&&point.always_visible;}),"Visible transition endpoint missing from View");
         check(std::hypot(feature.placement.x-expected_placement.x,feature.placement.y-expected_placement.y,feature.placement.z-expected_placement.z)<1e-8,"OK lost reference placement");

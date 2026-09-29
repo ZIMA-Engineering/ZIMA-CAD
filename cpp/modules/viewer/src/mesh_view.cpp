@@ -1,3 +1,4 @@
+#include "../../../common/datum_display.hpp"
 #include "../../../common/interaction_colors.hpp"
 #include <zima/kernel/tangent_edge_route.hpp>
 #include "../../../common/technical_font.hpp"
@@ -756,7 +757,15 @@ void MeshView::set_mesh(zima::kernel::ViewerMesh mesh, bool fit_view) {
         if(corners.size()!=4 || std::ranges::any_of(mesh.edges,[&](const auto& edge){return edge_key(edge.reference)==key;}))continue;
         kernel::ViewerEdge edge;edge.reference={key.owner_id,key.semantic_key,key.instance_path};
         edge.construction=true;edge.overlay=true;edge.display_owner_id=key.owner_id;
-        edge.points=corners;edge.points.push_back(edge.points.front());mesh.edges.push_back(std::move(edge));
+        edge.points=corners;
+        kernel::Vec3 center{};
+        for(const auto& p:corners){center.x+=p.x/4;center.y+=p.y/4;center.z+=p.z/4;}
+        const auto& a=corners[0];const auto& b=corners[1];
+        const double length=std::hypot(b.x-a.x,b.y-a.y,b.z-a.z);
+        if(length<1e-8)continue;
+        const double factor=presentation::container_origin_plane_size/length;
+        for(auto& p:edge.points)p={center.x+(p.x-center.x)*factor,center.y+(p.y-center.y)*factor,center.z+(p.z-center.z)*factor};
+        edge.points.push_back(edge.points.front());mesh.edges.push_back(std::move(edge));
     }
     impl_->mesh = std::move(mesh);
     impl_->face_fill_keys.clear();
