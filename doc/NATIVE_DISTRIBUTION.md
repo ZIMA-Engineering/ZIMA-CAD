@@ -2,6 +2,13 @@
 
 ## Scope and status
 
+Windows build **2026092901** is signed, published and verified. It improves
+sheet-transition construction, material previews and assembly datums, placement,
+drawing annotations and filename-based BOM grouping. Fourteen focused source
+contracts, committed-source packaging, signed smoke/trust, seven packaged GUI
+contracts, public asset hashes and production update discovery from 2026092802
+passed. See [the release record](releases/2026092901.md) for scope and limits.
+
 Windows build **2026092802** is signed, published and verified. It adds constant
 wall draft to straight-extrusion Features, stable model leader lengths and
 matching rounded Feature buttons with their existing toggle behavior. Eighteen
