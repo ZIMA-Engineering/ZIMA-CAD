@@ -243,3 +243,12 @@ reference offsets, assembly cuts, history dragging, native saving and Undo/Redo.
 The standalone Sweep2D and Helical Sweep GUI contracts also passed after the
 reference-label initialization fix. The final related selection, including
 Sheet Transition model and GUI checks, passed all five tests (249.17 seconds).
+
+## Sketch context shortcuts
+
+A standalone Feature of type Sketch offers **Extrusion** and **Revolution** in
+its Tree and confirmed View context menus. Each shortcut opens the existing
+Feature Properties dialog with the requested modeling mode selected. The same
+container and owned Sketch remain in use; OK commits the type change and body
+calculation, while Cancel leaves the original Sketch unchanged. Authored names
+are retained. Embedded profiles keep their owning command's existing rules.

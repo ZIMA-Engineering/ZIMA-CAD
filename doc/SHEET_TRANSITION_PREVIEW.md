@@ -103,3 +103,13 @@ neither changes persistent topology nor invokes OCCT during view updates.
 Transition end-plane borders use the same base size and camera scaling as
 container Origin planes. This changes display/picking only; persisted plane
 positions, normals and reference identities remain unchanged.
+
+## End-plane reference admission
+
+The shared placement candidate policy accepts the persisted `plane:end` datum
+from both sheet-transition variants, using its original owner and occurrence
+identity. Pick its visible rectangular border, as for other work planes. Hover
+and click use the common candidate list; this does not expose result-body or
+preview geometry as a new reference source. Plane position, orientation,
+persistence and the placement solver are unchanged. The narrow policy change
+was explicitly approved on 2026-09-29.

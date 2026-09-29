@@ -21,6 +21,7 @@
 #include "file_dialog.hpp"
 #include "document_tools_dialogs.hpp"
 #include "construction_reference_candidate_policy.hpp"
+#include <zima/document/sheet_transition.hpp>
 #include "extrusion_dimension_policy.hpp"
 #include "opening_dimension_policy.hpp"
 #include "reference_tree_policy.hpp"
@@ -370,6 +371,34 @@ int verify_sketch_line_styles(QApplication& application, QWidget& parent) {
         }
     }
     std::cout << "Sketch auxiliary/centerline strokes survive hover and confirmation\n";
+    return 0;
+}
+
+int verify_end_plane_picker(QApplication& application,QWidget& parent) {
+    using namespace zima;
+    require(!app::placement_reference_candidate_has_stable_geometry({viewer::CandidateKind::Plane,0,0,"datum","plane:end",{},viewer::CandidateGeometry::Display}),
+        "Display-only end plane became a persisted placement reference");
+    for(int variant=0;variant<4;++variant) {
+        const std::string key=variant<2?"plane:end":variant==2?"plane":"origin:plane:xy";
+        kernel::ViewerMesh mesh;mesh.original_references.vertices={{-20,-20,0},{20,-20,0},{20,20,0},{-20,20,0}};
+        mesh.original_references.triangles={0,1,2,0,2,3};mesh.original_references.triangle_references.assign(2,{"datum",key,{}});
+        if(variant<2) {auto transition=document::create_sheet_transition(variant==1);transition.sheet_transition.end_rotation={5,7,0};
+            mesh.original_references=document::sheet_transition_profile_plane(transition);}
+        if(key!="plane:end") {kernel::ViewerEdge edge;edge.reference={"datum",key=="plane"?"border":key,{}};
+            edge.overlay=true;edge.points=mesh.original_references.vertices;edge.points.push_back(edge.points.front());mesh.edges.push_back(edge);}
+        viewer::MeshView view(&parent);view.resize(420,320);view.set_mesh(mesh,true);view.set_view_direction({0,0,1});
+        view.set_selection_contract(app::placement_reference_candidate_kinds());view.set_candidate_filter([](const auto& candidate){return app::placement_reference_candidate_has_stable_geometry(candidate);});
+        view.show();application.processEvents();std::optional<QPointF> pointer;
+        for(int y=5;y<view.height()-5&&!pointer;y+=2)for(int x=5;x<view.width()-5&&!pointer;x+=2) {
+            auto candidates=view.selection_candidates_at({double(x),double(y)});
+            if(!candidates.empty()&&candidates.front().kind==viewer::CandidateKind::Plane&&candidates.front().semantic_key==key)pointer=QPointF(x,y);
+        }
+        require(pointer.has_value(),"Persisted end/standard/Origin plane rejected by placement picker");
+        QMouseEvent move(QEvent::MouseMove,*pointer,*pointer,*pointer,Qt::NoButton,Qt::NoButton,Qt::NoModifier);QApplication::sendEvent(&view,&move);application.processEvents();
+        require(view.hovered_candidate()&&view.hovered_candidate()->semantic_key==key,"Plane hover differs from offered reference");
+        for(auto type:{QEvent::MouseButtonPress,QEvent::MouseButtonRelease}){QMouseEvent event(type,*pointer,*pointer,*pointer,Qt::LeftButton,type==QEvent::MouseButtonPress?Qt::LeftButton:Qt::NoButton,Qt::NoModifier);QApplication::sendEvent(&view,&event);}application.processEvents();
+        require(view.confirmed_candidate()&&view.confirmed_candidate()->semantic_key==key,"Plane click differs from hover");
+    }
     return 0;
 }
 
@@ -735,6 +764,7 @@ int main(int argc, char* argv[]) {
     const auto initial = zima::document::PartDocument::create_twisted_sheet_container();
 
     try {
+        if(qEnvironmentVariableIsSet("ZIMA_VERIFY_END_PLANES_ONLY"))return verify_end_plane_picker(application,parent);
         if(qEnvironmentVariableIsSet("ZIMA_VERIFY_POINT_MARKERS_ONLY")){verify_point_marker_colours(application,parent);return 0;}
         if(qEnvironmentVariableIsSet("ZIMA_VERIFY_TRANSLATIONS_ONLY")) return verify_translations(application,parent);
         if(qEnvironmentVariableIsSet("ZIMA_VERIFY_FACE_FILL_ONLY")) {verify_face_fill(application,parent);return 0;}
@@ -847,6 +877,7 @@ int main(int argc, char* argv[]) {
         verify_origin_display_and_pick_seed(parent);
         verify_face_fill(application,parent);
         verify_sketch_line_styles(application,parent);
+        verify_end_plane_picker(application,parent);
         verify_curve_placement_picker(application,parent);
         verify_sketch_endpoint_dialog(parent);
         verify_container_frame_dialog(parent);

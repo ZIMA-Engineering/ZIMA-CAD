@@ -19,6 +19,12 @@ void AssemblyWorkspaceWindow::transform_sketch_container(
     auto* part = workspace_.open_part(workspace_.active_document_id());
     if (part == nullptr) return;
     const auto* source = part->session.document().find_container(container_id);
+    if (source && source->feature_kind == FeatureKind::Feature &&
+        source->feature.type == zima::document::FeatureType::Sketch) {
+        show_primitive_properties(FeatureKind::Feature, container_id, false,
+            zima::document::FeatureType::Modeling, target_kind == FeatureKind::Revolution);
+        return;
+    }
     if (source == nullptr || source->feature_kind != FeatureKind::Sketch) return;
     const auto sketch = std::find_if(part->session.document().sketches.begin(),
         part->session.document().sketches.end(), [&](const auto& value) {

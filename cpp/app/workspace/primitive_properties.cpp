@@ -219,11 +219,20 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
         : feature_kind == zima::document::FeatureKind::Extrusion
             ? zima::document::PartDocument::create_extrusion_container(source_sketch_id)
         : zima::document::PartDocument::create_revolution_container(source_sketch_id);
-    if (!edit_mode && !resuming_profile && !pending_profile_edit && feature_preset &&
+    const bool sketch_type_shortcut = edit_mode && feature_preset == zima::document::FeatureType::Modeling &&
+        initial.feature_kind == zima::document::FeatureKind::Feature &&
+        initial.feature.type == zima::document::FeatureType::Sketch;
+    if ((!edit_mode || sketch_type_shortcut) && !resuming_profile && !pending_profile_edit && feature_preset &&
         feature_kind==zima::document::FeatureKind::Feature) {
         initial.feature.type=*feature_preset;
         if(rotation_preset)for(auto& side:initial.feature.sides)
             side.operation=zima::document::FeatureSideOperation::Revolution;
+        if(sketch_type_shortcut && !rotation_preset)
+            initial.feature.sides[0].operation=zima::document::FeatureSideOperation::Extrusion;
+        if(sketch_type_shortcut && part && initial.name==initial.feature.automatic_name) {
+            initial.name=next_feature_name(part->session.document(),initial.feature.type,initial.id);
+            initial.feature.automatic_name=initial.name;
+        }
     }
     if (!edit_mode && !resuming_profile) {
         initial.name = tr(initial.name.c_str()).toStdString();

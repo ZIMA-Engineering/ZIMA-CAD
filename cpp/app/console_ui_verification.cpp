@@ -185,6 +185,7 @@ Q_NEVER_INLINE static int verify_feature_prototype(QApplication& application,Ass
         const auto check=[](bool ok,const char* message){if(!ok)throw std::runtime_error(message);};
         const auto flush=[&]{application.processEvents();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);application.processEvents();};
         window.showMaximized();flush();
+        if(qEnvironmentVariableIsSet("ZIMA_VERIFY_SKETCH_CONTEXT_ONLY")){verify_sketch_context_conversion(application,window,directory);return 0;}
         check(window.execute_console_command(QString::fromStdString(commands::Json{{"command","new"},{"arguments",{{"type","part"},{"name","feature-gui"}}}}.dump())).ok,"Prototype Part creation failed");flush();
         auto* action=window.findChild<QAction*>("featurePrototypeAction");check(action&&action->isEnabled(),"Feature command unavailable");action->trigger();flush();
         auto* dialog=dynamic_cast<PrimitivePropertiesDialog*>(window.findChild<QWidget*>("featurePropertiesDialog"));check(dialog&&dialog->isVisible(),"Feature GUI did not open");
@@ -254,6 +255,7 @@ Q_NEVER_INLINE static int verify_feature_prototype(QApplication& application,Ass
         check(dialog->pending_value().feature==restored,"Feature dialog failed to restore its complete editing definition");
         check(dialog->pending_value().feature.effective_side(1)==restored.sides[0],"Symmetric Feature did not derive its effective second side");
         dialog->reject();flush();
+        verify_sketch_context_conversion(application,window,directory);
         verify_feature_empty_preview(application,window,directory);
         verify_feature_sketch_visibility(application,window,directory);
         verify_feature_modeling(application,window,directory);

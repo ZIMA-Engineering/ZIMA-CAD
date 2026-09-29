@@ -1293,6 +1293,14 @@ if(ZIMA_BUILD_TESTS)
     set_tests_properties(zima_cpp_derived_copy_ui_contract PROPERTIES
         ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_DERIVED_COPY_ONLY=1"
         WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 120)
+    add_test(NAME zima_cpp_sketch_context_conversion_ui_contract COMMAND zima-cad-cpp --verify-startup)
+    set_tests_properties(zima_cpp_sketch_context_conversion_ui_contract PROPERTIES
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_CONSOLE_ONLY=1;ZIMA_VERIFY_FEATURE_PROTOTYPE_ONLY=1;ZIMA_VERIFY_SKETCH_CONTEXT_ONLY=1"
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 90)
+    add_test(NAME zima_cpp_transition_plane_picker_ui_contract COMMAND zima_cpp_ui_contract_tests)
+    set_tests_properties(zima_cpp_transition_plane_picker_ui_contract PROPERTIES
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_END_PLANES_ONLY=1"
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 60)
     add_test(NAME zima_cpp_feature_prototype_ui_contract COMMAND zima-cad-cpp --verify-startup)
     add_test(NAME zima_cpp_surface_placement_ui_contract COMMAND zima-cad-cpp --verify-startup)
     add_test(NAME zima_cpp_pending_curve_point_ui_contract COMMAND zima-cad-cpp --verify-startup)

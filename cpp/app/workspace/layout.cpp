@@ -999,8 +999,10 @@ void AssemblyWorkspaceWindow::create_layout() {
                             })) edit->setEnabled(false);
                     const auto* container =
                         part->session.document().find_container(candidate.owner_id);
-                    if (container != nullptr && container->feature_kind ==
-                            zima::document::FeatureKind::Sketch) {
+                    if (container != nullptr && (container->feature_kind ==
+                            zima::document::FeatureKind::Sketch ||
+                            (container->feature_kind == zima::document::FeatureKind::Feature &&
+                             container->feature.type == zima::document::FeatureType::Sketch))) {
                         menu.addSeparator();
                         transform_extrusion = menu.addAction(
                             resource_icon("protrusion"), tr("Vytažení"));
@@ -2610,8 +2612,9 @@ void AssemblyWorkspaceWindow::create_layout() {
                         })) edit->setEnabled(false);
                 QAction* transform_extrusion{};
                 QAction* transform_revolution{};
-                if (container->feature_kind ==
-                        zima::document::FeatureKind::Sketch) {
+                if (container->feature_kind == zima::document::FeatureKind::Sketch ||
+                    (container->feature_kind == zima::document::FeatureKind::Feature &&
+                     container->feature.type == zima::document::FeatureType::Sketch)) {
                     menu.addSeparator();
                     transform_extrusion = menu.addAction(
                         resource_icon("protrusion"), tr("Vytažení"));

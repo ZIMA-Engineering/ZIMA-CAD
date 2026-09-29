@@ -72,7 +72,7 @@ placement_reference_candidate_kinds() {
         candidate.kind == CandidateKind::Edge ||
         candidate.kind == CandidateKind::Face ||
         (candidate.kind == CandidateKind::Plane &&
-         (candidate.semantic_key == "plane" ||
+         (candidate.semantic_key == "plane" || candidate.semantic_key == "plane:end" ||
           candidate.semantic_key.starts_with("origin:plane:")));
 }
 
