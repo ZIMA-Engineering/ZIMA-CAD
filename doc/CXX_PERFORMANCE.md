@@ -11,6 +11,10 @@ addresses the measured large-Sketch dimension-edit problem. The solved-input
 1,000-branch fixture decreased from 44,902.1 ms to 247.365 ms with unchanged
 precision and verified geometry; this is a fixture-specific result.
 
+The next follow-up, [Assembly scene transfer and picking](performance/20260930-assembly-scene-picking.md),
+removes redundant scene copies and repeated picker work, with a desktop
+benchmark and exact baseline comparisons. It does not add a persistent cache.
+
 The startup-independent C++ model benchmark is built as
 `zima_cpp_performance_benchmark`. It is deliberately not registered with
 CTest: normal tests remain deterministic and do not depend on machine speed.

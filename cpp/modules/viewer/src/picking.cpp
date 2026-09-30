@@ -9,6 +9,7 @@
 #include <set>
 #include <tuple>
 #include <string_view>
+#include <unordered_set>
 
 namespace zima::viewer {
 namespace {
@@ -422,10 +423,20 @@ std::vector<ViewerCandidate> ordered_viewer_candidates(
     std::vector<ViewerCandidate> result;
     using FaceIdentity = std::tuple<std::string_view,std::string_view,std::string_view>;
     const auto identity = [](const auto& ref) -> FaceIdentity { return {ref.owner_id,ref.semantic_key,ref.instance_path}; };
-    std::set<FaceIdentity> persisted_identities;
+    // These sets answer membership only; candidate order still comes from the
+    // same geometric hit lists. Views remain valid for this one pick call.
+    const auto identity_hash = [](const FaceIdentity& value) {
+        std::size_t seed{};
+        const auto combine = [&](std::string_view field) {
+            seed ^= std::hash<std::string_view>{}(field) + 0x9e3779b9 + (seed << 6) + (seed >> 2);
+        };
+        combine(std::get<0>(value)); combine(std::get<1>(value)); combine(std::get<2>(value));
+        return seed;
+    };
+    std::unordered_set<FaceIdentity, decltype(identity_hash)> persisted_identities(0, identity_hash);
     for (const auto& ref : references.triangle_references)
         if (ref.valid()) persisted_identities.insert(identity(ref));
-    std::set<std::string_view> displayed_source_paths;
+    std::unordered_set<std::string_view> displayed_source_paths;
     for (const auto& ref : mesh.triangle_references)
         if (!ref.instance_path.empty() && ref.valid() && persisted_identities.contains(identity(ref)))
             displayed_source_paths.insert(ref.instance_path);
@@ -500,8 +511,11 @@ std::vector<ViewerCandidate> ordered_viewer_candidates(
                 }
             }
         }
-        const auto faces = ordered_ray_candidates(source, ray_origin, ray_direction,
-            geometry == CandidateGeometry::Display);
+        const auto display_face_hits = geometry == CandidateGeometry::Display
+            ? ordered_ray_candidates(source, ray_origin, ray_direction, true)
+            : std::vector<PickCandidate>{};
+        const auto& faces = geometry == CandidateGeometry::Display
+            ? display_face_hits : persisted_face_hits;
         for (const auto& face : faces) {
             // In a Part, valid display-face identities are the persisted
             // source identities carried by the actually visible Body

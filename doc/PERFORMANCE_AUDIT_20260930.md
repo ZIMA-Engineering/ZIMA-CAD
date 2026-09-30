@@ -4,6 +4,9 @@ Follow-up: [A1 independent equation blocks](performance/20260930-rectilinear-blo
 records the first implemented optimization and its verification. The audit below
 retains the original pre-change observations and priorities.
 
+The [A2/A3 scene and picking follow-up](performance/20260930-assembly-scene-picking.md)
+records the subsequent limited implementation, desktop measurements and checks.
+
 ## Result and scope
 
 The first investigation should target large Sketch dimension edits. The existing

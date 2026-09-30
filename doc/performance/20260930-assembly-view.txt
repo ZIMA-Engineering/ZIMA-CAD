@@ -1,0 +1,17 @@
+Baseline: f35f0f32300cc05b80e6b32dca722241998c7c7a assembly/picking objects
+Same desktop benchmark; scene x10, set_mesh x5, picking/mouse x100.
+
+Before:
+occurrences=256 triangles=3072 scene_ms=64.061 set_mesh_ms=30.668 pick_ms=2.588 mouse_dispatch_ms=2.480 candidates=100 confirmation=passed
+occurrences=1024 triangles=12288 scene_ms=236.811 set_mesh_ms=108.769 pick_ms=16.945 mouse_dispatch_ms=15.815 candidates=100 confirmation=passed
+
+After:
+occurrences=256 triangles=3072 scene_ms=35.285 set_mesh_ms=31.382 pick_ms=1.026 mouse_dispatch_ms=1.068 candidates=100 confirmation=passed
+occurrences=1024 triangles=12288 scene_ms=151.910 set_mesh_ms=121.072 pick_ms=5.709 mouse_dispatch_ms=5.201 candidates=100 confirmation=passed
+
+Differential scene, GUI candidates and 512 mixed-identity picks per scene:
+SHA-256:
+assembly-before-1024.json 276F4495C767E7C5EA3C8471BDF79485D7717C52BF30C53C624C0627A5C33D62
+assembly-before-256.json F900B1603512A14E1B2D08676ECB42159C65A0877C2F32EF4B5DF04AC9DF8A55
+assembly-after-1024.json 276F4495C767E7C5EA3C8471BDF79485D7717C52BF30C53C624C0627A5C33D62
+assembly-after-256.json F900B1603512A14E1B2D08676ECB42159C65A0877C2F32EF4B5DF04AC9DF8A55

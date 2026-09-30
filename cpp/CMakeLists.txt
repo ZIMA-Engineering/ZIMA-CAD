@@ -563,6 +563,10 @@ target_link_libraries(zima_cpp_performance_benchmark PRIVATE
     zima_workspace zima_assembly zima_document_core zima_kernel_occt zima_viewer
     zima_sketcher)
 
+add_executable(zima_cpp_assembly_view_benchmark tests/assembly_view_benchmark.cpp)
+target_link_libraries(zima_cpp_assembly_view_benchmark PRIVATE
+    zima_assembly zima_kernel_occt zima_viewer)
+
 if(ZIMA_BUILD_TESTS)
     add_executable(zima_cpp_instance_startup_contract_tests tests/instance_startup_contract_tests.cpp)
     target_include_directories(zima_cpp_instance_startup_contract_tests PRIVATE app)

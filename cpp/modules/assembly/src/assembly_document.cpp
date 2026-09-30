@@ -26,6 +26,7 @@
 #include <chrono>
 #include <cmath>
 #include <iomanip>
+#include <iterator>
 #include <fstream>
 #include <random>
 #include <optional>
@@ -125,20 +126,27 @@ void write_ini(const std::filesystem::path& path, const IniSections& ini) {
 
 void append_viewer_mesh(zima::kernel::ViewerMesh& target,
                         zima::kernel::ViewerMesh source) {
+    // This function owns source; transferring its payload keeps reference and
+    // geometry order intact without reallocating every edge's point array.
     const auto offset = static_cast<std::uint32_t>(target.vertices.size());
     target.vertices.insert(target.vertices.end(),
         source.vertices.begin(), source.vertices.end());
     for (const auto index : source.triangles) target.triangles.push_back(offset + index);
     target.triangle_references.insert(target.triangle_references.end(),
-        source.triangle_references.begin(), source.triangle_references.end());
-    target.edges.insert(target.edges.end(), source.edges.begin(), source.edges.end());
+        std::make_move_iterator(source.triangle_references.begin()),
+        std::make_move_iterator(source.triangle_references.end()));
+    target.edges.insert(target.edges.end(),
+        std::make_move_iterator(source.edges.begin()), std::make_move_iterator(source.edges.end()));
     target.annotation_frames.insert(source.annotation_frames.begin(),source.annotation_frames.end());
-    target.points.insert(target.points.end(), source.points.begin(), source.points.end());
-    target.axes.insert(target.axes.end(), source.axes.begin(), source.axes.end());
+    target.points.insert(target.points.end(),
+        std::make_move_iterator(source.points.begin()), std::make_move_iterator(source.points.end()));
+    target.axes.insert(target.axes.end(),
+        std::make_move_iterator(source.axes.begin()), std::make_move_iterator(source.axes.end()));
     target.dimensions.insert(target.dimensions.end(),
-        source.dimensions.begin(), source.dimensions.end());
+        std::make_move_iterator(source.dimensions.begin()), std::make_move_iterator(source.dimensions.end()));
     target.constraint_markers.insert(target.constraint_markers.end(),
-        source.constraint_markers.begin(), source.constraint_markers.end());
+        std::make_move_iterator(source.constraint_markers.begin()),
+        std::make_move_iterator(source.constraint_markers.end()));
     auto& references = target.original_references;
     auto& incoming = source.original_references;
     const auto reference_offset = static_cast<std::uint32_t>(references.vertices.size());
@@ -148,13 +156,14 @@ void append_viewer_mesh(zima::kernel::ViewerMesh& target,
         references.triangles.push_back(reference_offset + index);
     }
     references.triangle_references.insert(references.triangle_references.end(),
-        incoming.triangle_references.begin(), incoming.triangle_references.end());
+        std::make_move_iterator(incoming.triangle_references.begin()),
+        std::make_move_iterator(incoming.triangle_references.end()));
     references.edges.insert(references.edges.end(),
-        incoming.edges.begin(), incoming.edges.end());
+        std::make_move_iterator(incoming.edges.begin()), std::make_move_iterator(incoming.edges.end()));
     references.points.insert(references.points.end(),
-        incoming.points.begin(), incoming.points.end());
+        std::make_move_iterator(incoming.points.begin()), std::make_move_iterator(incoming.points.end()));
     references.axes.insert(references.axes.end(),
-        incoming.axes.begin(), incoming.axes.end());
+        std::make_move_iterator(incoming.axes.begin()), std::make_move_iterator(incoming.axes.end()));
 }
 
 std::string make_id() {
@@ -1941,7 +1950,9 @@ zima::kernel::ViewerMesh AssemblyDocument::build_scene() const {
         throw std::runtime_error("Assembly reference triangle data are not aligned");
     }
     zima::kernel::ViewerMesh result = std::move(datums);
-    append_viewer_mesh(result, scene);
+    // The intermediate scene is complete and no longer read. Transfer its
+    // owned vectors instead of copying every occurrence packet twice.
+    append_viewer_mesh(result, std::move(scene));
     zima::document::PartDocument frame_source;frame_source.constructions=constructions;frame_source.sketches=sketches;frame_source.history=sketch_containers;
     for(const auto& cut:cuts)frame_source.history.push_back(cut.definition);
     result.annotation_frames=zima::document::part_annotation_envelopes(frame_source,result);
