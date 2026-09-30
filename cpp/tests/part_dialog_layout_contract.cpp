@@ -48,7 +48,7 @@ int verify_part_dialog_layout(QApplication& application, QWidget& parent) {
                             expanding.emplace_back(view,view->height());
                 dialog->resize(dialog->width(),std::min(available.height(),dialog->height()+100));flush();
                 for(const auto& [field,y]:anchored)if(field->mapTo(dialog.get(),QPoint{}).y()!=y)
-                    errors<<field->objectName()+": fields moved vertically on resize";
+                    errors<<field->objectName()+QString(": fields moved vertically on resize (%1 -> %2, height %3 -> %4)").arg(y).arg(field->mapTo(dialog.get(),QPoint{}).y()).arg(original_size.height()).arg(dialog->height());
                 const auto growth=dialog->height()-original_size.height();
                 if(growth>10&&!expanding.empty()) {
                     int gained=0;for(const auto& [view,height]:expanding)gained+=view->height()-height;

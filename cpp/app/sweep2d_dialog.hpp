@@ -155,6 +155,7 @@ public:
                 }catch(const std::exception& e){set_status(QString::fromUtf8(e.what()));}
             });
             profiles_->setCellWidget(row,2,order);
+            profiles_->setRowHeight(row,std::max({34,button->minimumHeight()+1,order->minimumSizeHint().height()+1}));
         }
     }
 protected:

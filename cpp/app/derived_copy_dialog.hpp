@@ -61,7 +61,7 @@ public:
             connect(button,&QPushButton::clicked,this,[this,key]{if(request_input)request_input(0);set_plane({{},pending.container_origin.id,(derived_copy.pattern?"origin:axis:":"origin:plane:")+std::string(key)},QString::fromLatin1(key).toUpper());});}
         content_layout()->addWidget(plane_buttons_);
         if(derived_copy.pattern) {
-            setMinimumWidth(620);set_initial_size({660,750});
+            setMinimumWidth(620);set_initial_size({660,780});
             linear_table_=new QTableWidget(3,7,this);linear_table_->setObjectName("patternLinearDirections");
             linear_table_->setHorizontalHeaderLabels({"",tr("Místní osa"),"",tr("Rozložení"),tr("Rozteč"),tr("Počet"),tr("Vzad")});
             linear_table_->setVerticalHeaderLabels({tr("Směr 1"),tr("Směr 2"),tr("Směr 3")});

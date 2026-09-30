@@ -1977,5 +1977,9 @@
   "Celkové házení": "Total runout",
   "ISO 2553 A — obě strany": "ISO 2553 A — both sides",
   "Základna": "Datum",
-  "Activate a Body before creating a Sketch": "Activate a Body before creating a Sketch"
+  "Activate a Body before creating a Sketch": "Activate a Body before creating a Sketch",
+  "Světlý": "Light",
+  "Tmavý": "Dark",
+  "Motiv aplikace": "Application theme",
+  "Motiv se řídí tímto nastavením, nikoli motivem operačního systému.": "The theme follows this setting rather than the operating system theme."
 }

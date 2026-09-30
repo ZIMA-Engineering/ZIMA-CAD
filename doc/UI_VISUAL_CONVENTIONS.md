@@ -434,3 +434,38 @@ the white annotation display pen also becomes dark. Stored CAD pen colours and
 Drawing output are unchanged. Dimension text masks use the same gradient as the
 OpenGL clear bands. The application SVG and Windows ICO give the white C a dark
 outline so the monogram remains recognizable on either taskbar background.
+
+
+## Explicit Fusion application theme
+
+Qt widgets use the Fusion style on both Windows and Linux. Global Settings >
+General > Application theme offers **Light** and **Dark**. The shared global
+`config/config.ini` stores `Application/Theme=light` or `dark`; a missing or
+unsupported value selects Light. The application does not follow operating-system
+appearance automatically. OK saves and applies the palette; Cancel discards the
+pending choice. The established portable settings layering remains unchanged.
+
+The palette includes text, editors, buttons, selections, disabled controls and
+tooltips. Existing semantic colors (reference input, inspection, errors and
+geometry) retain their roles. Platform window decorations and the optional system
+GUI font may still differ across operating systems. Fusion does not promise
+pixel-identical native title bars or system fonts.
+
+This changes Qt controls, not technical text geometry. View, Sketch and Drawing
+keep the bundled ISO font. The existing GUI-font checkbox remains independent.
+No document format or modeling/placement contract changes are required.
+
+Windows verification covers Light/Dark/Light switching, explicit Qt color-scheme
+selection, absent/invalid settings, OK persistence and Cancel in all five
+languages. The settings captures were visually inspected for light and dark
+contrast and Cyrillic labels. The Sweep and Drawing controls checks also passed.
+Linux rendering and desktop integration require verification on the Linux host.
+
+The layout follow-up raises 2D Sweep station rows to fit the existing Sketch
+button minimum height, and increases the initial Pattern window height from 750
+to 780 logical pixels (still bounded by its parent). This avoids compressed
+spacing in the linear Pattern form. The 300 dialog/language/window-size layout
+combinations pass. No shared container-placement implementation was changed.
+The real-cursor button fixture uses an unobscured temporary test window and the
+proper active tool-button subcontrol; the User Parameters fixture now includes
+the existing ordering column rather than assuming the obsolete five columns.

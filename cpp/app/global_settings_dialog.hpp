@@ -36,6 +36,7 @@ private:
     QWidget* desktop_{};
     QString ai_preferences_path_;
     QComboBox* language_{};
+    QComboBox* theme_{};
     QCheckBox* application_font_{};
     QComboBox* tolerance_layout_{};
     QCheckBox* names_uppercase_{};

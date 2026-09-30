@@ -9,6 +9,9 @@
 #include <QCoreApplication>
 #include <QApplication>
 #include <QWidget>
+#include <QStyleFactory>
+#include <QStyleHints>
+#include <QPalette>
 #include <QFontDatabase>
 #include <QDir>
 #include <QFileInfo>
@@ -138,6 +141,8 @@ ApplicationSettings ApplicationSettings::load(const QString& working_directory, 
         return fallback;
     };
     result.language = value("Application/Language", "cs");
+    result.theme=value("Application/Theme","light").trimmed().toLower();
+    if(result.theme!="dark")result.theme="light";
     result.document_naming.uppercase=value("DocumentNames/Uppercase","false").toLower()=="true";
     result.document_naming.remove_diacritics=value("DocumentNames/RemoveDiacritics","false").toLower()=="true";
     result.document_naming.replace_spaces=value("DocumentNames/ReplaceSpaces","false").toLower()=="true";
@@ -320,7 +325,8 @@ bool ApplicationSettings::save(QString* error) const {
         {"Drawing/PdfDirectory",drawing_pdf_directory},
         {"Drawing/DxfDirectory",drawing_dxf_directory},
         {"Drawing/ViewDisplayStyle",drawing_view_style},
-        {"Application/Language", language}, {"Application/UseISOFont", use_iso_application_font},
+        {"Application/Language", language}, {"Application/Theme", theme=="dark"?"dark":"light"},
+        {"Application/UseISOFont", use_iso_application_font},
         {"Dimensions/ToleranceLayout", stacked_tolerances ? "stacked" : "inline"},
         {"DocumentNames/Uppercase", document_naming.uppercase},
         {"DocumentNames/RemoveDiacritics", document_naming.remove_diacritics},
@@ -375,6 +381,39 @@ void apply_application_translations(QApplication& application,
     auto* translator = new IniTranslator(settings.qt_translations, &application);
     translator->setObjectName(name);
     application.installTranslator(translator);
+}
+
+void apply_application_appearance(QApplication& application,const ApplicationSettings& settings) {
+    if(!application.property("zimaFusionStyle").toBool()) {
+        application.setStyle(QStyleFactory::create(QStringLiteral("Fusion")));
+        application.setProperty("zimaFusionStyle",true);
+    }
+    const bool dark=settings.theme=="dark";
+#if QT_VERSION >= QT_VERSION_CHECK(6,8,0)
+    application.styleHints()->setColorScheme(dark?Qt::ColorScheme::Dark:Qt::ColorScheme::Light);
+#endif
+    QPalette palette;
+    const auto set=[&](QPalette::ColorRole role,const char* light,const char* night) {
+        palette.setColor(QPalette::All,role,QColor(dark?night:light));
+    };
+    set(QPalette::Window,"#f0f0f0","#292d32");set(QPalette::WindowText,"#202428","#e6edf3");
+    set(QPalette::Base,"#ffffff","#1e2227");set(QPalette::AlternateBase,"#f3f5f7","#252a30");
+    set(QPalette::Text,"#202428","#e6edf3");set(QPalette::Button,"#e6e9ed","#343a42");
+    set(QPalette::ButtonText,"#202428","#e6edf3");set(QPalette::BrightText,"#b00020","#ff8080");
+    set(QPalette::ToolTipBase,"#fffbe5","#343a42");set(QPalette::ToolTipText,"#202428","#e6edf3");
+    set(QPalette::Highlight,"#00a6ce","#00a6ce");set(QPalette::HighlightedText,"#102027","#102027");
+    set(QPalette::Link,"#005fb8","#62b5ff");set(QPalette::LinkVisited,"#7544a0","#c6a0ee");
+    set(QPalette::PlaceholderText,"#686e76","#a1aab4");
+    set(QPalette::Light,"#ffffff","#505862");set(QPalette::Midlight,"#f7f8fa","#414850");
+    set(QPalette::Mid,"#b4bac2","#252a30");set(QPalette::Dark,"#7b838c","#171a1e");
+    set(QPalette::Shadow,"#42484f","#080a0c");
+#if QT_VERSION >= QT_VERSION_CHECK(6,6,0)
+    set(QPalette::Accent,"#00a6ce","#00a6ce");
+#endif
+    for(auto role:{QPalette::WindowText,QPalette::Text,QPalette::ButtonText,QPalette::PlaceholderText})
+        palette.setColor(QPalette::Disabled,role,QColor(dark?"#85909d":"#747d88"));
+    palette.setColor(QPalette::Disabled,QPalette::Highlight,QColor(dark?"#46535f":"#c9d0d8"));
+    application.setPalette(palette);
 }
 
 void apply_application_font(QApplication& application,

@@ -757,8 +757,10 @@ int verify_stable_placement_rows() {
 #include "face_fill_ui_contract.inc"
 int main(int argc, char* argv[]) {
     QApplication application(argc, argv);
+    zima::app::apply_application_appearance(application, zima::app::ApplicationSettings{});
     zima::app::install_dialog_button_icons();
     QWidget parent;
+    parent.setWindowFlag(Qt::WindowStaysOnTopHint); // Real-cursor hover checks require an unobscured test surface.
     parent.resize(900, 650);
     parent.show();
     const auto initial = zima::document::PartDocument::create_twisted_sheet_container();
@@ -817,6 +819,7 @@ int main(int argc, char* argv[]) {
             command.setStyleSheet(zima::app::command_button_style());
             new zima::app::LeftAlignedCommandLabel(&command);
             command.show();parent.raise();parent.activateWindow();
+            QEventLoop exposed;QTimer::singleShot(200,&exposed,&QEventLoop::quit);exposed.exec();
             const auto previous_cursor=QCursor::pos();
             QCursor::setPos(command.mapToGlobal(command.rect().center()));
             application.processEvents();
@@ -828,6 +831,8 @@ int main(int argc, char* argv[]) {
                 QPainter painter(&image);QStyleOptionToolButton option;option.initFrom(&command);
                 option.state &= ~(QStyle::State_MouseOver|QStyle::State_On|QStyle::State_Sunken);
                 option.state |= state;option.iconSize=command.iconSize();
+                option.subControls=QStyle::SC_ToolButton;
+                if(state & QStyle::State_MouseOver)option.activeSubControls=QStyle::SC_ToolButton;
                 option.toolButtonStyle=Qt::ToolButtonTextBesideIcon;
                 command.style()->drawComplexControl(QStyle::CC_ToolButton,&option,&painter,&command);
                 return image.pixelColor(160,20);
@@ -5410,10 +5415,11 @@ int main(int argc, char* argv[]) {
                     value.flat["name"] == "Bracket";
             }, tool_settings, &parent);
         require(user_parameters_dialog->findChild<QTableWidget*>(
-                    "documentParametersTable")->columnCount() == 5 &&
+                    "documentParametersTable")->columnCount() == 6 &&
+                    user_parameters_dialog->findChild<QCheckBox*>("parameterOrder") != nullptr &&
                     user_parameters_dialog->findChild<QComboBox*>(
                         "parameterLanguage") != nullptr,
-                "User Parameters does not expose the Python language/table contract");
+                "User Parameters does not expose localized values and ordering controls");
         user_parameters_dialog->buttons()->button(QDialogButtonBox::Ok)->click();
         require(parameters_committed,
                 "User Parameters OK did not preserve order, labels and shared values");

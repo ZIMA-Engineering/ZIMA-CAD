@@ -12968,14 +12968,7 @@ int main(int argc, char* argv[]) {
     format.setSamples(4);
     QSurfaceFormat::setDefaultFormat(format);
     QApplication application(argc, argv);
-#ifdef Q_OS_WIN
-    if (QGuiApplication::platformName() == QStringLiteral("windows") &&
-        qEnvironmentVariableIsEmpty("QT_STYLE_OVERRIDE")) {
-        if (auto* windows_style = QStyleFactory::create(QStringLiteral("windows11"))) {
-            application.setStyle(windows_style);
-        }
-    }
-#endif
+
     application.setApplicationName("ZIMA-CAD");
     application.setDesktopFileName("zima-cad");
     application.setWindowIcon(zima::app::application_icon());
@@ -13013,6 +13006,7 @@ int main(int argc, char* argv[]) {
         QSettings config(console_test_settings->filePath("config.ini"),QSettings::IniFormat);
         config.setValue("Application/Language","cs");
         config.setValue("Application/UseISOFont",inherited.use_iso_application_font);
+        config.setValue("Application/Theme",inherited.theme);
         for(const auto* key:{"Uppercase","RemoveDiacritics","ReplaceSpaces"})config.setValue(QString("DocumentNames/")+key,false);
         for(auto it=inherited.resolved_paths.cbegin();it!=inherited.resolved_paths.cend();++it)config.setValue("Paths/"+it.key(),it.value());
         config.setValue("Paths/WorkingDirectory",startup_directory);

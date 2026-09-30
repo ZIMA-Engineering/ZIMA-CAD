@@ -1977,5 +1977,9 @@
   "Celkové házení": "Полное биение",
   "ISO 2553 A — obě strany": "ISO 2553 A — обе стороны",
   "Základna": "База",
-  "Activate a Body before creating a Sketch": "Перед созданием эскиза активируйте Body"
+  "Activate a Body before creating a Sketch": "Перед созданием эскиза активируйте Body",
+  "Světlý": "Светлая",
+  "Tmavý": "Тёмная",
+  "Motiv aplikace": "Тема приложения",
+  "Motiv se řídí tímto nastavením, nikoli motivem operačního systému.": "Тема определяется этой настройкой, а не темой операционной системы."
 }

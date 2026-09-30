@@ -49,6 +49,12 @@ GlobalSettingsDialog::GlobalSettingsDialog(
     language_->setCurrentText(settings_.language);
     form->addRow(settings_.text("global.language", tr("Jazyk aplikace")), language_);
 
+    theme_=new QComboBox(this);theme_->setObjectName("globalApplicationTheme");
+    theme_->addItem(tr("Světlý"),"light");theme_->addItem(tr("Tmavý"),"dark");
+    theme_->setCurrentIndex(settings_.theme=="dark"?1:0);
+    theme_->setToolTip(tr("Motiv se řídí tímto nastavením, nikoli motivem operačního systému."));
+    form->addRow(tr("Motiv aplikace"),theme_);
+
     application_font_ = new QCheckBox(tr("Používat ISO font pro GUI"), this);
     application_font_->setObjectName("globalApplicationFont");
     application_font_->setChecked(settings_.use_iso_application_font);
@@ -215,6 +221,7 @@ bool GlobalSettingsDialog::submit() {
     settings_.drawing_pdf_directory=drawing_pdf_directory_->text().trimmed();
     settings_.drawing_dxf_directory=drawing_dxf_directory_->text().trimmed();
     settings_.language = language_->currentText();
+    settings_.theme=theme_->currentData().toString();
     settings_.use_iso_application_font =
         application_font_->isChecked();
     for (auto it = unit_fields_.cbegin(); it != unit_fields_.cend(); ++it) {

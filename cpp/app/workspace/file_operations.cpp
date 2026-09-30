@@ -725,6 +725,7 @@ void AssemblyWorkspaceWindow::show_global_settings() {
         application_settings_ = std::move(next);
         drawing_workspace_->set_formats_directory(application_settings_.resolved_paths.value("Formats"));
         if (!language_changed) apply_application_translations(*qApp, application_settings_);
+        apply_application_appearance(*qApp, application_settings_);
         apply_application_font(*qApp, application_settings_);
         const QString configured =
             application_settings_.resolved_paths.value("WorkingDirectory");

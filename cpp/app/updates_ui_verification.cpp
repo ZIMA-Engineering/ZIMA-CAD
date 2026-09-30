@@ -5,6 +5,8 @@
 #include <zima/viewer/mesh_view.hpp>
 #include <zima/drawing_render/sheet_renderer.hpp>
 #include <QFontInfo>
+#include <QStyle>
+#include <QStyleHints>
 #include <QRawFont>
 #include "aiprovider.h"
 #include "aipreferences.h"
@@ -140,9 +142,17 @@ int verify_updates_ui(QApplication& app, AssemblyWorkspaceWindow& window, const 
                 "Missing GUI font does not fall back to bundled ISO");
             zima::viewer::MeshView view(&window);
             QTemporaryDir temporary;
+            require(ApplicationSettings::load(temporary.path()).theme=="light","Missing theme did not default to light");
+            {
+                QSettings config(temporary.filePath("config.ini"),QSettings::IniFormat);
+                config.setValue("Application/Theme","automatic");config.sync();
+                require(ApplicationSettings::load(temporary.path()).theme=="light","Unsupported theme did not fall back to light");
+            }
             for (const QString language : {"cs","en","de","fr","ru"}) {
                 QSettings config(temporary.filePath("config.ini"),QSettings::IniFormat);
                 config.setValue("Application/Language",language);
+                config.setValue("Application/Theme","light");
+                config.setValue("Application/UseISOFont",false);
                 config.setValue("Paths/Localization",original.resolved_paths.value("Localization"));
                 config.sync();
                 auto settings=ApplicationSettings::load(temporary.path());
@@ -168,8 +178,36 @@ int verify_updates_ui(QApplication& app, AssemblyWorkspaceWindow& window, const 
                     dialog.buttons()->button(QDialogButtonBox::Cancel)->click();app.processEvents();
                 }
             }
-            apply_application_translations(app,original);apply_application_font(app,original);
-            std::cout<<"Fonts: system GUI, bundled fallback, independent technical views and five translated settings passed\n";
+            for(const QString language:{"cs","en","de","fr","ru"}) {
+                QSettings config(temporary.filePath("config.ini"),QSettings::IniFormat);
+                config.setValue("Application/Language",language);config.setValue("Application/Theme","light");config.sync();
+                auto settings=ApplicationSettings::load(temporary.path());
+                apply_application_translations(app,settings);
+                for(const QString theme:{"light","dark","light"}) {
+                    settings.theme=theme;apply_application_appearance(app,settings);app.processEvents();
+                    require(app.property("zimaFusionStyle").toBool()&&app.style()->objectName().compare("fusion",Qt::CaseInsensitive)==0,"Fusion style was not installed");
+                    require(app.palette().color(QPalette::Window)==QColor(theme=="dark"?"#292d32":"#f0f0f0"),"Explicit theme palette lost");
+#if QT_VERSION >= QT_VERSION_CHECK(6,8,0)
+                    require(app.styleHints()->colorScheme()==(theme=="dark"?Qt::ColorScheme::Dark:Qt::ColorScheme::Light),"Theme still follows the system");
+#endif
+                    require(view.font().family()==iso&&zima::drawing_render::drawing_font_family()==iso,"Theme changed technical ISO fonts");
+                    GlobalSettingsDialog dialog(settings,&window);dialog.setAttribute(Qt::WA_DeleteOnClose,false);
+                    dialog.show();app.processEvents();
+                    auto* choice=dialog.findChild<QComboBox*>("globalApplicationTheme");
+                    require(choice&&choice->count()==2&&choice->currentData()==theme,"Theme offers automatic selection or wrong value");
+                    require(choice->itemText(0)==settings.qt_translations.value("Světlý")&&choice->itemText(1)==settings.qt_translations.value("Tmavý"),"Theme choices not localized");
+                    require(dialog.grab().save(QString::fromStdU16String((directory/("fusion-"+theme.toStdString()+"-"+language.toStdString()+".png")).u16string())),"Cannot capture theme");
+                    choice->setCurrentIndex(theme=="dark"?0:1);
+                    dialog.buttons()->button(QDialogButtonBox::Cancel)->click();app.processEvents();
+                    require(ApplicationSettings::load(temporary.path()).theme=="light","Theme Cancel wrote configuration");
+                }
+                settings.theme="light";GlobalSettingsDialog accepted(settings,&window);accepted.setAttribute(Qt::WA_DeleteOnClose,false);
+                accepted.show();app.processEvents();accepted.findChild<QComboBox*>("globalApplicationTheme")->setCurrentIndex(1);
+                accepted.buttons()->button(QDialogButtonBox::Ok)->click();app.processEvents();
+                require(!accepted.isVisible()&&ApplicationSettings::load(temporary.path()).theme=="dark","Theme OK did not persist to global configuration");
+            }
+            apply_application_translations(app,original);apply_application_appearance(app,original);apply_application_font(app,original);
+            std::cout<<"Fonts and Fusion themes: system GUI, bundled fallback, independent technical views, explicit Light/Dark, persistence, Cancel and five languages passed\n";
             return 0;
         }
         verify_install_interactions(app, window);

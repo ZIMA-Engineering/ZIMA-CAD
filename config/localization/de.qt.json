@@ -1977,5 +1977,9 @@
   "Celkové házení": "Gesamtlauf",
   "ISO 2553 A — obě strany": "ISO 2553 A — beide Seiten",
   "Základna": "Bezug",
-  "Activate a Body before creating a Sketch": "Aktivieren Sie vor dem Erstellen eines Sketches einen Body"
+  "Activate a Body before creating a Sketch": "Aktivieren Sie vor dem Erstellen eines Sketches einen Body",
+  "Světlý": "Hell",
+  "Tmavý": "Dunkel",
+  "Motiv aplikace": "Anwendungsdesign",
+  "Motiv se řídí tímto nastavením, nikoli motivem operačního systému.": "Das Design richtet sich nach dieser Einstellung und nicht nach dem Design des Betriebssystems."
 }
