@@ -14,6 +14,8 @@ class AssemblySession {
 public:
     explicit AssemblySession(AssemblyDocument document);
     AssemblySession(const AssemblySession&);
+    // Private read/calculation snapshot only; never publish over a live Undo session.
+    [[nodiscard]] AssemblySession current_state_copy() const;
     AssemblySession& operator=(const AssemblySession&);
     AssemblySession(AssemblySession&&) noexcept = default;
     AssemblySession& operator=(AssemblySession&&) noexcept = default;
@@ -42,6 +44,7 @@ public:
     void mark_saved();
 
 private:
+    AssemblySession(const AssemblySession&, bool include_history);
     struct State {
         AssemblyDocument document;
         std::uint64_t revision{};

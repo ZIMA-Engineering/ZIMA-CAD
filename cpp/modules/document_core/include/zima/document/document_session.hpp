@@ -30,6 +30,8 @@ public:
         std::vector<zima::kernel::BodyResult> calculated_boundaries = {});
 
     DocumentSession(const DocumentSession&);
+    // Private read/calculation snapshot only; never publish over a live Undo session.
+    [[nodiscard]] DocumentSession current_state_copy() const;
     DocumentSession& operator=(const DocumentSession&);
     DocumentSession(DocumentSession&&) noexcept = default;
     DocumentSession& operator=(DocumentSession&&) noexcept = default;
@@ -78,6 +80,7 @@ public:
     void mark_saved();
 
 private:
+    DocumentSession(const DocumentSession&, bool include_history);
     struct State {
         PartDocument document;
         std::vector<zima::kernel::BodyResult> calculated_boundaries;

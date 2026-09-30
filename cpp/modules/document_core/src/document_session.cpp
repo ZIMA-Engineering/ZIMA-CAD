@@ -106,9 +106,11 @@ DocumentSession::States DocumentSession::copy_states(const States& states) {
     for(const auto& state:states)result.push_back(std::make_unique<State>(*state));
     return result;
 }
-DocumentSession::DocumentSession(const DocumentSession& other)
+DocumentSession::DocumentSession(const DocumentSession& other) : DocumentSession(other,true) {}
+DocumentSession DocumentSession::current_state_copy() const {return DocumentSession(*this,false);}
+DocumentSession::DocumentSession(const DocumentSession& other,bool include_history)
     : data_generation_(other.data_generation_), current_(std::make_unique<State>(*other.current_)),
-      undo_(copy_states(other.undo_)), redo_(copy_states(other.redo_)),
+      undo_(include_history?copy_states(other.undo_):States{}), redo_(include_history?copy_states(other.redo_):States{}),
       next_revision_(other.next_revision_), saved_revision_(other.saved_revision_),
       saved_dimension_allocations_(other.saved_dimension_allocations_) {}
 DocumentSession& DocumentSession::operator=(const DocumentSession& other) {

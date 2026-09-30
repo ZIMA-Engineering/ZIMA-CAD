@@ -57,9 +57,11 @@ AssemblySession::States AssemblySession::copy_states(const States& states) {
     for(const auto& state:states)result.push_back(std::make_unique<State>(*state));
     return result;
 }
-AssemblySession::AssemblySession(const AssemblySession& other)
+AssemblySession::AssemblySession(const AssemblySession& other) : AssemblySession(other,true) {}
+AssemblySession AssemblySession::current_state_copy() const {return AssemblySession(*this,false);}
+AssemblySession::AssemblySession(const AssemblySession& other,bool include_history)
     : data_generation_(other.data_generation_),current_(std::make_unique<State>(*other.current_)),
-      undo_(copy_states(other.undo_)),redo_(copy_states(other.redo_)),next_revision_(other.next_revision_),
+      undo_(include_history?copy_states(other.undo_):States{}),redo_(include_history?copy_states(other.redo_):States{}),next_revision_(other.next_revision_),
       saved_revision_(other.saved_revision_),saved_dimension_allocations_(other.saved_dimension_allocations_) {}
 AssemblySession& AssemblySession::operator=(const AssemblySession& other) {
     if(this!=&other){AssemblySession copy(other);*this=std::move(copy);}return *this;

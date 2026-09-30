@@ -12,6 +12,7 @@
 #include <algorithm>
 #include <iostream>
 #include <cmath>
+#include <chrono>
 using namespace zima;using commands::Json;namespace fs=std::filesystem;
 namespace {
 void require(bool yes,const char* text){if(!yes)throw std::runtime_error(text);}
@@ -20,6 +21,43 @@ commands::Result run(command_host::Host& host,const char* name,Json args=Json::o
 }
 double width(const drawing::DrawingView& view){double low=1e100,high=-1e100;for(const auto& t:view.projected_triangles)for(auto p:t.points){low=std::min(low,p.x);high=std::max(high,p.x);}return high-low;}
 void near(double a,double b){require(std::abs(a-b)<1e-6,"Projected size or dimension differs from the analytical box size");}
+void verify_current_state_snapshots(const kernel::OcctKernel& kernel) {
+    auto part=document::PartDocument::create_default();auto box=test::rectangular_feature(part,{20,10,6});part.history={box};
+    auto geometry=kernel.evaluate_history(part.kernel_operations());
+    document::DocumentSession part_session(part,geometry);
+    auto assembly=assembly::AssemblyDocument::create_default();
+    for(int i=0;i<64;++i)assembly.components.push_back(assembly::AssemblyDocument::create_part_occurrence(
+        "Repeated "+std::to_string(i),part.document_id,{},geometry.back()));
+    assembly::AssemblySession assembly_session(assembly);
+    for(int i=0;i<40;++i) {
+        part.name="Unsaved "+std::to_string(i);part_session.commit(part,geometry);
+        assembly.name="Unsaved "+std::to_string(i);assembly_session.commit(assembly);
+    }
+    require(part_session.undo()&&assembly_session.undo(),"Cannot prepare snapshot Redo fixture");
+    const auto check=[&](auto& original) {
+        auto copy=original.current_state_copy();
+        require(copy.revision()==original.revision()&&copy.data_generation()==original.data_generation()&&
+            copy.is_dirty()==original.is_dirty()&&!copy.can_undo()&&!copy.can_redo(),"Read snapshot lost current metadata or copied history");
+        require(copy.document().serialized()==original.document().serialized(),"Read snapshot changed current document");
+        auto changed=copy.document();changed.name="Private edit";copy.commit(changed);
+        require(original.document().name!="Private edit"&&original.can_undo()&&original.can_redo(),"Private snapshot mutated live state or history");
+        double full_ms=0,current_ms=0;std::size_t sum=0;
+        for(int repeat=0;repeat<5;++repeat) {
+            auto start=std::chrono::steady_clock::now();
+            for(int i=0;i<20;++i){auto full=original;sum+=full.revision();}
+            full_ms+=std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-start).count();
+            start=std::chrono::steady_clock::now();
+            for(int i=0;i<20;++i){auto current=original.current_state_copy();sum+=current.revision();}
+            current_ms+=std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-start).count();
+        }
+        require(sum>0,"Snapshot benchmark did no work");
+        std::cout<<"Snapshot 40 history states, 20 copies/sample: full_ms="<<full_ms/5<<" current_ms="<<current_ms/5<<"\n";
+    };
+    check(part_session);check(assembly_session);
+    auto snapshot=part_session.current_state_copy();
+    require(snapshot.calculated_boundaries().size()==geometry.size()&&snapshot.calculated_boundaries().back().kernel_shape==geometry.back().kernel_shape,
+        "Read snapshot lost calculated source geometry");
+}
 void verify_projection_reuse(const kernel::OcctKernel& kernel,const fs::path& dir) {
     auto part=document::PartDocument::create_default();auto box=zima::test::rectangular_feature(part,{20,10,6});part.history={box};
     static_cast<void>(test::family_length_binding(part,box));
@@ -27,8 +65,13 @@ void verify_projection_reuse(const kernel::OcctKernel& kernel,const fs::path& di
     const auto path=dir/"reuse.prtz";
     workspace::Workspace live;live.add_part(part,calculated,path);
     drawing::DrawingView original;original.id="reuse-view";original.source_document_id=part.document_id;original.source_path=path;
+    auto& session=live.open_part(part.document_id)->session;
+    for(int i=0;i<8;++i)session.commit(part,calculated);
+    require(session.undo(),"Projection fixture has no history");
+    const auto generation=session.data_generation();
     workspace::DrawingProjection preview(&live,dir/"reuse.drwz");preview.project(original,{});
     require(preview.calculated_camera_count()==1,"Initial projection not calculated");
+    require(session.data_generation()==generation&&session.can_undo()&&session.can_redo(),"Projection changed live history or generation");
     workspace::DrawingProjection interactive(&live,dir/"interactive.drwz");auto display=original;interactive.project(display,{.interactive=true});
     require(interactive.calculated_camera_count()==0&&display.output_source,"Interactive view calculated exact output or lost its source snapshot");
     require(!display.projected_edges.empty()&&std::ranges::all_of(display.projected_edges,[](const auto& e){return e.vertex_depths.size()==e.points.size();}),"Interactive geometry lacks per-vertex depth");
@@ -357,4 +400,4 @@ void verify_projected_lengths() {
         }
 }
 int main(){try{
-    verify_projected_lengths();verify_annotation_guides();kernel::OcctKernel kernel;const auto root=fs::canonical(fs::temp_directory_path());const auto dir=root/("zima-drawing-view-"+document::PartDocument::create_default().document_id);fs::create_directory(dir);verify_projection_reuse(kernel,dir);verify_breaks(dir);verify(kernel,dir);verify_editing(kernel,dir);require(dir.parent_path()==root,"Unsafe cleanup");fs::remove_all(dir);std::cout<<"Drawing view snapshots, original references, parent-first regeneration, dimensions, native sources and deletion passed\n";return 0;}catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}
+    verify_projected_lengths();verify_annotation_guides();kernel::OcctKernel kernel;const auto root=fs::canonical(fs::temp_directory_path());const auto dir=root/("zima-drawing-view-"+document::PartDocument::create_default().document_id);fs::create_directory(dir);verify_current_state_snapshots(kernel);verify_projection_reuse(kernel,dir);verify_breaks(dir);verify(kernel,dir);verify_editing(kernel,dir);require(dir.parent_path()==root,"Unsafe cleanup");fs::remove_all(dir);std::cout<<"Drawing view snapshots, original references, parent-first regeneration, dimensions, native sources and deletion passed\n";return 0;}catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}

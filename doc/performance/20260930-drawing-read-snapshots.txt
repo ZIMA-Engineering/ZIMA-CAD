@@ -1,0 +1,3 @@
+Snapshot 40 history states, 20 copies/sample: full_ms=56.1292 current_ms=0.49084
+Snapshot 40 history states, 20 copies/sample: full_ms=113.126 current_ms=1.05054
+Drawing view snapshots, original references, parent-first regeneration, dimensions, native sources and deletion passed

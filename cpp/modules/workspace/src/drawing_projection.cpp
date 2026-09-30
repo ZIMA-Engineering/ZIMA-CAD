@@ -101,10 +101,18 @@ struct DrawingProjection::Impl {
         if(const auto found=sources.find(key);found!=sources.end())return finish(*found->second);
         if(!loaded){
             loaded.emplace();
-            // Projection reads model sources, never Drawing history. Keep live
-            // Part/Assembly states without copying every drawing Undo record.
-            if(workspace)for(const auto& state:workspace->documents())
-                if(!std::holds_alternative<DrawingState>(state))loaded->documents().push_back(state);
+            // Projection consumes only current model states. Preserve metadata and
+            // calculated sources, without copying unrelated Undo/Redo histories.
+            if(workspace)for(const auto& state:workspace->documents())std::visit([&](const auto& item) {
+                using T=std::decay_t<decltype(item)>;
+                if constexpr(std::is_same_v<T,PartState>)
+                    loaded->documents().emplace_back(PartState{item.session.current_state_copy(),item.path,
+                        item.source_geometry,item.source_generation,item.runtime_identity,item.background_import_source,
+                        item.native_drawing_template,item.symbol_definition});
+                else if constexpr(std::is_same_v<T,AssemblyState>)
+                    loaded->documents().emplace_back(AssemblyState{item.session.current_state_copy(),item.path,
+                        item.runtime_identity,item.background_import_source});
+            },state);
         }
         // Read the root once per edit session. The private workspace preserves
         // live unsaved sources and never opens tabs or publishes changes.

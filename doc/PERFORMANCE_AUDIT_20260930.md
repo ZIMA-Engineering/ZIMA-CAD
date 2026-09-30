@@ -27,6 +27,10 @@ equivalence. General prefix reuse remains unimplemented.
 The [A13 icon-cache follow-up](performance/20260930-icon-cache.md) records
 lookup before SVG reads, exact pixel comparisons and its limited microbenchmark.
 
+The [A10 current-state snapshot follow-up](performance/20260930-drawing-read-snapshots.md)
+records removal of Undo/Redo copies during read-only Drawing source preparation.
+General atomic Workspace staging and dependency-specific invalidation are unchanged.
+
 The first investigation should target large Sketch dimension edits. The existing
 Release benchmark exposes a severe scaling problem. The next priorities are
 Assembly scene construction and picking, then avoiding complete scene/Tree
