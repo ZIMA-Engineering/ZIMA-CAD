@@ -2,6 +2,14 @@
 
 ## Scope and status
 
+Windows build **2026093002** is signed, published and verified. It restores
+Sheet Transition preview bend boundaries, relieves both complete rectangular-end
+corners and updates File shortcuts, including F12 for the working directory.
+Focused geometry/UI/localization checks, clean candidate and signed smoke,
+production trust, three packaged GUI contracts, public asset hashes and update
+discovery from 2026092905 passed. See [the release record](releases/2026093002.md)
+for exact scope and the remaining broader GUI-test limitations.
+
 Linux build **2026093001** is signed, published and verified for Debian 13 x86_64
 and KDE/Wayland. It prepares Drawing measurement picking, preserves automatic
 point-pair direction switching and avoids rebuilding placement controls during
