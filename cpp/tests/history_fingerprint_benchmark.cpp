@@ -53,11 +53,17 @@ int main(int argc,char** argv) {
         for(int sides:{4,64})for(int count:{32,128}) {
             const auto operations=fixture(count,sides);
             std::vector<std::string> fingerprints(count+2);
-            const auto start=std::chrono::steady_clock::now();
-            for(int repeat=0;repeat<3;++repeat)
-                for(int prefix=0;prefix<=count+1;++prefix)
-                    fingerprints[prefix]=history_fingerprint(operations,prefix);
-            const double ms=std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-start).count()/3;
+            double single_ms=0,ms=0;
+            for(int repeat=0;repeat<5;++repeat) {
+                auto start=std::chrono::steady_clock::now();
+                for(int prefix=0;prefix<=count+1;++prefix)fingerprints[prefix]=history_fingerprint(operations,prefix);
+                single_ms+=std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-start).count()/5;
+                start=std::chrono::steady_clock::now();
+                const auto batch=history_fingerprints(operations);
+                ms+=std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-start).count()/5;
+                for(int prefix=0;prefix<=count+1;++prefix)require(fingerprints[prefix]==batch[std::min(prefix,count)],"Batch changed a persisted prefix fingerprint");
+            }
+            std::cout<<"single_prefixes_ms="<<single_ms<<" ";
             require(fingerprints[count]==fingerprints[count+1],"Prefix clamp changed");
             if(snapshot.is_open()) {
                 snapshot<<sides<<' '<<count<<'\n';
@@ -81,6 +87,7 @@ int main(int argc,char** argv) {
         const auto changed=[&](auto edit) {
             auto copy=operations; edit(copy);
             const auto fingerprint=history_fingerprint(copy,2);
+            require(history_fingerprints(copy).back()==fingerprint,"Batched invalidation differs from single prefix");
             require(fingerprint!=original,"Changed history input was not detected");
             require(fingerprint==expected.at(case_index++),"Fingerprint encoding changed");
             if(snapshot.is_open())snapshot<<fingerprint<<'\n';

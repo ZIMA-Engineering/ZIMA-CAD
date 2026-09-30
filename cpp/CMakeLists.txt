@@ -126,8 +126,8 @@ target_link_libraries(zima_ai PUBLIC zima_commands Qt6::Gui)
 set_target_properties(zima_ai PROPERTIES AUTOMOC ON AUTORCC ON)
 target_compile_options(zima_ai PRIVATE $<$<CXX_COMPILER_ID:MSVC>:/utf-8>)
 
-add_library(zima_kernel_api INTERFACE)
-target_include_directories(zima_kernel_api INTERFACE
+add_library(zima_kernel_api STATIC modules/kernel_api/src/history_fingerprint.cpp)
+target_include_directories(zima_kernel_api PUBLIC
     modules/kernel_api/include)
 
 # Embed the same licensed font as the Qt resources; headless modeling must
@@ -798,6 +798,10 @@ if(ZIMA_BUILD_TESTS)
     target_link_libraries(zima_cpp_workspace_contract_tests PRIVATE
         zima_workspace zima_kernel_occt)
     add_test(NAME zima_cpp_workspace_contract_tests COMMAND zima_cpp_workspace_contract_tests)
+    add_executable(zima_cpp_sketch_serialization_tests tests/sketch_serialization_tests.cpp)
+    target_link_libraries(zima_cpp_sketch_serialization_tests PRIVATE zima_sketcher zima_symbols)
+    target_compile_options(zima_cpp_sketch_serialization_tests PRIVATE $<$<CXX_COMPILER_ID:MSVC>:/utf-8>)
+    add_test(NAME zima_cpp_sketch_serialization_tests COMMAND zima_cpp_sketch_serialization_tests)
     add_executable(zima_cpp_sketcher_contract_tests tests/sketcher_contract_tests.cpp)
     target_link_libraries(zima_cpp_sketcher_contract_tests PRIVATE
         zima_sketcher zima_viewer zima_document_core)

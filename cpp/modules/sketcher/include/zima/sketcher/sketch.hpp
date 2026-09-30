@@ -4,6 +4,7 @@
 #include <zima/sketcher/template_image.hpp>
 #include <zima/sketcher/symbol_instance.hpp>
 
+#include <nlohmann/json_fwd.hpp>
 #include <filesystem>
 #include <map>
 #include <array>
@@ -744,6 +745,9 @@ public:
     [[nodiscard]] std::optional<std::array<double, 2>> intersect_ray(
         const zima::kernel::Vec3& origin,
         const zima::kernel::Vec3& direction) const;
+    // Native containers can embed the validated packet without a text round trip.
+    [[nodiscard]] nlohmann::json serialized_json() const;
+    [[nodiscard]] static Sketch from_serialized_json(const nlohmann::json&);
     [[nodiscard]] std::string serialized() const;
     [[nodiscard]] static Sketch from_serialized(const std::string& value);
     void save(const std::filesystem::path& path) const;

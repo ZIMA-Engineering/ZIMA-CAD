@@ -58,9 +58,8 @@ std::vector<std::filesystem::path> Workspace::save_copy(
                 std::map<std::string,std::string> fingerprints;
                 const auto map_prefixes=[&](const auto& before,const auto& after) {
                     if (before.size()!=after.size()) throw std::runtime_error("Kopie změnila historii modelu.");
-                    for (std::size_t i=1;i<=before.size();++i)
-                        fingerprints[zima::kernel::history_fingerprint(before,i)]=
-                            zima::kernel::history_fingerprint(after,i);
+                    const auto old_keys=zima::kernel::history_fingerprints(before),new_keys=zima::kernel::history_fingerprints(after);
+                    for (std::size_t i=1;i<=before.size();++i)fingerprints[old_keys[i]]=new_keys[i];
                 };
                 map_prefixes(old_ops,new_ops);
                 std::map<std::string,std::vector<zima::kernel::HistoryOperation>> old_branches,new_branches;

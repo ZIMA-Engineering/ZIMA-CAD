@@ -11133,7 +11133,7 @@ PartDocument PartDocument::from_serialized(const nlohmann::json& root,
     }
     std::unordered_set<std::string> sketch_ids;
     for (const auto& source : root.at("sketches")) {
-        auto sketch = zima::sketcher::Sketch::from_serialized(source.dump());
+        auto sketch = zima::sketcher::Sketch::from_serialized_json(source);
         if (!sketch_ids.insert(sketch.id).second) {
             throw std::runtime_error("Sketch IDs must be unique in a Part");
         }
@@ -11229,13 +11229,13 @@ PartDocument PartDocument::from_serialized(const nlohmann::json& root,
         throw std::runtime_error(
             "Calculated history boundaries do not match document history");
     }
+    const auto loaded_fingerprints=loaded_boundaries.empty()?std::vector<std::string>{}:zima::kernel::history_fingerprints(expected_operations);
     std::unordered_set<std::string> available_owners;
     for (std::size_t boundary_index = 0;
          boundary_index < loaded_boundaries.size(); ++boundary_index) {
         available_owners.insert(expected_operations[boundary_index].owner_id);
         if (loaded_boundaries[boundary_index].source_fingerprint !=
-            zima::kernel::history_fingerprint(
-                expected_operations, boundary_index + 1)) {
+            loaded_fingerprints.at(boundary_index+1)) {
             throw std::runtime_error(
                 "Calculated history boundary does not match its parameters");
         }
@@ -12032,9 +12032,10 @@ nlohmann::json PartDocument::serialized(
         throw std::runtime_error(
             "Calculated history boundaries do not match document history");
     }
+    const auto saved_fingerprints=calculated_boundaries.empty()?std::vector<std::string>{}:zima::kernel::history_fingerprints(expected_operations);
     for (std::size_t index = 0; index < calculated_boundaries.size(); ++index) {
         if (calculated_boundaries[index].source_fingerprint !=
-            zima::kernel::history_fingerprint(expected_operations, index + 1)) {
+            saved_fingerprints.at(index+1)) {
             throw std::runtime_error(
                 "Calculated history boundary does not match its parameters");
         }
@@ -12084,7 +12085,7 @@ nlohmann::json PartDocument::serialized(
         if (sketch.id.empty() || !sketch_ids.insert(sketch.id).second) {
             throw std::runtime_error("Sketch IDs must be non-empty and unique in a Part");
         }
-        serialized_sketches.push_back(nlohmann::json::parse(sketch.serialized()));
+        serialized_sketches.push_back(sketch.serialized_json());
     }
     auto serialized_constructions = nlohmann::json::parse(
         serialize_construction_objects(constructions));

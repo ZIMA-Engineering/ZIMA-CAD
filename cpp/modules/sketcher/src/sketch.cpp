@@ -13358,7 +13358,9 @@ zima::kernel::Vec3 Sketch::y_axis() const {
     return active_sketch_frame(*this).y_axis;
 }
 
-std::string Sketch::serialized() const {
+std::string Sketch::serialized() const {return serialized_json().dump(2);}
+
+nlohmann::json Sketch::serialized_json() const {
     validate();
     nlohmann::json point_values = nlohmann::json::array();
     for (const auto& point : points) point_values.push_back({
@@ -13566,11 +13568,14 @@ std::string Sketch::serialized() const {
         root["drawing_template"] = {{"kind",data.kind},{"sections",data.sections},
             {"pens",data.pens},{"field_ids",data.field_ids},{"repeat_regions",regions},{"images",data.images}};
     }
-    return root.dump(2);
+    return root;
 }
 
 Sketch Sketch::from_serialized(const std::string& value) {
-    const auto root = nlohmann::json::parse(value);
+    return from_serialized_json(nlohmann::json::parse(value));
+}
+
+Sketch Sketch::from_serialized_json(const nlohmann::json& root) {
     if (root.at("format") != "zima-cad-cpp-sketch" || root.at("version") != 35) {
         throw std::runtime_error("Unsupported sketch format");
     }
