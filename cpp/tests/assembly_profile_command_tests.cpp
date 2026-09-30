@@ -2,6 +2,7 @@
 #include "assembly_profile_test_support.hpp"
 #include <zima/command_host/host.hpp>
 #include <zima/workspace/profile_operations.hpp>
+#include <zima/workspace/placement_edit.hpp>
 #include <algorithm>
 #include <cmath>
 #include <iostream>
@@ -167,6 +168,14 @@ void references(const kernel::OcctKernel& kernel,const fs::path& directory,bool 
     f.reject(command.c_str(),bad,"reference_not_found");
     auto locked=f.doc().find_cut(cut)->definition;locked.placement.references.front().offset_locked=true;
     workspace::commit_assembly_profile(f.live,kernel,f.owner,locked,{f.first},workspace::ProfileEditMode::Replace);
+    near(f.doc().find_cut(cut)->definition.placement.z,3);
+    const auto edit_geometry=workspace::placement_edit_geometry(f.live,f.owner,cut);
+    const auto& placement=f.doc().find_cut(cut)->definition.placement;
+    const auto measured=document::measure_placement_reference_offset(placement.references.front(),
+        edit_geometry,{placement.x,placement.y,placement.z});
+    require(measured.has_value(),"Locked nested plane distance is unavailable");
+    // The leaf cap is at Z=5, its parent adds 2, and the cutter stays at 3.
+    near(*measured,3-(5+2));
     request["offset_mm"]=99;f.run(command.c_str(),request);near(f.doc().find_cut(cut)->definition.placement.z,3);
     require(f.doc().find_cut(cut)->definition.placement.references.front().offset_locked,"Reference input removed the locked offset");
     require(f.live.open_part(f.source)->session.revision()==source_revision&&

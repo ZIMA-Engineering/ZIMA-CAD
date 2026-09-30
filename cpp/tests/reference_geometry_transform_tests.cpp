@@ -1,4 +1,5 @@
 #include <zima/workspace/reference_sources.hpp>
+#include <zima/workspace/placement_edit.hpp>
 #include <iostream>
 #include <cmath>
 using namespace zima;
@@ -6,6 +7,50 @@ namespace {
 void require(bool value,const char* message){if(!value)throw std::runtime_error(message);}
 void near(double actual,double expected){if(std::abs(actual-expected)>1e-10)throw std::runtime_error("Incorrect original reference coordinate");}
 void near(kernel::Vec3 actual,kernel::Vec3 expected){near(actual.x,expected.x);near(actual.y,expected.y);near(actual.z,expected.z);}
+void verify_assembly_placement_frame() {
+    kernel::BodyResult body;
+    auto surface=std::make_shared<kernel::SurfaceGeometry>();
+    surface->kind=kernel::SurfaceGeometry::Kind::Plane;
+    surface->origin={0,0,5};surface->axis={0,0,1};surface->radial={1,0,0};
+    body.mesh.vertices={{0,0,5},{1,0,5},{0,1,5}};body.mesh.triangles={0,1,2};
+    body.mesh.triangle_references={{"source","cap","",surface}};
+    body.mesh.original_references.vertices=body.mesh.vertices;
+    body.mesh.original_references.triangles=body.mesh.triangles;
+    body.mesh.original_references.triangle_references=body.mesh.triangle_references;
+    auto sub=assembly::AssemblyDocument::create_default();
+    auto leaf=assembly::AssemblyDocument::create_part_occurrence("leaf","source",{},body);
+    leaf.placement.x=10;leaf.placement.rotation_y=90;sub.components.push_back(leaf);
+    auto top=assembly::AssemblyDocument::create_default();
+    auto first=assembly::AssemblyDocument::create_assembly_occurrence("first",sub.document_id,{},sub);
+    first.placement.x=20;first.placement.y=30;first.placement.z=40;first.placement.rotation_z=90;
+    auto second=first;second.occurrence_id="second";
+    second.placement.x=100;second.placement.y=200;second.placement.z=300;second.placement.rotation_z=-90;
+    top.components={first,second};
+    workspace::Workspace live;live.add_assembly(top,{});
+    const auto revision=live.open_assembly(top.document_id)->session.data_generation();
+    const auto geometry=workspace::placement_edit_geometry(live,top.document_id,"");
+    for(int i=0;i<2;++i) {
+        const auto path=assembly::InstancePath{}.child(top.components[i].occurrence_id).child(leaf.occurrence_id).encoded();
+        const kernel::Vec3 anchor=i==0?kernel::Vec3{20,45,40}:kernel::Vec3{100,185,300};
+        const kernel::Vec3 normal=i==0?kernel::Vec3{0,1,0}:kernel::Vec3{0,-1,0};
+        const auto found=std::ranges::find_if(geometry.triangle_references,[&](const auto& ref){return ref.instance_path==path&&ref.owner_id=="source"&&ref.semantic_key=="cap";});
+        require(found!=geometry.triangle_references.end()&&found->surface,"Nested placement face lost its exact identity");
+        near(found->surface->origin,anchor);near(found->surface->axis,normal);
+        for(double distance:{-4.,-0.,0.,3.}) {
+            document::ConstructionReference ref;ref.owner_id="source";ref.semantic_key="cap";ref.instance_path=path;ref.supports_offset=true;ref.offset=distance;
+            const kernel::Vec3 point{anchor.x+normal.x*distance,anchor.y+normal.y*distance,anchor.z+normal.z*distance};
+            const auto measured=document::measure_placement_reference_offset(ref,geometry,point);
+            require(measured.has_value(),"Rotated nested plane distance unavailable");near(*measured,distance);
+            document::Placement placement;placement.x=point.x;placement.y=point.y;placement.z=point.z;placement.references={ref};
+            require(document::resolve_placement(placement,geometry),"Rotated nested plane did not resolve");
+            near({placement.x,placement.y,placement.z},point);
+            require(std::signbit(placement.references.front().offset)==std::signbit(distance),"Placement query changed the authored offset side");
+        }
+    }
+    near(surface->origin,{0,0,5});near(surface->axis,{0,0,1});
+    require(live.open_assembly(top.document_id)->session.data_generation()==revision&&!live.open_assembly(top.document_id)->session.can_undo(),
+        "Placement geometry query changed document history");
+}
 void verify() {
     kernel::ViewerReferenceGeometry source;
     kernel::ViewerEdge spline;spline.reference={"source","curve",""};spline.points={{1,0,0},{0,1,0}};
@@ -57,4 +102,4 @@ void verify() {
     require(rejected,"Malformed persisted triangle index was accepted");
 }
 }
-int main(){try{verify();std::cout<<"Original identity, sparse geometry, rational poles, source face frames and invalid packets passed\n";return 0;}catch(const std::exception& error){std::cerr<<error.what()<<'\n';return 1;}}
+int main(){try{verify();verify_assembly_placement_frame();std::cout<<"Original identity, sparse geometry, rational poles, source face frames and invalid packets passed\n";return 0;}catch(const std::exception& error){std::cerr<<error.what()<<'\n';return 1;}}

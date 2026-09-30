@@ -283,7 +283,10 @@ kernel::ViewerReferenceGeometry placement_edit_geometry(const Workspace& live,
         const auto& before = state->session.document();
         document::PartDocument carrier;
         carrier.document_id = before.document_id; carrier.constructions = before.constructions;
-        auto geometry = before.build_scene().original_references;
+        // Placement measurements and equations use the Assembly frame. Ordinary
+        // scene surfaces remain leaf-local for mates; reuse the existing frame
+        // conversion without changing that packet or its persisted identities.
+        auto geometry = before.build_drawing_scene().original_references;
         append_reference_geometry(geometry, before.origin_viewer_mesh().original_references);
         return carrier.construction_reference_geometry_for(object, std::move(geometry));
     }

@@ -59,6 +59,10 @@ follow-up does not replace the immutable Windows 2026093004 archive.
 
 ### Validation result and existing limitation
 
+Follow-up: the [locked-offset frame correction](../ASSEMBLY_LOCKED_OFFSET_DIAGNOSIS.md)
+resolves the independent failure below after explicit shared-placement approval.
+The complete Assembly profile contract passes with that subsequent correction.
+
 Eight focused contracts passed: Workspace, Family, file rename, component
 properties, translations, Feature GUI, Relation picker GUI and presentation
 refresh GUI. The Feature/Relation checks also cover the accompanying change to
