@@ -5,9 +5,9 @@
 "Hloubka zářezu":"Kerbtiefe",
 "Osy ohybů pouze na koncích":"Biegeachsen nur an den Enden",
 "Délka konce osy":"Länge der Achsenenden",
-"Odlehčit obdélníkové konce vybraných ohybů":"Ausgewählte Biegungen am rechteckigen Ende freistellen",
+"Odlehčit oba rohy na obdélníkovém konci":"Beide Ecken am rechteckigen Ende freistellen",
 "Hloubka odlehčení":"Freistellungstiefe",
-"Čísla ohybů jsou v náhledu. Změna počtu plošek zruší výběr odlehčení.":"Die Biegenummern erscheinen in der Vorschau. Eine Änderung der Facettenanzahl löscht die Freistellungsauswahl.",
+"Odlehčení souvisle zkrátí oba rohy včetně plošek mezi ohyby. Hloubka se měří kolmo k obdélníkovému konci.":"Die Freistellung kürzt beide Ecken einschließlich der Flächen zwischen den Biegungen durchgehend. Die Tiefe wird senkrecht zum rechteckigen Ende gemessen.",
 "Ohyb %1":"Biegung %1",
 
 "Koncová rovina":"Endebene",

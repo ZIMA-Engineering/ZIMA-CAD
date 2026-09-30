@@ -244,6 +244,7 @@ int verify_translations(QApplication& application, QWidget& parent) {
             app::SheetTransitionDialog transition(feature,[](auto){},&parent);
             transition.setAttribute(Qt::WA_DeleteOnClose,false);transition.show();application.processEvents();
             check(transition.windowTitle()==settings.qt_translations.value("Vlastnosti přechodu plechu"),"Transition title is untranslated");
+            check(transition.findChild<QCheckBox*>("transitionReliefs")->text()==settings.qt_translations.value("Odlehčit oba rohy na obdélníkovém konci"),"Collective corner relief is untranslated");
             check(transition.findChild<QPushButton*>("transitionSketch0")->text()==settings.qt_translations.value("Skica půlkruhu"),"Transition profile prompt is untranslated");
             transition.hide();
             auto rectangular_feature=document::create_sheet_transition(true);
@@ -426,7 +427,7 @@ int verify_translations(QApplication& application, QWidget& parent) {
             check(found,"Derived circle plane UI missing in language test");
         }
         check(app::standard_view_label("front")==settings.qt_translations.value("Front – XZ"),"Normal and Drawing view labels differ after language change");
-        for(const auto* key:{"Ohyb","Create or edit a Bend.","Koncová rovina","Odstranit pohled","Zářezy na koncích ohybů","Osy ohybů pouze na koncích","Odlehčit obdélníkové konce vybraných ohybů","Výroba"})check(QObject::tr(key)==settings.qt_translations.value(QString::fromUtf8(key)),"Transition/view label is untranslated");
+        for(const auto* key:{"Ohyb","Create or edit a Bend.","Koncová rovina","Odstranit pohled","Zářezy na koncích ohybů","Osy ohybů pouze na koncích","Odlehčit oba rohy na obdélníkovém konci","Výroba"})check(QObject::tr(key)==settings.qt_translations.value(QString::fromUtf8(key)),"Transition/view label is untranslated");
         std::cout << "Translations verified: " << languages[language].toStdString() << '\n';
     }
     auto settings = load("en");

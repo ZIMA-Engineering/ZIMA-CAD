@@ -19,18 +19,10 @@ research::transition::SheetOptions marking_options(const HistoryContainer& featu
          std::isfinite(p.rectangle_relief_depth)&&p.rectangle_relief_depth>0))throw std::invalid_argument("Invalid transition sheet parameters");
     research::transition::SheetOptions result{p.thickness,p.inside_radius,p.k_factor};
     if(p.end_notches)result.end_notch_depth=p.end_notch_depth;
-    if(p.rectangle_reliefs) {
-        result.rectangle_relief_depth=p.rectangle_relief_depth;
-        const auto keys=sheet_transition_bend_keys(feature);
-        for(const auto& selected:p.relieved_bends) {
-            const auto found=std::ranges::find(keys,selected);
-            if(found==keys.end())throw std::invalid_argument("Invalid transition sheet parameters");
-            result.rectangle_relief_bends.insert(static_cast<std::size_t>(found-keys.begin()));
-        }
-    }
+    if(p.rectangle_reliefs)result.rectangle_relief_depth=p.rectangle_relief_depth;
     return result;
 }
-kernel::ViewerMesh transition_material_wire(const research::transition::SheetResult& sheet,bool labels) {
+kernel::ViewerMesh transition_material_wire(const research::transition::SheetResult& sheet) {
     kernel::ViewerMesh result;
     const auto line=[&](kernel::Vec3 a,kernel::Vec3 b) {
         kernel::ViewerEdge edge;edge.points={a,b};result.edges.push_back(std::move(edge));
@@ -47,8 +39,6 @@ kernel::ViewerMesh transition_material_wire(const research::transition::SheetRes
             const double low=std::max(0.,std::min(u,v)),high=std::min(1.,std::max(u,v));
             if(high>low)covered.emplace_back(low,high);
         };
-        for(const auto& bend:sheet.bends)for(const auto* section:{&bend.sections.front(),&bend.sections.back()})
-            cover((*section)[inner?3:0],(*section)[inner?2:1]);
         for(const auto& other:sheet.panels) {
             if(&other==&panel||dot(other.inward,panel.inward)<1-1e-9)continue;
             const auto shift=mul(other.inward,inner?sheet.thickness:0);
@@ -71,12 +61,11 @@ kernel::ViewerMesh transition_material_wire(const research::transition::SheetRes
     }
     for(const auto& bend:sheet.bends) {
         if(bend.sections.empty())continue;
-        if(labels)result.constraint_markers.push_back({bend.sections[bend.sections.size()/2][1],std::to_string(&bend-sheet.bends.data()+1),{}, {}});
         for(std::size_t corner=0;corner<4;++corner) {
             kernel::ViewerEdge edge;
             for(const auto& section:bend.sections)edge.points.push_back(section[corner]);
             result.edges.push_back(std::move(edge));
-            if(corner==1||corner==3)for(const auto* section:{&bend.sections.front(),&bend.sections.back()})
+            for(const auto* section:{&bend.sections.front(),&bend.sections.back()})
                 line((*section)[corner],(*section)[(corner+1)%4]);
         }
     }
@@ -252,10 +241,10 @@ kernel::ViewerMesh sheet_transition_preview(const HistoryContainer& source) {
         const auto options=marking_options(feature);
         if(rectangular_sheet_transition(feature)) {
             const auto input=research::transition::read_rectangular_sketches(sketches[1],sketches[0]);
-            surface=transition_material_wire(research::transition::manufacture(input.model,options),feature.sheet_transition.rectangle_reliefs);
+            surface=transition_material_wire(research::transition::manufacture(input.model,options));
         }else {
             auto input=research::transition::read_sketches(sketches[0],sketches[1]);input.model.corner_facets={feature.sheet_transition.facets[0],feature.sheet_transition.facets[1]};
-            surface=transition_material_wire(research::transition::manufacture(input.model,options),feature.sheet_transition.rectangle_reliefs);
+            surface=transition_material_wire(research::transition::manufacture(input.model,options));
         }
         result.edges.insert(result.edges.end(),surface.edges.begin(),surface.edges.end());
         result.constraint_markers=std::move(surface.constraint_markers);

@@ -43,23 +43,27 @@ QuarterArc transformed(QuarterArc arc,const Frame& frame){return {frame.point(ar
 // A twisted ruled wall is not a planar quadrilateral. Keep its authored rim
 // vertices and introduce an explicit diagonal bend, rather than projecting it
 // onto an invented plane. Every returned panel has an isometric development.
-HalfResult polygon_strip(std::vector<Vec3> A,std::vector<Vec3> B,const Frame& root) {
+HalfResult polygon_strip(std::vector<Vec3> A,std::vector<Vec3> B,const Frame& root,const std::vector<bool>& corners={}) {
     HalfResult result;
     try {
         if(A.size()!=B.size()||A.size()<2||!root.valid())throw Failure::InvalidInput;
         std::vector<Vec3> a{A.front()},b{B.front()};
+        std::vector<bool> regions;
         for(std::size_t i=0;i+1<A.size();++i) {
             if(norm(sub(A[i],A[i+1]))>tolerance&&norm(sub(B[i],B[i+1]))>tolerance) {
                 const auto n=unit(cross(sub(B[i],A[i]),sub(B[i+1],A[i])));
                 if(std::abs(dot(sub(A[i+1],A[i]),n))>tolerance) {
                     a.push_back(A[i]);b.push_back(B[i+1]);
+                    regions.push_back(!corners.empty()&&corners[i]);
                 }
             }
             a.push_back(A[i+1]);b.push_back(B[i+1]);
+            regions.push_back(!corners.empty()&&corners[i]);
         }
         Vec3 flat_a{},flat_b{norm(sub(b[0],a[0])),0,0},old_center{};
         for(std::size_t i=0;i+1<a.size();++i) {
             HalfFace face;face.folded={a[i],b[i],b[i+1],a[i+1]};
+            face.corner=regions[i];
             for(std::size_t j=face.folded.size();j-->0;) {
                 const auto next=(j+1)%face.folded.size();
                 if(norm(sub(face.folded[j],face.folded[next]))<tolerance)
@@ -121,8 +125,10 @@ HalfResult triangulated_half(const HalfModel& model) {
         deviation=std::max(deviation,std::max(R,r)*(1/std::cos(step/2)-1));
     }
     A.push_back(A.back());B.push_back(model.second_relative.point({-w,0,0}));
-    if(model.second_relative.origin.z<0){std::reverse(A.begin(),A.end());std::reverse(B.begin(),B.end());}
-    auto result=polygon_strip(std::move(A),std::move(B),model.first_origin);
+    std::vector<bool> regions(A.size()-1,true);
+    regions.front()=regions[model.corner_facets[0]+1]=regions.back()=false;
+    if(model.second_relative.origin.z<0){std::reverse(A.begin(),A.end());std::reverse(B.begin(),B.end());std::reverse(regions.begin(),regions.end());}
+    auto result=polygon_strip(std::move(A),std::move(B),model.first_origin,regions);
     result.boundary_deviation={Deviation{0,deviation},Deviation{0,deviation}};
     return result;
 }
@@ -156,12 +162,15 @@ static HalfResult calculate_half(const HalfModel& model,bool endpoint_planes) {
             for(const auto& face:corner.facets){A.push_back(face.folded[3]);B.push_back(face.folded[2]);}
         }
         A.push_back(A.back());B.push_back(model.second_relative.point({-w,0,0}));
+        std::vector<bool> regions(A.size()-1,true);
+        regions.front()=regions[corners[0].facets.size()+1]=regions.back()=false;
         // Reversing axial order must preserve inward material normals and
         // positive bend angles. The main container can own the lower rectangle.
-        if(model.second_relative.origin.z<0){std::reverse(A.begin(),A.end());std::reverse(B.begin(),B.end());}
+        if(model.second_relative.origin.z<0){std::reverse(A.begin(),A.end());std::reverse(B.begin(),B.end());std::reverse(regions.begin(),regions.end());}
         Vec3 flat_a{},flat_b{norm(sub(B[0],A[0])),0,0},old_center{};
         for(std::size_t i=0;i+1<A.size();++i) {
             HalfFace face;face.folded={A[i],B[i],B[i+1],A[i+1]};
+            face.corner=regions[i];
             if(norm(sub(face.folded.front(),face.folded.back()))<tolerance)face.folded.pop_back();
             face.normal=unit(cross(sub(face.folded[1],face.folded[0]),sub(face.folded[2],face.folded[0])));
             for(std::size_t j=0;j<face.folded.size();++j) {

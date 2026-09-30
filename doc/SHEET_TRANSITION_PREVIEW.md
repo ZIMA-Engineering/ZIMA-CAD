@@ -3,7 +3,8 @@
 The rectangle-to-half-circle transition uses the same ZIMA material construction
 for its cyan preview and its explicit body calculation. The preview draws both
 panel skins, thickness edges and finite-radius bend rims from `SheetResult`.
-Shared smooth panel/bend boundaries are omitted.
+The properties preview retains complete bend boundary lines on both skins.
+Only coincident coplanar panel seams are omitted.
 It does not call OCCT or create persistent reference identities.
 
 Construction closure segments remain in the authored Sketch, but are omitted
@@ -128,18 +129,19 @@ Manufacturing tab provides three independent, disabled-by-default options:
 - Short bend axes retain only the requested length at each end (default 20 mm).
   If those lengths meet, one complete axis is retained. The calculated finite
   axes feed both the flat View and the existing manufacturing DXF pipeline.
-- Rectangular-end reliefs apply only to selected bends of a half-round transition.
-  Each selected strip end is cut back to a straight line in its material chart,
-  behind both tangent endpoints, by the specified depth (default 1.5 mm).
-  This removes the outward lobe and leaves a local weld gap. The circular rim
-  is unaffected by this option. Enabled end notches add their depth separately.
+- Rectangular-end relief is one operation for both complete corners of a
+  half-round transition. It clips the planar facets as well as their bend ends,
+  leaving stepped joins to the three broad walls. Depth (default 1.5 mm) is
+  measured perpendicular to the rectangular rim, toward the circular profile.
+  Neighboring bend ends meet the clipped panel ends; rectangular-end notches
+  are not added on top of this relief, which would recreate narrow tongues.
+  Circular-end notches and short bend axes remain independent.
 
-Preview numbers identify the bends in the selection list. Selections use the
-existing authored material boundary and facet definition, not OCCT enumeration.
-Changing either facet count clears relief selections instead of silently assigning
-an old selection to another bend. Geometry edits that make a selected bend
-unavailable are rejected until the selection is corrected. Disabling an option
-retains its entered values. Cancel does not commit pending changes.
+There is no individual bend selector or preview numbering. Changing facet
+counts retains the collective relief. The native `bend_marking` fields remain
+unchanged; `rectangle_reliefs` and `relief_depth` define the collective operation,
+while the existing bend membership field records the group automatically on OK.
+Disabling an option retains its entered depth. Cancel does not commit changes.
 
 Notches and reliefs change the actual folded and unfolded material. They are not
 export-only strokes. Collapsed bend extents are rejected before solid calculation.
@@ -150,14 +152,15 @@ Smooth panel/bend and coplanar panel/panel junctions on both skins are omitted f
 whole-container highlighting. The filter uses persisted adjacent-face roles and
 sampled inward directions; it performs no kernel work. Borders, thickness edges,
 sharp creases and bend axes remain. Original reference geometry is retained for
-explicit reference operations. The transient wire also omits shared tangent
-intervals while retaining the real notch/relief borders.
+explicit reference operations. The transient properties wire retains the full bend tangent boundaries as well
+as the real notch/relief borders. It does not use the normal View filter.
 
 Localization review: manufacturing controls and guidance are translated in all
 five catalogs (Czech, English, German, French and Russian). Pure edge filtering
 adds no visible strings.
 
-Verification: the viewer contract and both transition geometry suites pass.
-The native GUI check covers creation, manufacturing options, facet-selection
-reset, Cancel, Undo/Redo and save/reopen. The unfolded screenshot was reviewed
-after filtering coplanar junctions; real rim notches and short axes remain.
+Regression checks cover full preview boundary segments, both complete relieved
+corners, unchanged broad walls, valid single solids, unfolding and bending back,
+GUI creation/editing, retained relief after facet-count changes, Cancel,
+Undo/Redo, native save/reopen and five-language controls. These checks do not
+certify a minimum cuttable feature for a particular laser, material or thickness.

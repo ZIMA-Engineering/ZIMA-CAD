@@ -4,7 +4,6 @@
 #include <zima/document/sheet_transition.hpp>
 #include <transition_sketches.hpp>
 #include <QPushButton>
-#include <QListWidget>
 #include <QTabWidget>
 #include <zima/document/part_document.hpp>
 #include <QComboBox>
@@ -60,11 +59,9 @@ public:
         short_axes_=new QCheckBox(tr("Osy ohybů pouze na koncích"),this);short_axes_->setObjectName("transitionShortAxes");short_axes_->setChecked(marking.short_bend_axes);form->addRow(short_axes_);
         axis_length_=value(tr("Délka konce osy"),"transitionAxisEndLength",marking.bend_axis_end_length,.001,1000000," mm");
         if(!rectangular) {
-            reliefs_=new QCheckBox(tr("Odlehčit obdélníkové konce vybraných ohybů"),this);reliefs_->setObjectName("transitionReliefs");reliefs_->setChecked(marking.rectangle_reliefs);form->addRow(reliefs_);
+            reliefs_=new QCheckBox(tr("Odlehčit oba rohy na obdélníkovém konci"),this);reliefs_->setObjectName("transitionReliefs");reliefs_->setChecked(marking.rectangle_reliefs);form->addRow(reliefs_);
             relief_depth_=value(tr("Hloubka odlehčení"),"transitionReliefDepth",marking.rectangle_relief_depth,.001,1000," mm");
-            relief_bends_=new QListWidget(this);relief_bends_->setObjectName("transitionReliefBends");relief_bends_->setMinimumHeight(90);relief_bends_->setMaximumHeight(160);form->addRow(relief_bends_);rebuild_bends();
-            auto* help=new QLabel(tr("Čísla ohybů jsou v náhledu. Změna počtu plošek zruší výběr odlehčení."),this);help->setWordWrap(true);form->addRow(help);
-            connect(relief_bends_,&QListWidget::itemChanged,this,[this]{read_parameters();notify();});
+            auto* help=new QLabel(tr("Odlehčení souvisle zkrátí oba rohy včetně plošek mezi ohyby. Hloubka se měří kolmo k obdélníkovému konci."),this);help->setWordWrap(true);form->addRow(help);
         }
         const auto marking_changed=[this]{read_parameters();update_marking_controls();notify();};
         for(auto* box:{notches_,short_axes_,reliefs_})if(box)connect(box,&QCheckBox::toggled,this,marking_changed);
@@ -78,7 +75,7 @@ public:
         }
         status_=new QLabel(this);status_->setWordWrap(true);content_layout()->addWidget(status_);
         for(auto* field:{thickness_,radius_,factor_})connect(field,&QDoubleSpinBox::valueChanged,this,[this]{read_parameters();notify();});
-        for(auto* field:counts_)if(field)connect(field,&QSpinBox::valueChanged,this,[this]{read_parameters();pending.sheet_transition.relieved_bends.clear();rebuild_bends();notify();});
+        for(auto* field:counts_)if(field)connect(field,&QSpinBox::valueChanged,this,[this]{read_parameters();notify();});
     }
     bool owns_reference_owner(const std::string& owner) const override {return owner==pending.sheet_transition.end_origin_id||SweepPlacementDialog::owns_reference_owner(owner);}
     void set_status(const QString& text) override {status_->setText(text);}
@@ -91,36 +88,26 @@ public:
         return SweepPlacementDialog::set_inline_parameter_value(key,value);
     }
 private:
-    void rebuild_bends() {
-        if(!relief_bends_)return;
-        const QSignalBlocker blocker(relief_bends_);relief_bends_->clear();
-        try {
-            const auto keys=document::sheet_transition_bend_keys(pending);
-            for(std::size_t i=0;i<keys.size();++i) {
-                auto* item=new QListWidgetItem(tr("Ohyb %1").arg(i+1),relief_bends_);
-                item->setData(Qt::UserRole,QString::fromStdString(keys[i]));
-                item->setCheckState(pending.sheet_transition.relieved_bends.contains(keys[i])?Qt::Checked:Qt::Unchecked);
-            }
-        }catch(const std::exception&){} // The ordinary preview reports invalid pending geometry.
-    }
     void update_marking_controls() {
         notch_depth_->setEnabled(notches_->isChecked());axis_length_->setEnabled(short_axes_->isChecked());
-        if(reliefs_){relief_depth_->setEnabled(reliefs_->isChecked());relief_bends_->setEnabled(reliefs_->isChecked());}
+        if(reliefs_)relief_depth_->setEnabled(reliefs_->isChecked());
     }
     void notify(){if(changed)changed();}
     void read_parameters(){auto& p=pending.sheet_transition;p.thickness=thickness_->value();p.inside_radius=radius_->value();p.k_factor=factor_->value();
         p.end_notches=notches_->isChecked();p.end_notch_depth=notch_depth_->value();
         p.short_bend_axes=short_axes_->isChecked();p.bend_axis_end_length=axis_length_->value();
-        if(reliefs_){p.rectangle_reliefs=reliefs_->isChecked();p.rectangle_relief_depth=relief_depth_->value();p.relieved_bends.clear();for(int row=0;row<relief_bends_->count();++row){const auto* item=relief_bends_->item(row);if(item->checkState()==Qt::Checked)p.relieved_bends.insert(item->data(Qt::UserRole).toString().toStdString());}}
+        if(reliefs_){p.rectangle_reliefs=reliefs_->isChecked();p.rectangle_relief_depth=relief_depth_->value();}
         for(unsigned i=0;i<2;++i)if(counts_[i])p.facets[i]=counts_[i]->value();}
     bool submit()override {
-        try {read_parameters();document::reframe_sheet_transition(pending);commit_(pending);return true;}
+        try {read_parameters();document::reframe_sheet_transition(pending);
+            auto& p=pending.sheet_transition;p.relieved_bends.clear();
+            if(p.rectangle_reliefs){const auto keys=document::sheet_transition_bend_keys(pending);p.relieved_bends.insert(keys.begin(),keys.end());}
+            commit_(pending);return true;}
         catch(const std::exception& error){set_status(tr(error.what()));return false;}
     }
     std::function<void(document::HistoryContainer)> commit_;
     QCheckBox *notches_{},*short_axes_{},*reliefs_{};
     QDoubleSpinBox *notch_depth_{},*axis_length_{},*relief_depth_{};
-    QListWidget* relief_bends_{};
     QLineEdit* name_{};std::array<QSpinBox*,2> counts_{};std::array<QDoubleSpinBox*,6> end_fields_{};QDoubleSpinBox *thickness_{},*radius_{},*factor_{};QLabel* status_{};
 };
 }

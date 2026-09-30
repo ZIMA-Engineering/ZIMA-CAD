@@ -5,9 +5,9 @@
 "Hloubka zářezu":"Глубина выреза",
 "Osy ohybů pouze na koncích":"Оси сгибов только на концах",
 "Délka konce osy":"Длина концевого участка оси",
-"Odlehčit obdélníkové konce vybraných ohybů":"Разгрузить выбранные сгибы у прямоугольного конца",
+"Odlehčit oba rohy na obdélníkovém konci":"Разгрузить оба угла у прямоугольного конца",
 "Hloubka odlehčení":"Глубина разгрузки",
-"Čísla ohybů jsou v náhledu. Změna počtu plošek zruší výběr odlehčení.":"Номера сгибов показаны в предпросмотре. Изменение числа граней сбрасывает выбор разгрузок.",
+"Odlehčení souvisle zkrátí oba rohy včetně plošek mezi ohyby. Hloubka se měří kolmo k obdélníkovému konci.":"Разгрузка подрезает оба угла целиком, включая плоские участки между сгибами. Глубина измеряется перпендикулярно прямоугольному торцу.",
 "Ohyb %1":"Сгиб %1",
 
 "Koncová rovina":"Конечная плоскость",

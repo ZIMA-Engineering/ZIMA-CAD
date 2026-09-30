@@ -5,9 +5,9 @@
 "Hloubka zářezu":"Notch depth",
 "Osy ohybů pouze na koncích":"Bend axes at ends only",
 "Délka konce osy":"Axis end length",
-"Odlehčit obdélníkové konce vybraných ohybů":"Relieve selected bends at the rectangular end",
+"Odlehčit oba rohy na obdélníkovém konci":"Relieve both corners at the rectangular end",
 "Hloubka odlehčení":"Relief depth",
-"Čísla ohybů jsou v náhledu. Změna počtu plošek zruší výběr odlehčení.":"Bend numbers appear in the preview. Changing facet counts clears the relief selection.",
+"Odlehčení souvisle zkrátí oba rohy včetně plošek mezi ohyby. Hloubka se měří kolmo k obdélníkovému konci.":"The relief trims both complete corners, including panels between bends. Depth is measured perpendicular to the rectangular end.",
 "Ohyb %1":"Bend %1",
 
 "Koncová rovina":"End plane",

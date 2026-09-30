@@ -156,10 +156,14 @@ geometry kernel and written in C++. It follows the selected application language
 | MMB double-click | Invoke enabled OK in the active internal dialog, including over View |
 | F1 / Ctrl+N | New document |
 | F2 / Ctrl+O | Open document |
-| F3 / Ctrl+S | Save document |
-| F4 / Ctrl+Shift+S | Save document as |
+| F3 | Import |
+| F4 | Export |
 | F5 | Regenerate |
-| F6 / Ctrl+W | Close the active document tab |
+| F6 / Ctrl+S | Save document |
+| F7 / Ctrl+Shift+S | Save document as |
+| F8 | Rename file |
+| F9 / Ctrl+W | Close the active document tab |
+| F12 | Set the working directory |
 | Ctrl+Shift+C | Toggle the CAD command console |
 
 Panning does not open the context menu. Reset View and standard views animate

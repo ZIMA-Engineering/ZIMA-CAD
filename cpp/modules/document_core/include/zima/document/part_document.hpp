@@ -595,7 +595,7 @@ struct SheetTransitionParameters {
     double thickness{1},inside_radius{1},k_factor{.5};
     bool end_notches{},short_bend_axes{},rectangle_reliefs{};
     double end_notch_depth{1.5},bend_axis_end_length{20},rectangle_relief_depth{1.5};
-    std::set<std::string> relieved_bends;
+    std::set<std::string> relieved_bends; // Recorded group membership; rectangle_reliefs controls both complete corners.
     bool operator==(const SheetTransitionParameters&)const=default;
 };
 struct BoundaryCurveSource {

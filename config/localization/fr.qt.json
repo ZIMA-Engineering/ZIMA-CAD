@@ -5,9 +5,9 @@
 "Hloubka zářezu":"Profondeur de l’encoche",
 "Osy ohybů pouze na koncích":"Axes de pliage aux extrémités uniquement",
 "Délka konce osy":"Longueur des extrémités d’axe",
-"Odlehčit obdélníkové konce vybraných ohybů":"Dégager les plis sélectionnés côté rectangulaire",
+"Odlehčit oba rohy na obdélníkovém konci":"Dégager les deux coins du côté rectangulaire",
 "Hloubka odlehčení":"Profondeur du dégagement",
-"Čísla ohybů jsou v náhledu. Změna počtu plošek zruší výběr odlehčení.":"Les numéros des plis figurent dans l’aperçu. Modifier le nombre de facettes efface la sélection des dégagements.",
+"Odlehčení souvisle zkrátí oba rohy včetně plošek mezi ohyby. Hloubka se měří kolmo k obdélníkovému konci.":"Le dégagement raccourcit les deux coins entiers, y compris les facettes entre les plis. La profondeur est mesurée perpendiculairement au côté rectangulaire.",
 "Ohyb %1":"Pli %1",
 
 "Koncová rovina":"Plan de fin",

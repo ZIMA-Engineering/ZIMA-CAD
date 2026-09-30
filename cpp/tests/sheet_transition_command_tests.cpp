@@ -64,7 +64,15 @@ void check_material_preview(document::HistoryContainer feature) {
         check(has(add(outer,mul(panel.inward,material.thickness))),"Preview omitted inner skin / thickness");
     }
     for(const auto& bend:material.bends)for(const auto* section:{&bend.sections.front(),&bend.sections.back()})
-        for(auto point:*section)check(has(point),"Tilted preview omitted an outer/inner bend junction");
+        for(unsigned side:{0u,2u}) {
+            const auto a=(*section)[side],b=(*section)[side+1];
+            check(has(a)&&has(b),"Tilted preview omitted an outer/inner bend junction");
+            check(std::ranges::any_of(preview.edges,[&](const auto& edge){
+                if(edge.points.size()!=2)return false;
+                const auto near=[](auto x,auto y){const auto d=sub(x,y);return dot(d,d)<1e-14;};
+                return (near(edge.points[0],a)&&near(edge.points[1],b))||(near(edge.points[0],b)&&near(edge.points[1],a));
+            }),"Preview omitted the full bend boundary line");
+        }
     std::cout<<"Material preview "<<p.end_rotation.x<<","<<p.end_rotation.y<<","<<p.end_rotation.z<<": "<<ms<<" ms, "<<preview.edges.size()<<" edges\n";
 }
 void check_assembly_datums(const kernel::BodyResult& body,const std::string& owner) {
@@ -103,8 +111,27 @@ int main()try {
             const auto model=research::transition::read_sketches(sketcher::Sketch::from_serialized(feature.sheet_transition.sketches[0]),sketcher::Sketch::from_serialized(feature.sheet_transition.sketches[1])).model;
             for(bool relief:{false,true}) {
                 research::transition::SheetOptions options;options.end_notch_depth=1.5;
-                if(relief){options.rectangle_relief_depth=2;options.rectangle_relief_bends={0,2};}
+                if(relief)options.rectangle_relief_depth=2;
                 const auto sheet=research::transition::manufacture(model,options);
+                if(relief) {
+                    using namespace kernel::sheet_material;
+                    const auto surface=research::transition::calculate(model);
+                    const auto rim=model.first_origin.point(model.second_relative.origin);
+                    auto inward=model.first_origin.direction(model.second_relative.z);
+                    if(dot(sub(model.first_origin.origin,rim),inward)<0)inward=mul(inward,-1);
+                    unsigned corners=0;
+                    for(std::size_t i=0;i<surface.faces.size();++i)if(surface.faces[i].corner) {
+                        ++corners;
+                        for(auto point:sheet.panels[i].outer)
+                            check(dot(sub(point,rim),inward)>=options.rectangle_relief_depth-1e-7,"Relief left a planar tongue between bends");
+                        check(std::ranges::find(sheet.panels[i].edge_roles,"rectangle-relief")!=sheet.panels[i].edge_roles.end(),"Corner relief boundary missing");
+                    }
+                    check(corners>=model.corner_facets[0]+model.corner_facets[1],"Relief did not include both corners");
+                    auto full=options;full.rectangle_relief_depth=0;
+                    const auto original=research::transition::manufacture(model,full);
+                    for(std::size_t i=0;i<surface.faces.size();++i)if(!surface.faces[i].corner)
+                        check(sheet.panels[i].outer==original.panels[i].outer,"Corner relief changed a broad wall");
+                }
                 auto operation=research::transition::sheet_operation(sheet,"marking-test");
                 std::get<kernel::FeatureGroupRequest>(operation.primitive).bend_line_end_length=20;
                 kernel::OcctKernel geometry;

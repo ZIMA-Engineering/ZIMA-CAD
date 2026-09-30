@@ -113,16 +113,16 @@ int verify_sheet_transition_ui(QApplication& application,const std::filesystem::
         auto* notches=editor->findChild<QCheckBox*>("transitionEndNotches");
         auto* short_axes=editor->findChild<QCheckBox*>("transitionShortAxes");
         auto* reliefs=editor->findChild<QCheckBox*>("transitionReliefs");
-        auto* relief_list=editor->findChild<QListWidget*>("transitionReliefBends");
-        check(notches&&short_axes&&reliefs&&relief_list&&relief_list->count()>0,"Manufacturing controls missing");
+        check(notches&&short_axes&&reliefs,"Manufacturing controls missing");
+        check(!editor->findChild<QWidget*>("transitionReliefBends"),"Collective corner relief still exposes individual bend selection");
         check(!editor->findChild<QDoubleSpinBox*>("transitionNotchDepth")->isEnabled(),"Disabled notch retained editable depth");
         notches->setChecked(true);short_axes->setChecked(true);reliefs->setChecked(true);
-        relief_list->item(0)->setCheckState(Qt::Checked);flush();
-        check(!editor->pending.sheet_transition.relieved_bends.empty(),"Relief selection did not reach pending parameters");
+        flush();
+        check(editor->pending.sheet_transition.rectangle_reliefs,"Collective relief did not reach pending parameters");
         auto* facets=editor->findChild<QSpinBox*>("transitionRightFacets");const auto original_facets=facets->value();
         facets->setValue(original_facets+1);flush();
-        check(editor->pending.sheet_transition.relieved_bends.empty(),"Changing facet count reassigned a relief to another bend");
-        facets->setValue(original_facets);relief_list->item(0)->setCheckState(Qt::Checked);flush();
+        check(editor->pending.sheet_transition.rectangle_reliefs,"Changing facet count disabled corner relief");
+        facets->setValue(original_facets);flush();
         const auto manufacturing=editor->pending.sheet_transition;
 
         auto* mesh_view=dynamic_cast<viewer::MeshView*>(window.findChild<QWidget*>("modelWorkspace"));check(mesh_view,"Mesh View missing");
@@ -138,7 +138,7 @@ int verify_sheet_transition_ui(QApplication& application,const std::filesystem::
         const QPointF point(view->rect().center());QMouseEvent middle(QEvent::MouseButtonDblClick,point,point,point,Qt::MiddleButton,Qt::MiddleButton,Qt::NoModifier);QApplication::sendEvent(view,&middle);flush();
         check(!window.findChild<QDialog*>("sheetTransitionDialog"),"MMB double-click did not commit transition");
         const auto saved_marking=save().history.back().sheet_transition;
-        check(saved_marking.end_notches&&saved_marking.short_bend_axes&&saved_marking.rectangle_reliefs&&saved_marking.relieved_bends==manufacturing.relieved_bends,"Manufacturing choices did not persist through GUI OK/save/reopen");
+        check(saved_marking.end_notches&&saved_marking.short_bend_axes&&saved_marking.rectangle_reliefs&&saved_marking.rectangle_relief_depth==manufacturing.rectangle_relief_depth,"Manufacturing choices did not persist through GUI OK/save/reopen");
         const auto saved=save();check(saved.history.size()==part.history.size()+1,"Creation did not insert one feature");const auto feature=saved.history.back();
         check(feature.feature_kind==document::FeatureKind::SheetTransition&&feature.sheet_transition.end_position.z==175&&feature.placement.references.size()>=3,"UI lost transition parameters");
         check(feature.sheet_transition.end_rotation.x==5&&feature.sheet_transition.thickness==3,"Tilted transition lost rotation or thickness");

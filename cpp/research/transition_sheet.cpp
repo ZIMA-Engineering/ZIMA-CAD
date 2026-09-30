@@ -35,6 +35,11 @@ SheetResult manufacture_model(const Model& model,const SheetOptions& options) {
     for(const auto& face:surface.faces)result.panels.push_back({face.folded,{},face.normal});
     const Vec3 cap0=model.first_origin.origin,normal0=model.first_origin.z;
     const Vec3 cap1=model.first_origin.point(model.second_relative.origin),normal1=model.first_origin.direction(model.second_relative.z);
+    auto relief_inward=normal1;
+    if(dot(sub(cap0,cap1),relief_inward)<0)relief_inward=mul(relief_inward,-1);
+    const auto corner_relief=[&](std::size_t panel) {
+        return options.rectangle_relief_depth>0&&surface.faces[panel].corner;
+    };
     // Trim every panel before constructing a bend. A triangulated wall can
     // have two active bends meeting at a rim vertex; the second trim changes
     // the first bend's available tangent interval.
@@ -70,6 +75,10 @@ SheetResult manufacture_model(const Model& model,const SheetOptions& options) {
         polygon=clip(polygon,origin,inward,offset);
         reliefs[i]=Relief{origin,inward,offset};
     }
+    // Cut the whole corner, including the planar material between its bends.
+    // The three broad walls retain their rims and form the ends of each step.
+    for(std::size_t i=0;i<result.panels.size();++i)if(corner_relief(i))
+        result.panels[i].outer=clip(result.panels[i].outer,cap1,relief_inward,options.rectangle_relief_depth);
     for(std::size_t i=0;i<surface.folds.size();++i) {
         const auto& fold=surface.folds[i];const auto& before=surface.faces[i];const auto& after=surface.faces[i+1];
         shifts[i+1]=shifts[i];const double angle=fold.signed_angle_radians;
@@ -101,6 +110,7 @@ SheetResult manufacture_model(const Model& model,const SheetOptions& options) {
         };
         const auto entry=tangent_interval(i,bend.start_radial);
         const auto exit=tangent_interval(i+1,mul(after.normal,-sign));
+        const bool relieved=corner_relief(i)||corner_relief(i+1);
         const auto shared_vertex=[&](std::size_t other) {
             const auto& adjacent=surface.folds[other];
             if(std::abs(adjacent.signed_angle_radians)<1e-8)return false;
@@ -122,12 +132,11 @@ SheetResult manufacture_model(const Model& model,const SheetOptions& options) {
             if(options.end_notch_depth>0) {
                 // Straight notch bottoms across the developed bend allowance.
                 first=std::max(first,std::max(entry[0],exit[0])+options.end_notch_depth);
-                last=std::min(last,std::min(entry[1],exit[1])-options.end_notch_depth);
+                if(!relieved)last=std::min(last,std::min(entry[1],exit[1])-options.end_notch_depth);
             }
-            if constexpr(std::is_same_v<Model,HalfModel>) {
-                if(options.rectangle_relief_bends.contains(result.bends.size()))
-                    last=std::min(last,std::min(entry[1],exit[1])-options.rectangle_relief_depth-options.end_notch_depth);
-            }
+            // Meet the actual trimmed panel ends; separate bend notches here
+            // would reintroduce narrow tongues between consecutive bends.
+            if(relieved)last=entry[1]*(1-parameter/sweep)+exit[1]*(parameter/sweep);
             if(last<=first)throw std::invalid_argument("Reversed transition bend extent");
             if(developed) {
                 const auto origin=add(add(flat_a,shifts[i]),mul(across,neutral_radius*parameter-setback));
@@ -158,7 +167,10 @@ SheetResult manufacture_model(const Model& model,const SheetOptions& options) {
         for(std::size_t j=0;j<panel.outer.size();++j) {
             const auto a=panel.outer[j],b=panel.outer[(j+1)%panel.outer.size()];
             const auto on_rim=[&](Vec3 origin,Vec3 normal){return std::abs(dot(sub(a,origin),normal))<1e-6&&std::abs(dot(sub(b,origin),normal))<1e-6;};
-            if(reliefs[i]&&std::abs(dot(sub(a,reliefs[i]->origin),reliefs[i]->inward)-reliefs[i]->offset)<1e-6&&
+            if(corner_relief(i)&&std::abs(dot(sub(a,cap1),relief_inward)-options.rectangle_relief_depth)<1e-6&&
+                std::abs(dot(sub(b,cap1),relief_inward)-options.rectangle_relief_depth)<1e-6)
+                panel.edge_roles.push_back("rectangle-relief");
+            else if(reliefs[i]&&std::abs(dot(sub(a,reliefs[i]->origin),reliefs[i]->inward)-reliefs[i]->offset)<1e-6&&
                 std::abs(dot(sub(b,reliefs[i]->origin),reliefs[i]->inward)-reliefs[i]->offset)<1e-6)
                 panel.edge_roles.push_back("apex-relief");
             else if(on_rim(cap0,normal0))panel.edge_roles.push_back("round-rim");

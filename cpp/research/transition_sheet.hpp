@@ -5,8 +5,7 @@ namespace zima::research::transition {
 struct SheetOptions {
     double thickness{1},inside_radius{1},k_factor{.5};
     double end_notch_depth{}; // Both ends, across the complete bend strip.
-    double rectangle_relief_depth{};
-    std::set<std::size_t> rectangle_relief_bends; // Authored bend choices, never OCCT topology.
+    double rectangle_relief_depth{}; // Both complete corners, measured normal to the rectangular rim.
 };
 struct SheetPanel {std::vector<Vec3> outer,developed;Vec3 inward;std::vector<std::string> edge_roles;};
 struct SheetBend {

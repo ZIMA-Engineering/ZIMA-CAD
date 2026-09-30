@@ -15,7 +15,7 @@ struct RectangularModel {
     std::array<double,2> width{200,140},depth{160,100};
     unsigned sides{3}; // Two adjacent walls (L), or three walls (U).
 };
-struct HalfFace {std::vector<Vec3> folded,unfolded;Vec3 normal;};
+struct HalfFace {std::vector<Vec3> folded,unfolded;Vec3 normal;bool corner{};};
 struct HalfResult {
     Failure failure{Failure::None};
     std::vector<HalfFace> faces;

@@ -34,21 +34,22 @@ void AssemblyWorkspaceWindow::create_actions() {
     file->addAction(open_document_action_);
     auto* import_action = make_action(t("menu.file.import", "Importovat…"), "open");
     import_action->setObjectName("importDocumentAction");
+    import_action->setShortcut(QKeySequence(Qt::Key_F3));
     connect(import_action, &QAction::triggered, this, [this] { import_file(); });
     file->addAction(import_action);
     export_action_ = make_action(t("menu.file.export", "Exportovat…"), "save");
     export_action_->setObjectName("exportDocumentAction");
+    export_action_->setShortcut(QKeySequence(Qt::Key_F4));
     connect(export_action_, &QAction::triggered, this, [this] { export_file(); });
     file->addAction(export_action_);
     close_document_action_ = make_action(t("menu.file.close", "Zavřít"), "close");
     close_document_action_->setObjectName("closeDocumentAction");
-    close_document_action_->setShortcuts({QKeySequence(Qt::Key_F6), QKeySequence::Close});
+    close_document_action_->setShortcuts({QKeySequence(Qt::Key_F9), QKeySequence::Close});
     connect(close_document_action_, &QAction::triggered, this,
         [this] { close_document(); });
-    file->addAction(close_document_action_);
     save_action_ = make_action(t("menu.file.save", "Uložit"), "save");
     save_action_->setObjectName("saveDocumentAction");
-    save_action_->setShortcuts({QKeySequence(Qt::Key_F3), QKeySequence::Save});
+    save_action_->setShortcuts({QKeySequence(Qt::Key_F6), QKeySequence::Save});
     save_action_->setShortcutContext(Qt::ApplicationShortcut);
     connect(save_action_, &QAction::triggered, this,
         [this] { save_active_document(); });
@@ -57,7 +58,7 @@ void AssemblyWorkspaceWindow::create_actions() {
         t("menu.file.save_as", "Uložit jako..."), "save-as");
     save_as_action_->setObjectName("saveDocumentAsAction");
     save_as_action_->setToolTip(tr("Uložit kopii modelu včetně navázaného výkresu; původní dokument zůstane otevřený."));
-    save_as_action_->setShortcuts({QKeySequence(Qt::Key_F4), QKeySequence::SaveAs});
+    save_as_action_->setShortcuts({QKeySequence(Qt::Key_F7), QKeySequence::SaveAs});
     save_as_action_->setEnabled(false);
     connect(save_as_action_, &QAction::triggered, this,
         [this] { save_active_document_as(); });
@@ -65,10 +66,12 @@ void AssemblyWorkspaceWindow::create_actions() {
     rename_document_action_ = make_action(
         t("menu.file.rename", "Přejmenovat…"), "rename");
     rename_document_action_->setObjectName("renameDocumentAction");
+    rename_document_action_->setShortcut(QKeySequence(Qt::Key_F8));
     rename_document_action_->setEnabled(false);
     connect(rename_document_action_, &QAction::triggered, this,
         [this] { rename_document_file(); });
     file->addAction(rename_document_action_);
+    file->addAction(close_document_action_);
 
     delete_file_menu_ = file->addMenu(
         t("menu.file.delete", "Odstranit"));
@@ -132,6 +135,7 @@ void AssemblyWorkspaceWindow::create_actions() {
     working_directory_action_ = make_action(
         t("menu.file.working_directory", "Nastavit pracovní adresář..."), "working-directory");
     working_directory_action_->setObjectName("workingDirectoryAction");
+    working_directory_action_->setShortcut(QKeySequence(Qt::Key_F12));
     connect(working_directory_action_, &QAction::triggered, this,
         [this] { set_working_directory(); });
     file->addAction(working_directory_action_);
