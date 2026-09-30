@@ -34,6 +34,27 @@ General atomic Workspace staging and dependency-specific invalidation are unchan
 The [A12 Symbol leader follow-up](performance/20260930-symbol-leader.md)
 records removal of a discarded mesh calculation without adding cache state.
 
+### Follow-up scope at the Windows 2026093005 release boundary
+
+The measured changes above are implemented and individually verified. This does
+not close every hypothesis in the original audit. The remaining candidates are:
+
+| Candidate | Decision and required next evidence |
+| --- | --- |
+| A4/A6 remaining refreshes and GPU-buffer reuse | Keep current invalidation. Profile real large scenes; compare complete frame, picking and reference behavior before splitting updates. |
+| A7 general atomic Workspace staging | Keep full transaction/history copies where the staged Workspace is published. Read-only projection copies do not justify dropping histories from committed transactions. |
+| A8 general prefix reuse | Keep current fingerprint encoding. Prefix length precedes payload, so extending a hash is not equivalent; prove exact identities before changing it. |
+| A9 native Assembly validation | Keep scene validation on load/save. It also validates cuts, targets and dependency geometry; dropping the calculation would drop working checks. |
+| A10 dependency-specific invalidation | Keep the existing complete live-source stamps. Measure a representative multi-document workspace and prove external/unsaved-source invalidation before narrowing dependencies. |
+| A11 Drawing refresh/output caches | Require measurements from repeated sheets/views and exact output/reference comparisons. No image-only replacement for persisted geometry. |
+| A12 parsed Symbol definitions | No cache added. The measured discarded leader calculation is removed; a larger cache requires variant, text and source-change invalidation checks. |
+| A14 repeated measurement | Existing spatial acceleration remains. No representative slow measurement has established an additional worthwhile change. |
+| A15 build dependencies | Separate developer-build task; no runtime behavior or release validation is removed. |
+
+No speculative cache or lower-precision shortcut was added to mark an audit row
+complete. No safely removable nonfunctional product file was established. These
+open items remain work candidates, not implemented improvements.
+
 The first investigation should target large Sketch dimension edits. The existing
 Release benchmark exposes a severe scaling problem. The next priorities are
 Assembly scene construction and picking, then avoiding complete scene/Tree
