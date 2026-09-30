@@ -469,3 +469,15 @@ combinations pass. No shared container-placement implementation was changed.
 The real-cursor button fixture uses an unobscured temporary test window and the
 proper active tool-button subcontrol; the User Parameters fixture now includes
 the existing ordering column rather than assuming the obsolete five columns.
+
+## Live theme changes in existing toolbars
+
+After changing the explicit Fusion Light/Dark palette, existing styled Qt
+ToolBars reapply their current stylesheet. Qt otherwise retains the palette
+resolved when the stylesheet was first polished. This covers the document,
+View, tools and Drawing strips without a restart or a model refresh. The
+appearance verification switches Light/Dark/Light in all five languages,
+checks the existing toolbar palettes and rendered document-strip background,
+and confirms technical ISO fonts remain unchanged. Missing working-directory
+theme overrides inherit the global setting; the factory default is Light.
+No user-visible text was added by this correction.

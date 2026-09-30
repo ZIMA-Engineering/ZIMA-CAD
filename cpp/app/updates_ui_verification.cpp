@@ -13,6 +13,7 @@
 #include <QLineEdit>
 #include <QComboBox>
 #include <QToolButton>
+#include <QToolBar>
 #include "updateservice.h"
 #include "updatespage.h"
 #include <QAction>
@@ -142,7 +143,7 @@ int verify_updates_ui(QApplication& app, AssemblyWorkspaceWindow& window, const 
                 "Missing GUI font does not fall back to bundled ISO");
             zima::viewer::MeshView view(&window);
             QTemporaryDir temporary;
-            require(ApplicationSettings::load(temporary.path()).theme=="light","Missing theme did not default to light");
+            require(ApplicationSettings{}.theme=="light"&&ApplicationSettings::load(temporary.path()).theme==original.theme,"Missing local theme did not inherit global configuration");
             {
                 QSettings config(temporary.filePath("config.ini"),QSettings::IniFormat);
                 config.setValue("Application/Theme","automatic");config.sync();
@@ -187,6 +188,15 @@ int verify_updates_ui(QApplication& app, AssemblyWorkspaceWindow& window, const 
                     settings.theme=theme;apply_application_appearance(app,settings);app.processEvents();
                     require(app.property("zimaFusionStyle").toBool()&&app.style()->objectName().compare("fusion",Qt::CaseInsensitive)==0,"Fusion style was not installed");
                     require(app.palette().color(QPalette::Window)==QColor(theme=="dark"?"#292d32":"#f0f0f0"),"Explicit theme palette lost");
+                    auto* toolbar=window.findChild<QToolBar*>("mainToolbar");
+                    require(toolbar,"Document toolbar missing");
+                    const auto strip=toolbar->grab().toImage();
+                    const auto center=strip.pixelColor(strip.width()/2,strip.height()/2);
+                    require(theme=="dark"?center.lightness()<100:center.lightness()>180,
+                        "Existing document toolbar painted the previous theme background");
+                    for(auto* existing:window.findChildren<QToolBar*>())
+                        require(existing->palette().color(QPalette::Window)==app.palette().color(QPalette::Window),
+                            "Existing toolbar retained the previous theme palette");
 #if QT_VERSION >= QT_VERSION_CHECK(6,8,0)
                     require(app.styleHints()->colorScheme()==(theme=="dark"?Qt::ColorScheme::Dark:Qt::ColorScheme::Light),"Theme still follows the system");
 #endif
