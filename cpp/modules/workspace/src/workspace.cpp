@@ -335,6 +335,14 @@ std::optional<std::string> Workspace::document_id_for_path(
 void Workspace::refresh_source_geometry() {
     std::set<std::string> visiting;
     std::map<std::string,zima::kernel::BodySnapshot> assembly_sources;
+    struct RefreshedAssembly {
+        zima::kernel::BodySnapshot body;
+        std::vector<zima::assembly::OccurrenceSnapshot> occurrences;
+        std::string name;
+    };
+    // Only fully processed sources are reusable, and only within this call.
+    // Keep cycle detection independent from completed-source reuse.
+    std::map<NativeSourceKey,RefreshedAssembly> refreshed_assemblies;
     const auto refresh=[&](const auto& self,zima::assembly::AssemblyDocument& document,
             const std::filesystem::path& owner_file)->bool {
         if (!visiting.insert(document.document_id).second)
@@ -396,6 +404,21 @@ void Workspace::refresh_source_geometry() {
                 continue;
             }
             if (component.source_kind!=zima::assembly::ComponentSourceKind::Assembly) continue;
+            if(visiting.contains(component.source_document_id))
+                throw std::runtime_error("Cyclic Assembly source dependency");
+            const auto* open_source=open_assembly(component.source_document_id);
+            const NativeSourceKey refreshed_key{open_source?open_source->path:file,component.source_document_id};
+            if(const auto cached=refreshed_assemblies.find(refreshed_key);cached!=refreshed_assemblies.end()) {
+                const auto& source=cached->second;
+                if(component.source_missing){component.source_missing=false;changed=true;}
+                if(component.source_name!=source.name){component.source_name=source.name;changed=true;}
+                if(!component.calculated_source.shares_with(source.body)) {
+                    component.calculated_source=source.body;
+                    component.nested_snapshot=source.occurrences;
+                    changed=true;
+                }
+                continue;
+            }
             zima::assembly::AssemblyDocument nested;
             std::string source_stamp="assembly-display:"+component.source_document_id+":";
             if(auto* open=open_assembly(component.source_document_id)) {
@@ -452,6 +475,8 @@ void Workspace::refresh_source_geometry() {
                 }
                 assembly_sources.emplace(sharing_key,component.calculated_source);
             }
+            refreshed_assemblies.emplace(refreshed_key,RefreshedAssembly{
+                component.calculated_source,component.nested_snapshot,nested.name});
         }
         visiting.erase(document.document_id);
         return changed;

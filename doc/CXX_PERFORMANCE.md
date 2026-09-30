@@ -19,6 +19,10 @@ benchmark and exact baseline comparisons. It does not add a persistent cache.
 removes measured whole-scene/Tree rebuilds for two presentation-only actions,
 with GUI coverage of context restrictions and subsequent model changes.
 
+[Repeated subassembly source refresh](performance/20260930-source-refresh.md)
+reuses completed source preparation within one refresh, with open/closed source
+measurements and invalidation/ownership checks.
+
 The startup-independent C++ model benchmark is built as
 `zima_cpp_performance_benchmark`. It is deliberately not registered with
 CTest: normal tests remain deterministic and do not depend on machine speed.

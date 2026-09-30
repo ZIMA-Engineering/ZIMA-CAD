@@ -13,6 +13,9 @@ of Assembly dimension inspection. Other refresh paths remain audit candidates.
 
 ## Result and scope
 
+The [A5 source-refresh follow-up](performance/20260930-source-refresh.md) records
+per-refresh reuse of completed repeated subassemblies and its measurements.
+
 The first investigation should target large Sketch dimension edits. The existing
 Release benchmark exposes a severe scaling problem. The next priorities are
 Assembly scene construction and picking, then avoiding complete scene/Tree

@@ -1154,6 +1154,55 @@ int main() {
             live.refresh_source_geometry();
             require(shared.shares_with(live.open_assembly(top.document_id)->session.document().components[0].calculated_source),
                 "Unchanged nested refresh rebuilt the source scene");
+            // Completed-source reuse lasts one refresh only. Missing/reappearing
+            // files, unsaved metadata and Undo/Redo must be observed next time.
+            fs::rename(nested_file,directory/"missing.asmz");
+            live.refresh_source_geometry();
+            for(const auto& component:live.open_assembly(top.document_id)->session.document().components)
+                require(component.source_missing,"Repeated missing subassembly was not marked missing");
+            fs::rename(directory/"missing.asmz",nested_file);
+            live.refresh_source_geometry();
+            for(const auto& component:live.open_assembly(top.document_id)->session.document().components)
+                require(!component.source_missing,"Reappearing subassembly remained missing");
+            live.add_part(source,bodies,part_file);
+            auto colored=source;colored.body_color="#3F7652";colored.name="Unsaved source name";
+            live.open_part(source.document_id)->session.commit(colored,bodies);
+            live.add_assembly(nested,nested_file);
+            auto edited_nested=nested;edited_nested.name="Unsaved subassembly name";
+            edited_nested.components.front().placement.z=37;
+            edited_nested.components.front().visible=false;
+            live.open_assembly(nested.document_id)->session.commit(edited_nested);
+            live.refresh_source_geometry();
+            for(const auto& component:live.open_assembly(top.document_id)->session.document().components) {
+                require(component.source_name==edited_nested.name&&component.nested_snapshot.front().placement.z==37&&
+                    !component.nested_snapshot.front().visible&&component.nested_snapshot.front().source_name==colored.name,
+                    "Repeated subassembly lost unsaved name, visibility or placement");
+            }
+            require(live.open_assembly(nested.document_id)->session.document().components.front().body_color==colored.body_color,
+                "Nested refresh ignored unsaved Part appearance");
+            require(live.open_assembly(nested.document_id)->session.revision()==1&&
+                live.open_assembly(nested.document_id)->session.is_dirty()&&
+                !live.open_assembly(top.document_id)->session.is_dirty(),"Display refresh changed source or owner dirty state");
+            require(live.open_assembly(nested.document_id)->session.undo(),"Nested edit Undo unavailable");
+            live.refresh_source_geometry();
+            require(live.open_assembly(top.document_id)->session.document().components.back().nested_snapshot.front().placement.z==0,
+                "Repeated source cache survived Undo");
+            require(live.open_assembly(nested.document_id)->session.redo(),"Nested edit Redo unavailable");
+            live.refresh_source_geometry();
+            require(live.open_assembly(top.document_id)->session.document().components.back().nested_snapshot.front().placement.z==37,
+                "Repeated source cache survived Redo");
+            // A completed-source cache must never replace the active recursion
+            // stack: even an already displayed source can acquire a cycle.
+            auto cyclic=live.open_assembly(nested.document_id)->session.document();
+            auto self=top.components.front();self.occurrence_id="cycle-test";
+            cyclic.components.push_back(self);
+            live.open_assembly(nested.document_id)->session.commit(cyclic);
+            bool cycle_rejected=false;
+            try { live.refresh_source_geometry(); }
+            catch(const std::runtime_error& error) {cycle_rejected=std::string(error.what())=="Cyclic Assembly source dependency";}
+            require(cycle_rejected,"Completed source reuse hid a dependency cycle");
+            require(live.open_assembly(nested.document_id)->session.undo(),"Cycle fixture Undo unavailable");
+            live.refresh_source_geometry();verify_current(bodies.back().volume);
             fs::remove_all(directory);
         }
         std::cout << "C++ Workspace contracts passed\n";

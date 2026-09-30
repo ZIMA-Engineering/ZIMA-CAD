@@ -567,6 +567,9 @@ add_executable(zima_cpp_assembly_view_benchmark tests/assembly_view_benchmark.cp
 target_link_libraries(zima_cpp_assembly_view_benchmark PRIVATE
     zima_assembly zima_kernel_occt zima_viewer)
 
+add_executable(zima_cpp_source_refresh_benchmark tests/source_refresh_benchmark.cpp)
+target_link_libraries(zima_cpp_source_refresh_benchmark PRIVATE zima_workspace zima_kernel_occt Qt6::Core)
+
 if(ZIMA_BUILD_TESTS)
     add_executable(zima_cpp_instance_startup_contract_tests tests/instance_startup_contract_tests.cpp)
     target_include_directories(zima_cpp_instance_startup_contract_tests PRIVATE app)

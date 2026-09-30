@@ -1,0 +1,15 @@
+Source refresh benchmark; baseline bb71010f; Windows x64 MSVC Release
+
+BEFORE
+source_refresh open=0 groups=32 leaves=256 cold_ms=19.221 warm_mean_ms=7.443 repetitions=5 triangles=3072
+source_refresh open=0 groups=128 leaves=1024 cold_ms=39.796 warm_mean_ms=29.775 repetitions=5 triangles=12288
+source_refresh open=1 groups=32 leaves=256 cold_ms=2.438 warm_mean_ms=0.518 repetitions=5 triangles=3072
+source_refresh open=1 groups=128 leaves=1024 cold_ms=4.484 warm_mean_ms=2.442 repetitions=5 triangles=12288
+Source refresh benchmark checks passed
+
+AFTER
+source_refresh open=0 groups=32 leaves=256 cold_ms=12.496 warm_mean_ms=0.351 repetitions=5 triangles=3072
+source_refresh open=0 groups=128 leaves=1024 cold_ms=7.589 warm_mean_ms=0.578 repetitions=5 triangles=12288
+source_refresh open=1 groups=32 leaves=256 cold_ms=1.959 warm_mean_ms=0.105 repetitions=5 triangles=3072
+source_refresh open=1 groups=128 leaves=1024 cold_ms=2.437 warm_mean_ms=0.291 repetitions=5 triangles=12288
+Source refresh benchmark checks passed
