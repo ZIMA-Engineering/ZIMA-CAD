@@ -2007,6 +2007,11 @@ int verify_helical_sweep_command(QApplication& application,zima::app::AssemblyWo
     auto base=zima::sketcher::Sketch::from_serialized(dialog->pending.helical.sketches[0]);
     static_cast<void>(base.add_circle(0,0,5));static_cast<void>(base.add_point(5,0));dialog->set_sketch(0,base);
     if(!verify(!dialog->pending.helical.start_point_id.empty(),"Unique initial Point not selected"))return 1;
+    const auto with_start=placement_view->grabFramebuffer();
+    placement_view->set_transient_points({});
+    const auto without_start=placement_view->grabFramebuffer();
+    if(!verify(!with_start.isNull()&&with_start!=without_start,"Incomplete Helical preview has no visible start marker"))return 1;
+    dialog->changed();application.processEvents();
     auto guide=zima::sketcher::Sketch::from_serialized(dialog->pending.helical.sketches[1]);static_cast<void>(guide.add_segment(0,0,-1,6));dialog->set_sketch(1,guide);
     auto section=zima::sketcher::Sketch::from_serialized(dialog->pending.helical.sketches[2]);static_cast<void>(section.add_circle(0,0,.4));dialog->set_sketch(2,section);
     auto* finish=window.findChild<QAction*>("finishSketchAction");
@@ -2017,6 +2022,17 @@ int verify_helical_sweep_command(QApplication& application,zima::app::AssemblyWo
         if(!verify(!placement_view->mesh().triangles.empty(),"Helical Sketch lost preceding solid context"))return 1;
         const std::array<std::string,3> roles{"base:","radial:","section:"};
         const auto check_context=[&] {
+            if(stage!=0) {
+                const auto framed=zima::sketcher::Sketch::from_serialized(dialog->pending.helical.sketches[0]);
+                const auto* start=framed.find_point(dialog->pending.helical.start_point_id);
+                if(!start)return false;
+                const auto expected=framed.world_point(start->x,start->y);
+                if(!std::ranges::any_of(placement_view->mesh().points,[&](const auto& point){
+                    return point.always_visible && point.reference.owner_id==feature_id &&
+                        point.reference.semantic_key=="helical:sketch:base:point:"+start->id &&
+                        std::hypot(point.position.x-expected.x,point.position.y-expected.y,point.position.z-expected.z)<1e-9;
+                }))return false;
+            }
             for(unsigned other=0;other<3;++other)if(other!=stage)
                 if(!std::ranges::any_of(placement_view->mesh().edges,[&](const auto& edge){
                     return edge.reference.owner_id==feature_id&&edge.reference.semantic_key.starts_with("helical:sketch:"+roles[other]);

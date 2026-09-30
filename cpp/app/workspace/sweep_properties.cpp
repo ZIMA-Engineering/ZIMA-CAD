@@ -8,6 +8,18 @@
 namespace zima::app {
 using namespace workspace_detail;
 
+namespace {
+std::optional<zima::kernel::ViewerPoint> helical_start_marker(zima::document::HistoryContainer container) {
+    try {
+        zima::document::PartDocument::reframe_helical_sketches(container,0);
+        const auto base=zima::sketcher::Sketch::from_serialized(container.helical.sketches[0]);
+        if(const auto* point=base.find_point(container.helical.start_point_id))
+            return zima::kernel::ViewerPoint{base.world_point(point->x,point->y),
+                {container.id,"helical:sketch:base:point:"+point->id,{}}};
+    }catch(const std::exception&) { /* An incomplete base has no resolved marker yet. */ }
+    return std::nullopt;
+}
+}
 
 void AssemblyWorkspaceWindow::transform_sketch_container(
     const std::string& container_id,
@@ -208,6 +220,7 @@ void AssemblyWorkspaceWindow::show_sweep_properties(zima::document::FeatureKind 
         auto sketches=transition?std::vector<zima::kernel::ViewerEdge>{}:planar?zima::document::PartDocument::sweep2d_sketch_edges(c):
             zima::document::PartDocument::helical_sketch_edges(c);
         edges.insert(edges.end(),std::make_move_iterator(sketches.begin()),std::make_move_iterator(sketches.end()));
+        if(!planar&&!transition)if(auto marker=helical_start_marker(c))preview_mesh.points.push_back(std::move(*marker));
         if(!body_id.empty())if(const auto* part=workspace_.open_part(workspace_.active_document_id())) {
             preview_mesh=part->session.document().place_body_mesh(std::move(preview_mesh),body_id);
         }
@@ -218,8 +231,9 @@ void AssemblyWorkspaceWindow::show_sweep_properties(zima::document::FeatureKind 
             workspace_.occurrence_point_to_scene(workspace_.displayed_document_id(),zima::assembly::InstancePath::decode(properties_dialog_instance_path_),point);};
         for(const auto& marker:preview_mesh.constraint_markers)labels.emplace_back(scene_point(marker.position),marker.label);
         for(const auto& point:preview_mesh.points)points.push_back(scene_point(point.position));
-        viewer_->set_transient_labels(std::move(labels));viewer_->set_transient_points(std::move(points));
         viewer_->set_transient_edges(std::move(edges));
+        // A new edge frame clears its preceding point/label overlays.
+        viewer_->set_transient_labels(std::move(labels));viewer_->set_transient_points(std::move(points));
         if(auto* planar_dialog=dynamic_cast<Sweep2DDialog*>(dialog);planar_dialog&&planar_dialog->path_active())
             planar_dialog->request_path_plane();
         else if(!pending_primitive_reference_index_&&!feature_reference_pick_&&!local_origin_selection_active_)set_primitive_properties_dimension_selection();
@@ -251,6 +265,7 @@ void AssemblyWorkspaceWindow::show_sweep_properties(zima::document::FeatureKind 
                 helical_sketch_context_.emplace();
                 auto& context=*helical_sketch_context_;
                 context.edges=zima::document::PartDocument::helical_sketch_edges(dialog->pending);
+                if(stage!=0)if(auto marker=helical_start_marker(dialog->pending))context.points.push_back(std::move(*marker));
                 const std::array<std::string,3> roles{"base:","radial:","section:"};
                 std::erase_if(context.edges,[&](const auto& edge){return edge.reference.semantic_key.starts_with("helical:sketch:"+roles[stage]);});
                 try {

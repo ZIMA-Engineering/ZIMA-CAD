@@ -1,5 +1,12 @@
 # H-Sweep (Helical Sweep)
 
+The properties preview shows the selected initial point alongside the base
+circle, even before the radial guide is complete. Radial-guide and profile
+Sketch editing retain both as passive context. The marker follows the resolved
+base plane, container placement, Body placement and displayed occurrence; it
+does not add editable geometry or a persisted reference. Preview edges are
+submitted before point overlays so refreshing the wire cannot erase the marker.
+
 H-Sweep is one Part history container with Add/Subtract. It owns three Sketches;
 creation/edits stay pending in one internal window until OK. Finish Sketch returns
 to that window. Cancel discards the whole pending container. Editing uses persisted
@@ -127,3 +134,14 @@ Properties includes base-Sketch offset in mm with a value lock. Adopting a Sketc
 preserves its offset. Editing shifts the base-circle plane and whole winding along
 its normal without changing container placement/references. The value remains in the
 native base Sketch; OK commits, Cancel discards pending changes.
+
+### Start-marker verification (2026-09-30)
+
+The H-Sweep GUI contract compares framebuffer output with/without the start
+marker before a radial guide exists. It checks the selected point's exact
+resolved position in radial/profile Sketch context after container translation
+and rotation, including while line, circle and dimension tools are active.
+The H-Sweep and neighboring 2D Sweep GUI contracts pass in
+`build/helical-marker-tests.log`. Existing finish/commit and reopen checks remain
+in the same H-Sweep test. No new user-visible text, document fields or shared
+placement behavior was introduced; translation coverage also passes.
