@@ -41,6 +41,42 @@ template <class F> void rejects(F f) {
     require(rejected, "Invalid presentation accepted");
 }
 void flush() { QApplication::processEvents(); }
+void verify_occurrence_bounds() {
+    kernel::ViewerMesh mesh;
+    auto frame = kernel::annotation_frame({10,20,30}, {0,0,90});
+    mesh.annotation_frames[{"shared", "first"}] = frame;
+    const auto point = [&](std::string owner, std::string path, kernel::Vec3 value) {
+        kernel::ViewerPoint p;
+        p.reference = {owner, "point", path}; p.position = value;
+        mesh.points.push_back(p);
+    };
+    point("shared", "first", frame.world({1,2,3}));
+    point("shared", "second", {100,200,300});
+    point("other", "second", {-10,-20,-30});
+    point("shared", "first", frame.world({4,5,6}));
+    point("", "first", {1e9,1e9,1e9});
+    point("shared", "first", {std::numeric_limits<double>::quiet_NaN(),0,0});
+    kernel::ViewerAxis axis;
+    axis.reference = {"axis", "axis", "first"};
+    axis.point = {7,8,9}; axis.direction = {0,0,2}; axis.display_length = 10;
+    mesh.original_references.axes.push_back(axis);
+    axis.reference = {"shared", "axis", "first"}; axis.display_length = 1e6;
+    mesh.axes.push_back(axis);
+    const auto bounds = kernel::object_envelopes(mesh);
+    const auto& first = bounds.at({"shared", "first"});
+    near(first.minimum.x,1); near(first.minimum.y,2); near(first.minimum.z,3);
+    near(first.maximum.x,4); near(first.maximum.y,5); near(first.maximum.z,6);
+    require(bounds.at({"shared", "second"}).minimum == kernel::Vec3{100,200,300},
+            "Repeated source occurrences shared bounds");
+    require(bounds.at({"other", "second"}).minimum == kernel::Vec3{-10,-20,-30},
+            "Different owners shared bounds");
+    require(bounds.at({"axis", "first"}).minimum == kernel::Vec3{7,8,4} &&
+            bounds.at({"axis", "first"}).maximum == kernel::Vec3{7,8,14},
+            "Axis-only occurrence lost its display extent");
+    require(!bounds.contains({"", "first"}), "Invalid reference acquired bounds");
+    mesh.points.front().position = frame.world({-8,2,3});
+    near(kernel::object_envelopes(mesh).at({"shared", "first"}).minimum.x,-8);
+}
 void mouse(QWidget *w, QEvent::Type type, QPointF p, Qt::MouseButton button,
            Qt::MouseButtons buttons) {
     QMouseEvent event(type, p, w->mapToGlobal(p.toPoint()), button, buttons, Qt::NoModifier);
@@ -113,6 +149,7 @@ Q_NEVER_INLINE void verify_vertical_dimension_clearance() {
 int main(int argc, char **argv) {
     QApplication app(argc, argv);
     try {
+        verify_occurrence_bounds();
         {
             kernel::DimensionTextStyle style;style.tolerance_mode="deviations";
             style.upper_tolerance="0.2";style.lower_tolerance="0.1";

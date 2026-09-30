@@ -1,6 +1,7 @@
 #include "profile_request_fixture.hpp"
 #include <zima/assembly/assembly_document.hpp>
 #include <zima/kernel/occt_kernel.hpp>
+#include <zima/kernel/dimension_layout.hpp>
 #include <zima/viewer/mesh_view.hpp>
 
 #include <QApplication>
@@ -8,6 +9,7 @@
 #include <QMouseEvent>
 #include <QTimer>
 #include <chrono>
+#include <fstream>
 #include <iomanip>
 #include <iostream>
 #include <stdexcept>
@@ -50,6 +52,21 @@ int main(int argc, char** argv) {
             }
             auto scene = assembly.build_scene();
             const auto scene_ms = milliseconds([&] { scene = assembly.build_scene(); }, 10);
+            std::map<zima::kernel::ObjectEnvelopeKey,zima::kernel::ModelEnvelope> bounds;
+            const auto bounds_ms = milliseconds([&] { bounds = zima::kernel::object_envelopes(scene); }, 5);
+            require(!bounds.empty(), "Benchmark object bounds are missing");
+            if (argc > 1) {
+                std::ofstream snapshot(std::string(argv[1]) + "-" + std::to_string(count) + ".txt");
+                snapshot << std::hexfloat;
+                for (const auto& [key, frame] : bounds) {
+                    snapshot << std::quoted(key.first) << ' ' << std::quoted(key.second) << ' ' << frame.valid;
+                    for (const auto p : {frame.minimum, frame.maximum, frame.origin,
+                                         frame.axes[0], frame.axes[1], frame.axes[2]})
+                        snapshot << ' ' << p.x << ' ' << p.y << ' ' << p.z;
+                    snapshot << '\n';
+                }
+                require(bool(snapshot), "Cannot write bounds snapshot");
+            }
             const auto set_ms = milliseconds([&] { view.set_mesh(scene); }, 5);
             view.set_standard_view(zima::viewer::StandardView::Top);
             // Allow the normal 850 ms camera transition to finish before picking.
@@ -101,6 +118,7 @@ int main(int argc, char** argv) {
             require(confirmed, "No occurrence was confirmed");
             std::cout << "occurrences=" << count << " triangles=" << scene.triangles.size()/3
                 << " scene_ms=" << scene_ms << " set_mesh_ms=" << set_ms
+                << " object_bounds_ms=" << bounds_ms
                 << " pick_ms=" << pick_ms << " mouse_dispatch_ms=" << mouse_ms
                 << " candidates=" << candidates << " confirmation=passed\n" << std::flush;
         }

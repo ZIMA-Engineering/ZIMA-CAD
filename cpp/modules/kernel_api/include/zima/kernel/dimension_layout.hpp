@@ -70,9 +70,18 @@ object_envelopes(const ViewerMesh &mesh, std::map<ObjectEnvelopeKey, ModelEnvelo
         result.try_emplace(key, frame);
     if (!result.contains({}) || !result.at({}).valid)
         result[{}] = model_envelope(mesh);
+    // Consecutive samples usually belong to one occurrence. Map insertions
+    // preserve these pointers; reuse only the lookup, never calculated bounds.
+    const ObjectEnvelopeKey *last_key = nullptr;
+    ModelEnvelope *last_bounds = nullptr;
     const auto add = [&](const auto &ref, Vec3 point) {
-        if (ref.valid())
-            result[{ref.owner_id, ref.instance_path}].include(point);
+        if (!ref.valid()) return;
+        if (!last_key || last_key->first != ref.owner_id || last_key->second != ref.instance_path) {
+            const auto entry = result.try_emplace(ObjectEnvelopeKey{ref.owner_id, ref.instance_path}).first;
+            last_key = &entry->first;
+            last_bounds = &entry->second;
+        }
+        last_bounds->include(point);
     };
     const auto triangles = [&](const auto &packet) {
         for (std::size_t i = 0; i < packet.triangles.size(); ++i)
