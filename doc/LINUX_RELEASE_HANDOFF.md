@@ -1,5 +1,16 @@
 # Linux build and distribution handoff — 2026-09-15
 
+## Current signed release (2026-09-30)
+
+[Linux 2026093001](releases/2026093001.md) is signed and public. The existing
+encrypted publisher key was successfully unlocked through a local password
+dialog using the unchanged finalizer. Candidate and signed smoke, production
+trust, packaged Drawing checks, public asset hashes and update discovery passed
+on Debian 13 x86_64 and KDE/Wayland. Temporary preparation paths are disposable;
+the durable signed assets are under `.dist-output/linux-3001-signed/` and on
+GitHub. See [publisher procedure](UPDATES.md#publisher-procedure) before the next
+release. The historical 2026092907 signing preparation is superseded.
+
 ## Supported desktop scope (2026-09-27)
 
 The user limited Linux desktop support and verification to **KDE Plasma and

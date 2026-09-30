@@ -2,6 +2,15 @@
 
 ## Scope and status
 
+Linux build **2026093001** is signed, published and verified for Debian 13 x86_64
+and KDE/Wayland. It prepares Drawing measurement picking, preserves automatic
+point-pair direction switching and avoids rebuilding placement controls during
+pointer movement. Clean candidate/signed smoke, production trust, packaged
+Drawing verification, public downloaded-asset hashes and authenticated update
+discovery from 2026092001 passed. See [the release record](releases/2026093001.md)
+for timing scope and inherited regression limitations. GNOME acceptance is not
+claimed by this KDE/Wayland release verification.
+
 Windows build **2026092905** is signed, published and verified. It fixes Unbend
 of closely separated sheet pieces through bounded finer reconstruction while
 retaining solid-count and validity checks. Focused geometry and translation

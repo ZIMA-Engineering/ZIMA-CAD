@@ -151,8 +151,8 @@ Its key must already be trusted by the packaged source. It accepts
 a candidate tagged after packaging must pass the same exact source, tag,
 archive and native smoke-report checks. The candidate metadata is not rewritten
 to bypass those checks. It creates bootstrap attestations and signed assets,
-revalidates archive paths/CRC/SHA-256 and, on Windows,
-smokes the finalized signed archive from a fresh extraction. Existing output is
+revalidates archive paths/CRC/SHA-256 and runs the native Windows or Linux smoke
+on the finalized signed archive from a fresh extraction. Existing output is
 never replaced. `--development` creates isolated test assets that production
 discovery rejects; it is not a release shortcut.
 
@@ -163,6 +163,15 @@ pipeline and supported-baseline checks described in [the Linux handoff](LINUX_RE
 Optional key maintenance is available as `keygen` and `export-key`. Windows keys
 use user-bound DPAPI; encrypted portable PEM backups require an interactive
 password. Private material must remain outside tracked/distributable files.
+
+On Linux, run the finalizer in a local desktop terminal so its password prompt
+has a controlling terminal. Noninteractive build logs cannot unlock an encrypted
+PEM. Enter the password locally; do not put it in command arguments, environment
+variables, scripts or logs. A local password dialog may supply the prompt in
+memory while retaining the unchanged finalizer and its trusted-key checks.
+Temporary signing checkouts and candidate extractions under `/tmp` may disappear
+after reboot. Recreate them from the exact tagged commit and validated candidate
+archive/report; do not reuse a running installation or create a replacement key.
 
 ## Verification
 
