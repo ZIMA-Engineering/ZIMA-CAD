@@ -2,6 +2,16 @@
 
 ## Scope and status
 
+Windows build **2026093005** is signed, published and verified. It adds explicit
+Fusion Light/Dark themes, Sweep result modes and plane dropdowns, first-position
+STEP/IGES Bodies, focused geometry/UI fixes and measured performance improvements.
+Eight final targeted suites, 300 layout combinations, candidate/signed smoke,
+production trust, six packaged GUI checks, public asset hashes and update
+discovery from 2026093004 passed. Helical native data requires new result/side/
+thickness fields; broader test gaps and remaining optimization candidates are
+explicit in [the release record](releases/2026093005.md). Linux acceptance remains
+assigned to the Linux host.
+
 Windows build **2026093004** is signed, published and verified. It exposes
 Extrusion draft and H-Sweep pitch dimensions to View/Relations, fits Sketch
 entry to existing geometry and retains H-Sweep editing context. Focused

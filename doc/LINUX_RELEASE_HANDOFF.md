@@ -11,6 +11,21 @@ the durable signed assets are under `.dist-output/linux-3001-signed/` and on
 GitHub. See [publisher procedure](UPDATES.md#publisher-procedure) before the next
 release. The historical 2026092907 signing preparation is superseded.
 
+## Next Linux acceptance: explicit Fusion themes
+
+Windows source tag `ZIMA-CAD-2026093005` introduces Fusion Qt widgets and the
+shared `Application/Theme=light|dark` setting. The default is Light; the OS theme
+does not select it automatically. View, Sketch and Drawing keep their technical
+ISO font. This is implemented cross-platform, but its Linux desktop appearance
+has not been verified by the Windows release run.
+
+On the next native Linux build, run the font/theme GUI contract and the affected
+Sweep, Pattern and Drawing GUI checks. Inspect Light/Dark, localized labels,
+OK/Cancel and persistence on the supported KDE/Wayland and GNOME environments.
+Qt widget styling is shared; system GUI fonts and native window decorations
+can still differ. Use the current sweep result-mode/native-template checks too;
+Helical feature data now requires result type, thickness and side fields.
+
 ## Supported desktop scope (2026-09-27)
 
 The user limited Linux desktop support and verification to **KDE Plasma and

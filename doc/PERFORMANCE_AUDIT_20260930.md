@@ -530,6 +530,7 @@ native round trip and affected GUI contracts. Keep cold/warm measurements and
 median/tail latency separate. Run localization coverage; preserve all five
 languages for any changed visible text. This audit changes no UI strings.
 
-No optimization code is included in this report. The Windows release remains
-the already validated 2026093004 build; a documentation-only audit does not
-require replacing its immutable assets.
+The original audit was documentation-only and retained Windows 2026093004.
+The separately measured implementations and remaining candidates are listed in
+the follow-ups above; Windows 2026093005 packages the accepted changes without
+replacing the immutable 2026093004 assets.
