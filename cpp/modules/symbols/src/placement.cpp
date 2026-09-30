@@ -62,11 +62,12 @@ kernel::ViewerMesh Placement::viewer_mesh(std::optional<double> paper_frame_angl
             displayed.angle_degrees+=angle;
         }
     }
-    auto result=instance_mesh(displayed,{},paper_frame_angle);
+    // A leader uses local glyph geometry; do not first build a discarded placed copy.
+    const bool leader_glyph=leader&&symbol.visible;
+    if(leader_glyph)displayed.x=displayed.y=displayed.angle_degrees=0;
+    auto result=instance_mesh(displayed,{},leader_glyph?std::nullopt:paper_frame_angle);
     if(!symbol.visible)return result;
     if(leader) {
-        auto glyph=symbol;glyph.x=glyph.y=0;glyph.angle_degrees=0;
-        result=instance_mesh(glyph);
         const auto definition=Definition::from_serialized(symbol.definition);
         const bool structured=definition.frame_layout.has_value()||definition.reference_line_layout.has_value();
         kernel::AnnotationStroke info;info.contact=frame.origin;

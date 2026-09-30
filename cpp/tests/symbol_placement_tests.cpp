@@ -4,6 +4,8 @@
 #include <iostream>
 #include <limits>
 #include <cmath>
+#include <chrono>
+#include <bit>
 using namespace zima;
 namespace {
 void check(bool v,const char* message){if(!v)throw std::runtime_error(message);}
@@ -17,6 +19,29 @@ int main(){try {
     p.frame={{100,200,300},{0,1,0},{0,0,1}};
     p.reference=symbols::Reference{"part","face-owner","face:authored","assembly/occurrence",symbols::ReferenceKind::Face,true};
     p.leader=true;p.leader_bends={{5,8}};p.validate();
+    double elapsed=0;std::uint64_t hash=1469598103934665603ULL;
+    const auto mix=[&](std::uint64_t value){hash^=value;hash*=1099511628211ULL;};
+    const auto text=[&](const std::string& value){for(unsigned char c:value)mix(c);mix(value.size());};
+    for(int sample=0;sample<5;++sample) {
+        const auto started=std::chrono::steady_clock::now();
+        for(int repeat=0;repeat<100;++repeat) {
+            const auto result=p.viewer_mesh(37.);
+            mix(result.edges.size());
+            for(const auto& edge:result.edges) {
+                mix(edge.points.size());text(edge.color);text(edge.reference.owner_id);text(edge.reference.semantic_key);
+                mix(edge.overlay);mix(edge.construction);mix(edge.dash_dot);mix(edge.infinite);
+                for(auto point:edge.points)for(double value:{point.x,point.y,point.z})mix(std::bit_cast<std::uint64_t>(value));
+                if(edge.annotation) {
+                    const auto& a=*edge.annotation;
+                    for(double value:{a.contact.x,a.contact.y,a.contact.z,a.grip.x,a.grip.y,a.grip.z,a.left,a.right,a.bottom,a.arrow_length,a.shelf_length})
+                        mix(std::bit_cast<std::uint64_t>(value));
+                    mix(a.role);mix(a.framed);mix(a.all_around);mix(a.short_shelf);
+                }
+            }
+        }
+        elapsed+=std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-started).count();
+    }
+    std::cout<<"Symbol leader 100 renders/sample, mean_ms="<<elapsed/5<<" geometry_hash="<<hash<<"\n";
     const auto local=symbols::instance_mesh(p.symbol),mesh=p.viewer_mesh();
     check(mesh.edges.size()==local.edges.size()+3,"Leader, arrow and shelf missing");
     check(mesh.edges.back().color=="#F5CD50","Shelf must use yellow pen");

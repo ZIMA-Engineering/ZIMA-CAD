@@ -1,0 +1,2 @@
+Symbol leader 100 renders/sample, mean_ms=124.098 geometry_hash=7341180701063428579
+Symbol placement contracts passed

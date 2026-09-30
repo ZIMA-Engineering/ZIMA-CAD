@@ -31,6 +31,9 @@ The [A10 current-state snapshot follow-up](performance/20260930-drawing-read-sna
 records removal of Undo/Redo copies during read-only Drawing source preparation.
 General atomic Workspace staging and dependency-specific invalidation are unchanged.
 
+The [A12 Symbol leader follow-up](performance/20260930-symbol-leader.md)
+records removal of a discarded mesh calculation without adding cache state.
+
 The first investigation should target large Sketch dimension edits. The existing
 Release benchmark exposes a severe scaling problem. The next priorities are
 Assembly scene construction and picking, then avoiding complete scene/Tree
