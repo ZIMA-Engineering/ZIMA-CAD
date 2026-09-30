@@ -38,6 +38,11 @@ measuring the body. The measured point is labelled **Center of gravity**
   calculations produce a red record and unavailable results; the record never
   silently moves to the end of history.
 
+- Measurement accepts the saved centroid Origin's planes, axes and point.
+  Their geometry comes from the cached analysis record, preserving its rotation
+  and Body placement. This does not make analysis Origins valid feature-placement
+  inputs or create a dependency back to their measured solid.
+
 ## Quantities
 
 Kernel storage uses mm³ for volume, mm² for area, mm for centroid and mm⁵ for
@@ -144,3 +149,22 @@ caused by the fixture leaving Sketch Properties unconfirmed after returning from
 Sketcher. The fixture now confirms those Properties before inserting a component.
 No production insertion or Family Table change was needed. These checks do not
 constitute portable-release acceptance.
+
+### Centroid-plane measurement correction (2026-09-30)
+
+The saved frame intentionally omits general original-reference triangles to
+prevent circular placement dependencies. The View can offer its plane from
+the visible frame edges, but Measurement previously failed to resolve it.
+The measurement resolver now obtains that record's cached frame only for the
+requested local analysis point, axis or plane, without changing shared placement.
+
+The new reproducer failed before the fix with the original missing-reference
+message. Body-properties and measurement command tests now pass, including
+rotated/placed frames, hidden frames, save/reopen, Undo/Redo, missing anchors
+and unchanged revision/generation during inspection. GUI common-picker selection
+and Cancel pass too. The GUI fixture's obsolete ten-Undo cleanup limit was
+replaced by restoration to its captured revision with a strict progress check;
+each rectangular fixture now issues six public commands. Product Undo is unchanged.
+Logs: `build/centroid-plane-before.log`, `build/centroid-plane-tests.log`, and
+`build/centroid-gui-final-tests.log`. Localization review found no new product
+text; five-language coverage passed.

@@ -2,6 +2,7 @@
 #include "profile_solid_fixture.hpp"
 #include <zima/command_host/host.hpp>
 #include <zima/workspace/body_properties_edits.hpp>
+#include <zima/workspace/measurement_operations.hpp>
 #include <zima/document/viewer_packet_json.hpp>
 #include <zima/kernel/stable_id.hpp>
 #include <iostream>
@@ -47,6 +48,23 @@ void workflow(const kernel::OcctKernel& kernel,std::filesystem::path dir) {
     const auto shape=part->session.calculated_boundaries().back().kernel_shape;
     auto row=run(host,"body_properties.create",{{"name","Before cut"}});const auto object=row.at("object").get<std::string>();
     check(row["body_id"]==body&&row["after_object_id"]==box,"Creation lost history position");near(row["volume_mm3"],480,"saved volume");
+    const auto centroid_plane=[&] {
+        return run(host,"measurement.evaluate",{{"references",Json::array({
+            {{"kind","plane"},{"owner",object+":origin"},{"key","origin:plane:xy"}},
+            {{"kind","plane"},{"owner",id+":origin"},{"key","origin:plane:xy"}}
+        })}});
+    };
+    near(centroid_plane()["distance"]["value"]["value"],0,"Saved centroid plane is unavailable");
+    run(host,"body_properties.set",{{"object",object},{"visible",false}});
+    near(centroid_plane()["distance"]["value"]["value"],0,"Hidden centroid lost its stored measurement reference");
+    run(host,"body_properties.set",{{"object",object},{"visible",true}});
+    const auto measurement_edit=workspace::prepare_measurement_edit(live,id);
+    auto measurement=measurement_edit.initial;
+    measurement.references={{kernel::MeasurementKind::Plane,object+":origin","origin:plane:xy",{}},
+        {kernel::MeasurementKind::Plane,id+":origin","origin:plane:xy",{}}};
+    check(workspace::commit_measurement(live,measurement_edit,measurement),"Centroid measurement was not saved");
+    run(host,"undo");check(part->session.document().measurements.empty(),"Measurement Undo lost transaction boundary");
+    run(host,"redo");check(part->session.document().measurements.size()==1,"Measurement Redo lost centroid reference");
     const auto model_tree=command_host::model_tree(live,id,2000).at("items");
     check(std::ranges::any_of(model_tree,[&](const auto& item){return item.at("id")==object&&item.at("type")=="body-properties";}),"Model tree omitted the analysis feature");
     near(row["mass_kg"],.003768,"saved mass");near(row["inertia_kg_mm2"][0],.0314,"saved mass inertia");
@@ -77,11 +95,19 @@ void workflow(const kernel::OcctKernel& kernel,std::filesystem::path dir) {
     row=run(host,"body_properties.get",{{"object",object}});check(row["mass_kg"].is_null()&&row["inertia_kg_mm2"].is_null()&&!row["integrals"].is_null(),"Unknown density fabricated mass or removed geometry");
     run(host,"save");std::vector<kernel::BodyResult> restored;const auto loaded=document::PartDocument::load(dir/"mass-model.prtz",&restored);
     check(loaded.body_properties==part->session.document().body_properties,"Native document lost records");
+    check(loaded.measurements==part->session.document().measurements,"Native document lost centroid measurement");
+    workspace::Workspace reopened;reopened.add_part(loaded,restored);
+    auto reopened_record=loaded.measurements.front();
+    workspace::evaluate_measurement_references(reopened,loaded.document_id,reopened_record);
+    check(reopened_record.distance.has_value(),"Reopened centroid plane cannot be measured");
     check(restored.back().volume_integrals.has_value(),"Native document lost kernel integrals");
     run(host,"body_properties.delete",{{"object",object}});run(host,"undo");check(run(host,"body_properties.get",{{"object",object}})["name"]=="Before cut","Delete Undo lost record");
     auto missing=part->session.document();missing.body_properties.front().after_object_id="missing";
     part->session.commit(missing,part->session.calculated_boundaries());row=run(host,"body_properties.get",{{"object",object}});
     check(!row["error"].get<std::string>().empty()&&row["integrals"].is_null(),"Missing anchor silently moved measurement to final body");
+    check(!host.execute({{"command","measurement.evaluate"},{"arguments",{{"references",Json::array({
+        {{"kind","plane"},{"owner",object+":origin"},{"key","origin:plane:xy"}}
+    })}}}}).ok,"Broken centroid anchor still resolved a plane");
 }
 void placed_bodies(const kernel::OcctKernel& kernel) {
     auto doc=document::PartDocument::create_default();auto first=zima::test::rectangular_feature(doc,{10,8,6});
@@ -95,6 +121,26 @@ void placed_bodies(const kernel::OcctKernel& kernel) {
     row=document::evaluate_body_properties(doc,calculated,row);check(row.integrals.has_value(),"Placed Body measurement unavailable");
     near(row.integrals->centroid.x,100,"placed centroid X");near(row.integrals->centroid.y,200,"placed centroid Y");near(row.integrals->centroid.z,300,"placed centroid Z");
     near(row.integrals->inertia[0],5440,"placed Body tensor X");near(row.integrals->inertia[4],4000,"placed Body tensor Y");
+    {
+        auto measured=doc;row.rotation_degrees={0,90,0};measured.body_properties={row};
+        workspace::Workspace live;live.add_part(measured,calculated);
+        const auto scene=workspace::measurement_scene(live,measured.document_id);
+        check(std::ranges::none_of(scene.original_references.triangle_references,[&](const auto& ref){return ref.owner_id==row.id+":origin";}),
+            "Analysis frame leaked into ordinary placement geometry");
+        const kernel::MeasurementReference centroid{kernel::MeasurementKind::Plane,row.id+":origin","origin:plane:xy",{}};
+        const kernel::MeasurementReference root{kernel::MeasurementKind::Plane,measured.document_id+":origin","origin:plane:yz",{}};
+        const auto revision=live.open_part(measured.document_id)->session.revision();
+        const auto generation=live.open_part(measured.document_id)->session.data_generation();
+        const auto a=workspace::resolve_measurement(live,measured.document_id,centroid,scene);
+        const auto b=workspace::resolve_measurement(live,measured.document_id,root,scene);
+        check(a&&b&&a->plane,"Rotated placed centroid plane unavailable");
+        const auto distance=measurement::measure_distance(*a,*b);
+        check(distance.has_value(),"Rotated centroid plane has no distance");
+        near(distance->distance.value,100,"Centroid measurement ignored Body placement or frame rotation");
+        check(revision==live.open_part(measured.document_id)->session.revision()&&
+              generation==live.open_part(measured.document_id)->session.data_generation(),"Centroid inspection mutated document state");
+        row.rotation_degrees={};
+    }
     row.body_id.clear();row.after_object_id=b;row=document::evaluate_body_properties(doc,calculated,row);
     near(row.volume,960,"placed aggregate volume");near(row.integrals->centroid.x,110,"placed aggregate centroid");
     near(row.integrals->inertia[4],104000,"aggregate parallel-axis inertia");

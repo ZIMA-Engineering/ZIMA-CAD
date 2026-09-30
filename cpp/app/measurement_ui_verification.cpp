@@ -49,8 +49,8 @@ try{
         mouse(QEvent::MouseMove,at,Qt::NoButton);mouse(QEvent::MouseButtonPress,at,button);
         mouse(QEvent::MouseButtonRelease,at,button);flush();
     };
-    const auto select=[&](viewer::CandidateKind kind,const std::string& occurrence=std::string{}){
-        const auto matches=[&](const auto& c){return c.kind==kind&&(occurrence.empty()||c.instance_path==occurrence);};
+    const auto select=[&](viewer::CandidateKind kind,const std::string& occurrence=std::string{},const std::string& owner=std::string{}){
+        const auto matches=[&](const auto& c){return c.kind==kind&&(occurrence.empty()||c.instance_path==occurrence)&&(owner.empty()||c.owner_id==owner);};
         for(int y=20;y<view->height()-20;y+=5)for(int x=20;x<view->width()-20;x+=5){
             const QPointF at(x,y);const auto candidates=view->selection_candidates_at(at);
             if(std::ranges::none_of(candidates,matches))continue;
@@ -208,6 +208,15 @@ try{
     tree->setCurrentItem(centroid_item);flush();
     check(view->confirmed_candidate()&&view->confirmed_candidate()->owner_id==mass_id+":origin","Selecting centroid in Tree does not highlight its own frame");
     click({25,25},Qt::LeftButton);check(!view->confirmed_candidate()&&tree->selectedItems().empty(),"Empty View click retained centroid selection");
+    const auto before_centroid_inspection=execute("measurement.get",{{"object",measurement_id}}).data.at("revision");
+    action->trigger();flush();check(dialog()!=nullptr,"Centroid measurement inspector unavailable");
+    select(viewer::CandidateKind::Plane,{},mass_id+":origin");
+    check(dialog()->geometries()[0]&&dialog()->geometries()[0]->plane,
+        "Saved centroid plane became a missing measurement reference");
+    check(dialog()->findChild<QPushButton*>("saveMeasurement")->isEnabled(),"Centroid measurement cannot be saved");
+    dialog()->reject();flush();
+    check(execute("measurement.get",{{"object",measurement_id}}).data.at("revision")==before_centroid_inspection,
+        "Centroid inspection or Cancel created an Undo transaction");
     const auto mass_reopen=[&] {
         QTreeWidgetItem* item{};for(QTreeWidgetItemIterator i(tree);*i;++i)if((*i)->data(0,Qt::UserRole).toString().toStdString()==mass_id){item=*i;break;}
         check(item,"Mass row missing");window.show_tree_item_properties(item);flush();check(mass_dialog(),"Mass edit window missing");
@@ -266,7 +275,14 @@ try{
         check(std::ranges::any_of(view->mesh().points,[&](const auto& p){return p.reference.owner_id==in_body+":origin";})==expected,"Origin picker/display ignored visibility");
     }
     // Restore the original source before the existing Assembly inspector test.
-    for(int i=0;i<10&&execute("measurement.get",{{"object",measurement_id}}).data.at("revision")!=before_analysis_revision;++i)execute("undo");
+    // Each profile fixture now uses six public editing commands; two profiles
+    // plus the analysis records require more than the old ten-Undo limit.
+    auto restored_revision=execute("measurement.get",{{"object",measurement_id}}).data.at("revision").get<std::uint64_t>();
+    while(restored_revision>before_analysis_revision.get<std::uint64_t>()) {
+        execute("undo");
+        const auto previous=execute("measurement.get",{{"object",measurement_id}}).data.at("revision").get<std::uint64_t>();
+        check(previous<restored_revision,"Analysis Undo made no progress");restored_revision=previous;
+    }
     check(execute("measurement.get",{{"object",measurement_id}}).data.at("revision")==before_analysis_revision,"Analysis history could not be undone");flush();
     auto second_part=document::PartDocument::create_default();
     auto second_box=test::rectangular_feature(second_part,{20,20,30});second_part.history={second_box};

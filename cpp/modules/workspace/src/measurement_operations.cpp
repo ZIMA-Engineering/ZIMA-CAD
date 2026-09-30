@@ -3,6 +3,7 @@
 #include <map>
 #include <tuple>
 #include <zima/document/physical_properties.hpp>
+#include <zima/document/body_properties.hpp>
 #include <zima/assembly/physical_properties.hpp>
 namespace zima::workspace {
 kernel::ViewerMesh measurement_scene(const Workspace& live,const std::string& id) {
@@ -32,6 +33,20 @@ kernel::ViewerMesh measurement_scene(const Workspace& live,const std::string& id
 std::optional<measurement::MeasurementGeometry> resolve_measurement(
     const Workspace& live,const std::string& id,const kernel::MeasurementReference& reference,const kernel::ViewerMesh& scene) {
     auto geometry=measurement::measure_entity(scene,reference);
+    if(!geometry && reference.instance_path.empty() &&
+       (reference.kind==kernel::MeasurementKind::Plane ||
+        reference.kind==kernel::MeasurementKind::Axis || reference.kind==kernel::MeasurementKind::Point)) {
+        if(const auto* part=live.open_part(id)) {
+            const auto& rows=part->session.document().body_properties;
+            const auto row=std::ranges::find_if(rows,[&](const auto& value){return value.id+":origin"==reference.owner_id;});
+            if(row!=rows.end()) {
+                // Analysis frames are measurement-only references. Keep them
+                // out of the shared placement packet to avoid dependency cycles.
+                auto visible=*row; visible.visible=true;
+                geometry=measurement::measure_entity(document::body_properties_origin(visible),reference);
+            }
+        }
+    }
     if(reference.kind==kernel::MeasurementKind::Object && reference.owner_id.empty()&&!reference.instance_path.empty()){
         // Resolve metadata for this exact occurrence, without calculating its source.
         const auto address=live.resolve_occurrence(id,assembly::InstancePath::decode(reference.instance_path));

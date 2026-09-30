@@ -28,6 +28,13 @@ Faces are measured within their boundaries; axes/construction planes are infinit
 for distance calculations. Overlapping bodies and points inside closed bodies have
 zero distance.
 
+Saved Body measurement centroid Origins can also be measured by their planes,
+axes and point. Plane resolution uses the saved centroid and its current frame
+rotation, including placed Bodies, without recalculating solids. Hiding the
+frame does not invalidate an already stored measurement reference. A deleted
+record or unavailable centroid remains a missing reference. These read-only
+analysis frames are not added to the general placement-reference packet.
+
 Selection uses common View candidate ordering; RMB cycles overlapping candidates.
 Clicking reference text arms entry/replacement (green outline). The eye independently
 toggles azure inspection of the stored reference; the cross removes it.
