@@ -2,6 +2,7 @@
 #include "assembly_profile_test_support.hpp"
 #include <zima/document/dimension_layout_json.hpp>
 #include <zima/drawing/drawing_template.hpp>
+#include <zima/workspace/template_operations.hpp>
 #include <zima/sketcher/text_geometry.hpp>
 #include "derived_copy_query_test_support.hpp"
 #include "drill_point_test_support.hpp"
@@ -38,6 +39,14 @@ using commands::Json;
 namespace {
 QString default_fixture_config;
 void require(bool ok,const char* message){if(!ok)throw std::runtime_error(message);}
+sketcher::Sketch load_native_template(const fs::path& file) {
+    require(drawing::is_native_template_file(file),"CLI saved a non-native library template");
+    workspace::Workspace loaded;
+    const auto id=workspace::open_drawing_template(loaded,file);
+    const auto& sketch=workspace::drawing_template_sketch(loaded,id);
+    require(!sketch.owner_container_id.empty(),"Template Sketch lost its Body ownership");
+    return sketch;
+}
 QString qpath(const fs::path& path){const auto text=path.generic_u8string();return QString::fromUtf8(reinterpret_cast<const char*>(text.data()),static_cast<qsizetype>(text.size()));}
 fs::path path(const QString& text){return fs::u8path(text.toStdString());}
 void write(const fs::path& path,const QByteArray& content){
@@ -275,11 +284,11 @@ int main(int argc,char** argv){
                 "--command",command({{"command","template.sketch.edit"},{"arguments",{{"operations",operations}}}}),
                 "--command","undo","--command","redo","--command","template.save","--command","template.get"});
             require(result.exit_code==0&&result.results()[1].at("data").at("body_calculated")==false&&result.results().back().at("data").at("texts")==1,"CLI template batch or history failed");
-            const auto file=project/fs::u8path(name+suffix);const auto load=[](auto& text){sketcher::rebuild_text_contours(text,true);};
-            const auto saved=drawing::load_template_sketch(file,load);require(saved.drawing_template->kind==kind&&saved.segments.size()==1&&saved.texts.front().value=="Žluťoučký &name"&&!saved.texts.front().modeling_geometry,"CLI template lost native data");
+            const auto file=project/fs::u8path(name+suffix);
+            const auto saved=load_native_template(file);require(saved.drawing_template->kind==kind&&saved.segments.size()==1&&saved.texts.front().value=="Žluťoučký &name"&&!saved.texts.front().modeling_geometry,"CLI template lost native data");
             result=launch(executable,root,common+QStringList{"--command",command({{"command","template.open"},{"arguments",{{"path",name+suffix}}}}),
                 "--command",command({{"command","template.save"},{"arguments",{{"path",name+" copy"+suffix},{"copy",true}}}}),"--command","close"});
-            require(result.exit_code==0&&drawing::load_template_sketch(project/fs::u8path(name+" copy"+suffix),load).id==saved.id,"CLI template copy or reopen changed its identity");
+            require(result.exit_code==0&&load_native_template(project/fs::u8path(name+" copy"+suffix)).id==saved.id,"CLI template copy or reopen changed its identity");
         }
         {
             const auto logo=project/"CLI logo.svg";{std::ofstream out(logo);out<<R"(<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 4 2"><rect width="4" height="2" fill="red"/></svg>)";}
@@ -293,7 +302,7 @@ int main(int argc,char** argv){
                 "--command",command({{"command","template.region.set"},{"arguments",{{"region",region},{"step_mm",9.123456789},{"direction","right"},{"value_locks",{"step"}}}}}),"--command","template.save",
                 "--command",command({{"command","template.image.remove"},{"arguments",{{"image",image}}}}),"--command","undo","--command","template.image.list"});
             require(result.exit_code==0&&result.results().back().at("data").at("items").front().at("image")==image,"CLI object update or removal Undo failed");
-            fs::remove(logo);const auto saved=drawing::load_template_sketch(project/"CLI objects.tblz",[](auto& text){sketcher::rebuild_text_contours(text,true);});
+            fs::remove(logo);const auto saved=load_native_template(project/"CLI objects.tblz");
             require(saved.drawing_template->images.front().id==image&&saved.drawing_template->images.front().width==30&&saved.drawing_template->images.front().height==15&&
                 saved.drawing_template->repeat_regions.front().id==region&&saved.drawing_template->repeat_regions.front().direction=="right"&&saved.drawing_template->repeat_regions.front().value_locks.contains("step"),"CLI object save lost geometry, identity or locks");
         }
@@ -1028,7 +1037,10 @@ int main(int argc,char** argv){
         require(points_native.sketches.back().points.size()==3&&points_native.sketches.back().import_blocks.size()==1&&points_native.sketches.back().import_blocks[0].geometry_ids.empty(),"CLI lost point-only native block");
         const auto points_export=command({{"command","export.dxf"},{"arguments",{{"path","only-points-roundtrip.dxf"},{"sketch",points_native.sketches.back().id}}}});
         result=launch(executable,root,common+QStringList{"--command","open cli-points.prtz","--command",points_export});
-        require(result.exit_code==0&&test::read_dxf_entities(project/"only-points-roundtrip.dxf").size()==3,"CLI point-only native roundtrip lost POINT entities");
+        const auto exported_points=test::read_dxf_entities(project/"only-points-roundtrip.dxf");
+        require(result.exit_code==0&&exported_points.size()==1&&exported_points.front().type=="POINT"&&
+            exported_points.front().number(10)==0&&exported_points.front().number(20)==0,
+            "CLI manufacturing DXF lost the profile point or exported construction points");
         test::write_unclamped_dxf(project/"unclamped-splines.dxf");
         result=launch(executable,root,common+QStringList{"--command","new part cli-unclamped-splines","--command","import.dxf unclamped-splines.dxf","--command","undo","--command","redo","--command","save"});
         require(result.exit_code==0&&result.results()[1].at("data").at("imported_entities")==4,"Standalone CLI unclamped spline import failed");
@@ -1128,7 +1140,7 @@ int main(int argc,char** argv){
         require(result.exit_code==0&&result.results().size()==2&&result.results()[1].at("data").at("model_changed")==false,"CLI exact DXF export failed");test::check_dxf_curves(project/"exact-curves.dxf");
         result=launch(executable,root,common+QStringList{"--command","new part cli-dxf-roundtrip","--command","import.dxf exact-curves.dxf","--command","undo","--command","redo","--command","save"});
         if(result.exit_code!=0)std::cerr<<result.output.toStdString()<<result.diagnostics.toStdString();
-        require(result.exit_code==0&&result.results().size()==5&&result.results()[1].at("data").at("imported_entities")==12&&result.results()[1].at("data").at("warnings").empty(),"CLI exact-curve import or history failed");
+        require(result.exit_code==0&&result.results().size()==5&&result.results()[1].at("data").at("imported_entities")==10&&result.results()[1].at("data").at("warnings").empty(),"CLI exact-curve import or history failed");
         const auto roundtrip_sketch=result.results()[1].at("data").at("sketch");
         const auto roundtrip_export=command({{"command","export.dxf"},{"arguments",{{"path","roundtrip-curves.dxf"},{"sketch",roundtrip_sketch}}}});
         result=launch(executable,root,common+QStringList{"--command","open cli-dxf-roundtrip.prtz","--command",roundtrip_export});
@@ -1253,7 +1265,9 @@ int main(int argc,char** argv){
         const auto hatch_set=command({{"command","drawing.view.hatch.set"},{"arguments",{{"view",hatch_view.id},{"components",Json::array({{{"component",hatch_component},{"mode","cut_only"},{"hatch",{{"spacing_mm",3.125},{"offset_mm",.375}}}}})}}}});
         result=launch(executable,root,common+QStringList{"--command","open cli-hatch.drwz","--command",hatch_get,"--command",hatch_set,"--command","undo","--command","redo","--command","save","--command",command({{"command","activate"},{"arguments",{{"document",hatch_source.document_id}}}}),"--command","save"});
         if(result.exit_code!=0)std::cerr<<result.output.toStdString()<<result.diagnostics.toStdString();
-        require(result.exit_code==0&&result.results().size()==8&&result.results()[1]["data"]["items"][0]["component"]==hatch_component&&result.results()[2]["data"]["source_changed"]==true,"Standalone CLI hatch query/edit or history failed");
+        require(result.exit_code==0&&result.results().size()==8&&
+            std::ranges::any_of(result.results()[1]["data"]["items"],[&](const auto& row){return row.at("component")==hatch_component;})&&
+            result.results()[2]["data"]["source_changed"]==true,"Standalone CLI hatch query/edit or history failed");
         require(document::PartDocument::load(project/"cli-hatch.prtz").sections.front().components.at(hatch_component).hatch.spacing_mm==3.125&&drawing::DrawingDocument::load(project/"cli-hatch.drwz").find_view(hatch_view.id)->hidden_hatch_components.contains(hatch_component),"Standalone hatch persistence lost source style or view visibility");
         auto measured_doc=drawing::DrawingDocument::create_default();auto measured_view=native_view;
         const auto measured_curves=drawing::projected_measurement_curves(measured_view);

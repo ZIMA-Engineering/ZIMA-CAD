@@ -20,7 +20,7 @@ void verify_exact_dxf_import() {
     auto source=test::dxf_curve_fixture();export_dxf(dir/"source.dxf",source);
     auto target=sketcher::Sketch::create_default();target.plane=sketcher::SketchPlane::YZ;const auto sketch_id=target.id;
     const auto report=import_dxf(dir/"source.dxf",target,10);
-    require(report.imported_entities==12&&report.source_entities==12&&report.warnings.empty(),"DXF exact-curve import lost types or its standalone point");
+    require(report.imported_entities==10&&report.source_entities==10&&report.warnings.empty(),"DXF exact-curve import lost manufacturing curves");
     require(target.id==sketch_id&&target.plane==sketcher::SketchPlane::YZ&&target.import_blocks.size()==1,"DXF import replaced its destination or lost the native block");
     export_dxf(dir/"roundtrip.dxf",target);test::check_dxf_curves(dir/"roundtrip.dxf");
     std::ifstream input(dir/"source.dxf");std::string unitless{std::istreambuf_iterator<char>(input),{}};input.close();const std::string units="$INSUNITS\n 70\n4\n";
@@ -71,7 +71,7 @@ int main() {
                 "Export context contract is invalid");
         auto source = zima::sketcher::Sketch::create_default();
         const auto segment = source.add_segment(0.0, 0.0, 20.0, 0.0);
-        source.segments.back().construction = true;
+        static_cast<void>(source.add_segment(100.0, 100.0, 120.0, 100.0, 1e-6, true));
         static_cast<void>(source.add_circle(5.0, 8.0, 3.0));
         static_cast<void>(source.add_arc(0.0, 0.0, 5.0, 0.0, 0.0, 5.0));
         const auto path = std::filesystem::temp_directory_path() /
@@ -84,7 +84,7 @@ int main() {
                     !result.import_block_id.empty() &&
                     imported.import_blocks.size() == 1 &&
                     imported.segments.size() == 1 && imported.circles.size() == 1 &&
-                    imported.arcs.size() == 1 && imported.segments.front().construction,
+                    imported.arcs.size() == 1 && !imported.segments.front().construction,
                 "DXF geometry did not import as one editable ZIMA block");
         const auto before = imported.points.front();
         imported.transform_import_block(result.import_block_id, 10.0, -2.0, 0.0);

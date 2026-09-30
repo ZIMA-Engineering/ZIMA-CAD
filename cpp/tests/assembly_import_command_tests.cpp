@@ -25,14 +25,13 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
     options.settings=[&] {return command_host::Settings{{fs::absolute("config/templates"),"START_PART.prtz","START_ASSEMBLY.asmz","Body",configured_cut_tolerance},{{"Length","cm"}}};};
     command_host::Host host(live,kernel,dir,options);
     const auto expected_material=document::load_material_library("config/materials/01_steels/structural/S235JR.matz");
-    const auto verify_defaults=[&](const document::PartDocument& doc,double volume) {
+    const auto verify_defaults=[&](const document::PartDocument& doc) {
         auto template_part=workspace::part_from_template(options.settings().templates);
         template_part.physical_parameters=expected_material.properties;
         template_part.physical_parameter_units=expected_material.units;
         template_part.document_units=doc.document_units;
-        const auto density=document::material_density_kg_mm3(template_part);
-        document::refresh_physical_relations(template_part,
-            document::physical_values_from_totals(template_part,volume,0,volume * *density,density));
+        // Import preserves authored template values; only explicit Regenerate
+        // evaluates Relations, including the physical-property expressions.
         require(doc.relations==template_part.relations,"Imported Part lost template parameter relations");
         require(doc.user_parameters==template_part.user_parameters,"Imported Part template parameter values differ");
         require(doc.user_parameter_order==template_part.user_parameter_order,"Imported Part template parameter order differs");
@@ -65,7 +64,7 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
         require(file.extension()==".prtz" || file.extension()==".asmz","Import introduced a sidecar format");
         if(file.extension()==".prtz") {
             const auto saved=document::PartDocument::load(file);
-            verify_defaults(saved,6000);
+            verify_defaults(saved);
             require(live.open_part(saved.document_id)!=nullptr,"Saved STEP Part cannot be reopened with its source identity");
             require(document::sheet_cut_tolerance(saved.document_precision)==.025,"Saved STEP Part lost its configured Sheet Cut tolerance");
         } else {
@@ -136,7 +135,7 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
     require(iges_result.at("parts").size()==1 && iges_result.at("assemblies").empty(),"IGES did not create exactly one Part");
     require(iges_result.at("files").size()==1,"IGES did not report its native source file");
     const auto iges_native=fs::u8path(iges_result.at("files")[0].get<std::string>());
-    verify_defaults(document::PartDocument::load(iges_native),1000);
+    verify_defaults(document::PartDocument::load(iges_native));
     require(fs::is_regular_file(iges_native) && iges_native.extension()==".prtz" && iges_native.parent_path()==dir,"IGES native Part was not saved directly in the working directory");
     const auto saved_iges=document::PartDocument::load(iges_native);
     require(saved_iges.document_id==iges_result.at("parts")[0].get<std::string>(),"Saved IGES Part cannot be reopened with its source identity");
