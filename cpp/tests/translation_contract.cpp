@@ -16,6 +16,9 @@
 #include "feature_naming.hpp"
 #include "sheet_transition_dialog.hpp"
 #include "boundary_surface_dialog.hpp"
+#include "helical_sweep_dialog.hpp"
+#include "sweep2d_dialog.hpp"
+#include "sweep_test_support.hpp"
 #include "body_scale_dialog.hpp"
 #include "symbol_family_dialog.hpp"
 #include "mass_properties_dialog.hpp"
@@ -119,6 +122,48 @@ int verify_translations(QApplication& application, QWidget& parent) {
             !settings.translations.contains("Zamknout hodnotu"), "INI sections were mixed");
         app::apply_application_translations(application, settings);
         application.processEvents();
+        {
+            const auto check_modes=[&](auto& dialog,const char* mode_name,const char* thickness_name) {
+                dialog.show();application.processEvents();
+                auto* mode=dialog.template findChild<QComboBox*>(mode_name);
+                auto* thickness=dialog.template findChild<QDoubleSpinBox*>(thickness_name);
+                check(mode&&thickness&&mode->count()==3,"Sweep result controls missing");
+                check(mode->itemText(2)==settings.qt_translations.value("Plocha"),"Sweep Surface result is not localized");
+                mode->setCurrentIndex(1);application.processEvents();
+                check(thickness->isVisible(),"Thin thickness is hidden");
+                mode->setCurrentIndex(2);application.processEvents();
+                const auto surface=[&] {if constexpr(requires{dialog.pending;})return dialog.pending.is_surface_result();
+                    else return dialog.pending_sweep_value().is_surface_result();};
+                check(surface()&&!thickness->isVisible(),"Surface mode did not update pending result");
+                auto* subtract=dialog.template findChild<QPushButton*>("primitiveSubtractOperation");
+                if(!subtract)subtract=dialog.template findChild<QPushButton*>("sweep3DSubtractOperation");
+                check(subtract&&!subtract->isEnabled(),"Surface subtraction is offered");
+                mode->setCurrentIndex(0);application.processEvents();
+                check(!surface()&&!thickness->isVisible(),"Solid mode did not restore controls");
+                mode->setCurrentIndex(2);dialog.buttons()->button(QDialogButtonBox::Ok)->click();
+                check(!dialog.isVisible(),"Surface OK did not close properties");
+            };
+            int committed=0;
+            const auto commit=[&](auto value){check(value.is_surface_result(),"Properties committed wrong result mode");++committed;};
+            app::HelicalSweepDialog helical(test_support::sweep_fixture(document::FeatureKind::HelicalSweep),commit,&parent);
+            helical.setAttribute(Qt::WA_DeleteOnClose,false);
+            check_modes(helical,"helicalResultType","helicalThickness");
+            app::Sweep2DDialog planar(test_support::sweep_fixture(document::FeatureKind::Sweep2D),commit,&parent);
+            planar.setAttribute(Qt::WA_DeleteOnClose,false);
+            check_modes(planar,"sweep2dResultType","sweep2dThickness");
+            app::ConstructionPropertiesDialog spatial(test_support::sweep_fixture(document::FeatureKind::Sweep3D),false,true,commit,&parent);
+            spatial.setAttribute(Qt::WA_DeleteOnClose,false);
+            check_modes(spatial,"sweep3DResultType","sweep3DThickness");
+            check(committed==3,"Surface dialogs did not each commit once");
+            app::HelicalSweepDialog invalid(test_support::sweep_fixture(document::FeatureKind::HelicalSweep),
+                [](auto){throw std::runtime_error("Tloušťka uzavírá kruhový profil");},&parent);
+            invalid.setAttribute(Qt::WA_DeleteOnClose,false);invalid.show();application.processEvents();
+            invalid.buttons()->button(QDialogButtonBox::Ok)->click();
+            const auto labels=invalid.findChildren<QLabel*>();
+            check(invalid.isVisible()&&std::ranges::any_of(labels,[&](auto* label){return label->text()==settings.qt_translations.value("Tloušťka uzavírá kruhový profil");}),
+                "Sweep calculation error is not localized or closed the failed edit");
+            invalid.buttons()->button(QDialogButtonBox::Cancel)->click();
+        }
         {
             check(QDir(directory.path()).mkpath("nested"), "Cannot create directory navigation fixture");
             bool inspected = false;

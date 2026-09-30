@@ -21,8 +21,53 @@ static document::HistoryContainer fixture(double end_radius=10,bool rectangle=fa
     else static_cast<void>(section.add_circle(0,0,.5));
     c.helical.sketches[2]=section.serialized();return c;
 }
-int main(){try{
+int main(int argc,char** argv){try{
     kernel::OcctKernel k;
+    for(bool left:{false,true})for(bool open:{false,true})for(auto side:{document::ThinMode::Symmetric,document::ThinMode::OneSide,document::ThinMode::OtherSide})for(auto mode:{document::ProfileResultType::Surface,document::ProfileResultType::Thin}) {
+        if(mode==document::ProfileResultType::Surface&&side!=document::ThinMode::Symmetric)continue;
+        auto c=fixture();c.helical.result_type=mode;c.helical.thickness=.1;
+        c.helical.left_handed=left;c.helical.thin_mode=side;
+        c.sweep_precision.custom_tolerance=.001;
+        auto profile=sketcher::Sketch::from_serialized(c.helical.sketches[2]);
+        if(open) {
+            profile.circles.clear();profile.points.clear();
+            static_cast<void>(profile.add_segment(-.5,0,.5,0));c.helical.sketches[2]=profile.serialized();
+        }
+        auto doc=document::PartDocument::create_default();doc.history={c};
+        const auto body=k.evaluate_history(doc.kernel_operations()).back();
+        require(!body.mesh.triangles.empty(),"New Helical result has no geometry");
+        if(mode==document::ProfileResultType::Surface) {
+            require(std::abs(body.volume)<1e-8&&body.surface_area>100,"Helical Surface properties incorrect");
+            for(const auto& face:body.mesh.original_references.triangle_references)
+                require(face.surface_result&&!face.semantic_key.starts_with("start:from:")&&!face.semantic_key.starts_with("end:from:"),"Helical Surface cap or flag incorrect");
+            if(open)for(const auto& point:profile.points) {
+                require(std::ranges::any_of(body.mesh.original_references.edges,[&](const auto& e){return e.reference.semantic_key=="generated:"+point.id;}),"Helical open endpoint rail missing");
+                for(const auto* role:{"start:generated:","end:generated:"})
+                    require(std::ranges::any_of(body.mesh.original_references.points,[&](const auto& p){return p.reference.semantic_key==role+point.id;}),"Helical open endpoint missing");
+            }
+        } else {
+            const double length=std::hypot(50*std::numbers::pi,12.5);
+            const double outer=side==document::ThinMode::OneSide?.5:side==document::ThinMode::OtherSide?.6:.55;
+            const double area=open?.1:std::numbers::pi*(outer*outer-(outer-.1)*(outer-.1));
+            require(std::abs(body.volume-length*area)<length*area*.003,"Thin Helical volume differs from section area times path length");
+        }
+        const auto file=std::filesystem::temp_directory_path()/"zima-helical-result-mode.prtz";
+        doc.save(file,{body});auto loaded=document::PartDocument::load(file);std::filesystem::remove(file);
+        require(loaded.history.front().helical.result_type==mode&&loaded.history.front().helical.thickness==.1&&loaded.history.front().helical.thin_mode==side&&loaded.history.front().helical.left_handed==left,"Helical result parameters not persisted");
+    }
+    {
+        auto c=fixture();c.helical.result_type=document::ProfileResultType::Surface;c.sweep_precision.custom_tolerance=.001;
+        auto profile=sketcher::Sketch::from_serialized(c.helical.sketches[2]);
+        static_cast<void>(profile.add_circle(0,0,.25));c.helical.sketches[2]=profile.serialized();
+        auto doc=document::PartDocument::create_default();doc.history={c};
+        const auto body=k.evaluate_history(doc.kernel_operations()).back();
+        const double area=1.5*std::numbers::pi*std::hypot(50*std::numbers::pi,12.5);
+        require(std::abs(body.surface_area-area)<area*.003&&std::abs(body.volume)<1e-8,"Helical Surface inner contour lost or capped");
+    }
+    if(argc==2&&std::string_view(argv[1])=="--result-modes-only") {
+        std::cout<<"Helical result modes: open/closed Surface, all Thin sides, both winding directions, ancestry and native persistence passed\n";
+        return 0;
+    }
     {
         auto doc=document::PartDocument::create_default();doc.history={fixture()};
         doc.history.front().sweep_precision.custom_tolerance=.01;
@@ -91,15 +136,19 @@ int main(){try{
             }
         require(caps.size()==2,"Start/end caps lost their persisted profile-region parents");
         std::set<std::string> checked_faces;
-        bool side_rejected=false;
+        bool side_resolved=false;
         for(const auto& ref:result.back().mesh.original_references.triangle_references) {
             if(ref.owner_id!=c.id || !checked_faces.insert(ref.semantic_key).second)continue;
             document::Placement placement;placement.references={{{},ref.owner_id,ref.semantic_key}};
             const bool offered=document::resolve_placement(placement,result.back().mesh.original_references);
             if(caps.contains(ref.semantic_key))require(offered,"Helical endpoint cap rejected for placement");
-            else {require(!offered,"Helical curved side offered as a placement surface");side_rejected=true;}
+            else {
+                // General original surfaces have used persisted triangles for
+                // placement since 2026-09-29; they are not analytic planes.
+                require(offered,"Helical original side rejected by general-surface placement");side_resolved=true;
+            }
         }
-        require(side_rejected,"Helical placement filter test did not exercise a side face");
+        require(side_resolved,"Helical placement test did not exercise a side face");
         if(!left&&!rectangle){
             const auto file=std::filesystem::temp_directory_path()/"zima-helical-contract.prtz";
             doc.save(file,result);std::vector<kernel::BodyResult> loaded_bodies;

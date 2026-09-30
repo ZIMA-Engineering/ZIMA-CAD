@@ -7,7 +7,8 @@ base plane, container placement, Body placement and displayed occurrence; it
 does not add editable geometry or a persisted reference. Preview edges are
 submitted before point overlays so refreshing the wire cannot erase the marker.
 
-H-Sweep is one Part history container with Add/Subtract. It owns three Sketches;
+H-Sweep is one Part history container with Solid, Thin and Surface results.
+Solid and Thin support Add/Subtract; Surface supports Add only. It owns three Sketches;
 creation/edits stay pending in one internal window until OK. Finish Sketch returns
 to that window. Cancel discards the whole pending container. Editing uses persisted
 pre-container input and restores normal history afterward.
@@ -28,9 +29,12 @@ remains pending until OK.
 3. Pitch is positive axial travel per revolution. Right/Left changes winding direction;
    default is right-hand.
 4. Cross-section Sketch starts at the spatial path start, normal to its tangent.
-   It accepts one closed region with holes and may be offset relative to Origin.
-   Concentric circles create a hollow section with wall thickness equal to radius
-   difference. This command has no separate Thin option.
+   Solid accepts one closed region with holes and may be offset relative to Origin.
+   Surface sweeps the contour without caps and accepts an open contour as well.
+   Thin accepts a closed or open contour and uses the same thickness and side
+   controls as 2D/3D Sweep. Symmetric places half the total thickness on each side;
+   an open contour's direction determines its sides. Concentric circles remain
+   available for a hollow Solid section.
 
 The radial-curve endpoint ends winding even mid-turn. Turn count is absolute axial
 height divided by pitch, not radial-curve arc length.
@@ -43,11 +47,19 @@ the feature was created. `SweepPrecision/HelicalSweep` in configuration changes
 the default for new features only. The setting affects body construction, not
 just its display tessellation. See [the measured comparison](benchmarks/SWEEP_PRECISION_20260926.md).
 
-Placement references offer the two endpoint caps. The curved helical side is
-not a supported placement surface; whole-feature selection remains available.
+Solid and Thin placement references offer the two endpoint caps. Surface has
+no caps. Its rims and rails retain their source-curve and source-point ancestry,
+including the terminal point of an open contour. Curved helical sides use the
+existing [general-surface placement](GENERAL_SURFACE_PLACEMENT.md) contract on
+persisted original triangles; they are not treated as analytic planes.
+Whole-feature selection remains available.
 
 Inputs → means → outputs: three Sketches and pitch → analytic spatial path,
-controlled approximation, explicit OCCT Sweep → solid added/subtracted in one history boundary.
+controlled approximation, explicit OCCT Sweep → solid/thin material or an uncapped
+surface in one history boundary. Changing result type does not change path precision.
+
+See [result-mode verification and performance](performance/20260930-sweep-result-modes.md)
+for analytical checks, localization, native templates and the Solid baseline comparison.
 
 For radial path `(x(u), y(u))`, radius is `R + x(u)`, height `y(u)`, and angle
 `±2π y(u) / pitch`. The base circle defines center/initial radial direction. Tangents

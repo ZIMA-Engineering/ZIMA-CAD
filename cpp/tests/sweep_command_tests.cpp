@@ -142,6 +142,19 @@ void verify_sweep_commands(const kernel::OcctKernel& kernel, const fs::path& dir
         saved_request.back().boolean_tolerance==.0001,"Saved feature precision changed with document Boolean tolerance");
     f.run(prefix+".set",{{"container",id},{"custom_precision",false}});
     require(!f.state().session.document().find_container(id)->sweep_precision.custom_tolerance,"Cannot restore saved sweep default");
+    const auto surface=f.run(prefix+".set",{{"container",id},{"result_type","surface"}});
+    require(surface.at("result_type")=="surface","Surface mode missing from command result");near(f.volume(),0);
+    f.reject(prefix+".set",{{"container",id},{"combine","subtract"}},"invalid_arguments");
+    f.run("undo");near(f.volume(),initial,helical?1e-3:1e-8);
+    f.run("redo");near(f.volume(),0);f.run("undo");
+    if(helical) {
+        const auto thin=f.run(prefix+".set",{{"container",id},{"result_type","thin"},{"thickness_mm",.1},{"thin_mode","symmetric"},{"precision_mm",.001}});
+        require(thin.at("result_type")=="thin"&&thin.at("thickness_mm")==.1,"Helical Thin parameters missing from command result");
+        near(f.volume(),initial*.4,1e-3);
+        f.run("value_lock.set",{{"object",id},{"key","thickness"},{"locked",true}});
+        f.reject(prefix+".set",{{"container",id},{"thickness_mm",.2}},"value_locked");
+        f.run("undo");f.run("undo");
+    }
     const auto field = helical ? "pitch_mm" : "thickness_mm";
     Json patch = {{"container", id}, {field, helical ? 10.0 : .5}, {"name", "Upravené tažení"}};
     if (helical) patch["left_handed"] = true;

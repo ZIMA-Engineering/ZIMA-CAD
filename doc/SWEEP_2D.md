@@ -1,8 +1,11 @@
 # 2D Sweep
 
 2D Sweep is a Part history container with a planar path and profile Sketches at
-stations. It supports Add/Subtract, transitions between profiles (Loft), and Solid/Thin
-results. Creation/editing use one internal Properties window. Pending Sketches and
+stations. It supports transitions between profiles (Loft), and Solid/Thin/Surface
+results. Solid and Thin support Add/Subtract. Surface is Add-only and sweeps a
+closed or continuous open contour without end caps. Its original rims and rails
+retain source-curve and source-point identities, including both open endpoints.
+Creation/editing use one internal Properties window. Pending Sketches and
 parameters commit only on OK; Cancel restores original history. Editing displays
 real input before the container.
 

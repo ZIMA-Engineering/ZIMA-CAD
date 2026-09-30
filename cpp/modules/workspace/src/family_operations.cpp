@@ -57,7 +57,7 @@ Slots feature_slots(document::HistoryContainer& f) {
     case FeatureKind::ShaftThread: return {{"root_diameter",&f.shaft_thread.root_diameter},{"length",&f.shaft_thread.length}};
     case FeatureKind::Sweep2D: return {{"thickness",&f.sweep2d.thickness}};
     case FeatureKind::Sweep3D: return {{"thickness",&f.sweep3d.thickness}};
-    case FeatureKind::HelicalSweep: return {{"pitch",&f.helical.pitch}};
+    case FeatureKind::HelicalSweep: return {{"pitch",&f.helical.pitch},{"thickness",&f.helical.thickness}};
     case FeatureKind::DrillPoint: return {{"angle",&f.drill_point.included_angle_degrees}};
     default: return {};
     }

@@ -54,8 +54,8 @@ public:
         auto* help=new QLabel(tr("Vyberte vlastní rovinu XY, YZ nebo XZ kontejneru pro skicu dráhy."),this);
         help->setWordWrap(true);content_layout()->addWidget(help);
         thin_form_=new QFormLayout;
-        auto* result=new QComboBox(this);result->setObjectName("sweep2dResultType");result->addItems({tr("Těleso"),tr("Thin")});
-        result->setCurrentIndex(pending.sweep2d.result_type==document::ProfileResultType::Thin?1:0);thin_form_->addRow(tr("Typ výsledku"),result);
+        auto* result=new QComboBox(this);result->setObjectName("sweep2dResultType");result->addItems({tr("Těleso"),tr("Thin"),tr("Plocha")});
+        result->setCurrentIndex(pending.sweep2d.result_type==document::ProfileResultType::Surface?2:pending.sweep2d.result_type==document::ProfileResultType::Thin?1:0);thin_form_->addRow(tr("Typ výsledku"),result);
         thickness_=new QDoubleSpinBox(this);thickness_->setObjectName("sweep2dThickness");thickness_->setDecimals(zima::ui::numeric_decimal_places(this,3));
         thickness_->setRange(.001,1'000'000);thickness_->setSuffix(" mm");thickness_->setValue(pending.sweep2d.thickness);thin_form_->addRow(tr("Tloušťka"),thickness_);
         ui::bind_numeric_value_lock(thickness_,"thickness",pending.value_locks,[this]{if(changed)changed();});
@@ -63,7 +63,7 @@ public:
         side_->setCurrentIndex(pending.sweep2d.thin_mode==document::ThinMode::OneSide?0:pending.sweep2d.thin_mode==document::ThinMode::OtherSide?1:2);
         side_->setToolTip(tr("Symetricky: polovina celkové tloušťky na každou stranu. U otevřené kontury stranu určuje její směr."));
         thin_form_->addRow(tr("Strana tloušťky"),side_);content_layout()->addLayout(thin_form_);
-        connect(result,&QComboBox::currentIndexChanged,this,[this](int i){pending.sweep2d.result_type=i?document::ProfileResultType::Thin:document::ProfileResultType::Solid;update_thin();notify();});
+        connect(result,&QComboBox::currentIndexChanged,this,[this](int i){pending.sweep2d.result_type=i==2?document::ProfileResultType::Surface:i==1?document::ProfileResultType::Thin:document::ProfileResultType::Solid;update_thin();notify();});
         connect(thickness_,&QDoubleSpinBox::valueChanged,this,[this](double v){pending.sweep2d.thickness=v;notify();});
         connect(side_,&QComboBox::currentIndexChanged,this,[this](int i){pending.sweep2d.thin_mode=i==0?document::ThinMode::OneSide:i==1?document::ThinMode::OtherSide:document::ThinMode::Symmetric;notify();});
         profiles_=new QTableWidget(0,5,this);profiles_->setObjectName("sweep2dProfiles");profiles_->setMinimumHeight(150);
@@ -161,7 +161,7 @@ public:
                     const QPointer<Sweep2DDialog> self(this);
                     const auto preview=[self,index](std::string id){if(self){self->pending.sweep2d.profiles.at(index).correspondence_start_point_id=std::move(id);self->notify();}};
                     auto* dialog=new SweepPointOrderDialog(sketcher::Sketch::from_serialized(pending.sweep2d.profiles.at(index).sketch_serialized),
-                        initial,preview,parentWidget(),pending.sweep2d.result_type==document::ProfileResultType::Thin);
+                        initial,preview,parentWidget(),pending.sweep2d.result_type!=document::ProfileResultType::Solid);
                     connect(dialog,&QDialog::finished,this,[self,preview,initial](int result){if(!self)return;if(result!=QDialog::Accepted)preview(initial);
                         self->point_order_open_=false;self->show();self->raise();self->notify();});
                     point_order_open_=true;hide();dialog->show();
@@ -172,7 +172,7 @@ public:
     }
 protected:
     bool submit() override {try{document::PartDocument::reframe_sweep2d_sketches(pending);commit_(pending);return true;}
-        catch(const std::exception& e){set_status(QString::fromUtf8(e.what()));return false;}}
+        catch(const std::exception& e){set_status(tr(e.what()));return false;}}
 private:
     std::function<void(document::HistoryContainer)> commit_;
     QComboBox* side_{};QDoubleSpinBox* thickness_{};QLabel* status_{};QFormLayout* thin_form_{};
@@ -181,7 +181,12 @@ private:
     bool plane_initialized_{},plane_active_{},plane_inspected_{},point_order_open_{};QString plane_label_,path_error_;
     void notify(){if(changed)changed();}
     void update_thin(){const bool enabled=pending.sweep2d.result_type==document::ProfileResultType::Thin;
-        thin_form_->setRowVisible(thickness_,enabled);thin_form_->setRowVisible(side_,enabled);}
+        thin_form_->setRowVisible(thickness_,enabled);thin_form_->setRowVisible(side_,enabled);
+        const bool surface=pending.is_surface_result();
+        if(auto* subtract=findChild<QPushButton*>("primitiveSubtractOperation")) {
+            if(surface&&subtract->isChecked())findChild<QPushButton*>("primitiveAddOperation")->click();
+            subtract->setEnabled(!surface);
+        }}
     void refresh_plane(){
         const auto& ref=pending.sweep2d.path_plane;const QSignalBlocker blocked(plane_eye_);
         if(ref){plane_item_->set_reference(QString::fromStdString(ref->owner_id+":"+ref->semantic_key));

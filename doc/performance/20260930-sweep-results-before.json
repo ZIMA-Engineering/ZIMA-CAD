@@ -1,0 +1,251 @@
+{
+  "fixtures": [
+    {
+      "coarse_to_fine": {
+        "max_mm": 1.7342238036525468e-14,
+        "rms_mm": 3.102677391363689e-15,
+        "samples": 318
+      },
+      "fine_to_coarse": {
+        "max_mm": 1.7342238036525468e-14,
+        "rms_mm": 3.102677391363689e-15,
+        "samples": 318
+      },
+      "name": "sweep2d",
+      "samples": [
+        {
+          "area_mm2": 617.2939689563273,
+          "cycle": 0,
+          "kernel_ms": 249.3583,
+          "path_segments": 1,
+          "prepare_ms": 0.3726,
+          "tolerance_mm": 0.1,
+          "triangles": 1758,
+          "valid_brep": true,
+          "volume_mm3": 592.009852741818
+        },
+        {
+          "area_mm2": 617.2939689563273,
+          "cycle": 0,
+          "kernel_ms": 240.4833,
+          "path_segments": 1,
+          "prepare_ms": 0.5747,
+          "tolerance_mm": 0.1,
+          "triangles": 1758,
+          "valid_brep": true,
+          "volume_mm3": 592.009852741818
+        },
+        {
+          "area_mm2": 617.2939689563273,
+          "cycle": 1,
+          "kernel_ms": 234.872,
+          "path_segments": 1,
+          "prepare_ms": 0.2837,
+          "tolerance_mm": 0.1,
+          "triangles": 1758,
+          "valid_brep": true,
+          "volume_mm3": 592.009852741818
+        },
+        {
+          "area_mm2": 617.2939689563273,
+          "cycle": 1,
+          "kernel_ms": 239.0171,
+          "path_segments": 1,
+          "prepare_ms": 0.308,
+          "tolerance_mm": 0.1,
+          "triangles": 1758,
+          "valid_brep": true,
+          "volume_mm3": 592.009852741818
+        },
+        {
+          "area_mm2": 617.2939689563273,
+          "cycle": 2,
+          "kernel_ms": 233.4071,
+          "path_segments": 1,
+          "prepare_ms": 0.3071,
+          "tolerance_mm": 0.1,
+          "triangles": 1758,
+          "valid_brep": true,
+          "volume_mm3": 592.009852741818
+        },
+        {
+          "area_mm2": 617.2939689563273,
+          "cycle": 2,
+          "kernel_ms": 225.5962,
+          "path_segments": 1,
+          "prepare_ms": 0.2809,
+          "tolerance_mm": 0.1,
+          "triangles": 1758,
+          "valid_brep": true,
+          "volume_mm3": 592.009852741818
+        }
+      ],
+      "volume_delta_percent": 0.0
+    },
+    {
+      "coarse_to_fine": {
+        "max_mm": 5.5839693189515304e-14,
+        "rms_mm": 6.828239147490525e-15,
+        "samples": 293
+      },
+      "fine_to_coarse": {
+        "max_mm": 5.5839693189515304e-14,
+        "rms_mm": 6.828239147490525e-15,
+        "samples": 293
+      },
+      "name": "sweep3d",
+      "samples": [
+        {
+          "area_mm2": 905.0082880556362,
+          "cycle": 0,
+          "kernel_ms": 570.9461,
+          "path_segments": 5,
+          "prepare_ms": 0.1705,
+          "tolerance_mm": 0.1,
+          "triangles": 774,
+          "valid_brep": true,
+          "volume_mm3": 877.8653957077714
+        },
+        {
+          "area_mm2": 905.0082880556362,
+          "cycle": 0,
+          "kernel_ms": 570.7272,
+          "path_segments": 5,
+          "prepare_ms": 0.1722,
+          "tolerance_mm": 0.1,
+          "triangles": 774,
+          "valid_brep": true,
+          "volume_mm3": 877.8653957077714
+        },
+        {
+          "area_mm2": 905.0082880556362,
+          "cycle": 1,
+          "kernel_ms": 578.3754,
+          "path_segments": 5,
+          "prepare_ms": 0.1636,
+          "tolerance_mm": 0.1,
+          "triangles": 774,
+          "valid_brep": true,
+          "volume_mm3": 877.8653957077714
+        },
+        {
+          "area_mm2": 905.0082880556362,
+          "cycle": 1,
+          "kernel_ms": 567.3147,
+          "path_segments": 5,
+          "prepare_ms": 0.1826,
+          "tolerance_mm": 0.1,
+          "triangles": 774,
+          "valid_brep": true,
+          "volume_mm3": 877.8653957077714
+        },
+        {
+          "area_mm2": 905.0082880556362,
+          "cycle": 2,
+          "kernel_ms": 570.9732,
+          "path_segments": 5,
+          "prepare_ms": 0.225,
+          "tolerance_mm": 0.1,
+          "triangles": 774,
+          "valid_brep": true,
+          "volume_mm3": 877.8653957077714
+        },
+        {
+          "area_mm2": 905.0082880556362,
+          "cycle": 2,
+          "kernel_ms": 572.6015,
+          "path_segments": 5,
+          "prepare_ms": 0.1789,
+          "tolerance_mm": 0.1,
+          "triangles": 774,
+          "valid_brep": true,
+          "volume_mm3": 877.8653957077714
+        }
+      ],
+      "volume_delta_percent": 0.0
+    },
+    {
+      "coarse_to_fine": {
+        "max_mm": 1.274930545248601e-13,
+        "rms_mm": 1.0146824808977808e-14,
+        "samples": 256
+      },
+      "fine_to_coarse": {
+        "max_mm": 1.274930545248601e-13,
+        "rms_mm": 1.0146824808977808e-14,
+        "samples": 256
+      },
+      "name": "helical",
+      "samples": [
+        {
+          "area_mm2": 1585.9771737693204,
+          "cycle": 0,
+          "kernel_ms": 5477.795,
+          "path_segments": 128,
+          "prepare_ms": 0.7327,
+          "tolerance_mm": 0.1,
+          "triangles": 20856,
+          "valid_brep": true,
+          "volume_mm3": 396.0199180367446
+        },
+        {
+          "area_mm2": 1585.9771737693204,
+          "cycle": 0,
+          "kernel_ms": 5528.262,
+          "path_segments": 128,
+          "prepare_ms": 0.6896,
+          "tolerance_mm": 0.1,
+          "triangles": 20856,
+          "valid_brep": true,
+          "volume_mm3": 396.0199180367446
+        },
+        {
+          "area_mm2": 1585.9771737693204,
+          "cycle": 1,
+          "kernel_ms": 5407.4506,
+          "path_segments": 128,
+          "prepare_ms": 0.6709,
+          "tolerance_mm": 0.1,
+          "triangles": 20856,
+          "valid_brep": true,
+          "volume_mm3": 396.0199180367446
+        },
+        {
+          "area_mm2": 1585.9771737693204,
+          "cycle": 1,
+          "kernel_ms": 5437.0673,
+          "path_segments": 128,
+          "prepare_ms": 0.6479,
+          "tolerance_mm": 0.1,
+          "triangles": 20856,
+          "valid_brep": true,
+          "volume_mm3": 396.0199180367446
+        },
+        {
+          "area_mm2": 1585.9771737693204,
+          "cycle": 2,
+          "kernel_ms": 5473.3611,
+          "path_segments": 128,
+          "prepare_ms": 0.7798,
+          "tolerance_mm": 0.1,
+          "triangles": 20856,
+          "valid_brep": true,
+          "volume_mm3": 396.0199180367446
+        },
+        {
+          "area_mm2": 1585.9771737693204,
+          "cycle": 2,
+          "kernel_ms": 5311.9135,
+          "path_segments": 128,
+          "prepare_ms": 0.674,
+          "tolerance_mm": 0.1,
+          "triangles": 20856,
+          "valid_brep": true,
+          "volume_mm3": 396.0199180367446
+        }
+      ],
+      "volume_delta_percent": 0.0
+    }
+  ],
+  "method": "Release; one warm-up plus three alternating fresh-kernel runs. Same feature identities and input parameters. Boolean tolerance fixed at 0.001 mm; mesh deflection fixed at 0.1 mm. Request preparation and complete kernel calculation (including meshing and reference packets) timed separately. Bidirectional sampled surface deviation is not a global bound. Screenshots use the real viewer and identical camera."
+}

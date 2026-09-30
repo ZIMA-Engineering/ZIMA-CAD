@@ -559,8 +559,9 @@ void ConstructionPropertiesDialog::initialize_sweep_ui() {
     auto* thin_form = new QFormLayout;
     sweep_result_type_ = new QComboBox(this);
     sweep_result_type_->setObjectName("sweep3DResultType");
-    sweep_result_type_->addItems({tr("Těleso"),tr("Thin")});
+    sweep_result_type_->addItems({tr("Těleso"),tr("Thin"),tr("Plocha")});
     sweep_result_type_->setCurrentIndex(initial_sweep_->sweep3d.result_type ==
+        zima::document::ProfileResultType::Surface ? 2 : initial_sweep_->sweep3d.result_type ==
         zima::document::ProfileResultType::Thin ? 1 : 0);
     thin_form->addRow(tr("Typ výsledku"),sweep_result_type_);
     sweep_thickness_ = new QDoubleSpinBox(this);
@@ -586,6 +587,11 @@ void ConstructionPropertiesDialog::initialize_sweep_ui() {
         const bool thin=sweep_result_type_->currentIndex()==1;
         thin_form->setRowVisible(sweep_thickness_,thin);
         thin_form->setRowVisible(sweep_thin_mode_,thin);
+        if(subtract_sweep_operation_) {
+            const bool surface=sweep_result_type_->currentIndex()==2;
+            if(surface&&subtract_sweep_operation_->isChecked())add_sweep_operation_->click();
+            subtract_sweep_operation_->setEnabled(!surface&&(allow_sweep_subtract_||subtract_sweep_operation_->isChecked()));
+        }
         set_initial_size(QSize(660,std::max(900,sizeHint().height())));
     };
     update_thin();
@@ -655,6 +661,7 @@ void ConstructionPropertiesDialog::initialize_sweep_ui() {
         [select_operation] { select_operation(false); });
     connect(subtract_sweep_operation_, &QPushButton::clicked, this,
         [select_operation] { select_operation(true); });
+    update_thin();
     refresh_sweep_profiles();
 }
 
@@ -883,7 +890,7 @@ void ConstructionPropertiesDialog::refresh_sweep_profiles() {
                 };
                 auto* dialog=new SweepPointOrderDialog(
                     zima::sketcher::Sketch::from_serialized(sweep_profiles_.at(profile_index).sketch_serialized),
-                    initial,preview,parentWidget(),sweep_result_type_->currentIndex()==1);
+                    initial,preview,parentWidget(),sweep_result_type_->currentIndex()!=0);
                 connect(dialog,&QDialog::finished,this,[self,preview,initial](int result) {
                     if(!self)return;
                     if(result!=QDialog::Accepted)preview(initial);
@@ -955,7 +962,7 @@ ConstructionPropertiesDialog::pending_sweep_value() const {
     stored_path.definition = initial_sweep_->sweep3d.path.definition;
     zima::document::PartDocument::set_sweep3d_owned_path(container, std::move(stored_path));
     container.sweep3d.profiles = sweep_profiles_;
-    container.sweep3d.result_type = sweep_result_type_->currentIndex()==1 ?
+    container.sweep3d.result_type = sweep_result_type_->currentIndex()==2 ? zima::document::ProfileResultType::Surface : sweep_result_type_->currentIndex()==1 ?
         zima::document::ProfileResultType::Thin : zima::document::ProfileResultType::Solid;
     container.sweep3d.thickness = sweep_thickness_->value();
     container.sweep3d.thin_mode = sweep_thin_mode_->currentIndex()==0 ? zima::document::ThinMode::OneSide

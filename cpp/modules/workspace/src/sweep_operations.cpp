@@ -35,11 +35,15 @@ void validate_sweep(const document::HistoryContainer& feature) {
     if (!std::isfinite(dimension) || dimension < minimum || dimension > 1000000)
         throw SweepOperationError("invalid_arguments", "Sweep thickness or pitch is outside the supported range.");
     if (helical) {
+        if(!std::isfinite(feature.helical.thickness)||feature.helical.thickness<.001||feature.helical.thickness>1000000)
+            throw SweepOperationError("invalid_arguments", "Sweep thickness or pitch is outside the supported range.");
         const auto offset = sketcher::Sketch::from_serialized(feature.helical.sketches[0]).plane_offset;
         if (!std::isfinite(offset) || std::abs(offset) > 1000000)
             throw SweepOperationError("invalid_arguments", "The base Sketch offset is outside the supported range.");
     }
     std::set<std::string> sketches;
+    if(feature.is_surface_result()&&feature.combine_mode==document::CombineMode::Subtract)
+        throw SweepOperationError("invalid_arguments", "A surface cannot subtract material.");
     document::visit_feature_sketches(feature, [&](const auto& data, std::size_t) {
         const auto sketch = sketcher::Sketch::from_serialized(data);
         sketch.validate();
@@ -248,6 +252,8 @@ void commit_sweep(Workspace& live, const kernel::OcctKernel& kernel, const std::
         const auto new_dimension = helical ? feature.helical.pitch
             : feature.feature_kind == Kind::Sweep2D ? feature.sweep2d.thickness : feature.sweep3d.thickness;
         if (feature.value_locks.contains(helical ? "pitch" : "thickness") && old_dimension != new_dimension)
+            throw SweepOperationError("value_locked", "The requested value is locked.");
+        if(helical&&feature.value_locks.contains("thickness")&&existing->helical.thickness!=feature.helical.thickness)
             throw SweepOperationError("value_locked", "The requested value is locked.");
         if (helical && feature.value_locks.contains("base_offset") &&
             sketcher::Sketch::from_serialized(existing->helical.sketches[0]).plane_offset !=

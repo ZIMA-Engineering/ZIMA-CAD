@@ -36,6 +36,23 @@ static void mark_circle(sketcher::Sketch& sketch,std::size_t count,double phase=
 static void thin_sweep_contracts() {
     kernel::OcctKernel kernel;
     auto doc=document::PartDocument::create_default();
+    for(bool open:{false,true}) {
+        auto c=fixture(0);c.sweep3d.path.curve_points.resize(2);c.sweep3d.result_type=document::ProfileResultType::Surface;
+        c.sweep_precision.custom_tolerance=.001;
+        if(open) {
+            auto profile=sketcher::Sketch::from_serialized(c.sweep3d.profiles.front().sketch_serialized);
+            profile.circles.clear();profile.points.clear();static_cast<void>(profile.add_segment(-1,0,1,0));
+            c.sweep3d.profiles.front().sketch_serialized=profile.serialized();
+        }
+        doc.history={c};const auto body=kernel.evaluate_history(doc.kernel_operations()).back();
+        require(std::abs(body.volume)<1e-8,"3D Surface has volume");
+        require(std::abs(body.surface_area-(open?60:60*std::numbers::pi))<.01,"3D Surface area incorrect");
+        for(const auto& face:body.mesh.original_references.triangle_references)
+            require(face.surface_result&&!face.semantic_key.starts_with("sweep:cap:"),"3D Surface cap or flag incorrect");
+        const auto file=std::filesystem::temp_directory_path()/"zima-surface-sweep3d.prtz";
+        doc.save(file,{body});auto loaded=document::PartDocument::load(file);std::filesystem::remove(file);
+        require(loaded.history.front().sweep3d.result_type==document::ProfileResultType::Surface,"3D Surface mode not persisted");
+    }
     const auto close=[&](double actual,double expected,const char* message) {
         require(std::abs(actual-expected)<std::max(0.01,std::abs(expected)*2e-4),message);
     };

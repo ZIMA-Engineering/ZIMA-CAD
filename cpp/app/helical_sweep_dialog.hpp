@@ -26,6 +26,30 @@ public:
         auto* name=new QLineEdit(QString::fromStdString(pending.name),this);form->addRow(tr("Název"),name);
         connect(name,&QLineEdit::textChanged,this,[this](auto v){pending.name=v.toStdString();});
         content_layout()->addLayout(form);install_placement();form=new QFormLayout;
+        auto* result=new QComboBox(this);result->setObjectName("helicalResultType");
+        result->addItems({tr("Těleso"),tr("Thin"),tr("Plocha")});
+        result->setCurrentIndex(pending.helical.result_type==document::ProfileResultType::Surface?2:pending.helical.result_type==document::ProfileResultType::Thin?1:0);
+        form->addRow(tr("Typ výsledku"),result);
+        auto* thickness=new QDoubleSpinBox(this);thickness->setObjectName("helicalThickness");
+        thickness->setDecimals(ui::numeric_decimal_places(this,3));thickness->setRange(.001,1000000);thickness->setSuffix(" mm");
+        thickness->setValue(pending.helical.thickness);form->addRow(tr("Tloušťka"),thickness);
+        ui::bind_numeric_value_lock(thickness,"thickness",pending.value_locks,[this]{notify();});
+        auto* side=new QComboBox(this);side->setObjectName("helicalThinSide");side->addItems({tr("Dovnitř"),tr("Ven"),tr("Symetricky")});
+        side->setCurrentIndex(pending.helical.thin_mode==document::ThinMode::OneSide?0:pending.helical.thin_mode==document::ThinMode::OtherSide?1:2);
+        side->setToolTip(tr("Symetricky: polovina celkové tloušťky na každou stranu. U otevřené kontury stranu určuje její směr."));
+        form->addRow(tr("Strana tloušťky"),side);
+        const auto update_thin=[this,form,thickness,side]{const bool thin=pending.helical.result_type==document::ProfileResultType::Thin;
+            form->setRowVisible(thickness,thin);form->setRowVisible(side,thin);
+            if(auto* subtract=findChild<QPushButton*>("primitiveSubtractOperation")) {
+                if(pending.is_surface_result()&&subtract->isChecked())findChild<QPushButton*>("primitiveAddOperation")->click();
+                subtract->setEnabled(!pending.is_surface_result());
+            }};
+        connect(result,&QComboBox::currentIndexChanged,this,[this,update_thin](int i){
+            pending.helical.result_type=i==2?document::ProfileResultType::Surface:i==1?document::ProfileResultType::Thin:document::ProfileResultType::Solid;
+            update_thin();notify();});
+        connect(thickness,&QDoubleSpinBox::valueChanged,this,[this](double v){pending.helical.thickness=v;notify();});
+        connect(side,&QComboBox::currentIndexChanged,this,[this](int i){pending.helical.thin_mode=i==0?document::ThinMode::OneSide:i==1?document::ThinMode::OtherSide:document::ThinMode::Symmetric;notify();});
+        update_thin();
         const std::array<QString,3> names{tr("1. Kružnice a počáteční bod…"),tr("2. Radiální vodicí skica…"),tr("3. Skica průřezu…")};
         for(unsigned i=0;i<3;++i){auto* button=new QPushButton(names[i],this);button->setObjectName(QString("helicalSketch%1").arg(i));style_sketch_button(button);form->addRow(button);connect(button,&QPushButton::clicked,this,[this,i]{if(edit_sketch)edit_sketch(i);});}
         auto* base_offset=new QDoubleSpinBox(this);base_offset->setObjectName("helicalBaseOffset");
@@ -46,7 +70,7 @@ public:
         connect(pitch,&QDoubleSpinBox::valueChanged,this,[this](double p){pending.helical.pitch=p;notify();});
         auto* hand=new QComboBox(this);hand->setObjectName("helicalHandedness");hand->addItems({tr("Pravý"),tr("Levý")});hand->setCurrentIndex(pending.helical.left_handed?1:0);form->addRow(tr("Směr vinutí"),hand);
         connect(hand,&QComboBox::currentIndexChanged,this,[this](int i){pending.helical.left_handed=i!=0;notify();});
-        status_=new QLabel(this);status_->setWordWrap(true);form->addRow(status_);content_layout()->addLayout(form);install_operation_buttons();refresh_choices();
+        status_=new QLabel(this);status_->setWordWrap(true);form->addRow(status_);content_layout()->addLayout(form);install_operation_buttons();update_thin();refresh_choices();
     }
     void set_status(const QString& text){status_->setText(text);}
     void set_sketch(unsigned stage,const sketcher::Sketch& sketch){pending.helical.sketches.at(stage)=sketch.serialized();if(stage==0)refresh_choices();notify();}
@@ -60,7 +84,7 @@ public:
         restore(circle_,pending.helical.circle_id);restore(point_,pending.helical.start_point_id);
     }
 protected:
-    bool submit() override {try{document::PartDocument::reframe_helical_sketches(pending);commit_(pending);return true;}catch(const std::exception& e){set_status(QString::fromUtf8(e.what()));return false;}}
+    bool submit() override {try{document::PartDocument::reframe_helical_sketches(pending);commit_(pending);return true;}catch(const std::exception& e){set_status(tr(e.what()));return false;}}
 private:
     std::function<void(document::HistoryContainer)> commit_;QComboBox* circle_{};QComboBox* point_{};QLabel* status_{};
     void notify(){if(changed)changed();}

@@ -493,6 +493,9 @@ struct Sweep2DParameters {
 // Three owned Sketches: base orbit, radial evolution, and normal section.
 // Their identities and the explicitly chosen orbit Point survive parameter edits.
 struct HelicalSweepParameters {
+    ProfileResultType result_type{ProfileResultType::Solid};
+    ThinMode thin_mode{ThinMode::Symmetric};
+    double thickness{1.0};
     bool reference_valid{true};
     std::array<std::string, 3> sketches;
     std::string circle_id;
@@ -643,7 +646,11 @@ struct HistoryContainer {
     bool suppressed{};
     std::set<std::string> value_locks;
     [[nodiscard]] bool is_surface_result() const {
-        return feature_kind==FeatureKind::BoundarySurface || (feature_kind==FeatureKind::Extrusion && extrusion.result_type==ProfileResultType::Surface) ||
+        return feature_kind==FeatureKind::BoundarySurface ||
+            (feature_kind==FeatureKind::Sweep2D && sweep2d.result_type==ProfileResultType::Surface) ||
+            (feature_kind==FeatureKind::Sweep3D && sweep3d.result_type==ProfileResultType::Surface) ||
+            (feature_kind==FeatureKind::HelicalSweep && helical.result_type==ProfileResultType::Surface) ||
+            (feature_kind==FeatureKind::Extrusion && extrusion.result_type==ProfileResultType::Surface) ||
             (feature_kind==FeatureKind::Revolution && revolution.result_type==ProfileResultType::Surface) ||
             (feature_kind==FeatureKind::Feature && feature.type==FeatureType::Modeling && feature.result_type==ProfileResultType::Surface);
     }

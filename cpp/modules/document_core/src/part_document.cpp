@@ -7925,7 +7925,7 @@ for (const auto& profile : profiles) {
     std::string thin_end;
     try { source=extrusion_request(sketch,1.0,ExtrusionDirection::Forward); }
     catch (const std::exception&) {
-        if (!sweep.thin) throw;
+        if (!sweep.thin && sweep.make_solid) throw;
         source=open_sweep_profile(sketch,thin_end,profile.correspondence_start_point_id);
     }
     if ((!allow_holes && !source.inner_profiles.empty()) ||
@@ -7948,7 +7948,7 @@ for (const auto& profile : profiles) {
     region.outer_profile = std::move(source.outer_profile);
     region.inner_profiles = std::move(source.inner_profiles);
     const auto mapping=sweep3d_profile_correspondence(
-        sketch,profile.correspondence_start_point_id,sweep.thin);
+        sketch,profile.correspondence_start_point_id,sweep.thin || !sweep.make_solid);
     std::optional<zima::kernel::Vec3> circle_radial;
     if(const auto* circle=std::get_if<zima::kernel::ExtrusionRequest::CircleProfile>(&region.outer_profile)) {
         const auto center=circle->center;
@@ -8047,6 +8047,7 @@ zima::kernel::Sweep3DRequest PartDocument::sweep2d_request(const HistoryContaine
         request.path_point_ids.push_back(station.point_id+(station.incoming?":in":":out"));}
     request.path_segments=route.segments;
     const auto& p=c.sweep2d;
+    request.make_solid=p.result_type!=ProfileResultType::Surface;
     if(p.result_type==ProfileResultType::Thin) {
         require_positive(p.thickness,"Tloušťka 2D tažení");request.thin=true;
         request.thin_first=p.thin_mode==ThinMode::OneSide?0:p.thin_mode==ThinMode::OtherSide?-p.thickness:-p.thickness/2;
@@ -8096,7 +8097,7 @@ zima::kernel::ViewerMesh PartDocument::sweep2d_preview_mesh(const HistoryContain
         const auto key=station.point_id+(station.incoming?":in:":":out:");
         for(auto edge:edges){edge.reference.owner_id=c.id;edge.reference.semantic_key="sweep2d:profile:"+key+edge.reference.semantic_key;result.edges.push_back(std::move(edge));}
         try {
-            const auto mapping=sweep3d_profile_correspondence(sketch,source->correspondence_start_point_id,c.sweep2d.result_type==ProfileResultType::Thin);
+            const auto mapping=sweep3d_profile_correspondence(sketch,source->correspondence_start_point_id,c.sweep2d.result_type!=ProfileResultType::Solid);
             for(std::size_t i=0;i<mapping.positions.size();++i) {
                 const kernel::EdgeReference ref{c.id,"sweep2d:profile-point:"+key+mapping.point_ids[i],{}};
                 result.points.push_back({mapping.positions[i],{ref.owner_id,ref.semantic_key,ref.instance_path}});
@@ -8176,7 +8177,20 @@ zima::kernel::Sweep3DRequest PartDocument::helical_sweep_request(const HistoryCo
     };
     for(std::size_t i=0;i<p.curves.size();++i)approximate(i,0,1,0);
     auto section=zima::sketcher::Sketch::from_serialized(c.helical.sketches[2]);
-    auto source=extrusion_request(section,1.0,ExtrusionDirection::Forward);
+    request.make_solid=c.helical.result_type!=ProfileResultType::Surface;
+    if(c.helical.result_type==ProfileResultType::Thin) {
+        require_positive(c.helical.thickness,"profile thickness");request.thin=true;
+        const auto& h=c.helical;
+        request.thin_first=h.thin_mode==ThinMode::OneSide?0:h.thin_mode==ThinMode::OtherSide?-h.thickness:-h.thickness/2;
+        request.thin_second=h.thin_mode==ThinMode::OtherSide?0:h.thin_mode==ThinMode::OneSide?h.thickness:h.thickness/2;
+    }
+    zima::kernel::ExtrusionRequest source;
+    std::string open_end;
+    try {source=extrusion_request(section,1.0,ExtrusionDirection::Forward);}
+    catch(const std::exception&) {
+        if(!request.thin&&request.make_solid)throw;
+        source=open_sweep_profile(section,open_end);
+    }
     if(!source.additional_profile_regions.empty())throw std::runtime_error("Průřez musí tvořit jednu souvislou oblast");
     zima::kernel::ExtrusionRequest::ProfileRegion region;
     region.region_id=source.profile_region_id;region.outer_boundary_id=source.outer_boundary_id;
@@ -8184,7 +8198,7 @@ zima::kernel::Sweep3DRequest PartDocument::helical_sweep_request(const HistoryCo
     region.outer_profile=source.outer_profile;region.inner_profiles=source.inner_profiles;
     region.inner_boundary_ids=source.inner_boundary_ids;region.inner_edge_source_ids=source.inner_edge_source_ids;
     region.inner_vertex_source_ids=source.inner_vertex_source_ids;
-    request.sections.push_back({section.id,c.helical.start_point_id,0,section.resolved_normal,region});
+    request.sections.push_back({section.id,c.helical.start_point_id,0,section.resolved_normal,region,std::nullopt,open_end});
     return request;
 }
 std::vector<zima::kernel::ViewerEdge> PartDocument::helical_sketch_edges(const HistoryContainer& input) {
@@ -8218,6 +8232,14 @@ std::vector<zima::kernel::ViewerEdge> PartDocument::helical_preview_edges(const 
     reframe_helical_sketches(c);
     const auto section=zima::sketcher::Sketch::from_serialized(c.helical.sketches[2]);
     auto sketch_mesh=section.viewer_mesh();
+    if(c.helical.result_type==ProfileResultType::Thin) {
+        std::optional<V> start;std::string end;
+        try {
+            const auto open=open_sweep_profile(section,end);
+            if(const auto* point=section.find_point(open.outer_vertex_source_ids.front()))start=section.world_point(point->x,point->y);
+        }catch(const std::exception&){}
+        sketch_mesh.edges=thin_profile_preview_edges(section,c.helical.thickness,c.helical.thin_mode,true,start);
+    }
     std::vector<V> xs{section.resolved_x_axis},ys{section.resolved_y_axis};
     for(std::size_t i=1;i<positions.size();++i){
         const auto v=cross(tangents[i-1],tangents[i]);const auto cosine=dot(tangents[i-1],tangents[i]);
@@ -8541,7 +8563,7 @@ zima::kernel::ViewerMesh sweep3d_profiles_viewer_mesh(const HistoryContainer& co
             result.edges.push_back(std::move(edge));
         }
         try {
-            const auto mapping=sweep3d_profile_correspondence(sketch,profile.correspondence_start_point_id,container.sweep3d.result_type==ProfileResultType::Thin);
+            const auto mapping=sweep3d_profile_correspondence(sketch,profile.correspondence_start_point_id,container.sweep3d.result_type!=ProfileResultType::Solid);
             for(std::size_t i=0;i<mapping.positions.size();++i) {
                 const zima::kernel::EdgeReference ref{container.id,
                     "profile-point:"+station_key+":"+mapping.point_ids[i],{}};
@@ -9658,6 +9680,7 @@ std::vector<zima::kernel::HistoryOperation> PartDocument::kernel_operations(
                 }
             }
             zima::kernel::Sweep3DRequest sweep;
+            sweep.make_solid=container.sweep3d.result_type!=ProfileResultType::Surface;
             sweep.attachment_endpoints=true;
             sweep.separate_segments = path.curve_type == Curve3DType::Polyline &&
                 !path.curve_rounding_enabled;
@@ -10840,8 +10863,8 @@ PartDocument PartDocument::from_serialized(const nlohmann::json& root,
             }
             p.thickness=data.at("thickness").get<double>();
             const auto type=data.at("result_type").get<std::string>();
-            if(type!="solid"&&type!="thin")throw std::runtime_error("Invalid Sweep result type");
-            p.result_type=type=="thin"?ProfileResultType::Thin:ProfileResultType::Solid;
+            if(type!="solid"&&type!="thin"&&type!="surface")throw std::runtime_error("Invalid Sweep result type");
+            p.result_type=type=="thin"?ProfileResultType::Thin:type=="surface"?ProfileResultType::Surface:ProfileResultType::Solid;
             const auto mode=data.at("thin_mode").get<std::string>();
             if(mode!="one_side"&&mode!="other_side"&&mode!="symmetric")throw std::runtime_error("Invalid Sweep thin mode");
             p.thin_mode=mode=="one_side"?ThinMode::OneSide:mode=="other_side"?ThinMode::OtherSide:ThinMode::Symmetric;
@@ -10855,11 +10878,20 @@ PartDocument PartDocument::from_serialized(const nlohmann::json& root,
             container.helical.guide_start_point_id=h.at("guide_start_point_id").get<std::string>();
             container.helical.pitch=h.at("pitch").get<double>();
             container.helical.left_handed=h.at("left_handed").get<bool>();
+            const auto type=h.at("result_type").get<std::string>();
+            container.helical.result_type=type=="solid"?ProfileResultType::Solid:type=="thin"?ProfileResultType::Thin:
+                type=="surface"?ProfileResultType::Surface:throw std::runtime_error("Invalid Sweep result type");
+            const auto mode=h.at("thin_mode").get<std::string>();
+            container.helical.thin_mode=mode=="one_side"?ThinMode::OneSide:mode=="other_side"?ThinMode::OtherSide:
+                mode=="symmetric"?ThinMode::Symmetric:throw std::runtime_error("Invalid Sweep thin mode");
+            container.helical.thickness=h.at("thickness").get<double>();
+            require_positive(container.helical.thickness,"Sweep thickness");
         } else if (container.feature_kind == FeatureKind::Sweep3D) {
             auto& thin = container.sweep3d;
             const std::string result_type = source.at("result_type");
             thin.result_type = result_type == "solid" ? ProfileResultType::Solid
                 : result_type == "thin" ? ProfileResultType::Thin
+                : result_type == "surface" ? ProfileResultType::Surface
                 : throw std::runtime_error("Invalid Sweep/Loft result type");
             const std::string thin_mode = source.at("thin_mode");
             thin.thin_mode = thin_mode == "one_side" ? ThinMode::OneSide
@@ -11885,13 +11917,15 @@ nlohmann::json PartDocument::serialized(
             if(p.path_plane){const auto& ref=*p.path_plane;plane={{"instance_path",ref.instance_path},{"owner_id",ref.owner_id},
                 {"semantic_key",ref.semantic_key},{"offset",ref.offset}};}
             serialized["sweep2d"]={{"path_sketch_serialized",p.path_sketch},{"path_plane",plane},{"profiles",profiles},{"thickness",p.thickness},
-                {"result_type",p.result_type==ProfileResultType::Thin?"thin":"solid"},
+                {"result_type",p.result_type==ProfileResultType::Thin?"thin":p.result_type==ProfileResultType::Surface?"surface":"solid"},
                 {"thin_mode",p.thin_mode==ThinMode::OneSide?"one_side":p.thin_mode==ThinMode::OtherSide?"other_side":"symmetric"}};
         } else if (container.feature_kind == FeatureKind::HelicalSweep) {
             const auto& h=container.helical;
             serialized["helical"]={{"sketches",h.sketches},{"circle_id",h.circle_id},
                 {"start_point_id",h.start_point_id},{"guide_start_point_id",h.guide_start_point_id},
-                {"pitch",h.pitch},{"left_handed",h.left_handed}};
+                {"pitch",h.pitch},{"left_handed",h.left_handed},
+                {"result_type",h.result_type==ProfileResultType::Thin?"thin":h.result_type==ProfileResultType::Surface?"surface":"solid"},
+                {"thickness",h.thickness},{"thin_mode",h.thin_mode==ThinMode::OneSide?"one_side":h.thin_mode==ThinMode::OtherSide?"other_side":"symmetric"}};
         } else if (container.feature_kind == FeatureKind::Sweep3D) {
             const auto& path = container.sweep3d.path;
             std::unordered_set<std::string> embedded_construction_ids;
@@ -11904,7 +11938,7 @@ nlohmann::json PartDocument::serialized(
                     point, path.id, embedded_construction_ids));
             }
             require_positive(container.sweep3d.thickness, "Sweep/Loft thickness");
-            serialized["result_type"] = container.sweep3d.result_type == ProfileResultType::Thin ? "thin" : "solid";
+            serialized["result_type"] = container.sweep3d.result_type == ProfileResultType::Thin ? "thin" : container.sweep3d.result_type == ProfileResultType::Surface ? "surface" : "solid";
             serialized["thickness"] = container.sweep3d.thickness;
             serialized["thin_mode"] = container.sweep3d.thin_mode == ThinMode::OneSide ? "one_side"
                 : container.sweep3d.thin_mode == ThinMode::OtherSide ? "other_side" : "symmetric";

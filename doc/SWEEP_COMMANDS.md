@@ -18,8 +18,8 @@ operation, locks, reference validity and revision. Reads consume saved models wi
 OCCT, sketch/cache changes. Optional `document` can read another open Part. During
 Properties, reads return committed state rather than pending drafts.
 
-2D/3D also return `result_type` (`solid/thin`), `thin_mode`
-(`one_side/other_side/symmetric`), `thickness_mm`, profiles with IDs, station IDs,
+All three return `result_type` (`solid/thin/surface`), `thin_mode`
+(`one_side/other_side/symmetric`) and `thickness_mm`. 2D/3D also return profiles with IDs, station IDs,
 incoming-branch flags, owned-sketch IDs and correspondence starts. 2D returns
 `path_sketch` and optional `path_plane`; 3D its path ID. Helical returns `pitch_mm`,
 `left_handed`, `circle`, `start_point`, `guide_start_point`, and three owned-sketch
@@ -28,10 +28,13 @@ IDs ordered as circle, radial guide, section. Existing Sketcher commands expose 
 ## Changes and protections
 
 `set` takes `container`, optional active-Part identity guard `document`, `name`,
-`combine`, and `placement` with existing numeric placement fields. 2D/3D take the
-three Thin fields above; Helical takes pitch, handedness, selected base circle/start
+`combine`, and `placement` with existing numeric placement fields. All three take the
+result/thickness fields above; Helical also takes pitch, handedness, selected base circle/start
 point. Thickness: 0.001–1000000 mm; pitch: 0.0001–1000000 mm. Unknown choices,
 nonnumeric values, invalid geometry/references reject the complete request atomically.
+Surface is an uncapped contour sweep and cannot subtract material. Solid requires
+a closed region; Thin and Surface also accept a continuous open contour. These
+fields are available on `create` as well as `set` and persist in the native Part.
 
 Features must belong to the active editable Body. Pending GUI commands, foreign
 documents, derived Bodies and locked values block edits. Container, feature, Origin

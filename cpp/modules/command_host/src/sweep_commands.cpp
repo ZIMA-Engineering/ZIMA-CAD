@@ -34,6 +34,11 @@ Json sweep_details(const workspace::PartState& state, const document::HistoryCon
         {"default_precision_mm",feature.sweep_precision.default_tolerance},
         {"custom_precision",feature.sweep_precision.custom_tolerance.has_value()},
         {"revision", state.session.revision()}};
+    const auto type = helical ? feature.helical.result_type : planar ? feature.sweep2d.result_type : feature.sweep3d.result_type;
+    const auto side = helical ? feature.helical.thin_mode : planar ? feature.sweep2d.thin_mode : feature.sweep3d.thin_mode;
+    result.update({{"result_type", type == document::ProfileResultType::Surface ? "surface" : type == document::ProfileResultType::Thin ? "thin" : "solid"},
+        {"thickness_mm", helical ? feature.helical.thickness : planar ? feature.sweep2d.thickness : feature.sweep3d.thickness},
+        {"thin_mode", side == document::ThinMode::OneSide ? "one_side" : side == document::ThinMode::OtherSide ? "other_side" : "symmetric"}});
     if (helical) {
         auto sketches = Json::array();
         for (const auto& data : feature.helical.sketches)
@@ -43,12 +48,6 @@ Json sweep_details(const workspace::PartState& state, const document::HistoryCon
             {"guide_start_point", feature.helical.guide_start_point_id}, {"sketches", std::move(sketches)},
             {"base_offset_mm", sketcher::Sketch::from_serialized(feature.helical.sketches[0]).plane_offset}});
     } else {
-        const auto type = planar ? feature.sweep2d.result_type : feature.sweep3d.result_type;
-        const auto side = planar ? feature.sweep2d.thin_mode : feature.sweep3d.thin_mode;
-        result.update({{"result_type", type == document::ProfileResultType::Thin ? "thin" : "solid"},
-            {"thickness_mm", planar ? feature.sweep2d.thickness : feature.sweep3d.thickness},
-            {"thin_mode", side == document::ThinMode::OneSide ? "one_side"
-                : side == document::ThinMode::OtherSide ? "other_side" : "symmetric"}});
         auto profiles = Json::array();
         for (const auto& profile : planar ? feature.sweep2d.profiles : feature.sweep3d.profiles)
             profiles.push_back({{"profile", profile.id}, {"point", profile.point_id}, {"incoming", profile.incoming},
@@ -169,18 +168,22 @@ void sweep_properties(document::HistoryContainer& value, const Json& args,
         if (args.contains("left_handed")) value.helical.left_handed = args.at("left_handed").get<bool>();
         if (args.contains("circle")) value.helical.circle_id = args.at("circle").get<std::string>();
         if (args.contains("start_point")) value.helical.start_point_id = args.at("start_point").get<std::string>();
-    } else {
+    }
+    {
         const bool planar = value.feature_kind == Kind::Sweep2D;
-        auto& type = planar ? value.sweep2d.result_type : value.sweep3d.result_type;
-        auto& side = planar ? value.sweep2d.thin_mode : value.sweep3d.thin_mode;
-        if (args.contains("result_type")) type = option("result_type", {"solid", "thin"}) == "thin"
-            ? document::ProfileResultType::Thin : document::ProfileResultType::Solid;
+        const bool helical = value.feature_kind == Kind::HelicalSweep;
+        auto& type = helical ? value.helical.result_type : planar ? value.sweep2d.result_type : value.sweep3d.result_type;
+        auto& side = helical ? value.helical.thin_mode : planar ? value.sweep2d.thin_mode : value.sweep3d.thin_mode;
+        if (args.contains("result_type")) {
+            const auto mode=option("result_type", {"solid", "thin", "surface"});
+            type=mode=="surface"?document::ProfileResultType::Surface:mode=="thin"?document::ProfileResultType::Thin:document::ProfileResultType::Solid;
+        }
         if (args.contains("thin_mode")) {
             const auto mode = option("thin_mode", {"one_side", "other_side", "symmetric"});
             side = mode == "one_side" ? document::ThinMode::OneSide
                 : mode == "other_side" ? document::ThinMode::OtherSide : document::ThinMode::Symmetric;
         }
-        if (args.contains("thickness_mm")) (planar ? value.sweep2d.thickness : value.sweep3d.thickness) = args.at("thickness_mm").get<double>();
+        if (args.contains("thickness_mm")) (helical ? value.helical.thickness : planar ? value.sweep2d.thickness : value.sweep3d.thickness) = args.at("thickness_mm").get<double>();
     }
     if (args.contains("placement")) {
         const auto& patch = args.at("placement");
@@ -290,6 +293,7 @@ void Host::register_sweep_commands() {
     dispatcher_.add({"helical.create", tr("Create a Helical Sweep by adopting three standalone Sketches."),
         {{"base_sketch", true}, {"guide_sketch", true}, {"profile_sketch", true}, {"circle", true}, {"start_point", true},
          {"guide_start_point", true}, {"pitch_mm", false, Type::Number}, {"left_handed", false, Type::Boolean},
+         {"result_type",false},{"thin_mode",false},{"thickness_mm",false,Type::Number},
          {"precision_mm",false,Type::Number}, {"custom_precision",false,Type::Boolean},
          {"base_offset_mm", false, Type::Number}, {"placement", false, Type::Object}, {"name", false}, {"combine", false}, {"document", false}}, true},
         [this](const Json& args) {
@@ -344,6 +348,7 @@ void Host::register_sweep_commands() {
             } catch (const Error& error) { return Result::failure(error.code, tr(error.what())); }
         });
         std::vector<commands::Argument> fields{{"container", true}, {"name", false}, {"combine", false},
+            {"result_type",false},{"thin_mode",false},{"thickness_mm",false,Type::Number},
             {"precision_mm",false,Type::Number}, {"custom_precision",false,Type::Boolean},
             {"placement", false, Type::Object}, {"document", false}};
         if (kind == Kind::HelicalSweep) {
@@ -351,8 +356,6 @@ void Host::register_sweep_commands() {
             fields.push_back({"circle", false}); fields.push_back({"start_point", false});
             fields.push_back({"guide_start_point", false}); fields.push_back({"base_offset_mm", false, Type::Number});
         } else {
-            fields.push_back({"result_type", false}); fields.push_back({"thin_mode", false});
-            fields.push_back({"thickness_mm", false, Type::Number});
             fields.push_back({"profiles", false, Type::Array});
             if (kind == Kind::Sweep3D) fields.push_back({"path", false, Type::Object});
             else fields.push_back({"path_plane", false, Type::Object});

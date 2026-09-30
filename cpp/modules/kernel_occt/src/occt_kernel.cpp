@@ -1173,7 +1173,7 @@ void validate_sweep3d(const Sweep3DRequest& request) {
         profile_request.outer_profile = section.profile.outer_profile;
         profile_request.inner_profiles = section.profile.inner_profiles;
         profile_request.direction = {0.0, 0.0, 1.0};
-        validate_extrusion(profile_request, request.thin);
+        validate_extrusion(profile_request, request.thin || !request.make_solid);
     }
     for (std::size_t index = 0; index < request.path_segments.size(); ++index) {
         const auto& segment = request.path_segments[index];
@@ -1230,7 +1230,7 @@ PrimitiveData make_transported_sweep_data(const Sweep3DRequest& request,const st
     auto profile=prepared?prepared->wire:make_profile_wire(section.profile.outer_profile,section.profile_normal,std::nullopt,&profile_edges);
     if(prepared){profile_edges=prepared->edges;section.profile.outer_edge_source_ids=prepared->curve_ids;section.profile.outer_vertex_source_ids=prepared->point_ids;}
     builder.Add(profile,false,false);builder.Build();
-    if(!builder.IsDone()||!builder.MakeSolid()||!BRepCheck_Analyzer(builder.Shape()).IsValid())
+    if(!builder.IsDone()||(request.make_solid&&!builder.MakeSolid())||!BRepCheck_Analyzer(builder.Shape()).IsValid())
         throw std::runtime_error("Sweep nevytvořil platné těleso; zkontrolujte průřez a dráhu");
     PrimitiveData result{builder.Shape(),{},{},{}};
     if(profile_edges.size()!=section.profile.outer_edge_source_ids.size())throw std::runtime_error("Chybí rodiče hran průřezu");
@@ -1242,6 +1242,7 @@ PrimitiveData make_transported_sweep_data(const Sweep3DRequest& request,const st
             if(it.Value().ShapeType()==TopAbs_FACE)result.faces.push_back({it.Value(),{owner_id,"generated:"+source}});
         // Caps are identified by the source/end normal planes, never traversal order.
     }
+    if(request.make_solid) {
     const auto end=request.path_points.back();
     GProp_GProps initial_properties;
     BRepGProp::SurfaceProperties(BRepBuilderAPI_MakeFace(profile,true).Face(),initial_properties);
@@ -1294,6 +1295,49 @@ PrimitiveData make_transported_sweep_data(const Sweep3DRequest& request,const st
             }
         }
     }
+    } else {
+        // Source points name the rails before history locates their shapes.
+        // The unshared terminal point of an open contour is equally important.
+        std::vector<TopoDS_Shape> rails;
+        std::vector<TopoDS_Vertex> end_vertices;
+        const auto collect_point=[&](const TopoDS_Vertex& vertex,const std::string& source,bool seam){
+            const auto position=BRep_Tool::Pnt(vertex);
+            const auto& generated=builder.Generated(vertex);
+            for(TopTools_ListIteratorOfListOfShape it(generated);it.More();it.Next()) {
+                if(it.Value().ShapeType()!=TopAbs_EDGE)continue;
+                rails.push_back(it.Value());
+                result.edges.push_back({it.Value(),{owner_id,(seam?"seam:generated:":"generated:")+source}});
+                for(TopExp_Explorer v(it.Value(),TopAbs_VERTEX);v.More();v.Next()) {
+                    const auto endpoint=TopoDS::Vertex(v.Current());
+                    const bool start=BRep_Tool::Pnt(endpoint).Distance(position)<=request.linear_tolerance;
+                    result.vertices.push_back({endpoint,{owner_id,std::string(seam?"seam:":"")+(start?"start":"end")+":generated:"+source}});
+                    if(!start)end_vertices.push_back(endpoint);
+                }
+            }
+        };
+        const bool seam=section.profile.outer_vertex_source_ids.empty();
+        for(std::size_t i=0;i<profile_edges.size();++i)
+            collect_point(TopExp::FirstVertex(profile_edges[i],true),
+                seam?section.profile.outer_edge_source_ids[i]:section.profile.outer_vertex_source_ids.at(i),seam);
+        if(!section.thin_end_point_id.empty())
+            collect_point(TopExp::LastVertex(profile_edges.back(),true),section.thin_end_point_id,false);
+        for(const auto& side:result.faces) {
+            const auto source=side.reference.semantic_key.substr(std::string("generated:").size());
+            for(TopExp_Explorer e(side.shape,TopAbs_EDGE);e.More();e.Next()) {
+                if(std::ranges::any_of(rails,[&](const auto& rail){return rail.IsSame(e.Current());}))continue;
+                const auto edge=TopoDS::Edge(e.Current());
+                const auto first=TopExp::FirstVertex(edge,true),last=TopExp::LastVertex(edge,true);
+                const auto is_end=[&](const auto& vertex){return std::ranges::any_of(end_vertices,
+                    [&](const auto& end){return end.IsSame(vertex);});};
+                if(is_end(first)&&is_end(last))result.edges.push_back({edge,{owner_id,"end:generated:"+source}});
+                else {
+                    BRepExtrema_DistShapeShape distance(edge,profile);
+                    if(distance.IsDone()&&distance.Value()<=request.linear_tolerance)
+                        result.edges.push_back({edge,{owner_id,"start:generated:"+source}});
+                }
+            }
+        }
+    }
     for(std::size_t i=0;i<section.profile.inner_profiles.size();++i){
         auto inner=request;auto& region=inner.sections.front().profile;
         region.outer_profile=section.profile.inner_profiles[i];
@@ -1301,7 +1345,16 @@ PrimitiveData make_transported_sweep_data(const Sweep3DRequest& request,const st
         region.outer_vertex_source_ids=section.profile.inner_vertex_source_ids.at(i);
         region.region_id=section.profile.inner_boundary_ids.at(i);
         region.inner_profiles.clear();region.inner_edge_source_ids.clear();region.inner_vertex_source_ids.clear();region.inner_boundary_ids.clear();
-        auto tool=make_transported_sweep_data(inner,owner_id);BRepAlgoAPI_Cut cut;
+        auto tool=make_transported_sweep_data(inner,owner_id);
+        if(!request.make_solid) {
+            BRep_Builder compound_builder;TopoDS_Compound compound;compound_builder.MakeCompound(compound);
+            compound_builder.Add(compound,result.shape);compound_builder.Add(compound,tool.shape);result.shape=compound;
+            result.faces.insert(result.faces.end(),tool.faces.begin(),tool.faces.end());
+            result.edges.insert(result.edges.end(),tool.edges.begin(),tool.edges.end());
+            result.vertices.insert(result.vertices.end(),tool.vertices.begin(),tool.vertices.end());
+            continue;
+        }
+        BRepAlgoAPI_Cut cut;
         set_boolean_inputs(cut, result.shape, tool.shape);cut.SetFuzzyValue(request.linear_tolerance);cut.Build();
         if(!cut.IsDone()||!BRepCheck_Analyzer(cut.Shape()).IsValid())throw std::runtime_error("Nelze vytvořit dutý průřez");
         result.faces=propagate_topology(cut,result.faces,tool.faces);
@@ -1541,7 +1594,16 @@ PrimitiveData make_sweep3d_data(
                 region.outer_vertex_source_ids=region.inner_vertex_source_ids.at(i);clear_holes(region);
                 section.circle_radial_direction.reset();
             }
-            auto tool=make_sweep3d_data(inside,owner_id);BRepAlgoAPI_Cut cut;
+            auto tool=make_sweep3d_data(inside,owner_id);
+            if(!request.make_solid) {
+                BRep_Builder compound_builder;TopoDS_Compound compound;compound_builder.MakeCompound(compound);
+                compound_builder.Add(compound,result.shape);compound_builder.Add(compound,tool.shape);result.shape=compound;
+                result.faces.insert(result.faces.end(),tool.faces.begin(),tool.faces.end());
+                result.edges.insert(result.edges.end(),tool.edges.begin(),tool.edges.end());
+                result.vertices.insert(result.vertices.end(),tool.vertices.begin(),tool.vertices.end());
+                continue;
+            }
+            BRepAlgoAPI_Cut cut;
             set_boolean_inputs(cut,result.shape,tool.shape);cut.SetToFillHistory(true);cut.SetFuzzyValue(request.linear_tolerance);cut.Build();
             if(!cut.IsDone()||cut.Shape().IsNull()||!BRepCheck_Analyzer(cut.Shape()).IsValid())throw std::runtime_error("Nelze vytvořit otvor taženého průřezu");
             result.faces=propagate_topology(cut,result.faces,tool.faces);result.edges=propagate_topology(cut,result.edges,tool.edges);
@@ -1551,7 +1613,7 @@ PrimitiveData make_sweep3d_data(
         for(auto* refs:{&result.faces,&result.source_caps})for(auto& ref:*refs)
             if(ref.reference.semantic_key.starts_with("sweep:cap:"))ref.reference.surface.reset();
         int solids=0;for(TopExp_Explorer it(result.shape,TopAbs_SOLID);it.More();it.Next())++solids;
-        if(solids!=1)throw std::runtime_error("Průřez s otvorem nevytvořil jedno těleso");
+        if(request.make_solid&&solids!=1)throw std::runtime_error("Průřez s otvorem nevytvořil jedno těleso");
         return result;
     }
     const auto first_station = [&](std::size_t segment) {
@@ -1595,6 +1657,7 @@ PrimitiveData make_sweep3d_data(
         std::vector<std::string> curve_ids;
         std::vector<std::string> point_ids;
         std::string profile_id;
+        std::string open_end_point_id;
         std::optional<SurfaceGeometry> circular_cap;
     };
     std::vector<StationWire> stations;
@@ -1659,6 +1722,7 @@ PrimitiveData make_sweep3d_data(
         station.curve_ids=section->profile.outer_edge_source_ids;
         station.point_ids=section->profile.outer_vertex_source_ids;
         station.profile_id=section->profile_id;
+        if(!request.make_solid)station.open_end_point_id=section->thin_end_point_id;
         if (profile_wires) {
             const auto& profile=profile_wires->at(static_cast<std::size_t>(section-request.sections.data()));
             station.wire=profile.wire;station.edges=profile.edges;
@@ -1973,6 +2037,26 @@ PrimitiveData make_sweep3d_data(
                         }
                     }
                 }
+            }
+            // Open section wires have one more authored point than edges.
+            // Preserve that endpoint and its generated rail as original references.
+            for(const auto index:{first_station(i),first_station(i)+1}) {
+                const auto& station=stations[index];
+                if(station.open_end_point_id.empty())continue;
+                const auto endpoint=TopExp::LastVertex(station.edges.back(),true);
+                const auto position=BRep_Tool::Pnt(endpoint);
+                const auto suffix=":at:"+request.path_point_ids[index]+":profile:"+station.profile_id+":from:"+station.open_end_point_id;
+                const auto semantic=request.canonical_station_ids.contains(request.path_point_ids[index])
+                    ? "sweep:vertex"+suffix
+                    : "sweep:vertex:"+std::string(index==first_station(i)?"start":"end")+suffix;
+                for(TopExp_Explorer v(builder.Shape(),TopAbs_VERTEX);v.More();v.Next())
+                    if(position.Distance(BRep_Tool::Pnt(TopoDS::Vertex(v.Current())))<=request.linear_tolerance) {
+                        piece.vertices.push_back({v.Current(),{owner_id,semantic}});break;
+                    }
+                const auto& generated=builder.Generated(endpoint);
+                for(TopTools_ListIteratorOfListOfShape it(generated);it.More();it.Next())
+                    if(it.Value().ShapeType()==TopAbs_EDGE)piece.edges.push_back({it.Value(),{owner_id,
+                        "sweep:"+segment.source_id+":profile:"+station.profile_id+":from:"+station.open_end_point_id}});
             }
             return piece;
         };
@@ -4909,7 +4993,12 @@ BodyResult make_result(
         if(error<0)throw std::runtime_error("OCCT rational volume integration failed");
     }
     else BRepGProp::VolumeProperties(volume_shape, volume_properties);
-    BRepGProp::SurfaceProperties(shape, surface_properties);
+    // Uncapped rational surfaces need adaptive area integration too: fixed
+    // quadrature over a circular loft overstates even a cylinder's lateral area.
+    // Keep the established solid-only calculation path unchanged.
+    if(rational_surface&&std::ranges::any_of(owned_faces,[](const auto& face){return face.reference.surface_result;}))
+        BRepGProp::SurfaceProperties(shape,surface_properties,1e-9);
+    else BRepGProp::SurfaceProperties(shape, surface_properties);
     result.volume = volume_properties.Mass();
     result.surface_area = surface_properties.Mass();
     if(result.surface_area>0) {
@@ -6384,6 +6473,7 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
             }
             const bool surface_operand=std::visit([](const auto& request){
                 if constexpr(requires{request.surface_result;})return request.surface_result;
+                else if constexpr(std::is_same_v<std::decay_t<decltype(request)>,Sweep3DRequest>)return !request.make_solid;
                 else if constexpr(std::is_same_v<std::decay_t<decltype(request)>,FeatureGroupRequest>)
                     return !request.children.empty()&&std::ranges::all_of(request.children,[](const auto& child){
                         return std::visit([](const auto& value){
@@ -8121,7 +8211,9 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                     return make_revolution_data(primitive, operation.owner_id);
                 } else if constexpr (std::is_same_v<Request, Sweep3DRequest>) {
                     validate_sweep3d(primitive);
-                    return make_sweep3d_data(primitive, operation.owner_id);
+                    auto swept=make_sweep3d_data(primitive, operation.owner_id);
+                    if(!primitive.make_solid)for(auto& face:swept.faces)face.reference.surface_result=true;
+                    return swept;
                 } else if constexpr (std::is_same_v<Request, BoundarySurfaceRequest>) {
                     return make_boundary_surface_data(primitive,operation.owner_id);
                 } else if constexpr (std::is_same_v<Request, StepRequest>) {

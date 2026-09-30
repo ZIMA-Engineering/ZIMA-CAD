@@ -47,6 +47,38 @@ int main(int argc,char** argv){try{
     }
     auto doc=document::PartDocument::create_default();
     const auto calculate=[&](const auto& c){doc.history={c};return kernel.evaluate_history(doc.kernel_operations()).back();};
+    for(bool open:{false,true}) {
+        auto c=fixture(false,open);c.sweep2d.result_type=document::ProfileResultType::Surface;
+        c.sweep_precision.custom_tolerance=.001;
+        const auto body=calculate(c);
+        close(body.volume,0,"Surface Sweep acquired volume");
+        close(body.surface_area,open?80:80*std::numbers::pi,"Surface Sweep area");
+        require(!body.mesh.original_references.triangle_references.empty(),"Surface references missing");
+        for(const auto& face:body.mesh.original_references.triangle_references)
+            require(face.surface_result&&!face.semantic_key.starts_with("sweep:cap:"),"Surface acquired solid cap or lost surface flag");
+        if(open) {
+            const auto profile=sketcher::Sketch::from_serialized(c.sweep2d.profiles.front().sketch_serialized);
+            for(const auto& point:profile.points) {
+                require(std::ranges::any_of(body.mesh.original_references.points,[&](const auto& p){return p.reference.semantic_key.ends_with(":from:"+point.id);}),"Surface endpoint ancestry missing");
+            }
+        }
+        const auto file=std::filesystem::temp_directory_path()/"zima-surface-sweep2d.prtz";
+        doc.save(file,{body});auto loaded=document::PartDocument::load(file);std::filesystem::remove(file);
+        require(loaded.history.front().sweep2d.result_type==document::ProfileResultType::Surface,"Surface mode not persisted");
+        c.combine_mode=document::CombineMode::Subtract;
+        bool rejected=false;try {static_cast<void>(calculate(c));}catch(const std::exception&){rejected=true;}
+        require(rejected,"Surface subtraction accepted");
+    }
+    {
+        auto c=fixture();c.sweep2d.result_type=document::ProfileResultType::Surface;c.sweep_precision.custom_tolerance=.001;
+        auto profile=sketcher::Sketch::from_serialized(c.sweep2d.profiles.front().sketch_serialized);
+        static_cast<void>(profile.add_circle(0,0,1));c.sweep2d.profiles.front().sketch_serialized=profile.serialized();
+        const auto surface=calculate(c);close(surface.surface_area,120*std::numbers::pi,"Surface inner contour area missing");
+        auto box=zima::test::rectangular_feature(doc,{10,10,10});doc.history={box,c};
+        const auto combined=kernel.evaluate_history(doc.kernel_operations()).back();
+        close(combined.volume,1000,"Surface changed preceding solid volume");
+        close(combined.surface_area,600+surface.surface_area,"Surface and solid areas did not accumulate");
+    }
     // A tube cut along a box face can retain two surface p-curves on an
     // intersection edge. It still separates two faces and is not a seam.
     {

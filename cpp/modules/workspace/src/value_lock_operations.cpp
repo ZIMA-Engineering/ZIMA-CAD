@@ -84,7 +84,7 @@ template<class Document> auto fields(Document& doc,const std::string& owner) {
             case Kind::ShaftThread:add({"root_diameter","length","runout_pitch_factor"});break;
             case Kind::DrillPoint:add({"angle"});break;
             case Kind::Sweep2D:case Kind::Sweep3D:add({"thickness"});break;
-            case Kind::HelicalSweep:add({"pitch","base_offset"});break;
+            case Kind::HelicalSweep:add({"pitch","base_offset","thickness"});break;
             case Kind::DerivedCopy: {
                 auto* parameters=&object.derived_copy;derived_numbers(out,parameters);break;
             }

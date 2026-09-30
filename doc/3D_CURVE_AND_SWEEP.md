@@ -1,5 +1,10 @@
 # 3D Curve and 3D Sweep
 
+3D Sweep offers Solid, Thin and Surface results. Surface sweeps closed or continuous
+open contours without end caps and supports Add only. Thickness and side controls
+appear only for Thin. All result types retain the authored profile/point ancestry,
+path stations, correspondence and explicit calculation/Undo behavior.
+
 A 3D Curve retains original construction points with persistent IDs. Table numbers
 are path positions, not reference identities.
 
@@ -172,7 +177,7 @@ still report errors.
 
 ## Thin — 3D Sweep thickness
 
-Creation and editing share one Properties dialog. Result type **Solid / Thin**
+Creation and editing share one Properties dialog. Result type **Solid / Thin / Surface**
 enables thickness and **Inward**, **Outward**, or **Symmetric** direction. Symmetric
 places half the specified total thickness on each side of the original profile.
 For an open contour, orientation defines the side. Point order can select either
