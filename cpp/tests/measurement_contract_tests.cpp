@@ -10,6 +10,7 @@
 #include <nlohmann/json.hpp>
 #include <filesystem>
 #include <iostream>
+#include <chrono>
 #include <numbers>
 #include <stdexcept>
 
@@ -30,8 +31,24 @@ void distance(const G& a,const G& b,double expected){
     near(reverse->distance.value,expected,"Distance is not symmetric");
     near(std::hypot(d->first.x-d->second.x,d->first.y-d->second.y,d->first.z-d->second.z),expected,"Witness endpoints disagree");
 }
-int main(){
+int main(int argc,char** argv){
 try{
+    if(argc==2&&std::string(argv[1])=="--benchmark")for(int side:{50,200}) {
+        G mesh;
+        for(int x=0;x<side;++x)for(int y=0;y<side;++y)
+            mesh.triangles.push_back({P{double(x),double(y),0},P{double(x+1),double(y),0},P{double(x),double(y+1),0}});
+        const auto start=std::chrono::steady_clock::now();
+        for(int repeat=0;repeat<20;++repeat) {
+            const auto result=measurement::measure_distance(point({20.25,20.25,8}),mesh);
+            require(result.has_value(),"Repeated measurement unavailable");
+            near(result->distance.value,8,"Repeated measurement changed exact distance");
+            near(result->second.x,20.25,"Repeated measurement changed witness X");
+            near(result->second.y,20.25,"Repeated measurement changed witness Y");
+            near(result->second.z,0,"Repeated measurement changed witness Z");
+        }
+        std::cout<<"Repeated point/mesh measurement triangles="<<mesh.triangles.size()<<" mean_ms="<<
+            std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-start).count()/20<<"\n";
+    }
     distance(point({0,0,0}),point({3,4,0}),5);
     distance(point({3,4,0}),line({0,0,0},{1,0,0}),std::sqrt(20.));
     distance(point({3,4,0}),axis({0,0,0},{1,0,0}),4);

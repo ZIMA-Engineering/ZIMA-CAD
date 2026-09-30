@@ -173,7 +173,6 @@ struct MeshView::Impl {
     using FaceFillKey=std::tuple<CandidateGeometry,std::string,std::string,std::string>;
     std::vector<FaceFillKey> face_fill_keys;
     std::vector<std::pair<int,int>> face_fill_ranges;
-    QOpenGLBuffer triangles{QOpenGLBuffer::IndexBuffer};
     QOpenGLBuffer transparent_triangles{QOpenGLBuffer::IndexBuffer};
     QOpenGLBuffer lines{QOpenGLBuffer::VertexBuffer};
     QOpenGLBuffer silhouette{QOpenGLBuffer::VertexBuffer};
@@ -723,7 +722,6 @@ MeshView::~MeshView() {
         impl_->vertex_array.destroy();
         impl_->vertices.destroy();
         impl_->face_fill.destroy();
-        impl_->triangles.destroy();
         impl_->transparent_triangles.destroy();
         impl_->lines.destroy();
         impl_->silhouette.destroy();
@@ -2817,7 +2815,6 @@ void main(){
     impl_->vertex_array.bind();
     impl_->vertices.create();
     impl_->face_fill.create();
-    impl_->triangles.create();
     impl_->transparent_triangles.create();
     impl_->lines.create();
     impl_->silhouette.create();
@@ -2835,9 +2832,6 @@ void MeshView::upload_mesh() {
     impl_->vertices.bind();
     impl_->vertices.allocate(vertex_data.data(),
         static_cast<int>(vertex_data.size() * sizeof(float)));
-    impl_->triangles.bind();
-    impl_->triangles.allocate(impl_->mesh.triangles.data(),
-        static_cast<int>(impl_->mesh.triangles.size() * sizeof(std::uint32_t)));
 
     std::vector<float> line_data;
     impl_->line_ranges.clear();

@@ -5,6 +5,7 @@
 #include <zima/viewer/mesh_view.hpp>
 
 #include <QApplication>
+#include <QCryptographicHash>
 #include <QEventLoop>
 #include <QMouseEvent>
 #include <QTimer>
@@ -73,6 +74,21 @@ int main(int argc, char** argv) {
             QEventLoop settle;
             QTimer::singleShot(1100, &settle, &QEventLoop::quit); settle.exec();
             view.repaint(); application.processEvents();
+            view.clear_selection();
+            const auto upload_paint_ms=milliseconds([&] {view.set_mesh(scene,false);view.grabFramebuffer();},5);
+            for(const auto mode:{zima::viewer::DisplayMode::Wire,zima::viewer::DisplayMode::HiddenEdges,
+                    zima::viewer::DisplayMode::NoHiddenEdges,zima::viewer::DisplayMode::ShadedWithEdges,zima::viewer::DisplayMode::Shaded}) {
+                view.set_display_mode(mode);
+                for(const auto alpha:{255,120}) {
+                    view.set_body_surface_colors(QColor(185,194,204,alpha));
+                    const auto pixels=view.grabFramebuffer().convertToFormat(QImage::Format_RGBA8888);
+                    const auto hash=QCryptographicHash::hash(QByteArrayView(reinterpret_cast<const char*>(pixels.constBits()),pixels.sizeInBytes()),QCryptographicHash::Sha256).toHex();
+                    std::cout<<"frame occurrences="<<count<<" mode="<<int(mode)<<" alpha="<<alpha<<" sha256="<<hash.constData()<<"\n";
+                }
+            }
+            view.set_body_surface_colors(QColor(185,194,204));
+            view.set_display_mode(zima::viewer::DisplayMode::ShadedWithEdges);
+            std::cout<<"upload_and_paint_ms="<<upload_paint_ms<<" index_bytes="<<scene.triangles.size()*sizeof(std::uint32_t)<<"\n";
             // The middle screen row can pass through an empty gap. Project
             // actual occurrence centres through the settled orthographic rays.
             std::vector<QPointF> positions;

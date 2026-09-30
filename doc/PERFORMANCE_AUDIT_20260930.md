@@ -25,38 +25,44 @@ separation below remains an audit candidate.
 
 The [A8 fingerprint follow-up](performance/20260930-history-fingerprint.md)
 records removal of temporary profile-identity copies with exact fingerprint
-equivalence. General prefix reuse remains unimplemented.
+equivalence. The [batch follow-up](performance/20260930-fingerprint-batch.md)
+adds exact all-prefix encoding and moves the encoder into one compiled source.
 
 The [A13 icon-cache follow-up](performance/20260930-icon-cache.md) records
 lookup before SVG reads, exact pixel comparisons and its limited microbenchmark.
 
 The [A10 current-state snapshot follow-up](performance/20260930-drawing-read-snapshots.md)
 records removal of Undo/Redo copies during read-only Drawing source preparation.
-General atomic Workspace staging and dependency-specific invalidation are unchanged.
+The [history-sharing follow-up](performance/20260930-history-sharing.md) preserves
+complete atomic staging while sharing immutable inactive history. The
+[Drawing reuse follow-up](performance/20260930-drawing-reuse.md) narrows completed
+Part invalidation and reuses per-export metadata.
 
 The [A12 Symbol leader follow-up](performance/20260930-symbol-leader.md)
 records removal of a discarded mesh calculation without adding cache state.
 
-### Follow-up scope at the Windows 2026093005 release boundary
+### Follow-up review after Windows 2026093005
 
-The measured changes above are implemented and individually verified. This does
-not close every hypothesis in the original audit. The remaining candidates are:
+All remaining hypotheses were reviewed. Implemented changes are deliberately
+limited to demonstrated redundant work, with exact-output or state-isolation
+checks. The original audit below remains a record of pre-change observations.
 
-| Candidate | Decision and required next evidence |
+| Candidate | Implemented scope and retained boundary |
 | --- | --- |
-| A4/A6 remaining refreshes and GPU-buffer reuse | Keep current invalidation. Profile real large scenes; compare complete frame, picking and reference behavior before splitting updates. |
-| A7 general atomic Workspace staging | Keep full transaction/history copies where the staged Workspace is published. Read-only projection copies do not justify dropping histories from committed transactions. |
-| A8 general prefix reuse | Keep current fingerprint encoding. Prefix length precedes payload, so extending a hash is not equivalent; prove exact identities before changing it. |
-| A9 native Assembly validation | Keep scene validation on load/save. It also validates cuts, targets and dependency geometry; dropping the calculation would drop working checks. |
-| A10 dependency-specific invalidation | Keep the existing complete live-source stamps. Measure a representative multi-document workspace and prove external/unsaved-source invalidation before narrowing dependencies. |
-| A11 Drawing refresh/output caches | Require measurements from repeated sheets/views and exact output/reference comparisons. No image-only replacement for persisted geometry. |
-| A12 parsed Symbol definitions | No cache added. The measured discarded leader calculation is removed; a larger cache requires variant, text and source-change invalidation checks. |
-| A14 repeated measurement | Existing spatial acceleration remains. No representative slow measurement has established an additional worthwhile change. |
-| A15 build dependencies | Separate developer-build task; no runtime behavior or release validation is removed. |
+| A4/A6 View refresh/GPU | Removed a verified unused index buffer; twenty opaque/transparent/mode captures match exactly. General mesh/presentation separation remains a profiling candidate. See [GPU evidence](performance/20260930-view-unused-index-buffer.md). |
+| A7 atomic Workspace staging | Share inactive session history, detach before mutation, retain complete Undo/Redo and exclusive current states. Deferred relocation is covered. See [history sharing](performance/20260930-history-sharing.md). |
+| A8 fingerprints | Encode operations once for all requested prefixes, preserving every fingerprint; retain incremental single-prefix matching. See [batch evidence](performance/20260930-fingerprint-batch.md). |
+| A9 native serialization | Embed/read typed Sketch JSON without redundant text round trips. Keep Assembly scene and all reference validation. See [native packets](performance/20260930-native-sketch-packets.md). |
+| A10 source invalidation | Reuse completed Part projections after unrelated edits; retain conservative Assembly and observed native-file checks. See [Drawing reuse](performance/20260930-drawing-reuse.md). |
+| A11 Drawing output | Reuse source metadata within one multi-sheet PDF export and eliminate a duplicate Assembly scene calculation. Exact output preparation remains. See [Drawing reuse](performance/20260930-drawing-reuse.md). |
+| A12 Symbols | Bounded exact-source parsed-definition cache; variants/text/geometry still evaluate normally. See [Symbol cache](performance/20260930-symbol-definition-cache.md). |
+| A14 measurement | Added repeatable distance/witness benchmark; retain existing acceleration and validation pending representative slow interactions. See [remaining review](performance/20260930-remaining-review.md). |
+| A15 build dependencies | Compile the fingerprint encoder once rather than inline it in every consumer. No whole-build timing claim or removed release gate. See [compiled encoder](performance/20260930-fingerprint-batch.md). |
 
-No speculative cache or lower-precision shortcut was added to mark an audit row
-complete. No safely removable nonfunctional product file was established. These
-open items remain work candidates, not implemented improvements.
+No precision, supported geometry, persistent identities or Undo/Redo capability
+was sacrificed to close an audit row. The [remaining review](performance/20260930-remaining-review.md)
+explains retained candidates and obsolete regression-fixture corrections.
+Linux verification is explicitly outside this Windows pass.
 
 The first investigation should target large Sketch dimension edits. The existing
 Release benchmark exposes a severe scaling problem. The next priorities are
