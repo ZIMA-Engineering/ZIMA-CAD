@@ -49,12 +49,15 @@ private:
         AssemblyDocument document;
         std::uint64_t revision{};
         bool dependency_state_dirty{};
+        bool externally_mutable{};
     };
-    using States = std::vector<std::unique_ptr<State>>;
+    using States = std::vector<std::shared_ptr<State>>;
     [[nodiscard]] static States copy_states(const States&);
     bool step(States& from, States& to);
     std::uint64_t data_generation_{};
-    std::unique_ptr<State> current_;
+    // Current state is always exclusive. Only inactive history may be shared
+    // across session copies; step/rebase detach before making it writable.
+    std::shared_ptr<State> current_;
     States undo_;
     States redo_;
     std::uint64_t next_revision_{1};

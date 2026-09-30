@@ -41,28 +41,41 @@ void AssemblySession::prepare_native_file_rebase(document::FileRelocationEdits& 
         collect_file_relocation_edits(value, edits, owning_file);
     };
     collect(current_->document);
-    for (auto& state : undo_) collect(state->document);
-    for (auto& state : redo_) collect(state->document);
+    const auto collect_history=[&](States& states) {
+        for(auto& state:states) {
+            if(state.use_count()!=1)state=std::make_shared<State>(*state);
+            // Deferred relocation stores writable field addresses. A later
+            // session copy must not share a state exposed to that batch.
+            state->externally_mutable=true;
+            collect(state->document);
+        }
+    };
+    collect_history(undo_);collect_history(redo_);
     if (edits.edit_count() != before) edits.track_generation(data_generation_);
 }
 
 AssemblySession::AssemblySession(AssemblyDocument document)
-    : current_(std::make_unique<State>(State{std::move(document),0,false})) {
+    : current_(std::make_shared<State>(State{std::move(document),0,false})) {
     zima::document::validate_physical_units(current_->document);
     current_->document.synchronize_dimension_identifiers();
     saved_dimension_allocations_=current_->document.dimension_identifiers.allocation_count();
 }
 AssemblySession::States AssemblySession::copy_states(const States& states) {
     States result;result.reserve(states.size());
-    for(const auto& state:states)result.push_back(std::make_unique<State>(*state));
+    for(const auto& state:states) {
+        if(state->externally_mutable) {
+            auto independent=std::make_shared<State>(*state);independent->externally_mutable=false;
+            result.push_back(std::move(independent));
+        } else result.push_back(state);
+    }
     return result;
 }
 AssemblySession::AssemblySession(const AssemblySession& other) : AssemblySession(other,true) {}
 AssemblySession AssemblySession::current_state_copy() const {return AssemblySession(*this,false);}
 AssemblySession::AssemblySession(const AssemblySession& other,bool include_history)
-    : data_generation_(other.data_generation_),current_(std::make_unique<State>(*other.current_)),
+    : data_generation_(other.data_generation_),current_(std::make_shared<State>(*other.current_)),
       undo_(include_history?copy_states(other.undo_):States{}),redo_(include_history?copy_states(other.redo_):States{}),next_revision_(other.next_revision_),
-      saved_revision_(other.saved_revision_),saved_dimension_allocations_(other.saved_dimension_allocations_) {}
+      saved_revision_(other.saved_revision_),saved_dimension_allocations_(other.saved_dimension_allocations_) {current_->externally_mutable=false;}
 AssemblySession& AssemblySession::operator=(const AssemblySession& other) {
     if(this!=&other){AssemblySession copy(other);*this=std::move(copy);}return *this;
 }
@@ -79,7 +92,7 @@ void AssemblySession::replace(AssemblyDocument document) {
     if (std::ranges::count_if(document.components, [](const auto& value) { return is_skeleton(value); }) > 1)
         throw std::runtime_error("An Assembly can contain only one Skeleton.");
     document.synchronize_dimension_identifiers();
-    auto next=std::make_unique<State>(State{std::move(document),0,false});
+    auto next=std::make_shared<State>(State{std::move(document),0,false});
     const auto allocations=next->document.dimension_identifiers.allocation_count();
     current_=std::move(next);undo_.clear();redo_.clear();next_revision_=1;saved_revision_=0;
     saved_dimension_allocations_=allocations;++data_generation_;
@@ -93,7 +106,7 @@ void AssemblySession::commit(AssemblyDocument document) {
     document.synchronize_dimension_identifiers();
     refresh_symbol_contacts(document);
     // Validation and allocation finish before any live state changes.
-    auto next=std::make_unique<State>(State{std::move(document),next_revision_,false});
+    auto next=std::make_shared<State>(State{std::move(document),next_revision_,false});
     undo_.push_back(std::move(current_));current_=std::move(next);++next_revision_;
     redo_.clear();++data_generation_;
 }
@@ -119,7 +132,10 @@ bool AssemblySession::step(States& from,States& to) {
     static_assert(std::is_nothrow_move_assignable_v<zima::document::DimensionIdentifiers>);
     auto identifiers=from.back()->document.dimension_identifiers;
     identifiers.retain(current_->document.dimension_identifiers);
-    to.push_back(std::move(current_));current_=std::move(from.back());
+    // Allocate an independent writable candidate before changing either stack.
+    // Unshared histories still replay their original geometry allocations.
+    auto next=from.back().use_count()==1?from.back():std::make_shared<State>(*from.back());
+    to.push_back(std::move(current_));current_=std::move(next);
     current_->document.dimension_identifiers=std::move(identifiers);from.pop_back();++data_generation_;return true;
 }
 bool AssemblySession::undo(){return step(undo_,redo_);}

@@ -8,7 +8,9 @@ omitting old edit states. Part source geometry/generation, source path, runtime
 identity and library/import metadata remain intact. Drawing sessions are still
 excluded. Source edits and exact native-byte invalidation are unchanged.
 
-Ordinary session copy construction and assignment still copy full history.
+Ordinary session copy construction and assignment still preserve full history.
+The subsequent [A7 follow-up](20260930-history-sharing.md) shares inactive states
+while retaining isolation, instead of deep-copying every history record.
 Atomic relation regeneration and Drawing-driven edits still stage their full
 Workspace and publish only successful transactions. The new method is confined
 to private read/calculation snapshots; it must never replace a live edit session.

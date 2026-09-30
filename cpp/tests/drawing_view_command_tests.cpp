@@ -41,6 +41,40 @@ void verify_current_state_snapshots(const kernel::OcctKernel& kernel) {
         require(copy.document().serialized()==original.document().serialized(),"Read snapshot changed current document");
         auto changed=copy.document();changed.name="Private edit";copy.commit(changed);
         require(original.document().name!="Private edit"&&original.can_undo()&&original.can_redo(),"Private snapshot mutated live state or history");
+        const auto history_names=[](auto session) {
+            std::vector<std::string> names{session.document().name};
+            auto forward=session;
+            while(session.undo())names.push_back(session.document().name);
+            names.push_back("<redo>");
+            while(forward.redo())names.push_back(forward.document().name);
+            return names;
+        };
+        const auto baseline=history_names(original);
+        const auto original_generation=original.data_generation();
+        auto independent=original;
+        require(independent.undo()&&independent.redo(),"Copied session lost replayable history");
+        auto branch=independent.document();branch.name="Independent branch";independent.commit(branch);
+        independent.mark_saved();
+        require(history_names(original)==baseline&&original.data_generation()==original_generation,
+            "Copied session replay/commit/save mutated original history");
+        auto renamed=original;
+        const auto from=fs::absolute("snapshot-source.prtz").lexically_normal();
+        const auto to=fs::absolute("snapshot-renamed.prtz").lexically_normal();
+        const std::array files{document::FileRelocation{original.document().document_id,from,to}};
+        if constexpr(requires{renamed.rebase_native_files(files);})renamed.rebase_native_files(files);
+        else renamed.rebase_native_files(files,from);
+        require(history_names(original)==baseline&&original.data_generation()==original_generation,
+            "File rebase modified shared original Undo/Redo states");
+        for(const auto& name:history_names(renamed))require(name=="snapshot-renamed"||name=="<redo>",
+            "File rebase missed a copied current/Undo/Redo state");
+        auto pending=original;
+        document::FileRelocationEdits deferred(files);
+        if constexpr(requires{pending.prepare_native_file_rebase(deferred);})pending.prepare_native_file_rebase(deferred);
+        else pending.prepare_native_file_rebase(deferred,from);
+        auto during_batch=pending;
+        deferred.apply();
+        require(history_names(during_batch)==baseline&&history_names(original)==baseline,
+            "Deferred relocation mutated a session copied after preparation");
         double full_ms=0,current_ms=0;std::size_t sum=0;
         for(int repeat=0;repeat<5;++repeat) {
             auto start=std::chrono::steady_clock::now();
@@ -81,6 +115,28 @@ void verify_projection_reuse(const kernel::OcctKernel& kernel,const fs::path& di
         "Unchanged preview source or interactive camera calculated twice on OK");
     require(accepted_display.output_source==display.output_source&&accepted_display.measurement_geometry==display.measurement_geometry,
         "Preview commit lost its original geometry snapshot");
+    auto unrelated=document::PartDocument::create_default();const auto unrelated_id=unrelated.document_id;
+    live.add_part(unrelated,{},dir/"unrelated.prtz");
+    unrelated.name="Unrelated edit";live.open_part(unrelated_id)->session.commit(unrelated);
+    const auto fresh_started=std::chrono::steady_clock::now();
+    for(int repeat=0;repeat<20;++repeat) {
+        workspace::DrawingProjection fresh(&live,dir/"interactive.drwz");
+        auto packet=display;fresh.project(packet,{.interactive=true});
+        require(fresh.source_load_count()==1&&fresh.calculated_interactive_camera_count()==1&&
+            packet.measurement_geometry==display.measurement_geometry,
+            "Fresh Part projection changed reference geometry");
+    }
+    const auto fresh_ms=std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-fresh_started).count();
+    const auto reuse_started=std::chrono::steady_clock::now();
+    for(int repeat=0;repeat<20;++repeat) {
+        workspace::DrawingProjection independent(&live,dir/"interactive.drwz",&interactive);
+        auto packet=display;independent.project(packet,{.interactive=true});
+        require(independent.source_load_count()==0&&independent.calculated_interactive_camera_count()==0&&
+            packet.output_source==display.output_source&&packet.measurement_geometry==display.measurement_geometry,
+            "Unrelated Part edit invalidated a calculated Part projection");
+    }
+    std::cout<<"Part projection after unrelated edit, 20 preparations fresh_ms="<<fresh_ms<<" reuses_ms="<<
+        std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-reuse_started).count()<<"\n";
     workspace::Workspace unsaved;unsaved.documents()=live.documents();
     auto edited=part;zima::test::profile_dimension(edited,edited.history.front(),0)=25;
     unsaved.open_part(part.document_id)->session.commit(edited,kernel.evaluate_history(edited.kernel_operations()));

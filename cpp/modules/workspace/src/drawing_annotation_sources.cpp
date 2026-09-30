@@ -222,7 +222,7 @@ drawing_annotation_sources(const Workspace *workspace,
       frames[{assembly.document_id+":origin",{}}]=envelope;
       // Only dimensions owned by this Assembly; child Parts contribute axes
       // and construction references, never their modeling dimensions.
-      for (auto dimension : assembly.build_scene().dimensions)
+      for (auto dimension : scene.dimensions)
         if (dimension.reference.owner_id == id && dimension.reference.instance_path.empty())
           mesh.dimensions.push_back(std::move(dimension));
       const auto suppressed = assembly.effectively_suppressed_occurrences();

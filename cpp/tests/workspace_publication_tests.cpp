@@ -41,8 +41,10 @@ void verify_assembly(const kernel::BodyResult& original,const kernel::BodyResult
     require(session.is_dirty()&&session.revision()==current_revision,"Explicit dependency refresh lost its dirty state or added an edit");
     std::vector<const assembly::AssemblyDocument*> states{&session.document()};
     for(unsigned i=0;i<24;++i){auto next=session.document();next.name=std::to_string(i);session.commit(next);states.push_back(&session.document());}
-    assembly::AssemblySession copy(session);const auto copied_name=copy.document().name;
     for(std::size_t i=states.size()-1;i>0;--i)require(session.undo()&& &session.document()==states[i-1],"Growing Assembly history copied existing states");
+    for(std::size_t i=1;i<states.size();++i)require(session.redo()&& &session.document()==states[i],"Unshared Assembly Redo copied existing states");
+    assembly::AssemblySession copy(session);const auto copied_name=copy.document().name;
+    require(session.undo(),"Shared Assembly history lost Undo");
     require(copy.document().name==copied_name&&copy.undo(),"Assembly copy shares mutable history");
     assembly::AssemblySession assigned(doc);assigned=copy;const auto assigned_name=assigned.document().name;
     require(copy.undo()&&assigned.document().name==assigned_name,"Assembly copy assignment shares history");

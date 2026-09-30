@@ -77,11 +77,12 @@ void verify(){
         auto next=session.document();next.name="History "+std::to_string(index);session.commit(std::move(next),original);
         allocations.push_back(session.calculated_boundaries().data());
     }
-    document::DocumentSession copied(session);const auto copied_name=copied.document().name;
-    require(copied.calculated_boundaries().data()!=session.calculated_boundaries().data(),"Explicit session copy aliases mutable calculated state");
     for(std::size_t index=allocations.size()-1;index>0;--index){
         require(session.undo() && session.calculated_boundaries().data()==allocations[index-1],"History growth copied a retained calculated body");
     }
+    require(session.redo() && session.calculated_boundaries().data()==allocations[1],"Redo copied retained geometry");
+    document::DocumentSession copied(session);const auto copied_name=copied.document().name;
+    require(copied.calculated_boundaries().data()!=session.calculated_boundaries().data(),"Explicit session copy aliases mutable calculated state");
     require(copied.document().name==copied_name && copied.can_undo(),"Undo changed an independent session copy");
     document::DocumentSession assigned(part,original);assigned=copied;
     require(copied.undo() && assigned.document().name==copied_name,"Copy assignment shares mutable history");
@@ -91,7 +92,6 @@ void verify(){
     const auto moved_geometry=assigned.calculated_boundaries().data();
     document::DocumentSession moved(std::move(assigned));
     require(moved.calculated_boundaries().data()==moved_geometry && moved.undo(),"Moving session copied geometry or lost history");
-    require(session.redo() && session.calculated_boundaries().data()==allocations[1],"Redo copied retained geometry");
     const auto before_replace=session.data_generation();session.replace(part,original);
     require(!session.is_dirty() && !session.can_undo() && !session.can_redo() && session.revision()==0 &&
         session.data_generation()==before_replace+1,"Successful replace did not reset history atomically");

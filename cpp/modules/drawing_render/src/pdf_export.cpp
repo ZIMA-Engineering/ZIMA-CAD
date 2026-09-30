@@ -22,14 +22,14 @@ std::uint64_t export_pdf(const drawing::DrawingDocument& doc,const std::filesyst
         if(!file.open(QIODevice::WriteOnly))throw std::runtime_error(file.errorString().toStdString());
         {
             QPdfWriter writer(&file);writer.setResolution(720);writer.setTitle(QString::fromStdString(doc.name));writer.setCreator("ZIMA-CAD");
-            QPainter painter;
+            QPainter painter;ExportSourceContexts sources;
             for(std::size_t index=0;index<doc.sheets.size();++index) {
                 const auto& sheet=doc.sheets[index];
                 writer.setPageSize(QPageSize(QSizeF(sheet.width_mm(),sheet.height_mm()),QPageSize::Millimeter));
                 writer.setPageMargins(QMarginsF(0,0,0,0),QPageLayout::Millimeter);
                 if(index==0){if(!painter.begin(&writer))throw std::runtime_error("Cannot start PDF output");}
                 else if(!writer.newPage())throw std::runtime_error("Cannot add PDF page");
-                SheetRenderer output;output.set_render_sheet(&sheet);output.set_render_context(sheet_export_context(doc,index,document_path,live));
+                SheetRenderer output;output.set_render_sheet(&sheet);output.set_render_context(sheet_export_context(doc,index,document_path,live,&sources));
                 output.paint_sheet(painter,writer.resolution()/25.4,{},true);
             }
             if(!painter.end())throw std::runtime_error("Cannot finish PDF output");

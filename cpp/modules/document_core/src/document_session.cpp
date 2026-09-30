@@ -85,15 +85,23 @@ void DocumentSession::prepare_native_file_rebase(FileRelocationEdits& edits) {
         doc.body_history.prepare_link_file_rebase(edits);
     };
     collect(current_->document);
-    for (auto& state : undo_) collect(state->document);
-    for (auto& state : redo_) collect(state->document);
+    const auto collect_history=[&](States& states) {
+        for(auto& state:states) {
+            if(state.use_count()!=1)state=std::make_shared<State>(*state);
+            // Deferred relocation stores writable field addresses. A later
+            // session copy must not share a state exposed to that batch.
+            state->externally_mutable=true;
+            collect(state->document);
+        }
+    };
+    collect_history(undo_);collect_history(redo_);
     if (edits.edit_count() != before) edits.track_generation(data_generation_);
 }
 
 DocumentSession::DocumentSession(
     PartDocument document,
     std::vector<zima::kernel::BodyResult> calculated_boundaries)
-    : current_(std::make_unique<State>(State{std::move(document), std::move(calculated_boundaries), 0, false})) {
+    : current_(std::make_shared<State>(State{std::move(document), std::move(calculated_boundaries), 0, false})) {
     validate_physical_units(current_->document);
     refresh_body_properties(current_->document,current_->calculated_boundaries);
     retain_shaft_reference_geometry(current_->document,current_->calculated_boundaries);
@@ -103,16 +111,21 @@ DocumentSession::DocumentSession(
 
 DocumentSession::States DocumentSession::copy_states(const States& states) {
     States result;result.reserve(states.size());
-    for(const auto& state:states)result.push_back(std::make_unique<State>(*state));
+    for(const auto& state:states) {
+        if(state->externally_mutable) {
+            auto independent=std::make_shared<State>(*state);independent->externally_mutable=false;
+            result.push_back(std::move(independent));
+        } else result.push_back(state);
+    }
     return result;
 }
 DocumentSession::DocumentSession(const DocumentSession& other) : DocumentSession(other,true) {}
 DocumentSession DocumentSession::current_state_copy() const {return DocumentSession(*this,false);}
 DocumentSession::DocumentSession(const DocumentSession& other,bool include_history)
-    : data_generation_(other.data_generation_), current_(std::make_unique<State>(*other.current_)),
+    : data_generation_(other.data_generation_), current_(std::make_shared<State>(*other.current_)),
       undo_(include_history?copy_states(other.undo_):States{}), redo_(include_history?copy_states(other.redo_):States{}),
       next_revision_(other.next_revision_), saved_revision_(other.saved_revision_),
-      saved_dimension_allocations_(other.saved_dimension_allocations_) {}
+      saved_dimension_allocations_(other.saved_dimension_allocations_) {current_->externally_mutable=false;}
 DocumentSession& DocumentSession::operator=(const DocumentSession& other) {
     if(this!=&other){DocumentSession copy(other);*this=std::move(copy);}
     return *this;
@@ -310,7 +323,7 @@ void DocumentSession::replace(
     retain_shaft_reference_geometry(document,calculated_boundaries);
     document.synchronize_dimension_identifiers();
     const auto allocations=document.dimension_identifiers.allocation_count();
-    auto next=std::make_unique<State>(State{std::move(document), std::move(calculated_boundaries), 0, false});
+    auto next=std::make_shared<State>(State{std::move(document), std::move(calculated_boundaries), 0, false});
     current_=std::move(next);
     undo_.clear();
     redo_.clear();
@@ -334,7 +347,7 @@ void DocumentSession::commit(
     document.synchronize_dimension_identifiers();
     // Finish validation and allocation before publishing either document or
     // history. Consumers must never observe a rejected edit as a new generation.
-    auto next=std::make_unique<State>(State{
+    auto next=std::make_shared<State>(State{
         std::move(document),std::move(calculated_boundaries),next_revision_,false});
     undo_.push_back(std::move(current_));
     current_=std::move(next);
@@ -361,8 +374,11 @@ bool DocumentSession::step(States& from,States& to) {
     static_assert(std::is_nothrow_move_assignable_v<DimensionIdentifiers>);
     auto identifiers=from.back()->document.dimension_identifiers;
     identifiers.retain(current_->document.dimension_identifiers);
+    // Allocate an independent writable candidate before changing either stack.
+    // Unshared histories still replay their original geometry allocations.
+    auto next=from.back().use_count()==1?from.back():std::make_shared<State>(*from.back());
     to.push_back(std::move(current_));
-    current_=std::move(from.back());
+    current_=std::move(next);
     current_->document.dimension_identifiers=std::move(identifiers);
     from.pop_back();
     ++data_generation_;

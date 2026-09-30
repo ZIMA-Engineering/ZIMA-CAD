@@ -49,7 +49,7 @@ bool same_projection_input(const kernel::ViewerMesh& a,const kernel::ViewerMesh&
 struct DrawingProjection::Impl {
     struct Entry {
         Source source;
-        bool metadata_ready{};
+        bool metadata_ready{},part_source{};
         std::shared_ptr<const kernel::ViewerMesh> display_source;
         std::map<std::array<double,9>,std::pair<std::vector<drawing::ProjectedEdge>,std::vector<drawing::ProjectedTriangle>>> cameras;
         std::map<std::array<double,9>,drawing::DrawingView> interactive_cameras;
@@ -64,7 +64,7 @@ struct DrawingProjection::Impl {
     document::NativeReadCapture native_reads;
     using LiveStamp=std::tuple<std::string,std::filesystem::path,std::shared_ptr<const int>,std::uint64_t>;
     std::vector<LiveStamp> live_stamps;
-    bool reuse_checked{},reuse_valid{};
+    bool reuse_checked{},reuse_valid{},native_reuse_valid{};
     static std::vector<LiveStamp> stamps(const Workspace* live) {
         std::vector<LiveStamp> result;
         if(live)for(const auto& state:live->documents())std::visit([&](const auto& item) {
@@ -74,6 +74,24 @@ struct DrawingProjection::Impl {
         return result;
     }
 
+    bool same_part_stamps(const Entry& entry) const {
+        const auto root=entry.source.document_id.substr(0,entry.source.document_id.find(":family:"));
+        const auto relevant=[&](const std::vector<LiveStamp>& stamps) {
+            std::vector<LiveStamp> result;
+            for(const auto& stamp:stamps) {
+                const auto& [id,path,identity,generation]=stamp;
+                bool same_path=false;
+                if(!path.empty()&&!entry.source.path.empty()) {
+                    same_path=std::filesystem::absolute(path).lexically_normal()==std::filesystem::absolute(entry.source.path).lexically_normal();
+                    if(!same_path) {std::error_code error;same_path=std::filesystem::equivalent(path,entry.source.path,error)&&!error;}
+                }
+                if(id==entry.source.document_id||id==root||same_path)result.push_back(stamp);
+            }
+            return result;
+        };
+        return relevant(live_stamps)==relevant(previous->live_stamps);
+    }
+
     Entry& get(const drawing::DrawingView& view,bool metadata=true) {
         auto path=view.source_path;
         if(!path.empty()&&path.is_relative()&&!drawing_path.empty())path=drawing_path.parent_path()/path;
@@ -81,12 +99,17 @@ struct DrawingProjection::Impl {
         const auto key=std::make_pair(view.source_document_id,path);
         if(previous&&!reuse_checked) {
             reuse_checked=true;
-            reuse_valid=live_stamps==previous->live_stamps&&previous->native_reads.unchanged();
-            if(reuse_valid)native_reads=previous->native_reads;
+            native_reuse_valid=previous->native_reads.unchanged();
+            reuse_valid=live_stamps==previous->live_stamps&&native_reuse_valid;
+            if(native_reuse_valid)native_reads=previous->native_reads;
         }
-        if(reuse_valid&&!sources.contains(key))if(const auto found=previous->sources.find(key);
-                found!=previous->sources.end()&&found->second->metadata_ready)
-            sources.emplace(key,found->second);
+        if(previous&&native_reuse_valid&&!sources.contains(key))if(const auto found=previous->sources.find(key);
+                found!=previous->sources.end()&&found->second->metadata_ready) {
+            // A calculated Part owns all geometry/annotation inputs used here.
+            // Assemblies retain the conservative full-Workspace dependency gate.
+            if(reuse_valid||(found->second->part_source&&same_part_stamps(*found->second)))
+                sources.emplace(key,found->second);
+        }
         document::NativeReadCapture::Scope capture(native_reads);
         const auto finish=[&](Entry& entry)->Entry& {
             if(metadata&&!entry.metadata_ready) {
@@ -132,6 +155,7 @@ struct DrawingProjection::Impl {
         auto [id,mesh]=read_drawing_source(&*loaded,path,view.source_document_id);
         ++source_loads;
         auto& entry=*sources.emplace(key,std::make_shared<Entry>(Entry{Source{std::move(id),std::move(path),std::move(mesh)}})).first->second;
+        entry.part_source=loaded->open_part(entry.source.document_id)!=nullptr;
         if(previous)if(const auto found=previous->sources.find(key);found!=previous->sources.end()&&!found->second->cameras.empty()) {
             // Compare full persisted viewer packets, including spline geometry,
             // analytic face metadata and exact occurrence identities. Topology
