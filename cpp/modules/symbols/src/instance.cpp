@@ -1,10 +1,11 @@
 #include <zima/symbols/definition.hpp>
+#include "definition_cache.hpp"
 #include <nlohmann/json.hpp>
 #include <cmath>
 namespace zima::sketcher {
 void SymbolInstance::validate() const {
     if(id.empty()||!std::isfinite(x)||!std::isfinite(y)||!std::isfinite(angle_degrees)||!std::isfinite(scale)||scale<=0)throw std::invalid_argument("Invalid symbol placement");
-    const auto d=symbols::Definition::from_serialized(definition);
+    const auto parsed=symbols::detail::parsed_definition(definition);const auto& d=*parsed;
     if(use_cad_variant&&d.variant_source.empty())throw std::invalid_argument("Symbol has no CAD variant source");
     static_cast<void>(d.evaluate(variant,text_values));
 }

@@ -1,4 +1,6 @@
 #include <zima/symbols/definition.hpp>
+#include "definition_cache.hpp"
+#include <list>
 #include <zima/sketcher/text_geometry.hpp>
 #include <nlohmann/json.hpp>
 #include <algorithm>
@@ -168,8 +170,28 @@ Definition Definition::from_serialized(const std::string& data) {
     for(const auto& [key,r]:root.at("variants").items())d.variants[key]={r.at("sketches").get<std::vector<std::string>>(),r.at("text_values").get<std::map<std::string,std::string>>(),r.at("hidden_texts").get<std::vector<std::string>>()};
     d.validate();return d;
 }
+std::shared_ptr<const Definition> detail::parsed_definition(const std::string& source) {
+    struct Entry {std::string source;std::shared_ptr<const Definition> definition;};
+    // Bound retained source bytes and entry count; oversized inputs remain uncached.
+    // Each thread owns its list, so readers need no shared mutable cache or lock.
+    static thread_local std::list<Entry> entries;
+    static thread_local std::size_t bytes{};
+    constexpr std::size_t budget=1024*1024, capacity=16;
+    for(auto found=entries.begin();found!=entries.end();++found)if(found->source==source) {
+        auto result=found->definition;
+        entries.splice(entries.begin(),entries,found);
+        return result;
+    }
+    auto result=std::make_shared<const Definition>(Definition::from_serialized(source));
+    if(source.size()>budget)return result;
+    while(!entries.empty()&&(entries.size()>=capacity||bytes+source.size()>budget)) {
+        bytes-=entries.back().source.size();entries.pop_back();
+    }
+    entries.push_front({source,result});bytes+=source.size();
+    return result;
+}
 kernel::ViewerMesh instance_mesh(const sketcher::SymbolInstance& instance,const std::string& cad_variant,std::optional<double> paper_frame_angle) {
-    const auto d=Definition::from_serialized(instance.definition);
+    const auto parsed=detail::parsed_definition(instance.definition);const auto& d=*parsed;
     const auto variant=instance.use_cad_variant&&!cad_variant.empty()?cad_variant:instance.variant;
     kernel::ViewerMesh result;if(!instance.visible)return result;
     const double a=instance.angle_degrees*3.141592653589793/180.,c=std::cos(a),s=std::sin(a);

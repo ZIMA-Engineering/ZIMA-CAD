@@ -1,4 +1,5 @@
 #include <zima/symbols/placement.hpp>
+#include "../modules/symbols/src/definition_cache.hpp"
 #include <zima/kernel/annotation_layout.hpp>
 #include <nlohmann/json.hpp>
 #include <iostream>
@@ -13,6 +14,26 @@ template<class F>void rejects(F f){bool rejected=false;try{f();}catch(const std:
 bool near(kernel::Vec3 a,kernel::Vec3 b){return std::hypot(a.x-b.x,a.y-b.y,a.z-b.z)<1e-8;}
 }
 int main(){try {
+    {
+        auto definition=symbols::projection_method();
+        const auto source=definition.serialized();
+        const auto first=symbols::detail::parsed_definition(source);
+        check(first==symbols::detail::parsed_definition(source),"Identical symbol definition was reparsed");
+        definition.insertion_point[0]=17;
+        const auto edited=symbols::detail::parsed_definition(definition.serialized());
+        check(edited!=first&&edited->insertion_point[0]==17&&first->insertion_point[0]==0,
+            "Edited definition with the same ID reused stale parsed data");
+        rejects([&]{static_cast<void>(symbols::detail::parsed_definition("{}"));});
+        for(int index=0;index<20;++index) {
+            definition.name="cache eviction "+std::to_string(index);
+            static_cast<void>(symbols::detail::parsed_definition(definition.serialized()));
+        }
+        check(first!=symbols::detail::parsed_definition(source)&&first->serialized()==source,
+            "Cache eviction retained every entry or invalidated a borrowed definition");
+        const auto oversized=source+std::string(1024*1024,' ');
+        check(symbols::detail::parsed_definition(oversized)!=symbols::detail::parsed_definition(oversized),
+            "Oversized symbol source was retained in the cache");
+    }
     auto definition=symbols::projection_method();definition.insertion_point={2,3};
     symbols::Placement p;p.symbol.id="annotation";p.symbol.definition=definition.serialized();p.symbol.variant=definition.default_variant;
     p.symbol.x=20;p.symbol.y=10;p.symbol.angle_degrees=90;p.symbol.scale=2;

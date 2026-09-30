@@ -11,6 +11,9 @@ The [A4 presentation-refresh follow-up](performance/20260930-presentation-refres
 records the scoped removal of rebuilds on ordinary filter changes and the end
 of Assembly dimension inspection. Other refresh paths remain audit candidates.
 
+The [A12 parsed-definition follow-up](performance/20260930-symbol-definition-cache.md)
+records bounded reuse of immutable Symbol definitions and exact geometry checks.
+
 ## Result and scope
 
 The [A5 source-refresh follow-up](performance/20260930-source-refresh.md) records

@@ -1,4 +1,5 @@
 #include <zima/symbols/placement.hpp>
+#include "definition_cache.hpp"
 #include <zima/kernel/annotation_layout.hpp>
 #include <nlohmann/json.hpp>
 #include <cmath>
@@ -53,7 +54,7 @@ void Placement::refresh_reference(const std::optional<Frame>& resolved) {
 kernel::ViewerMesh Placement::viewer_mesh(std::optional<double> paper_frame_angle,bool retain_layout) const {
     validate();auto displayed=symbol;
     if(paper_frame_angle&&!leader&&paper_tangent) {
-        const auto definition=Definition::from_serialized(symbol.definition);
+        const auto parsed=detail::parsed_definition(symbol.definition);const auto& definition=*parsed;
         if(definition.id=="ze:surface-texture:iso1302-1978"||definition.id=="ze:surface-texture:iso21920") {
             // The contact tangent was already resolved from the actual projected
             // entity. Keep the grip fixed and orient the direct mark to it.
@@ -68,7 +69,7 @@ kernel::ViewerMesh Placement::viewer_mesh(std::optional<double> paper_frame_angl
     auto result=instance_mesh(displayed,{},leader_glyph?std::nullopt:paper_frame_angle);
     if(!symbol.visible)return result;
     if(leader) {
-        const auto definition=Definition::from_serialized(symbol.definition);
+        const auto parsed=detail::parsed_definition(symbol.definition);const auto& definition=*parsed;
         const bool structured=definition.frame_layout.has_value()||definition.reference_line_layout.has_value();
         kernel::AnnotationStroke info;info.contact=frame.origin;
         info.grip=frame.world({symbol.x,symbol.y,offset_z});info.arrow_length=arrow_length;info.perpendicular=perpendicular_leader||leader_ending==LeaderEnding::Triangle;
