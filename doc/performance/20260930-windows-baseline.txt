@@ -1,0 +1,27 @@
+ZIMA_PERF_V1 repetitions=3
+part_history features=24 boundaries=24 volume=91520.000 mean_ms=297.490
+part_incremental changed_index=23 reused_boundaries=23 mean_ms=21.278
+part_cold_incremental changed_index=23 persisted_brep=final_only mean_ms=422.376
+part_reference_cache stored_items=768 cumulative_items=9600 kernel_bytes=5872
+part_fillet_incremental changed_index=24 reused_boundaries=24 mean_ms=130.375
+part_fillet_cold_incremental changed_index=24 mean_ms=1833.179
+assembly_scene components=256 triangles=9216 mean_ms=89.551
+assembly_picking components=256 candidates=34 mean_ms=12.077
+nested_regeneration levels=3 mean_ms=3.756
+sketch_solver branches=10 variables=20 equations=20 mean_ms=0.337
+sketch_solver branches=40 variables=80 equations=80 mean_ms=3.127
+sketch_solver branches=100 variables=200 equations=200 mean_ms=35.841
+sketch_solver_chain segments=10 components=1 mean_ms=0.279
+sketch_solver_chain segments=40 components=1 mean_ms=1.185
+sketch_solver_chain segments=100 components=1 mean_ms=5.952
+sketch_solver_chain segments=250 components=1 mean_ms=78.035
+sketch_mobility_graph points=2000 components=1000 mean_ms=2.436
+sketch_interaction operation=drag branches=100 mean_ms=0.399
+sketch_interaction operation=dimension_edit branches=100 mean_ms=34.057
+sketch_interaction operation=constraint_remove branches=100 mean_ms=1.064
+sketch_interaction operation=cached_full_solve branches=100 mean_ms=2.280
+sketch_interaction operation=constraint_add branches=100 mean_ms=37.585
+sketch_interaction operation=drag branches=1000 mean_ms=16.105
+sketch_interaction operation=dimension_edit branches=1000 mean_ms=62616.498
+sketch_interaction operation=copy branches=1000 mean_ms=0.539
+sketch_interaction operation=validate branches=1000 mean_ms=1.145

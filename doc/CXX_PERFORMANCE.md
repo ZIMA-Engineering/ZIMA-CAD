@@ -1,5 +1,11 @@
 # C++ performance measurements
 
+The [2026-09-30 application audit](PERFORMANCE_AUDIT_20260930.md) records current
+Windows Release baselines, a solved-input Sketch dimension-edit cross-check,
+prioritized optimization candidates and the dead-code review. It proposes no
+product-code changes. Older results below retain their original platform and
+fixture scope; they are not direct comparisons with the current Windows build.
+
 The startup-independent C++ model benchmark is built as
 `zima_cpp_performance_benchmark`. It is deliberately not registered with
 CTest: normal tests remain deterministic and do not depend on machine speed.
