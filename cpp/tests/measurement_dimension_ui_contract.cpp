@@ -153,6 +153,38 @@ int verify_measurement_dimension_ui() {
                     "Automatic placement direction did not survive save/reopen");
         }
 
+        // Exercise the canvas event path, not just the dialog's position method.
+        command->trigger();flush();
+        auto* automatic=dialog();require(automatic,"Automatic placement dialog missing");
+        pick(canvas,point(0,0));pick(canvas,point(30,20));
+        require(automatic->placing(),"Two picked points did not arm automatic placement");
+        for(const auto& [cursor,expected]:std::vector<std::pair<Point2,DimensionDirection>>{
+                {{15,10},DimensionDirection::Automatic},{{15,30},DimensionDirection::Horizontal},
+                {{40,10},DimensionDirection::Vertical},{{15,10},DimensionDirection::Automatic}}) {
+            mouse(canvas,QEvent::MouseMove,point(cursor.x,cursor.y),Qt::NoButton,Qt::NoButton);
+            require(automatic->value().direction==expected,"Canvas pointer did not switch the two-point dimension direction");
+        }
+        automatic->reject();flush();require(count()==0,"Cancelled automatic placement inserted a dimension");
+
+        // After a point input, clicking away from a straight edge's endpoints
+        // and midpoint must retain that clicked contact, not bind the whole line.
+        command->trigger();flush();automatic=dialog();require(automatic,"Point-curve placement dialog missing");
+        pick(canvas,point(0,0));pick(canvas,point(9,20));
+        const QPointer<QDoubleSpinBox> placement_field=automatic->findChild<QDoubleSpinBox*>("dimensionTextAlong");
+        require(automatic->placing()&&automatic->value().attachments[1].kind==DimensionAttachmentKind::CurvePoint,
+                "Automatic point pair silently bound its second contact as a whole line");
+        const auto contact=resolve_dimension_attachment(*window.document_for_test().find_view(view.id),automatic->value().attachments[1]);
+        require(contact&&std::abs(contact->x-9)<1e-7&&std::abs(contact->y-20)<1e-7,"Point pair changed its clicked edge contact");
+        for(const auto& [cursor,expected]:std::vector<std::pair<Point2,DimensionDirection>>{
+                {{4.5,10},DimensionDirection::Automatic},{{4.5,30},DimensionDirection::Horizontal},
+                {{40,10},DimensionDirection::Vertical},{{4.5,10},DimensionDirection::Automatic}}) {
+            mouse(canvas,QEvent::MouseMove,point(cursor.x,cursor.y),Qt::NoButton,Qt::NoButton);
+            require(automatic->value().direction==expected,"Point-curve pair did not switch the dragged dimension direction");
+            require(placement_field&&placement_field==automatic->findChild<QDoubleSpinBox*>("dimensionTextAlong"),
+                    "Pointer placement recreated its numeric editing controls");
+        }
+        automatic->reject();flush();require(count()==0,"Cancelled point-curve placement inserted a dimension");
+
         command->trigger();
         flush();
         auto *props = dialog();
@@ -173,8 +205,15 @@ int verify_measurement_dimension_ui() {
         const auto line_hover=canvas->grab().toImage();
         const auto hover_color=[](QColor c){const auto expected=zima::interaction::hover;return std::abs(c.red()-expected.red())<10&&std::abs(c.green()-expected.green())<10&&std::abs(c.blue()-expected.blue())<10;};
         const auto pixel=[&](const QImage& image,QPointF p){return image.pixelColor((p*image.devicePixelRatio()).toPoint());};
+        // A fractional screen coordinate can hit an antialiased boundary pixel.
+        // Probe the adjacent pixels while remaining on the exact offered stroke.
+        const auto hover_near=[&](const QImage& image,QPointF p){
+            for(int dy=-1;dy<=1;++dy)for(int dx=-1;dx<=1;++dx)
+                if(hover_color(pixel(image,p+QPointF(dx,dy))))return true;
+            return false;
+        };
         require(!hover_color(pixel(line_hover,point(15,0)+QPointF(0,4))),"Line hover includes a misleading point marker");
-        require(hover_color(pixel(line_hover,point(15,0)+QPointF(12,0))),"Line hover does not highlight the line");
+        require(hover_near(line_hover,point(15,0)+QPointF(12,0)),"Line hover does not highlight the line");
         pick(canvas, point(15, 0));
         require(props->value().attachments[0].reference.valid() &&
                     props->value().attachments[0].kind == DimensionAttachmentKind::Line,
@@ -351,7 +390,7 @@ int verify_measurement_dimension_ui() {
             props->findChild<QComboBox*>("drawingDimensionType")->setCurrentIndex(int(kind));flush();
             mouse(canvas,QEvent::MouseMove,point(15,10),Qt::NoButton,Qt::NoButton);
             const auto hover=canvas->grab().toImage();
-            require(hover_color(pixel(hover,point(5,10))),"Radial hover does not highlight the whole selected circle");
+            require(hover_near(hover,point(5,10)),"Radial hover does not highlight the whole selected circle");
             require(!hover_color(pixel(hover,point(15,10)+QPointF(4,0))),"Radial hover retains a misleading point marker");
         }
         props->findChild<QComboBox *>("drawingDimensionType")

@@ -15,6 +15,18 @@ void require(bool b, const char *message) {
     if (!b)
         throw std::runtime_error(message);
 }
+std::vector<MeasurementCandidate> checked_candidates(const DrawingView& view,Point2 point,double tolerance,
+                                                       const MeasurementPickRequest& request) {
+    static MeasurementPicker picker;
+    const auto expected=measurement_candidates(view,point,tolerance,request);
+    auto actual=picker.candidates(view,point,tolerance,request);
+    require(actual.size()==expected.size(),"Prepared picker changed measurement candidates");
+    for(std::size_t i=0;i<actual.size();++i)
+        require(actual[i].attachment==expected[i].attachment&&actual[i].position==expected[i].position&&
+                actual[i].distance==expected[i].distance&&actual[i].point_target==expected[i].point_target,
+                "Prepared picker changed ordered measurement contacts");
+    return actual;
+}
 void near(double a, double b) {
     if (std::abs(a - b) > 1e-6)
         throw std::runtime_error("Measurement mismatch: " + std::to_string(a) + " / " + std::to_string(b));
@@ -47,15 +59,15 @@ int main() {
             auto child=original;child.reference={"cut","boolean:cut:vertex:from:"+encode("profile")+encode("source-point")+encode("")+":at:faces:edges:edges","A"};
             mesh.original_references.points={original};mesh.points={child};auto v=view(mesh);
             MeasurementPickRequest request;request.mode=int(DimensionAttachmentKind::Point);
-            auto picked=measurement_candidates(v,{0,0},.01,request).front().attachment;
+            auto picked=checked_candidates(v,{0,0},.01,request).front().attachment;
             require(picked.kind==DimensionAttachmentKind::Point&&picked.reference==kernel::EdgeReference{"profile","source-point","A"},"Point did not prefer persisted original ancestry");
             mesh.points.clear();capture_measurement_geometry(v,mesh);near(resolve_dimension_attachment(v,picked)->x,0);
             mesh.points={child};mesh.original_references.points.front().position.z=5;capture_measurement_geometry(v,mesh);
-            require(measurement_candidates(v,{0,0},.01,request).front().attachment.reference.owner_id=="cut","Projected coincidence merged distinct 3D points");
+            require(checked_candidates(v,{0,0},.01,request).front().attachment.reference.owner_id=="cut","Projected coincidence merged distinct 3D points");
             mesh.original_references.points.front()=original;mesh.original_references.points.front().reference.instance_path="B";capture_measurement_geometry(v,mesh);
-            require(measurement_candidates(v,{0,0},.01,request).front().attachment.reference.owner_id=="cut","Point crossed occurrence ownership");
+            require(checked_candidates(v,{0,0},.01,request).front().attachment.reference.owner_id=="cut","Point crossed occurrence ownership");
             mesh.original_references.points={original};mesh.points.front().reference.semantic_key="boolean:cut:vertex:at:new-faces:edges:new-edges";capture_measurement_geometry(v,mesh);
-            require(measurement_candidates(v,{0,0},.01,request).front().attachment.reference.owner_id=="cut","New intersection point acquired a nearby original identity");
+            require(checked_candidates(v,{0,0},.01,request).front().attachment.reference.owner_id=="cut","New intersection point acquired a nearby original identity");
         }
         {
             const auto split=[](kernel::EdgeReference parent,std::string owner) {
@@ -66,7 +78,7 @@ int main() {
             auto fragment=original;fragment.points={{80,0,0},{60,0,0}};fragment.reference=split(original.reference,"cut-A");
             kernel::ViewerMesh mesh;mesh.original_references.edges={original};mesh.edges={fragment};
             auto v=view(mesh);MeasurementPickRequest request;request.mode=int(DimensionAttachmentKind::CurvePoint);
-            const auto offered=measurement_candidates(v,{73,0},.1,request);
+            const auto offered=checked_candidates(v,{73,0},.1,request);
             require(!offered.empty(),"Split edge not offered");
             auto attachment=offered.front().attachment;
             require(attachment.reference==original.reference,"Split edge did not retain its original identity");
@@ -81,21 +93,21 @@ int main() {
             // Nested split lineage is followed without merging occurrences.
             fragment.reference=split(split(original.reference,"cut-A"),"cut-B");mesh.edges={fragment};
             capture_measurement_geometry(v,mesh);v.projected_edges=project_edges(mesh,v.camera);
-            require(measurement_candidates(v,{73,0},.1,request).front().attachment.reference==original.reference,"Nested split did not reach original");
+            require(checked_candidates(v,{73,0},.1,request).front().attachment.reference==original.reference,"Nested split did not reach original");
             mesh.original_references.edges.front().reference.instance_path="occurrence-B";
             capture_measurement_geometry(v,mesh);
-            require(measurement_candidates(v,{73,0},.1,request).front().attachment.reference==fragment.reference,"Split crossed occurrence ownership");
+            require(checked_candidates(v,{73,0},.1,request).front().attachment.reference==fragment.reference,"Split crossed occurrence ownership");
             mesh.original_references.edges.clear();capture_measurement_geometry(v,mesh);
-            require(measurement_candidates(v,{73,0},.1,request).front().attachment.reference==fragment.reference,"Missing parent discarded body reference");
+            require(checked_candidates(v,{73,0},.1,request).front().attachment.reference==fragment.reference,"Missing parent discarded body reference");
             fragment.reference={"cut","boolean:cut:intersection:between:faces:ends:vertices","occurrence-A"};mesh.edges={fragment};
             mesh.original_references.edges={original};capture_measurement_geometry(v,mesh);v.projected_edges=project_edges(mesh,v.camera);
-            require(measurement_candidates(v,{73,0},.1,request).front().attachment.reference==fragment.reference,"Intersection incorrectly matched nearby original");
+            require(checked_candidates(v,{73,0},.1,request).front().attachment.reference==fragment.reference,"Intersection incorrectly matched nearby original");
         }
         {
             kernel::ViewerMesh mesh;mesh.edges={line("point-priority",{0,0,0},{40,0,0})};
             auto v=view(mesh);
             for(double x:{.3,19.7,39.7}) {
-                const auto offered=measurement_candidates(v,{x,0},.5,{});
+                const auto offered=checked_candidates(v,{x,0},.5,{});
                 require(offered.size()>=2&&offered.front().point_target,
                     "Drawing line precedes its nearby endpoint or midpoint");
                 require(offered.front().attachment.kind==DimensionAttachmentKind::CurvePoint,
@@ -103,11 +115,11 @@ int main() {
                 require(std::ranges::any_of(offered,[](const auto& c){return c.attachment.kind==DimensionAttachmentKind::Line&&!c.point_target;}),
                     "Point priority removed the line from RMB cycling");
                 MeasurementPickRequest request;request.lines_only=true;
-                const auto lines=measurement_candidates(v,{x,0},.5,request);
+                const auto lines=checked_candidates(v,{x,0},.5,request);
                 require(!lines.empty()&&std::ranges::all_of(lines,[](const auto& c){return c.attachment.kind==DimensionAttachmentKind::Line&&!c.point_target;}),
                     "Point priority bypassed a line-only command contract");
             }
-            require(!measurement_candidates(v,{3,0},.5,{}).front().point_target,
+            require(!checked_candidates(v,{3,0},.5,{}).front().point_target,
                 "Drawing point priority enlarged the point hit tolerance");
         }
         {
@@ -145,7 +157,7 @@ int main() {
             kernel::OcctKernel kernel;auto body=kernel.evaluate_history(part.kernel_operations()).back();
             auto actual=DrawingDocument::create_view(part.document_id,{},body.mesh,ViewOrientation::Top);
             MeasurementPickRequest request;request.mode=int(DimensionAttachmentKind::Line);
-            require(!measurement_candidates(actual,{-15,0},.5,request).empty(),
+            require(!checked_candidates(actual,{-15,0},.5,request).empty(),
                 "Calculated Part edge has no drawing dimension hover");
         }
         {
@@ -160,18 +172,18 @@ int main() {
             second.model_envelope={};second.model_envelope.include({25,5,-5});second.model_envelope.include({35,15,5});
             axes.model_annotations={first,second};
             MeasurementPickRequest request;
-            auto picked=measurement_candidates(axes,{15,10},.6,request);
+            auto picked=checked_candidates(axes,{15,10},.6,request);
             require(!picked.empty()&&picked[0].attachment.kind==DimensionAttachmentKind::Center&&
                     picked[0].attachment.reference.instance_path=="first","End-on axis arm did not offer its centre");
             near(picked[0].position.x,10);
             request.mode=int(DimensionAttachmentKind::Center);
-            auto other=measurement_candidates(axes,{30,10},.6,request);
+            auto other=checked_candidates(axes,{30,10},.6,request);
             require(!other.empty()&&other[0].attachment.reference.instance_path=="second","Repeated axes share a reference");
             auto dimension=make_drawing_dimension(axes.id);
             dimension.attachments={picked[0].attachment,other[0].attachment};
             near(evaluate_drawing_dimension(axes,dimension).presentations[0].value,20);
             axes.model_annotations[0].visible=false;
-            require(measurement_candidates(axes,{10,10},.6,request).empty(),"Erased axis is offered");
+            require(checked_candidates(axes,{10,10},.6,request).empty(),"Erased axis is offered");
             near(evaluate_drawing_dimension(axes,dimension).presentations[0].value,20);
             axes.model_annotations=deserialize_model_annotations(serialize_model_annotations(axes.model_annotations));
             dimension=deserialize_drawing_dimensions(serialize_drawing_dimensions({dimension})).front();
@@ -179,13 +191,13 @@ int main() {
             axes.model_annotations[0].visible=true;
             axes.camera={{1,0,0},{0,0,1},{0,-1,0}};
             request={};request.lines_only=true;
-            picked=measurement_candidates(axes,{10,3},.6,request);
+            picked=checked_candidates(axes,{10,3},.6,request);
             require(!picked.empty()&&picked[0].attachment.kind==DimensionAttachmentKind::Line,"Side-on axis not offered as a line");
             require(resolve_dimension_attachment(axes,picked[0].attachment).has_value(),"Picked axis line does not resolve");
             axes.camera={{1,0,0},{0,1,0},{0,0,1}};
-            require(measurement_candidates(axes,{10,10},.6,request).empty(),"End-on axis offered a nonexistent line");
+            require(checked_candidates(axes,{10,10},.6,request).empty(),"End-on axis offered a nonexistent line");
             request={};request.circles_only=true;
-            require(measurement_candidates(axes,{10,10},.6,request).empty(),"Axis offered as a measured circle");
+            require(checked_candidates(axes,{10,10},.6,request).empty(),"Axis offered as a measured circle");
             axes.model_annotations[0].unresolved=true;
             require(evaluate_drawing_dimension(axes,dimension).state==MeasurementState::Unresolved,"Lost axis silently rebound");
         }
@@ -402,13 +414,13 @@ int main() {
         }
         MeasurementPickRequest request;
         request.mode = int(DimensionAttachmentKind::Center);
-        auto offered = measurement_candidates(v, {25, 10}, .6, request);
+        auto offered = checked_candidates(v, {25, 10}, .6, request);
         require(!offered.empty() && offered[0].attachment.reference == ref("hole"),
                 "Centre not offered on circular outline");
         near(offered[0].position.x, 20);
         request = {};
         request.parallel_line = ref("bottom");
-        offered = measurement_candidates(v, {40, 10}, .6, request);
+        offered = checked_candidates(v, {40, 10}, .6, request);
         require(std::ranges::none_of(offered,
                                      [](const auto &p) {
                                          return p.attachment.kind == DimensionAttachmentKind::Line &&
@@ -416,13 +428,13 @@ int main() {
                                      }),
                 "Picker offered nonparallel second line");
         request = {};
-        offered = measurement_candidates(v, {0, 0}, .6, request);
+        offered = checked_candidates(v, {0, 0}, .6, request);
         require(!offered.empty() && offered[0].attachment.kind == DimensionAttachmentKind::CurvePoint,
                 "Endpoint did not take precedence over whole line");
         request = {};
         request.mode = int(DimensionAttachmentKind::Intersection);
         request.intersection_first = ref("hole");
-        offered = measurement_candidates(v, {24, 13}, .6, request);
+        offered = checked_candidates(v, {24, 13}, .6, request);
         require(!offered.empty() && offered[0].attachment.other_reference.valid(),
                 "Intersection picker discarded its second reference");
 

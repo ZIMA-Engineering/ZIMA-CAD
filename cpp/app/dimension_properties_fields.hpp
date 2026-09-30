@@ -8,6 +8,7 @@
 #include <QLabel>
 #include <QLineEdit>
 #include <QMenu>
+#include <QSignalBlocker>
 #include <QSpinBox>
 #include <QTabWidget>
 #include <QToolButton>
@@ -119,7 +120,7 @@ class DimensionPlacementFields final : public QWidget {
   public:
     DimensionPlacementFields(kernel::ViewerDimension dimension, kernel::DimensionLayout initial,
                              QWidget *parent, bool drawing = false)
-        : QWidget(parent), preserved_(initial) {
+        : QWidget(parent), preserved_(initial), radius_(dimension.kind==kernel::ViewerDimensionKind::Radius) {
         form_ = new QFormLayout(this);
         plane_ = new QComboBox(this);
         plane_->setObjectName("dimensionProjectionPlane");
@@ -185,6 +186,18 @@ class DimensionPlacementFields final : public QWidget {
                     [this](bool shortened) { arrows_->setEnabled(!shortened); });
         }
     }
+    void set_value(const kernel::DimensionLayout& layout) {
+        const QSignalBlocker plane(plane_),attach(attach_),offset(offset_),along(along_),
+            outward(outward_),transverse(transverse_),rotation(rotation_),arrows(arrows_),shortened(shortened_);
+        preserved_=layout;
+        plane_->setCurrentIndex(layout.plane_quarter_turns);
+        attach_->setChecked(layout.envelope_offset.has_value());offset_->setValue(layout.envelope_offset.value_or(8));
+        offset_->setEnabled(attach_->isChecked());
+        along_->setValue(layout.text_along);outward_->setValue(layout.line_offset);
+        transverse_->setValue(layout.text_outward);rotation_->setValue(layout.radius_rotation_degrees);
+        arrows_->setChecked(layout.arrows_reversed);shortened_->setChecked(layout.radius_center_line_hidden);
+        if(radius_)arrows_->setEnabled(!shortened_->isChecked());
+    }
     kernel::DimensionLayout value() const {
         auto value = preserved_;
         value.envelope_offset.reset();
@@ -203,6 +216,7 @@ class DimensionPlacementFields final : public QWidget {
 
   private:
     kernel::DimensionLayout preserved_;
+    bool radius_{};
     QFormLayout *form_{};
     QComboBox *plane_{};
     QCheckBox *attach_{}, *arrows_{}, *shortened_{};

@@ -951,6 +951,13 @@ public:
         align_mode_=false;align_first_.clear();
         cancel_witness();witness_handles_.clear();
         select_entity({},false);clear_annotation_snap();sheet_ = sheet;set_render_sheet(sheet);shaded_cache_.clear();annotation_handles_.clear();offered_annotations_.clear();selected_annotation_.reset();hovered_annotation_.reset();dragged_section_end_.reset();
+        // Loading, Regenerate, view OK and Undo/Redo publish through set_sheet.
+        // Prepare here so the first dimension hover only queries the index.
+        if(!sheet)measurement_pickers_.clear();
+        else {
+            std::erase_if(measurement_pickers_,[&](const auto& entry){return std::ranges::none_of(sheet->views,[&](const auto& view){return view.id==entry.first;});});
+            for(const auto& view:sheet->views)measurement_pickers_[view.id].prepare(view);
+        }
         selected_.clear();selected_field_.clear();hovered_field_.clear();field_regions_.clear();title_targets_.clear();
         selected_dimension_id_.clear();
         dragged_dimension_id_.clear();
@@ -1220,21 +1227,21 @@ public:
             if(!dimension_command_->value().view_id.empty()&&dimension_command_->value().view_id!=view.id)continue;
             if(view.crop&&!drawing_render::crop_screen_path(view,raw_view_origin(view),canvas_zoom()*view.scale).contains(point))continue;
             const double scale=canvas_zoom()*view.scale;
-            for(auto candidate:drawing::measurement_candidates(view,measurement_point(view,point),8/scale,dimension_command_->pick_request())){
+            for(auto candidate:measurement_pickers_[view.id].candidates(view,measurement_point(view,point),8/scale,dimension_command_->pick_request())){
                 candidate.distance*=scale;candidates.push_back({view.id,std::move(candidate)});
             }
         }
         if(const auto id=balloon_reference_view();!id.empty()&&sheet_)for(const auto& view:sheet_->views)if(view.id==id){
             const double scale=canvas_zoom()*view.scale;
             drawing::MeasurementPickRequest request;request.mode=int(drawing::DimensionAttachmentKind::CurvePoint);
-            for(auto candidate:drawing::measurement_candidates(view,measurement_point(view,point),8/scale,request))if(drawing::balloon_bom_row(*sheet_,view,candidate.attachment.reference)){
+            for(auto candidate:measurement_pickers_[view.id].candidates(view,measurement_point(view,point),8/scale,request))if(drawing::balloon_bom_row(*sheet_,view,candidate.attachment.reference)){
                 candidate.distance*=scale;candidates.push_back({view.id,std::move(candidate)});
             }
         }
         if(symbol_editor_&&symbol_editor_->active()&&sheet_)for(const auto& view:sheet_->views) {
             if(view.crop&&!drawing_render::crop_screen_path(view,raw_view_origin(view),canvas_zoom()*view.scale).contains(point))continue;
             const double scale=canvas_zoom()*view.scale;drawing::MeasurementPickRequest request;request.mode=int(drawing::DimensionAttachmentKind::CurvePoint);
-            for(auto candidate:drawing::measurement_candidates(view,measurement_point(view,point),8/scale,request)) {
+            for(auto candidate:measurement_pickers_[view.id].candidates(view,measurement_point(view,point),8/scale,request)) {
                 candidate.distance*=scale;candidates.push_back({view.id,std::move(candidate)});
             }
         }
@@ -2137,6 +2144,7 @@ private:
     std::function<void()> canceled_;
     std::function<void(zima::drawing::DrawingView&, zima::drawing::Point2)> position_;
     QAction *insert_action_{}, *edit_action_{}, *projected_action_{}, *remove_action_{};
+    std::map<std::string,drawing::MeasurementPicker> measurement_pickers_;
     struct OfferedMeasurement {std::string view;drawing::MeasurementCandidate candidate;std::string chain_seed;};
     QPointer<DrawingDimensionDialog> dimension_command_;
     std::vector<OfferedMeasurement> measurement_offered_;std::size_t measurement_index_{};

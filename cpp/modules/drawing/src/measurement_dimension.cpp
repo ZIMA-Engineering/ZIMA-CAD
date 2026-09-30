@@ -1,4 +1,5 @@
 #include <charconv>
+#include <bit>
 #include <zima/drawing/dimension_text.hpp>
 #include <zima/drawing/view_breaks.hpp>
 #include <mutex>
@@ -610,11 +611,108 @@ void validate_drawing_dimension(const DrawingDimension &d) {
         throw std::invalid_argument("Neplatná tolerance kóty.");
 }
 
-std::vector<MeasurementCandidate> measurement_candidates(const DrawingView &view, Point2 cursor,
+namespace {
+bool same_pick_number(double a,double b) {return std::bit_cast<std::uint64_t>(a)==std::bit_cast<std::uint64_t>(b);}
+bool same_pick_vector(kernel::Vec3 a,kernel::Vec3 b) {
+    return same_pick_number(a.x,b.x)&&same_pick_number(a.y,b.y)&&same_pick_number(a.z,b.z);
+}
+bool same_pick_edges(const std::vector<ProjectedEdge>& a,const std::vector<ProjectedEdge>& b) {
+    if(a!=b)return false;
+    for(std::size_t i=0;i<a.size();++i) {
+        for(std::size_t j=0;j<a[i].points.size();++j)
+            if(!same_pick_number(a[i].points[j].x,b[i].points[j].x)||!same_pick_number(a[i].points[j].y,b[i].points[j].y))return false;
+        for(std::size_t j=0;j<a[i].vertex_depths.size();++j)
+            if(!same_pick_number(a[i].vertex_depths[j],b[i].vertex_depths[j]))return false;
+    }
+    return true;
+}
+struct PickBounds {
+    double min_x{std::numeric_limits<double>::infinity()}, min_y{min_x};
+    double max_x{-min_x}, max_y{-min_x};
+    void include(Point2 p) {
+        min_x=std::min(min_x,p.x);min_y=std::min(min_y,p.y);
+        max_x=std::max(max_x,p.x);max_y=std::max(max_y,p.y);
+    }
+    void include(const PickBounds& b) {include(Point2{b.min_x,b.min_y});include(Point2{b.max_x,b.max_y});}
+    bool near(Point2 p,double t) const {
+        return p.x+t>=min_x&&p.x-t<=max_x&&p.y+t>=min_y&&p.y-t<=max_y;
+    }
+};
+struct PickPreparation {
+    DrawingView input;
+    std::vector<ProjectedMeasurementCurve> curves;
+    std::vector<std::vector<std::vector<Point2>>> fragments;
+    std::vector<bool> displayed;
+    struct Node {PickBounds bounds;std::size_t begin{},end{};int left{-1},right{-1};};
+    std::vector<PickBounds> bounds;
+    std::vector<std::size_t> order;
+    std::vector<Node> nodes;
+    bool matches(const DrawingView& view) const {
+        if(input.measurement_geometry!=view.measurement_geometry||
+            !same_pick_vector(input.camera.horizontal,view.camera.horizontal)||
+            !same_pick_vector(input.camera.vertical,view.camera.vertical)||
+            !same_pick_vector(input.camera.depth,view.camera.depth)||
+            !same_pick_edges(input.projected_edges,view.projected_edges)||input.model_annotations!=view.model_annotations||
+            input.breaks!=view.breaks||!same_pick_number(input.scale,view.scale)||input.display_style!=view.display_style||
+            input.tangent_edge_style!=view.tangent_edge_style||input.show_thread_leadins!=view.show_thread_leadins)return false;
+        for(std::size_t i=0;i<input.model_annotations.size();++i)if(const auto& axis=input.model_annotations[i].model_axis)
+            for(std::size_t j=0;j<2;++j)if(!same_pick_vector((*axis)[j],(*view.model_annotations[i].model_axis)[j]))return false;
+        for(std::size_t i=0;i<input.breaks.size();++i)
+            if(!same_pick_number(input.breaks[i].start,view.breaks[i].start)||
+               !same_pick_number(input.breaks[i].length,view.breaks[i].length)||
+               !same_pick_number(input.breaks[i].gap,view.breaks[i].gap))return false;
+        return true;
+    }
+    int build(std::size_t begin,std::size_t end) {
+        const int index=int(nodes.size());nodes.push_back({{},begin,end});
+        PickBounds box;for(auto i=begin;i<end;++i)box.include(bounds[order[i]]);
+        nodes[index].bounds=box;
+        if(end-begin>8) {
+            const bool x=box.max_x-box.min_x>=box.max_y-box.min_y;const auto middle=begin+(end-begin)/2;
+            std::nth_element(order.begin()+begin,order.begin()+middle,order.begin()+end,[&](auto a,auto b){
+                return x?bounds[a].min_x+bounds[a].max_x<bounds[b].min_x+bounds[b].max_x:
+                    bounds[a].min_y+bounds[a].max_y<bounds[b].min_y+bounds[b].max_y;
+            });
+            const int left=build(begin,middle),right=build(middle,end);
+            nodes[index].left=left;nodes[index].right=right;
+        }
+        return index;
+    }
+    void query(int index,Point2 p,double tolerance,std::vector<std::size_t>& found) const {
+        const auto& node=nodes[index];if(!node.bounds.near(p,tolerance))return;
+        if(node.left>=0){query(node.left,p,tolerance,found);query(node.right,p,tolerance,found);}
+        else for(auto i=node.begin;i<node.end;++i)if(bounds[order[i]].near(p,tolerance))found.push_back(order[i]);
+    }
+    explicit PickPreparation(const DrawingView& view):input(view),curves(projected_measurement_curves(view)) {
+        // Depth is tested against the current view, not a cached raster or solid.
+        input.projected_triangles.clear();input.output_source.reset();
+        for(const auto& curve:curves) {
+            displayed.push_back(curve.axis||std::ranges::any_of(view.projected_edges,[&](const auto& e){return e.source==curve.source;}));
+            fragments.push_back(measurement_reference_geometry(view,curve.source));
+            PickBounds box;
+            for(const auto& fragment:fragments.back())for(auto p:fragment)box.include(p);
+            for(auto p:curve.points)box.include(p);
+            if(curve.center) {
+                // Include the analytic ellipse, its centre and characteristic
+                // points, not just its sampled/displayed fragments.
+                const Point2 extent{std::hypot(curve.cosine_axis.x,curve.sine_axis.x),
+                                    std::hypot(curve.cosine_axis.y,curve.sine_axis.y)};
+                box.include(sub(*curve.center,extent));box.include(add(*curve.center,extent));
+            }
+            bounds.push_back(box);
+            if(std::isfinite(box.min_x)&&std::isfinite(box.min_y)&&std::isfinite(box.max_x)&&std::isfinite(box.max_y))
+                order.push_back(bounds.size()-1);
+        }
+        if(!order.empty())build(0,order.size());
+    }
+};
+std::vector<MeasurementCandidate> measurement_candidates_impl(const DrawingView &view, Point2 cursor,
                                                          double tolerance,
-                                                         const MeasurementPickRequest &request) {
+                                                         const MeasurementPickRequest &request,
+                                                         const PickPreparation* prepared) {
     std::vector<MeasurementCandidate> offered;
-    const auto curves = projected_measurement_curves(view);
+    const auto local_curves = prepared ? std::vector<ProjectedMeasurementCurve>{} : projected_measurement_curves(view);
+    const auto& curves = prepared ? prepared->curves : local_curves;
     const auto distance_to = [&](Point2 p, Point2 a, Point2 b) {
         const auto delta = sub(b, a);
         const double size = dot(delta, delta);
@@ -689,17 +787,27 @@ std::vector<MeasurementCandidate> measurement_candidates(const DrawingView &view
         offered.push_back({std::move(a), point, distance, point_target});
     };
     const auto *parallel = find_curve(curves, request.parallel_line);
-    for (const auto &curve : curves) {
+    std::vector<std::size_t> nearby;
+    // Intersections can lie on extensions of finite line fragments. Keep the
+    // original full search for that mode rather than bounding those extensions.
+    if(prepared&&!request.intersection_first.valid()) {
+        if(!prepared->nodes.empty())prepared->query(0,cursor,tolerance/.75+1e-7,nearby);
+        std::ranges::sort(nearby); // Preserve original order and stable RMB cycling.
+    } else for(std::size_t i=0;i<curves.size();++i)nearby.push_back(i);
+    for (const auto index : nearby) {
+        const auto& curve=curves[index];
         // Offer the displayed child geometry, then canonicalize its reference.
         // Do not offer the removed endpoints/midpoint of an untrimmed parent.
-        if(!curve.axis&&std::ranges::none_of(view.projected_edges,[&](const auto& edge){return edge.source==curve.source;}))continue;
+        if(prepared ? !prepared->displayed[index] :
+           (!curve.axis&&std::ranges::none_of(view.projected_edges,[&](const auto& edge){return edge.source==curve.source;})))continue;
         if (request.lines_only && !curve.line)
             continue;
         const bool thread=curve.source.semantic_key.starts_with("thread:boundary:");
         if (request.circles_only && (!curve.center || (!curve.circular&&!thread)))
             continue;
         double distance = std::numeric_limits<double>::infinity();
-        const auto fragments = measurement_reference_geometry(view, curve.source);
+        const auto local_fragments = prepared ? std::vector<std::vector<Point2>>{} : measurement_reference_geometry(view, curve.source);
+        const auto& fragments = prepared ? prepared->fragments[index] : local_fragments;
         for (const auto &fragment : fragments)
             for (std::size_t i = 1; i < fragment.size(); ++i)
                 distance = std::min(distance, distance_to(cursor, fragment[i - 1], fragment[i]));
@@ -788,7 +896,7 @@ std::vector<MeasurementCandidate> measurement_candidates(const DrawingView &view
         if (mode == int(DimensionAttachmentKind::Point))
             continue;
         a.parameter = parameter_at(curve, cursor);
-        if (curve.line && (mode < 0 || mode == int(DimensionAttachmentKind::Line))) {
+        if (curve.line && (mode == int(DimensionAttachmentKind::Line) || (mode < 0 && !request.curve_points))) {
             if (parallel && std::abs(cross(unit(sub(parallel->points.back(), parallel->points.front())),
                                            unit(sub(curve.points.back(), curve.points.front())))) > 1e-7)
                 continue;
@@ -802,6 +910,22 @@ std::vector<MeasurementCandidate> measurement_candidates(const DrawingView &view
     }
     std::stable_sort(offered.begin(), offered.end(), measurement_candidate_precedes);
     return offered;
+}
+} // namespace
+struct MeasurementPicker::Data : PickPreparation {
+    using PickPreparation::PickPreparation;
+};
+void MeasurementPicker::prepare(const DrawingView& view) {
+    if(!data_||!data_->matches(view))data_=std::make_shared<Data>(view);
+}
+std::vector<MeasurementCandidate> MeasurementPicker::candidates(const DrawingView& view,Point2 cursor,
+                                                               double tolerance,const MeasurementPickRequest& request) {
+    prepare(view);
+    return measurement_candidates_impl(view,cursor,tolerance,request,data_.get());
+}
+std::vector<MeasurementCandidate> measurement_candidates(const DrawingView& view,Point2 cursor,
+                                                        double tolerance,const MeasurementPickRequest& request) {
+    return measurement_candidates_impl(view,cursor,tolerance,request,nullptr);
 }
 bool measurement_candidate_precedes(const MeasurementCandidate& a,const MeasurementCandidate& b) {
     if(a.point_target!=b.point_target)return a.point_target;

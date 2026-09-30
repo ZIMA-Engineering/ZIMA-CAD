@@ -101,6 +101,11 @@ comma but retain entered zeroes. Full manual text overrides are unchanged.
 Each endpoint independently selects an attachment mode:
 
 - Automatic: nearby curve endpoints/centres first, then geometry.
+  During creation of a linear point pair, after the first point-like attachment,
+  a second automatic contact on a straight edge binds its exact curve parameter
+  rather than the whole segment. Persisted vertices and characteristic points
+  remain preferred. Explicit Segment input and first-segment perpendicular
+  measurements retain their existing meaning.
 - Point: saved point or endpoint/centre of an attached curve.
 - Point on curve: saved curve and parameter in source geometry.
 - Segment: with automatic direction, the first segment defines the dimension-line

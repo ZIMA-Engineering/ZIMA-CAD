@@ -23,6 +23,9 @@ struct ProjectedMeasurementCurve {
 struct MeasurementPickRequest {
     int mode{-1}; // Automatic, or an explicit DimensionAttachmentKind.
     bool circles_only{}, lines_only{};
+    // Continue a point pair with the exact contact on a straight curve.
+    // Explicit Line mode and first-line perpendicular measurements are unchanged.
+    bool curve_points{};
     kernel::EdgeReference intersection_first, parallel_line;
     Point2 tangent_direction{1, 0};
     std::optional<Point2> tangent_origin;
@@ -35,6 +38,17 @@ struct MeasurementCandidate {
     bool point_target{};
 };
 bool measurement_candidate_precedes(const MeasurementCandidate&, const MeasurementCandidate&);
+// Disposable view-local preparation; checks its actual inputs before reuse.
+// Paper position and cursor/command state are deliberately not cached.
+class MeasurementPicker {
+public:
+    void prepare(const DrawingView&);
+    std::vector<MeasurementCandidate> candidates(const DrawingView&, Point2, double tolerance,
+                                                const MeasurementPickRequest&);
+private:
+    struct Data;
+    std::shared_ptr<const Data> data_;
+};
 std::vector<MeasurementCandidate> measurement_candidates(const DrawingView &, Point2, double tolerance,
                                                          const MeasurementPickRequest &);
 void capture_measurement_geometry(DrawingView &, const kernel::ViewerMesh &);

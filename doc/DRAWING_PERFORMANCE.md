@@ -11,6 +11,75 @@ its source. The comparison uses the initial normalized dialog values so that
 opening a rounded numeric control does not rewrite higher-precision stored
 coordinates. Creating a view always commits, even with unchanged controls.
 
+## Prepared dimension picking (2026-09-30)
+
+The Drawing canvas prepares projected measurement curves, displayed fragments
+and a spatial bounds index when it publishes a sheet after loading, Regenerate,
+View Properties OK or Undo/Redo. Unchanged inputs reuse the preparation. Cursor
+movement queries nearby curves and applies the existing exact distance,
+visibility, ancestry and candidate-order rules. Dimensions, balloons and symbol
+attachments use this same prepared picker. Crop editing retains its existing
+picker for the transient edited view.
+
+Reuse checks the immutable measurement packet, camera, displayed edges,
+annotation state, breaks and display settings. View scale participates because
+displayed axis extensions have paper-sized padding; canvas zoom and sheet
+position do not. Camera and edge numeric comparisons retain signed zero.
+Occlusion checks consume current triangle depths. Intersection selection keeps
+the full curve search because intersections may lie on extended lines. No OCCT
+calculation, vector hidden-line preparation, history transaction or native format
+change is required. The preparation is disposable in-memory data.
+
+`zima_cpp_measurement_picker_tests` compares exact ordered contacts against the
+unprepared path across selection modes and input changes. Supply a native
+Drawing path to measure preparation and repeated hover queries, for example:
+
+```sh
+./build/cpp-native-release/zima_cpp_measurement_picker_tests Projects/11.drwz
+```
+
+On the local Linux Release build, `Projects/11.drwz` produced 95 distributed
+edge probes with an eight-screen-pixel tolerance at three pixels per paper
+millimetre (eight model millimetres for its 1:3 views). Mean per-view query time
+fell from approximately 5.6 ms to 0.5 ms, an 11.3-fold improvement. Preparation
+of all four views took 29.4 ms. These timings measure picking, not complete
+canvas rendering; every sampled ordered contact was compared with the original
+search. All 11 selected picking, dimension, view-control, break/detail, balloon,
+symbol, thread and five-language localization contracts passed, including the
+focused GUI retest.
+
+Two-point automatic placement continues to use the shared Sketcher rectangle
+classifier: direct distance inside the point rectangle, horizontal above/below,
+and vertical beside it. The existing GUI contract checks live switching,
+confirmation and native save/reopen; an added canvas mouse-event sequence also
+checks returning from projected modes to direct distance and Cancel. Its stroke
+colour probes check adjacent pixels to accommodate fractional coordinates and
+antialiasing, while retaining the checks against misleading point markers. The
+same GUI contract passes with the original canvas implementation. This performance
+change does not alter classification or manually selected directions. No new
+user-visible text or translation keys were introduced.
+
+During linear point-pair creation, the automatic second input now offers a
+specific contact on a straight curve after the first point-like reference.
+Explicit Segment input and a first Segment's perpendicular measurement remain
+unchanged. This prevents an unintended whole-line attachment from disabling
+cursor-based horizontal/vertical placement. Native point references keep their
+identity; existing stored dimensions are not converted.
+
+Pointer placement updates the existing `DimensionPlacementFields` controls with
+signals blocked instead of deleting and reconstructing the form for every
+mouse move. Structural changes still build the appropriate controls. The GUI
+contract covers both vertex pairs and an arbitrary second curve contact,
+direction switching, Cancel and stable control identity during pointer movement.
+
+A read-only GUI probe using one isolated view from `Projects/11.drwz` verified
+inside/above/beside placement for both actual vertices and a curve contact.
+Across 40 mouse events per case, updates including event processing and painting
+fell from 12.0–12.9 ms to 9.1–9.2 ms per event. These offscreen single-view
+measurements do not represent full-sheet desktop or GPU frame timings. Picker,
+measurement, dimension GUI and translation contracts passed; the broader
+dimension-layout contract also passed with an XCB/OpenGL context.
+
 ## Projection reuse
 
 ### Interactive display and deferred output (2026-09-23)

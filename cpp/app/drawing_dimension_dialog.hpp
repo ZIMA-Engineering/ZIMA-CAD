@@ -245,6 +245,12 @@ class DrawingDimensionDialog final : public ui::PropertiesSubWindow {
         if(angular()){request.lines_only=true;request.mode=int(drawing::DimensionAttachmentKind::Line);return request;}
         request.mode = row==draft_row_?-1:modes_[row];
         request.circles_only = radial();
+        const auto& anchor=value_.attachments[value_.anchor_attachment];
+        if(request.mode<0&&creating_&&automatic_placement_&&!extended_&&
+           value_.kind==drawing::DrawingDimensionKind::Linear&&row!=int(value_.anchor_attachment)&&
+           anchor.reference.valid()&&anchor.kind!=drawing::DimensionAttachmentKind::Line&&
+           anchor.kind!=drawing::DimensionAttachmentKind::Tangent)
+            request.curve_points=true;
         if (const auto *view = view_(value_.view_id)) {
             if (value_.direction == drawing::DimensionDirection::Vertical)
                 request.tangent_direction = {0, 1};
@@ -389,7 +395,7 @@ class DrawingDimensionDialog final : public ui::PropertiesSubWindow {
                 }
             }
             drawing::place_drawing_dimension(*view, value_, segment_, point);
-            rebuild_placement();
+            if(placement_&&segment_<int(value_.segments.size()))placement_->set_value(value_.segments[segment_].layout);
         }
         if (finish)
             placing_ = false;

@@ -32,6 +32,7 @@ struct ProjectionCamera {
     zima::kernel::Vec3 horizontal{-1.0, 0.0, 0.0};
     zima::kernel::Vec3 vertical{0.0, 0.0, 1.0};
     zima::kernel::Vec3 depth{0.0, -1.0, 0.0};
+    bool operator==(const ProjectionCamera&) const = default;
 };
 
 struct Point2 {
@@ -85,6 +86,7 @@ struct ProjectedEdge {
     bool thread_leadin{};
     // Interactive depth-tested strokes retain one depth per display vertex.
     std::vector<double> vertex_depths;
+    bool operator==(const ProjectedEdge&) const = default;
 };
 
 struct ProjectedTriangle {
