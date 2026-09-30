@@ -2,6 +2,16 @@
 
 ## Scope and status
 
+Windows build **2026093006** is signed, published and verified. It fixes live
+Fusion toolbar recoloring and adds measured inactive-history sharing, exact
+fingerprint batching, native Sketch packet reuse, scoped Drawing preparation,
+Symbol parsing reuse and removal of an unused GPU upload. Focused regression
+checks, clean candidate/signed smoke, production trust, ten packaged GUI checks,
+public asset hashes and update discovery from 2026093005 passed. No new native
+format change is required. Retained optimization candidates and verification
+limits are explicit in [the release record](releases/2026093006.md). Linux was
+excluded from this pass and remains assigned to the Linux host.
+
 Windows build **2026093005** is signed, published and verified. It adds explicit
 Fusion Light/Dark themes, Sweep result modes and plane dropdowns, first-position
 STEP/IGES Bodies, focused geometry/UI fixes and measured performance improvements.
