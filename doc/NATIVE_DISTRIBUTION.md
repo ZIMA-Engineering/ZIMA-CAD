@@ -2,6 +2,14 @@
 
 ## Scope and status
 
+Windows build **2026093003** is signed, published and verified. It adds text
+Relations evaluated on explicit Regenerate, View dimension insertion and `fx`
+markers, conditional Part colour, Pattern dimensions and repairable Part history
+deletion. Focused core/UI/localization checks, a full clean candidate build,
+signed native smoke and trust, three packaged GUI contracts, public asset hashes
+and production update discovery from 2026093002 passed. Native formats changed;
+broader regression limitations remain recorded. See [the release record](releases/2026093003.md).
+
 Windows build **2026093002** is signed, published and verified. It restores
 Sheet Transition preview bend boundaries, relieves both complete rectangular-end
 corners and updates File shortcuts, including F12 for the working directory.
