@@ -1,4 +1,7 @@
 #include "standard_view_labels.hpp"
+#include "file_dialog.hpp"
+#include <QTimer>
+#include <QLineEdit>
 #include <QCheckBox>
 #include <QLabel>
 #include <QTableWidget>
@@ -115,6 +118,38 @@ int verify_translations(QApplication& application, QWidget& parent) {
         check(settings.translations.contains("global.language") &&
             !settings.translations.contains("Zamknout hodnotu"), "INI sections were mixed");
         app::apply_application_translations(application, settings);
+        application.processEvents();
+        {
+            check(QDir(directory.path()).mkpath("nested"), "Cannot create directory navigation fixture");
+            bool inspected = false;
+            bool labels_match = true;
+            QTimer::singleShot(0, &parent, [&] {
+                auto* chooser = qobject_cast<QFileDialog*>(QApplication::activeModalWidget());
+                if (!chooser) return;
+                auto* buttons = chooser->findChild<QDialogButtonBox*>();
+                auto* accept = buttons ? buttons->button(QDialogButtonBox::Open) : nullptr;
+                auto* name = chooser->findChild<QLineEdit*>("fileNameEdit");
+                inspected = accept && name;
+                const auto verify_label = [&](const char* stage) {
+                    if (accept && accept->text() != settings.translations.value("button.select"))
+                        std::cerr << "Directory label: " << accept->text().toStdString()
+                            << "; stage: " << stage << "; expected: " << settings.translations.value("button.select").toStdString() << '\n';
+                    labels_match &= accept && accept->text() == settings.translations.value("button.select");
+                };
+                verify_label("initial");
+                chooser->setDirectory(directory.filePath("nested"));
+                if (name) name->setText(".");
+                verify_label("nested");
+                chooser->setDirectory(directory.path());
+                if (name) name->setText(".");
+                verify_label("parent");
+                chooser->reject();
+            });
+            const auto selected = app::choose_directory(&parent, "Directory translation test",
+                directory.path(), settings.translations);
+            check(inspected && selected.isEmpty(), "Directory chooser inspection or Cancel failed");
+            check(labels_match, "Directory navigation replaced the translated Select button");
+        }
         {
             app::RelationsDialog dialog({},"",[](auto){},settings,&parent);
             dialog.setAttribute(Qt::WA_DeleteOnClose,false);

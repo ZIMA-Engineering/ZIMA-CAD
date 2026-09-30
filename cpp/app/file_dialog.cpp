@@ -230,7 +230,8 @@ QString choose_directory(QWidget* parent, const QString& caption,
         label->setText(translations.value("file.dialog.file_type", label->text()));
     if (auto* buttons = dialog.findChild<QDialogButtonBox*>()) {
         if (auto* accept = buttons->button(QDialogButtonBox::Open))
-            accept->setText(translations.value("button.select", accept->text()));
+            dialog.setLabelText(QFileDialog::Accept,
+                translations.value("button.select", accept->text()));
         if (auto* cancel = buttons->button(QDialogButtonBox::Cancel))
             cancel->setText(translations.value("button.cancel", cancel->text()));
     }
