@@ -464,6 +464,40 @@ static void verify_feature_modeling(QApplication& application, AssemblyWorkspace
     window.show_parameter_dimensions(pending.id);flush();
     check(std::ranges::any_of(view->mesh().dimensions,[&](const auto& d){return d.reference.owner_id==pending.id&&d.reference.semantic_key=="parameter:side0_length";}),
         "Feature length dimension missing outside Properties");
+    const auto draft_dimension=std::ranges::find_if(view->mesh().dimensions,[&](const auto& d){
+        return d.reference.owner_id==pending.id&&d.reference.semantic_key=="parameter:side0_draft_angle";
+    });
+    check(draft_dimension!=view->mesh().dimensions.end()&&draft_dimension->value==0&&
+        draft_dimension->kind==kernel::ViewerDimensionKind::Angular&&draft_dimension->label_position.has_value(),
+        "Zero draft must have a selectable angular annotation outside Properties");
+    auto feature=*saved.find_container(pending.id);
+    const auto& profile=*std::ranges::find(saved.sketches,feature.feature.sketch_id,&sketcher::Sketch::id);
+    for(double angle:{-7.5,0.,5.}) {
+        feature.feature.sides[0].draft_angle_degrees=angle;
+        feature.feature.sides[1]=feature.feature.sides[0];
+        feature.feature.symmetric=false;
+        const auto cues=workspace_detail::feature_view_cues(feature,profile);
+        for(int side=0;side<2;++side) {
+            const auto key="parameter:side"+std::to_string(side)+"_draft_angle";
+            const auto found=std::ranges::find_if(cues.dimensions.dimensions,[&](const auto& d){return d.reference.semantic_key==key;});
+            check(found!=cues.dimensions.dimensions.end()&&found->value==angle&&found->sweep_degrees==angle,
+                "Draft annotation lost the signed angle or extrusion side");
+            const auto a=kernel::dimension_unit(kernel::dimension_sub(found->line_first,found->witness_first));
+            const auto b=kernel::dimension_unit(kernel::dimension_sub(found->line_second,found->witness_first));
+            check(std::abs(kernel::dimension_dot(a,b)-std::cos(angle*std::numbers::pi/180.))<1e-9,
+                "Draft annotation rays do not measure the authored angle");
+            bool anchored=false;
+            for(const auto& edge:profile.viewer_mesh().edges)if(!edge.construction)
+                for(std::size_t i=1;i<edge.points.size();++i) {
+                    const auto middle=kernel::dimension_scale(kernel::dimension_add(edge.points[i-1],edge.points[i]),.5);
+                    if(kernel::dimension_dot(kernel::dimension_sub(middle,found->witness_first),
+                                            kernel::dimension_sub(middle,found->witness_first))>1e-12)continue;
+                    const auto tangent=kernel::dimension_unit(kernel::dimension_sub(edge.points[i],edge.points[i-1]));
+                    anchored=std::abs(std::abs(kernel::dimension_dot(tangent,found->plane_normal))-1)<1e-9;
+                }
+            check(anchored,"Draft dimension is not attached perpendicular to a profile edge");
+        }
+    }
 }
 
 // Work-plane display must be independent of whether a body profile exists yet.

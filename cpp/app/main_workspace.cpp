@@ -1976,7 +1976,10 @@ int verify_sweep2d_command(QApplication& application,zima::app::AssemblyWorkspac
 
 int verify_helical_sweep_command(QApplication& application,zima::app::AssemblyWorkspaceWindow& window,
         const std::filesystem::path& directory) {
-    auto doc=zima::document::PartDocument::create_default();const auto path=directory/"helical-ui.prtz";doc.save(path);
+    auto doc=zima::document::PartDocument::create_default();const auto path=directory/"helical-ui.prtz";
+    auto background=zima::test::rectangular_feature(doc,{100,100,5});background.placement.x=-200;
+    doc.history.push_back(background);zima::kernel::OcctKernel helical_kernel;
+    doc.save(path,helical_kernel.evaluate_history(doc.kernel_operations()));
     window.show();if(!verify(window.open_document_path(QString::fromStdString(path.string())),"Cannot open helical fixture"))return 1;
     application.processEvents();auto* action=window.findChild<QAction*>("helicalSweepAction");
     if(!verify(action&&action->isEnabled(),"Helical Sweep command missing"))return 1;
@@ -2010,6 +2013,26 @@ int verify_helical_sweep_command(QApplication& application,zima::app::AssemblyWo
     for(unsigned stage=0;stage<3;++stage){
         dialog->findChild<QPushButton*>(QString("helicalSketch%1").arg(stage))->click();application.processEvents();
         if(!verify(!dialog->isVisible()&&finish&&finish->isEnabled(),"Helical owned Sketch did not enter Sketcher"))return 1;
+        QEventLoop sketch_animation;QTimer::singleShot(950,&sketch_animation,&QEventLoop::quit);sketch_animation.exec();
+        if(!verify(!placement_view->mesh().triangles.empty(),"Helical Sketch lost preceding solid context"))return 1;
+        const std::array<std::string,3> roles{"base:","radial:","section:"};
+        const auto check_context=[&] {
+            for(unsigned other=0;other<3;++other)if(other!=stage)
+                if(!std::ranges::any_of(placement_view->mesh().edges,[&](const auto& edge){
+                    return edge.reference.owner_id==feature_id&&edge.reference.semantic_key.starts_with("helical:sketch:"+roles[other]);
+                }))return false;
+            return true;
+        };
+        if(!verify(check_context(),"Helical Sketch lost sibling profile context"))return 1;
+        const auto scale=placement_view->camera_state()[4];
+        if(!verify(scale>0&&scale<(stage==2?2.:20.),"Helical Sketch fit includes distant background or an oversized origin"))return 1;
+        for(const char* tool:{"sketchSegmentAction","sketchCircleAction","sketchDimensionAction"}) {
+            auto* command=window.findChild<QAction*>(tool);
+            if(!verify(command&&command->isEnabled(),"Helical Sketch drawing tool is unavailable"))return 1;
+            command->trigger();application.processEvents();
+            if(!verify(check_context()&&!placement_view->mesh().triangles.empty(),"Sketch tool removed passive Helical context"))return 1;
+        }
+        window.grab().save(QString::fromStdString((directory/("helical-sketch-"+std::to_string(stage)+".png")).string()));
         finish->trigger();application.processEvents();if(!verify(dialog->isVisible(),"Sketch did not return to pending Helical Sweep"))return 1;
     }
     dialog->buttons()->button(QDialogButtonBox::Ok)->click();application.processEvents();
@@ -2017,7 +2040,18 @@ int verify_helical_sweep_command(QApplication& application,zima::app::AssemblyWo
     auto* save=window.findChild<QAction*>("saveDocumentAction");save->trigger();application.processEvents();
     auto stored=zima::document::PartDocument::load(path);
     if(!verify(stored.history.back().placement.x==12&&stored.history.back().placement.y==-3&&stored.history.back().placement.z==8&&std::abs(stored.history.back().placement.rotation_y-25)<1e-6,"Sweep placement not persisted"))return 1;
-    if(!verify(stored.history.size()==1&&stored.history.back().id==feature_id,"Helical Sweep history not saved"))return 1;
+    if(!verify(stored.history.size()==2&&stored.history.back().id==feature_id,"Helical Sweep history not saved"))return 1;
+    window.show_parameter_dimensions(feature_id);application.processEvents();
+    const auto pitch_dimension=std::ranges::find_if(placement_view->mesh().dimensions,[&](const auto& d){
+        return d.reference.owner_id==feature_id&&d.reference.semantic_key=="parameter:pitch";});
+    if(!verify(pitch_dimension!=placement_view->mesh().dimensions.end()&&pitch_dimension->value==5,
+        "Helical pitch dimension missing in View"))return 1;
+    const auto along=zima::kernel::dimension_sub(pitch_dimension->witness_second,pitch_dimension->witness_first);
+    const auto offset=zima::kernel::dimension_sub(pitch_dimension->line_first,pitch_dimension->witness_first);
+    if(!verify(std::abs(zima::kernel::dimension_dot(along,along)-25)<1e-8&&
+        std::abs(zima::kernel::dimension_dot(along,offset))<1e-8&&zima::kernel::dimension_dot(offset,offset)>1,
+        "Pitch dimension is not a full turn with perpendicular offset from its axis"))return 1;
+    if(!verify(!stored.dimension_identifiers.identifier(feature_id,"parameter:pitch").empty(),"Pitch has no Relations identifier"))return 1;
     QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
     auto* tree=window.findChild<QTreeWidget*>("documentTree");QTreeWidgetItem* item=nullptr;int sketches=0;
     for(QTreeWidgetItemIterator i(tree);*i;++i){if((*i)->data(0,Qt::UserRole+3).toString()=="part-helical-sketch")++sketches;
@@ -2054,6 +2088,12 @@ int verify_helical_sweep_command(QApplication& application,zima::app::AssemblyWo
     auto* view=dynamic_cast<zima::viewer::MeshView*>(window.findChild<QOpenGLWidget*>("modelWorkspace"));
     if(!verify(dialog&&view,"Cannot test helical reference selection"))return 1;
     view->set_standard_view(zima::viewer::StandardView::Isometric);view->fit_all();dialog->request_placement(0);application.processEvents();
+    // The distant background fixture must not reduce the small cap below a
+    // screen pixel in this reference-picking check. Fit the inspected feature.
+    std::vector<zima::kernel::Vec3> cap_points;
+    for(const auto& edge:zima::document::PartDocument::helical_preview_edges(stored.history.back()))
+        cap_points.insert(cap_points.end(),edge.points.begin(),edge.points.end());
+    view->fit_points(cap_points);
     QEventLoop isometric_animation;QTimer::singleShot(950,&isometric_animation,&QEventLoop::quit);isometric_animation.exec();
     std::optional<QPointF> hit;
     std::size_t cap_index{};
@@ -8535,10 +8575,28 @@ int verify_startup_contract(
                 if(!verify(doc.relations=="mass = model.mass\n","Part template did not retain plain relation source"))return 1;
             } else if(!verify(zima::assembly::AssemblyDocument::load(path).relations=="mass = model.mass\n","Assembly template did not retain plain relation source"))return 1;
         }
+        for(int picker_case=0;picker_case<4;++picker_case) {
         auto fixture=zima::document::PartDocument::create_default();
-        auto feature=zima::test::rectangular_feature(fixture,{10,20,30});fixture.history.push_back(feature);
+        auto feature=zima::test::rectangular_feature(fixture,{10,20,30});
+        if(picker_case==3) {
+            fixture.sketches.clear();feature=zima::document::PartDocument::create_helical_sweep_container();
+            auto base=zima::sketcher::Sketch::from_serialized(feature.helical.sketches[0]);
+            feature.helical.circle_id=base.add_circle(0,0,5);feature.helical.start_point_id=base.add_point(5,0);
+            feature.helical.sketches[0]=base.serialized();
+            auto guide=zima::sketcher::Sketch::from_serialized(feature.helical.sketches[1]);
+            static_cast<void>(guide.add_segment(0,0,0,6));feature.helical.sketches[1]=guide.serialized();
+            auto section=zima::sketcher::Sketch::from_serialized(feature.helical.sketches[2]);
+            static_cast<void>(section.add_circle(0,0,.4));feature.helical.sketches[2]=section.serialized();
+        } else if(picker_case) {
+            feature=zima::document::PartDocument::create_feature_container(fixture.sketches.back().id);
+            fixture.sketches.back().owner_container_id=feature.id;
+            feature.feature.sides[0].length=30;
+            feature.feature.sides[0].draft_angle_degrees=picker_case==1?0:-5;
+        }
+        fixture.history.push_back(feature);
+        const std::string dimension_key=picker_case==3?"parameter:pitch":picker_case?"parameter:side0_draft_angle":"parameter:length_forward";
         fixture.synchronize_dimension_identifiers();zima::kernel::OcctKernel relation_kernel;
-        const auto fixture_path=test_directory/"relation-view-picker.prtz";
+        const auto fixture_path=test_directory/("relation-view-picker-"+std::to_string(picker_case)+".prtz");
         fixture.save(fixture_path,relation_kernel.evaluate_history(fixture.kernel_operations()));
         if(!verify(window.open_document_path(QString::fromStdString(fixture_path.string())),"Relation picker fixture did not open"))return 1;
         flush();auto* view=dynamic_cast<zima::viewer::MeshView*>(window.findChild<QOpenGLWidget*>());view->fit_all();flush();
@@ -8562,17 +8620,18 @@ int verify_startup_contract(
         if(!verify(feature_hit.has_value(),"Relation arrow does not offer the feature through the common picker"))return 1;
         click(*feature_hit);
         const auto& dimensions=view->mesh().dimensions;
-        const auto dimension=std::ranges::find_if(dimensions,[&](const auto& d){return d.reference.owner_id==feature.id&&d.reference.semantic_key=="parameter:length_forward";});
+        const auto dimension=std::ranges::find_if(dimensions,[&](const auto& d){return d.reference.owner_id==feature.id&&d.reference.semantic_key==dimension_key;});
         if(!verify(dimension!=dimensions.end(),"Selecting a feature in Relations did not display its dimensions"))return 1;
         const zima::viewer::ViewerCandidate candidate{zima::viewer::CandidateKind::Dimension,0,static_cast<std::size_t>(dimension-dimensions.begin()),feature.id,dimension->reference.semantic_key,{}};
         const auto label=view->candidate_dimension_label_position(candidate);
         if(!verify(label.has_value(),"Relation dimension label is unavailable"))return 1;
         cursor.movePosition(QTextCursor::End);editor->setTextCursor(cursor);click(*label);
-        const auto identifier=fixture.dimension_identifiers.identifier(feature.id,"parameter:length_forward");
+        const auto identifier=fixture.dimension_identifiers.identifier(feature.id,dimension_key);
         if(!verify(editor->toPlainText()==QString::fromStdString("stock = "+identifier+" & \"x\"\n")&&!relations->entering_dimension(),"View-picked dimension missed the saved text cursor"))return 1;
         relations->grab().save(QString::fromStdString((test_directory/"relations-editor.png").string()));
         relations->buttons()->button(QDialogButtonBox::Cancel)->click();flush();
         if(!verify(window.execute_console_command("document.relations.get").data.at("relations")==fixture.relations,"Picker Cancel changed relation source"))return 1;
+        }
         std::cout<<"Native relation templates and View feature/dimension cursor insertion passed\n";return 0;
     }
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_APPLICATION_LIFECYCLE_ONLY"))

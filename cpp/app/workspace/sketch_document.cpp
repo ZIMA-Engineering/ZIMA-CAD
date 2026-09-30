@@ -162,8 +162,24 @@ void AssemblyWorkspaceWindow::align_active_sketch_view(bool fit_view) {
         direction, screen_x, 0.0);
     const bool assembly_context=workspace_.open_assembly(workspace_.displayed_document_id())!=nullptr;
     viewer_->set_view_direction(direction, static_cast<float>(
-        frame_roll + sketch_view_quarter_turns_ * 90.0 + (sketch->drawing_template ? 180.0 : 0.0)),assembly_context);
-    if (fit_view&&!assembly_context) viewer_->fit_all();
+        frame_roll + sketch_view_quarter_turns_ * 90.0 + (sketch->drawing_template ? 180.0 : 0.0)),assembly_context&&!fit_view);
+    if(fit_view) {
+        // Fit the actual editing subject, not helper Origins or a distant
+        // passive body. An empty Sketch still fits available scene geometry;
+        // the viewer uses monitor-based scale for a genuinely empty scene.
+        auto display=place_sketch_mesh(*sketch,sketch->viewer_mesh());
+        std::vector<zima::kernel::Vec3> points;
+        for(const auto& edge:display.edges)if(!edge.infinite&&edge.reference.owner_id==sketch->id)
+            points.insert(points.end(),edge.points.begin(),edge.points.end());
+        for(const auto& point:display.points)if(point.reference.owner_id==sketch->id&&!point.reference.semantic_key.starts_with("external_point:"))points.push_back(point.position);
+        if(assembly_context) {
+            const auto path=part?resolve_active_occurrence(part->session.document().document_id).value_or(std::string{}):workspace_.active_occurrence_path();
+            if(!path.empty())for(auto& point:points)point=workspace_.occurrence_point_to_scene(
+                workspace_.displayed_document_id(),zima::assembly::InstancePath::decode(path),point);
+        }
+        if(points.empty())viewer_->fit_all();
+        else viewer_->fit_points(points);
+    }
     state_->setText(tr("Pohled je kolmý k rovině aktivní skici."));
 }
 
@@ -226,6 +242,8 @@ const zima::document::BodyHistory* AssemblyWorkspaceWindow::sketch_body(
 
 zima::kernel::ViewerMesh AssemblyWorkspaceWindow::place_sketch_mesh(
     const zima::sketcher::Sketch& sketch, zima::kernel::ViewerMesh mesh) const {
+    if(helical_sketch_context_&&sketch.id==active_sketch_id_)
+        append_mesh(mesh,*helical_sketch_context_);
     if (const auto* body = sketch_body(sketch))
         return workspace_.open_part(workspace_.active_document_id())->session.document()
             .place_body_mesh(std::move(mesh), body->scope.id);

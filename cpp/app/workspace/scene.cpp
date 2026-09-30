@@ -7,6 +7,7 @@
 #include <zima/document/holes.hpp>
 #include "workspace_internal.hpp"
 #include "../feature_view_cues.hpp"
+#include <zima/document/helical_geometry.hpp>
 #include "../sketch_point_pick_priority.hpp"
 
 namespace zima::app {
@@ -401,6 +402,21 @@ void AssemblyWorkspaceWindow::refresh_scene() {
                             return false;
                         });
                     }
+                } else if (container->feature_kind == FeatureKind::HelicalSweep) {
+                    try {
+                        auto framed=*container;
+                        document::PartDocument::reframe_helical_sketches(framed,0);
+                        const auto path=document::helical_geometry::path(framed,false);
+                        const auto end=kernel::dimension_add(path.origin,kernel::dimension_scale(path.axis,path.pitch));
+                        const auto offset=kernel::dimension_scale(path.radial,path.radius+8.);
+                        kernel::ViewerMesh display;
+                        display.dimensions.push_back({path.origin,end,kernel::dimension_add(path.origin,offset),
+                            kernel::dimension_add(end,offset),path.pitch,{container->id,"parameter:pitch",{}}});
+                        display.dimensions.back().plane_normal=kernel::dimension_cross(path.axis,path.radial);
+                        if(!parameter_dimension_preview_)if(const auto* body=document.body_owner_for_object(container->id))
+                            display=document.place_body_mesh(std::move(display),body->scope.id);
+                        mesh.dimensions.insert(mesh.dimensions.end(),display.dimensions.begin(),display.dimensions.end());
+                    }catch(const std::exception&) { /* No axis until the base circle and start point exist. */ }
                 } else if (container->feature_kind == FeatureKind::SheetTransition) {
                     const auto& p=container->sheet_transition.end_position;
                     linear("end_x","X = ",local(0,0,0),local(p.x,0,0),{0,-12,0},p.x);

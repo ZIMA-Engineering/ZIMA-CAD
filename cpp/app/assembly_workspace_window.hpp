@@ -492,6 +492,7 @@ private:
     // Sweep itself is confirmed with OK.
     std::optional<zima::sketcher::Sketch> sweep_profile_sketch_draft_;
     std::function<void(zima::sketcher::Sketch)> embedded_sketch_finished_;
+    std::optional<zima::kernel::ViewerMesh> helical_sketch_context_;
     std::function<void(const zima::viewer::ViewerCandidate&)> feature_reference_pick_;
     std::function<void()> feature_reference_end_;
     ConstructionPropertiesDialog* sweep_profile_parent_dialog_{};

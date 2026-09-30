@@ -74,6 +74,21 @@ preview, even with incomplete/invalid paths. Derived planes update from availabl
 inputs; missing inputs retain the last solved Sketch frame. Display uses Sketch data
 without OCCT body calculation.
 
+Entering any of the three Sketches frames that Sketch's finite geometry rather
+than the entire model. A small cross-section therefore remains readable beside
+a large preceding body. Empty Sketches fit available scene geometry; a genuinely
+empty scene uses a monitor-based working scale. The other source Sketches and available winding
+preview remain passive context during drawing and dimension entry; preceding
+visible bodies retain the normal history-editing context. Finish Sketch returns
+to the pending container and Cancel discards its pending edits.
+
+Double-clicking H-Sweep in the View exposes the pitch as an axial length dimension
+for one turn. Its witness points lie on the winding axis and its dimension line
+is offset outside the base circle. The existing `pitch` identifier can be inserted
+by the Relations picker; explicit Regenerate applies a relation-driven pitch.
+The displayed pitch can also be edited directly through the ordinary dimension
+editor. This is the positive axial pitch, independent of winding handedness.
+
 ## Verification
 
 `zima_cpp_helical_sweep_contract_tests` checks handedness, partial turns, cylindrical

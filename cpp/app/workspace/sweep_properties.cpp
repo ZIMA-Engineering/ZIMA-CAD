@@ -238,6 +238,7 @@ void AssemblyWorkspaceWindow::show_sweep_properties(zima::document::FeatureKind 
             }
             sweep_profile_sketch_draft_=zima::sketcher::Sketch::from_serialized(transition?dialog->pending.sheet_transition.sketches.at(stage):planar?dialog->pending.sweep2d.sketch_data(stage):dialog->pending.helical.sketches.at(stage));
             embedded_sketch_finished_=[this,dialog,stage](auto s){
+                helical_sketch_context_.reset();
                 properties_dialog_=dialog;primitive_reference_dialog_=dialog;dialog->set_sketch(stage,s);dialog->show();dialog->raise();
                 preserve_view_on_refresh_=true;refresh_scene();dialog->changed();
             };
@@ -246,6 +247,17 @@ void AssemblyWorkspaceWindow::show_sweep_properties(zima::document::FeatureKind 
             viewer_->set_constraint_reference_highlights({},{});primitive_origin_preview_mesh_.reset();parameter_dimension_preview_.reset();
             dialog->hide();properties_dialog_=nullptr;viewer_->set_transient_edges({});viewer_->set_transient_labels({});viewer_->set_transient_points({});
             active_sketch_id_=sweep_profile_sketch_draft_->id;selected_sketch_id_=active_sketch_id_;
+            if(!planar&&!transition) {
+                helical_sketch_context_.emplace();
+                auto& context=*helical_sketch_context_;
+                context.edges=zima::document::PartDocument::helical_sketch_edges(dialog->pending);
+                const std::array<std::string,3> roles{"base:","radial:","section:"};
+                std::erase_if(context.edges,[&](const auto& edge){return edge.reference.semantic_key.starts_with("helical:sketch:"+roles[stage]);});
+                try {
+                    auto path=zima::document::PartDocument::helical_preview_edges(dialog->pending);
+                    context.edges.insert(context.edges.end(),std::make_move_iterator(path.begin()),std::make_move_iterator(path.end()));
+                }catch(const std::exception&) { /* Keep existing sketches of an incomplete path. */ }
+            }
             clear_selected_sketch_geometry();viewer_->clear_selection();tree_->clearSelection();
             preserve_view_on_refresh_=true;refresh_scene();align_active_sketch_view();
             if(planar&&stage>0) {
@@ -261,6 +273,7 @@ void AssemblyWorkspaceWindow::show_sweep_properties(zima::document::FeatureKind 
         }catch(const std::exception& e){dialog->set_status(QString::fromUtf8(e.what()));}
     };
     connect(dialog,&QDialog::finished,this,[this]{
+        helical_sketch_context_.reset();
         feature_reference_pick_={};feature_reference_end_={};pending_primitive_reference_index_.reset();primitive_reference_auto_advance_=false;
         local_origin_selection_dialog_=nullptr;local_origin_selection_active_=false;visible_local_origin_ids_.clear();visible_occurrence_origin_paths_.clear();selectable_local_origin_container_ids_.clear();suspended_primitive_reference_index_.reset();suspended_construction_reference_index_.reset();
         primitive_reference_dialog_=nullptr;primitive_reference_geometry_={};primitive_origin_preview_mesh_.reset();parameter_dimension_preview_.reset();construction_dimension_object_id_.clear();

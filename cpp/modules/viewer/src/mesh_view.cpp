@@ -2242,6 +2242,27 @@ void MeshView::notify_confirmation() {
     }
 }
 
+void MeshView::fit_points(const std::vector<zima::kernel::Vec3>& points) {
+    if(points.empty())return;
+    auto minimum=points.front(),maximum=minimum;
+    for(const auto& p:points) {
+        if(!std::isfinite(p.x)||!std::isfinite(p.y)||!std::isfinite(p.z))return;
+        minimum={std::min(minimum.x,p.x),std::min(minimum.y,p.y),std::min(minimum.z,p.z)};
+        maximum={std::max(maximum.x,p.x),std::max(maximum.y,p.y),std::max(maximum.z,p.z)};
+    }
+    impl_->center=QVector3D((minimum.x+maximum.x)/2,(minimum.y+maximum.y)/2,(minimum.z+maximum.z)/2);
+    const double radius=std::hypot(maximum.x-minimum.x,maximum.y-minimum.y,maximum.z-minimum.z)/2;
+    const double dpi=physicalDpiY()>=50&&physicalDpiY()<=400?physicalDpiY():96.;
+    const double aspect=static_cast<double>(std::max(width(),1))/std::max(height(),1);
+    impl_->radius=static_cast<float>(radius>1e-9?radius:std::max(height(),1)*25.4/(2*dpi));
+    impl_->view_scale=radius>1e-9?static_cast<float>(radius*1.2/std::min(aspect,1.)):impl_->radius;
+    impl_->pan_pixels={};
+    if(impl_->fly_navigation_enabled)impl_->place_fly_camera_at_orbit_position();
+    impl_->candidates.clear();
+    impl_->rebuild_persisted_reference_mesh();
+    update();
+}
+
 void MeshView::fit_all() {
     // World coordinates are millimetres. Qt reports widget DPI in the same
     // logical-pixel units as height(), so startup is approximately 1:1 on

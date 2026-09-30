@@ -145,6 +145,21 @@ The INI `[UserParameterValues] Data` entry stores the complete language map as
 JSON, so generated text preserves line breaks, quotes and surrounding whitespace
 without creating accidental INI sections or keys.
 
+## Extrusion draft dimensions
+
+Double-clicking an Extrusion shows each active side's draft angle, including
+zero degrees. The annotation is anchored on the outer profile boundary in a
+plane perpendicular to the displayed boundary edge and containing the extrusion
+direction. Its label sits outside the profile. Symmetric extrusion uses the
+same driving identifier on both sides. The Relations picker inserts the existing
+`side0_draft_angle` or `side1_draft_angle` dimension identifier at the text cursor;
+positive and negative angles retain their existing modeling meaning. Displaying
+these annotations does not calculate a solid or change the native file format.
+
+H-Sweep also exposes its existing `pitch` identifier as a View dimension for
+one turn along the winding axis, with the complete dimension offset beside it.
+The same Relations arrow inserts this dimension into the editor.
+
 ## Verification (2026-09-30)
 
 The Windows application and CLI compile. Seventeen focused checks passed across

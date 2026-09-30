@@ -117,6 +117,8 @@ public:
     // "Pohled kolmo" views.
     void animate_camera_state(const std::array<float, 8>& state);
     void fit_all();
+    // Frame an editing subject while retaining the complete passive scene.
+    void fit_points(const std::vector<zima::kernel::Vec3>& points);
     void set_display_mode(DisplayMode mode);
     [[nodiscard]] DisplayMode display_mode() const;
     void set_projection_mode(ProjectionMode mode);

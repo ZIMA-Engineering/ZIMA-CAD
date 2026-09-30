@@ -4,6 +4,17 @@ This document defines binding interaction, snapping, constraint and degree-of-
 freedom behavior. `SKETCH_MODEL.md` describes data/equations,
 `SKETCHER-TERMINOLOGY.md` terminology and `UZIVATELSKY_MANUAL.md` ordinary usage.
 
+## Entry view and context
+
+The common Sketch entry path aligns to the resolved Sketch frame, including Body
+and Assembly occurrence transforms. Existing finite Sketch geometry is fitted
+with a margin for the viewport aspect ratio. Passive bodies and distant Origins
+do not shrink a small profile. An empty Sketch fits available scene geometry;
+when the scene is empty, the initial scale uses the monitor's physical DPI.
+Drawing and dimension entry preserve the user's camera rather than repeatedly
+fitting. Background geometry follows normal history visibility and rollback.
+H-Sweep additionally retains its other pending source Sketches as passive context.
+
 ## Tool confirmation
 
 Geometry and dimension entry offer eligible points before overlapping curves,

@@ -6,6 +6,7 @@
 #include <QUuid>
 #include <QGroupBox>
 #include "primitive_properties_dialog.hpp"
+#include "feature_view_cues.hpp"
 #include "orientation_dialog.hpp"
 #include "boundary_surface_dialog.hpp"
 #include <zima/document/named_views.hpp>

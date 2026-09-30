@@ -571,6 +571,8 @@ void AssemblyWorkspaceWindow::edit_dimension_inline(
                         else container->hole.drill_point_angle_degrees = next_value;
                         changed = true;
                     }
+                } else if (container->feature_kind == FeatureKind::HelicalSweep && key=="pitch") {
+                    positive(container->helical.pitch);
                 } else if (container->feature_kind == FeatureKind::Feature) {
                     if(key=="profile_offset") {container->feature.profile_plane_offset=next_value;changed=true;}
                     else if(key=="thin_thickness")positive(container->feature.thin_thickness);
