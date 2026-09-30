@@ -226,6 +226,26 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
         require(!host.execute({{"command",command},{"arguments",args}}).ok,"Invalid import accepted");
         require(snapshot(live.open_part(id)->session.document())==before && live.open_part(id)->session.revision()==revision,"Rejected import partly committed");
     };
+    // Import ahead of calculated modeling Bodies as one reversible transaction.
+    for(const char* format:{"step","iges"}) {
+        run(host,"new",{{"type","part"},{"name",std::string("order-")+format}});
+        zima::test::rectangular_commands([&](const char* n,commands::Json args){return run(host,n,std::move(args));},
+            {{"length_mm","3"},{"width_mm","4"},{"height_mm","5"}});
+        auto* target=live.open_part(live.active_document_id());
+        const auto original=snapshot(target->session.document());
+        const auto old_order=target->session.document().body_history.order();
+        const auto command=std::string("import.")+format;
+        const auto imported=run(host,command.c_str(),{{"path",format==std::string("step")?"kvádr.step":"kvádr.igs"}}).data;
+        const auto added=imported.at("bodies")[0].get<std::string>();
+        auto expected=old_order;expected.insert(expected.begin(),added);
+        require(target->session.document().body_history.order()==expected,"Import did not prepend new Body");
+        require(std::abs(target->session.calculated_boundaries().back().volume-6060)<1e-5,"Import lost existing solid geometry");
+        const auto committed=snapshot(target->session.document());
+        run(host,"undo");require(snapshot(target->session.document())==original,"Prepending import Undo changed prior state");
+        run(host,"redo");require(snapshot(target->session.document())==committed,"Prepending import Redo changed state");
+        run(host,"save");
+        require(document::PartDocument::load(target->path).body_history.order()==expected,"Native save lost imported Body order");
+    }
     run(host,"new",{{"type","part"},{"name","imported-step"}});const auto step_doc=live.active_document_id();
     const auto initial=snapshot(live.open_part(step_doc)->session.document());
     const auto result=run(host,"import.step",{{"path","kvádr.step"},{"mesh_deflection_mm",2.0}}).data;
@@ -294,7 +314,7 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
     run(host,"undo");require(workspace::document_sketch(live,assembly_id,assembly_sketch).segments.empty(),"Assembly DXF Undo failed");
     const auto curves_file=dir/"curves.dxf";interchange::export_dxf(curves_file,test::dxf_curve_fixture());
     const auto curves=run(host,"import.dxf",{{"path",document::path_to_utf8(curves_file)},{"sketch",assembly_sketch}}).data;
-    require(curves.at("imported_entities")==12&&curves.at("warnings").empty()&&curves.at("body_calculated")==false,"Exact DXF command lost curves or its standalone point");
+    require(curves.at("imported_entities")==10&&curves.at("warnings").empty()&&curves.at("body_calculated")==false,"Exact DXF command lost manufacturing curves or exported construction geometry");
     const auto& imported=workspace::document_sketch(live,assembly_id,assembly_sketch);const auto imported_data=imported.serialized();
     require(imported.ellipses.size()==2&&imported.elliptical_arcs.size()==1&&imported.bsplines.size()==6&&imported.import_blocks.size()==1,"Command did not persist native ellipse and spline objects");
     run(host,"undo");require(workspace::document_sketch(live,assembly_id,assembly_sketch).bsplines.empty(),"Exact DXF import was not one Undo step");run(host,"redo");

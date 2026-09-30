@@ -13,7 +13,7 @@
 namespace zima::interchange {
 namespace {
 void insert_body(document::PartDocument& doc, document::HistoryContainer container,
-        const StepPart& node, bool global) {
+        const StepPart& node, bool global, std::size_t import_index = 0) {
     auto graph=doc.body_history;
     if(graph.bodies().empty()&&!doc.history.empty()) {
         static_cast<void>(document::create_origin_bound_body(graph, doc.document_id, doc.name));
@@ -33,6 +33,7 @@ void insert_body(document::PartDocument& doc, document::HistoryContainer contain
         body.scope.placement=document::body_origin_attachment(doc.document_id, body.scope.placement);
         graph.update_body(std::move(body));
     }
+    if(global)graph.move_body(id,import_index);
     doc.history.push_back(std::move(container));doc.set_body_history(std::move(graph));
 }
 std::string shape_key(const kernel::BodyResult& body) {
@@ -90,7 +91,7 @@ StepImportedPart import_step_part(document::PartDocument doc,
         auto container=std::move(containers.at(index));
         container.imported_step.frozen_brep=std::make_shared<const std::string>(frozen.at(index).kernel_shape);
         container.imported_step.topology=std::move(frozen.at(index).imported_step_topology);
-        insert_body(doc,std::move(container),node,true);++index;
+        insert_body(doc,std::move(container),node,true,index);++index;
     }
     auto calculated=kernel.evaluate_history_incremental(doc.kernel_operations(),previous);
     return {std::move(doc),std::move(calculated),{}};

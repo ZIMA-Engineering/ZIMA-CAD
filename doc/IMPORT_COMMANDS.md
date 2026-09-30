@@ -261,3 +261,20 @@ Result: `build/dxf-spline-ezdxf-validation.json`.
 features without original files. Properties/placement references commit through
 the same GUI operation. Details/limits:
 [IMPORTED_FEATURE_COMMANDS.md](IMPORTED_FEATURE_COMMANDS.md).
+
+## Imported Body order
+
+STEP and IGES imports into a Part prepend their newly created Bodies before the
+existing Part history steps, so imported geometry is immediately available as a
+starting reference. Multi-Body STEP imports retain source occurrence order.
+Existing Body/Boolean order is preserved, and Undo/Redo restores the entire import
+transaction, including order and calculated geometry. DXF insertion is unchanged.
+
+The import command tests cover a Part with existing calculated geometry, both
+formats, Undo/Redo and native save/reopen. STEP model tests additionally cover
+multiple imported occurrences followed by two existing Bodies. No user-visible
+text or native format fields change; localization catalogs remain applicable.
+
+The command test also follows the manufacturing DXF fixture: ten exported curves;
+the construction centerline and construction point are intentionally omitted.
+Standalone-point import coverage uses explicit DXF point fixtures separately.

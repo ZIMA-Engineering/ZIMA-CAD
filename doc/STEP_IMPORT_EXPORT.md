@@ -35,7 +35,9 @@ import timing measurement.
 **File → Import → STEP** places each leaf Part / occurrence from STEP into a
 separate **Body**, containing a normal imported-STEP container. Repeated occurrences
 create additional Bodies at their positions. Existing Part Bodies remain intact;
-import does not automatically Boolean-unite them.
+import does not automatically Boolean-unite them. Newly imported Bodies appear
+first, in source occurrence order, before all existing Part history steps. Existing
+Bodies retain their relative order. The complete import remains one Undo step.
 
 Positions from the complete source hierarchy are converted into Part coordinates.
 Names and physical dimensions are preserved: for example, 1 inch becomes 25.4 mm.

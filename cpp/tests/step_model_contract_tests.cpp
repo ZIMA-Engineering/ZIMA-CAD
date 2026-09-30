@@ -1,4 +1,5 @@
 #include "profile_solid_fixture.hpp"
+#include <zima/document/body_origin_attachment.hpp>
 #include <zima/interchange/step_model.hpp>
 #include <zima/interchange/step.hpp>
 #include <zima/kernel/occt_kernel.hpp>
@@ -99,11 +100,22 @@ int main() {
         std::vector<V> expected;
         for(const auto& group:{sub,sub2})for(const auto& leaf:group.children)for(auto p:leaf.body.mesh.vertices)expected.push_back(placed(placed(p,leaf),group));
         for(auto p:b.body.mesh.vertices)expected.push_back(placed(p,b));
-        auto selected=interchange::import_step_part(document::PartDocument::create_default(),{},source,1.5);
+        auto target=document::PartDocument::create_default();auto target_graph=target.body_history;
+        const auto first_body=document::create_origin_bound_body(target_graph,target.document_id,"Existing first");
+        const auto second_body=document::create_origin_bound_body(target_graph,target.document_id,"Existing second");
+        target.set_body_history(std::move(target_graph));
+        auto selected=interchange::import_step_part(target,{},source,1.5);
+        const auto& imported_bodies=selected.document.body_history.bodies();
+        require(imported_bodies.size()==leaves+2&&imported_bodies[leaves].scope.id==first_body&&
+            imported_bodies[leaves+1].scope.id==second_body,"STEP did not prepend Bodies or changed existing order");
+        std::size_t imported_index=0;
+        for(const auto& node:nodes)if(!node.assembly)
+            require(imported_bodies[imported_index++].name==node.name,"STEP reversed imported occurrence order");
         require(selected.document.document_precision.at("mesh_deflection")=="0.1","Import changed document defaults");
         for(const auto& op:selected.document.kernel_operations())require(op.mesh_deflection==1.5,"Selected import mesh deflection lost in body history");
         selected.document.save(directory/"selected.prtz",selected.calculated);
         auto selected_loaded=document::PartDocument::load(directory/"selected.prtz");
+        require(selected_loaded.body_history==selected.document.body_history,"Saved STEP lost prepended Body order");
         for(const auto& op:selected_loaded.kernel_operations())require(op.mesh_deflection==1.5,"Import mesh setting did not survive save/load");
         auto selected_package=interchange::import_step_assembly(source,directory,selected.document.document_precision,2.0);
         for(const auto& part:selected_package.parts)for(const auto& op:part.document.kernel_operations())

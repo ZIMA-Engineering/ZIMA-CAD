@@ -46,8 +46,9 @@ StepImportedPart import_iges_part(document::PartDocument doc,
     container.imported_step.frozen_brep = std::make_shared<const std::string>(std::move(frozen.kernel_shape));
     container.imported_step.topology = std::move(frozen.imported_step_topology);
     auto graph = doc.body_history;
-    static_cast<void>(document::create_origin_bound_body(graph, doc.document_id, document::path_to_utf8(source.stem())));
+    const auto body_id=document::create_origin_bound_body(graph, doc.document_id, document::path_to_utf8(source.stem()));
     graph.insert({document::PartHistoryKind::Feature, container.id});
+    graph.move_body(body_id,0);
     doc.history.push_back(std::move(container)); doc.set_body_history(std::move(graph));
     auto calculated = kernel.evaluate_history_incremental(doc.kernel_operations(), previous);
     return {std::move(doc), std::move(calculated), {}};
