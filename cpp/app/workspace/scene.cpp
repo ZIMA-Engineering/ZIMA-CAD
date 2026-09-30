@@ -6,6 +6,7 @@
 #include <zima/workspace/assembly_scene.hpp>
 #include <zima/document/holes.hpp>
 #include "workspace_internal.hpp"
+#include "ordinary_selection.hpp"
 #include "../feature_view_cues.hpp"
 #include <zima/document/helical_geometry.hpp>
 #include "../sketch_point_pick_priority.hpp"
@@ -1240,26 +1241,7 @@ void AssemblyWorkspaceWindow::refresh_scene() {
                     pending_primitive_reference_index_
                 ? placement_reference_candidate_kinds()
             : active_sketch_id_.empty()
-                ? [this] {
-                    switch (selection_filter_combo_->currentIndex()) {
-                        case 1:
-                            return std::vector{zima::viewer::CandidateKind::Face};
-                        case 4:
-                            return std::vector{zima::viewer::CandidateKind::Plane};
-                        case 5:
-                            return std::vector{zima::viewer::CandidateKind::Edge};
-                        case 6:
-                        case 2:
-                            return std::vector{zima::viewer::CandidateKind::Vertex};
-                        case 3:
-                            return std::vector{zima::viewer::CandidateKind::Axis};
-                        default:
-                            return std::vector{
-                                zima::viewer::CandidateKind::Dimension,
-                                zima::viewer::CandidateKind::Symbol,
-                                zima::viewer::CandidateKind::Container};
-                    }
-                }()
+                ? ordinary_selection_kinds(static_cast<viewer::SelectionFilter>(selection_filter_combo_->currentIndex()), true)
                 : std::vector{zima::viewer::CandidateKind::TemplateImage, zima::viewer::CandidateKind::TemplateRegion,
                               zima::viewer::CandidateKind::SketchSegment,
                               zima::viewer::CandidateKind::SketchPoint,
@@ -2074,32 +2056,7 @@ void AssemblyWorkspaceWindow::refresh_scene() {
                           zima::viewer::CandidateKind::SketchText,
                           zima::viewer::CandidateKind::Symbol,
                           zima::viewer::CandidateKind::SketchExternalReference}
-        : [this, active_part] {
-            switch (selection_filter_combo_->currentIndex()) {
-                case 1:
-                    return std::vector{zima::viewer::CandidateKind::Face};
-                case 4:
-                    return std::vector{zima::viewer::CandidateKind::Plane};
-                case 5:
-                    return std::vector{zima::viewer::CandidateKind::Edge};
-                case 6:
-                case 2:
-                    return std::vector{zima::viewer::CandidateKind::Vertex};
-                case 3:
-                    return std::vector{zima::viewer::CandidateKind::Axis};
-                default:
-                    if (active_part != nullptr) {
-                        return std::vector{
-                            zima::viewer::CandidateKind::Dimension,
-                            zima::viewer::CandidateKind::Symbol,
-                            zima::viewer::CandidateKind::Container};
-                    }
-                    return std::vector{
-                        zima::viewer::CandidateKind::Dimension,
-                        zima::viewer::CandidateKind::Symbol,
-                        zima::viewer::CandidateKind::Occurrence};
-            }
-        }());
+        : ordinary_selection_kinds(static_cast<viewer::SelectionFilter>(selection_filter_combo_->currentIndex()), active_part != nullptr));
     if (sketch_placement_active) viewer_->set_candidate_priority(sketch_placement_pick_priority);
     if (active_assembly_sketch && sketch_external_reference_active_) {
         const auto top_assembly_id = document.document_id;

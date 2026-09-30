@@ -1,5 +1,6 @@
 #include <zima/workspace/named_view_operations.hpp>
 #include "workspace_internal.hpp"
+#include "ordinary_selection.hpp"
 #include <zima/workspace/document_operations.hpp>
 #include "tool_button_style.hpp"
 #include "toolbar_style.hpp"
@@ -1017,8 +1018,29 @@ void AssemblyWorkspaceWindow::create_actions() {
     connect(selection_filter_combo_, &QComboBox::currentIndexChanged, this,
         [this] {
             if (viewer_ == nullptr) return;
+            const auto previous_filter = viewer_->selection_filter();
+            const bool part = workspace_.open_part(workspace_.active_document_id()) != nullptr;
+            const bool ordinary = active_sketch_id_.empty() && !properties_dialog_ &&
+                !measurement_dialog_ && !mass_properties_dialog_ && !orientation_dialog_ &&
+                !section_dialog_ && !normal_view_selection_active_ &&
+                !tree_->property("commandSelectionActive").toBool() &&
+                (part || workspace_.open_assembly(workspace_.active_document_id())) &&
+                viewer_->selection_contract() == ordinary_selection_kinds(previous_filter, part);
+            const auto revision = viewer_->base_mesh_revision();
             viewer_->set_selection_filter(static_cast<zima::viewer::SelectionFilter>(
                 selection_filter_combo_->currentIndex()));
+            // Clearing a feature-dimension inspection can already rebuild the
+            // scene in the empty-selection callback. Do not publish it twice.
+            if (viewer_->base_mesh_revision() != revision) return;
+            if (ordinary) {
+                // Preserve the exact active Body/occurrence predicate. Only the
+                // offered kinds change; geometry, Tree and camera stay intact.
+                auto predicate = viewer_->candidate_filter();
+                const bool advance = viewer_->advances_selection_on_hover();
+                viewer_->set_selection_contract(ordinary_selection_kinds(viewer_->selection_filter(), part));
+                viewer_->set_candidate_filter(std::move(predicate), advance);
+                return;
+            }
             if (workspace_.size() != 0) refresh_scene();
         });
     view_toolbar_->addWidget(selection_filter_combo_);

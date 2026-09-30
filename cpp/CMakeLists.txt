@@ -1398,6 +1398,12 @@ if(ZIMA_BUILD_TESTS)
         ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_BODY_SKETCH_ONLY=1;ZIMA_VERIFY_SKETCH_GRIPS_ONLY=1"
         TIMEOUT 90)
     add_test(NAME zima_cpp_assembly_refresh_ui_contract COMMAND zima-cad-cpp --verify-startup)
+    file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/refresh-scope-test")
+    add_test(NAME zima_cpp_refresh_scope_ui_contract COMMAND zima-cad-cpp --verify-startup
+        "--working-directory=${CMAKE_BINARY_DIR}/refresh-scope-test")
+    set_tests_properties(zima_cpp_refresh_scope_ui_contract PROPERTIES
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_REFRESH_SCOPE_ONLY=1"
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." RUN_SERIAL TRUE TIMEOUT 120)
     add_test(NAME zima_cpp_family_table_ui_contract COMMAND zima-cad-cpp --verify-startup)
     add_test(NAME zima_cpp_family_labels_ui_contract COMMAND zima-cad-cpp --verify-startup)
     add_test(NAME zima_cpp_native_title_block_ui_contract COMMAND zima-cad-cpp --verify-startup)

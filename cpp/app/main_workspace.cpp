@@ -5851,6 +5851,8 @@ int verify_standalone_trim_preview(QApplication& application, const std::filesys
     std::cout << "Standalone trim preview contracts passed\n";return 0;
 }
 
+#include "refresh_scope_ui_verification.inc"
+
 int verify_assembly_refresh_view(QApplication& application,const std::filesystem::path& directory) {
     using namespace zima;
     auto part=document::PartDocument::create_default();
@@ -8682,6 +8684,7 @@ int verify_startup_contract(
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_SKETCH_ORIGIN_PICK_ONLY")) return verify_sketch_return_frames(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_BEND_ATTACHMENT_ONLY")) return verify_sketch_return_frames(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_MEASUREMENT_INSPECTOR_ONLY")) return zima::app::verify_measurement_inspector(application,window,test_directory);
+    if (qEnvironmentVariableIsSet("ZIMA_VERIFY_REFRESH_SCOPE_ONLY")) return verify_refresh_scope(application,window,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_ASSEMBLY_REFRESH_ONLY")) return verify_assembly_refresh_view(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_SECTIONS_ONLY")) return zima::app::verify_sections(application,window,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_TEMPLATES_ONLY")) return verify_template_commands(application,window,test_directory);

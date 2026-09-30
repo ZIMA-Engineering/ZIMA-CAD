@@ -1,0 +1,44 @@
+Presentation refresh measurements, 2026-09-30
+Windows x64, Core Ultra 9 285HX, MSVC Release, Qt 6.11, OCCT 8
+Synchronous handler times; queued painting and GPU time excluded.
+
+BEFORE: c89575644511e7b6bd844596c5acb0b2bf3c18df, 256 repeated Part occurrences
+REFRESH_SCOPE tree-selection ms=2.2632 mesh=0 tree=0
+REFRESH_SCOPE filter-1 ms=353.853 mesh=1 tree=1
+REFRESH_SCOPE filter-2 ms=365.403 mesh=1 tree=1
+REFRESH_SCOPE filter-3 ms=361.467 mesh=1 tree=1
+REFRESH_SCOPE filter-4 ms=347.31 mesh=1 tree=1
+REFRESH_SCOPE filter-5 ms=361.121 mesh=1 tree=1
+REFRESH_SCOPE filter-6 ms=343.09 mesh=1 tree=1
+REFRESH_SCOPE filter-all ms=356.777 mesh=1 tree=1
+REFRESH_SCOPE selection-off ms=0.0912 mesh=0 tree=0
+REFRESH_SCOPE selection-on ms=357.065 mesh=1 tree=1
+REFRESH_SCOPE show-assembly-dimensions ms=4.7667 mesh=0 tree=0
+REFRESH_SCOPE finish-assembly-dimensions ms=334.474 mesh=1 tree=1
+
+AFTER: same geometry count; extended fixture adds a real plane-offset dimension and source/Undo checks
+    Start 196: zima_cpp_refresh_scope_ui_contract
+196:  ZIMA_VERIFY_REFRESH_SCOPE_ONLY=1
+196: REFRESH_SCOPE tree-selection ms=0.2591 mesh=0 tree=0
+196: REFRESH_SCOPE filter-1 ms=0.0882 mesh=0 tree=0
+196: REFRESH_SCOPE filter-2 ms=0.0264 mesh=0 tree=0
+196: REFRESH_SCOPE filter-3 ms=0.0317 mesh=0 tree=0
+196: REFRESH_SCOPE filter-4 ms=0.0523 mesh=0 tree=0
+196: REFRESH_SCOPE filter-5 ms=0.0472 mesh=0 tree=0
+196: REFRESH_SCOPE filter-6 ms=0.0448 mesh=0 tree=0
+196: REFRESH_SCOPE filter-all ms=0.0466 mesh=0 tree=0
+196: REFRESH_SCOPE selection-off ms=0.1279 mesh=0 tree=0
+196: REFRESH_SCOPE selection-on ms=390.837 mesh=1 tree=1
+196: REFRESH_SCOPE show-assembly-dimensions ms=4.5958 mesh=0 tree=0
+196: REFRESH_SCOPE finish-assembly-dimensions ms=0.0083 mesh=0 tree=0
+196: REFRESH_SCOPE active-part-filter-1 ms=0.065 mesh=0 tree=0
+196: REFRESH_SCOPE active-part-filter-2 ms=0.0343 mesh=0 tree=0
+196: REFRESH_SCOPE active-part-filter-3 ms=0.0264 mesh=0 tree=0
+196: REFRESH_SCOPE active-part-filter-4 ms=0.0423 mesh=0 tree=0
+196: REFRESH_SCOPE active-part-filter-5 ms=0.032 mesh=0 tree=0
+196: REFRESH_SCOPE active-part-filter-6 ms=0.0273 mesh=0 tree=0
+196: REFRESH_SCOPE active-part-filter-all ms=0.0352 mesh=0 tree=0
+196: Refresh scope verification passed
+1/1 Test #196: zima_cpp_refresh_scope_ui_contract ...   Passed    6.85 sec
+	zima_cpp_refresh_scope_ui_contract
+100% tests passed, 0 tests failed out of 1

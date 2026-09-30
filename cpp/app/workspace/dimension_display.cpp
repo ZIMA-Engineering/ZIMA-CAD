@@ -74,12 +74,21 @@ void AssemblyWorkspaceWindow::update_assembly_dimension_visibility() {
 bool AssemblyWorkspaceWindow::finish_parameter_dimensions() {
     if (properties_dialog_ || !active_sketch_id_.empty() ||
         (construction_dimension_object_id_.empty()&&assembly_dimension_path_.empty())) return false;
+    const bool geometry_changes = !construction_dimension_object_id_.empty();
     construction_dimension_object_id_.clear();
     assembly_dimension_path_.clear();update_assembly_dimension_visibility();
     opening_component_edit_ = {};
     viewer_->clear_selection();
-    preserve_view_on_refresh_ = true;
-    refresh_scene();
+    if (geometry_changes) {
+        preserve_view_on_refresh_ = true;
+        refresh_scene();
+    } else {
+        // Assembly placement dimensions already exist in the scene; their
+        // visibility filter above retires the inspection without rebuilding it.
+        tree_->clearSelection();
+        tree_->setCurrentItem(nullptr);
+        set_selected_component_origin({});
+    }
     return true;
 }
 

@@ -15,6 +15,10 @@ The next follow-up, [Assembly scene transfer and picking](performance/20260930-a
 removes redundant scene copies and repeated picker work, with a desktop
 benchmark and exact baseline comparisons. It does not add a persistent cache.
 
+[Selection-filter and dimension-inspection refresh](performance/20260930-presentation-refresh.md)
+removes measured whole-scene/Tree rebuilds for two presentation-only actions,
+with GUI coverage of context restrictions and subsequent model changes.
+
 The startup-independent C++ model benchmark is built as
 `zima_cpp_performance_benchmark`. It is deliberately not registered with
 CTest: normal tests remain deterministic and do not depend on machine speed.

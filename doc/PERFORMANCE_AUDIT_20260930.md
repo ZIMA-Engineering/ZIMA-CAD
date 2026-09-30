@@ -7,6 +7,10 @@ retains the original pre-change observations and priorities.
 The [A2/A3 scene and picking follow-up](performance/20260930-assembly-scene-picking.md)
 records the subsequent limited implementation, desktop measurements and checks.
 
+The [A4 presentation-refresh follow-up](performance/20260930-presentation-refresh.md)
+records the scoped removal of rebuilds on ordinary filter changes and the end
+of Assembly dimension inspection. Other refresh paths remain audit candidates.
+
 ## Result and scope
 
 The first investigation should target large Sketch dimension edits. The existing
