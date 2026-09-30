@@ -237,7 +237,15 @@ int main(){try {
             const auto handles=kernel::annotation_handles(a,right,up,left,true);
             const auto circle=kernel::annotation_stroke(a,right,up,left,true);
             check(circle.size()==33&&near(circle.front(),circle.back()),"All-around circle is not closed");
-            for(auto point:circle)check(std::abs(std::sqrt(kernel::dimension_dot(kernel::dimension_sub(point,handles[1]),kernel::dimension_sub(point,handles[1])))-1.25)<1e-8,"All-around circle is not at the junction");
+            for(auto point:circle)check(std::abs(std::sqrt(kernel::dimension_dot(kernel::dimension_sub(point,handles[1]),kernel::dimension_sub(point,handles[1])))-.875)<1e-8,"All-around circle is not at the junction");
+        }
+        for(bool spatial:{false,true})for(bool left:{false,true})for(int role:{0,1,3}) {
+            auto plain=a;plain.all_around=false;plain.role=role;
+            plain.local_points={{0,0,0},{21,0,0}};
+            auto around=plain;around.all_around=true;
+            const auto first=kernel::annotation_stroke(plain,right,up,left,spatial);
+            const auto second=kernel::annotation_stroke(around,right,up,left,spatial);
+            check(first==second,"All-around ring trimmed or removed a continuous line");
         }
         p.weld_all_around=true;check(nlohmann::json(p).get<symbols::Placement>()==p,"All-around property failed persistence");
         check(std::ranges::none_of(p.viewer_mesh().edges,[](const auto& e){return e.annotation&&e.annotation->role==6;}),"Non-weld symbol acquired an all-around circle");

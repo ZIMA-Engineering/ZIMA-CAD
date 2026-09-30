@@ -332,7 +332,9 @@ for the absence of datum references in form controls.
 confirms the perpendicular first-segment convention. The triangle reversal and
 yellow display fill implement the requested ZIMA presentation.
 [SOLIDWORKS weld properties](https://help.solidworks.com/2024/English/SolidWorks/sldworks/HIDD_WELD.htm)
-place the all-around circle at the leader bend;
+place the all-around circle at the leader bend. The requested ZIMA presentation
+uses a diameter of 70% of the arrow length, with the leader and reference line
+continuous and visible inside the unfilled circle.
 [Inventor's weld style](https://help.autodesk.com/cloudhelp/2023/ENU/Inventor-Help/files/GUID-5CCDE668-DFA2-4C33-8154-F88E24003DD5.htm)
 treats identification-line spacing as a configurable offset related to text
 height. The public sources reviewed do not establish a universal spacing in mm.

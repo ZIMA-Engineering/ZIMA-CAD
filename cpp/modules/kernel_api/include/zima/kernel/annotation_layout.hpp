@@ -34,25 +34,10 @@ inline std::vector<Vec3> annotation_stroke(const AnnotationStroke& a,Vec3 right,
     const auto join=a.framed?add(attachment,scale(right,(join_left?-1.:1.)*a.shelf_length)):attachment;
     if(a.role==0) {
         auto out=a.local_points;for(auto& p:out)p=add(grip,add(scale(right,p.x-(a.short_shelf?0.:(a.left+a.right)*.5)),scale(up,p.y-(a.short_shelf?0.:a.bottom))));
-        // Keep the junction circle open. Only the adjoining line ends enter it;
-        // text contours and the authored reference-line geometry stay intact.
-        if(a.all_around&&out.size()==2) {
-            const double radius=a.arrow_length*.5;
-            const auto inside=[&](Vec3 p){const auto d=sub(p,join);return dimension_dot(d,d)<radius*radius;};
-            if(inside(out[0])&&inside(out[1]))return {};
-            for(int i=0;i<2;++i)if(inside(out[i])) {
-                const auto d=dimension_unit(sub(out[1-i],out[i])),v=sub(out[i],join);
-                const double b=dimension_dot(v,d),t=-b+std::sqrt(std::max(0.,b*b+radius*radius-dimension_dot(v,v)));
-                out[i]=add(out[i],scale(d,t));
-            }
-        }
         return out;
     }
     if(a.role==3)return a.framed?std::vector<Vec3>{join,attachment}:std::vector<Vec3>{first,last};
-    if(a.role==1) {
-        const auto d=sub(join,a.contact);const double length=std::sqrt(dimension_dot(d,d));
-        return {a.contact,a.all_around&&length>1e-9?add(join,scale(d,-std::min(a.arrow_length*.5,length)/length)):join};
-    }
+    if(a.role==1)return {a.contact,join};
     auto delta=sub(join,a.contact);const double length=std::sqrt(dimension_dot(delta,delta));
     if(length<1e-9)return {};
     const auto direction=scale(delta,1/length);auto wing=dimension_cross(direction,dimension_cross(right,up));
@@ -61,7 +46,7 @@ inline std::vector<Vec3> annotation_stroke(const AnnotationStroke& a,Vec3 right,
     if(a.role==4)return {base,add(a.contact,scale(wing,h*.5773502691896257)),add(a.contact,scale(wing,-h*.5773502691896257)),base};
     if(a.role==5||a.role==6) {
         std::vector<Vec3> circle;constexpr int segments=32;
-        const auto center=a.role==6?join:a.contact;const double radius=a.role==6?a.arrow_length*.5:h*.25;
+        const auto center=a.role==6?join:a.contact;const double radius=a.role==6?a.arrow_length*.35:h*.25;
         for(int i=0;i<=segments;++i){const double angle=i*2.*std::acos(-1.)/segments;
             circle.push_back(add(center,add(scale(right,radius*std::cos(angle)),scale(up,radius*std::sin(angle)))));}
         return circle;
