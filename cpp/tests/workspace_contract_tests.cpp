@@ -3,6 +3,7 @@
 #include <zima/workspace/sketch_reference_operations.hpp>
 #include <zima/workspace/native_documents.hpp>
 #include <zima/workspace/workspace.hpp>
+#include <zima/workspace/relation_operations.hpp>
 #include <zima/assembly/physical_properties.hpp>
 #include <zima/kernel/occt_kernel.hpp>
 
@@ -64,25 +65,27 @@ int main() {
             using namespace zima;
             auto part=document::PartDocument::create_default();
             part.physical_parameters["MASS_DENSITY"]="7850";part.physical_parameter_units["MASS_DENSITY"]="kg/m^3";
-            part.relations={{"mass","model.mass"}};
+            part.relations="mass = model.mass\n";
             kernel::BodyResult body;body.volume=1'000'000;body.surface_area=60'000;
             auto unresolved=part;unresolved.history.push_back(zima::test::rectangular_feature(unresolved));
             require(!document::physical_values(unresolved,{}).contains("model.mass"),"Uncalculated geometry was assigned zero mass");
-            auto relations=part;relations.relations={{"third","model.mass / 3"},{"restored","third * 3"}};
-            document::refresh_physical_relations(relations,{{"model.mass",1.0}});
-            require(relations.user_parameters.at("restored")=="1.000","Dependent physical relations used a rounded intermediate value");
+            auto relations=part;relations.relations="third = model.mass / 3\nrestored = third * 3\n";
+            workspace::apply_relation_parameters(relations,{{"model.mass",1.0}});
+            require(relations.user_parameters.at("restored")=="1","Dependent physical relations used a rounded intermediate value");
+            workspace::apply_relation_parameters(part,document::physical_values(part,{body}));
             document::DocumentSession session(part,{body});
-            require(session.document().user_parameters.at("mass")=="7.850","100 mm steel cube must weigh 7.85 kg");
+            require(session.document().user_parameters.at("mass")=="7.85","100 mm steel cube must weigh 7.85 kg");
             for(const auto& [unit,density]:std::map<std::string,std::string>{{"kg/mm^3","0.00000785"},{"g/cm^3","7.85"}}) {
                 part.physical_parameters["MASS_DENSITY"]=density;part.physical_parameter_units["MASS_DENSITY"]=unit;
                 require(std::abs(document::physical_values(part,{body}).at("model.mass")-7.85)<1e-10,"Density unit conversion failed");
             }
             part.document_units["Mass"]="g";part.document_units["Length"]="cm";
+            workspace::apply_relation_parameters(part,document::physical_values(part,{body}));
             session.commit(part,{body});
-            require(session.document().user_parameters.at("mass")=="7850.000","Document mass unit ignored");
+            require(session.document().user_parameters.at("mass")=="7850","Document mass unit ignored");
             require(document::physical_values(part,{body}).at("model.volume")==1000,"Document volume unit ignored");
-            require(session.undo() && session.document().user_parameters.at("mass")=="7.850","Physical relation Undo failed");
-            auto assembly=assembly::AssemblyDocument::create_default();assembly.relations={{"mass","model.mass"}};
+            require(session.undo() && session.document().user_parameters.at("mass")=="7.85","Physical relation Undo failed");
+            auto assembly=assembly::AssemblyDocument::create_default();assembly.relations="mass = model.mass\n";
             auto item=assembly::AssemblyDocument::create_part_occurrence("steel",part.document_id,{},body);
             item.density_kg_mm3=document::material_density_kg_mm3(part);assembly.components.push_back(item);
             item.occurrence_id="second";item.visible=false;assembly.components.push_back(item);

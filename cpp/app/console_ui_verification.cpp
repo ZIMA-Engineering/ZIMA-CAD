@@ -264,7 +264,9 @@ Q_NEVER_INLINE static int verify_feature_prototype(QApplication& application,Ass
         std::cout<<"Feature GUI: parameter modes, Sketch creation, OK, Cancel and Undo/Redo passed\n";return 0;
     }catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}
 }
+#include "history_deletion_ui_verification.inc"
 int verify_command_console(QApplication& application,AssemblyWorkspaceWindow& window,const std::filesystem::path& directory) {
+    if(qEnvironmentVariableIsSet("ZIMA_VERIFY_HISTORY_DELETION_ONLY"))return verify_history_deletion(application,window,directory);
     if(qEnvironmentVariableIsSet("ZIMA_VERIFY_SURFACE_PLACEMENT_ONLY")) {
         try {verify_feature_surface_placement(application,window,directory);std::cout<<"Feature surface placement and shortcuts passed\n";return 0;}
         catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}
@@ -1936,13 +1938,14 @@ static int verify_general_command_console(QApplication& application,AssemblyWork
         };
         load_gui_library(false);check(std::abs(run("document.relations.get").data.at("model_values").at("model.mass").get<double>()-.0468)<1e-9,"Library Cancel committed its pending material");
         load_gui_library(true);check(std::abs(run("document.relations.get").data.at("model_values").at("model.mass").get<double>()-.0471)<1e-9,"Library OK did not use the shared material transaction");
-        json_run("document.relations.set",{{"relations",commands::Json::array({{{"target","double_volume"},{"expression","model.volume * 2"}}})}});
+        json_run("document.relations.set",{{"relations","double_volume = model.volume * 2\n"}});
         auto* relations_action=window.findChild<QAction*>("relationsAction");check(relations_action,"Relations action missing");relations_action->trigger();flush();
-        auto* relations_dialog=window.findChild<QDialog*>("relationsDialog");auto* relations_table=relations_dialog?relations_dialog->findChild<QTableWidget*>("relationsTable"):nullptr;
-        check(relations_table && relations_table->item(0,2)->text()=="model.volume * 2","GUI did not read CLI relations");
-        relations_table->item(0,2)->setText("model.volume * 3");relations_dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
-        check(!window.findChild<QDialog*>("relationsDialog") && run("document.relations.get").data.at("parameters").at("double_volume")=="18.000000","Relations GUI did not use shared evaluation");
-        json_run("document.relations.set",{{"relations",commands::Json::array()}});relations_action->trigger();flush();relations_dialog=window.findChild<QDialog*>("relationsDialog");
+        auto* relations_dialog=window.findChild<QDialog*>("relationsDialog");auto* relations_editor=relations_dialog?relations_dialog->findChild<QPlainTextEdit*>("relationsEditor"):nullptr;
+        check(relations_editor && relations_editor->toPlainText()=="double_volume = model.volume * 2\n","GUI did not read CLI relation source");
+        relations_editor->setPlainText("double_volume = model.volume * 3\n");relations_dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
+        check(!window.findChild<QDialog*>("relationsDialog")&&!run("document.relations.get").data.at("parameters").contains("double_volume"),"Relations GUI evaluated before Regenerate");
+        run("regenerate");check(run("document.relations.get").data.at("parameters").at("double_volume")=="18","Relations GUI source was not evaluated on Regenerate");
+        json_run("document.relations.set",{{"relations",""}});relations_action->trigger();flush();relations_dialog=window.findChild<QDialog*>("relationsDialog");
         relations_dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
         check(run("document.relations.get").data.at("relations").empty(),"Opening empty relations invented a mass relation");
         const commands::Json family_table={

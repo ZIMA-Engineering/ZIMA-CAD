@@ -44,7 +44,7 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
         {{"key","NAME"},{"values",{{"cs","Držák"},{"en","Bracket"}}},{"labels",{{"cs","Název"}}}}});
     run(host,"document.parameters.set",{{"parameters",entries}});
     require(part->session.document().user_parameters.at("NUMBER")=="ZE-100" && !part->session.document().user_parameters.contains("NAME") &&
-        part->session.document().user_parameter_order==std::vector<std::string>({"NUMBER","NAME","mass"}),"Shared/localized parameter storage or order changed");
+        part->session.document().user_parameter_order==std::vector<std::string>({"NUMBER","NAME"}),"Shared/localized parameter storage or order changed");
     require(!run(host,"document.parameters.set",{{"parameters",entries}}).data.at("changed").get<bool>(),"Derived parameter normalization created a spurious Undo entry");
     const auto edited=workspace::user_parameters(live,id);run(host,"undo");require(workspace::user_parameters(live,id)==original,"Parameter Undo did not restore data");run(host,"redo");require(workspace::user_parameters(live,id)==edited,"Parameter Redo lost localized values");
     auto reordered=edited;std::swap(reordered.order[0],reordered.order[1]);
@@ -69,7 +69,13 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
         auto invalid=entries;invalid[0]["key"]=key;reject("document.parameters.set",{{"parameters",invalid}});
     }
     for(const auto* value:{"line1\nline2","leading "," trailing","line1\rline2"}) {
-        auto invalid=entries;invalid[0]["values"][""]=value;reject("document.parameters.set",{{"parameters",invalid}});
+        auto text_entries=entries;text_entries[0]["values"][""]=value;
+        run(host,"document.parameters.set",{{"parameters",text_entries}});
+        require(workspace::user_parameters(live,id).flat.at("NUMBER")==value,"Parameter whitespace was changed");
+        run(host,"save");
+        require(document::PartDocument::load(dir/"metadata-part.prtz").user_parameters.at("NUMBER")==value,"Native parameter whitespace did not round-trip");
+        run(host,"undo");
+        auto invalid=entries;invalid[0]["labels"]["cs"]=value;reject("document.parameters.set",{{"parameters",invalid}});
     }
     reject("document.settings.set",{{"units",{{"Length","yard"}}}});reject("document.settings.set",{{"units",{{"Lenght","cm"}}}});
     reject("document.settings.set",{{"precision",{{"mesh_deflection",0}}}});reject("document.settings.set",{{"precision",{{"decimal_places",2.5}}}});
@@ -104,11 +110,12 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
     require(run(host,"document.settings.get").data.at("sheet_metal").at("thickness_mm").is_null(),"Sheet thickness cannot be unset");
     run(host,"undo");require(run(host,"document.settings.get").data.at("sheet_metal")==sheet,"Sheet defaults Undo failed");
     run(host,"redo");require(run(host,"document.settings.get").data.at("sheet_metal").at("thickness_mm").is_null(),"Sheet defaults Redo failed");run(host,"undo");
-    // A relation error must fail before even the generation counter changes.
+    // Parameter edits store values; relation failures are deferred to Regenerate.
     auto related=part->session.document();related.user_parameters["DIVISOR"]="1";related.user_parameter_values["DIVISOR"][""]="1";related.user_parameter_order.push_back("DIVISOR");
-    related.relations.push_back({"VOLUME","model.volume / DIVISOR"});part->session.commit(std::move(related),part->session.calculated_boundaries());
+    related.relations+="VOLUME = model.volume / DIVISOR\n";part->session.commit(std::move(related),part->session.calculated_boundaries());
     auto invalid_relation=run(host,"document.parameters.get").data.at("parameters");for(auto& entry:invalid_relation)if(entry.at("key")=="DIVISOR")entry["values"][""]="0";
-    reject("document.parameters.set",{{"parameters",invalid_relation}});
+    run(host,"document.parameters.set",{{"parameters",invalid_relation}});
+    reject("regenerate",Json::object());
     run(host,"save");const auto loaded=document::PartDocument::load(dir/"metadata-part.prtz");
     require(loaded.user_parameter_values==part->session.document().user_parameter_values && loaded.document_precision==part->session.document().document_precision,"Native save lost metadata");
     require(document::sheet_metal_defaults(loaded)==document::SheetMetalDefaults{2.5,.42},"Native save lost sheet defaults");
@@ -147,7 +154,7 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
     run(host,"document.parameters.set",{{"parameters",entries}});run(host,"document.settings.set",{{"units",{{"Length","m"}}},{"precision",{{"decimal_places",9}}}});
     require(live.open_assembly(owner)->session.document().components.front().calculated_source.shares_with(snapshot) && live.open_assembly(parent_id)->session.revision()==parent_revision,"Metadata edit refreshed an Assembly or parent snapshot");
     run(host,"save");const auto assembly=assembly::AssemblyDocument::load(dir/"metadata-assembly.asmz");require(assembly.user_parameter_values.at("NAME").at("cs")=="Držák" && assembly.document_units.at("Length")=="m","Assembly metadata did not persist");
-    run(host,"document.parameters.set",{{"parameters",Json::array()}});require(workspace::user_parameters(live,owner).order==std::vector<std::string>{"mass"},"Empty table did not remove user parameters or preserve the physical relation target");run(host,"undo");require(workspace::user_parameters(live,owner).order.size()==3,"Table removal Undo failed");
+    run(host,"document.parameters.set",{{"parameters",Json::array()}});require(workspace::user_parameters(live,owner).order.empty(),"Empty table evaluated a physical relation outside Regenerate");run(host,"undo");require(workspace::user_parameters(live,owner).order.size()==2,"Table removal Undo failed");
 }
 }
 int main(){try{kernel::OcctKernel kernel;const auto parent=fs::canonical(fs::temp_directory_path());const auto dir=parent/("zima-metadata-"+document::PartDocument::create_default().document_id);fs::create_directory(dir);verify(kernel,dir);require(dir.parent_path()==parent,"Unsafe cleanup");fs::remove_all(dir);std::cout<<"Parameters, localized values, units, geometry preservation, relation errors, Undo and native metadata persistence passed\n";return 0;}catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}

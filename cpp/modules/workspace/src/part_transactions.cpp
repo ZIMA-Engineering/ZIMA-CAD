@@ -1,4 +1,5 @@
 #include <zima/workspace/part_transactions.hpp>
+#include <zima/workspace/history_deletion.hpp>
 #include <zima/workspace/document_dependencies.hpp>
 #include <zima/workspace/sketch_operations.hpp>
 #include <zima/workspace/sketch_reference_operations.hpp>
@@ -268,6 +269,7 @@ void prepare_change(Publication& publication,const Signatures& before,const Sign
 }
 void commit_part_document(Workspace& live,const std::string& document_id,document::PartDocument next,
     std::vector<kernel::BodyResult> calculated) {
+    static_cast<void>(refresh_removed_reference_states(next));
     // Copy the ID: callers may pass a string borrowed from a relocating state.
     const auto id=document_id;const auto* part=live.open_part(id);
     if(!part)throw std::invalid_argument("Part document is not open");

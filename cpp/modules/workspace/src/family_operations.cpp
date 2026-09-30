@@ -1,4 +1,6 @@
 #include <zima/workspace/family_operations.hpp>
+#include <zima/workspace/relation_operations.hpp>
+#include <numbers>
 #include <zima/workspace/native_documents.hpp>
 #include <zima/workspace/engineering_metadata_operations.hpp>
 #include <zima/workspace/primitive_operations.hpp>
@@ -7,6 +9,7 @@
 #include <zima/workspace/drawing_sources.hpp>
 #include <zima/document/feature_sketches.hpp>
 #include <zima/document/bend.hpp>
+#include <zima/document/pattern_dimensions.hpp>
 #include <zima/document/document_copy_json.hpp>
 #include <zima/document/file_path.hpp>
 #include <zima/document/physical_properties.hpp>
@@ -24,6 +27,19 @@ using document::FamilyColumn;
 using Slots=std::map<std::string,double*>;
 Slots feature_slots(document::HistoryContainer& f) {
     switch(f.feature_kind) {
+    case FeatureKind::Feature: {
+        Slots result{{"profile_offset",&f.feature.profile_plane_offset}};
+        if(f.feature.result_type==document::ProfileResultType::Thin)result.emplace("thin_thickness",&f.feature.thin_thickness);
+        for(std::size_t i=0;i<2;++i) {
+            if(i==1&&f.feature.symmetric)continue;
+            const auto side=f.feature.effective_side(i);const auto prefix="side"+std::to_string(i);
+            if(side.operation==document::FeatureSideOperation::Extrusion&&side.extrusion_extent==document::EndCondition::Length)result.emplace(prefix+"_length",&f.feature.sides[i].length);
+            if(side.operation==document::FeatureSideOperation::Revolution&&side.rotation_extent==document::FeatureRotationExtent::Angle)result.emplace(prefix+"_angle",&f.feature.sides[i].angle_degrees);
+            if(side.operation==document::FeatureSideOperation::Extrusion&&f.feature.type==document::FeatureType::Modeling)result.emplace(prefix+"_draft_angle",&f.feature.sides[i].draft_angle_degrees);
+        }
+        return result;
+    }
+    case FeatureKind::SheetTransition:return {{"end_x",&f.sheet_transition.end_position.x},{"end_y",&f.sheet_transition.end_position.y},{"end_z",&f.sheet_transition.end_position.z},{"end_rx",&f.sheet_transition.end_rotation.x},{"end_ry",&f.sheet_transition.end_rotation.y},{"end_rz",&f.sheet_transition.end_rotation.z},{"thickness",&f.sheet_transition.thickness},{"inside_radius",&f.sheet_transition.inside_radius}};
     case FeatureKind::Extrusion: return {{"length_forward",&f.extrusion.length_forward},{"length_reverse",&f.extrusion.length_reverse},{"profile_offset",&f.extrusion.profile_plane_offset},{"thin_thickness",&f.extrusion.thin_thickness}};
     case FeatureKind::Revolution: return {{"angle",&f.revolution.angle_degrees},{"length_reverse",&f.revolution.angle_reverse},{"profile_offset",&f.revolution.profile_plane_offset},{"thin_thickness",&f.revolution.thin_thickness}};
     case FeatureKind::Fillet: return {{"primary",&f.edge_treatment.primary_size},{"secondary",&f.edge_treatment.secondary_size}};
@@ -74,12 +90,16 @@ template<class Doc> void add_sketch_references(std::vector<FamilyReference>& out
     }
 }
 void assign_feature(document::HistoryContainer& f,const std::string& key,double value) {
+    if(f.feature_kind==FeatureKind::DerivedCopy&&document::assign_pattern_dimension(f.derived_copy,key,value))return;
     if(f.value_locks.contains(key))throw std::invalid_argument("The family dimension is locked.");
     if(primitive_definition(f.feature_kind)){assign_primitive_dimensions(f,{{key,value}});return;}
     auto slots=feature_slots(f);const auto found=slots.find(key);
     if(found==slots.end())throw std::invalid_argument("The family dimension is not editable.");
     const bool zero_bend_angle=f.feature_kind==FeatureKind::Bend&&(key=="angle"||key=="radius")&&value==0;
-    if(key!="profile_offset" && value<=0&&!zero_bend_angle)throw std::invalid_argument("Family feature dimensions must be positive.");
+    const bool signed_value=key=="profile_offset"||key.ends_with("draft_angle")||(f.feature_kind==FeatureKind::SheetTransition&&key.starts_with("end_"));
+    if(!signed_value && value<=0&&!zero_bend_angle)throw std::invalid_argument("Family feature dimensions must be positive.");
+    if(key.ends_with("draft_angle")&&std::abs(value)>=90)throw std::invalid_argument("Draft angle must be between -90 and 90 degrees.");
+    if(f.feature_kind==FeatureKind::Feature&&(key=="side0_angle"||key=="side1_angle")&&value>360)throw std::invalid_argument("Revolution angle must be in (0, 360]");
     if((f.feature_kind==FeatureKind::Revolution&&(key=="angle"||key=="length_reverse")&&value>360) ||
         (f.feature_kind==FeatureKind::Bend&&key=="angle"&&value>180) ||
         (key=="treatment_angle"&&value>=90) || ((key=="drill_point_angle"||key=="chamfer_angle")&&value>=180))
@@ -98,6 +118,17 @@ bool assign_sketch(sketcher::Sketch& sketch,const FamilyColumn& binding,double v
     return true;
 }
 template<class Doc> bool assign_dimension(Doc& doc,const FamilyColumn& binding,double value) {
+    if(binding.semantic_key.starts_with("parameter:pattern:")) {
+        const auto key=binding.semantic_key.substr(10);
+        if constexpr(requires {doc.body_history;}) {
+            if(const auto* body=doc.body_history.find(binding.owner_id);body&&body->derived_copy) {
+                auto next=*body;
+                if(!document::assign_pattern_dimension(*next.derived_copy,key,value))return false;
+                doc.body_history.update_body(std::move(next));return true;
+            }
+        } else if(auto* component=doc.find_occurrence(binding.owner_id);component&&component->derived_copy)
+            return document::assign_pattern_dimension(*component->derived_copy,key,value);
+    }
     if constexpr(requires {doc.history;}) {
         for(auto& f:doc.history)if(f.id==binding.owner_id && binding.semantic_key.starts_with("parameter:")) {
             const auto key=binding.semantic_key.substr(10);
@@ -166,6 +197,52 @@ template<class Doc> void apply(Doc& doc,const document::FamilyTable& table,const
 bool assign_driving_dimension(document::PartDocument& doc,const document::FamilyColumn& binding,double value) {
     return assign_dimension(doc,binding,value);
 }
+
+namespace {
+template<class Doc> std::map<std::string,RelationDimension> dimension_inputs(const Doc& doc) {
+    std::map<std::string,RelationDimension> result;
+    const double length=document::length_unit_mm(doc.document_units.at("Length"));
+    const double angle=doc.document_units.at("Angle")=="rad"?180./std::numbers::pi:1.;
+    const auto add=[&](const std::string& owner,const std::string& key,double native,bool angular,bool writable,bool count=false) {
+        const auto name=doc.dimension_identifiers.identifier(owner,key);if(name.empty())return;
+        const double scale=count?1.:angular?angle:length;
+        result[name]={{"dimension",owner,key},{{native/scale,count?std::array<int,3>{}:angular?std::array<int,3>{0,1,0}:std::array<int,3>{1,0,0}},writable},scale};
+    };
+    const auto pattern=[&](const std::string& owner,const document::DerivedCopyParameters& copy) {
+        for(const auto& d:document::pattern_dimension_values(copy))add(owner,"parameter:"+d.key,d.value,d.angular,d.writable,d.count);
+    };
+    const auto feature=[&](document::HistoryContainer f) {
+        if(f.feature_kind==FeatureKind::DerivedCopy)pattern(f.id,f.derived_copy);
+        const auto slot=[&](const std::string& key,double value) {
+            const bool angular=key.find("angle")!=std::string::npos||key=="end_rx"||key=="end_ry"||key=="end_rz"||(f.feature_kind==FeatureKind::Revolution&&key=="length_reverse");
+            add(f.id,"parameter:"+key,value,angular,!f.value_locks.contains(key));
+        };
+        if(primitive_definition(f.feature_kind))for(const auto& [key,value]:primitive_dimensions(f))slot(key,value);
+        else for(const auto& [key,value]:feature_slots(f))slot(key,*value);
+        if(f.feature_kind==FeatureKind::Sketch||f.feature_kind==FeatureKind::Holes||f.feature_kind==FeatureKind::Bend)
+            for(const auto& sketch:doc.sketches)if(sketch.owner_container_id==f.id)slot("profile_offset",sketch.plane_offset);
+    };
+    const auto sketch=[&](const sketcher::Sketch& s) {
+        using K=sketcher::DimensionKind;
+        for(const auto& d:s.dimensions) {
+            const bool angular=d.kind==K::Angle||d.kind==K::AngleBetween||d.kind==K::AngleThreePoint||d.kind==K::AngleSymmetric||d.kind==K::EllipseRotation;
+            add(s.id,"dimension:"+d.id,sketcher::dimension_display_value(d),angular,d.driving&&!d.suppressed&&!d.locked);
+            const auto name=doc.dimension_identifiers.identifier(s.id,"dimension:"+d.id);
+            if(result.contains(name))result.at(name).input.calculated=!d.driving;
+        }
+        for(const auto& r:s.corner_radii)add(s.id,"corner_dimension:"+r.id,r.radius,false,true);
+    };
+    if constexpr(requires{doc.history;})for(const auto& f:doc.history){feature(f);document::visit_feature_sketches(f,[&](const auto& data,std::size_t){sketch(sketcher::Sketch::from_serialized(data));});}
+    else for(const auto& cut:doc.cuts)feature(cut.definition);
+    for(const auto& s:doc.sketches)sketch(s);
+    if constexpr(requires{doc.body_history;}) {
+        for(const auto& body:doc.body_history.bodies())if(body.derived_copy)pattern(body.scope.id,*body.derived_copy);
+    } else for(const auto& c:doc.components)if(c.derived_copy)pattern(c.occurrence_id,*c.derived_copy);
+    return result;
+}
+}
+std::map<std::string,RelationDimension> relation_dimensions(const document::PartDocument& doc){return dimension_inputs(doc);}
+std::map<std::string,RelationDimension> relation_dimensions(const assembly::AssemblyDocument& doc){return dimension_inputs(doc);}
 void apply_family_variant(document::PartDocument& doc,const document::FamilyTable& table,const document::FamilyInstance& row) { apply(doc,table,row); }
 bool assign_driving_dimension(assembly::AssemblyDocument& doc,const document::FamilyColumn& binding,double value) {
     return assign_dimension(doc,binding,value);

@@ -7,6 +7,8 @@
 #include <zima/kernel/annotation_layout.hpp>
 #include <zima/viewer/dimension_text_layer.hpp>
 #include <QApplication>
+#include <QHelpEvent>
+#include <QToolTip>
 #include <zima/viewer/view_theme.hpp>
 #include <zima/viewer/annotation_arrow.hpp>
 #include <QOpenGLPaintDevice>
@@ -50,6 +52,23 @@
 namespace zima::viewer {
 
 namespace {
+
+class RelationMarkLayer final : public QWidget {
+public:
+    std::vector<DimensionTextLabel> labels;
+    explicit RelationMarkLayer(QWidget* parent):QWidget(parent) {
+        setObjectName("relationMarkLayer");setAttribute(Qt::WA_TransparentForMouseEvents);
+        setAttribute(Qt::WA_NoSystemBackground);
+    }
+    void paintEvent(QPaintEvent*) override {
+        QPainter painter(this);painter.setRenderHint(QPainter::TextAntialiasing);
+        for(const auto& label:labels) {
+            painter.save();painter.translate(label.baseline);painter.rotate(label.angle);
+            painter.setFont(label.font);painter.setPen(label.color);
+            painter.drawText(QPointF(-QFontMetricsF(label.font).horizontalAdvance("fx "),0),"fx");painter.restore();
+        }
+    }
+};
 
 bool is_sketch_wire_edge(const zima::kernel::ViewerEdge& edge) {
     const auto& key = edge.reference.semantic_key;
@@ -126,6 +145,8 @@ void draw_circular_marker(QPainter& painter, const QPointF& center,
 }  // namespace
 
 struct MeshView::Impl {
+    RelationMarkLayer* relation_marks{};
+    std::map<std::pair<std::string,std::string>,std::string> dimension_relations;
     zima::kernel::ViewerMesh mesh;
     std::optional<zima::kernel::ViewerMesh> surface_source_mesh;
     bool show_surfaces{true};
@@ -689,6 +710,7 @@ struct MeshView::Impl {
 
 MeshView::MeshView(QWidget* parent)
     : QOpenGLWidget(parent), impl_(std::make_unique<Impl>()) {
+    impl_->relation_marks=new RelationMarkLayer(this);
     setFont(zima::technical_font());
     setMinimumSize(240, 180);
     setMouseTracking(true);
@@ -2628,6 +2650,25 @@ void MeshView::set_view_direction(
 void MeshView::set_dimension_visibility_filter(std::function<bool(const zima::kernel::ViewerDimension&)> filter) {
     impl_->dimension_visibility_filter=std::move(filter);impl_->candidates.clear();update();
 }
+void MeshView::set_dimension_relations(std::map<std::pair<std::string,std::string>,std::string> values) {
+    if(impl_->dimension_relations==values)return;
+    impl_->dimension_relations=std::move(values);impl_->relation_marks->labels.clear();impl_->relation_marks->update();update();
+}
+bool MeshView::event(QEvent* event) {
+    if(event->type()==QEvent::ToolTip) {
+        const auto candidate=hovered_candidate();
+        if(candidate&&candidate->kind==CandidateKind::Dimension) {
+            const auto relation=impl_->dimension_relations.find({candidate->owner_id,candidate->semantic_key});
+            if(relation!=impl_->dimension_relations.end()) {
+                const auto* help=static_cast<QHelpEvent*>(event);
+                QToolTip::showText(help->globalPos(),"<pre>"+QString::fromStdString(relation->second).toHtmlEscaped()+"</pre>",this);
+                return true;
+            }
+        }
+        QToolTip::hideText();
+    }
+    return QOpenGLWidget::event(event);
+}
 void MeshView::set_reference_visibility(
     ReferenceVisibility reference, bool visible) {
     switch (reference) {
@@ -2896,6 +2937,8 @@ void MeshView::upload_mesh() {
 }
 
 void MeshView::paintGL() {
+    impl_->relation_marks->labels.clear();
+    impl_->relation_marks->setGeometry(rect());impl_->relation_marks->raise();impl_->relation_marks->update();
     update_annotation_presentation();
     // Coincident local planes are common while entering Curve/Sweep Points.
     // Paint inspected frames last so a later ordinary frame cannot erase
@@ -4254,6 +4297,8 @@ if (impl_->show_origins) {
                 for(const auto& curve:layout.curves)painter.drawPolyline(curve);
                 for(const auto& [tip,direction]:layout.arrows)painter.drawPolygon(annotation_arrow(tip,direction,10));
                 dimension_texts.push_back({text,layout.text_baseline,layout.text_angle,painter.font(),color,kernel::dimension_is_basic(dimension)});
+                if(impl_->dimension_relations.contains({dimension.reference.owner_id,dimension.reference.semantic_key}))
+                    impl_->relation_marks->labels.push_back(dimension_texts.back());
                 painter.setBrush(Qt::NoBrush);
             }
         }

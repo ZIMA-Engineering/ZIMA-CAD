@@ -8,6 +8,7 @@
 #include <zima/ui/properties_subwindow.hpp>
 #include <zima/workspace/family_operations.hpp>
 #include <QPersistentModelIndex>
+#include <QTextCursor>
 
 #include <functional>
 #include <map>
@@ -20,8 +21,10 @@ class QSpinBox;
 class QTableWidget;
 class QTabWidget;
 class QPushButton;
+class QLabel;
 
 namespace zima::app {
+class RelationTextEditor;
 
 struct DocumentToolData {
     std::optional<zima::document::SheetMetalDefaults> sheet_metal;
@@ -85,18 +88,24 @@ private:
 class RelationsDialog final : public zima::ui::PropertiesSubWindow {
 public:
     RelationsDialog(std::map<std::string, std::string> parameters,
-                    std::vector<zima::document::ModelRelation> relations,
-                    std::function<void(std::vector<zima::document::ModelRelation>)> accepted,
+                    std::string relations,
+                    std::function<void(std::string)> accepted,
                     const ApplicationSettings& settings, QWidget* parent);
     void set_dimension_catalog(std::vector<zima::document::DimensionParameter> parameters,
-        const zima::document::DimensionIdentifiers& identifiers);
+        const zima::document::DimensionIdentifiers& identifiers,
+        const std::map<std::string,std::string>& values = {});
+    std::function<void()> entry_changed;
+    bool entering_dimension() const;
+    void end_entry();
+    void insert_dimension(const QString& identifier,const QString& value);
 protected:
     bool submit() override;
 private:
-    void add_row(const std::string& target = {}, const std::string& expression = {});
-    std::map<std::string, std::string> parameters_;
-    std::function<void(std::vector<zima::document::ModelRelation>)> accepted_;
-    QTableWidget* table_{};
+    std::function<void(std::string)> accepted_;
+    RelationTextEditor* editor_{};
+    QPushButton* pick_dimension_{};
+    QLabel* picked_dimension_{};
+    QTextCursor insertion_cursor_;
 };
 
 class FamilyTableDialog final : public zima::ui::PropertiesSubWindow {

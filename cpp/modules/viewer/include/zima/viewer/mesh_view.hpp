@@ -128,6 +128,8 @@ public:
     void set_view_direction(const zima::kernel::Vec3& direction);
     void set_view_direction(const zima::kernel::Vec3& direction, float roll_degrees, bool preserve_pan = false);
     void set_dimension_visibility_filter(std::function<bool(const zima::kernel::ViewerDimension&)> filter);
+    // A transparent QWidget overlay, excluded from the GL framebuffer and native exports.
+    void set_dimension_relations(std::map<std::pair<std::string,std::string>,std::string>);
     void set_reference_visibility(ReferenceVisibility reference, bool visible);
     [[nodiscard]] bool reference_visible(ReferenceVisibility reference) const;
     void set_editing_origin_visible(bool visible);
@@ -318,6 +320,7 @@ public:
     [[nodiscard]] double world_tolerance_for_pixels(double pixels) const;
 
 protected:
+    bool event(QEvent*) override;
     void initializeGL() override;
     void resizeGL(int width, int height) override;
     void paintGL() override;

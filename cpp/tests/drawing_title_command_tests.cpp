@@ -78,11 +78,11 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
     require(duplicate.find_sheet(sheet_id)->local_parameters.at("note")=="Together","Conflicting aliases partially changed local parameters");
     auto values=workspace::user_parameters(live,second);values.order.push_back("DIVISOR");values.values["DIVISOR"][""]="2";values.order.push_back("VOLUME");values.values["VOLUME"][""]="3000";
     workspace::set_user_parameters(live,second,std::move(values));
-    auto physical=live.open_part(second)->session.document();physical.relations.push_back({"VOLUME","model.volume / DIVISOR"});live.open_part(second)->session.commit(std::move(physical),live.open_part(second)->session.calculated_boundaries());
+    auto physical=live.open_part(second)->session.document();physical.relations+="VOLUME = model.volume / DIVISOR\n";live.open_part(second)->session.commit(std::move(physical),live.open_part(second)->session.calculated_boundaries());
     auto with_field=live.open_drawing(doc.document_id)->document();with_field.find_sheet(sheet_id)->title_block_fields.push_back(field("DIVISOR","&DIVISOR",true));live.open_drawing(doc.document_id)->commit(std::move(with_field));
     run(host,"drawing.title.set",{{"sheet",sheet_id},{"bom_row",row},{"values",{{"DIVISOR","4"}}}});
-    for(const auto& s:live.open_drawing(doc.document_id)->document().sheets)require(std::stod(s.bom_rows[1].parameters.at("VOLUME"))==1500,"BOM mirror used parameters before relation evaluation");
-    auto* source=live.open_part(second);auto related=source->session.document();related.relations.push_back({"revision","1"});source->session.commit(std::move(related),source->session.calculated_boundaries());
+    for(const auto& s:live.open_drawing(doc.document_id)->document().sheets)require(std::stod(s.bom_rows[1].parameters.at("VOLUME"))==3000,"Title edit evaluated relations outside Regenerate");
+    auto* source=live.open_part(second);auto related=source->session.document();related.relations+="revision = 1\n";source->session.commit(std::move(related),source->session.calculated_boundaries());
     const auto protected_revision=source->session.revision(),drawing_revision=live.open_drawing(doc.document_id)->revision();
     const auto readonly=run(host,"drawing.title.get",{{"sheet",sheet_id},{"bom_row",row}}).data;
     for(const auto& f:readonly.at("fields"))if(f.at("field")=="parameter:revision")require(f.at("writable")==false,"Calculated parameter was writable");

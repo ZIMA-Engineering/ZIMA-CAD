@@ -5,6 +5,7 @@
 #include <zima/workspace/symbol_operations.hpp>
 #include <zima/workspace/metadata_operations.hpp>
 #include <zima/workspace/engineering_metadata_operations.hpp>
+#include <zima/workspace/relation_operations.hpp>
 #include <zima/workspace/sheet_state_operations.hpp>
 #include <zima/workspace/sheet_exchange_operations.hpp>
 #include <zima/workspace/export_operations.hpp>
@@ -351,18 +352,77 @@ void AssemblyWorkspaceWindow::edit_relations() {
         [this, id](auto next_relations) {
             static_cast<void>(zima::workspace::set_model_relations(workspace_,id,std::move(next_relations)));
             refresh_tabs();
+            preserve_view_on_refresh_=true;refresh_scene();
         }, application_settings_, this);
-    if (const auto* part = workspace_.open_part(id)) {
-        const auto& document = part->session.document();
-        dialog->set_dimension_catalog(document.dimension_parameters(), document.dimension_identifiers);
-    } else if (const auto* assembly = workspace_.open_assembly(id)) {
-        const auto& document = assembly->session.document();
-        dialog->set_dimension_catalog(document.dimension_parameters(), document.dimension_identifiers);
-    }
+    const auto catalog=[&](const auto& doc){
+        const auto definitions=workspace::relation_dimensions(doc);auto dimensions=doc.dimension_parameters();
+        std::erase_if(dimensions,[&](const auto& d){return !definitions.contains(doc.dimension_identifiers.identifier(d.owner_id,d.semantic_key));});
+        std::map<std::string,std::string> values;
+        for(const auto& [name,d]:definitions)values[name]=document::relation_value_text(d.input.value,viewer_->dimension_decimal_places());
+        dialog->set_dimension_catalog(std::move(dimensions),doc.dimension_identifiers,values);
+    };
+    if(const auto* part=workspace_.open_part(id))catalog(part->session.document());
+    else if(const auto* assembly=workspace_.open_assembly(id))catalog(assembly->session.document());
     dialog->setAttribute(Qt::WA_DeleteOnClose);
+    dialog->setProperty("relationsDocument",QString::fromStdString(id));
+    dialog->setProperty("relationsOccurrence",QString::fromStdString(workspace_.active_occurrence_path()));
+    dialog->entry_changed=[this]{update_relation_selection();};
+    const auto previous_dimensions=construction_dimension_object_id_;
     properties_dialog_ = dialog;
-    connect(dialog, &QObject::destroyed, this, [this, dialog] { if (properties_dialog_ == dialog) properties_dialog_ = nullptr; });
-    dialog->show();
+    connect(dialog, &QObject::destroyed, this, [this, dialog,previous_dimensions] {
+        if(properties_dialog_==dialog)properties_dialog_=nullptr;
+        construction_dimension_object_id_=previous_dimensions;viewer_->set_candidate_filter({});viewer_->set_candidate_priority({});
+        viewer_->set_original_container_selection(false);viewer_->clear_selection();preserve_view_on_refresh_=true;refresh_scene();
+    });
+    dialog->show();update_relation_selection();
+}
+
+void AssemblyWorkspaceWindow::update_relation_selection() {
+    auto* dialog=dynamic_cast<RelationsDialog*>(properties_dialog_);if(!dialog)return;
+    const auto prefix=dialog->property("relationsOccurrence").toString().toStdString();
+    std::set<std::pair<std::string,std::string>> dimensions;
+    std::set<std::string> patterns;
+    const auto collect=[&](const auto& doc){for(const auto& [name,d]:workspace::relation_dimensions(doc))dimensions.emplace(d.binding.owner_id,d.binding.semantic_key);};
+    if(const auto* part=workspace_.open_part(workspace_.active_document_id()))collect(part->session.document());
+    else if(const auto* assembly=workspace_.open_assembly(workspace_.active_document_id())) {
+        collect(assembly->session.document());
+        for(const auto& c:assembly->session.document().components)if(c.derived_copy&&c.derived_copy->pattern)patterns.insert(c.occurrence_id);
+    }
+    viewer_->set_original_container_selection(workspace_.open_part(dialog->property("relationsDocument").toString().toStdString())!=nullptr);
+    viewer_->set_selection_contract({viewer::CandidateKind::Dimension,viewer::CandidateKind::Container,viewer::CandidateKind::Occurrence});
+    viewer_->set_candidate_filter([dialog,prefix,dimensions,patterns](const auto& candidate){
+        if(!dialog->entering_dimension())return false;
+        if(candidate.kind==viewer::CandidateKind::Occurrence) {
+            const auto parent=assembly::InstancePath::decode(prefix),path=assembly::InstancePath::decode(candidate.instance_path);
+            return path.occurrence_ids.size()>parent.occurrence_ids.size()&&std::equal(parent.occurrence_ids.begin(),parent.occurrence_ids.end(),path.occurrence_ids.begin())&&
+                (path.occurrence_ids.size()==parent.occurrence_ids.size()+1||patterns.contains(path.occurrence_ids[parent.occurrence_ids.size()]));
+        }
+        return candidate.instance_path==prefix&&(candidate.kind==viewer::CandidateKind::Container||
+            (candidate.kind==viewer::CandidateKind::Dimension&&dimensions.contains({candidate.owner_id,candidate.semantic_key})));
+    },false);
+    viewer_->set_candidate_priority([](const auto& candidate){return candidate.kind==viewer::CandidateKind::Dimension?0:1;});
+    viewer_->set_dimension_layout_editable(false);viewer_->clear_selection();
+}
+bool AssemblyWorkspaceWindow::accept_relation_dimension(const viewer::ViewerCandidate& candidate) {
+    auto* dialog=dynamic_cast<RelationsDialog*>(properties_dialog_);if(!dialog)return false;
+    if(!dialog->entering_dimension())return true;
+    if(const auto filter=viewer_->candidate_filter();filter&&!filter(candidate))return true;
+    if(candidate.kind!=viewer::CandidateKind::Dimension) {
+        if(candidate.kind==viewer::CandidateKind::Occurrence&&show_pattern_occurrence_dimensions(candidate.instance_path)){update_relation_selection();return true;}
+        auto owner=candidate.owner_id;
+        if(candidate.kind==viewer::CandidateKind::Occurrence)owner=assembly::InstancePath::decode(candidate.instance_path).occurrence_ids.back();
+        viewer_->set_reference_visibility(viewer::ReferenceVisibility::Dimensions,true);
+        show_parameter_dimensions(owner);update_relation_selection();return true;
+    }
+    const auto identifier=dimension_identifier(candidate.owner_id,candidate.semantic_key);
+    const auto insert=[&](const auto& doc) {
+        const auto definitions=workspace::relation_dimensions(doc);
+        if(const auto value=definitions.find(identifier.toStdString());value!=definitions.end())
+            dialog->insert_dimension(identifier,QString::fromStdString(document::relation_value_text(value->second.input.value,viewer_->dimension_decimal_places())));
+    };
+    if(const auto* part=workspace_.open_part(workspace_.active_document_id()))insert(part->session.document());
+    else if(const auto* assembly=workspace_.open_assembly(workspace_.active_document_id()))insert(assembly->session.document());
+    return true;
 }
 
 void AssemblyWorkspaceWindow::edit_family_table() {

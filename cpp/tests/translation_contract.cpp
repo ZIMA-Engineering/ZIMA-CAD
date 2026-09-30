@@ -116,6 +116,14 @@ int verify_translations(QApplication& application, QWidget& parent) {
             !settings.translations.contains("Zamknout hodnotu"), "INI sections were mixed");
         app::apply_application_translations(application, settings);
         {
+            app::RelationsDialog dialog({},"",[](auto){},settings,&parent);
+            dialog.setAttribute(Qt::WA_DeleteOnClose,false);
+            const auto* arrow=dialog.findChild<QPushButton*>("relationsPickDimension");
+            check(arrow&&arrow->text()==settings.qt_translations.value("Insert dimension from View"),"Relation picker is untranslated");
+            check(dialog.findChild<QPushButton*>("relationsImport")->text()==settings.qt_translations.value("Import text…"),"Relation import is untranslated");
+            check(dialog.findChild<QPushButton*>("relationsExport")->text()==settings.qt_translations.value("Export text…"),"Relation export is untranslated");
+        }
+        {
             assembly::PartOccurrence occurrence;occurrence.name="Source";
             app::ComponentPropertiesDialog dialog(occurrence,[](auto){},&parent);
             dialog.setAttribute(Qt::WA_DeleteOnClose,false);

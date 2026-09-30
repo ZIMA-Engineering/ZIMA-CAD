@@ -1,4 +1,9 @@
 #include "document_tools_dialogs.hpp"
+#include "relation_text_editor.hpp"
+#include <zima/document/relation_program.hpp>
+#include <QFile>
+#include <QSaveFile>
+#include <QStringDecoder>
 #include "file_dialog.hpp"
 #include "table_entry.hpp"
 #include "resource_icon.hpp"
@@ -341,44 +346,76 @@ bool FileSettingsDialog::submit() {
 
 RelationsDialog::RelationsDialog(
     std::map<std::string, std::string> parameters,
-    std::vector<zima::document::ModelRelation> relations,
-    std::function<void(std::vector<zima::document::ModelRelation>)> accepted,
+    std::string relations,
+    std::function<void(std::string)> accepted,
     const ApplicationSettings& settings, QWidget* parent)
     : PropertiesSubWindow(settings.text("dialog.relations.title", "Relace"), parent),
-      parameters_(std::move(parameters)), accepted_(std::move(accepted)) {
-    setObjectName("relationsDialog"); resize(820, 440);
+      accepted_(std::move(accepted)) {
+    setObjectName("relationsDialog"); resize(900, 680);
     setProperty("expandBottomTable", true);
-    auto* explanation = new QLabel(settings.text("dialog.relations.explanation",
-        "Relace zapisují vypočítanou hodnotu do cílového parametru."), this);
+    auto* explanation = new QLabel(tr("One assignment per line. Text uses quotes; & joins text. OK saves the source; Regenerate calculates it."), this);
     explanation->setWordWrap(true); content_layout()->addWidget(explanation);
-    table_ = new QTableWidget(0, 3, this); table_->setObjectName("relationsTable");
-    table_->setHorizontalHeaderLabels({QString{},settings.text("column.relation.target", "Cílový parametr"),
-        settings.text("column.relation.expression", "Výraz")});
-    table_->horizontalHeader()->setStretchLastSection(true);
-    content_layout()->addWidget(table_);
-    if (relations.empty()) add_row();
-    else for (const auto& relation : relations) add_row(relation.target, relation.expression);
-    new TableEntryRows(table_,[this]{add_row();});
+    auto* actions=new QHBoxLayout;
+    auto* import_button=new QPushButton(tr("Import text…"),this);import_button->setObjectName("relationsImport");
+    auto* export_button=new QPushButton(tr("Export text…"),this);export_button->setObjectName("relationsExport");
+    auto* insert_button=new QPushButton(tr("Insert text…"),this);insert_button->setObjectName("relationsInsertText");
+    actions->addWidget(import_button);actions->addWidget(export_button);actions->addWidget(insert_button);actions->addStretch();content_layout()->addLayout(actions);
+    editor_=new RelationTextEditor(this);editor_->setPlainText(QString::fromStdString(relations));content_layout()->addWidget(editor_,3);
+    pick_dimension_=new QPushButton(zima::ui::reference_arrow_icon(Qt::RightArrow),tr("Insert dimension from View"),this);
+    pick_dimension_->setObjectName("relationsPickDimension");pick_dimension_->setCheckable(true);actions->insertWidget(0,pick_dimension_);
+    picked_dimension_=new QLabel(this);picked_dimension_->setObjectName("relationsPickedDimension");content_layout()->addWidget(picked_dimension_);
+    connect(pick_dimension_,&QPushButton::toggled,this,[this](bool enabled){if(enabled)insertion_cursor_=editor_->textCursor();if(entry_changed)entry_changed();});
+    connect(import_button,&QPushButton::clicked,this,[this]{
+        const auto path=open_file(this,tr("Import relations"),{},tr("UTF-8 text (*.txt)"));if(path.isEmpty())return;
+        QFile file(path);if(!file.open(QIODevice::ReadOnly)||file.size()>1024*1024){QMessageBox::warning(this,windowTitle(),tr("Cannot read the relation text file (maximum 1 MiB)."));return;}
+        QStringDecoder decoder(QStringDecoder::Utf8);const QString source=decoder(file.readAll());
+        if(decoder.hasError()){QMessageBox::warning(this,windowTitle(),tr("The file is not valid UTF-8 text."));return;}
+        editor_->selectAll();editor_->insertPlainText(source);
+    });
+    connect(export_button,&QPushButton::clicked,this,[this]{
+        const auto path=save_file(this,tr("Export relations"),{},tr("UTF-8 text (*.txt)"),"txt");if(path.isEmpty())return;
+        QSaveFile file(path);const auto bytes=editor_->toPlainText().toUtf8();
+        if(!file.open(QIODevice::WriteOnly)||file.write(bytes)!=bytes.size()||!file.commit())QMessageBox::warning(this,windowTitle(),tr("Cannot save the relation text file."));
+    });
+    connect(insert_button,&QPushButton::clicked,this,[this]{
+        class TextDialog final:public zima::ui::PropertiesSubWindow {
+            QPlainTextEdit* text_;std::function<void(QString)> accepted_;
+            bool submit() override {accepted_(text_->toPlainText());return true;}
+        public:
+            TextDialog(QWidget* parent,std::function<void(QString)> accepted):PropertiesSubWindow(QObject::tr("Insert text"),parent),accepted_(std::move(accepted)){
+                setObjectName("relationInsertTextDialog");resize(480,260);text_=new QPlainTextEdit(this);text_->setObjectName("relationLiteralText");content_layout()->addWidget(text_,1);
+            }
+        };
+        const QPointer<RelationsDialog> owner(this);
+        auto* dialog=new TextDialog(parentWidget(),[owner](const QString& text){if(owner)owner->editor_->insertPlainText(QString::fromStdString(zima::document::quote_relation_text(text.toStdString())));});
+        connect(this,&QObject::destroyed,dialog,&QWidget::close);
+        dialog->setAttribute(Qt::WA_DeleteOnClose);dialog->show();
+    });
 }
 
 void RelationsDialog::set_dimension_catalog(
     std::vector<zima::document::DimensionParameter> parameters,
-    const zima::document::DimensionIdentifiers& identifiers) {
+    const zima::document::DimensionIdentifiers& identifiers,
+    const std::map<std::string,std::string>& values) {
     std::sort(parameters.begin(), parameters.end(), [&](const auto& a, const auto& b) {
         const auto first = identifiers.identifier(a.owner_id, a.semantic_key);
         const auto second = identifiers.identifier(b.owner_id, b.semantic_key);
         return first.size() != second.size() ? first.size() < second.size() : first < second;
     });
-    auto* title = new QLabel(tr("Identifikace kót v dokumentu (pro budoucí vzorce)"), this);
+    auto* title = new QLabel(tr("Document dimensions — double-click to insert an identifier"), this);
     content_layout()->addWidget(title);
-    auto* catalog = new QTableWidget(static_cast<int>(parameters.size()), 3, this);
+    auto* catalog = new QTableWidget(static_cast<int>(parameters.size()), 4, this);
     catalog->setObjectName("documentDimensionIdentifiers");
-    catalog->setHorizontalHeaderLabels({tr("Identifikace"), tr("Objekt"), tr("Kóta / parametr")});
+    catalog->setHorizontalHeaderLabels({tr("Identifikace"), tr("Objekt"), tr("Kóta / parametr"),tr("Hodnota")});
     catalog->setEditTriggers(QAbstractItemView::NoEditTriggers);
     catalog->horizontalHeader()->setStretchLastSection(true);
     const auto parameter_label = [&](const std::string& semantic) -> QString {
         if (semantic.starts_with("dimension:")) return tr("Kóta skici");
         if (semantic.starts_with("corner_dimension:")) return tr("Poloměr rohu");
+        if (semantic.starts_with("parameter:pattern:spacing:")) return tr("Rozteč");
+        if (semantic=="parameter:pattern:angle") return tr("Úhel");
+        if (semantic.starts_with("parameter:pattern:count")) return tr("Počet");
+        if (semantic.starts_with("parameter:pattern:reverse_count:")) return tr("Počet vzad");
         auto key = QString::fromStdString(semantic);
         const bool placement = key.startsWith("parameter:placement:");
         if (key.startsWith("placement-reference:") || key.contains("reference_offset:")) {
@@ -415,8 +452,10 @@ void RelationsDialog::set_dimension_catalog(
     };
     int row = 0;
     for (const auto& parameter : parameters) {
-        const QStringList cells{QString::fromStdString(identifiers.identifier(parameter.owner_id, parameter.semantic_key)),
-            QString::fromStdString(parameter.owner_name), parameter_label(parameter.semantic_key)};
+        const auto name=identifiers.identifier(parameter.owner_id,parameter.semantic_key);
+        const QStringList cells{QString::fromStdString(name),
+            QString::fromStdString(parameter.owner_name), parameter_label(parameter.semantic_key),
+            values.contains(name)?QString::fromStdString(values.at(name)):QString{}};
         for (int column=0; column<cells.size(); ++column) {
             auto* item = new QTableWidgetItem(cells[column]);
             item->setToolTip(QString::fromStdString(parameter.owner_id + " / " + parameter.semantic_key));
@@ -425,30 +464,25 @@ void RelationsDialog::set_dimension_catalog(
         ++row;
     }
     catalog->resizeColumnsToContents();
+    catalog->setMaximumHeight(170);
+    connect(catalog,&QTableWidget::cellDoubleClicked,this,[this,catalog](int row,int){if(const auto* item=catalog->item(row,0))editor_->insertPlainText(item->text());});
     content_layout()->addWidget(catalog, 1);
     resize(820, 620);
 }
 
-void RelationsDialog::add_row(const std::string& target, const std::string& expression) {
-    const int row = table_->rowCount(); table_->insertRow(row);
-    auto* combo = new QComboBox(table_); combo->setEditable(true);
-    for (const auto& [key, value] : parameters_) combo->addItem(QString::fromStdString(key));
-    combo->setCurrentText(QString::fromStdString(target)); table_->setCellWidget(row, 1, combo);
-    table_->setItem(row, 2, new QTableWidgetItem(QString::fromStdString(expression)));
-}
-
 bool RelationsDialog::submit() {
-    std::vector<zima::document::ModelRelation> relations;
-    for (int row = 0; row < table_->rowCount(); ++row) {
-        auto* combo = qobject_cast<QComboBox*>(table_->cellWidget(row, 1));
-        const QString target = combo == nullptr ? QString{} : combo->currentText().trimmed();
-        const QString expression = table_->item(row, 2) == nullptr ? QString{} : table_->item(row, 2)->text().trimmed();
-        if (target.isEmpty() && expression.isEmpty()) continue;
-        relations.push_back({target.toStdString(),expression.toStdString()});
-    }
-    try { zima::document::validate_model_relations(relations); accepted_(std::move(relations)); }
+    try { const auto source=editor_->toPlainText().toStdString();static_cast<void>(zima::document::RelationProgram(source));accepted_(source); }
+    catch(const zima::document::RelationError& error){editor_->show_error(error.line);throw std::runtime_error(tr("Line %1: %2 %3").arg(error.line).arg(tr(error.message.c_str()),QString::fromStdString(error.detail)).toStdString());}
     catch(const std::exception& error){throw std::runtime_error(tr(error.what()).toStdString());}
     return true;
+}
+bool RelationsDialog::entering_dimension() const{return pick_dimension_->isChecked();}
+void RelationsDialog::end_entry(){pick_dimension_->setChecked(false);}
+void RelationsDialog::insert_dimension(const QString& identifier,const QString& value) {
+    if(insertion_cursor_.isNull())insertion_cursor_=editor_->textCursor();
+    insertion_cursor_.insertText(identifier);editor_->setTextCursor(insertion_cursor_);
+    picked_dimension_->setText(tr("Selected dimension: %1 = %2").arg(identifier,value));
+    end_entry();editor_->setFocus();
 }
 
 FamilyInstanceDialog::FamilyInstanceDialog(QString generic_name,const zima::document::FamilyTable& model,

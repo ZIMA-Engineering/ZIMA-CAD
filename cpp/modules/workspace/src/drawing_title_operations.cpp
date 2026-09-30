@@ -1,4 +1,5 @@
 #include <zima/workspace/family_operations.hpp>
+#include <zima/document/relation_program.hpp>
 #include <zima/workspace/drawing_title_operations.hpp>
 #include <zima/workspace/drawing_operations.hpp>
 #include <zima/workspace/metadata_operations.hpp>
@@ -70,7 +71,7 @@ DrawingTitleEdit prepare_drawing_title_edit(const drawing::DrawingDocument& doc,
     edit.context.sheet_index=static_cast<int>(sheet-doc.sheets.data());edit.context.sheet_count=static_cast<int>(doc.sheets.size());
     const auto collect=[&](const auto& model) {
         if(!edit.source_document.empty()&&model.document_id!=edit.source_document)throw DrawingOperationError("source_changed","The drawing source document identity changed.");
-        edit.source_document=model.document_id;for(const auto& relation:model.relations)edit.calculated.insert(relation.target);
+        edit.source_document=model.document_id;for(const auto& [target,expression]:document::RelationProgram(model.relations).target_expressions())edit.calculated.insert(target);
     };
     if(live&&live->open_part(edit.source_document))collect(live->open_part(edit.source_document)->session.document());
     else if(live&&live->open_assembly(edit.source_document))collect(live->open_assembly(edit.source_document)->session.document());

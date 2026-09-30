@@ -142,6 +142,7 @@ void AssemblyWorkspaceWindow::create_layout() {
     viewer_->set_selection_contract({zima::viewer::CandidateKind::Dimension,
                                      zima::viewer::CandidateKind::Occurrence});
     viewer_->set_confirmation_callback([this](const auto& candidate) {
+        if(accept_relation_dimension(candidate))return;
         if(accept_family_reference(candidate))return;
         if(accept_measurement(candidate))return;
         if(section_confirmation(candidate))return;
@@ -1374,6 +1375,7 @@ void AssemblyWorkspaceWindow::create_layout() {
         [this] { end_sketch_trim_gesture(); });
     viewer_->set_short_middle_click_callback([this] {
         if(orientation_dialog_){orientation_dialog_->end_entry();viewer_->clear_selection();return true;}
+        if(auto* relations=dynamic_cast<RelationsDialog*>(properties_dialog_)){relations->end_entry();viewer_->clear_selection();return true;}
         if(auto* family=dynamic_cast<FamilyTableDialog*>(properties_dialog_)){family->end_entry();viewer_->clear_selection();return true;}
         if(sketch_offset_dialog_){sketch_offset_dialog_->end_entry();return true;}
         if(measurement_dialog_){measurement_dialog_->end_entry();return true;}
@@ -1446,6 +1448,7 @@ void AssemblyWorkspaceWindow::create_layout() {
             return true;
         });
     viewer_->set_double_confirmation_callback([this](const auto& candidate) {
+        if(accept_relation_dimension(candidate))return;
         if(accept_family_reference(candidate,true))return;
         if(measurement_dialog_)return;
         if(candidate.kind==zima::viewer::CandidateKind::Symbol && (candidate.owner_id==active_sketch_id_||
@@ -1485,6 +1488,7 @@ void AssemblyWorkspaceWindow::create_layout() {
             }
         } else if (candidate.kind == zima::viewer::CandidateKind::Occurrence) {
             if(!properties_dialog_){
+                if(show_pattern_occurrence_dimensions(candidate.instance_path))return;
                 assembly_dimension_path_=workspace_.derived_source_path(workspace_.displayed_document_id(),
                     zima::assembly::InstancePath::decode(candidate.instance_path)).encoded();
                 update_assembly_dimension_visibility();
@@ -1493,7 +1497,10 @@ void AssemblyWorkspaceWindow::create_layout() {
             const auto* part=workspace_.open_part(workspace_.active_document_id());
             const auto* body=part?part->session.document().body_history.find(candidate.owner_id):nullptr;
             const auto* copy_feature=part?part->session.document().find_container(candidate.owner_id):nullptr;
-            if((body&&body->derived_copy)||(copy_feature&&copy_feature->feature_kind==zima::document::FeatureKind::DerivedCopy))
+            if((body&&body->derived_copy&&body->derived_copy->pattern)||
+               (copy_feature&&copy_feature->feature_kind==zima::document::FeatureKind::DerivedCopy&&copy_feature->derived_copy.pattern))
+                show_parameter_dimensions(candidate.owner_id);
+            else if((body&&body->derived_copy)||(copy_feature&&copy_feature->feature_kind==zima::document::FeatureKind::DerivedCopy))
                 show_derived_source(candidate.owner_id,false);
             else {
                 // A sheet-state feature keeps ordinary View selection on the
@@ -1761,6 +1768,7 @@ void AssemblyWorkspaceWindow::create_layout() {
                 candidate.owner_id=item->data(0,Qt::UserRole).toString().toStdString();
                 candidate.instance_path=item->data(0,Qt::UserRole+1).toString().toStdString();
                 candidate.kind=workspace_.open_part(workspace_.active_document_id())?zima::viewer::CandidateKind::Container:zima::viewer::CandidateKind::Occurrence;
+                if(accept_relation_dimension(candidate))return;
                 if(accept_family_reference(candidate))return;
             }
             if(accept_body_scale_tree_reference(item)||accept_derived_copy_tree_reference(item))return;
@@ -2205,6 +2213,7 @@ void AssemblyWorkspaceWindow::create_layout() {
             if(role=="part-container-entity")owner=item->data(0,Qt::UserRole+6).toString().toStdString();
             synchronize_tree_selection();
             if(role.endsWith("-occurrence")&&!path.empty()) {
+                if(show_pattern_occurrence_dimensions(path))return;
                 assembly_dimension_path_=path;update_assembly_dimension_visibility();return;
             }
             if(role=="part-container"||role=="part-container-entity"||role=="feature-operation"||role=="part-opening-component"||
@@ -2446,6 +2455,10 @@ void AssemblyWorkspaceWindow::create_layout() {
                 for (auto* selected_item : tree_->selectedItems()) append(selected_item);
                 if (targets.empty()) append(item);
                 if (targets.empty()) return;
+                if (targets.size() == 1) {
+                    delete_part_object(targets.front().id, targets.front().kind);
+                    return;
+                }
                 if (QMessageBox::question(this, tr("Odstranit objekty"),
                         targets.size() == 1
                             ? tr("Opravdu chcete vybraný objekt odstranit?")

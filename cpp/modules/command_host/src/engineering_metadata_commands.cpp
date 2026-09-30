@@ -1,5 +1,6 @@
 #include <zima/command_host/host.hpp>
 #include <zima/workspace/engineering_metadata_operations.hpp>
+#include <zima/document/relation_program.hpp>
 #include <zima/workspace/family_operations.hpp>
 #include "metadata_json.hpp"
 #include <zima/document/material_library.hpp>
@@ -9,8 +10,7 @@ namespace {
 using metadata_json::fields;
 using metadata_json::strings;
 Json relation_data(const workspace::RelationData& data) {
-    Json rows=Json::array();for(const auto& row:data.relations)rows.push_back({{"target",row.target},{"expression",row.expression}});
-    return {{"relations",std::move(rows)},{"parameters",data.parameters},{"model_values",data.model_values},{"decimal_places",data.decimal_places}};
+    return {{"relations",data.relations},{"parameters",data.parameters},{"model_values",data.model_values},{"decimal_places",data.decimal_places}};
 }
 Json material_data(const document::MaterialData& data) {
     Json rows=Json::array(),choices=Json::object();
@@ -36,20 +36,16 @@ void Host::register_engineering_metadata_commands() {
                 result["revision"]=workspace_.open_part(id)?workspace_.open_part(id)->session.revision():workspace_.open_assembly(id)->session.revision();
                 if(changes && result.value("changed",false))change_=Change{ChangeKind::Metadata,id,false};
                 return Result::success(std::move(result));
-            }catch(const std::invalid_argument& e){return Result::failure("invalid_arguments",tr(e.what()));}
+            }catch(const document::RelationError& e){return Result::failure("invalid_arguments",tr("Relation error at line")+" "+std::to_string(e.line)+": "+tr(e.message.c_str())+" "+e.detail);}
+             catch(const std::invalid_argument& e){return Result::failure("invalid_arguments",tr(e.what()));}
              catch(const Json::exception& e){return Result::failure("invalid_arguments",tr("Invalid native family table structure."));}
              catch(const std::exception& e){return Result::failure("metadata_failed",tr(e.what()));}
         });
     };
-    add({"document.relations.get",tr("Read ordered parameter relations and cached physical values."),{{"document",false}},false},[this](const auto& id,const Json&){return relation_data(workspace::model_relations(workspace_,id));});
-    add({"document.relations.set",tr("Replace and evaluate parameter relations without calculating geometry."),{{"relations",true,Type::Array},{"document",false}},true},[this](const auto& id,const Json& args){
-        std::vector<document::ModelRelation> rows;
-        for(const auto& row:args["relations"]) {
-            fields(row,{"target","expression"});
-            if(!row.contains("target") || !row["target"].is_string() || !row.contains("expression") || !row["expression"].is_string())throw std::invalid_argument("Every relation needs a string target and expression.");
-            rows.push_back({row["target"].get<std::string>(),row["expression"].get<std::string>()});
-        }
-        const auto changed=workspace::set_model_relations(workspace_,id,std::move(rows));auto result=relation_data(workspace::model_relations(workspace_,id));result["changed"]=changed;return result;
+    add({"document.relations.get",tr("Read relation source and cached parameter values."),{{"document",false}},false},[this](const auto& id,const Json&){return relation_data(workspace::model_relations(workspace_,id));});
+    add({"document.relations.set",tr("Validate and save relation text; evaluate only on Regenerate."),{{"relations",false,Type::String},{"document",false}},true},[this](const auto& id,const Json& args){
+        if(!args.contains("relations"))throw std::invalid_argument("Relation text is required.");
+        const auto changed=workspace::set_model_relations(workspace_,id,args.at("relations").get<std::string>());auto result=relation_data(workspace::model_relations(workspace_,id));result["changed"]=changed;return result;
     });
     add({"document.material.get",tr("Read document material properties, units and localized descriptions."),{{"document",false}},false},[this](const auto& id,const Json&){return material_data(workspace::material_data(workspace_,id));});
     add({"document.material.load",tr("Load a native material library into the document without retaining a file dependency."),{{"path",true},{"document",false}},true},[this](const auto& id,const Json& args){
@@ -58,7 +54,7 @@ void Host::register_engineering_metadata_commands() {
         const auto changed=workspace::set_material_data(workspace_,id,document::load_material_library(source));
         auto result=material_data(workspace::material_data(workspace_,id));result["changed"]=changed;result["source"]=document::path_to_utf8(source);return result;
     });
-    add({"document.material.set",tr("Replace material data and update cached physical relations."),{{"properties",true,Type::Array},{"document",false}},true},[this](const auto& id,const Json& args){
+    add({"document.material.set",tr("Replace material data without evaluating relations."),{{"properties",true,Type::Array},{"document",false}},true},[this](const auto& id,const Json& args){
         document::MaterialData data;
         for(const auto& row:args["properties"]) {
             fields(row,{"key","value","unit","descriptions"});

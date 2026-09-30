@@ -94,7 +94,7 @@ DocumentSession::DocumentSession(
     PartDocument document,
     std::vector<zima::kernel::BodyResult> calculated_boundaries)
     : current_(std::make_unique<State>(State{std::move(document), std::move(calculated_boundaries), 0, false})) {
-    refresh_physical_relations(current_->document,physical_values(current_->document,current_->calculated_boundaries));
+    validate_physical_units(current_->document);
     refresh_body_properties(current_->document,current_->calculated_boundaries);
     retain_shaft_reference_geometry(current_->document,current_->calculated_boundaries);
     current_->document.synchronize_dimension_identifiers();
@@ -303,7 +303,7 @@ std::optional<HistoryRollbackBoundary> DocumentSession::rollback_boundary(
 void DocumentSession::replace(
     PartDocument document,
     std::vector<zima::kernel::BodyResult> calculated_boundaries) {
-    refresh_physical_relations(document, physical_values(document,calculated_boundaries));
+    validate_physical_units(document);
     refresh_body_properties(document,calculated_boundaries);
     retain_shaft_reference_geometry(document,calculated_boundaries);
     document.synchronize_dimension_identifiers();
@@ -321,10 +321,10 @@ void DocumentSession::replace(
 void DocumentSession::commit(
     PartDocument document,
     std::vector<zima::kernel::BodyResult> calculated_boundaries) {
+    validate_physical_units(document);
     const auto intercept=commit_interceptor;
     if(intercept&&intercept(document,calculated_boundaries))return;
     static_assert(std::is_nothrow_move_assignable_v<PartDocument>);
-    refresh_physical_relations(document, physical_values(document,calculated_boundaries));
     refresh_body_properties(document,calculated_boundaries);
     retain_shaft_reference_geometry(document,calculated_boundaries);
     document.dimension_identifiers.retain(current_->document.dimension_identifiers);
@@ -343,10 +343,8 @@ void DocumentSession::commit(
 
 void DocumentSession::update_calculated_boundaries(
     std::vector<zima::kernel::BodyResult> calculated_boundaries) {
-    // Stage document metadata only; calculated boundaries and imported B-Rep
-    // storage are not cloned to validate physical relations.
+    // Publish cached body metadata without evaluating the authored relation source.
     auto document=current_->document;
-    refresh_physical_relations(document,physical_values(document,calculated_boundaries));
     refresh_body_properties(document,calculated_boundaries);
     retain_shaft_reference_geometry(document,calculated_boundaries);
     refresh_symbol_contacts(document,calculated_boundaries);

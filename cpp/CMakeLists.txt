@@ -205,6 +205,7 @@ add_library(zima_document_core
     modules/document_core/src/measurement_record.cpp
     modules/document_core/src/body_properties.cpp
     modules/document_core/src/relations.cpp
+    modules/document_core/src/relation_program.cpp
     modules/document_core/src/named_views.cpp
     modules/document_core/src/metadata.cpp
     modules/document_core/src/sheet_metal_defaults.cpp
@@ -254,6 +255,7 @@ add_library(zima_workspace modules/workspace/src/workspace.cpp
     modules/workspace/src/body_operations.cpp
     modules/workspace/src/body_reference_operations.cpp modules/workspace/src/construction_reference_operations.cpp
     modules/workspace/src/history_operations.cpp
+    modules/workspace/src/history_deletion.cpp
     modules/workspace/src/assembly_history_operations.cpp
     modules/workspace/src/construction_removal.cpp
     modules/workspace/src/reference_sources.cpp
@@ -267,6 +269,7 @@ add_library(zima_workspace modules/workspace/src/workspace.cpp
     modules/workspace/src/named_view_operations.cpp
     modules/workspace/src/metadata_operations.cpp
     modules/workspace/src/engineering_metadata_operations.cpp
+    modules/workspace/src/relation_operations.cpp
     modules/workspace/src/family_operations.cpp
     modules/workspace/src/component_properties.cpp
     modules/workspace/src/component_removal.cpp
@@ -658,6 +661,9 @@ if(ZIMA_BUILD_TESTS)
     target_link_libraries(zima_cpp_dimension_identifiers_contract_tests PRIVATE zima_document_core zima_assembly zima_drawing zima_kernel_occt)
     add_test(NAME zima_cpp_dimension_identifiers_contract_tests COMMAND zima_cpp_dimension_identifiers_contract_tests)
     add_executable(zima_cpp_history_recovery_contract_tests tests/history_recovery_contract_tests.cpp)
+    add_executable(zima_cpp_history_deletion_tests tests/history_deletion_tests.cpp)
+    target_link_libraries(zima_cpp_history_deletion_tests PRIVATE zima_workspace)
+    add_test(NAME zima_cpp_history_deletion_tests COMMAND zima_cpp_history_deletion_tests)
     target_link_libraries(zima_cpp_history_recovery_contract_tests PRIVATE zima_kernel_occt zima_document_core nlohmann_json::nlohmann_json)
     add_test(NAME zima_cpp_history_recovery_contract_tests COMMAND zima_cpp_history_recovery_contract_tests)
     add_executable(zima_cpp_multibody_contract_tests tests/multibody_contract_tests.cpp)
@@ -716,6 +722,10 @@ if(ZIMA_BUILD_TESTS)
         Qt6::Widgets Qt6::Svg nlohmann_json::nlohmann_json)
     set_target_properties(zima_cpp_ui_contract_tests PROPERTIES AUTORCC ON)
     add_test(NAME zima_cpp_ui_contract_tests COMMAND zima_cpp_ui_contract_tests)
+    add_test(NAME zima_cpp_relations_editor_contract COMMAND zima_cpp_ui_contract_tests)
+    set_tests_properties(zima_cpp_relations_editor_contract PROPERTIES
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_RELATIONS_ONLY=1"
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 60)
     set_tests_properties(zima_cpp_ui_contract_tests PROPERTIES
         ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT}")
     add_test(NAME zima_cpp_entry_tables_contract COMMAND zima_cpp_ui_contract_tests)
@@ -961,6 +971,13 @@ if(ZIMA_BUILD_TESTS)
     target_link_libraries(zima_cpp_family_table_tests PRIVATE zima_command_host)
     add_test(NAME zima_cpp_family_table_tests COMMAND zima_cpp_family_table_tests)
     set_tests_properties(zima_cpp_family_table_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
+    add_executable(zima_cpp_relation_program_tests tests/relation_program_tests.cpp)
+    target_link_libraries(zima_cpp_relation_program_tests PRIVATE zima_document_core)
+    add_test(NAME zima_cpp_relation_program_tests COMMAND zima_cpp_relation_program_tests)
+    add_executable(zima_cpp_pattern_dimension_tests tests/pattern_dimension_tests.cpp)
+    target_link_libraries(zima_cpp_pattern_dimension_tests PRIVATE zima_document_core)
+    add_test(NAME zima_cpp_pattern_dimension_tests COMMAND zima_cpp_pattern_dimension_tests)
+
     add_executable(zima_cpp_engineering_metadata_command_tests tests/engineering_metadata_command_tests.cpp)
     target_link_libraries(zima_cpp_engineering_metadata_command_tests PRIVATE zima_command_host)
     add_test(NAME zima_cpp_engineering_metadata_command_tests COMMAND zima_cpp_engineering_metadata_command_tests)
@@ -1290,6 +1307,10 @@ if(ZIMA_BUILD_TESTS)
         ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_COMPONENT_REFERENCE_ONLY=1"
         WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 120)
     add_test(NAME zima_cpp_derived_copy_ui_contract COMMAND zima-cad-cpp --verify-startup)
+    add_test(NAME zima_cpp_pattern_dimensions_ui_contract COMMAND zima-cad-cpp --verify-startup)
+    set_tests_properties(zima_cpp_pattern_dimensions_ui_contract PROPERTIES
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_DERIVED_COPY_ONLY=1;ZIMA_VERIFY_PATTERN_DIMENSIONS_ONLY=1"
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 120)
     set_tests_properties(zima_cpp_derived_copy_ui_contract PROPERTIES
         ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_DERIVED_COPY_ONLY=1"
         WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 120)
@@ -1411,6 +1432,14 @@ if(ZIMA_BUILD_TESTS)
     set_tests_properties(zima_cpp_symbol_ui_contract PROPERTIES ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_SYMBOLS_ONLY=1" WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 120)
     add_test(NAME zima_cpp_template_ui_contract COMMAND zima-cad-cpp --verify-startup)
     add_test(NAME zima_cpp_new_document_options_ui_contract COMMAND zima-cad-cpp --verify-startup)
+    add_test(NAME zima_cpp_relation_templates_ui_contract COMMAND zima-cad-cpp --verify-startup)
+    add_test(NAME zima_cpp_history_deletion_ui_contract COMMAND zima-cad-cpp --verify-startup)
+    set_tests_properties(zima_cpp_history_deletion_ui_contract PROPERTIES
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_CONSOLE_ONLY=1;ZIMA_VERIFY_HISTORY_DELETION_ONLY=1"
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 90 RUN_SERIAL TRUE)
+    set_tests_properties(zima_cpp_relation_templates_ui_contract PROPERTIES
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_RELATION_TEMPLATES_ONLY=1"
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 60)
     set_tests_properties(zima_cpp_new_document_options_ui_contract PROPERTIES
         ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_NEW_DOCUMENT_OPTIONS_ONLY=1"
         WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 120)

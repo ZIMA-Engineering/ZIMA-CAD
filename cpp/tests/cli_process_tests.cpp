@@ -1092,29 +1092,29 @@ int main(int argc,char** argv){
         result=launch(executable,root,common+QStringList{"--command","open cli-step.prtz","--command","document.parameters.get","--command","document.settings.get"});
         require(result.exit_code==0 && result.results()[1].at("data").at("parameters")[1].at("values")==metadata_entries[1].at("values") && result.results()[2].at("data").at("units").at("Length")=="m","CLI metadata readback failed");
         const auto engineering_material=command({{"command","document.material.set"},{"arguments",{{"properties",Json::array({{{"key","MATERIAL_NAME"},{"value","Hliník"}},{{"key","MASS_DENSITY"},{"value","2700"},{"unit","kg/m^3"}}})}}}});
-        const auto engineering_relations=command({{"command","document.relations.set"},{"arguments",{{"relations",Json::array({{{"target","grams"},{"expression","model.mass * 1000"}}})}}}});
+        const auto engineering_relations=command({{"command","document.relations.set"},{"arguments",{{"relations","grams = model.mass * 1000\n"}}}});
         const Json family_table_fixture={
             {"columns",{"Stock"}},
             {"bindings",{{"Stock",{{"kind","feature"},{"owner",metadata_part.history.front().id},{"key",""}}}}},
             {"instances",Json::array({{{"id",""},{"shared_name",true},{"labels",nlohmann::json::object()},{"name","Varianta A"},{"values",{{"Stock","yes"}}}}})}};
         const auto engineering_family=command({{"command","document.family.set"},{"arguments",{{"table",family_table_fixture}}}});
-        result=launch(executable,root,common+QStringList{"--command","open cli-step.prtz","--command",engineering_material,"--command",engineering_relations,"--command",engineering_family,"--command","save"});
+        result=launch(executable,root,common+QStringList{"--command","open cli-step.prtz","--command",engineering_material,"--command",engineering_relations,"--command",engineering_family,"--command","regenerate","--command","save"});
         if(result.exit_code!=0)std::cerr<<result.output.toStdString()<<result.diagnostics.toStdString();
-        require(result.exit_code==0 && result.results().size()==5,"CLI engineering metadata update failed");
+        require(result.exit_code==0 && result.results().size()==6,"CLI engineering metadata update failed");
         const auto engineering_native=document::PartDocument::load(project/"cli-step.prtz");
         const auto stored_family=Json::parse(engineering_native.family_table);
-        require(engineering_native.physical_parameters.at("MATERIAL_NAME")=="Hliník" && engineering_native.user_parameters.at("grams")=="16.200000" &&
+        require(engineering_native.physical_parameters.at("MATERIAL_NAME")=="Hliník" && engineering_native.user_parameters.at("grams")=="16.2" &&
             stored_family.at("bindings").at("Stock").at("owner")==metadata_part.history.front().id &&
             stored_family.at("instances")[0].at("values").at("Stock")=="yes" && !stored_family.at("instances")[0].at("id").get<std::string>().empty(),
             "CLI engineering metadata failed native persistence or mass calculation");
         result=launch(executable,root,common+QStringList{"--command","open cli-step.prtz","--command","document.material.get","--command","document.relations.get","--command","document.family.get"});
-        require(result.exit_code==0 && result.results()[2].at("data").at("parameters").at("grams")=="16.200000" && result.results()[3].at("data").at("table").at("instances")[0].at("name")=="Varianta A","CLI engineering metadata readback failed");
+        require(result.exit_code==0 && result.results()[2].at("data").at("parameters").at("grams")=="16.2" && result.results()[3].at("data").at("table").at("instances")[0].at("name")=="Varianta A","CLI engineering metadata readback failed");
         const auto material_source=project/fs::path(u8"Ocel česká.matz");fs::copy_file(repository/"config/materials/01_steels/structural/S235JR.matz",material_source);
         const auto material_load=command({{"command","document.material.load"},{"arguments",{{"path",document::path_to_utf8(material_source)}}}});
         result=launch(executable,root,common+QStringList{"--command","open cli-step.prtz","--command",material_load,"--command","save"});
         require(result.exit_code==0 && result.results().size()==3,"CLI material library assignment failed");fs::remove(material_source);
         result=launch(executable,root,common+QStringList{"--command","open cli-step.prtz","--command","document.material.get","--command","document.relations.get"});
-        require(result.exit_code==0 && result.results()[2].at("data").at("parameters").at("grams")=="47.100000","Assigned material retained a file dependency or lost mass");
+        require(result.exit_code==0 && result.results()[2].at("data").at("parameters").at("grams")=="16.2","Material assignment evaluated relations outside Regenerate");
         const auto component_insert=command({{"command","component.insert"},{"arguments",{{"source",step_native.document_id},{"name","Opakovaný díl"}}}});
         result=launch(executable,root,common+QStringList{"--command","open cli-step.prtz","--command","new assembly cli-components","--command",component_insert,"--command",component_insert,"--command","undo","--command","redo","--command","save"});
         if(result.exit_code!=0)std::cerr<<result.output.toStdString()<<result.diagnostics.toStdString();

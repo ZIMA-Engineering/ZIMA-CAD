@@ -1,5 +1,6 @@
 #include <zima/document/dimension_identifiers.hpp>
 #include <zima/document/part_document.hpp>
+#include <zima/document/pattern_dimensions.hpp>
 #include <nlohmann/json.hpp>
 #include <algorithm>
 #include <limits>
@@ -126,6 +127,8 @@ void append_dimension_parameters(std::vector<DimensionParameter>& out,
     // Enumerate parameter slots, never visible dimensions or nonzero values.
     // Names are the existing semantic keys used by the feature editors.
     switch (feature.feature_kind) {
+    case FeatureKind::DerivedCopy:
+        append_pattern_dimension_parameters(out,feature.id,feature.name,feature.derived_copy);break;
     case FeatureKind::Sketch:
         add({"profile_offset"}); break;
     case FeatureKind::Feature:
@@ -196,6 +199,8 @@ std::vector<DimensionParameter> PartDocument::dimension_parameters() const {
     }
     for (const auto& feature : history) append_dimension_parameters(result, feature);
     for (const auto& object : constructions) append_dimension_parameters(result, object);
+    for(const auto& body:body_history.bodies())if(body.derived_copy)
+        append_pattern_dimension_parameters(result,body.scope.id,body.name,*body.derived_copy);
     // An owned sketch can also be present in its feature's persisted input.
     std::set<DimensionIdentifiers::Key> seen;
     std::erase_if(result, [&](const auto& parameter) {

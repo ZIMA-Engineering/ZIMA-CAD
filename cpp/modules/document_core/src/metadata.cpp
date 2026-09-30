@@ -32,7 +32,9 @@ void normalize_user_parameters(UserParameterData& data) {
         if(values.size()>128)throw std::invalid_argument("A parameter supports at most 128 language variants.");
         for(const auto& [language,text]:values) {
             if(!language.empty())key(language);
-            validate_native_metadata_text(text);
+            if(localized==&data.labels)validate_native_metadata_text(text);
+            else if(text.size()>1024*1024 || text.find('\0')!=std::string::npos)
+                throw std::invalid_argument("A parameter value is too long or contains a null character.");
         }
     }
     data.flat.clear();

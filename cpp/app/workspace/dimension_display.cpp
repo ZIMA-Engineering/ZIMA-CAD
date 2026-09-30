@@ -83,6 +83,22 @@ bool AssemblyWorkspaceWindow::finish_parameter_dimensions() {
     return true;
 }
 
+bool AssemblyWorkspaceWindow::show_pattern_occurrence_dimensions(const std::string& path) {
+    const auto* assembly=workspace_.open_assembly(workspace_.active_document_id());
+    if(!assembly||path.empty())return false;
+    const auto picked=assembly::InstancePath::decode(path);
+    const auto prefix=workspace_.active_occurrence_path().empty()?assembly::InstancePath{}:
+        assembly::InstancePath::decode(workspace_.active_occurrence_path());
+    if(picked.occurrence_ids.size()<=prefix.occurrence_ids.size()||
+        !std::equal(prefix.occurrence_ids.begin(),prefix.occurrence_ids.end(),picked.occurrence_ids.begin()))return false;
+    const auto& owner=picked.occurrence_ids[prefix.occurrence_ids.size()];
+    const auto* component=assembly->session.document().find_occurrence(owner);
+    if(!component||!component->derived_copy||!component->derived_copy->pattern)return false;
+    assembly_dimension_path_.clear();
+    show_parameter_dimensions(owner);
+    return true;
+}
+
 void AssemblyWorkspaceWindow::show_parameter_dimensions(
     const std::string& owner_id, const std::string& component) {
     if (owner_id.empty()) return;

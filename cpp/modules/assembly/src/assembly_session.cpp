@@ -48,7 +48,7 @@ void AssemblySession::prepare_native_file_rebase(document::FileRelocationEdits& 
 
 AssemblySession::AssemblySession(AssemblyDocument document)
     : current_(std::make_unique<State>(State{std::move(document),0,false})) {
-    zima::document::refresh_physical_relations(current_->document,physical_values(current_->document));
+    zima::document::validate_physical_units(current_->document);
     current_->document.synchronize_dimension_identifiers();
     saved_dimension_allocations_=current_->document.dimension_identifiers.allocation_count();
 }
@@ -73,9 +73,9 @@ bool AssemblySession::is_dirty() const {
 bool AssemblySession::can_undo() const {return !undo_.empty();}
 bool AssemblySession::can_redo() const {return !redo_.empty();}
 void AssemblySession::replace(AssemblyDocument document) {
+    zima::document::validate_physical_units(document);
     if (std::ranges::count_if(document.components, [](const auto& value) { return is_skeleton(value); }) > 1)
         throw std::runtime_error("An Assembly can contain only one Skeleton.");
-    zima::document::refresh_physical_relations(document,physical_values(document));
     document.synchronize_dimension_identifiers();
     auto next=std::make_unique<State>(State{std::move(document),0,false});
     const auto allocations=next->document.dimension_identifiers.allocation_count();
@@ -83,10 +83,10 @@ void AssemblySession::replace(AssemblyDocument document) {
     saved_dimension_allocations_=allocations;++data_generation_;
 }
 void AssemblySession::commit(AssemblyDocument document) {
+    zima::document::validate_physical_units(document);
     const auto intercept=commit_interceptor;if(intercept&&intercept(document))return;
     if (std::ranges::count_if(document.components, [](const auto& value) { return is_skeleton(value); }) > 1)
         throw std::runtime_error("An Assembly can contain only one Skeleton.");
-    zima::document::refresh_physical_relations(document,physical_values(document));
     document.dimension_identifiers.retain(current_->document.dimension_identifiers);
     document.synchronize_dimension_identifiers();
     refresh_symbol_contacts(document);
@@ -96,9 +96,9 @@ void AssemblySession::commit(AssemblyDocument document) {
     redo_.clear();++data_generation_;
 }
 void AssemblySession::update_dependency_snapshots(AssemblyDocument document) {
+    zima::document::validate_physical_units(document);
     if (std::ranges::count_if(document.components, [](const auto& value) { return is_skeleton(value); }) > 1)
         throw std::runtime_error("An Assembly can contain only one Skeleton.");
-    zima::document::refresh_physical_relations(document,physical_values(document));
     document.dimension_identifiers.retain(current_->document.dimension_identifiers);
     document.synchronize_dimension_identifiers();
     refresh_symbol_contacts(document);

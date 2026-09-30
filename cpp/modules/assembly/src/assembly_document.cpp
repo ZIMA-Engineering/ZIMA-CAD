@@ -1,4 +1,6 @@
 #include <zima/document/named_views.hpp>
+#include <zima/document/pattern_dimensions.hpp>
+#include <zima/document/relation_program.hpp>
 #include <zima/document/native_read_capture.hpp>
 #include <zima/document/profile_serialization.hpp>
 #include <zima/document/component_source.hpp>
@@ -2056,7 +2058,7 @@ void AssemblyDocument::hydrate_sources(const std::filesystem::path& path, const 
 AssemblyDocument AssemblyDocument::load(const std::filesystem::path& path, const SourceResolver& resolver, bool resolve_sources) {
     document::NativeReadCapture::observe(path);
     const auto ini = read_ini(path);
-    if (ini_value(ini, "Document", "format_version") != "34" ||
+    if (ini_value(ini, "Document", "format_version") != "35" ||
         ini_value(ini, "Document", "type") != "assembly") {
         throw std::runtime_error("Unsupported ZIMA-CAD Assembly document format");
     }
@@ -2080,7 +2082,7 @@ AssemblyDocument AssemblyDocument::load(const std::filesystem::path& path, const
     return document;
 }
 AssemblyDocument AssemblyDocument::from_serialized(const nlohmann::json& root) {
-    if (root.value("format", "") != "zima-cad-cpp" || root.at("format_version") != 46 ||
+    if (root.value("format", "") != "zima-cad-cpp" || root.at("format_version") != 47 ||
         root.value("type", "") != "assembly") {
         throw std::runtime_error("Invalid Assembly Container data");
     }
@@ -2110,10 +2112,8 @@ AssemblyDocument AssemblyDocument::from_serialized(const nlohmann::json& root) {
         decltype(document.user_parameter_labels)>();
     document.user_parameter_values = root.at("user_parameter_values").get<
         decltype(document.user_parameter_values)>();
-    for (const auto& relation : root.at("relations")) {
-        document.relations.push_back({relation.at("target").get<std::string>(),
-            relation.at("expression").get<std::string>()});
-    }
+    document.relations = root.at("relations").get<std::string>();
+    static_cast<void>(zima::document::RelationProgram(document.relations));
     document.document_units = root.at("document_units").get<decltype(document.document_units)>();
     document.document_precision = root.at("document_precision").get<decltype(document.document_precision)>();
     document.family=zima::document::family_document_from_json(root.at("family"));
@@ -2293,6 +2293,8 @@ std::vector<zima::document::DimensionParameter> AssemblyDocument::dimension_para
     for (const auto& cut : cuts) owned.history.push_back(cut.definition);
     auto result = owned.dimension_parameters();
     for (const auto& component : components) {
+        if(component.derived_copy)zima::document::append_pattern_dimension_parameters(result,
+            component.occurrence_id,component.name,*component.derived_copy);
         for (const auto* key : {"x", "y", "z", "rotation_x", "rotation_y", "rotation_z"})
             result.push_back({component.occurrence_id,
                 std::string("parameter:placement:") + key, component.name});
@@ -2395,9 +2397,7 @@ nlohmann::json AssemblyDocument::serialized(
             {"kind", dependency_kind_name(dependency.kind)},
         });
     }
-    nlohmann::json relations_json = nlohmann::json::array();
-    for (const auto& relation : relations) relations_json.push_back(
-        {{"target", relation.target}, {"expression", relation.expression}});
+    nlohmann::json relations_json = relations;
     validate_sketch_containers();
     nlohmann::json sketch_containers_json=nlohmann::json::array();
     for(const auto& container:sketch_containers)sketch_containers_json.push_back({
@@ -2431,7 +2431,7 @@ nlohmann::json AssemblyDocument::serialized(
     }
     static_cast<void>(zima::document::parse_named_views(named_views));
     nlohmann::json root = {
-        {"format", "zima-cad-cpp"}, {"format_version", 46},
+        {"format", "zima-cad-cpp"}, {"format_version", 47},
         {"type", "assembly"}, {"document_id", document_id}, {"name", name},
         {"user_parameters", user_parameters},
         {"user_parameter_order", user_parameter_order},
@@ -2470,7 +2470,7 @@ void AssemblyDocument::save(const std::filesystem::path& path,
     const auto saved_name = root.at("name").get<std::string>();
     IniSections ini;
     ini["Document"] = {
-        {"format_version", "34"},
+        {"format_version", "35"},
         {"type", "assembly"},
         {"document_id", saved_id},
         {"name", saved_name},
@@ -2490,17 +2490,9 @@ void AssemblyDocument::save(const std::filesystem::path& path,
                 value;
         }
     }
-    for (const auto& [key, languages] : user_parameter_values) {
-        for (const auto& [language, value] : languages) {
-            ini["UserParameterValues"][key + (language.empty() ? "" : "\\" + language)] =
-                value;
-        }
-    }
-    for (const auto& [key, value] : user_parameters) {
-        if (!ini["UserParameterValues"].contains(key)) {
-            ini["UserParameterValues"][key] = value;
-        }
-    }
+    auto parameter_values=user_parameter_values;
+    for(const auto& [name,value]:user_parameters)if(!parameter_values[name].contains(""))parameter_values[name][""]=value;
+    ini["UserParameterValues"]["Data"]=nlohmann::json(parameter_values).dump();
     if (!relations.empty()) ini["Relations"]["Data"] = root.at("relations").dump();
 
     std::string container_items = saved_id;

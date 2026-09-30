@@ -10,6 +10,8 @@
 #include <stdexcept>
 #include <string_view>
 #include <set>
+#include <map>
+#include <vector>
 
 namespace zima::document {
 namespace {
@@ -139,13 +141,6 @@ private:
     }
 };
 
-double numeric(const std::string& text, const std::string& name) {
-    std::size_t consumed{};
-    const double value = std::stod(text, &consumed);
-    if (consumed != text.size()) throw std::invalid_argument(
-        "Parameter " + name + " is not numeric");
-    return value;
-}
 }  // namespace
 
 double evaluate_numeric_expression(const std::string& expression) {
@@ -155,44 +150,6 @@ double evaluate_numeric_expression(const std::string& expression) {
                 std::string_view(".+-*/()eE").find(c) != std::string_view::npos;
         })) throw std::invalid_argument("Invalid numeric expression.");
     return Parser(expression, {}).parse();
-}
-
-void validate_model_relations(const std::vector<ModelRelation>& relations) {
-    if (relations.size() > 4096) throw std::invalid_argument("A document supports at most 4096 relations.");
-    const auto letter=[](unsigned char c){return (c>='a'&&c<='z')||(c>='A'&&c<='Z');};
-    std::set<std::string> targets;
-    for (const auto& relation : relations) {
-        const auto& target=relation.target;
-        if (target.empty() || target.size()>256 || !(letter(target.front())||target.front()=='_') ||
-            !std::ranges::all_of(target,[&](unsigned char c){return letter(c)||(c>='0'&&c<='9')||c=='_';}) || !targets.insert(target).second)
-            throw std::invalid_argument("Relation targets must be unique ASCII identifiers.");
-        const auto& expression=relation.expression;
-        if (expression.empty() || expression.size()>16384 || expression.find('\0')!=std::string::npos)
-            throw std::invalid_argument("A relation expression must contain 1 to 16384 bytes without null characters.");
-    }
-}
-
-std::map<std::string, std::string> evaluate_relations(
-    const std::map<std::string, std::string>& parameters,
-    const std::vector<ModelRelation>& relations,
-    const std::map<std::string, double>& model_values, int decimal_places) {
-    validate_model_relations(relations);
-    if (decimal_places < 0 || decimal_places > 12) throw std::invalid_argument("Relation decimal places must be between 0 and 12.");
-    auto output = parameters;
-    std::map<std::string, double> values = model_values;
-    for (const auto& [name, value] : parameters) {
-        try { values[name] = numeric(value, name); } catch (const std::exception&) {}
-    }
-    for (const auto& relation : relations) {
-        if (relation.target.empty() || relation.expression.empty())
-            throw std::invalid_argument("Relation target and expression are required");
-        const double result = Parser(relation.expression, values).parse();
-        values[relation.target] = result;
-        std::ostringstream rendered;
-        rendered << std::fixed << std::setprecision(std::max(0, decimal_places)) << result;
-        output[relation.target] = rendered.str();
-    }
-    return output;
 }
 
 }  // namespace zima::document

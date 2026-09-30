@@ -53,10 +53,7 @@ int main() {
                     start_assembly_template.dependencies.empty() &&
                     start_assembly_template.user_parameters.contains("mass") &&
                     !start_assembly_template.user_parameters.contains("material") &&
-                    start_assembly_template.relations.size() == 1 &&
-                    start_assembly_template.relations.front().target == "mass" &&
-                    start_assembly_template.relations.front().expression ==
-                        "model.mass",
+                    start_assembly_template.relations == "mass = model.mass\n",
                 "Start Assembly template is stale or incomplete");
         zima::kernel::OcctKernel kernel;
         const auto fixture_body=kernel.evaluate_history({
@@ -382,7 +379,7 @@ int main() {
         assembly.user_parameter_order = {"clearance"};
         assembly.user_parameter_labels["clearance"]["en"] = "Clearance";
         assembly.user_parameter_values["clearance"][""] = "0.15 mm";
-        assembly.relations = {{"double_clearance", "clearance * 2"}};
+        assembly.relations = "double_clearance = clearance * 2\n";
         assembly.document_units["Length"] = "in";
         assembly.document_precision["mesh_deflection"] = "0.05";
         assembly.family_table = R"({"columns":[],"instances":[]})";
@@ -403,7 +400,7 @@ int main() {
         const std::string assembly_text(
             std::istreambuf_iterator<char>(assembly_file), {});
         require(assembly_text.find("[Document]\n") != std::string::npos &&
-                    assembly_text.find("format_version=34\n") != std::string::npos &&
+                    assembly_text.find("format_version=35\n") != std::string::npos &&
                     assembly_text.find("[DocumentUnits]\n") != std::string::npos &&
                     assembly_text.find("[DocumentPrecision]\n") != std::string::npos &&
                     assembly_text.find("[Material]\n") == std::string::npos &&

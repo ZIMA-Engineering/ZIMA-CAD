@@ -36,7 +36,7 @@ template<class Action> void rejects(document::DocumentSession& session,Action ac
 void verify(){
     auto part=document::PartDocument::create_default();
     auto box=test::rectangular_feature(part,{10,10,10});
-    part.history.push_back(box);part.relations.push_back({"capacity","1 / (2000 - round(model.volume))"});
+    part.history.push_back(box);part.relations+="capacity = 1 / (2000 - round(model.volume))\n";
     kernel::OcctKernel kernel;const auto original=kernel.evaluate_history(part.kernel_operations());
     require(std::abs(original.back().volume-1000)<1e-7,"Fixture must have independently known volume 1000 mm3");
     document::DocumentSession session(part,original);
@@ -45,9 +45,11 @@ void verify(){
     auto enlarged=part;test::resize_rectangular_feature(enlarged,enlarged.history.front(),{20,10,10});
     const auto changed=kernel.evaluate_history(enlarged.kernel_operations());
     require(std::abs(changed.back().volume-2000)<1e-7,"Fixture must have independently known volume 2000 mm3");
-    rejects(session,[&]{session.commit(enlarged,changed);});
-    rejects(session,[&]{session.replace(enlarged,changed);});
-    rejects(session,[&]{session.update_calculated_boundaries(changed);});
+    // Session publication no longer evaluates relations implicitly.
+    auto deferred=session;deferred.commit(enlarged,changed);
+    require(!deferred.document().user_parameters.contains("capacity"),"Commit evaluated relations");
+    deferred.replace(enlarged,changed);deferred.update_calculated_boundaries(changed);
+    require(!deferred.document().user_parameters.contains("capacity"),"Replace or cache refresh evaluated relations");
     auto invalid=session.document();invalid.document_units["Length"]="unknown";
     rejects(session,[&]{session.commit(invalid,original);});
     rejects(session,[&]{session.replace(invalid,original);});

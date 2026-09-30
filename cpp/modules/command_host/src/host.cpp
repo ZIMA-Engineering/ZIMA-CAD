@@ -1,5 +1,6 @@
 #include <zima/workspace/drawing_view_operations.hpp>
 #include <zima/command_host/host.hpp>
+#include <zima/document/relation_program.hpp>
 #include <zima/workspace/template_operations.hpp>
 #include <zima/workspace/document_operations.hpp>
 #include <algorithm>
@@ -208,7 +209,8 @@ void Host::register_commands(){
         try{
             if(workspace_.open_part(id))static_cast<void>(workspace::regenerate_part(workspace_,kernel_,id));
             else workspace::regenerate_assembly(workspace_,kernel_,id);
-        }catch(const std::exception& error){return Result::failure("calculation_failed",error.what());}
+        }catch(const document::RelationError& error){return Result::failure("calculation_failed",tr("Relation error at line")+" "+std::to_string(error.line)+": "+tr(error.message.c_str())+" "+error.detail);}
+         catch(const std::exception& error){return Result::failure("calculation_failed",tr(error.what()));}
         if(const auto* part=workspace_.open_part(id))if(!part->session.calculated_boundaries().empty()){
             const auto& errors=part->session.calculated_boundaries().back().calculation_errors;
             if(!errors.empty())return Result{false,"calculation_errors",tr("Některé prvky nebyly vypočteny."),errors};

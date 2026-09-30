@@ -116,10 +116,12 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
     set(mirror,{{"name","Own mirror"},{"visible",false}});
     rejected({{"instance_path",path(mirror)},{"grounded",false}},"read_only_copy");
     rejected({{"instance_path",path(mirror)},{"placement",{{"x_mm",5}}}},"read_only_copy");
-    // A physical-relation failure must not even advance the data generation.
-    run(host,"document.relations.set",{{"relations",Json::array({{{"target","capacity"},{"expression","1 / (6000 - round(model.volume))"}}})}});
-    rejected({{"suppressed",true}});
-    run(host,"document.relations.set",{{"relations",Json::array()}});
+    // Suppression is independent of relation evaluation until Regenerate.
+    run(host,"document.relations.set",{{"relations","capacity = 1 / (6000 - round(model.volume))\n"}});
+    set(second,{{"suppressed",true}});
+    require(!host.execute({{"command","regenerate"}}).ok,"Invalid deferred relation was accepted");
+    run(host,"undo");
+    run(host,"document.relations.set",{{"relations",""}});
     const auto prepared=workspace::prepare_component_edit(live,id,second);
     const auto old_mirror=current(mirror).calculated_source;
     run(host,"activate",{{"document",source}});zima::test::resize_rectangular_commands([&](const char* n,commands::Json a){return run(host,n,std::move(a));},{{"container",box},{"length_mm","20"}});

@@ -247,7 +247,7 @@ public:
     std::vector<std::string> user_parameter_order;
     std::map<std::string, std::map<std::string, std::string>> user_parameter_labels;
     std::map<std::string, std::map<std::string, std::string>> user_parameter_values;
-    std::vector<zima::document::ModelRelation> relations;
+    std::string relations; // Authored UTF-8 source, including comments and whitespace.
     std::map<std::string, std::string> document_units{
         {"Length", "mm"}, {"Angle", "deg"}, {"Mass", "kg"},
         {"Time", "s"}, {"Temperature", "C"}, {"Stress", "MPa"}};

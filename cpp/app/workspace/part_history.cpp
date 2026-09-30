@@ -3,6 +3,8 @@
 #include <zima/workspace/sketch_operations.hpp>
 #include "workspace_internal.hpp"
 #include <zima/workspace/construction_removal.hpp>
+#include <zima/workspace/history_deletion.hpp>
+#include <QTreeWidgetItemIterator>
 
 namespace zima::app {
 using namespace workspace_detail;
@@ -14,6 +16,23 @@ using workspace::HistoryDependencies;
 using workspace::part_history_dependencies;
 using workspace::part_history_dependency_graph;
 
+namespace {
+class HistoryDeleteDialog final : public ui::PropertiesSubWindow {
+public:
+    HistoryDeleteDialog(QWidget* parent, const QString& message, std::function<void()> action)
+        : PropertiesSubWindow(QObject::tr("Odstranit objekt"), parent), action_(std::move(action)) {
+        setObjectName("deleteHistoryDialog");
+        auto* label = new QLabel(message, this);
+        label->setWordWrap(true);
+        content_layout()->addWidget(label);
+        set_initial_size({520, 210});
+        set_centered_on_show();
+    }
+private:
+    bool submit() override { action_(); return true; }
+    std::function<void()> action_;
+};
+}
 
 void AssemblyWorkspaceWindow::toggle_part_container_suppressed(
     const std::string& container_id) {
@@ -127,6 +146,35 @@ void AssemblyWorkspaceWindow::delete_part_object(
     const std::string& object_id, const QString& kind,
     bool ask_confirmation) {
     if (properties_dialog_ != nullptr || object_id.empty()) return;
+    if (ask_confirmation && workspace_.open_part(workspace_.active_document_id())) {
+        const auto document_id = workspace_.active_document_id();
+        const auto& original = workspace_.open_part(document_id)->session.document();
+        const auto deletion = workspace::plan_history_deletion(original, object_id);
+        auto* dialog = new HistoryDeleteDialog(this,
+            deletion.affected.empty() ? tr("Opravdu chcete vybraný objekt odstranit?") :
+                tr("Opravdu chcete vybraný objekt odstranit? Červeně označené závislé prvky zůstanou ve stromu. Jejich neplatné reference budou odstraněny a bude nutné je opravit ve Vlastnostech."),
+            [this, document_id, object_id] {
+                workspace::delete_part_history(workspace_, document_id, kernel_, object_id);
+                if (active_sketch_id_ == object_id) active_sketch_id_.clear();
+                if (selected_sketch_id_ == object_id) selected_sketch_id_.clear();
+            });
+        properties_dialog_ = dialog;
+        for (QTreeWidgetItemIterator it(tree_); *it; ++it) {
+            auto* row = *it;
+            if (deletion.affected.contains(row->data(0, Qt::UserRole).toString().toStdString()) &&
+                tree_item_context_menu_enabled(row))
+                row->setForeground(0, QBrush(QColor(210, 75, 65)));
+        }
+        connect(dialog, &QDialog::finished, this, [this, dialog] {
+            properties_dialog_ = nullptr;
+            preserve_view_on_refresh_ = true;
+            refresh_tabs();
+            refresh_scene();
+            dialog->deleteLater();
+        });
+        dialog->show();
+        return;
+    }
     if (ask_confirmation && QMessageBox::question(this, tr("Odstranit objekt"),
             tr("Opravdu chcete vybraný objekt odstranit?"),
             QMessageBox::Yes | QMessageBox::No, QMessageBox::No) !=

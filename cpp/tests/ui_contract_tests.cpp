@@ -285,10 +285,10 @@ int verify_entry_tables(QApplication& application,QWidget& parent) {
     material->buttons()->button(QDialogButtonBox::Ok)->click();flush();
     require(!material->isVisible(),"Material tried to save the empty offered row");delete material;
     bool relations_committed=false;
-    auto* relations=new RelationsDialog({{"length","10"}},{{"length","20"}},[&](auto rows){relations_committed=rows.size()==1&&rows[0].expression=="30";},settings,&parent);
-    relations->show();flush();auto* relation_table=relations->findChild<QTableWidget*>("relationsTable");
-    require(relation_table->cellWidget(0,0)&&relation_table->model()->headerData(0,Qt::Vertical).toString()=="1","Relations row actions or numbering are misplaced");
-    relation_table->item(0,2)->setText("30");flush();relations->grab().save(QString::fromStdString((directory/"relations.png").string()));
+    auto* relations=new RelationsDialog({{"length","10"}},"length = 20\n",[&](auto source){relations_committed=source=="length = 30\n";},settings,&parent);
+    relations->show();flush();auto* relation_editor=relations->findChild<QPlainTextEdit*>("relationsEditor");
+    require(relation_editor,"Relations text editor is missing");
+    relation_editor->setPlainText("length = 30\n");flush();relations->grab().save(QString::fromStdString((directory/"relations.png").string()));
     relations->buttons()->button(QDialogButtonBox::Ok)->click();flush();require(relations_committed,"Relations shifted columns lost their values");delete relations;
     bool family_committed=false;std::string opened;
     auto* family=new FamilyTableDialog("generic",{},[&](auto value){family_committed=zima::document::parse_family_table(value.family_table).instances.front().name=="Variant";},settings,&parent);
@@ -764,6 +764,47 @@ int main(int argc, char* argv[]) {
     const auto initial = zima::document::PartDocument::create_twisted_sheet_container();
 
     try {
+        if(qEnvironmentVariableIsSet("ZIMA_VERIFY_RELATIONS_ONLY")) {
+            using namespace zima::app;
+            ApplicationSettings settings;std::string saved;bool committed=false;
+            RelationsDialog dialog({},"result =  + 2\n",[&](auto source){saved=source;committed=true;},settings,&parent);
+            dialog.setAttribute(Qt::WA_DeleteOnClose,false);dialog.show();application.processEvents();
+            auto* editor=dialog.findChild<QPlainTextEdit*>("relationsEditor");
+            auto* arrow=dialog.findChild<QPushButton*>("relationsPickDimension");
+            require(editor&&arrow,"Relation editor or selection arrow is missing");
+            auto cursor=editor->textCursor();cursor.setPosition(9);editor->setTextCursor(cursor);
+            arrow->click();require(dialog.entering_dimension(),"Selection arrow did not arm dimension entry");
+            cursor.movePosition(QTextCursor::End);editor->setTextCursor(cursor);
+            dialog.insert_dimension("d12","20");
+            require(editor->toPlainText()=="result = d12 + 2\n"&&!dialog.entering_dimension(),"Picked identifier missed the saved insertion cursor");
+            require(dialog.findChild<QLabel*>("relationsPickedDimension")->text().contains("d12")&&
+                dialog.findChild<QLabel*>("relationsPickedDimension")->text().contains("20"),"Picked dimension value is missing");
+            editor->undo();require(editor->toPlainText()=="result =  + 2\n","Editor Undo did not remove inserted identifier");
+            editor->setPlainText("# arbitrary text\nstock = \"⌀ černá / нержавейка\"\n");
+            const auto before=editor->height();const auto top=editor->y();
+            parent.resize(1100,900);dialog.resize(dialog.width(),800);application.processEvents();
+            if(!(editor->height()>before&&editor->y()==top))throw std::runtime_error("Editor resize: height "+std::to_string(before)+" -> "+std::to_string(editor->height())+", top "+std::to_string(top)+" -> "+std::to_string(editor->y()));
+            dialog.buttons()->button(QDialogButtonBox::Cancel)->click();application.processEvents();
+            require(!committed,"Cancel saved relation edits");
+            RelationsDialog accepted({},"stock = \"⌀ černá / нержавейка\"\n",[&](auto source){saved=source;committed=true;},settings,&parent);
+            accepted.setAttribute(Qt::WA_DeleteOnClose,false);accepted.show();application.processEvents();
+            accepted.buttons()->button(QDialogButtonBox::Ok)->click();application.processEvents();
+            require(committed&&saved=="stock = \"⌀ černá / нержавейка\"\n","OK lost the authored Unicode source");
+            zima::viewer::MeshView view(&parent);view.setGeometry(0,0,700,500);
+            zima::kernel::ViewerMesh mesh;
+            mesh.edges.push_back({{{-10,0,0},{10,0,0}}, {"feature","edge",{}}});
+            mesh.dimensions.push_back({{-10,0,0},{10,0,0},{-10,10,0},{10,10,0},20,{"feature","parameter:length",{}}});
+            view.set_mesh(mesh);view.set_reference_visibility(zima::viewer::ReferenceVisibility::Dimensions,true);
+            view.show();view.raise();application.processEvents();view.repaint();application.processEvents();
+            const auto plain_frame=view.grabFramebuffer();const auto plain_ui=view.grab().toImage();
+            view.set_dimension_relations({{{"feature","parameter:length"},"d1 = 20"}});
+            view.repaint();application.processEvents();view.repaint();application.processEvents();
+            require(view.grabFramebuffer()==plain_frame,"Relation marker leaked into framebuffer output");
+            require(view.grab().toImage()!=plain_ui,"Relation-driven dimension has no visible fx marker");
+            view.set_dimension_relations({});view.repaint();application.processEvents();
+            require(view.grab().toImage()==plain_ui,"Removing a relation retained its marker");
+            std::cout<<"Relation editor cursor insertion, value inspection, Undo, resizing, Cancel and Unicode source passed\n";return 0;
+        }
         if(qEnvironmentVariableIsSet("ZIMA_VERIFY_END_PLANES_ONLY"))return verify_end_plane_picker(application,parent);
         if(qEnvironmentVariableIsSet("ZIMA_VERIFY_POINT_MARKERS_ONLY")){verify_point_marker_colours(application,parent);return 0;}
         if(qEnvironmentVariableIsSet("ZIMA_VERIFY_TRANSLATIONS_ONLY")) return verify_translations(application,parent);
@@ -5394,10 +5435,9 @@ int main(int argc, char* argv[]) {
 
         bool relation_committed = false;
         auto* relations_dialog = new zima::app::RelationsDialog(
-            {{"x", "2"}}, {{"result", "x * 3"}},
+            {{"x", "2"}}, "result = x * 3\n",
             [&](auto relations) {
-                relation_committed = zima::document::evaluate_relations({{"x","2"}},relations).at("result") == "6.000" &&
-                    relations.size() == 1;
+                relation_committed = relations == "result = x * 3\n";
             }, tool_settings, &parent);
         zima::document::DimensionIdentifiers identifiers;
         const std::vector<zima::document::DimensionParameter> identifier_parameters{

@@ -1,5 +1,6 @@
 #include <zima/workspace/part_transactions.hpp>
 #include <zima/workspace/history_operations.hpp>
+#include <zima/workspace/history_deletion.hpp>
 #include <zima/workspace/history_policy.hpp>
 #include <zima/workspace/reference_index.hpp>
 #include <algorithm>
@@ -13,90 +14,6 @@ void require_editable(const document::PartDocument& document,const std::string& 
         owner && owner->scope.id!=document.body_history.active_body_id())
         throw HistoryOperationError("inactive_body", "Activate the owning Body before editing its history.");
 }
-bool same_point(const kernel::Vec3& a,const kernel::Vec3& b) {
-    return std::hypot(std::hypot(a.x-b.x,a.y-b.y),a.z-b.z)<=1.0e-6;
-}
-bool viewer_edges_same_geometry(
-    const zima::kernel::ViewerEdge& first,
-    const zima::kernel::ViewerEdge& second) {
-    if (first.points.empty() || first.points.size() != second.points.size()) {
-        return false;
-    }
-    const auto same_order = [&](bool reverse) {
-        for (std::size_t index = 0; index < first.points.size(); ++index) {
-            const auto second_index = reverse
-                ? second.points.size() - index - 1
-                : index;
-            if (!same_point(
-                    first.points[index], second.points[second_index])) {
-                return false;
-            }
-        }
-        return true;
-    };
-    return same_order(false) || same_order(true);
-}
-
-std::size_t restore_surviving_edge_references_after_history_delete(
-    zima::document::PartDocument& document,
-    const std::string& deleted_owner,
-    const zima::kernel::BodyResult& input_before_deleted,
-    const std::vector<zima::kernel::BodyResult>& old_boundaries) {
-    const auto old_edge = [&](const zima::kernel::EdgeReference& reference)
-            -> const zima::kernel::ViewerEdge* {
-        for (const auto& boundary : old_boundaries) {
-            const auto found = std::ranges::find_if(
-                boundary.mesh.edges, [&](const auto& edge) {
-                    return edge.reference == reference;
-                });
-            if (found != boundary.mesh.edges.end()) return &*found;
-        }
-        return nullptr;
-    };
-    const auto surviving_reference =
-        [&](const zima::kernel::EdgeReference& reference)
-            -> std::optional<zima::kernel::EdgeReference> {
-        const auto* stale_edge = old_edge(reference);
-        if (stale_edge == nullptr) return std::nullopt;
-        std::vector<zima::kernel::EdgeReference> matches;
-        for (const auto& candidate : input_before_deleted.mesh.edges) {
-            if (!candidate.reference.valid() ||
-                candidate.reference.owner_id == deleted_owner ||
-                !viewer_edges_same_geometry(*stale_edge, candidate)) {
-                continue;
-            }
-            if (std::ranges::find(matches, candidate.reference) == matches.end()) {
-                matches.push_back(candidate.reference);
-            }
-        }
-        // Repair only the unambiguous case: the referenced operational edge
-        // was already present, geometrically unchanged, before the deleted
-        // feature. A truly generated/modified edge remains dependent and the
-        // normal calculation rejects its deletion.
-        return matches.size() == 1
-            ? std::optional<zima::kernel::EdgeReference>{matches.front()}
-            : std::nullopt;
-    };
-
-    std::size_t restored{};
-    for (auto& container : document.history) {
-        if (container.feature_kind != zima::document::FeatureKind::Fillet &&
-            container.feature_kind != zima::document::FeatureKind::Chamfer) {
-            continue;
-        }
-        for (auto& route : container.edge_treatment.routes) {
-            for (auto& reference : route) {
-                if (reference.owner_id != deleted_owner) continue;
-                if (const auto replacement = surviving_reference(reference)) {
-                    reference = *replacement;
-                    ++restored;
-                }
-            }
-        }
-    }
-    return restored;
-}
-
 }
 bool part_history_suppressed(const document::PartDocument& document,const std::string& id) {
     if (const auto* feature=document.find_container(id)) return feature->suppressed;
@@ -223,10 +140,9 @@ void delete_part_history(Workspace& live,const std::string& document_id,const ke
         require_editable(original,id);
     }
     auto next=original;
-    const auto rollback=part.session.rollback_boundary(id);
+    const auto deletion=plan_history_deletion(original,id);
+    detach_deleted_history_references(next,deletion);
     next.erase_history_object(id);
-    if (rollback && rollback->input_body)
-        static_cast<void>(restore_surviving_edge_references_after_history_delete(next,id,*rollback->input_body,part.session.calculated_boundaries()));
     auto calculated=calculate_part_with_resolved_references(kernel,next);
     commit_part_document(live,document_id,std::move(next),std::move(calculated));
 }

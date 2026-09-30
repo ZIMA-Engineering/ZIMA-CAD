@@ -1,6 +1,7 @@
 #include "workspace_internal.hpp"
 #include <zima/workspace/component_operations.hpp>
 #include <zima/workspace/engineering_metadata_operations.hpp>
+#include <zima/document/relation_program.hpp>
 
 namespace zima::app {
 using namespace workspace_detail;
@@ -158,7 +159,9 @@ void AssemblyWorkspaceWindow::regenerate_assembly() {
         preserve_view_on_refresh_ = true;
         refresh_scene();
     } catch (const std::exception& error) {
-        report_operation_error(tr("Regenerace selhala"), error.what());
+        if(const auto* relation=dynamic_cast<const document::RelationError*>(&error))
+            report_operation_error(tr("Regenerace selhala"),tr("Line %1: %2 %3").arg(relation->line).arg(tr(relation->message.c_str()),QString::fromStdString(relation->detail)));
+        else report_operation_error(tr("Regenerace selhala"), tr(error.what()));
     }
 }
 

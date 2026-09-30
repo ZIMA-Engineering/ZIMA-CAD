@@ -621,6 +621,13 @@ void AssemblyWorkspaceWindow::add_part_tree_children(
             }
         }
     }
+    for (int i = 0; i < parent->childCount(); ++i) {
+        auto* row = parent->child(i);
+        if (document.removed_reference_states.contains(row->data(0, Qt::UserRole).toString().toStdString())) {
+            row->setForeground(0, QBrush(QColor(210, 75, 65)));
+            row->setToolTip(0, tr("A source reference was deleted. Select replacement references in Properties."));
+        }
+    }
     if (!document.history_order.empty()) {
         std::map<std::string, QTreeWidgetItem*> items_by_id;
         for (int index = parent->childCount() - 1; index >= 1; --index) {

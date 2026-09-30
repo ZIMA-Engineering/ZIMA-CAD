@@ -22,6 +22,7 @@
 #include <zima/document/appearance.hpp>
 #include <zima/document/document_copy_json.hpp>
 #include <zima/document/part_document.hpp>
+#include <zima/document/relation_program.hpp>
 #include <zima/document/placement_json.hpp>
 #include <zima/document/container_origin_display.hpp>
 #include <zima/document/sketch_placement.hpp>
@@ -547,12 +548,12 @@ void add_json_parameters(
 
 nlohmann::json read_part_ini(const std::filesystem::path& path) {
     const auto ini = read_ini(path);
-    if (ini_value(ini, "Document", "format_version") != "45") {
+    if (ini_value(ini, "Document", "format_version") != "46") {
         throw std::runtime_error("Unsupported ZIMA-CAD Part document format");
     }
     nlohmann::json root = {
         {"format", "zima-cad-cpp"},
-        {"format_version", 69},
+        {"format_version", 70},
         {"document_id", ini_required(ini, "Document", "document_id")},
         {"type", ini_value(ini, "Document", "type", "part")},
         {"name", ini_value(ini, "Document", "name", "Nový díl")},
@@ -568,6 +569,7 @@ nlohmann::json read_part_ini(const std::filesystem::path& path) {
         {"dimension_layouts", nlohmann::json::parse(ini_value(ini,"Document","dimension_layouts","[]"))},
         {"dimension_identifiers", nlohmann::json::parse(ini_required(ini, "Document", "dimension_identifiers"))},
         {"reference_errors", nlohmann::json::parse(ini_required(ini,"Document","reference_errors"))},
+        {"removed_reference_states",nlohmann::json::parse(ini_value(ini,"Document","removed_reference_states","{}"))},
         {"body_history", nlohmann::json::parse(ini_required(ini, "Document", "body_history"))},
         {"body_color", ini_value(ini, "Document", "body_color", "#B9C2CC")},
         {"face_colors", nlohmann::json::object()},
@@ -576,7 +578,7 @@ nlohmann::json read_part_ini(const std::filesystem::path& path) {
         {"user_parameter_order", nlohmann::json::array()},
         {"user_parameter_labels", nlohmann::json::object()},
         {"user_parameter_values", nlohmann::json::object()},
-        {"relations", nlohmann::json::array()},
+        {"relations", ""},
         {"document_units", nlohmann::json::object()},
         {"document_precision", nlohmann::json::object()},
         {"physical_parameters", nlohmann::json::object()},
@@ -637,7 +639,9 @@ nlohmann::json read_part_ini(const std::filesystem::path& path) {
         }
     };
     read_language_map("UserParameterLabels", "user_parameter_labels");
-    read_language_map("UserParameterValues", "user_parameter_values");
+    root["user_parameter_values"]=nlohmann::json::parse(ini_value(ini,"UserParameterValues","Data","{}"));
+    for(const auto& [name,values]:root.at("user_parameter_values").items())
+        if(values.contains(""))root["user_parameters"][name]=values.at("");
     read_language_map("MaterialDescriptions", "material_parameter_descriptions");
 
     const auto containers = ini_value(ini, "Containers", "items");
@@ -709,7 +713,7 @@ void write_part_ini(
     const nlohmann::json& root, const std::filesystem::path& path) {
     IniSections ini;
     ini["Document"] = {
-        {"format_version", "45"},
+        {"format_version", "46"},
         {"type", "part"},
         {"document_id", root.at("document_id").get<std::string>()},
         {"name", root.at("name").get<std::string>()},
@@ -724,6 +728,7 @@ void write_part_ini(
         {"dimension_layouts", root.value("dimension_layouts",nlohmann::json::array()).dump()},
         {"dimension_identifiers", root.at("dimension_identifiers").dump()},
         {"reference_errors",root.at("reference_errors").dump()},
+        {"removed_reference_states",root.at("removed_reference_states").dump()},
         {"body_history", root.at("body_history").dump()},
         {"body_color", root.value("body_color", std::string("#B9C2CC"))},
         {"appearance", root.value("appearance", std::string("{}"))},
@@ -770,21 +775,10 @@ void write_part_ini(
                 json_text(language.value());
         }
     }
-    for (auto it = root.at("user_parameter_values").begin();
-         it != root.at("user_parameter_values").end(); ++it) {
-        for (auto language = it.value().begin(); language != it.value().end(); ++language) {
-            ini["UserParameterValues"][it.key() +
-                (language.key().empty() ? "" : "\\" + language.key())] =
-                json_text(language.value());
-        }
-    }
-    for (auto it = root.at("user_parameters").begin();
-         it != root.at("user_parameters").end(); ++it) {
-        const auto key = it.key();
-        if (!ini["UserParameterValues"].contains(key)) {
-            ini["UserParameterValues"][key] = json_text(it.value());
-        }
-    }
+    auto parameter_values=root.at("user_parameter_values");
+    for(const auto& [name,value]:root.at("user_parameters").items())
+        if(!parameter_values.contains(name)||!parameter_values.at(name).contains(""))parameter_values[name][""]=value;
+    ini["UserParameterValues"]["Data"]=parameter_values.dump();
     std::vector<std::string> container_ids;
     std::vector<PartHistoryEntry> order_entries;
     for (const auto& entry : root.at("history_order")) {
@@ -5367,6 +5361,7 @@ zima::kernel::ViewerMesh PartDocument::construction_viewer_mesh(
     };
     for (const auto& object : constructions) {
         const bool editing = editing_object_id == object.id;
+        if (!editing && removed_reference_states.contains(object.id)) continue;
         // A container that is not yet fully referenced (still being defined)
         // must keep its editing-mode Origin visible for every reference the
         // user has already entered, exactly like Python's origin/plane
@@ -8684,7 +8679,8 @@ void PartDocument::validate_body_ownership() const {
     for (const auto& body : body_history.bodies()) {
         std::set<std::string> preceding;
         for (const auto& entry : body.entries) {
-            if(const auto* copy=find_container(entry.id);copy&&copy->feature_kind==FeatureKind::DerivedCopy) {
+            if(const auto* copy=find_container(entry.id);copy&&copy->feature_kind==FeatureKind::DerivedCopy &&
+                !(copy->derived_copy.source_id.empty() && removed_reference_states.contains(copy->id))) {
                 if(!preceding.contains(copy->derived_copy.source_id))
                     throw std::invalid_argument("Copy source must precede its copy in the same Body.");
                 if(!find_container(copy->derived_copy.source_id))
@@ -8751,7 +8747,10 @@ void PartDocument::erase_history_object(const std::string& id) {
 void PartDocument::synchronize_derived_copy_sources() {
     for(auto& feature:history)if(feature.feature_kind==FeatureKind::DerivedCopy) {
         const auto* source=find_container(feature.derived_copy.source_id);
-        if(!source)throw std::runtime_error("Copy source feature is missing.");
+        if(!source) {
+            if(removed_reference_states.contains(feature.id))continue;
+            throw std::runtime_error("Copy source feature is missing.");
+        }
         feature.derived_copy.subtract_source=source->combine_mode==CombineMode::Subtract;
         feature.combine_mode=source->combine_mode;
     }
@@ -9007,6 +9006,12 @@ std::vector<zima::kernel::HistoryOperation> PartDocument::kernel_operations(
     for (const auto* ordered_container : ordered_history) {
         const auto& container = *ordered_container;
         if (container.feature_kind == FeatureKind::Sketch) continue;
+        if(!container.suppressed&&removed_reference_states.contains(container.id)) {
+            zima::kernel::HistoryOperation failed{container.id,zima::kernel::FeatureGroupRequest{},
+                zima::kernel::BooleanOperation::Add,false,boolean_tolerance,mesh_deflection};
+            failed.input_error="A source reference was deleted. Select replacement references in Properties.";
+            operations.push_back(std::move(failed));continue;
+        }
         if(!container.suppressed)if(const auto error=reference_errors.find(container.id);error!=reference_errors.end()) {
             zima::kernel::HistoryOperation failed{container.id,zima::kernel::FeatureGroupRequest{},
                 zima::kernel::BooleanOperation::Add,false,boolean_tolerance,mesh_deflection};
@@ -10410,6 +10415,7 @@ PartDocument PartDocument::from_serialized(const nlohmann::json& root,
     document.document_id = root.at("document_id").get<std::string>();
     document.name = root.at("name").get<std::string>();
     document.reference_errors=root.at("reference_errors").get<decltype(document.reference_errors)>();
+    document.removed_reference_states=root.value("removed_reference_states",decltype(document.removed_reference_states){});
     document.body_history = BodyHistoryGraph::from_serialized(root.at("body_history").dump());
     document.user_parameters =
         root.at("user_parameters").get<std::map<std::string, std::string>>();
@@ -10419,10 +10425,8 @@ PartDocument PartDocument::from_serialized(const nlohmann::json& root,
         decltype(document.user_parameter_labels)>();
     document.user_parameter_values = root.at("user_parameter_values").get<
         decltype(document.user_parameter_values)>();
-    for (const auto& relation : root.at("relations")) {
-        document.relations.push_back({relation.at("target").get<std::string>(),
-            relation.at("expression").get<std::string>()});
-    }
+    document.relations = root.at("relations").get<std::string>();
+    static_cast<void>(RelationProgram(document.relations));
     document.document_units = root.at("document_units").get<decltype(document.document_units)>();
     document.document_precision = root.at("document_precision").get<decltype(document.document_precision)>();
     document.physical_parameters = root.at("physical_parameters").get<decltype(document.physical_parameters)>();
@@ -11021,7 +11025,10 @@ PartDocument PartDocument::from_serialized(const nlohmann::json& root,
             }
             const auto treatment_edges =
                 container.edge_treatment.flattened_edges();
-            if (container.edge_treatment.routes.empty() ||
+            if (!valid_edge_treatment_values(container.feature_kind, container.edge_treatment) ||
+                container.combine_mode != CombineMode::Add)
+                throw std::runtime_error("Invalid Fillet/Chamfer parameters");
+            if (!document.removed_reference_states.contains(container.id) && (container.edge_treatment.routes.empty() ||
                 std::any_of(container.edge_treatment.routes.begin(),
                     container.edge_treatment.routes.end(),
                     [](const auto& route) { return route.empty(); }) ||
@@ -11032,7 +11039,7 @@ PartDocument PartDocument::from_serialized(const nlohmann::json& root,
                     }) ||
                 !valid_edge_treatment_values(
                     container.feature_kind, container.edge_treatment) ||
-                container.combine_mode != CombineMode::Add) {
+                container.combine_mode != CombineMode::Add)) {
                 throw std::runtime_error("Invalid Fillet/Chamfer parameters");
             }
         }
@@ -11276,6 +11283,11 @@ nlohmann::json PartDocument::serialized(
             container.container_origin != create_container_origin(container.id)) {
             throw std::runtime_error("History container hierarchy is invalid");
         }
+        if ((container.feature_kind == FeatureKind::Fillet || container.feature_kind == FeatureKind::Chamfer) &&
+            (!valid_edge_treatment_values(container.feature_kind, container.edge_treatment) ||
+             container.combine_mode != CombineMode::Add))
+            throw std::runtime_error("Invalid Fillet/Chamfer parameters");
+        if(!removed_reference_states.contains(container.id)) {
         if(container.feature_kind==FeatureKind::DerivedCopy) {
             auto parameters=container.derived_copy;
             if(parameters.source_id.empty())throw std::runtime_error("Copy source is missing.");
@@ -11553,6 +11565,7 @@ nlohmann::json PartDocument::serialized(
                        container.feature_kind, container.edge_treatment) ||
                    container.combine_mode != CombineMode::Add) {
             throw std::runtime_error("Invalid Fillet/Chamfer parameters");
+        }
         }
         validate_placement(container.placement);
         if (container.feature_kind == FeatureKind::Fillet ||
@@ -12043,9 +12056,7 @@ nlohmann::json PartDocument::serialized(
         serialize_construction_objects(constructions));
     auto identifiers = dimension_identifiers;
     identifiers.synchronize(dimension_parameters());
-    nlohmann::json serialized_relations = nlohmann::json::array();
-    for (const auto& relation : relations) serialized_relations.push_back(
-        {{"target", relation.target}, {"expression", relation.expression}});
+    nlohmann::json serialized_relations = relations;
     std::vector<PartHistoryEntry> effective_order = history_order;
     if (effective_order.empty()) {
         for (const auto& value : history) effective_order.push_back(
@@ -12078,8 +12089,9 @@ nlohmann::json PartDocument::serialized(
     static_cast<void>(zima::document::parse_named_views(named_views));
     nlohmann::json root = {
         {"format", "zima-cad-cpp"},
-        {"format_version", 69},
+        {"format_version", 70},
         {"reference_errors", reference_errors},
+        {"removed_reference_states",removed_reference_states},
         {"document_id", document_id},
         {"type", "part"},
         {"name", name},

@@ -1076,8 +1076,10 @@ int verify_derived_copy_commands(QApplication& application,zima::app::AssemblyWo
     bodies=kernel.evaluate_history(stored.kernel_operations());
     if(!verify(std::abs(bodies.back().body_outputs.at(pattern_id)->volume-576)<1e-7,"Pattern does not produce a full body"))return 1;
     if(!double_click_copy(pattern_id))return 1;
-    if(!verify(std::ranges::any_of(view->mesh().dimensions,[&](const auto& d){return d.reference.owner_id==box.id&&d.reference.semantic_key.starts_with("parameter:");}),
-        "Pattern double-click did not display source dimensions"))return 1;
+    if(!verify(std::ranges::any_of(view->mesh().dimensions,[&](const auto& d){return d.reference.owner_id==pattern_id&&d.reference.semantic_key=="parameter:pattern:spacing:0";}),
+        "Pattern double-click did not display its own spacing"))return 1;
+    if(!verify(std::ranges::none_of(view->mesh().dimensions,[&](const auto& d){return d.reference.owner_id==box.id&&d.reference.semantic_key.starts_with("parameter:");}),
+        "Pattern double-click displayed source parameters"))return 1;
     if(!verify(copy_command("value_lock.set",{{"object",pattern_id},{"key","pattern:spacing:0"},{"locked",true}}).ok,
             "Cannot lock Pattern spacing through the console"))return 1;
     window.show_tree_item_properties(row(pattern_id,"part-body"));flush();
@@ -1198,6 +1200,11 @@ int verify_derived_copy_commands(QApplication& application,zima::app::AssemblyWo
     for(auto* open:window.findChildren<QDialog*>())if(open->isVisible())open->reject();flush();
     if(!double_click_copy(assembly_mirror,assembly::InstancePath{}.child(assembly_mirror).encoded()))return 1;
     if(!double_click_copy("copy-x1-y0-z0",copy_path))return 1;
+    if(!verify(std::ranges::any_of(view->mesh().dimensions,[&](const auto& d){return d.reference.owner_id==group_id&&d.reference.semantic_key=="parameter:pattern:count:0";}),
+        "Pattern occurrence double-click did not show its owning group's count"))return 1;
+    if(qEnvironmentVariableIsSet("ZIMA_VERIFY_PATTERN_DIMENSIONS_ONLY")) {
+        std::cout<<"Part and Assembly Pattern copies display their owning spacing/count dimensions\n";return 0;
+    }
     window.show_tree_item_properties(row(group_id,"assembly-occurrence"));flush();
     dialog=dynamic_cast<app::DerivedCopyDialog*>(window.findChild<QDialog*>("patternDialog"));
     if(!verify(dialog!=nullptr,"Assembly Pattern did not reopen"))return 1;
@@ -8506,6 +8513,68 @@ int verify_startup_contract(
     if(qEnvironmentVariableIsSet("ZIMA_VERIFY_NATIVE_TITLE_BLOCK_ONLY"))return verify_native_title_block(application,window,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_NEW_DOCUMENT_OPTIONS_ONLY"))
         return verify_new_document_options(application);
+    if(qEnvironmentVariableIsSet("ZIMA_VERIFY_RELATION_TEMPLATES_ONLY")) {
+        const auto flush=[&]{application.processEvents();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);application.processEvents();};
+        for(const auto* type:{"part","assembly"}) {
+            window.findChild<QAction*>("newDocumentAction")->trigger();flush();
+            auto* create=window.findChild<QDialog*>("newDocumentDialog");
+            if(!verify(create,"Native template creation dialog is missing"))return 1;
+            const auto name=QString("relation-template-%1-%2").arg(type).arg(QUuid::createUuid().toString(QUuid::Id128));
+            create->findChild<QLineEdit*>("newDocumentFileName")->setText(name);
+            for(auto* radio:create->findChildren<QRadioButton*>())radio->setChecked(radio->property("documentType").toString()==type);
+            create->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
+            if(!verify(!window.findChild<QDialog*>("newDocumentDialog"),"Native template was not accepted"))return 1;
+            const bool part=std::string_view(type)=="part";
+            if(!verify(window.findChild<QAction*>(part?"featurePrototypeAction":"insertComponentAction")->isEnabled(),"New native document lacks its normal commands"))return 1;
+            window.findChild<QAction*>("saveDocumentAction")->trigger();flush();
+            const auto path=test_directory/(name.toStdString()+(part?".prtz":".asmz"));
+            if(part) {
+                const auto doc=zima::document::PartDocument::load(path);
+                if(!verify(!doc.body_history.bodies().empty()&&doc.body_history.active_body_id()==doc.body_history.bodies().front().scope.id,
+                    "Start Part did not activate its first editable Body"))return 1;
+                if(!verify(doc.relations=="mass = model.mass\n","Part template did not retain plain relation source"))return 1;
+            } else if(!verify(zima::assembly::AssemblyDocument::load(path).relations=="mass = model.mass\n","Assembly template did not retain plain relation source"))return 1;
+        }
+        auto fixture=zima::document::PartDocument::create_default();
+        auto feature=zima::test::rectangular_feature(fixture,{10,20,30});fixture.history.push_back(feature);
+        fixture.synchronize_dimension_identifiers();zima::kernel::OcctKernel relation_kernel;
+        const auto fixture_path=test_directory/"relation-view-picker.prtz";
+        fixture.save(fixture_path,relation_kernel.evaluate_history(fixture.kernel_operations()));
+        if(!verify(window.open_document_path(QString::fromStdString(fixture_path.string())),"Relation picker fixture did not open"))return 1;
+        flush();auto* view=dynamic_cast<zima::viewer::MeshView*>(window.findChild<QOpenGLWidget*>());view->fit_all();flush();
+        window.findChild<QAction*>("relationsAction")->trigger();flush();
+        auto* relations=dynamic_cast<zima::app::RelationsDialog*>(window.findChild<QDialog*>("relationsDialog"));
+        if(!verify(relations!=nullptr,"Relation picker editor did not open"))return 1;
+        auto* editor=relations->findChild<QPlainTextEdit*>("relationsEditor");editor->setPlainText("stock =  & \"x\"\n");
+        auto cursor=editor->textCursor();cursor.setPosition(8);editor->setTextCursor(cursor);
+        relations->findChild<QPushButton*>("relationsPickDimension")->click();flush();
+        const auto click=[&](QPointF p) {
+            QMouseEvent move(QEvent::MouseMove,p,p,p,Qt::NoButton,Qt::NoButton,Qt::NoModifier);
+            QMouseEvent press(QEvent::MouseButtonPress,p,p,p,Qt::LeftButton,Qt::LeftButton,Qt::NoModifier);
+            QMouseEvent release(QEvent::MouseButtonRelease,p,p,p,Qt::LeftButton,Qt::NoButton,Qt::NoModifier);
+            QApplication::sendEvent(view,&move);QApplication::sendEvent(view,&press);QApplication::sendEvent(view,&release);flush();
+        };
+        std::optional<QPointF> feature_hit;
+        for(int y=4;y<view->height()&&!feature_hit;y+=8)for(int x=4;x<view->width();x+=8) {
+            const auto candidates=view->selection_candidates_at(QPointF(x,y));
+            if(!candidates.empty()&&candidates.front().kind==zima::viewer::CandidateKind::Container&&candidates.front().owner_id==feature.id){feature_hit=QPointF(x,y);break;}
+        }
+        if(!verify(feature_hit.has_value(),"Relation arrow does not offer the feature through the common picker"))return 1;
+        click(*feature_hit);
+        const auto& dimensions=view->mesh().dimensions;
+        const auto dimension=std::ranges::find_if(dimensions,[&](const auto& d){return d.reference.owner_id==feature.id&&d.reference.semantic_key=="parameter:length_forward";});
+        if(!verify(dimension!=dimensions.end(),"Selecting a feature in Relations did not display its dimensions"))return 1;
+        const zima::viewer::ViewerCandidate candidate{zima::viewer::CandidateKind::Dimension,0,static_cast<std::size_t>(dimension-dimensions.begin()),feature.id,dimension->reference.semantic_key,{}};
+        const auto label=view->candidate_dimension_label_position(candidate);
+        if(!verify(label.has_value(),"Relation dimension label is unavailable"))return 1;
+        cursor.movePosition(QTextCursor::End);editor->setTextCursor(cursor);click(*label);
+        const auto identifier=fixture.dimension_identifiers.identifier(feature.id,"parameter:length_forward");
+        if(!verify(editor->toPlainText()==QString::fromStdString("stock = "+identifier+" & \"x\"\n")&&!relations->entering_dimension(),"View-picked dimension missed the saved text cursor"))return 1;
+        relations->grab().save(QString::fromStdString((test_directory/"relations-editor.png").string()));
+        relations->buttons()->button(QDialogButtonBox::Cancel)->click();flush();
+        if(!verify(window.execute_console_command("document.relations.get").data.at("relations")==fixture.relations,"Picker Cancel changed relation source"))return 1;
+        std::cout<<"Native relation templates and View feature/dimension cursor insertion passed\n";return 0;
+    }
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_APPLICATION_LIFECYCLE_ONLY"))
         return verify_application_lifecycle_ui(application);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_SELECTION_FILTER_ONLY"))
@@ -11458,8 +11527,7 @@ int verify_startup_contract(
             if (!verify(created_assembly.document_id !=
                             template_assembly.document_id &&
                             created_assembly.user_parameters.contains("mass") &&
-                            created_assembly.relations.size() == 1 &&
-                            created_assembly.relations.front().target == "mass",
+                            created_assembly.relations == "mass = model.mass\n",
                         "new Assembly did not clone the start template with a unique ID")) {
                 return 1;
             }

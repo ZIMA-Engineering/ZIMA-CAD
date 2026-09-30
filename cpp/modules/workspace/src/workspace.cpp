@@ -906,7 +906,6 @@ std::string Workspace::insert_open_part(
     const std::string occurrence_id = occurrence.occurrence_id;
     next.components.push_back(std::move(occurrence));
     static_cast<void>(next.build_scene());
-    zima::document::refresh_physical_relations(next,zima::assembly::physical_values(next));
     assembly->session.commit(std::move(next));
     return occurrence_id;
 }
@@ -957,7 +956,6 @@ std::string Workspace::insert_open_assembly(
     const std::string occurrence_id = occurrence.occurrence_id;
     next.components.push_back(std::move(occurrence));
     static_cast<void>(next.build_scene());
-    zima::document::refresh_physical_relations(next,zima::assembly::physical_values(next));
     owner->session.commit(std::move(next));
     return occurrence_id;
 }

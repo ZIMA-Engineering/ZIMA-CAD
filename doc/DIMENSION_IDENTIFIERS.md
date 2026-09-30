@@ -35,11 +35,16 @@ only; its numbers are not topology identities or inputs to geometric calculation
 ## Interface
 
 - Sketch dimension Properties has a read-only **Dimension identifier** field.
-- **Relations** lists designations, objects, and parameters, including zero
-  dimensions. Cell tooltips expose the internal identity.
+- **Relations** lists supported designations, objects, parameters and their
+  current values, including zero dimensions. Double-click inserts an identifier
+  into the text editor; the selection arrow can insert it from the View.
 - The inline View value editor includes the designation in its tooltip.
 - Selecting a Drawing dimension shows its designation in the status bar.
-- Expression evaluation using `dN` is not implemented yet.
+- [Relation expressions](RELATIONS.md) read and drive supported `dN` values on
+  explicit Regenerate. The working View marks assigned dimensions with `fx`.
+- Pattern spacing, angle and count use the Pattern's own identity, including
+  derived Bodies and Assembly groups. Selecting a copy does not redirect its
+  dimension display to the source Part.
 
 INI versions at this stage: Part 14, Assembly 12, Drawing 12. Older formats have
 no compatibility loading branch. Supplied templates and test documents use this schema.

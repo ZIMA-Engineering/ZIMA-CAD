@@ -47,12 +47,13 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
     require(live.open_part(source)->session.revision()==source_revision&&live.open_part(source)->session.is_dirty()&&fs::exists(dir/"remove-source.prtz"),"Removal changed or deleted the source document");
     run(host,"undo");require(live.open_assembly(owner)->session.document().find_occurrence(second),"Removal did not undo in one step");run(host,"redo");
     require(!live.open_assembly(owner)->session.document().find_occurrence(second),"Redo changed removal identity");run(host,"undo");live.refresh_source_geometry();
-    // A fresh-source preparation succeeds, but the final physical relation fails.
-    // The old GUI path published that preparation before attempting removal.
-    run(host,"document.relations.set",{{"relations",Json::array({{{"target","capacity"},{"expression","1 / (3000 - round(model.volume))"}}})}});
+    // Removal publishes current source geometry but does not evaluate relations.
+    run(host,"document.relations.set",{{"relations","capacity = 1 / (3000 - round(model.volume))\n"}});
     run(host,"activate",{{"document",source}});zima::test::resize_rectangular_commands([&](const char* n,commands::Json a){return run(host,n,std::move(a));},{{"container",box},{"length_mm","30"}});run(host,"activate",{{"document",owner}});
-    rejected(second);near(live.open_assembly(owner)->session.document().find_occurrence(first)->calculated_source->volume,2000);
-    run(host,"document.relations.set",{{"relations",Json::array()}});
+    remove(second);near(live.open_assembly(owner)->session.document().find_occurrence(first)->calculated_source->volume,3000);
+    require(!host.execute({{"command","regenerate"}}).ok,"Deferred removal relation unexpectedly succeeded");
+    run(host,"undo");
+    run(host,"document.relations.set",{{"relations",""}});
     auto original=live.open_assembly(owner)->session.document();auto next=original;
     next.find_occurrence(second)->placement_references.push_back({assembly::MateKind::PointCoincident,
         {assembly::MateReferenceKind::Point,assembly::InstancePath{}.child(second),source+":origin","origin:point"},

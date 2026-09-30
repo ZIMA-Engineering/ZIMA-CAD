@@ -11,7 +11,7 @@ void require(bool value,const char* text){if(!value)throw std::runtime_error(tex
 void verify_assembly(const kernel::BodyResult& original,const kernel::BodyResult& changed,const std::string& source) {
     auto doc=assembly::AssemblyDocument::create_default();
     doc.components.push_back(assembly::AssemblyDocument::create_part_occurrence("Source",source,{},original));
-    doc.relations.push_back({"capacity","1 / (2000 - round(model.volume))"});
+    doc.relations+="capacity = 1 / (2000 - round(model.volume))\n";
     assembly::AssemblySession session(doc);auto renamed=session.document();renamed.name="Edited Assembly";session.commit(renamed);
     require(session.undo()&&session.can_redo(),"Assembly fixture has no Redo");session.mark_saved();
     const auto before=session.document();const auto* address=&session.document();
@@ -27,7 +27,8 @@ void verify_assembly(const kernel::BodyResult& original,const kernel::BodyResult
             "Rejected Assembly update changed document or source geometry");
     };
     auto invalid=before;invalid.components.front().calculated_source=changed;
-    reject([&]{session.commit(invalid);});reject([&]{session.replace(invalid);});reject([&]{session.update_dependency_snapshots(invalid);});
+    auto deferred=session;deferred.commit(invalid);deferred.replace(invalid);deferred.update_dependency_snapshots(invalid);
+    require(deferred.document().user_parameters==before.user_parameters,"Assembly publication evaluated relations outside Regenerate");
     auto units=before;units.document_units["Length"]="invalid";reject([&]{session.replace(units);});
     // The display-only source update intentionally does not evaluate physical
     // relations. The new volume would make the relation above divide by zero.

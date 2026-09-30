@@ -120,14 +120,12 @@ SettingsChange set_file_settings(Workspace& live,const kernel::OcctKernel& kerne
         }
         auto calculated=part->session.calculated_boundaries();
         if(calculate)calculated=calculate_part_with_resolved_references(kernel,next,&calculated,PartCalculationPolicy{true});
-        document::refresh_physical_relations(next,document::physical_values(next,calculated));
         commit_part_document(live,id,std::move(next),std::move(calculated));return {true,calculate};
     }
     if(auto* assembly=live.open_assembly(id)) {
         auto next=assembly->session.document();next.document_units=std::move(values.units);next.document_precision=std::move(values.precision);
         const bool calculate=precision_changed && !next.cuts.empty();
         if(calculate)calculate_resolved_assembly_cuts(kernel,next);
-        document::refresh_physical_relations(next,assembly::physical_values(next));
         assembly->session.commit(std::move(next));return {true,calculate};
     }
     throw std::invalid_argument("Document metadata requires an open Part or Assembly.");

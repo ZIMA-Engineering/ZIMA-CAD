@@ -1,4 +1,5 @@
 #include <zima/workspace/engineering_metadata_operations.hpp>
+#include <zima/workspace/relation_operations.hpp>
 #include <zima/document/precision.hpp>
 #include <zima/workspace/family_operations.hpp>
 #include <zima/document/metadata.hpp>
@@ -19,16 +20,16 @@ RelationData model_relations(const Workspace& live,const std::string& id) {
     else result.model_values=assembly::physical_values(live.open_assembly(id)->session.document());
     return result;
 }
-bool set_model_relations(Workspace& live,const std::string& id,std::vector<document::ModelRelation> relations) {
-    document::validate_model_relations(relations);const auto before=model_relations(live,id);
-    const auto values=document::evaluate_relations(before.parameters,relations,before.model_values,before.decimal_places);
+bool set_model_relations(Workspace& live,const std::string& id,std::string relations) {
+    const document::RelationProgram program(relations);const auto before=model_relations(live,id);
+    metadata_detail::read(live,id,[&](const auto& doc){
+        // Validate against current persisted values without publishing results
+        // or calculating geometry. Regenerate remains the only evaluation commit.
+        auto draft=doc;draft.relations=relations;apply_relation_parameters(draft,before.model_values);return true;
+    });
     return metadata_detail::write(live,id,[&](auto& doc) {
-        doc.user_parameters=values;doc.relations=std::move(relations);
-        for(const auto& relation:doc.relations) {
-            doc.user_parameter_values[relation.target][""]=values.at(relation.target);
-            if(std::ranges::find(doc.user_parameter_order,relation.target)==doc.user_parameter_order.end())doc.user_parameter_order.push_back(relation.target);
-        }
-    },[](const auto& a,const auto& b){return a.relations==b.relations && a.user_parameters==b.user_parameters && a.user_parameter_values==b.user_parameter_values && a.user_parameter_order==b.user_parameter_order;});
+        doc.relations=std::move(relations);
+    },[](const auto& a,const auto& b){return a.relations==b.relations;});
 }
 document::MaterialData material_data(const Workspace& live,const std::string& id) {
     const auto* part=live.open_part(id);
@@ -45,7 +46,6 @@ bool set_material_data(Workspace& live,const std::string& id,document::MaterialD
     next.physical_parameters=std::move(values.properties);next.physical_parameter_units=std::move(values.units);
     next.material_parameter_descriptions=std::move(values.descriptions);
     if(material(next)==material(part->session.document()))return false;
-    document::refresh_physical_relations(next,document::physical_values(next,part->session.calculated_boundaries()));
     commit_part_document(live,id,std::move(next),part->session.calculated_boundaries());
     return true;
 }

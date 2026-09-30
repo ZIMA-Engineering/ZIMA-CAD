@@ -105,10 +105,11 @@ void cycles(const kernel::OcctKernel& kernel,fs::path dir) {
     run(host,"activate",{{"document",owner}});cycle=host.execute({{"command","component.insert"},{"arguments",{{"source",part}}}});require(!cycle.ok && cycle.code=="dependency_cycle","Cycle through a Part external reference accepted");
     next=live.open_part(part)->session.document();next.sketches.clear();live.open_part(part)->session.commit(std::move(next),live.open_part(part)->session.calculated_boundaries());
     run(host,"component.insert",{{"source",part}});
-    run(host,"document.relations.set",{{"relations",Json::array({{{"target","capacity"},{"expression","1 / (12000 - round(model.volume))"}}})}});
+    run(host,"document.relations.set",{{"relations","capacity = 1 / (12000 - round(model.volume))\n"}});
+    run(host,"component.insert",{{"source",part}});
     const auto revision=live.open_assembly(owner)->session.revision(),generation=live.open_assembly(owner)->session.data_generation();
-    const auto failed=host.execute({{"command","component.insert"},{"arguments",{{"source",part}}}});
-    require(!failed.ok && live.open_assembly(owner)->session.revision()==revision && live.open_assembly(owner)->session.data_generation()==generation && live.open_assembly(owner)->session.document().components.size()==1,"A physical relation error partially committed insertion");
+    const auto failed=host.execute({{"command","regenerate"}});
+    require(!failed.ok && live.open_assembly(owner)->session.revision()==revision && live.open_assembly(owner)->session.data_generation()==generation && live.open_assembly(owner)->session.document().components.size()==2,"A deferred relation error partially committed regeneration");
 }
 }
 int main(){try{kernel::OcctKernel kernel;const auto parent=fs::canonical(fs::temp_directory_path());const auto dir=parent/("zima-component-command-"+document::PartDocument::create_default().document_id);fs::create_directory(dir);verify(kernel,dir);cycles(kernel,dir);skeleton(kernel,dir);require(dir.parent_path()==parent,"Unsafe cleanup");fs::remove_all(dir);std::cout<<"Component snapshots, exact paths, native insertion, Undo, parent isolation and dependency cycles passed\n";return 0;}catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}

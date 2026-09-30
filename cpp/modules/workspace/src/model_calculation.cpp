@@ -1,4 +1,8 @@
 #include <zima/workspace/model_calculation.hpp>
+#include <zima/workspace/relation_operations.hpp>
+#include <zima/workspace/history_deletion.hpp>
+#include <zima/document/physical_properties.hpp>
+#include <zima/assembly/physical_properties.hpp>
 #include <zima/workspace/profile_operations.hpp>
 #include <zima/workspace/opening_operations.hpp>
 #include <zima/workspace/part_transactions.hpp>
@@ -35,6 +39,10 @@ std::vector<zima::kernel::BodyResult> calculate_part(
     const zima::document::PartDocument& document,
     const std::vector<zima::kernel::BodyResult>* previous,
     const PartCalculationPolicy& policy) {
+    if(!document.removed_reference_states.empty()) {
+        auto repaired=document;
+        if(refresh_removed_reference_states(repaired))return calculate_part(kernel,repaired,previous,policy);
+    }
     const auto operations = document.kernel_operations(false, true);
     auto calculated = kernel.evaluate_history_recovering(operations,
         previous == nullptr ? std::vector<zima::kernel::BodyResult>{} : *previous);
@@ -48,6 +56,7 @@ calculate_part_reference_state(
     zima::document::PartDocument& document,
     const std::vector<zima::kernel::BodyResult>* previous,
     const PartCalculationPolicy& policy) {
+    static_cast<void>(refresh_removed_reference_states(document));
     document.synchronize_derived_copy_sources();
     std::vector<zima::kernel::BodyResult> calculated;
     const auto* incremental_source = previous;
@@ -198,10 +207,13 @@ PartRegenerationResult regenerate_part(Workspace& workspace,
     if (!part) throw std::invalid_argument("Regeneration requires an open Part document");
     const auto& previous = part->session.document();
     auto next = previous;
+    apply_relation_dimensions(next,document::physical_values(previous,part->session.calculated_boundaries()));
     refresh_body_links(workspace,next,part->path);
     // Explicit Regenerate recalculates geometry even when parameters match
     // the persisted cache (for example after a kernel calculation fix).
-    auto calculated = calculate_part_with_resolved_references(kernel, next, nullptr, policy);
+    auto relation_policy=policy;
+    if(!next.relations.empty())relation_policy.reject_errors=true;
+    auto calculated = calculate_part_with_resolved_references(kernel, next, nullptr, relation_policy);
     next.resolve_constructions(calculated.empty()
         ? zima::kernel::ViewerReferenceGeometry{}
         : calculated.back().mesh.original_references);
@@ -209,13 +221,16 @@ PartRegenerationResult regenerate_part(Workspace& workspace,
         refresh_sketch_external_references(next, calculated) |
         workspace.refresh_context_external_references(next) |
         prune_missing_drill_point_references(next, calculated);
-    if (references_changed) calculated = calculate_part(kernel, next, &calculated, policy);
+    if (references_changed) calculated = calculate_part(kernel, next, &calculated, relation_policy);
+    apply_relation_parameters(next,document::physical_values(next,calculated));
     const bool sketches_changed = next.sketches.size() != previous.sketches.size() ||
         !std::equal(next.sketches.begin(), next.sketches.end(), previous.sketches.begin(),
             [](const auto& left, const auto& right) { return left.serialized() == right.serialized(); });
-    if (references_changed || sketches_changed ||
+    if (references_changed || sketches_changed || next.appearance!=previous.appearance ||
+        next.body_color!=previous.body_color || next.face_colors!=previous.face_colors || next.user_parameters!=previous.user_parameters ||
+        next.user_parameter_values!=previous.user_parameter_values || next.user_parameter_order!=previous.user_parameter_order ||
         zima::document::serialize_sections(next.sections)!=zima::document::serialize_sections(previous.sections) || next.history != previous.history ||
-        next.reference_errors != previous.reference_errors ||
+        next.reference_errors != previous.reference_errors || next.removed_reference_states!=previous.removed_reference_states ||
         next.constructions != previous.constructions ||
         next.body_history.bodies() != previous.body_history.bodies()) {
         part->session.commit(std::move(next), std::move(calculated));
@@ -225,7 +240,7 @@ PartRegenerationResult regenerate_part(Workspace& workspace,
     return {references_changed};
 }
 
-void regenerate_assembly(Workspace& workspace, const kernel::OcctKernel& kernel,
+static void regenerate_assembly_impl(Workspace& workspace, const kernel::OcctKernel& kernel,
     const std::string& document_id, const PartCalculationPolicy& policy) {
     const auto id=document_id;
     reconcile_external_sketch_dependencies(workspace,id);
@@ -297,6 +312,26 @@ void regenerate_assembly(Workspace& workspace, const kernel::OcctKernel& kernel,
             regenerated->session.commit(std::move(next));
         }
     }
+}
+
+void regenerate_assembly(Workspace& workspace,const kernel::OcctKernel& kernel,
+    const std::string& document_id,const PartCalculationPolicy& policy) {
+    const auto id=document_id;
+    const auto* current=workspace.open_assembly(id);
+    if(!current)throw std::invalid_argument("Regeneration requires an open Assembly document");
+    if(current->session.document().relations.empty()){regenerate_assembly_impl(workspace,kernel,id,policy);return;}
+    auto staged=workspace;
+    auto original=current->session;
+    auto draft=original.document();
+    apply_relation_dimensions(draft,assembly::physical_values(draft));
+    staged.open_assembly(id)->session.commit(std::move(draft));
+    regenerate_assembly_impl(staged,kernel,id,policy);
+    auto result=staged.open_assembly(id)->session.document();
+    apply_relation_parameters(result,assembly::physical_values(result));
+    auto& session=staged.open_assembly(id)->session;
+    session=std::move(original);
+    session.commit(std::move(result));
+    workspace=std::move(staged);
 }
 
 } // namespace zima::workspace

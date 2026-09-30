@@ -11,12 +11,13 @@ dimension_layouts=[]
 document_id=template-start-part
 family={"evaluated":{},"parent":"","row":""}
 family_table={"bindings":{},"columns":[],"instances":[]}
-format_version=45
+format_version=46
 history_cursor=0
 measurements=[]
 name=Startovací díl
 named_views=[]
 reference_errors={}
+removed_reference_states={}
 sections=[]
 symbol_annotations=[]
 symbol_editor_definition=null
@@ -134,7 +135,7 @@ THERM_EXPANSION_REF_TEMPERATURE=C
 YOUNG_MODULUS=MPa
 
 [Relations]
-Data=[{"expression":"model.mass","target":"mass"}]
+Data="mass = model.mass\n"
 
 [Sketches]
 items=
@@ -192,16 +193,7 @@ stock\fr=Ébauche
 stock\ru=Заготовка
 
 [UserParameterValues]
-approved_by=
-date=
-drawn_by=
-mass=0.000
-material=S235JR
-name=
-quantity=1
-revision=00
-standard=
-stock=
+Data={"approved_by":{"":""},"date":{"":""},"drawn_by":{"":""},"mass":{"":"0.000"},"material":{"":"S235JR"},"name":{"":""},"quantity":{"":"1"},"revision":{"":"00"},"standard":{"":""},"stock":{"":""}}
 
 [UserParameters]
 Order=name, standard, stock, material, quantity, drawn_by, approved_by, revision, date, mass

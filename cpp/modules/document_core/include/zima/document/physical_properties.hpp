@@ -18,6 +18,10 @@ inline double mass_unit_kg(const std::string& unit) {
     if(unit=="t")return 1000; if(unit=="lb")return .45359237;
     throw std::invalid_argument("Unsupported mass unit: "+unit);
 }
+template<class Document> void validate_physical_units(const Document& doc) {
+    static_cast<void>(length_unit_mm(doc.document_units.at("Length")));
+    static_cast<void>(mass_unit_kg(doc.document_units.at("Mass")));
+}
 template<class Document> std::optional<double> material_density_kg_mm3(const Document& doc) {
     const auto density=doc.physical_parameters.find("MASS_DENSITY");
     const auto unit=doc.physical_parameter_units.find("MASS_DENSITY");
@@ -54,39 +58,5 @@ inline std::map<std::string,double> physical_values(const PartDocument& doc,
     }
     const auto mass=volume==0?std::optional<double>{0}:density?std::optional<double>{volume * *density}:std::nullopt;
     return physical_values_from_totals(doc,volume,area,mass,density);
-}
-// Refresh only physical relations and their dependents; this uses cached
-// measures, never a kernel calculation, dependency refresh or dimension edit.
-template<class Document> void refresh_physical_relations(Document& doc,const std::map<std::string,double>& values) {
-    std::set<std::string> physical{"model.mass","model.area","model.volume","material.density"};
-    std::set<std::string> unavailable;
-    for(const auto& key:physical)if(!values.contains(key))unavailable.insert(key);
-    int precision=3;
-    if(const auto it=doc.document_precision.find("decimal_places");it!=doc.document_precision.end())precision=std::stoi(it->second);
-    std::vector<ModelRelation> selected;
-    std::vector<std::string> targets;
-    for(const auto& relation:doc.relations) {
-        bool relevant=false,missing=false;
-        for(std::size_t i=0;i<relation.expression.size();) {
-            const auto start=i;
-            while(i<relation.expression.size() && (std::isalnum(static_cast<unsigned char>(relation.expression[i])) || relation.expression[i]=='_' || relation.expression[i]=='.'))++i;
-            if(i==start){++i;continue;}
-            const auto key=relation.expression.substr(start,i-start);
-            relevant|=physical.contains(key);missing|=unavailable.contains(key);
-        }
-        if(!relevant)continue;
-        physical.insert(relation.target);
-        targets.push_back(relation.target);
-        if(missing)unavailable.insert(relation.target);
-        else selected.push_back(relation);
-    }
-    // Evaluate in one pass so dependent expressions use unrounded values.
-    const auto calculated=evaluate_relations(doc.user_parameters,selected,values,precision);
-    for(const auto& target:targets) {
-        const auto value=unavailable.contains(target)?std::string{}:calculated.at(target);
-        doc.user_parameters[target]=value;
-        doc.user_parameter_values[target][""]=value;
-        if(std::ranges::find(doc.user_parameter_order,target)==doc.user_parameter_order.end())doc.user_parameter_order.push_back(target);
-    }
 }
 } // namespace zima::document

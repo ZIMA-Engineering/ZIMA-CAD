@@ -664,7 +664,7 @@ public:
     std::vector<std::string> user_parameter_order;
     std::map<std::string, std::map<std::string, std::string>> user_parameter_labels;
     std::map<std::string, std::map<std::string, std::string>> user_parameter_values;
-    std::vector<ModelRelation> relations;
+    std::string relations; // Authored UTF-8 source, including comments and whitespace.
     std::map<std::string, std::string> document_units{
         {"Length", "mm"}, {"Angle", "deg"}, {"Mass", "kg"},
         {"Time", "s"}, {"Temperature", "C"}, {"Stress", "MPa"}};
@@ -712,6 +712,8 @@ public:
     std::optional<std::string> symbol_editor_definition;
     // Persisted diagnostics from reference evaluation, keyed by history owner.
     std::map<std::string,std::string> reference_errors;
+    // Reference definitions retained after source deletion, until explicitly repaired.
+    std::map<std::string,std::string> removed_reference_states;
     std::vector<ConstructionObject> constructions;
     std::vector<PartHistoryEntry> history_order;
     std::size_t history_cursor{std::numeric_limits<std::size_t>::max()};

@@ -1,4 +1,6 @@
 #include <zima/document/feature_parameter_dimensions.hpp>
+#include <zima/document/relation_program.hpp>
+#include <zima/document/pattern_dimensions.hpp>
 #include <zima/workspace/document_operations.hpp>
 #include <zima/workspace/family_operations.hpp>
 #include <zima/workspace/assembly_scene.hpp>
@@ -15,6 +17,19 @@ void AssemblyWorkspaceWindow::refresh_scene() {
     // Whole-Origin entry still resolves each reference synchronously, but
     // publishes the resulting tree/mesh only after the complete selection.
     if (defer_reference_scene_refresh_) return;
+    std::map<std::pair<std::string,std::string>,std::string> relation_marks;
+    const auto add_marks=[&](const auto& doc){
+        const auto targets=document::RelationProgram(doc.relations).target_expressions();
+        for(const auto& dimension:doc.dimension_parameters()) {
+            const auto name=doc.dimension_identifiers.identifier(dimension.owner_id,dimension.semantic_key);
+            if(const auto found=targets.find(name);found!=targets.end())relation_marks[{dimension.owner_id,dimension.semantic_key}]=found->second;
+        }
+    };
+    for(const auto& state:workspace_.documents()) {
+        if(const auto* part=std::get_if<workspace::PartState>(&state))add_marks(part->session.document());
+        else if(const auto* assembly=std::get_if<workspace::AssemblyState>(&state))add_marks(assembly->session.document());
+    }
+    viewer_->set_dimension_relations(std::move(relation_marks));
     viewer_->set_original_face_selection(sketch_external_reference_active_&&!sketch_external_profile_active_);
     viewer_->set_document_origin(workspace_.displayed_document_id()+":origin");
     workspace_.refresh_source_geometry();
@@ -894,6 +909,14 @@ void AssemblyWorkspaceWindow::refresh_scene() {
                 }
             }
         }
+        const auto append_pattern=[&](const auto& copy){
+            const auto dimensions=zima::document::pattern_dimensions(construction_dimension_object_id_,copy);
+            mesh.dimensions.insert(mesh.dimensions.end(),dimensions.begin(),dimensions.end());
+        };
+        if constexpr(requires{document.body_history;}) {
+            if(const auto* body=document.body_history.find(construction_dimension_object_id_);body&&body->derived_copy)append_pattern(*body->derived_copy);
+            if(const auto* feature=document.find_container(construction_dimension_object_id_);feature&&feature->feature_kind==zima::document::FeatureKind::DerivedCopy)append_pattern(feature->derived_copy);
+        } else if(const auto* component=document.find_occurrence(construction_dimension_object_id_);component&&component->derived_copy)append_pattern(*component->derived_copy);
         if (construction_reference_dialog_ && construction_properties_preview)
             construction_reference_dialog_->filter_parameter_dimensions(mesh.dimensions);
         if (sweep_profile_parent_dialog_ && sweep_profile_sketch_draft_ &&
@@ -1889,6 +1912,10 @@ void AssemblyWorkspaceWindow::refresh_scene() {
             mesh = source.build_scene();
         }
         if (active) {
+            if(const auto* component=source.find_occurrence(construction_dimension_object_id_);component&&component->derived_copy) {
+                const auto dimensions=zima::document::pattern_dimensions(component->occurrence_id,*component->derived_copy);
+                mesh.dimensions.insert(mesh.dimensions.end(),dimensions.begin(),dimensions.end());
+            }
             const auto* inspected = construction_parameter_preview_ &&
                 construction_parameter_preview_->id == construction_dimension_object_id_
                     ? &*construction_parameter_preview_

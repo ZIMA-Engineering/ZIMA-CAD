@@ -1,5 +1,7 @@
 #include "../inline_dimension_edit.hpp"
 #include <zima/workspace/placement_edit.hpp>
+#include <zima/workspace/derived_copy_operations.hpp>
+#include <zima/document/pattern_dimensions.hpp>
 #include <zima/workspace/sweep_operations.hpp>
 #include <zima/workspace/opening_operations.hpp>
 #include <zima/workspace/component_properties.hpp>
@@ -160,6 +162,17 @@ void AssemblyWorkspaceWindow::edit_dimension_inline(
             parsed_value, viewer_->dimension_decimal_places());
         try {
             if(parameter_value_locked(candidate.owner_id,candidate.semantic_key).value_or(false))throw std::runtime_error(tr("Hodnota je zamčená.").toStdString());
+            if(candidate.semantic_key.starts_with("parameter:pattern:")&&!properties_dialog_) {
+                if(candidate.instance_path!=workspace_.active_occurrence_path())throw std::runtime_error("Dimension is outside the active editing occurrence");
+                const auto edit=workspace::prepare_derived_copy_edit(workspace_,workspace_.active_document_id(),candidate.owner_id);
+                auto next=edit.initial;
+                if(!document::assign_pattern_dimension(next.parameters,candidate.semantic_key.substr(10),next_value))
+                    throw std::runtime_error("This dimension is not directly editable");
+                next.parameters.pattern=kernel::validated_pattern(*next.parameters.pattern);
+                static_cast<void>(workspace::commit_derived_copy(workspace_,kernel_,edit,std::move(next)));
+                guarded->hide();guarded->deleteLater();preserve_view_on_refresh_=true;
+                refresh_tabs();refresh_scene();return;
+            }
             if(candidate.semantic_key.starts_with("placement-reference:")){
                 if(candidate.owner_id!=workspace_.active_document_id()||(properties_dialog_ && !component_placement_dialog_))
                     throw std::runtime_error("Kóta nepatří aktivní sestavě.");

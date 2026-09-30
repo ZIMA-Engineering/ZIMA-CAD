@@ -89,6 +89,7 @@ public:
     void show_dimension_layout_properties(const zima::viewer::ViewerCandidate&);
     void commit_dimension_layout(const zima::kernel::EdgeReference&,zima::kernel::DimensionLayout);
     void update_assembly_dimension_visibility();
+    bool show_pattern_occurrence_dimensions(const std::string& path);
     void show_parameter_dimensions(const std::string& owner_id,
         const std::string& component = {});
     // Exposed for regression coverage of nested Assembly occurrence
@@ -714,6 +715,8 @@ private:
     void edit_family_table();
     void edit_family_table_for_document(std::string document_id);
     void update_family_selection();
+    void update_relation_selection();
+    bool accept_relation_dimension(const zima::viewer::ViewerCandidate&);
     bool accept_family_reference(const zima::viewer::ViewerCandidate&, bool show_dimensions = false);
     void edit_file_settings(bool sheet_metal = false);
     void show_boundary_surface_properties(const std::string& container_id = {});

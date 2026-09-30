@@ -3,6 +3,7 @@
 #include <zima/document/edge_treatment_selection.hpp>
 #include "../app/opening_tree_policy.hpp"
 #include <zima/document/part_document.hpp>
+#include <zima/document/relation_program.hpp>
 #include <zima/document/document_session.hpp>
 #include <zima/kernel/occt_kernel.hpp>
 #include <zima/kernel/stable_id.hpp>
@@ -1820,7 +1821,7 @@ int main() {
             (std::istreambuf_iterator<char>(empty_serialized)),
             std::istreambuf_iterator<char>());
         require(empty_text.find("[Document]\n") != std::string::npos &&
-                    empty_text.find("format_version=45\n") != std::string::npos &&
+                    empty_text.find("format_version=46\n") != std::string::npos &&
                     empty_text.find("[DocumentUnits]\n") != std::string::npos &&
                     empty_text.find("[UserParameterValues]\n") != std::string::npos,
                 "Part persistence did not write the current native INI sections");
@@ -1943,13 +1944,11 @@ int main() {
         suppression_document.history.back().suppressed = true;
         suppression_document.user_parameters = {
             {"wall_thickness", "2.5 mm"}, {"rib_count", "4"}};
-        suppression_document.relations = {
-            {"diameter", "radius * 2"}, {"scaled", "max(diameter, 12) + model.volume"}};
-        const auto evaluated_parameters = zima::document::evaluate_relations(
-            {{"radius", "5"}}, suppression_document.relations,
-            {{"model.volume", 3.0}}, 2);
-        require(evaluated_parameters.at("diameter") == "10.00" &&
-                    evaluated_parameters.at("scaled") == "15.00",
+        suppression_document.relations = "diameter = radius * 2\nscaled = max(diameter, 12) + model.volume\n";
+        const auto evaluated_parameters = zima::document::RelationProgram(suppression_document.relations).evaluate(
+            {{"radius",{{5.},true}}, {"model.volume",{{3.},false,true}}}, 2);
+        require(std::get<double>(evaluated_parameters.at("diameter").data) == 10 &&
+                    std::get<double>(evaluated_parameters.at("scaled").data) == 15,
                 "Ordered document relations were not evaluated deterministically");
         const auto suppressed_results = kernel.evaluate_history(
             suppression_document.kernel_operations());
