@@ -71,7 +71,7 @@ inline FeatureViewCues feature_view_cues(const document::HistoryContainer& featu
                 linear(prefix+"_length",start,add(start,scale(direction,settings.length)),settings.length);
                 out.handles.push_back({"feature_profile_start"+std::to_string(side),prefix+"_length",start,direction,settings.length,false});
             } else out.directions.push_back({start,direction,{},0.,false});
-            if(draft_edge) {
+            if(draft_edge && std::abs(settings.draft_angle_degrees)>=1e-12) {
                 const auto [anchor,outward]=*draft_edge;
                 const auto inward=scale(outward,-1);
                 const double radians=settings.draft_angle_degrees*std::numbers::pi/180.;
@@ -84,7 +84,7 @@ inline FeatureViewCues feature_view_cues(const document::HistoryContainer& featu
                 dimension.kind=kernel::ViewerDimensionKind::Angular;
                 dimension.plane_normal=kernel::dimension_cross(direction,inward);
                 dimension.sweep_degrees=settings.draft_angle_degrees;
-                // A zero draft still needs a distinct selectable label.
+                // Keep the label clear of the profile edge.
                 dimension.label_position=add(anchor,add(scale(direction,radius),scale(outward,8.)));
             }
         } else if(settings.operation==document::FeatureSideOperation::Revolution && frame &&

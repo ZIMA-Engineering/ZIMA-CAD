@@ -147,8 +147,12 @@ without creating accidental INI sections or keys.
 
 ## Extrusion draft dimensions
 
-Double-clicking an Extrusion shows each active side's draft angle, including
-zero degrees. The annotation is anchored on the outer profile boundary in a
+Double-clicking an Extrusion shows each active side's nonzero draft angle.
+Zero-angle annotations are hidden, using the same near-zero display threshold
+as feature length dimensions (`abs(value) < 1e-12`). The parameter and its
+identifier remain available in Properties and relation expressions; hiding the
+annotation never changes the stored value or its sign. The annotation is anchored
+on the outer profile boundary in a
 plane perpendicular to the displayed boundary edge and containing the extrusion
 direction. Its label sits outside the profile. Symmetric extrusion uses the
 same driving identifier on both sides. The Relations picker inserts the existing

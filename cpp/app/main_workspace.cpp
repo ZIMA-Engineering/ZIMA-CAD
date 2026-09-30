@@ -8593,7 +8593,7 @@ int verify_startup_contract(
             feature=zima::document::PartDocument::create_feature_container(fixture.sketches.back().id);
             fixture.sketches.back().owner_container_id=feature.id;
             feature.feature.sides[0].length=30;
-            feature.feature.sides[0].draft_angle_degrees=picker_case==1?0:-5;
+            feature.feature.sides[0].draft_angle_degrees=picker_case==1?5:-5;
         }
         fixture.history.push_back(feature);
         const std::string dimension_key=picker_case==3?"parameter:pitch":picker_case?"parameter:side0_draft_angle":"parameter:length_forward";

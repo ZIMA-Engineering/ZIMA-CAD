@@ -467,12 +467,11 @@ static void verify_feature_modeling(QApplication& application, AssemblyWorkspace
     const auto draft_dimension=std::ranges::find_if(view->mesh().dimensions,[&](const auto& d){
         return d.reference.owner_id==pending.id&&d.reference.semantic_key=="parameter:side0_draft_angle";
     });
-    check(draft_dimension!=view->mesh().dimensions.end()&&draft_dimension->value==0&&
-        draft_dimension->kind==kernel::ViewerDimensionKind::Angular&&draft_dimension->label_position.has_value(),
-        "Zero draft must have a selectable angular annotation outside Properties");
+    check(draft_dimension==view->mesh().dimensions.end(),
+        "Zero draft must not have a View annotation outside Properties");
     auto feature=*saved.find_container(pending.id);
     const auto& profile=*std::ranges::find(saved.sketches,feature.feature.sketch_id,&sketcher::Sketch::id);
-    for(double angle:{-7.5,0.,5.}) {
+    for(double angle:{-7.5,0.,-0.,5.}) {
         feature.feature.sides[0].draft_angle_degrees=angle;
         feature.feature.sides[1]=feature.feature.sides[0];
         feature.feature.symmetric=false;
@@ -480,6 +479,10 @@ static void verify_feature_modeling(QApplication& application, AssemblyWorkspace
         for(int side=0;side<2;++side) {
             const auto key="parameter:side"+std::to_string(side)+"_draft_angle";
             const auto found=std::ranges::find_if(cues.dimensions.dimensions,[&](const auto& d){return d.reference.semantic_key==key;});
+            if(angle==0) {
+                check(found==cues.dimensions.dimensions.end(),"Zero draft annotation was not hidden");
+                continue;
+            }
             check(found!=cues.dimensions.dimensions.end()&&found->value==angle&&found->sweep_degrees==angle,
                 "Draft annotation lost the signed angle or extrusion side");
             const auto a=kernel::dimension_unit(kernel::dimension_sub(found->line_first,found->witness_first));
