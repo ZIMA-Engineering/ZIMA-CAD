@@ -2,6 +2,14 @@
 
 ## Scope and status
 
+Windows build **2026093007** is signed, published and verified. It enables
+history-scoped saved centroid placement and reduces the welding all-around
+circle while keeping both strokes continuous. Seventeen focused suites,
+additional cross-Body and whole-Origin checks, clean/signed smoke, production
+trust, twelve packaged GUI checks, public asset hashes and update discovery
+from 2026093006 passed. No native format or template change is required. See
+[the release record](releases/2026093007.md). Linux verification remains separate.
+
 Windows build **2026093006** is signed, published and verified. It fixes live
 Fusion toolbar recoloring and adds measured inactive-history sharing, exact
 fingerprint batching, native Sketch packet reuse, scoped Drawing preparation,
