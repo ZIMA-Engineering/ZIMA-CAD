@@ -19,9 +19,10 @@ and inherited-profile status remain distinct operations with unchanged semantics
 ## Placement and path Sketch
 
 The container uses shared placement: position references, FRONT/TOP, X/Y/Z, rotations,
-corrections, and Origin selection. The separate green field before **Path Sketch**
-defaults to the container's own XY plane. Change it by picking only XY/YZ/XZ of
-that same container in View/Tree, without changing container placement. Body faces,
+corrections, and Origin selection. The dropdown before **Path Sketch** defaults
+to the container's own XY plane and offers XY, XZ and YZ. Choosing a plane updates
+the path Sketch without changing container placement. The adjacent eye independently
+inspects the selected plane. Body faces,
 Part planes and planes of other containers are excluded. Two mandatory perpendicular
 path/profile planes are not required; profile planes derive from path tangents.
 

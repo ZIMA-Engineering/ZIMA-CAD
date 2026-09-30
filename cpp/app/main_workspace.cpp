@@ -1729,27 +1729,16 @@ int verify_sweep2d_command(QApplication& application,zima::app::AssemblyWorkspac
     dialog->findChild<QDoubleSpinBox*>("sweepTranslation2")->setValue(8);
     dialog->findChild<QDoubleSpinBox*>("sweepRotation1")->setValue(25);application.processEvents();
     if(!verify(dialog->pending.placement.x==12&&dialog->pending.placement.y==-3&&dialog->pending.placement.z==8&&std::abs(dialog->pending.placement.rotation_y-25)<1e-6&&placement_view->camera_state()==camera,"Sweep placement fields did not update or moved camera"))return 1;
-    dialog->request_path_plane();application.processEvents();placement_view->fit_all();
-    std::optional<QPointF> own_plane_hit;std::size_t own_plane_index{};
-    for(int y=4;y<placement_view->height()&&!own_plane_hit;y+=3)for(int x=4;x<placement_view->width();x+=3) {
-        const auto candidates=placement_view->selection_candidates_at(QPointF(x,y));
-        for(std::size_t i=0;i<candidates.size();++i)if(candidates[i].owner_id==dialog->pending.container_origin.id &&
-            candidates[i].semantic_key.starts_with("origin:plane:")) {own_plane_hit=QPointF(x,y);own_plane_index=i;break;}
-        if(own_plane_hit)break;
+    auto* path_plane=dialog->findChild<QComboBox*>("sweep2dPathPlane");
+    if(!verify(path_plane&&path_plane->count()==3&&path_plane->currentText()=="XY","Own-plane combo missing or wrong default"))return 1;
+    const auto initial_placement=dialog->pending.placement;
+    for(int index:{1,2,0}) {
+        path_plane->setCurrentIndex(index);application.processEvents();
+        if(!verify(dialog->pending.sweep2d.path_plane&&dialog->pending.sweep2d.path_plane->owner_id==dialog->pending.container_origin.id&&
+            dialog->pending.sweep2d.path_plane->semantic_key==path_plane->currentData().toString().toStdString()&&
+            dialog->pending.placement==initial_placement&&placement_view->camera_state()==camera,
+            "Plane combo changed placement/camera or did not set own plane"))return 1;
     }
-    if(!verify(own_plane_hit.has_value(),"2D Sweep did not offer the planes of its own Origin"))return 1;
-    const auto point=*own_plane_hit;
-    QMouseEvent own_move(QEvent::MouseMove,point,point,point,Qt::NoButton,Qt::NoButton,Qt::NoModifier);QApplication::sendEvent(placement_view,&own_move);
-    for(std::size_t i=0;i<own_plane_index;++i) {
-        QMouseEvent press(QEvent::MouseButtonPress,point,point,point,Qt::RightButton,Qt::RightButton,Qt::NoModifier);
-        QMouseEvent release(QEvent::MouseButtonRelease,point,point,point,Qt::RightButton,Qt::NoButton,Qt::NoModifier);
-        QApplication::sendEvent(placement_view,&press);QApplication::sendEvent(placement_view,&release);
-    }
-    QMouseEvent own_press(QEvent::MouseButtonPress,point,point,point,Qt::LeftButton,Qt::LeftButton,Qt::NoModifier);
-    QMouseEvent own_release(QEvent::MouseButtonRelease,point,point,point,Qt::LeftButton,Qt::NoButton,Qt::NoModifier);
-    QApplication::sendEvent(placement_view,&own_press);QApplication::sendEvent(placement_view,&own_release);application.processEvents();
-    if(!verify(dialog->pending.sweep2d.path_plane&&dialog->pending.sweep2d.path_plane->owner_id==dialog->pending.container_origin.id,
-        "Own Origin plane click did not persist the path reference"))return 1;
     auto guide=zima::sketcher::Sketch::from_serialized(dialog->pending.sweep2d.path_sketch);
 
     const auto guide_segment=guide.add_segment(0,0,0,10);
@@ -1828,25 +1817,17 @@ int verify_sweep2d_command(QApplication& application,zima::app::AssemblyWorkspac
     if(!verify(dialog!=nullptr,"2D Sweep edit did not reopen same dialog"))return 1;
     dialog->findChild<QDoubleSpinBox*>("sweepTranslation0")->setValue(99);
     dialog->findChild<QDoubleSpinBox*>("sweep2dThickness")->setValue(7);
+    dialog->findChild<QComboBox*>("sweep2dPathPlane")->setCurrentIndex(1);
     dialog->buttons()->button(QDialogButtonBox::Cancel)->click();application.processEvents();save->trigger();application.processEvents();
     stored=zima::document::PartDocument::load(path);
-    if(!verify(stored.history.back().placement.x==12&&stored.history.back().sweep2d.thickness==1,"Cancel committed pending sweep2d pitch"))return 1;
+    if(!verify(stored.history.back().placement.x==12&&stored.history.back().sweep2d.thickness==1&&stored.history.back().sweep2d.path_plane->semantic_key=="origin:plane:xy","Cancel committed pending sweep2d changes"))return 1;
     QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
     action->trigger();application.processEvents();
     dialog=dynamic_cast<zima::app::Sweep2DDialog*>(window.findChild<QDialog*>("sweep2dDialog"));
     auto* view=dynamic_cast<zima::viewer::MeshView*>(window.findChild<QOpenGLWidget*>("modelWorkspace"));
     if(!verify(dialog&&view,"Cannot test sweep2d reference selection"))return 1;
-    view->set_standard_view(zima::viewer::StandardView::Isometric);view->fit_all();dialog->request_path_plane();application.processEvents();
-    QEventLoop isometric_animation;QTimer::singleShot(950,&isometric_animation,&QEventLoop::quit);isometric_animation.exec();
-    bool own_plane_offered=false;
-    for(int y=4;y<view->height();y+=12)for(int x=4;x<view->width();x+=12)
-        for(const auto& candidate:view->selection_candidates_at(QPointF(x,y))) {
-            if(!verify(candidate.owner_id==dialog->pending.container_origin.id &&
-                (candidate.semantic_key=="origin:plane:xy"||candidate.semantic_key=="origin:plane:yz"||candidate.semantic_key=="origin:plane:xz"),
-                "Path plane picker offered foreign geometry"))return 1;
-            own_plane_offered=true;
-        }
-    if(!verify(own_plane_offered,"Own path planes missing from common picker"))return 1;
+    path_plane=dialog->findChild<QComboBox*>("sweep2dPathPlane");
+    if(!verify(path_plane&&path_plane->count()==3,"Path selector must offer only three own planes"))return 1;
     dialog->buttons()->button(QDialogButtonBox::Cancel)->click();application.processEvents();
     QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
     action->trigger();application.processEvents();
@@ -1865,16 +1846,7 @@ int verify_sweep2d_command(QApplication& application,zima::app::AssemblyWorkspac
     if(!verify(dialog->pending.sweep2d.path_plane&&dialog->pending.sweep2d.path_plane->semantic_key=="origin:plane:xy"&&
         dialog->pending.sweep2d.path_plane->owner_id==dialog->pending.container_origin.id,"Path did not default to its own XY plane"))return 1;
     const auto saved_placement=dialog->pending.placement;
-    QTreeWidgetItem* yz_plane{};
-    for(QTreeWidgetItemIterator i(tree);*i;++i)if((*i)->data(0,Qt::UserRole+3).toString()=="origin-reference"&&
-        (*i)->data(0,Qt::UserRole+5).toString()=="origin:plane:yz"&&
-        ((*i)->data(0,Qt::UserRole+6).isValid()?(*i)->data(0,Qt::UserRole+6):(*i)->data(0,Qt::UserRole)).toString().toStdString()==
-            origin_geometry.triangle_references.front().owner_id){yz_plane=*i;break;}
-    if(!verify(yz_plane!=nullptr,"Document YZ plane missing from Tree"))return 1;
-    dialog->request_path_plane();tree->setCurrentItem(yz_plane);application.processEvents();
-    if(!verify(dialog->path_active()&&dialog->pending.sweep2d.path_plane->semantic_key=="origin:plane:xy",
-        "Tree accepted a foreign path plane"))return 1;
-    dialog->set_path_plane({{},dialog->pending.container_origin.id,"origin:plane:yz"},"YZ");
+    dialog->findChild<QComboBox*>("sweep2dPathPlane")->setCurrentIndex(2);application.processEvents();
     path_frame=zima::sketcher::Sketch::from_serialized(dialog->pending.sweep2d.path_sketch);
     if(!verify(dialog->pending.placement==saved_placement,
         "Independent path plane changed container placement"))return 1;
@@ -2004,6 +1976,10 @@ int verify_helical_sweep_command(QApplication& application,zima::app::AssemblyWo
     dialog->findChild<QDoubleSpinBox*>("sweepTranslation2")->setValue(8);
     dialog->findChild<QDoubleSpinBox*>("sweepRotation1")->setValue(25);application.processEvents();
     if(!verify(dialog->pending.placement.x==12&&dialog->pending.placement.y==-3&&dialog->pending.placement.z==8&&std::abs(dialog->pending.placement.rotation_y-25)<1e-6&&placement_view->camera_state()==camera,"Sweep placement fields did not update or moved camera"))return 1;
+    auto* base_plane=dialog->findChild<QComboBox*>("helicalBasePlane");
+    if(!verify(base_plane&&base_plane->currentText()=="XZ","Helical base plane default missing"))return 1;
+    base_plane->setCurrentIndex(2);dialog->findChild<QDoubleSpinBox*>("helicalBaseOffset")->setValue(-3);
+    application.processEvents();
     auto base=zima::sketcher::Sketch::from_serialized(dialog->pending.helical.sketches[0]);
     static_cast<void>(base.add_circle(0,0,5));static_cast<void>(base.add_point(5,0));dialog->set_sketch(0,base);
     if(!verify(!dialog->pending.helical.start_point_id.empty(),"Unique initial Point not selected"))return 1;
@@ -2094,10 +2070,15 @@ int verify_helical_sweep_command(QApplication& application,zima::app::AssemblyWo
     dialog=dynamic_cast<zima::app::HelicalSweepDialog*>(window.findChild<QDialog*>("helicalSweepDialog"));
     if(!verify(dialog!=nullptr,"Helical edit did not reopen same dialog"))return 1;
     dialog->findChild<QDoubleSpinBox*>("sweepTranslation0")->setValue(99);
+    if(!verify(dialog->findChild<QComboBox*>("helicalBasePlane")->currentText()=="YZ"&&
+        dialog->findChild<QDoubleSpinBox*>("helicalBaseOffset")->value()==-3,"Helical plane or signed offset lost on reopen"))return 1;
+    dialog->findChild<QComboBox*>("helicalBasePlane")->setCurrentIndex(0);
     dialog->findChild<QDoubleSpinBox*>("helicalPitch")->setValue(7);
     dialog->buttons()->button(QDialogButtonBox::Cancel)->click();application.processEvents();save->trigger();application.processEvents();
     stored=zima::document::PartDocument::load(path);
-    if(!verify(stored.history.back().placement.x==12&&stored.history.back().helical.pitch==5,"Cancel committed pending helical pitch"))return 1;
+    const auto stored_base=zima::sketcher::Sketch::from_serialized(stored.history.back().helical.sketches[0]);
+    if(!verify(stored.history.back().placement.x==12&&stored.history.back().helical.pitch==5&&
+        stored_base.plane==zima::sketcher::SketchPlane::YZ&&stored_base.plane_offset==-3,"Cancel committed pending helical changes"))return 1;
     QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
     action->trigger();application.processEvents();
     dialog=dynamic_cast<zima::app::HelicalSweepDialog*>(window.findChild<QDialog*>("helicalSweepDialog"));

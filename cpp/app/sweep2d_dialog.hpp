@@ -21,7 +21,6 @@
 namespace zima::app {
 class Sweep2DDialog final : public SweepPlacementDialog {
 public:
-    std::function<void()> request_path_plane;
     Sweep2DDialog(document::HistoryContainer initial,std::function<void(document::HistoryContainer)> commit,QWidget* parent)
         : SweepPlacementDialog(tr("Vlastnosti 2D tažení"),std::move(initial),parent),commit_(std::move(commit)) {
         setObjectName("sweep2dDialog");setAttribute(Qt::WA_DeleteOnClose);setMinimumWidth(440);
@@ -32,24 +31,17 @@ public:
         connect(name,&QLineEdit::textChanged,this,[this](const auto& value){pending.name=value.toStdString();});
         content_layout()->addLayout(form);install_placement();
         auto* path_row=new QHBoxLayout;
-        plane_table_=new QTableWidget(1,3,this);plane_table_->setObjectName("sweep2dPathPlane");
-        plane_table_->horizontalHeader()->hide();plane_table_->verticalHeader()->show();
-        plane_table_->setSelectionMode(QAbstractItemView::NoSelection);plane_table_->setEditTriggers(QAbstractItemView::NoEditTriggers);
-        // Shared reference controls are 30 px; leave space for the cell grid.
-        plane_table_->setRowHeight(0,32);
-        plane_table_->setFixedHeight(36);plane_table_->setColumnWidth(0,32);plane_table_->setColumnWidth(2,32);
-        plane_table_->horizontalHeader()->setSectionResizeMode(1,QHeaderView::Stretch);
-        ui::install_reference_cell_delegate(plane_table_);
-        plane_indicator_=ui::build_reference_row_indicator([this]{pending.sweep2d.path_plane.reset();plane_initialized_=true;
-            plane_label_.clear();plane_inspected_=false;refresh_plane();notify();});
-        plane_table_->setCellWidget(0,0,plane_indicator_);
-        plane_item_=new ui::ReferenceCellItem;plane_table_->setItem(0,1,plane_item_);
+        plane_=new QComboBox(this);plane_->setObjectName("sweep2dPathPlane");
+        plane_->addItem("XY","origin:plane:xy");plane_->addItem("XZ","origin:plane:xz");plane_->addItem("YZ","origin:plane:yz");
+        connect(plane_,&QComboBox::currentIndexChanged,this,[this](int index){
+            if(index<0||index>=3)return;
+            pending.sweep2d.path_plane=document::ConstructionReference{{},pending.container_origin.id,plane_->itemData(index).toString().toStdString()};
+            plane_initialized_=true;refresh_plane();notify();
+        });
         plane_eye_=ui::build_reference_inspection_button(false,false,[this](bool on){plane_inspected_=on;refresh_plane();notify();});
-        plane_table_->setCellWidget(0,2,ui::centered_cell_widget(plane_eye_));
-        connect(plane_table_,&QTableWidget::cellClicked,this,[this](int,int column){if(column==1&&request_path_plane)request_path_plane();});
         auto* path_button=new QPushButton(tr("Skica dráhy…"),this);path_button->setObjectName("sweep2dSketch0");style_sketch_button(path_button);
         connect(path_button,&QPushButton::clicked,this,[this]{if(edit_sketch)edit_sketch(0);});
-        path_row->addWidget(plane_table_,1);path_row->addWidget(path_button);
+        path_row->addWidget(plane_,1);path_row->addWidget(plane_eye_);path_row->addWidget(path_button);
         content_layout()->addWidget(new QLabel(tr("Rovina a skica dráhy"),this));content_layout()->addLayout(path_row);
         auto* help=new QLabel(tr("Vyberte vlastní rovinu XY, YZ nebo XZ kontejneru pro skicu dráhy."),this);
         help->setWordWrap(true);content_layout()->addWidget(help);
@@ -97,19 +89,14 @@ public:
         }
         refresh_profiles();notify();
     }
-    void seed_path_plane(const document::ConstructionReference& ref,const QString& label) {
+    void seed_path_plane(const document::ConstructionReference& ref) {
         if(plane_initialized_)return;plane_initialized_=true;pending.sweep2d.path_plane=ref;
         pending.sweep2d.path_plane->orientation_drives_rotation=false;pending.sweep2d.path_plane->orientation_only=false;
-        pending.sweep2d.path_plane->orientation_role.clear();plane_label_=label;refresh_plane();
+        pending.sweep2d.path_plane->orientation_role.clear();refresh_plane();
     }
-    void set_path_plane(document::ConstructionReference ref,const QString& label) {
-        plane_initialized_=true;pending.sweep2d.path_plane=std::move(ref);plane_label_=label;plane_active_=false;refresh_plane();notify();
-    }
-    void set_path_active(bool active){plane_active_=active;refresh_plane();}
-    bool path_active() const{return plane_active_;}
     bool point_order_open() const{return point_order_open_;}
     bool path_inspected() const{return plane_inspected_;}
-    void end_path_entry(){plane_active_=false;plane_inspected_=false;refresh_plane();}
+    void end_path_entry(){plane_inspected_=false;refresh_plane();}
     void set_active_reference_index(std::optional<std::size_t> index) override {
         if(index)end_path_entry();SweepPlacementDialog::set_active_reference_index(index);
     }
@@ -176,9 +163,9 @@ protected:
 private:
     std::function<void(document::HistoryContainer)> commit_;
     QComboBox* side_{};QDoubleSpinBox* thickness_{};QLabel* status_{};QFormLayout* thin_form_{};
-    QTableWidget* profiles_{};QTableWidget* plane_table_{};ui::ReferenceCellItem* plane_item_{};
-    QWidget* plane_indicator_{};QToolButton* plane_eye_{};
-    bool plane_initialized_{},plane_active_{},plane_inspected_{},point_order_open_{};QString plane_label_,path_error_;
+    QTableWidget* profiles_{};QComboBox* plane_{};
+    QToolButton* plane_eye_{};
+    bool plane_initialized_{},plane_inspected_{},point_order_open_{};QString path_error_;
     void notify(){if(changed)changed();}
     void update_thin(){const bool enabled=pending.sweep2d.result_type==document::ProfileResultType::Thin;
         thin_form_->setRowVisible(thickness_,enabled);thin_form_->setRowVisible(side_,enabled);
@@ -188,13 +175,17 @@ private:
             subtract->setEnabled(!surface);
         }}
     void refresh_plane(){
-        const auto& ref=pending.sweep2d.path_plane;const QSignalBlocker blocked(plane_eye_);
-        if(ref){plane_item_->set_reference(QString::fromStdString(ref->owner_id+":"+ref->semantic_key));
-            plane_item_->setText(plane_label_.isEmpty()?QString::fromStdString(ref->semantic_key):plane_label_);}
-        else {plane_item_->clear_reference();plane_item_->setText(tr("Rovina kontejneru / vyberte rovinu…"));}
-        plane_item_->set_active_input(plane_active_);plane_item_->set_inspected(plane_inspected_&&ref.has_value());
-        ui::set_reference_row_populated(plane_indicator_,ref.has_value());plane_eye_->setEnabled(ref.has_value());plane_eye_->setChecked(plane_inspected_&&ref.has_value());
-        plane_table_->viewport()->update();
+        const auto& ref=pending.sweep2d.path_plane;const QSignalBlocker blocked(plane_),eye_blocked(plane_eye_);
+        while(plane_->count()>3)plane_->removeItem(3);
+        int index=static_cast<int>(sketcher::Sketch::from_serialized(pending.sweep2d.path_sketch).plane);
+        if(ref) {
+            index=ref->instance_path.empty()&&ref->owner_id==pending.container_origin.id
+                ?plane_->findData(QString::fromStdString(ref->semantic_key)):-1;
+            // Preserve a current reference assigned through commands until the user changes it.
+            if(index<0){plane_->addItem(QString::fromStdString(ref->owner_id+":"+ref->semantic_key));index=3;}
+        }
+        plane_->setCurrentIndex(index);
+        plane_eye_->setEnabled(ref.has_value());plane_eye_->setChecked(plane_inspected_&&ref.has_value());
     }
 };
 }

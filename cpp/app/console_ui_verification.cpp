@@ -2539,7 +2539,7 @@ static int verify_general_command_console(QApplication& application,AssemblyWork
                     "GUI profile confirmation duplicated sources or changed frustum geometry");
                 json_run("sweep2d.set",{{"container",feature.id},{"path_plane",{{"owner",feature.container_origin.id},
                     {"key","origin:plane:xy"},{"offset_mm",7}}}});flush();
-                dialog=edit();check(dialog->findChild<QTableWidget*>("sweep2dPathPlane"),"Path plane reference control missing");
+                dialog=edit();check(dialog->findChild<QComboBox*>("sweep2dPathPlane"),"Path plane combo missing");
                 dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Cancel)->click();flush();
                 check(get().at("path_plane").at("offset_mm")==7,"Properties Cancel lost the CLI path plane");
                 dialog=edit();dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();

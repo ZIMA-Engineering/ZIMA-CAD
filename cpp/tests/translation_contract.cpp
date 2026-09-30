@@ -147,6 +147,29 @@ int verify_translations(QApplication& application, QWidget& parent) {
             const auto commit=[&](auto value){check(value.is_surface_result(),"Properties committed wrong result mode");++committed;};
             app::HelicalSweepDialog helical(test_support::sweep_fixture(document::FeatureKind::HelicalSweep),commit,&parent);
             helical.setAttribute(Qt::WA_DeleteOnClose,false);
+            auto* base_plane=helical.findChild<QComboBox*>("helicalBasePlane");
+            check(base_plane&&base_plane->count()==3,"Helical own-plane combo missing");
+            auto* base_offset=helical.findChild<QDoubleSpinBox*>("helicalBaseOffset");
+            base_offset->setValue(-7);
+            const auto placement=helical.pending.placement;
+            for(int index:{1,2,0}) {
+                base_plane->setCurrentIndex(index);
+                document::PartDocument::reframe_helical_sketches(helical.pending);
+                const auto base=sketcher::Sketch::from_serialized(helical.pending.helical.sketches[0]);
+                const auto guide=sketcher::Sketch::from_serialized(helical.pending.helical.sketches[1]);
+                check(base.plane==static_cast<sketcher::SketchPlane>(index)&&base.plane_offset==-7&&helical.pending.placement==placement,
+                    "Helical plane selection lost offset or changed container placement");
+                check(std::abs(base.resolved_normal.x-guide.resolved_y_axis.x)<1e-9&&
+                    std::abs(base.resolved_normal.y-guide.resolved_y_axis.y)<1e-9&&
+                    std::abs(base.resolved_normal.z-guide.resolved_y_axis.z)<1e-9,"Radial guide did not follow base plane");
+            }
+            helical.show();application.processEvents();
+            auto* result=helical.findChild<QComboBox*>("helicalResultType");
+            check(helical.findChild<QPushButton*>("helicalSketch2")->y()<result->y()&&result->y()<base_plane->y()&&base_plane->y()<base_offset->y(),
+                "Helical controls are not ordered Sketches, result, plane, offset");
+            bool plane_label=false;
+            for(auto* label:helical.findChildren<QLabel*>())plane_label|=label->text()==settings.qt_translations.value("Rovina");
+            check(plane_label,"Helical plane label is not localized");
             check_modes(helical,"helicalResultType","helicalThickness");
             app::Sweep2DDialog planar(test_support::sweep_fixture(document::FeatureKind::Sweep2D),commit,&parent);
             planar.setAttribute(Qt::WA_DeleteOnClose,false);

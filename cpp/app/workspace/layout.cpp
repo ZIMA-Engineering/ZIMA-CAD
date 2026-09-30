@@ -1793,26 +1793,6 @@ void AssemblyWorkspaceWindow::create_layout() {
                     candidate.instance_path=row->data(0,Qt::UserRole+1).toString().toStdString();
                 auto pick=feature_reference_pick_;pick(candidate);return;
             }
-            if (auto* sweep=dynamic_cast<Sweep2DDialog*>(properties_dialog_);
-                sweep&&sweep->path_active()&&feature_reference_pick_) {
-                zima::viewer::ViewerCandidate candidate;
-                candidate.geometry=zima::viewer::CandidateGeometry::OriginalReference;
-                candidate.kind=zima::viewer::CandidateKind::Plane;
-                candidate.instance_path=item->data(0,Qt::UserRole+1).toString().toStdString();
-                const auto kind=item->data(0,Qt::UserRole+3).toString();
-                if(kind=="origin-reference") {
-                    candidate.owner_id=item->data(0,Qt::UserRole+6).isValid()
-                        ?item->data(0,Qt::UserRole+6).toString().toStdString():item->data(0,Qt::UserRole).toString().toStdString();
-                    candidate.semantic_key=item->data(0,Qt::UserRole+5).toString().toStdString();
-                } else if(kind=="part-construction") {
-                    const auto* part=workspace_.open_part(workspace_.active_document_id());
-                    const auto* plane=part?part->session.document().find_construction(item->data(0,Qt::UserRole).toString().toStdString()):nullptr;
-                    if(plane&&plane->kind==zima::document::ConstructionKind::Plane){candidate.owner_id=plane->entity_id;candidate.semantic_key="plane";}
-                }
-                auto pick=feature_reference_pick_;pick(candidate);
-                if(sweep->path_active())state_->setText(tr("Vyberte rovinu nebo rovinnou plochu pro skicu dráhy."));
-                return;
-            }
             if (construction_reference_dialog_ != nullptr &&
                 pending_construction_reference_index_) {
                 if (!accept_construction_tree_reference(item)) {

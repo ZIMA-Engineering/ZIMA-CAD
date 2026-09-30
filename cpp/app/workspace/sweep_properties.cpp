@@ -143,48 +143,13 @@ void AssemblyWorkspaceWindow::show_sweep_properties(zima::document::FeatureKind 
         feature_reference_pick_={};feature_reference_end_={};
         start_primitive_reference_selection(i);
     };
-    if(auto* planar_dialog=dynamic_cast<Sweep2DDialog*>(dialog)) {
-        planar_dialog->request_path_plane=[this,planar_dialog,geometry] {
-            pending_primitive_reference_index_.reset();primitive_reference_auto_advance_=false;
-            set_local_origin_selection_mode(false);planar_dialog->set_active_reference_index(std::nullopt);
-            planar_dialog->set_path_active(true);
-            auto path_geometry=geometry;
-            if(primitive_origin_preview_mesh_)append_reference_geometry(path_geometry,primitive_origin_preview_mesh_->original_references);
-            const auto accepts=[this,planar_dialog,path_geometry](const zima::viewer::ViewerCandidate& candidate) {
-                const bool own_plane=candidate.owner_id==planar_dialog->pending.container_origin.id &&
-                    (candidate.semantic_key=="origin:plane:xy"||candidate.semantic_key=="origin:plane:yz"||candidate.semantic_key=="origin:plane:xz");
-                if(!placement_reference_candidate_has_stable_geometry(candidate)||
-                    (candidate.kind!=zima::viewer::CandidateKind::Plane&&candidate.kind!=zima::viewer::CandidateKind::Face)||
-                    candidate.instance_path!=properties_dialog_instance_path_||!own_plane)return false;
-                return zima::document::PartDocument::sweep2d_accepts_path_plane(
-                    {{},candidate.owner_id,candidate.semantic_key},path_geometry);
-            };
-            tree_->setProperty("commandSelectionActive",true);
-            viewer_->set_selection_contract({zima::viewer::CandidateKind::Plane,zima::viewer::CandidateKind::Face});
-            viewer_->set_candidate_filter(accepts);
-            feature_reference_pick_=[this,planar_dialog,accepts](const zima::viewer::ViewerCandidate& candidate) {
-                if(!accepts(candidate))return;
-                feature_reference_pick_={};feature_reference_end_={};viewer_->clear_selection();tree_->clearSelection();
-                const auto label=candidate.owner_id==planar_dialog->pending.container_origin.id
-                    ? tr("Počátek kontejneru / %1").arg(QString::fromStdString(candidate.semantic_key).section(':',-1).toUpper())
-                    : QString::fromStdString(candidate.semantic_key);
-                planar_dialog->set_path_plane({{},candidate.owner_id,candidate.semantic_key},label);
-            };
-            feature_reference_end_=[this,planar_dialog] {
-                feature_reference_pick_={};feature_reference_end_={};planar_dialog->end_path_entry();
-                planar_dialog->clear_reference_highlights();tree_->setProperty("commandSelectionActive",false);
-                viewer_->clear_selection();tree_->clearSelection();planar_dialog->changed();
-            };
-            state_->setText(tr("Vyberte vlastní rovinu XY, YZ nebo XZ kontejneru pro skicu dráhy."));
-        };
-    }
     dialog->changed=[this,dialog,planar,transition,geometry,body_id]{
         const auto* planar_editor=dynamic_cast<Sweep2DDialog*>(dialog);
         if(!dialog->isVisible()&&!(planar_editor&&planar_editor->point_order_open()))return;
         const bool valid=dialog->resolve_pending_placement(geometry);
         auto& c=dialog->pending;
         if(auto* planar_dialog=dynamic_cast<Sweep2DDialog*>(dialog)) {
-            planar_dialog->seed_path_plane({{},c.container_origin.id,"origin:plane:xy"},tr("Počátek kontejneru / %1").arg("XY"));
+            planar_dialog->seed_path_plane({{},c.container_origin.id,"origin:plane:xy"});
         }
         primitive_translation_dof_=zima::document::point_constraint_remaining_dof(c.placement.references,geometry);
         zima::document::PartDocument preview;
@@ -234,9 +199,7 @@ void AssemblyWorkspaceWindow::show_sweep_properties(zima::document::FeatureKind 
         viewer_->set_transient_edges(std::move(edges));
         // A new edge frame clears its preceding point/label overlays.
         viewer_->set_transient_labels(std::move(labels));viewer_->set_transient_points(std::move(points));
-        if(auto* planar_dialog=dynamic_cast<Sweep2DDialog*>(dialog);planar_dialog&&planar_dialog->path_active())
-            planar_dialog->request_path_plane();
-        else if(!pending_primitive_reference_index_&&!feature_reference_pick_&&!local_origin_selection_active_)set_primitive_properties_dimension_selection();
+        if(!pending_primitive_reference_index_&&!feature_reference_pick_&&!local_origin_selection_active_)set_primitive_properties_dimension_selection();
     };
     dialog->edit_sketch=[this,dialog,planar,transition,geometry,body_id](unsigned stage){
         try{

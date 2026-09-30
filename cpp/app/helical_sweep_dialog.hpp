@@ -26,6 +26,8 @@ public:
         auto* name=new QLineEdit(QString::fromStdString(pending.name),this);form->addRow(tr("Název"),name);
         connect(name,&QLineEdit::textChanged,this,[this](auto v){pending.name=v.toStdString();});
         content_layout()->addLayout(form);install_placement();form=new QFormLayout;
+        const std::array<QString,3> names{tr("1. Kružnice a počáteční bod…"),tr("2. Radiální vodicí skica…"),tr("3. Skica průřezu…")};
+        for(unsigned i=0;i<3;++i){auto* button=new QPushButton(names[i],this);button->setObjectName(QString("helicalSketch%1").arg(i));style_sketch_button(button);form->addRow(button);connect(button,&QPushButton::clicked,this,[this,i]{if(edit_sketch)edit_sketch(i);});}
         auto* result=new QComboBox(this);result->setObjectName("helicalResultType");
         result->addItems({tr("Těleso"),tr("Thin"),tr("Plocha")});
         result->setCurrentIndex(pending.helical.result_type==document::ProfileResultType::Surface?2:pending.helical.result_type==document::ProfileResultType::Thin?1:0);
@@ -50,8 +52,15 @@ public:
         connect(thickness,&QDoubleSpinBox::valueChanged,this,[this](double v){pending.helical.thickness=v;notify();});
         connect(side,&QComboBox::currentIndexChanged,this,[this](int i){pending.helical.thin_mode=i==0?document::ThinMode::OneSide:i==1?document::ThinMode::OtherSide:document::ThinMode::Symmetric;notify();});
         update_thin();
-        const std::array<QString,3> names{tr("1. Kružnice a počáteční bod…"),tr("2. Radiální vodicí skica…"),tr("3. Skica průřezu…")};
-        for(unsigned i=0;i<3;++i){auto* button=new QPushButton(names[i],this);button->setObjectName(QString("helicalSketch%1").arg(i));style_sketch_button(button);form->addRow(button);connect(button,&QPushButton::clicked,this,[this,i]{if(edit_sketch)edit_sketch(i);});}
+        auto* base_plane=new QComboBox(this);base_plane->setObjectName("helicalBasePlane");
+        base_plane->addItems({"XY","XZ","YZ"});
+        base_plane->setCurrentIndex(static_cast<int>(sketcher::Sketch::from_serialized(pending.helical.sketches[0]).plane));
+        form->addRow(tr("Rovina"),base_plane);
+        connect(base_plane,&QComboBox::currentIndexChanged,this,[this](int index){
+            auto base=sketcher::Sketch::from_serialized(pending.helical.sketches[0]);
+            base.plane=static_cast<sketcher::SketchPlane>(index);
+            pending.helical.sketches[0]=base.serialized();notify();
+        });
         auto* base_offset=new QDoubleSpinBox(this);base_offset->setObjectName("helicalBaseOffset");
         base_offset->setDecimals(ui::numeric_decimal_places(this,4));base_offset->setRange(-1000000,1000000);base_offset->setSuffix(" mm");
         base_offset->setValue(sketcher::Sketch::from_serialized(pending.helical.sketches[0]).plane_offset);

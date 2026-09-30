@@ -157,3 +157,21 @@ The H-Sweep and neighboring 2D Sweep GUI contracts pass in
 `build/helical-marker-tests.log`. Existing finish/commit and reopen checks remain
 in the same H-Sweep test. No new user-visible text, document fields or shared
 placement behavior was introduced; translation coverage also passes.
+
+### Base-plane selection (2026-09-30)
+
+The Properties window places the result type after the three Sketch buttons and
+before the base Sketch offset. Thin thickness and side appear directly below the
+result type when Thin is selected.
+
+The base Sketch plane dropdown selects the container's own XY, XZ or YZ plane.
+The signed base offset is measured along that plane's normal. The helix axis,
+radial guide and section follow the selected plane; container placement stays
+unchanged. Existing base Sketch plane and offset values are retained on opening.
+
+Verification: the five-language translation contract checks all plane choices,
+radial-guide alignment, retained negative offset and control order. The H-Sweep
+GUI contract creates and saves a YZ-based feature at -3 mm, reopens its owned
+Sketches and Properties, and verifies Cancel preserves the committed plane.
+The 2D Sweep GUI contract checks own-plane choices, unchanged placement/camera,
+owned Sketch entry, save/reopen and Cancel. No native format change is involved.
