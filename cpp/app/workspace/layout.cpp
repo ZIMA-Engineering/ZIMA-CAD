@@ -1696,7 +1696,7 @@ void AssemblyWorkspaceWindow::create_layout() {
     const auto synchronize_tree_selection = [this] {
             if(measurement_dialog_||mass_properties_dialog_)return;
             if(mass_properties_origin_inspected_){mass_properties_origin_inspected_=false;viewer_->set_editing_origin_visible(false);}
-            if(auto* item=tree_->currentItem();item&&item->isSelected()&&item->data(0,Qt::UserRole+3).toString().startsWith("body-properties")){
+            if(auto* item=tree_->currentItem();item&&item->isSelected()&&!pending_primitive_reference_index_&&!pending_construction_reference_index_&&item->data(0,Qt::UserRole+3).toString().startsWith("body-properties")){
                 const bool origin=item->data(0,Qt::UserRole+3)=="body-properties-origin";
                 const auto id=item->data(0,origin?Qt::UserRole+5:Qt::UserRole).toString().toStdString()+":origin";
                 viewer_->clear_selection();

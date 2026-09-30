@@ -93,7 +93,7 @@ void AssemblyWorkspaceWindow::update_mass_properties_ui() {
         if(!row.error.empty()){item->setForeground(0,QColor("#d85858"));item->setToolTip(0,tr(row.error.c_str()));}
         else item->setToolTip(0,tr("Měření tělesa v tomto místě historie."));
         if(!row.visible&&row.error.empty())item->setForeground(0,QColor("#888888"));
-        auto* origin=new QTreeWidgetItem(item,QStringList{tr("Těžiště")});origin->setIcon(0,resource_icon("origin"));
+        auto* origin=add_origin_tree_item(item,row.id,false);origin->setText(0,tr("Těžiště"));origin->setIcon(0,resource_icon("origin"));
         origin->setData(0,Qt::UserRole,QString::fromStdString(row.id+":origin"));origin->setData(0,Qt::UserRole+3,"body-properties-origin");
         origin->setData(0,Qt::UserRole+5,QString::fromStdString(row.id));origin->setFlags(origin->flags()&~Qt::ItemIsUserCheckable);
         if(row.centroid()){const auto c=*row.centroid();origin->setToolTip(0,QString("X: %1; Y: %2; Z: %3 mm").arg(c.x).arg(c.y).arg(c.z));}

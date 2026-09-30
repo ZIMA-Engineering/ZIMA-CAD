@@ -77,6 +77,9 @@ calculate_part_reference_state(
         const auto constructions_before = document.constructions;
         const auto bodies_before = document.body_history.bodies();
         const auto flat_profiles_before=attached_flat_profiles();
+        // Saved centroids use this pass's actual input boundary, before any
+        // downstream placement consumes the refreshed frame. No kernel call.
+        document::refresh_body_properties(document,calculated);
         document.resolve_constructions(
             construction_reference_source_geometry(calculated));
         // A changed placement describes the next geometry pass. Projecting

@@ -32,8 +32,10 @@ Saved Body measurement centroid Origins can also be measured by their planes,
 axes and point. Plane resolution uses the saved centroid and its current frame
 rotation, including placed Bodies, without recalculating solids. Hiding the
 frame does not invalidate an already stored measurement reference. A deleted
-record or unavailable centroid remains a missing reference. These read-only
-analysis frames are not added to the general placement-reference packet.
+record or unavailable centroid remains a missing reference. Saved analysis
+frames are also available to subsequent feature placement, with history-boundary
+checks preventing references back into the measured input. See
+[Body measurement](BODY_PROPERTIES.md) for the shared placement behavior.
 
 Selection uses common View candidate ordering; RMB cycles overlapping candidates.
 Clicking reference text arms entry/replacement (green outline). The eye independently

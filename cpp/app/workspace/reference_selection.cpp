@@ -1337,7 +1337,8 @@ bool AssemblyWorkspaceWindow::accept_primitive_tree_reference(
         !pending_primitive_reference_index_) return false;
     const auto item_kind = item->data(0, Qt::UserRole + 3).toString();
     if (item_kind == QStringLiteral("document-origin") ||
-        item_kind == QStringLiteral("construction-origin")) {
+        item_kind == QStringLiteral("construction-origin") ||
+        item_kind == QStringLiteral("body-properties-origin")) {
         const auto origin_id = item->data(0, Qt::UserRole).toString().toStdString();
         if (!placement_origin_allowed(origin_id)) return false;
         if (primitive_reference_dialog_->owns_reference_owner(origin_id)) return false;
@@ -1521,7 +1522,8 @@ bool AssemblyWorkspaceWindow::accept_construction_tree_reference(
         !pending_construction_reference_index_) return false;
     const auto item_kind = item->data(0, Qt::UserRole + 3).toString();
     if ((item_kind == QStringLiteral("document-origin") ||
-         item_kind == QStringLiteral("construction-origin"))) {
+         item_kind == QStringLiteral("construction-origin") ||
+         item_kind == QStringLiteral("body-properties-origin"))) {
         const auto origin_id =
             item->data(0, Qt::UserRole).toString().toStdString();
         if (!placement_origin_allowed(origin_id)) return false;

@@ -129,12 +129,73 @@ kernel::ViewerMesh body_properties_origin(const BodyProperties& row,const std::s
     };
     transform(mesh);transform(mesh.original_references);return mesh;
 }
-kernel::ViewerMesh body_properties_origins(const PartDocument& doc,const std::string& label) {
+bool body_properties_precedes(const PartDocument& doc,const BodyProperties& row,const std::string& before) {
+    if(!row.centroid()||!row.error.empty())return false;
+    try {
+        const auto* consumer=before.empty()?doc.body_history.find(doc.body_history.active_body_id()):doc.body_owner_for_object(before);
+        if(!consumer&&!before.empty()&&!doc.find_container(before)&&!doc.find_construction(before))
+            consumer=doc.body_history.find(doc.body_history.active_body_id()); // Pending creation.
+        if(!doc.body_history.bodies().empty()) {
+            if(!consumer)return false;
+            const auto consumer_body=boundary(doc.body_history.order(),consumer->scope.id)-1;
+            if(row.body_id.empty())return boundary(doc.body_history.order(),row.after_object_id)<=consumer_body;
+            const auto* source=doc.body_history.find(row.body_id);
+            if(!source||source->suppressed)return false;
+            const auto anchor=boundary(source->entries,row.after_object_id);
+            if(!anchor)return false;
+            if(source!=consumer)return boundary(doc.body_history.order(),source->scope.id)<=consumer_body;
+            if(before==consumer->scope.id||before==consumer->origin().id)return false;
+            const auto found=std::ranges::find(consumer->entries,before,&PartHistoryEntry::id);
+            const auto limit=found==consumer->entries.end()?consumer->cursor:static_cast<std::size_t>(found-consumer->entries.begin());
+            return anchor<=limit;
+        }
+        const auto& entries=doc.history_order;
+        if(!entries.empty()) {
+            const auto found=std::ranges::find(entries,before,&PartHistoryEntry::id);
+            const auto limit=found==entries.end()?doc.effective_history_cursor():static_cast<std::size_t>(found-entries.begin());
+            return boundary(entries,row.after_object_id)<=limit;
+        }
+        const auto found=std::ranges::find(doc.history,before,&HistoryContainer::id);
+        const auto limit=found==doc.history.end()?doc.effective_history_cursor():static_cast<std::size_t>(found-doc.history.begin());
+        return boundary(doc.history,row.after_object_id)<=limit;
+    } catch(const std::invalid_argument&) {return false;}
+}
+kernel::ViewerReferenceGeometry body_properties_reference_geometry(const PartDocument& doc,const std::string& before) {
+    kernel::ViewerReferenceGeometry result;
+    for(auto row:doc.body_properties)if(body_properties_precedes(doc,row,before)) {
+        row.visible=true;
+        const auto geometry=body_properties_origin(row).original_references;
+        const auto offset=static_cast<std::uint32_t>(result.vertices.size());
+        result.vertices.insert(result.vertices.end(),geometry.vertices.begin(),geometry.vertices.end());
+        for(auto index:geometry.triangles)result.triangles.push_back(offset+index);
+        result.triangle_references.insert(result.triangle_references.end(),geometry.triangle_references.begin(),geometry.triangle_references.end());
+        result.edges.insert(result.edges.end(),geometry.edges.begin(),geometry.edges.end());
+        result.points.insert(result.points.end(),geometry.points.begin(),geometry.points.end());
+        result.axes.insert(result.axes.end(),geometry.axes.begin(),geometry.axes.end());
+    }
+    return result;
+}
+void remove_body_properties_references(const PartDocument& doc,kernel::ViewerReferenceGeometry& geometry) {
+    if(doc.body_properties.empty())return;
+    const auto analysis=[&](const auto& ref){return ref.instance_path.empty()&&std::ranges::any_of(doc.body_properties,[&](const auto& row){return ref.owner_id==row.id+":origin";});};
+    std::erase_if(geometry.edges,[&](const auto& v){return analysis(v.reference);});
+    std::erase_if(geometry.points,[&](const auto& v){return analysis(v.reference);});
+    std::erase_if(geometry.axes,[&](const auto& v){return analysis(v.reference);});
+    std::size_t kept=0;
+    for(std::size_t i=0;i<geometry.triangle_references.size();++i)if(!analysis(geometry.triangle_references[i])) {
+        geometry.triangle_references[kept]=geometry.triangle_references[i];
+        for(std::size_t c=0;c<3;++c)geometry.triangles[3*kept+c]=geometry.triangles[3*i+c];
+        ++kept;
+    }
+    geometry.triangle_references.resize(kept);geometry.triangles.resize(3*kept);
+}
+kernel::ViewerMesh body_properties_origins(const PartDocument& doc,const std::string& label,const std::string& before) {
     kernel::ViewerMesh result;
     for(const auto& row:doc.body_properties) {
         try {
             const auto& active=doc.body_history.active_body_id();
             if(!active.empty()&&row.body_id!=active)continue;
+            if(!before.empty()&&!body_properties_precedes(doc,row,before))continue;
             if(!row.body_id.empty()) {
                 const auto* body=doc.body_history.find(row.body_id);if(!body)continue;
                 if(!active.empty()&&boundary(body->entries,row.after_object_id)>body->cursor)continue;
@@ -147,9 +208,14 @@ kernel::ViewerMesh body_properties_origins(const PartDocument& doc,const std::st
             result.points.insert(result.points.end(),mesh.points.begin(),mesh.points.end());
             result.axes.insert(result.axes.end(),mesh.axes.begin(),mesh.axes.end());
             result.edges.insert(result.edges.end(),mesh.edges.begin(),mesh.edges.end());
-            // Analysis origins are read-only display frames. They are not
-            // placement inputs: a feature depending on its own measured body
-            // would otherwise introduce an implicit dependency cycle.
+            const auto& geometry=mesh.original_references;
+            const auto offset=static_cast<std::uint32_t>(result.original_references.vertices.size());
+            result.original_references.vertices.insert(result.original_references.vertices.end(),geometry.vertices.begin(),geometry.vertices.end());
+            for(auto index:geometry.triangles)result.original_references.triangles.push_back(offset+index);
+            result.original_references.triangle_references.insert(result.original_references.triangle_references.end(),geometry.triangle_references.begin(),geometry.triangle_references.end());
+            result.original_references.points.insert(result.original_references.points.end(),geometry.points.begin(),geometry.points.end());
+            result.original_references.axes.insert(result.original_references.axes.end(),geometry.axes.begin(),geometry.axes.end());
+            result.original_references.edges.insert(result.original_references.edges.end(),geometry.edges.begin(),geometry.edges.end());
         }catch(const std::exception&){} // Missing anchors are represented by red tree rows.
     }return result;
 }

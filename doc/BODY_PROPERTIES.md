@@ -40,8 +40,11 @@ measuring the body. The measured point is labelled **Center of gravity**
 
 - Measurement accepts the saved centroid Origin's planes, axes and point.
   Their geometry comes from the cached analysis record, preserving its rotation
-  and Body placement. This does not make analysis Origins valid feature-placement
-  inputs or create a dependency back to their measured solid.
+  and Body placement. Subsequent features can also use the saved point, axes,
+  planes or the complete Origin through the shared placement controls. The Tree
+  exposes the same seven Origin children as ordinary datum frames. A reference
+  cannot drive an operation at or before its own measured history boundary.
+  Hidden frames retain existing references; failed/missing frames remain invalid.
 
 ## Quantities
 
@@ -57,8 +60,8 @@ Body placements transform centroid and tensor. Combining Bodies uses the
 parallel-axis theorem about their combined centroid.
 
 Initial scope is Parts with uniform density. Heterogeneous Assembly mass
-properties are a separate extension. Analysis Origins are display frames,
-not feature-placement references. Section area moments (mm⁴), section moduli
+properties are a separate extension. Saved analysis Origins are history-scoped
+placement references. Section area moments (mm⁴), section moduli
 W (mm³), and section cuts require a separate cross-section analysis; mass
 inertia must not be presented as a section modulus.
 
@@ -152,8 +155,10 @@ constitute portable-release acceptance.
 
 ### Centroid-plane measurement correction (2026-09-30)
 
-The saved frame intentionally omits general original-reference triangles to
-prevent circular placement dependencies. The View can offer its plane from
+At that release boundary, the saved frame intentionally omitted general
+original-reference triangles to prevent circular placement dependencies.
+The later placement extension below replaces that restriction with explicit
+history-boundary eligibility. The View can offer its plane from
 the visible frame edges, but Measurement previously failed to resolve it.
 The measurement resolver now obtains that record's cached frame only for the
 requested local analysis point, axis or plane, without changing shared placement.
@@ -168,3 +173,26 @@ each rectangular fixture now issues six public commands. Product Undo is unchang
 Logs: `build/centroid-plane-before.log`, `build/centroid-plane-tests.log`, and
 `build/centroid-gui-final-tests.log`. Localization review found no new product
 text; five-language coverage passed.
+
+### Centroid placement extension (2026-09-30)
+
+The user explicitly approved extending shared placement to saved centroid frames.
+No alternate placement solver or geometry kernel call is added to picking or
+preview. Each calculation pass refreshes the cached analysis from its measured
+boundary before resolving downstream placement. Body carriers convert the frame
+to local coordinates, while persisted analysis remains in Part coordinates.
+Frames are published only after their anchor; stale display geometry cannot
+make a future centroid eligible. Cross-Body dependencies retain Body ownership.
+The existing native representation and templates remain unchanged.
+
+Verification covers common View picking, whole-Origin Tree entry, inspection,
+creation/OK, reopening/Cancel, save/reopen, Undo/Redo, upstream movement, hidden
+frames, zero-offset sides and rejection of upstream or missing-anchor references.
+Localization uses existing shared Origin labels in all five languages; no new
+product text is introduced.
+
+Final targeted verification passed all 17 suites in `build/centroid-weld-final-tests.log`.
+The independent-Body and aggregate-centroid extension then passed the Body
+properties executable; the shared whole-Origin GUI contract passed separately.
+Source edits in those fixtures follow the ordinary edit path, including owned
+Sketch reframing before calculation.

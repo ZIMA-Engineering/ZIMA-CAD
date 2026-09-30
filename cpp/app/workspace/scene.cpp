@@ -1546,7 +1546,8 @@ void AssemblyWorkspaceWindow::refresh_scene() {
             // tools narrow what can be confirmed through their candidate
             // contracts; presentation itself is never filtered.
             append_mesh(display, active_part_origins(document));
-            if(!part_rollback_&&active_sketch_id_.empty())append_mesh(display,document::body_properties_origins(document,tr("Těžiště").toStdString()));
+            if(active_sketch_id_.empty())append_mesh(display,document::body_properties_origins(document,tr("Těžiště").toStdString(),
+                part_rollback_->history_limit<document.history.size()?document.history[part_rollback_->history_limit].id:std::string{}));
             append_mesh(display, construction_mesh(
                 document, 0.0, construction_dimension_geometry));
             // Rollback supplies only the real body input before the edited

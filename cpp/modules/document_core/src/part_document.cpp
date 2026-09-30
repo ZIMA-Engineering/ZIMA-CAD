@@ -4954,6 +4954,8 @@ zima::kernel::ViewerMesh PartDocument::place_body_mesh(zima::kernel::ViewerMesh 
 
 const BodyHistory* PartDocument::body_owner_for_object(const std::string& id) const {
     if (const auto* body = body_history.owner(id)) return body;
+    for(const auto& row:body_properties)
+        if(id==row.id||id==row.id+":origin")return body_history.find(row.body_id);
     for (const auto& body : body_history.bodies()) {
         if (id == body.scope.id || id == body.origin().id) return &body;
     }
@@ -4993,6 +4995,21 @@ PartDocument PartDocument::body_document(const std::string& body_id) const {
     // Document annotations are already in document coordinates. A temporary
     // body carrier must not duplicate or transform them as body-local data.
     result.symbol_annotations.clear();
+    // Analysis frames belong to a history boundary. A transient Body carrier
+    // keeps only its own records, expressed in its local coordinate frame.
+    std::erase_if(result.body_properties,[&](const auto& row){return row.body_id!=body_id;});
+    if(!result.body_properties.empty()) {
+        const auto body_rotation=placement_rotation_matrix_from_euler_degrees(body->scope.rotation_degrees());
+        auto inverse_rotation=body_rotation;
+        for(int i=0;i<3;++i)for(int j=0;j<3;++j)inverse_rotation[i][j]=body_rotation[j][i];
+        for(auto& row:result.body_properties) {
+            row.body_id.clear();
+            if(row.integrals)row.integrals->centroid=placement_inverse_transform_point(body_rotation,body->scope.translation(),row.integrals->centroid);
+            if(row.surface_centroid)*row.surface_centroid=placement_inverse_transform_point(body_rotation,body->scope.translation(),*row.surface_centroid);
+            row.rotation_degrees=placement_euler_degrees_from_rotation_matrix(placement_rotation_matrix_multiply(
+                inverse_rotation,placement_rotation_matrix_from_euler_degrees(row.rotation_degrees)));
+        }
+    }
     result.document_id = body_id;
     result.name = body->name;
     result.history_order = body->entries;
@@ -5215,6 +5232,7 @@ PartDocument::history_origin_reference_geometry_before(
         }
 
     }
+    append_reference_geometry(result,body_properties_reference_geometry(*this,container_id));
     return result;
 }
 
@@ -5802,6 +5820,9 @@ zima::kernel::ViewerMesh PartDocument::construction_viewer_mesh(
 
 void PartDocument::resolve_constructions(
     zima::kernel::ViewerReferenceGeometry source_geometry) {
+    // Never accept a stale or future centroid supplied by a display packet.
+    // Publish eligible frames again at their own history boundary below.
+    remove_body_properties_references(*this,source_geometry);
     if (!body_history.bodies().empty()) {
         validate_body_ownership();
         auto next = *this;
@@ -5810,8 +5831,15 @@ void PartDocument::resolve_constructions(
         for (const auto& original_body : body_history.bodies()) {
             auto body = *next.body_history.find(original_body.scope.id);
             auto carrier = next.body_document(body.scope.id);
+            append_reference_geometry(source_geometry,body_properties_reference_geometry(next,body.scope.id));
             const auto dependency = [&](const ConstructionReference& reference) {
                 if (!reference.instance_path.empty()) return;
+                for(const auto& row:next.body_properties)if(row.body_id.empty()&&reference.owner_id==row.id+":origin") {
+                    const auto& order=next.body_history.order();
+                    const auto anchor=std::ranges::find(order,row.after_object_id);
+                    if(anchor!=order.end())for(const auto& input:next.body_history.available_before(static_cast<std::size_t>(anchor-order.begin())+1))
+                        if(input!=body.scope.id&&std::ranges::find(body.dependencies,input)==body.dependencies.end())body.dependencies.push_back(input);
+                }
                 const auto* target = next.body_owner_for_object(reference.owner_id);
                 if (target && target->scope.id != body.scope.id &&
                     std::ranges::find(body.dependencies, target->scope.id) == body.dependencies.end())
@@ -6293,6 +6321,10 @@ void PartDocument::resolve_constructions(
         else if (auto* object=find_construction(entry.id)) resolve_datum(*object);
         else for (const auto& sketch:sketches) if(sketch.id==entry.id && sketch.owner_container_id.empty())
             append(source_geometry,sketch.placement_reference_geometry());
+        for(auto row:body_properties)if(row.after_object_id==entry.id) {
+            row.visible=true;
+            append(source_geometry,body_properties_origin(row).original_references);
+        }
     }
     reframe_owned_sketches({});
     // Unowned sketches with a Plane reference (Assembly-owned sketches)

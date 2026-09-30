@@ -12,6 +12,10 @@ inline workspace::ReferenceIndex part_reference_index(const document::PartDocume
     index.add_geometry(calculated);
     index.add_geometry(document.origin_viewer_mesh().original_references);
     index.add_geometry(document.body_origin_reference_geometry());
+    for(auto row:document.body_properties) {
+        row.visible=true;
+        index.add_geometry(document::body_properties_origin(row).original_references);
+    }
     index.add_geometry(document.history_origin_reference_geometry_before(""));
     index.add_geometry(document.construction_viewer_mesh().original_references);
     index.add_geometry(document.sketch_placement_reference_geometry());

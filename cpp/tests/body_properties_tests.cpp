@@ -3,6 +3,7 @@
 #include <zima/command_host/host.hpp>
 #include <zima/workspace/body_properties_edits.hpp>
 #include <zima/workspace/measurement_operations.hpp>
+#include <zima/workspace/model_calculation.hpp>
 #include <zima/document/viewer_packet_json.hpp>
 #include <zima/kernel/stable_id.hpp>
 #include <iostream>
@@ -125,8 +126,8 @@ void placed_bodies(const kernel::OcctKernel& kernel) {
         auto measured=doc;row.rotation_degrees={0,90,0};measured.body_properties={row};
         workspace::Workspace live;live.add_part(measured,calculated);
         const auto scene=workspace::measurement_scene(live,measured.document_id);
-        check(std::ranges::none_of(scene.original_references.triangle_references,[&](const auto& ref){return ref.owner_id==row.id+":origin";}),
-            "Analysis frame leaked into ordinary placement geometry");
+        check(std::ranges::any_of(scene.original_references.triangle_references,[&](const auto& ref){return ref.owner_id==row.id+":origin";}),
+            "Preceding saved centroid missing from original reference geometry");
         const kernel::MeasurementReference centroid{kernel::MeasurementKind::Plane,row.id+":origin","origin:plane:xy",{}};
         const kernel::MeasurementReference root{kernel::MeasurementKind::Plane,measured.document_id+":origin","origin:plane:yz",{}};
         const auto revision=live.open_part(measured.document_id)->session.revision();
@@ -146,6 +147,80 @@ void placed_bodies(const kernel::OcctKernel& kernel) {
     near(row.integrals->inertia[4],104000,"aggregate parallel-axis inertia");
     near(calculated.back().volume_integrals->centroid.x,110,"kernel aggregate centroid");
     near(calculated.back().volume_integrals->inertia[4],104000,"kernel aggregate tensor");
+}
+void centroid_placement(const kernel::OcctKernel& kernel,const std::filesystem::path& dir) {
+    auto doc=document::PartDocument::create_default();
+    auto source=test::rectangular_feature(doc,{10,8,6});source.placement.x=12;source.placement.y=7;source.placement.z=4;
+    doc.history={source};
+    document::BodyHistoryGraph graph;const auto body=graph.create_body("Centroid source");graph.insert({document::PartHistoryKind::Feature,source.id});
+    auto definition=*graph.find(body);definition.scope.placement.x=100;definition.scope.placement.rotation_z=definition.scope.placement.absolute_rotation_z=90;graph.update_body(definition);
+    doc.set_body_history(graph);
+    auto calculated=workspace::calculate_part_with_resolved_references(kernel,doc);
+    document::BodyProperties row;row.id="centroid-driver";row.name="Driver";row.body_id=body;row.after_object_id=source.id;row.rotation_degrees={0,0,90};
+    row=document::evaluate_body_properties(doc,calculated,row);doc.body_properties={row};
+    const auto centroid=row.id+":origin";
+    auto target=test::rectangular_feature(doc,{2,2,2});target.placement.references={{{},centroid,"origin:point"}};
+    for(const auto& [key,role]:std::array{std::pair{"origin:axis:y","front"},std::pair{"origin:axis:z","top"}}) {
+        document::ConstructionReference orientation{{},centroid,key};orientation.orientation_only=true;orientation.orientation_role=role;orientation.orientation_drives_rotation=true;
+        target.placement.references.push_back(orientation);
+    }
+    doc.insert_history_entry(document::PartHistoryKind::Feature,target.id);doc.history.push_back(target);
+    const auto validate=[&](const document::PartDocument& value,double x) {
+        const auto* placed=value.find_container(target.id);check(placed&&placed->placement.reference_valid,"Centroid placement unresolved");
+        near(placed->placement.x,x,"Centroid placement Body-local X");near(placed->placement.y,7,"Centroid placement Body-local Y");near(placed->placement.z,4,"Centroid placement Body-local Z");
+    };
+    check(document::body_properties_reference_geometry(doc,source.id).points.empty(),"Centroid offered before its input boundary");
+    check(!document::body_properties_reference_geometry(doc,target.id).points.empty(),"Centroid missing after its boundary");
+    calculated=workspace::calculate_part_with_resolved_references(kernel,doc,&calculated);validate(doc,12);
+    const auto geometry=doc.construction_reference_geometry_for(target.id,document::body_properties_reference_geometry(doc,target.id));
+    for(bool flip:{false,true}) {
+        document::Placement plane;plane.references={{{},centroid,"origin:plane:yz",0,true}};plane.references.front().flip=flip;
+        check(document::resolve_placement(plane,geometry),"Centroid plane rejected zero-offset side");near(plane.x,12,"Rotated centroid plane not in Body frame");
+        plane.references.front().offset=2;check(document::resolve_placement(plane,geometry),"Centroid plane offset rejected");
+        near(plane.x,14,"Centroid plane signed offset");
+        check(plane.references.front().flip==flip,"Centroid plane lost side identity");
+    }
+    // Both an individual Body measurement and an aggregate history boundary
+    // may drive a later independent Body, with a persisted dependency edge.
+    for(bool aggregate:{false,true}) {
+        auto cross=doc;document::BodyHistoryGraph branches;
+        const auto first=branches.create_body("Measured");branches.insert({document::PartHistoryKind::Feature,source.id});
+        auto placed=*branches.find(first);placed.scope.placement=definition.scope.placement;branches.update_body(placed);
+        const auto second=branches.create_body("Following");branches.insert({document::PartHistoryKind::Feature,target.id});
+        cross.set_body_history(branches);
+        cross.body_properties.front().body_id=aggregate?std::string{}:first;
+        cross.body_properties.front().after_object_id=aggregate?first:source.id;
+        cross.find_container(target.id)->placement.references={{{},centroid,"origin:point"}};
+        auto result=workspace::calculate_part_with_resolved_references(kernel,cross);
+        const auto* driven=cross.find_container(target.id);
+        check(driven->placement.reference_valid,"Cross-Body centroid did not resolve");
+        near(driven->placement.x,93,"Cross-Body centroid X");near(driven->placement.y,12,"Cross-Body centroid Y");
+        const auto& dependencies=cross.body_history.find(second)->dependencies;
+        check(std::ranges::find(dependencies,first)!=dependencies.end(),"Centroid Body dependency missing");
+        cross.find_container(source.id)->placement.x=22;
+        // Match the authored edit path: update the owned Sketch frame first.
+        cross.resolve_constructions();
+        result=workspace::calculate_part_with_resolved_references(kernel,cross,&result);
+        near(cross.find_container(target.id)->placement.y,22,aggregate?"Aggregate centroid did not refresh":"Individual centroid did not refresh");
+    }
+    document::DocumentSession session(doc,calculated);
+    auto edited=doc;edited.find_container(source.id)->placement.x=22;edited.body_properties.front().rotation_degrees.z=180;
+    auto updated=workspace::calculate_part_with_resolved_references(kernel,edited,&calculated);validate(edited,22);
+    near(edited.body_properties.front().centroid()->y,22,"Centroid did not refresh before downstream placement");
+    near(edited.find_container(target.id)->placement.rotation_z,90,"Centroid FRONT/TOP did not follow frame rotation");
+    session.commit(edited,updated);check(session.undo(),"Centroid edit Undo missing");validate(session.document(),12);
+    check(session.redo(),"Centroid edit Redo missing");validate(session.document(),22);
+    auto hidden=edited;hidden.body_properties.front().visible=false;
+    auto hidden_result=workspace::calculate_part_with_resolved_references(kernel,hidden,&updated);validate(hidden,22);
+    hidden.save(dir/"centroid-placement.prtz",hidden_result);
+    std::vector<kernel::BodyResult> restored;auto loaded=document::PartDocument::load(dir/"centroid-placement.prtz",&restored);
+    validate(loaded,22);check(loaded.find_container(target.id)->placement.references==hidden.find_container(target.id)->placement.references,"Centroid identity lost on reopen");
+    auto cyclic=loaded;cyclic.find_container(source.id)->placement.references={{{},centroid,"origin:point"}};
+    cyclic.resolve_constructions(document::body_properties_origin(cyclic.body_properties.front()).original_references);
+    check(!cyclic.find_container(source.id)->placement.reference_valid,"Upstream centroid cycle accepted");
+    auto missing=loaded;missing.body_properties.front().after_object_id="missing-anchor";
+    document::refresh_body_properties(missing,restored);missing.resolve_constructions();
+    check(!missing.find_container(target.id)->placement.reference_valid,"Missing centroid anchor retained a usable reference");
 }
 void surfaces(const kernel::OcctKernel& kernel) {
     auto doc=document::PartDocument::create_default();auto sketch=sketcher::Sketch::create_default();
@@ -181,7 +256,7 @@ void surfaces(const kernel::OcctKernel& kernel) {
 int main(){try {
     kernel::OcctKernel kernel;geometry(kernel);placed_bodies(kernel);surfaces(kernel);
     const auto parent=std::filesystem::canonical(std::filesystem::temp_directory_path());const auto dir=parent/("zima-body-properties-"+kernel::make_stable_id());
-    std::filesystem::create_directory(dir);workflow(kernel,dir);
+    std::filesystem::create_directory(dir);workflow(kernel,dir);centroid_placement(kernel,dir);
     check(std::filesystem::canonical(dir).parent_path()==parent,"Invalid test cleanup path");std::filesystem::remove_all(dir);
     std::cout<<"Body properties analytical, history, transaction and persistence checks passed\n";return 0;
 }catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}

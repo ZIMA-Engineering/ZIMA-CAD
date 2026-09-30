@@ -24,7 +24,12 @@ void refresh_body_properties(PartDocument&,const std::vector<kernel::BodyResult>
 struct BodyPropertiesInput { const kernel::BodyResult* body{}; kernel::Vec3 translation,rotation; };
 [[nodiscard]] std::vector<BodyPropertiesInput> body_properties_inputs(const PartDocument&,const std::vector<kernel::BodyResult>&,const BodyProperties&);
 [[nodiscard]] kernel::ViewerMesh body_properties_origin(const BodyProperties&,const std::string& label = "Center of gravity");
-[[nodiscard]] kernel::ViewerMesh body_properties_origins(const PartDocument&,const std::string& label = "Center of gravity");
+[[nodiscard]] kernel::ViewerMesh body_properties_origins(const PartDocument&,const std::string& label = "Center of gravity",const std::string& before = {});
+// Only preceding saved analysis frames may drive a consumer. Visibility does not
+// invalidate an existing reference. Geometry is in Part coordinates.
+[[nodiscard]] bool body_properties_precedes(const PartDocument&,const BodyProperties&,const std::string& before);
+[[nodiscard]] kernel::ViewerReferenceGeometry body_properties_reference_geometry(const PartDocument&,const std::string& before = {});
+void remove_body_properties_references(const PartDocument&,kernel::ViewerReferenceGeometry&);
 [[nodiscard]] std::string serialize_body_properties(const std::vector<BodyProperties>&);
 [[nodiscard]] std::vector<BodyProperties> parse_body_properties(const std::string&);
 } // namespace zima::document

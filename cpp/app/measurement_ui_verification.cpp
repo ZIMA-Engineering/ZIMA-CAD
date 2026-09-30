@@ -4,6 +4,8 @@
 #include "assembly_workspace_window.hpp"
 #include "measurement_dialog.hpp"
 #include "mass_properties_dialog.hpp"
+#include "primitive_properties_dialog.hpp"
+#include <QTableWidget>
 #include "drawing_window.hpp"
 #include "drawing_dimension_dialog.hpp"
 #include <zima/viewer/mesh_view.hpp>
@@ -351,6 +353,40 @@ try{
         window.findChild<QAction*>("saveDocumentAction")->trigger();flush();
         check(document::PartDocument::load(probe_path).body_properties.size()==static_cast<std::size_t>(before+1),"Explicitly saved source measurement did not persist");
         check(document::PartDocument::load(source).body_properties==source_doc.body_properties,"User source was modified");
+    }
+    {
+        auto driver=document::PartDocument::create_default();
+        auto base=test::rectangular_feature(driver,{10,8,6});base.placement.x=12;base.placement.y=7;base.placement.z=4;driver.history={base};
+        document::BodyHistoryGraph graph;const auto body=graph.create_body("Centroid placement");graph.insert({document::PartHistoryKind::Feature,base.id});driver.set_body_history(graph);
+        driver.resolve_constructions();const auto cached=kernel.evaluate_history(driver.kernel_operations());
+        document::BodyProperties record;record.id="gui-centroid-driver";record.name="Centroid driver";record.body_id=body;record.after_object_id=base.id;
+        driver.body_properties={document::evaluate_body_properties(driver,cached,record)};
+        const auto driver_path=directory/"centroid-placement-ui.prtz";driver.save(driver_path,cached);
+        check(window.open_document_path(QString::fromStdString(driver_path.string())),"Cannot open centroid placement fixture");flush();
+        const auto point_dialog=[&]{return dynamic_cast<PrimitivePropertiesDialog*>(window.findChild<QWidget*>("featurePropertiesDialog"));};
+        auto* point_action=window.findChild<QAction*>("featureShortcut0Action");check(point_action&&point_action->isEnabled(),"Centroid fixture has no Point command");
+        point_action->trigger();flush();check(point_dialog(),"Point dialog unavailable");
+        point_dialog()->findChild<QTableWidget*>("primitiveReferenceTable")->cellClicked(0,1);flush();view->fit_all();flush();
+        select(viewer::CandidateKind::Vertex,{},record.id+":origin");
+        check(point_dialog()->pending_value().placement.references.front().owner_id==record.id+":origin","Common picker rejected centroid point");
+        point_dialog()->reject();flush();
+        point_action->trigger();flush();check(point_dialog(),"Point creation could not restart after Cancel");
+        point_dialog()->findChild<QTableWidget*>("primitiveReferenceTable")->cellClicked(0,1);flush();
+        QTreeWidgetItem* origin{};for(QTreeWidgetItemIterator i(tree);*i;++i)if((*i)->data(0,Qt::UserRole+3)=="body-properties-origin"&&(*i)->data(0,Qt::UserRole).toString().toStdString()==record.id+":origin"){origin=*i;break;}
+        check(origin&&origin->childCount()==7,"Centroid tree lacks shared Origin references");tree->setCurrentItem(origin);flush();
+        const auto pending=point_dialog()->pending_value();check(point_dialog()->first_empty_position_index()==3,"Whole centroid Origin did not fill position references");
+        for(const auto& ref:pending.placement.references)check(ref.owner_id==record.id+":origin","Centroid Origin reference owner changed");
+        point_dialog()->set_reference_inspected(0,true);flush();
+        point_dialog()->buttons()->button(QDialogButtonBox::Ok)->click();flush();check(!point_dialog(),"Centroid Point OK failed");
+        const auto reopen=[&] {
+            QTreeWidgetItem* item{};for(QTreeWidgetItemIterator i(tree);*i;++i)if((*i)->data(0,Qt::UserRole).toString().toStdString()==pending.id){item=*i;break;}
+            check(item,"Centroid-driven Point missing from Tree");window.show_tree_item_properties(item);flush();check(point_dialog(),"Centroid Point could not reopen");
+        };
+        reopen();check(point_dialog()->pending_value().placement.references==pending.placement.references,"Centroid references changed on reopening");
+        check(point_dialog()->set_reference(0,{{},body+":origin","origin:point"},"Body"),"Centroid replacement preview rejected");flush();point_dialog()->reject();flush();
+        reopen();check(point_dialog()->pending_value().placement.references==pending.placement.references,"Cancel committed centroid replacement");point_dialog()->reject();flush();
+        execute("save");execute("undo");execute("redo");flush();reopen();
+        check(point_dialog()->pending_value().placement.references==pending.placement.references,"Undo/Redo lost centroid references");point_dialog()->reject();flush();
     }
     std::cout<<"Measurement inspector picking, explicit Save, centroid preview, MMB, persistence and repair passed\n";return 0;
 }catch(const std::exception& error){std::cerr<<error.what()<<'\n';return 1;}
