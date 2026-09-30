@@ -24,6 +24,9 @@ The [A8 fingerprint follow-up](performance/20260930-history-fingerprint.md)
 records removal of temporary profile-identity copies with exact fingerprint
 equivalence. General prefix reuse remains unimplemented.
 
+The [A13 icon-cache follow-up](performance/20260930-icon-cache.md) records
+lookup before SVG reads, exact pixel comparisons and its limited microbenchmark.
+
 The first investigation should target large Sketch dimension edits. The existing
 Release benchmark exposes a severe scaling problem. The next priorities are
 Assembly scene construction and picking, then avoiding complete scene/Tree

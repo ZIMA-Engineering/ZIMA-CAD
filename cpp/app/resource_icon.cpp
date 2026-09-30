@@ -20,15 +20,9 @@ namespace zima::app {
 namespace {
 
 QIcon svg_icon(const QString& path, bool palette_color, bool neutral_origin = false) {
-    QFile source(path);
-    if (!source.open(QIODevice::ReadOnly)) return {};
-    QByteArray svg = source.readAll();
-    if (neutral_origin) svg.replace("#FF0000", "currentColor");
-    const QByteArray original = svg;
     QString color;
     if (palette_color && qApp != nullptr) {
         color = qApp->palette().color(QPalette::WindowText).name();
-        svg.replace("currentColor", color.toUtf8());
     }
     const QString cache_key = path + QLatin1Char('|') + color +
         QString::number(neutral_origin) + QString::number(qApp ? qApp->palette().cacheKey() : 0);
@@ -36,6 +30,13 @@ QIcon svg_icon(const QString& path, bool palette_color, bool neutral_origin = fa
     if (const auto found = cache.constFind(cache_key); found != cache.constEnd()) {
         return *found;
     }
+    // Qt resources are immutable; only a cache miss needs their SVG bytes.
+    QFile source(path);
+    if (!source.open(QIODevice::ReadOnly)) return {};
+    QByteArray svg = source.readAll();
+    if (neutral_origin) svg.replace("#FF0000", "currentColor");
+    const QByteArray original = svg;
+    if (palette_color && qApp != nullptr) svg.replace("currentColor", color.toUtf8());
     QSvgRenderer renderer(svg);
     if (!renderer.isValid()) return {};
     QIcon icon;

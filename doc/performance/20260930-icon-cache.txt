@@ -1,0 +1,6 @@
+pixel_cases=9504 calls_per_sample=100000
+before_ms=124.455 after_ms=13.5838
+before_ms=114.327 after_ms=14.1267
+before_ms=118.8 after_ms=14.0213
+before_ms=113.15 after_ms=13.9891
+before_ms=115.666 after_ms=13.9833
