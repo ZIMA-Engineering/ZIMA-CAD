@@ -1,5 +1,9 @@
 # Application performance audit — 2026-09-30
 
+Follow-up: [A1 independent equation blocks](performance/20260930-rectilinear-blocks.md)
+records the first implemented optimization and its verification. The audit below
+retains the original pre-change observations and priorities.
+
 ## Result and scope
 
 The first investigation should target large Sketch dimension edits. The existing

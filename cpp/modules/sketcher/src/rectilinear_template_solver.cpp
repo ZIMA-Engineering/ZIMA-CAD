@@ -134,19 +134,50 @@ bool seed_rectilinear_equations(Sketch& sketch,const std::vector<std::string>& a
         }
         // Twice-reorthogonalized row-space QR preserves free coordinates and
         // detects incompatible equations before publishing any point changes.
-        std::vector<Row> basis;std::vector<double> values;
+        // Equations with disjoint coordinate support are orthogonal already.
+        // Keep their original row/column order, but factor each connected block
+        // independently instead of projecting every row against unrelated rows.
+        // Rebuild support for each Newton step: distance derivatives can change.
+        std::vector<std::size_t> parents(count);std::iota(parents.begin(),parents.end(),0);
+        const auto equation_root=[&](std::size_t p) {
+            while(parents[p]!=p){parents[p]=parents[parents[p]];p=parents[p];}
+            return p;
+        };
+        std::vector<std::vector<std::size_t>> support(equations.size());
         for(std::size_t i=0;i<equations.size();++i) {
-            auto row=equations[i];double value=residual[i];
-            for(int pass=0;pass<2;++pass)for(std::size_t j=0;j<basis.size();++j) {
-                const double factor=dot(row,basis[j]);if(std::abs(factor)<1e-16)continue;
-                for(std::size_t k=0;k<count;++k)row[k]-=factor*basis[j][k];value-=factor*values[j];
+            for(std::size_t k=0;k<count;++k)if(equations[i][k]!=0.0) {
+                if(!support[i].empty())parents[equation_root(k)]=equation_root(support[i].front());
+                support[i].push_back(k);
             }
-            const double norm=std::sqrt(dot(row,row));
-            if(norm<1e-10){if(std::abs(value)>1e-7)return false;continue;}
-            for(auto& element:row)element/=norm;basis.push_back(std::move(row));values.push_back(value/norm);
+            if(support[i].empty()&&std::abs(residual[i])>1e-7)return false;
         }
+        struct Block {std::vector<std::size_t> columns,rows;};
+        std::vector<Block> blocks;std::vector<std::size_t> block_index(count,count);
+        for(std::size_t k=0;k<count;++k) {
+            auto& b=block_index[equation_root(k)];
+            if(b==count){b=blocks.size();blocks.emplace_back();}
+            blocks[b].columns.push_back(k);
+        }
+        for(std::size_t i=0;i<equations.size();++i)if(!support[i].empty())
+            blocks[block_index[equation_root(support[i].front())]].rows.push_back(i);
         Row change(count);
-        for(std::size_t j=0;j<basis.size();++j)for(std::size_t k=0;k<count;++k)change[k]+=values[j]*basis[j][k];
+        for(const auto& block:blocks) {
+            std::vector<Row> basis;std::vector<double> values;
+            for(const auto i:block.rows) {
+                Row row;row.reserve(block.columns.size());
+                for(const auto k:block.columns)row.push_back(equations[i][k]);
+                double value=residual[i];
+                for(int pass=0;pass<2;++pass)for(std::size_t j=0;j<basis.size();++j) {
+                    const double factor=dot(row,basis[j]);if(std::abs(factor)<1e-16)continue;
+                    for(std::size_t k=0;k<row.size();++k)row[k]-=factor*basis[j][k];value-=factor*values[j];
+                }
+                const double norm=std::sqrt(dot(row,row));
+                if(norm<1e-10){if(std::abs(value)>1e-7)return false;continue;}
+                for(auto& element:row)element/=norm;basis.push_back(std::move(row));values.push_back(value/norm);
+            }
+            for(std::size_t j=0;j<basis.size();++j)for(std::size_t k=0;k<block.columns.size();++k)
+                change[block.columns[k]]+=values[j]*basis[j][k];
+        }
         bool accepted=false;const double before=error(solved);
         for(double step=1;step>=1.0/1024;step*=.5) {
             auto candidate=solved;for(std::size_t k=0;k<count;++k)candidate[k]+=step*change[k];

@@ -6,6 +6,11 @@ prioritized optimization candidates and the dead-code review. It proposes no
 product-code changes. Older results below retain their original platform and
 fixture scope; they are not direct comparisons with the current Windows build.
 
+The first follow-up, [independent equation blocks](performance/20260930-rectilinear-blocks.md),
+addresses the measured large-Sketch dimension-edit problem. The solved-input
+1,000-branch fixture decreased from 44,902.1 ms to 247.365 ms with unchanged
+precision and verified geometry; this is a fixture-specific result.
+
 The startup-independent C++ model benchmark is built as
 `zima_cpp_performance_benchmark`. It is deliberately not registered with
 CTest: normal tests remain deterministic and do not depend on machine speed.

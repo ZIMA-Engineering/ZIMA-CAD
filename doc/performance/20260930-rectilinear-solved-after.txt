@@ -1,0 +1,4 @@
+solved_input branches=100 solve_ms=3.5225
+solved_input branches=100 dimension_edit_mean_ms=2.16317 repetitions=3 all_branches_checked=1
+solved_input branches=1000 solve_ms=165.852
+solved_input branches=1000 dimension_edit_mean_ms=247.365 repetitions=3 all_branches_checked=1
