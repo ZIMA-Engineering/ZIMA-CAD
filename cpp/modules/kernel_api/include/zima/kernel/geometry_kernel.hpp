@@ -12,6 +12,7 @@
 #include <memory>
 #include <map>
 #include <set>
+#include <span>
 #include <type_traits>
 #include <utility>
 #include <stdexcept>
@@ -1196,11 +1197,10 @@ struct PlacedBody {
                         }
                     }
                 };
-                append_source_ids(std::vector<std::vector<std::string>>{
-                    primitive.outer_edge_source_ids});
+                // One group, viewed without copying its persisted identities.
+                append_source_ids(std::span{&primitive.outer_edge_source_ids, 1});
                 append_source_ids(primitive.inner_edge_source_ids);
-                append_source_ids(std::vector<std::vector<std::string>>{
-                    primitive.outer_vertex_source_ids});
+                append_source_ids(std::span{&primitive.outer_vertex_source_ids, 1});
                 append_source_ids(primitive.inner_vertex_source_ids);
                 u64(primitive.inner_profiles.size());
                 for (const auto& profile : primitive.inner_profiles) {
@@ -1216,11 +1216,9 @@ struct PlacedBody {
                     for (const auto& id : region.inner_boundary_ids) {
                         u64(id.size()); for (const unsigned char value : id) byte(value);
                     }
-                    append_source_ids(std::vector<std::vector<std::string>>{
-                        region.outer_edge_source_ids});
+                    append_source_ids(std::span{&region.outer_edge_source_ids, 1});
                     append_source_ids(region.inner_edge_source_ids);
-                    append_source_ids(std::vector<std::vector<std::string>>{
-                        region.outer_vertex_source_ids});
+                    append_source_ids(std::span{&region.outer_vertex_source_ids, 1});
                     append_source_ids(region.inner_vertex_source_ids);
                     append_profile(region.outer_profile);
                     u64(region.inner_profiles.size());
@@ -1432,11 +1430,10 @@ struct PlacedBody {
                         }
                     }
                 };
-                append_source_ids(std::vector<std::vector<std::string>>{
-                    primitive.outer_edge_source_ids});
+                // One group, viewed without copying its persisted identities.
+                append_source_ids(std::span{&primitive.outer_edge_source_ids, 1});
                 append_source_ids(primitive.inner_edge_source_ids);
-                append_source_ids(std::vector<std::vector<std::string>>{
-                    primitive.outer_vertex_source_ids});
+                append_source_ids(std::span{&primitive.outer_vertex_source_ids, 1});
                 append_source_ids(primitive.inner_vertex_source_ids);
                 u64(primitive.inner_profiles.size());
                 for (const auto& profile : primitive.inner_profiles) {
@@ -1452,11 +1449,9 @@ struct PlacedBody {
                     for (const auto& id : region.inner_boundary_ids) {
                         u64(id.size()); for (const unsigned char value : id) byte(value);
                     }
-                    append_source_ids(std::vector<std::vector<std::string>>{
-                        region.outer_edge_source_ids});
+                    append_source_ids(std::span{&region.outer_edge_source_ids, 1});
                     append_source_ids(region.inner_edge_source_ids);
-                    append_source_ids(std::vector<std::vector<std::string>>{
-                        region.outer_vertex_source_ids});
+                    append_source_ids(std::span{&region.outer_vertex_source_ids, 1});
                     append_source_ids(region.inner_vertex_source_ids);
                     append_profile(region.outer_profile);
                     u64(region.inner_profiles.size());

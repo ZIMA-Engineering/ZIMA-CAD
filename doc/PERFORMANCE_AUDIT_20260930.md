@@ -20,6 +20,10 @@ The [A6 object-bounds follow-up](performance/20260930-view-object-bounds.md)
 records a limited CPU preparation optimization. The broader GPU/presentation
 separation below remains an audit candidate.
 
+The [A8 fingerprint follow-up](performance/20260930-history-fingerprint.md)
+records removal of temporary profile-identity copies with exact fingerprint
+equivalence. General prefix reuse remains unimplemented.
+
 The first investigation should target large Sketch dimension edits. The existing
 Release benchmark exposes a severe scaling problem. The next priorities are
 Assembly scene construction and picking, then avoiding complete scene/Tree
