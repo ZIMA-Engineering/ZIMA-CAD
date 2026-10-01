@@ -1,4 +1,5 @@
 #include "../tests/gui_profile_fixture.hpp"
+#include "../tests/profile_solid_fixture.hpp"
 #include "assembly_workspace_window.hpp"
 #include "primitive_properties_dialog.hpp"
 #include <zima/viewer/mesh_view.hpp>
@@ -10,6 +11,8 @@
 #include <QLineEdit>
 #include <QMouseEvent>
 #include <QPushButton>
+#include <QQuaternion>
+#include <zima/kernel/dimension_layout.hpp>
 #include <QTreeWidget>
 #include <QTreeWidgetItemIterator>
 #include <QVariantAnimation>
@@ -30,7 +33,8 @@ int verify_edge_treatment_ui(QApplication& application, AssemblyWorkspaceWindow&
         flush();return result.data;
     };
     try {
-        window.showMaximized();flush();
+        // Keep the GUI fixture independent of the desktop resolution.
+        window.showNormal();window.resize(1500,950);flush();
         const auto stem="edge-grips-"+std::to_string(std::chrono::steady_clock::now().time_since_epoch().count());
         auto* tree=window.findChild<QTreeWidget*>();
         auto* view=dynamic_cast<viewer::MeshView*>(window.findChild<QWidget*>("modelWorkspace"));
@@ -52,6 +56,7 @@ int verify_edge_treatment_ui(QApplication& application, AssemblyWorkspaceWindow&
                     const auto result=offered.front();click(QPointF(x,y));return result;
                 }
             }
+            window.grab().save(QString::fromStdString((directory/"edge-treatment-pick-failure.png").string()));
             throw std::runtime_error("Common picker did not offer "+owner+"/"+key);
         };
         const auto dialog=[&] {
@@ -67,7 +72,11 @@ int verify_edge_treatment_ui(QApplication& application, AssemblyWorkspaceWindow&
                     selected=*it;break;
                 }
             check(selected,"Missing treatment tree item");
-            window.show_tree_item_properties(selected);flush();return dialog();
+            window.show_tree_item_properties(selected);flush();
+            // Frame after Properties has installed its rollback scene; leave
+            // space for the horizontal-edge dimensions outside the solid.
+            view->fit_all();auto camera=view->camera_state();camera[4]*=2;view->set_camera_state(camera);flush();
+            return dialog();
         };
         const auto finish=[&](bool commit) {
             dialog()->findChild<QDialogButtonBox*>()->button(commit?QDialogButtonBox::Ok:QDialogButtonBox::Cancel)->click();flush();
@@ -92,7 +101,20 @@ int verify_edge_treatment_ui(QApplication& application, AssemblyWorkspaceWindow&
                 mouse(QEvent::MouseMove,*point,Qt::NoButton,Qt::NoButton);
                 check(selected(),"Moving to a purple grip cleared its selection");
             }
-            const auto from=*view->dimension_handle_position(candidate,handle),to=from+QPointF(38,-27);
+            QPointF delta(38,-27);
+            // Pull line grips outward: an inward drag may correctly stop at
+            // the model envelope and is not evidence of a broken grip.
+            if(count==3) {
+                const auto outward=kernel::dimension_unit(kernel::dimension_cross(source->plane_normal,
+                    kernel::dimension_measurement_direction(*source)));
+                const auto camera=view->camera_state();
+                const auto projected=QQuaternion(camera[0],camera[1],camera[2],camera[3]).rotatedVector(
+                    QVector3D(outward.x,outward.y,outward.z));
+                delta=QPointF(projected.x(),-projected.y());
+                check(QLineF(QPointF{},delta).length()>1e-6,"Dimension plane is edge-on to the test camera");
+                delta*=45/QLineF(QPointF{},delta).length();
+            }
+            const auto from=*view->dimension_handle_position(candidate,handle),to=from+delta;
             mouse(QEvent::MouseButtonPress,from,Qt::LeftButton,Qt::LeftButton);
             mouse(QEvent::MouseMove,to,Qt::NoButton,Qt::LeftButton);
             const auto moved=view->dimension_handle_position(candidate,handle);
@@ -114,7 +136,10 @@ int verify_edge_treatment_ui(QApplication& application, AssemblyWorkspaceWindow&
             const auto box=zima::test::gui_rectangular_profile(window,20,20,20).data.at("container").get<std::string>();
             // Horizontal as well as vertical edges expose an incorrect default
             // XY annotation plane on Chamfer distance dimensions.
-            const std::string edge=mode==3?"edge:x_max:y_max:z_max--x_min:y_max:z_max":"edge:x_max:y_min:z_max--x_max:y_min:z_min";
+            const auto file=directory/(name+".prtz");run("save");
+            const auto source=document::PartDocument::load(file);
+            const auto edge=test::profile_key(source,box,mode==3?
+                "edge:x_max:y_max:z_max--x_min:y_max:z_max":"edge:x_max:y_min:z_max--x_max:y_min:z_min");
             Json args={{"routes",Json::array({Json{{"edges",Json::array({Json{{"owner",box},{"key",edge}}})}}})}};
             if(fillet) {args["radius_mm"]=2;if(mode==1){args["mode"]="linear";args["radius_end_mm"]=3;}}
             else {args["distance_a_mm"]=2;if(mode==3){args["mode"]="two_distances";args["distance_b_mm"]=3;}if(mode==4){args["mode"]="distance_angle";args["angle_degrees"]=35;}}
@@ -126,7 +151,7 @@ int verify_edge_treatment_ui(QApplication& application, AssemblyWorkspaceWindow&
                 args["routes"][0]["start"]=start;
             }
             const auto owner=run((prefix+".create").c_str(),args).at("container").get<std::string>();
-            run("save");const auto file=directory/(name+".prtz");
+            run("save");
             view->set_standard_view(viewer::StandardView::Isometric);
             for(auto* animation:view->findChildren<QVariantAnimation*>())animation->setCurrentTime(animation->duration());
             flush();

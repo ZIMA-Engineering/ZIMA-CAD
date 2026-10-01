@@ -75,10 +75,30 @@ documentation are English. The development entry point remains `zima-cad.bat`.
 Linux verification remains deferred to the Linux host. This is a scoped local
 Windows build and source change; no release archive is produced by this step.
 
-The additional edge-treatment GUI gate fails during `fillet.create`, before its
+The initial additional edge-treatment GUI gate failed during `fillet.create`, before its
 highlight checks, with an ambiguous calculated-input edge diagnostic. Rebuilding
 with the original MeshView source reproduces the same failure in a separate clean
-working directory. This does not establish full Fillet/Chamfer GUI coverage, and
+working directory. That initial run did not establish full Fillet/Chamfer GUI coverage, and
 no modeling/picking code was changed to bypass it. Evidence:
 `build/highlight-edge-ui.log` and `build/highlight-edge-ui-baseline.log`.
 The optimized source is restored for the final local build.
+
+
+## Edge-treatment GUI fixture repair
+
+The fixture still supplied obsolete box-coordinate edge keys after its solid had
+been converted to a Sketch-based Extrusion. It now uses the existing
+`test::profile_key` helper to resolve the intended vertical or horizontal edge
+from the authored Sketch parent IDs. No product reference-validation or picking
+rules are relaxed.
+
+The test uses a bounded window size and frames the rollback scene after opening
+Properties, leaving room for both Chamfer dimensions outside the solid. Line-grip
+drags follow the projected outward direction of the annotation plane: a fixed
+screen-space drag could instead hit the valid minimum envelope-offset constraint.
+All original value, source-geometry, persistence, Cancel/OK, Escape and Undo/Redo
+assertions remain in place. No new product strings are introduced.
+
+The complete repaired Windows GUI check passed in 55.48 seconds: two Fillet modes,
+three Chamfer modes, all applicable grips and all four creation/Cancel/OK cases.
+Evidence: `build/edge-ui-repair.log`. The five-language catalog check also passed.
