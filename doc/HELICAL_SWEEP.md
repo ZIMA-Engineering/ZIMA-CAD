@@ -218,3 +218,17 @@ GUI deletion assertion failed. Those entries were rerun with the correct
 flags; the general console deletion failure was not addressed by this change.
 The rotated context screenshot is `Projects/test/helical-rotated-context.png`.
 No Linux verification or portable release packaging was performed in this change.
+
+All property-dialog Sketch-entry buttons using the shared Sketch style now use
+the Feature button's 6-pixel corner radius. This includes 2D/3D/H-Sweep, sheet
+transition, section and Sketch properties. This is a shape-only adjustment:
+existing sizes, labels, icons and editing callbacks are unchanged. No localized
+text changes are required.
+
+The shape-only follow-up was rebuilt on Windows. Five-language coverage passed
+(4.94 s), and the 2D/H-Sweep GUI contracts passed (15.33/25.63 s). Logs are
+`build/sweep-sketch-shape-build.log`, `build/sweep-sketch-shape-tests.log` and
+`build/sweep-sketch-shape-ui-tests.log`. The broad dialog-layout entry did not
+reach its layout checks: its preliminary interaction-colour fixture failed
+with "Selection colour fixture has no hover candidate". Full dialog-layout
+validation therefore remains unconfirmed; no layout dimensions were changed.

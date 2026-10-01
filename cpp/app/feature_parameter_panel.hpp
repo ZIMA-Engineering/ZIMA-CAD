@@ -55,7 +55,6 @@ public:
         offset_=offset;offset->setValue(initial_.profile_plane_offset);
         offset_display_=offset->value();
         auto* sketch=new QPushButton(tr("Skica"),sketch_group);style_sketch_button(sketch);sketch->setMinimumHeight(40);
-        auto sketch_style=sketch->styleSheet();sketch_style.replace("border-radius:2px","border-radius:6px");sketch->setStyleSheet(sketch_style);
         sketch_=sketch;sketch->setObjectName("featureSketchButton");
         sketch->setMinimumWidth(100);
         sketch->setSizePolicy(QSizePolicy::Fixed,QSizePolicy::Expanding);
