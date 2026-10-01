@@ -106,3 +106,12 @@ OCCT. It checks two Part types, a repeated subassembly, rotations around all thr
 axes, global geometry bounds, volumes, separate Bodies on repeated import,
 Assembly save/reopen, inch-based STEP, and Part regeneration after deleting the
 original STEP file.
+
+## Performance scope (2026-10-02)
+
+IGES now reuses exact topology locators within one import operation. On the
+measured large input, locator preparation fell from 21.2 s to 4.0 s; this is
+not the time for the entire import. Full captured geometry/reference data matched
+the original kernel. STEP projection reuse did not improve controlled timings
+and was not retained. Large STEP/IGES edge-side calculations remain expensive.
+See [the measured investigation](performance/20261002-step-iges-projection.md).

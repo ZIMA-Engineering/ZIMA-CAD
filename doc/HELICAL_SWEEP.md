@@ -90,8 +90,8 @@ Base Sketch uses a container-local plane, default XZ / FRONT; stored Sketches re
 their plane. Properties has no separate “Sketch Plane in Container” row. All three
 Sketches adopt the same placement, moving the entire winding together. Derived planes
 belong to the feature; there is no independent world base-plane reference. Shared
-container placement is unchanged. Placement preview shows Origin without an added
-helper construction axis. Entering an owned Sketch aligns camera with its actual
+container placement is unchanged. Placement preview shows the Origin and the
+transient winding axis with endpoint markers described below. Entering an owned Sketch aligns camera with its actual
 plane as ordinary document Sketches do.
 
 While Properties is open, all three source-Sketch wires remain beside the winding
@@ -130,10 +130,11 @@ ZIMA_VERIFY_HELICAL_SWEEP_ONLY=1 ./build/cpp-debug/zima-cad-cpp --verify-startup
 It covers creation, all three Sketch editors, return to Properties, OK, saving,
 reopening, owned-Sketch tree, Cancel without mutation, and shared Add/Subtract buttons.
 
-Path calculation uses cubic segments with sampled-deviation checks against document
-linear tolerance: half for path, half for OCCT Sweep. Sampling parameterization does
-not affect face identities. Current calculation rejects over 1000 turns per container.
-Precision comes from File Settings; see [Numerical precision](NUMERICAL_PRECISION.md).
+Path calculation uses cubic segments with sampled-deviation checks against the
+feature's configured approximation tolerance: half for path, half for OCCT Sweep.
+Sampling parameterization does not affect face identities. Current calculation
+rejects over 1000 turns per container. Use **Custom precision** or the saved
+per-feature default described above; see [Numerical precision](NUMERICAL_PRECISION.md).
 Mesh deviation also controls rendered winding-edge detail.
 
 ### Calculated-solid centerline

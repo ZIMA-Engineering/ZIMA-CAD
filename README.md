@@ -6,17 +6,17 @@ solid-model calculations. The active implementation lives in [`cpp/`](cpp/).
 ## Build and run
 
 The C++ build requires CMake 3.24+, a C++20 compiler, Qt 6.5+ (Core, Gui,
-Widgets, OpenGL, OpenGLWidgets and Svg), OpenCASCADE 7.9+, and nlohmann_json
-3.11+. On Windows, use the pinned vcpkg setup through the repository script:
+Widgets, OpenGL, OpenGLWidgets, Svg and Network, plus CorePrivate), OpenSSL 3,
+OpenCASCADE 7.9+, and nlohmann_json 3.11+. On Windows, use the pinned vcpkg setup through the repository script:
 
 ```powershell
 ./tools/build-windows.ps1 -Configuration Release
 ./zima-cad.bat -w Projects
 ```
 
-Linux dependency setup is pending replacement of the removed Conda SDK. The
-`linux-runtime-*` presets still reference that absent directory and are not a
-ready-to-run recipe. Follow the [Linux handoff](doc/LINUX_RELEASE_HANDOFF.md)
+Linux `linux-runtime-*` presets use the native SDK under `build/native-sdk/occt`;
+the historical preset names do not imply a Python runtime. Provision the native
+Qt/OCCT dependencies on the supported Linux host before configuring. Follow the [Linux handoff](doc/LINUX_RELEASE_HANDOFF.md)
 on Linux to select compatible native Qt/OCCT dependencies and verify the build.
 Do not lower dependency version checks to fit an older installed kernel.
 
@@ -31,10 +31,11 @@ for the current Windows user. Every external file launch and Window > New
 Window starts an independent, numbered process. See
 [Multiple instances](doc/MULTIPLE_INSTANCES.md).
 
-The planned release form is one self-contained portable Linux and Windows
-archive with its complete runtime, resources, directory layout and portable
-settings. The distribution contract is documented in
-[`doc/PORTABLE_RELEASE.md`](doc/PORTABLE_RELEASE.md).
+Signed portable releases carry their own native runtime, resources and source.
+Windows and Linux may publish independently; a Windows archive does not provide
+a Linux runtime. User configuration and projects live outside version directories.
+See [native distribution](doc/NATIVE_DISTRIBUTION.md),
+[updates](doc/UPDATES.md) and the [user manual](doc/UZIVATELSKY_MANUAL.md).
 
 ## Command line
 
@@ -72,9 +73,9 @@ Historical source remains in Git; it is not a supported application or release
 input. C++ is the only product implementation. Python may still be used as a
 developer tool, without becoming an application dependency.
 
-The old Conda runtime was removed after Windows verification. The Linux
-development presets still require replacement of their obsolete dependency
-path; a fresh Linux build awaits that native SDK setup. See the
+The old Conda runtime was removed. Native Linux releases have separate
+verification records in the Linux handoff; this Windows release audit does not
+claim a new Linux build or desktop test. See the
 [versioned distribution and cleanup plan](doc/DISTRIBUTION_CLEANUP_PLAN.md).
 
 ## Verification

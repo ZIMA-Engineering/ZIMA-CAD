@@ -75,8 +75,10 @@ ends reference entry; MMB double-click confirms OK even over View.
 Only OK or explicit **Regenerate** calculates bodies. Path plane, source points,
 Sketches, and matching persist in current Part format. Old two-Sketch arrangements
 are not migrated. Segments/arcs calculate exactly; general planar curves adapt to
-document linear tolerance. Mesh deviation controls display; no feature-specific
-precision is needed. See [Numerical precision](NUMERICAL_PRECISION.md).
+the feature's approximation tolerance. **Custom precision** overrides its saved
+default; `SweepPrecision/Sweep2D` sets the default for new features (factory
+0.001 mm). Clearing the checkbox restores the feature's saved default. Mesh
+deflection controls display separately. See [Numerical precision](NUMERICAL_PRECISION.md).
 
 Derived face/edge/point identities come from source Sketches, profile regions, and
 result semantics, never OCCT traversal or path-sampling order.

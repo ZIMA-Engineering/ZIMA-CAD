@@ -102,7 +102,9 @@ Overview and point-order tables do not delete geometry.
 ## Parameters, relations and mass
 
 **Tools → Parameters** shows stored results. **Tools → Relations** belongs to the
-source Part or Assembly and assigns a restricted expression to a target parameter.
+source Part or Assembly. Its multiline editor stores a plain-text program inside
+the native document. OK validates and stores the source; only **Regenerate / F5**
+evaluates it. Opening, saving or changing material does not run relations.
 The standard start templates include:
 
 ```text
@@ -121,18 +123,37 @@ Parameter keys are stable English identifiers such as `name`, `standard`,
 `drawn_by`, `revision` and `mass`; displayed labels and values may be localized.
 For example, `Název` and `Name` refer to the same `name` key.
 
-Relations use a restricted Python-like expression syntax, not an executable
-Python runtime. Supported operators include `+ - * / ** %`, comparisons and a
-conditional expression; functions include `abs`, `min`, `max`, `round`, `sqrt`,
-`sin`, `cos` and `tan`. System values include `model.volume`, `model.area`,
-`model.mass` and `material.density`. Imports, file access and other function calls
-are unavailable. Relations run top to bottom and may consume earlier results.
-Relations driving geometry dimensions remain future work. Family Table already
-generates dimension/presence variants; see [Family Table](FAMILY_TABLE.md).
+Write one assignment per line; spaces do not separate commands. For example,
+`d6 = 10` assigns a dimension in the document's units, without an `mm` suffix.
+Quoted Unicode text is literal; `stock = "⌀" & d1 & "x" & d2` joins text and
+formatted values. Operators include `+ - * / % ^`, comparisons and `and/or/not`.
+Use `if / elseif / else / endif` blocks for conditions. Functions include ordinary
+mathematics and trigonometry; `sin` uses radians and `sind` uses degrees.
+Dependencies determine evaluation order. Invalid names, cycles, incompatible
+quantities and invalid arithmetic report their source line.
+
+Relations can drive supported editable feature/Sketch dimensions and Pattern
+spacing, angles and counts. The editor's arrow selects a View dimension and
+inserts its persistent `dN` identifier at the cursor. Driven dimensions display
+an `fx` marker. Locked or derived dimensions remain read-only. Regeneration
+publishes dimensions, output parameters and optional whole-Part `color` together;
+a failed calculation does not publish partial relation results. Geometry-derived
+mass, area and volume cannot feed back into driving dimensions.
+See [Relations](RELATIONS.md) for complete syntax, limits, colour examples and
+transaction behavior, and [Family Table](FAMILY_TABLE.md) for variants.
 
 Drawings do not own these relations. Their **Parameters** action edits the
 source Part or Assembly and refreshes relevant displayed parameter/title-block
 data. It does not implicitly regenerate parent Assemblies.
+
+## Interface theme
+
+**Settings > General** explicitly selects Light or Dark. Qt controls use Fusion;
+the OS theme does not automatically select the application theme. The shared
+setting is `Application/Theme=light|dark`, with Light as the default. Confirming
+Settings updates the widgets, including toolbars, without restarting. View,
+Sketch and Drawing retain their technical ISO font. Portable preferences belong
+to installation-root configuration, not immutable version directories.
 
 ## About the application
 
@@ -262,6 +283,20 @@ properties; the second adds shortest distance. Short MMB ends reference entry;
 MMB double-click closes the measurement window. **Save** creates a named
 informational history item. Units, approximate results marked **≈**, and reference
 repair are described in [Measurement](MEASUREMENT.md).
+
+Body properties can save a centroid Origin for the measured history boundary.
+Its point, axes and planes support measurement and later feature placement when
+the record is valid and precedes the dependent feature. Missing or invalid
+centroids remain unresolved references. See [Body properties](BODY_PROPERTIES.md).
+
+## Deleting a history source
+
+Deleting a Part history source previews dependent objects in red and asks for
+confirmation. Cancel restores the original state. OK removes the selected source,
+retains dependent containers and their parameters, and detaches broken references.
+They stay red until repaired through Properties; no substitute geometry is created.
+The operation supports Undo/Redo. Assembly occurrence deletion and Body Boolean
+restrictions retain their separate rules. See [History deletion](HISTORY_DELETION.md).
 
 ## Ordinary selection in 3D View
 
@@ -897,21 +932,26 @@ show the timing and geometry tradeoff.
 2D Sweep, 3D Sweep and Helical Sweep are separate tools. Loft is a profile-transition
 option inside 2D/3D Sweep.
 
-For 2D Sweep, place the container and open **Path Sketch**. The first planar
-placement reference initializes its separate path-plane field. Choosing another
-plane/face there changes the path plane without moving the container. Draw an
-open path starting at the Sketch Origin, with any initial direction.
+For 2D Sweep, place the container, choose its own **XY / XZ / YZ** path plane
+(default XY) and open **Path Sketch**. This dropdown does not select another
+Body face or move the container. The adjacent eye inspects the selected plane.
+Draw an open path starting at the Sketch Origin, with any initial direction.
 
 After returning, define the first station's profile. Profiles lie perpendicular
 to the local path tangent. An empty later station inherits the preceding profile;
 assigning a different profile creates a Loft transition. Owned Sketches are also
 available in the Tree.
 
-2D/3D **Thin** supports inward/outward/symmetric wall thickness; symmetric uses
+2D, 3D and Helical Sweep offer **Solid / Thin / Surface**. Solid and Thin support
+Add/Subtract; Surface is uncapped and Add-only. **Thin** supports
+inward/outward/symmetric wall thickness; symmetric uses
 half the total on each side. An open contour forms a band and a closed contour a
-hollow section. Variable-Loft thickness is measured in profile planes. Helical
-Sweep uses an inner profile loop, such as a second concentric circle, for a hollow
-section. See [2D Sweep](SWEEP_2D.md) and [Helical Sweep](HELICAL_SWEEP.md).
+hollow section. Variable-Loft thickness is measured in profile planes. A hollow
+Solid section may instead use inner profile loops. H-Sweep selects its own base
+plane and signed offset, displays the winding axis with endpoint markers during
+Sketch editing, and retains previous Sketch geometry as passive context. Its
+pitch is available as an offset View dimension for Relations. See
+[2D Sweep](SWEEP_2D.md) and [Helical Sweep](HELICAL_SWEEP.md).
 
 ## 3D Sweep profile matching
 
@@ -945,6 +985,10 @@ placing the new container.
   in the middle. Two directions form a grid and three a spatial array.
 - **Circular Pattern:** select an axis, count and step angle or full-circle
   distribution. Supported references include axes and straight/circular edges.
+
+Double-clicking a Pattern copy displays the owning Pattern dimensions, including
+spacing, count and angle, rather than the source feature dimensions. The Relations
+picker can insert their identifiers; derived full-circle angles are read-only.
 
 Pattern count includes the source: 4 means three additional copies. Copied geometry
 is edited at the source; container Properties edits placement, source and copy

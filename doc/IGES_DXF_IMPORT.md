@@ -47,7 +47,9 @@ space is not imported. Lines on the `CONSTRUCTION` layer are construction geomet
 ## IGES
 
 The OCCT reader handles `.igs` and `.iges`. In a Part it creates a new Body with
-an imported-geometry container. One file produces one import container. Surface
+an imported-geometry container, placed before existing Bodies and history steps.
+Existing Bodies retain their relative order; the import is one Undo step.
+One file produces one import container. Surface
 and wire geometry retain their type; no substitute solid is manufactured. This
 version does not split IGES into a STEP-like product hierarchy.
 
@@ -191,3 +193,12 @@ above and small regression tests. Concurrent tests and diagnostics prevent an
 isolated speed comparison: this repeat does not demonstrate faster total import.
 The index removed a specific quadratic algorithm, but dominant conversion costs
 still need measurement by phase.
+
+## Performance scope (2026-10-02)
+
+IGES now reuses exact topology locators within one import operation. On the
+measured large input, locator preparation fell from 21.2 s to 4.0 s; this is
+not the time for the entire import. Full captured geometry/reference data matched
+the original kernel. STEP projection reuse did not improve controlled timings
+and was not retained. Large STEP/IGES edge-side calculations remain expensive.
+See [the measured investigation](performance/20261002-step-iges-projection.md).

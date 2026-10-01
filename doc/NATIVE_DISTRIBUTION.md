@@ -443,14 +443,15 @@ switch selection after application exit and preserve all shared user data.
 
 ## Remaining update and Linux acceptance
 
-- Native Linux dependencies and launcher are verified in unsigned candidate
-  2026091701; production signing and signed-archive verification remain pending.
+- Signed Linux acceptance is recorded in the current Linux release and handoff.
+  A new Linux version still requires its own native build, signing and desktop
+  checks; this Windows build does not establish them.
 - Platforms may publish independently. If combined, their commits must match;
   published archives are immutable and adding a platform later requires a new ID.
-- Signed Windows releases through `2026091606` are verified and public
-  (see below). Future publication remains an explicit release action.
-- Linux updater lifecycle tests and desktop Updates UI passed; production
-  bootstrap trust and public discovery require the signed Linux artifact.
+- Signed Windows acceptance is recorded per version in the status and release
+  records. Future publication remains an explicit release action.
+- Production bootstrap trust and public discovery must be verified for each
+  signed platform artifact.
 - Binary rollback does not promise backward compatibility of native documents.
 
 See [binding requirements](DISTRIBUTION_CLEANUP_PLAN.md) and
