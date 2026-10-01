@@ -88,8 +88,8 @@ void AssemblyWorkspaceWindow::show_tree_item_properties(QTreeWidgetItem* item) {
         kind == QStringLiteral("assembly-cut") ||
         kind == QStringLiteral("assembly-sketch-container")) {
         construction_dimension_object_id_ = id;
-        // Sweep and profile commands publish dimensions with their rollback preview
-        // below. A full-result scene immediately before that is never consumed.
+        // These commands publish their rollback scene and dimensions below.
+        // A full-result scene immediately before that is never consumed.
         bool command_preview_follows=false;
         if(kind==QStringLiteral("part-container")&&!properties_dialog_&&active_sketch_id_.empty())
             if(const auto* part=workspace_.open_part(workspace_.active_document_id()))
@@ -98,7 +98,8 @@ void AssemblyWorkspaceWindow::show_tree_item_properties(QTreeWidgetItem* item) {
                         feature->feature_kind==document::FeatureKind::HelicalSweep||
                         feature->feature_kind==document::FeatureKind::Sweep3D||
                         feature->feature_kind==document::FeatureKind::Extrusion||
-                        feature->feature_kind==document::FeatureKind::Revolution)&&
+                        feature->feature_kind==document::FeatureKind::Revolution||
+                        feature->feature_kind==document::FeatureKind::BoundarySurface)&&
                         part->session.document().history_index(id).has_value()&&
                         resolve_active_occurrence(part->session.document().document_id).has_value();
         if(!command_preview_follows){preserve_view_on_refresh_ = true;refresh_scene();}

@@ -14,7 +14,7 @@ all commands have been benchmarked or that every identified opportunity is fixed
 | Extrusion, Revolution and general Feature | Profile previews already avoid base-scene reconstruction when the frame signature is unchanged. Through-all bounds, owned Sketch transitions and operational rollback still have distinct input requirements. The follow-up below optimizes ordinary Part Extrusion/Revolution opening and tests Through-all/Up-to input boundaries; general Feature remains unchanged. |
 | Fillet/Chamfer and Shell | Selection setup consumes actual input-body topology and installs command-specific filters/overlays. Refreshes were not deleted based solely on their proximity in the code. |
 | Point, Axis, Plane and 3D Curve | Registering the preview callback invokes it immediately and establishes resolved reference geometry. Reference auto-entry follows separately. No global suppression was introduced. |
-| Boundary Surface | Scene refresh precedes inspection/picking code that reads the resulting viewer edges. The command's own refresh is required; the Tree pre-refresh is a possible narrower follow-up. |
+| Boundary Surface | Scene refresh precedes inspection/picking code that reads the resulting viewer edges. The command's own refresh is required; the follow-up below removes the unused Tree pre-refresh and verifies reference interaction. |
 | Body Properties | The shared finish helper prepares context before showing the dialog and restores it on finish. Retained. |
 | Body Scale and Pattern/Mirror | Nested occurrence previews may replace a general refresh with a scoped scene. Candidate for separating context preparation from mesh publication, with occurrence/selection tests required. No change in this pass. |
 | Assembly component Properties | Preview can replace the scene after initial context setup. Reference labels and component-origin interaction depend on prepared context. Retained. |
@@ -68,3 +68,6 @@ reduces CPU work during GPU mesh preparation while retaining exact vertex buffer
 
 Follow-up: [Silhouette adjacency storage](20261001-silhouette-pair-storage.md)
 removes temporary per-edge record allocations and repeated face-label copies.
+
+Follow-up: [Boundary Surface Properties opening](20261001-boundary-properties-opening.md)
+removes one unused scene publication and checks unchanged OK, Cancel and references.

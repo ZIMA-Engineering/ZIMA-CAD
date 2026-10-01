@@ -41,6 +41,7 @@
 #include <QMessageBox>
 #include "assembly_workspace_window.hpp"
 #include <zima/document/part_document.hpp>
+#include <zima/document/viewer_packet_json.hpp>
 #include <QApplication>
 #include <QAction>
 #include <QDockWidget>
@@ -54,6 +55,7 @@
 #include <QMouseEvent>
 #include <QCursor>
 #include <QElapsedTimer>
+#include <QCryptographicHash>
 #include <QEventLoop>
 #include <QThread>
 #include <QTreeWidget>

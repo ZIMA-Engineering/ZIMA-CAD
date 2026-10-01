@@ -48,6 +48,42 @@ int verify_boundary_surface_ui(QApplication& application,AssemblyWorkspaceWindow
         window.findChild<QAction*>("saveDocumentAction")->trigger();flush();
         std::vector<kernel::BodyResult> calculated;auto saved=document::PartDocument::load(path,&calculated);
         check(saved.find_container(id)&&!calculated.empty()&&std::abs(calculated.back().surface_area-8000)<.01,"GUI result did not persist surface");
+        const auto frame_hash=[&] {
+            const auto pixels=view->grabFramebuffer().convertToFormat(QImage::Format_RGBA8888);
+            return QCryptographicHash::hash(QByteArrayView(reinterpret_cast<const char*>(pixels.constBits()),pixels.sizeInBytes()),QCryptographicHash::Sha256).toHex();
+        };
+        const auto mesh_packet=[&] {
+            kernel::BodyResult body;body.mesh=view->mesh();
+            return document::serialize_body_result(body,false);
+        };
+        const auto original_packet=mesh_packet();
+        const auto original_camera=view->camera_state();
+        const auto document_state=window.execute_console_command("documents").data;
+        auto* undo=window.findChild<QAction*>("undoAction");auto* redo=window.findChild<QAction*>("redoAction");
+        check(undo&&redo,"Boundary Undo/Redo actions missing");
+        const bool undo_before=undo->isEnabled(),redo_before=redo->isEnabled();
+        QByteArray first_preview;
+        for(int trial=0;trial<6;++trial) {
+            const auto revision=view->base_mesh_revision();
+            auto* item=row(id);check(item,"Boundary benchmark tree row missing");
+            QElapsedTimer timer;timer.start();window.show_tree_item_properties(item);flush();
+            const auto opening=timer.nsecsElapsed()/1e6;
+            check(dialog(),"Boundary benchmark editor missing");
+            const auto publications=view->base_mesh_revision()-revision;
+            check(publications==1,"Boundary opening published an unused intermediate scene");
+            const auto preview=frame_hash();
+            if(trial==0)first_preview=preview;
+            check(preview==first_preview,"Repeated Boundary opening changed preview");
+            timer.restart();dialog()->buttons()->button(trial<3?QDialogButtonBox::Ok:QDialogButtonBox::Cancel)->click();flush();
+            const auto closing=timer.nsecsElapsed()/1e6;
+            check(!dialog(),"Boundary unchanged confirmation failed");
+            check(window.execute_console_command("documents").data==document_state&&
+                undo->isEnabled()==undo_before&&redo->isEnabled()==redo_before,"Boundary no-op changed document or Undo/Redo");
+            check(view->camera_state()==original_camera&&mesh_packet()==original_packet,"Boundary no-op changed camera or display geometry");
+            std::cout<<"Boundary no-op trial="<<trial<<" open_ms="<<opening<<" close_ms="<<closing
+                <<" publications="<<publications<<" preview_sha256="<<preview.constData()
+                <<" restored_sha256="<<frame_hash().constData()<<std::endl;
+        }
         auto* result=row(id);check(result,"Boundary result tree row missing");
         window.show_tree_item_properties(result);flush();check(dialog(),"Boundary edit did not reopen common dialog");
         for(int i=0;i<4;++i)check(dialog()->inspected(i),"Reopened boundary did not inspect its saved curves");
