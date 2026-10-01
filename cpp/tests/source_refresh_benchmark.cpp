@@ -63,7 +63,7 @@ int main() {
         }
         // Distinct open subassemblies are also workspace roots. Exercise both
         // tab orders, so a source may be visited before or after its parent.
-        for(bool parent_first:{false,true})for(int count:{32,128}) {
+        for(bool part_last:{false,true})for(bool parent_first:{false,true})for(int count:{32,128}) {
             auto top=assembly::AssemblyDocument::create_default();
             std::vector<assembly::AssemblyDocument> children;
             for(int i=0;i<count;++i) {
@@ -73,10 +73,11 @@ int main() {
                 children.push_back(std::move(child));
             }
             workspace::Workspace live;
-            live.add_part(part,bodies,part_file);
+            if(!part_last)live.add_part(part,bodies,part_file);
             if(parent_first)live.add_assembly(top,root/"open-top.asmz");
             for(const auto& child:children)live.add_assembly(child,root/(child.document_id+".asmz"));
             if(!parent_first)live.add_assembly(top,root/"open-top.asmz");
+            if(part_last)live.add_part(part,bodies,part_file);
             live.refresh_source_geometry();
             const auto initial=live.open_assembly(top.document_id)->session.document();
             const auto warm=timed([&]{live.refresh_source_geometry();},20);
@@ -98,7 +99,7 @@ int main() {
             live.refresh_source_geometry();
             for(const auto& c:live.open_assembly(top.document_id)->session.document().components)
                 require(std::abs(c.calculated_source->volume-8*bodies.back().volume)<1e-6,"Open-root refresh missed source Undo");
-            std::cout<<"open_roots parent_first="<<parent_first<<" groups="<<count<<" leaves="<<count*8
+            std::cout<<"open_roots part_last="<<part_last<<" parent_first="<<parent_first<<" groups="<<count<<" leaves="<<count*8
                 <<" warm_mean_ms="<<warm<<" repetitions=20\n"<<std::flush;
         }
         std::cout<<"Source refresh benchmark checks passed\n";

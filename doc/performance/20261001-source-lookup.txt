@@ -1,0 +1,89 @@
+before run 1
+source_refresh open=0 groups=32 leaves=256 cold_ms=11.064 warm_mean_ms=0.382 repetitions=5 triangles=3072
+source_refresh open=0 groups=128 leaves=1024 cold_ms=6.979 warm_mean_ms=0.754 repetitions=5 triangles=12288
+source_refresh open=1 groups=32 leaves=256 cold_ms=2.643 warm_mean_ms=0.107 repetitions=5 triangles=3072
+source_refresh open=1 groups=128 leaves=1024 cold_ms=3.061 warm_mean_ms=0.368 repetitions=5 triangles=12288
+open_roots part_last=0 parent_first=0 groups=32 leaves=256 warm_mean_ms=0.985 repetitions=20
+open_roots part_last=0 parent_first=0 groups=128 leaves=1024 warm_mean_ms=4.317 repetitions=20
+open_roots part_last=0 parent_first=1 groups=32 leaves=256 warm_mean_ms=0.736 repetitions=20
+open_roots part_last=0 parent_first=1 groups=128 leaves=1024 warm_mean_ms=3.237 repetitions=20
+open_roots part_last=1 parent_first=0 groups=32 leaves=256 warm_mean_ms=1.015 repetitions=20
+open_roots part_last=1 parent_first=0 groups=128 leaves=1024 warm_mean_ms=5.923 repetitions=20
+open_roots part_last=1 parent_first=1 groups=32 leaves=256 warm_mean_ms=0.934 repetitions=20
+open_roots part_last=1 parent_first=1 groups=128 leaves=1024 warm_mean_ms=5.167 repetitions=20
+Source refresh benchmark checks passed
+
+before run 2
+source_refresh open=0 groups=32 leaves=256 cold_ms=13.449 warm_mean_ms=0.446 repetitions=5 triangles=3072
+source_refresh open=0 groups=128 leaves=1024 cold_ms=8.000 warm_mean_ms=0.668 repetitions=5 triangles=12288
+source_refresh open=1 groups=32 leaves=256 cold_ms=2.000 warm_mean_ms=0.107 repetitions=5 triangles=3072
+source_refresh open=1 groups=128 leaves=1024 cold_ms=4.371 warm_mean_ms=0.425 repetitions=5 triangles=12288
+open_roots part_last=0 parent_first=0 groups=32 leaves=256 warm_mean_ms=1.024 repetitions=20
+open_roots part_last=0 parent_first=0 groups=128 leaves=1024 warm_mean_ms=4.780 repetitions=20
+open_roots part_last=0 parent_first=1 groups=32 leaves=256 warm_mean_ms=0.865 repetitions=20
+open_roots part_last=0 parent_first=1 groups=128 leaves=1024 warm_mean_ms=3.941 repetitions=20
+open_roots part_last=1 parent_first=0 groups=32 leaves=256 warm_mean_ms=1.212 repetitions=20
+open_roots part_last=1 parent_first=0 groups=128 leaves=1024 warm_mean_ms=5.714 repetitions=20
+open_roots part_last=1 parent_first=1 groups=32 leaves=256 warm_mean_ms=0.896 repetitions=20
+open_roots part_last=1 parent_first=1 groups=128 leaves=1024 warm_mean_ms=4.588 repetitions=20
+Source refresh benchmark checks passed
+
+before run 3
+source_refresh open=0 groups=32 leaves=256 cold_ms=9.900 warm_mean_ms=0.381 repetitions=5 triangles=3072
+source_refresh open=0 groups=128 leaves=1024 cold_ms=6.896 warm_mean_ms=0.639 repetitions=5 triangles=12288
+source_refresh open=1 groups=32 leaves=256 cold_ms=2.045 warm_mean_ms=0.108 repetitions=5 triangles=3072
+source_refresh open=1 groups=128 leaves=1024 cold_ms=2.330 warm_mean_ms=0.442 repetitions=5 triangles=12288
+open_roots part_last=0 parent_first=0 groups=32 leaves=256 warm_mean_ms=1.013 repetitions=20
+open_roots part_last=0 parent_first=0 groups=128 leaves=1024 warm_mean_ms=4.529 repetitions=20
+open_roots part_last=0 parent_first=1 groups=32 leaves=256 warm_mean_ms=0.833 repetitions=20
+open_roots part_last=0 parent_first=1 groups=128 leaves=1024 warm_mean_ms=3.540 repetitions=20
+open_roots part_last=1 parent_first=0 groups=32 leaves=256 warm_mean_ms=1.272 repetitions=20
+open_roots part_last=1 parent_first=0 groups=128 leaves=1024 warm_mean_ms=5.905 repetitions=20
+open_roots part_last=1 parent_first=1 groups=32 leaves=256 warm_mean_ms=0.877 repetitions=20
+open_roots part_last=1 parent_first=1 groups=128 leaves=1024 warm_mean_ms=4.945 repetitions=20
+Source refresh benchmark checks passed
+
+after run 1
+source_refresh open=0 groups=32 leaves=256 cold_ms=12.765 warm_mean_ms=0.460 repetitions=5 triangles=3072
+source_refresh open=0 groups=128 leaves=1024 cold_ms=8.404 warm_mean_ms=0.691 repetitions=5 triangles=12288
+source_refresh open=1 groups=32 leaves=256 cold_ms=2.107 warm_mean_ms=0.111 repetitions=5 triangles=3072
+source_refresh open=1 groups=128 leaves=1024 cold_ms=2.946 warm_mean_ms=0.490 repetitions=5 triangles=12288
+open_roots part_last=0 parent_first=0 groups=32 leaves=256 warm_mean_ms=1.027 repetitions=20
+open_roots part_last=0 parent_first=0 groups=128 leaves=1024 warm_mean_ms=4.819 repetitions=20
+open_roots part_last=0 parent_first=1 groups=32 leaves=256 warm_mean_ms=0.806 repetitions=20
+open_roots part_last=0 parent_first=1 groups=128 leaves=1024 warm_mean_ms=3.330 repetitions=20
+open_roots part_last=1 parent_first=0 groups=32 leaves=256 warm_mean_ms=0.993 repetitions=20
+open_roots part_last=1 parent_first=0 groups=128 leaves=1024 warm_mean_ms=4.485 repetitions=20
+open_roots part_last=1 parent_first=1 groups=32 leaves=256 warm_mean_ms=0.753 repetitions=20
+open_roots part_last=1 parent_first=1 groups=128 leaves=1024 warm_mean_ms=3.510 repetitions=20
+Source refresh benchmark checks passed
+
+after run 2
+source_refresh open=0 groups=32 leaves=256 cold_ms=15.204 warm_mean_ms=0.444 repetitions=5 triangles=3072
+source_refresh open=0 groups=128 leaves=1024 cold_ms=6.935 warm_mean_ms=0.685 repetitions=5 triangles=12288
+source_refresh open=1 groups=32 leaves=256 cold_ms=2.507 warm_mean_ms=0.114 repetitions=5 triangles=3072
+source_refresh open=1 groups=128 leaves=1024 cold_ms=2.931 warm_mean_ms=0.483 repetitions=5 triangles=12288
+open_roots part_last=0 parent_first=0 groups=32 leaves=256 warm_mean_ms=1.113 repetitions=20
+open_roots part_last=0 parent_first=0 groups=128 leaves=1024 warm_mean_ms=4.450 repetitions=20
+open_roots part_last=0 parent_first=1 groups=32 leaves=256 warm_mean_ms=0.764 repetitions=20
+open_roots part_last=0 parent_first=1 groups=128 leaves=1024 warm_mean_ms=3.394 repetitions=20
+open_roots part_last=1 parent_first=0 groups=32 leaves=256 warm_mean_ms=0.930 repetitions=20
+open_roots part_last=1 parent_first=0 groups=128 leaves=1024 warm_mean_ms=4.551 repetitions=20
+open_roots part_last=1 parent_first=1 groups=32 leaves=256 warm_mean_ms=0.795 repetitions=20
+open_roots part_last=1 parent_first=1 groups=128 leaves=1024 warm_mean_ms=3.537 repetitions=20
+Source refresh benchmark checks passed
+
+after run 3
+source_refresh open=0 groups=32 leaves=256 cold_ms=11.089 warm_mean_ms=0.386 repetitions=5 triangles=3072
+source_refresh open=0 groups=128 leaves=1024 cold_ms=8.289 warm_mean_ms=0.635 repetitions=5 triangles=12288
+source_refresh open=1 groups=32 leaves=256 cold_ms=1.760 warm_mean_ms=0.093 repetitions=5 triangles=3072
+source_refresh open=1 groups=128 leaves=1024 cold_ms=2.715 warm_mean_ms=0.413 repetitions=5 triangles=12288
+open_roots part_last=0 parent_first=0 groups=32 leaves=256 warm_mean_ms=0.921 repetitions=20
+open_roots part_last=0 parent_first=0 groups=128 leaves=1024 warm_mean_ms=4.831 repetitions=20
+open_roots part_last=0 parent_first=1 groups=32 leaves=256 warm_mean_ms=0.789 repetitions=20
+open_roots part_last=0 parent_first=1 groups=128 leaves=1024 warm_mean_ms=3.692 repetitions=20
+open_roots part_last=1 parent_first=0 groups=32 leaves=256 warm_mean_ms=1.122 repetitions=20
+open_roots part_last=1 parent_first=0 groups=128 leaves=1024 warm_mean_ms=5.058 repetitions=20
+open_roots part_last=1 parent_first=1 groups=32 leaves=256 warm_mean_ms=0.832 repetitions=20
+open_roots part_last=1 parent_first=1 groups=128 leaves=1024 warm_mean_ms=3.405 repetitions=20
+Source refresh benchmark checks passed

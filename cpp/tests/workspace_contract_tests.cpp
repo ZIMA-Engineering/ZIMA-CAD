@@ -1193,15 +1193,16 @@ int main() {
                 "Repeated source cache survived Redo");
             // Open documents may be reached both recursively and as workspace
             // roots. Cover three levels in both insertion orders.
-            for(bool parent_first:{false,true}) {
+            for(bool part_last:{false,true})for(bool parent_first:{false,true}) {
                 auto outer=zima::assembly::AssemblyDocument::create_default();
                 outer.components.push_back(zima::assembly::AssemblyDocument::create_assembly_occurrence(
                     "Top",top.document_id,top_file,top));
                 zima::workspace::Workspace ordered;
-                ordered.add_part(source,bodies,part_file);
+                if(!part_last)ordered.add_part(source,bodies,part_file);
                 if(parent_first) {ordered.add_assembly(outer,directory/"outer.asmz");ordered.add_assembly(top,top_file);}
                 ordered.add_assembly(nested,nested_file);
                 if(!parent_first) {ordered.add_assembly(top,top_file);ordered.add_assembly(outer,directory/"outer.asmz");}
+                if(part_last)ordered.add_part(source,bodies,part_file);
                 ordered.refresh_source_geometry();
                 const auto stable=ordered.open_assembly(outer.document_id)->session.document().components.front().calculated_source;
                 ordered.refresh_source_geometry();

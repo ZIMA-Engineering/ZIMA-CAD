@@ -16,6 +16,10 @@ records bounded reuse of immutable Symbol definitions and exact geometry checks.
 
 ## Result and scope
 
+The [per-refresh source-lookup follow-up](performance/20261001-source-lookup.md)
+records bounded identity reuse, source-order measurements and mixed small-case
+results without claiming a uniform speedup.
+
 The [open Assembly root follow-up](performance/20261001-open-assembly-roots.md)
 removes duplicate traversal of open subassemblies within one refresh, with
 three-level ownership/Undo checks and bounded synthetic measurements.

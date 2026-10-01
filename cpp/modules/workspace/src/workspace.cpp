@@ -333,6 +333,16 @@ std::optional<std::string> Workspace::document_id_for_path(
 }
 
 void Workspace::refresh_source_geometry() {
+    // Refresh does not add/remove open documents. Resolve each identity once,
+    // including misses, while preserving find()'s session interceptor setup.
+    std::unordered_map<std::string,DocumentState*> open_sources;
+    const auto lookup=[&](const std::string& id) {
+        auto [entry,inserted]=open_sources.try_emplace(id,nullptr);
+        if(inserted)entry->second=find(id);
+        return entry->second;
+    };
+    const auto lookup_part=[&](const std::string& id){auto* state=lookup(id);return state?std::get_if<PartState>(state):nullptr;};
+    const auto lookup_assembly=[&](const std::string& id){auto* state=lookup(id);return state?std::get_if<AssemblyState>(state):nullptr;};
     std::set<std::string> visiting;
     // An open source is also a workspace root. Its completed traversal is
     // valid throughout this call, independently of tab/insertion order.
@@ -360,19 +370,19 @@ void Workspace::refresh_source_geometry() {
             const NativeSourceKey source_key{file,component.source_document_id};
             const auto parent_id=component.source_document_id.substr(0,component.source_document_id.find(":family:"));
             if(document.owns_component_result(component.occurrence_id)) {
-                const auto* source_part = open_part(component.source_document_id);
-                const auto* source_assembly = open_assembly(component.source_document_id);
+                const auto* source_part = lookup_part(component.source_document_id);
+                const auto* source_assembly = lookup_assembly(component.source_document_id);
                 const auto* name = source_part ? &source_part->session.document().name :
                     source_assembly ? &source_assembly->session.document().name : nullptr;
                 if (name && component.source_name != *name) { component.source_name = *name; changed = true; }
-                const bool missing=!component.derived_copy && !open_part(component.source_document_id) && !open_assembly(component.source_document_id) &&
-                    !open_part(parent_id) && !open_assembly(parent_id) && (file.empty() || !std::filesystem::is_regular_file(file));
+                const bool missing=!component.derived_copy && !lookup_part(component.source_document_id) && !lookup_assembly(component.source_document_id) &&
+                    !lookup_part(parent_id) && !lookup_assembly(parent_id) && (file.empty() || !std::filesystem::is_regular_file(file));
                 if(component.source_missing!=missing){component.source_missing=missing;changed=true;}
                 continue;
             }
             if (component.source_kind==zima::assembly::ComponentSourceKind::Part) {
-                const auto* part=open_part(component.source_document_id);
-                const auto* parent=open_part(parent_id);
+                const auto* part=lookup_part(component.source_document_id);
+                const auto* parent=parent_id==component.source_document_id?part:lookup_part(parent_id);
                 if(part)native_part_cache_.erase(source_key);
                 if(!part && (parent || (!file.empty() && std::filesystem::is_regular_file(file)))) {
                     const auto generation=parent?std::optional{parent->session.data_generation()}:std::nullopt;
@@ -409,7 +419,7 @@ void Workspace::refresh_source_geometry() {
             if (component.source_kind!=zima::assembly::ComponentSourceKind::Assembly) continue;
             if(visiting.contains(component.source_document_id))
                 throw std::runtime_error("Cyclic Assembly source dependency");
-            const auto* open_source=open_assembly(component.source_document_id);
+            auto* open_source=lookup_assembly(component.source_document_id);
             const NativeSourceKey refreshed_key{open_source?open_source->path:file,component.source_document_id};
             if(const auto cached=refreshed_assemblies.find(refreshed_key);cached!=refreshed_assemblies.end()) {
                 const auto& source=cached->second;
@@ -424,7 +434,7 @@ void Workspace::refresh_source_geometry() {
             }
             zima::assembly::AssemblyDocument nested;
             std::string source_stamp="assembly-display:"+component.source_document_id+":";
-            if(auto* open=open_assembly(component.source_document_id)) {
+            if(auto* open=open_source) {
                 source_stamp+="open:"+std::to_string(open->session.revision());
                 nested=open->session.document();
                 file=open->path;
@@ -434,7 +444,7 @@ void Workspace::refresh_source_geometry() {
                     refreshed_open_documents.insert(nested.document_id);
                 }
             } else {
-                const auto* parent=open_assembly(parent_id);
+                const auto* parent=lookup_assembly(parent_id);
                 if(!parent&&(file.empty()||!std::filesystem::is_regular_file(file))) {
                     if(!component.source_missing){component.source_missing=true;changed=true;}
                     continue;
