@@ -2,6 +2,13 @@
 
 ## Scope and status
 
+Windows build **2026100101** is signed, published and verified. It collects
+measured modeling/viewer optimizations and focused H-Sweep, annotation and GUI
+improvements. Clean/signed smoke, production trust, eighteen packaged GUI
+scenarios, public hashes and update discovery from 2026093007 passed. No native
+format change is introduced. See [the release record](releases/2026100101.md)
+for test scope and the diagnostic-output-directory retry. Linux remains separate.
+
 Windows build **2026093007** is signed, published and verified. It enables
 history-scoped saved centroid placement and reduces the welding all-around
 circle while keeping both strokes continuous. Seventeen focused suites,

@@ -314,3 +314,11 @@ and anonymous public downloads of all three assets matched accepted hashes.
 The signed 2026093006 updater verified the manifest and offered 2026093007 as
 installable. This discovery check did not install an update. See the
 [release record](releases/2026093007.md).
+
+Windows release
+[2026100101](https://github.com/ZIMA-Engineering/ZIMA-CAD/releases/tag/ZIMA-CAD-2026100101)
+was published on 2026-10-01 at 13:37:01 UTC. Clean/signed smoke, production trust
+and eighteen packaged GUI scenarios passed. Draft and anonymous public downloads
+matched all three accepted asset digests. The signed 2026093007 updater verified
+the manifest and offered 2026100101 as installable. This discovery check did not
+install an update. See [the release record](releases/2026100101.md).
