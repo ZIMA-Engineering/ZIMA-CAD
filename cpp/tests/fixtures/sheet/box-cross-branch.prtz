@@ -440,19 +440,7 @@ tolerancing\fr=Tolérancement
 tolerancing\ru=Назначение допусков
 
 [UserParameterValues]
-SHEETMETAL_THICKNESS=6
-approved_by=
-date=
-drawn_by=
-general_tolerance=ISO 2768-mK
-mass=3.956
-material=S235JR
-name=
-quantity=1
-revision=00
-standard=
-stock=
-tolerancing=ISO 8015
+Data={"SHEETMETAL_THICKNESS":{"":"6"},"approved_by":{"":""},"date":{"":""},"drawn_by":{"":""},"general_tolerance":{"":"ISO 2768-mK"},"mass":{"":"3.956"},"material":{"":"S235JR"},"name":{"":""},"quantity":{"":"1"},"revision":{"":"00"},"standard":{"":""},"stock":{"":""},"tolerancing":{"":"ISO 8015"}}
 
 [UserParameters]
 Order=name, standard, stock, material, quantity, drawn_by, approved_by, revision, date, general_tolerance, tolerancing, mass, SHEETMETAL_THICKNESS

@@ -66,7 +66,7 @@ Thirteen focused and dependent suites passed:
   derived-copy commands, Assembly contracts, document-session transactions,
   Body properties and profile-reference commands.
 
-**Follow-up:** the [box fixture schema repair](../../cpp/tests/fixtures/sheet/README.md#box-fixture-schema-repair--2026-10-01) removes the format gate and records the geometry failures it exposes. Full Bend coverage is still incomplete.
+**Follow-up:** the [box fixture schema repair](../../cpp/tests/fixtures/sheet/README.md#box-fixture-schema-repair--2026-10-01) now includes its user-parameter representation. Restoring the authored 6 mm thickness resolves the joined-wall and unfolding failures exposed by the initially incomplete conversion. The complete Bend command suite passes. The separate sheet-state suite remains blocked later by the obsolete cone fixture.
 
 At this change's original validation, the full Bend command suite reached an unrelated obsolete fixture:
 `cpp/tests/fixtures/sheet/box-cross-branch.prtz` declares INI format 43, while the

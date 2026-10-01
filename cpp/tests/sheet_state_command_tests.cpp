@@ -126,6 +126,8 @@ int main() {
         std::filesystem::copy_file("cpp/tests/fixtures/sheet/box-cross-branch.prtz",box_path);
         run(host,"open",{{"path",box_path.string()}});run(host,"regenerate");
         auto* box=live.open_part(live.active_document_id());
+        check(document::sheet_metal_defaults(box->session.document()).thickness_mm==6.0,
+            "Box fixture lost its authored 6 mm sheet thickness");
         const auto box_before=box->session.document();const double box_volume=box->session.calculated_boundaries().back().volume;
         run(host,"unbend.create");
         check(box->session.calculated_boundaries().back().calculation_errors.empty(),"Box unfolding failed.");

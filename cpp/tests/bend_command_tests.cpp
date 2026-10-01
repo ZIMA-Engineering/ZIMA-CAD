@@ -51,6 +51,8 @@ void verify_cross_branch_box(std::filesystem::path directory) {
     kernel::OcctKernel kernel;workspace::Workspace live;command_host::Host host(live,kernel,directory);
     run(host,"open",{{"path",path.string()}});
     const auto id=live.active_document_id();
+    check(document::sheet_metal_defaults(live.open_part(id)->session.document()).thickness_mm==6.0,
+        "Box fixture lost its authored 6 mm sheet thickness");
     const std::string first="01a0af5d46a97ac7bdafefbc7c826e7d",second="01a0af5d46a97ac7bdafefbc7c826ecb";
     const std::string profile="01a0af5d46a97ac7bdafefbc7c826ef6",source_profile="01a0af5d46a97ac7bdafefbc7c826ea3";
     // Earlier edits commit. Only the later owner of the conflicting C loses
