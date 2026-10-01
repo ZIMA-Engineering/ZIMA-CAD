@@ -390,7 +390,6 @@ EdgeTreatmentPreviewGeometry edge_treatment_preview_wire(
                     result.dimensions.push_back(std::move(dimension));
                 };
                 const auto linear_dimension = [&](const zima::kernel::Vec3& tangent,
-                                                   const zima::kernel::Vec3& other,
                                                    double value,
                                                    const char* key) {
                     zima::kernel::ViewerDimension dimension;
@@ -401,18 +400,24 @@ EdgeTreatmentPreviewGeometry edge_treatment_preview_wire(
                     dimension.plane_normal = first_section->plane_normal;
                     dimension.witness_first = path.edges.front().points.front();
                     dimension.witness_second = tangent;
-                    const auto shift = edge_preview_difference(
-                        other, dimension.witness_first);
-                    const auto shift_direction = edge_preview_normalized(shift);
+                    // Put each distance in its adjacent-face plane. The shared
+                    // dimension envelope then offsets both beyond the route's
+                    // start, instead of across the solid in a common section plane.
+                    const auto& start_edge = path.edges.front();
+                    const auto outside = edge_preview_difference(
+                        start_edge.points.front(), start_edge.points[1]);
+                    const auto measured = edge_preview_difference(
+                        tangent, dimension.witness_first);
+                    if (const auto normal = edge_preview_normalized(
+                            zima::kernel::dimension_cross(measured, outside)))
+                        dimension.plane_normal = *normal;
+                    const auto shift_direction = zima::kernel::dimension_unit(
+                        zima::kernel::dimension_cross(dimension.plane_normal, measured));
                     const double shift_distance = std::max(0.5, value * 0.35);
-                    dimension.line_first = shift_direction
-                        ? edge_preview_offset(dimension.witness_first,
-                              *shift_direction, shift_distance)
-                        : dimension.witness_first;
-                    dimension.line_second = shift_direction
-                        ? edge_preview_offset(dimension.witness_second,
-                              *shift_direction, shift_distance)
-                        : dimension.witness_second;
+                    dimension.line_first = edge_preview_offset(
+                        dimension.witness_first, shift_direction, shift_distance);
+                    dimension.line_second = edge_preview_offset(
+                        dimension.witness_second, shift_direction, shift_distance);
                     dimension.label_prefix.clear();
                     result.dimensions.push_back(std::move(dimension));
                 };
@@ -430,13 +435,11 @@ EdgeTreatmentPreviewGeometry edge_treatment_preview_wire(
                     }
                 } else {
                     linear_dimension(first_section->first_tangent,
-                        first_section->second_tangent,
                         parameters.primary_size, "primary");
                     using Mode =
                         zima::document::EdgeTreatmentParameters::ChamferMode;
                     if (parameters.chamfer_mode == Mode::TwoDistances) {
                         linear_dimension(first_section->second_tangent,
-                            first_section->first_tangent,
                             parameters.secondary_size, "secondary");
                     } else if (parameters.chamfer_mode == Mode::DistanceAngle) {
                         const auto vertex = first_section->first_tangent;

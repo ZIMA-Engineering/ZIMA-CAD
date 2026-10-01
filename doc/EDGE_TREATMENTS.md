@@ -52,31 +52,45 @@ must not make the rest of the result body selectable as that treatment.
 
 ## Inspection dimensions
 
-Treatment dimensions use a deterministic normal section derived entirely from
-persisted curve descriptors. The section is calculated once when inspection or
-Properties is activated and remains fixed until that interaction ends; preview
-regeneration must not move it to another tessellation point.
+Treatment dimensions use the persisted input-edge samples and adjacent-face
+side directions at the feature's real history boundary. Properties and ordinary
+double-click inspection use the same preview helper; neither needs an OCCT
+calculation merely to display the dimensions.
 
-- A complete circle has no intrinsic start. Its stable parameter zero is the
-  owning container's local X axis projected into the circle plane, falling back
-  to local Y or Z when parallel to the circle axis.
-- An arc, line or spline uses its first persisted parametric point and tangent.
-- A Fillet radius is constructed between the two circular rims of the generated
-  fillet face. The stored radius and rim chord determine the section-circle
-  centre; the arrow touches the arc between the rims and points toward that
-  centre.
-- A Chamfer dimension is rotated by 90 degrees inside the same normal section.
-  Its two witness/extension lines start at stable points on the two actual rim
-  circles and meet one common dimension line. The text uses compact `5x45°`
-  formatting with no spaces around `x`.
+- Fillet radius dimensions lie in the normal section of the route. Linear-radius
+  Fillets expose their start and end radius separately.
+- Chamfer distances retain the route endpoint and its corresponding tangent
+  point as their measured witnesses. Each distance lies in its adjacent-face
+  plane. Its outward direction follows the route tangent away from the selected
+  start, so the shared dimension envelope offsets the dimension line beyond that
+  end instead of across the solid in a common transverse section.
+- Both distances in A × B mode follow that same envelope rule, including Flip.
+  Distance-plus-angle retains its angular dimension in the normal section
+  defined by the measured rays.
 
-This inspection is UI geometry only and must not call OCCT. All analytic curve
-data required by it is produced and persisted at the explicit body-calculation
-boundary.
+The standard envelope offset is 8 mm. The ordinary purple grips and dimension
+layout controls can change it. This is a three-dimensional annotation rule;
+rotating the View can still project an external dimension over the displayed
+solid. The placement remains stable rather than jumping with camera rotation.
+Stored layout offsets are interpreted in the corrected distance plane; existing
+manually positioned Chamfer labels can therefore move when this version opens
+or inspects them. Dimension identities, measured values, route side selection
+and body geometry are unchanged.
 
-## Extension points
+## Validation of Chamfer distance planes (2026-10-01)
 
-The initial Chamfer is intentionally symmetric. Two-distance and
-distance-plus-angle definitions can be added as modes inside the same
-Chamfer properties window. They must reuse the existing stable references and
-must not introduce another creation/editing dialog pair.
+The Windows GUI regression covers vertical and horizontal edges and checks that
+the outward direction follows the edge and that both dimension-line endpoints
+clear every corner of the dimension envelope by the default 8 mm. The A × B
+case also toggles Flip on and off. Existing tests exercise all five
+Fillet/Chamfer modes, every applicable grip, Cancel/OK, Escape, direct value
+editing, native save/reopen and Undo/Redo. The default horizontal-edge view is
+captured for visual review. Log: `build/chamfer-envelope-ui.log`.
+
+Localization review: no new or changed user-visible strings. The existing
+five-language catalogs are reused.
+
+The complete Windows GUI run passed in 60.39 seconds. The shared dimension-layout
+and five-language translation contracts passed 2/2 in 11.71 seconds
+(`build/chamfer-envelope-contracts.log`). No new geometry calculation or format
+change was introduced. Linux validation remains deferred to the Linux host.

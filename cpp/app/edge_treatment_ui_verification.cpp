@@ -159,6 +159,30 @@ int verify_edge_treatment_ui(QApplication& application, AssemblyWorkspaceWindow&
             std::vector<std::string> keys{"parameter:primary"};
             if(mode==1||mode==3)keys.push_back("parameter:secondary");
             if(mode==4)keys.push_back("parameter:treatment_angle");
+            const auto verify_chamfer_envelope=[&] { if(!fillet)for(const auto& key:keys) {
+                const auto candidate=pick(viewer::CandidateKind::Dimension,owner,key);
+                const auto dimension=view->dimension_source(candidate);
+                check(dimension.has_value(),"Missing Chamfer annotation");
+                if(dimension->kind!=kernel::ViewerDimensionKind::Linear)continue;
+                const auto outward=kernel::dimension_unit(kernel::dimension_cross(dimension->plane_normal,
+                    kernel::dimension_measurement_direction(*dimension)));
+                check(std::abs(mode==3?outward.x:outward.z)>.999,
+                    "Chamfer distance is not offset along its selected edge");
+                const auto bounds=view->dimension_envelope();
+                const auto shown=kernel::layout_dimension(*dimension,bounds,*pending->pending_dimension_layout({owner,key,{}}));
+                for(const auto corner:bounds.corners())check(
+                    kernel::dimension_dot(kernel::dimension_sub(shown.line_first,corner),outward)>=8-1e-6&&
+                    kernel::dimension_dot(kernel::dimension_sub(shown.line_second,corner),outward)>=8-1e-6,
+                    "Chamfer distance does not clear the dimension envelope");
+            }};
+            verify_chamfer_envelope();
+            if(mode==3) {
+                auto* button=pending->findChild<QPushButton*>("edgeTreatmentFlip");
+                check(button&&button->isVisible(),"Missing Chamfer orientation control");
+                button->click();flush();verify_chamfer_envelope();
+                button->click();flush();verify_chamfer_envelope();
+            }
+            if(mode==3)window.grab().save(QString::fromStdString((directory/"chamfer-default-envelope.png").string()));
             for(const auto& key:keys)for(int handle=0;handle<(fillet?2:3);++handle) {
                 const auto before=pending->pending_dimension_layout({owner,key,{}});
                 drag(owner,key,handle);
