@@ -1,5 +1,9 @@
 # C++ performance measurements
 
+For new commands and feature extensions, follow the
+[performance-by-design guide](FEATURE_PERFORMANCE_GUIDE.md). It translates the
+measured optimizations into lifecycle, ownership and verification rules.
+
 The [2026-09-30 application audit](PERFORMANCE_AUDIT_20260930.md) records current
 Windows Release baselines, a solved-input Sketch dimension-edit cross-check,
 prioritized optimization candidates and the dead-code review. It proposes no

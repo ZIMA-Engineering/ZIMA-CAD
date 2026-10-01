@@ -49,6 +49,21 @@
   properties must not regenerate geometry or create an undo transaction.
 - This requirement was agreed with the user on 2026-09-23.
 
+## Performance by design for new features (mandatory)
+
+- Before adding or extending a modeling command, read
+  `doc/FEATURE_PERFORMANCE_GUIDE.md` and reuse the relevant established paths.
+- Define the command lifecycle and who publishes each required scene. Do not
+  publish an unused final-body scene immediately before the command publishes
+  its rollback/input scene. Preserve required selection, Tree and inspection
+  initialization; do not globally suppress refresh callbacks.
+- Keep draft/preview interaction separate from explicit geometry calculation.
+  Unchanged OK must not calculate geometry or create an Undo transaction.
+- Verify operation counts and equivalent output as well as timing. Use the
+  linked measured examples as evidence, not as universal speedup promises.
+- This requirement was requested by the user on 2026-10-01 so that new features
+  incorporate lessons from the measured optimizations from their first design.
+
 ## Interactive drawing performance (mandatory)
 
 - Ordinary interactive drawing views must use the already calculated 3D viewer
