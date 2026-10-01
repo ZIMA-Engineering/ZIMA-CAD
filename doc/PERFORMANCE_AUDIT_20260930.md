@@ -16,6 +16,10 @@ records bounded reuse of immutable Symbol definitions and exact geometry checks.
 
 ## Result and scope
 
+The [Assembly visibility-refresh follow-up](performance/20261001-visibility-refresh.md)
+reuses one freshly assembled scene within an ordinary refresh, retaining full
+Tree/picker updates and recording paired measurements and identical frames.
+
 The [Assembly appearance-preview follow-up](performance/20261001-appearance-preview.md)
 removes repeated scene assembly during color previews, with generation-bound path
 reuse, callback measurements and identical before/after framebuffer captures.

@@ -44,7 +44,17 @@ void AssemblyWorkspaceWindow::refresh_scene() {
                 dialog->pending_dimension_layout(reference).has_value();
         });
     update_assembly_dimension_visibility();
-    update_viewer_body_colors();
+    // The ordinary top-level Assembly display can consume the exact scene
+    // already assembled for appearance paths during this same refresh.
+    std::optional<zima::kernel::ViewerMesh> appearance_scene;
+    const auto* appearance_assembly = workspace_.open_assembly(workspace_.displayed_document_id());
+    const auto appearance_generation = appearance_assembly ? appearance_assembly->session.data_generation() : 0;
+    const bool reuse_appearance_scene = appearance_assembly &&
+        workspace_.active_document_id() == workspace_.displayed_document_id() &&
+        !properties_dialog_ && active_sketch_id_.empty() &&
+        !assembly_cut_rollback_ && !part_rollback_ && !derived_copy_assembly_preview_ &&
+        !construction_parameter_preview_;
+    update_viewer_body_colors(nullptr, {}, reuse_appearance_scene ? &appearance_scene : nullptr);
     update_body_color_actions();
     viewer_->set_active_sketch_owner(active_sketch_id_);
     viewer_->set_geometry_editing_presentation(properties_dialog_!=nullptr||!active_sketch_id_.empty(),
@@ -1882,7 +1892,7 @@ void AssemblyWorkspaceWindow::refresh_scene() {
         return;
     }
     const auto& document = assembly->session.document();
-    const auto active_assembly_display = [this, &append_curve_radii](
+    const auto active_assembly_display = [this, &append_curve_radii, &appearance_scene, &document, appearance_generation, assembly](
             const zima::assembly::AssemblyDocument& original) {
         const auto& source=derived_copy_assembly_preview_&&derived_copy_assembly_preview_->document_id==original.document_id
             ? *derived_copy_assembly_preview_ : original;
@@ -1908,6 +1918,10 @@ void AssemblyWorkspaceWindow::refresh_scene() {
                     *construction_parameter_preview_);
             }
             mesh = displayed.build_scene();
+        } else if (appearance_scene && &source == &document &&
+                   assembly->session.data_generation() == appearance_generation) {
+            mesh = std::move(*appearance_scene);
+            appearance_scene.reset();
         } else {
             mesh = source.build_scene();
         }

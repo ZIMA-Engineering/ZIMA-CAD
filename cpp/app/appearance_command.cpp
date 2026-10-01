@@ -146,7 +146,9 @@ void AssemblyWorkspaceWindow::update_body_color_actions() {
         selected_occurrence_path().has_value());
 }
 void AssemblyWorkspaceWindow::update_viewer_body_colors(
-    const Appearance *preview, const std::string &preview_path) {
+    const Appearance *preview, const std::string &preview_path,
+    std::optional<zima::kernel::ViewerMesh>* assembled_scene) {
+  if (assembled_scene) assembled_scene->reset();
   if (!preview) appearance_preview_paths_.reset();
   SurfaceStyle base;
   std::map<std::string, SurfaceStyle> instances, owners, faces;
@@ -179,11 +181,12 @@ void AssemblyWorkspaceWindow::update_viewer_body_colors(
     if (!appearance_preview_paths_ ||
         appearance_preview_paths_->source!=assembly->runtime_identity ||
         appearance_preview_paths_->generation!=generation) {
-      const auto scene = workspace_.authoritative_viewer_mesh(displayed);
+      auto scene = workspace_.authoritative_viewer_mesh(displayed);
       AppearancePreviewPaths resolved{assembly->runtime_identity,generation,{}};
       for (const auto &f : scene.triangle_references)
         if (!f.instance_path.empty()) resolved.paths.insert(f.instance_path);
       appearance_preview_paths_=std::move(resolved);
+      if (assembled_scene) *assembled_scene = std::move(scene);
     }
     for (const auto &path : appearance_preview_paths_->paths) {
       const auto address = workspace_.resolve_occurrence(

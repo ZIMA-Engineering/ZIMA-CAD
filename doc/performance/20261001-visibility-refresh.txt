@@ -1,0 +1,74 @@
+Assembly visibility refresh evidence
+Baseline 68aac16d + six-toggle GUI verification
+Windows MSVC Release; synthetic 256 calculated cube occurrences
+
+Initial separate builds (no concurrent compilation during test):
+BEFORE
+199: REFRESH_SCOPE visibility-0 ms=307.202 mesh=1 tree=1
+199: REFRESH_SCOPE visibility-1 ms=329.766 mesh=1 tree=1
+199: REFRESH_SCOPE visibility-2 ms=316.495 mesh=1 tree=1
+199: REFRESH_SCOPE visibility-3 ms=300.566 mesh=1 tree=1
+199: REFRESH_SCOPE visibility-4 ms=310.085 mesh=1 tree=1
+199: REFRESH_SCOPE visibility-5 ms=314.931 mesh=1 tree=1
+AFTER
+199: REFRESH_SCOPE visibility-0 ms=281.382 mesh=1 tree=1
+199: REFRESH_SCOPE visibility-1 ms=328.104 mesh=1 tree=1
+199: REFRESH_SCOPE visibility-2 ms=314.099 mesh=1 tree=1
+199: REFRESH_SCOPE visibility-3 ms=321.47 mesh=1 tree=1
+199: REFRESH_SCOPE visibility-4 ms=293.47 mesh=1 tree=1
+199: REFRESH_SCOPE visibility-5 ms=317.259 mesh=1 tree=1
+
+Paired runs: same diagnostic binary; before disables only scene reuse.
+Temporary ZIMA_VERIFY_BASELINE_SCENE switch removed before final build.
+BEFORE 1
+199: REFRESH_SCOPE visibility-0 ms=287.217 mesh=1 tree=1
+199: REFRESH_SCOPE visibility-1 ms=306.837 mesh=1 tree=1
+199: REFRESH_SCOPE visibility-2 ms=294.829 mesh=1 tree=1
+199: REFRESH_SCOPE visibility-3 ms=304.656 mesh=1 tree=1
+199: REFRESH_SCOPE visibility-4 ms=298.035 mesh=1 tree=1
+199: REFRESH_SCOPE visibility-5 ms=312.356 mesh=1 tree=1
+AFTER 1
+199: REFRESH_SCOPE visibility-0 ms=262.742 mesh=1 tree=1
+199: REFRESH_SCOPE visibility-1 ms=303.543 mesh=1 tree=1
+199: REFRESH_SCOPE visibility-2 ms=340.856 mesh=1 tree=1
+199: REFRESH_SCOPE visibility-3 ms=282.004 mesh=1 tree=1
+199: REFRESH_SCOPE visibility-4 ms=276.017 mesh=1 tree=1
+199: REFRESH_SCOPE visibility-5 ms=282.892 mesh=1 tree=1
+BEFORE 2
+199: REFRESH_SCOPE visibility-0 ms=309.592 mesh=1 tree=1
+199: REFRESH_SCOPE visibility-1 ms=333.092 mesh=1 tree=1
+199: REFRESH_SCOPE visibility-2 ms=397.348 mesh=1 tree=1
+199: REFRESH_SCOPE visibility-3 ms=331.565 mesh=1 tree=1
+199: REFRESH_SCOPE visibility-4 ms=330.719 mesh=1 tree=1
+199: REFRESH_SCOPE visibility-5 ms=327.512 mesh=1 tree=1
+AFTER 2
+199: REFRESH_SCOPE visibility-0 ms=258.896 mesh=1 tree=1
+199: REFRESH_SCOPE visibility-1 ms=282.693 mesh=1 tree=1
+199: REFRESH_SCOPE visibility-2 ms=279.608 mesh=1 tree=1
+199: REFRESH_SCOPE visibility-3 ms=263.876 mesh=1 tree=1
+199: REFRESH_SCOPE visibility-4 ms=278.74 mesh=1 tree=1
+199: REFRESH_SCOPE visibility-5 ms=279.66 mesh=1 tree=1
+BEFORE 3
+199: REFRESH_SCOPE visibility-0 ms=299.745 mesh=1 tree=1
+199: REFRESH_SCOPE visibility-1 ms=307.814 mesh=1 tree=1
+199: REFRESH_SCOPE visibility-2 ms=325.752 mesh=1 tree=1
+199: REFRESH_SCOPE visibility-3 ms=322.272 mesh=1 tree=1
+199: REFRESH_SCOPE visibility-4 ms=350.899 mesh=1 tree=1
+199: REFRESH_SCOPE visibility-5 ms=318.389 mesh=1 tree=1
+AFTER 3
+199: REFRESH_SCOPE visibility-0 ms=316.62 mesh=1 tree=1
+199: REFRESH_SCOPE visibility-1 ms=343.226 mesh=1 tree=1
+199: REFRESH_SCOPE visibility-2 ms=329.978 mesh=1 tree=1
+199: REFRESH_SCOPE visibility-3 ms=301.699 mesh=1 tree=1
+199: REFRESH_SCOPE visibility-4 ms=313.263 mesh=1 tree=1
+199: REFRESH_SCOPE visibility-5 ms=297.982 mesh=1 tree=1
+Frame 0: identical before/after PNG; SHA-256 4ed0af8fca768922ad62f4857dd5d02926190b7b4f91fa41f3f9280e5db555d1
+Frame 1: identical before/after PNG; SHA-256 19fdb6c8f8cddca47cbce4bb1a0a45818e7c7f0091990621914174bff734b574
+Frame 2: identical before/after PNG; SHA-256 4ed0af8fca768922ad62f4857dd5d02926190b7b4f91fa41f3f9280e5db555d1
+Frame 3: identical before/after PNG; SHA-256 19fdb6c8f8cddca47cbce4bb1a0a45818e7c7f0091990621914174bff734b574
+Frame 4: identical before/after PNG; SHA-256 4ed0af8fca768922ad62f4857dd5d02926190b7b4f91fa41f3f9280e5db555d1
+Frame 5: identical before/after PNG; SHA-256 19fdb6c8f8cddca47cbce4bb1a0a45818e7c7f0091990621914174bff734b574
+
+Derived-copy extended GUI: exit 3221225477 / 0xC0000005 after 166.84 s.
+Same test with scene reuse disabled: exit 3221225477 / 0xC0000005 after 147.69 s.
+Both last markers: Copy Origin GUI: Mirror, field 0, occurrence <empty>

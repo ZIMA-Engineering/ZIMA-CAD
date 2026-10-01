@@ -123,6 +123,17 @@ int verify_refresh_scope(QApplication& application, zima::app::AssemblyWorkspace
         "Source edit was not immediately displayed in repeated occurrences"))return 1;
     window.deactivate_active_occurrence_for_test();
     const auto visible=[&] {return std::ranges::any_of(view->mesh().triangle_references,[&](const auto& ref){return ref.instance_path==occurrence_path;});};
+    for(int i=0;i<6;++i) {
+        const bool shown=i%2!=0;
+        const commands::Json toggle{{"command","component.set"},{"arguments",{{"instance_path",occurrence_path},{"visible",shown}}}};
+        measure(("visibility-"+std::to_string(i)).c_str(),[&] {
+            if(!window.execute_console_command(QString::fromStdString(toggle.dump())).ok)
+                throw std::runtime_error("Visibility command failed");
+        },false);
+        if(!verify(visible()==shown,"Visibility did not update occurrence geometry"))return 1;
+        const auto capture=qEnvironmentVariable("ZIMA_VERIFY_VISIBILITY_CAPTURE");
+        if(!capture.isEmpty())view->grabFramebuffer().save(capture+"-"+QString::number(i)+".png");
+    }
     const commands::Json hide{{"command","component.set"},{"arguments",{{"instance_path",occurrence_path},{"visible",false}}}};
     if(!verify(window.execute_console_command(QString::fromStdString(hide.dump())).ok&&!visible(),"Hide did not rebuild scene"))return 1;
     window.findChild<QAction*>("undoAction")->trigger();application.processEvents();

@@ -1164,7 +1164,8 @@ private:
     };
     std::optional<AppearancePreviewPaths> appearance_preview_paths_;
     void update_viewer_body_colors(const zima::kernel::Appearance* preview = nullptr,
-        const std::string& preview_path = {});
+        const std::string& preview_path = {},
+        std::optional<zima::kernel::ViewerMesh>* assembled_scene = nullptr);
     [[nodiscard]] std::optional<std::string> selected_occurrence_path() const;
 
     void update_document_kind_button();
