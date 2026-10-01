@@ -14,6 +14,13 @@ shows that entity's properties and arms the second field. The second reference i
 optional. Its properties appear below its field; shared shortest distance appears
 below both summaries. Two bodies therefore each have their own volume, area and mass.
 
+The inspector opens at its natural content height rather than reserving a fixed
+480-pixel window. Empty entity summaries and the empty distance row occupy no
+space. Selecting, replacing or clearing references refits the height to the
+visible results; changing width also refits wrapped text. The window retains the
+shared internal Properties presentation and stays within its parent. Normal
+spacing between controls and the existing Save/OK/Cancel behavior are unchanged.
+
 | Entity | Information |
 | --- | --- |
 | Point | X, Y, Z in displayed space |
@@ -227,3 +234,16 @@ At this milestone: **232 commands**, **129 tests**. Logs:
 `build/measurement-object-identity-baseline-tests.log`,
 `build/measurement-object-identity-tests.log`,
 `build/measurement-edit-final-build.log`, `build/measurement-edit-final-tests.log`.
+
+
+## Compact inspector validation (2026-10-01)
+
+The Windows inspector GUI contract passes with checks for hidden empty summaries,
+height growth after selection, return to the empty height after clearing, wrapped
+results after width changes and containment within the application window. Existing
+picking, explicit Save, middle-button closing, persistence and reference-repair
+checks remain enabled and pass. A captured populated inspector was also visually
+reviewed for gaps and clipping. Log: `build/measurement-compact.log`.
+
+Localization review found no new or changed product text. The five-language
+translation contract passes (`build/measurement-compact-translations.log`).

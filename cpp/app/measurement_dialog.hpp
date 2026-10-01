@@ -11,6 +11,8 @@
 #include <QLocale>
 #include <QMouseEvent>
 #include <QPushButton>
+#include <QResizeEvent>
+#include <QTimer>
 #include <QSignalBlocker>
 #include <QTableWidget>
 #include <QToolButton>
@@ -28,7 +30,7 @@ public:
         :PropertiesSubWindow(tr("Měření"),parent),initial_(std::move(initial)),resolve_(std::move(resolve)),
          label_(std::move(label)),save_(std::move(save)),length_scale_(length_scale),mass_scale_(mass_scale),
          length_unit_(std::move(length_unit)),mass_unit_(std::move(mass_unit)){
-        setObjectName("measurementDialog");setAttribute(Qt::WA_DeleteOnClose);set_initial_size({420,480});
+        setObjectName("measurementDialog");setAttribute(Qt::WA_DeleteOnClose);set_initial_size({420,1});
         name_=new QLineEdit(QString::fromStdString(initial_.name));name_->setObjectName("measurementName");
         content_layout()->addWidget(new QLabel(tr("Název uloženého měření")));content_layout()->addWidget(name_);
         for(int i=0;i<2;++i){
@@ -58,7 +60,7 @@ public:
         content_layout()->addWidget(save_button_);
         connect(save_button_,&QPushButton::clicked,this,[this]{
             try{auto record=current();save_(std::move(record));accept();}
-            catch(const std::exception& e){result_->setText(QString::fromUtf8(e.what()));}
+            catch(const std::exception& e){result_->setText(QString::fromUtf8(e.what()));result_->show();fit_content_height();}
         });
         connect(name_,&QLineEdit::textChanged,this,[this]{update_save();});
         active_=initial_.references.empty()?0:-1;refresh();
@@ -88,6 +90,14 @@ public:
         record.distance=distance_;return record;
     }
 protected:
+    void showEvent(QShowEvent* event)override {
+        PropertiesSubWindow::showEvent(event);fit_content_height();
+    }
+    void resizeEvent(QResizeEvent* event)override {
+        PropertiesSubWindow::resizeEvent(event);
+        if(event->oldSize().width()!=width())
+            QTimer::singleShot(0,this,[this]{fit_content_height();});
+    }
     bool submit()override{return true;} // OK/double MMB only closes; Save is explicit.
     bool eventFilter(QObject* watched,QEvent* event)override{
         auto* widget=qobject_cast<QWidget*>(watched);
@@ -110,6 +120,13 @@ protected:
         return PropertiesSubWindow::eventFilter(watched,event);
     }
 private:
+    void fit_content_height(){
+        if(!isVisible()||!layout())return;
+        layout()->invalidate();layout()->activate();
+        const int natural=layout()->hasHeightForWidth()?layout()->totalHeightForWidth(width()):layout()->totalSizeHint().height();
+        const int target=std::max(minimumSizeHint().height(),natural);
+        resize(width(),parentWidget()?std::min(target,parentWidget()->height()):target);
+    }
     QString number(double value)const{return QString::fromStdString(kernel::dimension_number(value,ui::numeric_decimal_places(this)));}
     QString format(kernel::MeasurementValue value,int power,double scale,const QString& unit)const{
         return (value.approximate?QStringLiteral("≈ "):QString{})+number(value.value/std::pow(scale,power))+unit+
@@ -138,13 +155,15 @@ private:
         for(int i=0;i<2;++i){
             geometries_[i]=references_[i]?resolve_(*references_[i]):std::nullopt;
             info_[i]->setText(geometries_[i]?details(*geometries_[i]):references_[i]?tr("Reference chybí. Klikněte do pole a vyberte náhradu."):QString{});
+            info_[i]->setVisible(!info_[i]->text().isEmpty());
         }
         distance_=geometries_[0]&&geometries_[1]?measurement::measure_distance(*geometries_[0],*geometries_[1]):std::nullopt;
         result_->setText(distance_?tr("Nejkratší vzdálenost: %1").arg(distance_text()):QString{});
         bool approximate=distance_&&distance_->distance.approximate;
         for(const auto& g:geometries_)if(g)approximate|=(g->values.area&&g->values.area->approximate)||(g->values.length&&g->values.length->approximate)||(g->values.volume&&g->values.volume->approximate);
         if(approximate)result_->setText(result_->text()+tr("\n≈ Označené hodnoty jsou aproximací zobrazené geometrie."));
-        update_save();publish();
+        result_->setVisible(!result_->text().isEmpty());
+        fit_content_height();update_save();publish();
     }
     void publish(){
         for(int i=0;i<2;++i){

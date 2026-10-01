@@ -83,8 +83,21 @@ try{
     flush();
     const auto camera=view->camera_state();action->trigger();flush();
     check(dialog()&&dialog()->windowFlags().testFlag(Qt::SubWindow)&&dialog()->parentWidget()==&window,"Measurement is not an internal Properties window");
+    const int empty_height=dialog()->height();
+    check(!dialog()->findChild<QLabel*>("measurementInfo1")->isVisible()&&
+        !dialog()->findChild<QLabel*>("measurementInfo2")->isVisible()&&
+        !dialog()->findChild<QLabel*>("measurementDistance")->isVisible(),
+        "Empty measurement reserves unused result rows");
     select(viewer::CandidateKind::Vertex);
+    check(dialog()->height()>empty_height&&dialog()->findChild<QLabel*>("measurementInfo1")->isVisible(),
+        "Measurement did not grow for point coordinates");
     check(dialog()->active_reference()==1&&dialog()->geometries()[0]&&dialog()->geometries()[0]->values.position,"First point did not produce coordinates and arm second field");
+    auto* clear=dialog()->findChild<QTableWidget*>("measurementReference1")->cellWidget(0,0)->findChild<QPushButton*>();
+    check(clear&&clear->isVisible(),"Measurement reference has no clear control");
+    clear->click();flush();
+    check(dialog()->height()==empty_height&&!dialog()->findChild<QLabel*>("measurementInfo1")->isVisible(),
+        "Cleared measurement kept unused result height");
+    select(viewer::CandidateKind::Vertex);
     click({20,20},Qt::MiddleButton);
     check(dialog()&&dialog()->active_reference()==-1&&!dialog()->inspected()[0],"Short MMB closed inspector or retained entry/highlight");
     mouse(QEvent::MouseButtonDblClick,{20,20},Qt::MiddleButton);flush();
@@ -97,6 +110,15 @@ try{
     select(viewer::CandidateKind::Face);
     check(dialog()->geometries()[1]&&dialog()->geometries()[1]->values.area&&dialog()->distance(),"Second face has no area/distance");
     check(dialog()->findChild<QPushButton*>("saveMeasurement")->isEnabled(),"Valid measurement cannot be saved");
+    check(dialog()->findChild<QLabel*>("measurementInfo2")->isVisible()&&
+        dialog()->findChild<QLabel*>("measurementDistance")->isVisible(),"Measurement hides populated result rows");
+    const int narrow_width=dialog()->width();
+    dialog()->resize(narrow_width+160,dialog()->height());flush();
+    dialog()->resize(narrow_width,dialog()->height());flush();
+    check(window.rect().contains(dialog()->geometry()),"Measurement grew outside its parent");
+    const auto* result_label=dialog()->findChild<QLabel*>("measurementDistance");
+    check(result_label->height()>=result_label->heightForWidth(result_label->width()),
+        "Resized measurement clips the wrapped result");
     const auto gui_value=commands::Json::parse(document::serialize_measurements({dialog()->current()})).at(0);
     const commands::Json evaluate_request={{"command","measurement.evaluate"},{"arguments",{{"references",gui_value.at("references")}}}};
     const auto from_console=window.execute_console_command(QString::fromStdString(evaluate_request.dump()));
