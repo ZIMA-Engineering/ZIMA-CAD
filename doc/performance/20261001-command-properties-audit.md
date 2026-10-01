@@ -62,3 +62,6 @@ measures opening, preserves the initial fit and checks exact rollback preview bo
 
 Follow-up: [Body context transfer and Properties closing](20261001-body-context-transfer.md)
 removes temporary mesh copies and measures full-scene restoration on the user spring.
+
+Follow-up: [Shading adjacency lookup](20261001-shading-adjacency.md)
+reduces CPU work during GPU mesh preparation while retaining exact vertex buffers.

@@ -1,0 +1,522 @@
+=== gpu-profile-before ===
+GPU prepare triangles-and-upload ms=0.0275
+GPU prepare lines-and-upload ms=0.0041
+GPU prepare silhouette-preparation ms=0.0071
+GPU prepare triangles-and-upload ms=28.4458
+GPU prepare lines-and-upload ms=0.0439
+GPU prepare silhouette-preparation ms=34.9799
+GPU prepare triangles-and-upload ms=0.0245
+GPU prepare lines-and-upload ms=0.03
+GPU prepare silhouette-preparation ms=0.0216
+GPU prepare triangles-and-upload ms=26.889
+GPU prepare lines-and-upload ms=0.1628
+GPU prepare silhouette-preparation ms=32.0783
+Sweep no-op trial=0 open_ms=157.796 close_ms=177.902 cancel=0 refreshes=1 preview_sha256=b32c7325843b1d3e418350191309e12adfd70206c19af39c3338677ed8964ebd restored_sha256=bec517d77af1bf5f3e58e6102ed64bdd99441465af0d082e4f816c23bc30c131
+GPU prepare triangles-and-upload ms=0.0232
+GPU prepare lines-and-upload ms=0.0328
+GPU prepare silhouette-preparation ms=0.0208
+GPU prepare triangles-and-upload ms=27.5317
+GPU prepare lines-and-upload ms=0.0609
+GPU prepare silhouette-preparation ms=29.8285
+Sweep no-op trial=1 open_ms=121.385 close_ms=181.647 cancel=0 refreshes=1 preview_sha256=b32c7325843b1d3e418350191309e12adfd70206c19af39c3338677ed8964ebd restored_sha256=6b8d8984f76cefd45d6c8847634a515655235e557123c3f51d1eddf79f5334db
+GPU prepare triangles-and-upload ms=0.0244
+GPU prepare lines-and-upload ms=0.0369
+GPU prepare silhouette-preparation ms=0.0212
+GPU prepare triangles-and-upload ms=26.305
+GPU prepare lines-and-upload ms=0.0505
+GPU prepare silhouette-preparation ms=32.8781
+Sweep no-op trial=2 open_ms=125.727 close_ms=169.849 cancel=0 refreshes=1 preview_sha256=b32c7325843b1d3e418350191309e12adfd70206c19af39c3338677ed8964ebd restored_sha256=c29f2d65a135e5c8998820eda7f82c6570855bfae1b7d61aefaa5e56af2d6868
+GPU prepare triangles-and-upload ms=0.0263
+GPU prepare lines-and-upload ms=0.0714
+GPU prepare silhouette-preparation ms=0.0288
+GPU prepare triangles-and-upload ms=31.825
+GPU prepare lines-and-upload ms=0.1003
+GPU prepare silhouette-preparation ms=32.3092
+Sweep no-op trial=3 open_ms=120.767 close_ms=172.393 cancel=1 refreshes=1 preview_sha256=b32c7325843b1d3e418350191309e12adfd70206c19af39c3338677ed8964ebd restored_sha256=03c24c38a4b89a7de173af1376905c795072a4e8d2652667f9a5ce0ff7f812ce
+GPU prepare triangles-and-upload ms=0.0241
+GPU prepare lines-and-upload ms=0.0309
+GPU prepare silhouette-preparation ms=0.0267
+GPU prepare triangles-and-upload ms=26.0988
+GPU prepare lines-and-upload ms=0.0533
+GPU prepare silhouette-preparation ms=31.822
+Sweep no-op trial=4 open_ms=119.177 close_ms=164.417 cancel=1 refreshes=1 preview_sha256=b32c7325843b1d3e418350191309e12adfd70206c19af39c3338677ed8964ebd restored_sha256=0740dc9cb1a7632baa9bcabece386f75a6b7cb475c25372d5c6e32f060ace9e4
+GPU prepare triangles-and-upload ms=0.025
+GPU prepare lines-and-upload ms=0.0393
+GPU prepare silhouette-preparation ms=0.0232
+GPU prepare triangles-and-upload ms=27.6964
+GPU prepare lines-and-upload ms=0.0437
+GPU prepare silhouette-preparation ms=31.9911
+Sweep no-op trial=5 open_ms=118.998 close_ms=170.817 cancel=1 refreshes=1 preview_sha256=b32c7325843b1d3e418350191309e12adfd70206c19af39c3338677ed8964ebd restored_sha256=875a6d416e2987a27c333907b4b710d330e8b4c2b9d74b939a98d45c319ee52d
+
+=== gpu-benchmark-before ===
+shading case=cylinder-64 trial=0 ms=6.012 sha256=15302d75dfa6e8bbef7c8491da797d63d1b004cce93fd86d03b6f23250fd8b6f
+shading case=cylinder-64 trial=1 ms=6.805 sha256=15302d75dfa6e8bbef7c8491da797d63d1b004cce93fd86d03b6f23250fd8b6f
+shading case=cylinder-64 trial=2 ms=6.271 sha256=15302d75dfa6e8bbef7c8491da797d63d1b004cce93fd86d03b6f23250fd8b6f
+shading case=cylinder-64 trial=3 ms=5.638 sha256=15302d75dfa6e8bbef7c8491da797d63d1b004cce93fd86d03b6f23250fd8b6f
+case=cylinder-64 triangles=6400 edges=387
+warm case=cylinder-64 state=0 mode=0 alpha=255 median_ms=11.855 max_ms=13.293 sha256=5e749648fd26b3d37e793f106d67be12e6244d280bd28a6a2c8b4f6bacea5801
+warm case=cylinder-64 state=0 mode=0 alpha=120 median_ms=12.335 max_ms=13.118 sha256=5e749648fd26b3d37e793f106d67be12e6244d280bd28a6a2c8b4f6bacea5801
+warm case=cylinder-64 state=0 mode=1 alpha=255 median_ms=12.127 max_ms=13.678 sha256=07815bed7c8ebcd01327e77e91c1ffbee6a593542c2816413a7e41929d14482c
+warm case=cylinder-64 state=0 mode=1 alpha=120 median_ms=11.547 max_ms=12.607 sha256=f54ba553491e543860730e78b7f6878c2777b2ecb7e8eed1e41fd0e92fb59911
+warm case=cylinder-64 state=0 mode=2 alpha=255 median_ms=11.394 max_ms=15.130 sha256=f06232fb97f075d925483b2b820a778b761f9b06263a44988108b7d46977ccd7
+warm case=cylinder-64 state=0 mode=2 alpha=120 median_ms=10.536 max_ms=11.831 sha256=5e749648fd26b3d37e793f106d67be12e6244d280bd28a6a2c8b4f6bacea5801
+warm case=cylinder-64 state=0 mode=3 alpha=255 median_ms=11.400 max_ms=13.412 sha256=4295d2d4a816b1c4dade58eb2e911d6796d937e694a690504ba14126e3316b6c
+warm case=cylinder-64 state=0 mode=3 alpha=120 median_ms=12.234 max_ms=13.998 sha256=26e874a5165238bfd3a0435d3aa54b796274c4ab01ddff2289afe7adab762f0c
+warm case=cylinder-64 state=0 mode=4 alpha=255 median_ms=11.534 max_ms=12.728 sha256=6be42ff5287ee7bd3a6bb4a870a1013d8f0de753085b38bcce951f0282c107cf
+warm case=cylinder-64 state=0 mode=4 alpha=120 median_ms=11.150 max_ms=12.030 sha256=d94d980c4451200e6b886e4b707623429f78ac5ea9f4dd489a7f8222290054b5
+warm case=cylinder-64 state=1 mode=0 alpha=255 median_ms=11.043 max_ms=13.105 sha256=5e749648fd26b3d37e793f106d67be12e6244d280bd28a6a2c8b4f6bacea5801
+warm case=cylinder-64 state=1 mode=0 alpha=120 median_ms=10.731 max_ms=11.827 sha256=5e749648fd26b3d37e793f106d67be12e6244d280bd28a6a2c8b4f6bacea5801
+warm case=cylinder-64 state=1 mode=1 alpha=255 median_ms=12.264 max_ms=15.079 sha256=07815bed7c8ebcd01327e77e91c1ffbee6a593542c2816413a7e41929d14482c
+warm case=cylinder-64 state=1 mode=1 alpha=120 median_ms=11.260 max_ms=11.905 sha256=f54ba553491e543860730e78b7f6878c2777b2ecb7e8eed1e41fd0e92fb59911
+warm case=cylinder-64 state=1 mode=2 alpha=255 median_ms=10.997 max_ms=11.708 sha256=f06232fb97f075d925483b2b820a778b761f9b06263a44988108b7d46977ccd7
+warm case=cylinder-64 state=1 mode=2 alpha=120 median_ms=11.645 max_ms=15.979 sha256=5e749648fd26b3d37e793f106d67be12e6244d280bd28a6a2c8b4f6bacea5801
+warm case=cylinder-64 state=1 mode=3 alpha=255 median_ms=11.287 max_ms=12.835 sha256=4295d2d4a816b1c4dade58eb2e911d6796d937e694a690504ba14126e3316b6c
+warm case=cylinder-64 state=1 mode=3 alpha=120 median_ms=10.762 max_ms=14.758 sha256=26e874a5165238bfd3a0435d3aa54b796274c4ab01ddff2289afe7adab762f0c
+warm case=cylinder-64 state=1 mode=4 alpha=255 median_ms=11.237 max_ms=13.291 sha256=6be42ff5287ee7bd3a6bb4a870a1013d8f0de753085b38bcce951f0282c107cf
+warm case=cylinder-64 state=1 mode=4 alpha=120 median_ms=10.892 max_ms=14.777 sha256=d94d980c4451200e6b886e4b707623429f78ac5ea9f4dd489a7f8222290054b5
+warm case=cylinder-64 state=2 mode=0 alpha=255 median_ms=11.336 max_ms=12.480 sha256=5e749648fd26b3d37e793f106d67be12e6244d280bd28a6a2c8b4f6bacea5801
+warm case=cylinder-64 state=2 mode=0 alpha=120 median_ms=12.163 max_ms=16.257 sha256=5e749648fd26b3d37e793f106d67be12e6244d280bd28a6a2c8b4f6bacea5801
+warm case=cylinder-64 state=2 mode=1 alpha=255 median_ms=11.063 max_ms=11.271 sha256=07815bed7c8ebcd01327e77e91c1ffbee6a593542c2816413a7e41929d14482c
+warm case=cylinder-64 state=2 mode=1 alpha=120 median_ms=11.198 max_ms=13.963 sha256=f54ba553491e543860730e78b7f6878c2777b2ecb7e8eed1e41fd0e92fb59911
+warm case=cylinder-64 state=2 mode=2 alpha=255 median_ms=12.032 max_ms=12.512 sha256=f06232fb97f075d925483b2b820a778b761f9b06263a44988108b7d46977ccd7
+warm case=cylinder-64 state=2 mode=2 alpha=120 median_ms=11.130 max_ms=11.932 sha256=5e749648fd26b3d37e793f106d67be12e6244d280bd28a6a2c8b4f6bacea5801
+warm case=cylinder-64 state=2 mode=3 alpha=255 median_ms=10.750 max_ms=12.104 sha256=4295d2d4a816b1c4dade58eb2e911d6796d937e694a690504ba14126e3316b6c
+warm case=cylinder-64 state=2 mode=3 alpha=120 median_ms=11.633 max_ms=11.742 sha256=26e874a5165238bfd3a0435d3aa54b796274c4ab01ddff2289afe7adab762f0c
+warm case=cylinder-64 state=2 mode=4 alpha=255 median_ms=10.945 max_ms=17.298 sha256=6be42ff5287ee7bd3a6bb4a870a1013d8f0de753085b38bcce951f0282c107cf
+warm case=cylinder-64 state=2 mode=4 alpha=120 median_ms=11.497 max_ms=12.526 sha256=d94d980c4451200e6b886e4b707623429f78ac5ea9f4dd489a7f8222290054b5
+frame case=cylinder-64 state=orientation-5 sha256=a86b0af79030dd83c3629f2d6bd0e51861688ac83056bc8af64be702649690cd
+frame case=cylinder-64 state=orientation-1 sha256=79f765f7083c9a670819ead0413c9cb350fecebd3414babf1b94f9662d384b26
+frame case=cylinder-64 state=orientation-0 sha256=4295d2d4a816b1c4dade58eb2e911d6796d937e694a690504ba14126e3316b6c
+frame case=cylinder-64 state=pan sha256=9c2405aec0c6fda3fa8d517b5b6f025f6523275cdda3fdce94cad2d3ec8b0a19
+frame case=cylinder-64 state=zoom sha256=3d28e1e672ea49cae6e3f7c6ed1b8a40e0694a0814a7d571b1690e48801fc508
+frame case=cylinder-64 state=tiny-rotation sha256=3d28e1e672ea49cae6e3f7c6ed1b8a40e0694a0814a7d571b1690e48801fc508
+frame case=cylinder-64 state=perspective sha256=d27ff87d328b53392a28f855a3cc0fffb3e8e01b7073037733ce4b61f1bae1f7
+frame case=cylinder-64 state=changed-mesh sha256=db7e42dda3e23ae6a45b853d6c37e98a84f7dd898adb781f73a32f1259bf997a
+frame case=cylinder-64 state=empty-mesh sha256=4ddbc85ead07dc72d9ea8870bbc91619de6c90e369141254fc5df7d60935d0da
+frame case=cylinder-64 state=restored-mesh sha256=4295d2d4a816b1c4dade58eb2e911d6796d937e694a690504ba14126e3316b6c
+shading case=cylinder-256 trial=0 ms=32.889 sha256=b518fbd8eab241ad18d704f0b2ee7428abe71590b5e776c58009a072f77b38cd
+shading case=cylinder-256 trial=1 ms=30.858 sha256=b518fbd8eab241ad18d704f0b2ee7428abe71590b5e776c58009a072f77b38cd
+shading case=cylinder-256 trial=2 ms=28.902 sha256=b518fbd8eab241ad18d704f0b2ee7428abe71590b5e776c58009a072f77b38cd
+shading case=cylinder-256 trial=3 ms=27.029 sha256=b518fbd8eab241ad18d704f0b2ee7428abe71590b5e776c58009a072f77b38cd
+case=cylinder-256 triangles=25600 edges=1539
+warm case=cylinder-256 state=0 mode=0 alpha=255 median_ms=34.079 max_ms=38.435 sha256=7e887f2afba6d292f8a0b5ca6445dd3ede310cfdec8a07e4bf8dd60d3b75f81c
+warm case=cylinder-256 state=0 mode=0 alpha=120 median_ms=32.165 max_ms=34.198 sha256=7e887f2afba6d292f8a0b5ca6445dd3ede310cfdec8a07e4bf8dd60d3b75f81c
+warm case=cylinder-256 state=0 mode=1 alpha=255 median_ms=31.747 max_ms=36.721 sha256=f8ec4ed5c3e6632db14b53293a40b32963980653355b8622fd378ebfbbe56655
+warm case=cylinder-256 state=0 mode=1 alpha=120 median_ms=31.631 max_ms=36.559 sha256=5b19d653dc89fe1dd95d61afc25daa64b3da68987e1664bb5fda155b70bd904c
+warm case=cylinder-256 state=0 mode=2 alpha=255 median_ms=29.802 max_ms=35.432 sha256=a0220932b6a28b44771547a8e24309b4985382c3169a53b4b3b82e172710f0c3
+warm case=cylinder-256 state=0 mode=2 alpha=120 median_ms=31.235 max_ms=32.940 sha256=7e887f2afba6d292f8a0b5ca6445dd3ede310cfdec8a07e4bf8dd60d3b75f81c
+warm case=cylinder-256 state=0 mode=3 alpha=255 median_ms=29.742 max_ms=34.328 sha256=1dc6187aa623c40e8965d0c3b9ea76f3dccacb0f2a0d9a2a819f9244c9d591b1
+warm case=cylinder-256 state=0 mode=3 alpha=120 median_ms=31.696 max_ms=38.679 sha256=0c5b4de961181abf6aac360d518d69aeb8a2d8711ce1d0bddb56f33b1ae03dc8
+warm case=cylinder-256 state=0 mode=4 alpha=255 median_ms=32.714 max_ms=33.462 sha256=e2988964b7caaf4f304f7be7e7d09bfe86ca75ab2252b78f03240569f5f3ba03
+warm case=cylinder-256 state=0 mode=4 alpha=120 median_ms=32.108 max_ms=34.102 sha256=e74cacaac00dd4f5c321c5a6aa95e2023c411aa168ddcaca6affe56f3e0b2dd9
+warm case=cylinder-256 state=1 mode=0 alpha=255 median_ms=29.919 max_ms=30.303 sha256=7e887f2afba6d292f8a0b5ca6445dd3ede310cfdec8a07e4bf8dd60d3b75f81c
+warm case=cylinder-256 state=1 mode=0 alpha=120 median_ms=31.222 max_ms=33.657 sha256=7e887f2afba6d292f8a0b5ca6445dd3ede310cfdec8a07e4bf8dd60d3b75f81c
+warm case=cylinder-256 state=1 mode=1 alpha=255 median_ms=31.339 max_ms=33.006 sha256=f8ec4ed5c3e6632db14b53293a40b32963980653355b8622fd378ebfbbe56655
+warm case=cylinder-256 state=1 mode=1 alpha=120 median_ms=29.782 max_ms=35.657 sha256=5b19d653dc89fe1dd95d61afc25daa64b3da68987e1664bb5fda155b70bd904c
+warm case=cylinder-256 state=1 mode=2 alpha=255 median_ms=29.760 max_ms=33.618 sha256=a0220932b6a28b44771547a8e24309b4985382c3169a53b4b3b82e172710f0c3
+warm case=cylinder-256 state=1 mode=2 alpha=120 median_ms=29.671 max_ms=35.565 sha256=7e887f2afba6d292f8a0b5ca6445dd3ede310cfdec8a07e4bf8dd60d3b75f81c
+warm case=cylinder-256 state=1 mode=3 alpha=255 median_ms=32.205 max_ms=33.849 sha256=1dc6187aa623c40e8965d0c3b9ea76f3dccacb0f2a0d9a2a819f9244c9d591b1
+warm case=cylinder-256 state=1 mode=3 alpha=120 median_ms=34.139 max_ms=34.443 sha256=0c5b4de961181abf6aac360d518d69aeb8a2d8711ce1d0bddb56f33b1ae03dc8
+warm case=cylinder-256 state=1 mode=4 alpha=255 median_ms=30.317 max_ms=31.207 sha256=e2988964b7caaf4f304f7be7e7d09bfe86ca75ab2252b78f03240569f5f3ba03
+warm case=cylinder-256 state=1 mode=4 alpha=120 median_ms=30.785 max_ms=33.709 sha256=e74cacaac00dd4f5c321c5a6aa95e2023c411aa168ddcaca6affe56f3e0b2dd9
+warm case=cylinder-256 state=2 mode=0 alpha=255 median_ms=29.902 max_ms=31.706 sha256=7e887f2afba6d292f8a0b5ca6445dd3ede310cfdec8a07e4bf8dd60d3b75f81c
+warm case=cylinder-256 state=2 mode=0 alpha=120 median_ms=31.496 max_ms=34.678 sha256=7e887f2afba6d292f8a0b5ca6445dd3ede310cfdec8a07e4bf8dd60d3b75f81c
+warm case=cylinder-256 state=2 mode=1 alpha=255 median_ms=31.931 max_ms=33.624 sha256=f8ec4ed5c3e6632db14b53293a40b32963980653355b8622fd378ebfbbe56655
+warm case=cylinder-256 state=2 mode=1 alpha=120 median_ms=30.809 max_ms=37.325 sha256=5b19d653dc89fe1dd95d61afc25daa64b3da68987e1664bb5fda155b70bd904c
+warm case=cylinder-256 state=2 mode=2 alpha=255 median_ms=30.428 max_ms=33.126 sha256=a0220932b6a28b44771547a8e24309b4985382c3169a53b4b3b82e172710f0c3
+warm case=cylinder-256 state=2 mode=2 alpha=120 median_ms=31.437 max_ms=32.367 sha256=7e887f2afba6d292f8a0b5ca6445dd3ede310cfdec8a07e4bf8dd60d3b75f81c
+warm case=cylinder-256 state=2 mode=3 alpha=255 median_ms=30.569 max_ms=34.368 sha256=1dc6187aa623c40e8965d0c3b9ea76f3dccacb0f2a0d9a2a819f9244c9d591b1
+warm case=cylinder-256 state=2 mode=3 alpha=120 median_ms=34.108 max_ms=37.945 sha256=0c5b4de961181abf6aac360d518d69aeb8a2d8711ce1d0bddb56f33b1ae03dc8
+warm case=cylinder-256 state=2 mode=4 alpha=255 median_ms=29.483 max_ms=32.406 sha256=e2988964b7caaf4f304f7be7e7d09bfe86ca75ab2252b78f03240569f5f3ba03
+warm case=cylinder-256 state=2 mode=4 alpha=120 median_ms=32.345 max_ms=33.448 sha256=e74cacaac00dd4f5c321c5a6aa95e2023c411aa168ddcaca6affe56f3e0b2dd9
+frame case=cylinder-256 state=orientation-5 sha256=863b9b95993715b815b0867054c3d183a18404f8242c18e342137eb161c713b2
+frame case=cylinder-256 state=orientation-1 sha256=ee3f6ca44086caff771f7e4c112f2f704d766f1dfddbf61b976d4319852926d7
+frame case=cylinder-256 state=orientation-0 sha256=1dc6187aa623c40e8965d0c3b9ea76f3dccacb0f2a0d9a2a819f9244c9d591b1
+frame case=cylinder-256 state=pan sha256=77513b85a7e2484a78c9540eb23d8d551ce9f58fb9e561d7db43d0afc63edebe
+frame case=cylinder-256 state=zoom sha256=927599c91204007f49cde13a021fd4f9bafe78833a9d534959a14d09660ebc9b
+frame case=cylinder-256 state=tiny-rotation sha256=927599c91204007f49cde13a021fd4f9bafe78833a9d534959a14d09660ebc9b
+frame case=cylinder-256 state=perspective sha256=22eda496f87f96639c58f81550349f6e9a838231469334131d63dd5cee815261
+frame case=cylinder-256 state=changed-mesh sha256=029315d60b5b3d5f79b18809760373d9e67647519c5954c62805967d47281aec
+frame case=cylinder-256 state=empty-mesh sha256=4ddbc85ead07dc72d9ea8870bbc91619de6c90e369141254fc5df7d60935d0da
+frame case=cylinder-256 state=restored-mesh sha256=1dc6187aa623c40e8965d0c3b9ea76f3dccacb0f2a0d9a2a819f9244c9d591b1
+shading case=sphere-64 trial=0 ms=38.311 sha256=dbef6764a57833167b9b07515aa9d1a4a89e436a2b1b25c1c21d698810a7344f
+shading case=sphere-64 trial=1 ms=40.919 sha256=dbef6764a57833167b9b07515aa9d1a4a89e436a2b1b25c1c21d698810a7344f
+shading case=sphere-64 trial=2 ms=37.459 sha256=dbef6764a57833167b9b07515aa9d1a4a89e436a2b1b25c1c21d698810a7344f
+shading case=sphere-64 trial=3 ms=40.730 sha256=dbef6764a57833167b9b07515aa9d1a4a89e436a2b1b25c1c21d698810a7344f
+case=sphere-64 triangles=33024 edges=387
+warm case=sphere-64 state=0 mode=0 alpha=255 median_ms=11.754 max_ms=12.154 sha256=437b0f7279bf5d66d60f96c77d1080ef0636317db814755a5547c9f0c8b69856
+warm case=sphere-64 state=0 mode=0 alpha=120 median_ms=11.932 max_ms=12.610 sha256=437b0f7279bf5d66d60f96c77d1080ef0636317db814755a5547c9f0c8b69856
+warm case=sphere-64 state=0 mode=1 alpha=255 median_ms=11.546 max_ms=13.220 sha256=ead659f6106600bc4845dc9abfc7257511aa108512f38d5f37b5db66e9b17016
+warm case=sphere-64 state=0 mode=1 alpha=120 median_ms=11.620 max_ms=13.696 sha256=437b0f7279bf5d66d60f96c77d1080ef0636317db814755a5547c9f0c8b69856
+warm case=sphere-64 state=0 mode=2 alpha=255 median_ms=11.677 max_ms=13.738 sha256=6067f21edf6f8f9fd4d85f3718ba16050a505d4cbc8f62128829a782b64ac0ee
+warm case=sphere-64 state=0 mode=2 alpha=120 median_ms=11.393 max_ms=12.212 sha256=437b0f7279bf5d66d60f96c77d1080ef0636317db814755a5547c9f0c8b69856
+warm case=sphere-64 state=0 mode=3 alpha=255 median_ms=11.478 max_ms=12.451 sha256=c54b4cf0a44cdd07967e76a5b163f9df80a0c71713e1d31e138bcf3f08aade8a
+warm case=sphere-64 state=0 mode=3 alpha=120 median_ms=12.965 max_ms=14.239 sha256=a1c1d6f90f0d8831598b49eb99d75745673aa5a73f8f18d0e318550ac507c2dd
+warm case=sphere-64 state=0 mode=4 alpha=255 median_ms=11.284 max_ms=12.615 sha256=f9c8452c4500cf0714993a6955aa4fb608aa379f39bd456d47a185548e0dec5b
+warm case=sphere-64 state=0 mode=4 alpha=120 median_ms=12.314 max_ms=13.432 sha256=416f51cf0241ed4e88b03b72ed6ca4d947d355545c30e521652e455fa19e3001
+warm case=sphere-64 state=1 mode=0 alpha=255 median_ms=10.878 max_ms=12.776 sha256=437b0f7279bf5d66d60f96c77d1080ef0636317db814755a5547c9f0c8b69856
+warm case=sphere-64 state=1 mode=0 alpha=120 median_ms=11.080 max_ms=13.263 sha256=437b0f7279bf5d66d60f96c77d1080ef0636317db814755a5547c9f0c8b69856
+warm case=sphere-64 state=1 mode=1 alpha=255 median_ms=11.333 max_ms=11.963 sha256=ead659f6106600bc4845dc9abfc7257511aa108512f38d5f37b5db66e9b17016
+warm case=sphere-64 state=1 mode=1 alpha=120 median_ms=11.334 max_ms=11.804 sha256=437b0f7279bf5d66d60f96c77d1080ef0636317db814755a5547c9f0c8b69856
+warm case=sphere-64 state=1 mode=2 alpha=255 median_ms=11.948 max_ms=12.525 sha256=6067f21edf6f8f9fd4d85f3718ba16050a505d4cbc8f62128829a782b64ac0ee
+warm case=sphere-64 state=1 mode=2 alpha=120 median_ms=10.984 max_ms=11.410 sha256=437b0f7279bf5d66d60f96c77d1080ef0636317db814755a5547c9f0c8b69856
+warm case=sphere-64 state=1 mode=3 alpha=255 median_ms=11.141 max_ms=12.543 sha256=c54b4cf0a44cdd07967e76a5b163f9df80a0c71713e1d31e138bcf3f08aade8a
+warm case=sphere-64 state=1 mode=3 alpha=120 median_ms=13.492 max_ms=13.983 sha256=a1c1d6f90f0d8831598b49eb99d75745673aa5a73f8f18d0e318550ac507c2dd
+warm case=sphere-64 state=1 mode=4 alpha=255 median_ms=10.947 max_ms=11.673 sha256=f9c8452c4500cf0714993a6955aa4fb608aa379f39bd456d47a185548e0dec5b
+warm case=sphere-64 state=1 mode=4 alpha=120 median_ms=12.487 max_ms=13.972 sha256=416f51cf0241ed4e88b03b72ed6ca4d947d355545c30e521652e455fa19e3001
+warm case=sphere-64 state=2 mode=0 alpha=255 median_ms=11.103 max_ms=13.791 sha256=437b0f7279bf5d66d60f96c77d1080ef0636317db814755a5547c9f0c8b69856
+warm case=sphere-64 state=2 mode=0 alpha=120 median_ms=11.520 max_ms=13.394 sha256=437b0f7279bf5d66d60f96c77d1080ef0636317db814755a5547c9f0c8b69856
+warm case=sphere-64 state=2 mode=1 alpha=255 median_ms=11.381 max_ms=14.421 sha256=ead659f6106600bc4845dc9abfc7257511aa108512f38d5f37b5db66e9b17016
+warm case=sphere-64 state=2 mode=1 alpha=120 median_ms=11.469 max_ms=13.138 sha256=437b0f7279bf5d66d60f96c77d1080ef0636317db814755a5547c9f0c8b69856
+warm case=sphere-64 state=2 mode=2 alpha=255 median_ms=10.874 max_ms=14.008 sha256=6067f21edf6f8f9fd4d85f3718ba16050a505d4cbc8f62128829a782b64ac0ee
+warm case=sphere-64 state=2 mode=2 alpha=120 median_ms=10.975 max_ms=12.201 sha256=437b0f7279bf5d66d60f96c77d1080ef0636317db814755a5547c9f0c8b69856
+warm case=sphere-64 state=2 mode=3 alpha=255 median_ms=11.485 max_ms=12.707 sha256=c54b4cf0a44cdd07967e76a5b163f9df80a0c71713e1d31e138bcf3f08aade8a
+warm case=sphere-64 state=2 mode=3 alpha=120 median_ms=11.929 max_ms=20.769 sha256=a1c1d6f90f0d8831598b49eb99d75745673aa5a73f8f18d0e318550ac507c2dd
+warm case=sphere-64 state=2 mode=4 alpha=255 median_ms=11.264 max_ms=11.553 sha256=f9c8452c4500cf0714993a6955aa4fb608aa379f39bd456d47a185548e0dec5b
+warm case=sphere-64 state=2 mode=4 alpha=120 median_ms=12.639 max_ms=14.194 sha256=416f51cf0241ed4e88b03b72ed6ca4d947d355545c30e521652e455fa19e3001
+frame case=sphere-64 state=orientation-5 sha256=3775c81dcfb1fbf1684df0525e66b9fc54a41fee410ee948af8c936cb9e19047
+frame case=sphere-64 state=orientation-1 sha256=85afe317e57ae5494554710bf9acacf1d862bbe1cbeed788d4d7fd4b75d65e17
+frame case=sphere-64 state=orientation-0 sha256=c54b4cf0a44cdd07967e76a5b163f9df80a0c71713e1d31e138bcf3f08aade8a
+frame case=sphere-64 state=pan sha256=065f7fa06318898d6b238c94c8f00c12a9dc11e0be3efb44a3927297b00afab1
+frame case=sphere-64 state=zoom sha256=466491d5bf52f05ae820e3ffcac9c90653e19ea42c91cc062a168aa692baf962
+frame case=sphere-64 state=tiny-rotation sha256=bcf9ad7c94977f32e8c92f022c2f1f53d6d836779b84c99d19fe1269f1afc20d
+frame case=sphere-64 state=perspective sha256=7455c14d735008a03a146ab59f4701c8c338ac803c63ac8f238474b2dca86bf7
+frame case=sphere-64 state=changed-mesh sha256=3c1c0abfe48356fed43a53f78acd5e46b863b238b51116e4ea8074d8841cbcd5
+frame case=sphere-64 state=empty-mesh sha256=4ddbc85ead07dc72d9ea8870bbc91619de6c90e369141254fc5df7d60935d0da
+frame case=sphere-64 state=restored-mesh sha256=c54b4cf0a44cdd07967e76a5b163f9df80a0c71713e1d31e138bcf3f08aade8a
+shading case=sphere-256 trial=0 ms=172.476 sha256=5cdf2f898b7808c09790e269a9d728c6d035dcbede60a58d2909ec804988457c
+shading case=sphere-256 trial=1 ms=168.259 sha256=5cdf2f898b7808c09790e269a9d728c6d035dcbede60a58d2909ec804988457c
+shading case=sphere-256 trial=2 ms=159.329 sha256=5cdf2f898b7808c09790e269a9d728c6d035dcbede60a58d2909ec804988457c
+shading case=sphere-256 trial=3 ms=154.335 sha256=5cdf2f898b7808c09790e269a9d728c6d035dcbede60a58d2909ec804988457c
+case=sphere-256 triangles=132096 edges=1539
+warm case=sphere-256 state=0 mode=0 alpha=255 median_ms=29.969 max_ms=33.664 sha256=734e134821a3975551c977d6e40db560e62fac56d321bb6b55a5052b845e320b
+warm case=sphere-256 state=0 mode=0 alpha=120 median_ms=30.117 max_ms=31.984 sha256=734e134821a3975551c977d6e40db560e62fac56d321bb6b55a5052b845e320b
+warm case=sphere-256 state=0 mode=1 alpha=255 median_ms=29.832 max_ms=32.355 sha256=18521a4912caab74a90215d56f6565c3591a05fc1238d4c7e9b27db0110b638e
+warm case=sphere-256 state=0 mode=1 alpha=120 median_ms=31.263 max_ms=32.144 sha256=734e134821a3975551c977d6e40db560e62fac56d321bb6b55a5052b845e320b
+warm case=sphere-256 state=0 mode=2 alpha=255 median_ms=28.965 max_ms=30.454 sha256=7a58b51b927f8f817f125f7244e07ceb2c71e0d59db9520028d6cb5b34988deb
+warm case=sphere-256 state=0 mode=2 alpha=120 median_ms=31.251 max_ms=32.887 sha256=734e134821a3975551c977d6e40db560e62fac56d321bb6b55a5052b845e320b
+warm case=sphere-256 state=0 mode=3 alpha=255 median_ms=35.044 max_ms=35.998 sha256=a8a891922322006372b044fdad5b364bd7d22e1483c23ec4f87f7c99c892b988
+warm case=sphere-256 state=0 mode=3 alpha=120 median_ms=45.766 max_ms=48.221 sha256=9077c8fc05b5d9b3478af02c0960e67807b1dcf2faa01f239444ca0118a8113e
+warm case=sphere-256 state=0 mode=4 alpha=255 median_ms=31.078 max_ms=31.500 sha256=c9015734a4ebc09be44cbef1298b16da09b6a05ec2402ff07ad35a2e89eec587
+warm case=sphere-256 state=0 mode=4 alpha=120 median_ms=36.875 max_ms=38.723 sha256=29ba6976bf7623959d582902016caec86fad270010f3b9f9506b5da465780d08
+warm case=sphere-256 state=1 mode=0 alpha=255 median_ms=29.165 max_ms=31.006 sha256=734e134821a3975551c977d6e40db560e62fac56d321bb6b55a5052b845e320b
+warm case=sphere-256 state=1 mode=0 alpha=120 median_ms=29.299 max_ms=31.956 sha256=734e134821a3975551c977d6e40db560e62fac56d321bb6b55a5052b845e320b
+warm case=sphere-256 state=1 mode=1 alpha=255 median_ms=31.415 max_ms=33.351 sha256=18521a4912caab74a90215d56f6565c3591a05fc1238d4c7e9b27db0110b638e
+warm case=sphere-256 state=1 mode=1 alpha=120 median_ms=29.147 max_ms=31.931 sha256=734e134821a3975551c977d6e40db560e62fac56d321bb6b55a5052b845e320b
+warm case=sphere-256 state=1 mode=2 alpha=255 median_ms=31.895 max_ms=33.982 sha256=7a58b51b927f8f817f125f7244e07ceb2c71e0d59db9520028d6cb5b34988deb
+warm case=sphere-256 state=1 mode=2 alpha=120 median_ms=28.354 max_ms=31.383 sha256=734e134821a3975551c977d6e40db560e62fac56d321bb6b55a5052b845e320b
+warm case=sphere-256 state=1 mode=3 alpha=255 median_ms=30.054 max_ms=31.401 sha256=a8a891922322006372b044fdad5b364bd7d22e1483c23ec4f87f7c99c892b988
+warm case=sphere-256 state=1 mode=3 alpha=120 median_ms=37.940 max_ms=40.474 sha256=9077c8fc05b5d9b3478af02c0960e67807b1dcf2faa01f239444ca0118a8113e
+warm case=sphere-256 state=1 mode=4 alpha=255 median_ms=29.183 max_ms=32.656 sha256=c9015734a4ebc09be44cbef1298b16da09b6a05ec2402ff07ad35a2e89eec587
+warm case=sphere-256 state=1 mode=4 alpha=120 median_ms=37.915 max_ms=38.460 sha256=29ba6976bf7623959d582902016caec86fad270010f3b9f9506b5da465780d08
+warm case=sphere-256 state=2 mode=0 alpha=255 median_ms=28.404 max_ms=35.093 sha256=734e134821a3975551c977d6e40db560e62fac56d321bb6b55a5052b845e320b
+warm case=sphere-256 state=2 mode=0 alpha=120 median_ms=28.674 max_ms=31.030 sha256=734e134821a3975551c977d6e40db560e62fac56d321bb6b55a5052b845e320b
+warm case=sphere-256 state=2 mode=1 alpha=255 median_ms=28.844 max_ms=32.029 sha256=18521a4912caab74a90215d56f6565c3591a05fc1238d4c7e9b27db0110b638e
+warm case=sphere-256 state=2 mode=1 alpha=120 median_ms=31.179 max_ms=33.407 sha256=734e134821a3975551c977d6e40db560e62fac56d321bb6b55a5052b845e320b
+warm case=sphere-256 state=2 mode=2 alpha=255 median_ms=30.148 max_ms=31.704 sha256=7a58b51b927f8f817f125f7244e07ceb2c71e0d59db9520028d6cb5b34988deb
+warm case=sphere-256 state=2 mode=2 alpha=120 median_ms=31.147 max_ms=35.206 sha256=734e134821a3975551c977d6e40db560e62fac56d321bb6b55a5052b845e320b
+warm case=sphere-256 state=2 mode=3 alpha=255 median_ms=32.878 max_ms=35.898 sha256=a8a891922322006372b044fdad5b364bd7d22e1483c23ec4f87f7c99c892b988
+warm case=sphere-256 state=2 mode=3 alpha=120 median_ms=44.727 max_ms=48.216 sha256=9077c8fc05b5d9b3478af02c0960e67807b1dcf2faa01f239444ca0118a8113e
+warm case=sphere-256 state=2 mode=4 alpha=255 median_ms=28.335 max_ms=33.140 sha256=c9015734a4ebc09be44cbef1298b16da09b6a05ec2402ff07ad35a2e89eec587
+warm case=sphere-256 state=2 mode=4 alpha=120 median_ms=45.044 max_ms=47.607 sha256=29ba6976bf7623959d582902016caec86fad270010f3b9f9506b5da465780d08
+frame case=sphere-256 state=orientation-5 sha256=f87c8d906bf0cf2dad91e2092de58b39e482a19620b28838e19c8c2712e8f8ac
+frame case=sphere-256 state=orientation-1 sha256=45df14f90adc701c8fd9fd1967f5ff175dac8db5d465cd22266162a068702a43
+frame case=sphere-256 state=orientation-0 sha256=a8a891922322006372b044fdad5b364bd7d22e1483c23ec4f87f7c99c892b988
+frame case=sphere-256 state=pan sha256=d1bb18ed0b444384fe712bd57967c70e576a9d92cdc447d9aaccc8ae5494306b
+frame case=sphere-256 state=zoom sha256=0b79178ca4e2c8ec4706c48513264bb855c3cae84d64a5dffc412b52f583dadd
+frame case=sphere-256 state=tiny-rotation sha256=e595b3b2f01b954b5fd81dc19f5907a6637e55c39c095369230411f3dc3d3b6c
+frame case=sphere-256 state=perspective sha256=e452f385584feea58cf6a718a60aea573b9ef9c1901bc73a84732bf108c8d4f4
+frame case=sphere-256 state=changed-mesh sha256=c82a35bf33c15219b4ee6955a8c78393125479f552f681e7a32c53e6892ca76f
+frame case=sphere-256 state=empty-mesh sha256=4ddbc85ead07dc72d9ea8870bbc91619de6c90e369141254fc5df7d60935d0da
+frame case=sphere-256 state=restored-mesh sha256=a8a891922322006372b044fdad5b364bd7d22e1483c23ec4f87f7c99c892b988
+shading case=02 trial=0 ms=32.620 sha256=5bc455da1399562b79eeaa58da791869e05d118da108e3de0509fa3c9b40e05d
+shading case=02 trial=1 ms=29.502 sha256=5bc455da1399562b79eeaa58da791869e05d118da108e3de0509fa3c9b40e05d
+shading case=02 trial=2 ms=27.569 sha256=5bc455da1399562b79eeaa58da791869e05d118da108e3de0509fa3c9b40e05d
+shading case=02 trial=3 ms=27.359 sha256=5bc455da1399562b79eeaa58da791869e05d118da108e3de0509fa3c9b40e05d
+case=02 triangles=25260 edges=15
+warm case=02 state=0 mode=0 alpha=255 median_ms=5.620 max_ms=6.994 sha256=382a430fc6aa9004e7a50f67ff42f501ad465ee843a32a34316a5f52c9dcc248
+warm case=02 state=0 mode=0 alpha=120 median_ms=6.436 max_ms=7.617 sha256=382a430fc6aa9004e7a50f67ff42f501ad465ee843a32a34316a5f52c9dcc248
+warm case=02 state=0 mode=1 alpha=255 median_ms=5.468 max_ms=6.569 sha256=45f2fc3454d3f2218f227563d45f57c6b9db472c812c1ea8c8e662ec8f2ccfac
+warm case=02 state=0 mode=1 alpha=120 median_ms=5.271 max_ms=6.161 sha256=c8472c8ffaebee1092274ac8f1fc0c8887c6bc440ce9df14219d9f4c0f6ff055
+warm case=02 state=0 mode=2 alpha=255 median_ms=5.378 max_ms=5.809 sha256=58d31774eaa11910737dfba4ed097124c0938753198f15990bda798096060bf5
+warm case=02 state=0 mode=2 alpha=120 median_ms=5.376 max_ms=6.399 sha256=382a430fc6aa9004e7a50f67ff42f501ad465ee843a32a34316a5f52c9dcc248
+warm case=02 state=0 mode=3 alpha=255 median_ms=5.418 max_ms=6.184 sha256=3eca6ed94380a1460998657450797b7c2a39344743b6a726cf5c9c6fc4e88a41
+warm case=02 state=0 mode=3 alpha=120 median_ms=7.451 max_ms=8.409 sha256=a263b05021b43c0ae30b21f6814b9376f71d3c1654bc10eb2d60161f6268fd34
+warm case=02 state=0 mode=4 alpha=255 median_ms=5.424 max_ms=5.802 sha256=3a82f1b46c63006108dadbf1633f8dfc6b2dcec0b18919eca3626dcbb1b3802c
+warm case=02 state=0 mode=4 alpha=120 median_ms=7.886 max_ms=9.280 sha256=50546192125725f96735d0715e777cda30e4f00ccadc1d364cdb5285a74fe0b4
+warm case=02 state=1 mode=0 alpha=255 median_ms=7.016 max_ms=10.620 sha256=da7212e0f75e218e4b8b595e6d8096d93617e348a7d1197f671a04257cbf73d1
+warm case=02 state=1 mode=0 alpha=120 median_ms=6.719 max_ms=7.140 sha256=da7212e0f75e218e4b8b595e6d8096d93617e348a7d1197f671a04257cbf73d1
+warm case=02 state=1 mode=1 alpha=255 median_ms=6.584 max_ms=7.727 sha256=dcb51087a2afe1adf247a244653fb910653ff4095c53a4b611910b4b277675b2
+warm case=02 state=1 mode=1 alpha=120 median_ms=5.583 max_ms=6.652 sha256=da7212e0f75e218e4b8b595e6d8096d93617e348a7d1197f671a04257cbf73d1
+warm case=02 state=1 mode=2 alpha=255 median_ms=5.707 max_ms=6.380 sha256=535832a8e94af5bd5018bb407c71a28a17152710beacb9084ce10475ac0ad438
+warm case=02 state=1 mode=2 alpha=120 median_ms=5.987 max_ms=7.295 sha256=da7212e0f75e218e4b8b595e6d8096d93617e348a7d1197f671a04257cbf73d1
+warm case=02 state=1 mode=3 alpha=255 median_ms=5.554 max_ms=6.432 sha256=c3922d2af900423ba6b51c7bca5ddc46286cdea2cbfcdbae22805e25c650b9f0
+warm case=02 state=1 mode=3 alpha=120 median_ms=8.103 max_ms=9.064 sha256=cabca0b331db31b90e5536e90066280e8533d1f5870904d49bdf1083acead058
+warm case=02 state=1 mode=4 alpha=255 median_ms=5.887 max_ms=6.908 sha256=842bad2b91378a5504101f1b0577bb94482187b4ea7269fd6ba9625ce124cf9c
+warm case=02 state=1 mode=4 alpha=120 median_ms=7.254 max_ms=8.057 sha256=7b72614ed4354889f4a252d0cd62ad2a2985f4b86e790e829e80e5f30f6bf3c9
+warm case=02 state=2 mode=0 alpha=255 median_ms=6.477 max_ms=7.483 sha256=dda1a73dfdd8ef85434b115d0f227ede98c208ad8dac1540bd6923d0222020a6
+warm case=02 state=2 mode=0 alpha=120 median_ms=5.697 max_ms=6.700 sha256=dda1a73dfdd8ef85434b115d0f227ede98c208ad8dac1540bd6923d0222020a6
+warm case=02 state=2 mode=1 alpha=255 median_ms=6.044 max_ms=6.752 sha256=c4c166ad12cc6c063ff41817970b71f3460a31fe843c86645d93c5b34ad94b0a
+warm case=02 state=2 mode=1 alpha=120 median_ms=5.684 max_ms=7.069 sha256=dda1a73dfdd8ef85434b115d0f227ede98c208ad8dac1540bd6923d0222020a6
+warm case=02 state=2 mode=2 alpha=255 median_ms=5.968 max_ms=6.359 sha256=d6ed901fdc52bdf7779dd1557e047855e80e21060506853645a44e0eb6909eff
+warm case=02 state=2 mode=2 alpha=120 median_ms=6.061 max_ms=6.419 sha256=dda1a73dfdd8ef85434b115d0f227ede98c208ad8dac1540bd6923d0222020a6
+warm case=02 state=2 mode=3 alpha=255 median_ms=6.181 max_ms=6.457 sha256=2efd47c7f37035c5f92e7c9c17870e681da4f841a3310edfdbb9972a980dc242
+warm case=02 state=2 mode=3 alpha=120 median_ms=7.592 max_ms=8.752 sha256=f48ecdeeaaf1ae5680b63072e9438770efec870199501da9c286c49135046301
+warm case=02 state=2 mode=4 alpha=255 median_ms=7.147 max_ms=7.687 sha256=696d870a474cf6467f551f37dfeed61ca7b8b05e7cb892047141177238901e9f
+warm case=02 state=2 mode=4 alpha=120 median_ms=7.807 max_ms=8.473 sha256=6c32c4ee6d345b0a85116bcc74af57ff42d971ff6254ae915aa53d07fff06def
+frame case=02 state=orientation-5 sha256=8999bbc0a3ed7866b03897fc3d0ab226e0b402dd28e7730f9f7b8ed88128d448
+frame case=02 state=orientation-1 sha256=7523cc7745330ac44075aac4e44277b4a8a99e1edf204d7ccdf275d4dfc57418
+frame case=02 state=orientation-0 sha256=3eca6ed94380a1460998657450797b7c2a39344743b6a726cf5c9c6fc4e88a41
+frame case=02 state=pan sha256=2caaa77b9d8517f98cfa02823e16a6f81c1bce7d1d00527dd4d9574187bf0d86
+frame case=02 state=zoom sha256=64ad6c1858659f5f446b3c07ca605b1ae74f6d0d0fd2f477a3922d033ad19a9b
+frame case=02 state=tiny-rotation sha256=ea25d2966611bee562db33321882a9baeb8f7ecb6da00c2dbb0e35e08009e7bf
+frame case=02 state=perspective sha256=c3a347b4ab7e7c7259e72f95460e2b886bf11a7653f3af38679ad7dd6ec395b6
+frame case=02 state=changed-mesh sha256=0e4b24d7ece6d05a2314e1370fb8bd1f20963896dad8cfdf2196c4a31badd76a
+frame case=02 state=empty-mesh sha256=4ddbc85ead07dc72d9ea8870bbc91619de6c90e369141254fc5df7d60935d0da
+frame case=02 state=restored-mesh sha256=3eca6ed94380a1460998657450797b7c2a39344743b6a726cf5c9c6fc4e88a41
+
+=== gpu-benchmark-after ===
+shading case=cylinder-64 trial=0 ms=3.199 sha256=15302d75dfa6e8bbef7c8491da797d63d1b004cce93fd86d03b6f23250fd8b6f
+shading case=cylinder-64 trial=1 ms=3.513 sha256=15302d75dfa6e8bbef7c8491da797d63d1b004cce93fd86d03b6f23250fd8b6f
+shading case=cylinder-64 trial=2 ms=3.232 sha256=15302d75dfa6e8bbef7c8491da797d63d1b004cce93fd86d03b6f23250fd8b6f
+shading case=cylinder-64 trial=3 ms=3.277 sha256=15302d75dfa6e8bbef7c8491da797d63d1b004cce93fd86d03b6f23250fd8b6f
+case=cylinder-64 triangles=6400 edges=387
+warm case=cylinder-64 state=0 mode=0 alpha=255 median_ms=12.567 max_ms=13.298 sha256=5e749648fd26b3d37e793f106d67be12e6244d280bd28a6a2c8b4f6bacea5801
+warm case=cylinder-64 state=0 mode=0 alpha=120 median_ms=12.539 max_ms=12.668 sha256=5e749648fd26b3d37e793f106d67be12e6244d280bd28a6a2c8b4f6bacea5801
+warm case=cylinder-64 state=0 mode=1 alpha=255 median_ms=12.149 max_ms=15.163 sha256=07815bed7c8ebcd01327e77e91c1ffbee6a593542c2816413a7e41929d14482c
+warm case=cylinder-64 state=0 mode=1 alpha=120 median_ms=12.121 max_ms=12.476 sha256=f54ba553491e543860730e78b7f6878c2777b2ecb7e8eed1e41fd0e92fb59911
+warm case=cylinder-64 state=0 mode=2 alpha=255 median_ms=11.065 max_ms=13.309 sha256=f06232fb97f075d925483b2b820a778b761f9b06263a44988108b7d46977ccd7
+warm case=cylinder-64 state=0 mode=2 alpha=120 median_ms=10.688 max_ms=12.611 sha256=5e749648fd26b3d37e793f106d67be12e6244d280bd28a6a2c8b4f6bacea5801
+warm case=cylinder-64 state=0 mode=3 alpha=255 median_ms=11.105 max_ms=13.162 sha256=4295d2d4a816b1c4dade58eb2e911d6796d937e694a690504ba14126e3316b6c
+warm case=cylinder-64 state=0 mode=3 alpha=120 median_ms=11.197 max_ms=11.560 sha256=26e874a5165238bfd3a0435d3aa54b796274c4ab01ddff2289afe7adab762f0c
+warm case=cylinder-64 state=0 mode=4 alpha=255 median_ms=11.566 max_ms=13.300 sha256=6be42ff5287ee7bd3a6bb4a870a1013d8f0de753085b38bcce951f0282c107cf
+warm case=cylinder-64 state=0 mode=4 alpha=120 median_ms=11.130 max_ms=13.143 sha256=d94d980c4451200e6b886e4b707623429f78ac5ea9f4dd489a7f8222290054b5
+warm case=cylinder-64 state=1 mode=0 alpha=255 median_ms=12.079 max_ms=12.617 sha256=5e749648fd26b3d37e793f106d67be12e6244d280bd28a6a2c8b4f6bacea5801
+warm case=cylinder-64 state=1 mode=0 alpha=120 median_ms=11.025 max_ms=12.574 sha256=5e749648fd26b3d37e793f106d67be12e6244d280bd28a6a2c8b4f6bacea5801
+warm case=cylinder-64 state=1 mode=1 alpha=255 median_ms=11.297 max_ms=12.370 sha256=07815bed7c8ebcd01327e77e91c1ffbee6a593542c2816413a7e41929d14482c
+warm case=cylinder-64 state=1 mode=1 alpha=120 median_ms=11.294 max_ms=11.858 sha256=f54ba553491e543860730e78b7f6878c2777b2ecb7e8eed1e41fd0e92fb59911
+warm case=cylinder-64 state=1 mode=2 alpha=255 median_ms=10.906 max_ms=12.188 sha256=f06232fb97f075d925483b2b820a778b761f9b06263a44988108b7d46977ccd7
+warm case=cylinder-64 state=1 mode=2 alpha=120 median_ms=10.688 max_ms=14.010 sha256=5e749648fd26b3d37e793f106d67be12e6244d280bd28a6a2c8b4f6bacea5801
+warm case=cylinder-64 state=1 mode=3 alpha=255 median_ms=11.320 max_ms=12.661 sha256=4295d2d4a816b1c4dade58eb2e911d6796d937e694a690504ba14126e3316b6c
+warm case=cylinder-64 state=1 mode=3 alpha=120 median_ms=11.469 max_ms=12.573 sha256=26e874a5165238bfd3a0435d3aa54b796274c4ab01ddff2289afe7adab762f0c
+warm case=cylinder-64 state=1 mode=4 alpha=255 median_ms=11.065 max_ms=11.862 sha256=6be42ff5287ee7bd3a6bb4a870a1013d8f0de753085b38bcce951f0282c107cf
+warm case=cylinder-64 state=1 mode=4 alpha=120 median_ms=11.979 max_ms=13.524 sha256=d94d980c4451200e6b886e4b707623429f78ac5ea9f4dd489a7f8222290054b5
+warm case=cylinder-64 state=2 mode=0 alpha=255 median_ms=10.610 max_ms=11.055 sha256=5e749648fd26b3d37e793f106d67be12e6244d280bd28a6a2c8b4f6bacea5801
+warm case=cylinder-64 state=2 mode=0 alpha=120 median_ms=11.387 max_ms=14.006 sha256=5e749648fd26b3d37e793f106d67be12e6244d280bd28a6a2c8b4f6bacea5801
+warm case=cylinder-64 state=2 mode=1 alpha=255 median_ms=11.715 max_ms=13.617 sha256=07815bed7c8ebcd01327e77e91c1ffbee6a593542c2816413a7e41929d14482c
+warm case=cylinder-64 state=2 mode=1 alpha=120 median_ms=11.065 max_ms=14.988 sha256=f54ba553491e543860730e78b7f6878c2777b2ecb7e8eed1e41fd0e92fb59911
+warm case=cylinder-64 state=2 mode=2 alpha=255 median_ms=10.953 max_ms=11.505 sha256=f06232fb97f075d925483b2b820a778b761f9b06263a44988108b7d46977ccd7
+warm case=cylinder-64 state=2 mode=2 alpha=120 median_ms=11.142 max_ms=13.771 sha256=5e749648fd26b3d37e793f106d67be12e6244d280bd28a6a2c8b4f6bacea5801
+warm case=cylinder-64 state=2 mode=3 alpha=255 median_ms=11.323 max_ms=12.401 sha256=4295d2d4a816b1c4dade58eb2e911d6796d937e694a690504ba14126e3316b6c
+warm case=cylinder-64 state=2 mode=3 alpha=120 median_ms=11.165 max_ms=12.393 sha256=26e874a5165238bfd3a0435d3aa54b796274c4ab01ddff2289afe7adab762f0c
+warm case=cylinder-64 state=2 mode=4 alpha=255 median_ms=11.468 max_ms=13.568 sha256=6be42ff5287ee7bd3a6bb4a870a1013d8f0de753085b38bcce951f0282c107cf
+warm case=cylinder-64 state=2 mode=4 alpha=120 median_ms=11.348 max_ms=12.356 sha256=d94d980c4451200e6b886e4b707623429f78ac5ea9f4dd489a7f8222290054b5
+frame case=cylinder-64 state=orientation-5 sha256=a86b0af79030dd83c3629f2d6bd0e51861688ac83056bc8af64be702649690cd
+frame case=cylinder-64 state=orientation-1 sha256=79f765f7083c9a670819ead0413c9cb350fecebd3414babf1b94f9662d384b26
+frame case=cylinder-64 state=orientation-0 sha256=4295d2d4a816b1c4dade58eb2e911d6796d937e694a690504ba14126e3316b6c
+frame case=cylinder-64 state=pan sha256=9c2405aec0c6fda3fa8d517b5b6f025f6523275cdda3fdce94cad2d3ec8b0a19
+frame case=cylinder-64 state=zoom sha256=3d28e1e672ea49cae6e3f7c6ed1b8a40e0694a0814a7d571b1690e48801fc508
+frame case=cylinder-64 state=tiny-rotation sha256=3d28e1e672ea49cae6e3f7c6ed1b8a40e0694a0814a7d571b1690e48801fc508
+frame case=cylinder-64 state=perspective sha256=d27ff87d328b53392a28f855a3cc0fffb3e8e01b7073037733ce4b61f1bae1f7
+frame case=cylinder-64 state=changed-mesh sha256=db7e42dda3e23ae6a45b853d6c37e98a84f7dd898adb781f73a32f1259bf997a
+frame case=cylinder-64 state=empty-mesh sha256=4ddbc85ead07dc72d9ea8870bbc91619de6c90e369141254fc5df7d60935d0da
+frame case=cylinder-64 state=restored-mesh sha256=4295d2d4a816b1c4dade58eb2e911d6796d937e694a690504ba14126e3316b6c
+shading case=cylinder-256 trial=0 ms=15.447 sha256=b518fbd8eab241ad18d704f0b2ee7428abe71590b5e776c58009a072f77b38cd
+shading case=cylinder-256 trial=1 ms=14.409 sha256=b518fbd8eab241ad18d704f0b2ee7428abe71590b5e776c58009a072f77b38cd
+shading case=cylinder-256 trial=2 ms=13.899 sha256=b518fbd8eab241ad18d704f0b2ee7428abe71590b5e776c58009a072f77b38cd
+shading case=cylinder-256 trial=3 ms=14.747 sha256=b518fbd8eab241ad18d704f0b2ee7428abe71590b5e776c58009a072f77b38cd
+case=cylinder-256 triangles=25600 edges=1539
+warm case=cylinder-256 state=0 mode=0 alpha=255 median_ms=33.715 max_ms=36.381 sha256=7e887f2afba6d292f8a0b5ca6445dd3ede310cfdec8a07e4bf8dd60d3b75f81c
+warm case=cylinder-256 state=0 mode=0 alpha=120 median_ms=32.667 max_ms=34.721 sha256=7e887f2afba6d292f8a0b5ca6445dd3ede310cfdec8a07e4bf8dd60d3b75f81c
+warm case=cylinder-256 state=0 mode=1 alpha=255 median_ms=31.975 max_ms=34.800 sha256=f8ec4ed5c3e6632db14b53293a40b32963980653355b8622fd378ebfbbe56655
+warm case=cylinder-256 state=0 mode=1 alpha=120 median_ms=31.219 max_ms=33.561 sha256=5b19d653dc89fe1dd95d61afc25daa64b3da68987e1664bb5fda155b70bd904c
+warm case=cylinder-256 state=0 mode=2 alpha=255 median_ms=29.645 max_ms=32.003 sha256=a0220932b6a28b44771547a8e24309b4985382c3169a53b4b3b82e172710f0c3
+warm case=cylinder-256 state=0 mode=2 alpha=120 median_ms=31.161 max_ms=32.077 sha256=7e887f2afba6d292f8a0b5ca6445dd3ede310cfdec8a07e4bf8dd60d3b75f81c
+warm case=cylinder-256 state=0 mode=3 alpha=255 median_ms=31.869 max_ms=32.450 sha256=1dc6187aa623c40e8965d0c3b9ea76f3dccacb0f2a0d9a2a819f9244c9d591b1
+warm case=cylinder-256 state=0 mode=3 alpha=120 median_ms=31.738 max_ms=36.446 sha256=0c5b4de961181abf6aac360d518d69aeb8a2d8711ce1d0bddb56f33b1ae03dc8
+warm case=cylinder-256 state=0 mode=4 alpha=255 median_ms=29.235 max_ms=34.277 sha256=e2988964b7caaf4f304f7be7e7d09bfe86ca75ab2252b78f03240569f5f3ba03
+warm case=cylinder-256 state=0 mode=4 alpha=120 median_ms=31.503 max_ms=34.991 sha256=e74cacaac00dd4f5c321c5a6aa95e2023c411aa168ddcaca6affe56f3e0b2dd9
+warm case=cylinder-256 state=1 mode=0 alpha=255 median_ms=31.285 max_ms=32.792 sha256=7e887f2afba6d292f8a0b5ca6445dd3ede310cfdec8a07e4bf8dd60d3b75f81c
+warm case=cylinder-256 state=1 mode=0 alpha=120 median_ms=29.952 max_ms=34.291 sha256=7e887f2afba6d292f8a0b5ca6445dd3ede310cfdec8a07e4bf8dd60d3b75f81c
+warm case=cylinder-256 state=1 mode=1 alpha=255 median_ms=29.571 max_ms=35.471 sha256=f8ec4ed5c3e6632db14b53293a40b32963980653355b8622fd378ebfbbe56655
+warm case=cylinder-256 state=1 mode=1 alpha=120 median_ms=30.024 max_ms=31.558 sha256=5b19d653dc89fe1dd95d61afc25daa64b3da68987e1664bb5fda155b70bd904c
+warm case=cylinder-256 state=1 mode=2 alpha=255 median_ms=29.882 max_ms=35.105 sha256=a0220932b6a28b44771547a8e24309b4985382c3169a53b4b3b82e172710f0c3
+warm case=cylinder-256 state=1 mode=2 alpha=120 median_ms=29.898 max_ms=34.649 sha256=7e887f2afba6d292f8a0b5ca6445dd3ede310cfdec8a07e4bf8dd60d3b75f81c
+warm case=cylinder-256 state=1 mode=3 alpha=255 median_ms=32.789 max_ms=36.782 sha256=1dc6187aa623c40e8965d0c3b9ea76f3dccacb0f2a0d9a2a819f9244c9d591b1
+warm case=cylinder-256 state=1 mode=3 alpha=120 median_ms=31.752 max_ms=34.524 sha256=0c5b4de961181abf6aac360d518d69aeb8a2d8711ce1d0bddb56f33b1ae03dc8
+warm case=cylinder-256 state=1 mode=4 alpha=255 median_ms=30.584 max_ms=33.259 sha256=e2988964b7caaf4f304f7be7e7d09bfe86ca75ab2252b78f03240569f5f3ba03
+warm case=cylinder-256 state=1 mode=4 alpha=120 median_ms=31.447 max_ms=34.207 sha256=e74cacaac00dd4f5c321c5a6aa95e2023c411aa168ddcaca6affe56f3e0b2dd9
+warm case=cylinder-256 state=2 mode=0 alpha=255 median_ms=30.690 max_ms=33.048 sha256=7e887f2afba6d292f8a0b5ca6445dd3ede310cfdec8a07e4bf8dd60d3b75f81c
+warm case=cylinder-256 state=2 mode=0 alpha=120 median_ms=30.513 max_ms=34.237 sha256=7e887f2afba6d292f8a0b5ca6445dd3ede310cfdec8a07e4bf8dd60d3b75f81c
+warm case=cylinder-256 state=2 mode=1 alpha=255 median_ms=29.913 max_ms=31.383 sha256=f8ec4ed5c3e6632db14b53293a40b32963980653355b8622fd378ebfbbe56655
+warm case=cylinder-256 state=2 mode=1 alpha=120 median_ms=30.498 max_ms=34.716 sha256=5b19d653dc89fe1dd95d61afc25daa64b3da68987e1664bb5fda155b70bd904c
+warm case=cylinder-256 state=2 mode=2 alpha=255 median_ms=29.837 max_ms=33.464 sha256=a0220932b6a28b44771547a8e24309b4985382c3169a53b4b3b82e172710f0c3
+warm case=cylinder-256 state=2 mode=2 alpha=120 median_ms=30.909 max_ms=35.279 sha256=7e887f2afba6d292f8a0b5ca6445dd3ede310cfdec8a07e4bf8dd60d3b75f81c
+warm case=cylinder-256 state=2 mode=3 alpha=255 median_ms=29.828 max_ms=34.641 sha256=1dc6187aa623c40e8965d0c3b9ea76f3dccacb0f2a0d9a2a819f9244c9d591b1
+warm case=cylinder-256 state=2 mode=3 alpha=120 median_ms=30.454 max_ms=34.388 sha256=0c5b4de961181abf6aac360d518d69aeb8a2d8711ce1d0bddb56f33b1ae03dc8
+warm case=cylinder-256 state=2 mode=4 alpha=255 median_ms=31.068 max_ms=33.188 sha256=e2988964b7caaf4f304f7be7e7d09bfe86ca75ab2252b78f03240569f5f3ba03
+warm case=cylinder-256 state=2 mode=4 alpha=120 median_ms=31.739 max_ms=37.453 sha256=e74cacaac00dd4f5c321c5a6aa95e2023c411aa168ddcaca6affe56f3e0b2dd9
+frame case=cylinder-256 state=orientation-5 sha256=863b9b95993715b815b0867054c3d183a18404f8242c18e342137eb161c713b2
+frame case=cylinder-256 state=orientation-1 sha256=ee3f6ca44086caff771f7e4c112f2f704d766f1dfddbf61b976d4319852926d7
+frame case=cylinder-256 state=orientation-0 sha256=1dc6187aa623c40e8965d0c3b9ea76f3dccacb0f2a0d9a2a819f9244c9d591b1
+frame case=cylinder-256 state=pan sha256=77513b85a7e2484a78c9540eb23d8d551ce9f58fb9e561d7db43d0afc63edebe
+frame case=cylinder-256 state=zoom sha256=927599c91204007f49cde13a021fd4f9bafe78833a9d534959a14d09660ebc9b
+frame case=cylinder-256 state=tiny-rotation sha256=927599c91204007f49cde13a021fd4f9bafe78833a9d534959a14d09660ebc9b
+frame case=cylinder-256 state=perspective sha256=22eda496f87f96639c58f81550349f6e9a838231469334131d63dd5cee815261
+frame case=cylinder-256 state=changed-mesh sha256=029315d60b5b3d5f79b18809760373d9e67647519c5954c62805967d47281aec
+frame case=cylinder-256 state=empty-mesh sha256=4ddbc85ead07dc72d9ea8870bbc91619de6c90e369141254fc5df7d60935d0da
+frame case=cylinder-256 state=restored-mesh sha256=1dc6187aa623c40e8965d0c3b9ea76f3dccacb0f2a0d9a2a819f9244c9d591b1
+shading case=sphere-64 trial=0 ms=34.658 sha256=dbef6764a57833167b9b07515aa9d1a4a89e436a2b1b25c1c21d698810a7344f
+shading case=sphere-64 trial=1 ms=34.681 sha256=dbef6764a57833167b9b07515aa9d1a4a89e436a2b1b25c1c21d698810a7344f
+shading case=sphere-64 trial=2 ms=30.141 sha256=dbef6764a57833167b9b07515aa9d1a4a89e436a2b1b25c1c21d698810a7344f
+shading case=sphere-64 trial=3 ms=21.168 sha256=dbef6764a57833167b9b07515aa9d1a4a89e436a2b1b25c1c21d698810a7344f
+case=sphere-64 triangles=33024 edges=387
+warm case=sphere-64 state=0 mode=0 alpha=255 median_ms=11.385 max_ms=12.147 sha256=437b0f7279bf5d66d60f96c77d1080ef0636317db814755a5547c9f0c8b69856
+warm case=sphere-64 state=0 mode=0 alpha=120 median_ms=12.618 max_ms=13.040 sha256=437b0f7279bf5d66d60f96c77d1080ef0636317db814755a5547c9f0c8b69856
+warm case=sphere-64 state=0 mode=1 alpha=255 median_ms=11.166 max_ms=12.530 sha256=ead659f6106600bc4845dc9abfc7257511aa108512f38d5f37b5db66e9b17016
+warm case=sphere-64 state=0 mode=1 alpha=120 median_ms=11.046 max_ms=12.175 sha256=437b0f7279bf5d66d60f96c77d1080ef0636317db814755a5547c9f0c8b69856
+warm case=sphere-64 state=0 mode=2 alpha=255 median_ms=11.274 max_ms=12.422 sha256=6067f21edf6f8f9fd4d85f3718ba16050a505d4cbc8f62128829a782b64ac0ee
+warm case=sphere-64 state=0 mode=2 alpha=120 median_ms=11.392 max_ms=12.547 sha256=437b0f7279bf5d66d60f96c77d1080ef0636317db814755a5547c9f0c8b69856
+warm case=sphere-64 state=0 mode=3 alpha=255 median_ms=11.418 max_ms=11.881 sha256=c54b4cf0a44cdd07967e76a5b163f9df80a0c71713e1d31e138bcf3f08aade8a
+warm case=sphere-64 state=0 mode=3 alpha=120 median_ms=12.288 max_ms=13.629 sha256=a1c1d6f90f0d8831598b49eb99d75745673aa5a73f8f18d0e318550ac507c2dd
+warm case=sphere-64 state=0 mode=4 alpha=255 median_ms=11.371 max_ms=11.884 sha256=f9c8452c4500cf0714993a6955aa4fb608aa379f39bd456d47a185548e0dec5b
+warm case=sphere-64 state=0 mode=4 alpha=120 median_ms=11.909 max_ms=12.782 sha256=416f51cf0241ed4e88b03b72ed6ca4d947d355545c30e521652e455fa19e3001
+warm case=sphere-64 state=1 mode=0 alpha=255 median_ms=11.483 max_ms=12.263 sha256=437b0f7279bf5d66d60f96c77d1080ef0636317db814755a5547c9f0c8b69856
+warm case=sphere-64 state=1 mode=0 alpha=120 median_ms=11.222 max_ms=12.211 sha256=437b0f7279bf5d66d60f96c77d1080ef0636317db814755a5547c9f0c8b69856
+warm case=sphere-64 state=1 mode=1 alpha=255 median_ms=11.449 max_ms=12.486 sha256=ead659f6106600bc4845dc9abfc7257511aa108512f38d5f37b5db66e9b17016
+warm case=sphere-64 state=1 mode=1 alpha=120 median_ms=11.126 max_ms=12.432 sha256=437b0f7279bf5d66d60f96c77d1080ef0636317db814755a5547c9f0c8b69856
+warm case=sphere-64 state=1 mode=2 alpha=255 median_ms=11.272 max_ms=11.989 sha256=6067f21edf6f8f9fd4d85f3718ba16050a505d4cbc8f62128829a782b64ac0ee
+warm case=sphere-64 state=1 mode=2 alpha=120 median_ms=10.711 max_ms=11.223 sha256=437b0f7279bf5d66d60f96c77d1080ef0636317db814755a5547c9f0c8b69856
+warm case=sphere-64 state=1 mode=3 alpha=255 median_ms=10.518 max_ms=12.293 sha256=c54b4cf0a44cdd07967e76a5b163f9df80a0c71713e1d31e138bcf3f08aade8a
+warm case=sphere-64 state=1 mode=3 alpha=120 median_ms=12.822 max_ms=13.614 sha256=a1c1d6f90f0d8831598b49eb99d75745673aa5a73f8f18d0e318550ac507c2dd
+warm case=sphere-64 state=1 mode=4 alpha=255 median_ms=11.172 max_ms=11.790 sha256=f9c8452c4500cf0714993a6955aa4fb608aa379f39bd456d47a185548e0dec5b
+warm case=sphere-64 state=1 mode=4 alpha=120 median_ms=12.595 max_ms=13.244 sha256=416f51cf0241ed4e88b03b72ed6ca4d947d355545c30e521652e455fa19e3001
+warm case=sphere-64 state=2 mode=0 alpha=255 median_ms=10.559 max_ms=11.025 sha256=437b0f7279bf5d66d60f96c77d1080ef0636317db814755a5547c9f0c8b69856
+warm case=sphere-64 state=2 mode=0 alpha=120 median_ms=11.194 max_ms=11.981 sha256=437b0f7279bf5d66d60f96c77d1080ef0636317db814755a5547c9f0c8b69856
+warm case=sphere-64 state=2 mode=1 alpha=255 median_ms=11.105 max_ms=13.221 sha256=ead659f6106600bc4845dc9abfc7257511aa108512f38d5f37b5db66e9b17016
+warm case=sphere-64 state=2 mode=1 alpha=120 median_ms=10.984 max_ms=12.429 sha256=437b0f7279bf5d66d60f96c77d1080ef0636317db814755a5547c9f0c8b69856
+warm case=sphere-64 state=2 mode=2 alpha=255 median_ms=11.367 max_ms=12.784 sha256=6067f21edf6f8f9fd4d85f3718ba16050a505d4cbc8f62128829a782b64ac0ee
+warm case=sphere-64 state=2 mode=2 alpha=120 median_ms=10.900 max_ms=11.590 sha256=437b0f7279bf5d66d60f96c77d1080ef0636317db814755a5547c9f0c8b69856
+warm case=sphere-64 state=2 mode=3 alpha=255 median_ms=11.307 max_ms=11.729 sha256=c54b4cf0a44cdd07967e76a5b163f9df80a0c71713e1d31e138bcf3f08aade8a
+warm case=sphere-64 state=2 mode=3 alpha=120 median_ms=13.095 max_ms=16.915 sha256=a1c1d6f90f0d8831598b49eb99d75745673aa5a73f8f18d0e318550ac507c2dd
+warm case=sphere-64 state=2 mode=4 alpha=255 median_ms=10.815 max_ms=13.014 sha256=f9c8452c4500cf0714993a6955aa4fb608aa379f39bd456d47a185548e0dec5b
+warm case=sphere-64 state=2 mode=4 alpha=120 median_ms=13.238 max_ms=14.873 sha256=416f51cf0241ed4e88b03b72ed6ca4d947d355545c30e521652e455fa19e3001
+frame case=sphere-64 state=orientation-5 sha256=3775c81dcfb1fbf1684df0525e66b9fc54a41fee410ee948af8c936cb9e19047
+frame case=sphere-64 state=orientation-1 sha256=85afe317e57ae5494554710bf9acacf1d862bbe1cbeed788d4d7fd4b75d65e17
+frame case=sphere-64 state=orientation-0 sha256=c54b4cf0a44cdd07967e76a5b163f9df80a0c71713e1d31e138bcf3f08aade8a
+frame case=sphere-64 state=pan sha256=065f7fa06318898d6b238c94c8f00c12a9dc11e0be3efb44a3927297b00afab1
+frame case=sphere-64 state=zoom sha256=466491d5bf52f05ae820e3ffcac9c90653e19ea42c91cc062a168aa692baf962
+frame case=sphere-64 state=tiny-rotation sha256=bcf9ad7c94977f32e8c92f022c2f1f53d6d836779b84c99d19fe1269f1afc20d
+frame case=sphere-64 state=perspective sha256=7455c14d735008a03a146ab59f4701c8c338ac803c63ac8f238474b2dca86bf7
+frame case=sphere-64 state=changed-mesh sha256=3c1c0abfe48356fed43a53f78acd5e46b863b238b51116e4ea8074d8841cbcd5
+frame case=sphere-64 state=empty-mesh sha256=4ddbc85ead07dc72d9ea8870bbc91619de6c90e369141254fc5df7d60935d0da
+frame case=sphere-64 state=restored-mesh sha256=c54b4cf0a44cdd07967e76a5b163f9df80a0c71713e1d31e138bcf3f08aade8a
+shading case=sphere-256 trial=0 ms=103.178 sha256=5cdf2f898b7808c09790e269a9d728c6d035dcbede60a58d2909ec804988457c
+shading case=sphere-256 trial=1 ms=96.680 sha256=5cdf2f898b7808c09790e269a9d728c6d035dcbede60a58d2909ec804988457c
+shading case=sphere-256 trial=2 ms=93.549 sha256=5cdf2f898b7808c09790e269a9d728c6d035dcbede60a58d2909ec804988457c
+shading case=sphere-256 trial=3 ms=97.513 sha256=5cdf2f898b7808c09790e269a9d728c6d035dcbede60a58d2909ec804988457c
+case=sphere-256 triangles=132096 edges=1539
+warm case=sphere-256 state=0 mode=0 alpha=255 median_ms=30.798 max_ms=31.843 sha256=734e134821a3975551c977d6e40db560e62fac56d321bb6b55a5052b845e320b
+warm case=sphere-256 state=0 mode=0 alpha=120 median_ms=31.459 max_ms=32.478 sha256=734e134821a3975551c977d6e40db560e62fac56d321bb6b55a5052b845e320b
+warm case=sphere-256 state=0 mode=1 alpha=255 median_ms=30.270 max_ms=31.029 sha256=18521a4912caab74a90215d56f6565c3591a05fc1238d4c7e9b27db0110b638e
+warm case=sphere-256 state=0 mode=1 alpha=120 median_ms=28.993 max_ms=29.503 sha256=734e134821a3975551c977d6e40db560e62fac56d321bb6b55a5052b845e320b
+warm case=sphere-256 state=0 mode=2 alpha=255 median_ms=29.140 max_ms=31.628 sha256=7a58b51b927f8f817f125f7244e07ceb2c71e0d59db9520028d6cb5b34988deb
+warm case=sphere-256 state=0 mode=2 alpha=120 median_ms=31.765 max_ms=34.584 sha256=734e134821a3975551c977d6e40db560e62fac56d321bb6b55a5052b845e320b
+warm case=sphere-256 state=0 mode=3 alpha=255 median_ms=33.269 max_ms=39.527 sha256=a8a891922322006372b044fdad5b364bd7d22e1483c23ec4f87f7c99c892b988
+warm case=sphere-256 state=0 mode=3 alpha=120 median_ms=37.873 max_ms=39.609 sha256=9077c8fc05b5d9b3478af02c0960e67807b1dcf2faa01f239444ca0118a8113e
+warm case=sphere-256 state=0 mode=4 alpha=255 median_ms=29.449 max_ms=31.950 sha256=c9015734a4ebc09be44cbef1298b16da09b6a05ec2402ff07ad35a2e89eec587
+warm case=sphere-256 state=0 mode=4 alpha=120 median_ms=36.623 max_ms=39.595 sha256=29ba6976bf7623959d582902016caec86fad270010f3b9f9506b5da465780d08
+warm case=sphere-256 state=1 mode=0 alpha=255 median_ms=29.722 max_ms=32.602 sha256=734e134821a3975551c977d6e40db560e62fac56d321bb6b55a5052b845e320b
+warm case=sphere-256 state=1 mode=0 alpha=120 median_ms=29.904 max_ms=32.602 sha256=734e134821a3975551c977d6e40db560e62fac56d321bb6b55a5052b845e320b
+warm case=sphere-256 state=1 mode=1 alpha=255 median_ms=30.912 max_ms=33.262 sha256=18521a4912caab74a90215d56f6565c3591a05fc1238d4c7e9b27db0110b638e
+warm case=sphere-256 state=1 mode=1 alpha=120 median_ms=29.313 max_ms=33.792 sha256=734e134821a3975551c977d6e40db560e62fac56d321bb6b55a5052b845e320b
+warm case=sphere-256 state=1 mode=2 alpha=255 median_ms=32.746 max_ms=35.302 sha256=7a58b51b927f8f817f125f7244e07ceb2c71e0d59db9520028d6cb5b34988deb
+warm case=sphere-256 state=1 mode=2 alpha=120 median_ms=32.713 max_ms=37.685 sha256=734e134821a3975551c977d6e40db560e62fac56d321bb6b55a5052b845e320b
+warm case=sphere-256 state=1 mode=3 alpha=255 median_ms=29.384 max_ms=31.479 sha256=a8a891922322006372b044fdad5b364bd7d22e1483c23ec4f87f7c99c892b988
+warm case=sphere-256 state=1 mode=3 alpha=120 median_ms=37.858 max_ms=46.848 sha256=9077c8fc05b5d9b3478af02c0960e67807b1dcf2faa01f239444ca0118a8113e
+warm case=sphere-256 state=1 mode=4 alpha=255 median_ms=30.525 max_ms=33.386 sha256=c9015734a4ebc09be44cbef1298b16da09b6a05ec2402ff07ad35a2e89eec587
+warm case=sphere-256 state=1 mode=4 alpha=120 median_ms=36.916 max_ms=41.454 sha256=29ba6976bf7623959d582902016caec86fad270010f3b9f9506b5da465780d08
+warm case=sphere-256 state=2 mode=0 alpha=255 median_ms=30.829 max_ms=32.161 sha256=734e134821a3975551c977d6e40db560e62fac56d321bb6b55a5052b845e320b
+warm case=sphere-256 state=2 mode=0 alpha=120 median_ms=28.936 max_ms=36.173 sha256=734e134821a3975551c977d6e40db560e62fac56d321bb6b55a5052b845e320b
+warm case=sphere-256 state=2 mode=1 alpha=255 median_ms=29.695 max_ms=31.639 sha256=18521a4912caab74a90215d56f6565c3591a05fc1238d4c7e9b27db0110b638e
+warm case=sphere-256 state=2 mode=1 alpha=120 median_ms=29.735 max_ms=30.898 sha256=734e134821a3975551c977d6e40db560e62fac56d321bb6b55a5052b845e320b
+warm case=sphere-256 state=2 mode=2 alpha=255 median_ms=30.001 max_ms=32.540 sha256=7a58b51b927f8f817f125f7244e07ceb2c71e0d59db9520028d6cb5b34988deb
+warm case=sphere-256 state=2 mode=2 alpha=120 median_ms=29.192 max_ms=31.413 sha256=734e134821a3975551c977d6e40db560e62fac56d321bb6b55a5052b845e320b
+warm case=sphere-256 state=2 mode=3 alpha=255 median_ms=29.678 max_ms=32.891 sha256=a8a891922322006372b044fdad5b364bd7d22e1483c23ec4f87f7c99c892b988
+warm case=sphere-256 state=2 mode=3 alpha=120 median_ms=37.862 max_ms=41.330 sha256=9077c8fc05b5d9b3478af02c0960e67807b1dcf2faa01f239444ca0118a8113e
+warm case=sphere-256 state=2 mode=4 alpha=255 median_ms=29.843 max_ms=30.841 sha256=c9015734a4ebc09be44cbef1298b16da09b6a05ec2402ff07ad35a2e89eec587
+warm case=sphere-256 state=2 mode=4 alpha=120 median_ms=37.689 max_ms=39.846 sha256=29ba6976bf7623959d582902016caec86fad270010f3b9f9506b5da465780d08
+frame case=sphere-256 state=orientation-5 sha256=f87c8d906bf0cf2dad91e2092de58b39e482a19620b28838e19c8c2712e8f8ac
+frame case=sphere-256 state=orientation-1 sha256=45df14f90adc701c8fd9fd1967f5ff175dac8db5d465cd22266162a068702a43
+frame case=sphere-256 state=orientation-0 sha256=a8a891922322006372b044fdad5b364bd7d22e1483c23ec4f87f7c99c892b988
+frame case=sphere-256 state=pan sha256=d1bb18ed0b444384fe712bd57967c70e576a9d92cdc447d9aaccc8ae5494306b
+frame case=sphere-256 state=zoom sha256=0b79178ca4e2c8ec4706c48513264bb855c3cae84d64a5dffc412b52f583dadd
+frame case=sphere-256 state=tiny-rotation sha256=e595b3b2f01b954b5fd81dc19f5907a6637e55c39c095369230411f3dc3d3b6c
+frame case=sphere-256 state=perspective sha256=e452f385584feea58cf6a718a60aea573b9ef9c1901bc73a84732bf108c8d4f4
+frame case=sphere-256 state=changed-mesh sha256=c82a35bf33c15219b4ee6955a8c78393125479f552f681e7a32c53e6892ca76f
+frame case=sphere-256 state=empty-mesh sha256=4ddbc85ead07dc72d9ea8870bbc91619de6c90e369141254fc5df7d60935d0da
+frame case=sphere-256 state=restored-mesh sha256=a8a891922322006372b044fdad5b364bd7d22e1483c23ec4f87f7c99c892b988
+shading case=02 trial=0 ms=15.402 sha256=5bc455da1399562b79eeaa58da791869e05d118da108e3de0509fa3c9b40e05d
+shading case=02 trial=1 ms=16.066 sha256=5bc455da1399562b79eeaa58da791869e05d118da108e3de0509fa3c9b40e05d
+shading case=02 trial=2 ms=17.125 sha256=5bc455da1399562b79eeaa58da791869e05d118da108e3de0509fa3c9b40e05d
+shading case=02 trial=3 ms=14.817 sha256=5bc455da1399562b79eeaa58da791869e05d118da108e3de0509fa3c9b40e05d
+case=02 triangles=25260 edges=15
+warm case=02 state=0 mode=0 alpha=255 median_ms=5.927 max_ms=6.252 sha256=382a430fc6aa9004e7a50f67ff42f501ad465ee843a32a34316a5f52c9dcc248
+warm case=02 state=0 mode=0 alpha=120 median_ms=5.879 max_ms=6.681 sha256=382a430fc6aa9004e7a50f67ff42f501ad465ee843a32a34316a5f52c9dcc248
+warm case=02 state=0 mode=1 alpha=255 median_ms=5.832 max_ms=6.409 sha256=45f2fc3454d3f2218f227563d45f57c6b9db472c812c1ea8c8e662ec8f2ccfac
+warm case=02 state=0 mode=1 alpha=120 median_ms=5.911 max_ms=6.371 sha256=c8472c8ffaebee1092274ac8f1fc0c8887c6bc440ce9df14219d9f4c0f6ff055
+warm case=02 state=0 mode=2 alpha=255 median_ms=6.656 max_ms=7.037 sha256=58d31774eaa11910737dfba4ed097124c0938753198f15990bda798096060bf5
+warm case=02 state=0 mode=2 alpha=120 median_ms=5.425 max_ms=5.875 sha256=382a430fc6aa9004e7a50f67ff42f501ad465ee843a32a34316a5f52c9dcc248
+warm case=02 state=0 mode=3 alpha=255 median_ms=5.925 max_ms=6.747 sha256=3eca6ed94380a1460998657450797b7c2a39344743b6a726cf5c9c6fc4e88a41
+warm case=02 state=0 mode=3 alpha=120 median_ms=6.858 max_ms=7.819 sha256=a263b05021b43c0ae30b21f6814b9376f71d3c1654bc10eb2d60161f6268fd34
+warm case=02 state=0 mode=4 alpha=255 median_ms=4.848 max_ms=5.839 sha256=3a82f1b46c63006108dadbf1633f8dfc6b2dcec0b18919eca3626dcbb1b3802c
+warm case=02 state=0 mode=4 alpha=120 median_ms=6.969 max_ms=9.078 sha256=50546192125725f96735d0715e777cda30e4f00ccadc1d364cdb5285a74fe0b4
+warm case=02 state=1 mode=0 alpha=255 median_ms=6.105 max_ms=6.724 sha256=da7212e0f75e218e4b8b595e6d8096d93617e348a7d1197f671a04257cbf73d1
+warm case=02 state=1 mode=0 alpha=120 median_ms=6.021 max_ms=6.732 sha256=da7212e0f75e218e4b8b595e6d8096d93617e348a7d1197f671a04257cbf73d1
+warm case=02 state=1 mode=1 alpha=255 median_ms=5.757 max_ms=6.241 sha256=dcb51087a2afe1adf247a244653fb910653ff4095c53a4b611910b4b277675b2
+warm case=02 state=1 mode=1 alpha=120 median_ms=5.601 max_ms=6.673 sha256=da7212e0f75e218e4b8b595e6d8096d93617e348a7d1197f671a04257cbf73d1
+warm case=02 state=1 mode=2 alpha=255 median_ms=5.790 max_ms=7.121 sha256=535832a8e94af5bd5018bb407c71a28a17152710beacb9084ce10475ac0ad438
+warm case=02 state=1 mode=2 alpha=120 median_ms=5.937 max_ms=6.850 sha256=da7212e0f75e218e4b8b595e6d8096d93617e348a7d1197f671a04257cbf73d1
+warm case=02 state=1 mode=3 alpha=255 median_ms=5.384 max_ms=5.996 sha256=c3922d2af900423ba6b51c7bca5ddc46286cdea2cbfcdbae22805e25c650b9f0
+warm case=02 state=1 mode=3 alpha=120 median_ms=7.923 max_ms=8.543 sha256=cabca0b331db31b90e5536e90066280e8533d1f5870904d49bdf1083acead058
+warm case=02 state=1 mode=4 alpha=255 median_ms=5.335 max_ms=6.501 sha256=842bad2b91378a5504101f1b0577bb94482187b4ea7269fd6ba9625ce124cf9c
+warm case=02 state=1 mode=4 alpha=120 median_ms=7.222 max_ms=7.941 sha256=7b72614ed4354889f4a252d0cd62ad2a2985f4b86e790e829e80e5f30f6bf3c9
+warm case=02 state=2 mode=0 alpha=255 median_ms=6.300 max_ms=6.417 sha256=dda1a73dfdd8ef85434b115d0f227ede98c208ad8dac1540bd6923d0222020a6
+warm case=02 state=2 mode=0 alpha=120 median_ms=5.927 max_ms=6.776 sha256=dda1a73dfdd8ef85434b115d0f227ede98c208ad8dac1540bd6923d0222020a6
+warm case=02 state=2 mode=1 alpha=255 median_ms=5.671 max_ms=6.572 sha256=c4c166ad12cc6c063ff41817970b71f3460a31fe843c86645d93c5b34ad94b0a
+warm case=02 state=2 mode=1 alpha=120 median_ms=6.054 max_ms=7.025 sha256=dda1a73dfdd8ef85434b115d0f227ede98c208ad8dac1540bd6923d0222020a6
+warm case=02 state=2 mode=2 alpha=255 median_ms=5.582 max_ms=7.512 sha256=d6ed901fdc52bdf7779dd1557e047855e80e21060506853645a44e0eb6909eff
+warm case=02 state=2 mode=2 alpha=120 median_ms=7.247 max_ms=8.366 sha256=dda1a73dfdd8ef85434b115d0f227ede98c208ad8dac1540bd6923d0222020a6
+warm case=02 state=2 mode=3 alpha=255 median_ms=5.781 max_ms=6.425 sha256=2efd47c7f37035c5f92e7c9c17870e681da4f841a3310edfdbb9972a980dc242
+warm case=02 state=2 mode=3 alpha=120 median_ms=7.697 max_ms=8.907 sha256=f48ecdeeaaf1ae5680b63072e9438770efec870199501da9c286c49135046301
+warm case=02 state=2 mode=4 alpha=255 median_ms=6.017 max_ms=7.796 sha256=696d870a474cf6467f551f37dfeed61ca7b8b05e7cb892047141177238901e9f
+warm case=02 state=2 mode=4 alpha=120 median_ms=7.293 max_ms=8.569 sha256=6c32c4ee6d345b0a85116bcc74af57ff42d971ff6254ae915aa53d07fff06def
+frame case=02 state=orientation-5 sha256=8999bbc0a3ed7866b03897fc3d0ab226e0b402dd28e7730f9f7b8ed88128d448
+frame case=02 state=orientation-1 sha256=7523cc7745330ac44075aac4e44277b4a8a99e1edf204d7ccdf275d4dfc57418
+frame case=02 state=orientation-0 sha256=3eca6ed94380a1460998657450797b7c2a39344743b6a726cf5c9c6fc4e88a41
+frame case=02 state=pan sha256=2caaa77b9d8517f98cfa02823e16a6f81c1bce7d1d00527dd4d9574187bf0d86
+frame case=02 state=zoom sha256=64ad6c1858659f5f446b3c07ca605b1ae74f6d0d0fd2f477a3922d033ad19a9b
+frame case=02 state=tiny-rotation sha256=ea25d2966611bee562db33321882a9baeb8f7ecb6da00c2dbb0e35e08009e7bf
+frame case=02 state=perspective sha256=c3a347b4ab7e7c7259e72f95460e2b886bf11a7653f3af38679ad7dd6ec395b6
+frame case=02 state=changed-mesh sha256=0e4b24d7ece6d05a2314e1370fb8bd1f20963896dad8cfdf2196c4a31badd76a
+frame case=02 state=empty-mesh sha256=4ddbc85ead07dc72d9ea8870bbc91619de6c90e369141254fc5df7d60935d0da
+frame case=02 state=restored-mesh sha256=3eca6ed94380a1460998657450797b7c2a39344743b6a726cf5c9c6fc4e88a41
+
+=== gpu-regression ===
+Test project C:/Users/vladi/Prace/ZIMA-Engineering/00-SOFTWARE/01-ZIMA/ZIMA-CAD/build/cpp-windows-release
+    Start  12: zima_cpp_helical_sweep_ui_contract
+1/6 Test  #12: zima_cpp_helical_sweep_ui_contract ......   Passed   21.57 sec
+    Start  43: zima_cpp_translations_contract
+2/6 Test  #43: zima_cpp_translations_contract ..........   Passed    4.94 sec
+    Start  52: zima_cpp_viewer_contract_tests
+3/6 Test  #52: zima_cpp_viewer_contract_tests ..........   Passed    0.05 sec
+    Start 201: zima_cpp_refresh_scope_ui_contract
+4/6 Test #201: zima_cpp_refresh_scope_ui_contract ......   Passed    7.70 sec
+    Start 207: zima_cpp_selection_filter_ui_contract
+5/6 Test #207: zima_cpp_selection_filter_ui_contract ...   Passed    3.61 sec
+    Start 233: zima_cpp_surface_profile_ui_contract
+6/6 Test #233: zima_cpp_surface_profile_ui_contract ....   Passed    4.80 sec
+
+100% tests passed, 0 tests failed out of 6
+
+Total Test time (real) =  42.77 sec

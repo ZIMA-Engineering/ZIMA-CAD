@@ -2,9 +2,10 @@
 
 #include <zima/kernel/geometry_kernel.hpp>
 #include <QVector3D>
+#include <algorithm>
 #include <array>
 #include <cmath>
-#include <map>
+#include <unordered_map>
 #include <vector>
 
 namespace zima::viewer {
@@ -23,7 +24,19 @@ inline std::vector<float> shaded_triangle_vertices(const kernel::ViewerMesh& mes
     };
     const std::size_t triangle_count = mesh.triangles.size() / 3;
     std::vector<QVector3D> triangle_normals(triangle_count);
-    std::map<NormalPointKey, std::vector<std::size_t>> triangles_at_point;
+    struct NormalPointHash {
+        std::size_t operator()(const NormalPointKey& point) const noexcept {
+            std::size_t value{};
+            for (const auto coordinate : point)
+                value ^= std::hash<long long>{}(coordinate) + 0x9e3779b9U +
+                    (value << 6) + (value >> 2);
+            return value;
+        }
+    };
+    // This index is only queried by position, never iterated. Keep each
+    // adjacency list in original triangle order so normal sums stay identical.
+    std::unordered_map<NormalPointKey, std::vector<std::size_t>, NormalPointHash> triangles_at_point;
+    triangles_at_point.reserve(std::min(mesh.vertices.size(), mesh.triangles.size()));
     for (std::size_t triangle = 0; triangle < triangle_count; ++triangle) {
         const auto a = mesh.triangles[triangle * 3];
         const auto b = mesh.triangles[triangle * 3 + 1];

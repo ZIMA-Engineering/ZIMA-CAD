@@ -2,6 +2,7 @@
 #include <zima/assembly/assembly_document.hpp>
 #include <zima/kernel/occt_kernel.hpp>
 #include <zima/viewer/mesh_view.hpp>
+#include <zima/viewer/shading.hpp>
 #include <zima/document/part_document.hpp>
 #include <QApplication>
 #include <QCryptographicHash>
@@ -23,6 +24,17 @@ QByteArray frame_hash(zima::viewer::MeshView& view) {
 }
 void exercise(QApplication& app,const std::string& name,const zima::kernel::ViewerMesh& mesh) {
     using namespace zima;
+    QByteArray first_shading;
+    for(int trial=0;trial<4;++trial) {
+        const auto begin=std::chrono::steady_clock::now();
+        const auto vertices=viewer::shaded_triangle_vertices(mesh);
+        const auto elapsed=std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-begin).count();
+        const auto hash=QCryptographicHash::hash(QByteArrayView(reinterpret_cast<const char*>(vertices.data()),
+            vertices.size()*sizeof(float)),QCryptographicHash::Sha256).toHex();
+        if(trial==0)first_shading=hash;
+        require(hash==first_shading,"Repeated shading changed the exact GPU vertex buffer");
+        std::cout<<"shading case="<<name<<" trial="<<trial<<" ms="<<elapsed<<" sha256="<<hash.constData()<<std::endl;
+    }
     viewer::MeshView view;view.resize(1200,800);view.show();app.processEvents();
     require(view.isValid(),"Benchmark requires desktop OpenGL");
     view.set_mesh(mesh);view.set_standard_view(viewer::StandardView::Isometric);
