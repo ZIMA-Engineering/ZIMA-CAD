@@ -1,0 +1,65 @@
+before run 1
+source_refresh open=0 groups=32 leaves=256 cold_ms=17.117 warm_mean_ms=0.346 repetitions=5 triangles=3072
+source_refresh open=0 groups=128 leaves=1024 cold_ms=9.322 warm_mean_ms=0.761 repetitions=5 triangles=12288
+source_refresh open=1 groups=32 leaves=256 cold_ms=2.628 warm_mean_ms=0.095 repetitions=5 triangles=3072
+source_refresh open=1 groups=128 leaves=1024 cold_ms=2.976 warm_mean_ms=0.378 repetitions=5 triangles=12288
+open_roots parent_first=0 groups=32 leaves=256 warm_mean_ms=1.276 repetitions=20
+open_roots parent_first=0 groups=128 leaves=1024 warm_mean_ms=5.383 repetitions=20
+open_roots parent_first=1 groups=32 leaves=256 warm_mean_ms=1.158 repetitions=20
+open_roots parent_first=1 groups=128 leaves=1024 warm_mean_ms=5.311 repetitions=20
+Source refresh benchmark checks passed
+
+before run 2
+source_refresh open=0 groups=32 leaves=256 cold_ms=12.753 warm_mean_ms=0.338 repetitions=5 triangles=3072
+source_refresh open=0 groups=128 leaves=1024 cold_ms=8.863 warm_mean_ms=0.698 repetitions=5 triangles=12288
+source_refresh open=1 groups=32 leaves=256 cold_ms=1.923 warm_mean_ms=0.094 repetitions=5 triangles=3072
+source_refresh open=1 groups=128 leaves=1024 cold_ms=3.200 warm_mean_ms=0.418 repetitions=5 triangles=12288
+open_roots parent_first=0 groups=32 leaves=256 warm_mean_ms=1.196 repetitions=20
+open_roots parent_first=0 groups=128 leaves=1024 warm_mean_ms=5.366 repetitions=20
+open_roots parent_first=1 groups=32 leaves=256 warm_mean_ms=1.258 repetitions=20
+open_roots parent_first=1 groups=128 leaves=1024 warm_mean_ms=5.512 repetitions=20
+Source refresh benchmark checks passed
+
+before run 3
+source_refresh open=0 groups=32 leaves=256 cold_ms=12.854 warm_mean_ms=0.415 repetitions=5 triangles=3072
+source_refresh open=0 groups=128 leaves=1024 cold_ms=10.464 warm_mean_ms=0.750 repetitions=5 triangles=12288
+source_refresh open=1 groups=32 leaves=256 cold_ms=2.192 warm_mean_ms=0.102 repetitions=5 triangles=3072
+source_refresh open=1 groups=128 leaves=1024 cold_ms=2.904 warm_mean_ms=0.349 repetitions=5 triangles=12288
+open_roots parent_first=0 groups=32 leaves=256 warm_mean_ms=1.437 repetitions=20
+open_roots parent_first=0 groups=128 leaves=1024 warm_mean_ms=6.035 repetitions=20
+open_roots parent_first=1 groups=32 leaves=256 warm_mean_ms=1.319 repetitions=20
+open_roots parent_first=1 groups=128 leaves=1024 warm_mean_ms=5.519 repetitions=20
+Source refresh benchmark checks passed
+
+after run 1
+source_refresh open=0 groups=32 leaves=256 cold_ms=14.014 warm_mean_ms=0.342 repetitions=5 triangles=3072
+source_refresh open=0 groups=128 leaves=1024 cold_ms=7.880 warm_mean_ms=0.689 repetitions=5 triangles=12288
+source_refresh open=1 groups=32 leaves=256 cold_ms=2.335 warm_mean_ms=0.121 repetitions=5 triangles=3072
+source_refresh open=1 groups=128 leaves=1024 cold_ms=2.664 warm_mean_ms=0.432 repetitions=5 triangles=12288
+open_roots parent_first=0 groups=32 leaves=256 warm_mean_ms=1.106 repetitions=20
+open_roots parent_first=0 groups=128 leaves=1024 warm_mean_ms=4.377 repetitions=20
+open_roots parent_first=1 groups=32 leaves=256 warm_mean_ms=0.816 repetitions=20
+open_roots parent_first=1 groups=128 leaves=1024 warm_mean_ms=3.624 repetitions=20
+Source refresh benchmark checks passed
+
+after run 2
+source_refresh open=0 groups=32 leaves=256 cold_ms=14.235 warm_mean_ms=0.375 repetitions=5 triangles=3072
+source_refresh open=0 groups=128 leaves=1024 cold_ms=7.042 warm_mean_ms=0.550 repetitions=5 triangles=12288
+source_refresh open=1 groups=32 leaves=256 cold_ms=2.046 warm_mean_ms=0.105 repetitions=5 triangles=3072
+source_refresh open=1 groups=128 leaves=1024 cold_ms=1.904 warm_mean_ms=0.292 repetitions=5 triangles=12288
+open_roots parent_first=0 groups=32 leaves=256 warm_mean_ms=1.060 repetitions=20
+open_roots parent_first=0 groups=128 leaves=1024 warm_mean_ms=4.628 repetitions=20
+open_roots parent_first=1 groups=32 leaves=256 warm_mean_ms=0.839 repetitions=20
+open_roots parent_first=1 groups=128 leaves=1024 warm_mean_ms=3.448 repetitions=20
+Source refresh benchmark checks passed
+
+after run 3
+source_refresh open=0 groups=32 leaves=256 cold_ms=11.492 warm_mean_ms=0.511 repetitions=5 triangles=3072
+source_refresh open=0 groups=128 leaves=1024 cold_ms=7.793 warm_mean_ms=0.700 repetitions=5 triangles=12288
+source_refresh open=1 groups=32 leaves=256 cold_ms=2.196 warm_mean_ms=0.104 repetitions=5 triangles=3072
+source_refresh open=1 groups=128 leaves=1024 cold_ms=2.524 warm_mean_ms=0.411 repetitions=5 triangles=12288
+open_roots parent_first=0 groups=32 leaves=256 warm_mean_ms=1.104 repetitions=20
+open_roots parent_first=0 groups=128 leaves=1024 warm_mean_ms=4.561 repetitions=20
+open_roots parent_first=1 groups=32 leaves=256 warm_mean_ms=0.798 repetitions=20
+open_roots parent_first=1 groups=128 leaves=1024 warm_mean_ms=3.548 repetitions=20
+Source refresh benchmark checks passed

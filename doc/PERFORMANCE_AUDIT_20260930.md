@@ -16,6 +16,10 @@ records bounded reuse of immutable Symbol definitions and exact geometry checks.
 
 ## Result and scope
 
+The [open Assembly root follow-up](performance/20261001-open-assembly-roots.md)
+removes duplicate traversal of open subassemblies within one refresh, with
+three-level ownership/Undo checks and bounded synthetic measurements.
+
 The [A5 source-refresh follow-up](performance/20260930-source-refresh.md) records
 per-refresh reuse of completed repeated subassemblies and its measurements.
 

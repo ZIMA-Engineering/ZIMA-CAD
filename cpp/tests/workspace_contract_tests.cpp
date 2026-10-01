@@ -1191,6 +1191,40 @@ int main() {
             live.refresh_source_geometry();
             require(live.open_assembly(top.document_id)->session.document().components.back().nested_snapshot.front().placement.z==37,
                 "Repeated source cache survived Redo");
+            // Open documents may be reached both recursively and as workspace
+            // roots. Cover three levels in both insertion orders.
+            for(bool parent_first:{false,true}) {
+                auto outer=zima::assembly::AssemblyDocument::create_default();
+                outer.components.push_back(zima::assembly::AssemblyDocument::create_assembly_occurrence(
+                    "Top",top.document_id,top_file,top));
+                zima::workspace::Workspace ordered;
+                ordered.add_part(source,bodies,part_file);
+                if(parent_first) {ordered.add_assembly(outer,directory/"outer.asmz");ordered.add_assembly(top,top_file);}
+                ordered.add_assembly(nested,nested_file);
+                if(!parent_first) {ordered.add_assembly(top,top_file);ordered.add_assembly(outer,directory/"outer.asmz");}
+                ordered.refresh_source_geometry();
+                const auto stable=ordered.open_assembly(outer.document_id)->session.document().components.front().calculated_source;
+                ordered.refresh_source_geometry();
+                require(stable.shares_with(ordered.open_assembly(outer.document_id)->session.document().components.front().calculated_source),
+                    "Open-root traversal rebuilt unchanged three-level source");
+                auto changed=source;changed.name="Open-root unsaved source";
+                zima::test::profile_dimension(changed,changed.history.front(),0)*=2;
+                const auto changed_bodies=kernel.evaluate_history(changed.kernel_operations());
+                ordered.open_part(source.document_id)->session.commit(changed,changed_bodies);
+                const auto verify=[&](double volume) {
+                    ordered.refresh_source_geometry();
+                    const auto& result=ordered.open_assembly(outer.document_id)->session.document().components.front();
+                    require(std::abs(result.calculated_source->body_outputs.at(top.components.front().occurrence_id)->body_outputs.at(leaf)->volume-volume)<1e-6,
+                        "Open-root traversal retained stale nested geometry");
+                    for(const auto& id:{outer.document_id,top.document_id,nested.document_id}) {
+                        const auto& session=ordered.open_assembly(id)->session;
+                        require(session.revision()==0&&!session.is_dirty()&&!session.can_undo(),"Open-root refresh changed edit history");
+                    }
+                };
+                verify(changed_bodies.back().volume);
+                require(ordered.open_part(source.document_id)->session.undo(),"Open-root source Undo missing");verify(bodies.back().volume);
+                require(ordered.open_part(source.document_id)->session.redo(),"Open-root source Redo missing");verify(changed_bodies.back().volume);
+            }
             // A completed-source cache must never replace the active recursion
             // stack: even an already displayed source can acquire a cycle.
             auto cyclic=live.open_assembly(nested.document_id)->session.document();

@@ -334,6 +334,9 @@ std::optional<std::string> Workspace::document_id_for_path(
 
 void Workspace::refresh_source_geometry() {
     std::set<std::string> visiting;
+    // An open source is also a workspace root. Its completed traversal is
+    // valid throughout this call, independently of tab/insertion order.
+    std::set<std::string> refreshed_open_documents;
     std::map<std::string,zima::kernel::BodySnapshot> assembly_sources;
     struct RefreshedAssembly {
         zima::kernel::BodySnapshot body;
@@ -426,7 +429,10 @@ void Workspace::refresh_source_geometry() {
                 nested=open->session.document();
                 file=open->path;
                 native_assembly_cache_.erase(source_key);
-                if(self(self,nested,file))open->session.update_source_geometry(nested);
+                if(!refreshed_open_documents.contains(nested.document_id)) {
+                    if(self(self,nested,file))open->session.update_source_geometry(nested);
+                    refreshed_open_documents.insert(nested.document_id);
+                }
             } else {
                 const auto* parent=open_assembly(parent_id);
                 if(!parent&&(file.empty()||!std::filesystem::is_regular_file(file))) {
@@ -482,9 +488,12 @@ void Workspace::refresh_source_geometry() {
         return changed;
     };
     for(auto& state:documents_)if(auto* assembly=std::get_if<AssemblyState>(&state)) {
+        const auto id=assembly->session.document().document_id;
+        if(refreshed_open_documents.contains(id))continue;
         auto document=assembly->session.document();
         if(refresh(refresh,document,assembly->path))
             assembly->session.update_source_geometry(std::move(document));
+        refreshed_open_documents.insert(id);
     }
 }
 
