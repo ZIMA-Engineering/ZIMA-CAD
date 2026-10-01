@@ -132,6 +132,42 @@ int main(int argc, char** argv) {
                 confirmed = true;
             }
             require(confirmed, "No occurrence was confirmed");
+            // Active-Part feature picking in an Assembly uses Container candidates.
+            // Measure completed highlight frames separately from mouse dispatch.
+            for(const auto kind:{zima::viewer::CandidateKind::Occurrence,zima::viewer::CandidateKind::Container}) {
+                view.set_selection_contract({kind});view.clear_selection();
+                const auto position=positions.front();
+                const auto offered=view.selection_candidates_at(position);
+                require(!offered.empty(),"No highlight benchmark candidate");
+                QMouseEvent move(QEvent::MouseMove,position,view.mapToGlobal(position),Qt::NoButton,Qt::NoButton,Qt::NoModifier);
+                QApplication::sendEvent(&view,&move);
+                require(view.hovered_candidate()==offered.front(),"Highlight benchmark hover changed identity");
+                const auto revision=view.base_mesh_revision();
+                for(bool selected:{false,true}) {
+                    if(selected) {
+                        QMouseEvent press(QEvent::MouseButtonPress,position,view.mapToGlobal(position),Qt::LeftButton,Qt::LeftButton,Qt::NoModifier);
+                        QApplication::sendEvent(&view,&press);
+                        QMouseEvent release(QEvent::MouseButtonRelease,position,view.mapToGlobal(position),Qt::LeftButton,Qt::NoButton,Qt::NoModifier);
+                        QApplication::sendEvent(&view,&release);
+                        require(view.confirmed_candidate()==offered.front(),"Highlight benchmark confirmation changed identity");
+                    }
+                    for(const auto mode:{zima::viewer::DisplayMode::Wire,zima::viewer::DisplayMode::HiddenEdges,
+                            zima::viewer::DisplayMode::NoHiddenEdges,zima::viewer::DisplayMode::ShadedWithEdges,zima::viewer::DisplayMode::Shaded}) {
+                        view.set_display_mode(mode);
+                        for(const auto alpha:{255,120}) {
+                            view.set_body_surface_colors(QColor(185,194,204,alpha));
+                            const auto pixels=view.grabFramebuffer().convertToFormat(QImage::Format_RGBA8888);
+                            const auto hash=QCryptographicHash::hash(QByteArrayView(reinterpret_cast<const char*>(pixels.constBits()),pixels.sizeInBytes()),QCryptographicHash::Sha256).toHex();
+                            const auto paint_ms=milliseconds([&]{view.grabFramebuffer();},3);
+                            require(view.base_mesh_revision()==revision,"Highlight rebuilt the base mesh");
+                            std::cout<<"highlight occurrences="<<count<<" kind="<<int(kind)<<" selected="<<selected
+                                <<" mode="<<int(mode)<<" alpha="<<alpha<<" paint_ms="<<paint_ms<<" sha256="<<hash.constData()<<std::endl;
+                        }
+                    }
+                }
+            }
+            view.clear_selection();view.set_selection_contract({zima::viewer::CandidateKind::Occurrence});
+            view.set_body_surface_colors(QColor(185,194,204));
             std::cout << "occurrences=" << count << " triangles=" << scene.triangles.size()/3
                 << " scene_ms=" << scene_ms << " set_mesh_ms=" << set_ms
                 << " object_bounds_ms=" << bounds_ms

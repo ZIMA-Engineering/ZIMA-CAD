@@ -1,0 +1,216 @@
+Container highlight frame measurements
+Baseline product source: b0f90e13
+Windows MSVC Release, QT_QPA_PLATFORM=windows, QT_STYLE_OVERRIDE=Fusion
+Each paint_ms is the mean of three completed grabFramebuffer calls.
+
+BEFORE
+frame occurrences=256 mode=0 alpha=255 sha256=f7ba26bada1bd3bf30ba9b489f40a378cae8e84ee7187ce973244fd3ec28be95
+frame occurrences=256 mode=0 alpha=120 sha256=f7ba26bada1bd3bf30ba9b489f40a378cae8e84ee7187ce973244fd3ec28be95
+frame occurrences=256 mode=1 alpha=255 sha256=f7ba26bada1bd3bf30ba9b489f40a378cae8e84ee7187ce973244fd3ec28be95
+frame occurrences=256 mode=1 alpha=120 sha256=f7ba26bada1bd3bf30ba9b489f40a378cae8e84ee7187ce973244fd3ec28be95
+frame occurrences=256 mode=2 alpha=255 sha256=f7ba26bada1bd3bf30ba9b489f40a378cae8e84ee7187ce973244fd3ec28be95
+frame occurrences=256 mode=2 alpha=120 sha256=f7ba26bada1bd3bf30ba9b489f40a378cae8e84ee7187ce973244fd3ec28be95
+frame occurrences=256 mode=3 alpha=255 sha256=b33c43a8cfba1cd9fd73f0c512e8af271f55d74fae429c8e1479bdb6fd38e1de
+frame occurrences=256 mode=3 alpha=120 sha256=224652ac38753133fff73c9a3419f139368b826ee0d2c2d64eb68cb7bdea0a22
+frame occurrences=256 mode=4 alpha=255 sha256=bc596a675fc571fedefaf33e2eacfc1875cb87d2ddfce40797a7c04b95d7a3a7
+frame occurrences=256 mode=4 alpha=120 sha256=ccac7f1f398239369851f576699c8d016b3a45ef099b349eea11d28fab7afb11
+upload_and_paint_ms=55.696 index_bytes=36864
+highlight occurrences=256 kind=0 selected=0 mode=0 alpha=255 paint_ms=25.944 sha256=6750059fb826719a65f2d142680bc5225a033a6f23a10b85feea50b0e0a63b59
+highlight occurrences=256 kind=0 selected=0 mode=0 alpha=120 paint_ms=26.832 sha256=6750059fb826719a65f2d142680bc5225a033a6f23a10b85feea50b0e0a63b59
+highlight occurrences=256 kind=0 selected=0 mode=1 alpha=255 paint_ms=23.264 sha256=6750059fb826719a65f2d142680bc5225a033a6f23a10b85feea50b0e0a63b59
+highlight occurrences=256 kind=0 selected=0 mode=1 alpha=120 paint_ms=23.627 sha256=6750059fb826719a65f2d142680bc5225a033a6f23a10b85feea50b0e0a63b59
+highlight occurrences=256 kind=0 selected=0 mode=2 alpha=255 paint_ms=22.989 sha256=6750059fb826719a65f2d142680bc5225a033a6f23a10b85feea50b0e0a63b59
+highlight occurrences=256 kind=0 selected=0 mode=2 alpha=120 paint_ms=22.927 sha256=6750059fb826719a65f2d142680bc5225a033a6f23a10b85feea50b0e0a63b59
+highlight occurrences=256 kind=0 selected=0 mode=3 alpha=255 paint_ms=23.650 sha256=f3897d0951cea2828a3f4566ac6138ae108fd998dd564ea5c0cea53bd37dd74a
+highlight occurrences=256 kind=0 selected=0 mode=3 alpha=120 paint_ms=26.108 sha256=10492505ef5bef0cbbda3df2da96522c4538cf85db7029104e46191aeb39e5ae
+highlight occurrences=256 kind=0 selected=0 mode=4 alpha=255 paint_ms=24.095 sha256=564a29a267dce318385b2e3aa909ea753656bdc7262f58ecf15e996ec2800718
+highlight occurrences=256 kind=0 selected=0 mode=4 alpha=120 paint_ms=23.646 sha256=abd7dd9e1fd9365fda845563ec80d2bd97fd0ed06941365f6fcfec0ad3ae4ec5
+highlight occurrences=256 kind=0 selected=1 mode=0 alpha=255 paint_ms=23.665 sha256=5b12f47eb9c284781eaa2a00034f0edf36e050689833defb84d0a83b2380fa6a
+highlight occurrences=256 kind=0 selected=1 mode=0 alpha=120 paint_ms=25.104 sha256=5b12f47eb9c284781eaa2a00034f0edf36e050689833defb84d0a83b2380fa6a
+highlight occurrences=256 kind=0 selected=1 mode=1 alpha=255 paint_ms=24.534 sha256=5b12f47eb9c284781eaa2a00034f0edf36e050689833defb84d0a83b2380fa6a
+highlight occurrences=256 kind=0 selected=1 mode=1 alpha=120 paint_ms=23.337 sha256=5b12f47eb9c284781eaa2a00034f0edf36e050689833defb84d0a83b2380fa6a
+highlight occurrences=256 kind=0 selected=1 mode=2 alpha=255 paint_ms=24.419 sha256=5b12f47eb9c284781eaa2a00034f0edf36e050689833defb84d0a83b2380fa6a
+highlight occurrences=256 kind=0 selected=1 mode=2 alpha=120 paint_ms=23.378 sha256=5b12f47eb9c284781eaa2a00034f0edf36e050689833defb84d0a83b2380fa6a
+highlight occurrences=256 kind=0 selected=1 mode=3 alpha=255 paint_ms=22.794 sha256=154f23cc2c4f51033ea2310522503ce0f9e9812cd582ff43c4d233a3c72e6111
+highlight occurrences=256 kind=0 selected=1 mode=3 alpha=120 paint_ms=23.541 sha256=968d06c7507d3716036217248a4589ef06d790b396e774365037cf145b497c2a
+highlight occurrences=256 kind=0 selected=1 mode=4 alpha=255 paint_ms=26.695 sha256=964733e73e7417687190883e63e289f00fbd96d51331801a3ca3cd0f93d79f44
+highlight occurrences=256 kind=0 selected=1 mode=4 alpha=120 paint_ms=23.320 sha256=65cc273a0d104a4b002e63cbd339487a9258774c0f2f4a73318f79af1673654d
+highlight occurrences=256 kind=1 selected=0 mode=0 alpha=255 paint_ms=40.984 sha256=f7ba26bada1bd3bf30ba9b489f40a378cae8e84ee7187ce973244fd3ec28be95
+highlight occurrences=256 kind=1 selected=0 mode=0 alpha=120 paint_ms=41.064 sha256=f7ba26bada1bd3bf30ba9b489f40a378cae8e84ee7187ce973244fd3ec28be95
+highlight occurrences=256 kind=1 selected=0 mode=1 alpha=255 paint_ms=56.221 sha256=f7ba26bada1bd3bf30ba9b489f40a378cae8e84ee7187ce973244fd3ec28be95
+highlight occurrences=256 kind=1 selected=0 mode=1 alpha=120 paint_ms=58.208 sha256=f7ba26bada1bd3bf30ba9b489f40a378cae8e84ee7187ce973244fd3ec28be95
+highlight occurrences=256 kind=1 selected=0 mode=2 alpha=255 paint_ms=42.746 sha256=f7ba26bada1bd3bf30ba9b489f40a378cae8e84ee7187ce973244fd3ec28be95
+highlight occurrences=256 kind=1 selected=0 mode=2 alpha=120 paint_ms=43.154 sha256=f7ba26bada1bd3bf30ba9b489f40a378cae8e84ee7187ce973244fd3ec28be95
+highlight occurrences=256 kind=1 selected=0 mode=3 alpha=255 paint_ms=41.919 sha256=b33c43a8cfba1cd9fd73f0c512e8af271f55d74fae429c8e1479bdb6fd38e1de
+highlight occurrences=256 kind=1 selected=0 mode=3 alpha=120 paint_ms=42.091 sha256=224652ac38753133fff73c9a3419f139368b826ee0d2c2d64eb68cb7bdea0a22
+highlight occurrences=256 kind=1 selected=0 mode=4 alpha=255 paint_ms=40.713 sha256=bc596a675fc571fedefaf33e2eacfc1875cb87d2ddfce40797a7c04b95d7a3a7
+highlight occurrences=256 kind=1 selected=0 mode=4 alpha=120 paint_ms=41.134 sha256=ccac7f1f398239369851f576699c8d016b3a45ef099b349eea11d28fab7afb11
+highlight occurrences=256 kind=1 selected=1 mode=0 alpha=255 paint_ms=59.309 sha256=f7ba26bada1bd3bf30ba9b489f40a378cae8e84ee7187ce973244fd3ec28be95
+highlight occurrences=256 kind=1 selected=1 mode=0 alpha=120 paint_ms=59.447 sha256=f7ba26bada1bd3bf30ba9b489f40a378cae8e84ee7187ce973244fd3ec28be95
+highlight occurrences=256 kind=1 selected=1 mode=1 alpha=255 paint_ms=78.157 sha256=f7ba26bada1bd3bf30ba9b489f40a378cae8e84ee7187ce973244fd3ec28be95
+highlight occurrences=256 kind=1 selected=1 mode=1 alpha=120 paint_ms=76.412 sha256=f7ba26bada1bd3bf30ba9b489f40a378cae8e84ee7187ce973244fd3ec28be95
+highlight occurrences=256 kind=1 selected=1 mode=2 alpha=255 paint_ms=61.983 sha256=f7ba26bada1bd3bf30ba9b489f40a378cae8e84ee7187ce973244fd3ec28be95
+highlight occurrences=256 kind=1 selected=1 mode=2 alpha=120 paint_ms=60.814 sha256=f7ba26bada1bd3bf30ba9b489f40a378cae8e84ee7187ce973244fd3ec28be95
+highlight occurrences=256 kind=1 selected=1 mode=3 alpha=255 paint_ms=60.310 sha256=b33c43a8cfba1cd9fd73f0c512e8af271f55d74fae429c8e1479bdb6fd38e1de
+highlight occurrences=256 kind=1 selected=1 mode=3 alpha=120 paint_ms=63.176 sha256=224652ac38753133fff73c9a3419f139368b826ee0d2c2d64eb68cb7bdea0a22
+highlight occurrences=256 kind=1 selected=1 mode=4 alpha=255 paint_ms=60.993 sha256=bc596a675fc571fedefaf33e2eacfc1875cb87d2ddfce40797a7c04b95d7a3a7
+highlight occurrences=256 kind=1 selected=1 mode=4 alpha=120 paint_ms=60.773 sha256=ccac7f1f398239369851f576699c8d016b3a45ef099b349eea11d28fab7afb11
+occurrences=256 triangles=3072 scene_ms=28.213 set_mesh_ms=23.395 object_bounds_ms=1.695 pick_ms=0.826 mouse_dispatch_ms=0.813 candidates=100 confirmation=passed
+frame occurrences=1024 mode=0 alpha=255 sha256=623e79b4ff6f6f1362c4aa828c07179054fb98f046ea2ce51232ee115e435d77
+frame occurrences=1024 mode=0 alpha=120 sha256=623e79b4ff6f6f1362c4aa828c07179054fb98f046ea2ce51232ee115e435d77
+frame occurrences=1024 mode=1 alpha=255 sha256=623e79b4ff6f6f1362c4aa828c07179054fb98f046ea2ce51232ee115e435d77
+frame occurrences=1024 mode=1 alpha=120 sha256=623e79b4ff6f6f1362c4aa828c07179054fb98f046ea2ce51232ee115e435d77
+frame occurrences=1024 mode=2 alpha=255 sha256=623e79b4ff6f6f1362c4aa828c07179054fb98f046ea2ce51232ee115e435d77
+frame occurrences=1024 mode=2 alpha=120 sha256=623e79b4ff6f6f1362c4aa828c07179054fb98f046ea2ce51232ee115e435d77
+frame occurrences=1024 mode=3 alpha=255 sha256=11755e67cf479c34fe7cffa54d91f6907cb4b28d292cfe4b4b294f7b0e896280
+frame occurrences=1024 mode=3 alpha=120 sha256=b4d595377f062ff76b2db4931df8dc2a93ed962a9669b08c5fc54dcce1fb8ed5
+frame occurrences=1024 mode=4 alpha=255 sha256=15aaa4488cb2134457679cada16351f12c69aa5f43a1b02662701650a59c9e3c
+frame occurrences=1024 mode=4 alpha=120 sha256=b4bbfa18d5d402755a417e47db5860e577303862d0a14c165f5159e3ed4350be
+upload_and_paint_ms=209.129 index_bytes=147456
+highlight occurrences=1024 kind=0 selected=0 mode=0 alpha=255 paint_ms=86.859 sha256=6881194dbf77aeb9b9d98b707bd927f78a125447f84e5917604a9c030d21e7d4
+highlight occurrences=1024 kind=0 selected=0 mode=0 alpha=120 paint_ms=77.184 sha256=6881194dbf77aeb9b9d98b707bd927f78a125447f84e5917604a9c030d21e7d4
+highlight occurrences=1024 kind=0 selected=0 mode=1 alpha=255 paint_ms=80.467 sha256=6881194dbf77aeb9b9d98b707bd927f78a125447f84e5917604a9c030d21e7d4
+highlight occurrences=1024 kind=0 selected=0 mode=1 alpha=120 paint_ms=79.588 sha256=6881194dbf77aeb9b9d98b707bd927f78a125447f84e5917604a9c030d21e7d4
+highlight occurrences=1024 kind=0 selected=0 mode=2 alpha=255 paint_ms=77.408 sha256=6881194dbf77aeb9b9d98b707bd927f78a125447f84e5917604a9c030d21e7d4
+highlight occurrences=1024 kind=0 selected=0 mode=2 alpha=120 paint_ms=80.482 sha256=6881194dbf77aeb9b9d98b707bd927f78a125447f84e5917604a9c030d21e7d4
+highlight occurrences=1024 kind=0 selected=0 mode=3 alpha=255 paint_ms=85.280 sha256=dd2a6cd984b9da95eecf2b4958e00e144af8922cc492f1fae75c4b681761c404
+highlight occurrences=1024 kind=0 selected=0 mode=3 alpha=120 paint_ms=96.991 sha256=40a3c839c854bc0dc47ed776ae1535dd95f5490f783083c2a0f27311fbab3986
+highlight occurrences=1024 kind=0 selected=0 mode=4 alpha=255 paint_ms=78.843 sha256=ff93c566e289847757b6a31d69e131357ee60facdf164a68ff1bdf35c915aed0
+highlight occurrences=1024 kind=0 selected=0 mode=4 alpha=120 paint_ms=80.006 sha256=14c328bce5f2f3afc97d764d545c2dd8c5d1a1ddfdc4717db430e7e51181f770
+highlight occurrences=1024 kind=0 selected=1 mode=0 alpha=255 paint_ms=91.185 sha256=e81c83278aeb05fb949fc038aab8f4840eed29c84d39cebe864e15db6912c468
+highlight occurrences=1024 kind=0 selected=1 mode=0 alpha=120 paint_ms=79.575 sha256=e81c83278aeb05fb949fc038aab8f4840eed29c84d39cebe864e15db6912c468
+highlight occurrences=1024 kind=0 selected=1 mode=1 alpha=255 paint_ms=80.217 sha256=e81c83278aeb05fb949fc038aab8f4840eed29c84d39cebe864e15db6912c468
+highlight occurrences=1024 kind=0 selected=1 mode=1 alpha=120 paint_ms=80.983 sha256=e81c83278aeb05fb949fc038aab8f4840eed29c84d39cebe864e15db6912c468
+highlight occurrences=1024 kind=0 selected=1 mode=2 alpha=255 paint_ms=77.927 sha256=e81c83278aeb05fb949fc038aab8f4840eed29c84d39cebe864e15db6912c468
+highlight occurrences=1024 kind=0 selected=1 mode=2 alpha=120 paint_ms=80.011 sha256=e81c83278aeb05fb949fc038aab8f4840eed29c84d39cebe864e15db6912c468
+highlight occurrences=1024 kind=0 selected=1 mode=3 alpha=255 paint_ms=77.152 sha256=3ac0d22a4d7f3c387cfa35af9c12d046ab58bb721cc6e520834ceea4faf1d316
+highlight occurrences=1024 kind=0 selected=1 mode=3 alpha=120 paint_ms=84.396 sha256=659e01ef5a61628d9f2ab6875a90b545af03b172a4817f3f51985b897d4c6112
+highlight occurrences=1024 kind=0 selected=1 mode=4 alpha=255 paint_ms=77.619 sha256=3a6443980d10adcab8f7b4759303d3ab4d2c321190c8e728c90c79a56e4f6410
+highlight occurrences=1024 kind=0 selected=1 mode=4 alpha=120 paint_ms=79.990 sha256=350b2f01dfe956ffa3c70f937979c29c268c619d79b6f7536570bc5295e212f9
+highlight occurrences=1024 kind=1 selected=0 mode=0 alpha=255 paint_ms=373.419 sha256=623e79b4ff6f6f1362c4aa828c07179054fb98f046ea2ce51232ee115e435d77
+highlight occurrences=1024 kind=1 selected=0 mode=0 alpha=120 paint_ms=397.487 sha256=623e79b4ff6f6f1362c4aa828c07179054fb98f046ea2ce51232ee115e435d77
+highlight occurrences=1024 kind=1 selected=0 mode=1 alpha=255 paint_ms=685.014 sha256=623e79b4ff6f6f1362c4aa828c07179054fb98f046ea2ce51232ee115e435d77
+highlight occurrences=1024 kind=1 selected=0 mode=1 alpha=120 paint_ms=701.217 sha256=623e79b4ff6f6f1362c4aa828c07179054fb98f046ea2ce51232ee115e435d77
+highlight occurrences=1024 kind=1 selected=0 mode=2 alpha=255 paint_ms=392.060 sha256=623e79b4ff6f6f1362c4aa828c07179054fb98f046ea2ce51232ee115e435d77
+highlight occurrences=1024 kind=1 selected=0 mode=2 alpha=120 paint_ms=390.837 sha256=623e79b4ff6f6f1362c4aa828c07179054fb98f046ea2ce51232ee115e435d77
+highlight occurrences=1024 kind=1 selected=0 mode=3 alpha=255 paint_ms=394.979 sha256=11755e67cf479c34fe7cffa54d91f6907cb4b28d292cfe4b4b294f7b0e896280
+highlight occurrences=1024 kind=1 selected=0 mode=3 alpha=120 paint_ms=391.576 sha256=b4d595377f062ff76b2db4931df8dc2a93ed962a9669b08c5fc54dcce1fb8ed5
+highlight occurrences=1024 kind=1 selected=0 mode=4 alpha=255 paint_ms=391.991 sha256=15aaa4488cb2134457679cada16351f12c69aa5f43a1b02662701650a59c9e3c
+highlight occurrences=1024 kind=1 selected=0 mode=4 alpha=120 paint_ms=397.520 sha256=b4bbfa18d5d402755a417e47db5860e577303862d0a14c165f5159e3ed4350be
+highlight occurrences=1024 kind=1 selected=1 mode=0 alpha=255 paint_ms=761.849 sha256=623e79b4ff6f6f1362c4aa828c07179054fb98f046ea2ce51232ee115e435d77
+highlight occurrences=1024 kind=1 selected=1 mode=0 alpha=120 paint_ms=723.777 sha256=623e79b4ff6f6f1362c4aa828c07179054fb98f046ea2ce51232ee115e435d77
+highlight occurrences=1024 kind=1 selected=1 mode=1 alpha=255 paint_ms=1055.260 sha256=623e79b4ff6f6f1362c4aa828c07179054fb98f046ea2ce51232ee115e435d77
+highlight occurrences=1024 kind=1 selected=1 mode=1 alpha=120 paint_ms=1070.357 sha256=623e79b4ff6f6f1362c4aa828c07179054fb98f046ea2ce51232ee115e435d77
+highlight occurrences=1024 kind=1 selected=1 mode=2 alpha=255 paint_ms=758.614 sha256=623e79b4ff6f6f1362c4aa828c07179054fb98f046ea2ce51232ee115e435d77
+highlight occurrences=1024 kind=1 selected=1 mode=2 alpha=120 paint_ms=741.760 sha256=623e79b4ff6f6f1362c4aa828c07179054fb98f046ea2ce51232ee115e435d77
+highlight occurrences=1024 kind=1 selected=1 mode=3 alpha=255 paint_ms=760.375 sha256=11755e67cf479c34fe7cffa54d91f6907cb4b28d292cfe4b4b294f7b0e896280
+highlight occurrences=1024 kind=1 selected=1 mode=3 alpha=120 paint_ms=773.869 sha256=b4d595377f062ff76b2db4931df8dc2a93ed962a9669b08c5fc54dcce1fb8ed5
+highlight occurrences=1024 kind=1 selected=1 mode=4 alpha=255 paint_ms=781.990 sha256=15aaa4488cb2134457679cada16351f12c69aa5f43a1b02662701650a59c9e3c
+highlight occurrences=1024 kind=1 selected=1 mode=4 alpha=120 paint_ms=776.351 sha256=b4bbfa18d5d402755a417e47db5860e577303862d0a14c165f5159e3ed4350be
+occurrences=1024 triangles=12288 scene_ms=98.480 set_mesh_ms=89.342 object_bounds_ms=6.559 pick_ms=5.085 mouse_dispatch_ms=5.045 candidates=100 confirmation=passed
+
+AFTER
+frame occurrences=256 mode=0 alpha=255 sha256=f7ba26bada1bd3bf30ba9b489f40a378cae8e84ee7187ce973244fd3ec28be95
+frame occurrences=256 mode=0 alpha=120 sha256=f7ba26bada1bd3bf30ba9b489f40a378cae8e84ee7187ce973244fd3ec28be95
+frame occurrences=256 mode=1 alpha=255 sha256=f7ba26bada1bd3bf30ba9b489f40a378cae8e84ee7187ce973244fd3ec28be95
+frame occurrences=256 mode=1 alpha=120 sha256=f7ba26bada1bd3bf30ba9b489f40a378cae8e84ee7187ce973244fd3ec28be95
+frame occurrences=256 mode=2 alpha=255 sha256=f7ba26bada1bd3bf30ba9b489f40a378cae8e84ee7187ce973244fd3ec28be95
+frame occurrences=256 mode=2 alpha=120 sha256=f7ba26bada1bd3bf30ba9b489f40a378cae8e84ee7187ce973244fd3ec28be95
+frame occurrences=256 mode=3 alpha=255 sha256=b33c43a8cfba1cd9fd73f0c512e8af271f55d74fae429c8e1479bdb6fd38e1de
+frame occurrences=256 mode=3 alpha=120 sha256=224652ac38753133fff73c9a3419f139368b826ee0d2c2d64eb68cb7bdea0a22
+frame occurrences=256 mode=4 alpha=255 sha256=bc596a675fc571fedefaf33e2eacfc1875cb87d2ddfce40797a7c04b95d7a3a7
+frame occurrences=256 mode=4 alpha=120 sha256=ccac7f1f398239369851f576699c8d016b3a45ef099b349eea11d28fab7afb11
+upload_and_paint_ms=53.904 index_bytes=36864
+highlight occurrences=256 kind=0 selected=0 mode=0 alpha=255 paint_ms=25.015 sha256=6750059fb826719a65f2d142680bc5225a033a6f23a10b85feea50b0e0a63b59
+highlight occurrences=256 kind=0 selected=0 mode=0 alpha=120 paint_ms=27.761 sha256=6750059fb826719a65f2d142680bc5225a033a6f23a10b85feea50b0e0a63b59
+highlight occurrences=256 kind=0 selected=0 mode=1 alpha=255 paint_ms=25.794 sha256=6750059fb826719a65f2d142680bc5225a033a6f23a10b85feea50b0e0a63b59
+highlight occurrences=256 kind=0 selected=0 mode=1 alpha=120 paint_ms=23.951 sha256=6750059fb826719a65f2d142680bc5225a033a6f23a10b85feea50b0e0a63b59
+highlight occurrences=256 kind=0 selected=0 mode=2 alpha=255 paint_ms=23.726 sha256=6750059fb826719a65f2d142680bc5225a033a6f23a10b85feea50b0e0a63b59
+highlight occurrences=256 kind=0 selected=0 mode=2 alpha=120 paint_ms=24.587 sha256=6750059fb826719a65f2d142680bc5225a033a6f23a10b85feea50b0e0a63b59
+highlight occurrences=256 kind=0 selected=0 mode=3 alpha=255 paint_ms=24.019 sha256=f3897d0951cea2828a3f4566ac6138ae108fd998dd564ea5c0cea53bd37dd74a
+highlight occurrences=256 kind=0 selected=0 mode=3 alpha=120 paint_ms=26.003 sha256=10492505ef5bef0cbbda3df2da96522c4538cf85db7029104e46191aeb39e5ae
+highlight occurrences=256 kind=0 selected=0 mode=4 alpha=255 paint_ms=25.924 sha256=564a29a267dce318385b2e3aa909ea753656bdc7262f58ecf15e996ec2800718
+highlight occurrences=256 kind=0 selected=0 mode=4 alpha=120 paint_ms=23.242 sha256=abd7dd9e1fd9365fda845563ec80d2bd97fd0ed06941365f6fcfec0ad3ae4ec5
+highlight occurrences=256 kind=0 selected=1 mode=0 alpha=255 paint_ms=23.803 sha256=5b12f47eb9c284781eaa2a00034f0edf36e050689833defb84d0a83b2380fa6a
+highlight occurrences=256 kind=0 selected=1 mode=0 alpha=120 paint_ms=24.494 sha256=5b12f47eb9c284781eaa2a00034f0edf36e050689833defb84d0a83b2380fa6a
+highlight occurrences=256 kind=0 selected=1 mode=1 alpha=255 paint_ms=23.228 sha256=5b12f47eb9c284781eaa2a00034f0edf36e050689833defb84d0a83b2380fa6a
+highlight occurrences=256 kind=0 selected=1 mode=1 alpha=120 paint_ms=23.984 sha256=5b12f47eb9c284781eaa2a00034f0edf36e050689833defb84d0a83b2380fa6a
+highlight occurrences=256 kind=0 selected=1 mode=2 alpha=255 paint_ms=24.881 sha256=5b12f47eb9c284781eaa2a00034f0edf36e050689833defb84d0a83b2380fa6a
+highlight occurrences=256 kind=0 selected=1 mode=2 alpha=120 paint_ms=28.315 sha256=5b12f47eb9c284781eaa2a00034f0edf36e050689833defb84d0a83b2380fa6a
+highlight occurrences=256 kind=0 selected=1 mode=3 alpha=255 paint_ms=29.402 sha256=154f23cc2c4f51033ea2310522503ce0f9e9812cd582ff43c4d233a3c72e6111
+highlight occurrences=256 kind=0 selected=1 mode=3 alpha=120 paint_ms=26.374 sha256=968d06c7507d3716036217248a4589ef06d790b396e774365037cf145b497c2a
+highlight occurrences=256 kind=0 selected=1 mode=4 alpha=255 paint_ms=26.111 sha256=964733e73e7417687190883e63e289f00fbd96d51331801a3ca3cd0f93d79f44
+highlight occurrences=256 kind=0 selected=1 mode=4 alpha=120 paint_ms=23.578 sha256=65cc273a0d104a4b002e63cbd339487a9258774c0f2f4a73318f79af1673654d
+highlight occurrences=256 kind=1 selected=0 mode=0 alpha=255 paint_ms=23.115 sha256=f7ba26bada1bd3bf30ba9b489f40a378cae8e84ee7187ce973244fd3ec28be95
+highlight occurrences=256 kind=1 selected=0 mode=0 alpha=120 paint_ms=23.199 sha256=f7ba26bada1bd3bf30ba9b489f40a378cae8e84ee7187ce973244fd3ec28be95
+highlight occurrences=256 kind=1 selected=0 mode=1 alpha=255 paint_ms=23.902 sha256=f7ba26bada1bd3bf30ba9b489f40a378cae8e84ee7187ce973244fd3ec28be95
+highlight occurrences=256 kind=1 selected=0 mode=1 alpha=120 paint_ms=23.766 sha256=f7ba26bada1bd3bf30ba9b489f40a378cae8e84ee7187ce973244fd3ec28be95
+highlight occurrences=256 kind=1 selected=0 mode=2 alpha=255 paint_ms=23.555 sha256=f7ba26bada1bd3bf30ba9b489f40a378cae8e84ee7187ce973244fd3ec28be95
+highlight occurrences=256 kind=1 selected=0 mode=2 alpha=120 paint_ms=24.670 sha256=f7ba26bada1bd3bf30ba9b489f40a378cae8e84ee7187ce973244fd3ec28be95
+highlight occurrences=256 kind=1 selected=0 mode=3 alpha=255 paint_ms=23.516 sha256=b33c43a8cfba1cd9fd73f0c512e8af271f55d74fae429c8e1479bdb6fd38e1de
+highlight occurrences=256 kind=1 selected=0 mode=3 alpha=120 paint_ms=24.486 sha256=224652ac38753133fff73c9a3419f139368b826ee0d2c2d64eb68cb7bdea0a22
+highlight occurrences=256 kind=1 selected=0 mode=4 alpha=255 paint_ms=24.271 sha256=bc596a675fc571fedefaf33e2eacfc1875cb87d2ddfce40797a7c04b95d7a3a7
+highlight occurrences=256 kind=1 selected=0 mode=4 alpha=120 paint_ms=24.772 sha256=ccac7f1f398239369851f576699c8d016b3a45ef099b349eea11d28fab7afb11
+highlight occurrences=256 kind=1 selected=1 mode=0 alpha=255 paint_ms=23.620 sha256=f7ba26bada1bd3bf30ba9b489f40a378cae8e84ee7187ce973244fd3ec28be95
+highlight occurrences=256 kind=1 selected=1 mode=0 alpha=120 paint_ms=23.086 sha256=f7ba26bada1bd3bf30ba9b489f40a378cae8e84ee7187ce973244fd3ec28be95
+highlight occurrences=256 kind=1 selected=1 mode=1 alpha=255 paint_ms=23.174 sha256=f7ba26bada1bd3bf30ba9b489f40a378cae8e84ee7187ce973244fd3ec28be95
+highlight occurrences=256 kind=1 selected=1 mode=1 alpha=120 paint_ms=23.181 sha256=f7ba26bada1bd3bf30ba9b489f40a378cae8e84ee7187ce973244fd3ec28be95
+highlight occurrences=256 kind=1 selected=1 mode=2 alpha=255 paint_ms=25.697 sha256=f7ba26bada1bd3bf30ba9b489f40a378cae8e84ee7187ce973244fd3ec28be95
+highlight occurrences=256 kind=1 selected=1 mode=2 alpha=120 paint_ms=24.550 sha256=f7ba26bada1bd3bf30ba9b489f40a378cae8e84ee7187ce973244fd3ec28be95
+highlight occurrences=256 kind=1 selected=1 mode=3 alpha=255 paint_ms=24.310 sha256=b33c43a8cfba1cd9fd73f0c512e8af271f55d74fae429c8e1479bdb6fd38e1de
+highlight occurrences=256 kind=1 selected=1 mode=3 alpha=120 paint_ms=22.907 sha256=224652ac38753133fff73c9a3419f139368b826ee0d2c2d64eb68cb7bdea0a22
+highlight occurrences=256 kind=1 selected=1 mode=4 alpha=255 paint_ms=24.309 sha256=bc596a675fc571fedefaf33e2eacfc1875cb87d2ddfce40797a7c04b95d7a3a7
+highlight occurrences=256 kind=1 selected=1 mode=4 alpha=120 paint_ms=27.187 sha256=ccac7f1f398239369851f576699c8d016b3a45ef099b349eea11d28fab7afb11
+occurrences=256 triangles=3072 scene_ms=28.262 set_mesh_ms=23.789 object_bounds_ms=1.420 pick_ms=0.812 mouse_dispatch_ms=0.805 candidates=100 confirmation=passed
+frame occurrences=1024 mode=0 alpha=255 sha256=623e79b4ff6f6f1362c4aa828c07179054fb98f046ea2ce51232ee115e435d77
+frame occurrences=1024 mode=0 alpha=120 sha256=623e79b4ff6f6f1362c4aa828c07179054fb98f046ea2ce51232ee115e435d77
+frame occurrences=1024 mode=1 alpha=255 sha256=623e79b4ff6f6f1362c4aa828c07179054fb98f046ea2ce51232ee115e435d77
+frame occurrences=1024 mode=1 alpha=120 sha256=623e79b4ff6f6f1362c4aa828c07179054fb98f046ea2ce51232ee115e435d77
+frame occurrences=1024 mode=2 alpha=255 sha256=623e79b4ff6f6f1362c4aa828c07179054fb98f046ea2ce51232ee115e435d77
+frame occurrences=1024 mode=2 alpha=120 sha256=623e79b4ff6f6f1362c4aa828c07179054fb98f046ea2ce51232ee115e435d77
+frame occurrences=1024 mode=3 alpha=255 sha256=11755e67cf479c34fe7cffa54d91f6907cb4b28d292cfe4b4b294f7b0e896280
+frame occurrences=1024 mode=3 alpha=120 sha256=b4d595377f062ff76b2db4931df8dc2a93ed962a9669b08c5fc54dcce1fb8ed5
+frame occurrences=1024 mode=4 alpha=255 sha256=15aaa4488cb2134457679cada16351f12c69aa5f43a1b02662701650a59c9e3c
+frame occurrences=1024 mode=4 alpha=120 sha256=b4bbfa18d5d402755a417e47db5860e577303862d0a14c165f5159e3ed4350be
+upload_and_paint_ms=212.935 index_bytes=147456
+highlight occurrences=1024 kind=0 selected=0 mode=0 alpha=255 paint_ms=85.629 sha256=6881194dbf77aeb9b9d98b707bd927f78a125447f84e5917604a9c030d21e7d4
+highlight occurrences=1024 kind=0 selected=0 mode=0 alpha=120 paint_ms=80.835 sha256=6881194dbf77aeb9b9d98b707bd927f78a125447f84e5917604a9c030d21e7d4
+highlight occurrences=1024 kind=0 selected=0 mode=1 alpha=255 paint_ms=79.608 sha256=6881194dbf77aeb9b9d98b707bd927f78a125447f84e5917604a9c030d21e7d4
+highlight occurrences=1024 kind=0 selected=0 mode=1 alpha=120 paint_ms=80.333 sha256=6881194dbf77aeb9b9d98b707bd927f78a125447f84e5917604a9c030d21e7d4
+highlight occurrences=1024 kind=0 selected=0 mode=2 alpha=255 paint_ms=78.851 sha256=6881194dbf77aeb9b9d98b707bd927f78a125447f84e5917604a9c030d21e7d4
+highlight occurrences=1024 kind=0 selected=0 mode=2 alpha=120 paint_ms=81.831 sha256=6881194dbf77aeb9b9d98b707bd927f78a125447f84e5917604a9c030d21e7d4
+highlight occurrences=1024 kind=0 selected=0 mode=3 alpha=255 paint_ms=92.302 sha256=dd2a6cd984b9da95eecf2b4958e00e144af8922cc492f1fae75c4b681761c404
+highlight occurrences=1024 kind=0 selected=0 mode=3 alpha=120 paint_ms=83.369 sha256=40a3c839c854bc0dc47ed776ae1535dd95f5490f783083c2a0f27311fbab3986
+highlight occurrences=1024 kind=0 selected=0 mode=4 alpha=255 paint_ms=80.840 sha256=ff93c566e289847757b6a31d69e131357ee60facdf164a68ff1bdf35c915aed0
+highlight occurrences=1024 kind=0 selected=0 mode=4 alpha=120 paint_ms=81.332 sha256=14c328bce5f2f3afc97d764d545c2dd8c5d1a1ddfdc4717db430e7e51181f770
+highlight occurrences=1024 kind=0 selected=1 mode=0 alpha=255 paint_ms=80.308 sha256=e81c83278aeb05fb949fc038aab8f4840eed29c84d39cebe864e15db6912c468
+highlight occurrences=1024 kind=0 selected=1 mode=0 alpha=120 paint_ms=81.111 sha256=e81c83278aeb05fb949fc038aab8f4840eed29c84d39cebe864e15db6912c468
+highlight occurrences=1024 kind=0 selected=1 mode=1 alpha=255 paint_ms=80.727 sha256=e81c83278aeb05fb949fc038aab8f4840eed29c84d39cebe864e15db6912c468
+highlight occurrences=1024 kind=0 selected=1 mode=1 alpha=120 paint_ms=82.616 sha256=e81c83278aeb05fb949fc038aab8f4840eed29c84d39cebe864e15db6912c468
+highlight occurrences=1024 kind=0 selected=1 mode=2 alpha=255 paint_ms=79.067 sha256=e81c83278aeb05fb949fc038aab8f4840eed29c84d39cebe864e15db6912c468
+highlight occurrences=1024 kind=0 selected=1 mode=2 alpha=120 paint_ms=79.818 sha256=e81c83278aeb05fb949fc038aab8f4840eed29c84d39cebe864e15db6912c468
+highlight occurrences=1024 kind=0 selected=1 mode=3 alpha=255 paint_ms=79.904 sha256=3ac0d22a4d7f3c387cfa35af9c12d046ab58bb721cc6e520834ceea4faf1d316
+highlight occurrences=1024 kind=0 selected=1 mode=3 alpha=120 paint_ms=80.959 sha256=659e01ef5a61628d9f2ab6875a90b545af03b172a4817f3f51985b897d4c6112
+highlight occurrences=1024 kind=0 selected=1 mode=4 alpha=255 paint_ms=79.897 sha256=3a6443980d10adcab8f7b4759303d3ab4d2c321190c8e728c90c79a56e4f6410
+highlight occurrences=1024 kind=0 selected=1 mode=4 alpha=120 paint_ms=81.720 sha256=350b2f01dfe956ffa3c70f937979c29c268c619d79b6f7536570bc5295e212f9
+highlight occurrences=1024 kind=1 selected=0 mode=0 alpha=255 paint_ms=79.455 sha256=623e79b4ff6f6f1362c4aa828c07179054fb98f046ea2ce51232ee115e435d77
+highlight occurrences=1024 kind=1 selected=0 mode=0 alpha=120 paint_ms=83.054 sha256=623e79b4ff6f6f1362c4aa828c07179054fb98f046ea2ce51232ee115e435d77
+highlight occurrences=1024 kind=1 selected=0 mode=1 alpha=255 paint_ms=83.993 sha256=623e79b4ff6f6f1362c4aa828c07179054fb98f046ea2ce51232ee115e435d77
+highlight occurrences=1024 kind=1 selected=0 mode=1 alpha=120 paint_ms=79.745 sha256=623e79b4ff6f6f1362c4aa828c07179054fb98f046ea2ce51232ee115e435d77
+highlight occurrences=1024 kind=1 selected=0 mode=2 alpha=255 paint_ms=80.580 sha256=623e79b4ff6f6f1362c4aa828c07179054fb98f046ea2ce51232ee115e435d77
+highlight occurrences=1024 kind=1 selected=0 mode=2 alpha=120 paint_ms=81.704 sha256=623e79b4ff6f6f1362c4aa828c07179054fb98f046ea2ce51232ee115e435d77
+highlight occurrences=1024 kind=1 selected=0 mode=3 alpha=255 paint_ms=81.373 sha256=11755e67cf479c34fe7cffa54d91f6907cb4b28d292cfe4b4b294f7b0e896280
+highlight occurrences=1024 kind=1 selected=0 mode=3 alpha=120 paint_ms=81.354 sha256=b4d595377f062ff76b2db4931df8dc2a93ed962a9669b08c5fc54dcce1fb8ed5
+highlight occurrences=1024 kind=1 selected=0 mode=4 alpha=255 paint_ms=82.851 sha256=15aaa4488cb2134457679cada16351f12c69aa5f43a1b02662701650a59c9e3c
+highlight occurrences=1024 kind=1 selected=0 mode=4 alpha=120 paint_ms=79.531 sha256=b4bbfa18d5d402755a417e47db5860e577303862d0a14c165f5159e3ed4350be
+highlight occurrences=1024 kind=1 selected=1 mode=0 alpha=255 paint_ms=83.525 sha256=623e79b4ff6f6f1362c4aa828c07179054fb98f046ea2ce51232ee115e435d77
+highlight occurrences=1024 kind=1 selected=1 mode=0 alpha=120 paint_ms=80.345 sha256=623e79b4ff6f6f1362c4aa828c07179054fb98f046ea2ce51232ee115e435d77
+highlight occurrences=1024 kind=1 selected=1 mode=1 alpha=255 paint_ms=79.673 sha256=623e79b4ff6f6f1362c4aa828c07179054fb98f046ea2ce51232ee115e435d77
+highlight occurrences=1024 kind=1 selected=1 mode=1 alpha=120 paint_ms=81.354 sha256=623e79b4ff6f6f1362c4aa828c07179054fb98f046ea2ce51232ee115e435d77
+highlight occurrences=1024 kind=1 selected=1 mode=2 alpha=255 paint_ms=83.401 sha256=623e79b4ff6f6f1362c4aa828c07179054fb98f046ea2ce51232ee115e435d77
+highlight occurrences=1024 kind=1 selected=1 mode=2 alpha=120 paint_ms=80.746 sha256=623e79b4ff6f6f1362c4aa828c07179054fb98f046ea2ce51232ee115e435d77
+highlight occurrences=1024 kind=1 selected=1 mode=3 alpha=255 paint_ms=80.019 sha256=11755e67cf479c34fe7cffa54d91f6907cb4b28d292cfe4b4b294f7b0e896280
+highlight occurrences=1024 kind=1 selected=1 mode=3 alpha=120 paint_ms=79.080 sha256=b4d595377f062ff76b2db4931df8dc2a93ed962a9669b08c5fc54dcce1fb8ed5
+highlight occurrences=1024 kind=1 selected=1 mode=4 alpha=255 paint_ms=80.781 sha256=15aaa4488cb2134457679cada16351f12c69aa5f43a1b02662701650a59c9e3c
+highlight occurrences=1024 kind=1 selected=1 mode=4 alpha=120 paint_ms=83.041 sha256=b4bbfa18d5d402755a417e47db5860e577303862d0a14c165f5159e3ed4350be
+occurrences=1024 triangles=12288 scene_ms=103.491 set_mesh_ms=94.450 object_bounds_ms=7.287 pick_ms=5.221 mouse_dispatch_ms=5.157 candidates=100 confirmation=passed

@@ -3306,15 +3306,14 @@ if (impl_->show_origins) {
     const auto component_edges=confirmed_component_edge_indices();
     const auto edge_is_highlighted = [&](const zima::kernel::ViewerEdge& edge,
             std::size_t mesh_edge_index,
-            const std::optional<ViewerCandidate>& highlighted) {
+            const std::optional<ViewerCandidate>& highlighted,
+            bool separate_candidate_wire) {
         const auto key = edge_key(edge.reference);
         const bool preview = impl_->feature_preview_owner_ids.contains(edge.reference.owner_id) &&
             (impl_->display_mode == DisplayMode::Wire ||
              impl_->display_mode == DisplayMode::HiddenEdges ||
              impl_->display_mode == DisplayMode::NoHiddenEdges);
-        const bool candidate_match = highlighted &&
-            exact_edge_treatment_wire(highlighted) == nullptr &&
-            original_container_wire(highlighted) == nullptr &&
+        const bool candidate_match = highlighted && !separate_candidate_wire &&
             candidate_recolors_wire_edge(*highlighted, edge);
         return candidate_match ||
             impl_->edge_treatment_selection_edges.contains(key) ||
@@ -3333,11 +3332,9 @@ if (impl_->show_origins) {
     const auto edge_display_color = [&](const zima::kernel::ViewerEdge& edge,
             std::size_t mesh_edge_index,
             const std::optional<ViewerCandidate>& highlighted,
-            bool candidate_is_confirmed) {
+            bool candidate_is_confirmed, bool separate_candidate_wire) {
         const auto key = edge_key(edge.reference);
-        const bool candidate_match = highlighted &&
-            exact_edge_treatment_wire(highlighted) == nullptr &&
-            original_container_wire(highlighted) == nullptr &&
+        const bool candidate_match = highlighted && !separate_candidate_wire &&
             candidate_recolors_wire_edge(*highlighted, edge);
         const bool reference_selected =
             impl_->edge_treatment_selection_edges.contains(key) ||
@@ -3388,6 +3385,11 @@ if (impl_->show_origins) {
         if (!highlighted && !impl_->candidates.empty()) {
             highlighted = impl_->candidates[impl_->active_candidate];
         }
+        // Candidate and mesh are constant throughout this pass. In particular,
+        // original_container_wire may scan all display edges for derived sheet
+        // ownership; do that once, rather than once for every rendered edge.
+        const bool separate_candidate_wire = exact_edge_treatment_wire(highlighted) != nullptr ||
+            original_container_wire(highlighted) != nullptr;
         const auto draw_ranges = [&](const std::vector<GLint>& first,
                                      const std::vector<GLsizei>& count) {
             for (std::size_t index = 0; index < first.size(); ++index) {
@@ -3405,7 +3407,7 @@ if (impl_->show_origins) {
                  index < impl_->line_ranges.size(); ++index) {
                 if (edge_is_highlighted(
                         impl_->line_edges[index],
-                        impl_->line_mesh_edge_indices[index], highlighted)) continue;
+                        impl_->line_mesh_edge_indices[index], highlighted, separate_candidate_wire)) continue;
                 const auto& semantic =
                     impl_->line_edges[index].reference.semantic_key;
                 const bool cosmetic_thread = semantic.starts_with(
@@ -3450,9 +3452,9 @@ if (impl_->show_origins) {
             const auto& edge = impl_->line_edges[index];
             const auto mesh_edge_index = impl_->line_mesh_edge_indices[index];
             if (!edge_is_highlighted(
-                    edge, mesh_edge_index, highlighted)) continue;
+                    edge, mesh_edge_index, highlighted, separate_candidate_wire)) continue;
             const auto color = edge_display_color(
-                edge, mesh_edge_index, highlighted, confirmed);
+                edge, mesh_edge_index, highlighted, confirmed, separate_candidate_wire);
             auto batch = std::find_if(batches.begin(), batches.end(),
                 [&](const auto& value) { return value.color == color; });
             if (batch == batches.end()) {
@@ -4749,6 +4751,7 @@ if (impl_->show_origins) {
         };
         for (const auto& edge : impl_->container_inspection_wire) draw_selected_wire(edge);
         const auto* treatment_wire = exact_edge_treatment_wire(impl_->confirmed_candidate);
+        const auto* original_wire = original_container_wire(impl_->confirmed_candidate);
         for (std::size_t index = 0; index < impl_->mesh.edges.size(); ++index) {
             const auto& edge = impl_->mesh.edges[index];
             // The Sketch pass already paints confirmed wires with their
@@ -4757,8 +4760,7 @@ if (impl_->show_origins) {
                 (edge.construction || edge.dash_dot) && !edge.filled_text) continue;
             const auto key = edge_key(edge.reference);
             const bool candidate_match = impl_->confirmed_candidate &&
-                original_container_wire(impl_->confirmed_candidate) == nullptr &&
-                treatment_wire == nullptr &&
+                original_wire == nullptr && treatment_wire == nullptr &&
                 candidate_recolors_wire_edge(*impl_->confirmed_candidate, edge);
             const bool reference_selected = component_edges.contains(index) ||
                 impl_->feature_selected_edge_indices.contains(index) ||

@@ -16,6 +16,10 @@ records bounded reuse of immutable Symbol definitions and exact geometry checks.
 
 ## Result and scope
 
+The [container highlight follow-up](performance/20261001-container-highlight.md)
+removes repeated full-edge scans within one paint pass, with separate feature/
+occurrence measurements and 100 identical before/after framebuffer hashes.
+
 The [Assembly visibility-refresh follow-up](performance/20261001-visibility-refresh.md)
 reuses one freshly assembled scene within an ordinary refresh, retaining full
 Tree/picker updates and recording paired measurements and identical frames.
