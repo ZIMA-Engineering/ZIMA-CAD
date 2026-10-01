@@ -269,7 +269,10 @@ void AssemblyWorkspaceWindow::show_sweep_properties(zima::document::FeatureKind 
         part_rollback_.reset();viewer_->set_transient_edges({});viewer_->set_transient_labels({});viewer_->set_transient_points({});viewer_->set_candidate_filter({});viewer_->set_selection_contract({});viewer_->clear_selection();
         tree_->setProperty("commandSelectionActive",false);preserve_view_on_refresh_=true;refresh_tabs();refresh_scene();
     });
-    preserve_view_on_refresh_=true;refresh_scene();dialog->show();dialog->changed();
+    // The visible Sweep preview immediately publishes the complete rollback
+    // scene, dimensions and origins. Do not build the same scene beforehand.
+    if(transition){preserve_view_on_refresh_=true;refresh_scene();}
+    dialog->show();dialog->changed();
     if(id.empty())start_primitive_reference_selection(0,true);
 }
 

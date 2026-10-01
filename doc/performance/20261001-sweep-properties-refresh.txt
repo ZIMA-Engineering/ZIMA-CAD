@@ -1,0 +1,179 @@
+=== helical before ===
+PROFILE setup-references 23.4123
+PROFILE callbacks 7.9098
+PROFILE initial-refresh 79.4597
+PROFILE dialog-show 4.7486
+PROFILE preview-setup 0.4427
+PROFILE preview-refresh 72.6962
+PROFILE preview-path 1.0738
+PROFILE preview-overlays 0.5342
+PROFILE changed 74.8827
+Sweep no-op trial=0 open_ms=419.653 close_ms=259.203 cancel=0 refreshes=3 preview_sha256=b32c7325843b1d3e418350191309e12adfd70206c19af39c3338677ed8964ebd restored_sha256=997b1977b822dcc760008534b6e83468efa55e877715b1995f8a52f01e87769e
+PROFILE setup-references 19.617
+PROFILE callbacks 7.2847
+PROFILE initial-refresh 77.4047
+PROFILE dialog-show 3.9237
+PROFILE preview-setup 0.3783
+PROFILE preview-refresh 67.5628
+PROFILE preview-path 1.0542
+PROFILE preview-overlays 0.4992
+PROFILE changed 69.5628
+Sweep no-op trial=1 open_ms=366.562 close_ms=229.87 cancel=0 refreshes=3 preview_sha256=b32c7325843b1d3e418350191309e12adfd70206c19af39c3338677ed8964ebd restored_sha256=5778221080e53339e84c7e119ecc8ceea44563e1cc7dd22ddb61ae2662b253d7
+PROFILE setup-references 18.8283
+PROFILE callbacks 7.9467
+PROFILE initial-refresh 78.7956
+PROFILE dialog-show 3.4872
+PROFILE preview-setup 0.3524
+PROFILE preview-refresh 67.8996
+PROFILE preview-path 1.2755
+PROFILE preview-overlays 0.6785
+PROFILE changed 70.2719
+Sweep no-op trial=2 open_ms=374.299 close_ms=237.727 cancel=0 refreshes=3 preview_sha256=b32c7325843b1d3e418350191309e12adfd70206c19af39c3338677ed8964ebd restored_sha256=5778221080e53339e84c7e119ecc8ceea44563e1cc7dd22ddb61ae2662b253d7
+PROFILE setup-references 21.378
+PROFILE callbacks 7.827
+PROFILE initial-refresh 85.8207
+PROFILE dialog-show 3.5409
+PROFILE preview-setup 0.3571
+PROFILE preview-refresh 74.1082
+PROFILE preview-path 1.4092
+PROFILE preview-overlays 0.7217
+PROFILE changed 76.6757
+Sweep no-op trial=3 open_ms=384.575 close_ms=243.568 cancel=1 refreshes=3 preview_sha256=b32c7325843b1d3e418350191309e12adfd70206c19af39c3338677ed8964ebd restored_sha256=f6422ff702d7607a442fbbae6348866458c1d2daf48fe1f1283fd88b105131a8
+PROFILE setup-references 19.9936
+PROFILE callbacks 6.8263
+PROFILE initial-refresh 71.9911
+PROFILE dialog-show 3.9836
+PROFILE preview-setup 0.4002
+PROFILE preview-refresh 66.957
+PROFILE preview-path 1.1525
+PROFILE preview-overlays 0.7083
+PROFILE changed 69.3108
+Sweep no-op trial=4 open_ms=355.965 close_ms=228.605 cancel=1 refreshes=3 preview_sha256=b32c7325843b1d3e418350191309e12adfd70206c19af39c3338677ed8964ebd restored_sha256=268061192e51291050affd884f6df58c5d74198d834e36746859e7dfffb62d71
+PROFILE setup-references 18.0251
+PROFILE callbacks 8.5939
+PROFILE initial-refresh 79.3938
+PROFILE dialog-show 3.4349
+PROFILE preview-setup 0.37
+PROFILE preview-refresh 65.2063
+PROFILE preview-path 1.0559
+PROFILE preview-overlays 0.5114
+PROFILE changed 67.2184
+Sweep no-op trial=5 open_ms=378.295 close_ms=225.914 cancel=1 refreshes=3 preview_sha256=b32c7325843b1d3e418350191309e12adfd70206c19af39c3338677ed8964ebd restored_sha256=e2fd660474601be8a74c0bcb8c576466de794d71135592f731a240b75feb8d7f
+
+=== sweep2d before ===
+PROFILE setup-references 9.4776
+PROFILE callbacks 3.2057
+PROFILE initial-refresh 4.7357
+PROFILE dialog-show 4.0129
+PROFILE preview-setup 0.1232
+PROFILE preview-refresh 4.8988
+PROFILE preview-path 0.5798
+PROFILE preview-overlays 0.0738
+PROFILE changed 5.7591
+Sweep no-op trial=0 open_ms=87.7851 close_ms=26.621 cancel=0 refreshes=3 preview_sha256=a69c567b5255cb86a3140edcc32cd1d72b163ca7343b2836080e43ff8960f831 restored_sha256=c44f1afa5aca68330aea96950c2aed8a8685f37b3b43c5f357ce83b67c7f6e8e
+PROFILE setup-references 6.6349
+PROFILE callbacks 2.5949
+PROFILE initial-refresh 4.2962
+PROFILE dialog-show 3.9004
+PROFILE preview-setup 0.0711
+PROFILE preview-refresh 4.3948
+PROFILE preview-path 0.4669
+PROFILE preview-overlays 0.0554
+PROFILE changed 5.0214
+Sweep no-op trial=1 open_ms=62.8327 close_ms=28.6019 cancel=0 refreshes=3 preview_sha256=a69c567b5255cb86a3140edcc32cd1d72b163ca7343b2836080e43ff8960f831 restored_sha256=0f178574440833210d0d754bf01d6874d28fcb7412e8559dc8fad1d4a379a205
+PROFILE setup-references 6.77
+PROFILE callbacks 2.1844
+PROFILE initial-refresh 4.4616
+PROFILE dialog-show 3.2328
+PROFILE preview-setup 0.0578
+PROFILE preview-refresh 3.917
+PROFILE preview-path 0.4418
+PROFILE preview-overlays 0.0533
+PROFILE changed 4.5028
+Sweep no-op trial=2 open_ms=53.0097 close_ms=26.1218 cancel=0 refreshes=3 preview_sha256=a69c567b5255cb86a3140edcc32cd1d72b163ca7343b2836080e43ff8960f831 restored_sha256=c44f1afa5aca68330aea96950c2aed8a8685f37b3b43c5f357ce83b67c7f6e8e
+PROFILE setup-references 6.1753
+PROFILE callbacks 1.9391
+PROFILE initial-refresh 4.3446
+PROFILE dialog-show 4.7682
+PROFILE preview-setup 0.0643
+PROFILE preview-refresh 4.1
+PROFILE preview-path 0.4337
+PROFILE preview-overlays 0.0544
+PROFILE changed 4.6856
+Sweep no-op trial=3 open_ms=52.9769 close_ms=27.1972 cancel=1 refreshes=3 preview_sha256=a69c567b5255cb86a3140edcc32cd1d72b163ca7343b2836080e43ff8960f831 restored_sha256=0f178574440833210d0d754bf01d6874d28fcb7412e8559dc8fad1d4a379a205
+PROFILE setup-references 7.6121
+PROFILE callbacks 2.3663
+PROFILE initial-refresh 3.8226
+PROFILE dialog-show 2.6224
+PROFILE preview-setup 0.0778
+PROFILE preview-refresh 3.2397
+PROFILE preview-path 0.4202
+PROFILE preview-overlays 0.0526
+PROFILE changed 3.8252
+Sweep no-op trial=4 open_ms=53.1624 close_ms=23.9589 cancel=1 refreshes=3 preview_sha256=a69c567b5255cb86a3140edcc32cd1d72b163ca7343b2836080e43ff8960f831 restored_sha256=c44f1afa5aca68330aea96950c2aed8a8685f37b3b43c5f357ce83b67c7f6e8e
+PROFILE setup-references 6.6517
+PROFILE callbacks 2.3615
+PROFILE initial-refresh 3.7492
+PROFILE dialog-show 2.6725
+PROFILE preview-setup 0.0468
+PROFILE preview-refresh 3.4194
+PROFILE preview-path 0.4373
+PROFILE preview-overlays 0.0543
+PROFILE changed 3.9911
+Sweep no-op trial=5 open_ms=50.6334 close_ms=23.9431 cancel=1 refreshes=3 preview_sha256=a69c567b5255cb86a3140edcc32cd1d72b163ca7343b2836080e43ff8960f831 restored_sha256=0f178574440833210d0d754bf01d6874d28fcb7412e8559dc8fad1d4a379a205
+
+=== sweep3d before ===
+Sweep no-op trial=0 open_ms=101.208 close_ms=9.6134 cancel=0 refreshes=3 preview_sha256=ddcb7ad5e6cfca48482b60fba1a2c62f268057767339e93022886262618bdfbd restored_sha256=5353debe0604a0b60e472837f0d29d4a9d13628c10ef24f3a4136f91af3eea04
+Sweep no-op trial=1 open_ms=60.8106 close_ms=11.8886 cancel=0 refreshes=3 preview_sha256=ddcb7ad5e6cfca48482b60fba1a2c62f268057767339e93022886262618bdfbd restored_sha256=5353debe0604a0b60e472837f0d29d4a9d13628c10ef24f3a4136f91af3eea04
+Sweep no-op trial=2 open_ms=57.7384 close_ms=10.1094 cancel=0 refreshes=3 preview_sha256=ddcb7ad5e6cfca48482b60fba1a2c62f268057767339e93022886262618bdfbd restored_sha256=5353debe0604a0b60e472837f0d29d4a9d13628c10ef24f3a4136f91af3eea04
+Sweep no-op trial=3 open_ms=63.7022 close_ms=8.7357 cancel=1 refreshes=3 preview_sha256=ddcb7ad5e6cfca48482b60fba1a2c62f268057767339e93022886262618bdfbd restored_sha256=5353debe0604a0b60e472837f0d29d4a9d13628c10ef24f3a4136f91af3eea04
+Sweep no-op trial=4 open_ms=58.3997 close_ms=10.7821 cancel=1 refreshes=3 preview_sha256=ddcb7ad5e6cfca48482b60fba1a2c62f268057767339e93022886262618bdfbd restored_sha256=5353debe0604a0b60e472837f0d29d4a9d13628c10ef24f3a4136f91af3eea04
+Sweep no-op trial=5 open_ms=58.7913 close_ms=10.1619 cancel=1 refreshes=3 preview_sha256=ddcb7ad5e6cfca48482b60fba1a2c62f268057767339e93022886262618bdfbd restored_sha256=5353debe0604a0b60e472837f0d29d4a9d13628c10ef24f3a4136f91af3eea04
+
+=== helical after ===
+Sweep no-op trial=0 open_ms=176.272 close_ms=230.609 cancel=0 refreshes=1 preview_sha256=b32c7325843b1d3e418350191309e12adfd70206c19af39c3338677ed8964ebd restored_sha256=bf01001c4bd6355ae397314da8fa18ed86d6b5bfd0486ca998eda2ca1d1851fa
+Sweep no-op trial=1 open_ms=131.617 close_ms=240.046 cancel=0 refreshes=1 preview_sha256=b32c7325843b1d3e418350191309e12adfd70206c19af39c3338677ed8964ebd restored_sha256=46c34685f2d7eb062bde6ff7be70dbe0a67ef9076bbc3ad43734725af7208a3a
+Sweep no-op trial=2 open_ms=135.017 close_ms=221.672 cancel=0 refreshes=1 preview_sha256=b32c7325843b1d3e418350191309e12adfd70206c19af39c3338677ed8964ebd restored_sha256=c27eb95a113ca11e03b2177e1aef75a98dd6d1f13028d85d5c9a0c6a27056bf8
+Sweep no-op trial=3 open_ms=140.689 close_ms=264.537 cancel=1 refreshes=1 preview_sha256=b32c7325843b1d3e418350191309e12adfd70206c19af39c3338677ed8964ebd restored_sha256=035454a82d35ca005b5b6099b9beb04854bbdd01fd6437192844dad2425ce4bc
+Sweep no-op trial=4 open_ms=138.586 close_ms=231.674 cancel=1 refreshes=1 preview_sha256=b32c7325843b1d3e418350191309e12adfd70206c19af39c3338677ed8964ebd restored_sha256=7e82cf06d41310d9a6ef4af3575049e385890a4ac89768b4e4cae0afaaa7d027
+Sweep no-op trial=5 open_ms=131.674 close_ms=235.681 cancel=1 refreshes=1 preview_sha256=b32c7325843b1d3e418350191309e12adfd70206c19af39c3338677ed8964ebd restored_sha256=479822cf67ee076cd7de3c789983421178ab76bd0817e2845d095dc3a859dc75
+
+=== sweep2d after ===
+Sweep no-op trial=0 open_ms=84.2029 close_ms=27.2602 cancel=0 refreshes=1 preview_sha256=a69c567b5255cb86a3140edcc32cd1d72b163ca7343b2836080e43ff8960f831 restored_sha256=0f178574440833210d0d754bf01d6874d28fcb7412e8559dc8fad1d4a379a205
+Sweep no-op trial=1 open_ms=42.7363 close_ms=24.3253 cancel=0 refreshes=1 preview_sha256=a69c567b5255cb86a3140edcc32cd1d72b163ca7343b2836080e43ff8960f831 restored_sha256=c44f1afa5aca68330aea96950c2aed8a8685f37b3b43c5f357ce83b67c7f6e8e
+Sweep no-op trial=2 open_ms=35.5154 close_ms=28.0742 cancel=0 refreshes=1 preview_sha256=a69c567b5255cb86a3140edcc32cd1d72b163ca7343b2836080e43ff8960f831 restored_sha256=0f178574440833210d0d754bf01d6874d28fcb7412e8559dc8fad1d4a379a205
+Sweep no-op trial=3 open_ms=39.1028 close_ms=23.7201 cancel=1 refreshes=1 preview_sha256=a69c567b5255cb86a3140edcc32cd1d72b163ca7343b2836080e43ff8960f831 restored_sha256=c44f1afa5aca68330aea96950c2aed8a8685f37b3b43c5f357ce83b67c7f6e8e
+Sweep no-op trial=4 open_ms=39.9266 close_ms=24.1989 cancel=1 refreshes=1 preview_sha256=a69c567b5255cb86a3140edcc32cd1d72b163ca7343b2836080e43ff8960f831 restored_sha256=c44f1afa5aca68330aea96950c2aed8a8685f37b3b43c5f357ce83b67c7f6e8e
+Sweep no-op trial=5 open_ms=44.2092 close_ms=23.349 cancel=1 refreshes=1 preview_sha256=a69c567b5255cb86a3140edcc32cd1d72b163ca7343b2836080e43ff8960f831 restored_sha256=c44f1afa5aca68330aea96950c2aed8a8685f37b3b43c5f357ce83b67c7f6e8e
+
+=== sweep3d after ===
+Sweep no-op trial=0 open_ms=99.8465 close_ms=8.82 cancel=0 refreshes=3 preview_sha256=ddcb7ad5e6cfca48482b60fba1a2c62f268057767339e93022886262618bdfbd restored_sha256=5353debe0604a0b60e472837f0d29d4a9d13628c10ef24f3a4136f91af3eea04
+Sweep no-op trial=1 open_ms=59.815 close_ms=12.8122 cancel=0 refreshes=3 preview_sha256=ddcb7ad5e6cfca48482b60fba1a2c62f268057767339e93022886262618bdfbd restored_sha256=5353debe0604a0b60e472837f0d29d4a9d13628c10ef24f3a4136f91af3eea04
+Sweep no-op trial=2 open_ms=58.6954 close_ms=9.1652 cancel=0 refreshes=3 preview_sha256=ddcb7ad5e6cfca48482b60fba1a2c62f268057767339e93022886262618bdfbd restored_sha256=5353debe0604a0b60e472837f0d29d4a9d13628c10ef24f3a4136f91af3eea04
+Sweep no-op trial=3 open_ms=61.2141 close_ms=10.899 cancel=1 refreshes=3 preview_sha256=ddcb7ad5e6cfca48482b60fba1a2c62f268057767339e93022886262618bdfbd restored_sha256=5353debe0604a0b60e472837f0d29d4a9d13628c10ef24f3a4136f91af3eea04
+Sweep no-op trial=4 open_ms=62.5284 close_ms=9.2467 cancel=1 refreshes=3 preview_sha256=ddcb7ad5e6cfca48482b60fba1a2c62f268057767339e93022886262618bdfbd restored_sha256=5353debe0604a0b60e472837f0d29d4a9d13628c10ef24f3a4136f91af3eea04
+Sweep no-op trial=5 open_ms=63.8999 close_ms=9.0163 cancel=1 refreshes=3 preview_sha256=ddcb7ad5e6cfca48482b60fba1a2c62f268057767339e93022886262618bdfbd restored_sha256=5353debe0604a0b60e472837f0d29d4a9d13628c10ef24f3a4136f91af3eea04
+
+=== helical final ===
+Sweep no-op trial=0 open_ms=186.8 close_ms=228.658 cancel=0 refreshes=1 preview_sha256=b32c7325843b1d3e418350191309e12adfd70206c19af39c3338677ed8964ebd restored_sha256=145c9aab1a71f61508c0e937a10d729a342162a7257d89dcc9c2541765639998
+Sweep no-op trial=1 open_ms=134.695 close_ms=227.733 cancel=0 refreshes=1 preview_sha256=b32c7325843b1d3e418350191309e12adfd70206c19af39c3338677ed8964ebd restored_sha256=54db5bc2ca524b6332bf18f6398fd78ae20f2cc44081b233aabcd5d02280b6bb
+Sweep no-op trial=2 open_ms=126.486 close_ms=228.987 cancel=0 refreshes=1 preview_sha256=b32c7325843b1d3e418350191309e12adfd70206c19af39c3338677ed8964ebd restored_sha256=6819403c9461762efa12f5f6f8a0b200d62eaee7dfaa6b074e81b0a7970d5951
+Sweep no-op trial=3 open_ms=131.891 close_ms=216.583 cancel=1 refreshes=1 preview_sha256=b32c7325843b1d3e418350191309e12adfd70206c19af39c3338677ed8964ebd restored_sha256=e37b3e0ff436615c314c22788d36a0f72ac18410e76ff5e277cdd333f8cd3af6
+Sweep no-op trial=4 open_ms=123.586 close_ms=234.87 cancel=1 refreshes=1 preview_sha256=b32c7325843b1d3e418350191309e12adfd70206c19af39c3338677ed8964ebd restored_sha256=ce399635ba908481d3a20e70a1f480817d0f029d6e843e4342e17ae696e9e348
+Sweep no-op trial=5 open_ms=135.642 close_ms=225.042 cancel=1 refreshes=1 preview_sha256=b32c7325843b1d3e418350191309e12adfd70206c19af39c3338677ed8964ebd restored_sha256=f14f84c0c4c9c8f9c65f33309c2a65bdf0c0a4e2bd88d2e734e3bd776f9667c7
+
+=== sweep2d final ===
+Sweep no-op trial=0 open_ms=75.6121 close_ms=24.5319 cancel=0 refreshes=1 preview_sha256=a69c567b5255cb86a3140edcc32cd1d72b163ca7343b2836080e43ff8960f831 restored_sha256=0f178574440833210d0d754bf01d6874d28fcb7412e8559dc8fad1d4a379a205
+Sweep no-op trial=1 open_ms=40.666 close_ms=24.6249 cancel=0 refreshes=1 preview_sha256=a69c567b5255cb86a3140edcc32cd1d72b163ca7343b2836080e43ff8960f831 restored_sha256=c44f1afa5aca68330aea96950c2aed8a8685f37b3b43c5f357ce83b67c7f6e8e
+Sweep no-op trial=2 open_ms=38.5471 close_ms=24.9522 cancel=0 refreshes=1 preview_sha256=a69c567b5255cb86a3140edcc32cd1d72b163ca7343b2836080e43ff8960f831 restored_sha256=c44f1afa5aca68330aea96950c2aed8a8685f37b3b43c5f357ce83b67c7f6e8e
+Sweep no-op trial=3 open_ms=36.7005 close_ms=23.2514 cancel=1 refreshes=1 preview_sha256=a69c567b5255cb86a3140edcc32cd1d72b163ca7343b2836080e43ff8960f831 restored_sha256=0f178574440833210d0d754bf01d6874d28fcb7412e8559dc8fad1d4a379a205
+Sweep no-op trial=4 open_ms=37.1256 close_ms=24.2808 cancel=1 refreshes=1 preview_sha256=a69c567b5255cb86a3140edcc32cd1d72b163ca7343b2836080e43ff8960f831 restored_sha256=0f178574440833210d0d754bf01d6874d28fcb7412e8559dc8fad1d4a379a205
+Sweep no-op trial=5 open_ms=36.09 close_ms=22.364 cancel=1 refreshes=1 preview_sha256=a69c567b5255cb86a3140edcc32cd1d72b163ca7343b2836080e43ff8960f831 restored_sha256=0f178574440833210d0d754bf01d6874d28fcb7412e8559dc8fad1d4a379a205
+
+=== sweep3d final ===
+Sweep no-op trial=0 open_ms=104.09 close_ms=9.7266 cancel=0 refreshes=3 preview_sha256=ddcb7ad5e6cfca48482b60fba1a2c62f268057767339e93022886262618bdfbd restored_sha256=5353debe0604a0b60e472837f0d29d4a9d13628c10ef24f3a4136f91af3eea04
+Sweep no-op trial=1 open_ms=58.3347 close_ms=9.5139 cancel=0 refreshes=3 preview_sha256=ddcb7ad5e6cfca48482b60fba1a2c62f268057767339e93022886262618bdfbd restored_sha256=5353debe0604a0b60e472837f0d29d4a9d13628c10ef24f3a4136f91af3eea04
+Sweep no-op trial=2 open_ms=58.9048 close_ms=9.282 cancel=0 refreshes=3 preview_sha256=ddcb7ad5e6cfca48482b60fba1a2c62f268057767339e93022886262618bdfbd restored_sha256=5353debe0604a0b60e472837f0d29d4a9d13628c10ef24f3a4136f91af3eea04
+Sweep no-op trial=3 open_ms=58.98 close_ms=11.183 cancel=1 refreshes=3 preview_sha256=ddcb7ad5e6cfca48482b60fba1a2c62f268057767339e93022886262618bdfbd restored_sha256=5353debe0604a0b60e472837f0d29d4a9d13628c10ef24f3a4136f91af3eea04
+Sweep no-op trial=4 open_ms=62.3969 close_ms=8.4075 cancel=1 refreshes=3 preview_sha256=ddcb7ad5e6cfca48482b60fba1a2c62f268057767339e93022886262618bdfbd restored_sha256=5353debe0604a0b60e472837f0d29d4a9d13628c10ef24f3a4136f91af3eea04
+Sweep no-op trial=5 open_ms=62.4685 close_ms=10.1161 cancel=1 refreshes=3 preview_sha256=ddcb7ad5e6cfca48482b60fba1a2c62f268057767339e93022886262618bdfbd restored_sha256=5353debe0604a0b60e472837f0d29d4a9d13628c10ef24f3a4136f91af3eea04

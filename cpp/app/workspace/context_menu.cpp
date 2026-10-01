@@ -88,8 +88,17 @@ void AssemblyWorkspaceWindow::show_tree_item_properties(QTreeWidgetItem* item) {
         kind == QStringLiteral("assembly-cut") ||
         kind == QStringLiteral("assembly-sketch-container")) {
         construction_dimension_object_id_ = id;
-        preserve_view_on_refresh_ = true;
-        refresh_scene();
+        // 2D/H Sweep publishes the dimensions together with its rollback preview
+        // below. A full-result scene immediately before that is never consumed.
+        bool sweep_preview_follows=false;
+        if(kind==QStringLiteral("part-container")&&!properties_dialog_&&active_sketch_id_.empty())
+            if(const auto* part=workspace_.open_part(workspace_.active_document_id()))
+                if(const auto* feature=part->session.document().find_container(id))
+                    sweep_preview_follows=(feature->feature_kind==document::FeatureKind::Sweep2D||
+                        feature->feature_kind==document::FeatureKind::HelicalSweep)&&
+                        part->session.document().history_index(id).has_value()&&
+                        resolve_active_occurrence(part->session.document().document_id).has_value();
+        if(!sweep_preview_follows){preserve_view_on_refresh_ = true;refresh_scene();}
     }
     if (kind == QStringLiteral("part-container") ||
         kind == QStringLiteral("part-hole-component") ||

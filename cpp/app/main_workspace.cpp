@@ -1,3 +1,5 @@
+#include <QCryptographicHash>
+#include <zima/document/viewer_packet_json.hpp>
 #include "../common/datum_display.hpp"
 #include "../tests/gui_profile_fixture.hpp"
 #include <zima/kernel/annotation_layout.hpp>
@@ -1962,7 +1964,22 @@ int verify_helical_sweep_command(QApplication& application,zima::app::AssemblyWo
         auto* undo=window.findChild<QAction*>("undoAction");auto* redo=window.findChild<QAction*>("redoAction");
         if(!verify(undo&&redo,"Missing Undo/Redo actions"))return 1;
         const bool undo_before=undo->isEnabled(),redo_before=redo->isEnabled();
-        for(int trial=0;trial<3;++trial) {
+        auto* view=dynamic_cast<zima::viewer::MeshView*>(window.findChild<QOpenGLWidget*>("modelWorkspace"));
+        if(!verify(view,"Missing Sweep view"))return 1;
+        const auto frame_hash=[&] {
+            const auto pixels=view->grabFramebuffer().convertToFormat(QImage::Format_RGBA8888);
+            return QCryptographicHash::hash(QByteArrayView(reinterpret_cast<const char*>(pixels.constBits()),pixels.sizeInBytes()),QCryptographicHash::Sha256).toHex();
+        };
+        const auto camera=view->camera_state();
+        const auto mesh_packet=[&] {
+            zima::kernel::BodyResult body;body.mesh=view->mesh();
+            return zima::document::serialize_body_result(body,false);
+        };
+        const auto initial_packet=mesh_packet();
+        QByteArray first_preview;
+        for(int trial=0;trial<6;++trial) {
+            const bool cancel=trial>=3;
+            const auto mesh_revision=view->base_mesh_revision();
             auto* tree=window.findChild<QTreeWidget*>("documentTree");QTreeWidgetItem* row{};
             for(QTreeWidgetItemIterator i(tree);*i;++i)if((*i)->data(0,Qt::UserRole).toString().toStdString()==feature->id&&(*i)->data(0,Qt::UserRole+3)=="part-container"){row=*i;break;}
             if(!verify(row,"No Helical tree row"))return 1;
@@ -1972,12 +1989,20 @@ int verify_helical_sweep_command(QApplication& application,zima::app::AssemblyWo
                 (dynamic_cast<zima::app::SweepPlacementDialog*>(candidate)||dynamic_cast<zima::app::ConstructionPropertiesDialog*>(candidate)))
                 dialog=dynamic_cast<zima::ui::PropertiesSubWindow*>(candidate);
             if(!verify(dialog,"Sweep Properties did not open"))return 1;
-            timer.restart();dialog->buttons()->button(QDialogButtonBox::Ok)->click();application.processEvents();const auto closing=timer.nsecsElapsed()/1e6;
+            const auto preview_hash=frame_hash();
+            if(trial==0)first_preview=preview_hash;
+            if(!verify(preview_hash==first_preview,"Repeated Sweep Properties changed the preview frame"))return 1;
+            const auto refreshes=view->base_mesh_revision()-mesh_revision;
+            timer.restart();dialog->buttons()->button(cancel?QDialogButtonBox::Cancel:QDialogButtonBox::Ok)->click();application.processEvents();const auto closing=timer.nsecsElapsed()/1e6;
             if(!verify(!dialog->isVisible(),"Unchanged Helical confirmation failed"))return 1;
             QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
             if(!verify(window.execute_console_command("documents").data==before&&
                 (undo&&undo->isEnabled())==undo_before&&(redo&&redo->isEnabled())==redo_before,"No-op changed document state or Undo/Redo"))return 1;
-            std::cout<<"Sweep no-op trial="<<trial<<" open_ms="<<opening<<" ok_ms="<<closing<<std::endl;
+            if(!verify(view->camera_state()==camera,"Sweep Properties changed the camera"))return 1;
+            if(!verify(mesh_packet()==initial_packet,"Sweep Properties failed to restore the display packet"))return 1;
+            std::cout<<"Sweep no-op trial="<<trial<<" open_ms="<<opening<<" close_ms="<<closing
+                <<" cancel="<<cancel<<" refreshes="<<refreshes<<" preview_sha256="<<preview_hash.constData()
+                <<" restored_sha256="<<frame_hash().constData()<<std::endl;
         }
         return 0;
     }

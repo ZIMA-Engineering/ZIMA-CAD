@@ -98,3 +98,6 @@ Logs: `build/sweep-audit-final-build.log`, `build/sweep-audit-regression.log`,
 GUI/CLI were rebuilt, the development launcher is unchanged, and no portable
 release or Linux verification was performed. Localization review found no changed
 product UI text; the existing five-language validation passed.
+
+Follow-up: [Sweep Properties scene publication](20261001-sweep-properties-refresh.md)
+measures and removes redundant GUI scene preparation.
