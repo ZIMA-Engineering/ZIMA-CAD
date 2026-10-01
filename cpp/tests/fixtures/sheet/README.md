@@ -2,12 +2,15 @@
 
 - `box-cross-branch.prtz` exercises a branched Sheet Profile box and shared
   references during Unbend/Bend Back.
-- `tilted-cone-with-bends.prtz` reproduces the reported `04.prtz` case: a Flat,
-  two Sheet Profiles, Sheet Cut, an attached Revolved Sheet with an inclined
+- `tilted-cone-with-bends.prtz` reproduces the reported `04.prtz` case: two Flats
+  (including the straight continuation), two Sheet Profiles, Sheet Cut, an attached Revolved Sheet with an inclined
   axis. Tests append Unbend All and Bend Back. Calculated body caches were removed; native authored
   history, ancestry and references were preserved. The cone previously unfolded
   alone but failed when unrelated bend partition planes split its material.
   Tests read this fixture or work on temporary copies, never save into it.
+- `profile-side-twist.prtz` attaches a Twisted Sheet to the side of a Flat
+  continuation after a Bend. Its regression verifies the original physical
+  attachment, both material-side signs, native persistence and sheet-state history.
 
 The cone and profile-side-twist fixtures explicitly mark original point
 references with `body_edge=false` (2026-09-23). This updates the authored test
@@ -110,5 +113,52 @@ Evidence: `build/cone-fixture-rebuild/native-regression.log`,
 diagnostics and this documentation are English. This fixture reconstruction does
 not add legacy-file compatibility or require a new product executable.
 
-`profile-side-twist.prtz` remains a separate outdated fixture; its suite is not
-claimed as passing by either repair above.
+## Profile-side Twisted Sheet reconstruction — 2026-10-01
+
+`profile-side-twist.prtz` also contained a straight continuation inside a Bend.
+The rebuilt current-format fixture retains the original circular arc and places
+an ordinary attached Flat, 20 mm long, immediately after it. The Twisted Sheet
+now references the corresponding original Flat boundary, its thickness face and
+its endpoint. Existing feature IDs, twist length (100 mm), width (20 mm), angle
+(90 degrees), thickness (1 mm) and twist direction remain unchanged.
+
+The Flat adds 89.44373321533203 × 20 × 1 = 1788.8746643066406 mm³ of material.
+The regression checks that independent analytic increment against calculated
+boundary volumes. It also compares every preview sample of the recreated twist
+with its original authored frame, to a 1e-7 mm tolerance. During reconstruction,
+the largest observed sample deviation was approximately 1.5e-14 mm.
+
+The Flat's directed boundary runs opposite to the former Bend trajectory edge.
+Consequently its derived `attachment_material_side` is +1 and its endpoint
+`flip` is true, whereas the former frame used -1 and false. Both fields are
+resolved by existing attachment code. This is a change of reference frame, not
+a change of the selected physical edge or material side: the original joining
+outline and the entire sampled twist occupy the same positions. The test
+explicitly retains negative-side coverage by selecting the opposite surface
+boundary from both endpoints, calculating it, checking containment in the real
+joining face, then round-tripping and regenerating its native definition.
+
+The native writer produces INI format 46 and current Body metadata. All twelve
+user-parameter values are preserved in `UserParameterValues/Data`; a final
+explicit regeneration restores the relation-derived mass to 0.076 kg after the
+temporary suppressed construction state. The committed fixture omits calculated
+caches, so its test starts from authored data. User-authored localized names and
+the existing relation text remain unchanged.
+
+The fixture regression also uses actual workspace sheet-state transactions for
+Unbend and Bend Back, checks Undo/Redo against complete source definitions (while retaining allocated
+dimension numbers according to the existing history contract), and retains the existing persistence and formed-volume checks. No production geometry,
+placement, reader, or side-resolution implementation changes. No tolerance is
+relaxed, and no old-format compatibility path is added.
+
+Localization review: only English test diagnostics and documentation are added;
+there are no new product UI strings. Test results are recorded in
+`build/twist-fixture-rebuild/final-tests.log` (dependent sheet-state and localization
+suites) and `build/twist-fixture-rebuild/twist-final-test.log` (full twist suite);
+native reconstruction evidence is
+in `build/twist-fixture-rebuild/final-native-regeneration.log`.
+
+Final validation passed: the complete `zima_cpp_twisted_sheet_tests` suite
+(102.56 seconds), `zima_cpp_sheet_state_command_tests` (9.51 seconds), and
+`zima_cpp_translations_contract` (5.72 seconds). These are regression-run times,
+not an application performance comparison.

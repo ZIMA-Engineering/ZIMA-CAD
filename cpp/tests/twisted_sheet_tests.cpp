@@ -8,6 +8,7 @@
 #include <zima/workspace/primitive_operations.hpp>
 #include <zima/workspace/bend_operations.hpp>
 #include <zima/workspace/sheet_state_operations.hpp>
+#include <zima/workspace/part_transactions.hpp>
 #include <zima/workspace/workspace.hpp>
 #include <algorithm>
 #include <chrono>
@@ -377,20 +378,94 @@ int main() {
         verify();verify_chain();
         kernel::OcctKernel kernel;
         auto part=document::PartDocument::load("cpp/tests/fixtures/sheet/profile-side-twist.prtz");
+        check(part.user_parameter_values.size()==12&&part.user_parameter_values.at("mass").at("")=="0.076"&&
+            part.user_parameter_values.at("material").at("")=="S235JR",
+            "Profile-side fixture lost its authored parameter values");
         const auto formed=workspace::calculate_part_with_resolved_references(kernel,part);
         check(formed.back().calculation_errors.empty(),"Profile-side fixture cannot calculate");
         const auto twist=std::ranges::find_if(part.history,[](const auto& f){return f.feature_kind==document::FeatureKind::TwistedSheet;});
-        check(twist!=part.history.end()&&twist->twisted_sheet.attachment_material_side==-1,
-            "Profile-side fixture lost its opposite material side");
-        verify_join(part,*twist,formed.back().mesh.original_references);
+        check(part.history.size()==4&&std::ranges::none_of(part.history,[](const auto& f){return f.suppressed;}),
+            "Profile-side fixture lost an active source feature");
+        check(twist!=part.history.end()&&twist->twisted_sheet.attachment_material_side==1&&
+            twist->placement.references.at(2).flip,
+            "Profile-side fixture lost the directed Flat attachment");
+        const auto source_geometry=workspace::construction_reference_source_geometry(formed);
+        verify_join(part,*twist,source_geometry);
+        const auto* continuation=part.find_container(twist->placement.references.front().owner_id);
+        check(continuation&&continuation->feature_kind==document::FeatureKind::Flat&&continuation->flat.sheet_attachment&&
+            std::abs(continuation->flat.thickness-1)<1e-9&&
+            continuation->placement.references.front().owner_id=="01a0b9cea24a7c489f4558625b5eb778",
+            "Profile-side continuation lost its Bend attachment or thickness");
+        check(formed.size()==4&&std::abs((formed[2].volume-formed[1].volume)-89.44373321533203*20)<1e-6,
+            "Profile-side continuation changed the original straight wall material");
+        check(std::abs(twist->twisted_sheet.width-20)<1e-9&&std::abs(twist->twisted_sheet.length-100)<1e-9&&
+            std::abs(twist->twisted_sheet.thickness-1)<1e-9&&std::abs(twist->twisted_sheet.angle_degrees-90)<1e-9&&
+            !twist->twisted_sheet.reverse,
+            "Profile-side fixture changed its authored twist dimensions or direction");
+        // The new Flat boundary runs opposite to the former Bend trajectory.
+        // Its derived side and endpoint flags change together. Verify the actual
+        // material against the original authored frame, not just a sign flag.
+        auto authored=*twist;authored.twisted_sheet.attachment_material_side=-1;
+        authored.placement.x=-89.44373321533203;authored.placement.y=2;authored.placement.z=2;
+        authored.placement.rotation_x=90;authored.placement.rotation_y=0;authored.placement.rotation_z=-90;
+        authored.placement.references.at(2).flip=false;
+        const auto original_outline=part.primitive_preview_edges(authored);
+        const auto outline=part.primitive_preview_edges(*twist);
+        check(outline.size()==original_outline.size(),"Rebuilt twist changed its outline count");
+        for(std::size_t i=0;i<outline.size();++i) {
+            check(outline[i].points.size()==original_outline[i].points.size(),"Rebuilt twist changed its outline samples");
+            for(std::size_t j=0;j<outline[i].points.size();++j)
+                check(distance(outline[i].points[j],original_outline[i].points[j])<1e-7,
+                    "Rebuilt twist changed the original physical material side or twist");
+        }
+        // Keep explicit opposite-side coverage on the continuation's other
+        // surface, through both selectable endpoint identities.
+        const auto opposite=std::ranges::find_if(source_geometry.edges,[&](const auto& edge) {
+            return edge.reference.owner_id==continuation->id&&kernel::sheet_edge_role(edge)==kernel::SheetEdgeRole::Boundary&&
+                edge.points.size()>=2&&distance(edge.points.front(),{-89.44373321533203,1,22})<1e-7&&
+                distance(edge.points.back(),{-89.44373321533203,1,2})<1e-7;
+        });
+        check(opposite!=source_geometry.edges.end(),"Rebuilt continuation lost its opposite surface boundary");
+        for(const auto& endpoint:opposite->edge_treatment_endpoint_references) {
+            auto other=part;const auto twist_id=twist->id;
+            other.find_container(twist_id)->placement.references=document::bend_sheet_references(*opposite,endpoint);
+            auto calculated=workspace::calculate_part_with_resolved_references(kernel,other);
+            check(calculated.back().calculation_errors.empty(),"Opposite-side fixture attachment cannot calculate");
+            check(other.find_container(twist_id)->twisted_sheet.attachment_material_side==-1,
+                "Opposite-side fixture attachment lost its negative material side");
+            verify_join(other,*other.find_container(twist_id),workspace::construction_reference_source_geometry(calculated));
+            const auto saved=*other.find_container(twist_id);
+            other=document::PartDocument::from_serialized(other.serialized(calculated));
+            calculated=workspace::calculate_part_with_resolved_references(kernel,other);
+            check(calculated.back().calculation_errors.empty()&&*other.find_container(twist_id)==saved,
+                "Opposite-side fixture attachment changed after native persistence and regeneration");
+        }
+        workspace::Workspace live;const auto id=part.document_id;live.add_part(part,formed);
+        part=live.open_part(id)->session.document();
         auto unfold=document::PartDocument::create_sketch_container();unfold.feature_kind=document::FeatureKind::Unbend;
-        part.insert_history_entry(document::PartHistoryKind::Feature,unfold.id);part.history.push_back(unfold);
-        const auto flat=workspace::calculate_part_with_resolved_references(kernel,part);
+        check(workspace::commit_sheet_state(live,kernel,id,unfold),"Fixture Unbend did not commit");
+        const auto flat=live.open_part(id)->session.calculated_boundaries();
+        const auto flat_document=live.open_part(id)->session.document();
+        // Undo intentionally retains allocated dimension numbers for stable IDs.
+        part.dimension_identifiers.retain(flat_document.dimension_identifiers);
+        check(workspace::step_part_document_history(live,id,false)&&live.open_part(id)->session.document().serialized()==part.serialized(),
+            "Fixture Unbend Undo changed source definitions");
+        check(workspace::step_part_document_history(live,id,true)&&live.open_part(id)->session.document().serialized()==flat_document.serialized(),
+            "Fixture Unbend Redo changed source definitions");
+        part=flat_document;
         check(flat.back().calculation_errors.empty(),"Profile-side twist cannot unfold");
         part=document::PartDocument::from_serialized(part.serialized(flat));
         auto back=document::PartDocument::create_sketch_container();back.feature_kind=document::FeatureKind::BendBack;
-        part.insert_history_entry(document::PartHistoryKind::Feature,back.id);part.history.push_back(back);
-        const auto folded=workspace::calculate_part_with_resolved_references(kernel,part);
+        workspace::Workspace reopened;reopened.add_part(part,flat);
+        part=reopened.open_part(id)->session.document();
+        check(workspace::commit_sheet_state(reopened,kernel,id,back),"Fixture Bend Back did not commit");
+        const auto folded=reopened.open_part(id)->session.calculated_boundaries();
+        const auto folded_document=reopened.open_part(id)->session.document();
+        part.dimension_identifiers.retain(folded_document.dimension_identifiers);
+        check(workspace::step_part_document_history(reopened,id,false)&&reopened.open_part(id)->session.document().serialized()==part.serialized(),
+            "Fixture Bend Back Undo changed source definitions");
+        check(workspace::step_part_document_history(reopened,id,true)&&reopened.open_part(id)->session.document().serialized()==folded_document.serialized(),
+            "Fixture Bend Back Redo changed source definitions");
         check(folded.back().calculation_errors.empty()&&std::abs(folded.back().volume-formed.back().volume)<.05,
             "Profile-side twist did not fold back after persistence");
         std::cout<<"Twisted Sheet geometry, chained attachment, sides, unfolding and persistence passed\n";return 0;
