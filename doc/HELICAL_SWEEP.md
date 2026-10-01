@@ -292,3 +292,7 @@ side directions when an edge has fewer than two distinct persisted face identiti
 those values were previously discarded by the two-side requirement anyway.
 Real two-sided edges retain their full sampling and side identities.
 See [measurements and regression coverage](performance/20261001-helical-fast-calculation.md).
+
+The subsequent [2D/3D/H Sweep audit](performance/20261001-sweep-audit.md) verifies
+unchanged Properties confirmation, preserves Undo/Redo, and removes remaining
+discarded aggregate-property calculations from grouped reference/cap packets.

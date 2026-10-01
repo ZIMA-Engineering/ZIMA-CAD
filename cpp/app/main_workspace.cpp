@@ -1950,6 +1950,37 @@ int verify_sweep2d_command(QApplication& application,zima::app::AssemblyWorkspac
 
 int verify_helical_sweep_command(QApplication& application,zima::app::AssemblyWorkspaceWindow& window,
         const std::filesystem::path& directory) {
+    if(const auto input=qEnvironmentVariable("ZIMA_VERIFY_SWEEP_NOOP_DOCUMENT");!input.isEmpty()) {
+        const auto path=directory/"helical-noop.prtz";
+        std::filesystem::copy_file(std::filesystem::path(input.toStdWString()),path,std::filesystem::copy_options::overwrite_existing);
+        const auto source=zima::document::PartDocument::load(path);
+        const auto feature=std::ranges::find_if(source.history,[](const auto& c){return c.feature_kind==zima::document::FeatureKind::HelicalSweep||c.feature_kind==zima::document::FeatureKind::Sweep2D||c.feature_kind==zima::document::FeatureKind::Sweep3D;});
+        if(!verify(feature!=source.history.end(),"No Helical feature in benchmark input"))return 1;
+        window.show();if(!verify(window.open_document_path(QString::fromStdWString(path.wstring())),"Cannot open no-op fixture"))return 1;
+        application.processEvents();
+        const auto before=window.execute_console_command("documents").data;
+        auto* undo=window.findChild<QAction*>("undoAction");auto* redo=window.findChild<QAction*>("redoAction");
+        if(!verify(undo&&redo,"Missing Undo/Redo actions"))return 1;
+        const bool undo_before=undo->isEnabled(),redo_before=redo->isEnabled();
+        for(int trial=0;trial<3;++trial) {
+            auto* tree=window.findChild<QTreeWidget*>("documentTree");QTreeWidgetItem* row{};
+            for(QTreeWidgetItemIterator i(tree);*i;++i)if((*i)->data(0,Qt::UserRole).toString().toStdString()==feature->id&&(*i)->data(0,Qt::UserRole+3)=="part-container"){row=*i;break;}
+            if(!verify(row,"No Helical tree row"))return 1;
+            QElapsedTimer timer;timer.start();window.show_tree_item_properties(row);application.processEvents();const auto opening=timer.nsecsElapsed()/1e6;
+            zima::ui::PropertiesSubWindow* dialog{};
+            for(auto* candidate:window.findChildren<QDialog*>())if(candidate->isVisible()&&
+                (dynamic_cast<zima::app::SweepPlacementDialog*>(candidate)||dynamic_cast<zima::app::ConstructionPropertiesDialog*>(candidate)))
+                dialog=dynamic_cast<zima::ui::PropertiesSubWindow*>(candidate);
+            if(!verify(dialog,"Sweep Properties did not open"))return 1;
+            timer.restart();dialog->buttons()->button(QDialogButtonBox::Ok)->click();application.processEvents();const auto closing=timer.nsecsElapsed()/1e6;
+            if(!verify(!dialog->isVisible(),"Unchanged Helical confirmation failed"))return 1;
+            QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
+            if(!verify(window.execute_console_command("documents").data==before&&
+                (undo&&undo->isEnabled())==undo_before&&(redo&&redo->isEnabled())==redo_before,"No-op changed document state or Undo/Redo"))return 1;
+            std::cout<<"Sweep no-op trial="<<trial<<" open_ms="<<opening<<" ok_ms="<<closing<<std::endl;
+        }
+        return 0;
+    }
     auto doc=zima::document::PartDocument::create_default();const auto path=directory/"helical-ui.prtz";
     auto background=zima::test::rectangular_feature(doc,{100,100,5});background.placement.x=-200;
     doc.history.push_back(background);zima::kernel::OcctKernel helical_kernel;

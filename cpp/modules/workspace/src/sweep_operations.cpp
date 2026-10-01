@@ -270,8 +270,8 @@ void commit_sweep(Workspace& live, const kernel::OcctKernel& kernel, const std::
         throw SweepOperationError("read_only_body", "A derived Body cannot be edited directly.");
     if (body && body->scope.id != before.body_history.active_body_id())
         throw SweepOperationError("inactive_body", "Activate the owning Body before editing its history.");
-    auto next = before;
     if(mode==SweepEditMode::Replace && commit_origin_display_only(live,id,feature).has_value())return;
+    auto next = before;
     if (mode == SweepEditMode::AdoptSources || mode == SweepEditMode::ReplaceAdoptSources) adopt_sources(next, feature, existing);
     if (existing) *next.find_container(feature.id) = std::move(feature);
     else {

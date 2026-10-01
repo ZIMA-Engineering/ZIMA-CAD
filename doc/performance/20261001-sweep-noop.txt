@@ -1,0 +1,29 @@
+helical-noop-baseline:
+Helical no-op trial=0 open_ms=528.18 ok_ms=295.331
+Helical no-op trial=1 open_ms=475.408 ok_ms=283.112
+Helical no-op trial=2 open_ms=460.93 ok_ms=287.428
+
+sweep2d-noop-baseline:
+Sweep no-op trial=0 open_ms=89.2325 ok_ms=88.617
+Sweep no-op trial=1 open_ms=60.415 ok_ms=24.885
+Sweep no-op trial=2 open_ms=51.853 ok_ms=25.1023
+
+sweep3d-noop-baseline:
+Sweep no-op trial=0 open_ms=107.62 ok_ms=9.226
+Sweep no-op trial=1 open_ms=63.8076 ok_ms=9.671
+Sweep no-op trial=2 open_ms=60.9398 ok_ms=10.3289
+
+sweep2d-noop-final:
+Sweep no-op trial=0 open_ms=100.057 ok_ms=99.3932
+Sweep no-op trial=1 open_ms=50.0859 ok_ms=25.0784
+Sweep no-op trial=2 open_ms=52.0386 ok_ms=23.7634
+
+sweep3d-noop-final:
+Sweep no-op trial=0 open_ms=113.781 ok_ms=9.7438
+Sweep no-op trial=1 open_ms=61.7093 ok_ms=9.2568
+Sweep no-op trial=2 open_ms=63.629 ok_ms=10.7842
+
+helical-noop-final:
+Sweep no-op trial=0 open_ms=515.544 ok_ms=278.498
+Sweep no-op trial=1 open_ms=460.028 ok_ms=314.426
+Sweep no-op trial=2 open_ms=453.46 ok_ms=269.24

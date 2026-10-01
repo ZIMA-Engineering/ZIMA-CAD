@@ -60,6 +60,17 @@ void verify_sweep_references(const kernel::OcctKernel& kernel,const fs::path& di
     definition.sweep_precision.custom_tolerance=.001;
     const auto owner=f.live.active_document_id();
     workspace::commit_sweep(f.live,kernel,owner,definition,workspace::SweepEditMode::Create);
+    {
+    const auto revision=f.state().session.revision(),generation=f.state().session.data_generation();
+    const auto* calculated=f.state().session.calculated_boundaries().data();
+    const bool undo_before=f.state().session.can_undo(),redo_before=f.state().session.can_redo();
+    for(int repeat=0;repeat<3;++repeat)workspace::commit_sweep(f.live,kernel,owner,
+        *f.state().session.document().find_container(id),workspace::SweepEditMode::Replace);
+    require(f.state().session.revision()==revision&&f.state().session.data_generation()==generation&&
+        f.state().session.calculated_boundaries().data()==calculated&&
+        f.state().session.can_undo()==undo_before&&f.state().session.can_redo()==redo_before,
+        "Unchanged Sweep replaced calculated data or changed Undo/Redo");
+    }
     const double volume=helical?std::numbers::pi*.25*std::hypot(4*std::numbers::pi*10,10):80*std::numbers::pi;
     const auto extent=[&] {
         const auto& vertices=f.state().session.calculated_boundaries().back().mesh.vertices;
@@ -85,6 +96,12 @@ void verify_sweep_references(const kernel::OcctKernel& kernel,const fs::path& di
     require(f.run(command,request).at("changed")==false&&f.state().session.revision()==revision&&
         f.state().session.calculated_boundaries().data()==cache&&!f.host.change(),"Repeated Sweep reference calculated or added history");
     f.run("undo");near(extent().first,at_zero.first);
+    {
+        const auto before_noop=f.state().session.revision();
+        require(f.state().session.can_redo(),"Sweep fixture has no Redo branch");
+        workspace::commit_sweep(f.live,kernel,owner,*f.state().session.document().find_container(id),workspace::SweepEditMode::Replace);
+        require(f.state().session.revision()==before_noop&&f.state().session.can_redo(),"Unchanged Sweep discarded Redo");
+    }
     f.run("redo");require(*f.state().session.document().find_container(id)==assigned,"Sweep reference Redo lost its owned data");
     auto bad=request;bad["reference"]["owner"]="missing";f.reject(command,bad,"reference_not_available");
     bad=request;bad["reference"]={{"owner",definition.container_origin.id},{"key","origin:point"}};

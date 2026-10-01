@@ -42,7 +42,7 @@ static document::HistoryContainer fixture(document::FeatureKind kind) {
         for(auto& p:guide.points)if(p.y>0)p.y=40; // eight turns at the default 5 mm pitch
         c.helical.sketches[1]=guide.serialized();
     } else if(kind==document::FeatureKind::Sweep2D) {
-        auto path=sketcher::Sketch::create_default();
+        auto path=sketcher::Sketch::create_default();path.owner_container_id=c.id;
         static_cast<void>(path.add_arc(30,0,0,0,30,30,false,1e-6,true));
         c.sweep2d.path_sketch=path.serialized();c.sweep2d.profiles.clear();
         document::PartDocument::reframe_sweep2d_sketches(c);
@@ -63,7 +63,7 @@ static document::HistoryContainer fixture(document::FeatureKind kind) {
 int main(int argc,char** argv) {
     QApplication app(argc,argv);
     try {
-        if(argc<2)throw std::runtime_error("Usage: sweep_precision_benchmark OUTPUT_DIRECTORY [FINE_MM COARSE_MM [helical]]");
+        if(argc<2)throw std::runtime_error("Usage: sweep_precision_benchmark OUTPUT_DIRECTORY [FINE_MM COARSE_MM [helical|planar-spatial]]");
         const std::array tolerances{argc>2?document::parse_sweep_tolerance(argv[2]):.001,
             argc>3?document::parse_sweep_tolerance(argv[3]):.1};
         const auto directory=std::filesystem::u8path(argv[1]);std::filesystem::create_directories(directory);
@@ -71,6 +71,7 @@ int main(int argc,char** argv) {
         viewer::MeshView view;view.resize(800,700);view.show();app.processEvents();
         for(const auto kind:{document::FeatureKind::Sweep2D,document::FeatureKind::Sweep3D,document::FeatureKind::HelicalSweep}) {
             if(argc>4&&std::string_view(argv[4])=="helical"&&kind!=document::FeatureKind::HelicalSweep)continue;
+            if(argc>4&&std::string_view(argv[4])=="planar-spatial"&&kind==document::FeatureKind::HelicalSweep)continue;
             const std::string name=kind==document::FeatureKind::Sweep2D?"sweep2d":kind==document::FeatureKind::Sweep3D?"sweep3d":"helical";
             auto doc=document::PartDocument::create_default();doc.history={fixture(kind)};
             Json entry;entry["name"]=name;std::array<kernel::BodyResult,2> results;
@@ -90,6 +91,8 @@ int main(int argc,char** argv) {
                     {"valid_brep",bool(BRepCheck_Analyzer(shape(result)).IsValid())}});
                 std::cout<<name<<" cycle="<<cycle<<" tolerance="<<tolerance<<" ms="<<calculation<<std::endl;
             }
+            auto native=doc;native.history.front().sweep_precision.custom_tolerance=tolerances[0];
+            native.save(directory/(name+".prtz"),{results[0]});
             entry["fine_to_coarse"]=deviation(results[0],results[1]);entry["coarse_to_fine"]=deviation(results[1],results[0]);
             entry["volume_delta_percent"]=(results[1].volume/results[0].volume-1)*100;
             QImage comparison(1600,735,QImage::Format_RGB32);comparison.fill(Qt::white);QPainter painter(&comparison);

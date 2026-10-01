@@ -8321,7 +8321,7 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                 std::map<std::tuple<std::string,std::string,std::string>,Vec3> station_points;
                 for(const auto& child:group_inputs) {
                     auto original=make_operation_result(child.shape,child.faces,
-                        child.edges,child.vertices,true,false);
+                        child.edges,child.vertices,true,false,false,{},false);
                     std::erase_if(original.mesh.points,[&](const auto& point) {
                         const auto& ref=point.reference;
                         if(!ref.semantic_key.starts_with("sweep:vertex:at:"))return false;
@@ -8386,7 +8386,7 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                 TopoDS_Compound caps;
                 BRep_Builder cap_builder;cap_builder.MakeCompound(caps);
                 for (const auto& cap:operand.source_caps) cap_builder.Add(caps,cap.shape);
-                auto cap_mesh=make_operation_result(caps,operand.source_caps,{}, {},true,false).mesh;
+                auto cap_mesh=make_operation_result(caps,operand.source_caps,{}, {},true,false,false,{},false).mesh;
                 for (auto& ref:cap_mesh.triangle_references) {
                     const auto source=std::ranges::find_if(operand.source_caps,[&](const auto& cap){return cap.reference==ref;});
                     if(source!=operand.source_caps.end() && source->reference.surface)
