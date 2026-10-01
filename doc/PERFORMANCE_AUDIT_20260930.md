@@ -1,5 +1,7 @@
 # Application performance audit â€” 2026-09-30
 
+Current disposition: [2026-10-01 review status](performance/20261001-optimization-review-status.md) maps A1–A15 to measured implementations and retained hypotheses.
+
 Follow-up: [A1 independent equation blocks](performance/20260930-rectilinear-blocks.md)
 records the first implemented optimization and its verification. The audit below
 retains the original pre-change observations and priorities.
