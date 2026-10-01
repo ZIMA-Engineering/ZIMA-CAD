@@ -1338,7 +1338,9 @@ int verify_derived_copy_commands(QApplication& application,zima::app::AssemblyWo
     dialog->buttons()->button(QDialogButtonBox::Ok)->click();flush();
     if(!verify(!window.findChild<QDialog*>("patternDialog"),"Circular solid Pattern did not commit"))return 1;
     save->trigger();flush();
-    if(!verify(document::PartDocument::load(history_path).find_container(solid_pattern_id)->derived_copy.source_id==first_box.id,
+    const auto saved_pattern_document=document::PartDocument::load(history_path);
+    const auto* saved_pattern=saved_pattern_document.find_container(solid_pattern_id);
+    if(!verify(saved_pattern&&saved_pattern->derived_copy.source_id==first_box.id,
         "Circular solid Pattern did not persist the exact source"))return 1;
     if(!verify(row(solid_pattern_id,"part-container")&&row(solid_pattern_id,"part-container")->parent()==row(first,"part-body"),
         "In-Body Pattern is not nested under its owning Body"))return 1;
@@ -8500,11 +8502,14 @@ int verify_selection_filter(QApplication& application,
 #include "sheet_transition_ui_verification.inc"
 #include "symbol_ui_verification.inc"
 
+#include "derived_copy_save_ui_verification.inc"
+
 int verify_startup_contract(
     QApplication& application, zima::app::AssemblyWorkspaceWindow& window,
     const std::filesystem::path& initial_test_directory,
     const QString& part_capture_path = {}, const QString& drawing_capture_path = {}) {
     auto test_directory = initial_test_directory;
+    if(qEnvironmentVariableIsSet("ZIMA_VERIFY_COPY_SAVE_ONLY"))return verify_derived_copy_save(application,window,test_directory);
     if(qEnvironmentVariableIsSet("ZIMA_VERIFY_COMPACT_WINDOW_ONLY")) {
         window.show();
         for(const auto* kind:{"part","assembly","drawing"}) {

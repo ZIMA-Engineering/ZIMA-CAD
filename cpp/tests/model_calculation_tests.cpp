@@ -1,6 +1,7 @@
 #include "profile_solid_fixture.hpp"
 #include <zima/workspace/model_calculation.hpp>
 #include <algorithm>
+#include <nlohmann/json.hpp>
 #include <cmath>
 #include <iostream>
 #include <set>
@@ -67,6 +68,59 @@ void verify_reference_chain(const kernel::OcctKernel& kernel){
     require(state->session.redo(),"Placement regeneration cannot be redone");
     near(state->session.document().history[2].placement.x,11,"Redo lost the recalculated placement");
 }
+// A manually positioned owner may already be unchanged while its owned
+// Sketch still carries the preceding resolved frame (including loaded data).
+void verify_profile_frame_convergence(const kernel::OcctKernel& kernel){
+    for(bool multi_body:{false,true})for(double x:{-2.0,2.0})for(double angle:{0.0,90.0}) {
+        auto part=document::PartDocument::create_default();document::BodyHistoryGraph graph;
+        if(multi_body)static_cast<void>(graph.create_body("First"));
+        auto first=test::rectangular_feature(part,{8,6,4});
+        if(multi_body)graph.insert({document::PartHistoryKind::Feature,first.id});
+        auto cut=test::rectangular_feature(part,{2,1,4});
+        cut.combine_mode=document::CombineMode::Subtract;cut.placement.x=x;
+        cut.placement.rotation_z=angle;cut.placement.absolute_rotation_z=angle;
+        if(multi_body)graph.insert({document::PartHistoryKind::Feature,cut.id});
+        part.history={first,cut};
+        if(multi_body) {
+            static_cast<void>(graph.create_body("Later"));
+            auto later=test::rectangular_feature(part,{8,6,4});later.placement.x=80;
+            graph.insert({document::PartHistoryKind::Feature,later.id});part.history.push_back(later);
+            part.set_body_history(graph);
+        }
+        const auto initial=workspace::calculate_part(kernel,part);
+        workspace::Workspace live;live.add_part(part,initial);
+        static_cast<void>(workspace::regenerate_part(live,kernel,part.document_id));
+        auto& session=live.open_part(part.document_id)->session;
+        const auto& resolved=session.document();const auto& result=session.calculated_boundaries();
+        const auto fingerprints=kernel::history_fingerprints(resolved.kernel_operations(false,true));
+        require(result.size()+1==fingerprints.size(),"Frame convergence lost a history boundary");
+        for(std::size_t i=0;i<result.size();++i)
+            require(result[i].source_fingerprint==fingerprints[i+1],"Profile frame and calculated history disagree");
+        near(result.back().volume,multi_body?376:184,"Resolved subtraction has incorrect volume");
+        double min_x=1e100,max_x=-1e100,min_y=1e100,max_y=-1e100;
+        for(const auto& point:result.back().mesh.original_references.points)if(point.reference.owner_id==cut.id) {
+            min_x=std::min(min_x,point.position.x);max_x=std::max(max_x,point.position.x);
+            min_y=std::min(min_y,point.position.y);max_y=std::max(max_y,point.position.y);
+        }
+        const double half_x=angle==0?1:0.5,half_y=angle==0?0.5:1;
+        near(min_x,x-half_x,"Cut references retained the old X frame");near(max_x,x+half_x,"Cut X extent is wrong");
+        near(min_y,-half_y,"Cut references retained the old rotation");near(max_y,half_y,"Cut Y extent is wrong");
+        std::vector<kernel::BodyResult> restored;
+        const auto reopened=document::PartDocument::from_serialized(resolved.serialized(result),&restored);
+        require(face_ids(restored.back().mesh)==face_ids(result.back().mesh),"Save/reopen changed source identities");
+        near(restored.back().volume,result.back().volume,"Save/reopen changed calculated geometry");
+        require(reopened.find_container(cut.id)->placement.x==x,"Save/reopen lost authored placement");
+        const auto fingerprint=result.back().source_fingerprint;
+        const auto stable_revision=session.revision();
+        static_cast<void>(workspace::regenerate_part(live,kernel,part.document_id));
+        require(session.revision()==stable_revision,"Stable frame regeneration created an Undo step");
+        require(session.calculated_boundaries().back().source_fingerprint==fingerprint,"Stable frame regenerated different inputs");
+        require(session.undo(),"Frame-only regeneration was not undoable");
+        require(session.calculated_boundaries().back().source_fingerprint==initial.back().source_fingerprint,"Undo lost original calculation");
+        require(session.redo(),"Frame-only regeneration was not redoable");
+        require(session.calculated_boundaries().back().source_fingerprint==fingerprint,"Redo lost resolved calculation");
+    }
+}
 void verify_recovery_policy(const kernel::OcctKernel& kernel){
     auto part=document::PartDocument::create_default();
     auto box=zima::test::rectangular_feature(part,{10,10,10});
@@ -130,7 +184,7 @@ void verify_assembly(const kernel::OcctKernel& kernel){
 }
 int main(){try{
     kernel::OcctKernel kernel;
-    verify_reference_chain(kernel);verify_recovery_policy(kernel);verify_assembly(kernel);
+    verify_reference_chain(kernel);verify_profile_frame_convergence(kernel);verify_recovery_policy(kernel);verify_assembly(kernel);
     std::cout<<"Model calculation: reference convergence, sections, source identity, Undo, error policy, explicit Assembly refresh and cuts passed without Qt.\n";
     return 0;
 }catch(const std::exception& error){std::cerr<<error.what()<<'\n';return 1;}}

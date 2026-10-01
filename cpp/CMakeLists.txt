@@ -1325,14 +1325,22 @@ if(ZIMA_BUILD_TESTS)
     set_tests_properties(zima_cpp_component_properties_ui_contract PROPERTIES
         ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_COMPONENT_REFERENCE_ONLY=1"
         WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 120)
-    add_test(NAME zima_cpp_derived_copy_ui_contract COMMAND zima-cad-cpp --verify-startup)
+    file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/copy-save-test")
+    add_test(NAME zima_cpp_derived_copy_save_ui_contract COMMAND zima-cad-cpp --verify-startup
+        "--working-directory=${CMAKE_BINARY_DIR}/copy-save-test")
+    set_tests_properties(zima_cpp_derived_copy_save_ui_contract PROPERTIES
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_COPY_SAVE_ONLY=1"
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." RUN_SERIAL TRUE TIMEOUT 90)
+    file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/derived-copy-test")
+    add_test(NAME zima_cpp_derived_copy_ui_contract COMMAND zima-cad-cpp --verify-startup
+        "--working-directory=${CMAKE_BINARY_DIR}/derived-copy-test")
     add_test(NAME zima_cpp_pattern_dimensions_ui_contract COMMAND zima-cad-cpp --verify-startup)
     set_tests_properties(zima_cpp_pattern_dimensions_ui_contract PROPERTIES
         ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_DERIVED_COPY_ONLY=1;ZIMA_VERIFY_PATTERN_DIMENSIONS_ONLY=1"
         WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 120)
     set_tests_properties(zima_cpp_derived_copy_ui_contract PROPERTIES
         ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_DERIVED_COPY_ONLY=1"
-        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 120)
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." RUN_SERIAL TRUE TIMEOUT 300)
     add_test(NAME zima_cpp_sketch_context_conversion_ui_contract COMMAND zima-cad-cpp --verify-startup)
     set_tests_properties(zima_cpp_sketch_context_conversion_ui_contract PROPERTIES
         ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_CONSOLE_ONLY=1;ZIMA_VERIFY_FEATURE_PROTOTYPE_ONLY=1;ZIMA_VERIFY_SKETCH_CONTEXT_ONLY=1"

@@ -63,6 +63,12 @@ cs/en/de/fr/ru catalogs remain unchanged. Linux verification is deferred.
 
 ## Test results and remaining issue
 
+**Follow-up:** the derived-copy failure described below was traced to missed
+owned-Sketch frame convergence and a subsequent null dereference in the test.
+The corrected broad GUI suite passes; see
+[profile frame convergence and copy saving](20261001-copy-save-convergence.md).
+The original observations below are retained as historical evidence.
+
 Eleven distinct focused suites passed: refresh-scope GUI, Assembly-refresh GUI,
 selection-filter GUI, component-properties GUI, appearance contracts, appearance
 commands, viewer contracts, Workspace contracts, component-property commands,
@@ -71,7 +77,8 @@ initially used stale executables that rejected the current native format; both
 passed after rebuilding their test targets. Evidence is in
 `build/visibility-tests.log` and `build/visibility-final-tests.log`.
 
-The broader derived-copy GUI suite is **not passing**. Its normal 120-second gate
+At the original validation, the broader derived-copy GUI suite was **not passing**.
+Its normal 120-second gate
 timed out. A standalone run with a 300-second allowance reached the later in-Body
 Mirror Origin check and exited with Windows access violation `0xC0000005` after
 166.84 seconds. Rebuilding with scene reuse unconditionally disabled reproduced

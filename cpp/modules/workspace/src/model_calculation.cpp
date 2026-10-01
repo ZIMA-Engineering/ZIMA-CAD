@@ -12,6 +12,8 @@
 #include <zima/document/viewer_packet_json.hpp>
 #include <nlohmann/json.hpp>
 #include <algorithm>
+#include <array>
+#include <bit>
 #include <functional>
 #include <stdexcept>
 
@@ -71,12 +73,29 @@ calculate_part_reference_state(
             for(const auto& sketch:document.sketches)if(sketch.id==feature.flat.sketch_id)profiles.emplace(sketch.id,sketch.serialized());
         return profiles;
     };
+    // Resolving an owned profile can move its Sketch frame without changing
+    // the owning history container. Those frames are geometry inputs too.
+    // Compare their exact bits without normalizing or rewriting any side data;
+    // avoid serializing whole Sketches just to track a rigid frame.
+    const auto sketch_frames=[&] {
+        std::vector<std::array<std::uint64_t,12>> frames;
+        frames.reserve(document.sketches.size());
+        for(const auto& sketch:document.sketches) {
+            std::array<std::uint64_t,12> frame;std::size_t index=0;
+            for(const auto& vector:{sketch.resolved_origin,sketch.resolved_x_axis,
+                    sketch.resolved_y_axis,sketch.resolved_normal})
+                for(double value:{vector.x,vector.y,vector.z})frame[index++]=std::bit_cast<std::uint64_t>(value);
+            frames.push_back(frame);
+        }
+        return frames;
+    };
     for (std::size_t pass = 0; pass < pass_limit; ++pass) {
         calculated = calculate_part(kernel, document, incremental_source, {});
         const auto history_before = document.history;
         const auto constructions_before = document.constructions;
         const auto bodies_before = document.body_history.bodies();
         const auto flat_profiles_before=attached_flat_profiles();
+        const auto sketch_frames_before=sketch_frames();
         // Saved centroids use this pass's actual input boundary, before any
         // downstream placement consumes the refreshed frame. No kernel call.
         document::refresh_body_properties(document,calculated);
@@ -86,7 +105,8 @@ calculate_part_reference_state(
         // this pass's old source mesh into that new Sketch frame can create
         // a false constraint conflict while the dependency chain is settling.
         if(document.history!=history_before||document.constructions!=constructions_before||
-            document.body_history.bodies()!=bodies_before||attached_flat_profiles()!=flat_profiles_before) {
+            document.body_history.bodies()!=bodies_before||attached_flat_profiles()!=flat_profiles_before||
+            sketch_frames()!=sketch_frames_before) {
             incremental_source=&calculated;continue;
         }
         const bool external_references_changed =
@@ -96,7 +116,7 @@ calculate_part_reference_state(
         const bool profile_targets_changed=refresh_profile_end_targets(document,calculated);
         const bool opening_targets_changed=refresh_opening_end_targets(document,calculated);
         if (!external_references_changed && !drill_points_changed && !profile_targets_changed && !opening_targets_changed &&
-            attached_flat_profiles()==flat_profiles_before &&
+            attached_flat_profiles()==flat_profiles_before && sketch_frames()==sketch_frames_before &&
             document.history == history_before &&
             document.constructions == constructions_before &&
             document.body_history.bodies() == bodies_before) {
