@@ -270,3 +270,8 @@ identify transported-sweep self-intersection validation as the dominant cost in
 the supplied spring example. Operand reference packets now omit discarded
 aggregate property integration; final Body properties and reference measurements
 remain complete. This small optimization does not eliminate the expensive check.
+
+A subsequent user-requested [disabled-check experiment](performance/20261001-helical-self-intersection-experiment.md)
+reduced this example to about 21 seconds with identical persisted output. The
+experiment also accepted a crossing fixture; it did not introduce overlap union
+or change the production validation policy.

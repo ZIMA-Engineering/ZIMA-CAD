@@ -1,0 +1,8 @@
+full:
+prepare_ms=1.7925 kernel_ms=20920.8
+
+isolated:
+prepare_ms=1.8628 kernel_ms=22059
+
+crossing:
+accepted=1 basic_valid=1 volume=74.0267 triangles=4968 ms=532.128
