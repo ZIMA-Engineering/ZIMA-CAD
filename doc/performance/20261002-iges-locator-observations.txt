@@ -1,0 +1,21 @@
+Serial locator-only ABBA after full-packet probes completed. Not complete import timings.
+Total number of loaded entities 109693.
+
+kind=4 pass=0 cached=0 queries=143422 calls=143422 ms=19096.5 all_locators_equal=1
+kind=4 pass=1 cached=1 queries=143422 calls=27012 ms=3442.36 all_locators_equal=1
+kind=4 pass=2 cached=1 queries=143422 calls=27012 ms=3379.56 all_locators_equal=1
+kind=4 pass=3 cached=0 queries=143422 calls=143422 ms=18918 all_locators_equal=1
+kind=6 pass=0 cached=0 queries=681830 calls=681830 ms=1754.84 all_locators_equal=1
+kind=6 pass=1 cached=1 queries=681830 calls=132690 ms=404.921 all_locators_equal=1
+kind=6 pass=2 cached=1 queries=681830 calls=132690 ms=396.068 all_locators_equal=1
+kind=6 pass=3 cached=0 queries=681830 calls=681830 ms=1786.18 all_locators_equal=1
+kind=7 pass=0 cached=0 queries=784738 calls=784738 ms=458.231 all_locators_equal=1
+kind=7 pass=1 cached=1 queries=784738 calls=168358 ms=151.535 all_locators_equal=1
+kind=7 pass=2 cached=1 queries=784738 calls=168358 ms=165.863 all_locators_equal=1
+kind=7 pass=3 cached=0 queries=784738 calls=784738 ms=445.507 all_locators_equal=1
+
+Full-packet proof:
+Original repeated hash: 04cd3edc2be4a7e3de0a6c03557cddc97546e459be1e829a0063a6dcb77805f4
+Locator-only hash: 04cd3edc2be4a7e3de0a6c03557cddc97546e459be1e829a0063a6dcb77805f4
+Complete large IGES packets match exactly
+Serial locator ABBA complete; source unchanged.

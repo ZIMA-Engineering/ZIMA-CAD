@@ -5519,6 +5519,14 @@ BodyResult OcctKernel::import_iges(const std::string& path,
         struct Candidate { TopoDS_Shape shape; int source{}; int specificity{}; std::string locator; };
         std::map<std::string, Candidate> candidates;
         TopTools_IndexedMapOfShape actual; TopExp::MapShapes(data.shape, kind, actual);
+        // One immutable runtime shape may be reached through many IGES source
+        // parents. Compute its exact locator once, including collision counting.
+        std::vector<std::optional<std::string>> locators(static_cast<std::size_t>(actual.Size())+1);
+        const auto locator_for=[&](int index)->const std::string& {
+            auto& cached=locators[static_cast<std::size_t>(index)];
+            if(!cached)cached=step_shape_locator(actual.FindKey(index));
+            return *cached;
+        };
         for (int i = 1; i <= model->NbEntities(); ++i) {
             const auto entity = model->Value(i);
             const auto source_shape = TransferBRep::ShapeResult(transfer, entity);
@@ -5528,7 +5536,7 @@ BodyResult OcctKernel::import_iges(const std::string& path,
                 const auto runtime_index = actual.FindIndex(children.FindKey(j));
                 if (runtime_index == 0) continue;
                 const auto& child = actual.FindKey(runtime_index);
-                const auto locator = step_shape_locator(child);
+                const auto& locator = locator_for(runtime_index);
                 const int source = 2 * model->Number(entity) - 1; // IGES directory pointer
                 const int specificity = children.Size();
                 const auto found = candidates.find(locator);
@@ -5541,7 +5549,7 @@ BodyResult OcctKernel::import_iges(const std::string& path,
             }
         }
         std::map<std::string, int> counts;
-        for (int i = 1; i <= actual.Size(); ++i) ++counts[step_shape_locator(actual.FindKey(i))];
+        for (int i = 1; i <= actual.Size(); ++i) ++counts[locator_for(i)];
         for (const auto& [locator, candidate] : candidates) {
             if (counts[locator] != 1) continue;
             auto key = std::string("iges:") + role + ":de:" + std::to_string(candidate.source);

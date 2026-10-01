@@ -103,5 +103,9 @@ Windows runtime rules for builds and releases; Linux verification belongs on Lin
   consume an existing local identity map in one traversal instead of rescanning
   the whole scene for every feature; verify repeated occurrence identities.
 
+- [Import projection preparation](performance/20261002-step-iges-projection.md):
+  memoize exact locators within one immutable operation; compare complete large
+  packets, and discard promising experiments when controlled timings show no gain.
+
 These are patterns to evaluate, not feature lists to copy blindly. Their reported
 percentages apply only to the recorded operations and fixtures.

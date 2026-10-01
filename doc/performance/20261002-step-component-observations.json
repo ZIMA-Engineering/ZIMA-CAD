@@ -1,0 +1,30 @@
+[
+  {
+    "run": 0,
+    "exe": "import-direction-baseline",
+    "capture_ms": 73427.3,
+    "edge_ms": 68109.9,
+    "sha256": "623949762ec836ff174c295c920d9091e765ff07793e8bac56ab91ff731fabaf"
+  },
+  {
+    "run": 1,
+    "exe": "import-direction-reuse",
+    "capture_ms": 73506.1,
+    "edge_ms": 68301.5,
+    "sha256": "623949762ec836ff174c295c920d9091e765ff07793e8bac56ab91ff731fabaf"
+  },
+  {
+    "run": 2,
+    "exe": "import-direction-reuse",
+    "capture_ms": 73536.0,
+    "edge_ms": 68280.3,
+    "sha256": "623949762ec836ff174c295c920d9091e765ff07793e8bac56ab91ff731fabaf"
+  },
+  {
+    "run": 3,
+    "exe": "import-direction-baseline",
+    "capture_ms": 73093.2,
+    "edge_ms": 67985.5,
+    "sha256": "623949762ec836ff174c295c920d9091e765ff07793e8bac56ab91ff731fabaf"
+  }
+]

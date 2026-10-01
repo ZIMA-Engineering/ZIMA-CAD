@@ -88,3 +88,9 @@ assigned host. All product text is unchanged; five-language catalogs passed.
 English documentation and test-only diagnostics are included in this change.
 
 Evidence: [read-only import observations](20261001-remaining-investigation.txt).
+
+## Subsequent import work
+
+The [2026-10-02 STEP/IGES investigation](20261002-step-iges-projection.md)
+locates the expensive edge-side projection preparation and records the next
+verification pass. It does not change the claims for Windows 2026100102 above.

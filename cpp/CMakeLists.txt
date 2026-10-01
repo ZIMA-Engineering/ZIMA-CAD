@@ -593,7 +593,7 @@ if(ZIMA_BUILD_TESTS)
         ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT}"
         WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 90)
     add_executable(zima_cpp_import_model_contract_tests tests/import_model_contract_tests.cpp)
-    target_link_libraries(zima_cpp_import_model_contract_tests PRIVATE zima_interchange zima_workspace TKDEIGES TKPrim)
+    target_link_libraries(zima_cpp_import_model_contract_tests PRIVATE zima_interchange zima_workspace TKDEIGES TKPrim Qt6::Core)
     target_compile_definitions(zima_cpp_import_model_contract_tests PRIVATE ZIMA_IMPORT_FIXTURES="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/import")
     add_test(NAME zima_cpp_import_model_contract_tests COMMAND zima_cpp_import_model_contract_tests)
     add_executable(zima_cpp_step_model_contract_tests tests/step_model_contract_tests.cpp)

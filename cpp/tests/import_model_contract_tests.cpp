@@ -3,6 +3,10 @@
 #include <zima/interchange/step.hpp>
 #include <zima/interchange/interchange.hpp>
 #include <zima/kernel/occt_kernel.hpp>
+#include <zima/document/file_path.hpp>
+#include <zima/document/viewer_packet_json.hpp>
+#include <nlohmann/json.hpp>
+#include <QCryptographicHash>
 #include <zima/workspace/workspace.hpp>
 #include <IGESControl_Writer.hxx>
 #include <BRepPrimAPI_MakeBox.hxx>
@@ -18,6 +22,18 @@ using namespace zima;
 void require(bool value,const char* message) { if(!value)throw std::runtime_error(message); }
 int main(int argc,char** argv) {
  try {
+    if((argc==3||argc==4)&&std::string_view(argv[1])=="--capture-file") {
+        const auto path=std::filesystem::u8path(argv[2]);
+        require(interchange::format_from_path(path)==interchange::Format::Iges,"Expected IGES input");
+        kernel::OcctKernel kernel;
+        const auto start=std::chrono::steady_clock::now();
+        const auto body=kernel.import_iges(document::path_to_utf8(path),"iges-probe",.1);
+        std::cout<<"IGES capture ms="<<std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-start).count()<<std::endl;
+        const auto bytes=QByteArray::fromStdString(document::serialize_body_result(body).dump());
+        if(argc==4) { std::ofstream output(std::filesystem::u8path(argv[3]),std::ios::binary); output.write(bytes.constData(),bytes.size()); require(bool(output),"Capture output write failed"); }
+        std::cout<<"Body sha256="<<QCryptographicHash::hash(bytes,QCryptographicHash::Sha256).toHex().constData()<<std::endl;
+        return 0;
+    }
     if(argc==3&&std::string_view(argv[1])=="--profile-file") {
         const auto path=std::filesystem::u8path(argv[2]);
         const auto format=interchange::format_from_path(path);

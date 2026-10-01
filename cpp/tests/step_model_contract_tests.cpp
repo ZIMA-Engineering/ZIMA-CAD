@@ -89,12 +89,18 @@ void same_bounds(const std::vector<V>& a,const std::vector<V>& b) {
 int main(int argc,char** argv) {
     try {
         kernel::OcctKernel kernel;
-        if(argc==3&&std::string_view(argv[1])=="--capture-file") {
+        if((argc==3||argc==4)&&std::string_view(argv[1])=="--capture-file") {
             const auto path=std::filesystem::absolute(std::filesystem::u8path(argv[2]));
             const auto nodes=interchange::inspect_step_parts(path);
             std::vector<kernel::StepRequest> requests;
             for(const auto& node:nodes)if(!node.assembly)
                 requests.push_back({document::path_to_utf8(path),node.definition_id,{},{},"probe-"+std::to_string(requests.size())});
+            if(argc==4) {
+                const auto index=std::stoull(argv[3]);
+                require(index<requests.size(),"STEP component index out of range");
+                const auto selected=requests[index];requests={selected};
+                std::cout<<"Selected component "<<index<<" definition="<<selected.component_path<<std::endl;
+            }
             const auto start=std::chrono::steady_clock::now();
             const auto bodies=kernel.import_step_components(requests,.1);
             std::cout<<"STEP capture ms="<<std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-start).count()<<" bodies="<<bodies.size()<<std::endl;

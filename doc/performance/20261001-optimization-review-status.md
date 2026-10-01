@@ -57,3 +57,7 @@ remain available for reproducing the measured bottleneck. No additional dead
 product code was proven removable. Windows 2026100102 packages these changes
 together with Drill opening and all three measurement improvements. It is signed,
 published and verified; acceptance is recorded in its separate release record.
+
+A [subsequent STEP/IGES pass](20261002-step-iges-projection.md) investigates
+operation-local projection and locator preparation. Its measured scope and
+remaining large-import limits are recorded separately from this release.
