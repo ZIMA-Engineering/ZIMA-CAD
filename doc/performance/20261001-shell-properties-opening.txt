@@ -1,0 +1,51 @@
+Shell Properties verification - 2026-10-01
+Baseline: 46716d15; Windows Release/Fusion; fixed 1500 x 950.
+
+before
+Shell opening sides=4 fillet=0 trial=0 ms=38.4561 publications=2 preview=202fa43821c4385d3be95e3ee1d2f8f5cffb1b65a41094ce3a6c2e8a61c5db0b restored=6b2b12ff4ae22b219598e6768f65b7b451fc51aaae6aa0363fb9d6028ec7a976
+Shell opening sides=4 fillet=0 trial=1 ms=36.4052 publications=2 preview=202fa43821c4385d3be95e3ee1d2f8f5cffb1b65a41094ce3a6c2e8a61c5db0b restored=6b2b12ff4ae22b219598e6768f65b7b451fc51aaae6aa0363fb9d6028ec7a976
+Shell opening sides=4 fillet=0 trial=2 ms=33.1441 publications=2 preview=202fa43821c4385d3be95e3ee1d2f8f5cffb1b65a41094ce3a6c2e8a61c5db0b restored=6b2b12ff4ae22b219598e6768f65b7b451fc51aaae6aa0363fb9d6028ec7a976
+Shell opening sides=4 fillet=0 trial=3 ms=38.3746 publications=2 preview=202fa43821c4385d3be95e3ee1d2f8f5cffb1b65a41094ce3a6c2e8a61c5db0b restored=6b2b12ff4ae22b219598e6768f65b7b451fc51aaae6aa0363fb9d6028ec7a976
+Shell opening sides=4 fillet=0 trial=4 ms=35.8626 publications=2 preview=202fa43821c4385d3be95e3ee1d2f8f5cffb1b65a41094ce3a6c2e8a61c5db0b restored=6b2b12ff4ae22b219598e6768f65b7b451fc51aaae6aa0363fb9d6028ec7a976
+Shell opening sides=4 fillet=0 trial=5 ms=36.4207 publications=2 preview=202fa43821c4385d3be95e3ee1d2f8f5cffb1b65a41094ce3a6c2e8a61c5db0b restored=6b2b12ff4ae22b219598e6768f65b7b451fc51aaae6aa0363fb9d6028ec7a976
+Shell opening sides=128 fillet=0 trial=0 ms=151.196 publications=2 preview=1543d53d7d019af67a672c9e46b0fdfc1321f6183916f5a8cac7506abad9bc69 restored=49088738221cc67cc6741d5123348c5746ee8007d05dfb44048a59cf768eda58
+Shell opening sides=128 fillet=0 trial=1 ms=139.423 publications=2 preview=1543d53d7d019af67a672c9e46b0fdfc1321f6183916f5a8cac7506abad9bc69 restored=49088738221cc67cc6741d5123348c5746ee8007d05dfb44048a59cf768eda58
+Shell opening sides=128 fillet=0 trial=2 ms=157.432 publications=2 preview=1543d53d7d019af67a672c9e46b0fdfc1321f6183916f5a8cac7506abad9bc69 restored=49088738221cc67cc6741d5123348c5746ee8007d05dfb44048a59cf768eda58
+Shell opening sides=128 fillet=0 trial=3 ms=140.492 publications=2 preview=1543d53d7d019af67a672c9e46b0fdfc1321f6183916f5a8cac7506abad9bc69 restored=49088738221cc67cc6741d5123348c5746ee8007d05dfb44048a59cf768eda58
+Shell opening sides=128 fillet=0 trial=4 ms=159.219 publications=2 preview=1543d53d7d019af67a672c9e46b0fdfc1321f6183916f5a8cac7506abad9bc69 restored=49088738221cc67cc6741d5123348c5746ee8007d05dfb44048a59cf768eda58
+Shell opening sides=128 fillet=0 trial=5 ms=139.965 publications=2 preview=1543d53d7d019af67a672c9e46b0fdfc1321f6183916f5a8cac7506abad9bc69 restored=49088738221cc67cc6741d5123348c5746ee8007d05dfb44048a59cf768eda58
+
+
+after
+Shell opening sides=4 fillet=0 trial=0 ms=42.6044 publications=1 preview=202fa43821c4385d3be95e3ee1d2f8f5cffb1b65a41094ce3a6c2e8a61c5db0b restored=6b2b12ff4ae22b219598e6768f65b7b451fc51aaae6aa0363fb9d6028ec7a976
+Shell opening sides=4 fillet=0 trial=1 ms=31.7245 publications=1 preview=202fa43821c4385d3be95e3ee1d2f8f5cffb1b65a41094ce3a6c2e8a61c5db0b restored=6b2b12ff4ae22b219598e6768f65b7b451fc51aaae6aa0363fb9d6028ec7a976
+Shell opening sides=4 fillet=0 trial=2 ms=33.0529 publications=1 preview=202fa43821c4385d3be95e3ee1d2f8f5cffb1b65a41094ce3a6c2e8a61c5db0b restored=6b2b12ff4ae22b219598e6768f65b7b451fc51aaae6aa0363fb9d6028ec7a976
+Shell opening sides=4 fillet=0 trial=3 ms=36.6377 publications=1 preview=202fa43821c4385d3be95e3ee1d2f8f5cffb1b65a41094ce3a6c2e8a61c5db0b restored=6b2b12ff4ae22b219598e6768f65b7b451fc51aaae6aa0363fb9d6028ec7a976
+Shell opening sides=4 fillet=0 trial=4 ms=41.909 publications=1 preview=202fa43821c4385d3be95e3ee1d2f8f5cffb1b65a41094ce3a6c2e8a61c5db0b restored=6b2b12ff4ae22b219598e6768f65b7b451fc51aaae6aa0363fb9d6028ec7a976
+Shell opening sides=4 fillet=0 trial=5 ms=31.2788 publications=1 preview=202fa43821c4385d3be95e3ee1d2f8f5cffb1b65a41094ce3a6c2e8a61c5db0b restored=6b2b12ff4ae22b219598e6768f65b7b451fc51aaae6aa0363fb9d6028ec7a976
+Shell opening sides=128 fillet=0 trial=0 ms=108.636 publications=1 preview=1543d53d7d019af67a672c9e46b0fdfc1321f6183916f5a8cac7506abad9bc69 restored=49088738221cc67cc6741d5123348c5746ee8007d05dfb44048a59cf768eda58
+Shell opening sides=128 fillet=0 trial=1 ms=82.5168 publications=1 preview=1543d53d7d019af67a672c9e46b0fdfc1321f6183916f5a8cac7506abad9bc69 restored=49088738221cc67cc6741d5123348c5746ee8007d05dfb44048a59cf768eda58
+Shell opening sides=128 fillet=0 trial=2 ms=82.4448 publications=1 preview=1543d53d7d019af67a672c9e46b0fdfc1321f6183916f5a8cac7506abad9bc69 restored=49088738221cc67cc6741d5123348c5746ee8007d05dfb44048a59cf768eda58
+Shell opening sides=128 fillet=0 trial=3 ms=88.6809 publications=1 preview=1543d53d7d019af67a672c9e46b0fdfc1321f6183916f5a8cac7506abad9bc69 restored=49088738221cc67cc6741d5123348c5746ee8007d05dfb44048a59cf768eda58
+Shell opening sides=128 fillet=0 trial=4 ms=84.3524 publications=1 preview=1543d53d7d019af67a672c9e46b0fdfc1321f6183916f5a8cac7506abad9bc69 restored=49088738221cc67cc6741d5123348c5746ee8007d05dfb44048a59cf768eda58
+Shell opening sides=128 fillet=0 trial=5 ms=82.1193 publications=1 preview=1543d53d7d019af67a672c9e46b0fdfc1321f6183916f5a8cac7506abad9bc69 restored=49088738221cc67cc6741d5123348c5746ee8007d05dfb44048a59cf768eda58
+
+
+regression
+Test project C:/Users/vladi/Prace/ZIMA-Engineering/00-SOFTWARE/01-ZIMA/ZIMA-CAD/build/cpp-windows-release
+    Start  43: zima_cpp_translations_contract
+1/6 Test  #43: zima_cpp_translations_contract ..........   Passed    4.70 sec
+    Start 140: zima_cpp_shell_command_tests
+2/6 Test #140: zima_cpp_shell_command_tests ............   Passed    0.92 sec
+    Start 196: zima_cpp_edge_treatment_ui_contract
+3/6 Test #196: zima_cpp_edge_treatment_ui_contract .....   Passed   57.15 sec
+    Start 201: zima_cpp_refresh_scope_ui_contract
+4/6 Test #201: zima_cpp_refresh_scope_ui_contract ......   Passed    7.69 sec
+    Start 207: zima_cpp_selection_filter_ui_contract
+5/6 Test #207: zima_cpp_selection_filter_ui_contract ...   Passed    3.61 sec
+    Start 233: zima_cpp_surface_profile_ui_contract
+6/6 Test #233: zima_cpp_surface_profile_ui_contract ....   Passed    4.94 sec
+
+100% tests passed, 0 tests failed out of 6
+
+Total Test time (real) =  79.05 sec

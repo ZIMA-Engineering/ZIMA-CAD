@@ -4,6 +4,7 @@
 #include "primitive_properties_dialog.hpp"
 #include <zima/viewer/mesh_view.hpp>
 #include <QApplication>
+#include <QCursor>
 #include <QCryptographicHash>
 #include <QElapsedTimer>
 #include <zima/document/viewer_packet_json.hpp>
@@ -67,7 +68,8 @@ int verify_edge_treatment_ui(QApplication& application, AssemblyWorkspaceWindow&
         const auto dialog=[&] {
             for(auto* item:window.findChildren<QDialog*>())
                 if(auto* value=dynamic_cast<PrimitivePropertiesDialog*>(item);value&&value->isVisible()&&
-                    value->findChild<QDoubleSpinBox*>("edgeTreatmentPrimary"))return value;
+                    (value->findChild<QDoubleSpinBox*>("edgeTreatmentPrimary")||
+                     (qEnvironmentVariableIsSet("ZIMA_VERIFY_SHELL_OPENING")&&value->findChild<QDoubleSpinBox*>("shellThickness"))))return value;
             throw std::runtime_error("Treatment Properties is missing");
         };
         const auto edit=[&](const std::string& owner) {
@@ -133,8 +135,10 @@ int verify_edge_treatment_ui(QApplication& application, AssemblyWorkspaceWindow&
             check(selected(),"Finishing a grip drag lost the selected dimension");
             check(view->dimension_source(candidate)==source,"Annotation drag changed its source geometry or value");
         };
-        if(qEnvironmentVariableIsSet("ZIMA_VERIFY_TREATMENT_OPENING")) {
+        const bool shell_probe=qEnvironmentVariableIsSet("ZIMA_VERIFY_SHELL_OPENING");
+        if(qEnvironmentVariableIsSet("ZIMA_VERIFY_TREATMENT_OPENING")||shell_probe) {
             for(const int sides:{4,128})for(const bool fillet:{true,false}) {
+                if(shell_probe&&fillet)continue;
                 auto source=document::PartDocument::create_default();
                 source.history.clear();source.sketches.clear();source.history_order.clear();
                 document::BodyHistoryGraph graph;static_cast<void>(graph.create_body("Treatment benchmark"));
@@ -159,14 +163,22 @@ int verify_edge_treatment_ui(QApplication& application, AssemblyWorkspaceWindow&
                     return edge.points.size()>=2&&std::abs(edge.points.front().z-40)<1e-6&&std::abs(edge.points.back().z-40)<1e-6;
                 });
                 check(selected!=edges.end(),"Polygon fixture has no top rim edge");
-                const auto file=directory/("treatment-opening-"+std::to_string(sides)+(fillet?"-fillet.prtz":"-chamfer.prtz"));
+                const auto file=directory/("treatment-opening-"+std::to_string(sides)+(shell_probe?"-shell.prtz":fillet?"-fillet.prtz":"-chamfer.prtz"));
                 source.save(file,calculated);
                 check(window.open_document_path(QString::fromStdWString(file.wstring())),"Cannot open treatment benchmark");flush();
                 Json args={{"routes",Json::array({Json{{"edges",Json::array({Json{{"owner",selected->reference.owner_id},{"key",selected->reference.semantic_key}}})}}})}};
                 args[fillet?"radius_mm":"distance_a_mm"]=0.5;
-                const auto owner=run(fillet?"fillet.create":"chamfer.create",args).at("container").get<std::string>();
+                if(shell_probe)args={{"thickness_mm",0.5},{"faces",Json::array()}};
+                const auto owner=run(shell_probe?"shell.create":fillet?"fillet.create":"chamfer.create",args).at("container").get<std::string>();
                 run("save");view->set_standard_view(viewer::StandardView::Isometric);
                 for(auto* animation:view->findChildren<QVariantAnimation*>())animation->setCurrentTime(animation->duration());flush();
+                if(shell_probe) {
+                    // The first Shell opening establishes its existing camera
+                    // framing. Measure subsequent openings from that same state.
+                    QTreeWidgetItem* item=nullptr;
+                    for(QTreeWidgetItemIterator it(tree);*it;++it)if((*it)->data(0,Qt::UserRole).toString().toStdString()==owner&&(*it)->data(0,Qt::UserRole+3)=="part-container"){item=*it;break;}
+                    check(item,"Missing Shell warmup row");window.show_tree_item_properties(item);flush();finish(false);
+                }
                 const auto state=run("documents");const auto camera=view->camera_state();
                 auto* undo=window.findChild<QAction*>("undoAction");auto* redo=window.findChild<QAction*>("redoAction");
                 check(undo&&redo,"Missing Undo/Redo");const bool undo_before=undo->isEnabled(),redo_before=redo->isEnabled();
@@ -178,7 +190,9 @@ int verify_edge_treatment_ui(QApplication& application, AssemblyWorkspaceWindow&
                 for(int trial=0;trial<6;++trial) {
                     QTreeWidgetItem* item=nullptr;
                     for(QTreeWidgetItemIterator it(tree);*it;++it)if((*it)->data(0,Qt::UserRole).toString().toStdString()==owner&&(*it)->data(0,Qt::UserRole+3)=="part-container"){item=*it;break;}
-                    check(item,"Missing benchmark row");const auto revision=view->base_mesh_revision();
+                    check(item,"Missing benchmark row");
+                    if(shell_probe)QCursor::setPos(window.mapToGlobal(QPoint(5,5)));
+                    const auto revision=view->base_mesh_revision();
                     QElapsedTimer timer;timer.start();window.show_tree_item_properties(item);flush();const auto elapsed=timer.nsecsElapsed()/1e6;
                     const auto publications=view->base_mesh_revision()-revision;
                     check(publications==1,"Treatment opening published an unused scene");
@@ -186,9 +200,23 @@ int verify_edge_treatment_ui(QApplication& application, AssemblyWorkspaceWindow&
                     check(first==preview,"Repeated treatment preview changed");
                     finish(trial<3);
                     check(run("documents")==state&&undo->isEnabled()==undo_before&&redo->isEnabled()==redo_before,"Unchanged treatment changed document or Undo/Redo");
-                    check(packet()==original&&view->camera_state()==camera,"Treatment close failed to restore geometry/camera");
-                    std::cout<<"Treatment opening sides="<<sides<<" fillet="<<fillet<<" trial="<<trial<<" ms="<<elapsed
+                    check(packet()==original,"Treatment close failed to restore geometry");
+                    check(view->camera_state()==camera,"Treatment close failed to restore camera");
+                    std::cout<<(shell_probe?"Shell opening sides=":"Treatment opening sides=")<<sides<<" fillet="<<fillet<<" trial="<<trial<<" ms="<<elapsed
                         <<" publications="<<publications<<" preview="<<preview.constData()<<" restored="<<hash().constData()<<std::endl;
+                }
+                if(shell_probe) {
+                    const auto saved=run("shell.get",{{"container",owner}});
+                    auto* pending=edit(owner);
+                    pick(viewer::CandidateKind::Face,extrusion.id,{});
+                    check(pending->pending_value().shell.removed_faces.size()==1,"Shell View selection did not retain one face");
+                    pending->findChild<QDoubleSpinBox*>("shellThickness")->setValue(1);finish(false);
+                    check(run("shell.get",{{"container",owner}})==saved&&packet()==original,"Shell Cancel changed faces or geometry");
+                    pending=edit(owner);pending->findChild<QDoubleSpinBox*>("shellThickness")->setValue(1);finish(true);
+                    check(run("shell.get",{{"container",owner}}).at("thickness_mm")==1,"Shell OK did not commit thickness");
+                    run("undo");check(run("shell.get",{{"container",owner}})==saved,"Shell Undo failed");
+                    run("redo");check(run("shell.get",{{"container",owner}}).at("thickness_mm")==1,"Shell Redo failed");
+                    run("save");check(document::PartDocument::load(file).find_container(owner)->shell.thickness==1,"Shell native save lost thickness");
                 }
                 run("close",{{"discard",true}});
             }

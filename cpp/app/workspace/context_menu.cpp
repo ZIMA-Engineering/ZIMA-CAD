@@ -101,7 +101,8 @@ void AssemblyWorkspaceWindow::show_tree_item_properties(QTreeWidgetItem* item) {
                         feature->feature_kind==document::FeatureKind::Revolution||
                         feature->feature_kind==document::FeatureKind::BoundarySurface||
                         feature->feature_kind==document::FeatureKind::Fillet||
-                        feature->feature_kind==document::FeatureKind::Chamfer)&&
+                        feature->feature_kind==document::FeatureKind::Chamfer||
+                        feature->feature_kind==document::FeatureKind::Shell)&&
                         part->session.document().history_index(id).has_value()&&
                         resolve_active_occurrence(part->session.document().document_id).has_value();
         if(!command_preview_follows){preserve_view_on_refresh_ = true;refresh_scene();}
