@@ -337,6 +337,20 @@ void AssemblyWorkspaceWindow::show_sweep3d_properties(
     construction_reference_dialog_ = dialog;
     properties_dialog_ = dialog;
 
+    // The initial preview callback publishes the scene synchronously. Install
+    // rollback first so it publishes the real input once, without an interim
+    // full-history scene followed by a second rollback rebuild.
+    if (edit_mode) {
+        const auto history_index = part->session.document().history_index(initial.id);
+        if (history_index) {
+            const auto input = *history_index == 0
+                ? std::optional<zima::kernel::BodyResult>{}
+                : part->session.calculated_boundary(*history_index);
+            part_rollback_ = PartRollbackContext{document_id,
+                workspace_.active_occurrence_path(), *history_index, input};
+        }
+    }
+
     dialog->set_preview_callback(
         [this, document_id, dialog](zima::document::ConstructionObject preview) {
             auto* source = workspace_.open_part(document_id);
@@ -428,18 +442,6 @@ void AssemblyWorkspaceWindow::show_sweep3d_properties(
     // set_preview_callback initializes the Sweep reference geometry.
     track_tree_edit(dialog);
 
-    if (edit_mode) {
-        const auto history_index = part->session.document().history_index(initial.id);
-        if (history_index) {
-            const auto input = *history_index == 0
-                ? std::optional<zima::kernel::BodyResult>{}
-                : part->session.calculated_boundary(*history_index);
-            part_rollback_ = PartRollbackContext{document_id,
-                workspace_.active_occurrence_path(), *history_index, input};
-            preserve_view_on_refresh_ = true;
-            refresh_scene();
-        }
-    }
     viewer_->set_editing_origin_visible(true);
     connect(dialog, &QObject::destroyed, this, [this, dialog] {
         if (properties_dialog_ == dialog) properties_dialog_ = nullptr;

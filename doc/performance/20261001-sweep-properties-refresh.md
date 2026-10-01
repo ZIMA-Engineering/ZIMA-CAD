@@ -65,3 +65,6 @@ five-language catalogs. The Sweep command tests include unchanged edits and
 retained Redo branches. Logs: `build/properties-regression.log` and
 `build/properties-final-build.log`. The local GUI build is ready through the
 repository-root `zima-cad.bat`.
+
+Follow-up: [other command Properties audit](20261001-command-properties-audit.md)
+includes the measured 3D Sweep optimization and retained command-specific work.
