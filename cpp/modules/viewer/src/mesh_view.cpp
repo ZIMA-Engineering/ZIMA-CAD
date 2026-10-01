@@ -46,6 +46,7 @@
 #include <numbers>
 #include <set>
 #include <stdexcept>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -2902,8 +2903,16 @@ void MeshView::upload_mesh() {
             }
         }
         struct SharedRecord { QVector3D first, second, normal; };
-        std::map<std::pair<std::string, std::pair<std::array<double, 3>,
-            std::array<double, 3>>>, std::vector<SharedRecord>> shared;
+        struct SharedRecords {
+            SharedRecord first;
+            QVector3D second_normal;
+            unsigned count{};
+        };
+        // Intern each exact face key once for this upload. Set nodes keep
+        // their strings stable until the adjacency map has been destroyed.
+        std::set<std::string> face_keys;
+        std::map<std::pair<std::string_view, std::pair<std::array<double, 3>,
+            std::array<double, 3>>>, SharedRecords> shared;
         const auto triangle_count = impl_->mesh.triangles.size() / 3;
         for (std::size_t triangle = 0; triangle < triangle_count; ++triangle) {
             if (triangle >= impl_->mesh.triangle_references.size()) continue;
@@ -2931,27 +2940,33 @@ void MeshView::upload_mesh() {
                 {pa, pb}, {pb, pc}, {pc, pa}};
             const std::string owner = face_reference.valid()
                 ? face_reference.owner_id : std::string();
-            const std::string face_key = owner + "|" + face_reference.semantic_key;
+            const std::string_view face_key = *face_keys.insert(
+                owner + "|" + face_reference.semantic_key).first;
             for (std::size_t side = 0; side < 3; ++side) {
                 auto first = rounded(points[side]);
                 auto second = rounded(points[(side + 1) % 3]);
                 if (second < first) std::swap(first, second);
-                shared[{face_key, {first, second}}].push_back(
-                    {triangle_edges[side].first, triangle_edges[side].second,
-                     normal});
+                auto& records = shared[{face_key, {first, second}}];
+                // Only an exact pair can become a silhouette candidate.
+                // Retain its original order; three means permanently ineligible.
+                if (records.count == 0)
+                    records.first = {triangle_edges[side].first,
+                        triangle_edges[side].second, normal};
+                else if (records.count == 1) records.second_normal = normal;
+                if (records.count < 3) ++records.count;
             }
         }
         impl_->silhouette_candidates.clear();
         impl_->silhouette_view_direction.reset();
         impl_->silhouette_vertex_count = 0;
         for (const auto& [key, records] : shared) {
-            if (records.size() != 2) continue;
+            if (records.count != 2) continue;
             const auto separator = key.first.find('|');
-            const std::string owner = separator == std::string::npos
-                ? key.first : key.first.substr(0, separator);
+            const std::string owner(separator == std::string_view::npos
+                ? key.first : key.first.substr(0, separator));
             if (topology_segments.contains({owner, key.second})) continue;
-            impl_->silhouette_candidates.push_back({records[0].first,
-                records[0].second, records[0].normal, records[1].normal});
+            impl_->silhouette_candidates.push_back({records.first.first,
+                records.first.second, records.first.normal, records.second_normal});
         }
     }
     impl_->gpu_dirty = false;

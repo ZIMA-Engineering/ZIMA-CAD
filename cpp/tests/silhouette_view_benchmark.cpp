@@ -10,6 +10,7 @@
 #include <QQuaternion>
 #include <QVariantAnimation>
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <iomanip>
 #include <iostream>
@@ -128,6 +129,21 @@ int main(int argc,char** argv) {
                 }
                 exercise(app,std::string(sphere?"sphere-":"cylinder-")+std::to_string(count),assembly.build_scene());
             }
+        }
+        {
+            // Non-manifold adjacency must remain excluded, even with more
+            // than three incidents. Invalid triangles must not create records.
+            auto mesh=kernel.evaluate_history({{"nonmanifold",
+                static_cast<zima::kernel::ExtrusionRequest>(zima::test::CircularExtrusion{5,12})}}).back().mesh;
+            const std::array<std::uint32_t,3> first{mesh.triangles[0],mesh.triangles[1],mesh.triangles[2]};
+            const auto face=mesh.triangle_references.front();
+            for(int duplicate=0;duplicate<3;++duplicate) {
+                mesh.triangles.insert(mesh.triangles.end(),first.begin(),first.end());
+                mesh.triangle_references.push_back(face);
+            }
+            mesh.triangles.insert(mesh.triangles.end(),{0,0,0,static_cast<std::uint32_t>(mesh.vertices.size()),0,1});
+            mesh.triangle_references.insert(mesh.triangle_references.end(),{face,face});
+            exercise(app,"nonmanifold",mesh);
         }
         for(int i=1;i<argc;++i) {
             const auto path=std::filesystem::u8path(argv[i]);

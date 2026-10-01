@@ -65,3 +65,6 @@ removes temporary mesh copies and measures full-scene restoration on the user sp
 
 Follow-up: [Shading adjacency lookup](20261001-shading-adjacency.md)
 reduces CPU work during GPU mesh preparation while retaining exact vertex buffers.
+
+Follow-up: [Silhouette adjacency storage](20261001-silhouette-pair-storage.md)
+removes temporary per-edge record allocations and repeated face-label copies.
