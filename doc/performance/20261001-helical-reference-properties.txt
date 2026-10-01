@@ -1,0 +1,65 @@
+Initial before/after/mesh phase traces overlap the user GUI calculation; not uncontended benchmarks.
+Clean baseline/final/isolated are serial, with the GUI closed.
+
+before:
+mesh 2.622 ms
+properties 0.404 ms
+mesh 0.409 ms
+properties 0.058 ms
+mesh 0.246 ms
+properties 0.049 ms
+mesh 0.825 ms
+properties 0.362 ms
+pipe and validity 146.348 ms
+ancestry 0.206 ms
+self intersection 65274.063 ms
+mesh 287.629 ms
+properties 265.269 ms
+mesh 4.064 ms
+properties 286.862 ms
+prepare_ms=1.6551 kernel_ms=87377.3
+
+after:
+mesh 2.988 ms
+properties 0.404 ms
+mesh 0.546 ms
+properties 0.089 ms
+mesh 0.286 ms
+properties 0.056 ms
+mesh 1.007 ms
+properties 0.376 ms
+pipe and validity 159.739 ms
+ancestry 0.456 ms
+self intersection 69465.198 ms
+mesh 367.076 ms
+properties 302.946 ms
+mesh 3.915 ms
+properties 280.705 ms
+prepare_ms=1.7949 kernel_ms=93146.4
+
+mesh:
+mesh 3.227 ms
+properties 0.435 ms
+mesh 0.489 ms
+properties 0.085 ms
+mesh 0.351 ms
+properties 0.056 ms
+mesh 1.108 ms
+properties 0.361 ms
+pipe and validity 176.619 ms
+ancestry 0.370 ms
+self intersection 69080.720 ms
+mesh 286.635 ms
+properties 0.027 ms
+mesh 3.649 ms
+properties 254.819 ms
+prepare_ms=1.7527 kernel_ms=90353.9
+
+baseline-clean:
+prepare_ms=2.0168 kernel_ms=88040.3
+
+final:
+prepare_ms=1.4997 kernel_ms=86392.7
+
+isolated:
+prepare_ms=1.5146 kernel_ms=84563.4

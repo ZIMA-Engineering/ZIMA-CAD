@@ -4966,7 +4966,8 @@ BodyResult make_result(
     bool persist_kernel_shape = true,
     bool collect_original_references = false,
     const std::vector<TopoDS_Shape>& hidden_display_edges = {},
-    double mesh_deflection = 0.0) {
+    double mesh_deflection = 0.0,
+    bool calculate_body_properties = true) {
     Bnd_Box mesh_bounds;
     BRepBndLib::Add(shape, mesh_bounds);
     Standard_Real xmin{}, ymin{}, zmin{}, xmax{}, ymax{}, zmax{};
@@ -4984,41 +4985,45 @@ BodyResult make_result(
     BRepMesh_IncrementalMesh(
         shape, linear_deflection, false, 0.5, true).Perform();
     BodyResult result;
-    GProp_GProps volume_properties;
-    GProp_GProps surface_properties;
-    // Rational sweep surfaces need adaptive integration; fixed Gauss
-    // quadrature can misreport even an exact circular section by percent.
-    bool rational_surface = false;
-    for (TopExp_Explorer face(shape, TopAbs_FACE); face.More(); face.Next()) {
-        BRepAdaptor_Surface surface(TopoDS::Face(face.Current()));
-        if (surface.GetType() == GeomAbs_BSplineSurface ||
-            surface.GetType() == GeomAbs_BezierSurface ||
-            surface.GetType() == GeomAbs_SurfaceOfExtrusion ||
-            surface.GetType() == GeomAbs_SurfaceOfRevolution) {
-            rational_surface = true;
-            break;
+    // Mesh-only reference packets discard aggregate properties. Keep face/edge
+    // measurements below: downstream references still require those values.
+    if (calculate_body_properties) {
+        GProp_GProps volume_properties;
+        GProp_GProps surface_properties;
+        // Rational sweep surfaces need adaptive integration; fixed Gauss
+        // quadrature can misreport even an exact circular section by percent.
+        bool rational_surface = false;
+        for (TopExp_Explorer face(shape, TopAbs_FACE); face.More(); face.Next()) {
+            BRepAdaptor_Surface surface(TopoDS::Face(face.Current()));
+            if (surface.GetType() == GeomAbs_BSplineSurface ||
+                surface.GetType() == GeomAbs_BezierSurface ||
+                surface.GetType() == GeomAbs_SurfaceOfExtrusion ||
+                surface.GetType() == GeomAbs_SurfaceOfRevolution) {
+                rational_surface = true;
+                break;
+            }
         }
+        TopoDS_Compound volume_shape;BRep_Builder volume_builder;volume_builder.MakeCompound(volume_shape);
+        for(TopExp_Explorer solid(shape,TopAbs_SOLID);solid.More();solid.Next())volume_builder.Add(volume_shape,solid.Current());
+        if (rational_surface) {
+            const double error=BRepGProp::VolumePropertiesGK(volume_shape,volume_properties,1e-12,false,true);
+            if(error<0)throw std::runtime_error("OCCT rational volume integration failed");
+        }
+        else BRepGProp::VolumeProperties(volume_shape, volume_properties);
+        // Uncapped rational surfaces need adaptive area integration too: fixed
+        // quadrature over a circular loft overstates even a cylinder's lateral area.
+        // Keep the established solid-only calculation path unchanged.
+        if(rational_surface&&std::ranges::any_of(owned_faces,[](const auto& face){return face.reference.surface_result;}))
+            BRepGProp::SurfaceProperties(shape,surface_properties,1e-9);
+        else BRepGProp::SurfaceProperties(shape, surface_properties);
+        result.volume = volume_properties.Mass();
+        result.surface_area = surface_properties.Mass();
+        if(result.surface_area>0) {
+            const auto center=surface_properties.CentreOfMass();
+            result.surface_centroid=Vec3{center.X(),center.Y(),center.Z()};
+        }
+        store_volume_integrals(result,volume_properties);
     }
-    TopoDS_Compound volume_shape;BRep_Builder volume_builder;volume_builder.MakeCompound(volume_shape);
-    for(TopExp_Explorer solid(shape,TopAbs_SOLID);solid.More();solid.Next())volume_builder.Add(volume_shape,solid.Current());
-    if (rational_surface) {
-        const double error=BRepGProp::VolumePropertiesGK(volume_shape,volume_properties,1e-12,false,true);
-        if(error<0)throw std::runtime_error("OCCT rational volume integration failed");
-    }
-    else BRepGProp::VolumeProperties(volume_shape, volume_properties);
-    // Uncapped rational surfaces need adaptive area integration too: fixed
-    // quadrature over a circular loft overstates even a cylinder's lateral area.
-    // Keep the established solid-only calculation path unchanged.
-    if(rational_surface&&std::ranges::any_of(owned_faces,[](const auto& face){return face.reference.surface_result;}))
-        BRepGProp::SurfaceProperties(shape,surface_properties,1e-9);
-    else BRepGProp::SurfaceProperties(shape, surface_properties);
-    result.volume = volume_properties.Mass();
-    result.surface_area = surface_properties.Mass();
-    if(result.surface_area>0) {
-        const auto center=surface_properties.CentreOfMass();
-        result.surface_centroid=Vec3{center.X(),center.Y(),center.Z()};
-    }
-    store_volume_integrals(result,volume_properties);
     if (persist_kernel_shape) result.kernel_shape = serialize_kernel_shape(shape);
     std::optional<TopologyReferenceIndex<FaceReference, OwnedFace>> face_references;
     std::optional<TopologyReferenceIndex<EdgeReference, OwnedEdge>> edge_references;
@@ -6506,9 +6511,9 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                 const std::vector<OwnedFace>& faces, const std::vector<OwnedEdge>& edges,
                 const std::vector<OwnedVertex>& vertices, bool original = false,
                 bool persist = true, bool collect = false,
-                const std::vector<TopoDS_Shape>& hidden = {}) {
+                const std::vector<TopoDS_Shape>& hidden = {}, bool calculate_body_properties = true) {
                 return make_result(shape, faces, edges, vertices, original, persist,
-                    collect, hidden, operation.mesh_deflection);
+                    collect, hidden, operation.mesh_deflection, calculate_body_properties);
             };
             const bool persist_boundary_shape =
                 operation_index + 1 == operations.size();
@@ -8330,7 +8335,7 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
             } else {
                 auto operand_result = make_operation_result(
                     operand.shape, operand.faces, operand.edges,
-                    operand.vertices, true, false);
+                    operand.vertices, true, false, false, {}, false);
                 const auto centerlines=centerlines_for_operation(operation);
                 operand_result.mesh.axes = axes_for_operation(operation, operand.shape,centerlines);
                 operand_result.mesh.edges.insert(operand_result.mesh.edges.end(),centerlines.begin(),centerlines.end());

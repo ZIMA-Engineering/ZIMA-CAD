@@ -262,3 +262,11 @@ Logs: `build/helical-axis-visible-final-build.log`,
 `build/helical-axis-visible-final-model-tests.log` and
 `build/helical-axis-visible-final-ui-tests.log`. No portable package was
 published and Linux was not tested in this follow-up.
+
+### Calculation profiling (2026-10-01)
+
+[Native-input measurements](performance/20261001-helical-reference-properties.md)
+identify transported-sweep self-intersection validation as the dominant cost in
+the supplied spring example. Operand reference packets now omit discarded
+aggregate property integration; final Body properties and reference measurements
+remain complete. This small optimization does not eliminate the expensive check.

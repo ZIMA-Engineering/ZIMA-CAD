@@ -1,3 +1,4 @@
+#include <chrono>
 #include "profile_solid_fixture.hpp"
 #include <zima/document/part_document.hpp>
 #include <zima/document/helical_geometry.hpp>
@@ -22,6 +23,25 @@ static document::HistoryContainer fixture(double end_radius=10,bool rectangle=fa
     c.helical.sketches[2]=section.serialized();return c;
 }
 int main(int argc,char** argv){try{
+    if((argc==4||argc==5)&&std::string_view(argv[1])=="--benchmark-native") {
+        require(!std::filesystem::exists(std::filesystem::u8path(argv[3])),"Benchmark output must be a new file");
+        auto doc=document::PartDocument::load(std::filesystem::u8path(argv[2]));
+        if(argc==5) {
+            require(std::string_view(argv[4])=="helical-only","Unknown benchmark mode");
+            std::vector<std::string> removed;
+            for(const auto& c:doc.history)if(c.feature_kind!=document::FeatureKind::HelicalSweep)removed.push_back(c.id);
+            for(const auto& id:removed)doc.erase_history_object(id);
+            require(doc.history.size()==1,"Benchmark requires exactly one Helical Sweep");
+        }
+        const auto start=std::chrono::steady_clock::now();
+        const auto operations=doc.kernel_operations();
+        const auto prepared=std::chrono::steady_clock::now();
+        kernel::OcctKernel measured;const auto bodies=measured.evaluate_history(operations);
+        const auto done=std::chrono::steady_clock::now();
+        std::cout<<"prepare_ms="<<std::chrono::duration<double,std::milli>(prepared-start).count()
+            <<" kernel_ms="<<std::chrono::duration<double,std::milli>(done-prepared).count()<<std::endl;
+        doc.save(std::filesystem::u8path(argv[3]),bodies);return 0;
+    }
     kernel::OcctKernel k;
     {
         auto empty=document::PartDocument::create_helical_sweep_container();
