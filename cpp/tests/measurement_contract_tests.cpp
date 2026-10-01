@@ -33,6 +33,28 @@ void distance(const G& a,const G& b,double expected){
 }
 int main(int argc,char** argv){
 try{
+    if(argc==3&&std::string(argv[1])=="--surface-file") {
+        std::vector<kernel::BodyResult> calculated;
+        const auto loaded=document::PartDocument::load(argv[2],&calculated);
+        require(!calculated.empty(),"Native measurement fixture has no calculated body");
+        const auto& mesh=calculated.back().mesh;
+        const auto original=document::serialize_body_result(calculated.back(),false);
+        std::optional<G> first;
+        const auto start=std::chrono::steady_clock::now();
+        for(int repeat=0;repeat<12;++repeat){
+            auto measured=measurement::measure_entity(mesh,{K::Object,{},{},{}});
+            require(measured&&measured->values.area,"Native object measurement unavailable");
+            if(!first)first=measured;
+            require(measured->values==first->values&&measured->solid==first->solid&&measured->approximate==first->approximate,
+                "Repeated native measurement changed its result");
+        }
+        std::cout<<"Native object triangles="<<mesh.triangle_references.size()<<" mean_ms="
+            <<std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-start).count()/12<<"\n";
+        std::cout<<"Native result solid="<<first->solid<<" approximate="<<first->approximate<<" area="<<std::hexfloat<<first->values.area->value;
+        if(first->values.volume)std::cout<<" volume="<<first->values.volume->value;
+        std::cout<<std::defaultfloat<<"\n";
+        require(document::serialize_body_result(calculated.back(),false)==original,"Measurement changed source geometry");
+    }
     if(argc==2&&std::string(argv[1])=="--benchmark")for(int side:{50,200}) {
         G mesh;
         for(int x=0;x<side;++x)for(int y=0;y<side;++y)
@@ -75,7 +97,83 @@ try{
     require(object&&object->solid&&object->values.volume,"Closed solid was not measured");
     near(object->values.volume->value,6000,"Box volume incorrect");
     near(object->values.area->value,2200,"Box surface area incorrect");
+    // Repeated disconnected closed boxes stress edge accounting without OCCT work
+    // in the measured operation. Area/volume are independently known.
+    if(argc==2&&std::string(argv[1])=="--surface-benchmark")for(int count:{64,2048}) {
+        kernel::ViewerMesh mesh;
+        const auto& base=bodies.back().mesh;
+        for(int copy=0;copy<count;++copy) {
+            const auto offset=static_cast<unsigned int>(mesh.vertices.size());
+            for(auto vertex:base.vertices) {vertex.x+=100*(copy%64);vertex.y+=100*(copy/64);mesh.vertices.push_back(vertex);}
+            for(auto index:base.triangles)mesh.triangles.push_back(offset+index);
+            for(auto ref:base.triangle_references) {ref.measured_area.reset();mesh.triangle_references.push_back(std::move(ref));}
+        }
+        const auto start=std::chrono::steady_clock::now();
+        for(int repeat=0;repeat<12;++repeat) {
+            const auto measured=measurement::measure_entity(mesh,{K::Object,{},{},{}});
+            require(measured&&measured->solid&&measured->values.volume&&measured->values.area,"Closed multi-solid mesh lost properties");
+            near(measured->values.volume->value,6000.*count,"Repeated box volume incorrect",1e-4);
+            near(measured->values.area->value,2200.*count,"Repeated box area incorrect",1e-6);
+            if(repeat==0)std::cout<<"Surface result boxes="<<count<<" volume="<<std::hexfloat<<measured->values.volume->value
+                <<" area="<<measured->values.area->value<<std::defaultfloat<<" approximate="<<measured->approximate<<"\n";
+        }
+        std::cout<<"Object measurement boxes="<<count<<" triangles="<<mesh.triangle_references.size()<<" mean_ms="
+            <<std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-start).count()/12<<"\n";
+    }
+    {
+        const auto& base=bodies.back().mesh;
+        const auto verify=[&](kernel::ViewerMesh mesh,bool closed,const char* message) {
+            const auto measured=measurement::measure_entity(mesh,{K::Object,{},{},{}});
+            require(measured&&measured->solid==closed,message);
+            require(measured->values.volume.has_value()==closed,"Volume availability disagrees with closure");
+            if(closed)near(measured->values.volume->value,6000,"Oriented closed mesh volume changed",1e-5);
+        };
+        auto mesh=base;mesh.triangles.resize(mesh.triangles.size()-3);mesh.triangle_references.pop_back();
+        verify(mesh,false,"Open surface accepted as a solid");
+        mesh=base;std::swap(mesh.triangles[0],mesh.triangles[1]);verify(mesh,false,"One reversed triangle accepted as a solid");
+        mesh=base;for(std::size_t i=0;i<mesh.triangles.size();i+=3)std::swap(mesh.triangles[i],mesh.triangles[i+1]);
+        verify(mesh,true,"Completely reversed closed surface rejected");
+        mesh=base;for(int i=0;i<3;++i)mesh.triangles.push_back(base.triangles[i]);mesh.triangle_references.push_back(base.triangle_references.front());
+        verify(mesh,false,"Non-manifold repeated triangle accepted as a solid");
+        mesh=base;mesh.triangles.insert(mesh.triangles.end(),3,mesh.triangles.front());mesh.triangle_references.push_back(base.triangle_references.front());
+        verify(mesh,true,"Collapsed triangle changed established closure classification");
+        mesh=base;for(auto& vertex:mesh.vertices){vertex.x+=1e7;vertex.y-=1e7;vertex.z+=1e7;}
+        verify(mesh,true,"Translated closed mesh lost volume or closure");
+    }
     distance(*object,point({0,0,0}),0); // A contained point is in the solid.
+    {
+        kernel::ViewerMesh patch;
+        patch.vertices={{0,0,0},{2,0,0},{0,2,0},{2,2,0}};
+        patch.triangles={0,1,2,1,3,2};
+        auto ref=bodies.back().mesh.triangle_references.front();
+        ref.owner_id="face-owner";ref.semantic_key="face-key";ref.instance_path="root";ref.measured_area=4;
+        patch.triangle_references={ref,ref};
+        const auto check_area=[&](double expected,bool approximate){
+            const auto measured=measurement::measure_entity(patch,{K::Object,{}, {},"root"});
+            require(measured&&measured->values.area,"Repeated-face area unavailable");
+            require(measured->values.area->value==expected&&measured->values.area->approximate==approximate,
+                "Repeated-face area merged identities or lost the last known/unknown value");
+        };
+        check_area(4,false);
+        patch.triangle_references[1].measured_area=5;check_area(5,false);
+        patch.triangle_references[1].measured_area.reset();check_area(4,true);
+        patch.triangle_references[0].measured_area.reset();patch.triangle_references[1].measured_area=4;check_area(4,false);
+        for(int identity=0;identity<3;++identity){
+            patch.triangle_references={ref,ref};
+            patch.triangle_references[0].measured_area=2;patch.triangle_references[1].measured_area=3;
+            auto& other=patch.triangle_references[1];
+            if(identity==0)other.owner_id="other-owner";
+            else if(identity==1)other.semantic_key="other-face";
+            else other.instance_path="root/other-occurrence";
+            check_area(5,false);
+        }
+        patch.triangle_references={ref,ref,ref};patch.triangles.insert(patch.triangles.end(),{0,1,2});
+        patch.triangle_references[0].measured_area=2;
+        patch.triangle_references[1].semantic_key="other-face";patch.triangle_references[1].measured_area=3;
+        check_area(7,false); // The third triangle returns to the original face.
+        patch.triangles[3]=static_cast<unsigned int>(patch.vertices.size());
+        check_area(4,false); // An invalid triangle does not contribute metadata.
+    }
     auto shifted=bodies.back().mesh;
     for(auto& p:shifted.original_references.vertices){p.x+=1e9;p.y-=1e9;p.z+=1e9;}
     const auto shifted_object=measurement::measure_entity(shifted,{K::Object,box.id,{},{}});

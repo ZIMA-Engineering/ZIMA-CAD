@@ -1,0 +1,120 @@
+GROUP 0 measurement-face-baseline --surface-file
+Native object triangles=25260 mean_ms=20.0091
+Native result solid=1 approximate=1 area=0x1.b7b4c4e9e7aecp+14 volume=0x1.2887b41b269f9p+17
+Measurement geometry, analytic cache, persistence and units passed
+GROUP 0 measurement-face-baseline --surface-benchmark
+Surface result boxes=64 volume=0x1.7700000000000p+18 area=0x1.1300000000000p+17 approximate=0
+Object measurement boxes=64 triangles=768 mean_ms=0.333
+Surface result boxes=2048 volume=0x1.7700000000000p+23 area=0x1.1300000000000p+22 approximate=0
+Object measurement boxes=2048 triangles=24576 mean_ms=19.4089
+Measurement geometry, analytic cache, persistence and units passed
+GROUP 0 zima_cpp_measurement_contract_tests --surface-file
+Native object triangles=25260 mean_ms=16.0997
+Native result solid=1 approximate=1 area=0x1.b7b4c4e9e7aecp+14 volume=0x1.2887b41b269f9p+17
+Measurement geometry, analytic cache, persistence and units passed
+GROUP 0 zima_cpp_measurement_contract_tests --surface-benchmark
+Surface result boxes=64 volume=0x1.7700000000000p+18 area=0x1.1300000000000p+17 approximate=0
+Object measurement boxes=64 triangles=768 mean_ms=0.237
+Surface result boxes=2048 volume=0x1.7700000000000p+23 area=0x1.1300000000000p+22 approximate=0
+Object measurement boxes=2048 triangles=24576 mean_ms=19.3927
+Measurement geometry, analytic cache, persistence and units passed
+GROUP 0 zima_cpp_measurement_contract_tests --surface-file
+Native object triangles=25260 mean_ms=17.549
+Native result solid=1 approximate=1 area=0x1.b7b4c4e9e7aecp+14 volume=0x1.2887b41b269f9p+17
+Measurement geometry, analytic cache, persistence and units passed
+GROUP 0 zima_cpp_measurement_contract_tests --surface-benchmark
+Surface result boxes=64 volume=0x1.7700000000000p+18 area=0x1.1300000000000p+17 approximate=0
+Object measurement boxes=64 triangles=768 mean_ms=0.364867
+Surface result boxes=2048 volume=0x1.7700000000000p+23 area=0x1.1300000000000p+22 approximate=0
+Object measurement boxes=2048 triangles=24576 mean_ms=18.4171
+Measurement geometry, analytic cache, persistence and units passed
+GROUP 0 measurement-face-baseline --surface-file
+Native object triangles=25260 mean_ms=20.4725
+Native result solid=1 approximate=1 area=0x1.b7b4c4e9e7aecp+14 volume=0x1.2887b41b269f9p+17
+Measurement geometry, analytic cache, persistence and units passed
+GROUP 0 measurement-face-baseline --surface-benchmark
+Surface result boxes=64 volume=0x1.7700000000000p+18 area=0x1.1300000000000p+17 approximate=0
+Object measurement boxes=64 triangles=768 mean_ms=0.458075
+Surface result boxes=2048 volume=0x1.7700000000000p+23 area=0x1.1300000000000p+22 approximate=0
+Object measurement boxes=2048 triangles=24576 mean_ms=22.7797
+Measurement geometry, analytic cache, persistence and units passed
+GROUP 1 measurement-face-baseline --surface-file
+Native object triangles=25260 mean_ms=19.7204
+Native result solid=1 approximate=1 area=0x1.b7b4c4e9e7aecp+14 volume=0x1.2887b41b269f9p+17
+Measurement geometry, analytic cache, persistence and units passed
+GROUP 1 measurement-face-baseline --surface-benchmark
+Surface result boxes=64 volume=0x1.7700000000000p+18 area=0x1.1300000000000p+17 approximate=0
+Object measurement boxes=64 triangles=768 mean_ms=0.284542
+Surface result boxes=2048 volume=0x1.7700000000000p+23 area=0x1.1300000000000p+22 approximate=0
+Object measurement boxes=2048 triangles=24576 mean_ms=19.9424
+Measurement geometry, analytic cache, persistence and units passed
+GROUP 1 zima_cpp_measurement_contract_tests --surface-file
+Native object triangles=25260 mean_ms=15.9389
+Native result solid=1 approximate=1 area=0x1.b7b4c4e9e7aecp+14 volume=0x1.2887b41b269f9p+17
+Measurement geometry, analytic cache, persistence and units passed
+GROUP 1 zima_cpp_measurement_contract_tests --surface-benchmark
+Surface result boxes=64 volume=0x1.7700000000000p+18 area=0x1.1300000000000p+17 approximate=0
+Object measurement boxes=64 triangles=768 mean_ms=0.2804
+Surface result boxes=2048 volume=0x1.7700000000000p+23 area=0x1.1300000000000p+22 approximate=0
+Object measurement boxes=2048 triangles=24576 mean_ms=17.9636
+Measurement geometry, analytic cache, persistence and units passed
+GROUP 1 zima_cpp_measurement_contract_tests --surface-file
+Native object triangles=25260 mean_ms=16.9818
+Native result solid=1 approximate=1 area=0x1.b7b4c4e9e7aecp+14 volume=0x1.2887b41b269f9p+17
+Measurement geometry, analytic cache, persistence and units passed
+GROUP 1 zima_cpp_measurement_contract_tests --surface-benchmark
+Surface result boxes=64 volume=0x1.7700000000000p+18 area=0x1.1300000000000p+17 approximate=0
+Object measurement boxes=64 triangles=768 mean_ms=0.232908
+Surface result boxes=2048 volume=0x1.7700000000000p+23 area=0x1.1300000000000p+22 approximate=0
+Object measurement boxes=2048 triangles=24576 mean_ms=17.3197
+Measurement geometry, analytic cache, persistence and units passed
+GROUP 1 measurement-face-baseline --surface-file
+Native object triangles=25260 mean_ms=19.6359
+Native result solid=1 approximate=1 area=0x1.b7b4c4e9e7aecp+14 volume=0x1.2887b41b269f9p+17
+Measurement geometry, analytic cache, persistence and units passed
+GROUP 1 measurement-face-baseline --surface-benchmark
+Surface result boxes=64 volume=0x1.7700000000000p+18 area=0x1.1300000000000p+17 approximate=0
+Object measurement boxes=64 triangles=768 mean_ms=0.334917
+Surface result boxes=2048 volume=0x1.7700000000000p+23 area=0x1.1300000000000p+22 approximate=0
+Object measurement boxes=2048 triangles=24576 mean_ms=20.608
+Measurement geometry, analytic cache, persistence and units passed
+GROUP 2 measurement-face-baseline --surface-file
+Native object triangles=25260 mean_ms=19.6314
+Native result solid=1 approximate=1 area=0x1.b7b4c4e9e7aecp+14 volume=0x1.2887b41b269f9p+17
+Measurement geometry, analytic cache, persistence and units passed
+GROUP 2 measurement-face-baseline --surface-benchmark
+Surface result boxes=64 volume=0x1.7700000000000p+18 area=0x1.1300000000000p+17 approximate=0
+Object measurement boxes=64 triangles=768 mean_ms=0.296483
+Surface result boxes=2048 volume=0x1.7700000000000p+23 area=0x1.1300000000000p+22 approximate=0
+Object measurement boxes=2048 triangles=24576 mean_ms=19.3065
+Measurement geometry, analytic cache, persistence and units passed
+GROUP 2 zima_cpp_measurement_contract_tests --surface-file
+Native object triangles=25260 mean_ms=16.2163
+Native result solid=1 approximate=1 area=0x1.b7b4c4e9e7aecp+14 volume=0x1.2887b41b269f9p+17
+Measurement geometry, analytic cache, persistence and units passed
+GROUP 2 zima_cpp_measurement_contract_tests --surface-benchmark
+Surface result boxes=64 volume=0x1.7700000000000p+18 area=0x1.1300000000000p+17 approximate=0
+Object measurement boxes=64 triangles=768 mean_ms=0.202275
+Surface result boxes=2048 volume=0x1.7700000000000p+23 area=0x1.1300000000000p+22 approximate=0
+Object measurement boxes=2048 triangles=24576 mean_ms=18.0935
+Measurement geometry, analytic cache, persistence and units passed
+GROUP 2 zima_cpp_measurement_contract_tests --surface-file
+Native object triangles=25260 mean_ms=16.378
+Native result solid=1 approximate=1 area=0x1.b7b4c4e9e7aecp+14 volume=0x1.2887b41b269f9p+17
+Measurement geometry, analytic cache, persistence and units passed
+GROUP 2 zima_cpp_measurement_contract_tests --surface-benchmark
+Surface result boxes=64 volume=0x1.7700000000000p+18 area=0x1.1300000000000p+17 approximate=0
+Object measurement boxes=64 triangles=768 mean_ms=0.289558
+Surface result boxes=2048 volume=0x1.7700000000000p+23 area=0x1.1300000000000p+22 approximate=0
+Object measurement boxes=2048 triangles=24576 mean_ms=17.4328
+Measurement geometry, analytic cache, persistence and units passed
+GROUP 2 measurement-face-baseline --surface-file
+Native object triangles=25260 mean_ms=18.9416
+Native result solid=1 approximate=1 area=0x1.b7b4c4e9e7aecp+14 volume=0x1.2887b41b269f9p+17
+Measurement geometry, analytic cache, persistence and units passed
+GROUP 2 measurement-face-baseline --surface-benchmark
+Surface result boxes=64 volume=0x1.7700000000000p+18 area=0x1.1300000000000p+17 approximate=0
+Object measurement boxes=64 triangles=768 mean_ms=0.301592
+Surface result boxes=2048 volume=0x1.7700000000000p+23 area=0x1.1300000000000p+22 approximate=0
+Object measurement boxes=2048 triangles=24576 mean_ms=74.5881
+Measurement geometry, analytic cache, persistence and units passed

@@ -247,13 +247,23 @@ std::optional<MeasurementGeometry> measure_entity(const kernel::ViewerMesh& mesh
             }
         if(request.kind==K::Face||request.kind==K::Plane||request.kind==K::Object){
             std::map<std::tuple<std::string,std::string,std::string>,std::optional<double>> face_areas;
+            std::size_t previous_face=0;
+            std::optional<double>* previous_area=nullptr;
             for(std::size_t i=0;i<source.triangle_references.size()&&i*3+2<source.triangles.size();++i){
                 const auto& ref=source.triangle_references[i];if(!matches(ref,request))continue;
                 if(request.kind==K::Plane&&ref.surface&&ref.surface->kind!=kernel::SurfaceGeometry::Kind::Plane)continue;
                 const auto a=source.triangles[3*i],b=source.triangles[3*i+1],c=source.triangles[3*i+2];
                 if(std::max({a,b,c})>=source.vertices.size())continue;
                 out.triangles.push_back({source.vertices[a],source.vertices[b],source.vertices[c]});
-                face_areas[{ref.owner_id,ref.semantic_key,ref.instance_path}]=ref.measured_area;
+                // Adjacent triangles commonly belong to the same persisted face.
+                // Map values remain stable; retain the last-value-wins contract.
+                if(!previous_area || ref.owner_id!=source.triangle_references[previous_face].owner_id ||
+                    ref.semantic_key!=source.triangle_references[previous_face].semantic_key ||
+                    ref.instance_path!=source.triangle_references[previous_face].instance_path) {
+                    previous_area=&face_areas[{ref.owner_id,ref.semantic_key,ref.instance_path}];
+                    previous_face=i;
+                }
+                *previous_area=ref.measured_area;
                 if(!ref.surface||ref.surface->kind!=kernel::SurfaceGeometry::Kind::Plane)out.approximate=true;
                 if(request.kind==K::Plane){
                     const auto& t=out.triangles.back();const auto normal=unit(cross(sub(t[1],t[0]),sub(t[2],t[0])));
