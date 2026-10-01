@@ -640,6 +640,10 @@ if(ZIMA_BUILD_TESTS)
         ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_UNRESOLVED_SWEEP_ONLY=1"
         WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 120 RUN_SERIAL TRUE)
     add_test(NAME zima_cpp_profile_frame_ui_contract COMMAND zima-cad-cpp --verify-startup)
+    add_test(NAME zima_cpp_profile_opening_limits_ui_contract COMMAND zima-cad-cpp --verify-startup)
+    set_tests_properties(zima_cpp_profile_opening_limits_ui_contract PROPERTIES
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_PROFILE_OPEN_LIMITS_ONLY=1"
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
     add_test(NAME zima_cpp_profile_on_sheet_ui_contract COMMAND zima-cad-cpp --verify-startup)
     set_tests_properties(zima_cpp_profile_on_sheet_ui_contract PROPERTIES
         ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_PROFILE_ON_SHEET_ONLY=1"

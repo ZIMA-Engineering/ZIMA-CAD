@@ -4273,12 +4273,15 @@ int verify_owned_profile_external_reference(QApplication& application,const std:
         static_cast<void>(sketch.add_segment(30,0,40,0));static_cast<void>(sketch.add_segment(40,0,40,10));
         static_cast<void>(sketch.add_segment(40,10,30,10));static_cast<void>(sketch.add_segment(30,10,30,0));
         auto feature=PartDocument::create_extrusion_container(sketch.id);sketch.owner_container_id=feature.id;
-        document.history={source,feature};document.sketches={sketch};
+        document.history={source,feature};document.sketches.push_back(sketch);
         BodyHistoryGraph graph;static_cast<void>(graph.create_body("Source"));graph.insert({PartHistoryKind::Feature,source.id});
         static_cast<void>(graph.create_body("Profile"));graph.insert({PartHistoryKind::Feature,feature.id});document.set_body_history(graph);document.resolve_constructions();
         zima::kernel::OcctKernel kernel;calculated=kernel.evaluate_history(document.kernel_operations());
     }
-    const auto& feature=document.history.back();const auto& original=document.sketches.front();
+    const auto& feature=document.history.back();
+    const auto original_it=std::ranges::find(document.sketches,feature.extrusion.sketch_id,&zima::sketcher::Sketch::id);
+    if(!verify(original_it!=document.sketches.end(),"Owned profile fixture Sketch missing"))return 1;
+    const auto& original=*original_it;
     const auto* owner=document.body_history.owner(feature.id);
     if(!verify(owner!=nullptr,"Owned reference fixture has no Body"))return 1;
     for(int scenario=0;scenario<(supplied.isEmpty()?6:3);++scenario) {
@@ -4288,7 +4291,10 @@ int verify_owned_profile_external_reference(QApplication& application,const std:
         auto top=zima::assembly::AssemblyDocument::create_default();std::string target_path;
         const auto assembly_file=directory/("owned-profile-context-"+std::to_string(scenario)+".asmz");
         if(context) {
-            auto source=PartDocument::create_default();source.history={document.history.front()};
+            // Keep the real source profile and its Body ownership when separating
+            // the source into an Assembly component.
+            auto source=document;source.document_id=PartDocument::create_default().document_id;
+            source.erase_history_object(feature.id);source.resolve_constructions();
             zima::kernel::OcctKernel kernel;const auto source_calculated=kernel.evaluate_history(source.kernel_operations());
             const auto source_file=directory/("owned-profile-source-"+std::to_string(scenario)+".prtz");source.save(source_file,source_calculated);
             target_document.erase_history_object(document.history.front().id);
@@ -4383,7 +4389,10 @@ int verify_owned_profile_external_reference(QApplication& application,const std:
         if(!verify(parent,"Parent protrusion did not reopen"))return 1;
         parent->findChild<QDialogButtonBox*>()->button(accept?QDialogButtonBox::Ok:QDialogButtonBox::Cancel)->click();flush();
         window.findChild<QAction*>("saveDocumentAction")->trigger();flush();
-        const auto saved=PartDocument::load(path);const auto& result=saved.sketches.front();
+        const auto saved=PartDocument::load(path);
+        const auto result_it=std::ranges::find(saved.sketches,original.id,&zima::sketcher::Sketch::id);
+        if(!verify(result_it!=saved.sketches.end(),"Saved owned profile Sketch missing"))return 1;
+        const auto& result=*result_it;
         if(!verify(result.external_references.size()==original.external_references.size()+(accept?1:0),"Parent OK/Cancel lost or leaked external reference"))return 1;
         if(supplied.isEmpty()&&!verify(result.import_blocks.size()==original.import_blocks.size()+(accept?1:0)&&result.circles.size()==original.circles.size()+(accept?1:0),"Parent OK/Cancel lost or leaked imported DXF geometry"))return 1;
         if(!accept&&!verify(result.serialized()==original.serialized(),"Cancel changed original profile"))return 1;
@@ -6706,6 +6715,71 @@ int verify_sketch_return_frames(QApplication& application, const std::filesystem
     } catch(const std::exception& error) {std::cerr<<"Sketch return frame: "<<error.what()<<std::endl;return 1;}
 }
 
+int verify_profile_opening_limits(QApplication& application, const std::filesystem::path& directory) {
+    using namespace zima;
+    const auto check=[](bool ok,const char* message){if(!ok)throw std::runtime_error(message);};
+    const auto flush=[&]{application.processEvents();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);application.processEvents();};
+    try {
+        for(int mode=0;mode<3;++mode) {
+            auto part=document::PartDocument::create_default();
+            auto stock=test::rectangular_feature(part,{40,40,20});
+            auto sketch=sketcher::Sketch::create_default();
+            static_cast<void>(sketch.add_circle(13,7,2));
+            auto cut=document::PartDocument::create_extrusion_container(sketch.id);
+            cut.combine_mode=document::CombineMode::Subtract;
+            cut.extrusion.profile_plane_offset=0;
+            cut.extrusion.extent_mode=mode==0?document::ProfileExtentMode::OneSide:document::ProfileExtentMode::TwoSides;
+            cut.extrusion.end_condition_forward=cut.extrusion.end_condition_reverse=document::EndCondition::ThroughAll;
+            sketch.owner_container_id=cut.id;sketch.plane_offset=0;
+            auto upper=document::PartDocument::create_construction(document::ConstructionKind::Plane);
+            auto lower=document::PartDocument::create_construction(document::ConstructionKind::Plane);
+            upper.base_plane=lower.base_plane=document::LocalDatumPlane::XY;upper.offset=8;lower.offset=-8;
+            part.constructions={upper,lower};
+            if(mode==2) {
+                cut.extrusion.end_condition_forward=cut.extrusion.end_condition_reverse=document::EndCondition::UpTo;
+                cut.extrusion.end_targets_forward={{document::EndTargetKind::Plane,{upper.entity_id,"plane",{}},"Upper",{0,0,8},{0,0,1},{}}};
+                cut.extrusion.end_targets_reverse={{document::EndTargetKind::Plane,{lower.entity_id,"plane",{}},"Lower",{0,0,-8},{0,0,1},{}}};
+            }
+            // The final body intentionally has a much larger extent than the
+            // cut input. Opening Properties must not use its through-all bounds.
+            auto downstream=test::rectangular_feature(part,{40,40,300});
+            part.history={stock,cut,downstream};part.sketches.push_back(sketch);
+            document::BodyHistoryGraph graph;const auto body=graph.create_body("Opening limits");
+            graph.insert({document::PartHistoryKind::Feature,stock.id});
+            graph.insert({document::PartHistoryKind::Construction,upper.id});
+            graph.insert({document::PartHistoryKind::Construction,lower.id});
+            graph.insert({document::PartHistoryKind::Feature,cut.id});
+            graph.insert({document::PartHistoryKind::Feature,downstream.id});
+            part.set_body_history(graph);part.resolve_constructions();
+            kernel::OcctKernel kernel;const auto calculated=kernel.evaluate_history(part.kernel_operations());
+            const auto path=directory/"profile-opening-limits.prtz";part.save(path,calculated);
+            const auto expected=part.extrusion_preview_edges(part.history[1],calculated.front().mesh);
+            check(!expected.empty(),"Missing expected profile wire");
+            app::AssemblyWorkspaceWindow window(QString::fromStdString(directory.string()));window.resize(1200,850);window.show();
+            check(window.open_document_path(QString::fromStdString(path.string())),"Cannot open limit fixture");flush();
+            check(activate_test_body(application,window,body),"Cannot activate limit Body");
+            auto* tree=window.findChild<QTreeWidget*>("documentTree");QTreeWidgetItem* row{};
+            for(QTreeWidgetItemIterator i(tree);*i;++i)if((*i)->data(0,Qt::UserRole).toString().toStdString()==cut.id&&(*i)->data(0,Qt::UserRole+3)=="part-container"){row=*i;break;}
+            check(row,"Missing limit feature row");window.show_tree_item_properties(row);flush();
+            auto* view=dynamic_cast<viewer::MeshView*>(window.findChild<QOpenGLWidget*>());
+            const auto& actual=view->transient_edges();
+            check(actual.size()==expected.size(),"Opening changed the number of profile wire edges");
+            for(std::size_t i=0;i<expected.size();++i) {
+                check(actual[i].points.size()==expected[i].points.size(),"Opening changed profile wire sampling");
+                for(std::size_t j=0;j<expected[i].points.size();++j) {
+                    const auto& a=actual[i].points[j];const auto& b=expected[i].points[j];
+                    check(a.x==b.x&&a.y==b.y&&a.z==b.z,"Opening preview did not use the exact rollback input bounds/targets");
+                }
+            }
+            app::PrimitivePropertiesDialog* dialog{};
+            for(auto* child:window.findChildren<QDialog*>())if(auto* d=dynamic_cast<app::PrimitivePropertiesDialog*>(child);d&&d->isVisible())dialog=d;
+            check(dialog,"Missing limit properties");dialog->buttons()->button(QDialogButtonBox::Cancel)->click();flush();
+            std::cout<<"Profile opening limits mode="<<mode<<" passed"<<std::endl;
+        }
+        return 0;
+    }catch(const std::exception& error){std::cerr<<error.what()<<'\n';return 1;}
+}
+
 int verify_owned_profile_frames(QApplication& application, const std::filesystem::path& directory) {
     using namespace zima;
     const auto check=[](bool condition,const char* message) {
@@ -6722,6 +6796,8 @@ int verify_owned_profile_frames(QApplication& application, const std::filesystem
     try {
         for(const bool existing:{false,true}) for(const bool revolve:{false,true})
         for(const std::string first:{"xz","xy","yz"}) {
+            const bool opening_probe=qEnvironmentVariableIsSet("ZIMA_VERIFY_PROFILE_OPEN_ONLY");
+            if(opening_probe&&!existing)continue;
             std::cout<<"Profile frame: "<<(existing?"edit ":"create ")
                      <<(revolve?"revolution ":"extrusion ")<<first<<std::endl;
             auto part=document::PartDocument::create_default();
@@ -6767,6 +6843,35 @@ int verify_owned_profile_frames(QApplication& application, const std::filesystem
                 } else window.findChild<QAction*>(revolve?"revolutionAction":"extrusionAction")->trigger();
                 flush();check(dialog(),"Profile properties did not open");
             };
+            if(opening_probe) {
+                // Establish the command's normal post-close dimension display
+                // before checking repeated no-op restoration.
+                open();dialog()->buttons()->button(QDialogButtonBox::Cancel)->click();flush();
+                const auto camera=view->camera_state();
+                const auto packet=[&] {kernel::BodyResult result;result.mesh=view->mesh();return document::serialize_body_result(result,false);};
+                const auto initial_packet=packet();
+                const auto state=window.execute_console_command("documents").data;
+                auto* undo=window.findChild<QAction*>("undoAction");auto* redo=window.findChild<QAction*>("redoAction");
+                const bool undo_before=undo->isEnabled(),redo_before=redo->isEnabled();
+                QByteArray first_frame;
+                for(int trial=0;trial<6;++trial) {
+                    const auto revision=view->base_mesh_revision();QElapsedTimer timer;timer.start();open();
+                    const auto opening=timer.nsecsElapsed()/1e6;
+                    const auto publications=view->base_mesh_revision()-revision;
+                    const auto pixels=view->grabFramebuffer().convertToFormat(QImage::Format_RGBA8888);
+                    const auto hash=QCryptographicHash::hash(QByteArrayView(reinterpret_cast<const char*>(pixels.constBits()),pixels.sizeInBytes()),QCryptographicHash::Sha256).toHex();
+                    if(trial==0)first_frame=hash;
+                    check(hash==first_frame,"Repeated profile opening changed the preview");
+                    timer.restart();dialog()->buttons()->button(trial<3?QDialogButtonBox::Ok:QDialogButtonBox::Cancel)->click();flush();
+                    const auto closing=timer.nsecsElapsed()/1e6;
+                    check(!dialog(),"Unchanged profile did not close");
+                    check(view->camera_state()==camera&&packet()==initial_packet,"Profile did not restore camera/display packet");
+                    check(window.execute_console_command("documents").data==state&&undo->isEnabled()==undo_before&&redo->isEnabled()==redo_before,"Unchanged profile modified document or Undo/Redo");
+                    std::cout<<"Profile opening "<<(revolve?"revolution":"extrusion")<<" plane="<<first<<" trial="<<trial
+                        <<" open_ms="<<opening<<" close_ms="<<closing<<" publications="<<publications<<" sha256="<<hash.constData()<<std::endl;
+                }
+                continue;
+            }
             open();
             std::vector<std::string> planes{first};
             for(const std::string plane:{"xy","xz","yz"})if(plane!=first)planes.push_back(plane);
@@ -8778,7 +8883,8 @@ int verify_startup_contract(
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_BODY_REFERENCE_DIMENSION_ONLY")) return verify_body_reference_dimension_edit(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_PROFILE_DIMENSION_FILE")) return verify_property_sketch_dimensions(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_DIMENSION_EDITS_ONLY")) return verify_inline_primitive_dimensions(application,test_directory);
-    if (qEnvironmentVariableIsSet("ZIMA_VERIFY_PROFILE_FRAMES_ONLY") || qEnvironmentVariableIsSet("ZIMA_VERIFY_PROFILE_DRAG_ONLY")) return verify_owned_profile_frames(application,test_directory);
+    if (qEnvironmentVariableIsSet("ZIMA_VERIFY_PROFILE_OPEN_LIMITS_ONLY")) return verify_profile_opening_limits(application,test_directory);
+    if (qEnvironmentVariableIsSet("ZIMA_VERIFY_PROFILE_OPEN_ONLY") || qEnvironmentVariableIsSet("ZIMA_VERIFY_PROFILE_FRAMES_ONLY") || qEnvironmentVariableIsSet("ZIMA_VERIFY_PROFILE_DRAG_ONLY")) return verify_owned_profile_frames(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_PROFILE_ON_SHEET_FILE") || qEnvironmentVariableIsSet("ZIMA_VERIFY_PROFILE_ON_SHEET_ONLY")) return verify_profile_on_sheet(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_SKETCH_RETURN_FRAME_ONLY")) return verify_sketch_return_frames(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_SKETCH_ORIGIN_PICK_ONLY")) return verify_sketch_return_frames(application,test_directory);

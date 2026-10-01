@@ -1,0 +1,152 @@
+=== before ===
+Profile frame: edit extrusion xz
+Profile opening extrusion plane=xz trial=0 open_ms=64.4825 close_ms=84.8545 publications=3 sha256=3fe40e14caff1035f335abaa42bd8c518076a9b47ccf5fefc8f9b6f4be071346
+Profile opening extrusion plane=xz trial=1 open_ms=57.763 close_ms=24.1198 publications=3 sha256=3fe40e14caff1035f335abaa42bd8c518076a9b47ccf5fefc8f9b6f4be071346
+Profile opening extrusion plane=xz trial=2 open_ms=60.5215 close_ms=24.7049 publications=3 sha256=3fe40e14caff1035f335abaa42bd8c518076a9b47ccf5fefc8f9b6f4be071346
+Profile opening extrusion plane=xz trial=3 open_ms=55.5199 close_ms=23.5469 publications=3 sha256=3fe40e14caff1035f335abaa42bd8c518076a9b47ccf5fefc8f9b6f4be071346
+Profile opening extrusion plane=xz trial=4 open_ms=56.9097 close_ms=22.9159 publications=3 sha256=3fe40e14caff1035f335abaa42bd8c518076a9b47ccf5fefc8f9b6f4be071346
+Profile opening extrusion plane=xz trial=5 open_ms=56.544 close_ms=25.3505 publications=3 sha256=3fe40e14caff1035f335abaa42bd8c518076a9b47ccf5fefc8f9b6f4be071346
+Profile frame: edit extrusion xy
+Profile opening extrusion plane=xy trial=0 open_ms=59.9948 close_ms=23.4853 publications=3 sha256=3fe40e14caff1035f335abaa42bd8c518076a9b47ccf5fefc8f9b6f4be071346
+Profile opening extrusion plane=xy trial=1 open_ms=55.0037 close_ms=24.4335 publications=3 sha256=3fe40e14caff1035f335abaa42bd8c518076a9b47ccf5fefc8f9b6f4be071346
+Profile opening extrusion plane=xy trial=2 open_ms=56.8866 close_ms=24.4461 publications=3 sha256=3fe40e14caff1035f335abaa42bd8c518076a9b47ccf5fefc8f9b6f4be071346
+Profile opening extrusion plane=xy trial=3 open_ms=55.8585 close_ms=29.857 publications=3 sha256=3fe40e14caff1035f335abaa42bd8c518076a9b47ccf5fefc8f9b6f4be071346
+Profile opening extrusion plane=xy trial=4 open_ms=69.8758 close_ms=28.0566 publications=3 sha256=3fe40e14caff1035f335abaa42bd8c518076a9b47ccf5fefc8f9b6f4be071346
+Profile opening extrusion plane=xy trial=5 open_ms=56.9944 close_ms=24.6093 publications=3 sha256=3fe40e14caff1035f335abaa42bd8c518076a9b47ccf5fefc8f9b6f4be071346
+Profile frame: edit extrusion yz
+Profile opening extrusion plane=yz trial=0 open_ms=59.8012 close_ms=25.2192 publications=3 sha256=3fe40e14caff1035f335abaa42bd8c518076a9b47ccf5fefc8f9b6f4be071346
+Profile opening extrusion plane=yz trial=1 open_ms=53.0239 close_ms=24.7352 publications=3 sha256=3fe40e14caff1035f335abaa42bd8c518076a9b47ccf5fefc8f9b6f4be071346
+Profile opening extrusion plane=yz trial=2 open_ms=52.6102 close_ms=23.887 publications=3 sha256=3fe40e14caff1035f335abaa42bd8c518076a9b47ccf5fefc8f9b6f4be071346
+Profile opening extrusion plane=yz trial=3 open_ms=54.3871 close_ms=29.2193 publications=3 sha256=3fe40e14caff1035f335abaa42bd8c518076a9b47ccf5fefc8f9b6f4be071346
+Profile opening extrusion plane=yz trial=4 open_ms=66.9251 close_ms=26.6543 publications=3 sha256=3fe40e14caff1035f335abaa42bd8c518076a9b47ccf5fefc8f9b6f4be071346
+Profile opening extrusion plane=yz trial=5 open_ms=57.3798 close_ms=24.6964 publications=3 sha256=3fe40e14caff1035f335abaa42bd8c518076a9b47ccf5fefc8f9b6f4be071346
+Profile frame: edit revolution xz
+Profile opening revolution plane=xz trial=0 open_ms=62.8098 close_ms=27.9358 publications=3 sha256=55242681b40455e27a64b1500611a595217e6fe24300191a5c5bee8b74db55af
+Profile opening revolution plane=xz trial=1 open_ms=61.9685 close_ms=31.0734 publications=3 sha256=55242681b40455e27a64b1500611a595217e6fe24300191a5c5bee8b74db55af
+Profile opening revolution plane=xz trial=2 open_ms=60.7804 close_ms=30.4413 publications=3 sha256=55242681b40455e27a64b1500611a595217e6fe24300191a5c5bee8b74db55af
+Profile opening revolution plane=xz trial=3 open_ms=72.1479 close_ms=34.7857 publications=3 sha256=55242681b40455e27a64b1500611a595217e6fe24300191a5c5bee8b74db55af
+Profile opening revolution plane=xz trial=4 open_ms=64.6931 close_ms=27.0852 publications=3 sha256=55242681b40455e27a64b1500611a595217e6fe24300191a5c5bee8b74db55af
+Profile opening revolution plane=xz trial=5 open_ms=60.7456 close_ms=31.3414 publications=3 sha256=55242681b40455e27a64b1500611a595217e6fe24300191a5c5bee8b74db55af
+Profile frame: edit revolution xy
+Profile opening revolution plane=xy trial=0 open_ms=57.9914 close_ms=29.6013 publications=3 sha256=55242681b40455e27a64b1500611a595217e6fe24300191a5c5bee8b74db55af
+Profile opening revolution plane=xy trial=1 open_ms=58.9775 close_ms=31.2702 publications=3 sha256=55242681b40455e27a64b1500611a595217e6fe24300191a5c5bee8b74db55af
+Profile opening revolution plane=xy trial=2 open_ms=60.5726 close_ms=29.3752 publications=3 sha256=55242681b40455e27a64b1500611a595217e6fe24300191a5c5bee8b74db55af
+Profile opening revolution plane=xy trial=3 open_ms=69.3499 close_ms=33.4606 publications=3 sha256=55242681b40455e27a64b1500611a595217e6fe24300191a5c5bee8b74db55af
+Profile opening revolution plane=xy trial=4 open_ms=69.4941 close_ms=31.1734 publications=3 sha256=55242681b40455e27a64b1500611a595217e6fe24300191a5c5bee8b74db55af
+Profile opening revolution plane=xy trial=5 open_ms=62.5649 close_ms=29.5467 publications=3 sha256=55242681b40455e27a64b1500611a595217e6fe24300191a5c5bee8b74db55af
+Profile frame: edit revolution yz
+Profile opening revolution plane=yz trial=0 open_ms=63.9751 close_ms=29.1996 publications=3 sha256=55242681b40455e27a64b1500611a595217e6fe24300191a5c5bee8b74db55af
+Profile opening revolution plane=yz trial=1 open_ms=62.9424 close_ms=28.7439 publications=3 sha256=55242681b40455e27a64b1500611a595217e6fe24300191a5c5bee8b74db55af
+Profile opening revolution plane=yz trial=2 open_ms=58.8814 close_ms=37.7803 publications=3 sha256=55242681b40455e27a64b1500611a595217e6fe24300191a5c5bee8b74db55af
+Profile opening revolution plane=yz trial=3 open_ms=77.7531 close_ms=28.1898 publications=3 sha256=55242681b40455e27a64b1500611a595217e6fe24300191a5c5bee8b74db55af
+Profile opening revolution plane=yz trial=4 open_ms=61.4063 close_ms=29.275 publications=3 sha256=55242681b40455e27a64b1500611a595217e6fe24300191a5c5bee8b74db55af
+Profile opening revolution plane=yz trial=5 open_ms=88.952 close_ms=34.9925 publications=3 sha256=55242681b40455e27a64b1500611a595217e6fe24300191a5c5bee8b74db55af
+First plane: sketchAction xz
+First plane: sketchAction xy
+First plane: sketchAction yz
+First plane: sweep2dAction xz
+First plane: sweep2dAction xy
+First plane: sweep2dAction yz
+First plane: helicalSweepAction xz
+First plane: helicalSweepAction xy
+First plane: helicalSweepAction yz
+Owned profile first-plane, eight orientations, offset, OK/Cancel and other Sketch hosts passed
+
+=== final ===
+Profile frame: edit extrusion xz
+Profile opening extrusion plane=xz trial=0 open_ms=47.1489 close_ms=78.7655 publications=1 sha256=3fe40e14caff1035f335abaa42bd8c518076a9b47ccf5fefc8f9b6f4be071346
+Profile opening extrusion plane=xz trial=1 open_ms=44.3317 close_ms=22.4249 publications=1 sha256=3fe40e14caff1035f335abaa42bd8c518076a9b47ccf5fefc8f9b6f4be071346
+Profile opening extrusion plane=xz trial=2 open_ms=42.86 close_ms=24.5536 publications=1 sha256=3fe40e14caff1035f335abaa42bd8c518076a9b47ccf5fefc8f9b6f4be071346
+Profile opening extrusion plane=xz trial=3 open_ms=47.815 close_ms=24.4977 publications=1 sha256=3fe40e14caff1035f335abaa42bd8c518076a9b47ccf5fefc8f9b6f4be071346
+Profile opening extrusion plane=xz trial=4 open_ms=43.4605 close_ms=24.5879 publications=1 sha256=3fe40e14caff1035f335abaa42bd8c518076a9b47ccf5fefc8f9b6f4be071346
+Profile opening extrusion plane=xz trial=5 open_ms=42.7836 close_ms=22.4265 publications=1 sha256=3fe40e14caff1035f335abaa42bd8c518076a9b47ccf5fefc8f9b6f4be071346
+Profile frame: edit extrusion xy
+Profile opening extrusion plane=xy trial=0 open_ms=51.3982 close_ms=33.1504 publications=1 sha256=3fe40e14caff1035f335abaa42bd8c518076a9b47ccf5fefc8f9b6f4be071346
+Profile opening extrusion plane=xy trial=1 open_ms=49.8366 close_ms=26.3583 publications=1 sha256=3fe40e14caff1035f335abaa42bd8c518076a9b47ccf5fefc8f9b6f4be071346
+Profile opening extrusion plane=xy trial=2 open_ms=47.8491 close_ms=27.397 publications=1 sha256=3fe40e14caff1035f335abaa42bd8c518076a9b47ccf5fefc8f9b6f4be071346
+Profile opening extrusion plane=xy trial=3 open_ms=52.6463 close_ms=31.7186 publications=1 sha256=3fe40e14caff1035f335abaa42bd8c518076a9b47ccf5fefc8f9b6f4be071346
+Profile opening extrusion plane=xy trial=4 open_ms=50.7275 close_ms=28.2441 publications=1 sha256=3fe40e14caff1035f335abaa42bd8c518076a9b47ccf5fefc8f9b6f4be071346
+Profile opening extrusion plane=xy trial=5 open_ms=59.2189 close_ms=23.6904 publications=1 sha256=3fe40e14caff1035f335abaa42bd8c518076a9b47ccf5fefc8f9b6f4be071346
+Profile frame: edit extrusion yz
+Profile opening extrusion plane=yz trial=0 open_ms=48.9686 close_ms=23.1386 publications=1 sha256=3fe40e14caff1035f335abaa42bd8c518076a9b47ccf5fefc8f9b6f4be071346
+Profile opening extrusion plane=yz trial=1 open_ms=44.1575 close_ms=33.9229 publications=1 sha256=3fe40e14caff1035f335abaa42bd8c518076a9b47ccf5fefc8f9b6f4be071346
+Profile opening extrusion plane=yz trial=2 open_ms=49.9515 close_ms=22.6945 publications=1 sha256=3fe40e14caff1035f335abaa42bd8c518076a9b47ccf5fefc8f9b6f4be071346
+Profile opening extrusion plane=yz trial=3 open_ms=53.3998 close_ms=33.8469 publications=1 sha256=3fe40e14caff1035f335abaa42bd8c518076a9b47ccf5fefc8f9b6f4be071346
+Profile opening extrusion plane=yz trial=4 open_ms=72.9127 close_ms=33.2386 publications=1 sha256=3fe40e14caff1035f335abaa42bd8c518076a9b47ccf5fefc8f9b6f4be071346
+Profile opening extrusion plane=yz trial=5 open_ms=51.6485 close_ms=29.6186 publications=1 sha256=3fe40e14caff1035f335abaa42bd8c518076a9b47ccf5fefc8f9b6f4be071346
+Profile frame: edit revolution xz
+Profile opening revolution plane=xz trial=0 open_ms=47.568 close_ms=30.8663 publications=1 sha256=55242681b40455e27a64b1500611a595217e6fe24300191a5c5bee8b74db55af
+Profile opening revolution plane=xz trial=1 open_ms=56.0882 close_ms=40.8379 publications=1 sha256=55242681b40455e27a64b1500611a595217e6fe24300191a5c5bee8b74db55af
+Profile opening revolution plane=xz trial=2 open_ms=46.5588 close_ms=29.5915 publications=1 sha256=55242681b40455e27a64b1500611a595217e6fe24300191a5c5bee8b74db55af
+Profile opening revolution plane=xz trial=3 open_ms=54.4618 close_ms=33.9163 publications=1 sha256=55242681b40455e27a64b1500611a595217e6fe24300191a5c5bee8b74db55af
+Profile opening revolution plane=xz trial=4 open_ms=59.7494 close_ms=28.6261 publications=1 sha256=55242681b40455e27a64b1500611a595217e6fe24300191a5c5bee8b74db55af
+Profile opening revolution plane=xz trial=5 open_ms=49.2777 close_ms=34.2748 publications=1 sha256=55242681b40455e27a64b1500611a595217e6fe24300191a5c5bee8b74db55af
+Profile frame: edit revolution xy
+Profile opening revolution plane=xy trial=0 open_ms=55.6779 close_ms=33.5847 publications=1 sha256=55242681b40455e27a64b1500611a595217e6fe24300191a5c5bee8b74db55af
+Profile opening revolution plane=xy trial=1 open_ms=50.0675 close_ms=30.0039 publications=1 sha256=55242681b40455e27a64b1500611a595217e6fe24300191a5c5bee8b74db55af
+Profile opening revolution plane=xy trial=2 open_ms=57.9702 close_ms=29.5549 publications=1 sha256=55242681b40455e27a64b1500611a595217e6fe24300191a5c5bee8b74db55af
+Profile opening revolution plane=xy trial=3 open_ms=53.4194 close_ms=41.1289 publications=1 sha256=55242681b40455e27a64b1500611a595217e6fe24300191a5c5bee8b74db55af
+Profile opening revolution plane=xy trial=4 open_ms=59.9427 close_ms=32.6527 publications=1 sha256=55242681b40455e27a64b1500611a595217e6fe24300191a5c5bee8b74db55af
+Profile opening revolution plane=xy trial=5 open_ms=51.0339 close_ms=29.004 publications=1 sha256=55242681b40455e27a64b1500611a595217e6fe24300191a5c5bee8b74db55af
+Profile frame: edit revolution yz
+Profile opening revolution plane=yz trial=0 open_ms=50.4354 close_ms=31.4271 publications=1 sha256=55242681b40455e27a64b1500611a595217e6fe24300191a5c5bee8b74db55af
+Profile opening revolution plane=yz trial=1 open_ms=47.3348 close_ms=30.0761 publications=1 sha256=55242681b40455e27a64b1500611a595217e6fe24300191a5c5bee8b74db55af
+Profile opening revolution plane=yz trial=2 open_ms=55.2977 close_ms=27.2793 publications=1 sha256=55242681b40455e27a64b1500611a595217e6fe24300191a5c5bee8b74db55af
+Profile opening revolution plane=yz trial=3 open_ms=61.9191 close_ms=36.1734 publications=1 sha256=55242681b40455e27a64b1500611a595217e6fe24300191a5c5bee8b74db55af
+Profile opening revolution plane=yz trial=4 open_ms=60.9674 close_ms=32.4963 publications=1 sha256=55242681b40455e27a64b1500611a595217e6fe24300191a5c5bee8b74db55af
+Profile opening revolution plane=yz trial=5 open_ms=50.502 close_ms=31.903 publications=1 sha256=55242681b40455e27a64b1500611a595217e6fe24300191a5c5bee8b74db55af
+First plane: sketchAction xz
+First plane: sketchAction xy
+First plane: sketchAction yz
+First plane: sweep2dAction xz
+First plane: sweep2dAction xy
+First plane: sweep2dAction yz
+First plane: helicalSweepAction xz
+First plane: helicalSweepAction xy
+First plane: helicalSweepAction yz
+Owned profile first-plane, eight orientations, offset, OK/Cancel and other Sketch hosts passed
+
+
+=== profile-opening-regression ===
+Test project C:/Users/vladi/Prace/ZIMA-Engineering/00-SOFTWARE/01-ZIMA/ZIMA-CAD/build/cpp-windows-release
+      Start  15: zima_cpp_profile_frame_ui_contract
+ 1/10 Test  #15: zima_cpp_profile_frame_ui_contract .............   Passed   79.62 sec
+      Start  16: zima_cpp_profile_opening_limits_ui_contract
+ 2/10 Test  #16: zima_cpp_profile_opening_limits_ui_contract ....   Passed    4.42 sec
+      Start  17: zima_cpp_profile_on_sheet_ui_contract
+ 3/10 Test  #17: zima_cpp_profile_on_sheet_ui_contract ..........   Passed    4.27 sec
+      Start  43: zima_cpp_translations_contract
+ 4/10 Test  #43: zima_cpp_translations_contract .................   Passed    5.78 sec
+      Start 129: zima_cpp_extrusion_limit_contract_tests
+ 5/10 Test #129: zima_cpp_extrusion_limit_contract_tests ........   Passed    0.49 sec
+      Start 160: zima_cpp_assembly_profile_command_tests
+ 6/10 Test #160: zima_cpp_assembly_profile_command_tests ........   Passed    1.35 sec
+      Start 183: zima_cpp_feature_prototype_ui_contract
+ 7/10 Test #183: zima_cpp_feature_prototype_ui_contract .........   Passed   51.32 sec
+      Start 207: zima_cpp_selection_filter_ui_contract
+ 8/10 Test #207: zima_cpp_selection_filter_ui_contract ..........   Passed    3.66 sec
+      Start 231: zima_cpp_owned_profile_reference_ui_contract
+ 9/10 Test #231: zima_cpp_owned_profile_reference_ui_contract ...***Failed    0.60 sec
+Calculated history boundary does not match its parameters
+
+      Start 233: zima_cpp_surface_profile_ui_contract
+10/10 Test #233: zima_cpp_surface_profile_ui_contract ...........   Passed    5.14 sec
+
+90% tests passed, 1 tests failed out of 10
+
+Total Test time (real) = 156.73 sec
+
+The following tests FAILED:
+	231 - zima_cpp_owned_profile_reference_ui_contract (Failed)
+Errors while running CTest
+
+=== profile-opening-fixture-regression ===
+Test project C:/Users/vladi/Prace/ZIMA-Engineering/00-SOFTWARE/01-ZIMA/ZIMA-CAD/build/cpp-windows-release
+    Start  16: zima_cpp_profile_opening_limits_ui_contract
+1/2 Test  #16: zima_cpp_profile_opening_limits_ui_contract ....   Passed    4.13 sec
+    Start 231: zima_cpp_owned_profile_reference_ui_contract
+2/2 Test #231: zima_cpp_owned_profile_reference_ui_contract ...   Passed   20.52 sec
+
+100% tests passed, 0 tests failed out of 2
+
+Total Test time (real) =  24.70 sec

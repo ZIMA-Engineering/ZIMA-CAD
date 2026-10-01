@@ -1164,11 +1164,17 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
             dialog->set_preview_callback(placement_preview);
         }
     }
+    // An edited Part profile needs its rollback input before the first
+    // synchronous preview. Publish that scene once, after dialog setup.
+    // Sheet cuts and Assembly cuts retain their separate input setup below.
+    const bool defer_profile_preview = rollback_boundary.has_value() &&
+        (feature_kind == zima::document::FeatureKind::Revolution ||
+         (feature_kind == zima::document::FeatureKind::Extrusion && !initial.extrusion.sheet_cut));
     const auto profile_scene_signature =
         std::make_shared<std::optional<std::vector<double>>>();
     const auto profile_scene_name=std::make_shared<std::string>();
     const auto publish_profile_preview_scene =
-        [this, profile_scene_signature, profile_scene_name](
+        [this, profile_scene_signature, profile_scene_name, defer_profile_preview](
             const zima::document::PartDocument* preview_document,
             const zima::document::HistoryContainer& preview) {
         std::vector<zima::kernel::ViewerDimension> live_dimensions;
@@ -1226,13 +1232,16 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
             **profile_scene_signature == signature && *profile_scene_name==preview.name) {
             return;
         }
+        const bool first_scene = !*profile_scene_signature;
         *profile_scene_signature = std::move(signature);
         *profile_scene_name=preview.name;
         // The base body and static work-plane frame change only when the
         // placement/profile frame changes. Length/angle edits update the
         // transient wire, manipulators and live dimensions without sending
         // the complete STEP mesh through set_mesh()/upload_mesh().
-        preserve_view_on_refresh_ = true;
+        // Preserve the fit previously performed by the final rollback
+        // publication on opening; subsequent parameter edits keep the camera.
+        preserve_view_on_refresh_ = !(defer_profile_preview && first_scene);
         refresh_scene();
         if (!pending_primitive_reference_index_ &&
             extrusion_target_dialog_ == nullptr) {
@@ -1276,6 +1285,11 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
                 finish_extrusion_target_selection();
         });
     }
+    std::function<void(const zima::document::HistoryContainer&)> deferred_profile_preview;
+    const auto install_profile_preview = [&](std::function<void(const zima::document::HistoryContainer&)> callback) {
+        if (defer_profile_preview) deferred_profile_preview = std::move(callback);
+        else dialog->set_preview_callback(std::move(callback));
+    };
     if (feature_kind == zima::document::FeatureKind::Feature) {
         dialog->set_preview_callback([this,owner_id,placement_preview,prepare_owned_profile_preview,extent_drag_baseline,
                 update_owned_profile_context_preview,publish_profile_preview_scene](const auto& pending) {
@@ -1349,7 +1363,7 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
             preserve_view_on_refresh_=true;
             refresh_scene();
         }
-        dialog->set_preview_callback([this, owner_id, assembly_cut,
+        install_profile_preview([this, owner_id, assembly_cut,
                                       cut_wire_preview,cut_preview_input,
                                       placement_preview,
                                       prepare_owned_profile_preview,
@@ -1469,7 +1483,7 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
             }
         });
     } else if (feature_kind == zima::document::FeatureKind::Revolution) {
-        dialog->set_preview_callback([this, owner_id, assembly_cut,
+        install_profile_preview([this, owner_id, assembly_cut,
                                       placement_preview,
                                       prepare_owned_profile_preview,
                                       update_owned_profile_context_preview,
@@ -1865,8 +1879,10 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
         part_rollback_ = PartRollbackContext{
             part->session.document().document_id, *rollback_occurrence,
             rollback_boundary->history_index, rollback_boundary->input_body};
-        refresh_scene();
+        if (!deferred_profile_preview) refresh_scene();
     }
+    if (deferred_profile_preview)
+        dialog->set_preview_callback(std::move(deferred_profile_preview));
     connect(dialog, &QObject::destroyed, this, [this, dialog_container_id,
             sheet_cut_context=feature_kind==zima::document::FeatureKind::Extrusion&&initial.extrusion.sheet_cut] {
         // SKETCH is a transition into the profile sub-editor, not the end of

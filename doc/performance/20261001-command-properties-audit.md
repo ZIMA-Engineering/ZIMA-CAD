@@ -11,7 +11,7 @@ all commands have been benchmarked or that every identified opportunity is fixed
 | Reviewed command family | Finding and disposition |
 | --- | --- |
 | 3D Sweep | Tree published the final scene; the initial preview published it again before rollback was installed; a third refresh then published rollback. Fixed as described below. |
-| Extrusion, Revolution and general Feature | Profile previews already avoid base-scene reconstruction when the frame signature is unchanged. Through-all bounds, owned Sketch transitions and operational rollback still have distinct input requirements. Retained; further opening optimization needs dedicated measurements of those branches. |
+| Extrusion, Revolution and general Feature | Profile previews already avoid base-scene reconstruction when the frame signature is unchanged. Through-all bounds, owned Sketch transitions and operational rollback still have distinct input requirements. The follow-up below optimizes ordinary Part Extrusion/Revolution opening and tests Through-all/Up-to input boundaries; general Feature remains unchanged. |
 | Fillet/Chamfer and Shell | Selection setup consumes actual input-body topology and installs command-specific filters/overlays. Refreshes were not deleted based solely on their proximity in the code. |
 | Point, Axis, Plane and 3D Curve | Registering the preview callback invokes it immediately and establishes resolved reference geometry. Reference auto-entry follows separately. No global suppression was introduced. |
 | Boundary Surface | Scene refresh precedes inspection/picking code that reads the resulting viewer edges. The command's own refresh is required; the Tree pre-refresh is a possible narrower follow-up. |
@@ -56,3 +56,6 @@ Sweep commands, selection-filter GUI and five-language catalogs. Logs:
 
 Follow-up: [nested copy and scale previews](20261001-nested-copy-preview.md)
 measures the override paths and records the accepted, limited optimization.
+
+Follow-up: [Extrusion and Revolution Properties opening](20261001-profile-properties-opening.md)
+measures opening, preserves the initial fit and checks exact rollback preview bounds.
