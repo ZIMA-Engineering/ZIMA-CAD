@@ -1,0 +1,79 @@
+Fillet and Chamfer Properties verification - 2026-10-01
+Baseline: a44387dd; Windows Release/Fusion, 1500 x 950.
+
+before
+Treatment opening sides=4 fillet=1 trial=0 ms=43.271 publications=2 preview=66331005d606d81c7b7f64b1b1e268c2805790ba5dad6ced528f25041373fa0a restored=a0d6701435b2c54f89fc80469ad529a5221271669c487feab29f9d32c3cb1dbc
+Treatment opening sides=4 fillet=1 trial=1 ms=34.3702 publications=2 preview=66331005d606d81c7b7f64b1b1e268c2805790ba5dad6ced528f25041373fa0a restored=a0d6701435b2c54f89fc80469ad529a5221271669c487feab29f9d32c3cb1dbc
+Treatment opening sides=4 fillet=1 trial=2 ms=35.4633 publications=2 preview=66331005d606d81c7b7f64b1b1e268c2805790ba5dad6ced528f25041373fa0a restored=a0d6701435b2c54f89fc80469ad529a5221271669c487feab29f9d32c3cb1dbc
+Treatment opening sides=4 fillet=1 trial=3 ms=39.1777 publications=2 preview=66331005d606d81c7b7f64b1b1e268c2805790ba5dad6ced528f25041373fa0a restored=a0d6701435b2c54f89fc80469ad529a5221271669c487feab29f9d32c3cb1dbc
+Treatment opening sides=4 fillet=1 trial=4 ms=33.9663 publications=2 preview=66331005d606d81c7b7f64b1b1e268c2805790ba5dad6ced528f25041373fa0a restored=a0d6701435b2c54f89fc80469ad529a5221271669c487feab29f9d32c3cb1dbc
+Treatment opening sides=4 fillet=1 trial=5 ms=34.8462 publications=2 preview=66331005d606d81c7b7f64b1b1e268c2805790ba5dad6ced528f25041373fa0a restored=a0d6701435b2c54f89fc80469ad529a5221271669c487feab29f9d32c3cb1dbc
+Treatment opening sides=4 fillet=0 trial=0 ms=37.2351 publications=2 preview=90c688f3cb4fc369559109300f8f2e6697d8e7002b386d9af1e198c20022cae8 restored=05ad6f85ae628cac3305aeca0a7c9e29f5fe519aaf209ed0304c5cc662a9fa12
+Treatment opening sides=4 fillet=0 trial=1 ms=34.9331 publications=2 preview=90c688f3cb4fc369559109300f8f2e6697d8e7002b386d9af1e198c20022cae8 restored=05ad6f85ae628cac3305aeca0a7c9e29f5fe519aaf209ed0304c5cc662a9fa12
+Treatment opening sides=4 fillet=0 trial=2 ms=34.7285 publications=2 preview=90c688f3cb4fc369559109300f8f2e6697d8e7002b386d9af1e198c20022cae8 restored=05ad6f85ae628cac3305aeca0a7c9e29f5fe519aaf209ed0304c5cc662a9fa12
+Treatment opening sides=4 fillet=0 trial=3 ms=36.959 publications=2 preview=90c688f3cb4fc369559109300f8f2e6697d8e7002b386d9af1e198c20022cae8 restored=05ad6f85ae628cac3305aeca0a7c9e29f5fe519aaf209ed0304c5cc662a9fa12
+Treatment opening sides=4 fillet=0 trial=4 ms=37.7952 publications=2 preview=90c688f3cb4fc369559109300f8f2e6697d8e7002b386d9af1e198c20022cae8 restored=05ad6f85ae628cac3305aeca0a7c9e29f5fe519aaf209ed0304c5cc662a9fa12
+Treatment opening sides=4 fillet=0 trial=5 ms=37.1245 publications=2 preview=90c688f3cb4fc369559109300f8f2e6697d8e7002b386d9af1e198c20022cae8 restored=05ad6f85ae628cac3305aeca0a7c9e29f5fe519aaf209ed0304c5cc662a9fa12
+Treatment opening sides=128 fillet=1 trial=0 ms=186.25 publications=2 preview=4056d7e24842d395ebf6c304a0263f16bc1e808127aeb9d937672ed3823951d4 restored=cc8d824486316a4857efb08fb57338549a0ebb7ef9a23d4b0717b69e677fa4b8
+Treatment opening sides=128 fillet=1 trial=1 ms=180.623 publications=2 preview=4056d7e24842d395ebf6c304a0263f16bc1e808127aeb9d937672ed3823951d4 restored=cc8d824486316a4857efb08fb57338549a0ebb7ef9a23d4b0717b69e677fa4b8
+Treatment opening sides=128 fillet=1 trial=2 ms=160.76 publications=2 preview=4056d7e24842d395ebf6c304a0263f16bc1e808127aeb9d937672ed3823951d4 restored=cc8d824486316a4857efb08fb57338549a0ebb7ef9a23d4b0717b69e677fa4b8
+Treatment opening sides=128 fillet=1 trial=3 ms=149.022 publications=2 preview=4056d7e24842d395ebf6c304a0263f16bc1e808127aeb9d937672ed3823951d4 restored=cc8d824486316a4857efb08fb57338549a0ebb7ef9a23d4b0717b69e677fa4b8
+Treatment opening sides=128 fillet=1 trial=4 ms=152.149 publications=2 preview=4056d7e24842d395ebf6c304a0263f16bc1e808127aeb9d937672ed3823951d4 restored=cc8d824486316a4857efb08fb57338549a0ebb7ef9a23d4b0717b69e677fa4b8
+Treatment opening sides=128 fillet=1 trial=5 ms=156.388 publications=2 preview=4056d7e24842d395ebf6c304a0263f16bc1e808127aeb9d937672ed3823951d4 restored=cc8d824486316a4857efb08fb57338549a0ebb7ef9a23d4b0717b69e677fa4b8
+Treatment opening sides=128 fillet=0 trial=0 ms=139.291 publications=2 preview=5e623a56d064cedc314ec2cad3a8348457016c750c1501434fb6fd15aa9f427a restored=1ce73f389a88086b656c52c91f27c50635766d24dfd925a402a9bc0f1aad37a4
+Treatment opening sides=128 fillet=0 trial=1 ms=137.884 publications=2 preview=5e623a56d064cedc314ec2cad3a8348457016c750c1501434fb6fd15aa9f427a restored=1ce73f389a88086b656c52c91f27c50635766d24dfd925a402a9bc0f1aad37a4
+Treatment opening sides=128 fillet=0 trial=2 ms=131.478 publications=2 preview=5e623a56d064cedc314ec2cad3a8348457016c750c1501434fb6fd15aa9f427a restored=1ce73f389a88086b656c52c91f27c50635766d24dfd925a402a9bc0f1aad37a4
+Treatment opening sides=128 fillet=0 trial=3 ms=155.875 publications=2 preview=5e623a56d064cedc314ec2cad3a8348457016c750c1501434fb6fd15aa9f427a restored=1ce73f389a88086b656c52c91f27c50635766d24dfd925a402a9bc0f1aad37a4
+Treatment opening sides=128 fillet=0 trial=4 ms=145.786 publications=2 preview=5e623a56d064cedc314ec2cad3a8348457016c750c1501434fb6fd15aa9f427a restored=1ce73f389a88086b656c52c91f27c50635766d24dfd925a402a9bc0f1aad37a4
+Treatment opening sides=128 fillet=0 trial=5 ms=128.718 publications=2 preview=5e623a56d064cedc314ec2cad3a8348457016c750c1501434fb6fd15aa9f427a restored=1ce73f389a88086b656c52c91f27c50635766d24dfd925a402a9bc0f1aad37a4
+
+
+after
+Treatment opening sides=4 fillet=1 trial=0 ms=43.1963 publications=1 preview=66331005d606d81c7b7f64b1b1e268c2805790ba5dad6ced528f25041373fa0a restored=a0d6701435b2c54f89fc80469ad529a5221271669c487feab29f9d32c3cb1dbc
+Treatment opening sides=4 fillet=1 trial=1 ms=34.3546 publications=1 preview=66331005d606d81c7b7f64b1b1e268c2805790ba5dad6ced528f25041373fa0a restored=a0d6701435b2c54f89fc80469ad529a5221271669c487feab29f9d32c3cb1dbc
+Treatment opening sides=4 fillet=1 trial=2 ms=34.1814 publications=1 preview=66331005d606d81c7b7f64b1b1e268c2805790ba5dad6ced528f25041373fa0a restored=a0d6701435b2c54f89fc80469ad529a5221271669c487feab29f9d32c3cb1dbc
+Treatment opening sides=4 fillet=1 trial=3 ms=32.2926 publications=1 preview=66331005d606d81c7b7f64b1b1e268c2805790ba5dad6ced528f25041373fa0a restored=a0d6701435b2c54f89fc80469ad529a5221271669c487feab29f9d32c3cb1dbc
+Treatment opening sides=4 fillet=1 trial=4 ms=35.0546 publications=1 preview=66331005d606d81c7b7f64b1b1e268c2805790ba5dad6ced528f25041373fa0a restored=a0d6701435b2c54f89fc80469ad529a5221271669c487feab29f9d32c3cb1dbc
+Treatment opening sides=4 fillet=1 trial=5 ms=32.7839 publications=1 preview=66331005d606d81c7b7f64b1b1e268c2805790ba5dad6ced528f25041373fa0a restored=a0d6701435b2c54f89fc80469ad529a5221271669c487feab29f9d32c3cb1dbc
+Treatment opening sides=4 fillet=0 trial=0 ms=36.6044 publications=1 preview=90c688f3cb4fc369559109300f8f2e6697d8e7002b386d9af1e198c20022cae8 restored=05ad6f85ae628cac3305aeca0a7c9e29f5fe519aaf209ed0304c5cc662a9fa12
+Treatment opening sides=4 fillet=0 trial=1 ms=39.154 publications=1 preview=90c688f3cb4fc369559109300f8f2e6697d8e7002b386d9af1e198c20022cae8 restored=05ad6f85ae628cac3305aeca0a7c9e29f5fe519aaf209ed0304c5cc662a9fa12
+Treatment opening sides=4 fillet=0 trial=2 ms=33.5277 publications=1 preview=90c688f3cb4fc369559109300f8f2e6697d8e7002b386d9af1e198c20022cae8 restored=05ad6f85ae628cac3305aeca0a7c9e29f5fe519aaf209ed0304c5cc662a9fa12
+Treatment opening sides=4 fillet=0 trial=3 ms=34.3363 publications=1 preview=90c688f3cb4fc369559109300f8f2e6697d8e7002b386d9af1e198c20022cae8 restored=05ad6f85ae628cac3305aeca0a7c9e29f5fe519aaf209ed0304c5cc662a9fa12
+Treatment opening sides=4 fillet=0 trial=4 ms=34.6474 publications=1 preview=90c688f3cb4fc369559109300f8f2e6697d8e7002b386d9af1e198c20022cae8 restored=05ad6f85ae628cac3305aeca0a7c9e29f5fe519aaf209ed0304c5cc662a9fa12
+Treatment opening sides=4 fillet=0 trial=5 ms=31.7169 publications=1 preview=90c688f3cb4fc369559109300f8f2e6697d8e7002b386d9af1e198c20022cae8 restored=05ad6f85ae628cac3305aeca0a7c9e29f5fe519aaf209ed0304c5cc662a9fa12
+Treatment opening sides=128 fillet=1 trial=0 ms=100.808 publications=1 preview=4056d7e24842d395ebf6c304a0263f16bc1e808127aeb9d937672ed3823951d4 restored=cc8d824486316a4857efb08fb57338549a0ebb7ef9a23d4b0717b69e677fa4b8
+Treatment opening sides=128 fillet=1 trial=1 ms=85.7271 publications=1 preview=4056d7e24842d395ebf6c304a0263f16bc1e808127aeb9d937672ed3823951d4 restored=cc8d824486316a4857efb08fb57338549a0ebb7ef9a23d4b0717b69e677fa4b8
+Treatment opening sides=128 fillet=1 trial=2 ms=89.6518 publications=1 preview=4056d7e24842d395ebf6c304a0263f16bc1e808127aeb9d937672ed3823951d4 restored=cc8d824486316a4857efb08fb57338549a0ebb7ef9a23d4b0717b69e677fa4b8
+Treatment opening sides=128 fillet=1 trial=3 ms=89.5735 publications=1 preview=4056d7e24842d395ebf6c304a0263f16bc1e808127aeb9d937672ed3823951d4 restored=cc8d824486316a4857efb08fb57338549a0ebb7ef9a23d4b0717b69e677fa4b8
+Treatment opening sides=128 fillet=1 trial=4 ms=94.0539 publications=1 preview=4056d7e24842d395ebf6c304a0263f16bc1e808127aeb9d937672ed3823951d4 restored=cc8d824486316a4857efb08fb57338549a0ebb7ef9a23d4b0717b69e677fa4b8
+Treatment opening sides=128 fillet=1 trial=5 ms=90.0697 publications=1 preview=4056d7e24842d395ebf6c304a0263f16bc1e808127aeb9d937672ed3823951d4 restored=cc8d824486316a4857efb08fb57338549a0ebb7ef9a23d4b0717b69e677fa4b8
+Treatment opening sides=128 fillet=0 trial=0 ms=92.7866 publications=1 preview=5e623a56d064cedc314ec2cad3a8348457016c750c1501434fb6fd15aa9f427a restored=1ce73f389a88086b656c52c91f27c50635766d24dfd925a402a9bc0f1aad37a4
+Treatment opening sides=128 fillet=0 trial=1 ms=80.5271 publications=1 preview=5e623a56d064cedc314ec2cad3a8348457016c750c1501434fb6fd15aa9f427a restored=1ce73f389a88086b656c52c91f27c50635766d24dfd925a402a9bc0f1aad37a4
+Treatment opening sides=128 fillet=0 trial=2 ms=87.952 publications=1 preview=5e623a56d064cedc314ec2cad3a8348457016c750c1501434fb6fd15aa9f427a restored=1ce73f389a88086b656c52c91f27c50635766d24dfd925a402a9bc0f1aad37a4
+Treatment opening sides=128 fillet=0 trial=3 ms=85.3979 publications=1 preview=5e623a56d064cedc314ec2cad3a8348457016c750c1501434fb6fd15aa9f427a restored=1ce73f389a88086b656c52c91f27c50635766d24dfd925a402a9bc0f1aad37a4
+Treatment opening sides=128 fillet=0 trial=4 ms=80.9216 publications=1 preview=5e623a56d064cedc314ec2cad3a8348457016c750c1501434fb6fd15aa9f427a restored=1ce73f389a88086b656c52c91f27c50635766d24dfd925a402a9bc0f1aad37a4
+Treatment opening sides=128 fillet=0 trial=5 ms=82.1471 publications=1 preview=5e623a56d064cedc314ec2cad3a8348457016c750c1501434fb6fd15aa9f427a restored=1ce73f389a88086b656c52c91f27c50635766d24dfd925a402a9bc0f1aad37a4
+
+
+regression
+Test project C:/Users/vladi/Prace/ZIMA-Engineering/00-SOFTWARE/01-ZIMA/ZIMA-CAD/build/cpp-windows-release
+    Start  43: zima_cpp_translations_contract
+1/8 Test  #43: zima_cpp_translations_contract ..........   Passed    4.44 sec
+    Start 136: zima_cpp_edge_treatment_command_tests
+2/8 Test #136: zima_cpp_edge_treatment_command_tests ...   Passed    2.05 sec
+    Start 138: zima_cpp_edge_treatment_query_tests
+3/8 Test #138: zima_cpp_edge_treatment_query_tests .....   Passed    0.11 sec
+    Start 196: zima_cpp_edge_treatment_ui_contract
+4/8 Test #196: zima_cpp_edge_treatment_ui_contract .....   Passed   55.95 sec
+    Start 201: zima_cpp_refresh_scope_ui_contract
+5/8 Test #201: zima_cpp_refresh_scope_ui_contract ......   Passed    8.11 sec
+    Start 207: zima_cpp_selection_filter_ui_contract
+6/8 Test #207: zima_cpp_selection_filter_ui_contract ...   Passed    3.52 sec
+    Start 233: zima_cpp_surface_profile_ui_contract
+7/8 Test #233: zima_cpp_surface_profile_ui_contract ....   Passed    4.51 sec
+    Start 242: zima_cpp_boundary_surface_ui_contract
+8/8 Test #242: zima_cpp_boundary_surface_ui_contract ...   Passed    3.62 sec
+
+100% tests passed, 0 tests failed out of 8
+
+Total Test time (real) =  82.33 sec

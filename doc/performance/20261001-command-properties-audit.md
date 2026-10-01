@@ -12,7 +12,7 @@ all commands have been benchmarked or that every identified opportunity is fixed
 | --- | --- |
 | 3D Sweep | Tree published the final scene; the initial preview published it again before rollback was installed; a third refresh then published rollback. Fixed as described below. |
 | Extrusion, Revolution and general Feature | Profile previews already avoid base-scene reconstruction when the frame signature is unchanged. Through-all bounds, owned Sketch transitions and operational rollback still have distinct input requirements. The follow-up below optimizes ordinary Part Extrusion/Revolution opening and tests Through-all/Up-to input boundaries; general Feature remains unchanged. |
-| Fillet/Chamfer and Shell | Selection setup consumes actual input-body topology and installs command-specific filters/overlays. Refreshes were not deleted based solely on their proximity in the code. |
+| Fillet/Chamfer and Shell | Selection setup consumes actual input-body topology and installs command-specific filters/overlays. The follow-up below removes the unused Tree pre-refresh for Fillet/Chamfer; command-specific setup and Shell remain unchanged. |
 | Point, Axis, Plane and 3D Curve | Registering the preview callback invokes it immediately and establishes resolved reference geometry. Reference auto-entry follows separately. No global suppression was introduced. |
 | Boundary Surface | Scene refresh precedes inspection/picking code that reads the resulting viewer edges. The command's own refresh is required; the follow-up below removes the unused Tree pre-refresh and verifies reference interaction. |
 | Body Properties | The shared finish helper prepares context before showing the dialog and restores it on finish. Retained. |
@@ -71,3 +71,6 @@ removes temporary per-edge record allocations and repeated face-label copies.
 
 Follow-up: [Boundary Surface Properties opening](20261001-boundary-properties-opening.md)
 removes one unused scene publication and checks unchanged OK, Cancel and references.
+
+Follow-up: [Fillet and Chamfer Properties opening](20261001-treatment-properties-opening.md)
+measures two prism sizes and retains treatment reference and dimension setup.

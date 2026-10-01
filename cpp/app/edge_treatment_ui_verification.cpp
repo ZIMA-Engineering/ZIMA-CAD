@@ -4,6 +4,11 @@
 #include "primitive_properties_dialog.hpp"
 #include <zima/viewer/mesh_view.hpp>
 #include <QApplication>
+#include <QCryptographicHash>
+#include <QElapsedTimer>
+#include <zima/document/viewer_packet_json.hpp>
+#include <zima/kernel/occt_kernel.hpp>
+#include <numbers>
 #include <QAction>
 #include <QDialogButtonBox>
 #include <QDoubleSpinBox>
@@ -128,6 +133,67 @@ int verify_edge_treatment_ui(QApplication& application, AssemblyWorkspaceWindow&
             check(selected(),"Finishing a grip drag lost the selected dimension");
             check(view->dimension_source(candidate)==source,"Annotation drag changed its source geometry or value");
         };
+        if(qEnvironmentVariableIsSet("ZIMA_VERIFY_TREATMENT_OPENING")) {
+            for(const int sides:{4,128})for(const bool fillet:{true,false}) {
+                auto source=document::PartDocument::create_default();
+                source.history.clear();source.sketches.clear();source.history_order.clear();
+                document::BodyHistoryGraph graph;static_cast<void>(graph.create_body("Treatment benchmark"));
+                auto sketch=sketcher::Sketch::create_default();
+                std::vector<kernel::Vec3> points;
+                for(int i=0;i<sides;++i) {
+                    const auto angle=2*std::numbers::pi*i/sides;
+                    points.push_back({100*std::cos(angle),100*std::sin(angle),0});
+                }
+                for(int i=0;i<sides;++i) {
+                    const auto a=points[i],b=points[(i+1)%sides];
+                    static_cast<void>(sketch.add_segment(a.x,a.y,b.x,b.y));
+                }
+                auto extrusion=document::PartDocument::create_extrusion_container(sketch.id);
+                extrusion.extrusion.length_forward=40;sketch.owner_container_id=extrusion.id;
+                source.sketches.push_back(sketch);source.history.push_back(extrusion);
+                graph.insert({document::PartHistoryKind::Feature,extrusion.id});source.set_body_history(graph);
+                kernel::OcctKernel kernel;
+                const auto calculated=kernel.evaluate_history(source.kernel_operations());
+                const auto& edges=calculated.back().mesh.edges;
+                const auto selected=std::ranges::find_if(edges,[](const auto& edge) {
+                    return edge.points.size()>=2&&std::abs(edge.points.front().z-40)<1e-6&&std::abs(edge.points.back().z-40)<1e-6;
+                });
+                check(selected!=edges.end(),"Polygon fixture has no top rim edge");
+                const auto file=directory/("treatment-opening-"+std::to_string(sides)+(fillet?"-fillet.prtz":"-chamfer.prtz"));
+                source.save(file,calculated);
+                check(window.open_document_path(QString::fromStdWString(file.wstring())),"Cannot open treatment benchmark");flush();
+                Json args={{"routes",Json::array({Json{{"edges",Json::array({Json{{"owner",selected->reference.owner_id},{"key",selected->reference.semantic_key}}})}}})}};
+                args[fillet?"radius_mm":"distance_a_mm"]=0.5;
+                const auto owner=run(fillet?"fillet.create":"chamfer.create",args).at("container").get<std::string>();
+                run("save");view->set_standard_view(viewer::StandardView::Isometric);
+                for(auto* animation:view->findChildren<QVariantAnimation*>())animation->setCurrentTime(animation->duration());flush();
+                const auto state=run("documents");const auto camera=view->camera_state();
+                auto* undo=window.findChild<QAction*>("undoAction");auto* redo=window.findChild<QAction*>("redoAction");
+                check(undo&&redo,"Missing Undo/Redo");const bool undo_before=undo->isEnabled(),redo_before=redo->isEnabled();
+                const auto packet=[&] {kernel::BodyResult body;body.mesh=view->mesh();return document::serialize_body_result(body,false);};
+                const auto original=packet();
+                const auto hash=[&] {const auto image=view->grabFramebuffer().convertToFormat(QImage::Format_RGBA8888);
+                    return QCryptographicHash::hash(QByteArrayView(reinterpret_cast<const char*>(image.constBits()),image.sizeInBytes()),QCryptographicHash::Sha256).toHex();};
+                QByteArray first;
+                for(int trial=0;trial<6;++trial) {
+                    QTreeWidgetItem* item=nullptr;
+                    for(QTreeWidgetItemIterator it(tree);*it;++it)if((*it)->data(0,Qt::UserRole).toString().toStdString()==owner&&(*it)->data(0,Qt::UserRole+3)=="part-container"){item=*it;break;}
+                    check(item,"Missing benchmark row");const auto revision=view->base_mesh_revision();
+                    QElapsedTimer timer;timer.start();window.show_tree_item_properties(item);flush();const auto elapsed=timer.nsecsElapsed()/1e6;
+                    const auto publications=view->base_mesh_revision()-revision;
+                    check(publications==1,"Treatment opening published an unused scene");
+                    const auto preview=hash();if(trial==0)first=preview;
+                    check(first==preview,"Repeated treatment preview changed");
+                    finish(trial<3);
+                    check(run("documents")==state&&undo->isEnabled()==undo_before&&redo->isEnabled()==redo_before,"Unchanged treatment changed document or Undo/Redo");
+                    check(packet()==original&&view->camera_state()==camera,"Treatment close failed to restore geometry/camera");
+                    std::cout<<"Treatment opening sides="<<sides<<" fillet="<<fillet<<" trial="<<trial<<" ms="<<elapsed
+                        <<" publications="<<publications<<" preview="<<preview.constData()<<" restored="<<hash().constData()<<std::endl;
+                }
+                run("close",{{"discard",true}});
+            }
+            return 0;
+        }
         for(int mode=0;mode<5;++mode) {
             const bool fillet=mode<2;
             const std::string prefix=fillet?"fillet":"chamfer";

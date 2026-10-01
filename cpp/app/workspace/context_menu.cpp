@@ -99,7 +99,9 @@ void AssemblyWorkspaceWindow::show_tree_item_properties(QTreeWidgetItem* item) {
                         feature->feature_kind==document::FeatureKind::Sweep3D||
                         feature->feature_kind==document::FeatureKind::Extrusion||
                         feature->feature_kind==document::FeatureKind::Revolution||
-                        feature->feature_kind==document::FeatureKind::BoundarySurface)&&
+                        feature->feature_kind==document::FeatureKind::BoundarySurface||
+                        feature->feature_kind==document::FeatureKind::Fillet||
+                        feature->feature_kind==document::FeatureKind::Chamfer)&&
                         part->session.document().history_index(id).has_value()&&
                         resolve_active_occurrence(part->session.document().document_id).has_value();
         if(!command_preview_follows){preserve_view_on_refresh_ = true;refresh_scene();}
