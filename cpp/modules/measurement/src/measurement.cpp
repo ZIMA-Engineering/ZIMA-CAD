@@ -153,6 +153,7 @@ struct Node {Bounds bounds;std::size_t start{},end{};int left=-1,right=-1;};
 struct Index {
     std::vector<Primitive> items;std::vector<Node> nodes;
     explicit Index(const MeasurementGeometry& geometry){
+        items.reserve(geometry.points.size()+geometry.segments.size()+geometry.triangles.size());
         for(auto p:geometry.points)items.push_back({{p,p,p},1});
         for(auto s:geometry.segments)items.push_back({{s[0],s[1],s[1]},2});
         for(auto t:geometry.triangles)items.push_back({t,3});

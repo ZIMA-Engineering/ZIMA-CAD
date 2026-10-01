@@ -2,6 +2,10 @@
 
 ## Measurement (A14)
 
+Follow-up: [operation-local primitive allocation](20261001-measurement-allocation.md)
+measures and removes vector growth without introducing cross-operation caching.
+The original observations below remain historical baseline evidence.
+
 The existing distance implementation builds a spatial index for the measured
 geometry. Current callers calculate on an explicit measurement operation, not on
 ordinary hover. A controlled point-to-triangle-grid benchmark checks both the

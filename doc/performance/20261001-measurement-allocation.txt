@@ -1,0 +1,44 @@
+
+before
+Repeated point/mesh measurement triangles=2500 mean_ms=1.09891
+Repeated point/mesh measurement triangles=40000 mean_ms=22.4901
+Measurement geometry, analytic cache, persistence and units passed
+Repeated point/mesh measurement triangles=2500 mean_ms=1.10013
+Repeated point/mesh measurement triangles=40000 mean_ms=22.7294
+Measurement geometry, analytic cache, persistence and units passed
+Repeated point/mesh measurement triangles=2500 mean_ms=1.0552
+Repeated point/mesh measurement triangles=40000 mean_ms=22.847
+Measurement geometry, analytic cache, persistence and units passed
+
+after
+Repeated point/mesh measurement triangles=2500 mean_ms=0.92966
+Repeated point/mesh measurement triangles=40000 mean_ms=19.7884
+Measurement geometry, analytic cache, persistence and units passed
+Repeated point/mesh measurement triangles=2500 mean_ms=0.99155
+Repeated point/mesh measurement triangles=40000 mean_ms=19.5519
+Measurement geometry, analytic cache, persistence and units passed
+Repeated point/mesh measurement triangles=2500 mean_ms=0.975065
+Repeated point/mesh measurement triangles=40000 mean_ms=20.9107
+Measurement geometry, analytic cache, persistence and units passed
+
+baseline-repeat
+Repeated point/mesh measurement triangles=2500 mean_ms=1.37532
+Repeated point/mesh measurement triangles=40000 mean_ms=23.1178
+Measurement geometry, analytic cache, persistence and units passed
+Repeated point/mesh measurement triangles=2500 mean_ms=1.07356
+Repeated point/mesh measurement triangles=40000 mean_ms=22.6841
+Measurement geometry, analytic cache, persistence and units passed
+Repeated point/mesh measurement triangles=2500 mean_ms=1.10601
+Repeated point/mesh measurement triangles=40000 mean_ms=22.1987
+Measurement geometry, analytic cache, persistence and units passed
+
+candidate-repeat
+Repeated point/mesh measurement triangles=2500 mean_ms=1.01593
+Repeated point/mesh measurement triangles=40000 mean_ms=21.0089
+Measurement geometry, analytic cache, persistence and units passed
+Repeated point/mesh measurement triangles=2500 mean_ms=0.92322
+Repeated point/mesh measurement triangles=40000 mean_ms=20.9971
+Measurement geometry, analytic cache, persistence and units passed
+Repeated point/mesh measurement triangles=2500 mean_ms=1.06788
+Repeated point/mesh measurement triangles=40000 mean_ms=20.8113
+Measurement geometry, analytic cache, persistence and units passed
