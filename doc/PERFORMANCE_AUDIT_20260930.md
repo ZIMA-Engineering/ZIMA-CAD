@@ -16,6 +16,12 @@ records bounded reuse of immutable Symbol definitions and exact geometry checks.
 
 ## Result and scope
 
+The [silhouette-buffer follow-up](performance/20261001-silhouette-buffer.md)
+reuses curved-surface outline buffers when mesh and exact view direction remain
+unchanged. Direct preparation measurements show up to 1.47 ms saved in the
+controlled 256-sphere fixture; all 200 compared frames match. Whole-frame timings
+remain mixed, so no general rendering speedup is claimed.
+
 The [container highlight follow-up](performance/20261001-container-highlight.md)
 removes repeated full-edge scans within one paint pass, with separate feature/
 occurrence measurements and 100 identical before/after framebuffer hashes.

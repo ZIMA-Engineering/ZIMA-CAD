@@ -189,9 +189,9 @@ struct MeshView::Impl {
     // Candidate internal triangulation edges eligible to become silhouettes
     // (shared by exactly two triangles of the same owning face, not already
     // a real topological edge). Rebuilt only when the mesh changes; the
-    // actual visible segments are re-selected every frame from the camera
-    // direction. Mirrors Python's build_silhouette_edges()/
-    // silhouette_segments_from_edges() in zima_cad/viewer_data.py.
+    // visible segments are re-selected only when that mesh or the exact
+    // camera direction changes. The completed line buffer survives repaint,
+    // highlighting, pan and zoom.
     struct SilhouetteCandidate {
         QVector3D first;
         QVector3D second;
@@ -199,6 +199,8 @@ struct MeshView::Impl {
         QVector3D normal_b;
     };
     std::vector<SilhouetteCandidate> silhouette_candidates;
+    std::optional<std::array<float, 3>> silhouette_view_direction;
+    GLsizei silhouette_vertex_count{};
     std::vector<CandidateKind> allowed_kinds{CandidateKind::Container};
     SelectionFilter selection_filter{SelectionFilter::All};
     std::function<bool(const ViewerCandidate&)> candidate_filter;
@@ -2818,6 +2820,8 @@ void main(){
     impl_->transparent_triangles.create();
     impl_->lines.create();
     impl_->silhouette.create();
+    impl_->silhouette_view_direction.reset();
+    impl_->silhouette_vertex_count = 0;
     upload_mesh();
     impl_->vertex_array.release();
 }
@@ -2938,6 +2942,8 @@ void MeshView::upload_mesh() {
             }
         }
         impl_->silhouette_candidates.clear();
+        impl_->silhouette_view_direction.reset();
+        impl_->silhouette_vertex_count = 0;
         for (const auto& [key, records] : shared) {
             if (records.size() != 2) continue;
             const auto separator = key.first.find('|');
@@ -3585,37 +3591,49 @@ if (impl_->show_origins) {
         !impl_->silhouette_candidates.empty()) {
         const QVector3D view_direction =
             impl_->orientation.inverted().rotatedVector(QVector3D(0.0F, 0.0F, 1.0F));
-        std::vector<float> silhouette_data;
-        silhouette_data.reserve(impl_->silhouette_candidates.size() * 12);
-        for (const auto& candidate : impl_->silhouette_candidates) {
-            const float side_a = QVector3D::dotProduct(candidate.normal_a, view_direction);
-            const float side_b = QVector3D::dotProduct(candidate.normal_b, view_direction);
-            constexpr float epsilon = 1.0e-4F;
-            if ((side_a >= -epsilon) == (side_b >= -epsilon)) continue;
-            silhouette_data.insert(silhouette_data.end(), {
-                candidate.first.x(), candidate.first.y(), candidate.first.z(),
-                0.0F, 0.0F, 1.0F,
-                candidate.second.x(), candidate.second.y(), candidate.second.z(),
-                0.0F, 0.0F, 1.0F});
+        const std::array<float, 3> direction_key{
+            view_direction.x(), view_direction.y(), view_direction.z()};
+        // Exact comparison: do not round away a small rotation near a silhouette
+        // threshold. Geometry uploads and GL-buffer creation invalidate reuse.
+        if (impl_->silhouette_view_direction != direction_key) {
+            std::vector<float> silhouette_data;
+            silhouette_data.reserve(impl_->silhouette_candidates.size() * 12);
+            for (const auto& candidate : impl_->silhouette_candidates) {
+                const float side_a = QVector3D::dotProduct(candidate.normal_a, view_direction);
+                const float side_b = QVector3D::dotProduct(candidate.normal_b, view_direction);
+                constexpr float epsilon = 1.0e-4F;
+                if ((side_a >= -epsilon) == (side_b >= -epsilon)) continue;
+                silhouette_data.insert(silhouette_data.end(), {
+                    candidate.first.x(), candidate.first.y(), candidate.first.z(),
+                    0.0F, 0.0F, 1.0F,
+                    candidate.second.x(), candidate.second.y(), candidate.second.z(),
+                    0.0F, 0.0F, 1.0F});
+            }
+            impl_->silhouette_vertex_count = static_cast<GLsizei>(silhouette_data.size() / 6);
+            if (impl_->silhouette_vertex_count != 0) {
+                impl_->silhouette.bind();
+                impl_->silhouette.allocate(silhouette_data.data(),
+                    static_cast<int>(silhouette_data.size() * sizeof(float)));
+            }
+            // Cache the empty result too; the next rotation may make it visible.
+            impl_->silhouette_view_direction = direction_key;
         }
-        if (!silhouette_data.empty()) {
+        if (impl_->silhouette_vertex_count != 0) {
             impl_->silhouette.bind();
-            impl_->silhouette.allocate(silhouette_data.data(),
-                static_cast<int>(silhouette_data.size() * sizeof(float)));
             bind_attributes(impl_->silhouette);
             if (impl_->display_mode == DisplayMode::HiddenEdges) {
                 glDisable(GL_DEPTH_TEST);
                 impl_->program.setUniformValue(
                     "color", QVector4D(0.0F, 0.0F, 0.0F, 1.0F));
                 glDrawArrays(GL_LINES, 0,
-                    static_cast<GLsizei>(silhouette_data.size() / 6));
+                    impl_->silhouette_vertex_count);
                 glEnable(GL_DEPTH_TEST);
             }
             impl_->program.setUniformValue(
                 "color", interaction::rgba(theme.foreground));
             glDepthFunc(GL_LEQUAL);
             glDrawArrays(GL_LINES, 0,
-                static_cast<GLsizei>(silhouette_data.size() / 6));
+                impl_->silhouette_vertex_count);
             glDepthFunc(GL_LESS);
         }
     }

@@ -567,6 +567,10 @@ add_executable(zima_cpp_assembly_view_benchmark tests/assembly_view_benchmark.cp
 target_link_libraries(zima_cpp_assembly_view_benchmark PRIVATE
     zima_assembly zima_kernel_occt zima_viewer)
 
+add_executable(zima_cpp_silhouette_view_benchmark tests/silhouette_view_benchmark.cpp)
+target_link_libraries(zima_cpp_silhouette_view_benchmark PRIVATE
+    zima_document_core zima_assembly zima_kernel_occt zima_viewer)
+
 add_executable(zima_cpp_history_fingerprint_benchmark tests/history_fingerprint_benchmark.cpp)
 target_link_libraries(zima_cpp_history_fingerprint_benchmark PRIVATE zima_kernel_api)
 
