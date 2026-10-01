@@ -1155,6 +1155,14 @@ private:
     std::optional<zima::document::HistoryContainer> tree_edit_sketch_container_;
     void show_body_color_dialog();
     void update_body_color_actions();
+    // Only repeated appearance previews reuse paths. Full scene refresh and
+    // committed appearance updates discard this bounded, geometry-free cache.
+    struct AppearancePreviewPaths {
+        std::shared_ptr<const int> source;
+        std::uint64_t generation{};
+        std::set<std::string> paths;
+    };
+    std::optional<AppearancePreviewPaths> appearance_preview_paths_;
     void update_viewer_body_colors(const zima::kernel::Appearance* preview = nullptr,
         const std::string& preview_path = {});
     [[nodiscard]] std::optional<std::string> selected_occurrence_path() const;

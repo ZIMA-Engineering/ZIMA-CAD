@@ -16,6 +16,10 @@ records bounded reuse of immutable Symbol definitions and exact geometry checks.
 
 ## Result and scope
 
+The [Assembly appearance-preview follow-up](performance/20261001-appearance-preview.md)
+removes repeated scene assembly during color previews, with generation-bound path
+reuse, callback measurements and identical before/after framebuffer captures.
+
 The [per-refresh source-lookup follow-up](performance/20261001-source-lookup.md)
 records bounded identity reuse, source-order measurements and mixed small-case
 results without claiming a uniform speedup.

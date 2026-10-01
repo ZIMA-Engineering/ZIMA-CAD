@@ -54,6 +54,32 @@ int verify_refresh_scope(QApplication& application, zima::app::AssemblyWorkspace
         return static_cast<QTreeWidgetItem*>(nullptr);
     };
     measure("tree-selection",[&]{tree->setCurrentItem(item());},false);
+    const auto color_preview=[&](const char* label) {
+        tree->setCurrentItem(item());
+        auto* action=window.findChild<QAction*>("customBodyColorAction");
+        if(!action||!action->isEnabled())throw std::runtime_error("Appearance action unavailable");
+        action->trigger();application.processEvents();
+        auto* dialog=window.findChild<QDialog*>("bodyColorPropertiesDialog");
+        auto* color=dialog?dialog->findChild<QLineEdit*>("appearanceColor"):nullptr;
+        if(!color)throw std::runtime_error("Appearance editor unavailable");
+        const auto initial=color->text();
+        const auto original=view->grabFramebuffer();
+        const auto set=[&](const QString& value) {
+            color->setText(value);
+            QMetaObject::invokeMethod(color,"textEdited",Qt::DirectConnection,Q_ARG(QString,value));
+        };
+        for(int i=0;i<6;++i)measure((std::string(label)+"-"+std::to_string(i)).c_str(),[&]{set(i%2?"#2277CC":"#CC4422");});
+        const auto colored=view->grabFramebuffer();
+        if(!verify(colored!=original,"Appearance preview did not change the rendered frame"))throw std::runtime_error("No color preview");
+        set(initial);application.processEvents();
+        const auto restored=view->grabFramebuffer();
+        if(!verify(restored==original,"Restoring appearance changed geometry or unrelated pixels"))throw std::runtime_error("Appearance restoration mismatch");
+        const auto capture=qEnvironmentVariable("ZIMA_VERIFY_APPEARANCE_CAPTURE");
+        if(!capture.isEmpty()) {original.save(capture+"-"+label+"-original.png");colored.save(capture+"-"+label+"-colored.png");}
+        dialog->reject();application.sendPostedEvents(nullptr,QEvent::DeferredDelete);application.processEvents();
+    };
+    color_preview("appearance-preview");
+
     for(int i=1;i<7;++i)measure(("filter-"+std::to_string(i)).c_str(),[&]{filter->setCurrentIndex(i);});
     measure("filter-all",[&]{filter->setCurrentIndex(0);});
     measure("selection-off",[&]{selection->setChecked(false);});
@@ -106,6 +132,7 @@ int verify_refresh_scope(QApplication& application, zima::app::AssemblyWorkspace
     window.findChild<QAction*>("undoAction")->trigger();application.processEvents();
     window.findChild<QAction*>("regenerateDocumentAction")->trigger();application.processEvents();
     if(!verify(std::abs(source_height()-15)<1e-7,"Regenerate lost the unsaved source Part edit"))return 1;
+    color_preview("appearance-after-source-edit");
     std::cout<<"Refresh scope verification passed\n";
     return 0;
 }

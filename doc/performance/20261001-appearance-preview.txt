@@ -1,0 +1,36 @@
+Assembly appearance preview raw evidence
+Baseline 5b58227e + expanded GUI verification
+MSVC Release; synthetic 256 cube occurrences; Windows
+
+BEFORE
+199: REFRESH_SCOPE appearance-preview-0 ms=41.3076 mesh=0 tree=0
+199: REFRESH_SCOPE appearance-preview-1 ms=40.9162 mesh=0 tree=0
+199: REFRESH_SCOPE appearance-preview-2 ms=48.9041 mesh=0 tree=0
+199: REFRESH_SCOPE appearance-preview-3 ms=41.7249 mesh=0 tree=0
+199: REFRESH_SCOPE appearance-preview-4 ms=42.964 mesh=0 tree=0
+199: REFRESH_SCOPE appearance-preview-5 ms=44.8603 mesh=0 tree=0
+199: REFRESH_SCOPE appearance-after-source-edit-0 ms=46.2733 mesh=0 tree=0
+199: REFRESH_SCOPE appearance-after-source-edit-1 ms=42.7769 mesh=0 tree=0
+199: REFRESH_SCOPE appearance-after-source-edit-2 ms=48.2313 mesh=0 tree=0
+199: REFRESH_SCOPE appearance-after-source-edit-3 ms=44.7935 mesh=0 tree=0
+199: REFRESH_SCOPE appearance-after-source-edit-4 ms=44.4034 mesh=0 tree=0
+199: REFRESH_SCOPE appearance-after-source-edit-5 ms=49.7602 mesh=0 tree=0
+
+AFTER
+199: REFRESH_SCOPE appearance-preview-0 ms=33.8894 mesh=0 tree=0
+199: REFRESH_SCOPE appearance-preview-1 ms=0.6691 mesh=0 tree=0
+199: REFRESH_SCOPE appearance-preview-2 ms=0.7063 mesh=0 tree=0
+199: REFRESH_SCOPE appearance-preview-3 ms=1.2632 mesh=0 tree=0
+199: REFRESH_SCOPE appearance-preview-4 ms=0.7675 mesh=0 tree=0
+199: REFRESH_SCOPE appearance-preview-5 ms=0.7389 mesh=0 tree=0
+199: REFRESH_SCOPE appearance-after-source-edit-0 ms=35.435 mesh=0 tree=0
+199: REFRESH_SCOPE appearance-after-source-edit-1 ms=0.6752 mesh=0 tree=0
+199: REFRESH_SCOPE appearance-after-source-edit-2 ms=0.8538 mesh=0 tree=0
+199: REFRESH_SCOPE appearance-after-source-edit-3 ms=0.733 mesh=0 tree=0
+199: REFRESH_SCOPE appearance-after-source-edit-4 ms=0.7978 mesh=0 tree=0
+199: REFRESH_SCOPE appearance-after-source-edit-5 ms=0.7525 mesh=0 tree=0
+
+appearance-preview original: identical before/after PNG; SHA-256 cfd1b06915684dc750e64c3e703b3944b26a5ed98bdd8a14bb5dd2cf350c3594
+appearance-preview colored: identical before/after PNG; SHA-256 9e85fead183e54265025d816a9e2be6a9efe6e67eb59f44f6388198b32ef0684
+appearance-after-source-edit original: identical before/after PNG; SHA-256 1c3540ac2c488e0339e851f83f91e5e13f7486cf88a3c7caa526fa6449a3e34c
+appearance-after-source-edit colored: identical before/after PNG; SHA-256 ec0ccbb14e1f2d5124fd171735c1643c1be71930cb41f27b699c0f2dbdb0cd43

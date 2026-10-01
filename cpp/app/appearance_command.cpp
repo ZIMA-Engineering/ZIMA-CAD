@@ -147,6 +147,7 @@ void AssemblyWorkspaceWindow::update_body_color_actions() {
 }
 void AssemblyWorkspaceWindow::update_viewer_body_colors(
     const Appearance *preview, const std::string &preview_path) {
+  if (!preview) appearance_preview_paths_.reset();
   SurfaceStyle base;
   std::map<std::string, SurfaceStyle> instances, owners, faces;
   const auto add = [&](const Appearance &a, const std::string &path) {
@@ -173,13 +174,18 @@ void AssemblyWorkspaceWindow::update_viewer_body_colors(
   const auto displayed = workspace_.displayed_document_id();
   if (const auto *part = workspace_.open_part(displayed))
     add(part_appearance(part->session.document()), {});
-  else if (workspace_.open_assembly(displayed)) {
-    const auto scene = workspace_.authoritative_viewer_mesh(displayed);
-    std::set<std::string> paths;
-    for (const auto &f : scene.triangle_references)
-      if (!f.instance_path.empty())
-        paths.insert(f.instance_path);
-    for (const auto &path : paths) {
+  else if (const auto* assembly = workspace_.open_assembly(displayed)) {
+    const auto generation=assembly->session.data_generation();
+    if (!appearance_preview_paths_ ||
+        appearance_preview_paths_->source!=assembly->runtime_identity ||
+        appearance_preview_paths_->generation!=generation) {
+      const auto scene = workspace_.authoritative_viewer_mesh(displayed);
+      AppearancePreviewPaths resolved{assembly->runtime_identity,generation,{}};
+      for (const auto &f : scene.triangle_references)
+        if (!f.instance_path.empty()) resolved.paths.insert(f.instance_path);
+      appearance_preview_paths_=std::move(resolved);
+    }
+    for (const auto &path : appearance_preview_paths_->paths) {
       const auto address = workspace_.resolve_occurrence(
           displayed, assembly::InstancePath::decode(path));
       if (!address)
@@ -202,6 +208,7 @@ void AssemblyWorkspaceWindow::update_viewer_body_colors(
   }
   if (preview)
     add(*preview, preview_path);
+  if (!preview) appearance_preview_paths_.reset();
   viewer_->set_body_surface_styles(base, std::move(instances),
                                    std::move(owners), std::move(faces));
 }

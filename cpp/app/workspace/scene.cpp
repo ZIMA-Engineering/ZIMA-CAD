@@ -19,6 +19,7 @@ void AssemblyWorkspaceWindow::refresh_scene() {
     // Whole-Origin entry still resolves each reference synchronously, but
     // publishes the resulting tree/mesh only after the complete selection.
     if (defer_reference_scene_refresh_) return;
+    appearance_preview_paths_.reset();
     std::map<std::pair<std::string,std::string>,std::string> relation_marks;
     const auto add_marks=[&](const auto& doc){
         const auto targets=document::RelationProgram(doc.relations).target_expressions();
