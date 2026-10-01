@@ -1,0 +1,23 @@
+Final uninstrumented serial Windows Release measurements:
+Full run 1: prepare_ms=1.7671 kernel_ms=1919.63
+Full run 2: prepare_ms=1.3398 kernel_ms=1833.36
+Full run 3: prepare_ms=1.9406 kernel_ms=1902.68
+Helical alone: prepare_ms=1.915 kernel_ms=1518.23
+
+Diagnostic packet phases before:
+packet_ms=5.747 directions_ms=1.914 edges=12
+packet_ms=0.918 directions_ms=0.375 edges=4
+packet_ms=0.709 directions_ms=0.365 edges=4
+packet_ms=3.566 directions_ms=1.800 edges=12
+packet_ms=10538.646 directions_ms=10248.966 edges=3
+packet_ms=10322.226 directions_ms=10028.477 edges=15
+prepare_ms=1.9576 kernel_ms=21538.4
+
+After:
+packet_ms=6.431 directions_ms=2.039 edges=12
+packet_ms=0.578 directions_ms=0.000 edges=4
+packet_ms=0.373 directions_ms=0.000 edges=4
+packet_ms=3.751 directions_ms=1.839 edges=12
+packet_ms=671.508 directions_ms=344.565 edges=3
+packet_ms=578.161 directions_ms=318.224 edges=15
+prepare_ms=1.9238 kernel_ms=1880.37

@@ -1374,20 +1374,8 @@ PrimitiveData make_transported_sweep_data(const Sweep3DRequest& request,const st
         result.edges=propagate_topology(cut,result.edges,tool.edges);
         result.vertices=propagate_topology(cut,result.vertices,tool.vertices);result.shape=cut.Shape();
     }
-    BOPAlgo_ArgumentAnalyzer check;
-    check.SetShape1(result.shape);check.SelfInterMode()=true;check.Perform();
-    if(check.HasFaulty()) {
-        // A relaxed pipe approximation can introduce numerical self-contacts
-        // even for a separated helix. Tolerance is an upper error allowance:
-        // retry its surface construction once at the established precision,
-        // keeping the same authored path and source identities. Never accept
-        // the faulty coarse body or bypass the strict intersection check.
-        if(request.linear_tolerance>.001) {
-            auto refined=request;refined.linear_tolerance=.001;
-            return make_transported_sweep_data(refined,owner_id,prepared);
-        }
-        throw std::runtime_error("Tažený průřez se protíná; upravte průřez nebo dráhu");
-    }
+    // Helical overlaps are permitted. Pipe/Boolean validity checks above remain;
+    // this operation neither rejects nor automatically unions overlapping turns.
     return result;
 }
 
@@ -5214,7 +5202,23 @@ BodyResult make_result(
                 }
             }
         }
-        if (edge_index != 0 && face_references) {
+        // A seam or boundary with fewer than two distinct persisted face
+        // identities cannot publish a treatment-side pair. Avoid sampling
+        // directions that the existing pair validation would discard anyway.
+        const bool has_distinct_sides = [&] {
+            if (edge_index == 0 || !face_references) return false;
+            std::optional<FaceReference> first;
+            for (TopTools_ListIteratorOfListOfShape iterator(
+                     edge_faces.FindFromIndex(edge_index));
+                 iterator.More(); iterator.Next()) {
+                const auto reference = face_references->reference_for(iterator.Value());
+                if (!reference.valid()) continue;
+                if (!first) first = reference;
+                else if (*first != reference) return true;
+            }
+            return false;
+        }();
+        if (has_distinct_sides) {
             std::vector<std::pair<FaceReference, std::vector<Vec3>>> sides;
             for (TopTools_ListIteratorOfListOfShape iterator(
                      edge_faces.FindFromIndex(edge_index));

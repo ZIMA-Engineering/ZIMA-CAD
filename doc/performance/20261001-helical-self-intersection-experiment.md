@@ -66,3 +66,9 @@ adjacent text file; generated user-document copies remain local under `build/`.
 The restored kernel/test build and five-language catalog validation passed.
 Logs: `build/helical-check-restored-build.log` and
 `build/helical-check-localization.log`.
+
+## Subsequent user decision
+
+After this experiment, the user accepted overlap behavior and authorized the
+production change. See [accepted fast calculation](20261001-helical-fast-calculation.md).
+The original experiment/restoration account above records the earlier state.

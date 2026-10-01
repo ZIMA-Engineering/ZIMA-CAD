@@ -184,6 +184,14 @@ int main(int argc,char** argv){try{
             "Helix centerline departed from its radius");
 
         if(!rectangle){
+            const auto& reference_edges=result.back().mesh.original_references.edges;
+            for(const auto& edge:reference_edges)if(edge.reference.semantic_key.starts_with("seam:generated:"))
+                require(edge.edge_treatment_side_references.empty()&&edge.edge_treatment_side_directions.empty(),"Single-face seam acquired treatment sides");
+            require(std::ranges::count_if(reference_edges,[](const auto& edge){
+                return (edge.reference.semantic_key.starts_with("start:generated:")||edge.reference.semantic_key.starts_with("end:generated:"))&&
+                    edge.edge_treatment_side_references.size()==2&&edge.edge_treatment_side_directions.size()==2&&
+                    edge.edge_treatment_side_directions[0].size()==edge.points.size()&&edge.edge_treatment_side_directions[1].size()==edge.points.size();
+            })==2,"Helical cap rims lost their two sampled treatment sides");
             require(std::ranges::any_of(result.back().mesh.original_references.edges,[](const auto& edge){return edge.reference.semantic_key.starts_with("seam:generated:")&&edge.points.size()>33;}),
                 "Long helical wire still uses a fixed 33-point approximation");
         }
@@ -284,8 +292,15 @@ int main(int argc,char** argv){try{
     }
     auto crossing=fixture();crossing.helical.pitch=.5;
     auto short_law=sketcher::Sketch::from_serialized(crossing.helical.sketches[1]);for(auto& pt:short_law.points)pt.y*=.06;crossing.helical.sketches[1]=short_law.serialized();
-    doc.history={crossing};bool rejected=false;
-    try{static_cast<void>(k.evaluate_history(doc.kernel_operations()));}catch(const std::exception&){rejected=true;}
-    require(rejected,"Self-intersecting spring accepted");
+    doc.history={crossing};
+    const auto crossing_body=k.evaluate_history(doc.kernel_operations()).back();
+    require(!crossing_body.kernel_shape.empty()&&!crossing_body.mesh.triangles.empty(),"Overlapping spring was not calculated");
+    const auto crossing_file=std::filesystem::temp_directory_path()/"zima-helical-overlap.prtz";
+    doc.save(crossing_file,{crossing_body});std::vector<kernel::BodyResult> crossing_restored;
+    const auto crossing_loaded=document::PartDocument::load(crossing_file,&crossing_restored);
+    std::filesystem::remove(crossing_file);
+    require(crossing_restored.back().kernel_shape==crossing_body.kernel_shape&&
+        crossing_restored.back().volume==crossing_body.volume,"Overlapping spring changed on native reopen");
+    require(crossing_loaded.history.back().helical.pitch==.5,"Overlapping spring pitch was not preserved");
     std::cout<<"Helical Sweep contracts passed\n";
 }catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}

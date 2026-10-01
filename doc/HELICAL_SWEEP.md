@@ -67,7 +67,13 @@ include winding, axial motion, and radius change. Ends are not rounded to full t
 
 Preview uses only ZIMA data: path, end cross-section outlines, and longitudinal
 connectors. Section frames transport along the path without extra prescribed twist.
-OCCT runs on OK/explicit regeneration, checking body validity and self-intersection.
+OCCT runs on OK/explicit regeneration and retains basic pipe and Boolean validity
+checks. Overlapping turns are permitted by user decision (2026-10-01); there is
+no global self-intersection analysis or automatic union of those overlaps.
+Construction tolerance and mesh deflection remain unchanged. The former
+self-intersection-triggered retry at 0.001 mm no longer runs: construction uses
+the configured tolerance. An overlapping sweep is not guaranteed to represent a
+regularized material union; its reported integrals describe the generated BRep.
 
 Start/end faces have distinct `start:from:…` and `end:from:…` identities parented to
 the profile region. Pitch, height, and handedness changes do not swap roles. Analytic
@@ -112,7 +118,8 @@ editor. This is the positive axial pitch, independent of winding handedness.
 
 `zima_cpp_helical_sweep_contract_tests` checks handedness, partial turns, cylindrical
 winding volume, variable radius, radial arcs/splines, hollow sections, invalid paths,
-self-intersections, and persistent start/end references after edits/save/load.
+overlap acceptance/native reopen, retained two-sided cap-rim references, and
+persistent start/end references after edits/save/load.
 
 Application integration:
 
@@ -275,3 +282,13 @@ A subsequent user-requested [disabled-check experiment](performance/20261001-hel
 reduced this example to about 21 seconds with identical persisted output. The
 experiment also accepted a crossing fixture; it did not introduce overlap union
 or change the production validation policy.
+
+### Accepted fast calculation (2026-10-01)
+
+After reviewing the experiment, the user accepted overlapping turns and authorized
+removing the global transported-sweep self-intersection pass from production.
+Basic validity checks remain. A separate optimization avoids computing treatment
+side directions when an edge has fewer than two distinct persisted face identities;
+those values were previously discarded by the two-side requirement anyway.
+Real two-sided edges retain their full sampling and side identities.
+See [measurements and regression coverage](performance/20261001-helical-fast-calculation.md).
