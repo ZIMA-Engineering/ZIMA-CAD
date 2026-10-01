@@ -53,3 +53,6 @@ Verification: all seven selected Windows contracts passed in 68.72 seconds:
 2D/H Sweep GUI, Body-owned Curve/Sweep point references, pending Curve-point GUI,
 Sweep commands, selection-filter GUI and five-language catalogs. Logs:
 `build/commands-refresh-regression.log` and `build/commands-refresh-build.log`.
+
+Follow-up: [nested copy and scale previews](20261001-nested-copy-preview.md)
+measures the override paths and records the accepted, limited optimization.

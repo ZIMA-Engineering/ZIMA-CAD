@@ -1,3 +1,4 @@
+#include "../tests/preview_refresh_probe.hpp"
 #include <QCryptographicHash>
 #include <zima/document/viewer_packet_json.hpp>
 #include "../common/datum_display.hpp"
@@ -865,6 +866,7 @@ int verify_derived_copy_commands(QApplication& application,zima::app::AssemblyWo
     const auto id=dialog->pending.id;
     const auto verify_copy_origin_selection=[&](int input=0,const std::string& prefix=std::string{}) {
         const bool pattern=dialog->derived_copy.pattern.has_value();
+        if(!prefix.empty())zima::test::probe_preview_refresh(*view,pattern?"nested-pattern":"nested-mirror",[&]{dialog->changed();});
         std::cout<<"Copy Origin GUI: "<<(pattern?"Pattern":"Mirror")<<", field "<<input<<", occurrence "<<prefix<<std::endl;
         const auto origin_axis=[&]() -> std::optional<kernel::ViewerAxis> {
             for(const auto& axis:view->mesh().axes)

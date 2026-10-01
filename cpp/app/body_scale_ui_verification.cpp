@@ -1,3 +1,4 @@
+#include "../tests/preview_refresh_probe.hpp"
 #include "assembly_workspace_window.hpp"
 #include "body_scale_dialog.hpp"
 #include "../tests/profile_solid_fixture.hpp"
@@ -96,6 +97,7 @@ int verify_body_scale(QApplication& application,AssemblyWorkspaceWindow& window,
         command("component.activate",{{"instance_path",prefix}});command("body.activate");
         tree->setCurrentItem(row(scaled));window.show_tree_item_properties(row(scaled));flush();
         dialog=dynamic_cast<BodyScaleDialog*>(window.findChild<QDialog*>("bodyScaleDialog"));check(dialog,"Nested Scale properties did not open");
+        test::probe_preview_refresh(*view,"nested-scale",[&]{dialog->changed();});
         dialog->request_source();flush();bool offered=false;
         for(int y=4;y<view->height();y+=16)for(int x=4;x<view->width();x+=16)
             for(const auto& candidate:view->selection_candidates_at(QPointF(x,y))) {

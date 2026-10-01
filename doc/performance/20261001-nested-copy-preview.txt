@@ -1,0 +1,443 @@
+=== before ===
+UpdateCTestConfiguration  from :C:/Users/vladi/Prace/ZIMA-Engineering/00-SOFTWARE/01-ZIMA/ZIMA-CAD/build/cpp-windows-release/DartConfiguration.tcl
+Test project C:/Users/vladi/Prace/ZIMA-Engineering/00-SOFTWARE/01-ZIMA/ZIMA-CAD/build/cpp-windows-release
+Constructing a list of tests
+Done constructing a list of tests
+Updating test list for fixtures
+Added 0 tests to meet fixture requirements
+Checking test dependency graph...
+Checking test dependency graph end
+test 178
+    Start 178: zima_cpp_derived_copy_ui_contract
+
+178: Test command: C:\Users\vladi\Prace\ZIMA-Engineering\00-SOFTWARE\01-ZIMA\ZIMA-CAD\build\cpp-windows-release\zima-cad-cpp.exe "--verify-startup" "--working-directory=C:/Users/vladi/Prace/ZIMA-Engineering/00-SOFTWARE/01-ZIMA/ZIMA-CAD/build/cpp-windows-release/derived-copy-test"
+178: Working Directory: C:/Users/vladi/Prace/ZIMA-Engineering/00-SOFTWARE/01-ZIMA/ZIMA-CAD/cpp/..
+178: Environment variables:
+178:  QT_QPA_PLATFORM=windows
+178:  QT_STYLE_OVERRIDE=Fusion
+178:  ZIMA_VERIFY_DERIVED_COPY_ONLY=1
+178: Test timeout computed to be: 300
+178: Copy Origin GUI: Mirror, field 0, occurrence
+178: Copy Origin GUI: Mirror, field 0, occurrence
+178: Copy Origin GUI: Pattern, field 2, occurrence
+178: Copy Origin GUI: Pattern, field 0, occurrence
+178: Copy Origin GUI: Pattern, field 2, occurrence
+178: Copy Origin GUI: Mirror, field 0, occurrence
+178: Copy Origin GUI: Mirror, field 0, occurrence
+178: Copy Origin GUI: Pattern, field 2, occurrence
+178: Copy Origin GUI: Pattern, field 3, occurrence
+178: Copy Origin GUI: Pattern, field 4, occurrence
+178: Copy Origin GUI: Pattern, field 0, occurrence
+178: Copy Origin GUI: Pattern, field 2, occurrence
+178: Copy Origin GUI: Pattern, field 0, occurrence
+178: Preview refresh nested-mirror trial=0 ms=158.558 publications=2 sha256=01aeeb670ac5984aa86f32f50f2e55b116e2f6ea8e4fbfd19a0f3a4a6adaad27
+178: Preview refresh nested-mirror trial=1 ms=147.126 publications=2 sha256=01aeeb670ac5984aa86f32f50f2e55b116e2f6ea8e4fbfd19a0f3a4a6adaad27
+178: Preview refresh nested-mirror trial=2 ms=176.192 publications=2 sha256=01aeeb670ac5984aa86f32f50f2e55b116e2f6ea8e4fbfd19a0f3a4a6adaad27
+178: Preview refresh nested-mirror trial=3 ms=174.012 publications=2 sha256=01aeeb670ac5984aa86f32f50f2e55b116e2f6ea8e4fbfd19a0f3a4a6adaad27
+178: Copy Origin GUI: Mirror, field 0, occurrence 32:01a0f6fe314d7af9923f7dd5117efc77
+178: Nested copy commit: 0
+178: Preview refresh nested-mirror trial=0 ms=202.358 publications=2 sha256=bc954e48544c133508532ac2626ba60aea6e732eb5b6ee52f465513fe0da7495
+178: Preview refresh nested-mirror trial=1 ms=213.569 publications=2 sha256=bc954e48544c133508532ac2626ba60aea6e732eb5b6ee52f465513fe0da7495
+178: Preview refresh nested-mirror trial=2 ms=220.884 publications=2 sha256=bc954e48544c133508532ac2626ba60aea6e732eb5b6ee52f465513fe0da7495
+178: Preview refresh nested-mirror trial=3 ms=225.289 publications=2 sha256=bc954e48544c133508532ac2626ba60aea6e732eb5b6ee52f465513fe0da7495
+178: Copy Origin GUI: Mirror, field 0, occurrence 32:01a0f6fe314d7af9923f7dd5117efc77
+178: Nested copy committed/reopened/cancelled: 0
+178: Preview refresh nested-pattern trial=0 ms=263.087 publications=2 sha256=ab1c57048757d68ac262d5596bac02f4f20294817a611037d5560e3d7cc285d5
+178: Preview refresh nested-pattern trial=1 ms=264.248 publications=2 sha256=ab1c57048757d68ac262d5596bac02f4f20294817a611037d5560e3d7cc285d5
+178: Preview refresh nested-pattern trial=2 ms=253.632 publications=2 sha256=ab1c57048757d68ac262d5596bac02f4f20294817a611037d5560e3d7cc285d5
+178: Preview refresh nested-pattern trial=3 ms=241.253 publications=2 sha256=ab1c57048757d68ac262d5596bac02f4f20294817a611037d5560e3d7cc285d5
+178: Copy Origin GUI: Pattern, field 2, occurrence 32:01a0f6fe314d7af9923f7dd5117efc77
+178: Nested copy commit: 1
+178: Preview refresh nested-pattern trial=0 ms=431.211 publications=2 sha256=6987cfca5670e5e1480cb629ba77bb262064df23dcc93c2687a38e0a4b7779a9
+178: Preview refresh nested-pattern trial=1 ms=465.777 publications=2 sha256=6987cfca5670e5e1480cb629ba77bb262064df23dcc93c2687a38e0a4b7779a9
+178: Preview refresh nested-pattern trial=2 ms=349.578 publications=2 sha256=6987cfca5670e5e1480cb629ba77bb262064df23dcc93c2687a38e0a4b7779a9
+178: Preview refresh nested-pattern trial=3 ms=392.866 publications=2 sha256=6987cfca5670e5e1480cb629ba77bb262064df23dcc93c2687a38e0a4b7779a9
+178: Copy Origin GUI: Pattern, field 2, occurrence 32:01a0f6fe314d7af9923f7dd5117efc77
+178: Nested copy committed/reopened/cancelled: 1
+178: Preview refresh nested-pattern trial=0 ms=461.302 publications=2 sha256=2e9a9e1cc18c7695ad2d1cfa79e48db269f6041a088fe0670e2ac611645c9e79
+178: Preview refresh nested-pattern trial=1 ms=488.367 publications=2 sha256=2e9a9e1cc18c7695ad2d1cfa79e48db269f6041a088fe0670e2ac611645c9e79
+178: Preview refresh nested-pattern trial=2 ms=438.617 publications=2 sha256=2e9a9e1cc18c7695ad2d1cfa79e48db269f6041a088fe0670e2ac611645c9e79
+178: Preview refresh nested-pattern trial=3 ms=452.45 publications=2 sha256=2e9a9e1cc18c7695ad2d1cfa79e48db269f6041a088fe0670e2ac611645c9e79
+178: Copy Origin GUI: Pattern, field 0, occurrence 32:01a0f6fe314d7af9923f7dd5117efc77
+178: Nested copy commit: 2
+178: Preview refresh nested-pattern trial=0 ms=538.259 publications=2 sha256=c7805b13a8ab8f7edfc8fda4f7e751623b0c040ccc86a3f24cde2247d3b11e31
+178: Preview refresh nested-pattern trial=1 ms=561.83 publications=2 sha256=c7805b13a8ab8f7edfc8fda4f7e751623b0c040ccc86a3f24cde2247d3b11e31
+178: Preview refresh nested-pattern trial=2 ms=548.469 publications=2 sha256=c7805b13a8ab8f7edfc8fda4f7e751623b0c040ccc86a3f24cde2247d3b11e31
+178: Preview refresh nested-pattern trial=3 ms=542.685 publications=2 sha256=c7805b13a8ab8f7edfc8fda4f7e751623b0c040ccc86a3f24cde2247d3b11e31
+178: Copy Origin GUI: Pattern, field 0, occurrence 32:01a0f6fe314d7af9923f7dd5117efc77
+178: Nested copy committed/reopened/cancelled: 2
+178: Preview refresh nested-mirror trial=0 ms=691.308 publications=2 sha256=886a5fedfee09b08f3c18e2e1a6d9f0dc830e32020ceb5f0703c491559b0e81a
+178: Preview refresh nested-mirror trial=1 ms=849.334 publications=2 sha256=886a5fedfee09b08f3c18e2e1a6d9f0dc830e32020ceb5f0703c491559b0e81a
+178: Preview refresh nested-mirror trial=2 ms=841.66 publications=2 sha256=886a5fedfee09b08f3c18e2e1a6d9f0dc830e32020ceb5f0703c491559b0e81a
+178: Preview refresh nested-mirror trial=3 ms=728.714 publications=2 sha256=886a5fedfee09b08f3c18e2e1a6d9f0dc830e32020ceb5f0703c491559b0e81a
+178: Copy Origin GUI: Mirror, field 0, occurrence 32:01a0f6fe314d7af9923f7dd5117efc7732:01a0f6fe314d7af9923f7dd5117efa6f
+178: Preview refresh nested-pattern trial=0 ms=698.256 publications=2 sha256=886a5fedfee09b08f3c18e2e1a6d9f0dc830e32020ceb5f0703c491559b0e81a
+178: Preview refresh nested-pattern trial=1 ms=693.605 publications=2 sha256=886a5fedfee09b08f3c18e2e1a6d9f0dc830e32020ceb5f0703c491559b0e81a
+178: Preview refresh nested-pattern trial=2 ms=734.757 publications=2 sha256=886a5fedfee09b08f3c18e2e1a6d9f0dc830e32020ceb5f0703c491559b0e81a
+178: Preview refresh nested-pattern trial=3 ms=729.561 publications=2 sha256=886a5fedfee09b08f3c18e2e1a6d9f0dc830e32020ceb5f0703c491559b0e81a
+178: Copy Origin GUI: Pattern, field 2, occurrence 32:01a0f6fe314d7af9923f7dd5117efc7732:01a0f6fe314d7af9923f7dd5117efa6f
+178: Preview refresh nested-pattern trial=0 ms=754.181 publications=2 sha256=886a5fedfee09b08f3c18e2e1a6d9f0dc830e32020ceb5f0703c491559b0e81a
+178: Preview refresh nested-pattern trial=1 ms=731.54 publications=2 sha256=886a5fedfee09b08f3c18e2e1a6d9f0dc830e32020ceb5f0703c491559b0e81a
+178: Preview refresh nested-pattern trial=2 ms=689.216 publications=2 sha256=886a5fedfee09b08f3c18e2e1a6d9f0dc830e32020ceb5f0703c491559b0e81a
+178: Preview refresh nested-pattern trial=3 ms=773.988 publications=2 sha256=886a5fedfee09b08f3c18e2e1a6d9f0dc830e32020ceb5f0703c491559b0e81a
+178: Copy Origin GUI: Pattern, field 0, occurrence 32:01a0f6fe314d7af9923f7dd5117efc7732:01a0f6fe314d7af9923f7dd5117efa6f
+178: Copy Origin GUI: Mirror, field 0, occurrence
+178: Mirror and Pattern UI contracts passed
+1/2 Test #178: zima_cpp_derived_copy_ui_contract ...   Passed  181.09 sec
+test 204
+    Start 204: zima_cpp_body_scale_ui_contract
+
+204: Test command: C:\Users\vladi\Prace\ZIMA-Engineering\00-SOFTWARE\01-ZIMA\ZIMA-CAD\build\cpp-windows-release\zima-cad-cpp.exe "--verify-startup"
+204: Working Directory: C:/Users/vladi/Prace/ZIMA-Engineering/00-SOFTWARE/01-ZIMA/ZIMA-CAD/cpp/..
+204: Environment variables:
+204:  QT_QPA_PLATFORM=windows
+204:  QT_STYLE_OVERRIDE=Fusion
+204:  ZIMA_VERIFY_BODY_SCALE_ONLY=1
+204: Test timeout computed to be: 120
+204: Preview refresh nested-scale trial=0 ms=45.6363 publications=2 sha256=475cbd89e7a1e629c218e39faca6f8ae6aa686fdccacd5c2e8f0a11139ae7ccc
+204: Preview refresh nested-scale trial=1 ms=46.4346 publications=2 sha256=475cbd89e7a1e629c218e39faca6f8ae6aa686fdccacd5c2e8f0a11139ae7ccc
+204: Preview refresh nested-scale trial=2 ms=50.7786 publications=2 sha256=475cbd89e7a1e629c218e39faca6f8ae6aa686fdccacd5c2e8f0a11139ae7ccc
+204: Preview refresh nested-scale trial=3 ms=55.0324 publications=2 sha256=475cbd89e7a1e629c218e39faca6f8ae6aa686fdccacd5c2e8f0a11139ae7ccc
+204: Scale GUI source entry, inspection, resizing, commit, suppression, reopen and Cancel passed
+2/2 Test #204: zima_cpp_body_scale_ui_contract .....   Passed    4.88 sec
+
+The following tests passed:
+	zima_cpp_derived_copy_ui_contract
+	zima_cpp_body_scale_ui_contract
+
+100% tests passed, 0 tests failed out of 2
+
+Total Test time (real) = 186.02 sec
+
+=== after ===
+UpdateCTestConfiguration  from :C:/Users/vladi/Prace/ZIMA-Engineering/00-SOFTWARE/01-ZIMA/ZIMA-CAD/build/cpp-windows-release/DartConfiguration.tcl
+Test project C:/Users/vladi/Prace/ZIMA-Engineering/00-SOFTWARE/01-ZIMA/ZIMA-CAD/build/cpp-windows-release
+Constructing a list of tests
+Done constructing a list of tests
+Updating test list for fixtures
+Added 0 tests to meet fixture requirements
+Checking test dependency graph...
+Checking test dependency graph end
+test 178
+    Start 178: zima_cpp_derived_copy_ui_contract
+
+178: Test command: C:\Users\vladi\Prace\ZIMA-Engineering\00-SOFTWARE\01-ZIMA\ZIMA-CAD\build\cpp-windows-release\zima-cad-cpp.exe "--verify-startup" "--working-directory=C:/Users/vladi/Prace/ZIMA-Engineering/00-SOFTWARE/01-ZIMA/ZIMA-CAD/build/cpp-windows-release/derived-copy-test"
+178: Working Directory: C:/Users/vladi/Prace/ZIMA-Engineering/00-SOFTWARE/01-ZIMA/ZIMA-CAD/cpp/..
+178: Environment variables:
+178:  QT_QPA_PLATFORM=windows
+178:  QT_STYLE_OVERRIDE=Fusion
+178:  ZIMA_VERIFY_DERIVED_COPY_ONLY=1
+178: Test timeout computed to be: 300
+178: Copy Origin GUI: Mirror, field 0, occurrence
+178: Copy Origin GUI: Mirror, field 0, occurrence
+178: Copy Origin GUI: Pattern, field 2, occurrence
+178: Copy Origin GUI: Pattern, field 0, occurrence
+178: Copy Origin GUI: Pattern, field 2, occurrence
+178: Copy Origin GUI: Mirror, field 0, occurrence
+178: Copy Origin GUI: Mirror, field 0, occurrence
+178: Copy Origin GUI: Pattern, field 2, occurrence
+178: Copy Origin GUI: Pattern, field 3, occurrence
+178: Copy Origin GUI: Pattern, field 4, occurrence
+178: Copy Origin GUI: Pattern, field 0, occurrence
+178: Copy Origin GUI: Pattern, field 2, occurrence
+178: Copy Origin GUI: Pattern, field 0, occurrence
+178: Preview refresh nested-mirror trial=0 ms=226.637 publications=1 sha256=01aeeb670ac5984aa86f32f50f2e55b116e2f6ea8e4fbfd19a0f3a4a6adaad27
+178: Preview refresh nested-mirror trial=1 ms=227.815 publications=1 sha256=01aeeb670ac5984aa86f32f50f2e55b116e2f6ea8e4fbfd19a0f3a4a6adaad27
+178: Preview refresh nested-mirror trial=2 ms=208.987 publications=1 sha256=01aeeb670ac5984aa86f32f50f2e55b116e2f6ea8e4fbfd19a0f3a4a6adaad27
+178: Preview refresh nested-mirror trial=3 ms=227.988 publications=1 sha256=01aeeb670ac5984aa86f32f50f2e55b116e2f6ea8e4fbfd19a0f3a4a6adaad27
+178: Copy Origin GUI: Mirror, field 0, occurrence 32:01a0f705318578e3ba5aedf1a31e4547
+178: Nested copy commit: 0
+178: Preview refresh nested-mirror trial=0 ms=259.072 publications=1 sha256=bc954e48544c133508532ac2626ba60aea6e732eb5b6ee52f465513fe0da7495
+178: Preview refresh nested-mirror trial=1 ms=268.979 publications=1 sha256=bc954e48544c133508532ac2626ba60aea6e732eb5b6ee52f465513fe0da7495
+178: Preview refresh nested-mirror trial=2 ms=294.334 publications=1 sha256=bc954e48544c133508532ac2626ba60aea6e732eb5b6ee52f465513fe0da7495
+178: Preview refresh nested-mirror trial=3 ms=315.418 publications=1 sha256=bc954e48544c133508532ac2626ba60aea6e732eb5b6ee52f465513fe0da7495
+178: Copy Origin GUI: Mirror, field 0, occurrence 32:01a0f705318578e3ba5aedf1a31e4547
+178: Nested copy committed/reopened/cancelled: 0
+178: Preview refresh nested-pattern trial=0 ms=306.858 publications=1 sha256=ab1c57048757d68ac262d5596bac02f4f20294817a611037d5560e3d7cc285d5
+178: Preview refresh nested-pattern trial=1 ms=270.062 publications=1 sha256=ab1c57048757d68ac262d5596bac02f4f20294817a611037d5560e3d7cc285d5
+178: Preview refresh nested-pattern trial=2 ms=301.818 publications=1 sha256=ab1c57048757d68ac262d5596bac02f4f20294817a611037d5560e3d7cc285d5
+178: Preview refresh nested-pattern trial=3 ms=307.785 publications=1 sha256=ab1c57048757d68ac262d5596bac02f4f20294817a611037d5560e3d7cc285d5
+178: Copy Origin GUI: Pattern, field 2, occurrence 32:01a0f705318578e3ba5aedf1a31e4547
+178: Nested copy commit: 1
+178: Preview refresh nested-pattern trial=0 ms=429.915 publications=1 sha256=6987cfca5670e5e1480cb629ba77bb262064df23dcc93c2687a38e0a4b7779a9
+178: Preview refresh nested-pattern trial=1 ms=443.007 publications=1 sha256=6987cfca5670e5e1480cb629ba77bb262064df23dcc93c2687a38e0a4b7779a9
+178: Preview refresh nested-pattern trial=2 ms=434.734 publications=1 sha256=6987cfca5670e5e1480cb629ba77bb262064df23dcc93c2687a38e0a4b7779a9
+178: Preview refresh nested-pattern trial=3 ms=423.182 publications=1 sha256=6987cfca5670e5e1480cb629ba77bb262064df23dcc93c2687a38e0a4b7779a9
+178: Copy Origin GUI: Pattern, field 2, occurrence 32:01a0f705318578e3ba5aedf1a31e4547
+178: Nested copy committed/reopened/cancelled: 1
+178: Preview refresh nested-pattern trial=0 ms=496.45 publications=1 sha256=2e9a9e1cc18c7695ad2d1cfa79e48db269f6041a088fe0670e2ac611645c9e79
+178: Preview refresh nested-pattern trial=1 ms=430.906 publications=1 sha256=2e9a9e1cc18c7695ad2d1cfa79e48db269f6041a088fe0670e2ac611645c9e79
+178: Preview refresh nested-pattern trial=2 ms=428.156 publications=1 sha256=2e9a9e1cc18c7695ad2d1cfa79e48db269f6041a088fe0670e2ac611645c9e79
+178: Preview refresh nested-pattern trial=3 ms=428.011 publications=1 sha256=2e9a9e1cc18c7695ad2d1cfa79e48db269f6041a088fe0670e2ac611645c9e79
+178: Copy Origin GUI: Pattern, field 0, occurrence 32:01a0f705318578e3ba5aedf1a31e4547
+178: Nested copy commit: 2
+178: Preview refresh nested-pattern trial=0 ms=560.579 publications=1 sha256=c7805b13a8ab8f7edfc8fda4f7e751623b0c040ccc86a3f24cde2247d3b11e31
+178: Preview refresh nested-pattern trial=1 ms=533.911 publications=1 sha256=c7805b13a8ab8f7edfc8fda4f7e751623b0c040ccc86a3f24cde2247d3b11e31
+178: Preview refresh nested-pattern trial=2 ms=597.447 publications=1 sha256=c7805b13a8ab8f7edfc8fda4f7e751623b0c040ccc86a3f24cde2247d3b11e31
+178: Preview refresh nested-pattern trial=3 ms=592.999 publications=1 sha256=c7805b13a8ab8f7edfc8fda4f7e751623b0c040ccc86a3f24cde2247d3b11e31
+178: Copy Origin GUI: Pattern, field 0, occurrence 32:01a0f705318578e3ba5aedf1a31e4547
+178: Nested copy committed/reopened/cancelled: 2
+178: Preview refresh nested-mirror trial=0 ms=535.176 publications=1 sha256=886a5fedfee09b08f3c18e2e1a6d9f0dc830e32020ceb5f0703c491559b0e81a
+178: Preview refresh nested-mirror trial=1 ms=511.59 publications=1 sha256=886a5fedfee09b08f3c18e2e1a6d9f0dc830e32020ceb5f0703c491559b0e81a
+178: Preview refresh nested-mirror trial=2 ms=471.318 publications=1 sha256=886a5fedfee09b08f3c18e2e1a6d9f0dc830e32020ceb5f0703c491559b0e81a
+178: Preview refresh nested-mirror trial=3 ms=535.833 publications=1 sha256=886a5fedfee09b08f3c18e2e1a6d9f0dc830e32020ceb5f0703c491559b0e81a
+178: Copy Origin GUI: Mirror, field 0, occurrence 32:01a0f705318578e3ba5aedf1a31e454732:01a0f705318578e3ba5aedf1a31e433f
+178: Preview refresh nested-pattern trial=0 ms=528.494 publications=1 sha256=886a5fedfee09b08f3c18e2e1a6d9f0dc830e32020ceb5f0703c491559b0e81a
+178: Preview refresh nested-pattern trial=1 ms=513.387 publications=1 sha256=886a5fedfee09b08f3c18e2e1a6d9f0dc830e32020ceb5f0703c491559b0e81a
+178: Preview refresh nested-pattern trial=2 ms=519.92 publications=1 sha256=886a5fedfee09b08f3c18e2e1a6d9f0dc830e32020ceb5f0703c491559b0e81a
+178: Preview refresh nested-pattern trial=3 ms=542.113 publications=1 sha256=886a5fedfee09b08f3c18e2e1a6d9f0dc830e32020ceb5f0703c491559b0e81a
+178: Copy Origin GUI: Pattern, field 2, occurrence 32:01a0f705318578e3ba5aedf1a31e454732:01a0f705318578e3ba5aedf1a31e433f
+178: Preview refresh nested-pattern trial=0 ms=572.372 publications=1 sha256=886a5fedfee09b08f3c18e2e1a6d9f0dc830e32020ceb5f0703c491559b0e81a
+178: Preview refresh nested-pattern trial=1 ms=574.358 publications=1 sha256=886a5fedfee09b08f3c18e2e1a6d9f0dc830e32020ceb5f0703c491559b0e81a
+178: Preview refresh nested-pattern trial=2 ms=534.341 publications=1 sha256=886a5fedfee09b08f3c18e2e1a6d9f0dc830e32020ceb5f0703c491559b0e81a
+178: Preview refresh nested-pattern trial=3 ms=538.891 publications=1 sha256=886a5fedfee09b08f3c18e2e1a6d9f0dc830e32020ceb5f0703c491559b0e81a
+178: Copy Origin GUI: Pattern, field 0, occurrence 32:01a0f705318578e3ba5aedf1a31e454732:01a0f705318578e3ba5aedf1a31e433f
+178: Copy Origin GUI: Mirror, field 0, occurrence
+178: Mirror and Pattern UI contracts passed
+1/2 Test #178: zima_cpp_derived_copy_ui_contract ...   Passed  185.04 sec
+test 204
+    Start 204: zima_cpp_body_scale_ui_contract
+
+204: Test command: C:\Users\vladi\Prace\ZIMA-Engineering\00-SOFTWARE\01-ZIMA\ZIMA-CAD\build\cpp-windows-release\zima-cad-cpp.exe "--verify-startup"
+204: Working Directory: C:/Users/vladi/Prace/ZIMA-Engineering/00-SOFTWARE/01-ZIMA/ZIMA-CAD/cpp/..
+204: Environment variables:
+204:  QT_QPA_PLATFORM=windows
+204:  QT_STYLE_OVERRIDE=Fusion
+204:  ZIMA_VERIFY_BODY_SCALE_ONLY=1
+204: Test timeout computed to be: 120
+204: Preview refresh nested-scale trial=0 ms=50.3608 publications=1 sha256=475cbd89e7a1e629c218e39faca6f8ae6aa686fdccacd5c2e8f0a11139ae7ccc
+204: Preview refresh nested-scale trial=1 ms=44.5581 publications=1 sha256=475cbd89e7a1e629c218e39faca6f8ae6aa686fdccacd5c2e8f0a11139ae7ccc
+204: Preview refresh nested-scale trial=2 ms=42.654 publications=1 sha256=475cbd89e7a1e629c218e39faca6f8ae6aa686fdccacd5c2e8f0a11139ae7ccc
+204: Preview refresh nested-scale trial=3 ms=42.0316 publications=1 sha256=475cbd89e7a1e629c218e39faca6f8ae6aa686fdccacd5c2e8f0a11139ae7ccc
+204: Scale GUI source entry, inspection, resizing, commit, suppression, reopen and Cancel passed
+2/2 Test #204: zima_cpp_body_scale_ui_contract .....   Passed    4.49 sec
+
+The following tests passed:
+	zima_cpp_derived_copy_ui_contract
+	zima_cpp_body_scale_ui_contract
+
+100% tests passed, 0 tests failed out of 2
+
+Total Test time (real) = 189.60 sec
+
+=== repeat ===
+UpdateCTestConfiguration  from :C:/Users/vladi/Prace/ZIMA-Engineering/00-SOFTWARE/01-ZIMA/ZIMA-CAD/build/cpp-windows-release/DartConfiguration.tcl
+Test project C:/Users/vladi/Prace/ZIMA-Engineering/00-SOFTWARE/01-ZIMA/ZIMA-CAD/build/cpp-windows-release
+Constructing a list of tests
+Done constructing a list of tests
+Updating test list for fixtures
+Added 0 tests to meet fixture requirements
+Checking test dependency graph...
+Checking test dependency graph end
+test 178
+    Start 178: zima_cpp_derived_copy_ui_contract
+
+178: Test command: C:\Users\vladi\Prace\ZIMA-Engineering\00-SOFTWARE\01-ZIMA\ZIMA-CAD\build\cpp-windows-release\zima-cad-cpp.exe "--verify-startup" "--working-directory=C:/Users/vladi/Prace/ZIMA-Engineering/00-SOFTWARE/01-ZIMA/ZIMA-CAD/build/cpp-windows-release/derived-copy-test"
+178: Working Directory: C:/Users/vladi/Prace/ZIMA-Engineering/00-SOFTWARE/01-ZIMA/ZIMA-CAD/cpp/..
+178: Environment variables:
+178:  QT_QPA_PLATFORM=windows
+178:  QT_STYLE_OVERRIDE=Fusion
+178:  ZIMA_VERIFY_DERIVED_COPY_ONLY=1
+178: Test timeout computed to be: 300
+178: Copy Origin GUI: Mirror, field 0, occurrence
+178: Copy Origin GUI: Mirror, field 0, occurrence
+178: Copy Origin GUI: Pattern, field 2, occurrence
+178: Copy Origin GUI: Pattern, field 0, occurrence
+178: Copy Origin GUI: Pattern, field 2, occurrence
+178: Copy Origin GUI: Mirror, field 0, occurrence
+178: Copy Origin GUI: Mirror, field 0, occurrence
+178: Copy Origin GUI: Pattern, field 2, occurrence
+178: Copy Origin GUI: Pattern, field 3, occurrence
+178: Copy Origin GUI: Pattern, field 4, occurrence
+178: Copy Origin GUI: Pattern, field 0, occurrence
+178: Copy Origin GUI: Pattern, field 2, occurrence
+178: Copy Origin GUI: Pattern, field 0, occurrence
+178: Preview refresh nested-mirror trial=0 ms=208.595 publications=1 sha256=01aeeb670ac5984aa86f32f50f2e55b116e2f6ea8e4fbfd19a0f3a4a6adaad27
+178: Preview refresh nested-mirror trial=1 ms=204.574 publications=1 sha256=01aeeb670ac5984aa86f32f50f2e55b116e2f6ea8e4fbfd19a0f3a4a6adaad27
+178: Preview refresh nested-mirror trial=2 ms=170.838 publications=1 sha256=01aeeb670ac5984aa86f32f50f2e55b116e2f6ea8e4fbfd19a0f3a4a6adaad27
+178: Preview refresh nested-mirror trial=3 ms=239.515 publications=1 sha256=01aeeb670ac5984aa86f32f50f2e55b116e2f6ea8e4fbfd19a0f3a4a6adaad27
+178: Copy Origin GUI: Mirror, field 0, occurrence 32:01a0f709c5087fe7866c24beaa9495ae
+178: Nested copy commit: 0
+178: Preview refresh nested-mirror trial=0 ms=287.168 publications=1 sha256=bc954e48544c133508532ac2626ba60aea6e732eb5b6ee52f465513fe0da7495
+178: Preview refresh nested-mirror trial=1 ms=287.365 publications=1 sha256=bc954e48544c133508532ac2626ba60aea6e732eb5b6ee52f465513fe0da7495
+178: Preview refresh nested-mirror trial=2 ms=275.068 publications=1 sha256=bc954e48544c133508532ac2626ba60aea6e732eb5b6ee52f465513fe0da7495
+178: Preview refresh nested-mirror trial=3 ms=266.115 publications=1 sha256=bc954e48544c133508532ac2626ba60aea6e732eb5b6ee52f465513fe0da7495
+178: Copy Origin GUI: Mirror, field 0, occurrence 32:01a0f709c5087fe7866c24beaa9495ae
+178: Nested copy committed/reopened/cancelled: 0
+178: Preview refresh nested-pattern trial=0 ms=271.044 publications=1 sha256=ab1c57048757d68ac262d5596bac02f4f20294817a611037d5560e3d7cc285d5
+178: Preview refresh nested-pattern trial=1 ms=263.47 publications=1 sha256=ab1c57048757d68ac262d5596bac02f4f20294817a611037d5560e3d7cc285d5
+178: Preview refresh nested-pattern trial=2 ms=294.145 publications=1 sha256=ab1c57048757d68ac262d5596bac02f4f20294817a611037d5560e3d7cc285d5
+178: Preview refresh nested-pattern trial=3 ms=269.059 publications=1 sha256=ab1c57048757d68ac262d5596bac02f4f20294817a611037d5560e3d7cc285d5
+178: Copy Origin GUI: Pattern, field 2, occurrence 32:01a0f709c5087fe7866c24beaa9495ae
+178: Nested copy commit: 1
+178: Preview refresh nested-pattern trial=0 ms=340.501 publications=1 sha256=6987cfca5670e5e1480cb629ba77bb262064df23dcc93c2687a38e0a4b7779a9
+178: Preview refresh nested-pattern trial=1 ms=334.788 publications=1 sha256=6987cfca5670e5e1480cb629ba77bb262064df23dcc93c2687a38e0a4b7779a9
+178: Preview refresh nested-pattern trial=2 ms=347.444 publications=1 sha256=6987cfca5670e5e1480cb629ba77bb262064df23dcc93c2687a38e0a4b7779a9
+178: Preview refresh nested-pattern trial=3 ms=366.106 publications=1 sha256=6987cfca5670e5e1480cb629ba77bb262064df23dcc93c2687a38e0a4b7779a9
+178: Copy Origin GUI: Pattern, field 2, occurrence 32:01a0f709c5087fe7866c24beaa9495ae
+178: Nested copy committed/reopened/cancelled: 1
+178: Preview refresh nested-pattern trial=0 ms=325.632 publications=1 sha256=2e9a9e1cc18c7695ad2d1cfa79e48db269f6041a088fe0670e2ac611645c9e79
+178: Preview refresh nested-pattern trial=1 ms=324.648 publications=1 sha256=2e9a9e1cc18c7695ad2d1cfa79e48db269f6041a088fe0670e2ac611645c9e79
+178: Preview refresh nested-pattern trial=2 ms=326.109 publications=1 sha256=2e9a9e1cc18c7695ad2d1cfa79e48db269f6041a088fe0670e2ac611645c9e79
+178: Preview refresh nested-pattern trial=3 ms=379.345 publications=1 sha256=2e9a9e1cc18c7695ad2d1cfa79e48db269f6041a088fe0670e2ac611645c9e79
+178: Copy Origin GUI: Pattern, field 0, occurrence 32:01a0f709c5087fe7866c24beaa9495ae
+178: Nested copy commit: 2
+178: Preview refresh nested-pattern trial=0 ms=616.032 publications=1 sha256=c7805b13a8ab8f7edfc8fda4f7e751623b0c040ccc86a3f24cde2247d3b11e31
+178: Preview refresh nested-pattern trial=1 ms=561.715 publications=1 sha256=c7805b13a8ab8f7edfc8fda4f7e751623b0c040ccc86a3f24cde2247d3b11e31
+178: Preview refresh nested-pattern trial=2 ms=585.015 publications=1 sha256=c7805b13a8ab8f7edfc8fda4f7e751623b0c040ccc86a3f24cde2247d3b11e31
+178: Preview refresh nested-pattern trial=3 ms=624.458 publications=1 sha256=c7805b13a8ab8f7edfc8fda4f7e751623b0c040ccc86a3f24cde2247d3b11e31
+178: Copy Origin GUI: Pattern, field 0, occurrence 32:01a0f709c5087fe7866c24beaa9495ae
+178: Nested copy committed/reopened/cancelled: 2
+178: Preview refresh nested-mirror trial=0 ms=632.991 publications=1 sha256=886a5fedfee09b08f3c18e2e1a6d9f0dc830e32020ceb5f0703c491559b0e81a
+178: Preview refresh nested-mirror trial=1 ms=564.28 publications=1 sha256=886a5fedfee09b08f3c18e2e1a6d9f0dc830e32020ceb5f0703c491559b0e81a
+178: Preview refresh nested-mirror trial=2 ms=581.244 publications=1 sha256=886a5fedfee09b08f3c18e2e1a6d9f0dc830e32020ceb5f0703c491559b0e81a
+178: Preview refresh nested-mirror trial=3 ms=548.667 publications=1 sha256=886a5fedfee09b08f3c18e2e1a6d9f0dc830e32020ceb5f0703c491559b0e81a
+178: Copy Origin GUI: Mirror, field 0, occurrence 32:01a0f709c5087fe7866c24beaa9495ae32:01a0f709c5087fe7866c24beaa9493a6
+178: Preview refresh nested-pattern trial=0 ms=509.488 publications=1 sha256=886a5fedfee09b08f3c18e2e1a6d9f0dc830e32020ceb5f0703c491559b0e81a
+178: Preview refresh nested-pattern trial=1 ms=522.984 publications=1 sha256=886a5fedfee09b08f3c18e2e1a6d9f0dc830e32020ceb5f0703c491559b0e81a
+178: Preview refresh nested-pattern trial=2 ms=520.896 publications=1 sha256=886a5fedfee09b08f3c18e2e1a6d9f0dc830e32020ceb5f0703c491559b0e81a
+178: Preview refresh nested-pattern trial=3 ms=555.341 publications=1 sha256=886a5fedfee09b08f3c18e2e1a6d9f0dc830e32020ceb5f0703c491559b0e81a
+178: Copy Origin GUI: Pattern, field 2, occurrence 32:01a0f709c5087fe7866c24beaa9495ae32:01a0f709c5087fe7866c24beaa9493a6
+178: Preview refresh nested-pattern trial=0 ms=536.136 publications=1 sha256=886a5fedfee09b08f3c18e2e1a6d9f0dc830e32020ceb5f0703c491559b0e81a
+178: Preview refresh nested-pattern trial=1 ms=530.523 publications=1 sha256=886a5fedfee09b08f3c18e2e1a6d9f0dc830e32020ceb5f0703c491559b0e81a
+178: Preview refresh nested-pattern trial=2 ms=464.714 publications=1 sha256=886a5fedfee09b08f3c18e2e1a6d9f0dc830e32020ceb5f0703c491559b0e81a
+178: Preview refresh nested-pattern trial=3 ms=463.432 publications=1 sha256=886a5fedfee09b08f3c18e2e1a6d9f0dc830e32020ceb5f0703c491559b0e81a
+178: Copy Origin GUI: Pattern, field 0, occurrence 32:01a0f709c5087fe7866c24beaa9495ae32:01a0f709c5087fe7866c24beaa9493a6
+178: Copy Origin GUI: Mirror, field 0, occurrence
+178: Mirror and Pattern UI contracts passed
+1/2 Test #178: zima_cpp_derived_copy_ui_contract ...   Passed  180.22 sec
+test 204
+    Start 204: zima_cpp_body_scale_ui_contract
+
+204: Test command: C:\Users\vladi\Prace\ZIMA-Engineering\00-SOFTWARE\01-ZIMA\ZIMA-CAD\build\cpp-windows-release\zima-cad-cpp.exe "--verify-startup"
+204: Working Directory: C:/Users/vladi/Prace/ZIMA-Engineering/00-SOFTWARE/01-ZIMA/ZIMA-CAD/cpp/..
+204: Environment variables:
+204:  QT_QPA_PLATFORM=windows
+204:  QT_STYLE_OVERRIDE=Fusion
+204:  ZIMA_VERIFY_BODY_SCALE_ONLY=1
+204: Test timeout computed to be: 120
+204: Preview refresh nested-scale trial=0 ms=54.3166 publications=1 sha256=475cbd89e7a1e629c218e39faca6f8ae6aa686fdccacd5c2e8f0a11139ae7ccc
+204: Preview refresh nested-scale trial=1 ms=50.9308 publications=1 sha256=475cbd89e7a1e629c218e39faca6f8ae6aa686fdccacd5c2e8f0a11139ae7ccc
+204: Preview refresh nested-scale trial=2 ms=59.4461 publications=1 sha256=475cbd89e7a1e629c218e39faca6f8ae6aa686fdccacd5c2e8f0a11139ae7ccc
+204: Preview refresh nested-scale trial=3 ms=45.2972 publications=1 sha256=475cbd89e7a1e629c218e39faca6f8ae6aa686fdccacd5c2e8f0a11139ae7ccc
+204: Scale GUI source entry, inspection, resizing, commit, suppression, reopen and Cancel passed
+2/2 Test #204: zima_cpp_body_scale_ui_contract .....   Passed    4.67 sec
+
+The following tests passed:
+	zima_cpp_derived_copy_ui_contract
+	zima_cpp_body_scale_ui_contract
+
+100% tests passed, 0 tests failed out of 2
+
+Total Test time (real) = 184.91 sec
+
+=== scoped ===
+UpdateCTestConfiguration  from :C:/Users/vladi/Prace/ZIMA-Engineering/00-SOFTWARE/01-ZIMA/ZIMA-CAD/build/cpp-windows-release/DartConfiguration.tcl
+Test project C:/Users/vladi/Prace/ZIMA-Engineering/00-SOFTWARE/01-ZIMA/ZIMA-CAD/build/cpp-windows-release
+Constructing a list of tests
+Done constructing a list of tests
+Updating test list for fixtures
+Added 0 tests to meet fixture requirements
+Checking test dependency graph...
+Checking test dependency graph end
+test 178
+    Start 178: zima_cpp_derived_copy_ui_contract
+
+178: Test command: C:\Users\vladi\Prace\ZIMA-Engineering\00-SOFTWARE\01-ZIMA\ZIMA-CAD\build\cpp-windows-release\zima-cad-cpp.exe "--verify-startup" "--working-directory=C:/Users/vladi/Prace/ZIMA-Engineering/00-SOFTWARE/01-ZIMA/ZIMA-CAD/build/cpp-windows-release/derived-copy-test"
+178: Working Directory: C:/Users/vladi/Prace/ZIMA-Engineering/00-SOFTWARE/01-ZIMA/ZIMA-CAD/cpp/..
+178: Environment variables:
+178:  QT_QPA_PLATFORM=windows
+178:  QT_STYLE_OVERRIDE=Fusion
+178:  ZIMA_VERIFY_DERIVED_COPY_ONLY=1
+178: Test timeout computed to be: 300
+178: Copy Origin GUI: Mirror, field 0, occurrence
+178: Copy Origin GUI: Mirror, field 0, occurrence
+178: Copy Origin GUI: Pattern, field 2, occurrence
+178: Copy Origin GUI: Pattern, field 0, occurrence
+178: Copy Origin GUI: Pattern, field 2, occurrence
+178: Copy Origin GUI: Mirror, field 0, occurrence
+178: Copy Origin GUI: Mirror, field 0, occurrence
+178: Copy Origin GUI: Pattern, field 2, occurrence
+178: Copy Origin GUI: Pattern, field 3, occurrence
+178: Copy Origin GUI: Pattern, field 4, occurrence
+178: Copy Origin GUI: Pattern, field 0, occurrence
+178: Copy Origin GUI: Pattern, field 2, occurrence
+178: Copy Origin GUI: Pattern, field 0, occurrence
+178: Preview refresh nested-mirror trial=0 ms=226.443 publications=2 sha256=01aeeb670ac5984aa86f32f50f2e55b116e2f6ea8e4fbfd19a0f3a4a6adaad27
+178: Preview refresh nested-mirror trial=1 ms=207.571 publications=2 sha256=01aeeb670ac5984aa86f32f50f2e55b116e2f6ea8e4fbfd19a0f3a4a6adaad27
+178: Preview refresh nested-mirror trial=2 ms=218.913 publications=2 sha256=01aeeb670ac5984aa86f32f50f2e55b116e2f6ea8e4fbfd19a0f3a4a6adaad27
+178: Preview refresh nested-mirror trial=3 ms=231.2 publications=2 sha256=01aeeb670ac5984aa86f32f50f2e55b116e2f6ea8e4fbfd19a0f3a4a6adaad27
+178: Copy Origin GUI: Mirror, field 0, occurrence 32:01a0f70d99807f2286d96371068c2c5a
+178: Nested copy commit: 0
+178: Preview refresh nested-mirror trial=0 ms=251.822 publications=2 sha256=bc954e48544c133508532ac2626ba60aea6e732eb5b6ee52f465513fe0da7495
+178: Preview refresh nested-mirror trial=1 ms=277.137 publications=2 sha256=bc954e48544c133508532ac2626ba60aea6e732eb5b6ee52f465513fe0da7495
+178: Preview refresh nested-mirror trial=2 ms=282.244 publications=2 sha256=bc954e48544c133508532ac2626ba60aea6e732eb5b6ee52f465513fe0da7495
+178: Preview refresh nested-mirror trial=3 ms=307.666 publications=2 sha256=bc954e48544c133508532ac2626ba60aea6e732eb5b6ee52f465513fe0da7495
+178: Copy Origin GUI: Mirror, field 0, occurrence 32:01a0f70d99807f2286d96371068c2c5a
+178: Nested copy committed/reopened/cancelled: 0
+178: Preview refresh nested-pattern trial=0 ms=311.196 publications=2 sha256=ab1c57048757d68ac262d5596bac02f4f20294817a611037d5560e3d7cc285d5
+178: Preview refresh nested-pattern trial=1 ms=270.904 publications=2 sha256=ab1c57048757d68ac262d5596bac02f4f20294817a611037d5560e3d7cc285d5
+178: Preview refresh nested-pattern trial=2 ms=300.079 publications=2 sha256=ab1c57048757d68ac262d5596bac02f4f20294817a611037d5560e3d7cc285d5
+178: Preview refresh nested-pattern trial=3 ms=257.904 publications=2 sha256=ab1c57048757d68ac262d5596bac02f4f20294817a611037d5560e3d7cc285d5
+178: Copy Origin GUI: Pattern, field 2, occurrence 32:01a0f70d99807f2286d96371068c2c5a
+178: Nested copy commit: 1
+178: Preview refresh nested-pattern trial=0 ms=529.011 publications=2 sha256=6987cfca5670e5e1480cb629ba77bb262064df23dcc93c2687a38e0a4b7779a9
+178: Preview refresh nested-pattern trial=1 ms=441.039 publications=2 sha256=6987cfca5670e5e1480cb629ba77bb262064df23dcc93c2687a38e0a4b7779a9
+178: Preview refresh nested-pattern trial=2 ms=426.292 publications=2 sha256=6987cfca5670e5e1480cb629ba77bb262064df23dcc93c2687a38e0a4b7779a9
+178: Preview refresh nested-pattern trial=3 ms=432.635 publications=2 sha256=6987cfca5670e5e1480cb629ba77bb262064df23dcc93c2687a38e0a4b7779a9
+178: Copy Origin GUI: Pattern, field 2, occurrence 32:01a0f70d99807f2286d96371068c2c5a
+178: Nested copy committed/reopened/cancelled: 1
+178: Preview refresh nested-pattern trial=0 ms=450.655 publications=2 sha256=2e9a9e1cc18c7695ad2d1cfa79e48db269f6041a088fe0670e2ac611645c9e79
+178: Preview refresh nested-pattern trial=1 ms=495.573 publications=2 sha256=2e9a9e1cc18c7695ad2d1cfa79e48db269f6041a088fe0670e2ac611645c9e79
+178: Preview refresh nested-pattern trial=2 ms=412.495 publications=2 sha256=2e9a9e1cc18c7695ad2d1cfa79e48db269f6041a088fe0670e2ac611645c9e79
+178: Preview refresh nested-pattern trial=3 ms=464.456 publications=2 sha256=2e9a9e1cc18c7695ad2d1cfa79e48db269f6041a088fe0670e2ac611645c9e79
+178: Copy Origin GUI: Pattern, field 0, occurrence 32:01a0f70d99807f2286d96371068c2c5a
+178: Nested copy commit: 2
+178: Preview refresh nested-pattern trial=0 ms=631.108 publications=2 sha256=c7805b13a8ab8f7edfc8fda4f7e751623b0c040ccc86a3f24cde2247d3b11e31
+178: Preview refresh nested-pattern trial=1 ms=512.713 publications=2 sha256=c7805b13a8ab8f7edfc8fda4f7e751623b0c040ccc86a3f24cde2247d3b11e31
+178: Preview refresh nested-pattern trial=2 ms=526.101 publications=2 sha256=c7805b13a8ab8f7edfc8fda4f7e751623b0c040ccc86a3f24cde2247d3b11e31
+178: Preview refresh nested-pattern trial=3 ms=473.77 publications=2 sha256=c7805b13a8ab8f7edfc8fda4f7e751623b0c040ccc86a3f24cde2247d3b11e31
+178: Copy Origin GUI: Pattern, field 0, occurrence 32:01a0f70d99807f2286d96371068c2c5a
+178: Nested copy committed/reopened/cancelled: 2
+178: Preview refresh nested-mirror trial=0 ms=398.62 publications=1 sha256=886a5fedfee09b08f3c18e2e1a6d9f0dc830e32020ceb5f0703c491559b0e81a
+178: Preview refresh nested-mirror trial=1 ms=402.829 publications=1 sha256=886a5fedfee09b08f3c18e2e1a6d9f0dc830e32020ceb5f0703c491559b0e81a
+178: Preview refresh nested-mirror trial=2 ms=392.956 publications=1 sha256=886a5fedfee09b08f3c18e2e1a6d9f0dc830e32020ceb5f0703c491559b0e81a
+178: Preview refresh nested-mirror trial=3 ms=517.764 publications=1 sha256=886a5fedfee09b08f3c18e2e1a6d9f0dc830e32020ceb5f0703c491559b0e81a
+178: Copy Origin GUI: Mirror, field 0, occurrence 32:01a0f70d99807f2286d96371068c2c5a32:01a0f70d99807f2286d96371068c2a52
+178: Preview refresh nested-pattern trial=0 ms=402.781 publications=1 sha256=886a5fedfee09b08f3c18e2e1a6d9f0dc830e32020ceb5f0703c491559b0e81a
+178: Preview refresh nested-pattern trial=1 ms=509.035 publications=1 sha256=886a5fedfee09b08f3c18e2e1a6d9f0dc830e32020ceb5f0703c491559b0e81a
+178: Preview refresh nested-pattern trial=2 ms=448.014 publications=1 sha256=886a5fedfee09b08f3c18e2e1a6d9f0dc830e32020ceb5f0703c491559b0e81a
+178: Preview refresh nested-pattern trial=3 ms=479.994 publications=1 sha256=886a5fedfee09b08f3c18e2e1a6d9f0dc830e32020ceb5f0703c491559b0e81a
+178: Copy Origin GUI: Pattern, field 2, occurrence 32:01a0f70d99807f2286d96371068c2c5a32:01a0f70d99807f2286d96371068c2a52
+178: Preview refresh nested-pattern trial=0 ms=441.93 publications=1 sha256=886a5fedfee09b08f3c18e2e1a6d9f0dc830e32020ceb5f0703c491559b0e81a
+178: Preview refresh nested-pattern trial=1 ms=557.753 publications=1 sha256=886a5fedfee09b08f3c18e2e1a6d9f0dc830e32020ceb5f0703c491559b0e81a
+178: Preview refresh nested-pattern trial=2 ms=468.026 publications=1 sha256=886a5fedfee09b08f3c18e2e1a6d9f0dc830e32020ceb5f0703c491559b0e81a
+178: Preview refresh nested-pattern trial=3 ms=927.09 publications=1 sha256=886a5fedfee09b08f3c18e2e1a6d9f0dc830e32020ceb5f0703c491559b0e81a
+178: Copy Origin GUI: Pattern, field 0, occurrence 32:01a0f70d99807f2286d96371068c2c5a32:01a0f70d99807f2286d96371068c2a52
+178: Copy Origin GUI: Mirror, field 0, occurrence
+178: Mirror and Pattern UI contracts passed
+1/2 Test #178: zima_cpp_derived_copy_ui_contract ...   Passed  175.12 sec
+test 204
+    Start 204: zima_cpp_body_scale_ui_contract
+
+204: Test command: C:\Users\vladi\Prace\ZIMA-Engineering\00-SOFTWARE\01-ZIMA\ZIMA-CAD\build\cpp-windows-release\zima-cad-cpp.exe "--verify-startup"
+204: Working Directory: C:/Users/vladi/Prace/ZIMA-Engineering/00-SOFTWARE/01-ZIMA/ZIMA-CAD/cpp/..
+204: Environment variables:
+204:  QT_QPA_PLATFORM=windows
+204:  QT_STYLE_OVERRIDE=Fusion
+204:  ZIMA_VERIFY_BODY_SCALE_ONLY=1
+204: Test timeout computed to be: 120
+204: Preview refresh nested-scale trial=0 ms=45.0511 publications=1 sha256=475cbd89e7a1e629c218e39faca6f8ae6aa686fdccacd5c2e8f0a11139ae7ccc
+204: Preview refresh nested-scale trial=1 ms=44.1573 publications=1 sha256=475cbd89e7a1e629c218e39faca6f8ae6aa686fdccacd5c2e8f0a11139ae7ccc
+204: Preview refresh nested-scale trial=2 ms=41.7041 publications=1 sha256=475cbd89e7a1e629c218e39faca6f8ae6aa686fdccacd5c2e8f0a11139ae7ccc
+204: Preview refresh nested-scale trial=3 ms=45.9312 publications=1 sha256=475cbd89e7a1e629c218e39faca6f8ae6aa686fdccacd5c2e8f0a11139ae7ccc
+204: Scale GUI source entry, inspection, resizing, commit, suppression, reopen and Cancel passed
+2/2 Test #204: zima_cpp_body_scale_ui_contract .....   Passed    4.63 sec
+
+The following tests passed:
+	zima_cpp_derived_copy_ui_contract
+	zima_cpp_body_scale_ui_contract
+
+100% tests passed, 0 tests failed out of 2
+
+Total Test time (real) = 179.80 sec

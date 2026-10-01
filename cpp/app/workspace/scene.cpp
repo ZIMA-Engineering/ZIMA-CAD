@@ -15,10 +15,15 @@ namespace zima::app {
 using namespace workspace_detail;
 
 
-void AssemblyWorkspaceWindow::refresh_scene() {
+void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMesh()> assembly_preview) {
     // Whole-Origin entry still resolves each reference synchronously, but
     // publishes the resulting tree/mesh only after the complete selection.
-    if (defer_reference_scene_refresh_) return;
+    if (defer_reference_scene_refresh_) {
+        // These command previews previously published their override after the
+        // deferred refresh returned. Preserve that command-local behavior.
+        if (assembly_preview) viewer_->set_mesh(assembly_preview());
+        return;
+    }
     appearance_preview_paths_.reset();
     std::map<std::pair<std::string,std::string>,std::string> relation_marks;
     const auto add_marks=[&](const auto& doc){
@@ -2133,7 +2138,12 @@ void AssemblyWorkspaceWindow::refresh_scene() {
     }
     const bool fit_assembly_view = !preserve_view_on_refresh_ && active_sketch_id_.empty();
     preserve_view_on_refresh_ = false;
-    if (assembly_cut_rollback_ &&
+    if (assembly_preview) {
+        // Nested copy/scale commands already own the exact input scene. Build
+        // and publish it once instead of discarding a general scene first.
+        // These commands previously used set_mesh's default fitting policy.
+        viewer_->set_mesh(assembly_preview());
+    } else if (assembly_cut_rollback_ &&
         assembly_cut_rollback_->assembly_document_id == document.document_id) {
         auto rollback_document = document;
         for (auto& component : rollback_document.components) {

@@ -1144,7 +1144,9 @@ private:
     void calculate_assembly_cuts(
         zima::assembly::AssemblyDocument& document) const;
     void refresh_tabs();
-    void refresh_scene();
+    // Optional command-owned Assembly scene, built synchronously after source
+    // refresh. Tree, actions and selection preparation still run normally.
+    void refresh_scene(std::function<zima::kernel::ViewerMesh()> assembly_preview = {});
     [[nodiscard]] bool part_history_insertion_allowed() const;
     void track_tree_edit(QDialog* dialog);
     void add_pending_tree_item(QTreeWidgetItem* parent,

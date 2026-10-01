@@ -74,13 +74,14 @@ void AssemblyWorkspaceWindow::show_body_scale_properties(const std::string& id) 
     dialog->request_source=[dialog]{dialog->arm();dialog->changed();};
     dialog->changed=[this,dialog,sources,prefix,offer,context]{
         if(!dialog->isVisible())return;
-        preserve_view_on_refresh_=true;refresh_scene();
-        if(!prefix.empty()) {
+        preserve_view_on_refresh_=true;
+        if(prefix.empty())refresh_scene();
+        else refresh_scene([&] {
             kernel::BodyResult input;
             for(const auto& id:context)workspace_detail::append_mesh(input.mesh,sources.at(id).geometry->mesh);
-            viewer_->set_mesh(workspace_.build_scene_with_part_override(workspace_.displayed_document_id(),
-                assembly::InstancePath::decode(prefix),std::move(input)));
-        }
+            return workspace_.build_scene_with_part_override(workspace_.displayed_document_id(),
+                assembly::InstancePath::decode(prefix),std::move(input));
+        });
         viewer_->set_original_container_selection(false);viewer_->set_candidate_filter({});viewer_->set_selection_contract({});
         std::vector<kernel::ViewerEdge> preview;std::set<viewer::EdgeKey> highlights;
         const auto& scale=*dialog->pending.scale;

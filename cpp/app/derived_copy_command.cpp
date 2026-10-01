@@ -215,14 +215,7 @@ void AssemblyWorkspaceWindow::show_derived_copy_properties(const std::string& id
             } else edges=kernel::mirrored_viewer_mesh(sources.at(dialog->derived_copy.source_id).mesh,dialog->derived_copy.resolved_plane).edges;
             dialog->set_status(tr("Náhled je připraven. OK vypočítá a uloží výsledek."));
         }catch(const std::exception& e){dialog->set_status(QString::fromUtf8(e.what()));}
-        preserve_view_on_refresh_=true;refresh_scene();
-        if(prefix.empty()&&workspace_.open_part(document_id)&&std::ranges::none_of(viewer_->mesh().original_references.axes,[&](const auto& axis) {
-            return axis.reference.owner_id==dialog->pending.container_origin.id;
-        })) {
-            auto mesh=viewer_->mesh();append_derived_copy_references(mesh,origin);
-            append_derived_copy_references(mesh.original_references,origin.original_references);viewer_->set_mesh(std::move(mesh));
-        }
-        if(!prefix.empty()) {
+        const auto nested_scene=[&]() -> kernel::ViewerMesh {
             if(workspace_.open_part(document_id)) {
                 kernel::BodyResult input;
                 const auto* part=workspace_.open_part(document_id);
@@ -235,15 +228,30 @@ void AssemblyWorkspaceWindow::show_derived_copy_properties(const std::string& id
                     if(found!=outputs.end()){append_derived_copy_references(input.mesh,found->second->mesh);append_derived_copy_references(input.mesh.original_references,found->second->mesh.original_references);}
                 }
                 append_derived_copy_references(input.mesh,origin);append_derived_copy_references(input.mesh.original_references,origin.original_references);
-                viewer_->set_mesh(workspace_.build_scene_with_part_override(workspace_.displayed_document_id(),assembly::InstancePath::decode(prefix),std::move(input)));
+                return workspace_.build_scene_with_part_override(workspace_.displayed_document_id(),assembly::InstancePath::decode(prefix),std::move(input));
             } else if(derived_copy_assembly_preview_) {
                 const auto& preview=*derived_copy_assembly_preview_;
                 auto display=preview.build_scene();
                 append_derived_copy_references(display,origin);
                 append_derived_copy_references(display.original_references,origin.original_references);
-                viewer_->set_mesh(workspace::build_scene_with_assembly_override(workspace_,workspace_.displayed_document_id(),
-                    assembly::InstancePath::decode(prefix),preview,&display));
+                return workspace::build_scene_with_assembly_override(workspace_,workspace_.displayed_document_id(),
+                    assembly::InstancePath::decode(prefix),preview,&display);
             }
+            return {};
+        };
+        preserve_view_on_refresh_=true;
+        if(!prefix.empty()&&workspace_.open_part(document_id))refresh_scene(nested_scene);
+        else {
+            refresh_scene();
+            // Keep the established nested-Assembly path: measured gains were
+            // not consistent there. Part-owned copies use the single publish.
+            if(!prefix.empty()&&derived_copy_assembly_preview_)viewer_->set_mesh(nested_scene());
+        }
+        if(prefix.empty()&&workspace_.open_part(document_id)&&std::ranges::none_of(viewer_->mesh().original_references.axes,[&](const auto& axis) {
+            return axis.reference.owner_id==dialog->pending.container_origin.id;
+        })) {
+            auto mesh=viewer_->mesh();append_derived_copy_references(mesh,origin);
+            append_derived_copy_references(mesh.original_references,origin.original_references);viewer_->set_mesh(std::move(mesh));
         }
         for(auto& edge:edges){edge.overlay=true;if(!prefix.empty())for(auto& p:edge.points)p=workspace_.occurrence_point_to_scene(workspace_.displayed_document_id(),assembly::InstancePath::decode(prefix),p);}
         viewer_->set_transient_edges(std::move(edges));
