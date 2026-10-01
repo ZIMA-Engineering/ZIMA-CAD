@@ -4668,7 +4668,7 @@ if (impl_->show_origins) {
                             ? QColor(255, 255, 255)
                         : point.reference.semantic_key == "point" || point.reference.semantic_key == "container:origin-marker" ||
                             point.reference.semantic_key == "axis:start" || point.reference.semantic_key == "axis:end" ||
-                            (point.reference.semantic_key.starts_with("sweep:path-point:") || point.reference.semantic_key.starts_with("profile:path-point:") || point.reference.semantic_key.starts_with("axis:point:"))
+                            (point.reference.semantic_key.starts_with("sweep:path-point:") || point.reference.semantic_key.starts_with("profile:path-point:") || point.reference.semantic_key.starts_with("axis:point:") || point.reference.semantic_key.starts_with("helical:axis-point:"))
                             ? interaction::axis
                             : QColor(0, 0, 0);
                     painter.setPen(QPen(marker_color, 1.0));

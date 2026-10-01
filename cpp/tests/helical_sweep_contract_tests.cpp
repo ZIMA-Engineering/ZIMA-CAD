@@ -60,6 +60,8 @@ int main(int argc,char** argv){try{
         auto doc=document::PartDocument::create_default();doc.history={c};
         const auto body=k.evaluate_history(doc.kernel_operations()).back();
         const auto& refs=body.mesh.original_references;
+        require(std::ranges::count_if(body.mesh.axes,[](const auto& a){return a.reference.semantic_key.starts_with("helical:rotation-axis:");})==1,"Helical rotation axis absent from visible result");
+        require(std::ranges::count_if(body.mesh.points,[](const auto& p){return p.reference.semantic_key.starts_with("helical:axis-point:");})==2,"Helical axis endpoints absent from visible result");
         require(std::ranges::count_if(refs.axes,[](const auto& a){return a.reference.semantic_key.starts_with("helical:rotation-axis:");})==1,"Calculated Helical axis missing");
         require(std::ranges::count_if(refs.points,[](const auto& p){return p.reference.semantic_key.starts_with("helical:axis-point:");})==2,"Calculated Helical axis endpoints missing");
         require(!body.mesh.triangles.empty(),"New Helical result has no geometry");
@@ -79,8 +81,13 @@ int main(int argc,char** argv){try{
             require(std::abs(body.volume-length*area)<length*area*.003,"Thin Helical volume differs from section area times path length");
         }
         const auto file=std::filesystem::temp_directory_path()/"zima-helical-result-mode.prtz";
-        doc.save(file,{body});std::vector<kernel::BodyResult> restored;
+        auto persisted=body;
+        std::erase_if(persisted.mesh.axes,[](const auto& a){return a.reference.semantic_key.starts_with("helical:rotation-axis:");});
+        std::erase_if(persisted.mesh.points,[](const auto& p){return p.reference.semantic_key.starts_with("helical:axis-point:");});
+        doc.save(file,{persisted});std::vector<kernel::BodyResult> restored;
         auto loaded=document::PartDocument::load(file,&restored);std::filesystem::remove(file);
+        require(std::ranges::count_if(restored.back().mesh.axes,[](const auto& a){return a.reference.semantic_key.starts_with("helical:rotation-axis:");})==1,"Persisted axis not displayed without recalculation");
+        require(std::ranges::count_if(restored.back().mesh.points,[](const auto& p){return p.always_visible&&p.display_owner_id==p.reference.owner_id&&p.reference.semantic_key.starts_with("helical:axis-point:");})==2,"Persisted axis endpoints not displayed without recalculation");
         require(std::ranges::any_of(restored.back().mesh.original_references.axes,[](const auto& a){return a.reference.semantic_key.starts_with("helical:rotation-axis:");}),"Rotation axis not persisted");
         for(const auto& point:refs.points)if(point.reference.semantic_key.starts_with("helical:axis-point:")) {
             document::Placement attachment;attachment.references={{{},c.id,point.reference.semantic_key}};

@@ -160,6 +160,13 @@ void AssemblyWorkspaceWindow::show_sweep_properties(zima::document::FeatureKind 
             const auto points=zima::document::sheet_transition_axis_points(c,true);
             primitive_origin_preview_mesh_->points.insert(primitive_origin_preview_mesh_->points.end(),points.begin(),points.end());
         }else primitive_origin_preview_mesh_->points.push_back(zima::document::container_origin_marker(c,true));
+        if(!planar&&!transition) {
+            // Use ordinary axis/point presentation, including its brown datum
+            // colour, rather than anonymous green transient point markers.
+            const auto axis=zima::document::PartDocument::helical_axis_geometry(c,true);
+            primitive_origin_preview_mesh_->axes.insert(primitive_origin_preview_mesh_->axes.end(),axis.axes.begin(),axis.axes.end());
+            primitive_origin_preview_mesh_->points.insert(primitive_origin_preview_mesh_->points.end(),axis.points.begin(),axis.points.end());
+        }
         if(transition)zima::document::reframe_sheet_transition(c);
         parameter_dimension_preview_=c;construction_dimension_object_id_=c.id;
         viewer_->set_feature_preview_owners({c.feature_id,c.container_origin.id});
@@ -187,13 +194,6 @@ void AssemblyWorkspaceWindow::show_sweep_properties(zima::document::FeatureKind 
         edges.insert(edges.end(),std::make_move_iterator(sketches.begin()),std::make_move_iterator(sketches.end()));
         if(!planar&&!transition) {
             if(auto marker=helical_start_marker(c))preview_mesh.points.push_back(std::move(*marker));
-            const auto axis=zima::document::PartDocument::helical_axis_geometry(c,true);
-            zima::kernel::ViewerEdge line;
-            line.points={axis.points.front().position,axis.points.back().position};
-            line.reference={c.id,axis.axes.front().reference.semantic_key,{}};
-            line.construction=true;line.dash_dot=true;
-            edges.push_back(std::move(line));
-            preview_mesh.points.insert(preview_mesh.points.end(),axis.points.begin(),axis.points.end());
         }
         if(!body_id.empty())if(const auto* part=workspace_.open_part(workspace_.active_document_id())) {
             preview_mesh=part->session.document().place_body_mesh(std::move(preview_mesh),body_id);

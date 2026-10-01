@@ -232,3 +232,33 @@ The shape-only follow-up was rebuilt on Windows. Five-language coverage passed
 reach its layout checks: its preliminary interaction-colour fixture failed
 with "Selection colour fixture has no hover candidate". Full dialog-layout
 validation therefore remains unconfirmed; no layout dimensions were changed.
+
+### Visible rotation-axis correction (2026-10-01)
+
+The completed Body now promotes the persisted Helical rotation axis and both
+axis endpoints into its visible datum geometry. Previously they survived in
+original references but were omitted by the final display filter. Endpoint
+markers use the shared brown axis colour (`#AD6E2E`). Pending Properties uses
+the ordinary axis/point renderer too, instead of anonymous green preview dots.
+The guide-start marker keeps its existing distinct preview behaviour.
+
+Loading a cached Body restores these visible datums from its persisted original
+references if its display lists omit them. Endpoint visibility and display
+ownership survive native save/reopen. This requires neither an OCCT calculation
+nor a document schema change.
+
+Regression checks cover visible result axes/points for Surface and Thin modes,
+restoring omitted display datums on reopen, and actual brown point pixels in
+both pending and committed H-Sweep View. No user-visible text changed; the
+existing five-language catalogs remain applicable.
+The reported pitch failure and slow unchanged OK were not reproduced on the
+provided saved `Projects/02.prtz`; following user direction, this change does
+not alter pitch computation or the existing no-op transaction path.
+
+Windows verification passed: GUI/CLI build, complete Helical model contract
+(111.08 s), H-Sweep GUI contract (21.92 s) and five-language catalog validation
+(5.00 s). The model test includes native reopen with omitted display datums.
+Logs: `build/helical-axis-visible-final-build.log`,
+`build/helical-axis-visible-final-model-tests.log` and
+`build/helical-axis-visible-final-ui-tests.log`. No portable package was
+published and Linux was not tested in this follow-up.

@@ -8615,7 +8615,7 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                     boundaries.back().mesh.edges.push_back(edge);
             }
             for (const auto& point : boundaries.back().mesh.original_references.points) {
-                if ((point.reference.semantic_key.starts_with("sweep:path-point:") || point.reference.semantic_key.starts_with("profile:path-point:")) &&
+                if ((point.reference.semantic_key.starts_with("sweep:path-point:") || point.reference.semantic_key.starts_with("profile:path-point:") || point.reference.semantic_key.starts_with("helical:axis-point:")) &&
                     std::none_of(boundaries.back().mesh.points.begin(), boundaries.back().mesh.points.end(),
                         [&](const auto& existing) { return existing.reference == point.reference; }))
                     boundaries.back().mesh.points.push_back(point);
@@ -8627,7 +8627,7 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
             for (const auto& axis :
                  boundaries.back().mesh.original_references.axes) {
                 if ((axis.reference.semantic_key == "axis:primary" ||
-                     axis.reference.semantic_key.starts_with("axis:profile:") || axis.reference.semantic_key.starts_with("centerline:from:")) &&
+                     axis.reference.semantic_key.starts_with("axis:profile:") || axis.reference.semantic_key.starts_with("centerline:from:") || axis.reference.semantic_key.starts_with("helical:rotation-axis:")) &&
                     std::none_of(boundaries.back().mesh.axes.begin(),
                         boundaries.back().mesh.axes.end(), [&](const auto& existing) {
                             return existing.reference == axis.reference;

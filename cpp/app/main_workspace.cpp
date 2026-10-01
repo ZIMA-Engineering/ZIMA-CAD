@@ -1992,6 +1992,23 @@ int verify_helical_sweep_command(QApplication& application,zima::app::AssemblyWo
     dialog->changed();application.processEvents();
     auto guide=zima::sketcher::Sketch::from_serialized(dialog->pending.helical.sketches[1]);static_cast<void>(guide.add_segment(0,0,-1,6));dialog->set_sketch(1,guide);
     auto section=zima::sketcher::Sketch::from_serialized(dialog->pending.helical.sketches[2]);static_cast<void>(section.add_circle(0,0,.4));dialog->set_sketch(2,section);
+    const auto check_axis_presentation=[&] {
+        const auto saved_mesh=placement_view->mesh();const auto saved_camera=placement_view->camera_state();
+        if(!verify(std::ranges::any_of(saved_mesh.axes,[&](const auto& a){return a.reference.owner_id==feature_id&&a.reference.semantic_key.starts_with("helical:rotation-axis:");}),"Rotation axis is missing from visible View geometry"))return false;
+        zima::kernel::ViewerMesh points_only;
+        for(const auto& point:saved_mesh.points)if(point.reference.owner_id==feature_id&&point.reference.semantic_key.starts_with("helical:axis-point:"))points_only.points.push_back(point);
+        if(!verify(points_only.points.size()==2,"Rotation axis endpoint markers missing from View"))return false;
+        placement_view->set_mesh(points_only,false);
+        placement_view->fit_points({points_only.points[0].position,points_only.points[1].position});
+        const auto frame=placement_view->grabFramebuffer();int brown=0;
+        for(int y=0;y<frame.height();++y)for(int x=0;x<frame.width();++x) {
+            const auto color=frame.pixelColor(x,y);
+            if(std::abs(color.red()-173)<8&&std::abs(color.green()-110)<8&&std::abs(color.blue()-46)<8)++brown;
+        }
+        placement_view->set_mesh(saved_mesh,false);placement_view->set_camera_state(saved_camera);
+        return verify(brown>10,"Helical axis endpoint markers are not brown");
+    };
+    if(!check_axis_presentation())return 1;
     auto* finish=window.findChild<QAction*>("finishSketchAction");
     for(unsigned stage=0;stage<3;++stage){
         dialog->findChild<QPushButton*>(QString("helicalSketch%1").arg(stage))->click();application.processEvents();
@@ -2057,6 +2074,7 @@ int verify_helical_sweep_command(QApplication& application,zima::app::AssemblyWo
     auto stored=zima::document::PartDocument::load(path);
     if(!verify(stored.history.back().placement.x==12&&stored.history.back().placement.y==-3&&stored.history.back().placement.z==8&&std::abs(stored.history.back().placement.rotation_y-25)<1e-6,"Sweep placement not persisted"))return 1;
     if(!verify(stored.history.size()==2&&stored.history.back().id==feature_id,"Helical Sweep history not saved"))return 1;
+    if(!check_axis_presentation())return 1;
     window.show_parameter_dimensions(feature_id);application.processEvents();
     const auto pitch_dimension=std::ranges::find_if(placement_view->mesh().dimensions,[&](const auto& d){
         return d.reference.owner_id==feature_id&&d.reference.semantic_key=="parameter:pitch";});

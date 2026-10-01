@@ -464,7 +464,7 @@ zima::kernel::ViewerReferenceGeometry load_reference_geometry(
             {reference.owner_id, reference.semantic_key,
              reference.instance_path}});
         result.points.back().surface_result=source.at("point_surfaces").at(index).get<bool>();
-        if ((reference.semantic_key.starts_with("sweep:path-point:") || reference.semantic_key.starts_with("profile:path-point:")))
+        if ((reference.semantic_key.starts_with("sweep:path-point:") || reference.semantic_key.starts_with("profile:path-point:") || reference.semantic_key.starts_with("helical:axis-point:")))
             result.points.back().display_owner_id = reference.owner_id;
     }
     for (const auto& value : source.at("axes")) {
@@ -867,7 +867,7 @@ zima::kernel::BodyResult load_body_result(const nlohmann::json& source) {
         // after cache loading instead of accepting ViewerPoint's general
         // purpose always-visible default.
         loaded.always_visible = false;
-        if ((loaded.reference.semantic_key.starts_with("sweep:path-point:") || loaded.reference.semantic_key.starts_with("profile:path-point:"))) {
+        if ((loaded.reference.semantic_key.starts_with("sweep:path-point:") || loaded.reference.semantic_key.starts_with("profile:path-point:") || loaded.reference.semantic_key.starts_with("helical:axis-point:"))) {
             loaded.always_visible = true;
             loaded.display_owner_id = loaded.reference.owner_id;
         }
@@ -929,6 +929,16 @@ zima::kernel::BodyResult load_body_result(const nlohmann::json& source) {
         }
         result.mesh.dimensions.push_back(std::move(loaded));
     }
+    // Rotation datums are visible presentation of the same persisted
+    // reference geometry. Reconstruct their display list without recalculation.
+    for(const auto& axis:result.mesh.original_references.axes)
+        if(axis.reference.semantic_key.starts_with("helical:rotation-axis:")&&
+            std::none_of(result.mesh.axes.begin(),result.mesh.axes.end(),[&](const auto& value){return value.reference==axis.reference;}))
+            result.mesh.axes.push_back(axis);
+    for(const auto& point:result.mesh.original_references.points)
+        if(point.reference.semantic_key.starts_with("helical:axis-point:")&&
+            std::none_of(result.mesh.points.begin(),result.mesh.points.end(),[&](const auto& value){return value.reference==point.reference;}))
+            result.mesh.points.push_back(point);
     return result;
 }
 
