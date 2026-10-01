@@ -3,8 +3,8 @@
 This reconciles the original A1–A15 audit with implemented, measured follow-ups.
 It records the current review pass; it does not claim that no further speedup is
 possible. Detailed records retain their own baseline, fixtures and test limits.
-Windows 2026100101 packages changes through `2a6c4f51`. Drill opening and measurement
-allocation/face metadata/partition centres below are later source changes, available locally and on main.
+Windows 2026100102 packages all listed changes through `8ec6daa4`; its
+[release record](../releases/2026100102.md) contains acceptance and remaining limits.
 
 | Original area | Accepted work and evidence | Retained boundary |
 | --- | --- | --- |
@@ -54,6 +54,6 @@ The [remaining-area investigation](20261001-remaining-investigation.md) records
 source tracing, real import probes, rejected experiments and unresolved boundaries.
 The end-plane scene optimization is accepted. Read-only import diagnostic modes
 remain available for reproducing the measured bottleneck. No additional dead
-product code was proven removable. Windows 2026100102 is prepared to package
-these changes together with Drill opening and all three measurement improvements;
-publication and package acceptance belong to its separate release record.
+product code was proven removable. Windows 2026100102 packages these changes
+together with Drill opening and all three measurement improvements. It is signed,
+published and verified; acceptance is recorded in its separate release record.

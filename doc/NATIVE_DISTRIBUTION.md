@@ -2,6 +2,14 @@
 
 ## Scope and status
 
+Windows build **2026100102** is signed, published and verified. It packages
+Drill opening, operation-local measurement and end-plane scene preparation
+improvements. Clean/signed smoke, production trust, nineteen packaged GUI
+scenarios, public hashes and update discovery from 2026100101 passed. No native
+format change is introduced. Large STEP/IGES imports and broader cache redesigns
+remain open; rejected experiments are not included. See
+[the release record](releases/2026100102.md). Linux remains separate.
+
 Windows build **2026100101** is signed, published and verified. It collects
 measured modeling/viewer optimizations and focused H-Sweep, annotation and GUI
 improvements. Clean/signed smoke, production trust, eighteen packaged GUI

@@ -99,5 +99,9 @@ Windows runtime rules for builds and releases; Linux verification belongs on Lin
   [silhouette preparation](performance/20261001-silhouette-pair-storage.md):
   reduce lookup/allocation costs while proving exact output equivalence.
 
+- [End-plane scene preparation](performance/20261001-end-plane-scene.md):
+  consume an existing local identity map in one traversal instead of rescanning
+  the whole scene for every feature; verify repeated occurrence identities.
+
 These are patterns to evaluate, not feature lists to copy blindly. Their reported
 percentages apply only to the recorded operations and fixtures.
