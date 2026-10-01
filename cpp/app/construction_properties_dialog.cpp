@@ -5,6 +5,7 @@
 #include "table_entry.hpp"
 #include "sketch_button_style.hpp"
 #include "construction_properties_dialog.hpp"
+#include "profile_operation_button.hpp"
 #include "feature_type_control.hpp"
 #include "sweep_point_order_dialog.hpp"
 
@@ -628,11 +629,10 @@ void ConstructionPropertiesDialog::initialize_sweep_ui() {
     auto* operation_layout = new QHBoxLayout(operation_row);
     operation_layout->setContentsMargins(0, 0, 0, 0);
     operation_layout->setSpacing(8);
-    add_sweep_operation_ = new QPushButton(tr("Přičíst"), this);
-    subtract_sweep_operation_ = new QPushButton(tr("Odečíst"), this);
+    add_sweep_operation_ = new ProfileOperationButton(true,tr("Přičíst"), this);
+    subtract_sweep_operation_ = new ProfileOperationButton(false,tr("Odečíst"), this);
     for (auto* button : {add_sweep_operation_, subtract_sweep_operation_}) {
         button->setCheckable(true);
-        button->setMinimumHeight(40);
         button->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
     }
     add_sweep_operation_->setObjectName("sweep3DAddOperation");

@@ -1,5 +1,6 @@
 #pragma once
 #include <QPushButton>
+#include "tool_button_style.hpp"
 #include <QPainter>
 #include <QEvent>
 
@@ -9,6 +10,13 @@ class ProfileOperationButton final : public QPushButton {
 public:
     ProfileOperationButton(bool add,const QString& text,QWidget* parent)
         : QPushButton(text,parent),add_(add) {
+        auto states=command_button_style();
+        states.replace("QToolButton","QPushButton");
+        states.replace("border-radius:2px","border-radius:6px");
+        setStyleSheet(QStringLiteral(
+            "QPushButton {border:1px solid palette(mid);border-radius:6px;padding:4px;}"
+            "QPushButton:enabled {background:palette(button);color:palette(button-text);}")+states);
+        setFixedHeight(44);
         update_icon();
     }
 protected:

@@ -2000,6 +2000,9 @@ int verify_helical_sweep_command(QApplication& application,zima::app::AssemblyWo
         if(!verify(!placement_view->mesh().triangles.empty(),"Helical Sketch lost preceding solid context"))return 1;
         const std::array<std::string,3> roles{"base:","radial:","section:"};
         const auto check_context=[&] {
+            const auto& mesh=placement_view->mesh();
+            if(!std::ranges::any_of(mesh.axes,[&](const auto& a){return a.reference.owner_id==feature_id&&a.reference.semantic_key.starts_with("helical:rotation-axis:");}))return false;
+            if(std::ranges::count_if(mesh.points,[&](const auto& p){return p.reference.owner_id==feature_id&&p.reference.semantic_key.starts_with("helical:axis-point:");})!=2)return false;
             if(stage!=0) {
                 const auto framed=zima::sketcher::Sketch::from_serialized(dialog->pending.helical.sketches[0]);
                 const auto* start=framed.find_point(dialog->pending.helical.start_point_id);
@@ -2013,7 +2016,7 @@ int verify_helical_sweep_command(QApplication& application,zima::app::AssemblyWo
             }
             for(unsigned other=0;other<3;++other)if(other!=stage)
                 if(!std::ranges::any_of(placement_view->mesh().edges,[&](const auto& edge){
-                    return edge.reference.owner_id==feature_id&&edge.reference.semantic_key.starts_with("helical:sketch:"+roles[other]);
+                    return !edge.overlay&&edge.reference.owner_id==feature_id&&edge.reference.semantic_key.starts_with("helical:sketch:"+roles[other]);
                 }))return false;
             return true;
         };
@@ -2025,6 +2028,25 @@ int verify_helical_sweep_command(QApplication& application,zima::app::AssemblyWo
             if(!verify(command&&command->isEnabled(),"Helical Sketch drawing tool is unavailable"))return 1;
             command->trigger();application.processEvents();
             if(!verify(check_context()&&!placement_view->mesh().triangles.empty(),"Sketch tool removed passive Helical context"))return 1;
+        }
+        // Check actual drawing, not just context presence in the mesh: renamed
+        // Sketch wires used to retain overlay=true and vanished in both passes.
+        if(stage==1) {
+            const auto saved_camera=placement_view->camera_state();
+            auto rotated=saved_camera;
+            const auto q=QQuaternion::fromEulerAngles(25.f,35.f,15.f);
+            rotated[0]=q.scalar();rotated[1]=q.x();rotated[2]=q.y();rotated[3]=q.z();
+            rotated[4]=15.f;placement_view->set_camera_state(rotated);
+            const auto complete=placement_view->mesh();
+            const auto visible=placement_view->grabFramebuffer();
+            auto removed=complete;
+            std::erase_if(removed.edges,[&](const auto& e){return e.reference.semantic_key.starts_with("helical:sketch:base:");});
+            placement_view->set_mesh(std::move(removed),false);
+            const auto hidden=placement_view->grabFramebuffer();
+            placement_view->set_mesh(complete,false);
+            if(!verify(!visible.isNull()&&visible!=hidden,"Base circle not actually rendered in rotated guide Sketch"))return 1;
+            visible.save(QString::fromStdString((directory/"helical-rotated-context.png").string()));
+            placement_view->set_camera_state(saved_camera);
         }
         window.grab().save(QString::fromStdString((directory/("helical-sketch-"+std::to_string(stage)+".png")).string()));
         finish->trigger();application.processEvents();if(!verify(dialog->isVisible(),"Sketch did not return to pending Helical Sweep"))return 1;

@@ -392,8 +392,20 @@ std::vector<ViewerEdge> centerlines_for_operation(const HistoryOperation& operat
 
 std::vector<ViewerPoint> sweep_endpoints_for_operation(const HistoryOperation& operation) {
     const auto* request = std::get_if<Sweep3DRequest>(&operation.primitive);
-    if (!request || !request->attachment_endpoints || !request->make_solid || request->path_segments.empty()) return {};
+    if (!request) return {};
     std::vector<ViewerPoint> result;
+    if(request->rotation_axis) {
+        const auto& axis=*request->rotation_axis;
+        for(bool start:{true,false}) {
+            const double distance=(start?-.5:.5)*axis.display_length;
+            ViewerPoint point;
+            point.position={axis.point.x+axis.direction.x*distance,axis.point.y+axis.direction.y*distance,axis.point.z+axis.direction.z*distance};
+            point.reference={operation.owner_id,std::string(start?"helical:axis-point:start:from:":"helical:axis-point:end:from:")+axis.reference.semantic_key,{}};
+            point.display_owner_id=operation.owner_id;
+            result.push_back(std::move(point));
+        }
+    }
+    if (!request->attachment_endpoints || !request->make_solid || request->path_segments.empty()) return result;
     for (const bool start : {true, false}) {
         const auto& segment = start ? request->path_segments.front() : request->path_segments.back();
         ViewerPoint point;
@@ -491,6 +503,7 @@ std::vector<ViewerAxis> axes_for_operation(
             return primitive.axes;
         } else if constexpr (std::is_same_v<Request, Sweep3DRequest>) {
             std::vector<ViewerAxis> axes;
+            if(primitive.rotation_axis)axes.push_back(*primitive.rotation_axis);
             for(const auto& edge:centerlines) {
                 const auto& start=edge.points.front();const auto& end=edge.points.back();
                 const Vec3 delta{end.x-start.x,end.y-start.y,end.z-start.z};

@@ -1,7 +1,7 @@
 #pragma once
 #include <QFormLayout>
 #include <QHBoxLayout>
-#include <QPushButton>
+#include "profile_operation_button.hpp"
 #include <QVBoxLayout>
 #include <functional>
 
@@ -11,9 +11,9 @@ inline FeatureOperationButtons add_feature_operation_buttons(QWidget* parent,QVB
         bool subtract,std::function<void(bool)> changed) {
     auto* row=new QWidget(parent);auto* buttons=new QHBoxLayout(row);
     buttons->setContentsMargins(0,0,0,0);buttons->setSpacing(8);
-    auto* add=new QPushButton(QObject::tr("Přičíst"),parent);
-    auto* cut=new QPushButton(QObject::tr("Odečíst"),parent);
-    for(auto* button:{add,cut}){button->setCheckable(true);button->setMinimumHeight(40);button->setSizePolicy(QSizePolicy::Expanding,QSizePolicy::Fixed);buttons->addWidget(button);}
+    auto* add=new ProfileOperationButton(true,QObject::tr("Přičíst"),parent);
+    auto* cut=new ProfileOperationButton(false,QObject::tr("Odečíst"),parent);
+    for(auto* button:{add,cut}){button->setCheckable(true);button->setSizePolicy(QSizePolicy::Expanding,QSizePolicy::Fixed);buttons->addWidget(button);}
     add->setObjectName("primitiveAddOperation");cut->setObjectName("primitiveSubtractOperation");
     add->setChecked(!subtract);cut->setChecked(subtract);
     auto* form=new QFormLayout;form->addRow(QObject::tr("Operace"),row);layout->addLayout(form);

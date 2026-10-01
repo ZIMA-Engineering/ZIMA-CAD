@@ -56,10 +56,6 @@ public:
         offset_display_=offset->value();
         auto* sketch=new QPushButton(tr("Skica"),sketch_group);style_sketch_button(sketch);sketch->setMinimumHeight(40);
         auto sketch_style=sketch->styleSheet();sketch_style.replace("border-radius:2px","border-radius:6px");sketch->setStyleSheet(sketch_style);
-        auto operation_states=command_button_style();operation_states.replace("QToolButton","QPushButton");operation_states.replace("border-radius:2px","border-radius:6px");
-        const auto feature_button_style=QStringLiteral(
-            "QPushButton {border:1px solid palette(mid);border-radius:6px;padding:4px;}"
-            "QPushButton:enabled {background:palette(button);color:palette(button-text);}")+operation_states;
         sketch_=sketch;sketch->setObjectName("featureSketchButton");
         sketch->setMinimumWidth(100);
         sketch->setSizePolicy(QSizePolicy::Fixed,QSizePolicy::Expanding);
@@ -80,7 +76,6 @@ public:
         for(int operation=0;operation<2;++operation){
             auto* button=new ProfileOperationButton(operation==0,operation==0?tr("Přičíst"):tr("Odečíst"),operations_);
             button->setObjectName(operation==0?"featureAdd":"featureSubtract");button->setCheckable(true);
-            button->setStyleSheet(feature_button_style);button->setFixedHeight(44);
             operation_group->addButton(button,operation);button->setChecked(operation==0);operation_layout->addWidget(button);
         }
         connect(operation_group,&QButtonGroup::idClicked,this,[this](int id){

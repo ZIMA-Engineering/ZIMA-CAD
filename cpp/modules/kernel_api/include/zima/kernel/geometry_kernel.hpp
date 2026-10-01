@@ -692,6 +692,9 @@ struct Sweep3DRequest {
     // Authored Sweep tools expose their path ends as attachment points.
     // Other users of the sweep kernel (e.g. sheet bends) do not opt in.
     bool attachment_endpoints{};
+    // Authored Helical rotation datum, independent of the swept spine.
+    // The signed direction runs from the base centre to the guide end height.
+    std::optional<ViewerAxis> rotation_axis;
     // Unrounded polyline: each segment owns two endpoint stations and
     // perpendicular caps. No corner projection or transition joins segments.
     bool separate_segments{};

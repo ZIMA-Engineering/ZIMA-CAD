@@ -175,3 +175,46 @@ GUI contract creates and saves a YZ-based feature at -3 mm, reopens its owned
 Sketches and Properties, and verifies Cancel preserves the committed plane.
 The 2D Sweep GUI contract checks own-plane choices, unchanged placement/camera,
 owned Sketch entry, save/reopen and Cancel. No native format change is involved.
+
+### Rotation axis and visible Sketch context (2026-10-01)
+
+H-Sweep displays its rotation axis and two endpoint markers from the start of
+creation, including while editing the three embedded Sketches. Before a guide
+height exists, the transient axis uses one pitch as its provisional length.
+Before the base circle exists, it passes through the base Sketch origin. Once
+the circle and guide are defined, it passes through the circle centre and ends
+at the signed guide height. Base plane, plane offset and container placement
+are included. Winding handedness does not change the axis.
+
+Explicit calculation publishes the rotation axis and its endpoint references
+for Solid, Surface and Thin results. Their identities derive from the owning
+container and base circle; they do not depend on OCCT enumeration or winding
+approximation. Existing viewer reference serialization stores them inside the
+native document. No document schema or shared placement contract changes.
+The existing swept-spine centerline and attachment endpoints remain available.
+
+Previous Sketch curves are passive 3D context wires. They must enter the normal
+wire rendering pass after their Sketch keys are namespaced; retaining their
+active-Sketch overlay flag would exclude them from both renderers. The GUI
+contract checks a rotated guide-Sketch framebuffer with and without the base
+circle, as well as context during line, circle and dimension entry. Sketch fit
+continues to use the active Sketch, not the distant background context.
+
+The Add/Subtract buttons in 2D, 3D and H-Sweep reuse Extrusion's vector signs,
+44-pixel height, rounded border and selected/hover appearance. Selection rules
+and Surface subtraction restrictions are unchanged. Existing labels are reused
+in Czech, English, German, French and Russian; no new UI text is introduced.
+
+Verification on Windows/Fusion: GUI and CLI builds passed. The complete Helical
+model contract passed (171.25 s), including Solid/Surface/Thin geometry,
+references, signed height, native reopen and regeneration. The H-Sweep GUI
+contract passed (23.02 s), neighboring 2D Sweep passed (14.42 s), Extrusion
+prototype passed (50.83 s), and five-language coverage passed (5.21 s).
+Logs: `build/helical-axis-build.log`, `build/helical-axis-model-tests.log`,
+`build/helical-axis-sweep-ui-tests.log`, and `build/helical-axis-ui-tests.log`.
+The last log also records an initial runner mistake: adding `CONSOLE_ONLY`
+dispatched the two Sweep entries to the general console contract, where its
+GUI deletion assertion failed. Those entries were rerun with the correct
+flags; the general console deletion failure was not addressed by this change.
+The rotated context screenshot is `Projects/test/helical-rotated-context.png`.
+No Linux verification or portable release packaging was performed in this change.

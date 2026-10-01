@@ -8190,6 +8190,7 @@ zima::kernel::Sweep3DRequest PartDocument::helical_sweep_request(const HistoryCo
     auto c=input; reframe_helical_sketches(c);
     const auto p=path(c); zima::kernel::Sweep3DRequest request;request.transported=true;request.linear_tolerance=linear_tolerance;
     request.attachment_endpoints=true;
+    request.rotation_axis=helical_axis_geometry(c).axes.at(0);
     request.path_points.push_back(p.at(0,0));request.path_point_ids.push_back(c.helical.start_point_id);
     std::function<void(std::size_t,double,double,unsigned)> approximate;
     approximate=[&](std::size_t i,double a,double b,unsigned depth){
@@ -8233,6 +8234,38 @@ zima::kernel::Sweep3DRequest PartDocument::helical_sweep_request(const HistoryCo
     request.sections.push_back({section.id,c.helical.start_point_id,0,section.resolved_normal,region,std::nullopt,open_end});
     return request;
 }
+zima::kernel::ViewerMesh PartDocument::helical_axis_geometry(const HistoryContainer& input, bool provisional) {
+    using namespace helical_geometry;
+    auto c=input;
+    reframe_helical_sketches(c,0);
+    const auto base=zima::sketcher::Sketch::from_serialized(c.helical.sketches[0]);
+    auto origin=base.world_point(0,0);
+    auto axis=unit(base.resolved_normal);
+    std::string parent=base.id;
+    const auto circle=std::ranges::find_if(base.circles,[&](const auto& value){return value.id==c.helical.circle_id&&!value.construction;});
+    if(circle!=base.circles.end()) {
+        const auto center=point(base,circle->center_point_id);
+        origin=base.world_point(center[0],center[1]);parent=circle->id;
+    } else if(!provisional)throw std::logic_error("Helical rotation axis requires its base circle");
+    double height=std::isfinite(c.helical.pitch)&&c.helical.pitch>1e-6?c.helical.pitch:5.;
+    try {
+        const auto curves=guide_curves(zima::sketcher::Sketch::from_serialized(c.helical.sketches[1]),c.helical.guide_start_point_id);
+        const double value=curves.back().end[1];
+        if(std::isfinite(value)&&std::abs(value)>1e-7)height=value;
+        else if(!provisional)throw std::logic_error("Helical rotation axis requires a nonzero height");
+    } catch(const std::exception&) {if(!provisional)throw;}
+    const auto end=add(origin,mul(axis,height));
+    const auto key="helical:rotation-axis:from:"+parent;
+    zima::kernel::ViewerMesh result;
+    result.axes.push_back({mul(add(origin,end),.5),mul(axis,height<0?-1.:1.),std::abs(height),{c.id,key,{}}});
+    for(bool start:{true,false}) {
+        zima::kernel::ViewerPoint marker;
+        marker.position=start?origin:end;
+        marker.reference={c.id,std::string(start?"helical:axis-point:start:from:":"helical:axis-point:end:from:")+key,{}};
+        marker.display_owner_id=c.id;result.points.push_back(std::move(marker));
+    }
+    return result;
+}
 std::vector<zima::kernel::ViewerEdge> PartDocument::helical_sketch_edges(const HistoryContainer& input) {
     auto c=input;
     // Resolve every frame whose inputs are available. An unfinished guide
@@ -8246,6 +8279,9 @@ std::vector<zima::kernel::ViewerEdge> PartDocument::helical_sketch_edges(const H
             if(!is_profile_preview_source_edge(edge))continue;
             edge.reference.owner_id=c.id;
             edge.reference.semantic_key="helical:sketch:"+roles[i]+edge.reference.semantic_key;
+            // These are passive 3D context wires, no longer active Sketch
+            // overlays (whose renderer recognizes only native Sketch keys).
+            edge.overlay=false;
             result.push_back(std::move(edge));
         }
     }

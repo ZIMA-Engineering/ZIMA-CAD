@@ -642,6 +642,13 @@ std::string encode_history_fingerprint(
                 if(primitive.smooth_loft) {byte(0xe9);byte(1);}
                 if(primitive.fixed_section_frames) {byte(0xea);byte(1);}
                 if(primitive.attachment_endpoints) {byte(0xeb);byte(1);}
+                if(primitive.rotation_axis) {
+                    byte(0xec);
+                    const auto& axis=*primitive.rotation_axis;
+                    for(const auto* text:{&axis.reference.owner_id,&axis.reference.semantic_key,&axis.reference.instance_path,&axis.label})append_string(*text);
+                    for(double value:{axis.point.x,axis.point.y,axis.point.z,axis.direction.x,axis.direction.y,axis.direction.z,axis.display_length})
+                        u64(std::bit_cast<std::uint64_t>(value));
+                }
                 u64(std::bit_cast<std::uint64_t>(primitive.linear_tolerance));
                 byte(primitive.thin);
                 u64(std::bit_cast<std::uint64_t>(primitive.thin_first));u64(std::bit_cast<std::uint64_t>(primitive.thin_second));

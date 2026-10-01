@@ -23,6 +23,30 @@ static document::HistoryContainer fixture(double end_radius=10,bool rectangle=fa
 }
 int main(int argc,char** argv){try{
     kernel::OcctKernel k;
+    {
+        auto empty=document::PartDocument::create_helical_sweep_container();
+        const auto early=document::PartDocument::helical_axis_geometry(empty,true);
+        require(early.axes.size()==1&&early.points.size()==2,"Incomplete Helical creation hides rotation axis");
+        for(double height:{12.5,-12.5}) {
+            auto c=fixture();c.placement.x=12;c.placement.y=-3;c.placement.rotation_y=25;
+            auto base=sketcher::Sketch::from_serialized(c.helical.sketches[0]);
+            base.plane_offset=-3;c.helical.sketches[0]=base.serialized();
+            auto guide=sketcher::Sketch::from_serialized(c.helical.sketches[1]);
+            for(auto& point:guide.points)if(point.id!=c.helical.guide_start_point_id)point.y=height;
+            c.helical.sketches[1]=guide.serialized();
+            document::PartDocument::reframe_helical_sketches(c,0);
+            const auto path=document::helical_geometry::path(c,false);
+            const auto axis=document::PartDocument::helical_axis_geometry(c);
+            require(axis.axes.size()==1&&axis.points.size()==2,"Helical axis endpoints missing");
+            require(document::helical_geometry::norm(document::helical_geometry::sub(axis.points[0].position,path.origin))<1e-9,"Axis base ignored placement/offset");
+            const auto expected=document::helical_geometry::add(path.origin,document::helical_geometry::mul(path.axis,height));
+            require(document::helical_geometry::norm(document::helical_geometry::sub(axis.points[1].position,expected))<1e-9,"Axis end ignored signed height");
+            const auto request=document::PartDocument::helical_sweep_request(c);
+            require(request.rotation_axis.has_value(),"Rotation axis did not reach calculation");
+            const auto wires=document::PartDocument::helical_sketch_edges(c);
+            require(!wires.empty()&&std::ranges::none_of(wires,[](const auto& e){return e.overlay;}),"Passive Sketch context excluded from 3D wire rendering");
+        }
+    }
     for(bool left:{false,true})for(bool open:{false,true})for(auto side:{document::ThinMode::Symmetric,document::ThinMode::OneSide,document::ThinMode::OtherSide})for(auto mode:{document::ProfileResultType::Surface,document::ProfileResultType::Thin}) {
         if(mode==document::ProfileResultType::Surface&&side!=document::ThinMode::Symmetric)continue;
         auto c=fixture();c.helical.result_type=mode;c.helical.thickness=.1;
@@ -35,6 +59,9 @@ int main(int argc,char** argv){try{
         }
         auto doc=document::PartDocument::create_default();doc.history={c};
         const auto body=k.evaluate_history(doc.kernel_operations()).back();
+        const auto& refs=body.mesh.original_references;
+        require(std::ranges::count_if(refs.axes,[](const auto& a){return a.reference.semantic_key.starts_with("helical:rotation-axis:");})==1,"Calculated Helical axis missing");
+        require(std::ranges::count_if(refs.points,[](const auto& p){return p.reference.semantic_key.starts_with("helical:axis-point:");})==2,"Calculated Helical axis endpoints missing");
         require(!body.mesh.triangles.empty(),"New Helical result has no geometry");
         if(mode==document::ProfileResultType::Surface) {
             require(std::abs(body.volume)<1e-8&&body.surface_area>100,"Helical Surface properties incorrect");
@@ -52,7 +79,13 @@ int main(int argc,char** argv){try{
             require(std::abs(body.volume-length*area)<length*area*.003,"Thin Helical volume differs from section area times path length");
         }
         const auto file=std::filesystem::temp_directory_path()/"zima-helical-result-mode.prtz";
-        doc.save(file,{body});auto loaded=document::PartDocument::load(file);std::filesystem::remove(file);
+        doc.save(file,{body});std::vector<kernel::BodyResult> restored;
+        auto loaded=document::PartDocument::load(file,&restored);std::filesystem::remove(file);
+        require(std::ranges::any_of(restored.back().mesh.original_references.axes,[](const auto& a){return a.reference.semantic_key.starts_with("helical:rotation-axis:");}),"Rotation axis not persisted");
+        for(const auto& point:refs.points)if(point.reference.semantic_key.starts_with("helical:axis-point:")) {
+            document::Placement attachment;attachment.references={{{},c.id,point.reference.semantic_key}};
+            require(document::resolve_placement(attachment,restored.back().mesh.original_references),"Axis endpoint cannot be referenced after reopen");
+        }
         require(loaded.history.front().helical.result_type==mode&&loaded.history.front().helical.thickness==.1&&loaded.history.front().helical.thin_mode==side&&loaded.history.front().helical.left_handed==left,"Helical result parameters not persisted");
     }
     {
@@ -159,7 +192,7 @@ int main(int argc,char** argv){try{
             for(const auto& ref:loaded_bodies.back().mesh.original_references.triangle_references)if(caps.contains(ref.semantic_key))loaded_caps.insert(ref.semantic_key);
             require(loaded_caps==caps,"Cap references changed after save/load");
             for (const auto& endpoint : result.back().mesh.points) {
-                if (!endpoint.reference.semantic_key.starts_with("sweep:path-point:")) continue;
+                if (!endpoint.reference.semantic_key.starts_with("sweep:path-point:")&&!endpoint.reference.semantic_key.starts_with("helical:axis-point:")) continue;
                 require(std::ranges::any_of(loaded_bodies.back().mesh.points,[&](const auto& p) {
                     return p.reference==endpoint.reference && p.always_visible && p.display_owner_id==c.id;
                 }),"Helical endpoint marker/reference was lost on reopening");
@@ -170,7 +203,7 @@ int main(int argc,char** argv){try{
             changed.helical.sketches[1]=guide.serialized();doc.history={changed};
             auto regenerated=k.evaluate_history(doc.kernel_operations());
             for (const auto& endpoint : result.back().mesh.points) {
-                if (!endpoint.reference.semantic_key.starts_with("sweep:path-point:")) continue;
+                if (!endpoint.reference.semantic_key.starts_with("sweep:path-point:")&&!endpoint.reference.semantic_key.starts_with("helical:axis-point:")) continue;
                 document::Placement attachment;
                 attachment.references={{{},c.id,endpoint.reference.semantic_key}};
                 require(document::resolve_placement(attachment,regenerated.back().mesh.original_references),

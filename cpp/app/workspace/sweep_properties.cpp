@@ -185,7 +185,16 @@ void AssemblyWorkspaceWindow::show_sweep_properties(zima::document::FeatureKind 
         auto sketches=transition?std::vector<zima::kernel::ViewerEdge>{}:planar?zima::document::PartDocument::sweep2d_sketch_edges(c):
             zima::document::PartDocument::helical_sketch_edges(c);
         edges.insert(edges.end(),std::make_move_iterator(sketches.begin()),std::make_move_iterator(sketches.end()));
-        if(!planar&&!transition)if(auto marker=helical_start_marker(c))preview_mesh.points.push_back(std::move(*marker));
+        if(!planar&&!transition) {
+            if(auto marker=helical_start_marker(c))preview_mesh.points.push_back(std::move(*marker));
+            const auto axis=zima::document::PartDocument::helical_axis_geometry(c,true);
+            zima::kernel::ViewerEdge line;
+            line.points={axis.points.front().position,axis.points.back().position};
+            line.reference={c.id,axis.axes.front().reference.semantic_key,{}};
+            line.construction=true;line.dash_dot=true;
+            edges.push_back(std::move(line));
+            preview_mesh.points.insert(preview_mesh.points.end(),axis.points.begin(),axis.points.end());
+        }
         if(!body_id.empty())if(const auto* part=workspace_.open_part(workspace_.active_document_id())) {
             preview_mesh=part->session.document().place_body_mesh(std::move(preview_mesh),body_id);
         }
@@ -225,7 +234,7 @@ void AssemblyWorkspaceWindow::show_sweep_properties(zima::document::FeatureKind 
             dialog->hide();properties_dialog_=nullptr;viewer_->set_transient_edges({});viewer_->set_transient_labels({});viewer_->set_transient_points({});
             active_sketch_id_=sweep_profile_sketch_draft_->id;selected_sketch_id_=active_sketch_id_;
             if(!planar&&!transition) {
-                helical_sketch_context_.emplace();
+                helical_sketch_context_=zima::document::PartDocument::helical_axis_geometry(dialog->pending,true);
                 auto& context=*helical_sketch_context_;
                 context.edges=zima::document::PartDocument::helical_sketch_edges(dialog->pending);
                 if(stage!=0)if(auto marker=helical_start_marker(dialog->pending))context.points.push_back(std::move(*marker));

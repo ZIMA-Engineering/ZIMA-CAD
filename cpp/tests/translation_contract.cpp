@@ -138,6 +138,9 @@ int verify_translations(QApplication& application, QWidget& parent) {
                 auto* subtract=dialog.template findChild<QPushButton*>("primitiveSubtractOperation");
                 if(!subtract)subtract=dialog.template findChild<QPushButton*>("sweep3DSubtractOperation");
                 check(subtract&&!subtract->isEnabled(),"Surface subtraction is offered");
+                check(!subtract->icon().isNull()&&subtract->height()==44&&subtract->styleSheet().contains("border-radius:6px"),
+                    "Sweep operation appearance differs from Extrusion");
+                check(subtract->text()==settings.qt_translations.value("Odečíst"),"Sweep operation is not localized");
                 mode->setCurrentIndex(0);application.processEvents();
                 check(!surface()&&!thickness->isVisible(),"Solid mode did not restore controls");
                 mode->setCurrentIndex(2);dialog.buttons()->button(QDialogButtonBox::Ok)->click();
