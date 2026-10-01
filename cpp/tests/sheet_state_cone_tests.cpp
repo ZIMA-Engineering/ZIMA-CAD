@@ -2,8 +2,10 @@
 #include <zima/document/sheet_state.hpp>
 #include <zima/kernel/occt_kernel.hpp>
 #include <iostream>
+#include <algorithm>
+#include <stdexcept>
 using namespace zima;
-int main(int argc,char** argv) {
+int main(int argc,char** argv) try {
     int failures=0;
     const auto check=[&](document::PartDocument part,const std::string& label,std::string selected=std::string{},bool cut=false) {
         try {
@@ -69,6 +71,22 @@ int main(int argc,char** argv) {
     };
     {
         auto part=document::PartDocument::load(argc>1?argv[1]:"cpp/tests/fixtures/sheet/tilted-cone-with-bends.prtz");
+        if(argc==1) {
+            if(document::sheet_metal_defaults(part).thickness_mm!=4.0)
+                throw std::runtime_error("Cone fixture lost its authored 4 mm sheet thickness.");
+            if(std::ranges::count(part.history,document::FeatureKind::Bend,&document::HistoryContainer::feature_kind)!=2||
+               std::ranges::count(part.history,document::FeatureKind::Flat,&document::HistoryContainer::feature_kind)!=2)
+                throw std::runtime_error("Cone fixture requires two arc-only Bends and a separate Flat continuation.");
+            const auto* continuation=part.find_container("01a0f5b84eff76bfa3d4e5a9924a7ecd");
+            if(!continuation||!continuation->flat.sheet_attachment)
+                throw std::runtime_error("Cone fixture continuation must remain attached to the first Bend.");
+            const auto sketch=std::ranges::find(part.sketches,continuation->flat.sketch_id,&sketcher::Sketch::id);
+            if(sketch==part.sketches.end())throw std::runtime_error("Cone continuation profile is missing.");
+            double bottom=INFINITY,top=-INFINITY;
+            for(const auto& point:sketch->points){bottom=std::min(bottom,point.y);top=std::max(top,point.y);}
+            if(std::abs(top-bottom-39.812259674072266)>1e-9)
+                throw std::runtime_error("Cone fixture lost its authored straight continuation length.");
+        }
         for(auto& feature:part.history)if(document::is_sheet_state(feature.feature_kind))feature.suppressed=true;
         check(part,"Native source");
         for(const auto& operation:part.kernel_operations())if(operation.sheet_material&&operation.sheet_material->kind!=kernel::SheetMaterialDefinition::Kind::Plane)
@@ -86,4 +104,7 @@ int main(int argc,char** argv) {
         check(part,"Slope "+std::to_string(slope)+" axis "+std::to_string(reverse_axis)+" direction "+std::to_string(reverse),{},std::abs(slope)==10);
     }
     return failures?1:0;
+} catch(const std::exception& error) {
+    std::cerr<<"Cone fixture/setup: "<<error.what()<<std::endl;
+    return 1;
 }

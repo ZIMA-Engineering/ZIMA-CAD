@@ -136,6 +136,8 @@ int main() {
         for(const auto& original:box_before.history)check(*box->session.document().find_container(original.id)==original,"Box state operation modified an original feature or placement.");
         std::cout<<"Tilted cone with adjacent bends: cold native regeneration"<<std::endl;
         auto cone=document::PartDocument::load("cpp/tests/fixtures/sheet/tilted-cone-with-bends.prtz");
+        check(document::sheet_metal_defaults(cone).thickness_mm==4.0,
+            "Cone fixture lost its authored 4 mm sheet thickness.");
         kernel::OcctKernel cone_kernel;
         const auto cone_flat=workspace::calculate_part_with_resolved_references(cone_kernel,cone);
         check(!cone_flat.empty()&&cone_flat.back().calculation_errors.empty(),"Cold regeneration cannot unfold the tilted cone with adjacent bends.");

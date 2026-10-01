@@ -54,8 +54,7 @@ misleading downstream geometric failures.
   and source-wall height changes from 150 to 175 mm.
 - The box portion of `zima_cpp_sheet_state_command_tests` passes regeneration,
   Unbend, Bend Back, volume preservation and unchanged source feature definitions.
-  The full suite still stops at the separate `tilted-cone-with-bends.prtz` file,
-  which declares unsupported format 43. Do not report the full suite as passing.
+  The full suite also passes after the cone reconstruction described below.
 - Five-language translation coverage and catalog validation pass. This change
   adds only English test diagnostics and documentation; no product UI text changes.
 
@@ -63,10 +62,53 @@ Evidence: `build/box-thickness-regressions.log`,
 `build/box-thickness-final-tests.log` and `build/box-thickness-build.log`.
 No test assertion was removed, and no geometric tolerance was loosened.
 
-The cone and profile-side-twist documents remain unchanged. A previous temporary
-schema-only cone probe reached `Bend path requires one circular arc` and an
-abnormal exit in its specialized test: its authored historical Bend path also
-needs recreation with the current arc-only model before a fixture update can be
-accepted. The twist suite still reaches its format-43 fixture after its generated
-chain cases. Neither suite is claimed as passing. This repair is limited to the
-box, and does not imply support for loading legacy user documents.
+## Inclined Revolved Sheet reconstruction — 2026-10-01
+
+The cone-shaped sheet in `tilted-cone-with-bends.prtz` is created by the ordinary
+Revolution feature with sheet-metal settings and an inclined axis. It is not a
+separate Cone primitive or a newly added application command.
+
+The original fixture used a Bend trajectory containing a circular arc followed
+by a 39.812259674072266 mm straight segment. Current Bends own only the circular
+arc; the straight wall is now a separate attached Flat immediately after that
+Bend. The fixture was rebuilt with the existing native calculation and
+`flat.create` command, selecting the first Bend's persisted outer end-rim edge.
+The other Bend, Sheet Cut, attached Revolution, and their existing owners and
+source references remain in the model. Original arc IDs were retained; the
+removed straight segment and its point, tangent constraint and length dimension
+are replaced by the new Flat's ordinary owned rectangular Sketch.
+
+The model now stores INI format 46, current Body flags and all thirteen user
+parameters in `UserParameterValues/Data`, including the authored 4 mm thickness.
+It was regenerated and saved through the current native writer. The committed
+fixture contains authored data only; calculated caches were removed so tests
+must reconstruct the geometry from real current inputs.
+
+An independent size check confirms the replacement wall's material:
+90.6476974487328 mm width × 39.812259674072266 mm length × 4 mm thickness
+= 14435.558678742753 mm³. Adding it increases calculated volume from
+57434.562983827505 to 71870.12166257024 mm³, matching that analytic increment.
+This preserves the old straight continuation's material rather than simply
+removing unsupported geometry from the test.
+
+The dedicated native test guards the 4 mm thickness, two Bends, two Flats, the
+continuation attachment and its original length. Setup exceptions now return a
+normal failed test diagnostic instead of terminating with an unhandled exception.
+No production reader or geometry algorithm changed, and no tolerance was raised.
+
+Validation includes the complete native model and each curved region separately,
+Unbend/Bend Back volume and rotation-axis identity, and the generated matrix of
+five axis slopes, both axis directions and both Revolution directions. The ±10
+slope cases also cover cuts authored in the developed state and repeated state
+changes. The complete sheet-state command suite covers cold regeneration,
+state changes, source definitions, native persistence and Undo/Redo. Both suites
+and five-language translation/catalog validation pass.
+
+Evidence: `build/cone-fixture-rebuild/native-regression.log`,
+`build/cone-fixture-tests.log`, `build/cone-fixture-final-tests.log` and
+`build/cone-fixture-final-build.log`. Changes add no product UI strings; new test
+diagnostics and this documentation are English. This fixture reconstruction does
+not add legacy-file compatibility or require a new product executable.
+
+`profile-side-twist.prtz` remains a separate outdated fixture; its suite is not
+claimed as passing by either repair above.
