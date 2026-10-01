@@ -623,6 +623,7 @@ if(ZIMA_BUILD_TESTS)
     add_executable(zima_cpp_measurement_contract_tests tests/measurement_contract_tests.cpp)
     target_link_libraries(zima_cpp_measurement_contract_tests PRIVATE zima_viewer zima_document_core zima_assembly zima_kernel_occt nlohmann_json::nlohmann_json)
     add_test(NAME zima_cpp_measurement_contract_tests COMMAND zima_cpp_measurement_contract_tests)
+    add_test(NAME zima_cpp_measurement_partition_contract_tests COMMAND zima_cpp_measurement_contract_tests --partition-proof)
     add_test(NAME zima_cpp_sweep2d_ui_contract COMMAND zima-cad-cpp --verify-startup)
     set_tests_properties(zima_cpp_sweep2d_ui_contract PROPERTIES
         ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_SWEEP2D_ONLY=1"

@@ -19,7 +19,7 @@ allocation/face metadata below are later source changes, available locally and o
 | A10/A11 Drawing sources/output | [Read snapshots](20260930-drawing-read-snapshots.md), [bounded reuse](20260930-drawing-reuse.md) | Retain exact output geometry and conservative nested Assembly invalidation. |
 | A12 embedded definitions | [Symbol definition cache](20260930-symbol-definition-cache.md) | Variants, user text and actual geometry still evaluate. |
 | A13 icons | [Cache lookup](20260930-icon-cache.md) | Palette and DPI remain cache inputs. |
-| A14 measurement | [Primitive allocation](20261001-measurement-allocation.md), [repeated face metadata](20261001-measurement-face-metadata.md) | No unproven cross-operation index reuse; changed geometry must be revalidated. |
+| A14 measurement | [Primitive allocation](20261001-measurement-allocation.md), [repeated face metadata](20261001-measurement-face-metadata.md), [partition centres](20261001-measurement-partition-centres.md) | No unproven cross-operation index reuse; changed geometry must be revalidated. |
 | A15 developer build work | [Compiled fingerprint encoder](20260930-fingerprint-batch.md) | Integrated verification remains reachable and packaged; broad compilation-unit separation is not a runtime optimization. |
 
 The [Sweep audit](20261001-sweep-audit.md) and linked H-Sweep records additionally

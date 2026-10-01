@@ -126,7 +126,7 @@ Pair segment_triangle(P a,P b,const std::array<P,3>& tri,bool infinite=false){
     for(int i=0;i<3;++i)improve(best,segment_pair(a,b,tri[i],tri[(i+1)%3],infinite));
     return best;
 }
-struct Primitive {std::array<P,3> p;int count;};
+struct Primitive {std::array<P,3> p;int count;double sort_center{};};
 Pair primitives(const Primitive& a,const Primitive& b){
     if(a.count>b.count)return swapped(primitives(b,a));
     if(a.count==1){
@@ -166,7 +166,10 @@ struct Index {
         if(end-start>8){
             const auto span=sub(bounds.hi,bounds.lo);const int axis=span.x>=span.y&&span.x>=span.z?0:span.y>=span.z?1:2;
             const auto center=[axis](const Primitive& p){double x=0;for(int j=0;j<p.count;++j)x+=coordinate(p.p[j],axis);return x/p.count;};
-            const auto mid=start+(end-start)/2;std::nth_element(items.begin()+start,items.begin()+mid,items.begin()+end,[&](const auto& a,const auto& b){return center(a)<center(b);});
+            // The split axis is fixed for this partition. Preserve the same
+            // arithmetic/key ordering while avoiding repeated centroid sums.
+            for(auto i=start;i<end;++i)items[i].sort_center=center(items[i]);
+            const auto mid=start+(end-start)/2;std::nth_element(items.begin()+start,items.begin()+mid,items.begin()+end,[](const auto& a,const auto& b){return a.sort_center<b.sort_center;});
             const int left=build(start,mid),right=build(mid,end);nodes[index].left=left;nodes[index].right=right;
         }
         return index;

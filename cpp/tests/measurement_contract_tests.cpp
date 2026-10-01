@@ -33,6 +33,60 @@ void distance(const G& a,const G& b,double expected){
 }
 int main(int argc,char** argv){
 try{
+    if(argc==2&&std::string(argv[1])=="--partition-proof") {
+        for(int mode=0;mode<4;++mode){
+            G geometry;
+            for(int i=0;i<40;++i){
+                const P a{double(i%5),double((i/5)%4),double(i%3)};
+                const P b{a.x+1,a.y,a.z},c{a.x,a.y+1,a.z};
+                if(mode==0||mode==3)geometry.points.push_back(a);
+                if(mode==1||mode==3)geometry.segments.push_back({a,i%7==0?a:b});
+                if(mode==2||mode==3)geometry.triangles.push_back({a,b,i%7==0?b:c});
+            }
+            for(int i=0;i<12;++i){
+                const G query=i%3==0?point({double(i)/4,.5,5}):i%3==1?
+                    line({-1,double(i)/4,4},{6,double(i)/4,4}):plane({0,0,4},{0,0,1});
+                for(int reverse=0;reverse<2;++reverse){
+                    const auto result=reverse?measurement::measure_distance(geometry,query):measurement::measure_distance(query,geometry);
+                    require(result.has_value(),"Partition witness unavailable");
+                    near(std::hypot(result->first.x-result->second.x,result->first.y-result->second.y,result->first.z-result->second.z),
+                        result->distance.value,"Partition witness distance inconsistent");
+                    require(result->distance.value>=0&&!result->distance.approximate,"Partition fixture distance classification changed");
+                    std::cout<<"Partition result mode="<<mode<<" query="<<i<<" reverse="<<reverse<<std::hexfloat
+                        <<" distance="<<result->distance.value<<" first="<<result->first.x<<","<<result->first.y<<","<<result->first.z
+                        <<" second="<<result->second.x<<","<<result->second.y<<","<<result->second.z
+                        <<std::defaultfloat<<" approximate="<<result->distance.approximate<<"\n";
+                }
+            }
+        }
+    }
+    if(argc==3&&std::string(argv[1])=="--distance-file") {
+        std::vector<kernel::BodyResult> calculated;
+        const auto loaded=document::PartDocument::load(argv[2],&calculated);
+        require(!calculated.empty(),"Native distance fixture has no calculated body");
+        const auto& mesh=calculated.back().mesh;
+        const auto geometry=measurement::measure_entity(mesh,{K::Object,{},{},{}});
+        require(geometry.has_value()&&!mesh.vertices.empty(),"Native distance geometry unavailable");
+        P maximum=mesh.vertices.front();
+        for(const auto p:mesh.vertices){maximum.x=std::max(maximum.x,p.x);maximum.y=std::max(maximum.y,p.y);maximum.z=std::max(maximum.z,p.z);}
+        const auto query=point({maximum.x+10,maximum.y+10,maximum.z+10});
+        const auto original=document::serialize_body_result(calculated.back(),false);
+        std::optional<kernel::MeasurementDistance> first;
+        const auto start=std::chrono::steady_clock::now();
+        for(int repeat=0;repeat<12;++repeat){
+            const auto result=measurement::measure_distance(query,*geometry);
+            require(result.has_value(),"Native distance unavailable");
+            if(!first)first=result;
+            require(result==first,"Repeated native distance changed witnesses");
+        }
+        std::cout<<"Native distance triangles="<<geometry->triangles.size()<<" mean_ms="
+            <<std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-start).count()/12<<"\n";
+        std::cout<<"Native distance result"<<std::hexfloat<<" distance="<<first->distance.value
+            <<" first="<<first->first.x<<","<<first->first.y<<","<<first->first.z
+            <<" second="<<first->second.x<<","<<first->second.y<<","<<first->second.z
+            <<std::defaultfloat<<" approximate="<<first->distance.approximate<<"\n";
+        require(document::serialize_body_result(calculated.back(),false)==original,"Distance changed source geometry");
+    }
     if(argc==3&&std::string(argv[1])=="--surface-file") {
         std::vector<kernel::BodyResult> calculated;
         const auto loaded=document::PartDocument::load(argv[2],&calculated);

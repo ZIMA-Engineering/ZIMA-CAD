@@ -1,0 +1,295 @@
+PAIRED TIMINGS
+GROUP 0 measurement-partition-baseline --distance-file
+Native distance triangles=25260 mean_ms=12.2585
+Native distance result distance=0x1.9837efe5f8501p+5 first=0x1.8c8bbef2b7f77p+6,0x1.e000000000000p+5,0x1.123981c666ddcp+7 second=0x1.4033a4703d048p+6,0x1.c103babb8dcf2p+3,0x1.f7793e0270014p+6 approximate=1
+Measurement geometry, analytic cache, persistence and units passed
+GROUP 0 measurement-partition-baseline --benchmark
+Repeated point/mesh measurement triangles=2500 mean_ms=0.87927
+Repeated point/mesh measurement triangles=40000 mean_ms=16.3414
+Measurement geometry, analytic cache, persistence and units passed
+GROUP 0 zima_cpp_measurement_contract_tests --distance-file
+Native distance triangles=25260 mean_ms=6.95093
+Native distance result distance=0x1.9837efe5f8501p+5 first=0x1.8c8bbef2b7f77p+6,0x1.e000000000000p+5,0x1.123981c666ddcp+7 second=0x1.4033a4703d048p+6,0x1.c103babb8dcf2p+3,0x1.f7793e0270014p+6 approximate=1
+Measurement geometry, analytic cache, persistence and units passed
+GROUP 0 zima_cpp_measurement_contract_tests --benchmark
+Repeated point/mesh measurement triangles=2500 mean_ms=0.61714
+Repeated point/mesh measurement triangles=40000 mean_ms=10.6045
+Measurement geometry, analytic cache, persistence and units passed
+GROUP 0 zima_cpp_measurement_contract_tests --distance-file
+Native distance triangles=25260 mean_ms=7.42091
+Native distance result distance=0x1.9837efe5f8501p+5 first=0x1.8c8bbef2b7f77p+6,0x1.e000000000000p+5,0x1.123981c666ddcp+7 second=0x1.4033a4703d048p+6,0x1.c103babb8dcf2p+3,0x1.f7793e0270014p+6 approximate=1
+Measurement geometry, analytic cache, persistence and units passed
+GROUP 0 zima_cpp_measurement_contract_tests --benchmark
+Repeated point/mesh measurement triangles=2500 mean_ms=0.550725
+Repeated point/mesh measurement triangles=40000 mean_ms=11.1331
+Measurement geometry, analytic cache, persistence and units passed
+GROUP 0 measurement-partition-baseline --distance-file
+Native distance triangles=25260 mean_ms=11.6182
+Native distance result distance=0x1.9837efe5f8501p+5 first=0x1.8c8bbef2b7f77p+6,0x1.e000000000000p+5,0x1.123981c666ddcp+7 second=0x1.4033a4703d048p+6,0x1.c103babb8dcf2p+3,0x1.f7793e0270014p+6 approximate=1
+Measurement geometry, analytic cache, persistence and units passed
+GROUP 0 measurement-partition-baseline --benchmark
+Repeated point/mesh measurement triangles=2500 mean_ms=0.76329
+Repeated point/mesh measurement triangles=40000 mean_ms=15.6219
+Measurement geometry, analytic cache, persistence and units passed
+GROUP 1 measurement-partition-baseline --distance-file
+Native distance triangles=25260 mean_ms=13.6604
+Native distance result distance=0x1.9837efe5f8501p+5 first=0x1.8c8bbef2b7f77p+6,0x1.e000000000000p+5,0x1.123981c666ddcp+7 second=0x1.4033a4703d048p+6,0x1.c103babb8dcf2p+3,0x1.f7793e0270014p+6 approximate=1
+Measurement geometry, analytic cache, persistence and units passed
+GROUP 1 measurement-partition-baseline --benchmark
+Repeated point/mesh measurement triangles=2500 mean_ms=1.01963
+Repeated point/mesh measurement triangles=40000 mean_ms=17.457
+Measurement geometry, analytic cache, persistence and units passed
+GROUP 1 zima_cpp_measurement_contract_tests --distance-file
+Native distance triangles=25260 mean_ms=7.67721
+Native distance result distance=0x1.9837efe5f8501p+5 first=0x1.8c8bbef2b7f77p+6,0x1.e000000000000p+5,0x1.123981c666ddcp+7 second=0x1.4033a4703d048p+6,0x1.c103babb8dcf2p+3,0x1.f7793e0270014p+6 approximate=1
+Measurement geometry, analytic cache, persistence and units passed
+GROUP 1 zima_cpp_measurement_contract_tests --benchmark
+Repeated point/mesh measurement triangles=2500 mean_ms=0.649185
+Repeated point/mesh measurement triangles=40000 mean_ms=10.8681
+Measurement geometry, analytic cache, persistence and units passed
+GROUP 1 zima_cpp_measurement_contract_tests --distance-file
+Native distance triangles=25260 mean_ms=7.10109
+Native distance result distance=0x1.9837efe5f8501p+5 first=0x1.8c8bbef2b7f77p+6,0x1.e000000000000p+5,0x1.123981c666ddcp+7 second=0x1.4033a4703d048p+6,0x1.c103babb8dcf2p+3,0x1.f7793e0270014p+6 approximate=1
+Measurement geometry, analytic cache, persistence and units passed
+GROUP 1 zima_cpp_measurement_contract_tests --benchmark
+Repeated point/mesh measurement triangles=2500 mean_ms=0.6357
+Repeated point/mesh measurement triangles=40000 mean_ms=10.7655
+Measurement geometry, analytic cache, persistence and units passed
+GROUP 1 measurement-partition-baseline --distance-file
+Native distance triangles=25260 mean_ms=12.0195
+Native distance result distance=0x1.9837efe5f8501p+5 first=0x1.8c8bbef2b7f77p+6,0x1.e000000000000p+5,0x1.123981c666ddcp+7 second=0x1.4033a4703d048p+6,0x1.c103babb8dcf2p+3,0x1.f7793e0270014p+6 approximate=1
+Measurement geometry, analytic cache, persistence and units passed
+GROUP 1 measurement-partition-baseline --benchmark
+Repeated point/mesh measurement triangles=2500 mean_ms=0.94402
+Repeated point/mesh measurement triangles=40000 mean_ms=16.5505
+Measurement geometry, analytic cache, persistence and units passed
+GROUP 2 measurement-partition-baseline --distance-file
+Native distance triangles=25260 mean_ms=12.1645
+Native distance result distance=0x1.9837efe5f8501p+5 first=0x1.8c8bbef2b7f77p+6,0x1.e000000000000p+5,0x1.123981c666ddcp+7 second=0x1.4033a4703d048p+6,0x1.c103babb8dcf2p+3,0x1.f7793e0270014p+6 approximate=1
+Measurement geometry, analytic cache, persistence and units passed
+GROUP 2 measurement-partition-baseline --benchmark
+Repeated point/mesh measurement triangles=2500 mean_ms=0.925495
+Repeated point/mesh measurement triangles=40000 mean_ms=16.1885
+Measurement geometry, analytic cache, persistence and units passed
+GROUP 2 zima_cpp_measurement_contract_tests --distance-file
+Native distance triangles=25260 mean_ms=8.33766
+Native distance result distance=0x1.9837efe5f8501p+5 first=0x1.8c8bbef2b7f77p+6,0x1.e000000000000p+5,0x1.123981c666ddcp+7 second=0x1.4033a4703d048p+6,0x1.c103babb8dcf2p+3,0x1.f7793e0270014p+6 approximate=1
+Measurement geometry, analytic cache, persistence and units passed
+GROUP 2 zima_cpp_measurement_contract_tests --benchmark
+Repeated point/mesh measurement triangles=2500 mean_ms=0.672925
+Repeated point/mesh measurement triangles=40000 mean_ms=13.0682
+Measurement geometry, analytic cache, persistence and units passed
+GROUP 2 zima_cpp_measurement_contract_tests --distance-file
+Native distance triangles=25260 mean_ms=8.24991
+Native distance result distance=0x1.9837efe5f8501p+5 first=0x1.8c8bbef2b7f77p+6,0x1.e000000000000p+5,0x1.123981c666ddcp+7 second=0x1.4033a4703d048p+6,0x1.c103babb8dcf2p+3,0x1.f7793e0270014p+6 approximate=1
+Measurement geometry, analytic cache, persistence and units passed
+GROUP 2 zima_cpp_measurement_contract_tests --benchmark
+Repeated point/mesh measurement triangles=2500 mean_ms=0.582635
+Repeated point/mesh measurement triangles=40000 mean_ms=12.6506
+Measurement geometry, analytic cache, persistence and units passed
+GROUP 2 measurement-partition-baseline --distance-file
+Native distance triangles=25260 mean_ms=12.1328
+Native distance result distance=0x1.9837efe5f8501p+5 first=0x1.8c8bbef2b7f77p+6,0x1.e000000000000p+5,0x1.123981c666ddcp+7 second=0x1.4033a4703d048p+6,0x1.c103babb8dcf2p+3,0x1.f7793e0270014p+6 approximate=1
+Measurement geometry, analytic cache, persistence and units passed
+GROUP 2 measurement-partition-baseline --benchmark
+Repeated point/mesh measurement triangles=2500 mean_ms=0.897115
+Repeated point/mesh measurement triangles=40000 mean_ms=17.8609
+Measurement geometry, analytic cache, persistence and units passed
+
+BASELINE PROOF
+Partition result mode=0 query=0 reverse=0 distance=0x1.854bfb363dc39p+1 first=0x0.0000000000000p+0,0x1.0000000000000p-1,0x1.4000000000000p+2 second=0x0.0000000000000p+0,0x0.0000000000000p+0,0x1.0000000000000p+1 approximate=0
+Partition result mode=0 query=0 reverse=1 distance=0x1.854bfb363dc39p+1 first=0x0.0000000000000p+0,0x0.0000000000000p+0,0x1.0000000000000p+1 second=0x0.0000000000000p+0,0x1.0000000000000p-1,0x1.4000000000000p+2 approximate=0
+Partition result mode=0 query=1 reverse=0 distance=0x1.01fe03f61bad0p+1 first=0x0.0000000000000p+0,0x1.0000000000000p-2,0x1.0000000000000p+2 second=0x0.0000000000000p+0,0x0.0000000000000p+0,0x1.0000000000000p+1 approximate=0
+Partition result mode=0 query=1 reverse=1 distance=0x1.01fe03f61bad0p+1 first=0x0.0000000000000p+0,0x0.0000000000000p+0,0x1.0000000000000p+1 second=0x0.0000000000000p+0,0x1.0000000000000p-2,0x1.0000000000000p+2 approximate=0
+Partition result mode=0 query=2 reverse=0 distance=0x1.0000000000000p+1 first=0x0.0000000000000p+0,0x0.0000000000000p+0,0x1.0000000000000p+2 second=0x0.0000000000000p+0,0x0.0000000000000p+0,0x1.0000000000000p+1 approximate=0
+Partition result mode=0 query=2 reverse=1 distance=0x1.0000000000000p+1 first=0x0.0000000000000p+0,0x0.0000000000000p+0,0x1.0000000000000p+1 second=0x0.0000000000000p+0,0x0.0000000000000p+0,0x1.0000000000000p+2 approximate=0
+Partition result mode=0 query=3 reverse=0 distance=0x1.869c1a85cc346p+1 first=0x1.8000000000000p-1,0x1.0000000000000p-1,0x1.4000000000000p+2 second=0x1.0000000000000p+0,0x1.0000000000000p+0,0x1.0000000000000p+1 approximate=0
+Partition result mode=0 query=3 reverse=1 distance=0x1.869c1a85cc346p+1 first=0x1.0000000000000p+0,0x1.0000000000000p+0,0x1.0000000000000p+1 second=0x1.8000000000000p-1,0x1.0000000000000p-1,0x1.4000000000000p+2 approximate=0
+Partition result mode=0 query=4 reverse=0 distance=0x1.0000000000000p+1 first=0x0.0000000000000p+0,0x1.0000000000000p+0,0x1.0000000000000p+2 second=0x0.0000000000000p+0,0x1.0000000000000p+0,0x1.0000000000000p+1 approximate=0
+Partition result mode=0 query=4 reverse=1 distance=0x1.0000000000000p+1 first=0x0.0000000000000p+0,0x1.0000000000000p+0,0x1.0000000000000p+1 second=0x0.0000000000000p+0,0x1.0000000000000p+0,0x1.0000000000000p+2 approximate=0
+Partition result mode=0 query=5 reverse=0 distance=0x1.0000000000000p+1 first=0x0.0000000000000p+0,0x0.0000000000000p+0,0x1.0000000000000p+2 second=0x0.0000000000000p+0,0x0.0000000000000p+0,0x1.0000000000000p+1 approximate=0
+Partition result mode=0 query=5 reverse=1 distance=0x1.0000000000000p+1 first=0x0.0000000000000p+0,0x0.0000000000000p+0,0x1.0000000000000p+1 second=0x0.0000000000000p+0,0x0.0000000000000p+0,0x1.0000000000000p+2 approximate=0
+Partition result mode=0 query=6 reverse=0 distance=0x1.8a85c24f70659p+1 first=0x1.8000000000000p+0,0x1.0000000000000p-1,0x1.4000000000000p+2 second=0x1.0000000000000p+0,0x1.0000000000000p+0,0x1.0000000000000p+1 approximate=0
+Partition result mode=0 query=6 reverse=1 distance=0x1.8a85c24f70659p+1 first=0x1.0000000000000p+0,0x1.0000000000000p+0,0x1.0000000000000p+1 second=0x1.8000000000000p+0,0x1.0000000000000p-1,0x1.4000000000000p+2 approximate=0
+Partition result mode=0 query=7 reverse=0 distance=0x1.01fe03f61bad0p+1 first=0x1.0000000000000p+0,0x1.c000000000000p+0,0x1.0000000000000p+2 second=0x1.0000000000000p+0,0x1.0000000000000p+1,0x1.0000000000000p+1 approximate=0
+Partition result mode=0 query=7 reverse=1 distance=0x1.01fe03f61bad0p+1 first=0x1.0000000000000p+0,0x1.0000000000000p+1,0x1.0000000000000p+1 second=0x1.0000000000000p+0,0x1.c000000000000p+0,0x1.0000000000000p+2 approximate=0
+Partition result mode=0 query=8 reverse=0 distance=0x1.0000000000000p+1 first=0x0.0000000000000p+0,0x0.0000000000000p+0,0x1.0000000000000p+2 second=0x0.0000000000000p+0,0x0.0000000000000p+0,0x1.0000000000000p+1 approximate=0
+Partition result mode=0 query=8 reverse=1 distance=0x1.0000000000000p+1 first=0x0.0000000000000p+0,0x0.0000000000000p+0,0x1.0000000000000p+1 second=0x0.0000000000000p+0,0x0.0000000000000p+0,0x1.0000000000000p+2 approximate=0
+Partition result mode=0 query=9 reverse=0 distance=0x1.869c1a85cc346p+1 first=0x1.2000000000000p+1,0x1.0000000000000p-1,0x1.4000000000000p+2 second=0x1.0000000000000p+1,0x0.0000000000000p+0,0x1.0000000000000p+1 approximate=0
+Partition result mode=0 query=9 reverse=1 distance=0x1.869c1a85cc346p+1 first=0x1.0000000000000p+1,0x0.0000000000000p+0,0x1.0000000000000p+1 second=0x1.2000000000000p+1,0x1.0000000000000p-1,0x1.4000000000000p+2 approximate=0
+Partition result mode=0 query=10 reverse=0 distance=0x1.07e0f66afed07p+1 first=0x0.0000000000000p+0,0x1.4000000000000p+1,0x1.0000000000000p+2 second=0x0.0000000000000p+0,0x1.8000000000000p+1,0x1.0000000000000p+1 approximate=0
+Partition result mode=0 query=10 reverse=1 distance=0x1.07e0f66afed07p+1 first=0x0.0000000000000p+0,0x1.8000000000000p+1,0x1.0000000000000p+1 second=0x0.0000000000000p+0,0x1.4000000000000p+1,0x1.0000000000000p+2 approximate=0
+Partition result mode=0 query=11 reverse=0 distance=0x1.0000000000000p+1 first=0x0.0000000000000p+0,0x0.0000000000000p+0,0x1.0000000000000p+2 second=0x0.0000000000000p+0,0x0.0000000000000p+0,0x1.0000000000000p+1 approximate=0
+Partition result mode=0 query=11 reverse=1 distance=0x1.0000000000000p+1 first=0x0.0000000000000p+0,0x0.0000000000000p+0,0x1.0000000000000p+1 second=0x0.0000000000000p+0,0x0.0000000000000p+0,0x1.0000000000000p+2 approximate=0
+Partition result mode=1 query=0 reverse=0 distance=0x1.854bfb363dc39p+1 first=0x0.0000000000000p+0,0x1.0000000000000p-1,0x1.4000000000000p+2 second=0x0.0000000000000p+0,0x0.0000000000000p+0,0x1.0000000000000p+1 approximate=0
+Partition result mode=1 query=0 reverse=1 distance=0x1.854bfb363dc39p+1 first=0x0.0000000000000p+0,0x0.0000000000000p+0,0x1.0000000000000p+1 second=0x0.0000000000000p+0,0x1.0000000000000p-1,0x1.4000000000000p+2 approximate=0
+Partition result mode=1 query=1 reverse=0 distance=0x1.01fe03f61bad0p+1 first=0x0.0000000000000p+0,0x1.0000000000000p-2,0x1.0000000000000p+2 second=0x0.0000000000000p+0,0x0.0000000000000p+0,0x1.0000000000000p+1 approximate=0
+Partition result mode=1 query=1 reverse=1 distance=0x1.01fe03f61bad0p+1 first=0x0.0000000000000p+0,0x0.0000000000000p+0,0x1.0000000000000p+1 second=0x0.0000000000000p+0,0x1.0000000000000p-2,0x1.0000000000000p+2 approximate=0
+Partition result mode=1 query=2 reverse=0 distance=0x1.0000000000000p+1 first=0x0.0000000000000p+0,0x0.0000000000000p+0,0x1.0000000000000p+2 second=0x0.0000000000000p+0,0x0.0000000000000p+0,0x1.0000000000000p+1 approximate=0
+Partition result mode=1 query=2 reverse=1 distance=0x1.0000000000000p+1 first=0x0.0000000000000p+0,0x0.0000000000000p+0,0x1.0000000000000p+1 second=0x0.0000000000000p+0,0x0.0000000000000p+0,0x1.0000000000000p+2 approximate=0
+Partition result mode=1 query=3 reverse=0 distance=0x1.854bfb363dc39p+1 first=0x1.8000000000000p-1,0x1.0000000000000p-1,0x1.4000000000000p+2 second=0x1.8000000000000p-1,0x0.0000000000000p+0,0x1.0000000000000p+1 approximate=0
+Partition result mode=1 query=3 reverse=1 distance=0x1.854bfb363dc39p+1 first=0x1.8000000000000p-1,0x0.0000000000000p+0,0x1.0000000000000p+1 second=0x1.8000000000000p-1,0x1.0000000000000p-1,0x1.4000000000000p+2 approximate=0
+Partition result mode=1 query=4 reverse=0 distance=0x1.0000000000000p+1 first=0x0.0000000000000p+0,0x1.0000000000000p+0,0x1.0000000000000p+2 second=0x0.0000000000000p+0,0x1.0000000000000p+0,0x1.0000000000000p+1 approximate=0
+Partition result mode=1 query=4 reverse=1 distance=0x1.0000000000000p+1 first=0x0.0000000000000p+0,0x1.0000000000000p+0,0x1.0000000000000p+1 second=0x0.0000000000000p+0,0x1.0000000000000p+0,0x1.0000000000000p+2 approximate=0
+Partition result mode=1 query=5 reverse=0 distance=0x1.0000000000000p+1 first=0x0.0000000000000p+0,0x0.0000000000000p+0,0x1.0000000000000p+2 second=0x0.0000000000000p+0,0x0.0000000000000p+0,0x1.0000000000000p+1 approximate=0
+Partition result mode=1 query=5 reverse=1 distance=0x1.0000000000000p+1 first=0x0.0000000000000p+0,0x0.0000000000000p+0,0x1.0000000000000p+1 second=0x0.0000000000000p+0,0x0.0000000000000p+0,0x1.0000000000000p+2 approximate=0
+Partition result mode=1 query=6 reverse=0 distance=0x1.854bfb363dc39p+1 first=0x1.8000000000000p+0,0x1.0000000000000p-1,0x1.4000000000000p+2 second=0x1.8000000000000p+0,0x1.0000000000000p+0,0x1.0000000000000p+1 approximate=0
+Partition result mode=1 query=6 reverse=1 distance=0x1.854bfb363dc39p+1 first=0x1.8000000000000p+0,0x1.0000000000000p+0,0x1.0000000000000p+1 second=0x1.8000000000000p+0,0x1.0000000000000p-1,0x1.4000000000000p+2 approximate=0
+Partition result mode=1 query=7 reverse=0 distance=0x1.01fe03f61bad0p+1 first=0x1.0000000000000p+0,0x1.c000000000000p+0,0x1.0000000000000p+2 second=0x1.0000000000000p+0,0x1.0000000000000p+1,0x1.0000000000000p+1 approximate=0
+Partition result mode=1 query=7 reverse=1 distance=0x1.01fe03f61bad0p+1 first=0x1.0000000000000p+0,0x1.0000000000000p+1,0x1.0000000000000p+1 second=0x1.0000000000000p+0,0x1.c000000000000p+0,0x1.0000000000000p+2 approximate=0
+Partition result mode=1 query=8 reverse=0 distance=0x1.0000000000000p+1 first=0x0.0000000000000p+0,0x0.0000000000000p+0,0x1.0000000000000p+2 second=0x0.0000000000000p+0,0x0.0000000000000p+0,0x1.0000000000000p+1 approximate=0
+Partition result mode=1 query=8 reverse=1 distance=0x1.0000000000000p+1 first=0x0.0000000000000p+0,0x0.0000000000000p+0,0x1.0000000000000p+1 second=0x0.0000000000000p+0,0x0.0000000000000p+0,0x1.0000000000000p+2 approximate=0
+Partition result mode=1 query=9 reverse=0 distance=0x1.854bfb363dc39p+1 first=0x1.2000000000000p+1,0x1.0000000000000p-1,0x1.4000000000000p+2 second=0x1.2000000000000p+1,0x0.0000000000000p+0,0x1.0000000000000p+1 approximate=0
+Partition result mode=1 query=9 reverse=1 distance=0x1.854bfb363dc39p+1 first=0x1.2000000000000p+1,0x0.0000000000000p+0,0x1.0000000000000p+1 second=0x1.2000000000000p+1,0x1.0000000000000p-1,0x1.4000000000000p+2 approximate=0
+Partition result mode=1 query=10 reverse=0 distance=0x1.07e0f66afed07p+1 first=0x0.0000000000000p+0,0x1.4000000000000p+1,0x1.0000000000000p+2 second=0x0.0000000000000p+0,0x1.8000000000000p+1,0x1.0000000000000p+1 approximate=0
+Partition result mode=1 query=10 reverse=1 distance=0x1.07e0f66afed07p+1 first=0x0.0000000000000p+0,0x1.8000000000000p+1,0x1.0000000000000p+1 second=0x0.0000000000000p+0,0x1.4000000000000p+1,0x1.0000000000000p+2 approximate=0
+Partition result mode=1 query=11 reverse=0 distance=0x1.0000000000000p+1 first=0x0.0000000000000p+0,0x0.0000000000000p+0,0x1.0000000000000p+2 second=0x0.0000000000000p+0,0x0.0000000000000p+0,0x1.0000000000000p+1 approximate=0
+Partition result mode=1 query=11 reverse=1 distance=0x1.0000000000000p+1 first=0x0.0000000000000p+0,0x0.0000000000000p+0,0x1.0000000000000p+1 second=0x0.0000000000000p+0,0x0.0000000000000p+0,0x1.0000000000000p+2 approximate=0
+Partition result mode=2 query=0 reverse=0 distance=0x1.8000000000000p+1 first=0x0.0000000000000p+0,0x1.0000000000000p-1,0x1.4000000000000p+2 second=0x0.0000000000000p+0,0x1.0000000000000p-1,0x1.0000000000000p+1 approximate=0
+Partition result mode=2 query=0 reverse=1 distance=0x1.8000000000000p+1 first=0x0.0000000000000p+0,0x1.0000000000000p-1,0x1.0000000000000p+1 second=0x0.0000000000000p+0,0x1.0000000000000p-1,0x1.4000000000000p+2 approximate=0
+Partition result mode=2 query=1 reverse=0 distance=0x1.0000000000000p+1 first=0x1.8000000000000p-1,0x1.0000000000000p-2,0x1.0000000000000p+2 second=0x1.8000000000000p-1,0x1.0000000000000p-2,0x1.0000000000000p+1 approximate=0
+Partition result mode=2 query=1 reverse=1 distance=0x1.0000000000000p+1 first=0x1.8000000000000p-1,0x1.0000000000000p-2,0x1.0000000000000p+1 second=0x1.8000000000000p-1,0x1.0000000000000p-2,0x1.0000000000000p+2 approximate=0
+Partition result mode=2 query=2 reverse=0 distance=0x1.0000000000000p+1 first=0x0.0000000000000p+0,0x0.0000000000000p+0,0x1.0000000000000p+2 second=0x0.0000000000000p+0,0x0.0000000000000p+0,0x1.0000000000000p+1 approximate=0
+Partition result mode=2 query=2 reverse=1 distance=0x1.0000000000000p+1 first=0x0.0000000000000p+0,0x0.0000000000000p+0,0x1.0000000000000p+1 second=0x0.0000000000000p+0,0x0.0000000000000p+0,0x1.0000000000000p+2 approximate=0
+Partition result mode=2 query=3 reverse=0 distance=0x1.80aa84ce72f89p+1 first=0x1.8000000000000p-1,0x1.0000000000000p-1,0x1.4000000000000p+2 second=0x1.4000000000000p-1,0x1.8000000000000p-2,0x1.0000000000000p+1 approximate=0
+Partition result mode=2 query=3 reverse=1 distance=0x1.80aa84ce72f89p+1 first=0x1.4000000000000p-1,0x1.8000000000000p-2,0x1.0000000000000p+1 second=0x1.8000000000000p-1,0x1.0000000000000p-1,0x1.4000000000000p+2 approximate=0
+Partition result mode=2 query=4 reverse=0 distance=0x1.0000000000000p+1 first=0x0.0000000000000p+0,0x1.0000000000000p+0,0x1.0000000000000p+2 second=0x0.0000000000000p+0,0x1.0000000000000p+0,0x1.0000000000000p+1 approximate=0
+Partition result mode=2 query=4 reverse=1 distance=0x1.0000000000000p+1 first=0x0.0000000000000p+0,0x1.0000000000000p+0,0x1.0000000000000p+1 second=0x0.0000000000000p+0,0x1.0000000000000p+0,0x1.0000000000000p+2 approximate=0
+Partition result mode=2 query=5 reverse=0 distance=0x1.0000000000000p+1 first=0x0.0000000000000p+0,0x0.0000000000000p+0,0x1.0000000000000p+2 second=0x0.0000000000000p+0,0x0.0000000000000p+0,0x1.0000000000000p+1 approximate=0
+Partition result mode=2 query=5 reverse=1 distance=0x1.0000000000000p+1 first=0x0.0000000000000p+0,0x0.0000000000000p+0,0x1.0000000000000p+1 second=0x0.0000000000000p+0,0x0.0000000000000p+0,0x1.0000000000000p+2 approximate=0
+Partition result mode=2 query=6 reverse=0 distance=0x1.854bfb363dc39p+1 first=0x1.8000000000000p+0,0x1.0000000000000p-1,0x1.4000000000000p+2 second=0x1.8000000000000p+0,0x1.0000000000000p+0,0x1.0000000000000p+1 approximate=0
+Partition result mode=2 query=6 reverse=1 distance=0x1.854bfb363dc39p+1 first=0x1.8000000000000p+0,0x1.0000000000000p+0,0x1.0000000000000p+1 second=0x1.8000000000000p+0,0x1.0000000000000p-1,0x1.4000000000000p+2 approximate=0
+Partition result mode=2 query=7 reverse=0 distance=0x1.0000000000000p+1 first=0x1.0000000000000p-2,0x1.c000000000000p+0,0x1.0000000000000p+2 second=0x1.0000000000000p-2,0x1.c000000000000p+0,0x1.0000000000000p+1 approximate=0
+Partition result mode=2 query=7 reverse=1 distance=0x1.0000000000000p+1 first=0x1.0000000000000p-2,0x1.c000000000000p+0,0x1.0000000000000p+1 second=0x1.0000000000000p-2,0x1.c000000000000p+0,0x1.0000000000000p+2 approximate=0
+Partition result mode=2 query=8 reverse=0 distance=0x1.0000000000000p+1 first=0x0.0000000000000p+0,0x0.0000000000000p+0,0x1.0000000000000p+2 second=0x0.0000000000000p+0,0x0.0000000000000p+0,0x1.0000000000000p+1 approximate=0
+Partition result mode=2 query=8 reverse=1 distance=0x1.0000000000000p+1 first=0x0.0000000000000p+0,0x0.0000000000000p+0,0x1.0000000000000p+1 second=0x0.0000000000000p+0,0x0.0000000000000p+0,0x1.0000000000000p+2 approximate=0
+Partition result mode=2 query=9 reverse=0 distance=0x1.8000000000000p+1 first=0x1.2000000000000p+1,0x1.0000000000000p-1,0x1.4000000000000p+2 second=0x1.2000000000000p+1,0x1.0000000000000p-1,0x1.0000000000000p+1 approximate=0
+Partition result mode=2 query=9 reverse=1 distance=0x1.8000000000000p+1 first=0x1.2000000000000p+1,0x1.0000000000000p-1,0x1.0000000000000p+1 second=0x1.2000000000000p+1,0x1.0000000000000p-1,0x1.4000000000000p+2 approximate=0
+Partition result mode=2 query=10 reverse=0 distance=0x1.0000000000000p+1 first=0x1.8000000000000p+0,0x1.4000000000000p+1,0x1.0000000000000p+2 second=0x1.8000000000000p+0,0x1.4000000000000p+1,0x1.0000000000000p+1 approximate=0
+Partition result mode=2 query=10 reverse=1 distance=0x1.0000000000000p+1 first=0x1.8000000000000p+0,0x1.4000000000000p+1,0x1.0000000000000p+1 second=0x1.8000000000000p+0,0x1.4000000000000p+1,0x1.0000000000000p+2 approximate=0
+Partition result mode=2 query=11 reverse=0 distance=0x1.0000000000000p+1 first=0x0.0000000000000p+0,0x0.0000000000000p+0,0x1.0000000000000p+2 second=0x0.0000000000000p+0,0x0.0000000000000p+0,0x1.0000000000000p+1 approximate=0
+Partition result mode=2 query=11 reverse=1 distance=0x1.0000000000000p+1 first=0x0.0000000000000p+0,0x0.0000000000000p+0,0x1.0000000000000p+1 second=0x0.0000000000000p+0,0x0.0000000000000p+0,0x1.0000000000000p+2 approximate=0
+Partition result mode=3 query=0 reverse=0 distance=0x1.8000000000000p+1 first=0x0.0000000000000p+0,0x1.0000000000000p-1,0x1.4000000000000p+2 second=0x0.0000000000000p+0,0x1.0000000000000p-1,0x1.0000000000000p+1 approximate=0
+Partition result mode=3 query=0 reverse=1 distance=0x1.8000000000000p+1 first=0x0.0000000000000p+0,0x1.0000000000000p-1,0x1.0000000000000p+1 second=0x0.0000000000000p+0,0x1.0000000000000p-1,0x1.4000000000000p+2 approximate=0
+Partition result mode=3 query=1 reverse=0 distance=0x1.0000000000000p+1 first=0x1.8000000000000p-1,0x1.0000000000000p-2,0x1.0000000000000p+2 second=0x1.8000000000000p-1,0x1.0000000000000p-2,0x1.0000000000000p+1 approximate=0
+Partition result mode=3 query=1 reverse=1 distance=0x1.0000000000000p+1 first=0x1.8000000000000p-1,0x1.0000000000000p-2,0x1.0000000000000p+1 second=0x1.8000000000000p-1,0x1.0000000000000p-2,0x1.0000000000000p+2 approximate=0
+Partition result mode=3 query=2 reverse=0 distance=0x1.0000000000000p+1 first=0x0.0000000000000p+0,0x0.0000000000000p+0,0x1.0000000000000p+2 second=0x0.0000000000000p+0,0x0.0000000000000p+0,0x1.0000000000000p+1 approximate=0
+Partition result mode=3 query=2 reverse=1 distance=0x1.0000000000000p+1 first=0x0.0000000000000p+0,0x0.0000000000000p+0,0x1.0000000000000p+1 second=0x0.0000000000000p+0,0x0.0000000000000p+0,0x1.0000000000000p+2 approximate=0
+Partition result mode=3 query=3 reverse=0 distance=0x1.80aa84ce72f89p+1 first=0x1.8000000000000p-1,0x1.0000000000000p-1,0x1.4000000000000p+2 second=0x1.4000000000000p-1,0x1.8000000000000p-2,0x1.0000000000000p+1 approximate=0
+Partition result mode=3 query=3 reverse=1 distance=0x1.80aa84ce72f89p+1 first=0x1.4000000000000p-1,0x1.8000000000000p-2,0x1.0000000000000p+1 second=0x1.8000000000000p-1,0x1.0000000000000p-1,0x1.4000000000000p+2 approximate=0
+Partition result mode=3 query=4 reverse=0 distance=0x1.0000000000000p+1 first=0x0.0000000000000p+0,0x1.0000000000000p+0,0x1.0000000000000p+2 second=0x0.0000000000000p+0,0x1.0000000000000p+0,0x1.0000000000000p+1 approximate=0
+Partition result mode=3 query=4 reverse=1 distance=0x1.0000000000000p+1 first=0x0.0000000000000p+0,0x1.0000000000000p+0,0x1.0000000000000p+1 second=0x0.0000000000000p+0,0x1.0000000000000p+0,0x1.0000000000000p+2 approximate=0
+Partition result mode=3 query=5 reverse=0 distance=0x1.0000000000000p+1 first=0x0.0000000000000p+0,0x0.0000000000000p+0,0x1.0000000000000p+2 second=0x0.0000000000000p+0,0x0.0000000000000p+0,0x1.0000000000000p+1 approximate=0
+Partition result mode=3 query=5 reverse=1 distance=0x1.0000000000000p+1 first=0x0.0000000000000p+0,0x0.0000000000000p+0,0x1.0000000000000p+1 second=0x0.0000000000000p+0,0x0.0000000000000p+0,0x1.0000000000000p+2 approximate=0
+Partition result mode=3 query=6 reverse=0 distance=0x1.854bfb363dc39p+1 first=0x1.8000000000000p+0,0x1.0000000000000p-1,0x1.4000000000000p+2 second=0x1.8000000000000p+0,0x1.0000000000000p+0,0x1.0000000000000p+1 approximate=0
+Partition result mode=3 query=6 reverse=1 distance=0x1.854bfb363dc39p+1 first=0x1.8000000000000p+0,0x1.0000000000000p+0,0x1.0000000000000p+1 second=0x1.8000000000000p+0,0x1.0000000000000p-1,0x1.4000000000000p+2 approximate=0
+Partition result mode=3 query=7 reverse=0 distance=0x1.0000000000000p+1 first=0x1.0000000000000p-2,0x1.c000000000000p+0,0x1.0000000000000p+2 second=0x1.0000000000000p-2,0x1.c000000000000p+0,0x1.0000000000000p+1 approximate=0
+Partition result mode=3 query=7 reverse=1 distance=0x1.0000000000000p+1 first=0x1.0000000000000p-2,0x1.c000000000000p+0,0x1.0000000000000p+1 second=0x1.0000000000000p-2,0x1.c000000000000p+0,0x1.0000000000000p+2 approximate=0
+Partition result mode=3 query=8 reverse=0 distance=0x1.0000000000000p+1 first=0x0.0000000000000p+0,0x0.0000000000000p+0,0x1.0000000000000p+2 second=0x0.0000000000000p+0,0x0.0000000000000p+0,0x1.0000000000000p+1 approximate=0
+Partition result mode=3 query=8 reverse=1 distance=0x1.0000000000000p+1 first=0x0.0000000000000p+0,0x0.0000000000000p+0,0x1.0000000000000p+1 second=0x0.0000000000000p+0,0x0.0000000000000p+0,0x1.0000000000000p+2 approximate=0
+Partition result mode=3 query=9 reverse=0 distance=0x1.8000000000000p+1 first=0x1.2000000000000p+1,0x1.0000000000000p-1,0x1.4000000000000p+2 second=0x1.2000000000000p+1,0x1.0000000000000p-1,0x1.0000000000000p+1 approximate=0
+Partition result mode=3 query=9 reverse=1 distance=0x1.8000000000000p+1 first=0x1.2000000000000p+1,0x1.0000000000000p-1,0x1.0000000000000p+1 second=0x1.2000000000000p+1,0x1.0000000000000p-1,0x1.4000000000000p+2 approximate=0
+Partition result mode=3 query=10 reverse=0 distance=0x1.0000000000000p+1 first=0x1.8000000000000p+0,0x1.4000000000000p+1,0x1.0000000000000p+2 second=0x1.8000000000000p+0,0x1.4000000000000p+1,0x1.0000000000000p+1 approximate=0
+Partition result mode=3 query=10 reverse=1 distance=0x1.0000000000000p+1 first=0x1.8000000000000p+0,0x1.4000000000000p+1,0x1.0000000000000p+1 second=0x1.8000000000000p+0,0x1.4000000000000p+1,0x1.0000000000000p+2 approximate=0
+Partition result mode=3 query=11 reverse=0 distance=0x1.0000000000000p+1 first=0x0.0000000000000p+0,0x0.0000000000000p+0,0x1.0000000000000p+2 second=0x0.0000000000000p+0,0x0.0000000000000p+0,0x1.0000000000000p+1 approximate=0
+Partition result mode=3 query=11 reverse=1 distance=0x1.0000000000000p+1 first=0x0.0000000000000p+0,0x0.0000000000000p+0,0x1.0000000000000p+1 second=0x0.0000000000000p+0,0x0.0000000000000p+0,0x1.0000000000000p+2 approximate=0
+Measurement geometry, analytic cache, persistence and units passed
+
+CANDIDATE PROOF
+Partition result mode=0 query=0 reverse=0 distance=0x1.854bfb363dc39p+1 first=0x0.0000000000000p+0,0x1.0000000000000p-1,0x1.4000000000000p+2 second=0x0.0000000000000p+0,0x0.0000000000000p+0,0x1.0000000000000p+1 approximate=0
+Partition result mode=0 query=0 reverse=1 distance=0x1.854bfb363dc39p+1 first=0x0.0000000000000p+0,0x0.0000000000000p+0,0x1.0000000000000p+1 second=0x0.0000000000000p+0,0x1.0000000000000p-1,0x1.4000000000000p+2 approximate=0
+Partition result mode=0 query=1 reverse=0 distance=0x1.01fe03f61bad0p+1 first=0x0.0000000000000p+0,0x1.0000000000000p-2,0x1.0000000000000p+2 second=0x0.0000000000000p+0,0x0.0000000000000p+0,0x1.0000000000000p+1 approximate=0
+Partition result mode=0 query=1 reverse=1 distance=0x1.01fe03f61bad0p+1 first=0x0.0000000000000p+0,0x0.0000000000000p+0,0x1.0000000000000p+1 second=0x0.0000000000000p+0,0x1.0000000000000p-2,0x1.0000000000000p+2 approximate=0
+Partition result mode=0 query=2 reverse=0 distance=0x1.0000000000000p+1 first=0x0.0000000000000p+0,0x0.0000000000000p+0,0x1.0000000000000p+2 second=0x0.0000000000000p+0,0x0.0000000000000p+0,0x1.0000000000000p+1 approximate=0
+Partition result mode=0 query=2 reverse=1 distance=0x1.0000000000000p+1 first=0x0.0000000000000p+0,0x0.0000000000000p+0,0x1.0000000000000p+1 second=0x0.0000000000000p+0,0x0.0000000000000p+0,0x1.0000000000000p+2 approximate=0
+Partition result mode=0 query=3 reverse=0 distance=0x1.869c1a85cc346p+1 first=0x1.8000000000000p-1,0x1.0000000000000p-1,0x1.4000000000000p+2 second=0x1.0000000000000p+0,0x1.0000000000000p+0,0x1.0000000000000p+1 approximate=0
+Partition result mode=0 query=3 reverse=1 distance=0x1.869c1a85cc346p+1 first=0x1.0000000000000p+0,0x1.0000000000000p+0,0x1.0000000000000p+1 second=0x1.8000000000000p-1,0x1.0000000000000p-1,0x1.4000000000000p+2 approximate=0
+Partition result mode=0 query=4 reverse=0 distance=0x1.0000000000000p+1 first=0x0.0000000000000p+0,0x1.0000000000000p+0,0x1.0000000000000p+2 second=0x0.0000000000000p+0,0x1.0000000000000p+0,0x1.0000000000000p+1 approximate=0
+Partition result mode=0 query=4 reverse=1 distance=0x1.0000000000000p+1 first=0x0.0000000000000p+0,0x1.0000000000000p+0,0x1.0000000000000p+1 second=0x0.0000000000000p+0,0x1.0000000000000p+0,0x1.0000000000000p+2 approximate=0
+Partition result mode=0 query=5 reverse=0 distance=0x1.0000000000000p+1 first=0x0.0000000000000p+0,0x0.0000000000000p+0,0x1.0000000000000p+2 second=0x0.0000000000000p+0,0x0.0000000000000p+0,0x1.0000000000000p+1 approximate=0
+Partition result mode=0 query=5 reverse=1 distance=0x1.0000000000000p+1 first=0x0.0000000000000p+0,0x0.0000000000000p+0,0x1.0000000000000p+1 second=0x0.0000000000000p+0,0x0.0000000000000p+0,0x1.0000000000000p+2 approximate=0
+Partition result mode=0 query=6 reverse=0 distance=0x1.8a85c24f70659p+1 first=0x1.8000000000000p+0,0x1.0000000000000p-1,0x1.4000000000000p+2 second=0x1.0000000000000p+0,0x1.0000000000000p+0,0x1.0000000000000p+1 approximate=0
+Partition result mode=0 query=6 reverse=1 distance=0x1.8a85c24f70659p+1 first=0x1.0000000000000p+0,0x1.0000000000000p+0,0x1.0000000000000p+1 second=0x1.8000000000000p+0,0x1.0000000000000p-1,0x1.4000000000000p+2 approximate=0
+Partition result mode=0 query=7 reverse=0 distance=0x1.01fe03f61bad0p+1 first=0x1.0000000000000p+0,0x1.c000000000000p+0,0x1.0000000000000p+2 second=0x1.0000000000000p+0,0x1.0000000000000p+1,0x1.0000000000000p+1 approximate=0
+Partition result mode=0 query=7 reverse=1 distance=0x1.01fe03f61bad0p+1 first=0x1.0000000000000p+0,0x1.0000000000000p+1,0x1.0000000000000p+1 second=0x1.0000000000000p+0,0x1.c000000000000p+0,0x1.0000000000000p+2 approximate=0
+Partition result mode=0 query=8 reverse=0 distance=0x1.0000000000000p+1 first=0x0.0000000000000p+0,0x0.0000000000000p+0,0x1.0000000000000p+2 second=0x0.0000000000000p+0,0x0.0000000000000p+0,0x1.0000000000000p+1 approximate=0
+Partition result mode=0 query=8 reverse=1 distance=0x1.0000000000000p+1 first=0x0.0000000000000p+0,0x0.0000000000000p+0,0x1.0000000000000p+1 second=0x0.0000000000000p+0,0x0.0000000000000p+0,0x1.0000000000000p+2 approximate=0
+Partition result mode=0 query=9 reverse=0 distance=0x1.869c1a85cc346p+1 first=0x1.2000000000000p+1,0x1.0000000000000p-1,0x1.4000000000000p+2 second=0x1.0000000000000p+1,0x0.0000000000000p+0,0x1.0000000000000p+1 approximate=0
+Partition result mode=0 query=9 reverse=1 distance=0x1.869c1a85cc346p+1 first=0x1.0000000000000p+1,0x0.0000000000000p+0,0x1.0000000000000p+1 second=0x1.2000000000000p+1,0x1.0000000000000p-1,0x1.4000000000000p+2 approximate=0
+Partition result mode=0 query=10 reverse=0 distance=0x1.07e0f66afed07p+1 first=0x0.0000000000000p+0,0x1.4000000000000p+1,0x1.0000000000000p+2 second=0x0.0000000000000p+0,0x1.8000000000000p+1,0x1.0000000000000p+1 approximate=0
+Partition result mode=0 query=10 reverse=1 distance=0x1.07e0f66afed07p+1 first=0x0.0000000000000p+0,0x1.8000000000000p+1,0x1.0000000000000p+1 second=0x0.0000000000000p+0,0x1.4000000000000p+1,0x1.0000000000000p+2 approximate=0
+Partition result mode=0 query=11 reverse=0 distance=0x1.0000000000000p+1 first=0x0.0000000000000p+0,0x0.0000000000000p+0,0x1.0000000000000p+2 second=0x0.0000000000000p+0,0x0.0000000000000p+0,0x1.0000000000000p+1 approximate=0
+Partition result mode=0 query=11 reverse=1 distance=0x1.0000000000000p+1 first=0x0.0000000000000p+0,0x0.0000000000000p+0,0x1.0000000000000p+1 second=0x0.0000000000000p+0,0x0.0000000000000p+0,0x1.0000000000000p+2 approximate=0
+Partition result mode=1 query=0 reverse=0 distance=0x1.854bfb363dc39p+1 first=0x0.0000000000000p+0,0x1.0000000000000p-1,0x1.4000000000000p+2 second=0x0.0000000000000p+0,0x0.0000000000000p+0,0x1.0000000000000p+1 approximate=0
+Partition result mode=1 query=0 reverse=1 distance=0x1.854bfb363dc39p+1 first=0x0.0000000000000p+0,0x0.0000000000000p+0,0x1.0000000000000p+1 second=0x0.0000000000000p+0,0x1.0000000000000p-1,0x1.4000000000000p+2 approximate=0
+Partition result mode=1 query=1 reverse=0 distance=0x1.01fe03f61bad0p+1 first=0x0.0000000000000p+0,0x1.0000000000000p-2,0x1.0000000000000p+2 second=0x0.0000000000000p+0,0x0.0000000000000p+0,0x1.0000000000000p+1 approximate=0
+Partition result mode=1 query=1 reverse=1 distance=0x1.01fe03f61bad0p+1 first=0x0.0000000000000p+0,0x0.0000000000000p+0,0x1.0000000000000p+1 second=0x0.0000000000000p+0,0x1.0000000000000p-2,0x1.0000000000000p+2 approximate=0
+Partition result mode=1 query=2 reverse=0 distance=0x1.0000000000000p+1 first=0x0.0000000000000p+0,0x0.0000000000000p+0,0x1.0000000000000p+2 second=0x0.0000000000000p+0,0x0.0000000000000p+0,0x1.0000000000000p+1 approximate=0
+Partition result mode=1 query=2 reverse=1 distance=0x1.0000000000000p+1 first=0x0.0000000000000p+0,0x0.0000000000000p+0,0x1.0000000000000p+1 second=0x0.0000000000000p+0,0x0.0000000000000p+0,0x1.0000000000000p+2 approximate=0
+Partition result mode=1 query=3 reverse=0 distance=0x1.854bfb363dc39p+1 first=0x1.8000000000000p-1,0x1.0000000000000p-1,0x1.4000000000000p+2 second=0x1.8000000000000p-1,0x0.0000000000000p+0,0x1.0000000000000p+1 approximate=0
+Partition result mode=1 query=3 reverse=1 distance=0x1.854bfb363dc39p+1 first=0x1.8000000000000p-1,0x0.0000000000000p+0,0x1.0000000000000p+1 second=0x1.8000000000000p-1,0x1.0000000000000p-1,0x1.4000000000000p+2 approximate=0
+Partition result mode=1 query=4 reverse=0 distance=0x1.0000000000000p+1 first=0x0.0000000000000p+0,0x1.0000000000000p+0,0x1.0000000000000p+2 second=0x0.0000000000000p+0,0x1.0000000000000p+0,0x1.0000000000000p+1 approximate=0
+Partition result mode=1 query=4 reverse=1 distance=0x1.0000000000000p+1 first=0x0.0000000000000p+0,0x1.0000000000000p+0,0x1.0000000000000p+1 second=0x0.0000000000000p+0,0x1.0000000000000p+0,0x1.0000000000000p+2 approximate=0
+Partition result mode=1 query=5 reverse=0 distance=0x1.0000000000000p+1 first=0x0.0000000000000p+0,0x0.0000000000000p+0,0x1.0000000000000p+2 second=0x0.0000000000000p+0,0x0.0000000000000p+0,0x1.0000000000000p+1 approximate=0
+Partition result mode=1 query=5 reverse=1 distance=0x1.0000000000000p+1 first=0x0.0000000000000p+0,0x0.0000000000000p+0,0x1.0000000000000p+1 second=0x0.0000000000000p+0,0x0.0000000000000p+0,0x1.0000000000000p+2 approximate=0
+Partition result mode=1 query=6 reverse=0 distance=0x1.854bfb363dc39p+1 first=0x1.8000000000000p+0,0x1.0000000000000p-1,0x1.4000000000000p+2 second=0x1.8000000000000p+0,0x1.0000000000000p+0,0x1.0000000000000p+1 approximate=0
+Partition result mode=1 query=6 reverse=1 distance=0x1.854bfb363dc39p+1 first=0x1.8000000000000p+0,0x1.0000000000000p+0,0x1.0000000000000p+1 second=0x1.8000000000000p+0,0x1.0000000000000p-1,0x1.4000000000000p+2 approximate=0
+Partition result mode=1 query=7 reverse=0 distance=0x1.01fe03f61bad0p+1 first=0x1.0000000000000p+0,0x1.c000000000000p+0,0x1.0000000000000p+2 second=0x1.0000000000000p+0,0x1.0000000000000p+1,0x1.0000000000000p+1 approximate=0
+Partition result mode=1 query=7 reverse=1 distance=0x1.01fe03f61bad0p+1 first=0x1.0000000000000p+0,0x1.0000000000000p+1,0x1.0000000000000p+1 second=0x1.0000000000000p+0,0x1.c000000000000p+0,0x1.0000000000000p+2 approximate=0
+Partition result mode=1 query=8 reverse=0 distance=0x1.0000000000000p+1 first=0x0.0000000000000p+0,0x0.0000000000000p+0,0x1.0000000000000p+2 second=0x0.0000000000000p+0,0x0.0000000000000p+0,0x1.0000000000000p+1 approximate=0
+Partition result mode=1 query=8 reverse=1 distance=0x1.0000000000000p+1 first=0x0.0000000000000p+0,0x0.0000000000000p+0,0x1.0000000000000p+1 second=0x0.0000000000000p+0,0x0.0000000000000p+0,0x1.0000000000000p+2 approximate=0
+Partition result mode=1 query=9 reverse=0 distance=0x1.854bfb363dc39p+1 first=0x1.2000000000000p+1,0x1.0000000000000p-1,0x1.4000000000000p+2 second=0x1.2000000000000p+1,0x0.0000000000000p+0,0x1.0000000000000p+1 approximate=0
+Partition result mode=1 query=9 reverse=1 distance=0x1.854bfb363dc39p+1 first=0x1.2000000000000p+1,0x0.0000000000000p+0,0x1.0000000000000p+1 second=0x1.2000000000000p+1,0x1.0000000000000p-1,0x1.4000000000000p+2 approximate=0
+Partition result mode=1 query=10 reverse=0 distance=0x1.07e0f66afed07p+1 first=0x0.0000000000000p+0,0x1.4000000000000p+1,0x1.0000000000000p+2 second=0x0.0000000000000p+0,0x1.8000000000000p+1,0x1.0000000000000p+1 approximate=0
+Partition result mode=1 query=10 reverse=1 distance=0x1.07e0f66afed07p+1 first=0x0.0000000000000p+0,0x1.8000000000000p+1,0x1.0000000000000p+1 second=0x0.0000000000000p+0,0x1.4000000000000p+1,0x1.0000000000000p+2 approximate=0
+Partition result mode=1 query=11 reverse=0 distance=0x1.0000000000000p+1 first=0x0.0000000000000p+0,0x0.0000000000000p+0,0x1.0000000000000p+2 second=0x0.0000000000000p+0,0x0.0000000000000p+0,0x1.0000000000000p+1 approximate=0
+Partition result mode=1 query=11 reverse=1 distance=0x1.0000000000000p+1 first=0x0.0000000000000p+0,0x0.0000000000000p+0,0x1.0000000000000p+1 second=0x0.0000000000000p+0,0x0.0000000000000p+0,0x1.0000000000000p+2 approximate=0
+Partition result mode=2 query=0 reverse=0 distance=0x1.8000000000000p+1 first=0x0.0000000000000p+0,0x1.0000000000000p-1,0x1.4000000000000p+2 second=0x0.0000000000000p+0,0x1.0000000000000p-1,0x1.0000000000000p+1 approximate=0
+Partition result mode=2 query=0 reverse=1 distance=0x1.8000000000000p+1 first=0x0.0000000000000p+0,0x1.0000000000000p-1,0x1.0000000000000p+1 second=0x0.0000000000000p+0,0x1.0000000000000p-1,0x1.4000000000000p+2 approximate=0
+Partition result mode=2 query=1 reverse=0 distance=0x1.0000000000000p+1 first=0x1.8000000000000p-1,0x1.0000000000000p-2,0x1.0000000000000p+2 second=0x1.8000000000000p-1,0x1.0000000000000p-2,0x1.0000000000000p+1 approximate=0
+Partition result mode=2 query=1 reverse=1 distance=0x1.0000000000000p+1 first=0x1.8000000000000p-1,0x1.0000000000000p-2,0x1.0000000000000p+1 second=0x1.8000000000000p-1,0x1.0000000000000p-2,0x1.0000000000000p+2 approximate=0
+Partition result mode=2 query=2 reverse=0 distance=0x1.0000000000000p+1 first=0x0.0000000000000p+0,0x0.0000000000000p+0,0x1.0000000000000p+2 second=0x0.0000000000000p+0,0x0.0000000000000p+0,0x1.0000000000000p+1 approximate=0
+Partition result mode=2 query=2 reverse=1 distance=0x1.0000000000000p+1 first=0x0.0000000000000p+0,0x0.0000000000000p+0,0x1.0000000000000p+1 second=0x0.0000000000000p+0,0x0.0000000000000p+0,0x1.0000000000000p+2 approximate=0
+Partition result mode=2 query=3 reverse=0 distance=0x1.80aa84ce72f89p+1 first=0x1.8000000000000p-1,0x1.0000000000000p-1,0x1.4000000000000p+2 second=0x1.4000000000000p-1,0x1.8000000000000p-2,0x1.0000000000000p+1 approximate=0
+Partition result mode=2 query=3 reverse=1 distance=0x1.80aa84ce72f89p+1 first=0x1.4000000000000p-1,0x1.8000000000000p-2,0x1.0000000000000p+1 second=0x1.8000000000000p-1,0x1.0000000000000p-1,0x1.4000000000000p+2 approximate=0
+Partition result mode=2 query=4 reverse=0 distance=0x1.0000000000000p+1 first=0x0.0000000000000p+0,0x1.0000000000000p+0,0x1.0000000000000p+2 second=0x0.0000000000000p+0,0x1.0000000000000p+0,0x1.0000000000000p+1 approximate=0
+Partition result mode=2 query=4 reverse=1 distance=0x1.0000000000000p+1 first=0x0.0000000000000p+0,0x1.0000000000000p+0,0x1.0000000000000p+1 second=0x0.0000000000000p+0,0x1.0000000000000p+0,0x1.0000000000000p+2 approximate=0
+Partition result mode=2 query=5 reverse=0 distance=0x1.0000000000000p+1 first=0x0.0000000000000p+0,0x0.0000000000000p+0,0x1.0000000000000p+2 second=0x0.0000000000000p+0,0x0.0000000000000p+0,0x1.0000000000000p+1 approximate=0
+Partition result mode=2 query=5 reverse=1 distance=0x1.0000000000000p+1 first=0x0.0000000000000p+0,0x0.0000000000000p+0,0x1.0000000000000p+1 second=0x0.0000000000000p+0,0x0.0000000000000p+0,0x1.0000000000000p+2 approximate=0
+Partition result mode=2 query=6 reverse=0 distance=0x1.854bfb363dc39p+1 first=0x1.8000000000000p+0,0x1.0000000000000p-1,0x1.4000000000000p+2 second=0x1.8000000000000p+0,0x1.0000000000000p+0,0x1.0000000000000p+1 approximate=0
+Partition result mode=2 query=6 reverse=1 distance=0x1.854bfb363dc39p+1 first=0x1.8000000000000p+0,0x1.0000000000000p+0,0x1.0000000000000p+1 second=0x1.8000000000000p+0,0x1.0000000000000p-1,0x1.4000000000000p+2 approximate=0
+Partition result mode=2 query=7 reverse=0 distance=0x1.0000000000000p+1 first=0x1.0000000000000p-2,0x1.c000000000000p+0,0x1.0000000000000p+2 second=0x1.0000000000000p-2,0x1.c000000000000p+0,0x1.0000000000000p+1 approximate=0
+Partition result mode=2 query=7 reverse=1 distance=0x1.0000000000000p+1 first=0x1.0000000000000p-2,0x1.c000000000000p+0,0x1.0000000000000p+1 second=0x1.0000000000000p-2,0x1.c000000000000p+0,0x1.0000000000000p+2 approximate=0
+Partition result mode=2 query=8 reverse=0 distance=0x1.0000000000000p+1 first=0x0.0000000000000p+0,0x0.0000000000000p+0,0x1.0000000000000p+2 second=0x0.0000000000000p+0,0x0.0000000000000p+0,0x1.0000000000000p+1 approximate=0
+Partition result mode=2 query=8 reverse=1 distance=0x1.0000000000000p+1 first=0x0.0000000000000p+0,0x0.0000000000000p+0,0x1.0000000000000p+1 second=0x0.0000000000000p+0,0x0.0000000000000p+0,0x1.0000000000000p+2 approximate=0
+Partition result mode=2 query=9 reverse=0 distance=0x1.8000000000000p+1 first=0x1.2000000000000p+1,0x1.0000000000000p-1,0x1.4000000000000p+2 second=0x1.2000000000000p+1,0x1.0000000000000p-1,0x1.0000000000000p+1 approximate=0
+Partition result mode=2 query=9 reverse=1 distance=0x1.8000000000000p+1 first=0x1.2000000000000p+1,0x1.0000000000000p-1,0x1.0000000000000p+1 second=0x1.2000000000000p+1,0x1.0000000000000p-1,0x1.4000000000000p+2 approximate=0
+Partition result mode=2 query=10 reverse=0 distance=0x1.0000000000000p+1 first=0x1.8000000000000p+0,0x1.4000000000000p+1,0x1.0000000000000p+2 second=0x1.8000000000000p+0,0x1.4000000000000p+1,0x1.0000000000000p+1 approximate=0
+Partition result mode=2 query=10 reverse=1 distance=0x1.0000000000000p+1 first=0x1.8000000000000p+0,0x1.4000000000000p+1,0x1.0000000000000p+1 second=0x1.8000000000000p+0,0x1.4000000000000p+1,0x1.0000000000000p+2 approximate=0
+Partition result mode=2 query=11 reverse=0 distance=0x1.0000000000000p+1 first=0x0.0000000000000p+0,0x0.0000000000000p+0,0x1.0000000000000p+2 second=0x0.0000000000000p+0,0x0.0000000000000p+0,0x1.0000000000000p+1 approximate=0
+Partition result mode=2 query=11 reverse=1 distance=0x1.0000000000000p+1 first=0x0.0000000000000p+0,0x0.0000000000000p+0,0x1.0000000000000p+1 second=0x0.0000000000000p+0,0x0.0000000000000p+0,0x1.0000000000000p+2 approximate=0
+Partition result mode=3 query=0 reverse=0 distance=0x1.8000000000000p+1 first=0x0.0000000000000p+0,0x1.0000000000000p-1,0x1.4000000000000p+2 second=0x0.0000000000000p+0,0x1.0000000000000p-1,0x1.0000000000000p+1 approximate=0
+Partition result mode=3 query=0 reverse=1 distance=0x1.8000000000000p+1 first=0x0.0000000000000p+0,0x1.0000000000000p-1,0x1.0000000000000p+1 second=0x0.0000000000000p+0,0x1.0000000000000p-1,0x1.4000000000000p+2 approximate=0
+Partition result mode=3 query=1 reverse=0 distance=0x1.0000000000000p+1 first=0x1.8000000000000p-1,0x1.0000000000000p-2,0x1.0000000000000p+2 second=0x1.8000000000000p-1,0x1.0000000000000p-2,0x1.0000000000000p+1 approximate=0
+Partition result mode=3 query=1 reverse=1 distance=0x1.0000000000000p+1 first=0x1.8000000000000p-1,0x1.0000000000000p-2,0x1.0000000000000p+1 second=0x1.8000000000000p-1,0x1.0000000000000p-2,0x1.0000000000000p+2 approximate=0
+Partition result mode=3 query=2 reverse=0 distance=0x1.0000000000000p+1 first=0x0.0000000000000p+0,0x0.0000000000000p+0,0x1.0000000000000p+2 second=0x0.0000000000000p+0,0x0.0000000000000p+0,0x1.0000000000000p+1 approximate=0
+Partition result mode=3 query=2 reverse=1 distance=0x1.0000000000000p+1 first=0x0.0000000000000p+0,0x0.0000000000000p+0,0x1.0000000000000p+1 second=0x0.0000000000000p+0,0x0.0000000000000p+0,0x1.0000000000000p+2 approximate=0
+Partition result mode=3 query=3 reverse=0 distance=0x1.80aa84ce72f89p+1 first=0x1.8000000000000p-1,0x1.0000000000000p-1,0x1.4000000000000p+2 second=0x1.4000000000000p-1,0x1.8000000000000p-2,0x1.0000000000000p+1 approximate=0
+Partition result mode=3 query=3 reverse=1 distance=0x1.80aa84ce72f89p+1 first=0x1.4000000000000p-1,0x1.8000000000000p-2,0x1.0000000000000p+1 second=0x1.8000000000000p-1,0x1.0000000000000p-1,0x1.4000000000000p+2 approximate=0
+Partition result mode=3 query=4 reverse=0 distance=0x1.0000000000000p+1 first=0x0.0000000000000p+0,0x1.0000000000000p+0,0x1.0000000000000p+2 second=0x0.0000000000000p+0,0x1.0000000000000p+0,0x1.0000000000000p+1 approximate=0
+Partition result mode=3 query=4 reverse=1 distance=0x1.0000000000000p+1 first=0x0.0000000000000p+0,0x1.0000000000000p+0,0x1.0000000000000p+1 second=0x0.0000000000000p+0,0x1.0000000000000p+0,0x1.0000000000000p+2 approximate=0
+Partition result mode=3 query=5 reverse=0 distance=0x1.0000000000000p+1 first=0x0.0000000000000p+0,0x0.0000000000000p+0,0x1.0000000000000p+2 second=0x0.0000000000000p+0,0x0.0000000000000p+0,0x1.0000000000000p+1 approximate=0
+Partition result mode=3 query=5 reverse=1 distance=0x1.0000000000000p+1 first=0x0.0000000000000p+0,0x0.0000000000000p+0,0x1.0000000000000p+1 second=0x0.0000000000000p+0,0x0.0000000000000p+0,0x1.0000000000000p+2 approximate=0
+Partition result mode=3 query=6 reverse=0 distance=0x1.854bfb363dc39p+1 first=0x1.8000000000000p+0,0x1.0000000000000p-1,0x1.4000000000000p+2 second=0x1.8000000000000p+0,0x1.0000000000000p+0,0x1.0000000000000p+1 approximate=0
+Partition result mode=3 query=6 reverse=1 distance=0x1.854bfb363dc39p+1 first=0x1.8000000000000p+0,0x1.0000000000000p+0,0x1.0000000000000p+1 second=0x1.8000000000000p+0,0x1.0000000000000p-1,0x1.4000000000000p+2 approximate=0
+Partition result mode=3 query=7 reverse=0 distance=0x1.0000000000000p+1 first=0x1.0000000000000p-2,0x1.c000000000000p+0,0x1.0000000000000p+2 second=0x1.0000000000000p-2,0x1.c000000000000p+0,0x1.0000000000000p+1 approximate=0
+Partition result mode=3 query=7 reverse=1 distance=0x1.0000000000000p+1 first=0x1.0000000000000p-2,0x1.c000000000000p+0,0x1.0000000000000p+1 second=0x1.0000000000000p-2,0x1.c000000000000p+0,0x1.0000000000000p+2 approximate=0
+Partition result mode=3 query=8 reverse=0 distance=0x1.0000000000000p+1 first=0x0.0000000000000p+0,0x0.0000000000000p+0,0x1.0000000000000p+2 second=0x0.0000000000000p+0,0x0.0000000000000p+0,0x1.0000000000000p+1 approximate=0
+Partition result mode=3 query=8 reverse=1 distance=0x1.0000000000000p+1 first=0x0.0000000000000p+0,0x0.0000000000000p+0,0x1.0000000000000p+1 second=0x0.0000000000000p+0,0x0.0000000000000p+0,0x1.0000000000000p+2 approximate=0
+Partition result mode=3 query=9 reverse=0 distance=0x1.8000000000000p+1 first=0x1.2000000000000p+1,0x1.0000000000000p-1,0x1.4000000000000p+2 second=0x1.2000000000000p+1,0x1.0000000000000p-1,0x1.0000000000000p+1 approximate=0
+Partition result mode=3 query=9 reverse=1 distance=0x1.8000000000000p+1 first=0x1.2000000000000p+1,0x1.0000000000000p-1,0x1.0000000000000p+1 second=0x1.2000000000000p+1,0x1.0000000000000p-1,0x1.4000000000000p+2 approximate=0
+Partition result mode=3 query=10 reverse=0 distance=0x1.0000000000000p+1 first=0x1.8000000000000p+0,0x1.4000000000000p+1,0x1.0000000000000p+2 second=0x1.8000000000000p+0,0x1.4000000000000p+1,0x1.0000000000000p+1 approximate=0
+Partition result mode=3 query=10 reverse=1 distance=0x1.0000000000000p+1 first=0x1.8000000000000p+0,0x1.4000000000000p+1,0x1.0000000000000p+1 second=0x1.8000000000000p+0,0x1.4000000000000p+1,0x1.0000000000000p+2 approximate=0
+Partition result mode=3 query=11 reverse=0 distance=0x1.0000000000000p+1 first=0x0.0000000000000p+0,0x0.0000000000000p+0,0x1.0000000000000p+2 second=0x0.0000000000000p+0,0x0.0000000000000p+0,0x1.0000000000000p+1 approximate=0
+Partition result mode=3 query=11 reverse=1 distance=0x1.0000000000000p+1 first=0x0.0000000000000p+0,0x0.0000000000000p+0,0x1.0000000000000p+1 second=0x0.0000000000000p+0,0x0.0000000000000p+0,0x1.0000000000000p+2 approximate=0
+Measurement geometry, analytic cache, persistence and units passed
