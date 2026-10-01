@@ -4,7 +4,7 @@ This reconciles the original A1–A15 audit with implemented, measured follow-up
 It records the current review pass; it does not claim that no further speedup is
 possible. Detailed records retain their own baseline, fixtures and test limits.
 Windows 2026100101 packages changes through `2a6c4f51`. Drill opening and measurement
-allocation/face metadata below are later source changes, available locally and on main.
+allocation/face metadata/partition centres below are later source changes, available locally and on main.
 
 | Original area | Accepted work and evidence | Retained boundary |
 | --- | --- | --- |
@@ -12,7 +12,7 @@ allocation/face metadata below are later source changes, available locally and o
 | A2/A3 Assembly scenes and picking | [Scene/picker changes](20260930-assembly-scene-picking.md), [container highlighting](20261001-container-highlight.md) | Common ordered candidates, occurrence identity and hit tolerances remain mandatory. |
 | A4 refresh scope | [Presentation refresh](20260930-presentation-refresh.md), [command opening audit](20261001-command-properties-audit.md), [Drill Point](20261001-drill-properties-opening.md) | Command callbacks with required picking, camera or reference side effects remain. |
 | A5 source refresh | [Repeated source reuse](20260930-source-refresh.md), [source lookup](20261001-source-lookup.md), [open roots](20261001-open-assembly-roots.md) | Open source documents remain authoritative; display refresh never solves mates. |
-| A6 View preparation | [Body-context transfer](20261001-body-context-transfer.md), [shading](20261001-shading-adjacency.md), [silhouette storage](20261001-silhouette-pair-storage.md), [buffer reuse](20261001-silhouette-buffer.md) | No precision, tessellation or display-quality reduction. A general persistent GPU/scene redesign remains unproven. |
+| A6 View preparation | [Body-context transfer](20261001-body-context-transfer.md), [shading](20261001-shading-adjacency.md), [silhouette storage](20261001-silhouette-pair-storage.md), [buffer reuse](20261001-silhouette-buffer.md), [end-plane scene preparation](20261001-end-plane-scene.md) | No precision, tessellation or display-quality reduction. A general persistent GPU/scene redesign remains unproven. |
 | A7 Workspace staging | [History sharing](20260930-history-sharing.md) | Keep current mutable state isolated and preserve complete Undo/Redo. |
 | A8 fingerprints | [Exact batching](20260930-fingerprint-batch.md) | Preserve all real inputs, exact semantic keys and signed zero. |
 | A9 native data | [Typed Sketch packets](20260930-native-sketch-packets.md) | Assembly scene/reference validation remains functional work. |
@@ -36,7 +36,7 @@ User projects, backups and images were not cleanup candidates.
 A persistent measurement cache, finer nested-Assembly Drawing invalidation and a
 complete GPU scene/transform redesign need new evidence and complete dependency
 invalidation tests. Current measured allocation/refresh fixes do not establish
-those broader contracts. STEP/IGES kernel work needs a representative slow input.
+those broader contracts. STEP/IGES now has measured local inputs; see the follow-up below.
 Do not substitute a synthetic speed claim or remove validation to mark those
 hypotheses complete. Shared placement remains protected; Linux verification is
 assigned to the Linux host. None of these retained hypotheses is presented as an
@@ -47,3 +47,13 @@ implementation records describe the applicable five-language checks. Documentati
 is English. The released archive is immutable; later source changes do not modify
 it. Future optimization should begin from a measured operation and retain the
 [performance-by-design rules](../FEATURE_PERFORMANCE_GUIDE.md).
+
+## Autonomous follow-up and release preparation
+
+The [remaining-area investigation](20261001-remaining-investigation.md) records
+source tracing, real import probes, rejected experiments and unresolved boundaries.
+The end-plane scene optimization is accepted. Read-only import diagnostic modes
+remain available for reproducing the measured bottleneck. No additional dead
+product code was proven removable. Windows 2026100102 is prepared to package
+these changes together with Drill opening and all three measurement improvements;
+publication and package acceptance belong to its separate release record.

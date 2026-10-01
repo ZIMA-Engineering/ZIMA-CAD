@@ -570,6 +570,10 @@ target_link_libraries(zima_cpp_assembly_view_benchmark PRIVATE
 add_executable(zima_cpp_silhouette_view_benchmark tests/silhouette_view_benchmark.cpp)
 target_link_libraries(zima_cpp_silhouette_view_benchmark PRIVATE
     zima_document_core zima_assembly zima_kernel_occt zima_viewer)
+if(ZIMA_BUILD_TESTS)
+    add_test(NAME zima_cpp_end_plane_scene_contract
+        COMMAND zima_cpp_silhouette_view_benchmark --end-planes)
+endif()
 
 add_executable(zima_cpp_history_fingerprint_benchmark tests/history_fingerprint_benchmark.cpp)
 target_link_libraries(zima_cpp_history_fingerprint_benchmark PRIVATE zima_kernel_api)
@@ -593,7 +597,7 @@ if(ZIMA_BUILD_TESTS)
     target_compile_definitions(zima_cpp_import_model_contract_tests PRIVATE ZIMA_IMPORT_FIXTURES="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/import")
     add_test(NAME zima_cpp_import_model_contract_tests COMMAND zima_cpp_import_model_contract_tests)
     add_executable(zima_cpp_step_model_contract_tests tests/step_model_contract_tests.cpp)
-    target_link_libraries(zima_cpp_step_model_contract_tests PRIVATE zima_interchange zima_kernel_occt TKPrim TKDESTEP TKXCAF TKCAF TKLCAF TKCDF)
+    target_link_libraries(zima_cpp_step_model_contract_tests PRIVATE zima_interchange zima_kernel_occt TKPrim TKDESTEP TKXCAF TKCAF TKLCAF TKCDF Qt6::Core)
     add_test(NAME zima_cpp_step_model_contract_tests COMMAND zima_cpp_step_model_contract_tests)
     add_executable(zima_cpp_section_contract_tests tests/section_contract_tests.cpp)
     target_link_libraries(zima_cpp_section_contract_tests PRIVATE zima_document_core zima_assembly zima_drawing zima_kernel_occt)

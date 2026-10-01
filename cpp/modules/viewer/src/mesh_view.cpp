@@ -777,8 +777,12 @@ void MeshView::set_mesh(zima::kernel::ViewerMesh mesh, bool fit_view) {
             if(std::ranges::none_of(corners,[&](const auto& q){return std::hypot(p.x-q.x,p.y-q.y,p.z-q.z)<1e-8;}))corners.push_back(p);
         }
     }
+    // Remove existing borders in one scene traversal. Keys retain the owner and
+    // occurrence, so one instance's datum never suppresses another instance.
+    if(!end_planes.empty())for(const auto& edge:mesh.edges)
+        if(edge.reference.semantic_key=="plane:end")end_planes.erase(edge_key(edge.reference));
     for(const auto& [key,corners]:end_planes) {
-        if(corners.size()!=4 || std::ranges::any_of(mesh.edges,[&](const auto& edge){return edge_key(edge.reference)==key;}))continue;
+        if(corners.size()!=4)continue;
         kernel::ViewerEdge edge;edge.reference={key.owner_id,key.semantic_key,key.instance_path};
         edge.construction=true;edge.overlay=true;edge.display_owner_id=key.owner_id;
         edge.points=corners;

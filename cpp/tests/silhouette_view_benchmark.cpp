@@ -15,9 +15,78 @@
 #include <iomanip>
 #include <iostream>
 #include <stdexcept>
+#include <zima/document/viewer_packet_json.hpp>
+#include <nlohmann/json.hpp>
 
 namespace {
 void require(bool ok,const char* message) { if(!ok)throw std::runtime_error(message); }
+void end_plane_probe() {
+    using namespace zima;
+    const auto packet=[](const kernel::ViewerMesh& mesh) {
+        kernel::BodyResult body;body.mesh=mesh;
+        return document::serialize_body_result(body,false).dump();
+    };
+    for(const int count:{0,1,64,256}) {
+        kernel::ViewerMesh mesh;
+        for(int i=0;i<count;++i) {
+            const auto path="assembly/occurrence-"+std::to_string(i);
+            auto& refs=mesh.original_references;
+            const auto base=static_cast<std::uint32_t>(refs.vertices.size());
+            const double x=i*20.;
+            refs.vertices.insert(refs.vertices.end(),{{x,0,0},{x+10,0,0},{x+10,10,0},{x,10,0}});
+            refs.triangles.insert(refs.triangles.end(),{base,base+1,base+2,base,base+2,base+3});
+            refs.triangle_references.insert(refs.triangle_references.end(),2,{"sweep","plane:end",path});
+            for(int j=0;j<20;++j) {
+                kernel::ViewerEdge edge;edge.reference={"sweep","edge-"+std::to_string(j),path};
+                edge.points={{x,0,double(j)},{x+10,10,double(j)}};
+                mesh.edges.push_back(std::move(edge));
+            }
+            if(i%2==0) {
+                kernel::ViewerEdge edge;edge.reference={"sweep","plane:end",path};
+                edge.points={{x,0,0},{x+10,0,0}};
+                mesh.edges.push_back(std::move(edge));
+            }
+        }
+        const auto original=packet(mesh);
+        viewer::MeshView view;
+        std::string expected;
+        double total=0;
+        for(int trial=0;trial<9;++trial) {
+            auto input=mesh; // Copy cost excluded; measure the actual scene preparation.
+            const auto begin=std::chrono::steady_clock::now();
+            view.set_mesh(std::move(input),false);
+            const auto ms=std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-begin).count();
+            if(trial)total+=ms;
+            const auto result=packet(view.mesh());
+            if(!trial)expected=result;
+            require(result==expected,"Repeated end-plane preparation changed the viewer packet");
+            require(view.mesh().edges.size()==mesh.edges.size()+count/2,"End-plane border missing or duplicated");
+            for(int i=0;i<count;++i) {
+                const auto path="assembly/occurrence-"+std::to_string(i);
+                const auto edge=std::ranges::find_if(view.mesh().edges,[&](const auto& e){return e.reference.owner_id=="sweep"&&e.reference.semantic_key=="plane:end"&&e.reference.instance_path==path;});
+                require(edge!=view.mesh().edges.end(),"End plane lost occurrence identity");
+                require(edge->points.size()==(i%2?5:2),"Existing end plane was replaced");
+            }
+            view.set_mesh({},false);
+            require(view.mesh().edges.empty(),"Clearing scene retained end planes");
+        }
+        require(packet(mesh)==original,"End-plane preparation mutated its source");
+        if(count>1) {
+            auto changed=mesh;
+            for(auto& p:changed.original_references.vertices)p.z+=3;
+            view.set_mesh(std::move(changed),false);
+            const auto edge=std::ranges::find_if(view.mesh().edges,[](const auto& e){
+                return e.reference.semantic_key=="plane:end"&&e.reference.instance_path=="assembly/occurrence-1";
+            });
+            require(edge!=view.mesh().edges.end()&&std::ranges::all_of(edge->points,[](auto p){return p.z==3;}),
+                "Changed source vertices retained a stale end-plane border");
+            view.set_mesh(mesh,false);
+            require(packet(view.mesh())==expected,"Restoring source did not restore the exact scene");
+        }
+        const auto hash=QCryptographicHash::hash(QByteArray::fromStdString(expected),QCryptographicHash::Sha256).toHex();
+        std::cout<<"end_planes count="<<count<<" mean_ms="<<total/8<<" sha256="<<hash.constData()<<std::endl;
+    }
+}
 QByteArray frame_hash(zima::viewer::MeshView& view) {
     const auto pixels=view.grabFramebuffer().convertToFormat(QImage::Format_RGBA8888);
     return QCryptographicHash::hash(QByteArrayView(reinterpret_cast<const char*>(pixels.constBits()),
@@ -115,6 +184,7 @@ int main(int argc,char** argv) {
     QApplication app(argc,argv);
     try {
         std::cout<<std::fixed<<std::setprecision(3);
+        if(argc==2&&std::string_view(argv[1])=="--end-planes") {end_plane_probe();return 0;}
         zima::kernel::OcctKernel kernel;
         for(bool sphere:{false,true}) {
             const auto body=kernel.evaluate_history({{"curved",sphere?

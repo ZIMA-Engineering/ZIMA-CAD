@@ -1,4 +1,6 @@
 #include <zima/interchange/model_import.hpp>
+#include <zima/interchange/step_model.hpp>
+#include <zima/interchange/step.hpp>
 #include <zima/interchange/interchange.hpp>
 #include <zima/kernel/occt_kernel.hpp>
 #include <zima/workspace/workspace.hpp>
@@ -10,10 +12,37 @@
 #include <fstream>
 #include <iostream>
 #include <set>
+#include <chrono>
+#include <iomanip>
 using namespace zima;
 void require(bool value,const char* message) { if(!value)throw std::runtime_error(message); }
-int main() {
+int main(int argc,char** argv) {
  try {
+    if(argc==3&&std::string_view(argv[1])=="--profile-file") {
+        const auto path=std::filesystem::u8path(argv[2]);
+        const auto format=interchange::format_from_path(path);
+        require(format==interchange::Format::Step||format==interchange::Format::Iges,"Expected STEP or IGES input");
+        const auto elapsed=[](auto start){return std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-start).count();};
+        std::cout<<std::fixed<<std::setprecision(3)<<"Import profile bytes="<<std::filesystem::file_size(path)<<std::endl;
+        if(format==interchange::Format::Step) {
+            const auto start=std::chrono::steady_clock::now();
+            const auto nodes=interchange::inspect_step_parts(path);
+            std::cout<<"Separate STEP inspection ms="<<elapsed(start)<<" nodes="<<nodes.size()<<std::endl;
+        }
+        const auto start=std::chrono::steady_clock::now();
+        auto result=format==interchange::Format::Step?
+            interchange::import_step_part(document::PartDocument::create_default(),{},path):
+            interchange::import_iges_part(document::PartDocument::create_default(),{},path);
+        const auto ms=elapsed(start);
+        result.document.validate_body_ownership();
+        require(!result.calculated.empty(),"Import has no calculated boundary");
+        const auto& body=result.calculated.back();
+        require(std::isfinite(body.volume)&&std::isfinite(body.surface_area),"Import has non-finite physical properties");
+        std::cout<<"Complete import ms="<<ms<<" bodies="<<result.document.body_history.bodies().size()
+            <<" triangles="<<body.mesh.triangles.size()/3<<" edges="<<body.mesh.edges.size()
+            <<" volume="<<body.volume<<" area="<<body.surface_area<<std::endl;
+        return 0; // Read-only probe: no user file or native document is written.
+    }
     const auto temp=std::filesystem::temp_directory_path()/("zima-import-"+document::PartDocument::create_default().document_id);
     std::filesystem::create_directories(temp);
     const auto fixtures=std::filesystem::path(ZIMA_IMPORT_FIXTURES);

@@ -1,5 +1,6 @@
 #include "profile_solid_fixture.hpp"
 #include <zima/document/body_origin_attachment.hpp>
+#include <zima/document/file_path.hpp>
 #include <zima/interchange/step_model.hpp>
 #include <zima/interchange/step.hpp>
 #include <zima/kernel/occt_kernel.hpp>
@@ -27,6 +28,10 @@
 #include <iostream>
 #include <limits>
 #include <set>
+#include <chrono>
+#include <zima/document/viewer_packet_json.hpp>
+#include <nlohmann/json.hpp>
+#include <QCryptographicHash>
 namespace {
 using namespace zima;
 void require(bool test,const char* message){if(!test)throw std::runtime_error(message);}
@@ -81,9 +86,24 @@ void same_bounds(const std::vector<V>& a,const std::vector<V>& b) {
         "STEP changed a rotation, translation or unit scale");
 }
 }
-int main() {
+int main(int argc,char** argv) {
     try {
         kernel::OcctKernel kernel;
+        if(argc==3&&std::string_view(argv[1])=="--capture-file") {
+            const auto path=std::filesystem::absolute(std::filesystem::u8path(argv[2]));
+            const auto nodes=interchange::inspect_step_parts(path);
+            std::vector<kernel::StepRequest> requests;
+            for(const auto& node:nodes)if(!node.assembly)
+                requests.push_back({document::path_to_utf8(path),node.definition_id,{},{},"probe-"+std::to_string(requests.size())});
+            const auto start=std::chrono::steady_clock::now();
+            const auto bodies=kernel.import_step_components(requests,.1);
+            std::cout<<"STEP capture ms="<<std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-start).count()<<" bodies="<<bodies.size()<<std::endl;
+            for(std::size_t i=0;i<bodies.size();++i) {
+                const auto bytes=QByteArray::fromStdString(document::serialize_body_result(bodies[i]).dump());
+                std::cout<<"Body "<<i<<" sha256="<<QCryptographicHash::hash(bytes,QCryptographicHash::Sha256).toHex().constData()<<std::endl;
+            }
+            return 0;
+        }
         const auto directory=std::filesystem::temp_directory_path()/("zima-step-"+document::PartDocument::create_default().document_id);
         std::filesystem::create_directory(directory);
         kernel::StepProduct a;a.definition_id="part-a";a.name="Třmen";a.body=zima::test::profile_body(kernel,{10,20,30});

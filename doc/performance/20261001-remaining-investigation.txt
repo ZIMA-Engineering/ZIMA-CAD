@@ -1,0 +1,57 @@
+import-profile-summary.log
+8073895_DGST-16-10-L-PA.stp sha256 04bc77574f2f5dc5d49592e12a76904275b39d304bab1ddd354a3ed5dbeb1527 exit 0 seconds 3.415
+Import profile bytes=674919
+
+Separate STEP inspection ms=220.254 nodes=7
+
+Complete import ms=3091.640 bodies=6 triangles=19598 edges=1356 volume=154137.498 area=57232.123
+
+
+ze0026-0000-0000.stp sha256 7c6a27a4cb568086575ed319e92643e42ca3b27b4b45cf292683898b04f02da5 exit TIMEOUT 180 s (owned probe only) seconds 180.114
+Import profile bytes=9092072
+
+Separate STEP inspection ms=2581.772 nodes=508
+
+
+ze0026-0000-0000.igs sha256 f7abcb4f5ffe48ef42c461db554b6bafb0b3e4401c438dec8d5f23dd38fd5641 exit TIMEOUT 180 s (owned probe only) seconds 180.142
+Import profile bytes=37994290
+
+
+
+
+step-capture-paired-summary.log
+All six full body packets including B-Rep and bindings match in all eight runs
+step-capture-baseline 1481.435
+zima_cpp_step_model_contract_tests 1494.92
+large STEP TIMEOUT 180 s
+Import profile bytes=9092072
+
+Separate STEP inspection ms=2595.050 nodes=508
+
+
+
+
+step-source-index-summary.log
+8073895_DGST-16-10-L-PA.stp step-capture-baseline 1556.18
+8073895_DGST-16-10-L-PA.stp zima_cpp_step_model_contract_tests 1532.01
+8073895_DGST-16-10-L-PA.stp zima_cpp_step_model_contract_tests 1588.76
+8073895_DGST-16-10-L-PA.stp step-capture-baseline 1550.83
+MATCHED body signatures 6
+step-capture-baseline mean 1553.505
+zima_cpp_step_model_contract_tests mean 1560.385
+ze0026-0000-0000.stp step-capture-baseline timeout 90 s
+MATCHED body signatures 0
+
+
+end-plane-final-check.log
+Test project C:/Users/vladi/Prace/ZIMA-Engineering/00-SOFTWARE/01-ZIMA/ZIMA-CAD/build/cpp-windows-release
+    Start  2: zima_cpp_end_plane_scene_contract
+1/3 Test  #2: zima_cpp_end_plane_scene_contract ......   Passed    0.89 sec
+    Start  5: zima_cpp_import_model_contract_tests
+2/3 Test  #5: zima_cpp_import_model_contract_tests ...   Passed    0.35 sec
+    Start 45: zima_cpp_translations_contract
+3/3 Test #45: zima_cpp_translations_contract .........   Passed    5.13 sec
+
+100% tests passed, 0 tests failed out of 3
+
+Total Test time (real) =   6.44 sec

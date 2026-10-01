@@ -1,0 +1,162 @@
+end-plane-paired-summary.log
+0 baseline 0.001 candidate 0.001 exact packet hashes match
+1 baseline 0.004 candidate 0.003 exact packet hashes match
+64 baseline 2.5675 candidate 0.5255000000000001 exact packet hashes match
+256 baseline 34.47 candidate 2.037 exact packet hashes match
+
+
+end-plane-paired.log
+GROUP 0 end-plane-baseline
+end_planes count=0 mean_ms=0.001 sha256=1ae465b7eddce2e6f05007c63086ea51cff87831748ea1e896f6550387d617f3
+
+end_planes count=1 mean_ms=0.004 sha256=d09b17f14b6a56109576f0d7144518f277cf7477df1a5ed5ad8abeb1dec9ad35
+
+end_planes count=64 mean_ms=2.666 sha256=8d5e559daed0349671ffdcac5e4104199b9e33d4ae82576c7d73e1471be2c197
+
+end_planes count=256 mean_ms=33.861 sha256=b99386669c74318a379083c4a972716f069174b3adac9eb853a7fe7c6dff4534
+
+GROUP 0 zima_cpp_silhouette_view_benchmark
+end_planes count=0 mean_ms=0.001 sha256=1ae465b7eddce2e6f05007c63086ea51cff87831748ea1e896f6550387d617f3
+
+end_planes count=1 mean_ms=0.003 sha256=d09b17f14b6a56109576f0d7144518f277cf7477df1a5ed5ad8abeb1dec9ad35
+
+end_planes count=64 mean_ms=0.573 sha256=8d5e559daed0349671ffdcac5e4104199b9e33d4ae82576c7d73e1471be2c197
+
+end_planes count=256 mean_ms=2.127 sha256=b99386669c74318a379083c4a972716f069174b3adac9eb853a7fe7c6dff4534
+
+GROUP 0 zima_cpp_silhouette_view_benchmark
+end_planes count=0 mean_ms=0.001 sha256=1ae465b7eddce2e6f05007c63086ea51cff87831748ea1e896f6550387d617f3
+
+end_planes count=1 mean_ms=0.003 sha256=d09b17f14b6a56109576f0d7144518f277cf7477df1a5ed5ad8abeb1dec9ad35
+
+end_planes count=64 mean_ms=0.501 sha256=8d5e559daed0349671ffdcac5e4104199b9e33d4ae82576c7d73e1471be2c197
+
+end_planes count=256 mean_ms=1.910 sha256=b99386669c74318a379083c4a972716f069174b3adac9eb853a7fe7c6dff4534
+
+GROUP 0 end-plane-baseline
+end_planes count=0 mean_ms=0.001 sha256=1ae465b7eddce2e6f05007c63086ea51cff87831748ea1e896f6550387d617f3
+
+end_planes count=1 mean_ms=0.003 sha256=d09b17f14b6a56109576f0d7144518f277cf7477df1a5ed5ad8abeb1dec9ad35
+
+end_planes count=64 mean_ms=2.505 sha256=8d5e559daed0349671ffdcac5e4104199b9e33d4ae82576c7d73e1471be2c197
+
+end_planes count=256 mean_ms=34.210 sha256=b99386669c74318a379083c4a972716f069174b3adac9eb853a7fe7c6dff4534
+
+GROUP 1 end-plane-baseline
+end_planes count=0 mean_ms=0.001 sha256=1ae465b7eddce2e6f05007c63086ea51cff87831748ea1e896f6550387d617f3
+
+end_planes count=1 mean_ms=0.005 sha256=d09b17f14b6a56109576f0d7144518f277cf7477df1a5ed5ad8abeb1dec9ad35
+
+end_planes count=64 mean_ms=2.557 sha256=8d5e559daed0349671ffdcac5e4104199b9e33d4ae82576c7d73e1471be2c197
+
+end_planes count=256 mean_ms=33.785 sha256=b99386669c74318a379083c4a972716f069174b3adac9eb853a7fe7c6dff4534
+
+GROUP 1 zima_cpp_silhouette_view_benchmark
+end_planes count=0 mean_ms=0.001 sha256=1ae465b7eddce2e6f05007c63086ea51cff87831748ea1e896f6550387d617f3
+
+end_planes count=1 mean_ms=0.005 sha256=d09b17f14b6a56109576f0d7144518f277cf7477df1a5ed5ad8abeb1dec9ad35
+
+end_planes count=64 mean_ms=0.534 sha256=8d5e559daed0349671ffdcac5e4104199b9e33d4ae82576c7d73e1471be2c197
+
+end_planes count=256 mean_ms=1.947 sha256=b99386669c74318a379083c4a972716f069174b3adac9eb853a7fe7c6dff4534
+
+GROUP 1 zima_cpp_silhouette_view_benchmark
+end_planes count=0 mean_ms=0.001 sha256=1ae465b7eddce2e6f05007c63086ea51cff87831748ea1e896f6550387d617f3
+
+end_planes count=1 mean_ms=0.004 sha256=d09b17f14b6a56109576f0d7144518f277cf7477df1a5ed5ad8abeb1dec9ad35
+
+end_planes count=64 mean_ms=0.603 sha256=8d5e559daed0349671ffdcac5e4104199b9e33d4ae82576c7d73e1471be2c197
+
+end_planes count=256 mean_ms=1.944 sha256=b99386669c74318a379083c4a972716f069174b3adac9eb853a7fe7c6dff4534
+
+GROUP 1 end-plane-baseline
+end_planes count=0 mean_ms=0.001 sha256=1ae465b7eddce2e6f05007c63086ea51cff87831748ea1e896f6550387d617f3
+
+end_planes count=1 mean_ms=0.004 sha256=d09b17f14b6a56109576f0d7144518f277cf7477df1a5ed5ad8abeb1dec9ad35
+
+end_planes count=64 mean_ms=2.578 sha256=8d5e559daed0349671ffdcac5e4104199b9e33d4ae82576c7d73e1471be2c197
+
+end_planes count=256 mean_ms=35.613 sha256=b99386669c74318a379083c4a972716f069174b3adac9eb853a7fe7c6dff4534
+
+GROUP 2 end-plane-baseline
+end_planes count=0 mean_ms=0.001 sha256=1ae465b7eddce2e6f05007c63086ea51cff87831748ea1e896f6550387d617f3
+
+end_planes count=1 mean_ms=0.004 sha256=d09b17f14b6a56109576f0d7144518f277cf7477df1a5ed5ad8abeb1dec9ad35
+
+end_planes count=64 mean_ms=2.474 sha256=8d5e559daed0349671ffdcac5e4104199b9e33d4ae82576c7d73e1471be2c197
+
+end_planes count=256 mean_ms=34.730 sha256=b99386669c74318a379083c4a972716f069174b3adac9eb853a7fe7c6dff4534
+
+GROUP 2 zima_cpp_silhouette_view_benchmark
+end_planes count=0 mean_ms=0.001 sha256=1ae465b7eddce2e6f05007c63086ea51cff87831748ea1e896f6550387d617f3
+
+end_planes count=1 mean_ms=0.003 sha256=d09b17f14b6a56109576f0d7144518f277cf7477df1a5ed5ad8abeb1dec9ad35
+
+end_planes count=64 mean_ms=0.506 sha256=8d5e559daed0349671ffdcac5e4104199b9e33d4ae82576c7d73e1471be2c197
+
+end_planes count=256 mean_ms=2.161 sha256=b99386669c74318a379083c4a972716f069174b3adac9eb853a7fe7c6dff4534
+
+GROUP 2 zima_cpp_silhouette_view_benchmark
+end_planes count=0 mean_ms=0.001 sha256=1ae465b7eddce2e6f05007c63086ea51cff87831748ea1e896f6550387d617f3
+
+end_planes count=1 mean_ms=0.003 sha256=d09b17f14b6a56109576f0d7144518f277cf7477df1a5ed5ad8abeb1dec9ad35
+
+end_planes count=64 mean_ms=0.517 sha256=8d5e559daed0349671ffdcac5e4104199b9e33d4ae82576c7d73e1471be2c197
+
+end_planes count=256 mean_ms=2.139 sha256=b99386669c74318a379083c4a972716f069174b3adac9eb853a7fe7c6dff4534
+
+GROUP 2 end-plane-baseline
+end_planes count=0 mean_ms=0.001 sha256=1ae465b7eddce2e6f05007c63086ea51cff87831748ea1e896f6550387d617f3
+
+end_planes count=1 mean_ms=0.003 sha256=d09b17f14b6a56109576f0d7144518f277cf7477df1a5ed5ad8abeb1dec9ad35
+
+end_planes count=64 mean_ms=2.792 sha256=8d5e559daed0349671ffdcac5e4104199b9e33d4ae82576c7d73e1471be2c197
+
+end_planes count=256 mean_ms=35.517 sha256=b99386669c74318a379083c4a972716f069174b3adac9eb853a7fe7c6dff4534
+
+
+
+end-plane-regression.log
+Test project C:/Users/vladi/Prace/ZIMA-Engineering/00-SOFTWARE/01-ZIMA/ZIMA-CAD/build/cpp-windows-release
+      Start   1: zima_cpp_end_plane_scene_contract
+ 1/19 Test   #1: zima_cpp_end_plane_scene_contract ...............   Passed    0.76 sec
+      Start   5: zima_cpp_import_model_contract_tests
+ 2/19 Test   #5: zima_cpp_import_model_contract_tests ............   Passed    0.39 sec
+      Start   6: zima_cpp_step_model_contract_tests
+ 3/19 Test   #6: zima_cpp_step_model_contract_tests ..............   Passed    1.22 sec
+      Start  11: zima_cpp_measurement_contract_tests
+ 4/19 Test  #11: zima_cpp_measurement_contract_tests .............   Passed    0.09 sec
+      Start  12: zima_cpp_measurement_partition_contract_tests
+ 5/19 Test  #12: zima_cpp_measurement_partition_contract_tests ...   Passed    0.07 sec
+      Start  13: zima_cpp_sweep2d_ui_contract
+ 6/19 Test  #13: zima_cpp_sweep2d_ui_contract ....................   Passed   13.91 sec
+      Start  14: zima_cpp_helical_sweep_ui_contract
+ 7/19 Test  #14: zima_cpp_helical_sweep_ui_contract ..............   Passed   21.95 sec
+      Start  24: zima_cpp_measurement_inspector_ui_contract
+ 8/19 Test  #24: zima_cpp_measurement_inspector_ui_contract ......   Passed   12.02 sec
+      Start  45: zima_cpp_translations_contract
+ 9/19 Test  #45: zima_cpp_translations_contract ..................   Passed    4.79 sec
+      Start  54: zima_cpp_viewer_contract_tests
+10/19 Test  #54: zima_cpp_viewer_contract_tests ..................   Passed    0.07 sec
+      Start  83: zima_cpp_drawing_view_command_tests
+11/19 Test  #83: zima_cpp_drawing_view_command_tests .............   Passed    0.73 sec
+      Start 149: zima_cpp_measurement_edit_command_tests
+12/19 Test #149: zima_cpp_measurement_edit_command_tests .........   Passed    0.13 sec
+      Start 150: zima_cpp_measurement_command_tests
+13/19 Test #150: zima_cpp_measurement_command_tests ..............   Passed    0.13 sec
+      Start 203: zima_cpp_assembly_refresh_ui_contract
+14/19 Test #203: zima_cpp_assembly_refresh_ui_contract ...........   Passed    2.94 sec
+      Start 204: zima_cpp_refresh_scope_ui_contract
+15/19 Test #204: zima_cpp_refresh_scope_ui_contract ..............   Passed    7.66 sec
+      Start 210: zima_cpp_selection_filter_ui_contract
+16/19 Test #210: zima_cpp_selection_filter_ui_contract ...........   Passed    3.57 sec
+      Start 220: zima_cpp_measurement_dimension_ui_contract
+17/19 Test #220: zima_cpp_measurement_dimension_ui_contract ......   Passed    7.77 sec
+      Start 229: zima_cpp_measurement_picker_tests
+18/19 Test #229: zima_cpp_measurement_picker_tests ...............   Passed    1.27 sec
+      Start 230: zima_cpp_measurement_dimension_contract_tests
+19/19 Test #230: zima_cpp_measurement_dimension_contract_tests ...   Passed    0.07 sec
+
+100% tests passed, 0 tests failed out of 19
+
+Total Test time (real) =  79.56 sec
