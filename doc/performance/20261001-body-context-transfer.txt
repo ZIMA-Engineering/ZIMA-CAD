@@ -1,0 +1,144 @@
+=== close-body-before.log ===
+Body context trial=0 ms=60.9426 vertices=13370
+Body context trial=1 ms=51.7564 vertices=13370
+Body context trial=2 ms=58.3852 vertices=13370
+Body context trial=3 ms=57.3359 vertices=13370
+Body context trial=4 ms=52.477 vertices=13370
+Body context trial=5 ms=50.3848 vertices=13370
+Body context trial=6 ms=60.5645 vertices=13370
+Body context trial=7 ms=55.9012 vertices=13370
+
+=== close-body-after.log ===
+Body context trial=0 ms=26.9661 vertices=13370
+Body context trial=1 ms=26.5523 vertices=13370
+Body context trial=2 ms=27.2599 vertices=13370
+Body context trial=3 ms=24.5272 vertices=13370
+Body context trial=4 ms=24.3593 vertices=13370
+Body context trial=5 ms=25.9792 vertices=13370
+Body context trial=6 ms=25.8978 vertices=13370
+Body context trial=7 ms=24.2344 vertices=13370
+
+=== close-abba-0-baseline-helical.log ===
+Sweep no-op trial=0 open_ms=217.94 close_ms=316.372 cancel=0 refreshes=1 preview_sha256=b32c7325843b1d3e418350191309e12adfd70206c19af39c3338677ed8964ebd restored_sha256=62c85dd27b6450c5564b5b2ac32d46fdc4b791159f443bbbdda20f7a60d1e358
+Sweep no-op trial=1 open_ms=156.215 close_ms=261.998 cancel=0 refreshes=1 preview_sha256=b32c7325843b1d3e418350191309e12adfd70206c19af39c3338677ed8964ebd restored_sha256=9b45ff8bac4a9b62dbbb677e2df789462e8ba6a447ba75142174c757f566ff1d
+Sweep no-op trial=2 open_ms=155.081 close_ms=263.758 cancel=0 refreshes=1 preview_sha256=b32c7325843b1d3e418350191309e12adfd70206c19af39c3338677ed8964ebd restored_sha256=672e252e8e4699ed2cb8bdaf27c947683be48fd43a2622f37f9ab87ff6052a6a
+Sweep no-op trial=3 open_ms=152.544 close_ms=258.637 cancel=1 refreshes=1 preview_sha256=b32c7325843b1d3e418350191309e12adfd70206c19af39c3338677ed8964ebd restored_sha256=4155d5f7c62288a25959cca520cba1c8d48a0b0ad471e3f957ef3cb41949ba27
+Sweep no-op trial=4 open_ms=152.087 close_ms=265.824 cancel=1 refreshes=1 preview_sha256=b32c7325843b1d3e418350191309e12adfd70206c19af39c3338677ed8964ebd restored_sha256=19293e670f7bb032b841caa01c10d6a5e66b1f9d64b7461ff03a9ba8172caa11
+Sweep no-op trial=5 open_ms=157.698 close_ms=283.775 cancel=1 refreshes=1 preview_sha256=b32c7325843b1d3e418350191309e12adfd70206c19af39c3338677ed8964ebd restored_sha256=612d8bf33e26e6315ad0241f7a5f698b24042b3cf134d080885fdaec36df4a5e
+
+=== close-abba-0-baseline-sweep2d.log ===
+Sweep no-op trial=0 open_ms=80.9214 close_ms=31.1372 cancel=0 refreshes=1 preview_sha256=a69c567b5255cb86a3140edcc32cd1d72b163ca7343b2836080e43ff8960f831 restored_sha256=c44f1afa5aca68330aea96950c2aed8a8685f37b3b43c5f357ce83b67c7f6e8e
+Sweep no-op trial=1 open_ms=49.1559 close_ms=32.2962 cancel=0 refreshes=1 preview_sha256=a69c567b5255cb86a3140edcc32cd1d72b163ca7343b2836080e43ff8960f831 restored_sha256=0f178574440833210d0d754bf01d6874d28fcb7412e8559dc8fad1d4a379a205
+Sweep no-op trial=2 open_ms=47.952 close_ms=27.3711 cancel=0 refreshes=1 preview_sha256=a69c567b5255cb86a3140edcc32cd1d72b163ca7343b2836080e43ff8960f831 restored_sha256=c44f1afa5aca68330aea96950c2aed8a8685f37b3b43c5f357ce83b67c7f6e8e
+Sweep no-op trial=3 open_ms=47.11 close_ms=28.2351 cancel=1 refreshes=1 preview_sha256=a69c567b5255cb86a3140edcc32cd1d72b163ca7343b2836080e43ff8960f831 restored_sha256=0f178574440833210d0d754bf01d6874d28fcb7412e8559dc8fad1d4a379a205
+Sweep no-op trial=4 open_ms=51.7962 close_ms=28.9243 cancel=1 refreshes=1 preview_sha256=a69c567b5255cb86a3140edcc32cd1d72b163ca7343b2836080e43ff8960f831 restored_sha256=c44f1afa5aca68330aea96950c2aed8a8685f37b3b43c5f357ce83b67c7f6e8e
+Sweep no-op trial=5 open_ms=46.2238 close_ms=28.4652 cancel=1 refreshes=1 preview_sha256=a69c567b5255cb86a3140edcc32cd1d72b163ca7343b2836080e43ff8960f831 restored_sha256=c44f1afa5aca68330aea96950c2aed8a8685f37b3b43c5f357ce83b67c7f6e8e
+
+=== close-abba-0-baseline-sweep3d.log ===
+Sweep no-op trial=0 open_ms=115.178 close_ms=12.1345 cancel=0 refreshes=1 preview_sha256=ddcb7ad5e6cfca48482b60fba1a2c62f268057767339e93022886262618bdfbd restored_sha256=5353debe0604a0b60e472837f0d29d4a9d13628c10ef24f3a4136f91af3eea04
+Sweep no-op trial=1 open_ms=66.0012 close_ms=12.2061 cancel=0 refreshes=1 preview_sha256=ddcb7ad5e6cfca48482b60fba1a2c62f268057767339e93022886262618bdfbd restored_sha256=5353debe0604a0b60e472837f0d29d4a9d13628c10ef24f3a4136f91af3eea04
+Sweep no-op trial=2 open_ms=66.7685 close_ms=12.4218 cancel=0 refreshes=1 preview_sha256=ddcb7ad5e6cfca48482b60fba1a2c62f268057767339e93022886262618bdfbd restored_sha256=5353debe0604a0b60e472837f0d29d4a9d13628c10ef24f3a4136f91af3eea04
+Sweep no-op trial=3 open_ms=65.7915 close_ms=11.5988 cancel=1 refreshes=1 preview_sha256=ddcb7ad5e6cfca48482b60fba1a2c62f268057767339e93022886262618bdfbd restored_sha256=5353debe0604a0b60e472837f0d29d4a9d13628c10ef24f3a4136f91af3eea04
+Sweep no-op trial=4 open_ms=63.7993 close_ms=9.9554 cancel=1 refreshes=1 preview_sha256=ddcb7ad5e6cfca48482b60fba1a2c62f268057767339e93022886262618bdfbd restored_sha256=5353debe0604a0b60e472837f0d29d4a9d13628c10ef24f3a4136f91af3eea04
+Sweep no-op trial=5 open_ms=62.3185 close_ms=10.8601 cancel=1 refreshes=1 preview_sha256=ddcb7ad5e6cfca48482b60fba1a2c62f268057767339e93022886262618bdfbd restored_sha256=5353debe0604a0b60e472837f0d29d4a9d13628c10ef24f3a4136f91af3eea04
+
+=== close-abba-1-candidate-helical.log ===
+Sweep no-op trial=0 open_ms=222.437 close_ms=250.376 cancel=0 refreshes=1 preview_sha256=b32c7325843b1d3e418350191309e12adfd70206c19af39c3338677ed8964ebd restored_sha256=176a97d46194ced5fa1d57a58629e558cbe9944408f5b74cd3a42c5cd076dfd7
+Sweep no-op trial=1 open_ms=168.387 close_ms=241.192 cancel=0 refreshes=1 preview_sha256=b32c7325843b1d3e418350191309e12adfd70206c19af39c3338677ed8964ebd restored_sha256=ad92b54de7aa3c927bce2f62b7d02c29bb83569178797f8ed6c9bcf7b7288220
+Sweep no-op trial=2 open_ms=156.054 close_ms=212.009 cancel=0 refreshes=1 preview_sha256=b32c7325843b1d3e418350191309e12adfd70206c19af39c3338677ed8964ebd restored_sha256=3d418c05e6ae2da8804816939f3116a3ad8dc909ba8a3278198599e15b95462c
+Sweep no-op trial=3 open_ms=154.718 close_ms=236.606 cancel=1 refreshes=1 preview_sha256=b32c7325843b1d3e418350191309e12adfd70206c19af39c3338677ed8964ebd restored_sha256=81092ce062fa35c18865cad924ad53bce455122b8ec7a00687a331072e17f828
+Sweep no-op trial=4 open_ms=180.177 close_ms=276.8 cancel=1 refreshes=1 preview_sha256=b32c7325843b1d3e418350191309e12adfd70206c19af39c3338677ed8964ebd restored_sha256=289d9cdf44da649ca6aa28540ecab6bddc7e076c4b4e129f028e3d8ac66727f7
+Sweep no-op trial=5 open_ms=178.244 close_ms=249.24 cancel=1 refreshes=1 preview_sha256=b32c7325843b1d3e418350191309e12adfd70206c19af39c3338677ed8964ebd restored_sha256=d2db32a2ffa2daed1d519f79c97ecfe23550eec67108a2064055804c947e6ccc
+
+=== close-abba-1-candidate-sweep2d.log ===
+Sweep no-op trial=0 open_ms=87.7487 close_ms=29.0492 cancel=0 refreshes=1 preview_sha256=a69c567b5255cb86a3140edcc32cd1d72b163ca7343b2836080e43ff8960f831 restored_sha256=c44f1afa5aca68330aea96950c2aed8a8685f37b3b43c5f357ce83b67c7f6e8e
+Sweep no-op trial=1 open_ms=49.08 close_ms=28.621 cancel=0 refreshes=1 preview_sha256=a69c567b5255cb86a3140edcc32cd1d72b163ca7343b2836080e43ff8960f831 restored_sha256=c44f1afa5aca68330aea96950c2aed8a8685f37b3b43c5f357ce83b67c7f6e8e
+Sweep no-op trial=2 open_ms=49.5229 close_ms=29.8368 cancel=0 refreshes=1 preview_sha256=a69c567b5255cb86a3140edcc32cd1d72b163ca7343b2836080e43ff8960f831 restored_sha256=0f178574440833210d0d754bf01d6874d28fcb7412e8559dc8fad1d4a379a205
+Sweep no-op trial=3 open_ms=45.9921 close_ms=31.439 cancel=1 refreshes=1 preview_sha256=a69c567b5255cb86a3140edcc32cd1d72b163ca7343b2836080e43ff8960f831 restored_sha256=c44f1afa5aca68330aea96950c2aed8a8685f37b3b43c5f357ce83b67c7f6e8e
+Sweep no-op trial=4 open_ms=52.1267 close_ms=30.4482 cancel=1 refreshes=1 preview_sha256=a69c567b5255cb86a3140edcc32cd1d72b163ca7343b2836080e43ff8960f831 restored_sha256=0f178574440833210d0d754bf01d6874d28fcb7412e8559dc8fad1d4a379a205
+Sweep no-op trial=5 open_ms=51.3165 close_ms=29.9005 cancel=1 refreshes=1 preview_sha256=a69c567b5255cb86a3140edcc32cd1d72b163ca7343b2836080e43ff8960f831 restored_sha256=c44f1afa5aca68330aea96950c2aed8a8685f37b3b43c5f357ce83b67c7f6e8e
+
+=== close-abba-1-candidate-sweep3d.log ===
+Sweep no-op trial=0 open_ms=105.825 close_ms=12.3233 cancel=0 refreshes=1 preview_sha256=ddcb7ad5e6cfca48482b60fba1a2c62f268057767339e93022886262618bdfbd restored_sha256=5353debe0604a0b60e472837f0d29d4a9d13628c10ef24f3a4136f91af3eea04
+Sweep no-op trial=1 open_ms=63.9884 close_ms=10.8585 cancel=0 refreshes=1 preview_sha256=ddcb7ad5e6cfca48482b60fba1a2c62f268057767339e93022886262618bdfbd restored_sha256=5353debe0604a0b60e472837f0d29d4a9d13628c10ef24f3a4136f91af3eea04
+Sweep no-op trial=2 open_ms=60.0192 close_ms=11.8248 cancel=0 refreshes=1 preview_sha256=ddcb7ad5e6cfca48482b60fba1a2c62f268057767339e93022886262618bdfbd restored_sha256=5353debe0604a0b60e472837f0d29d4a9d13628c10ef24f3a4136f91af3eea04
+Sweep no-op trial=3 open_ms=64.5655 close_ms=10.8954 cancel=1 refreshes=1 preview_sha256=ddcb7ad5e6cfca48482b60fba1a2c62f268057767339e93022886262618bdfbd restored_sha256=5353debe0604a0b60e472837f0d29d4a9d13628c10ef24f3a4136f91af3eea04
+Sweep no-op trial=4 open_ms=58.2095 close_ms=10.5391 cancel=1 refreshes=1 preview_sha256=ddcb7ad5e6cfca48482b60fba1a2c62f268057767339e93022886262618bdfbd restored_sha256=5353debe0604a0b60e472837f0d29d4a9d13628c10ef24f3a4136f91af3eea04
+Sweep no-op trial=5 open_ms=62.352 close_ms=9.0668 cancel=1 refreshes=1 preview_sha256=ddcb7ad5e6cfca48482b60fba1a2c62f268057767339e93022886262618bdfbd restored_sha256=5353debe0604a0b60e472837f0d29d4a9d13628c10ef24f3a4136f91af3eea04
+
+=== close-abba-2-candidate-helical.log ===
+Sweep no-op trial=0 open_ms=221.722 close_ms=243.87 cancel=0 refreshes=1 preview_sha256=b32c7325843b1d3e418350191309e12adfd70206c19af39c3338677ed8964ebd restored_sha256=fd1ae9dc1d15b25bc7cf102b8dd8668a05dc7b77c7a12b4e90a68ff2a94459c3
+Sweep no-op trial=1 open_ms=184.814 close_ms=259.794 cancel=0 refreshes=1 preview_sha256=b32c7325843b1d3e418350191309e12adfd70206c19af39c3338677ed8964ebd restored_sha256=b9805d37502edb689ebb28f33a3053c7123d47c2731930eef69b483d7e11de5f
+Sweep no-op trial=2 open_ms=188.562 close_ms=261.692 cancel=0 refreshes=1 preview_sha256=b32c7325843b1d3e418350191309e12adfd70206c19af39c3338677ed8964ebd restored_sha256=9c7dc118a1f458229682aba7b36e91ad6b37a20efaf640c64acd20fb7c82ee0e
+Sweep no-op trial=3 open_ms=190.933 close_ms=239.384 cancel=1 refreshes=1 preview_sha256=b32c7325843b1d3e418350191309e12adfd70206c19af39c3338677ed8964ebd restored_sha256=393a9af7fe64672203cba6e26e8073aee075d8e321147c5172ed951c6c378944
+Sweep no-op trial=4 open_ms=174.131 close_ms=240.976 cancel=1 refreshes=1 preview_sha256=b32c7325843b1d3e418350191309e12adfd70206c19af39c3338677ed8964ebd restored_sha256=cf97c3ef6f939fef37f9ede464783d03e60bcc146be147c08dd0811c2af7687a
+Sweep no-op trial=5 open_ms=169.197 close_ms=237.011 cancel=1 refreshes=1 preview_sha256=b32c7325843b1d3e418350191309e12adfd70206c19af39c3338677ed8964ebd restored_sha256=3d5771911e1b2f2a8a2ac6a7c8b125e46ff093aa095bf438c37a81f331eb8aa9
+
+=== close-abba-2-candidate-sweep2d.log ===
+Sweep no-op trial=0 open_ms=87.447 close_ms=29.1254 cancel=0 refreshes=1 preview_sha256=a69c567b5255cb86a3140edcc32cd1d72b163ca7343b2836080e43ff8960f831 restored_sha256=c44f1afa5aca68330aea96950c2aed8a8685f37b3b43c5f357ce83b67c7f6e8e
+Sweep no-op trial=1 open_ms=46.1736 close_ms=29.0542 cancel=0 refreshes=1 preview_sha256=a69c567b5255cb86a3140edcc32cd1d72b163ca7343b2836080e43ff8960f831 restored_sha256=0f178574440833210d0d754bf01d6874d28fcb7412e8559dc8fad1d4a379a205
+Sweep no-op trial=2 open_ms=47.7873 close_ms=32.9566 cancel=0 refreshes=1 preview_sha256=a69c567b5255cb86a3140edcc32cd1d72b163ca7343b2836080e43ff8960f831 restored_sha256=c44f1afa5aca68330aea96950c2aed8a8685f37b3b43c5f357ce83b67c7f6e8e
+Sweep no-op trial=3 open_ms=45.0018 close_ms=27.0985 cancel=1 refreshes=1 preview_sha256=a69c567b5255cb86a3140edcc32cd1d72b163ca7343b2836080e43ff8960f831 restored_sha256=c44f1afa5aca68330aea96950c2aed8a8685f37b3b43c5f357ce83b67c7f6e8e
+Sweep no-op trial=4 open_ms=45.2565 close_ms=26.7338 cancel=1 refreshes=1 preview_sha256=a69c567b5255cb86a3140edcc32cd1d72b163ca7343b2836080e43ff8960f831 restored_sha256=c44f1afa5aca68330aea96950c2aed8a8685f37b3b43c5f357ce83b67c7f6e8e
+Sweep no-op trial=5 open_ms=43.893 close_ms=27.7619 cancel=1 refreshes=1 preview_sha256=a69c567b5255cb86a3140edcc32cd1d72b163ca7343b2836080e43ff8960f831 restored_sha256=0f178574440833210d0d754bf01d6874d28fcb7412e8559dc8fad1d4a379a205
+
+=== close-abba-2-candidate-sweep3d.log ===
+Sweep no-op trial=0 open_ms=112.279 close_ms=12.1934 cancel=0 refreshes=1 preview_sha256=ddcb7ad5e6cfca48482b60fba1a2c62f268057767339e93022886262618bdfbd restored_sha256=5353debe0604a0b60e472837f0d29d4a9d13628c10ef24f3a4136f91af3eea04
+Sweep no-op trial=1 open_ms=62.7279 close_ms=11.0863 cancel=0 refreshes=1 preview_sha256=ddcb7ad5e6cfca48482b60fba1a2c62f268057767339e93022886262618bdfbd restored_sha256=5353debe0604a0b60e472837f0d29d4a9d13628c10ef24f3a4136f91af3eea04
+Sweep no-op trial=2 open_ms=62.0182 close_ms=12.5372 cancel=0 refreshes=1 preview_sha256=ddcb7ad5e6cfca48482b60fba1a2c62f268057767339e93022886262618bdfbd restored_sha256=5353debe0604a0b60e472837f0d29d4a9d13628c10ef24f3a4136f91af3eea04
+Sweep no-op trial=3 open_ms=60.1308 close_ms=9.8271 cancel=1 refreshes=1 preview_sha256=ddcb7ad5e6cfca48482b60fba1a2c62f268057767339e93022886262618bdfbd restored_sha256=5353debe0604a0b60e472837f0d29d4a9d13628c10ef24f3a4136f91af3eea04
+Sweep no-op trial=4 open_ms=63.8835 close_ms=10.1127 cancel=1 refreshes=1 preview_sha256=ddcb7ad5e6cfca48482b60fba1a2c62f268057767339e93022886262618bdfbd restored_sha256=5353debe0604a0b60e472837f0d29d4a9d13628c10ef24f3a4136f91af3eea04
+Sweep no-op trial=5 open_ms=60.1354 close_ms=10.2347 cancel=1 refreshes=1 preview_sha256=ddcb7ad5e6cfca48482b60fba1a2c62f268057767339e93022886262618bdfbd restored_sha256=5353debe0604a0b60e472837f0d29d4a9d13628c10ef24f3a4136f91af3eea04
+
+=== close-abba-3-baseline-helical.log ===
+Sweep no-op trial=0 open_ms=232.669 close_ms=303.551 cancel=0 refreshes=1 preview_sha256=b32c7325843b1d3e418350191309e12adfd70206c19af39c3338677ed8964ebd restored_sha256=5e89087fefa3d234ddbd88f2f8645ce2eda7a1fe94616d85c7e60ac4417720e9
+Sweep no-op trial=1 open_ms=174.393 close_ms=313.817 cancel=0 refreshes=1 preview_sha256=b32c7325843b1d3e418350191309e12adfd70206c19af39c3338677ed8964ebd restored_sha256=5a95cba75df0530b6d38043a1693d79405f007b271cb2a9aea1cc7e5bbac2169
+Sweep no-op trial=2 open_ms=179.319 close_ms=322.732 cancel=0 refreshes=1 preview_sha256=b32c7325843b1d3e418350191309e12adfd70206c19af39c3338677ed8964ebd restored_sha256=6819403c9461762efa12f5f6f8a0b200d62eaee7dfaa6b074e81b0a7970d5951
+Sweep no-op trial=3 open_ms=156.123 close_ms=286.962 cancel=1 refreshes=1 preview_sha256=b32c7325843b1d3e418350191309e12adfd70206c19af39c3338677ed8964ebd restored_sha256=57244e37e030306f0376a22145bb052fa00143ee894706e02defc21317bdc32d
+Sweep no-op trial=4 open_ms=162.749 close_ms=274.531 cancel=1 refreshes=1 preview_sha256=b32c7325843b1d3e418350191309e12adfd70206c19af39c3338677ed8964ebd restored_sha256=76b5b29850fcc1579e519b0dce39e719d3c809e756597379f3407523b6aa9678
+Sweep no-op trial=5 open_ms=152.984 close_ms=263.29 cancel=1 refreshes=1 preview_sha256=b32c7325843b1d3e418350191309e12adfd70206c19af39c3338677ed8964ebd restored_sha256=abda8b4c15e17b3f6c6d79ab48533854048c8520afc9705c43135fcfb357a288
+
+=== close-abba-3-baseline-sweep2d.log ===
+Sweep no-op trial=0 open_ms=89.6301 close_ms=29.5796 cancel=0 refreshes=1 preview_sha256=a69c567b5255cb86a3140edcc32cd1d72b163ca7343b2836080e43ff8960f831 restored_sha256=c44f1afa5aca68330aea96950c2aed8a8685f37b3b43c5f357ce83b67c7f6e8e
+Sweep no-op trial=1 open_ms=45.1606 close_ms=28.5026 cancel=0 refreshes=1 preview_sha256=a69c567b5255cb86a3140edcc32cd1d72b163ca7343b2836080e43ff8960f831 restored_sha256=c44f1afa5aca68330aea96950c2aed8a8685f37b3b43c5f357ce83b67c7f6e8e
+Sweep no-op trial=2 open_ms=46.8699 close_ms=28.9011 cancel=0 refreshes=1 preview_sha256=a69c567b5255cb86a3140edcc32cd1d72b163ca7343b2836080e43ff8960f831 restored_sha256=c44f1afa5aca68330aea96950c2aed8a8685f37b3b43c5f357ce83b67c7f6e8e
+Sweep no-op trial=3 open_ms=44.8034 close_ms=29.3257 cancel=1 refreshes=1 preview_sha256=a69c567b5255cb86a3140edcc32cd1d72b163ca7343b2836080e43ff8960f831 restored_sha256=c44f1afa5aca68330aea96950c2aed8a8685f37b3b43c5f357ce83b67c7f6e8e
+Sweep no-op trial=4 open_ms=48.9247 close_ms=27.835 cancel=1 refreshes=1 preview_sha256=a69c567b5255cb86a3140edcc32cd1d72b163ca7343b2836080e43ff8960f831 restored_sha256=c44f1afa5aca68330aea96950c2aed8a8685f37b3b43c5f357ce83b67c7f6e8e
+Sweep no-op trial=5 open_ms=44.1646 close_ms=27.5087 cancel=1 refreshes=1 preview_sha256=a69c567b5255cb86a3140edcc32cd1d72b163ca7343b2836080e43ff8960f831 restored_sha256=c44f1afa5aca68330aea96950c2aed8a8685f37b3b43c5f357ce83b67c7f6e8e
+
+=== close-abba-3-baseline-sweep3d.log ===
+Sweep no-op trial=0 open_ms=113.207 close_ms=11.7233 cancel=0 refreshes=1 preview_sha256=ddcb7ad5e6cfca48482b60fba1a2c62f268057767339e93022886262618bdfbd restored_sha256=5353debe0604a0b60e472837f0d29d4a9d13628c10ef24f3a4136f91af3eea04
+Sweep no-op trial=1 open_ms=64.8026 close_ms=11.7194 cancel=0 refreshes=1 preview_sha256=ddcb7ad5e6cfca48482b60fba1a2c62f268057767339e93022886262618bdfbd restored_sha256=5353debe0604a0b60e472837f0d29d4a9d13628c10ef24f3a4136f91af3eea04
+Sweep no-op trial=2 open_ms=65.1185 close_ms=12.4232 cancel=0 refreshes=1 preview_sha256=ddcb7ad5e6cfca48482b60fba1a2c62f268057767339e93022886262618bdfbd restored_sha256=5353debe0604a0b60e472837f0d29d4a9d13628c10ef24f3a4136f91af3eea04
+Sweep no-op trial=3 open_ms=64.0653 close_ms=10.598 cancel=1 refreshes=1 preview_sha256=ddcb7ad5e6cfca48482b60fba1a2c62f268057767339e93022886262618bdfbd restored_sha256=5353debe0604a0b60e472837f0d29d4a9d13628c10ef24f3a4136f91af3eea04
+Sweep no-op trial=4 open_ms=64.0126 close_ms=10.8541 cancel=1 refreshes=1 preview_sha256=ddcb7ad5e6cfca48482b60fba1a2c62f268057767339e93022886262618bdfbd restored_sha256=5353debe0604a0b60e472837f0d29d4a9d13628c10ef24f3a4136f91af3eea04
+Sweep no-op trial=5 open_ms=65.971 close_ms=11.623 cancel=1 refreshes=1 preview_sha256=ddcb7ad5e6cfca48482b60fba1a2c62f268057767339e93022886262618bdfbd restored_sha256=5353debe0604a0b60e472837f0d29d4a9d13628c10ef24f3a4136f91af3eea04
+
+=== close-regression.log ===
+Test project C:/Users/vladi/Prace/ZIMA-Engineering/00-SOFTWARE/01-ZIMA/ZIMA-CAD/build/cpp-windows-release
+      Start  11: zima_cpp_sweep2d_ui_contract
+ 1/11 Test  #11: zima_cpp_sweep2d_ui_contract ...............   Passed   15.04 sec
+      Start  12: zima_cpp_helical_sweep_ui_contract
+ 2/11 Test  #12: zima_cpp_helical_sweep_ui_contract .........   Passed   25.64 sec
+      Start  26: zima_cpp_history_recovery_contract_tests
+ 3/11 Test  #26: zima_cpp_history_recovery_contract_tests ...   Passed    0.23 sec
+      Start  27: zima_cpp_multibody_contract_tests
+ 4/11 Test  #27: zima_cpp_multibody_contract_tests ..........   Passed    0.77 sec
+      Start  43: zima_cpp_translations_contract
+ 5/11 Test  #43: zima_cpp_translations_contract .............   Passed    4.96 sec
+      Start 122: zima_cpp_body_command_tests
+ 6/11 Test #122: zima_cpp_body_command_tests ................   Passed    0.48 sec
+      Start 195: zima_cpp_holes_ui_contract
+ 7/11 Test #195: zima_cpp_holes_ui_contract .................   Passed   21.25 sec
+      Start 200: zima_cpp_assembly_refresh_ui_contract
+ 8/11 Test #200: zima_cpp_assembly_refresh_ui_contract ......   Passed    3.23 sec
+      Start 201: zima_cpp_refresh_scope_ui_contract
+ 9/11 Test #201: zima_cpp_refresh_scope_ui_contract .........   Passed    9.20 sec
+      Start 207: zima_cpp_selection_filter_ui_contract
+10/11 Test #207: zima_cpp_selection_filter_ui_contract ......   Passed    3.80 sec
+      Start 233: zima_cpp_surface_profile_ui_contract
+11/11 Test #233: zima_cpp_surface_profile_ui_contract .......   Passed    5.07 sec
+
+100% tests passed, 0 tests failed out of 11
+
+Total Test time (real) =  89.76 sec

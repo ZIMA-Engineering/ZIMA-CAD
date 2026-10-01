@@ -1633,19 +1633,10 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
                     displayed_count);
                 if (filtered_cursor_body) cursor_body = &*filtered_cursor_body;
             }
-            zima::kernel::ViewerMesh display = cursor_body != nullptr
-                ? cursor_body->mesh : zima::kernel::ViewerMesh{};
-            if (body_dialog_context_) {
-                display = {};
-                if (!calculated.empty()) for (const auto& id : *body_dialog_context_) {
-                    const auto found = calculated.back().body_outputs.find(id);
-                    if (found != calculated.back().body_outputs.end()) append_mesh(display, found->second->mesh);
-                    else if(calculated.back().body_outputs.empty()&&body_dialog_context_->size()==1)append_mesh(display,calculated.back().mesh);
-                }
-            }
             // Standalone Thread sheets are already part of the calculated
             // boundary. Only legacy cosmetic threads owned by Hole are
             // appended as lightweight presentation edges here.
+            std::vector<zima::kernel::ViewerEdge> cosmetic_threads;
             std::size_t visible_body_features{};
             std::unordered_set<std::string> visible_history_ids;
             const auto history_cursor=document.effective_history_cursor();
@@ -1658,10 +1649,26 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
                 if (visible_body_features++ >= displayed_count) break;
                 auto thread = document.hole_thread_edges(container,
                     cursor_body == nullptr ? nullptr : &cursor_body->mesh);
-                display.edges.insert(display.edges.end(),
+                cosmetic_threads.insert(cosmetic_threads.end(),
                     std::make_move_iterator(thread.begin()),
                     std::make_move_iterator(thread.end()));
             }
+            // The filtered context belongs to this refresh; its source
+            // consumers above have finished. Transfer it into the display.
+            zima::kernel::ViewerMesh display;
+            if (filtered_cursor_body) display = std::move(filtered_cursor_body->mesh);
+            else if (cursor_body) display = cursor_body->mesh;
+            if (body_dialog_context_) {
+                display = {};
+                if (!calculated.empty()) for (const auto& id : *body_dialog_context_) {
+                    const auto found = calculated.back().body_outputs.find(id);
+                    if (found != calculated.back().body_outputs.end()) append_mesh(display, found->second->mesh);
+                    else if(calculated.back().body_outputs.empty()&&body_dialog_context_->size()==1)append_mesh(display,calculated.back().mesh);
+                }
+            }
+            display.edges.insert(display.edges.end(),
+                std::make_move_iterator(cosmetic_threads.begin()),
+                std::make_move_iterator(cosmetic_threads.end()));
             for (const auto& sketch : document.sketches) {
                 if (sketch.id == sketch_properties_preview_id_) continue;
                 if (sketch.id != active_sketch_id_ &&

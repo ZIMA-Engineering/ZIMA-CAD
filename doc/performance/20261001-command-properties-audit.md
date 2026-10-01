@@ -59,3 +59,6 @@ measures the override paths and records the accepted, limited optimization.
 
 Follow-up: [Extrusion and Revolution Properties opening](20261001-profile-properties-opening.md)
 measures opening, preserves the initial fit and checks exact rollback preview bounds.
+
+Follow-up: [Body context transfer and Properties closing](20261001-body-context-transfer.md)
+removes temporary mesh copies and measures full-scene restoration on the user spring.

@@ -197,18 +197,25 @@ zima::kernel::ViewerMesh DocumentSession::body_context_mesh(const BodyHistoryGra
                 const auto* feature = entry.kind == PartHistoryKind::Feature ? document.find_container(entry.id) : nullptr;
                 if (feature && feature->feature_kind != FeatureKind::Sketch) ++count;
             }
-            const auto local = calculated_body_boundary(id, count);
+            auto local = calculated_body_boundary(id, count);
             if (!local) continue;
-            mesh = document.place_body_mesh(local->mesh, id);
+            mesh = document.place_body_mesh(std::move(local->mesh), id);
         } else {
             const auto found = outputs.find(id);
             if (found == outputs.end()) continue;
             mesh = found->second->mesh;
         }
+        // This mesh is a disposable local copy, never a cached body output.
+        // Transfer its arrays into the context instead of copying every
+        // reference/edge again. Later bodies keep the same order and offsets.
+        const auto append = [](auto& target, auto& source) {
+            if (target.empty()) target = std::move(source);
+            else target.insert(target.end(), std::make_move_iterator(source.begin()),
+                std::make_move_iterator(source.end()));
+        };
         const auto offset = static_cast<std::uint32_t>(result.vertices.size());
-        result.vertices.insert(result.vertices.end(), mesh.vertices.begin(), mesh.vertices.end());
+        append(result.vertices, mesh.vertices);
         for (const auto index : mesh.triangles) result.triangles.push_back(offset + index);
-        const auto append = [](auto& target, const auto& source) { target.insert(target.end(), source.begin(), source.end()); };
         append(result.triangle_references, mesh.triangle_references);
         append(result.edges, mesh.edges); append(result.points, mesh.points); append(result.axes, mesh.axes);
         append(result.dimensions, mesh.dimensions); append(result.constraint_markers, mesh.constraint_markers);

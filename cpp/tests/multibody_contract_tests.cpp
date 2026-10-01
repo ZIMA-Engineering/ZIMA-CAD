@@ -7,6 +7,8 @@
 #include <zima/document/viewer_packet_json.hpp>
 #include <nlohmann/json.hpp>
 
+#include <chrono>
+#include <cstdlib>
 #include <cmath>
 #include <iostream>
 #include <filesystem>
@@ -36,6 +38,24 @@ static kernel::HistoryOperation box(const std::string& owner, const std::string&
 
 int main() {
     try {
+        if (const auto* path = std::getenv("ZIMA_PROFILE_BODY_CONTEXT_DOCUMENT")) {
+            std::vector<kernel::BodyResult> calculated;
+            auto part = document::PartDocument::load(std::filesystem::path(path), &calculated);
+            document::DocumentSession session(std::move(part), std::move(calculated));
+            nlohmann::json first;
+            for (int trial=0; trial<8; ++trial) {
+                const auto start=std::chrono::steady_clock::now();
+                auto mesh=session.body_context_mesh();
+                const auto elapsed=std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-start).count();
+                kernel::BodyResult packet;packet.mesh=std::move(mesh);
+                const auto serialized=document::serialize_body_result(packet,false);
+                if(trial==0)first=serialized;
+                require(serialized==first,"Body context benchmark changed reference/display data");
+                std::cout<<"Body context trial="<<trial<<" ms="<<elapsed<<" vertices="<<packet.mesh.vertices.size()<<std::endl;
+            }
+            return 0;
+        }
+
         {
             const auto part=document::PartDocument::create_default();
             const auto geometry=part.origin_viewer_mesh().original_references;
@@ -398,7 +418,15 @@ int main() {
         session.commit(next, next_boundaries);
         require(session.document().body_history.owner(added.id)->scope.id == second_body,
             "Part insertion did not use the active body's ownership");
+        const auto cached_context_source = document::serialize_body_result(session.calculated_boundaries().back());
         const auto context = session.body_context_mesh();
+        kernel::BodyResult first_context_packet, repeated_context_packet;
+        first_context_packet.mesh = context;
+        repeated_context_packet.mesh = session.body_context_mesh();
+        require(document::serialize_body_result(first_context_packet) == document::serialize_body_result(repeated_context_packet),
+            "Repeated Body context assembly changed the exact display/reference packet");
+        require(document::serialize_body_result(session.calculated_boundaries().back()) == cached_context_source,
+            "Body context assembly consumed or modified cached geometry");
         double context_max_x = -1e9;
         for (const auto& vertex : context.vertices) context_max_x = std::max(context_max_x, vertex.x);
         // Part primitives are centered: local center 20 + half-length 1 + body offset 5.
