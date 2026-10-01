@@ -1,5 +1,9 @@
 #include "../tests/gui_profile_fixture.hpp"
 #include "../tests/profile_solid_fixture.hpp"
+#include "../tests/drill_point_test_support.hpp"
+#include <QTableWidget>
+#include <QEventLoop>
+#include <QTimer>
 #include "assembly_workspace_window.hpp"
 #include "primitive_properties_dialog.hpp"
 #include <zima/viewer/mesh_view.hpp>
@@ -69,7 +73,8 @@ int verify_edge_treatment_ui(QApplication& application, AssemblyWorkspaceWindow&
             for(auto* item:window.findChildren<QDialog*>())
                 if(auto* value=dynamic_cast<PrimitivePropertiesDialog*>(item);value&&value->isVisible()&&
                     (value->findChild<QDoubleSpinBox*>("edgeTreatmentPrimary")||
-                     (qEnvironmentVariableIsSet("ZIMA_VERIFY_SHELL_OPENING")&&value->findChild<QDoubleSpinBox*>("shellThickness"))))return value;
+                     (qEnvironmentVariableIsSet("ZIMA_VERIFY_SHELL_OPENING")&&value->findChild<QDoubleSpinBox*>("shellThickness"))||
+                     (qEnvironmentVariableIsSet("ZIMA_VERIFY_DRILL_OPENING")&&value->findChild<QDoubleSpinBox*>("drillPointIncludedAngle"))))return value;
             throw std::runtime_error("Treatment Properties is missing");
         };
         const auto edit=[&](const std::string& owner) {
@@ -135,6 +140,7 @@ int verify_edge_treatment_ui(QApplication& application, AssemblyWorkspaceWindow&
             check(selected(),"Finishing a grip drag lost the selected dimension");
             check(view->dimension_source(candidate)==source,"Annotation drag changed its source geometry or value");
         };
+#include "drill_point_opening_verification.inc"
         const bool shell_probe=qEnvironmentVariableIsSet("ZIMA_VERIFY_SHELL_OPENING");
         if(qEnvironmentVariableIsSet("ZIMA_VERIFY_TREATMENT_OPENING")||shell_probe) {
             for(const int sides:{4,128})for(const bool fillet:{true,false}) {

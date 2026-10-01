@@ -77,3 +77,7 @@ measures two prism sizes and retains treatment reference and dimension setup.
 
 Follow-up: [Shell Properties opening](20261001-shell-properties-opening.md)
 retains input-face selection and measures repeated opening after camera setup.
+
+Follow-up: [Drill Point Properties opening](20261001-drill-properties-opening.md)
+removes the unused Tree publication while preserving bottom-face picking and
+verifying the saved cone-subtraction volume.
