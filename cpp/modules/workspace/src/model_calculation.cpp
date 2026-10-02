@@ -119,7 +119,9 @@ calculate_part_reference_state(
             attached_flat_profiles()==flat_profiles_before && sketch_frames()==sketch_frames_before &&
             document.history == history_before &&
             document.constructions == constructions_before &&
-            document.body_history.bodies() == bodies_before) {
+            document.body_history.bodies() == bodies_before &&
+            (calculated.empty() || calculated.back().source_fingerprint ==
+                kernel::history_fingerprint(document.kernel_operations(false,true),calculated.size()))) {
             if(!document.sections.empty()){
                 auto geometry=construction_reference_source_geometry(calculated);
                 append_reference_geometry(geometry,document.origin_viewer_mesh().original_references);
@@ -255,7 +257,13 @@ PartRegenerationResult regenerate_part(Workspace& workspace,
         zima::document::serialize_sections(next.sections)!=zima::document::serialize_sections(previous.sections) || next.history != previous.history ||
         next.reference_errors != previous.reference_errors || next.removed_reference_states!=previous.removed_reference_states ||
         next.constructions != previous.constructions ||
-        next.body_history.bodies() != previous.body_history.bodies()) {
+        next.body_history.bodies() != previous.body_history.bodies() ||
+        // Numeric equality can hide a changed rigid Euler zero sign. Publish
+        // the exact document used by this calculation when its persisted input
+        // fingerprint differs, rather than attaching the new result to the old
+        // document. Keep authored side data and the fingerprint format intact.
+        (!calculated.empty() && calculated.back().source_fingerprint !=
+            kernel::history_fingerprint(previous.kernel_operations(false,true),calculated.size()))) {
         part->session.commit(std::move(next), std::move(calculated));
     } else {
         part->session.update_calculated_boundaries(std::move(calculated));

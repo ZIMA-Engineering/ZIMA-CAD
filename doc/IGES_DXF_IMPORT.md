@@ -202,3 +202,12 @@ not the time for the entire import. Full captured geometry/reference data matche
 the original kernel. STEP projection reuse did not improve controlled timings
 and was not retained. Large STEP/IGES edge-side calculations remain expensive.
 See [the measured investigation](performance/20261002-step-iges-projection.md).
+
+## Regeneration persistence verification (2026-10-02)
+
+STEP/IGES regression checks now save after explicit regeneration with the
+interchange source removed. The calculated input fingerprint must match the
+resolved document before publication. This catches zero Euler-angle sign changes
+that ordinary floating-point equality does not distinguish, without changing
+stored reference identities, authored geometry sides or fingerprint encoding.
+Repeated unchanged regeneration must not insert an Undo transaction.

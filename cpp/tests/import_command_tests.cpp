@@ -256,12 +256,21 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
     const auto topology=feature->imported_step.topology;const auto after=snapshot(part->session.document());
     run(host,"undo");require(snapshot(part->session.document())==initial,"Import Undo did not restore input");run(host,"redo");require(snapshot(part->session.document())==after,"Import Redo changed identities");
     reject("import.step",{{"path","kvádr.step"},{"mesh_deflection_mm",0}});reject("import.step",{{"path","kvádr.step"},{"mesh_deflection_mm",-1}});reject("import.step",{{"path","kvádr.igs"}});reject("import.step",{{"path","missing.step"}});
-    run(host,"save");fs::remove(dir/fs::path(u8"kvádr.step"));run(host,"regenerate");require(part->session.document().find_container(imported_id)->imported_step.topology==topology && std::abs(part->session.calculated_boundaries().back().volume-6000)<1e-5,"Native STEP lost independent regeneration");
+    run(host,"save");fs::remove(dir/fs::path(u8"kvádr.step"));run(host,"regenerate");
+    run(host,"save");require(part->session.document().find_container(imported_id)->imported_step.topology==topology && std::abs(part->session.calculated_boundaries().back().volume-6000)<1e-5,"Native STEP lost independent regeneration");
     std::vector<kernel::BodyResult> loaded_body;const auto loaded=document::PartDocument::load(dir/"imported-step.prtz",&loaded_body);require(loaded.find_container(imported_id)->imported_step.topology==topology && std::abs(loaded_body.back().volume-6000)<1e-5,"Saved STEP import lost geometry");
+    const auto regenerated_revision=part->session.revision();
+    run(host,"regenerate");run(host,"save");
+    require(part->session.revision()==regenerated_revision,"Unchanged import regeneration created an Undo transaction");
+    run(host,"undo");run(host,"save");run(host,"redo");run(host,"save");
+    require(part->session.document().find_container(imported_id)->imported_step.topology==topology &&
+        std::abs(part->session.calculated_boundaries().back().volume-6000)<1e-5,
+        "Regeneration Undo/Redo changed imported topology or volume");
     verify_imported_properties(host,live,kernel,dir,imported_id);
     run(host,"new",{{"type","part"},{"name","imported-iges"}});const auto iges=run(host,"import.iges",{{"path","kvádr.igs"},{"mesh_deflection_mm",1.5}}).data;
     part=live.open_part(live.active_document_id());require(iges.at("bodies").size()==1 && std::abs(part->session.calculated_boundaries().back().volume-6000)<1e-5 && part->session.document().find_container(iges.at("containers")[0].get<std::string>())->imported_step.mesh_deflection==1.5,"IGES command changed geometry or mesh choice");
     fs::remove(dir/fs::path(u8"kvádr.igs"));
+    run(host,"save");run(host,"regenerate");run(host,"save");
     verify_imported_properties(host,live,kernel,dir,iges.at("containers")[0].get<std::string>());
     run(host,"new",{{"type","part"},{"name","imported-dxf"}});const auto dxf_doc=live.active_document_id();
     zima::test::rectangular_commands([&](const char* n,commands::Json a){return run(host,n,std::move(a));},{{"length_mm","3"},{"width_mm","4"},{"height_mm","5"}});part=live.open_part(dxf_doc);const auto cache=part->session.calculated_boundaries().back().kernel_shape;
