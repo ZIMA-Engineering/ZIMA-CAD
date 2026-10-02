@@ -2,6 +2,14 @@
 
 ## Scope and status
 
+Windows build **2026100201** is signed, published and verified. It adds exact
+operation-local IGES locator reuse and updated user manuals. Clean/signed smoke,
+production trust, ten packaged GUI scenarios, frozen IGES save/reopen/regeneration,
+public hashes and update discovery from 2026100102 passed. No native format change
+is introduced. Large STEP/IGES projection costs remain open; the ineffective STEP
+projector experiment is excluded. See [the release record](releases/2026100201.md).
+Linux remains separate.
+
 Windows build **2026100102** is signed, published and verified. It packages
 Drill opening, operation-local measurement and end-plane scene preparation
 improvements. Clean/signed smoke, production trust, nineteen packaged GUI

@@ -20,3 +20,6 @@ Localization review: no product-visible strings changed. Documentation remains
 English. The five-language catalog contract remains part of release verification.
 Existing historical release and benchmark records retain their dated scope.
 Required native data, templates, user preferences and project files are unchanged.
+
+The reviewed manuals are included in the signed Windows 2026100201 source bundle.
+Portable acceptance is recorded in [the release record](releases/2026100201.md).
