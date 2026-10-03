@@ -159,15 +159,15 @@ ordinary mm/inch modeling input, and must not turn this work into a global rewri
 
 | Area | Current evidence | Remaining work |
 | --- | --- | --- |
-| Document settings | Repeated mm/cm/m/in switches with rad, cached geometry, physical volume, native geometry signatures, save/reopen and Undo/Redo pass in the metadata command test. | Complete explicit expression/tolerance conversion; settings-only tests do not establish their safety. |
+| Document settings | Repeated mm/cm/m/in switches with rad, geometry reuse, volume, native signatures, save/reopen, Undo/Redo and explicit relation conversion pass. | Complete manufacturing-tolerance conversion and remaining settings consumers. |
 | Mixed-unit Assemblies | Occurrences consume source calculated geometry; unit labels are not placement scales. | Add explicit mixed-unit/nested Assembly tests and source-unit switching. |
 | Modeling input | Feature parameters and selected Sweep fields now use the shared unit control; conversion/no-op/Cancel tests pass. Other dialogs still have fixed-unit fields. | Continue command-by-command integration, retaining exact canonical values and quantity distinctions. |
 | Container placement | Numeric coordinates, angles and reference offsets now use document-unit controls; canonical values, solving and reference semantics remain unchanged. | Continue dependent GUI verification; no reference or solver redesign is part of this work. |
 | Sketch input | Dimensions, coordinates, radii, offsets and text sizes contain fixed-unit fields. | Convert length/angle input; preserve counts, curve parameters, source geometry and expressions. |
-| View dimensions | `MeshView` formats canonical dimension values directly in several paint/pick/layout paths. | One consistent formatting path, without recalculation or changing persisted reference geometry. |
+| View dimensions | Ordinary nominal labels share one document-unit formatter across painting, picking, label position and grips; native values/references remain unchanged. | Finish explicit conversion of manufacturing tolerances/custom specifications; they remain in their original annotation units at this stage. |
 | Measurements | Length/area/volume and mass use document scale factors. | Verify angular results, reopened records, nested occurrences and labels. |
 | Physical properties | Existing conversion includes area/volume powers, mass and density. | Extend mixed-unit checks and inspect all editable orientation fields. |
-| Relations | Dimension inputs use document length/angle factors; existing numeric literals would change physical meaning on a later regeneration after a unit switch. | Implement the approved explicit expression conversion; one document unit system, no separate hidden relation units. Preserve meaning and reject uncertain conversions atomically. |
+| Relations | Explicit source conversion preserves quantity-dependent results, inactive branches, fixed-unit sheet thickness and atomic rejection; no hidden second unit basis. | Complete typed trigonometric/inverse-trigonometric unit semantics and the remaining dimension-binding audit. |
 | Family | Native values remain mm/degrees; editor and unit labels use document units. | Fractional editing, unit changes, exact no-op, native reopen, shared Undo/Redo and geometry reuse verified. |
 | Drawings | Sheet geometry, pens and annotation sizing explicitly use paper mm. | Separate paper units from model dimension values; audit source units, text/tolerances, PDF/print/DXF output. |
 | Exchange | STEP/IGES/DXF need file-unit interpretation at their existing import/export boundaries. | Verify actual unit metadata and physical extents; no double scaling from document settings. |
@@ -386,3 +386,35 @@ validate the complete import before replacing pending editor data, and commit
 only through the dialog's normal OK transaction. Do not infer model references
 from coincident names or silently import one document's values into another
 binding. Cover quoted separators/newlines, Unicode, invalid data and Cancel.
+
+
+### Ordinary model View dimension labels (2026-10-03)
+
+The active Part/Assembly's numeric context now supplies ordinary model View
+labels with millimetres per displayed length unit and degrees per angular unit.
+One formatter serves painting, the common candidate picker, label position,
+dimension grips and grip dragging. It does not mutate the stored viewer mesh,
+source dimensions, sweep geometry, references, or calculated bodies. Counts
+remain scalar and literal catalog/thread labels remain literal. Native drawing
+renderers keep their own annotation policy and are not wired to this View state.
+
+Automatic labels and numeric-only/basically exact styles convert to mm/cm/m/in
+or deg/rad. Explicit per-dimension decimal formatting is preserved. This stage
+deliberately does not reinterpret text-based manufacturing tolerances or custom
+suffixes: their complete original native-unit annotation remains unchanged.
+Those styles still require the explicit tolerance/specification conversion work
+above; this is a remaining requirement, not a claim that all styled labels now
+follow document units. Repainting must never change an acceptance limit.
+
+Added checks cover ordinary labels, radial/diameter/angle labels, common picking,
+unchanged native values/reference/geometry, scalar counts, literal thread names,
+custom text, explicit style precision and preservation of toleranced labels.
+The inline-edit integration also checks that units from a loaded native Part
+reach the same View label used to start editing. All rebuilt checks passed:
+`zima_cpp_dimension_layout_contract_tests`, `zima_cpp_inline_units_ui_contract`,
+`zima_cpp_ui_contract_tests` and `zima_cpp_translations_contract`. The isolated
+picker fixture explicitly enables the same Dimension selection contract used
+by the application. It checks all eight length/angle unit combinations, label
+hits and all three presentation grips. Existing layout/drag/annotation tests
+continue to pass. The internal invalid-unit diagnostic is translated in all five
+language catalogs; unit symbols themselves are language-independent.

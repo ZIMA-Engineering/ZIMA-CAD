@@ -6278,6 +6278,11 @@ int verify_inline_primitive_dimensions(QApplication& application, const std::fil
                 bool found=false;
                 for(std::size_t i=0;i<view->mesh().dimensions.size()+32;++i){c.geometry_index=i;if(view->candidate_dimension_value(c)){found=true;break;}}
                 check(found,"Editable primitive dimension is absent");
+                if(units_only) {
+                    const auto source=view->dimension_source(c);check(source.has_value(),"Unit label lost its native source");
+                    const auto expected=kernel::dimension_number(*view->candidate_dimension_value(c)/document::length_unit_mm(unit),view->dimension_decimal_places())+unit;
+                    check(view->dimension_label_text(*source).toStdString()==expected,"Loaded document units did not reach the View label");
+                }
                 window.edit_dimension_inline(c);flush();auto* e=view->findChild<QLineEdit*>("inlineDimensionValueEdit");
                 check(e&&e->isVisible(),"Primitive dimension does not open its editor");
                 if(input!="unchanged")e->setText(input.isEmpty()?QString::number(value):input);

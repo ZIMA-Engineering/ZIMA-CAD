@@ -2020,5 +2020,6 @@
   "Invalid numeric expression.": "Недопустимое числовое выражение.",
   "Cannot safely convert relation units.": "Невозможно безопасно преобразовать единицы соотношений.",
   "Invalid value in row %1, column %2.": "Недопустимое значение в строке %1, столбце %2.",
-  "Family dimensions must be finite numbers.": "Размеры семейства должны быть конечными числами."
+  "Family dimensions must be finite numbers.": "Размеры семейства должны быть конечными числами.",
+  "Invalid dimension display units": "Недопустимые единицы отображения размера"
 }

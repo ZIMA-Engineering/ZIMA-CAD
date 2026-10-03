@@ -2020,5 +2020,6 @@
   "Invalid numeric expression.": "Ungültiger numerischer Ausdruck.",
   "Cannot safely convert relation units.": "Die Einheiten der Beziehungen können nicht sicher umgerechnet werden.",
   "Invalid value in row %1, column %2.": "Ungültiger Wert in Zeile %1, Spalte %2.",
-  "Family dimensions must be finite numbers.": "Familienmaße müssen endliche Zahlen sein."
+  "Family dimensions must be finite numbers.": "Familienmaße müssen endliche Zahlen sein.",
+  "Invalid dimension display units": "Ungültige Anzeigeeinheiten für das Maß"
 }

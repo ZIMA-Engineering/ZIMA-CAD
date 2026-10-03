@@ -146,10 +146,68 @@ Q_NEVER_INLINE void verify_vertical_dimension_clearance() {
         }
     std::cout << "Vertical ISO label/arrow clearance passed" << std::endl;
 }
+void verify_model_dimension_units() {
+    kernel::ViewerDimension source;source.value=25.4;source.reference={"part","length",""};
+    source.witness_first={0,0,0};source.witness_second={25.4,0,0};
+    source.line_first={0,8,0};source.line_second={25.4,8,0};source.plane_normal={0,0,1};
+    viewer::MeshView view;view.resize(900,600);view.show();
+    kernel::ViewerMesh mesh;mesh.dimensions.push_back(source);view.set_mesh(mesh);
+    view.set_selection_contract({viewer::CandidateKind::Dimension});view.fit_all();flush();
+    viewer::ViewerCandidate candidate;candidate.kind=viewer::CandidateKind::Dimension;
+    candidate.owner_id="part";candidate.semantic_key="length";candidate.geometry_index=0;
+    for(const auto& [unit,scale]:std::array<std::pair<const char*,double>,4>{{{"mm",1},{"cm",10},{"m",1000},{"in",25.4}}})
+        for(const bool radians:{false,true}) {
+            viewer::DimensionDisplayUnits units{scale,unit,radians?180./std::numbers::pi:1.,radians?"rad":"°"};
+            view.set_dimension_display_units(units);view.set_dimension_decimal_places(6);flush();
+            const auto expected=kernel::dimension_number(25.4/scale,6)+unit;
+            require(view.dimension_label_text(view.mesh().dimensions.front()).toStdString()==expected,
+                "Model dimension text did not follow View units");
+            require(view.candidate_dimension_value(candidate)==25.4&&view.dimension_source(candidate)->value==25.4&&
+                view.mesh().dimensions.front().reference==source.reference&&view.mesh().dimensions.front().witness_second==source.witness_second,
+                "Changing View units modified native values, references or geometry");
+            const auto label=view.candidate_dimension_label_position(candidate);
+            require(label.has_value(),"Converted dimension label lost its screen position");
+            for(int handle=0;handle<3;++handle)require(view.dimension_handle_position(candidate,handle).has_value(),
+                "Converted dimension lost a presentation grip");
+            const auto picked=view.selection_candidates_at(*label);
+            require(std::ranges::any_of(picked,[](const auto& hit){return hit.kind==viewer::CandidateKind::Dimension&&hit.owner_id=="part"&&hit.semantic_key=="length";}),
+                "Converted dimension label is not offered by the common picker");
+            for(const auto kind:{kernel::ViewerDimensionKind::Radius,kernel::ViewerDimensionKind::Diameter,kernel::ViewerDimensionKind::Angular}) {
+                auto d=source;d.kind=kind;d.value=kind==kernel::ViewerDimensionKind::Angular?90:25.4;
+                d.label_prefix=kind==kernel::ViewerDimensionKind::Radius?"R":kind==kernel::ViewerDimensionKind::Diameter?"⌀":"";
+                d.unit_suffix=kind==kernel::ViewerDimensionKind::Angular?"°":"mm";
+                const auto expected=d.label_prefix+kernel::dimension_number(d.value/(kind==kernel::ViewerDimensionKind::Angular?units.degrees_per_unit:scale),6)+
+                    (kind==kernel::ViewerDimensionKind::Angular?units.angle_suffix:unit);
+                require(view.dimension_label_text(d).toStdString()==expected,"Radius, diameter or angular label uses native units");
+                require(d.value==(kind==kernel::ViewerDimensionKind::Angular?90:25.4),"Formatting changed a source dimension");
+            }
+            auto count=source;count.label_only=true;count.unit_suffix.clear();count.label_prefix="N = ";count.value=4;
+            require(view.dimension_label_text(count)=="N = 4","Unit conversion scaled a Pattern count");
+            auto thread=source;thread.display_text_override="M10 × 1.5";
+            require(view.dimension_label_text(thread)==QString::fromUtf8("M10 × 1.5"),"Units modified a thread catalog designation");
+            auto styled=source;kernel::DimensionTextStyle style;style.prefix="A ";style.decimals=5;style.suffix="mm";
+            styled.source_text_style=style;styled.display_text_override=kernel::dimension_text(styled,style);
+            require(view.dimension_label_text(styled).toStdString()=="A "+kernel::dimension_number(25.4/scale,5)+unit,
+                "Generated style text bypassed nominal unit conversion or its explicit precision");
+            style.tolerance_mode="symmetric";style.symmetric_tolerance="0.0005";styled.source_text_style=style;
+            styled.display_text_override=kernel::dimension_text(styled,style);
+            require(view.dimension_label_text(styled).toStdString()==styled.display_text_override,
+                "Repaint silently reinterpreted an authoritative tolerance");
+            style.tolerance_mode.clear();style.suffix=" custom text";styled.source_text_style=style;
+            styled.display_text_override=kernel::dimension_text(styled,style);
+            require(view.dimension_label_text(styled).toStdString()==styled.display_text_override,"Units rewrote an authored custom suffix");
+            styled.source_text_style->text_override="Literal 25.4mm";styled.display_text_override="Literal 25.4mm";
+            require(view.dimension_label_text(styled)=="Literal 25.4mm","Units rewrote a literal text override");
+        }
+    rejects([&]{view.set_dimension_display_units({0,"in",1,"°"});});
+    rejects([&]{view.set_dimension_display_units({1,"mm",-1,"rad"});});
+    view.close();
+}
 int main(int argc, char **argv) {
     QApplication app(argc, argv);
     try {
         verify_occurrence_bounds();
+        verify_model_dimension_units();
         {
             kernel::DimensionTextStyle style;style.tolerance_mode="deviations";
             style.upper_tolerance="0.2";style.lower_tolerance="0.1";

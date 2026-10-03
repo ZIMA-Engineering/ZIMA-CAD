@@ -4,6 +4,7 @@
 
 #include <zima/kernel/geometry_kernel.hpp>
 #include <zima/viewer/picking.hpp>
+#include <zima/viewer/dimension_units.hpp>
 
 #include <QColor>
 #include <QOpenGLFunctions>
@@ -106,6 +107,8 @@ public:
 
     [[nodiscard]] const zima::kernel::ViewerMesh& mesh() const;
     void set_dimension_decimal_places(int decimal_places);
+    void set_dimension_display_units(DimensionDisplayUnits units);
+    [[nodiscard]] QString dimension_label_text(const kernel::ViewerDimension&) const;
     [[nodiscard]] int dimension_decimal_places() const;
     // Read-only viewport ray, using the same camera as the common picker.
     [[nodiscard]] std::optional<std::pair<zima::kernel::Vec3, zima::kernel::Vec3>>
