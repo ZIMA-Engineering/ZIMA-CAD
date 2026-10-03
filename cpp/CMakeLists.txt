@@ -416,7 +416,7 @@ add_library(zima_viewer
     modules/viewer/src/measurement.cpp
     modules/viewer/src/picking.cpp)
 target_include_directories(zima_viewer PUBLIC modules/viewer/include)
-target_link_libraries(zima_viewer PUBLIC zima_kernel_api zima_measurement
+target_link_libraries(zima_viewer PUBLIC zima_kernel_api zima_measurement zima_document_core
     Qt6::Widgets Qt6::OpenGL Qt6::OpenGLWidgets Qt6::Svg)
 
 add_library(zima_drawing_render modules/drawing_render/src/template_image_import.cpp modules/drawing_render/src/sheet_renderer.cpp modules/drawing_render/src/pdf_export.cpp modules/drawing_render/src/dxf_export.cpp modules/drawing_render/src/image_export.cpp)

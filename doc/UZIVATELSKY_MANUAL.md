@@ -885,7 +885,11 @@ tolerance units** identifies the numerical unit of that annotation. **Keep
 trailing zeros** retains the selected number of decimal places, for example
 `1.0000` instead of `1`; it does not change geometry or add a tolerance. Sketch
 properties also support an explicit annotation decimal setting. An annotation
-with its own unit remains in that unit when another document's View units change.
+with its own unit retains its original manufacturing specification when View
+units change. Where the complete specification converts exactly, the View shows
+that exact equivalent. Otherwise it shows the original specification and an
+approximate secondary nominal marked **≈**. The approximate value is outside a
+basic-dimension frame. Display decimal settings do not round manufacturing limits.
 Complete document-unit conversion is still being finalized; see the
 [unit audit](DOCUMENT_UNITS_AUDIT.md) for its current scope.
 

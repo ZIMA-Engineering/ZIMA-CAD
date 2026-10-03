@@ -2025,5 +2025,6 @@
   "Invalid dimension annotation units": "Недопустимые единицы размерной надписи",
   "Jednotky hodnoty a tolerancí": "Единицы номинального значения и допусков",
   "Zachovat koncové nuly": "Сохранять конечные нули",
-  "Invalid dimension text precision": "Недопустимое число десятичных знаков размерной надписи"
+  "Invalid dimension text precision": "Недопустимое число десятичных знаков размерной надписи",
+  "Manufacturing limits remain unchanged. ≈ marks an approximate secondary value when exact conversion is not possible.": "Предельные размеры остаются неизменными. Знак ≈ обозначает приближённое дополнительное значение, если точный перевод невозможен."
 }

@@ -25,6 +25,8 @@ void fractional_family_test(const kernel::OcctKernel& kernel,const fs::path& dir
     auto base=document::PartDocument::create_default();base.name="Fractional base";
     auto box=test::rectangular_feature(base,{10.5,8,6});base.history={box};
     const auto [owner,key]=test::family_length_binding(base,box);
+    auto& annotated=*std::ranges::find(std::ranges::find(base.sketches,owner,&sketcher::Sketch::id)->dimensions,key.substr(10),&sketcher::SketchDimension::id);
+    annotated.tolerance_mode="deviations";annotated.upper_tolerance="0.0254";annotated.lower_tolerance="0.0127";annotated.annotation_decimals=4;
     base.synchronize_dimension_identifiers();
     document::FamilyTable table;table.columns={"Length"};table.bindings["Length"]={"dimension",owner,key};
     table.instances={{"Fractional member",{{"Length","20.25"}}}};
@@ -71,6 +73,12 @@ void fractional_family_test(const kernel::OcctKernel& kernel,const fs::path& dir
         require(live.open_part(id)->session.calculated_boundaries().back().kernel_shape==base_shape&&
             live.open_part(variant)->session.calculated_boundaries().back().kernel_shape==member_shape,
             "Changing Family units recalculated unchanged geometry");
+        for(const auto& document:{id,variant}) {
+            const auto& model=live.open_part(document)->session.document();
+            const auto& annotation=*std::ranges::find(std::ranges::find(model.sketches,owner,&sketcher::Sketch::id)->dimensions,key.substr(10),&sketcher::SketchDimension::id);
+            require(annotation.value_unit.empty()&&annotation.tolerance_mode=="deviations"&&annotation.upper_tolerance=="0.0254"&&annotation.lower_tolerance=="0.0127"&&annotation.annotation_decimals==4,
+                "Family unit conversion rewrote a manufacturing specification");
+        }
         require(live.open_part(variant)->session.document().document_units==settings.units,
             "Family member did not inherit generic units");
         const auto references=workspace::family_references(live,id);

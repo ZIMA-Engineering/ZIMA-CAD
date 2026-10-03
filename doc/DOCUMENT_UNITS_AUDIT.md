@@ -159,12 +159,12 @@ ordinary mm/inch modeling input, and must not turn this work into a global rewri
 
 | Area | Current evidence | Remaining work |
 | --- | --- | --- |
-| Document settings | Repeated mm/cm/m/in switches with rad, geometry reuse, volume, native signatures, save/reopen, Undo/Redo and explicit relation conversion pass. | Complete manufacturing-tolerance conversion and remaining settings consumers. |
+| Document settings | Repeated mm/cm/m/in switches with rad, geometry reuse, volume, native signatures, save/reopen, Undo/Redo and explicit relation conversion pass. | Manufacturing annotations now retain their authoritative basis and derive exact or explicitly approximate View presentation; finish annotation authoring and remaining settings consumers. |
 | Mixed-unit Assemblies | Occurrences consume source calculated geometry; unit labels are not placement scales. | Add explicit mixed-unit/nested Assembly tests and source-unit switching. |
 | Modeling input | Feature parameters and selected Sweep fields now use the shared unit control; conversion/no-op/Cancel tests pass. Other dialogs still have fixed-unit fields. | Continue command-by-command integration, retaining exact canonical values and quantity distinctions. |
 | Container placement | Numeric coordinates, angles and reference offsets now use document-unit controls; canonical values, solving and reference semantics remain unchanged. | Continue dependent GUI verification; no reference or solver redesign is part of this work. |
 | Sketch input | Dimensions, coordinates, radii, offsets and text sizes contain fixed-unit fields. | Convert length/angle input; preserve counts, curve parameters, source geometry and expressions. |
-| View dimensions | Ordinary nominal labels share one document-unit formatter across painting, picking, label position and grips; native values/references remain unchanged. | Finish explicit conversion of manufacturing tolerances/custom specifications; they remain in their original annotation units at this stage. |
+| View dimensions | Ordinary nominal labels share one document-unit formatter across painting, picking, label position and grips; native values/references remain unchanged. | Exact complete specifications convert for display; otherwise show the original specification with an explicitly approximate secondary nominal. Finish authoring-unit controls and drawing/output gates. |
 | Measurements | Length/area/volume and mass use document scale factors. | Verify angular results, reopened records, nested occurrences and labels. |
 | Physical properties | Existing conversion includes area/volume powers, mass and density. | Extend mixed-unit checks and inspect all editable orientation fields. |
 | Relations | Explicit source conversion preserves quantity-dependent results, inactive branches, fixed-unit sheet thickness and atomic rejection; no hidden second unit basis. | Complete typed trigonometric/inverse-trigonometric unit semantics and the remaining dimension-binding audit. |
@@ -479,11 +479,11 @@ text are not interpreted as numbers. Choosing different practical manufacturing
 limits remains an intentional design edit, not unit conversion.
 
 This stage establishes persisted annotation meaning and the shared converter.
-Wiring that preflight into the complete Part/Assembly unit-change transaction,
-including all owned Sketches and Family variants, remains pending. Existing
-Drawing annotation policy remains independent of source Part authoring units.
-End-to-end PDF/DXF/printing checks also remain part of the full audit; formatter
-and serialization checks alone do not establish those output gates.
+The subsequent presentation integration below supersedes the proposed destructive
+style conversion during a document-unit transaction. Drawing annotation policy
+remains independent of source Part authoring units. End-to-end PDF/DXF/printing
+checks remain part of the full audit; formatter and serialization checks alone
+do not establish those output gates.
 
 
 Verification for this stage passed after rebuilding the affected native and GUI
@@ -513,10 +513,47 @@ these empty templates contain no custom annotation styles. The rebuilt
 native templates, normal commands and active first editable context. The final
 property/CLI-only changes do not alter those templates or creation code.
 
-The remaining transaction integration must resolve typed native dimension slots,
-cover standalone and feature-owned Sketches (including Assembly cuts and
-sections), and preflight Family variants before publishing any new unit map.
-Use the existing `visit_feature_sketches` ownership rules. Do not invoke OCCT or
-change references merely to obtain a nominal for a metadata conversion. Numeric
-input and implicit ordinary labels still require their document-unit context;
-explicit manufacturing annotations retain their independently declared basis.
+### Specification-preserving View unit conversion (2026-10-03)
+
+A conversion that preserves today's printed nominal can still change a future
+Family variant or relation result when the converted decimal precision is reused.
+Document-unit changes therefore leave authoritative annotation units, precision
+and deviation strings unchanged. The View derives a complete exact equivalent
+from the current value and original specification whenever its formatter can
+represent that equivalent. This is presentation only and does not invoke OCCT,
+change references, create an undo transaction or rewrite native annotation data.
+
+If exact presentation is unavailable, the original specification remains visible
+with its source unit and an explicitly approximate secondary nominal, for example
+`10mm ±0.01 (≈0.394in)`. The secondary value is derived from the authoritative
+printed nominal, not an unrounded geometry value that might contradict it.
+Only this secondary indication uses the global display decimal count. The
+original manufacturing nominal retains its persisted annotation precision.
+Arbitrary text overrides stay literal; custom suffixes are not interpreted as
+unit tokens. Thread and count labels retain their previous behavior.
+
+The shared text layout uses the effective converted deviations for stacked
+presentation. Approximate text is a separate display run beyond the complete
+primary specification. Basic-dimension frames enclose only the authoritative
+nominal; masking, bounds, picking and grips include the complete visible label.
+The transient text separators are never persisted in documents. File Settings
+explains the approximate marker in all five languages.
+
+Numeric input and new annotation authoring still need their document-unit
+context; those controls, drawing/export policy, mixed Assemblies and remaining
+audit gates must be completed before the final units release. Existing Drawing
+annotations remain independent of source Part authoring units.
+
+
+Verification for specification-preserving presentation passed after rebuilding:
+`zima_cpp_exact_unit_conversion_tests`, `zima_cpp_family_table_tests`,
+`zima_cpp_metadata_command_tests`, `zima_cpp_dimension_layout_contract_tests`,
+`zima_cpp_ui_contract_tests`, `zima_cpp_feature_unit_input_contract` and
+`zima_cpp_translations_contract`. The new layout proof was visually inspected:
+stacked deviations remain readable and the secondary indication is outside the
+basic frame. The common picker and all dimension grips are also exercised.
+The regression suite caught an unwanted addition to a custom suffix; that path
+now preserves the authored annotation, and the affected suite passed again.
+Family checks cover generic/member unit switches with unchanged manufacturing
+strings, shared geometry, Undo/Redo and native reopen. Localization checks cover
+source keys, complete catalogs and actual controls in all five languages.

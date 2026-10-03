@@ -2025,5 +2025,6 @@
   "Invalid dimension annotation units": "Invalid dimension annotation units",
   "Jednotky hodnoty a tolerancí": "Nominal and tolerance units",
   "Zachovat koncové nuly": "Keep trailing zeros",
-  "Invalid dimension text precision": "Invalid dimension text precision"
+  "Invalid dimension text precision": "Invalid dimension text precision",
+  "Manufacturing limits remain unchanged. ≈ marks an approximate secondary value when exact conversion is not possible.": "Manufacturing limits remain unchanged. ≈ marks an approximate secondary value when exact conversion is not possible."
 }

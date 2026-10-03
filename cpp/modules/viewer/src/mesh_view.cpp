@@ -926,8 +926,10 @@ void MeshView::set_dimension_display_units(DimensionDisplayUnits units) {
     impl_->dimension_units=std::move(units);update();
 }
 QString MeshView::dimension_label_text(const kernel::ViewerDimension& dimension)const {
-    return dimension_render_text(dimension,QString::fromStdString(
-        dimension_unit_label(dimension,impl_->dimension_decimal_places,impl_->dimension_units)));
+    const auto label=dimension_unit_presentation(dimension,impl_->dimension_decimal_places,impl_->dimension_units);
+    auto primary=QString::fromStdString(label.primary);
+    if(label.style)primary=dimension_render_text(*label.style,std::move(primary));
+    return dimension_secondary_text(std::move(primary),QString::fromStdString(label.secondary));
 }
 
 void MeshView::set_dimension_decimal_places(int decimal_places) {

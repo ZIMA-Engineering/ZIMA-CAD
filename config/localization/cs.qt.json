@@ -2025,5 +2025,6 @@
   "Invalid dimension annotation units": "Neplatné jednotky anotace kóty",
   "Jednotky hodnoty a tolerancí": "Jednotky hodnoty a tolerancí",
   "Zachovat koncové nuly": "Zachovat koncové nuly",
-  "Invalid dimension text precision": "Neplatný počet desetinných míst textu kóty"
+  "Invalid dimension text precision": "Neplatný počet desetinných míst textu kóty",
+  "Manufacturing limits remain unchanged. ≈ marks an approximate secondary value when exact conversion is not possible.": "Výrobní mezní rozměry se nemění. Znak ≈ označuje přibližnou doplňkovou hodnotu, pokud přesný převod není možný."
 }

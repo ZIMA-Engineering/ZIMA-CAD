@@ -2025,5 +2025,6 @@
   "Invalid dimension annotation units": "Ungültige Einheiten der Maßbeschriftung",
   "Jednotky hodnoty a tolerancí": "Einheiten für Nennmaß und Toleranzen",
   "Zachovat koncové nuly": "Nachgestellte Nullen beibehalten",
-  "Invalid dimension text precision": "Ungültige Dezimalstellenzahl der Maßbeschriftung"
+  "Invalid dimension text precision": "Ungültige Dezimalstellenzahl der Maßbeschriftung",
+  "Manufacturing limits remain unchanged. ≈ marks an approximate secondary value when exact conversion is not possible.": "Die Fertigungsgrenzmaße bleiben unverändert. ≈ kennzeichnet einen ungefähren Zusatzwert, wenn eine exakte Umrechnung nicht möglich ist."
 }

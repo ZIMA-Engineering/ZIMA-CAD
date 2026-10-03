@@ -3,6 +3,11 @@
 #include <zima/kernel/dimension_layout.hpp>
 
 namespace zima::document {
+inline bool dimension_has_specification(const kernel::DimensionTextStyle& style) {
+    return !style.value_unit.empty()||style.keep_trailing_zeros||!style.tolerance_mode.empty()||
+        !style.symmetric_tolerance.empty()||!style.single_tolerance.empty()||
+        !style.upper_tolerance.empty()||!style.lower_tolerance.empty();
+}
 struct DimensionUnitConversion {
     std::optional<kernel::DimensionTextStyle> style;
     // Stable field identifier for a caller's localized, item-specific error.

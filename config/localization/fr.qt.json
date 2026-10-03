@@ -2025,5 +2025,6 @@
   "Invalid dimension annotation units": "Unités d’annotation de cote incorrectes",
   "Jednotky hodnoty a tolerancí": "Unités de la valeur nominale et des tolérances",
   "Zachovat koncové nuly": "Conserver les zéros finaux",
-  "Invalid dimension text precision": "Nombre de décimales du texte de cote incorrect"
+  "Invalid dimension text precision": "Nombre de décimales du texte de cote incorrect",
+  "Manufacturing limits remain unchanged. ≈ marks an approximate secondary value when exact conversion is not possible.": "Les limites de fabrication restent inchangées. ≈ indique une valeur secondaire approximative lorsqu’une conversion exacte est impossible."
 }

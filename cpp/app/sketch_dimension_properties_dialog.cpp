@@ -1,6 +1,7 @@
 #include "sketch_dimension_properties_dialog.hpp"
 #include "dimension_properties_fields.hpp"
 #include "numeric_expression_edit.hpp"
+#include <zima/document/dimension_unit_conversion.hpp>
 
 #include <QCheckBox>
 #include <QComboBox>
@@ -67,7 +68,7 @@ SketchDimensionPropertiesDialog::SketchDimensionPropertiesDialog(
     tabs_=new QTabWidget(this);content_layout()->addWidget(tabs_);
     auto* values=new QWidget(tabs_);auto* column=new QVBoxLayout(values);column->addLayout(form_);
     kernel::DimensionTextStyle style{initial_.prefix,initial_.suffix,initial_.display_text_override,initial_.annotation_decimals,initial_.tolerance_mode,initial_.symmetric_tolerance,initial_.single_tolerance,initial_.upper_tolerance,initial_.lower_tolerance,initial_.value_unit,initial_.keep_trailing_zeros};
-    if(style.value_unit.empty()&&!style.keep_trailing_zeros)style.decimals=ui::numeric_decimal_places(parent);
+    if(!document::dimension_has_specification(style))style.decimals=ui::numeric_decimal_places(parent);
     text_fields_=new DimensionTextFields(style,values,true,angular);column->addWidget(text_fields_);column->addStretch();
     tabs_->addTab(values,tr("Hodnota a tolerance"));
     error_ = new QLabel(this);

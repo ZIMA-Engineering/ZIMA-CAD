@@ -33,22 +33,41 @@ inline QString dimension_render_text(const kernel::DimensionTextStyle& style, QS
 inline QString dimension_render_text(const kernel::ViewerDimension& d,QString text) {
     return d.source_text_style?dimension_render_text(*d.source_text_style,std::move(text)):text;
 }
-struct DimensionTextRun {QString text;QPointF baseline;double scale{1};};
-inline std::vector<DimensionTextRun> dimension_text_runs(const QFont& font,const QString& text) {
-    const auto parts=text.split(QChar(0x1f));
-    if(parts.size()!=3)return {{text,{}}};
-    const QFontMetricsF metrics(font);
-    constexpr double tolerance_scale=.75;
-    const auto decimal=[&](const QString& value){auto index=value.indexOf(',');return tolerance_scale*metrics.horizontalAdvance(index<0?value:value.left(index));};
-    const double left=metrics.horizontalAdvance(parts[0]+" "),align=std::max(decimal(parts[1]),decimal(parts[2]));
-    return {{parts[0],{}},{parts[1],{left+align-decimal(parts[1]),-metrics.height()*tolerance_scale},tolerance_scale},{parts[2],{left+align-decimal(parts[2]),0},tolerance_scale}};
+// A generated secondary indication is outside the authoritative specification.
+// Like the stacked-deviation separator, this encoding is display-only.
+inline QString dimension_secondary_text(QString primary,const QString& secondary) {
+    return secondary.isEmpty()?primary:primary+QChar(0x1e)+secondary;
+}
+inline QString dimension_primary_text(const QString& text) {
+    const auto parts=text.split(QChar(0x1e));
+    return parts.size()==2?parts.front():text;
 }
 inline double dimension_frame_padding(const QFont& font) {
     return .2 * QFontMetricsF(font).capHeight();
 }
+struct DimensionTextRun {QString text;QPointF baseline;double scale{1};};
+inline std::vector<DimensionTextRun> dimension_text_runs(const QFont& font,const QString& text,bool basic=false) {
+    const auto sections=text.split(QChar(0x1e));
+    const auto primary=sections.size()==2?sections.front():text;
+    const auto parts=primary.split(QChar(0x1f));
+    const QFontMetricsF metrics(font);
+    std::vector<DimensionTextRun> runs{{primary,{}}};
+    if(parts.size()==3) {
+        constexpr double tolerance_scale=.75;
+        const auto decimal=[&](const QString& value){auto index=value.indexOf(',');return tolerance_scale*metrics.horizontalAdvance(index<0?value:value.left(index));};
+        const double left=metrics.horizontalAdvance(parts[0]+" "),align=std::max(decimal(parts[1]),decimal(parts[2]));
+        runs={{parts[0],{}},{parts[1],{left+align-decimal(parts[1]),-metrics.height()*tolerance_scale},tolerance_scale},{parts[2],{left+align-decimal(parts[2]),0},tolerance_scale}};
+    }
+    if(sections.size()==2) {
+        double right=0;
+        for(const auto& run:runs)right=std::max(right,run.baseline.x()+run.scale*metrics.horizontalAdvance(run.text));
+        runs.push_back({sections.back(),{right+metrics.horizontalAdvance(" ")+(basic?2*dimension_frame_padding(font):0),0}});
+    }
+    return runs;
+}
 inline double dimension_text_width(const QFont& font,const QString& text,bool basic=false) {
     const QFontMetricsF metrics(font);double width=0;
-    for(const auto& run:dimension_text_runs(font,text))width=std::max(width,run.baseline.x()+run.scale*metrics.horizontalAdvance(run.text));
+    for(const auto& run:dimension_text_runs(font,text,basic))width=std::max(width,run.baseline.x()+run.scale*metrics.horizontalAdvance(run.text));
     return width + (basic ? 2 * dimension_frame_padding(font) : 0);
 }
 struct DimensionTextLabel {
@@ -63,12 +82,12 @@ struct DimensionTextLabel {
 inline QRectF dimension_text_box(const QFont& font, const QString& text, double padding, bool basic=false) {
     const QFontMetricsF metrics(font);
     QRectF bounds;
-    for(const auto& run:dimension_text_runs(font,text)){
+    for(const auto& run:dimension_text_runs(font,text,basic)){
         QTransform transform;transform.translate(run.baseline.x(),run.baseline.y());transform.scale(run.scale,run.scale);
         bounds=bounds.united(transform.mapRect(metrics.tightBoundingRect(run.text)));
     }
     bounds.setLeft(std::min(0., bounds.left()));
-    bounds.setRight(std::max(dimension_text_width(font,text), bounds.right()));
+    bounds.setRight(std::max(dimension_text_width(font,text,basic)-(basic?2*dimension_frame_padding(font):0), bounds.right()));
     if(basic)padding+=dimension_frame_padding(font);
     return bounds.adjusted(-padding, -padding, padding, padding);
 }
@@ -113,13 +132,13 @@ void paint_dimension_text_layer(QPainter& painter, std::span<const DimensionText
         painter.setTransform(transform,true);
         painter.setFont(label.font);
         painter.setPen(label.color);
-        for(const auto& run:dimension_text_runs(label.font,label.text)){
+        for(const auto& run:dimension_text_runs(label.font,label.text,label.basic)){
             painter.save();painter.translate(run.baseline);painter.scale(run.scale,run.scale);painter.drawText(QPointF{},run.text);painter.restore();
         }
         if(label.basic) {
             painter.setBrush(Qt::NoBrush);
             painter.setPen(QPen(label.color,label.frame_width));
-            painter.drawRect(dimension_text_box(label.font,label.text,0,true));
+            painter.drawRect(dimension_text_box(label.font,dimension_primary_text(label.text),0,true));
         }
         painter.restore();
     }

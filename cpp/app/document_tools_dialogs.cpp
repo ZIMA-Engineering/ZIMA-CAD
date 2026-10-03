@@ -305,6 +305,8 @@ FileSettingsDialog::FileSettingsDialog(
         form->addRow(settings.text(QStringLiteral("document.unit.") +
             QString::fromStdString(key).toLower(), QString::fromStdString(key)), combo);
     }
+    auto* annotation_note=new QLabel(tr("Manufacturing limits remain unchanged. ≈ marks an approximate secondary value when exact conversion is not possible."),this);
+    annotation_note->setObjectName("fileAnnotationUnitsNote");annotation_note->setWordWrap(true);form->addRow(annotation_note);
     const auto precision = [&](const char* key, const char* fallback) {
         auto* spin = new QDoubleSpinBox(this);
         spin->setObjectName(QStringLiteral("filePrecision")+QString::fromLatin1(key));

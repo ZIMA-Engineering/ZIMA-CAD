@@ -128,6 +128,8 @@ int verify_translations(QApplication& application, QWidget& parent) {
             const auto part=document::PartDocument::create_default();app::DocumentToolData data;
             data.units=part.document_units;data.precision=part.document_precision;
             app::FileSettingsDialog dialog(data,[](auto){throw document::RelationError(7,3,"Cannot safely convert relation units.","width");},settings,&parent);
+            const auto* annotation_note=dialog.findChild<QLabel*>("fileAnnotationUnitsNote");
+            check(annotation_note&&annotation_note->text()==settings.qt_translations.value("Manufacturing limits remain unchanged. ≈ marks an approximate secondary value when exact conversion is not possible."),"Annotation conversion policy is untranslated");
             dialog.setAttribute(Qt::WA_DeleteOnClose,false);dialog.show();application.processEvents();
             dialog.buttons()->button(QDialogButtonBox::Ok)->click();application.processEvents();
             const auto expected=settings.qt_translations.value("Line %1: %2 %3").arg(7).arg(settings.qt_translations.value("Cannot safely convert relation units."),"width");

@@ -194,8 +194,11 @@ void verify_model_dimension_units() {
                 "Generated style text bypassed nominal unit conversion or its explicit precision");
             style.tolerance_mode="symmetric";style.symmetric_tolerance="0.0005";styled.source_text_style=style;
             styled.display_text_override=kernel::dimension_text(styled,style);
-            require(view.dimension_label_text(styled).toStdString()==styled.display_text_override,
-                "Repaint silently reinterpreted an authoritative tolerance");
+            const std::string tolerance_label=std::string(unit)=="mm"?"A 25,4mm ±0,0005":std::string(unit)=="cm"?"A 2,54cm ±0,00005":
+                std::string(unit)=="m"?"A 0,0254m ±0,0000005":"A 25,4mm ±0,0005 (≈1in)";
+            require(QString(view.dimension_label_text(styled)).replace(QChar(0x1e),' ').toStdString()==tolerance_label,
+                "Converted tolerance is neither exact nor explicitly secondary");
+            require(styled.source_text_style==style,"Rendering rewrote the authoritative tolerance");
             style.tolerance_mode.clear();style.suffix=" custom text";styled.source_text_style=style;
             styled.display_text_override=kernel::dimension_text(styled,style);
             require(view.dimension_label_text(styled).toStdString()==styled.display_text_override,"Units rewrote an authored custom suffix");
@@ -206,6 +209,63 @@ void verify_model_dimension_units() {
     rejects([&]{view.set_dimension_display_units({1,"mm",-1,"rad"});});
     view.close();
 }
+void verify_converted_tolerance_layout() {
+    auto* app=QCoreApplication::instance();const auto previous=app->property("zimaStackedTolerances");
+    app->setProperty("zimaStackedTolerances",true);
+    viewer::MeshView view;view.resize(1000,700);
+    auto font=zima::technical_font();font.setPixelSize(28);view.setFont(font);
+    kernel::ViewerDimension d;d.value=25.4;d.reference={"units-sketch","dimension:test",{}};
+    d.witness_second={25.4,0,0};d.line_first={0,8,0};d.line_second={25.4,8,0};
+    kernel::DimensionTextStyle style;style.value_unit="in";style.suffix="in";style.decimals=4;
+    style.tolerance_mode="deviations";style.upper_tolerance="0.0005";style.lower_tolerance="0.0010";
+    d.source_text_style=style;
+    auto text=view.dimension_label_text(d);auto runs=viewer::dimension_text_runs(font,text);
+    require(runs.size()==3&&runs[0].text=="25,4mm"&&runs[1].text=="+0,01270"&&runs[2].text=="-0,02540",
+        "Exact converted deviations did not use the converted style when stacking");
+    require(d.source_text_style==style,"Stacking changed persisted deviation strings");
+    d.value=10;style.value_unit.clear();style.suffix.clear();style.upper_tolerance="0.01";style.lower_tolerance="0.02";
+    d.source_text_style=style;view.set_dimension_display_units({25.4,"in",1,"°"});view.set_dimension_decimal_places(3);
+    text=view.dimension_label_text(d);runs=viewer::dimension_text_runs(font,text);
+    require(runs.size()==4&&runs[0].text=="10 [mm]"&&runs[1].text=="+0,01"&&runs[2].text=="-0,02"&&runs[3].text==QString::fromUtf8("(≈0,394in)"),
+        "Approximate secondary text disrupted the authoritative stacked specification");
+    const QFontMetricsF metrics(font);
+    for(std::size_t i=0;i<3;++i)require(runs[3].baseline.x()>runs[i].baseline.x()+runs[i].scale*metrics.horizontalAdvance(runs[i].text),
+        "Approximate indication overlaps a deviation");
+    QImage proof(1000,360,QImage::Format_RGB32);proof.fill(Qt::white);
+    {
+        QPainter painter(&proof);
+        const std::array labels{viewer::DimensionTextLabel{text,{40,100},0,font,Qt::black}};
+        viewer::paint_dimension_text_layer(painter,labels,2,[](QPainter& p,const QPainterPath& path){p.fillPath(path,Qt::white);});
+    }
+    style.tolerance_mode="basic";style.upper_tolerance.clear();style.lower_tolerance.clear();d.source_text_style=style;
+    text=view.dimension_label_text(d);runs=viewer::dimension_text_runs(font,text,true);
+    require(runs.size()==2&&runs[0].text=="10 [mm]","Basic dimension lost its authoritative nominal");
+    const auto frame=viewer::dimension_text_box(font,viewer::dimension_primary_text(text),0,true);
+    const auto box=viewer::dimension_text_box(font,text,0,true);
+    require(runs[1].baseline.x()>frame.right()&&box.right()>runs[1].baseline.x()+metrics.horizontalAdvance(runs[1].text),
+        "Basic frame includes approximate value or selection bounds omit it");
+    {
+        QPainter painter(&proof);
+        const std::array labels{viewer::DimensionTextLabel{text,{40,250},0,font,Qt::black,true}};
+        viewer::paint_dimension_text_layer(painter,labels,2,[](QPainter& p,const QPainterPath& path){p.fillPath(path,Qt::white);});
+    }
+    const int top=qRound(250+frame.top()),main_x=qRound(40+frame.center().x()),secondary_x=qRound(40+runs[1].baseline.x()+10);
+    bool main_frame=false;
+    for(int y=top-1;y<=top+1;++y) {
+        main_frame|=proof.pixelColor(main_x,y)!=QColor(Qt::white);
+        require(proof.pixelColor(secondary_x,y)==QColor(Qt::white),"Basic frame was painted across the approximate indication");
+    }
+    require(main_frame,"Authoritative basic nominal has no painted frame");
+    require(proof.save("build/converted-tolerance-layout.png"),"Cannot save converted tolerance proof");
+    kernel::ViewerMesh mesh;mesh.vertices={d.witness_first,d.witness_second,d.line_first,d.line_second};mesh.dimensions={d};
+    view.set_mesh(mesh);view.set_selection_contract({viewer::CandidateKind::Dimension});view.show();view.fit_all();flush();
+    const viewer::ViewerCandidate candidate{viewer::CandidateKind::Dimension,0,0,"units-sketch","dimension:test",{}};
+    const auto position=view.candidate_dimension_label_position(candidate);require(position.has_value(),"Secondary dimension lost its pick position");
+    require(std::ranges::any_of(view.selection_candidates_at(*position),[](const auto& hit){return hit.kind==viewer::CandidateKind::Dimension&&hit.owner_id=="units-sketch";}),
+        "Shared picker omitted a label with an approximate secondary value");
+    for(int handle=0;handle<3;++handle)require(view.dimension_handle_position(candidate,handle).has_value(),"Secondary indication removed a dimension grip");
+    app->setProperty("zimaStackedTolerances",previous);
+}
 void verify_annotation_units() {
     kernel::ViewerDimension d;d.value=25.4;d.reference={"source","length",{}};
     kernel::DimensionTextStyle style;style.value_unit="in";style.suffix="in";style.decimals=4;
@@ -214,8 +274,21 @@ void verify_annotation_units() {
     const auto before=document::dimension_geometry_json(d);
     const auto reopened=document::dimension_geometry_from_json(before);
     require(document::dimension_geometry_json(reopened)==before,"Native viewer packet lost annotation-unit metadata");
-    for(const auto unit:{viewer::DimensionDisplayUnits{},viewer::DimensionDisplayUnits{25.4,"in",1,"°"},viewer::DimensionDisplayUnits{10,"cm",1,"°"}})
-        require(viewer::dimension_unit_label(reopened,2,unit)=="1,0000in ±0,0005","Document display units changed an explicit tolerance specification");
+    for(const auto unit:{viewer::DimensionDisplayUnits{},viewer::DimensionDisplayUnits{25.4,"in",1,"°"},viewer::DimensionDisplayUnits{10,"cm",1,"°"}}) {
+        const auto expected=unit.length_suffix=="mm"?"25,40000mm ±0,01270":unit.length_suffix=="cm"?"2,540000cm ±0,001270":"1,0000in ±0,0005";
+        require(viewer::dimension_unit_label(reopened,2,unit)==expected,"Exact presentation changed a manufacturing limit");
+        require(document::dimension_geometry_json(reopened)==before,"Display conversion changed the persisted specification");
+    }
+    auto future=reopened;future.value=10;
+    require(viewer::dimension_unit_label(future,3,{})=="0,3937in ±0,0005 (≈10mm)","A future dimension value silently changed the original rounded specification");
+    auto metric=d;metric.value=10;metric.source_text_style=kernel::DimensionTextStyle{};
+    metric.source_text_style->tolerance_mode="symmetric";metric.source_text_style->symmetric_tolerance="0.01";
+    metric.display_text_override.clear();
+    require(viewer::dimension_unit_label(metric,3,{25.4,"in",1,"°"})=="10mm ±0,01 (≈0,394in)","Repeating inch conversion changed acceptance limits");
+    metric.value=10.1234;metric.source_text_style->decimals=4;
+    require(viewer::dimension_unit_label(metric,0,{})=="10,1234mm ±0,01","Global display precision changed a manufacturing nominal");
+    metric.kind=kernel::ViewerDimensionKind::Angular;metric.value=90;metric.source_text_style->suffix="°";
+    require(viewer::dimension_unit_label(metric,3,{1,"mm",180./std::numbers::pi,"rad"})=="90° ±0,01 (≈1,571rad)","Angular specification was rounded into a different interval");
     require(kernel::dimension_text(reopened,drawing::sheet_dimension_style(style))=="1,0000in ±0,0005","Sheet formatting stripped or rescaled inch specification");
     app::DimensionTextFields fields(style,nullptr);fields.show();flush();
     require(fields.findChild<QLabel*>("dimensionAnnotationUnits")->text()=="in","Properties show the wrong tolerance unit");
@@ -234,7 +307,7 @@ void verify_annotation_units() {
     require(restored.serialized()==serialized&&restored.dimensions.front()==radius,"Sketch reopen changed explicit manufacturing annotation");
     const auto mesh=restored.viewer_mesh();
     const auto shown=std::ranges::find_if(mesh.dimensions,[](const auto& item){return item.source_text_style&&item.source_text_style->value_unit=="in";});
-    require(shown!=mesh.dimensions.end()&&viewer::dimension_unit_label(*shown,2,{})=="R1,0000in ±0,0005","Sketch View lost its explicit nominal/tolerance units or precision");
+    require(shown!=mesh.dimensions.end()&&viewer::dimension_unit_label(*shown,2,{})=="R25,40000mm ±0,01270","Sketch View lost its explicit nominal/tolerance units or precision");
     auto drawing_value=d;drawing_value.display_text_override.clear();
     require(drawing::drawing_dimension_text(drawing_reopened.front(),drawing_value)=="1,0000in ±0,0005","Drawing dimension formatter lost specification units");
     auto invalid=restored.serialized_json();invalid["dimensions"][0]["value_unit"]="rad";
@@ -259,6 +332,7 @@ int main(int argc, char **argv) {
     QApplication app(argc, argv);
     try {
         verify_annotation_units();
+        verify_converted_tolerance_layout();
         verify_occurrence_bounds();
         verify_model_dimension_units();
         {
