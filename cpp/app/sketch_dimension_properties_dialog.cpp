@@ -69,7 +69,7 @@ SketchDimensionPropertiesDialog::SketchDimensionPropertiesDialog(
     auto* values=new QWidget(tabs_);auto* column=new QVBoxLayout(values);column->addLayout(form_);
     kernel::DimensionTextStyle style{initial_.prefix,initial_.suffix,initial_.display_text_override,initial_.annotation_decimals,initial_.tolerance_mode,initial_.symmetric_tolerance,initial_.single_tolerance,initial_.upper_tolerance,initial_.lower_tolerance,initial_.value_unit,initial_.keep_trailing_zeros};
     if(!document::dimension_has_specification(style))style.decimals=ui::numeric_decimal_places(parent);
-    text_fields_=new DimensionTextFields(style,values,true,angular);column->addWidget(text_fields_);column->addStretch();
+    text_fields_=new DimensionTextFields(style,values,true,angular,true);column->addWidget(text_fields_);column->addStretch();
     tabs_->addTab(values,tr("Hodnota a tolerance"));
     error_ = new QLabel(this);
     error_->setStyleSheet("color: #c64b4b;");

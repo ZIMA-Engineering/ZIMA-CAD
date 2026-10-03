@@ -890,6 +890,10 @@ units change. Where the complete specification converts exactly, the View shows
 that exact equivalent. Otherwise it shows the original specification and an
 approximate secondary nominal marked **≈**. The approximate value is outside a
 basic-dimension frame. Display decimal settings do not round manufacturing limits.
+New model/Sketch tolerances use the document's units; existing specifications
+keep the units shown in their properties. Unchanged confirmation preserves the
+original annotation. Model dimension-label offsets and radial placement angles
+also follow document units; drawing placement continues to use paper mm/degrees.
 Complete document-unit conversion is still being finalized; see the
 [unit audit](DOCUMENT_UNITS_AUDIT.md) for its current scope.
 

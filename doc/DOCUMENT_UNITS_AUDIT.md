@@ -69,13 +69,13 @@ datum references and fit/thread designations. Converting units must not change
 an M thread into a UNC thread, select another stock thickness, or replace an ISO
 fit with an assumed imperial equivalent.
 
-Current dimension tolerances contain strings, and the shared dimension formatter
-trims trailing zeros. These are concrete blockers to claiming complete numerical
-tolerance conversion. Typed numerical tolerance fields may be needed for reliable
-automatic conversion; arbitrary authored text must remain text. Do not guess the
-meaning of digits in notes, identifiers, thread names or material specifications.
-Any data-model change needs a separate traced implementation, template updates
-where required, and persistence tests.
+Dimension tolerance strings retain their authored decimal meaning. The current
+formatter supports an explicit annotation unit, precision and trailing-zero
+policy; the exact decimal converter handles numerical strings without binary
+rounding. Arbitrary authored text must remain text. Do not guess the meaning of
+digits in notes, identifiers, thread names or material specifications. Further
+data-model changes need a traced implementation, template updates where required,
+and persistence tests. See incremental evidence below for completed gates.
 
 Some exact converted limits have no finite decimal representation. Merely storing
 the precise model value is insufficient if the printed drawing communicates
@@ -159,12 +159,12 @@ ordinary mm/inch modeling input, and must not turn this work into a global rewri
 
 | Area | Current evidence | Remaining work |
 | --- | --- | --- |
-| Document settings | Repeated mm/cm/m/in switches with rad, geometry reuse, volume, native signatures, save/reopen, Undo/Redo and explicit relation conversion pass. | Manufacturing annotations now retain their authoritative basis and derive exact or explicitly approximate View presentation; finish annotation authoring and remaining settings consumers. |
+| Document settings | Repeated mm/cm/m/in switches with rad, geometry reuse, volume, native signatures, save/reopen, Undo/Redo and explicit relation conversion pass. | Manufacturing annotations now retain their authoritative basis and derive exact or explicitly approximate View presentation; finish quantity validation and remaining settings consumers. |
 | Mixed-unit Assemblies | Occurrences consume source calculated geometry; unit labels are not placement scales. | Add explicit mixed-unit/nested Assembly tests and source-unit switching. |
 | Modeling input | Feature parameters and selected Sweep fields now use the shared unit control; conversion/no-op/Cancel tests pass. Other dialogs still have fixed-unit fields. | Continue command-by-command integration, retaining exact canonical values and quantity distinctions. |
 | Container placement | Numeric coordinates, angles and reference offsets now use document-unit controls; canonical values, solving and reference semantics remain unchanged. | Continue dependent GUI verification; no reference or solver redesign is part of this work. |
-| Sketch input | Dimensions, coordinates, radii, offsets and text sizes contain fixed-unit fields. | Convert length/angle input; preserve counts, curve parameters, source geometry and expressions. |
-| View dimensions | Ordinary nominal labels share one document-unit formatter across painting, picking, label position and grips; native values/references remain unchanged. | Exact complete specifications convert for display; otherwise show the original specification with an explicitly approximate secondary nominal. Finish authoring-unit controls and drawing/output gates. |
+| Sketch input | Dimension expressions, plane coordinates, spline points, offsets and model text sizes use document units with canonical storage; paper text sizes remain mm. | Finish annotation authoring checks and remaining context boundaries; retain counts and curve parameters. |
+| View dimensions | Ordinary nominal labels share one document-unit formatter across painting, picking, label position and grips; native values/references remain unchanged. | Exact complete specifications convert for display; otherwise show the original specification with an explicitly approximate secondary nominal. New annotation authoring and layout fields now follow document units; finish quantity validation and drawing/output gates. |
 | Measurements | Length/area/volume and mass use document scale factors. | Verify angular results, reopened records, nested occurrences and labels. |
 | Physical properties | Existing conversion includes area/volume powers, mass and density. | Extend mixed-unit checks and inspect all editable orientation fields. |
 | Relations | Explicit source conversion preserves quantity-dependent results, inactive branches, fixed-unit sheet thickness and atomic rejection; no hidden second unit basis. | Complete typed trigonometric/inverse-trigonometric unit semantics and the remaining dimension-binding audit. |
@@ -557,3 +557,44 @@ now preserves the authored annotation, and the affected suite passed again.
 Family checks cover generic/member unit switches with unchanged manufacturing
 strings, shared geometry, Undo/Redo and native reopen. Localization checks cover
 source keys, complete catalogs and actual controls in all five languages.
+
+
+### Annotation authoring context and layout input (2026-10-03)
+
+An unbound model or Sketch annotation begins editing in its document's length
+or angle unit. Confirming unchanged fields returns the original annotation
+exactly; editing only the geometric Sketch value does not bind a new annotation
+basis. Adding a tolerance, a basic frame or other annotation formatting stores
+the explicitly shown authoring basis. Reopening a manufacturing annotation
+retains its existing basis, deviation strings and precision even when document
+units differ. Custom literal text/suffixes retain their original handling.
+Drawing fields do not opt into the model's authoring-unit context.
+
+Model annotation offsets now use the shared canonical-value unit control and
+radial label rotation uses the angular quantity. Merely opening these fields
+does not quantize their stored values. Read-only measured-value labels follow
+document units while scalar counts remain scalar. Drawing annotation placement
+retains its existing paper-mm and degree controls. This changes annotation UI
+boundaries only, not container placement, references, geometry or side choices.
+
+After rebuilding, the authoring matrix passed all mm/cm/m/in × deg/rad pairs:
+new annotation basis, unchanged properties, tolerance commit/reopen/Cancel,
+unchanged canonical Sketch values, exact no-op layout, offset/rotation entry,
+read-only measured labels and independent Drawing fields. The new numeric-input
+fixture explicitly selects the C locale for its dot-decimal test strings.
+
+Passed gates: `zima_cpp_feature_unit_input_contract`,
+`zima_cpp_dimension_layout_contract_tests`, `zima_cpp_inline_units_ui_contract`,
+`zima_cpp_translations_contract` and `zima_cpp_measurement_dimension_ui_contract`.
+The general `zima_cpp_ui_contract_tests` initially failed its existing plane
+click/hover check during a combined run; an isolated repeat passed without any
+production change to that path. This transient result is recorded rather than
+claimed as a fixed plane-selection defect. No new UI strings or native fields
+were introduced in this authoring stage. All existing labels remain covered by
+the five-language source/catalog and actual-control verification.
+
+Remaining annotation work includes quantity validation at model-layout command
+boundaries and the complete drawing/export unit policy. In particular, known
+unit-token validation alone does not prove that an angular unit belongs to a
+length parameter. The typed dimension-binding audit must close that gap without
+invoking OCCT during Properties or changing reference identities.

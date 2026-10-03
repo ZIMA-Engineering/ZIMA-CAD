@@ -16,12 +16,28 @@
 #include <functional>
 #include <zima/kernel/dimension_layout.hpp>
 #include <zima/ui/properties_subwindow.hpp>
+#include <zima/ui/unit_spin_box.hpp>
+#include <zima/document/dimension_unit_conversion.hpp>
 namespace zima::app {
 class DimensionTextFields final : public QWidget {
   public:
-    DimensionTextFields(kernel::DimensionTextStyle initial, QWidget *parent, bool precision = true, bool angular = false)
+    DimensionTextFields(kernel::DimensionTextStyle initial, QWidget *parent, bool precision = true, bool angular = false, bool document_units = false)
         : QWidget(parent), initial_(initial) {
         form_ = new QFormLayout(this);
+        // Existing manufacturing annotations retain their declared basis.
+        // Only an unbound new specification starts in the document's units.
+        const auto native_unit=angular?"deg":"mm";
+        const auto native_suffix=angular?QString::fromUtf8("°"):QStringLiteral("mm");
+        const auto suffix=QString::fromStdString(initial.suffix).trimmed();
+        if(document_units&&!document::dimension_has_specification(initial)&&initial.text_override.empty()&&
+            (suffix.isEmpty()||suffix==native_suffix)) {
+            const auto selected=ui::document_unit(parent,angular?"Angle":"Length",native_unit);
+            if(selected!=native_unit) {
+                initial.value_unit=selected.toStdString();
+                if(!initial.suffix.empty())initial.suffix=selected=="deg"?"°":selected.toStdString();
+            }
+        }
+        displayed_initial_=initial;
         const auto unit=initial.value_unit.empty()?(angular?"deg":"mm"):initial.value_unit;
         annotation_unit_=unit;
         auto* units=new QLabel(QString::fromStdString(unit=="deg"?"°":unit),this);
@@ -82,10 +98,11 @@ class DimensionTextFields final : public QWidget {
     void set_angular_quantity(bool angular) {
         annotation_unit_=angular?"deg":"mm";
         if(!initial_.value_unit.empty())initial_.value_unit=annotation_unit_;
+        if(!displayed_initial_.value_unit.empty())displayed_initial_.value_unit=annotation_unit_;
         findChild<QLabel*>("dimensionAnnotationUnits")->setText(angular?QString::fromUtf8("°"):QStringLiteral("mm"));
     }
     kernel::DimensionTextStyle value() const {
-        auto result = initial_;
+        auto result = displayed_initial_;
         result.prefix = prefix_->text().toStdString();
         result.suffix = suffix_->text().toStdString();
         result.text_override = display_text_override_->text().trimmed().toStdString();
@@ -97,15 +114,16 @@ class DimensionTextFields final : public QWidget {
 
         result.decimals = decimals_->value();
         result.keep_trailing_zeros=trailing_zeros_->isChecked();
-        if(result.value_unit.empty()&&(result.keep_trailing_zeros!=initial_.keep_trailing_zeros||result.decimals!=initial_.decimals||
-            result.tolerance_mode!=initial_.tolerance_mode||result.symmetric_tolerance!=initial_.symmetric_tolerance||
-            result.single_tolerance!=initial_.single_tolerance||result.upper_tolerance!=initial_.upper_tolerance||result.lower_tolerance!=initial_.lower_tolerance))
+        if(result==displayed_initial_)return initial_;
+        if(result.value_unit.empty()&&(result.keep_trailing_zeros!=displayed_initial_.keep_trailing_zeros||result.decimals!=displayed_initial_.decimals||
+            result.tolerance_mode!=displayed_initial_.tolerance_mode||result.symmetric_tolerance!=displayed_initial_.symmetric_tolerance||
+            result.single_tolerance!=displayed_initial_.single_tolerance||result.upper_tolerance!=displayed_initial_.upper_tolerance||result.lower_tolerance!=displayed_initial_.lower_tolerance))
             result.value_unit=annotation_unit_;
         return result;
     }
 
   private:
-    kernel::DimensionTextStyle initial_;
+    kernel::DimensionTextStyle initial_,displayed_initial_;
     QCheckBox* trailing_zeros_{};
     std::string annotation_unit_;
     QFormLayout *form_{};
@@ -159,12 +177,18 @@ class DimensionPlacementFields final : public QWidget {
         attach_->setObjectName("dimensionEnvelopeAttachment");
         attach_->setChecked(initial.envelope_offset.has_value());
         form_->addRow(attach_);
-        const auto field = [&](const char *name, double value) {
-            auto *f = new QDoubleSpinBox(this);
+        const auto field = [&](const char *name, double value,ui::InputQuantity quantity=ui::InputQuantity::Length) {
+            QDoubleSpinBox* f;
+            if(drawing) {
+                f=new QDoubleSpinBox(this);
+                f->setDecimals(ui::numeric_decimal_places(parent));
+                f->setSuffix(quantity==ui::InputQuantity::Angle?QString::fromUtf8("°"):QStringLiteral("mm"));
+            } else {
+                auto* units=new ui::UnitDoubleSpinBox(quantity,this);
+                units->set_display_decimals(ui::numeric_decimal_places(parent));f=units;
+            }
             f->setObjectName(name);
             f->setRange(-1000000, 1000000);
-            f->setDecimals(ui::numeric_decimal_places(parent));
-            f->setSuffix("mm");
             f->setValue(value);
             return f;
         };
@@ -183,8 +207,7 @@ class DimensionPlacementFields final : public QWidget {
             form_->setRowVisible(attach_, false);
             form_->setRowVisible(offset_, false);
         }
-        rotation_ = field("dimensionRadiusRotation", initial.radius_rotation_degrees);
-        rotation_->setSuffix("°");
+        rotation_ = field("dimensionRadiusRotation", initial.radius_rotation_degrees,ui::InputQuantity::Angle);
         form_->addRow(tr("Poloha šipky na kružnici"), rotation_);
         form_->setRowVisible(rotation_, dimension.kind == kernel::ViewerDimensionKind::Radius ||
                                             dimension.kind == kernel::ViewerDimensionKind::Diameter);
@@ -256,15 +279,19 @@ class DimensionPropertiesDialog final : public ui::PropertiesSubWindow {
         content_layout()->addWidget(tabs);
         auto *page = new QWidget(tabs);
         auto *column = new QVBoxLayout(page);
+        const bool angular=dimension.kind==kernel::ViewerDimensionKind::Angular;
+        const bool scalar=dimension.label_only&&dimension.unit_suffix.empty();
+        const auto unit=ui::document_unit(parent,angular?"Angle":"Length",angular?"deg":"mm");
+        const double scale=scalar?1.:kernel::dimension_annotation_scale(unit.toStdString(),dimension.kind);
+        const auto suffix=scalar?QString{}:unit=="deg"?QString::fromUtf8("°"):unit;
         auto *value =
             new QLabel(tr("Měřená hodnota: %1%2")
-                           .arg(dimension.value, 0, 'f', ui::numeric_decimal_places(parent))
-                           .arg(QString::fromStdString(kernel::dimension_unit_text(dimension.unit_suffix))),
-                       page);
+                           .arg(dimension.value/scale, 0, 'f', ui::numeric_decimal_places(parent))
+                           .arg(suffix),page);
         value->setObjectName("dimensionMeasuredValue");
         column->addWidget(value);
         text_ = new DimensionTextFields(initial.text_style.value_or(kernel::dimension_text_style(dimension)),
-                                        page,true,dimension.kind==kernel::ViewerDimensionKind::Angular);
+                                        page,true,angular,!scalar);
         column->addWidget(text_);
         column->addStretch();
         placement_ = new DimensionPlacementFields(dimension, initial, tabs);

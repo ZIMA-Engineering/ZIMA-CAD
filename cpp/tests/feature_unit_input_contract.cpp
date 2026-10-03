@@ -16,6 +16,7 @@
 #include "shaft_thread_dialog.hpp"
 #include "mass_properties_dialog.hpp"
 #include "document_tools_dialogs.hpp"
+#include "dimension_properties_fields.hpp"
 #include <QTableWidget>
 #include <zima/document/physical_properties.hpp>
 #include <zima/ui/unit_spin_box.hpp>
@@ -30,11 +31,13 @@
 #include <filesystem>
 #include <numbers>
 #include <stdexcept>
+#include <source_location>
 
 namespace {
 void check(bool value,const char* message) {if(!value)throw std::runtime_error(message);}
-void near(double actual,double expected) {
-    check(std::abs(actual-expected)<1e-10*std::max(1.,std::abs(expected)),"Feature input changed canonical units");
+void near(double actual,double expected,std::source_location where=std::source_location::current()) {
+    if(std::abs(actual-expected)>=1e-10*std::max(1.,std::abs(expected)))
+        throw std::runtime_error("Feature input changed canonical units at line "+std::to_string(where.line())+": "+std::to_string(actual)+" vs "+std::to_string(expected));
 }
 void enter(QDoubleSpinBox* field,const QString& text) {
     check(field,"Feature numeric field is missing");
@@ -191,6 +194,68 @@ void placement_and_pattern_inputs(QApplication& application,QWidget& parent,doub
     dialog->buttons()->button(QDialogButtonBox::Ok)->click();application.processEvents();
     check(commits==1&&stored&&stored->source_document_id==component.source_document_id,"Component units changed ownership or commit count");
 }
+void annotation_inputs(QApplication& application,QWidget& parent,double scale,double angle_scale) {
+    using namespace zima;
+    for(const bool angular:{false,true}) {
+        const auto unit=ui::document_unit(&parent,angular?"Angle":"Length",angular?"deg":"mm").toStdString();
+        const auto symbol=unit=="deg"?QString::fromUtf8("°"):QString::fromStdString(unit);
+        kernel::DimensionTextStyle initial;initial.suffix=angular?"°":"mm";
+        app::DimensionTextFields fields(initial,&parent,true,angular,true);
+        check(fields.findChild<QLabel*>("dimensionAnnotationUnits")->text()==symbol,"New annotation uses canonical instead of document units");
+        check(fields.value()==initial,"Unchanged annotation properties bound or rewrote units");
+        auto* mode=fields.findChild<QComboBox*>("sketchDimensionToleranceMode");mode->setCurrentIndex(mode->findData("symmetric"));
+        fields.findChild<QLineEdit*>("sketchSymmetricTolerance")->setText("0.0010");
+        const auto specification=fields.value();
+        check(specification.value_unit==unit&&specification.symmetric_tolerance=="0.0010","New tolerance did not retain its authored unit/string");
+        check(specification.suffix==symbol.toStdString(),"New annotation still shows a native-unit suffix");
+        kernel::ViewerDimension d;d.kind=angular?kernel::ViewerDimensionKind::Angular:kernel::ViewerDimensionKind::Linear;
+        d.value=angular?90:25.4;
+        app::DimensionPropertiesDialog model(d,{},[](auto){},&parent);
+        const auto measured=model.findChild<QLabel*>("dimensionMeasuredValue")->text();
+        const auto expected=QString::number(d.value/(angular?angle_scale:scale),'f',3)+symbol;
+        check(measured.endsWith(expected),"Measured model dimension label ignores document units");
+        model.reject();
+        auto old=initial;old.decimals=7;old.tolerance_mode="symmetric";old.symmetric_tolerance="0.00254";
+        app::DimensionTextFields existing(old,&parent,true,angular,true);
+        check(existing.value()==old&&existing.findChild<QLabel*>("dimensionAnnotationUnits")->text()==(angular?QString::fromUtf8("°"):QStringLiteral("mm")),
+            "Reopening an existing manufacturing specification changed its basis");
+        app::DimensionTextFields paper(initial,&parent,true,angular);
+        check(paper.value()==initial&&paper.findChild<QLabel*>("dimensionAnnotationUnits")->text()==(angular?QString::fromUtf8("°"):QStringLiteral("mm")),
+            "Model units leaked into Drawing annotations");
+        sketcher::SketchDimension sketch{"annotation",angular?sketcher::DimensionKind::AngleBetween:sketcher::DimensionKind::Distance,"first","second",d.value};
+        sketch.suffix=initial.suffix;
+        std::optional<sketcher::SketchDimension> saved;
+        auto* dialog=new app::SketchDimensionPropertiesDialog(sketch,true,[&](auto result){saved=std::move(result);},&parent);
+        mode=dialog->findChild<QComboBox*>("sketchDimensionToleranceMode");mode->setCurrentIndex(mode->findData("symmetric"));
+        dialog->findChild<QLineEdit*>("sketchSymmetricTolerance")->setText("0.0010");
+        dialog->buttons()->button(QDialogButtonBox::Ok)->click();application.processEvents();
+        check(saved&&saved->value==sketch.value&&saved->value_unit==unit&&saved->symmetric_tolerance=="0.0010"&&saved->suffix==symbol.toStdString(),
+            "Sketch tolerance commit changed geometry or lost document units");
+        const auto original=*saved;saved.reset();
+        dialog=new app::SketchDimensionPropertiesDialog(original,true,[&](auto result){saved=std::move(result);},&parent);
+        dialog->buttons()->button(QDialogButtonBox::Ok)->click();application.processEvents();
+        check(saved&&*saved==original,"Reopened tolerance properties changed the saved specification");
+        saved.reset();dialog=new app::SketchDimensionPropertiesDialog(original,true,[&](auto result){saved=std::move(result);},&parent);
+        dialog->findChild<QLineEdit*>("sketchSymmetricTolerance")->setText("99");dialog->reject();application.processEvents();
+        check(!saved,"Cancel committed a tolerance edit");
+    }
+    kernel::ViewerDimension d;d.kind=kernel::ViewerDimensionKind::Radius;
+    kernel::DimensionLayout initial;initial.text_along=.123456789123;initial.text_outward=-.234567891234;initial.line_offset=.345678912345;
+    initial.radius_rotation_degrees=12.3456789123;initial.envelope_offset=.456789123456;
+    app::DimensionPlacementFields placement(d,initial,&parent);placement.setLocale(QLocale::c());
+    check(placement.value()==initial,"Unchanged annotation placement quantized canonical values");
+    for(const auto name:{"dimensionEnvelopeOffset","dimensionTextAlong","dimensionTextOutward","dimensionTextTransverse"}) {
+        auto* field=dynamic_cast<ui::UnitDoubleSpinBox*>(placement.findChild<QDoubleSpinBox*>(name));
+        // UnitDoubleSpinBox intentionally has no Q_OBJECT; use dynamic_cast.
+        check(field&&field->native_per_unit()==scale,"Model annotation offset ignores document units");
+        enter(field,".125");near(field->value(),.125*scale);
+    }
+    auto* rotation=dynamic_cast<ui::UnitDoubleSpinBox*>(placement.findChild<QDoubleSpinBox*>("dimensionRadiusRotation"));
+    check(rotation&&rotation->native_per_unit()==angle_scale,"Radial annotation angle ignores document units");enter(rotation,".25");near(placement.value().radius_rotation_degrees,.25*angle_scale);
+    app::DimensionPlacementFields paper(d,initial,&parent,true);
+    check(paper.findChild<QDoubleSpinBox*>("dimensionTextAlong")->suffix()=="mm"&&paper.findChild<QDoubleSpinBox*>("dimensionRadiusRotation")->suffix()==QString::fromUtf8("°"),
+        "Model units leaked into paper-space annotation layout");
+}
 void sketch_inputs(QApplication& application,QWidget& parent,double scale,double angle_scale) {
     using namespace zima;
     for(const auto quantity:{ui::InputQuantity::Length,ui::InputQuantity::Angle}) {
@@ -273,6 +338,7 @@ int verify_feature_unit_input(QApplication& app,QWidget& parent) {
         const double scale=document::length_unit_mm(unit);
         const double angle_scale=QString(angular)=="rad"?180./std::numbers::pi:1.;
         sketch_inputs(app,parent,scale,angle_scale);
+        annotation_inputs(app,parent,scale,angle_scale);
         family_inputs(app,parent,scale,angle_scale);
         placement_and_pattern_inputs(app,parent,scale,angle_scale);
         const auto check_primitive=[&](document::HistoryContainer initial,const char* length_name,
