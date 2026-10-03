@@ -1,4 +1,6 @@
 {
+  "Twist": "Verdrehen",
+  "Smooth twist transitions": "Sanfter Beginn und Auslauf der Verdrehung",
   "Straightening requires coincident profile centroids and tangent-continuous directions.": "Das Geraderichten erfordert übereinstimmende Profilschwerpunkte und tangentenstetige Richtungen.",
   "Solid state container does not exist.": "Der Körperzustandscontainer existiert nicht.",
   "Read solid state properties without calculation.": "Eigenschaften des Körperzustands ohne Berechnung lesen.",

@@ -17,14 +17,23 @@ namespace zima::viewer {
 inline QString dimension_render_text(const kernel::DimensionTextStyle& style, QString text) {
     if(!QCoreApplication::instance() || !QCoreApplication::instance()->property("zimaStackedTolerances").toBool()
         || style.tolerance_mode!="deviations" || !style.text_override.empty())return text;
-    const auto upper=QString::fromStdString(kernel::dimension_decimal_text(style.upper_tolerance));
-    const auto lower=QString::fromStdString(kernel::dimension_decimal_text(style.lower_tolerance));
-    const auto tail=" +"+upper+" /-"+lower;
+    auto upper=QString::fromStdString(kernel::dimension_decimal_text(style.upper_tolerance));
+    auto lower=QString::fromStdString(kernel::dimension_decimal_text(style.lower_tolerance));
+    auto tail=" +"+upper+" /-"+lower;
+    if(style.value_unit=="in"&&!text.endsWith(tail)) {
+        const auto inch=[](QString value) {
+            value.replace(',','.');
+            if(value.startsWith("0."))value.remove(0,1);
+            else if(value.startsWith("+0.")||value.startsWith("-0."))value.remove(1,1);
+            return value;
+        };
+        upper=inch(upper);lower=inch(lower);tail=" +"+upper+" /-"+lower;
+    }
     if(!text.endsWith(tail))return text;
     text.chop(tail.size());
-    const auto deviation=[](QString value,QChar sign) {
+    const auto deviation=[&](QString value,QChar sign) {
         bool ok=false;const auto number=QString(value).replace(',','.').toDouble(&ok);
-        if(ok&&number==0)return QStringLiteral("0");
+        if(ok&&number==0&&style.value_unit!="in")return QStringLiteral("0");
         if(value.startsWith('+')||value.startsWith('-'))return value;
         return sign+value;
     };
@@ -54,7 +63,7 @@ inline std::vector<DimensionTextRun> dimension_text_runs(const QFont& font,const
     std::vector<DimensionTextRun> runs{{primary,{}}};
     if(parts.size()==3) {
         constexpr double tolerance_scale=.75;
-        const auto decimal=[&](const QString& value){auto index=value.indexOf(',');return tolerance_scale*metrics.horizontalAdvance(index<0?value:value.left(index));};
+        const auto decimal=[&](const QString& value){auto index=value.indexOf(',');if(index<0)index=value.indexOf('.');return tolerance_scale*metrics.horizontalAdvance(index<0?value:value.left(index));};
         const double left=metrics.horizontalAdvance(parts[0]+" "),align=std::max(decimal(parts[1]),decimal(parts[2]));
         runs={{parts[0],{}},{parts[1],{left+align-decimal(parts[1]),-metrics.height()*tolerance_scale},tolerance_scale},{parts[2],{left+align-decimal(parts[2]),0},tolerance_scale}};
     }

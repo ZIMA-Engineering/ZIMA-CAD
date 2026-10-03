@@ -999,11 +999,23 @@ corners and choose matching start points. Neighboring point counts must agree or
 calculation reports an error. Edit inherited profiles at their source station.
 See [3D Curve and Sweep](3D_CURVE_AND_SWEEP.md).
 
+## Modeling Twist
+
+Choose **Twist** in Modeling with an active editable Body. Its shared Feature
+editor uses one closed profile Sketch, an axial length, an angle, a direction
+and a linear or smooth transition. The Sketch defines one connected filled
+profile, optionally with holes. The axis follows the Sketch normal through the area
+centroid of the filled profile. OK calculates and commits the solid; Cancel
+discards pending changes. Restore shape returns a straightened Twist to its
+authored geometry. Disconnected regions, separate Sketch stations and surface
+results are not supported.
+
 ## Straighten and Restore shape
 
 These Modeling commands follow the Sweep commands and require an active editable
-Body. They operate on additive solid Revolutions and 2D/3D/Helical Sweeps with a
-constant cross-section. These commands are included from build 2026100301; they
+Body. They operate on additive solid Revolutions, combined profile Features
+with a curved side, Modeling Twist and 2D/3D/Helical Sweeps with a constant
+cross-section. These commands are included from build 2026100301; they
 are not present in Windows 2026100201 and earlier.
 
 1. Choose **Straighten** and keep **All eligible elements**, or select individual
@@ -1017,6 +1029,17 @@ are not present in Windows 2026100201 and earlier.
    confirming unchanged values does not recalculate or create an Undo step.
 4. Add **Restore shape** to return eligible straight sources to their authored
    curved trajectories, retaining supported intervening modifications.
+
+Clicking the calculated model selects its original feature in the Tree.
+Double-click displays the entire original feature as a blue wire with its
+original dimensions at the authored location. The calculated current body stays
+visible. Escape closes this inspection. Properties and Sketch editing use the
+feature's normal creation boundary; the authored Origin is never moved.
+
+Sheet Cut axes follow the calculated sheet state. After Unbend, the folded axis
+disappears and a separate axis is displayed at the unfolded cut. Bend Back
+restores its folded location. Old cached calculations require explicit
+Regenerate once after installing this correction.
 
 For a following profile, use the preceding end face, optionally with a point,
 two points, or a straight edge and point on that section. The filled-profile

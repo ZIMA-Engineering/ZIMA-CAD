@@ -805,7 +805,7 @@ private:
     void show_primitive_properties(
         zima::document::FeatureKind feature_kind,
         const std::string& container_id = {}, bool sheet_metal = false,
-        std::optional<zima::document::FeatureType> feature_preset = {}, bool rotation_preset = false);
+        std::optional<zima::document::FeatureType> feature_preset = {}, bool rotation_preset = false, bool twist_preset = false);
     void show_sweep_properties(zima::document::FeatureKind kind, const std::string& container_id,bool rectangular=false);
     void show_sweep2d_properties(const std::string& container_id = {});
     void show_helical_sweep_properties(const std::string& container_id = {});

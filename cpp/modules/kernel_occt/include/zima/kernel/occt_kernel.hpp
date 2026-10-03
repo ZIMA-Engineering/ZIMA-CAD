@@ -19,6 +19,8 @@ public:
         const RevolutionRequest& source, double coefficient = 1.0) const;
     [[nodiscard]] SolidStraighteningPlan prepare_straightening(
         const Sweep3DRequest& source, double coefficient = 1.0) const;
+    [[nodiscard]] SolidStraighteningPlan prepare_straightening(
+        const FeatureGroupRequest& source, double coefficient = 1.0) const;
     [[nodiscard]] std::vector<BodyResult> evaluate_history(
         const std::vector<HistoryOperation>& operations) const override;
     [[nodiscard]] std::vector<BodyResult> evaluate_history_incremental(

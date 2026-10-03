@@ -1,4 +1,4 @@
-#include <zima/document/solid_state_calculation.hpp>
+#include "group_solid_state_calculation.hpp"
 #include <zima/workspace/family_operations.hpp>
 #include <zima/workspace/relation_operations.hpp>
 #include <numbers>
@@ -110,7 +110,12 @@ void assign_feature(document::HistoryContainer& f,const std::string& key,double 
     const bool signed_value=key=="profile_offset"||key.ends_with("draft_angle")||(f.feature_kind==FeatureKind::SheetTransition&&key.starts_with("end_"));
     if(!signed_value && value<=0&&!zero_bend_angle)throw std::invalid_argument("Family feature dimensions must be positive.");
     if(key.ends_with("draft_angle")&&std::abs(value)>=90)throw std::invalid_argument("Draft angle must be between -90 and 90 degrees.");
-    if(f.feature_kind==FeatureKind::Feature&&(key=="side0_angle"||key=="side1_angle")&&value>360)throw std::invalid_argument("Revolution angle must be in (0, 360]");
+    if(f.feature_kind==FeatureKind::Feature&&(key=="side0_angle"||key=="side1_angle")) {
+        const auto side=key=="side0_angle"?0:1;
+        const bool twist=f.feature.sides[side].operation==document::FeatureSideOperation::Twist;
+        if(value>(twist?36000:360))throw std::invalid_argument(twist?
+            "The family angle is outside its allowed range.":"Revolution angle must be in (0, 360]");
+    }
     if((f.feature_kind==FeatureKind::Revolution&&(key=="angle"||key=="length_reverse")&&value>360) ||
         (f.feature_kind==FeatureKind::Bend&&key=="angle"&&value>180) ||
         (key=="treatment_angle"&&value>=90) || ((key=="drill_point_angle"||key=="chamfer_angle")&&value>=180))
@@ -370,12 +375,12 @@ template<class Doc> Doc merge_member(const Doc& base,const Doc& before,Doc next)
 }
 std::vector<kernel::BodyResult> evaluated_part(document::PartDocument& next,
     const std::vector<kernel::BodyResult>& previous,const kernel::OcctKernel& kernel) {
-    const auto operations=document::solid_state_calculation_operations(next,&previous);
+    const auto operations=group_solid_state_cached_operations(next,&previous);
     bool exact=previous.size()==operations.size();
     for(std::size_t i=0;exact&&i<previous.size();++i)exact=previous[i].source_fingerprint==kernel::history_fingerprint(operations,i+1);
     if(exact)return previous;
     auto calculated=calculate_part_with_resolved_references(kernel,next,&previous,{true});
-    const auto resolved=document::solid_state_calculation_operations(next,&calculated);
+    const auto resolved=group_solid_state_cached_operations(next,&calculated);
     exact=calculated.size()==resolved.size();
     for(std::size_t i=0;exact&&i<calculated.size();++i)exact=calculated[i].source_fingerprint==kernel::history_fingerprint(resolved,i+1);
     if(!exact)calculated=calculate_part(kernel,next,&calculated,{true});

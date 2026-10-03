@@ -12,6 +12,7 @@
 #include <zima/document/viewer_packet_json.hpp>
 #include <zima/document/solid_state_reference_views.hpp>
 #include <zima/document/solid_state_calculation.hpp>
+#include "group_solid_state_calculation.hpp"
 #include <nlohmann/json.hpp>
 #include <algorithm>
 #include <array>
@@ -47,9 +48,23 @@ std::vector<zima::kernel::BodyResult> calculate_part(
         auto repaired=document;
         if(refresh_removed_reference_states(repaired))return calculate_part(kernel,repaired,previous,policy);
     }
-    const auto operations = document::solid_state_calculation_operations(document,previous);
+    const auto operations = group_solid_state_operations(kernel,document,previous);
+    // Explicit calculation must rebuild combined solid states from their real
+    // source geometry, rather than accept a persisted final-state snapshot.
+    // Retain the valid source prefix; opening and unchanged OK never get here.
+    std::vector<kernel::BodyResult> source_prefix;
+    auto calculation_input=previous;
+    if(previous&&std::ranges::any_of(operations,[](const auto& op) {
+        return std::holds_alternative<kernel::FeatureGroupRequest>(op.primitive)&&kernel::solid_state_candidate(op);
+    })) {
+        const auto state=std::ranges::find_if(operations,[](const auto& op){return std::holds_alternative<kernel::SolidStateRequest>(op.primitive);});
+        if(state!=operations.end()) {
+            const auto count=std::min(previous->size(),static_cast<std::size_t>(state-operations.begin()));
+            source_prefix.assign(previous->begin(),previous->begin()+count);calculation_input=&source_prefix;
+        }
+    }
     auto calculated = kernel.evaluate_history_recovering(operations,
-        previous == nullptr ? std::vector<zima::kernel::BodyResult>{} : *previous);
+        calculation_input == nullptr ? std::vector<zima::kernel::BodyResult>{} : *calculation_input);
     validate_part_calculation(document,calculated,policy);
     return calculated;
 }
@@ -125,7 +140,7 @@ calculate_part_reference_state(
             document.constructions == constructions_before &&
             document.body_history.bodies() == bodies_before &&
             (calculated.empty() || calculated.back().source_fingerprint ==
-                kernel::history_fingerprint(document::solid_state_calculation_operations(document,&calculated),calculated.size()))) {
+                kernel::history_fingerprint(group_solid_state_cached_operations(document,&calculated),calculated.size()))) {
             if(!document.sections.empty()){
                 auto geometry=construction_reference_source_geometry(calculated);
                 append_reference_geometry(geometry,document.origin_viewer_mesh().original_references);
@@ -271,7 +286,7 @@ PartRegenerationResult regenerate_part(Workspace& workspace,
         // fingerprint differs, rather than attaching the new result to the old
         // document. Keep authored side data and the fingerprint format intact.
         (!calculated.empty() && calculated.back().source_fingerprint !=
-            kernel::history_fingerprint(document::solid_state_calculation_operations(previous,&calculated),calculated.size()))) {
+            kernel::history_fingerprint(group_solid_state_cached_operations(previous,&calculated),calculated.size()))) {
         part->session.commit(std::move(next), std::move(calculated));
     } else {
         part->session.update_calculated_boundaries(std::move(calculated));

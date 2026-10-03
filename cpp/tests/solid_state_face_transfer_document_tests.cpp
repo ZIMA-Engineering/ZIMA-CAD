@@ -7,6 +7,7 @@
 #include <zima/workspace/engineering_metadata_operations.hpp>
 #include <zima/kernel/solid_state_ancestry.hpp>
 #include <zima/kernel/solid_straightening.hpp>
+#include <zima/kernel/feature_side_identity.hpp>
 #include "sweep_test_support.hpp"
 
 #include <gp_Ax1.hxx>
@@ -551,6 +552,74 @@ void verify(bool circle,bool flip,int attachment=0,int invalid=0,int sweep_kind=
 }
 }
 int main(int argc,char** argv)try {
+    if(argc==3&&std::string(argv[1])=="--inspect-model") {
+        auto part=document::PartDocument::load(argv[2]);
+        const auto value=part.serialized();
+        std::cout<<value.at("history").dump(2)<<'\n';return 0;
+    }
+    if(argc==3&&std::string(argv[1])=="--user-model") {
+        std::vector<kernel::BodyResult> bodies;
+        auto part=document::PartDocument::load(argv[2],&bodies);const auto id=part.document_id;
+        const auto saved=part;const auto saved_boundaries=bodies;
+        std::vector<std::string> existing_states;
+        for(const auto& feature:part.history)if(document::is_solid_state(feature.feature_kind))existing_states.push_back(feature.id);
+        for(auto it=existing_states.rbegin();it!=existing_states.rend();++it)part.erase_history_object(*it);
+        auto baseline=part;
+        const auto original_calculated=workspace::calculate_part_with_resolved_references(kernel::OcctKernel{},baseline,nullptr,{true});
+        if(!existing_states.empty()){part=baseline;bodies=original_calculated;}
+        for(const auto& operation:baseline.kernel_operations())if(const auto* group=std::get_if<kernel::FeatureGroupRequest>(&operation.primitive)) {
+            const bool curved=std::ranges::any_of(group->children,[](const auto& child){return std::holds_alternative<kernel::RevolutionRequest>(child);});
+            if(!curved)continue;
+            const auto plan=kernel::OcctKernel{}.prepare_straightening(*group);
+            const auto& target=std::get<kernel::FeatureGroupRequest>(plan.primitive);
+            for(std::size_t i=0;i<group->children.size();++i)if(const auto* curve=std::get_if<kernel::RevolutionRequest>(&group->children[i])) {
+                const auto side=kernel::feature_side_parent(curve->profile_region_id);
+                check(side.has_value(),"Combined side has no authored identity");
+                const auto direction=std::get<kernel::ExtrusionRequest>(target.children[i]).direction;
+                const auto normal=curve->profile_normal;
+                check((direction.x*normal.x+direction.y*normal.y+direction.z*normal.z)*(side->side==kernel::FeatureSide::Start?-1:1)>0,
+                    "User model Revolution moved to the opposite Sketch side");
+            }
+        }
+        workspace::Workspace live;live.add_part(part,bodies);live.activate(id);kernel::OcctKernel kernel;
+        check(!workspace::solid_state_sources(part,false).empty(),"Combined Feature is not offered");
+        auto straight=document::PartDocument::create_solid_state_container();
+        check(workspace::commit_solid_state(live,kernel,id,straight),"Cannot straighten user model");
+        const auto straight_volume=live.open_part(id)->session.calculated_boundaries().back().volume;
+        std::vector<kernel::BodyResult> reopened_boundaries;
+        static_cast<void>(document::PartDocument::from_serialized(live.open_part(id)->session.document().serialized(
+            live.open_part(id)->session.calculated_boundaries()),&reopened_boundaries));
+        near(reopened_boundaries.back().volume,straight_volume);
+        if(!existing_states.empty()&&saved.history.back().feature_kind==document::FeatureKind::Straighten&&
+            saved.history.back().solid_state.all&&saved.history.back().solid_state.coefficient==1) {
+            auto recalculated=saved;
+            const auto refreshed=workspace::calculate_part_with_resolved_references(kernel,recalculated,&saved_boundaries,{true});
+            near(refreshed.back().volume,straight_volume);
+        }
+        auto cold=live.open_part(id)->session.document();
+        const auto regenerated=workspace::calculate_part_with_resolved_references(kernel,cold,nullptr,{true});
+        near(regenerated.back().volume,straight_volume);
+        auto restore=document::PartDocument::create_solid_state_container(true);
+        check(workspace::commit_solid_state(live,kernel,id,restore),"Cannot restore user model");
+        near(live.open_part(id)->session.calculated_boundaries().back().volume,bodies.back().volume);
+        cold=live.open_part(id)->session.document();
+        const auto restored=workspace::calculate_part_with_resolved_references(kernel,cold,nullptr,{true});
+        near(restored.back().volume,bodies.back().volume);
+        near(restored.back().surface_area,original_calculated.back().surface_area);
+        check(restored.back().surface_centroid&&original_calculated.back().surface_centroid,"Restore has no exact surface centroid");
+        const auto a=*restored.back().surface_centroid,b=*original_calculated.back().surface_centroid;
+        near(a.x,b.x);near(a.y,b.y);near(a.z,b.z);
+        for(const auto& original:original_calculated.back().mesh.original_references.points) {
+            // Result Boolean intersections are operational Body topology, not
+            // authored reference owners. Check the original feature points.
+            if(original.reference.semantic_key.starts_with("boolean:"))continue;
+            const auto point=std::ranges::find_if(restored.back().mesh.original_references.points,[&](const auto& p){return p.reference==original.reference;});
+            if(point==restored.back().mesh.original_references.points.end())throw std::runtime_error(
+                "Restore lost an authored point: "+original.reference.owner_id+" / "+original.reference.semantic_key);
+            near(point->position.x,original.position.x);near(point->position.y,original.position.y);near(point->position.z,original.position.z);
+        }
+        std::cout<<"User model straightened and restored: "<<straight_volume<<" mm3\n";return 0;
+    }
     if(argc==2&&std::string(argv[1])=="--curved-continuation") {
         native_curved_chain(false);native_curved_chain(true);return 0;
     }

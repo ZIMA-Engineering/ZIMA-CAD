@@ -815,6 +815,15 @@ std::vector<ViewerCandidate> ordered_viewer_candidates(
         }
         for (const auto& axis : ordered_axis_candidates(
                 source, ray_origin, ray_direction, world_tolerance)) {
+            if(geometry==CandidateGeometry::OriginalReference) {
+                const bool state_axis=axis.reference.semantic_key.starts_with("sheet-state:from:")&&axis.reference.semantic_key.find(":axis:")!=std::string::npos;
+                const bool profile_axis=axis.reference.semantic_key=="axis:primary"||axis.reference.semantic_key.starts_with("axis:profile:");
+                const bool displayed=std::ranges::any_of(mesh.axes,[&](const auto& a){return a.reference==axis.reference;});
+                if(!displayed&&(state_axis||(profile_axis&&std::ranges::any_of(mesh.triangle_references,[&](const auto& face) {
+                    return face.instance_path==axis.reference.instance_path&&face.display_owner_id==axis.reference.owner_id&&
+                        face.semantic_key.starts_with("sheet-state:from:");
+                }))))continue;
+            }
             const auto kind = axis.reference.semantic_key.starts_with("sketch_axis:")
                 ? CandidateKind::SketchAxis : CandidateKind::Axis;
             result.push_back({kind, axis.distance, axis.axis,
@@ -1014,7 +1023,8 @@ std::optional<ViewerCandidate> container_candidate(
         const auto triangle = std::find_if(
         references.begin(), references.end(),
         [&](const zima::kernel::FaceReference& reference) {
-            return reference.valid() && reference.owner_id == owner_id &&
+            return reference.valid() && (reference.owner_id == owner_id ||
+                (geometry==CandidateGeometry::Display&&reference.display_owner_id==owner_id)) &&
                 reference.instance_path == instance_path;
         });
         if (triangle == references.end()) return std::nullopt;

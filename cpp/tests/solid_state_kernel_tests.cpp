@@ -1,5 +1,7 @@
 #include <zima/kernel/occt_kernel.hpp>
+#include <zima/kernel/solid_straightening.hpp>
 #include <zima/kernel/solid_state_ancestry.hpp>
+#include <zima/kernel/feature_side_identity.hpp>
 #include <cmath>
 #include <algorithm>
 #include <iostream>
@@ -108,8 +110,136 @@ void curved_chain(bool sweep) {
         require(history_fingerprint(history,3)==fingerprint,"Curved transfer changed authored operations");
     }
 }
+void combined_side_variants() {
+    OcctKernel kernel;
+    unsigned cases=0;
+    // None, Extrusion, Revolution on each side; all curved combinations.
+    for(int first=0;first<3;++first)for(int second=0;second<3;++second) {
+        if(first!=2&&second!=2)continue;
+        for(int variant=0;variant<6;++variant)
+        for(double normal_sign:{-1.,1.})for(double axis_sign:{-1.,1.})for(double radial_sign:{-1.,1.}) {
+            try {
+            FeatureGroupRequest group;
+            std::vector<ExtrusionRequest> expected;
+            for(int side=0;side<2;++side) {
+                const int mode=side?second:first;if(!mode)continue;
+                auto profile=source();profile.angle_degrees=45;
+                double radius=100+(80*10.+64*2)/144.;
+                if(variant==1||variant==2||variant==3||variant==4) {
+                    profile.outer_profile=ExtrusionRequest::CircleProfile{{110,10,0},4};
+                    profile.outer_edge_source_ids={"circle"};profile.outer_vertex_source_ids={"circle-point"};radius=110;
+                }
+                if(variant==2) {
+                    profile.inner_profiles={ExtrusionRequest::CircleProfile{{111,10,0},1}};
+                    profile.inner_boundary_ids={"hole"};profile.inner_edge_source_ids={{"hole-circle"}};
+                    profile.inner_vertex_source_ids={{"hole-point"}};
+                    radius=(16*110.-111)/15.;
+                }
+                if(variant==3)profile.wall=ProfileWall{-1,1,{}};
+                if(variant==5)profile.angle_degrees=first==2&&second==2?180:360;
+                profile.profile_normal={0,0,normal_sign};profile.axis_direction={0,axis_sign,0};
+                const auto mirror=[](auto& loop){std::visit([](auto& p) {
+                    if constexpr(requires{p.vertices;})for(auto& v:p.vertices)v.x=-v.x;
+                    else if constexpr(requires{p.center;})p.center.x=-p.center.x;
+                },loop);};
+                if(radial_sign<0){mirror(profile.outer_profile);for(auto& hole:profile.inner_profiles)mirror(hole);}
+                profile.first_cap_is_start=side==0;
+                auto scoped=feature_side_request(profile,"combined-feature",side?FeatureSide::Start:FeatureSide::End);
+                ExtrusionRequest straight;
+                straight.outer_profile=scoped.outer_profile;straight.profile_region_id=scoped.profile_region_id;
+                straight.outer_boundary_id=scoped.outer_boundary_id;
+                straight.outer_edge_source_ids=scoped.outer_edge_source_ids;straight.outer_vertex_source_ids=scoped.outer_vertex_source_ids;
+                straight.inner_profiles=scoped.inner_profiles;straight.inner_boundary_ids=scoped.inner_boundary_ids;
+                straight.inner_edge_source_ids=scoped.inner_edge_source_ids;straight.inner_vertex_source_ids=scoped.inner_vertex_source_ids;
+                straight.wall=scoped.wall;
+                if(variant==4&&mode==1)straight.draft_angle_degrees=2;
+                straight.first_cap_is_start=scoped.first_cap_is_start;
+                const double length=mode==1?60.:radius*std::numbers::pi*profile.angle_degrees/180;
+                straight.direction={0,0,normal_sign*(side?-1:1)*length};
+                expected.push_back(straight);
+                if(mode==1)group.children.push_back(straight);else group.children.push_back(scoped);
+            }
+            const auto plan=kernel.prepare_straightening(group);
+            const auto& actual=std::get<FeatureGroupRequest>(plan.primitive);
+            require(actual.children.size()==expected.size(),"Straightening changed the side count");
+            for(std::size_t index=0;index<expected.size();++index) {
+                const auto& child=std::get<ExtrusionRequest>(actual.children[index]);
+                near(child.direction.x,expected[index].direction.x);near(child.direction.y,expected[index].direction.y);
+                near(child.direction.z,expected[index].direction.z);
+                require(child.profile_region_id==expected[index].profile_region_id&&child.draft_angle_degrees==expected[index].draft_angle_degrees&&
+                    child.outer_vertex_source_ids==expected[index].outer_vertex_source_ids&&child.first_cap_is_start==expected[index].first_cap_is_start,
+                    "Straightening moved the shared Sketch or changed the side identity");
+            }
+            FeatureGroupRequest independent;for(const auto& child:expected)independent.children.push_back(child);
+            const auto reference=kernel.evaluate_history({{"combined",independent}}).back();
+            const std::vector<HistoryOperation> operations{{"combined",group},{"straight",SolidStateRequest{false,true,1,{}}},
+                {"restore",SolidStateRequest{true,true,1,{}}}};
+            const auto fingerprints=history_fingerprints(operations);
+            for(std::size_t prefix=0;prefix<fingerprints.size();++prefix)
+                require(fingerprints[prefix]==history_fingerprint(operations,prefix),"Combined state batch fingerprint differs");
+            const auto result=kernel.evaluate_history(operations);
+            near(result[1].volume,reference.volume);near(result[1].surface_area,reference.surface_area);
+            near(result.back().volume,result.front().volume);
+            const auto& packet=*result[1].solid_state_reference_views.at("straight");
+            for(const auto& point:reference.mesh.original_references.points) {
+                const auto found=std::ranges::find_if(packet.points,[&](const auto& item){return item.reference==point.reference;});
+                require(found!=packet.points.end(),"Straightening lost a side point");
+                near(found->position.x,point.position.x);near(found->position.y,point.position.y);near(found->position.z,point.position.z);
+            }
+            ++cases;
+            } catch(const std::exception& error) {
+                throw std::runtime_error("Combined sides "+std::to_string(first)+"/"+std::to_string(second)+
+                    ", profile "+std::to_string(variant)+", normal "+std::to_string(normal_sign)+
+                    ", axis "+std::to_string(axis_sign)+", radial "+std::to_string(radial_sign)+": "+error.what());
+            }
+        }
+    }
+    std::cout<<cases<<" combined-side cases: shared Sketch, direction, endpoint identities, shape and Restore passed\n";
+}
 }
 int main(){try {
+    combined_side_variants();
+    {
+        OcctKernel twist_kernel;
+        Sweep3DRequest twist;twist.twist=Sweep3DRequest::Twist{100,90,true};
+        Sweep3DRequest::Section section;section.profile_id="L-sketch";section.point_id="twist:path:start";
+        section.profile.region_id="L-region";section.profile.outer_boundary_id="L-outline";
+        section.profile.outer_profile=ExtrusionRequest::PolygonProfile{{{0,0,0},{20,0,0},{20,4,0},{4,4,0},{4,20,0},{0,20,0}}};
+        section.profile.outer_edge_source_ids={"c0","c1","c2","c3","c4","c5"};
+        section.profile.outer_vertex_source_ids={"p0","p1","p2","p3","p4","p5"};
+        twist.sections={section};
+        for(bool smooth:{false,true})for(double angle:{90.,-90.}) {
+            twist.twist->smooth=smooth;twist.twist->angle_degrees=angle;
+            const auto plan=twist_kernel.prepare_straightening(twist,.9);
+            near(plan.section_area,144);near(plan.source_start_centroid.x,(80*10.+64*2)/144.);
+            near(plan.source_start_centroid.y,(80*2.+64*12)/144.);
+            near(plan.source_end_centroid.x,plan.source_start_centroid.x);
+            near(plan.source_end_centroid.y,plan.source_start_centroid.y);
+            FeatureGroupRequest group;group.children={twist};
+            const std::vector<HistoryOperation> history{{"twist",group},{"straight",SolidStateRequest{false,true,.9,{}}},
+                {"restore",SolidStateRequest{true,true,1,{}}}};
+            const auto result=twist_kernel.evaluate_history(history);
+            require(result.back().calculation_errors.empty(),"Twist state history failed");
+            near(result[1].volume,144*90.);
+            require(std::abs(result.front().volume-144*100.)<2,"Twist changed section volume");
+            near(result.back().volume,result.front().volume);
+            require(result[1].solid_state_reference_views.contains("straight"),"Twist lost state references");
+        }
+        twist.sections.front().profile.inner_profiles={ExtrusionRequest::CircleProfile{{10,2,0},1}};
+        twist.sections.front().profile.inner_boundary_ids={"hole"};
+        twist.sections.front().profile.inner_edge_source_ids={{"hole-circle"}};
+        twist.sections.front().profile.inner_vertex_source_ids={{"hole-point"}};
+        const auto hollow=twist_kernel.prepare_straightening(twist);
+        const double hollow_area=144-std::numbers::pi;
+        near(hollow.section_area,hollow_area);
+        near(hollow.source_start_centroid.x,(80*10.+64*2-10*std::numbers::pi)/hollow_area);
+        near(hollow.source_start_centroid.y,(80*2.+64*12-2*std::numbers::pi)/hollow_area);
+        FeatureGroupRequest hollow_group;hollow_group.children={twist};
+        const auto hollow_result=twist_kernel.evaluate_history({{"hollow",hollow_group},
+            {"hollow-straight",SolidStateRequest{false,true,1,{}}},{"hollow-restore",SolidStateRequest{true,true,1,{}}}});
+        near(hollow_result[1].volume,hollow_area*100);
+        near(hollow_result.back().volume,hollow_result.front().volume);
+    }
     ancestry();curved_chain(false);curved_chain(true);OcctKernel kernel;
     const auto original=source();
     const double area=144, radius=100+(80*10+64*2)/144.;

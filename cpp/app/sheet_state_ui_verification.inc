@@ -8,7 +8,10 @@ int verify_sheet_state_ui(QApplication& application,const std::filesystem::path&
             auto feature=document::PartDocument::create_sketch_container();feature.feature_kind=document::FeatureKind::Bend;
             auto sketch=sketcher::Sketch::create_default();sketch.owner_container_id=feature.id;feature.bend.sketch_id=sketch.id;
             static_cast<void>(sketch.add_segment(0,0,40,0));feature.bend.radius=8;feature.bend.radius_follows_thickness=false;
-            feature.bend.thickness_override=true;feature.bend.thickness=2;part.history={feature};part.sketches={sketch};
+            feature.bend.thickness_override=true;feature.bend.thickness=2;
+            document::prepare_bend_sketches(feature,sketch,document::sheet_metal_defaults(part));
+            const auto path_sketch_id=sketcher::Sketch::from_serialized(feature.bend.auxiliary_sketches[0]).id;
+            part.history={feature};part.sketches={sketch};
             document::BodyHistoryGraph graph;const auto body=graph.create_body("Sheet");
             graph.insert({document::PartHistoryKind::Feature,feature.id});part.set_body_history(graph);part.resolve_constructions();
             kernel::OcctKernel kernel;const auto calculated=kernel.evaluate_history(part.kernel_operations());
@@ -88,6 +91,21 @@ int verify_sheet_state_ui(QApplication& application,const std::filesystem::path&
             }
             auto* view=dynamic_cast<viewer::MeshView*>(window.findChild<QOpenGLWidget*>("modelWorkspace"));
             auto* tree=window.findChild<QTreeWidget*>("documentTree");check(view&&tree,"Missing sheet state workspace.");
+            const auto inspect_wire=[&] {
+                window.show_parameter_dimensions(feature.id);flush();
+                check(!view->container_inspection_wire().empty(),"Sheet inspection has no authored wire.");
+                nlohmann::json points=nlohmann::json::array();
+                for(const auto& edge:view->container_inspection_wire())for(const auto& point:edge.points)
+                    points.push_back({point.x,point.y,point.z});
+                check(std::ranges::any_of(view->mesh().dimensions,[&](const auto& d) {
+                    return d.reference.owner_id==path_sketch_id;
+                }),"Sheet inspection lost authored dimensions.");
+                QKeyEvent escape(QEvent::KeyPress,Qt::Key_Escape,Qt::NoModifier);
+                QApplication::sendEvent(view,&escape);flush();
+                check(view->container_inspection_wire().empty(),"Sheet inspection retained its wire after Escape.");
+                return points;
+            };
+            const auto authored_wire=inspect_wire();
             const auto tree_path=[](QTreeWidgetItem* row) {
                 std::string path;
                 for(;row&&path.empty();row=row->parent())path=row->data(0,Qt::UserRole+1).toString().toStdString();
@@ -164,10 +182,17 @@ int verify_sheet_state_ui(QApplication& application,const std::filesystem::path&
                 *authored_hit,QPointF(view->mapToGlobal(authored_hit->toPoint())),
                 Qt::LeftButton,Qt::LeftButton,Qt::NoModifier);
             QApplication::sendEvent(view,&unfolded_double_click);flush();
-            check(std::ranges::none_of(view->mesh().dimensions,[&](const auto& dimension) {
-                    return dimension.reference.owner_id==feature.id&&
-                        dimension.reference.semantic_key.starts_with("parameter:");
-                }),"Double-click displayed formed dimensions over an unfolded sheet feature.");
+            check(std::ranges::any_of(view->mesh().dimensions,[&](const auto& dimension) {
+                    return dimension.reference.owner_id==path_sketch_id;
+                }),"Double-click lost authored dimensions of an unfolded sheet feature.");
+            window.grab().save(QString::fromStdString((fixture/"authored-wire-unfolded.png").string()));
+            check(inspect_wire()==authored_wire,"Unbend moved the authored inspection wire.");
+            // Parameter inspection rebuilt the Tree. Reacquire the state row
+            // by persisted identity rather than using its retired UI pointer.
+            edited=nullptr;
+            for(QTreeWidgetItemIterator it(tree);*it;++it)if((*it)->data(0,Qt::UserRole+3)=="part-container"&&
+                (*it)->data(0,Qt::UserRole).toString().toStdString()==state_id&&tree_path(*it)==active_path){edited=*it;break;}
+            check(edited,"Unbend disappeared from Tree after parameter inspection.");
             window.show_tree_item_properties(edited);flush();
             check(dialog(),"Unbend editing did not reopen the shared dialog.");
             check(std::ranges::any_of(view->mesh().triangle_references,[&](const auto& face){return face.instance_path==active_path&&face.owner_id==feature.id;}),
@@ -180,6 +205,7 @@ int verify_sheet_state_ui(QApplication& application,const std::filesystem::path&
             window.grab().save(QString::fromStdString((fixture/"sheet-state-properties.png").string()));
             QMouseEvent middle(QEvent::MouseButtonDblClick,*unfolded_hit,QPointF(view->mapToGlobal(unfolded_hit->toPoint())),Qt::MiddleButton,Qt::MiddleButton,Qt::NoModifier);
             QApplication::sendEvent(view,&middle);flush();check(!dialog(),"Bend Back middle-button double-click did not commit.");
+            check(inspect_wire()==authored_wire,"Bend Back changed the authored inspection wire.");
             check(std::ranges::none_of(view->mesh().axes,[&](const auto& axis){return axis.reference.instance_path==active_path&&axis.reference.semantic_key.starts_with("sheet-bend-line:from:");}),"View retained a flat bend line after Bend Back.");
             check(window.active_occurrence_path_for_test()==active_path,"Sheet state changed the active occurrence.");
             if(context)check(std::ranges::any_of(view->mesh().triangle_references,[&](const auto& face){return face.instance_path==passive_path;}),"Sheet state hid the passive Assembly context.");

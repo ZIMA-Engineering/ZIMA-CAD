@@ -19,6 +19,9 @@ void AssemblyWorkspaceWindow::select_container(const std::string& container_id) 
         auto* item = pending.back();
         pending.pop_back();
         if (item->data(0, Qt::UserRole).toString().toStdString() == container_id) {
+            std::string path;
+            for(auto* row=item;row&&path.empty();row=row->parent())path=row->data(0,Qt::UserRole+1).toString().toStdString();
+            if(path!=workspace_.active_occurrence_path())continue;
             const auto role = item->data(0, Qt::UserRole + 3).toString();
             // A Sketch and its owned Plane intentionally share the Sketch
             // ID in the Tree. View selection of the complete Sketch must

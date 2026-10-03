@@ -2,6 +2,7 @@
 #include "profile_solid_fixture.hpp"
 #include <zima/command_host/host.hpp>
 #include <zima/workspace/sketch_reference_operations.hpp>
+#include <zima/workspace/model_calculation.hpp>
 #include <zima/sketcher/curve_geometry.hpp>
 #include <cmath>
 #include <iostream>
@@ -16,6 +17,76 @@ commands::Result run(command_host::Host& host,const std::string& name,Json args=
     if(!result.ok)throw std::runtime_error(name+": "+result.code+": "+result.message+" "+args.dump());return result;
 }
 void verify(const kernel::OcctKernel& kernel,fs::path directory) {
+    // Independent world-to-local check: moving the destination frame must
+    // reproject the fixed source, including geometry linked to its endpoints.
+    for(const double angle:{0.0,30.0,90.0,180.0,-90.0,270.0})
+    for(const double shift:{0.0,17.0}) {
+        auto sketch=sketcher::Sketch::create_default();
+        sketch.owner_container_id="destination-container";
+        kernel::ViewerReferenceGeometry source;
+        kernel::ViewerEdge edge;edge.reference={"fixed-source","edge",{}};
+        edge.points={{12,4,0},{24,4,0}};source.edges.push_back(edge);
+        auto reference=sketcher::Sketch::create_external_reference(sketcher::ExternalReferenceKind::Edge);
+        reference.source_document_id="fixed-document";reference.source_owner_id="fixed-source";
+        reference.source_semantic_key="edge";reference.cached_points={{12,4},{24,4}};
+        const auto id=reference.id;sketch.add_external_reference(reference);
+        static_cast<void>(sketch.add_external_profile_geometry(id));
+        const double radians=angle*std::acos(-1.0)/180.0,c=std::cos(radians),s=std::sin(radians);
+        sketch.resolved_origin={shift,-shift,0};sketch.resolved_x_axis={c,s,0};
+        sketch.resolved_y_axis={-s,c,0};sketch.resolved_normal={0,0,1};
+        static_cast<void>(sketch.refresh_external_references("fixed-document",source));
+        const auto found=std::ranges::find(sketch.external_references,id,&sketcher::SketchExternalReference::id);
+        require(found!=sketch.external_references.end()&&!found->broken,"Destination frame broke a valid external edge");
+        for(std::size_t i=0;i<2;++i) {
+            const double dx=edge.points[i].x-shift,dy=edge.points[i].y+shift;
+            const auto expected=std::array{c*dx+s*dy,-s*dx+c*dy};
+            require(std::hypot(found->cached_points[i][0]-expected[0],found->cached_points[i][1]-expected[1])<1e-8,
+                "External edge followed the destination Origin instead of its source");
+            const auto& segment=sketch.segments.front();
+            const auto* endpoint=sketch.find_point(i==0?segment.first_point_id:segment.second_point_id);
+            require(endpoint&&std::hypot(endpoint->x-expected[0],endpoint->y-expected[1])<1e-8,
+                "Linked profile endpoint retained its previous local coordinates");
+        }
+        const auto stable=sketch.serialized();
+        require(!sketch.refresh_external_references("fixed-document",source)&&sketch.serialized()==stable,
+            "Repeated external refresh drifted a settled projection");
+        auto reopened=sketcher::Sketch::from_serialized(stable);
+        require(!reopened.refresh_external_references("fixed-document",source),"Reopened external projection was stale");
+        for(int constraints=0;constraints<3;++constraints) {
+            auto part=document::PartDocument::create_default();part.body_history={};
+            auto source_sketch=sketcher::Sketch::create_default();
+            auto root=document::PartDocument::create_extrusion_container(source_sketch.id);
+            source_sketch.owner_container_id=root.id;
+            auto child=document::PartDocument::create_extrusion_container(sketch.id);
+            auto owned=sketch;owned.owner_container_id=child.id;
+            for(auto& r:owned.external_references) {
+                r.source_document_id=part.document_id;r.source_owner_id=root.id;
+            }
+            child.placement.x=shift;child.placement.y=-shift;
+            child.placement.rotation_z=child.placement.absolute_rotation_z=angle;
+            auto geometry=source;geometry.edges.front().reference.owner_id=root.id;
+            geometry.points.push_back({{shift,-shift,0},{root.id,"anchor",{}}});
+            geometry.vertices={{0,0,0},{1,0,0},{0,1,0}};geometry.triangles={0,1,2};
+            geometry.triangle_references.push_back({root.id,"plane",{}});
+            if(constraints==1)child.placement.references.push_back({{},root.id,"plane"});
+            if(constraints==2)child.placement.references.push_back({{},root.id,"anchor"});
+            part.history={root,child};part.sketches={source_sketch,owned};
+            part.history_order={{document::PartHistoryKind::Feature,root.id},{document::PartHistoryKind::Feature,child.id}};
+            part.resolve_constructions(geometry);
+            kernel::BodyResult calculated;calculated.mesh.original_references=geometry;
+            static_cast<void>(workspace::refresh_sketch_external_references(part,{calculated}));
+            require(part.reference_errors.empty(),"Container placement left a conflicting external projection");
+            const auto& actual=part.sketches.back();
+            const auto projected=std::ranges::find(actual.external_references,id,&sketcher::SketchExternalReference::id);
+            require(projected!=actual.external_references.end()&&!projected->broken,"Container placement lost its external source");
+            for(std::size_t i=0;i<2;++i) {
+                const double dx=edge.points[i].x-shift,dy=edge.points[i].y+shift;
+                require(std::hypot(projected->cached_points[i][0]-(c*dx+s*dy),
+                    projected->cached_points[i][1]-(-s*dx+c*dy))<1e-8,
+                    "Free, plane-constrained or point-constrained container used a stale external projection");
+            }
+        }
+    }
     {
         workspace::Workspace live;command_host::Options options;
         options.settings=[] {return command_host::Settings{{fs::absolute("config/templates"),"START_PART.prtz","START_ASSEMBLY.asmz","Body"},{}};};

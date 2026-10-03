@@ -1,4 +1,6 @@
 {
+  "Twist": "Twist",
+  "Smooth twist transitions": "Smooth twist transitions",
   "Straightening requires coincident profile centroids and tangent-continuous directions.": "Straightening requires coincident profile centroids and tangent-continuous directions.",
   "Solid state container does not exist.": "Solid state container does not exist.",
   "Read solid state properties without calculation.": "Read solid state properties without calculation.",

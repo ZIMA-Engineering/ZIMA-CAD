@@ -2730,8 +2730,10 @@ bool PrimitivePropertiesDialog::set_inline_parameter_value(
         return placement_->set_reference_offset(index, value);
     }
     if (feature_panel_) {
-        if(key=="side0_length" || key=="side0_angle")return set_field(feature_panel_->side_value(0));
-        if(key=="side1_length" || key=="side1_angle")return set_field(feature_panel_->side_value(1));
+        if(key=="side0_length")return set_field(feature_panel_->side_value(0));
+        if(key=="side1_length")return set_field(feature_panel_->side_value(1));
+        if(key=="side0_angle")return set_field(feature_panel_->side_angle(0));
+        if(key=="side1_angle")return set_field(feature_panel_->side_angle(1));
         if(key=="side0_draft_angle")return set_field(feature_panel_->side_draft(0));
         if(key=="side1_draft_angle")return set_field(feature_panel_->side_draft(1));
     }

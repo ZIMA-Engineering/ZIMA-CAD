@@ -1,4 +1,5 @@
 #include <zima/kernel/transition_edge_display.hpp>
+#include <zima/kernel/state_display.hpp>
 #include "../../../common/datum_display.hpp"
 #include "../../../common/interaction_colors.hpp"
 #include <zima/kernel/tangent_edge_route.hpp>
@@ -748,6 +749,7 @@ void MeshView::update_annotation_presentation() const {
 }
 
 void MeshView::set_mesh(zima::kernel::ViewerMesh mesh, bool fit_view) {
+    zima::kernel::associate_solid_state_display(mesh);
     if(zima::kernel::has_surface_results(mesh))
         impl_->surface_source_mesh=mesh;
     else impl_->surface_source_mesh.reset();
@@ -1560,6 +1562,11 @@ const std::vector<zima::kernel::ViewerEdge>& MeshView::container_inspection_wire
     return impl_->container_inspection_wire;
 }
 
+void MeshView::set_container_inspection_wire(std::vector<zima::kernel::ViewerEdge> wire) {
+    impl_->container_inspection_wire=std::move(wire);
+    update();
+}
+
 void MeshView::confirm_container(const std::string& owner_id) {
     impl_->container_inspection_wire.clear();
     auto candidate = container_candidate(impl_->mesh, owner_id);
@@ -1607,7 +1614,11 @@ void MeshView::confirm_reference(const std::string& owner_id,
     CandidateKind kind) {
     ViewerCandidate candidate{kind, 0.0, 0, owner_id, semantic_key,
         instance_path, CandidateGeometry::Display};
-    if (kind == CandidateKind::Vertex || kind == CandidateKind::SketchPoint ||
+    if(kind==CandidateKind::Container) {
+        const auto found=container_candidate(impl_->mesh,owner_id,instance_path);
+        if(!found)return clear_selection();
+        candidate=*found;
+    } else if (kind == CandidateKind::Vertex || kind == CandidateKind::SketchPoint ||
         (kind == CandidateKind::SketchExternalReference &&
          semantic_key.starts_with("external_point:"))) {
         auto found = std::find_if(impl_->mesh.points.begin(),

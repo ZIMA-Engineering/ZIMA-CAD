@@ -29,7 +29,8 @@ constexpr std::array feature_types{
 constexpr std::array operations{
     std::pair{FeatureSideOperation::None,std::string_view{"none"}},
     std::pair{FeatureSideOperation::Extrusion,std::string_view{"extrusion"}},
-    std::pair{FeatureSideOperation::Revolution,std::string_view{"revolution"}}};
+    std::pair{FeatureSideOperation::Revolution,std::string_view{"revolution"}},
+    std::pair{FeatureSideOperation::Twist,std::string_view{"twist"}}};
 constexpr std::array rotations{
     std::pair{FeatureRotationExtent::Angle,std::string_view{"angle"}},
     std::pair{FeatureRotationExtent::Full,std::string_view{"full"}},
@@ -77,7 +78,10 @@ void validate_feature_parameters(const FeatureParameters& p) {
         static_cast<void>(name(side.operation,operations));
         static_cast<void>(name(side.extrusion_extent,conditions));
         static_cast<void>(name(side.rotation_extent,rotations));
-        if(!positive(side.length)||!positive(side.angle_degrees)||side.angle_degrees>360)invalid();
+        if(!positive(side.length)||!positive(side.angle_degrees)||side.angle_degrees>(side.operation==FeatureSideOperation::Twist?36000:360))invalid();
+        if(side.operation==FeatureSideOperation::Twist&&
+           (p.result_type!=ProfileResultType::Solid||p.symmetric||p.sides[1].operation!=FeatureSideOperation::None||
+            &side!=&p.sides[0]||side.draft_angle_degrees!=0||!side.targets.empty()))invalid();
         if(!std::isfinite(side.draft_angle_degrees)||std::abs(side.draft_angle_degrees)>=90)
             throw std::invalid_argument("Draft angle must be between -90 and 90 degrees.");
         for(const auto& target:side.targets) {
@@ -108,6 +112,10 @@ nlohmann::json serialize_feature_parameters(const FeatureParameters& p) {
             {"angle_degrees",side.angle_degrees},{"rotation_extent",name(side.rotation_extent,rotations)},
             {"draft_angle_degrees",side.draft_angle_degrees},
             {"targets",std::move(targets)}});
+        if(side.operation==FeatureSideOperation::Twist) {
+            sides.back()["twist_reverse"]=side.twist_reverse;
+            sides.back()["twist_smooth"]=side.twist_smooth;
+        }
     }
     return {{"automatic_name",p.automatic_name},{"type",name(p.type,feature_types)},{"sketch_id",p.sketch_id},{"axis_segment_id",p.axis_segment_id},
         {"profile_source",name(p.profile_source,sources)},{"profile_plane_offset",p.profile_plane_offset},
@@ -140,6 +148,10 @@ FeatureParameters load_feature_parameters(const nlohmann::json& source) {
         for(std::size_t i=0;i<2;++i) {
             const auto& value=sides.at(i);auto& side=p.sides[i];
             side.operation=parse(value.at("operation"),operations);
+            if(side.operation==FeatureSideOperation::Twist) {
+                side.twist_reverse=value.at("twist_reverse").get<bool>();
+                side.twist_smooth=value.at("twist_smooth").get<bool>();
+            }
             side.length=value.at("length").get<double>();
             side.extrusion_extent=parse(value.at("extrusion_extent"),conditions);
             side.angle_degrees=value.at("angle_degrees").get<double>();

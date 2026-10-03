@@ -1,4 +1,6 @@
 {
+  "Twist": "Скрутить",
+  "Smooth twist transitions": "Плавное начало и окончание скручивания",
   "Straightening requires coincident profile centroids and tangent-continuous directions.": "Выпрямление требует совпадения центров тяжести сопрягаемых профилей и непрерывного касательного направления.",
   "Solid state container does not exist.": "Контейнер состояния тела не существует.",
   "Read solid state properties without calculation.": "Прочитать свойства состояния тела без расчёта.",

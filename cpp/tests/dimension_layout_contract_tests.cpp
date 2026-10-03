@@ -309,7 +309,27 @@ void verify_annotation_units() {
     const auto shown=std::ranges::find_if(mesh.dimensions,[](const auto& item){return item.source_text_style&&item.source_text_style->value_unit=="in";});
     require(shown!=mesh.dimensions.end()&&viewer::dimension_unit_label(*shown,2,{})=="R25,40000mm ±0,01270","Sketch View lost its explicit nominal/tolerance units or precision");
     auto drawing_value=d;drawing_value.display_text_override.clear();
-    require(drawing::drawing_dimension_text(drawing_reopened.front(),drawing_value)=="1,0000in ±0,0005","Drawing dimension formatter lost specification units");
+    require(drawing::drawing_dimension_text(drawing_reopened.front(),drawing_value)=="1.0000in ±.0005","Drawing dimension formatter lost specification units");
+    {
+        const auto previous=QCoreApplication::instance()->property("zimaStackedTolerances");
+        QCoreApplication::instance()->setProperty("zimaStackedTolerances",true);
+        kernel::DimensionTextStyle inch;inch.value_unit="in";inch.suffix="\"";inch.decimals=3;
+        inch.keep_trailing_zeros=true;inch.tolerance_mode="deviations";inch.upper_tolerance="0.001";inch.lower_tolerance="0.000";
+        kernel::ViewerDimension nominal;nominal.kind=kernel::ViewerDimensionKind::Diameter;nominal.value=.475*25.4;
+        const auto text=QString::fromStdString(kernel::dimension_text(nominal,inch,true));
+        auto font=zima::technical_font();font.setPixelSize(36);
+        const auto stacked=viewer::dimension_render_text(inch,text);const auto runs=viewer::dimension_text_runs(font,stacked);
+        require(runs.size()==3&&runs[0].text==QString::fromUtf8("⌀.475\"")&&runs[1].text=="+.001"&&runs[2].text=="-.000",
+            "Inch drawing lost decimal point, signed zero deviation or decimal places");
+        require(runs[1].baseline.x()==runs[2].baseline.x(),"Inch deviation decimal points are misaligned");
+        QImage proof(900,280,QImage::Format_RGB32);proof.fill(Qt::white);
+        {QPainter painter(&proof);const std::array labels{viewer::DimensionTextLabel{stacked,{60,110},0,font,Qt::black}};
+            viewer::paint_dimension_text_layer(painter,labels,2,[](QPainter& p,const QPainterPath& path){p.fillPath(path,Qt::white);});}
+        require(proof.save("build/inch-tolerance-layout.png"),"Cannot save inch tolerance proof");
+        inch.text_override="Literal 0,475";
+        require(kernel::dimension_text(nominal,inch,true)==inch.text_override,"Inch formatting rewrote user text");
+        QCoreApplication::instance()->setProperty("zimaStackedTolerances",previous);
+    }
     auto invalid=restored.serialized_json();invalid["dimensions"][0]["value_unit"]="rad";
     rejects([&]{static_cast<void>(sketcher::Sketch::from_serialized_json(invalid));});
     QTemporaryDir files;require(files.isValid(),"Cannot create annotation native test directory");

@@ -17,6 +17,7 @@
 #include <zima/document/feature_rotation_limit.hpp>
 #include <zima/kernel/feature_side_identity.hpp>
 #include <zima/kernel/profile_centerlines.hpp>
+#include <zima/kernel/sheet_material.hpp>
 #include <zima/kernel/feature_rotation_direction.hpp>
 #include <zima/document/cache_storage.hpp>
 #include <zima/document/dimension_layout_json.hpp>
@@ -7294,7 +7295,41 @@ std::vector<zima::kernel::ViewerEdge> PartDocument::feature_preview_edges(
         if(settings.operation==FeatureSideOperation::None)continue;
         auto operand=container;
         std::vector<zima::kernel::ViewerEdge> edges;
-        if(settings.operation==FeatureSideOperation::Extrusion) {
+        if(settings.operation==FeatureSideOperation::Twist) {
+            operand.feature_kind=FeatureKind::Extrusion;
+            operand.extrusion.sketch_id=definition.sketch_id;
+            operand.extrusion.length_forward=settings.length;operand.extrusion.height=settings.length;
+            operand.extrusion.direction=ExtrusionDirection::Forward;
+            auto profile=body_profile_request(*sketch,settings.length,ExtrusionDirection::Forward,
+                ProfileResultType::Solid,definition.thin_thickness,definition.thin_mode);
+            profile.centerlines={false,true,sketch->world_point(0,0),sketch->normal(),container.container_origin.id,sketch->id};
+            if(sketch->owner_container_id!=container.id)apply_container_placement(profile,container.placement);
+            const auto center=zima::kernel::profile_centerlines::centroid(profile);
+            const auto normal=zima::kernel::dimension_unit(profile.direction);
+            edges=extrusion_preview_edges(operand,input,0);
+            const auto twist_point=[&](zima::kernel::Vec3 point) {
+                using namespace zima::kernel;
+                const auto delta=dimension_sub(point,center);const double along=dimension_dot(delta,normal);
+                const double fraction=std::clamp(along/settings.length,0.,1.);
+                const double angle=(settings.twist_reverse?-1.:1.)*settings.angle_degrees*std::numbers::pi/180.*
+                    (settings.twist_smooth?sheet_material::twist_progress(fraction):fraction);
+                const auto radial=dimension_sub(delta,dimension_scale(normal,along));
+                return dimension_add(center,dimension_add(dimension_scale(normal,along),
+                    dimension_add(dimension_scale(radial,std::cos(angle)),dimension_scale(dimension_cross(normal,radial),std::sin(angle)))));
+            };
+            for(auto& edge:edges) {
+                std::vector<zima::kernel::Vec3> points;
+                for(std::size_t i=0;i<edge.points.size();++i) {
+                    if(i&&std::abs(zima::kernel::dimension_dot(zima::kernel::dimension_sub(edge.points[i],edge.points[i-1]),normal))>1e-9) {
+                        const auto a=edge.points[i-1],delta=zima::kernel::dimension_sub(edge.points[i],a);
+                        const int count=std::clamp(static_cast<int>(std::ceil(settings.angle_degrees/5.)),1,720);
+                        for(int j=1;j<count;++j)points.push_back(twist_point(zima::kernel::dimension_add(a,zima::kernel::dimension_scale(delta,double(j)/count))));
+                    }
+                    points.push_back(twist_point(edge.points[i]));
+                }
+                edge.points=std::move(points);
+            }
+        } else if(settings.operation==FeatureSideOperation::Extrusion) {
             operand.feature_kind=FeatureKind::Extrusion;
             auto& p=operand.extrusion;p.sketch_id=definition.sketch_id;
             p.length_forward=settings.length;p.height=settings.length;
@@ -9542,7 +9577,28 @@ std::vector<zima::kernel::HistoryOperation> PartDocument::kernel_operations(
                     group.reference_points.insert(group.reference_points.end(),refs.points.begin(),refs.points.end());
                     continue;
                 }
-                if(settings.operation==FeatureSideOperation::Revolution) {
+                if(settings.operation==FeatureSideOperation::Twist) {
+                    auto profile=prepare(body_profile_request(*sketch,settings.length,
+                        ExtrusionDirection::Forward,ProfileResultType::Solid,p.thin_thickness,p.thin_mode),side);
+                    if(!profile.additional_profile_regions.empty())
+                        throw std::invalid_argument("Straightening requires a solid with a constant cross-section.");
+                    zima::kernel::Sweep3DRequest twist;
+                    twist.linear_tolerance=boolean_tolerance;
+                    twist.twist=zima::kernel::Sweep3DRequest::Twist{settings.length,
+                        settings.twist_reverse?-settings.angle_degrees:settings.angle_degrees,settings.twist_smooth};
+                    zima::kernel::Sweep3DRequest::Section section;
+                    section.profile_id=sketch->id;section.point_id="twist:path:start";
+                    section.profile_normal=profile.direction;
+                    const double magnitude=std::sqrt(section.profile_normal.x*section.profile_normal.x+
+                        section.profile_normal.y*section.profile_normal.y+section.profile_normal.z*section.profile_normal.z);
+                    section.profile_normal={section.profile_normal.x/magnitude,section.profile_normal.y/magnitude,section.profile_normal.z/magnitude};
+                    section.profile.region_id=profile.profile_region_id;
+                    section.profile.outer_boundary_id=profile.outer_boundary_id;section.profile.inner_boundary_ids=profile.inner_boundary_ids;
+                    section.profile.outer_profile=profile.outer_profile;section.profile.inner_profiles=profile.inner_profiles;
+                    section.profile.outer_edge_source_ids=profile.outer_edge_source_ids;section.profile.inner_edge_source_ids=profile.inner_edge_source_ids;
+                    section.profile.outer_vertex_source_ids=profile.outer_vertex_source_ids;section.profile.inner_vertex_source_ids=profile.inner_vertex_source_ids;
+                    twist.sections.push_back(std::move(section));group.children.push_back(std::move(twist));
+                } else if(settings.operation==FeatureSideOperation::Revolution) {
                     auto request=revolution_request(*sketch,p.axis_segment_id,
                         settings.rotation_extent==FeatureRotationExtent::Full?360.:settings.angle_degrees,
                         p.result_type,p.thin_thickness,p.thin_mode);

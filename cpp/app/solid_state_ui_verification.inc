@@ -2,15 +2,49 @@ int verify_solid_state_ui(QApplication& application,const std::filesystem::path&
     using namespace zima;
     const auto check=[](bool value,const char* message){if(!value)throw std::runtime_error(message);};
     const auto flush=[&]{application.processEvents();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);application.processEvents();};
+    const auto inspect_from_view=[&](viewer::MeshView* view,QTreeWidget* tree,const std::string& owner,const std::string& path) {
+        view->set_selection_filter(viewer::SelectionFilter::All);view->fit_all();flush();
+        std::optional<QPointF> hit;
+        for(int y=5;y<view->height()&&!hit;y+=8)for(int x=5;x<view->width()&&!hit;x+=8) {
+            const auto candidates=view->selection_candidates_at({double(x),double(y)});
+            if(!candidates.empty()&&candidates.front().kind==viewer::CandidateKind::Container&&
+               candidates.front().owner_id==owner&&candidates.front().instance_path==path)hit=QPointF(x,y);
+        }
+        if(!hit)std::cerr<<"Missing ordinary View candidate for "<<owner<<" in "<<path<<'\n';
+        check(hit.has_value(),"Straightened feature cannot be selected in ordinary View");
+        for(auto type:{QEvent::MouseMove,QEvent::MouseButtonPress,QEvent::MouseButtonRelease}) {
+            QMouseEvent event(type,*hit,QPointF(view->mapToGlobal(hit->toPoint())),type==QEvent::MouseMove?Qt::NoButton:Qt::LeftButton,
+                type==QEvent::MouseButtonPress?Qt::LeftButton:Qt::NoButton,Qt::NoModifier);
+            QApplication::sendEvent(view,&event);flush();
+        }
+        const auto confirmed=view->confirmed_candidate();
+        if(!confirmed||confirmed->owner_id!=owner||confirmed->instance_path!=path)
+            std::cerr<<"View click expected "<<owner<<" in "<<path<<", confirmed "<<(confirmed?confirmed->owner_id:"<none>")
+                <<" in "<<(confirmed?confirmed->instance_path:"")<<" kind "<<(confirmed?int(confirmed->kind):-1)<<'\n';
+        check(confirmed&&confirmed->kind==viewer::CandidateKind::Container&&confirmed->owner_id==owner&&confirmed->instance_path==path,
+            "Ordinary View confirmed a different feature");
+        check(tree->currentItem()&&tree->currentItem()->data(0,Qt::UserRole).toString().toStdString()==owner,
+            "Ordinary View did not synchronize the feature Tree row");
+        QMouseEvent double_click(QEvent::MouseButtonDblClick,*hit,QPointF(view->mapToGlobal(hit->toPoint())),Qt::LeftButton,Qt::LeftButton,Qt::NoModifier);
+        QApplication::sendEvent(view,&double_click);flush();
+        check(!view->container_inspection_wire().empty(),"View double-click has no original blue feature wire");
+    };
     try {
-        for(int scenario=0;scenario<(sweep_only?5:3);++scenario) {
+        for(int scenario=0;scenario<5;++scenario) {
             const bool context=!sweep_only&&scenario==1;
             const bool treated=sweep_only?scenario==4:scenario==2;
             kernel::OcctKernel kernel;workspace::Workspace setup;
             auto part=document::PartDocument::create_default();
             if(part.body_history.bodies().empty())static_cast<void>(part.body_history.create_body("Body"));
+            if(!sweep_only&&scenario==4) {
+                auto graph=part.body_history;auto body=*graph.find(graph.active_body_id());
+                body.scope.placement={80,40,25};
+                body.scope.placement.absolute_rotation_y=90;body.scope.placement.rotation_y=90;
+                graph.update_body(body);part.set_body_history(graph);
+            }
             const auto id=part.document_id;setup.add_part(part,{});setup.activate(id);
             auto sketch=sketcher::Sketch::create_default();static_cast<void>(sketch.add_rectangle(100,0,120,20));
+            sketch.dimensions.push_back(sketch.create_segment_dimension(sketch.segments.front().id));
             const auto axis=sketch.add_segment(0,-100,0,100,true);sketch.set_segment_centerline(axis,true);
             auto source=document::PartDocument::create_revolution_container(sketch.id);
             source.revolution.axis_segment_id=axis;source.revolution.angle_degrees=90;
@@ -45,7 +79,16 @@ int verify_solid_state_ui(QApplication& application,const std::filesystem::path&
                     }
                 }
                 workspace::commit_sweep(setup,kernel,id,source,workspace::SweepEditMode::Create);
-            } else workspace::commit_profile(setup,kernel,id,source,workspace::ProfileEditMode::Create,sketch);
+            } else {
+                if(scenario>=3) {
+                    source=document::PartDocument::create_feature_container(sketch.id);
+                    source.feature.sides[0].length=100;
+                    source.feature.sides[0].operation=scenario==3?document::FeatureSideOperation::Twist:document::FeatureSideOperation::Extrusion;
+                    if(scenario==4)source.feature.sides[1].operation=document::FeatureSideOperation::Revolution;
+                    source.feature.axis_segment_id=axis;
+                }
+                workspace::commit_profile(setup,kernel,id,source,workspace::ProfileEditMode::Create,sketch);
+            }
             const auto* state=setup.open_part(id);
             std::optional<document::HistoryContainer> authored_fillet;
             if(treated) {
@@ -63,7 +106,7 @@ int verify_solid_state_ui(QApplication& application,const std::filesystem::path&
                 authored_fillet=*state->session.document().find_container(fillet.id);
             }
             part=state->session.document();
-            const auto fixture=directory/(sweep_only?"solid-sweep-"+std::to_string(scenario):context?"solid-context":treated?"solid-fillet":"solid-part");std::filesystem::create_directories(fixture);
+            const auto fixture=directory/(sweep_only?"solid-sweep-"+std::to_string(scenario):scenario>=3?"solid-group-"+std::to_string(scenario):context?"solid-context":treated?"solid-fillet":"solid-part");std::filesystem::create_directories(fixture);
             const auto path=fixture/"source.prtz";part.save(path,state->session.calculated_boundaries());
             auto open_path=path;std::string active_path,passive_path;
             if(context) {
@@ -100,6 +143,65 @@ int verify_solid_state_ui(QApplication& application,const std::filesystem::path&
                 return solid.dump();
             };
             const auto input=packet();
+            const auto inspect_wire=[&] {
+                QTreeWidgetItem* item=nullptr;
+                for(QTreeWidgetItemIterator it(tree);*it;++it)
+                    if((*it)->data(0,Qt::UserRole).toString().toStdString()==source.id&&
+                       (*it)->data(0,Qt::UserRole+3).toString()=="part-container"){item=*it;break;}
+                check(item,"Missing authored source in Tree");
+                const auto before=packet();
+                tree->itemDoubleClicked(item,0);flush();
+                check(packet()==before,"Parameter inspection replaced the current state body");
+                check(!view->container_inspection_wire().empty(),"Parameter inspection has no authored blue wire");
+                if(!sweep_only) {
+                    const auto dimension=std::ranges::find_if(view->mesh().dimensions,[&](const auto& d){return d.reference.owner_id==sketch.id;});
+                    check(dimension!=view->mesh().dimensions.end(),"Authored inspection lost owned Sketch dimensions");
+                    if(scenario==4) {
+                        const auto p=dimension->witness_first;
+                        check(std::hypot(std::hypot(p.x-80,p.y-40),p.z+75)<1e-7,
+                            "Authored Sketch dimension did not receive exactly one Body transform");
+                    }
+                }
+                nlohmann::json positions=nlohmann::json::array();
+                for(const auto& edge:view->container_inspection_wire())for(const auto& p:edge.points)
+                    positions.push_back({p.x,p.y,p.z});
+                window.grab().save(QString::fromStdString((fixture/(restore->isEnabled()?"authored-wire-straight.png":"authored-wire-formed.png")).string()));
+                QKeyEvent escape(QEvent::KeyPress,Qt::Key_Escape,Qt::NoModifier);
+                QApplication::sendEvent(view,&escape);flush();
+                check(view->container_inspection_wire().empty(),"Ending parameter inspection left the source wire visible");
+                return positions;
+            };
+            const auto authored_wire=inspect_wire();
+            if(!sweep_only&&scenario==3) {
+                auto* create=window.findChild<QAction*>("modelTwistAction");
+                check(create&&create->isEnabled(),"Model Twist command unavailable");create->trigger();flush();
+                auto* properties=dynamic_cast<app::PrimitivePropertiesDialog*>(window.findChild<QWidget*>("featurePropertiesDialog"));
+                check(properties&&properties->pending_value().feature.sides[0].operation==document::FeatureSideOperation::Twist,
+                    "Model Twist did not initialize its shared profile dialog");
+                check(properties->findChild<QCheckBox*>("featureTwistSmooth0")->isVisible(),"Twist transition control missing");
+                check(!properties->findChild<QComboBox*>("featureResult")->isEnabled(),"Twist offers unsupported result modes");
+                properties->reject();flush();check(packet()==input,"Cancel Twist creation changed the model");
+                QTreeWidgetItem* row{};
+                for(QTreeWidgetItemIterator it(tree);*it;++it)if((*it)->data(0,Qt::UserRole).toString().toStdString()==source.id&&
+                    (*it)->data(0,Qt::UserRole+3)=="part-container"){row=*it;break;}
+                check(row,"Twist source Tree row missing");window.show_tree_item_properties(row);flush();
+                properties=dynamic_cast<app::PrimitivePropertiesDialog*>(window.findChild<QWidget*>("featurePropertiesDialog"));
+                check(properties&&properties->pending_value().feature.sides[0]==source.feature.sides[0],"Twist Properties changed its parameters");
+                check(!view->transient_edges().empty(),"Twist has no lightweight wire preview");
+                properties->findChild<QCheckBox*>("featureTwistSmooth0")->setChecked(false);
+                properties->findChild<QComboBox*>("featureTwistDirection0")->setCurrentIndex(1);
+                properties->reject();flush();check(packet()==input,"Cancel Twist edit changed the model");
+                const bool had_undo=window.findChild<QAction*>("undoAction")->isEnabled();
+                row=nullptr;
+                for(QTreeWidgetItemIterator it(tree);*it;++it)if((*it)->data(0,Qt::UserRole).toString().toStdString()==source.id&&
+                    (*it)->data(0,Qt::UserRole+3)=="part-container"){row=*it;break;}
+                check(row,"Twist Tree row missing after Cancel");
+                window.show_tree_item_properties(row);flush();
+                properties=dynamic_cast<app::PrimitivePropertiesDialog*>(window.findChild<QWidget*>("featurePropertiesDialog"));
+                check(properties,"Twist Properties did not reopen");properties->accept();flush();
+                check(packet()==input&&window.findChild<QAction*>("undoAction")->isEnabled()==had_undo,
+                    "Unchanged Twist OK changed geometry or created Undo");
+            }
             straighten->trigger();flush();check(dialog(),"Straighten GUI did not open");
             check(dialog()->parentWidget()==&window&&dialog()->windowFlags().testFlag(Qt::SubWindow),"Solid state dialog is not internal");
             check(packet()==input,"Opening Straighten changed its input geometry");
@@ -146,6 +248,11 @@ int verify_solid_state_ui(QApplication& application,const std::filesystem::path&
             dialog()->buttons()->button(QDialogButtonBox::Ok)->click();flush();check(!dialog(),"Straighten OK failed");
             check(restore->isEnabled(),"Restore not enabled after Straighten");
             const auto straight_packet=packet();check(straight_packet!=input,"Straighten did not update View");
+            inspect_from_view(view,tree,source.id,active_path);
+            check(packet()==straight_packet,"View double-click replaced the straightened solid");
+            if(!sweep_only)check(!view->mesh().dimensions.empty(),"View double-click has no original feature dimensions");
+            QKeyEvent end_inspection(QEvent::KeyPress,Qt::Key_Escape,Qt::NoModifier);QApplication::sendEvent(view,&end_inspection);flush();
+            check(inspect_wire()==authored_wire,"Straighten moved the authored inspection wire");
             if(!sweep_only&&scenario==0) {
                 const auto point_dialog=[&]{return dynamic_cast<app::PrimitivePropertiesDialog*>(window.findChild<QWidget*>("featurePropertiesDialog"));};
                 auto* create=window.findChild<QAction*>("featureShortcut0Action");
@@ -230,6 +337,7 @@ int verify_solid_state_ui(QApplication& application,const std::filesystem::path&
             QMouseEvent middle(QEvent::MouseButtonDblClick,*restored_hit,QPointF(view->mapToGlobal(restored_hit->toPoint())),Qt::MiddleButton,Qt::MiddleButton,Qt::NoModifier);
             QApplication::sendEvent(view,&middle);flush();check(!dialog(),"Restore MMB double-click failed");
             check(!restore->isEnabled()&&window.active_occurrence_path_for_test()==active_path,"Restore did not finish in the active context");
+            check(inspect_wire()==authored_wire,"Restore changed the authored inspection wire");
             if(context)check(std::ranges::any_of(view->mesh().triangle_references,[&](const auto& face){return face.instance_path==passive_path;}),"Passive assembly context disappeared");
             const auto formed_packet=packet();
             window.findChild<QAction*>("undoAction")->trigger();flush();
@@ -447,6 +555,124 @@ int verify_solid_state_ui(QApplication& application,const std::filesystem::path&
             }
             check(*saved.find_container(child.id)==original_child&&saved.history.size()==4,"Attached Properties changed persisted history");
             std::cout<<"Attached Properties kind "<<attached_kind<<": rollback, Cancel, unchanged OK and native persistence passed\n";
+            window.hide();flush();
+        }
+        if(!sweep_only)for(const auto& source_path:qEnvironmentVariable("ZIMA_VERIFY_AUTHORED_MODELS").split(';',Qt::SkipEmptyParts)) {
+            std::vector<kernel::BodyResult> calculated;
+            const auto part=document::PartDocument::load(source_path.toStdString(),&calculated);
+            check(!calculated.empty(),"User inspection model has no calculated geometry");
+            const auto fixture=directory/("authored-user-"+std::filesystem::path(source_path.toStdString()).stem().string());
+            std::filesystem::create_directories(fixture);
+            const auto path=fixture/"source.prtz";part.save(path,calculated);
+            app::AssemblyWorkspaceWindow window(QString::fromStdString(fixture.string()));window.resize(1366,850);window.show();
+            check(window.open_document_path(QString::fromStdString(path.string())),"Cannot open user inspection model");flush();
+            check(activate_test_body(application,window,part.body_history.active_body_id()),"Cannot activate user inspection Body");flush();
+            auto* view=dynamic_cast<viewer::MeshView*>(window.findChild<QOpenGLWidget*>("modelWorkspace"));
+            auto* tree=window.findChild<QTreeWidget*>("documentTree");check(view&&tree,"Missing user inspection workspace");
+            const auto packet=[&] {
+                kernel::BodyResult body;body.mesh=view->mesh();const auto data=document::serialize_body_result(body,false);
+                return nlohmann::json{data.at("vertices_binary"),data.at("triangles_binary"),data.at("triangle_references")}.dump();
+            };
+            const auto before=packet();const bool had_undo=window.findChild<QAction*>("undoAction")->isEnabled();
+            const auto wire_points=[&] {
+                nlohmann::json points=nlohmann::json::array();
+                for(const auto& edge:view->container_inspection_wire())for(const auto& p:edge.points)points.push_back({p.x,p.y,p.z});
+                return points;
+            };
+            std::map<std::string,nlohmann::json> original_wires;
+            std::size_t inspected{};
+            for(const auto& feature:part.history) {
+                if(feature.feature_kind!=document::FeatureKind::Feature&&feature.feature_kind!=document::FeatureKind::Extrusion&&
+                   feature.feature_kind!=document::FeatureKind::Revolution)continue;
+                QTreeWidgetItem* row{};
+                for(QTreeWidgetItemIterator it(tree);*it;++it)if((*it)->data(0,Qt::UserRole+3)=="part-container"&&
+                    (*it)->data(0,Qt::UserRole).toString().toStdString()==feature.id){row=*it;break;}
+                check(row,"User source feature has no Tree row");tree->itemDoubleClicked(row,0);flush();
+                check(!view->container_inspection_wire().empty(),"User feature has no original inspection wire");
+                check(!view->mesh().dimensions.empty(),"User feature has no authored dimensions");
+                original_wires.emplace(feature.id,wire_points());
+                check(packet()==before&&window.findChild<QAction*>("undoAction")->isEnabled()==had_undo,
+                    "User inspection changed calculated body or Undo");
+                window.grab().save(QString::fromStdString((fixture/("source-wire-"+std::to_string(inspected++)+".png")).string()));
+                QKeyEvent escape(QEvent::KeyPress,Qt::Key_Escape,Qt::NoModifier);QApplication::sendEvent(view,&escape);flush();
+                check(view->container_inspection_wire().empty(),"User source wire survived Escape");
+                if(std::ranges::any_of(part.history,[](const auto& f){return f.feature_kind==document::FeatureKind::Straighten;})) {
+                    inspect_from_view(view,tree,feature.id,{});
+                    check(wire_points()==original_wires.at(feature.id)&&!view->mesh().dimensions.empty(),
+                        "User View double-click differs from the authored wire and dimensions");
+                    check(packet()==before,"User View inspection changed the solid");
+                    QApplication::sendEvent(view,&escape);flush();
+                }
+            }
+            check(inspected>0,"User model has no profile feature to inspect");
+            check(window.execute_console_command("save").ok,"Cannot save inspected user-model copy");
+            const auto reopened=document::PartDocument::load(path);
+            check(reopened.history==part.history&&std::ranges::equal(reopened.sketches,part.sketches,{},
+                    [](const auto& s){return s.serialized();},[](const auto& s){return s.serialized();}),
+                "Inspection modified authored features, placement or Sketches");
+            if(std::ranges::any_of(part.history,[](const auto& f){return f.extrusion.sheet_cut;})) {
+                window.findChild<QAction*>("applicationModeAction2")->trigger();flush();
+                const bool already_unfolded=std::ranges::any_of(part.history,[](const auto& f){return f.feature_kind==document::FeatureKind::Unbend;});
+                if(already_unfolded)check(window.execute_console_command("regenerate").ok,"Cannot regenerate user sheet-model copy");
+                if(!already_unfolded) {
+                auto* unbend=window.findChild<QAction*>("unbendAction");check(unbend&&unbend->isEnabled(),"User sheet cannot Unbend");
+                unbend->trigger();flush();app::SheetStateDialog* dialog{};
+                for(auto* d:window.findChildren<QDialog*>())if(auto* state=dynamic_cast<app::SheetStateDialog*>(d);state&&state->isVisible())dialog=state;
+                check(dialog,"User Unbend did not open");dialog->buttons()->button(QDialogButtonBox::Ok)->click();flush();
+                }
+                const auto unfolded=packet();check(already_unfolded||unfolded!=before,"User Unbend did not change the calculated body");
+                for(const auto& f:part.history)if(f.extrusion.sheet_cut) {
+                    const auto original=std::ranges::find_if(calculated.back().mesh.original_references.axes,[&](const auto& a){return a.reference.owner_id==f.id&&a.reference.semantic_key=="axis:primary";});
+                    if(original==calculated.back().mesh.original_references.axes.end())continue;
+                    const auto displayed=std::ranges::find_if(view->mesh().axes,[&](const auto& a){return a.reference.semantic_key.starts_with("sheet-state:from:"+f.id+":axis:primary:region:");});
+                    check(displayed!=view->mesh().axes.end(),"Unfolded cut axis is not displayed in GUI");
+                    check(std::ranges::none_of(view->mesh().axes,[&](const auto& a){return a.reference==original->reference;}),
+                        "The original cut axis is still displayed after Unbend");
+                    check(std::hypot(displayed->point.x-original->point.x,displayed->point.y-original->point.y,displayed->point.z-original->point.z)>1e-4,
+                        "The unfolded cut axis did not move");
+                    const auto retained=std::ranges::find(view->mesh().original_references.axes,original->reference,&kernel::ViewerAxis::reference);
+                    check(retained!=view->mesh().original_references.axes.end()&&retained->point==original->point&&retained->direction==original->direction,
+                        "GUI Unbend moved the authored cut axis");
+                    view->set_selection_filter(viewer::SelectionFilter::Axes);view->fit_all();flush();
+                    for(int y=5;y<view->height();y+=8)for(int x=5;x<view->width();x+=8)
+                        for(const auto& offered:view->selection_candidates_at({double(x),double(y)}))
+                            check(offered.owner_id!=f.id||offered.semantic_key!="axis:primary","Hidden source axis is still offered by the common picker");
+                    view->set_selection_filter(viewer::SelectionFilter::All);
+                }
+                check(window.execute_console_command("save").ok,"Cannot save unfolded user-model copy");
+                for(const auto& f:part.history)if(f.extrusion.sheet_cut) {
+                    window.show_parameter_dimensions(f.id);flush();
+                    check(packet()==unfolded,"User cut inspection changed the unfolded body");
+                    const auto points=wire_points();const auto& original=original_wires.at(f.id);
+                    // Native regeneration can remove a duplicate closing
+                    // circle sample. Compare both point sets geometrically,
+                    // so a different seam sample count cannot hide movement.
+                    const auto equivalent=[](const auto& a,const auto& b) {
+                        if(a.empty()||b.empty())return false;
+                        for(const auto& p:a) {
+                            double nearest=std::numeric_limits<double>::infinity();
+                            for(const auto& q:b)nearest=std::min(nearest,std::hypot(
+                                std::hypot(p[0].template get<double>()-q[0].template get<double>(),
+                                           p[1].template get<double>()-q[1].template get<double>()),
+                                p[2].template get<double>()-q[2].template get<double>()));
+                            if(nearest>1e-7)return false;
+                        }
+                        return true;
+                    };
+                    check(equivalent(points,original)&&equivalent(original,points),"User Unbend moved the authored cut wire");
+                    window.grab().save(QString::fromStdString((fixture/"cut-wire-unfolded.png").string()));
+                    QKeyEvent escape(QEvent::KeyPress,Qt::Key_Escape,Qt::NoModifier);QApplication::sendEvent(view,&escape);flush();
+                }
+                check(window.execute_console_command("save").ok,"Cannot save unfolded user-model copy");
+                const auto unfolded_saved=document::PartDocument::load(path);
+                for(const auto& f:part.history)check(unfolded_saved.find_container(f.id)&&*unfolded_saved.find_container(f.id)==f,
+                    "User Unbend changed an original feature or Origin");
+                check(std::ranges::equal(unfolded_saved.sketches,part.sketches,{},
+                    [](const auto& s){return s.serialized();},[](const auto& s){return s.serialized();}),
+                    "User Unbend changed an original Sketch");
+                std::cout<<"User sheet cut: Unbend, identical authored wire and unchanged definitions passed\n";
+            }
+            std::cout<<"Authored wire: "<<source_path.toStdString()<<", "<<inspected<<" features, unchanged geometry/definitions/Undo passed\n";
             window.hide();flush();
         }
         if(sweep_only)std::cout<<"Sweep solid states GUI: 2D spline, 3D spline, H-Sweep, picking, Cancel, rollback, unchanged OK, MMB and native reopening passed\n";

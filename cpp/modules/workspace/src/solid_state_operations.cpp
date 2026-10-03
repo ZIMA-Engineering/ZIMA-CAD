@@ -25,7 +25,12 @@ std::vector<std::string> solid_state_sources(const document::PartDocument& doc,
         } else if(feature->combine_mode==document::CombineMode::Add&&!feature->is_surface_result()&&
                 ((feature->feature_kind==document::FeatureKind::Revolution&&!feature->revolution.sheet_metal)||
                  feature->feature_kind==document::FeatureKind::Sweep2D||feature->feature_kind==document::FeatureKind::Sweep3D||
-                 feature->feature_kind==document::FeatureKind::HelicalSweep)) {
+                 feature->feature_kind==document::FeatureKind::HelicalSweep||
+                 (feature->feature_kind==document::FeatureKind::Feature&&
+                  feature->feature.type==document::FeatureType::Modeling&&
+                  (feature->feature.effective_side(0).operation==document::FeatureSideOperation::Twist||
+                   feature->feature.effective_side(0).operation==document::FeatureSideOperation::Revolution||
+                   feature->feature.effective_side(1).operation==document::FeatureSideOperation::Revolution)))) {
             sources.emplace(feature->id,false);ordered.push_back(feature->id);
         }
     }

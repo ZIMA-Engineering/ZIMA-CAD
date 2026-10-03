@@ -40,6 +40,19 @@ inline bool solid_state_candidate(const HistoryOperation& operation) {
         return !revolution->surface_result;
     if(const auto* sweep=std::get_if<Sweep3DRequest>(&operation.primitive))
         return sweep->make_solid;
+    if(const auto* group=std::get_if<FeatureGroupRequest>(&operation.primitive)) {
+        bool curved=false;
+        for(const auto& child:group->children) {
+            if(const auto* revolution=std::get_if<RevolutionRequest>(&child)) {
+                if(revolution->surface_result)return false;
+                curved=true;
+            } else if(const auto* sweep=std::get_if<Sweep3DRequest>(&child)) {
+                if(!sweep->make_solid)return false;
+                curved=true;
+            } else if(std::get<ExtrusionRequest>(child).surface_result)return false;
+        }
+        return curved;
+    }
     return false;
 }
 

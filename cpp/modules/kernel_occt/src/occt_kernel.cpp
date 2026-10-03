@@ -1169,6 +1169,11 @@ TopoDS_Wire make_profile_wire(
 #include "boundary_surface_geometry.inc"
 
 void validate_sweep3d(const Sweep3DRequest& request) {
+    if(request.twist) {
+        if(request.sections.size()!=1||!request.make_solid||request.thin)
+            throw std::invalid_argument("Invalid Feature definition.");
+        return; // expand_profile_twist validates the generated ordinary request.
+    }
     if (!std::isfinite(request.linear_tolerance) || request.linear_tolerance <= 0)
         throw std::invalid_argument("Invalid sweep tolerance");
     if (request.path_points.size() < 2 ||
@@ -1630,9 +1635,12 @@ PrimitiveData make_thin_sweep_data(const Sweep3DRequest& request,const std::stri
     return result;
 }
 
+Sweep3DRequest expand_profile_twist(const Sweep3DRequest& request,
+    double coefficient=1,bool straight=false,GProp_GProps* measured=nullptr);
 PrimitiveData make_sweep3d_data(
     const Sweep3DRequest& request, const std::string& owner_id,
     const std::vector<SweepProfileWire>* profile_wires) {
+    if(request.twist)return make_sweep3d_data(expand_profile_twist(request),owner_id);
     if(request.thin)return make_thin_sweep_data(request,owner_id);
     if(request.transported)return make_transported_sweep_data(request,owner_id);
     const auto holes=request.sections.front().profile.inner_profiles.size();
@@ -3334,6 +3342,52 @@ std::vector<OwnedVertex> complete_boolean_vertices(const TopoDS_Shape&,
     const std::vector<OwnedVertex>&,const std::string&,std::string_view);
 
 #include "solid_straightening.inc"
+Sweep3DRequest expand_profile_twist(const Sweep3DRequest& source,
+        double coefficient,bool straight,GProp_GProps* measured) {
+    if(!source.twist||source.sections.size()!=1||!source.make_solid||source.thin||
+       !std::isfinite(coefficient)||coefficient<=0)
+        throw std::invalid_argument("Straightening requires a solid with a constant cross-section.");
+    const auto law=*source.twist;
+    if(!std::isfinite(law.length)||law.length<=0||!std::isfinite(law.angle_degrees)||
+       std::abs(law.angle_degrees)>36000)
+        throw std::invalid_argument("Invalid Feature definition.");
+    const auto& seed=source.sections.front();
+    ExtrusionRequest profile;
+    profile.outer_profile=seed.profile.outer_profile;profile.inner_profiles=seed.profile.inner_profiles;
+    profile.outer_edge_source_ids=seed.profile.outer_edge_source_ids;profile.outer_vertex_source_ids=seed.profile.outer_vertex_source_ids;
+    profile.inner_edge_source_ids=seed.profile.inner_edge_source_ids;profile.inner_vertex_source_ids=seed.profile.inner_vertex_source_ids;
+    std::vector<TopoDS_Wire> wires;
+    for(const auto& item:make_body_profiles(profile,seed.profile_normal,seed.circle_radial_direction))wires.push_back(item.wire);
+    GProp_GProps area;BRepGProp::SurfaceProperties(profile_base(wires,false),area);
+    if(!std::isfinite(area.Mass())||area.Mass()<=0)
+        throw std::invalid_argument("Straightening requires a valid cross-section area.");
+    if(measured)*measured=area;
+    const gp_Ax1 axis(area.CentreOfMass(),gp_Dir(seed.profile_normal.x,seed.profile_normal.y,seed.profile_normal.z));
+    auto target=source;target.twist.reset();target.sections.clear();target.path_points.clear();
+    target.path_point_ids.clear();target.path_segments.clear();target.smooth_loft=true;
+    const int intervals=straight?1:std::clamp(static_cast<int>(std::ceil(std::abs(law.angle_degrees)/5)),1,720);
+    for(int i=0;i<=intervals;++i) {
+        const double fraction=static_cast<double>(i)/intervals;
+        const double angle=straight?0:law.angle_degrees*(law.smooth?sheet_material::twist_progress(fraction):fraction);
+        gp_Trsf turn;turn.SetRotation(axis,angle*std::numbers::pi/180.);
+        const gp_Vec shift(axis.Direction().XYZ()*(law.length*coefficient*fraction));
+        turn.SetTranslationPart(turn.TranslationPart()+shift.XYZ());
+        auto section=seed;
+        solid_straightening::transform_loop(section.profile.outer_profile,turn);
+        for(auto& hole:section.profile.inner_profiles)solid_straightening::transform_loop(hole,turn);
+        if(section.circle_radial_direction) {
+            const auto d=*section.circle_radial_direction;
+            section.circle_radial_direction=solid_straightening::vector(gp_Vec(d.x,d.y,d.z).Transformed(turn).XYZ());
+        }
+        section.point_index=i;section.point_id=i==0?"twist:path:start":i==intervals?"twist:path:end":"twist:path:interior";
+        const auto center=solid_straightening::vector(area.CentreOfMass().Translated(shift).XYZ());
+        target.path_points.push_back(center);target.path_point_ids.push_back(section.point_id);
+        if(i>0&&i<intervals)target.canonical_station_ids.insert(section.point_id);
+        if(i)target.path_segments.push_back({"twist:path:span",target.path_points[i-1],center});
+        target.sections.push_back(std::move(section));
+    }
+    validate_sweep3d(target);return target;
+}
 #include "solid_state_replay.inc"
 #include "sheet_cut_clearance.inc"
 #include "sheet_state_geometry.inc"
@@ -5568,8 +5622,58 @@ SolidStraighteningPlan OcctKernel::prepare_straightening(
 
 SolidStraighteningPlan OcctKernel::prepare_straightening(
     const Sweep3DRequest& source,double coefficient) const {
+    if(source.twist) {
+        GProp_GProps area;
+        auto target=expand_profile_twist(source,coefficient,true,&area);
+        const auto& n=source.sections.front().profile_normal;
+        gp_Trsf end;end.SetRotation(gp_Ax1(area.CentreOfMass(),gp_Dir(n.x,n.y,n.z)),
+            source.twist->angle_degrees*std::numbers::pi/180.);
+        end.SetTranslationPart(end.TranslationPart()+(gp_Vec(n.x,n.y,n.z).Normalized()*source.twist->length).XYZ());
+        SolidStraighteningPlan result;result.primitive=std::move(target);
+        result.section_area=area.Mass();result.centroid_path_length=source.twist->length;result.coefficient=coefficient;
+        result.source_start_centroid=solid_straightening::vector(area.CentreOfMass().XYZ());
+        result.source_end_centroid=solid_straightening::vector(area.CentreOfMass().Translated(
+            gp_Vec(n.x,n.y,n.z).Normalized()*source.twist->length).XYZ());
+        result.straight_end_centroid=std::get<Sweep3DRequest>(result.primitive).path_points.back();
+        result.end_transform=solid_straightening::frame_values(end);result.start_tangent=n;
+        return result;
+    }
     return source.transported?solid_straightening::transported_sweep(source,coefficient):
         solid_straightening::ordinary_sweep(source,coefficient);
+}
+SolidStraighteningPlan OcctKernel::prepare_straightening(
+    const FeatureGroupRequest& source,double coefficient) const {
+    auto target=source;
+    std::optional<SolidStraighteningPlan> result;
+    for(auto& child:target.children) {
+        std::visit([&](auto& request) {
+            using T=std::decay_t<decltype(request)>;
+            if constexpr(std::is_same_v<T,ExtrusionRequest>) {
+                if(request.surface_result)
+                    throw std::invalid_argument("Straightening requires a solid with a constant cross-section.");
+            }
+        },child);
+        if(const auto* revolution=std::get_if<RevolutionRequest>(&child)) {
+            auto resolved=*revolution;
+            // Match the existing Feature calculation: its side follows the
+            // Sketch normal, independently of the authored axis direction.
+            if(const auto side=feature_side_parent(resolved.profile_region_id))
+                if(feature_rotation_reversed(resolved)!=(side->side==FeatureSide::Start))
+                    resolved.axis_direction=dimension_scale(resolved.axis_direction,-1);
+            const auto plan=prepare_straightening(resolved,coefficient);
+            if(!result)result=plan;
+            child=std::get<ExtrusionRequest>(plan.primitive);
+        } else if(const auto* sweep=std::get_if<Sweep3DRequest>(&child)) {
+            const auto plan=prepare_straightening(*sweep,coefficient);
+            if(!result)result=plan;
+            std::visit([&](const auto& replacement) {
+                using T=std::decay_t<decltype(replacement)>;
+                if constexpr(std::is_same_v<T,ExtrusionRequest>||std::is_same_v<T,Sweep3DRequest>)child=replacement;
+            },plan.primitive);
+        }
+    }
+    if(!result)throw std::invalid_argument("Select at least one eligible solid element.");
+    result->primitive=std::move(target);return std::move(*result);
 }
 OcctKernel::~OcctKernel() = default;
 
@@ -8797,13 +8901,25 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                 return op.owner_id==axis.reference.owner_id&&op.sheet_material&&std::holds_alternative<RevolutionRequest>(op.primitive);
             }))rotation_sources[axis.reference.owner_id]=axis;
         sheet_material::History display_material;
+        std::string sheet_display_state;
+        std::map<std::string,std::vector<SheetMaterialDefinition>> cut_axis_frames;
+        std::map<std::string,std::size_t> cut_axis_creation;
+        std::size_t sheet_display_index{};
+        const bool has_sheet_display_state=std::ranges::any_of(operations,[](const auto& op){return !op.suppressed&&std::holds_alternative<SheetStateRequest>(op.primitive);});
         std::map<std::string,std::shared_ptr<const ViewerReferenceGeometry>> solid_state_views;
         for (std::size_t index=0;index<boundaries.size();++index) {
             auto& boundary=boundaries[index];
             for(const auto& [owner,packet]:boundary.solid_state_reference_views)solid_state_views[owner]=packet;
             boundary.solid_state_reference_views=solid_state_views;
+            if(has_sheet_display_state&&!operations[index].suppressed)
+                if(const auto* cut=std::get_if<ExtrusionRequest>(&operations[index].primitive);cut&&cut->sheet_cut) {
+                    cut_axis_frames[operations[index].owner_id]=sheet_material::regions_before(operations,index).regions;
+                    cut_axis_creation[operations[index].owner_id]=index;
+                }
             if(!operations[index].suppressed&&std::holds_alternative<SheetStateRequest>(operations[index].primitive)) {
                 display_material=sheet_material::regions_before(operations,index+1);
+                sheet_display_state=operations[index].owner_id;
+                sheet_display_index=index;
                 active_bend_lines.clear();
                 for(const auto& axis:boundary.mesh.axes)if(sheet_material::is_bend_line(axis.reference))active_bend_lines.push_back(axis);
             }
@@ -8829,6 +8945,39 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
             for(const auto& cut:material_cuts)
                 if(!present_cut_owners.contains(cut.cut_owner))boundary.sheet_cuts.push_back(cut);
             material_cuts=boundary.sheet_cuts;
+            // A circular cut's authored axis belongs to its creation state.
+            // Publish a separate state-owned axis for each rigid material
+            // carrier; never move the source axis or the container Origin.
+            if(!sheet_display_state.empty())for(const auto& [owner,frames]:cut_axis_frames) {
+                if(cut_axis_creation.at(owner)>=sheet_display_index)continue;
+                std::vector<ViewerAxis> sources;
+                for(const auto& axis:boundary.mesh.original_references.axes)
+                    if(axis.reference.owner_id==owner&&(axis.reference.semantic_key=="axis:primary"||axis.reference.semantic_key.starts_with("axis:profile:")))
+                        sources.push_back(axis);
+                if(sources.empty())continue;
+                std::erase_if(boundary.mesh.axes,[&](const auto& axis) {
+                    return axis.reference.owner_id==owner||axis.reference.semantic_key.starts_with("sheet-state:from:"+owner+":axis:");
+                });
+                std::set<std::string> carriers;
+                for(const auto& cut:material_cuts)if(cut.cut_owner==owner)
+                    carriers.insert(cut.source.sheet_owner.empty()?cut.source.owner_id:cut.source.sheet_owner);
+                for(const auto& carrier:carriers) {
+                    const auto before=std::ranges::find(frames,carrier,&SheetMaterialDefinition::owner_id);
+                    const auto after=std::ranges::find(display_material.regions,carrier,&SheetMaterialDefinition::owner_id);
+                    if(before==frames.end()||after==display_material.regions.end())continue;
+                    // Unrolling a curved carrier deforms the cut footprint;
+                    // it no longer has a single straight cylinder axis.
+                    if(before->kind!=SheetMaterialDefinition::Kind::Plane&&before->unfolded!=after->unfolded)continue;
+                    for(auto axis:sources) {
+                        const sheet_material::Transition transition{*before,*after};
+                        axis.point=transition.map(axis.point);axis.direction=transition.rigid_vector(axis.direction);
+                        axis.reference={sheet_display_state,"sheet-state:from:"+owner+":"+axis.reference.semantic_key+":region:"+carrier,axis.reference.instance_path};
+                        if(std::ranges::none_of(boundary.mesh.original_references.axes,[&](const auto& existing){return existing.reference==axis.reference;}))
+                            boundary.mesh.original_references.axes.push_back(axis);
+                        boundary.mesh.axes.push_back(std::move(axis));
+                    }
+                }
+            }
             std::erase_if(boundary.mesh.edges, [](const auto& edge) {
                 return edge.reference.semantic_key == "seam" ||
                     edge.reference.semantic_key.starts_with("seam:");

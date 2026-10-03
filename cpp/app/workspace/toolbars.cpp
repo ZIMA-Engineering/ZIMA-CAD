@@ -315,6 +315,14 @@ void AssemblyWorkspaceWindow::rebuild_application_toolbar() {
         add_command(sweep2d_action_);
         add_command(sweep_3d_action_);
         add_command(helical_sweep_action_);
+        auto* twist=findChild<QAction*>("modelTwistAction");
+        if(!twist) {
+            twist=new QAction(resource_icon("sheet-twist"),tr("Twist"),this);
+            twist->setObjectName("modelTwistAction");
+            connect(twist,&QAction::triggered,this,[this]{show_primitive_properties(
+                zima::document::FeatureKind::Feature,{},false,zima::document::FeatureType::Modeling,false,true);});
+        }
+        twist->setEnabled(boundary_body&&!boundary_body->derived_copy&&!properties_dialog_);add_command(twist);
         for(bool restore:{false,true}) {
             const auto name=restore?"restoreShapeAction":"straightenAction";
             auto* action=findChild<QAction*>(name);

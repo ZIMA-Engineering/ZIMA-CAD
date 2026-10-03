@@ -1369,6 +1369,88 @@ void verify_sheet_revolution(std::filesystem::path directory) {
 #include "sheet_cut_actual_verification.inc"
 
 int main(int argc,char** argv) {
+    if(argc==3&&std::string_view(argv[1])=="--verify-sheet-cut-axis") {
+        try {
+            std::vector<kernel::BodyResult> saved;
+            const auto part=document::PartDocument::load(argv[2],&saved);
+            auto operations=part.kernel_operations();kernel::OcctKernel local_kernel;
+            const auto check_axes=[&](const auto& calculated) {
+                const auto final=kernel::sheet_material::regions_before(operations,operations.size());
+                std::size_t count{};
+                for(std::size_t i=0;i<operations.size();++i) {
+                    const auto* cut=std::get_if<kernel::ExtrusionRequest>(&operations[i].primitive);
+                    if(!cut||!cut->sheet_cut)continue;
+                    const auto* feature=part.find_container(operations[i].owner_id);
+                    const auto input=kernel::sheet_material::regions_before(operations,i);
+                    const auto owner=feature->placement.references.front().owner_id;
+                    const auto source=std::ranges::find_if(input.regions,[&](const auto& r){return r.owner_id==owner||r.feature_owner_id==owner;});
+                    check(source!=input.regions.end()&&source->kind==kernel::SheetMaterialDefinition::Kind::Plane,"Axis fixture requires a planar cut carrier");
+                    const auto target=std::ranges::find(final.regions,source->owner_id,&kernel::SheetMaterialDefinition::owner_id);
+                    check(target!=final.regions.end(),"Cut carrier disappeared");
+                    for(const auto& original:saved.back().mesh.original_references.axes)if(original.reference.owner_id==feature->id&&original.reference.semantic_key=="axis:primary") {
+                        const auto& mesh=calculated.back().mesh;
+                        const auto retained=std::ranges::find(mesh.original_references.axes,original.reference,&kernel::ViewerAxis::reference);
+                        check(retained!=mesh.original_references.axes.end(),"Unbend lost the authored axis");
+                        near(retained->point.x,original.point.x);near(retained->point.y,original.point.y);near(retained->point.z,original.point.z);
+                        const auto axis=std::ranges::find_if(mesh.axes,[&](const auto& a){return a.reference.semantic_key=="sheet-state:from:"+feature->id+":axis:primary:region:"+source->owner_id;});
+                        check(axis!=mesh.axes.end()&&axis->reference.owner_id==operations.back().owner_id,"State axis is absent or has the wrong owner");
+                        check(std::ranges::none_of(mesh.axes,[&](const auto& a){return a.reference==original.reference;}),"The obsolete source axis remains visible");
+                        const kernel::sheet_material::Transition movement{*source,*target};
+                        const auto expected=movement.map(original.point),direction=movement.rigid_vector(original.direction);
+                        near(axis->point.x,expected.x);near(axis->point.y,expected.y);near(axis->point.z,expected.z);
+                        near(axis->direction.x,direction.x);near(axis->direction.y,direction.y);near(axis->direction.z,direction.z);
+                        ++count;
+                    }
+                }
+                check(count>0,"No circular cut axis verified");
+            };
+            auto calculated=local_kernel.evaluate_history(operations);check_axes(calculated);
+            const auto path=std::filesystem::path("build/sheet-axis-verified.prtz");part.save(path,calculated);
+            std::vector<kernel::BodyResult> reopened;static_cast<void>(document::PartDocument::load(path,&reopened));check_axes(reopened);
+            kernel::HistoryOperation state;state.body=operations.back().body;state.owner_id="axis-bend-back";
+            state.primitive=kernel::SheetStateRequest{false,true,{},1e-6};operations.push_back(state);
+            calculated=local_kernel.evaluate_history(operations);check_axes(calculated);
+            state.owner_id="axis-re-unbend";std::get<kernel::SheetStateRequest>(state.primitive).unfold=true;operations.push_back(state);
+            calculated=local_kernel.evaluate_history(operations);check_axes(calculated);
+            std::cout<<"Circular Sheet Cut: Unbend, Bend Back, repeated Unbend, immutable source axis and native packet persistence passed\n";
+            return 0;
+        }catch(const std::exception& error){std::cerr<<error.what()<<'\n';return 1;}
+    }
+    if(argc==3&&std::string_view(argv[1])=="--inspect-sheet-cut-axis") {
+        try {
+            std::vector<kernel::BodyResult> calculated;
+            const auto part=document::PartDocument::load(argv[2],&calculated);
+            const auto operations=part.kernel_operations(false,false);
+            const auto final=kernel::sheet_material::regions_before(operations,operations.size());
+            const auto origins=part.history_origin_reference_geometry_before({});
+            for(std::size_t index=0;index<operations.size();++index) {
+                const auto* cut=std::get_if<kernel::ExtrusionRequest>(&operations[index].primitive);
+                if(!cut||!cut->sheet_cut)continue;
+                const auto* feature=part.find_container(operations[index].owner_id);
+                check(feature&&!feature->placement.references.empty(),"Sheet Cut has no placement anchor");
+                const auto owner=feature->placement.references.front().owner_id;
+                check(std::ranges::all_of(feature->placement.references,[&](const auto& r){return r.owner_id==owner&&r.instance_path.empty();}),
+                    "Diagnostic requires an unambiguous local anchor");
+                const auto input=kernel::sheet_material::regions_before(operations,index);
+                const auto before=std::ranges::find_if(input.regions,[&](const auto& r){return r.owner_id==owner||r.feature_owner_id==owner;});
+                check(before!=input.regions.end()&&before->kind==kernel::SheetMaterialDefinition::Kind::Plane,
+                    "Diagnostic requires a planar sheet anchor");
+                const auto after=std::ranges::find(final.regions,before->owner_id,&kernel::SheetMaterialDefinition::owner_id);
+                check(after!=final.regions.end(),"Sheet Cut anchor disappeared");
+                const kernel::sheet_material::Transition movement{*before,*after};
+                const auto vec=[](kernel::Vec3 p){return Json::array({p.x,p.y,p.z});};
+                std::size_t count=0;
+                for(const auto& axis:origins.axes)if(axis.reference.owner_id==feature->container_origin.id) {
+                    std::cout<<Json{{"check","sheet-cut-axis"},{"owner",feature->id},{"key",axis.reference.semantic_key},
+                        {"current_point",vec(axis.point)},{"expected_point",vec(movement.map(axis.point))},
+                        {"current_direction",vec(axis.direction)},{"expected_direction",vec(movement.rigid_vector(axis.direction))}}.dump()<<'\n';
+                    ++count;
+                }
+                check(count==3,"Sheet Cut does not expose its complete Origin axes");
+            }
+            return 0;
+        }catch(const std::exception& error){std::cerr<<error.what()<<'\n';return 1;}
+    }
     if(argc==3&&std::string_view(argv[1])=="--verify-corner-prototype") {
         try {
             auto part=document::PartDocument::load(argv[2]);

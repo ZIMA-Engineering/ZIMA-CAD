@@ -60,13 +60,22 @@ inline std::string dimension_number(double value, int decimals,bool keep_trailin
     if (result.starts_with('-') && result.find_first_not_of("-0.")==std::string::npos)result.erase(0,1);
     return dimension_decimal_text(std::move(result));
 }
-inline std::string dimension_text(const ViewerDimension& d,const DimensionTextStyle& style) {
+inline std::string dimension_text(const ViewerDimension& d,const DimensionTextStyle& style,bool inch_drawing=false) {
     if(!style.text_override.empty())return style.text_override;
+    const auto numeric=[&](std::string value) {
+        value=dimension_decimal_text(std::move(value));
+        if(inch_drawing&&style.value_unit=="in") {
+            std::replace(value.begin(),value.end(),',','.');
+            if(value.starts_with("0."))value.erase(0,1);
+            else if(value.starts_with("-0.")||value.starts_with("+0."))value.erase(1,1);
+        }
+        return value;
+    };
     std::ostringstream text;text<<style.prefix<<(d.kind==ViewerDimensionKind::Radius?"R":d.kind==ViewerDimensionKind::Diameter?"⌀":"")
-        <<dimension_number(d.value/dimension_annotation_scale(style.value_unit,d.kind),style.decimals,style.keep_trailing_zeros)<<dimension_unit_text(style.suffix);
-    if(style.tolerance_mode=="symmetric")text<<" ±"<<dimension_decimal_text(style.symmetric_tolerance);
-    if(style.tolerance_mode=="single_deviation")text<<" "<<dimension_decimal_text(style.single_tolerance);
-    if(style.tolerance_mode=="deviations")text<<" +"<<dimension_decimal_text(style.upper_tolerance)<<" /-"<<dimension_decimal_text(style.lower_tolerance);
+        <<numeric(dimension_number(d.value/dimension_annotation_scale(style.value_unit,d.kind),style.decimals,style.keep_trailing_zeros))<<dimension_unit_text(style.suffix);
+    if(style.tolerance_mode=="symmetric")text<<" ±"<<numeric(style.symmetric_tolerance);
+    if(style.tolerance_mode=="single_deviation")text<<" "<<numeric(style.single_tolerance);
+    if(style.tolerance_mode=="deviations")text<<" +"<<numeric(style.upper_tolerance)<<" /-"<<numeric(style.lower_tolerance);
     return text.str();
 }
 inline ModelEnvelope model_envelope(const ViewerMesh &mesh) {

@@ -8,7 +8,7 @@ namespace zima::document {
 
 enum class FeatureType { Point, Axis, Plane, Sketch, Modeling };
 
-enum class FeatureSideOperation { None, Extrusion, Revolution };
+enum class FeatureSideOperation { None, Extrusion, Revolution, Twist };
 enum class FeatureRotationExtent { Angle, Full, UpTo };
 
 struct FeatureSideParameters {
@@ -21,6 +21,8 @@ struct FeatureSideParameters {
     std::vector<ExtrusionParameters::EndTarget> targets;
     // Positive removes material away from the neutral Sketch plane.
     double draft_angle_degrees{};
+    bool twist_reverse{};
+    bool twist_smooth{true};
     bool operator==(const FeatureSideParameters&) const = default;
 };
 

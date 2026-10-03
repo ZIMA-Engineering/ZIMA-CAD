@@ -207,7 +207,7 @@ std::vector<HistoryOperation> prepare(const std::vector<HistoryOperation>& histo
             for(const auto& replacement:*overrides)if(replacement.owner_id==authored.at(index).owner_id)input=&replacement.primitive;
         auto plan=std::visit([&](const auto& request)->SolidStraighteningPlan {
             using T=std::decay_t<decltype(request)>;
-            if constexpr(std::is_same_v<T,RevolutionRequest>||std::is_same_v<T,Sweep3DRequest>)
+            if constexpr(std::is_same_v<T,RevolutionRequest>||std::is_same_v<T,Sweep3DRequest>||std::is_same_v<T,FeatureGroupRequest>)
                 return kernel.prepare_straightening(request,coefficient);
             else throw std::invalid_argument("Solid state replay cannot yet preserve this operation.");
         },*input);
@@ -360,7 +360,13 @@ std::vector<HistoryOperation> prepare(const std::vector<HistoryOperation>& histo
         // Do not silently carry a cutter to the wrong segment. Whole-cutter
         // classification and placement-aware replay are separate acceptance gates.
         if(operation.operation==BooleanOperation::Subtract) {
-            if(!resolved_placements.contains(operation.owner_id))
+            const auto before=solid_states_before(authored,changes,index);
+            const bool unchanged=std::ranges::all_of(before,[&](const auto& item) {
+                const auto& target=states.at(item.first);
+                return item.second.straight==target.straight&&
+                    (!target.straight||item.second.coefficient==target.coefficient);
+            });
+            if(!unchanged&&!resolved_placements.contains(operation.owner_id))
                 operation.primitive=transfer_cut(authored[index],index,authored,changes,states,kernel);
             continue;
         }
@@ -380,6 +386,8 @@ std::vector<HistoryOperation> prepare(const std::vector<HistoryOperation>& histo
 }
 template<class Reference> void own(Reference& reference,const std::string& owner) {
     if(!reference.valid())throw std::invalid_argument("A solid state reference has no unique correspondence.");
+    if constexpr(requires{reference.display_owner_id;})
+        if(reference.display_owner_id.empty())reference.display_owner_id=reference.owner_id;
     reference.semantic_key=solid_state_child_key(reference.owner_id,reference.semantic_key);
     reference.owner_id=owner;
 }

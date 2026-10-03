@@ -177,7 +177,7 @@ ModelAnnotation project_model_annotation(const DrawingView& view,ModelAnnotation
       // A layout may cache generated model text in display_text_override.
       // Format its source style for the sheet; only an authored style override
       // is literal text and should bypass implicit millimetres.
-      item.text = kernel::dimension_text(d, sheet_dimension_style(kernel::dimension_text_style(d)));
+      item.text = kernel::dimension_text(d, sheet_dimension_style(kernel::dimension_text_style(d)),true);
       if (d.kind == kernel::ViewerDimensionKind::Angular) {
         const auto u = subtract(d.line_first, d.witness_first);
         const double radius = std::sqrt(dot(u, u)),

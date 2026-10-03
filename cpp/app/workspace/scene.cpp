@@ -9,6 +9,7 @@
 #include "../document_numeric_display.hpp"
 #include "ordinary_selection.hpp"
 #include "../feature_view_cues.hpp"
+#include "../authored_feature_wire.hpp"
 #include <zima/document/helical_geometry.hpp>
 #include "../sketch_point_pick_priority.hpp"
 
@@ -103,6 +104,18 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
     }
     setProperty("zimaDocumentDecimalPlaces",decimal_places);
     update_viewer_numeric_context(*viewer_,*this);
+    const auto publish_parameter_inspection=[this](const zima::workspace::PartState* part,const std::string& path) {
+        viewer_->set_container_inspection(properties_dialog_==nullptr
+            ?construction_dimension_object_id_:std::string{},path);
+        if(properties_dialog_||!active_sketch_id_.empty()||!part||construction_dimension_object_id_.empty())return;
+        auto wire=authored_feature_wire(part->session,construction_dimension_object_id_);
+        if(!path.empty()) {
+            const auto occurrence=zima::assembly::InstancePath::decode(path);
+            for(auto& edge:wire)for(auto& point:edge.points)
+                point=workspace_.occurrence_point_to_scene(workspace_.displayed_document_id(),occurrence,point);
+        }
+        if(!wire.empty())viewer_->set_container_inspection_wire(std::move(wire));
+    };
     const auto append_boundary_input_sketches = [this](zima::kernel::ViewerMesh& mesh,
             const zima::document::PartDocument& document) {
         if (!part_rollback_ || part_rollback_->part_document_id != document.document_id ||
@@ -911,7 +924,10 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
             if (sketch != document.sketches.end() && sketch->id != sketch_properties_preview_id_) {
                 const auto& shown = property_owned_sketch_draft_ && property_owned_sketch_draft_->id == sketch->id
                     ? *property_owned_sketch_draft_ : *sketch;
-                const auto sketch_mesh = shown.viewer_mesh();
+                auto sketch_mesh = shown.viewer_mesh();
+                if constexpr(requires { document.body_history; })
+                    if(const auto* body=document.body_owner_for_object(shown.owner_container_id.empty()?shown.id:shown.owner_container_id))
+                        sketch_mesh=document.place_body_mesh(std::move(sketch_mesh),body->scope.id);
                 mesh.dimensions.insert(mesh.dimensions.end(),
                     sketch_mesh.dimensions.begin(), sketch_mesh.dimensions.end());
                 const auto base = zima::kernel::Vec3{
@@ -1901,8 +1917,7 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
         if (extrusion_target_dialog_ != nullptr) {
             apply_extrusion_target_selection_contract();
         }
-        viewer_->set_container_inspection(properties_dialog_ == nullptr
-            ? construction_dimension_object_id_ : std::string{});
+        publish_parameter_inspection(part,{});
         update_section_ui();
         update_measurement_ui();
         return;
@@ -2418,8 +2433,7 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
     }
     // Keep inspection visual only: confirming the container here would
     // suppress subsequent dimension hover and inline editing.
-    viewer_->set_container_inspection(
-        properties_dialog_ == nullptr ? construction_dimension_object_id_ : std::string{},
+    publish_parameter_inspection(active_part,
         active_part != nullptr ? resolve_active_occurrence(
             active_part->session.document().document_id).value_or(std::string{}) : std::string{});
     configure_sketch_box_selection(has_active_part_sketch);

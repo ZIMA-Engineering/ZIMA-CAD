@@ -132,6 +132,7 @@ public:
             auto* rows=new QFormLayout(s.box);s.rows=rows;
             s.mode=new QComboBox(s.box);s.mode->setObjectName(QString("featureSideMode%1").arg(i));
             s.mode->addItems({tr("Bez operace"),tr("Vytažení"),tr("Rotace")});rows->addRow(tr("Typ"),s.mode);
+            if(i==0)s.mode->addItem(tr("Twist"));
             s.draft=number(i==0?"featureSideDraft0":"featureSideDraft1",true);
             s.draft->setRange(-89.999,89.999);s.draft->setValue(s.pending.draft_angle_degrees);
             s.displayed_draft=s.draft->value();rows->addRow(tr("Úhel úkosu"),s.draft);
@@ -141,6 +142,15 @@ public:
             auto* target_row=new QWidget(s.box);s.target_row=target_row;s.target_layout=new QHBoxLayout(target_row);s.target_layout->setContentsMargins(0,0,0,0);
             s.target=new QLineEdit(target_row);s.target->setPlaceholderText(tr("Reference"));s.target->setReadOnly(true);
             s.target_layout->addWidget(s.target,1);rows->addRow(tr("Až k"),target_row);
+            s.twist_angle=number(i==0?"featureTwistAngle0":"featureTwistAngle1",true);
+            s.twist_angle->setRange(.001,36000);s.twist_angle->setValue(s.pending.angle_degrees);
+            s.displayed_twist_angle=s.twist_angle->value();rows->addRow(tr("Úhel kroucení"),s.twist_angle);
+            s.twist_direction=new QComboBox(s.box);s.twist_direction->setObjectName(QString("featureTwistDirection%1").arg(i));
+            s.twist_direction->addItems({tr("Doprava"),tr("Doleva")});s.twist_direction->setCurrentIndex(s.pending.twist_reverse?1:0);
+            rows->addRow(tr("Směr kroucení"),s.twist_direction);
+            s.twist_smooth=new QCheckBox(tr("Smooth twist transitions"),s.box);
+            s.twist_smooth->setObjectName(QString("featureTwistSmooth%1").arg(i));s.twist_smooth->setChecked(s.pending.twist_smooth);
+            rows->addRow(s.twist_smooth);
             connect(s.mode,&QComboBox::currentIndexChanged,this,[this,i]{refresh_side(i);});
             connect(s.end,&QComboBox::currentIndexChanged,this,[this,i]{auto& a=sides_[i];a.value->setEnabled(a.mode->currentIndex()!=0&&a.end->currentIndex()==0);a.target->setEnabled(a.mode->currentIndex()!=0&&a.end->currentIndex()==(a.mode->currentIndex()==2?2:1));});
             sides->addWidget(s.box);refresh_side(i);
@@ -216,6 +226,9 @@ public:
     QLineEdit* target_control(std::size_t side) const { return sides_.at(side).target; }
     QHBoxLayout* target_layout(std::size_t side) const { return sides_.at(side).target_layout; }
     QDoubleSpinBox* side_value(std::size_t side) const { return sides_.at(side).value; }
+    QDoubleSpinBox* side_angle(std::size_t side) const {
+        const auto& value=sides_.at(side);return value.mode->currentIndex()==3?value.twist_angle:value.value;
+    }
     QDoubleSpinBox* side_draft(std::size_t side) const { return sides_.at(side).draft; }
     QGroupBox* side_group(std::size_t side) const { return sides_.at(side).box; }
     bool subtract() const { return result_->currentIndex()!=1 && operation_group_->checkedId()==1; }
@@ -244,6 +257,8 @@ private:
         document::FeatureSideParameters pending;
         int previous_mode{};
         double displayed_value{},authored_value{},displayed_draft{};
+        ui::UnitDoubleSpinBox* twist_angle{};QComboBox* twist_direction{};QCheckBox* twist_smooth{};
+        double displayed_twist_angle{};
     };
     QVBoxLayout* content_{};
     QComboBox* type_{};
@@ -279,6 +294,12 @@ private:
         else {
             if(mode==1){value.length=number;value.extrusion_extent=static_cast<document::EndCondition>(side.end->currentIndex());}
             if(mode==2){value.angle_degrees=number;value.rotation_extent=static_cast<document::FeatureRotationExtent>(side.end->currentIndex());}
+            if(mode==3) {
+                value.length=number;value.extrusion_extent=document::EndCondition::Length;
+                value.draft_angle_degrees=0;value.targets.clear();
+                if(side.twist_angle->value()!=side.displayed_twist_angle)value.angle_degrees=side.twist_angle->value();
+                value.twist_reverse=side.twist_direction->currentIndex()==1;value.twist_smooth=side.twist_smooth->isChecked();
+            }
         }
         return value;
     }
@@ -300,8 +321,8 @@ private:
             s.box->setVisible(lengths&&(i==0||!symmetric_));
             s.rows->setRowVisible(s.mode,modeling);
             s.rows->setRowVisible(s.draft,modeling&&s.mode->currentIndex()==1);
-            s.rows->setRowVisible(s.end,modeling);
-            s.rows->setRowVisible(s.target_row,modeling);
+            s.rows->setRowVisible(s.end,modeling&&s.mode->currentIndex()!=3);
+            s.rows->setRowVisible(s.target_row,modeling&&s.mode->currentIndex()!=3);
         }
     }
     void refresh_operations() {
@@ -338,6 +359,24 @@ private:
         s.authored_value=mode==2?s.pending.angle_degrees:s.pending.length;s.value->setValue(s.authored_value);
         s.displayed_value=s.value->value();
         s.target->setEnabled(mode!=0 && s.end->currentIndex()==(mode==2?2:1));
+        const bool twisting=mode==3;
+        if(twisting) {
+            const QSignalBlocker angle_block(s.twist_angle),direction_block(s.twist_direction),smooth_block(s.twist_smooth);
+            s.twist_angle->setValue(s.pending.angle_degrees);s.displayed_twist_angle=s.twist_angle->value();
+            s.twist_direction->setCurrentIndex(s.pending.twist_reverse?1:0);s.twist_smooth->setChecked(s.pending.twist_smooth);
+        }
+        s.rows->setRowVisible(s.twist_angle,twisting);s.rows->setRowVisible(s.twist_direction,twisting);
+        s.rows->setRowVisible(s.twist_smooth,twisting);s.rows->setRowVisible(s.end,!twisting);
+        s.rows->setRowVisible(s.target_row,!twisting);
+        if(twisting) {
+            s.end->setCurrentIndex(0);
+            sides_[1].mode->setCurrentIndex(0);symmetric_control_->setChecked(false);
+            result_->setCurrentIndex(0);
+        }
+        const bool any_twist=sides_[0].mode&&sides_[0].mode->currentIndex()==3;
+        if(sides_[1].box)sides_[1].box->setEnabled(!any_twist&&!symmetric_);
+        symmetric_control_->setEnabled(!any_twist);swap_->setEnabled(!any_twist&&!symmetric_);
+        result_->setEnabled(!any_twist);
         refresh_side_lock(index);
     }
     void refresh_side_lock(int index) {
@@ -345,6 +384,8 @@ private:
             "side"+std::to_string(index)+"_draft_angle",*locks_,locks_changed_);
         if(locks_)ui::bind_numeric_value_lock(sides_[index].value,
             "side"+std::to_string(index)+(!sides_[index].displayed_axis&&sides_[index].mode->currentIndex()==2?"_angle":"_length"),*locks_,locks_changed_);
+        if(locks_&&sides_[index].mode->currentIndex()==3)ui::bind_numeric_value_lock(sides_[index].twist_angle,
+            "side"+std::to_string(index)+"_angle",*locks_,locks_changed_);
     }
     void normalize_rotations(std::size_t edited) {
         if(refreshing_side_||normalizing_rotations_||changing_operation_)return;

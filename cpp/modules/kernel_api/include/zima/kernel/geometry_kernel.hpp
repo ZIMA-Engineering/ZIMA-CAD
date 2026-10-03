@@ -653,6 +653,13 @@ struct StepRequest {
 };
 
 struct Sweep3DRequest {
+    struct Twist {
+        double length{100},angle_degrees{90};
+        bool smooth{true};
+    };
+    // Authored constant profile, rotated about its exact area centroid during
+    // explicit calculation. Approximation stations never define identity.
+    std::optional<Twist> twist;
     struct PathSegment {
         std::string source_id;
         Vec3 start;

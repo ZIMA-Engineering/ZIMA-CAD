@@ -21,7 +21,7 @@ using namespace workspace_detail;
 void AssemblyWorkspaceWindow::show_primitive_properties(
     zima::document::FeatureKind feature_kind,
     const std::string& container_id, bool sheet_metal,
-    std::optional<zima::document::FeatureType> feature_preset, bool rotation_preset) {
+    std::optional<zima::document::FeatureType> feature_preset, bool rotation_preset, bool twist_preset) {
     if(feature_kind==zima::document::FeatureKind::BoundarySurface){show_boundary_surface_properties(container_id);return;}
     if(feature_kind==zima::document::FeatureKind::DerivedCopy) {
         show_derived_copy_properties(container_id);return;
@@ -231,7 +231,13 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
         initial.feature.type=*feature_preset;
         if(rotation_preset)for(auto& side:initial.feature.sides)
             side.operation=zima::document::FeatureSideOperation::Revolution;
-        if(sketch_type_shortcut && !rotation_preset)
+        if(twist_preset) {
+            initial.feature.sides[0].operation=zima::document::FeatureSideOperation::Twist;
+            initial.feature.sides[1].operation=zima::document::FeatureSideOperation::None;
+            initial.feature.symmetric=false;initial.feature.result_type=zima::document::ProfileResultType::Solid;
+            initial.name=tr("Twist").toStdString();initial.feature.automatic_name=initial.name;
+        }
+        if(sketch_type_shortcut && !rotation_preset && !twist_preset)
             initial.feature.sides[0].operation=zima::document::FeatureSideOperation::Extrusion;
         if(sketch_type_shortcut && part && initial.name==initial.feature.automatic_name) {
             initial.name=next_feature_name(part->session.document(),initial.feature.type,initial.id);

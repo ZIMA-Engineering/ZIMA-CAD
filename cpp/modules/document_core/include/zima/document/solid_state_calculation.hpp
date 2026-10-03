@@ -2,14 +2,68 @@
 #include <zima/document/part_document.hpp>
 #include <zima/document/solid_state_reference_view.hpp>
 #include <zima/document/solid_state_face_transfers.hpp>
+#include <zima/kernel/solid_state_history.hpp>
 
 namespace zima::document {
+inline std::vector<kernel::HistoryOperation> combined_solid_state_calculation_operations(
+        const document::PartDocument& doc,const std::vector<kernel::BodyResult>* previous,bool recover_errors=true) {
+    auto operations=doc.kernel_operations(false,recover_errors);
+    if(!std::ranges::any_of(operations,[](const auto& op) {
+        return std::holds_alternative<kernel::FeatureGroupRequest>(op.primitive)&&kernel::solid_state_candidate(op);
+    }))return operations;
+    if(!previous||previous->empty())return operations;
+    const auto& geometry=previous->back().mesh.original_references;
+    std::vector<kernel::HistoryOperation> authored;
+    std::vector<kernel::SolidStateChange> changes;
+    for(auto& operation:operations) {
+        const auto* state=std::get_if<kernel::SolidStateRequest>(&operation.primitive);
+        if(!state){authored.push_back(operation);continue;}
+        changes.push_back({authored.size(),operation.owner_id,operation.body.id,
+            state->restore,state->all,operation.suppressed,state->coefficient,state->owners});
+        if(operation.suppressed)continue;
+        const auto packet=previous->back().solid_state_reference_views.find(operation.owner_id);
+        if(packet==previous->back().solid_state_reference_views.end())continue;
+        const auto targets=kernel::solid_states_before(authored,changes,authored.size());
+        std::set<document::HistoryReferenceView::Owner> changed;
+        document::HistoryReferenceViews views;
+        std::set<std::string> dependent;
+        for(std::size_t index=0;index<authored.size();++index) {
+            const auto& original=authored[index];
+            if(original.body.id!=operation.body.id)continue;
+            const auto* feature=doc.find_container(original.owner_id);
+            const auto* object=doc.find_construction(original.owner_id);
+            const auto* refs=feature?&feature->placement.references:object?&object->references:nullptr;
+            if(refs&&std::ranges::any_of(*refs,[&](const auto& ref){return changed.contains({ref.owner_id,ref.instance_path});})) {
+                views.emplace(original.owner_id,document::solid_state_reference_view(geometry,*packet->second,changed,*refs));
+                dependent.insert(original.owner_id);changed.insert({original.owner_id,{}});
+                if(feature)changed.insert({feature->container_origin.id,{}});
+            }
+            const auto before=kernel::solid_states_before(authored,changes,index);
+            if(const auto target=targets.find(original.owner_id);target!=targets.end()) {
+                const auto old=before.find(original.owner_id);
+                if(target->second.straight&&(old==before.end()||!old->second.straight||
+                    old->second.coefficient!=target->second.coefficient))changed.insert({original.owner_id,{}});
+            }
+        }
+        if(views.empty())continue;
+        auto transient=doc;transient.resolve_constructions(geometry,views);
+        std::vector<kernel::HistoryOperation> replacements;
+        for(auto candidate:transient.kernel_operations(false,recover_errors))if(dependent.contains(candidate.owner_id))
+            replacements.push_back(std::move(candidate));
+        if(!replacements.empty())operation.solid_state_placements=
+            std::make_shared<const std::vector<kernel::HistoryOperation>>(std::move(replacements));
+    }
+    return operations;
+}
 // Resolve a state's earlier dependencies in an isolated document. The public
 // history keeps the frames valid at their original boundaries; only the state's
 // kernel replay receives these target-frame primitives.
 inline std::vector<kernel::HistoryOperation> solid_state_calculation_operations(
         const document::PartDocument& document,const std::vector<kernel::BodyResult>* calculated,bool recover_errors=true) {
     auto operations=document.kernel_operations(false,recover_errors);
+    if(std::ranges::any_of(operations,[](const auto& op) {
+        return std::holds_alternative<kernel::FeatureGroupRequest>(op.primitive)&&kernel::solid_state_candidate(op);
+    }))return combined_solid_state_calculation_operations(document,calculated,recover_errors);
     if(!calculated||calculated->empty()||calculated->back().solid_state_reference_views.empty())return operations;
     const auto authored=calculated->back().mesh.original_references;
     for(auto& state:operations) {

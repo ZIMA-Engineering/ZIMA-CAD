@@ -1,4 +1,4 @@
-#include <zima/document/solid_state_calculation.hpp>
+#include "group_solid_state_calculation.hpp"
 #include <zima/document/solid_state_reference_views.hpp>
 #include <zima/workspace/placement_edit.hpp>
 #include <zima/workspace/sketch_properties.hpp>
@@ -177,7 +177,7 @@ void commit_part_parameter_edit(PartState& part, const kernel::OcctKernel& kerne
     auto calculated = calculate_part_with_resolved_references(kernel, next, &previous, policy);
     if (const auto* edited = next.find_container(owner);
         edited && edited->feature_kind == document::FeatureKind::ShaftThread) {
-        const auto operations = document::solid_state_calculation_operations(next,&calculated,false);
+        const auto operations = group_solid_state_cached_operations(next,&calculated,false);
         bool exact = calculated.size() == operations.size();
         for (std::size_t i = 0; exact && i < calculated.size(); ++i)
             exact = calculated[i].source_fingerprint == kernel::history_fingerprint(operations, i + 1);

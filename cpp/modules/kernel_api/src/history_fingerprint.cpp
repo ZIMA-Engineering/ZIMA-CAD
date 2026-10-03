@@ -519,6 +519,11 @@ std::string encode_history_fingerprint(
                     for (const unsigned char c : primitive.wall->end_point_id) byte(c);
                 }
             } else if constexpr (std::is_same_v<Request, Sweep3DRequest>) {
+                if(primitive.twist) {
+                    byte(0xf4);u64(std::bit_cast<std::uint64_t>(primitive.twist->length));
+                    u64(std::bit_cast<std::uint64_t>(primitive.twist->angle_degrees));
+                    byte(primitive.twist->smooth);
+                }
                 u64(2); // Rigid inheritance of a single profile on smooth spline routes.
                 const auto append_string = [&](const std::string& value) {
                     u64(value.size());

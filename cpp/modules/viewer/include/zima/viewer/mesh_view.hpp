@@ -160,6 +160,7 @@ public:
     // Visual inspection does not latch the picker; dimensions remain editable.
     void set_container_inspection(const std::string& owner_id,
         const std::string& instance_path = {});
+    void set_container_inspection_wire(std::vector<zima::kernel::ViewerEdge> wire);
     [[nodiscard]] const std::vector<zima::kernel::ViewerEdge>& container_inspection_wire() const;
     void confirm_container(const std::string& owner_id);
     void confirm_container_component(const std::string& owner_id,

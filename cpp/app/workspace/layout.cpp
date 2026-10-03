@@ -1503,21 +1503,8 @@ void AssemblyWorkspaceWindow::create_layout() {
             else if((body&&body->derived_copy)||(copy_feature&&copy_feature->feature_kind==zima::document::FeatureKind::DerivedCopy))
                 show_derived_source(candidate.owner_id,false);
             else {
-                // A sheet-state feature keeps ordinary View selection on the
-                // authored container, but its stored bend dimensions still
-                // belong to the formed historical geometry.  Do not draw
-                // those dimensions over a currently unfolded region.
-                const bool unfolded=part&&std::ranges::any_of(
-                    zima::workspace::sheet_state_regions(part->session.document()),
-                    [&](const auto& region) {
-                        return (region.owner_id==candidate.owner_id||region.feature_owner_id==candidate.owner_id)&&region.unfolded;
-                    });
-                if(unfolded) {
-                    if(!construction_dimension_object_id_.empty())
-                        static_cast<void>(finish_parameter_dimensions());
-                    state_->setText(tr("Kóty rozvinutého prvku se zobrazí ve vlastnostech jeho historického prvku."));
-                    return;
-                }
+                // Dimensions and the blue inspection wire both belong to
+                // the authored definition, including in an unfolded state.
                 show_parameter_dimensions(candidate.owner_id);
             }
         } else if (candidate.kind == zima::viewer::CandidateKind::Vertex) {
@@ -2079,9 +2066,12 @@ void AssemblyWorkspaceWindow::create_layout() {
                     "part-hole-component") {
                 const auto owner_id =
                     item->data(0, Qt::UserRole).toString().toStdString();
-                viewer_->confirm_container(owner_id);
+                std::string path;
+                for(auto* row=item;row&&path.empty();row=row->parent())path=row->data(0,Qt::UserRole+1).toString().toStdString();
+                if(path.empty())viewer_->confirm_container(owner_id);
+                else viewer_->confirm_reference(owner_id,{},path,zima::viewer::CandidateKind::Container);
                 viewer_->set_feature_selected_edge_indices(
-                    edge_treatment_feature_edges(owner_id));
+                    edge_treatment_feature_edges(owner_id,path));
             } else if (item->data(0, Qt::UserRole + 3).toString() == "part-body" ||
                        item->data(0, Qt::UserRole + 3).toString() == "part-body-boolean") {
                 const auto id = item->data(0, Qt::UserRole).toString().toStdString();
@@ -2201,7 +2191,11 @@ void AssemblyWorkspaceWindow::create_layout() {
                 role=="assembly-cut"||role=="assembly-sketch-container"||role=="part-sketch"||
                 role=="assembly-sketch"||role=="document-section") {
                 show_parameter_dimensions(owner,component);
-                viewer_->set_container_inspection(owner,path);
+                // refresh_scene owns the authored Part-feature wire. Retain
+                // the existing explicit inspection path for other Tree roles.
+                const auto* part=workspace_.open_part(workspace_.active_document_id());
+                if(!part||!part->session.document().find_container(owner))
+                    viewer_->set_container_inspection(owner,path);
             }
         });
     tree_->setContextMenuPolicy(Qt::CustomContextMenu);
