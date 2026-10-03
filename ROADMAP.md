@@ -12,12 +12,40 @@ for module boundaries and [distribution rules](doc/DISTRIBUTION_CLEANUP_PLAN.md)
 for the agreed packaging direction. Dated entries below preserve planning context;
 newer completion notes and focused contracts supersede their earlier status.
 
-## Current work and queued requests (2026-10-02)
+## Current work and queued requests (2026-10-03)
 
-Finish [Solid Straightening / Restore shape](doc/SOLID_STRAIGHTENING.md) first.
-The next agreed modeling task is the [Boundary Surface container redesign](doc/NETWORK_SURFACE.md#queued-container-redesign-approved-2026-10-02).
+Solid Straightening / Restore shape was completed and published in Windows build
+2026100301; see [the implementation and verification](doc/SOLID_STRAIGHTENING.md).
+Current regression fixes take priority: the mixed Extrusion/Revolution side
+direction and rounding the second end of an already rounded Sketch segment.
+Finish their native and GUI verification before the newly requested unit audit.
+The previously agreed modeling queue retains the
+[Boundary Surface container redesign](doc/NETWORK_SURFACE.md#queued-container-redesign-approved-2026-10-02)
+and optional Drawing view descriptions below; neither is superseded by the audit.
 The file manager below is an additional TODO; recording it does not interrupt
 the current implementation or claim that these capabilities already exist.
+
+### Unit audit and corrections (approved 2026-10-03)
+
+- Audit all unit-dependent input and output: Sketch and Feature dimensions,
+  placement/mates, measurements and physical properties, relations and Family,
+  drawings, native Parts/Assemblies, and import/export boundaries.
+- Preserve canonical native geometry and real size when changing document units
+  or combining millimetre, centimetre, metre and inch documents in an Assembly.
+  Audit angle and mass selections as well. Counts and dimensionless values must
+  never be treated as lengths; drawing paper and explicitly fixed-unit API fields
+  need their documented semantics preserved.
+- Initial finding: file-settings changes retain calculated geometry, and physical
+  properties and measurements already convert length units. Feature numeric fields
+  still display and accept millimetres independently of the document's Length
+  setting. This is an incomplete audit, not a claim that every other path works.
+- Repair confirmed discrepancies with shared conversion logic at presentation
+  boundaries. Preserve precision, signed zero/side identity, reference identity,
+  no-op confirmations, persistence and Undo/Redo. Do not change the protected
+  container-placement contract without the required explicit review.
+- Add representative tests for mixed-unit Assemblies, unit switching, editing
+  displayed values and expressions, native save/reopen, and exchange-file units.
+  Complete the five-language review and English documentation with the changes.
 
 ### Optional Drawing view descriptions (requested 2026-10-02)
 
