@@ -1,4 +1,61 @@
 #include "mesh_surface_ui_verification.inc"
+static void verify_feature_profile_axes(QApplication& application,const std::filesystem::path& directory) {
+    const auto check=[](bool ok,const char* message){if(!ok)throw std::runtime_error(message);};
+    const auto flush=[&]{application.processEvents();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);application.processEvents();};
+    for(const QString language:{"cs","en","de","fr","ru"}) {
+    QTemporaryDir settings_directory;
+    QSettings settings(settings_directory.filePath("config.ini"),QSettings::IniFormat);
+    settings.setValue("Application/Language",language);settings.sync();
+    AssemblyWorkspaceWindow window(settings_directory.path());window.resize(1366,850);window.show();flush();
+    const auto translations=ApplicationSettings::load(settings_directory.path()).qt_translations;
+    for(bool ellipse:{false,true}) {
+        auto part=document::PartDocument::create_default();auto sketch=sketcher::Sketch::create_default();
+        if(ellipse)static_cast<void>(sketch.add_ellipse(4,2,9,2,4,5));
+        else static_cast<void>(sketch.add_circle(4,2,5));
+        auto feature=document::PartDocument::create_feature_container(sketch.id);
+        feature.feature.origin_centerline=feature.feature.centroid_centerline=true;
+        for(auto& side:feature.feature.sides){side.operation=document::FeatureSideOperation::Extrusion;side.length=10;}
+        sketch.owner_container_id=feature.id;part.history={feature};part.sketches={sketch};
+        document::BodyHistoryGraph graph;const auto body=graph.create_body("Profile axes");
+        graph.insert({document::PartHistoryKind::Feature,feature.id});part.set_body_history(graph);part.resolve_constructions();
+        const auto calculated=kernel::OcctKernel{}.evaluate_history(part.kernel_operations());
+        const auto path=directory/(ellipse?"feature-ellipse-axes.prtz":"feature-circle-axes.prtz");part.save(path,calculated);
+        for(int reopen=0;reopen<2;++reopen) {
+            check(window.open_document_path(QString::fromStdString(path.string())),"Profile axes document cannot open");flush();
+            check(window.execute_console_command(QString::fromStdString(commands::Json{{"command","body.activate"},{"arguments",{{"body",body}}}}.dump())).ok,"Profile axes Body activation failed");flush();
+            auto* tree=window.findChild<QTreeWidget*>("documentTree");
+            auto* view=dynamic_cast<viewer::MeshView*>(window.findChild<QOpenGLWidget*>("modelWorkspace"));
+            check(tree&&view,"Profile axes workspace missing");
+            auto* show=window.findChild<QAction*>("showAxesAction");check(show,"Axes visibility action missing");show->setChecked(true);flush();
+            std::vector<kernel::AxisReference> axes;
+            for(const auto& axis:calculated.back().mesh.original_references.axes)
+                if(axis.reference.semantic_key.starts_with("axis:profile:from:")||axis.reference.semantic_key.starts_with("centerline:from:"))axes.push_back(axis.reference);
+            check(axes.size()==6,"Profile fixture needs two profile, origin and centroid axes");
+            for(const auto& ref:axes) {
+                QTreeWidgetItem* found{};
+                for(QTreeWidgetItemIterator row(tree);*row;++row)
+                    if((*row)->data(0,Qt::UserRole+3)=="origin-reference"&&
+                       (*row)->data(0,Qt::UserRole+5).toString().toStdString()==ref.semantic_key&&
+                       (*row)->data(0,Qt::UserRole+6).toString().toStdString()==ref.owner_id){found=*row;break;}
+                check(found,"Calculated profile/origin/centroid axis missing from Tree");
+                const auto label=ref.semantic_key.starts_with("axis:profile:from:")?QStringLiteral("Profile axis %1"):
+                    ref.semantic_key.starts_with("centerline:from:origin:")?QStringLiteral("Osa počátku profilu"):QStringLiteral("Osa těžiště profilu");
+                const auto translated=translations.value(label);
+                check(!translated.isEmpty()&&found->text(0).startsWith(translated.section("%1",0,0)),"Axis Tree label is not localized");
+                check(std::ranges::any_of(view->mesh().axes,[&](const auto& a){return a.reference==ref;}),"Tree axis missing from ordinary View");
+                tree->setCurrentItem(found);tree->itemClicked(found,0);flush();
+                const auto selected=view->confirmed_candidate();
+                check(selected&&selected->kind==viewer::CandidateKind::Axis&&selected->owner_id==ref.owner_id&&selected->semantic_key==ref.semantic_key,
+                    "Tree axis did not select its exact View reference");
+                if(found->parent())found->parent()->setExpanded(true);
+            }
+            if(reopen==0)window.grab().save(QString::fromStdString((directory/((ellipse?"feature-ellipse-axes-":"feature-circle-axes-")+language.toStdString()+".png")).string()));
+            check(window.execute_console_command("save").ok,"Profile axes cannot save");
+            check(window.execute_console_command("close").ok,"Profile axes document cannot close");flush();
+        }
+    }
+    }
+}
 // Surface modes use the public Feature editor and real persisted cylinder data.
 static void verify_feature_surface_placement(QApplication& application, AssemblyWorkspaceWindow& window,
                                             const std::filesystem::path& directory) {

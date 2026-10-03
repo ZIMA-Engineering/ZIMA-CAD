@@ -624,6 +624,14 @@ nlohmann::json serialize_body_result(const zima::kernel::BodyResult& result, boo
         }
     }
     packet["annotation_frames"]=annotation_frames_json(result.mesh.annotation_frames);
+    if(!result.solid_state_reference_views.empty()) {
+        auto views=nlohmann::json::object();
+        for(const auto& [owner,geometry]:result.solid_state_reference_views) {
+            if(owner.empty()||!geometry)throw std::invalid_argument("History reference view is invalid.");
+            views[owner]=serialize_reference_geometry(*geometry);
+        }
+        packet["solid_state_reference_views"]=std::move(views);
+    }
     if(!result.sheet_cuts.empty()) {
         auto regions=nlohmann::json::array();
         for(const auto& region:result.sheet_cuts) {
@@ -677,6 +685,12 @@ zima::kernel::ViewerReferenceGeometry load_viewer_reference_geometry(
 
 zima::kernel::BodyResult load_body_result(const nlohmann::json& source) {
     zima::kernel::BodyResult result;
+    if(const auto views=source.find("solid_state_reference_views");views!=source.end())
+        for(const auto& [owner,geometry]:views->items()) {
+            if(owner.empty())throw std::invalid_argument("History reference view is invalid.");
+            result.solid_state_reference_views.emplace(owner,
+                std::make_shared<const zima::kernel::ViewerReferenceGeometry>(load_reference_geometry(geometry)));
+        }
     for(const auto& row:source.value("sheet_cuts",nlohmann::json::array())) {
         zima::kernel::SheetCutRegion region;region.cut_owner=row.at("cut_owner");
         region.source={row.at("source_owner"),row.at("source_key"),row.at("source_path")};

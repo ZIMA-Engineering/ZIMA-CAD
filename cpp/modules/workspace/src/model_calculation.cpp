@@ -10,6 +10,8 @@
 #include <zima/workspace/sketch_operations.hpp>
 #include <zima/workspace/sketch_reference_operations.hpp>
 #include <zima/document/viewer_packet_json.hpp>
+#include <zima/document/solid_state_reference_views.hpp>
+#include <zima/document/solid_state_calculation.hpp>
 #include <nlohmann/json.hpp>
 #include <algorithm>
 #include <array>
@@ -45,7 +47,7 @@ std::vector<zima::kernel::BodyResult> calculate_part(
         auto repaired=document;
         if(refresh_removed_reference_states(repaired))return calculate_part(kernel,repaired,previous,policy);
     }
-    const auto operations = document.kernel_operations(false, true);
+    const auto operations = document::solid_state_calculation_operations(document,previous);
     auto calculated = kernel.evaluate_history_recovering(operations,
         previous == nullptr ? std::vector<zima::kernel::BodyResult>{} : *previous);
     validate_part_calculation(document,calculated,policy);
@@ -99,8 +101,10 @@ calculate_part_reference_state(
         // Saved centroids use this pass's actual input boundary, before any
         // downstream placement consumes the refreshed frame. No kernel call.
         document::refresh_body_properties(document,calculated);
-        document.resolve_constructions(
-            construction_reference_source_geometry(calculated));
+        auto reference_geometry=construction_reference_source_geometry(calculated);
+        const auto state_views=calculated.empty()?document::HistoryReferenceViews{}:
+            document::solid_state_reference_views(document,calculated.back(),reference_geometry);
+        document.resolve_constructions(std::move(reference_geometry),state_views);
         // A changed placement describes the next geometry pass. Projecting
         // this pass's old source mesh into that new Sketch frame can create
         // a false constraint conflict while the dependency chain is settling.
@@ -121,7 +125,7 @@ calculate_part_reference_state(
             document.constructions == constructions_before &&
             document.body_history.bodies() == bodies_before &&
             (calculated.empty() || calculated.back().source_fingerprint ==
-                kernel::history_fingerprint(document.kernel_operations(false,true),calculated.size()))) {
+                kernel::history_fingerprint(document::solid_state_calculation_operations(document,&calculated),calculated.size()))) {
             if(!document.sections.empty()){
                 auto geometry=construction_reference_source_geometry(calculated);
                 append_reference_geometry(geometry,document.origin_viewer_mesh().original_references);
@@ -239,7 +243,11 @@ PartRegenerationResult regenerate_part(Workspace& workspace,
     auto relation_policy=policy;
     if(!next.relations.empty())relation_policy.reject_errors=true;
     auto calculated = calculate_part_with_resolved_references(kernel, next, nullptr, relation_policy);
-    next.resolve_constructions(calculated.empty()
+    if(!calculated.empty()&&!calculated.back().solid_state_reference_views.empty()) {
+        auto geometry=construction_reference_source_geometry(calculated);
+        const auto views=document::solid_state_reference_views(next,calculated.back(),geometry);
+        next.resolve_constructions(std::move(geometry),views);
+    } else next.resolve_constructions(calculated.empty()
         ? zima::kernel::ViewerReferenceGeometry{}
         : calculated.back().mesh.original_references);
     const bool references_changed =
@@ -263,7 +271,7 @@ PartRegenerationResult regenerate_part(Workspace& workspace,
         // fingerprint differs, rather than attaching the new result to the old
         // document. Keep authored side data and the fingerprint format intact.
         (!calculated.empty() && calculated.back().source_fingerprint !=
-            kernel::history_fingerprint(previous.kernel_operations(false,true),calculated.size()))) {
+            kernel::history_fingerprint(document::solid_state_calculation_operations(previous,&calculated),calculated.size()))) {
         part->session.commit(std::move(next), std::move(calculated));
     } else {
         part->session.update_calculated_boundaries(std::move(calculated));

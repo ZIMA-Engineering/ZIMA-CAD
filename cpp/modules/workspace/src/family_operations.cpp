@@ -1,3 +1,4 @@
+#include <zima/document/solid_state_calculation.hpp>
 #include <zima/workspace/family_operations.hpp>
 #include <zima/workspace/relation_operations.hpp>
 #include <numbers>
@@ -346,12 +347,12 @@ template<class Doc> Doc merge_member(const Doc& base,const Doc& before,Doc next)
 }
 std::vector<kernel::BodyResult> evaluated_part(document::PartDocument& next,
     const std::vector<kernel::BodyResult>& previous,const kernel::OcctKernel& kernel) {
-    const auto operations=next.kernel_operations(false,true);
+    const auto operations=document::solid_state_calculation_operations(next,&previous);
     bool exact=previous.size()==operations.size();
     for(std::size_t i=0;exact&&i<previous.size();++i)exact=previous[i].source_fingerprint==kernel::history_fingerprint(operations,i+1);
     if(exact)return previous;
     auto calculated=calculate_part_with_resolved_references(kernel,next,&previous,{true});
-    const auto resolved=next.kernel_operations(false,true);
+    const auto resolved=document::solid_state_calculation_operations(next,&calculated);
     exact=calculated.size()==resolved.size();
     for(std::size_t i=0;exact&&i<calculated.size();++i)exact=calculated[i].source_fingerprint==kernel::history_fingerprint(resolved,i+1);
     if(!exact)calculated=calculate_part(kernel,next,&calculated,{true});

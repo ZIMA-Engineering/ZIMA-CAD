@@ -45,6 +45,18 @@ int verify_new_document_options(QApplication& application) {
             check(name->text()=="PRIRUBA_CELNI","Typing did not apply updated naming settings");
             typing->reject();flush();
             check(window.execute_console_command("new part rename-source").ok,"Rename fixture creation failed");
+            const auto check_origin=[&] {
+                auto* canvas=dynamic_cast<viewer::MeshView*>(window.findChild<QOpenGLWidget*>("modelWorkspace"));
+                check(canvas,"New document viewer missing");
+                double extent=0;
+                for(const auto& axis:canvas->mesh().axes)
+                    if(axis.reference.semantic_key.starts_with("origin:axis:"))extent=std::max(extent,axis.display_length);
+                std::cerr<<"Origin extent="<<extent<<" baseline="<<canvas->camera_state()[7]<<" zoom="<<canvas->camera_state()[4]<<'\n';
+                canvas->grabFramebuffer().save("build/new-document-origin.png");
+                check(extent>0&&canvas->camera_state()[7]>=extent*2-1e-5,
+                    "New document Origin exceeds its intended viewport size");
+            };
+            flush();check_origin();
             check(window.execute_console_command("save").ok,"Rename fixture save failed");flush();
             QString current_name="RENAME-SOURCE.prtz";
             const auto rename_check=[&](const QString& entered,const QString& expected,bool accept) {
@@ -122,6 +134,7 @@ int verify_new_document_options(QApplication& application) {
                       !saved.sheets.front().frame_lines.empty()&&!saved.sheets.front().title_block_images.empty(),"Drawing defaults did not survive native save/reopen");
             };
             create("part","model");
+            check_origin();
             check(window.findChild<QAction*>("materialAction")->isEnabled(),"Part material action is disabled");
             check(window.findChild<QComboBox*>("applicationModeSelector")->currentData().toInt()==0,"Modeling selection was ignored");
             const auto model=document::PartDocument::load(std::filesystem::u8path(directory.filePath("model.prtz").toStdString()));

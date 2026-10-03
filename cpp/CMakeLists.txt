@@ -311,6 +311,7 @@ add_library(zima_workspace modules/workspace/src/workspace.cpp
     modules/workspace/src/holes_operations.cpp
     modules/workspace/src/bend_operations.cpp
     modules/workspace/src/sheet_state_operations.cpp
+    modules/workspace/src/solid_state_operations.cpp
     modules/workspace/src/sheet_exchange_operations.cpp
     modules/workspace/src/sheet_body_conversion.cpp
     modules/workspace/src/flat_operations.cpp
@@ -354,6 +355,7 @@ add_library(zima_command_host
     modules/command_host/src/hole_commands.cpp
     modules/command_host/src/holes_commands.cpp
     modules/command_host/src/bend_commands.cpp
+    modules/command_host/src/solid_state_commands.cpp
     modules/command_host/src/flat_commands.cpp
     modules/command_host/src/opening_commands.cpp
     modules/command_host/src/drill_point_commands.cpp
@@ -573,6 +575,9 @@ target_link_libraries(zima_cpp_silhouette_view_benchmark PRIVATE
 if(ZIMA_BUILD_TESTS)
     add_test(NAME zima_cpp_end_plane_scene_contract
         COMMAND zima_cpp_silhouette_view_benchmark --end-planes)
+    add_executable(zima_cpp_origin_camera_tests tests/origin_camera_tests.cpp)
+    target_link_libraries(zima_cpp_origin_camera_tests PRIVATE zima_document_core zima_viewer)
+    add_test(NAME zima_cpp_origin_camera_tests COMMAND zima_cpp_origin_camera_tests)
 endif()
 
 add_executable(zima_cpp_history_fingerprint_benchmark tests/history_fingerprint_benchmark.cpp)
@@ -583,6 +588,48 @@ target_link_libraries(zima_cpp_source_refresh_benchmark PRIVATE zima_workspace z
 
 if(ZIMA_BUILD_TESTS)
     add_test(NAME zima_cpp_history_fingerprint_contract COMMAND zima_cpp_history_fingerprint_benchmark)
+    add_executable(zima_cpp_solid_straightening_contract_tests tests/solid_straightening_contract_tests.cpp)
+    target_link_libraries(zima_cpp_solid_straightening_contract_tests PRIVATE zima_kernel_occt zima_document_core TKGeomAlgo)
+    add_test(NAME zima_cpp_solid_straightening_contract_tests COMMAND zima_cpp_solid_straightening_contract_tests)
+    add_executable(zima_cpp_solid_state_history_tests tests/solid_state_history_tests.cpp)
+    target_link_libraries(zima_cpp_solid_state_history_tests PRIVATE zima_kernel_api)
+    add_test(NAME zima_cpp_solid_state_history_tests COMMAND zima_cpp_solid_state_history_tests)
+    add_executable(zima_cpp_solid_state_kernel_tests tests/solid_state_kernel_tests.cpp)
+    target_link_libraries(zima_cpp_solid_state_kernel_tests PRIVATE zima_kernel_occt)
+    add_test(NAME zima_cpp_solid_state_kernel_tests COMMAND zima_cpp_solid_state_kernel_tests)
+    add_executable(zima_cpp_solid_state_transfer_probe tests/solid_state_transfer_probe.cpp)
+    target_link_libraries(zima_cpp_solid_state_transfer_probe PRIVATE zima_document_core zima_kernel_occt TKTopAlgo)
+    add_test(NAME zima_cpp_solid_state_transfer_probe COMMAND zima_cpp_solid_state_transfer_probe)
+    add_executable(zima_cpp_solid_state_face_transfer_document_tests tests/solid_state_face_transfer_document_tests.cpp)
+    target_link_libraries(zima_cpp_solid_state_face_transfer_document_tests PRIVATE zima_workspace zima_kernel_occt TKTopAlgo)
+    add_test(NAME zima_cpp_solid_state_face_transfer_document_tests COMMAND zima_cpp_solid_state_face_transfer_document_tests)
+    add_test(NAME zima_cpp_solid_state_formed_chain_tests COMMAND zima_cpp_solid_state_face_transfer_document_tests --formed-chains)
+    add_test(NAME zima_cpp_solid_state_formed_point_tests COMMAND zima_cpp_solid_state_face_transfer_document_tests --formed-points)
+    add_test(NAME zima_cpp_solid_state_formed_point_chain_tests COMMAND zima_cpp_solid_state_face_transfer_document_tests --formed-point-chains)
+    add_test(NAME zima_cpp_solid_state_curved_continuation_tests COMMAND zima_cpp_solid_state_face_transfer_document_tests --curved-continuation)
+    add_test(NAME zima_cpp_solid_state_sweep_continuation_tests COMMAND zima_cpp_solid_state_face_transfer_document_tests --sweep-continuation)
+    add_test(NAME zima_cpp_solid_state_helical_continuation_tests COMMAND zima_cpp_solid_state_face_transfer_document_tests --helical-continuation)
+    add_executable(zima_cpp_solid_state_document_tests tests/solid_state_document_tests.cpp)
+    target_link_libraries(zima_cpp_solid_state_document_tests PRIVATE zima_command_host zima_workspace zima_kernel_occt TKBO TKTopAlgo)
+    add_test(NAME zima_cpp_solid_state_document_tests COMMAND zima_cpp_solid_state_document_tests)
+    add_test(NAME zima_cpp_solid_state_attached_restore_tests COMMAND zima_cpp_solid_state_document_tests --restore-attached-prefix)
+    add_test(NAME zima_cpp_solid_state_owned_reference_tests COMMAND zima_cpp_solid_state_document_tests --state-owned-reference)
+    add_test(NAME zima_cpp_solid_state_spline_document_tests COMMAND zima_cpp_solid_state_document_tests --spline)
+    add_test(NAME zima_cpp_solid_state_spatial_sweep_document_tests COMMAND zima_cpp_solid_state_document_tests --spatial-sweeps)
+    add_test(NAME zima_cpp_solid_state_fillet_document_tests COMMAND zima_cpp_solid_state_document_tests --fillets)
+    add_test(NAME zima_cpp_solid_state_hole_document_tests COMMAND zima_cpp_solid_state_document_tests --holes)
+    add_executable(zima_cpp_solid_state_drawing_tests tests/solid_state_drawing_tests.cpp)
+    target_link_libraries(zima_cpp_solid_state_drawing_tests PRIVATE zima_command_host)
+    add_test(NAME zima_cpp_solid_state_drawing_tests COMMAND zima_cpp_solid_state_drawing_tests)
+    add_test(NAME zima_cpp_solid_state_drawing_chain_tests COMMAND zima_cpp_solid_state_drawing_tests --curved-chain)
+    add_executable(zima_cpp_history_reference_view_tests tests/history_reference_view_tests.cpp)
+    target_link_libraries(zima_cpp_history_reference_view_tests PRIVATE zima_document_core)
+    add_test(NAME zima_cpp_history_reference_view_tests COMMAND zima_cpp_history_reference_view_tests)
+    add_executable(zima_cpp_solid_state_dialog_tests tests/solid_state_dialog_tests.cpp app/application_settings.cpp)
+    target_link_libraries(zima_cpp_solid_state_dialog_tests PRIVATE zima_ui zima_document_core Qt6::Widgets)
+    target_compile_options(zima_cpp_solid_state_dialog_tests PRIVATE $<$<CXX_COMPILER_ID:MSVC>:/utf-8>)
+    add_test(NAME zima_cpp_solid_state_dialog_tests COMMAND zima_cpp_solid_state_dialog_tests)
+    set_tests_properties(zima_cpp_solid_state_dialog_tests PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
     add_executable(zima_cpp_instance_startup_contract_tests tests/instance_startup_contract_tests.cpp)
     target_include_directories(zima_cpp_instance_startup_contract_tests PRIVATE app)
     target_link_libraries(zima_cpp_instance_startup_contract_tests PRIVATE
@@ -774,6 +821,9 @@ if(ZIMA_BUILD_TESTS)
     add_test(NAME zima_cpp_face_inspection_contract COMMAND zima_cpp_ui_contract_tests)
     set_tests_properties(zima_cpp_face_inspection_contract PROPERTIES
         ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_FACE_FILL_ONLY=1")
+    add_test(NAME zima_cpp_feature_axis_highlight_contract COMMAND zima_cpp_ui_contract_tests)
+    set_tests_properties(zima_cpp_feature_axis_highlight_contract PROPERTIES
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_FEATURE_AXIS_HIGHLIGHT_ONLY=1")
     add_test(NAME zima_cpp_numeric_value_locks_contract COMMAND zima_cpp_ui_contract_tests)
     set_tests_properties(zima_cpp_numeric_value_locks_contract PROPERTIES
         ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_VALUE_LOCKS_ONLY=1")
@@ -1363,6 +1413,10 @@ if(ZIMA_BUILD_TESTS)
         ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_END_PLANES_ONLY=1"
         WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 60)
     add_test(NAME zima_cpp_feature_prototype_ui_contract COMMAND zima-cad-cpp --verify-startup)
+    add_test(NAME zima_cpp_feature_axes_ui_contract COMMAND zima-cad-cpp --verify-startup)
+    set_tests_properties(zima_cpp_feature_axes_ui_contract PROPERTIES
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_CONSOLE_ONLY=1;ZIMA_VERIFY_FEATURE_AXES_ONLY=1"
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 120 RUN_SERIAL TRUE)
     add_test(NAME zima_cpp_surface_placement_ui_contract COMMAND zima-cad-cpp --verify-startup)
     add_test(NAME zima_cpp_pending_curve_point_ui_contract COMMAND zima-cad-cpp --verify-startup)
     set_tests_properties(zima_cpp_pending_curve_point_ui_contract PROPERTIES
@@ -1503,7 +1557,23 @@ if(ZIMA_BUILD_TESTS)
     set_tests_properties(zima_cpp_drawing_balloon_ui_contract PROPERTIES ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT}" WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 90)
     set_tests_properties(zima_cpp_measurement_dimension_ui_contract PROPERTIES ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT}" WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
     add_test(NAME zima_cpp_drawing_ui_contract COMMAND zima-cad-drawing-harness --verify-ui)
+    add_test(NAME zima_cpp_solid_state_drawing_gui_fixture COMMAND zima_cpp_solid_state_drawing_tests)
+    set_tests_properties(zima_cpp_solid_state_drawing_gui_fixture PROPERTIES
+        ENVIRONMENT "ZIMA_SOLID_STATE_DRAWING_FIXTURE=${CMAKE_BINARY_DIR}/solid-state-drawing-gui"
+        FIXTURES_SETUP solid_state_drawing_gui TIMEOUT 60)
+    add_test(NAME zima_cpp_solid_state_drawing_ui_contract COMMAND zima-cad-drawing-harness --verify-ui)
+    set_tests_properties(zima_cpp_solid_state_drawing_ui_contract PROPERTIES
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_SOLID_STATE_DRAWING=${CMAKE_BINARY_DIR}/solid-state-drawing-gui/views.drwz"
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." FIXTURES_REQUIRED solid_state_drawing_gui RUN_SERIAL TRUE TIMEOUT 120)
     add_test(NAME zima_cpp_drawing_view_controls_ui_contract COMMAND zima-cad-drawing-harness --verify-view-controls)
+    add_test(NAME zima_cpp_solid_state_drawing_chain_gui_fixture COMMAND zima_cpp_solid_state_drawing_tests --curved-chain)
+    set_tests_properties(zima_cpp_solid_state_drawing_chain_gui_fixture PROPERTIES
+        ENVIRONMENT "ZIMA_SOLID_STATE_DRAWING_FIXTURE=${CMAKE_BINARY_DIR}/solid-state-drawing-chain-gui"
+        FIXTURES_SETUP solid_state_drawing_chain_gui TIMEOUT 60)
+    add_test(NAME zima_cpp_solid_state_drawing_chain_ui_contract COMMAND zima-cad-drawing-harness --verify-ui)
+    set_tests_properties(zima_cpp_solid_state_drawing_chain_ui_contract PROPERTIES
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_SOLID_STATE_DRAWING_CHAIN=1;ZIMA_VERIFY_SOLID_STATE_DRAWING=${CMAKE_BINARY_DIR}/solid-state-drawing-chain-gui/views.drwz"
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." FIXTURES_REQUIRED solid_state_drawing_chain_gui RUN_SERIAL TRUE TIMEOUT 120)
     add_test(NAME zima_cpp_drawing_breaks_ui_contract COMMAND zima-cad-drawing-harness --verify-breaks)
     add_test(NAME zima_cpp_drawing_details_ui_contract COMMAND zima-cad-drawing-harness --verify-details)
     set_tests_properties(zima_cpp_drawing_details_ui_contract PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT}")
@@ -1693,6 +1763,18 @@ if(ZIMA_BUILD_TESTS)
     set_tests_properties(zima_cpp_sheet_state_ui_contract PROPERTIES
         ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_SHEET_STATE_ONLY=1"
         WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 120 RUN_SERIAL TRUE)
+    file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/solid-state-ui-contract")
+    add_test(NAME zima_cpp_solid_state_ui_contract COMMAND zima-cad-cpp --verify-startup
+        --working-directory "${CMAKE_BINARY_DIR}/solid-state-ui-contract")
+    set_tests_properties(zima_cpp_solid_state_ui_contract PROPERTIES
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_SOLID_STATE_ONLY=1"
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 120 RUN_SERIAL TRUE)
+    file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/solid-state-sweep-ui-contract")
+    add_test(NAME zima_cpp_solid_state_sweep_ui_contract COMMAND zima-cad-cpp --verify-startup
+        --working-directory "${CMAKE_BINARY_DIR}/solid-state-sweep-ui-contract")
+    set_tests_properties(zima_cpp_solid_state_sweep_ui_contract PROPERTIES
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_SOLID_STATE_SWEEPS_ONLY=1"
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 240 RUN_SERIAL TRUE)
     add_executable(zima_cpp_flat_command_tests tests/flat_command_tests.cpp)
     target_link_libraries(zima_cpp_flat_command_tests PRIVATE zima_command_host)
     target_compile_options(zima_cpp_flat_command_tests PRIVATE $<$<CXX_COMPILER_ID:MSVC>:/utf-8>)

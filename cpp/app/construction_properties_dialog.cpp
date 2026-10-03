@@ -1153,16 +1153,8 @@ void ConstructionPropertiesDialog::set_rotation_constraint_state(
 void ConstructionPropertiesDialog::set_translation_constraint_state(
     const zima::document::PointConstraintState& state,
     const zima::kernel::Vec3& solution) {
-    set_remaining_translation_dof(state.remaining_dof);
-    const std::array values{solution.x, solution.y, solution.z};
-    for (std::size_t index = 0; index < origin_.size(); ++index) {
-        if (origin_[index] == nullptr) continue;
-        origin_[index]->setEnabled(!state.constrained_axes[index]);
-        if (state.constrained_axes[index]) {
-            const QSignalBlocker blocker(origin_[index]);
-            origin_[index]->setValue(values[index]);
-        }
-    }
+    placement_->set_translation_constraint_state(state,solution);
+    remaining_translation_dof_=placement_->remaining_translation_dof();
 }
 
 bool ConstructionPropertiesDialog::set_curve_point_radius(

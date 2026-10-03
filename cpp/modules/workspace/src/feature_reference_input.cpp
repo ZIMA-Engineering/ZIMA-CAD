@@ -1,4 +1,5 @@
 #include <zima/document/sketch_placement.hpp>
+#include <zima/document/solid_state_reference_views.hpp>
 #include <zima/workspace/feature_reference_input.hpp>
 #include <zima/workspace/history_policy.hpp>
 #include <zima/document/placement_reference_assignment.hpp>
@@ -98,6 +99,8 @@ document::HistoryContainer prepare_part_feature_reference(Workspace& live,const 
     }
     validate_part_feature_reference_source(before,container,source);
     auto geometry=part_construction_dimension_geometry(before,state->session.calculated_boundaries());
+    if(!state->session.calculated_boundaries().empty())geometry=document::solid_state_editor_reference_geometry(
+        before,state->session.calculated_boundaries().back(),container,std::move(geometry));
     append_reference_geometry(geometry,before.history_origin_reference_geometry_before(container));
     geometry=before.construction_reference_geometry_for(container,std::move(geometry));
     return assign_feature_reference(*existing,geometry,index,std::move(source),derive_orientation);

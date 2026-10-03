@@ -1,5 +1,6 @@
 #include "workspace_internal.hpp"
 #include <zima/document/sheet_transition.hpp>
+#include <zima/workspace/solid_state_operations.hpp>
 #include "../command_button_paint.hpp"
 
 namespace zima::app {
@@ -314,6 +315,17 @@ void AssemblyWorkspaceWindow::rebuild_application_toolbar() {
         add_command(sweep2d_action_);
         add_command(sweep_3d_action_);
         add_command(helical_sweep_action_);
+        for(bool restore:{false,true}) {
+            const auto name=restore?"restoreShapeAction":"straightenAction";
+            auto* action=findChild<QAction*>(name);
+            if(!action) {
+                action=new QAction(resource_icon(restore?"restore-shape":"straighten"),restore?tr("Restore shape"):tr("Straighten"),this);
+                action->setObjectName(name);connect(action,&QAction::triggered,this,[this,restore]{show_solid_state_properties(restore);});
+            }
+            action->setEnabled(modeling_part&&boundary_body&&!boundary_body->derived_copy&&!properties_dialog_&&
+                !workspace::solid_state_sources(modeling_part->session.document(),restore).empty());
+            add_command(action);
+        }
         add_group_separator();
         add_command(fillet_action_);
         add_command(chamfer_action_);

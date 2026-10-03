@@ -22,6 +22,7 @@
 #include <zima/document/appearance.hpp>
 #include <zima/document/document_copy_json.hpp>
 #include <zima/document/part_document.hpp>
+#include <zima/document/solid_state_calculation.hpp>
 #include <zima/document/relation_program.hpp>
 #include <zima/document/placement_json.hpp>
 #include <zima/document/container_origin_display.hpp>
@@ -5820,9 +5821,15 @@ zima::kernel::ViewerMesh PartDocument::construction_viewer_mesh(
 
 void PartDocument::resolve_constructions(
     zima::kernel::ViewerReferenceGeometry source_geometry) {
+    resolve_constructions(std::move(source_geometry),{});
+}
+
+void PartDocument::resolve_constructions(
+    zima::kernel::ViewerReferenceGeometry source_geometry,const HistoryReferenceViews& boundary_views) {
     // Never accept a stale or future centroid supplied by a display packet.
     // Publish eligible frames again at their own history boundary below.
     remove_body_properties_references(*this,source_geometry);
+    const HistoryReferenceResolver boundary_references(source_geometry,boundary_views);
     if (!body_history.bodies().empty()) {
         validate_body_ownership();
         auto next = *this;
@@ -5830,6 +5837,7 @@ void PartDocument::resolve_constructions(
         append_reference_geometry(source_geometry, body_origin_reference_geometry());
         for (const auto& original_body : body_history.bodies()) {
             auto body = *next.body_history.find(original_body.scope.id);
+            boundary_references.enter(body.scope.id,source_geometry);
             auto carrier = next.body_document(body.scope.id);
             append_reference_geometry(source_geometry,body_properties_reference_geometry(next,body.scope.id));
             const auto dependency = [&](const ConstructionReference& reference) {
@@ -5892,7 +5900,10 @@ void PartDocument::resolve_constructions(
                 body.scope.translation(), body.scope.rotation_degrees());
             auto local_origin=carrier.origin_viewer_mesh().original_references;
             append_reference_geometry(local_origin,local_geometry);
-            carrier.resolve_constructions(std::move(local_origin));
+            auto local_views=boundary_views;
+            for(auto& [entry,view]:local_views)view.geometry=transform_reference_geometry(
+                std::move(view.geometry),body.scope.translation(),body.scope.rotation_degrees());
+            carrier.resolve_constructions(std::move(local_origin),local_views);
             for (auto& feature : carrier.history) *next.find_container(feature.id) = std::move(feature);
             for (auto& construction : carrier.constructions)
                 *next.find_construction(construction.id) = std::move(construction);
@@ -6004,6 +6015,7 @@ void PartDocument::resolve_constructions(
                     return container.id == sketch.owner_container_id;
                 });
             if (owner == history.end()) continue;
+            boundary_references.enter(owner->id,source_geometry);
             const bool sheet_rotation=owner->feature_kind==FeatureKind::Revolution&&owner->revolution.sheet_metal;
             const bool sheet_section=owner->feature_kind==FeatureKind::Bend||sheet_rotation;
             if(sheet_rotation&&!owner->revolution.sheet_attachment&&!owner->revolution.thickness_override)
@@ -6317,6 +6329,7 @@ void PartDocument::resolve_constructions(
         if(std::ranges::find(ordered,container.id,&PartHistoryEntry::id)==ordered.end())
             ordered.push_back({PartHistoryKind::Feature,container.id});
     for (const auto& entry : ordered) {
+        boundary_references.enter(entry.id,source_geometry);
         if (auto* container=find_container(entry.id)) resolve_feature(*container);
         else if (auto* object=find_construction(entry.id)) resolve_datum(*object);
         else for (const auto& sketch:sketches) if(sketch.id==entry.id && sketch.owner_container_id.empty())
@@ -7428,6 +7441,13 @@ HistoryContainer PartDocument::create_sketch_container() {
     return container;
 }
 
+HistoryContainer PartDocument::create_solid_state_container(bool restore) {
+    auto container=create_sketch_container();
+    container.feature_kind=restore?FeatureKind::RestoreShape:FeatureKind::Straighten;
+    container.name=restore?"Restore shape":"Straighten";
+    return container;
+}
+
 HistoryContainer PartDocument::create_feature_container(std::string sketch_id) {
     auto container=create_extrusion_container(sketch_id);
     container.feature_kind=FeatureKind::Feature;
@@ -8518,6 +8538,11 @@ bool sweep3d_profile_has_geometry(const zima::sketcher::Sketch& sketch) {
 
 Sweep3DCorrespondence sweep3d_profile_correspondence(
     const zima::sketcher::Sketch& sketch, const std::string& start_point_id, bool allow_open) {
+    // Match the same materialized profile consumed by extrusion_request.
+    // Corner tangency vertices retain the Sketch's persisted ancestry keys.
+    if(std::ranges::any_of(sketch.corner_radii,[](const auto& corner) {
+        return !corner.suppressed&&corner.radius>1.0e-9;
+    }))return sweep3d_profile_correspondence(sketch.evaluated_profile_sketch(),start_point_id,allow_open);
     Sweep3DCorrespondence result;
     std::string effective_start=start_point_id;
     if(!sweep3d_profile_has_geometry(sketch)) return result;
@@ -9840,6 +9865,11 @@ std::vector<zima::kernel::HistoryOperation> PartDocument::kernel_operations(
                 container.edge_treatment.secondary_size,
                 container.edge_treatment.angle_degrees * std::numbers::pi / 180.0,
                 container.edge_treatment.flip};
+        } else if (is_solid_state(container.feature_kind)) {
+            require_default_sketch_feature_placement(container.placement);
+            if(container.combine_mode!=CombineMode::Add)throw std::invalid_argument("Solid state requires an additive history operation.");
+            primitive=kernel::SolidStateRequest{container.feature_kind==FeatureKind::RestoreShape,
+                container.solid_state.all,container.solid_state.coefficient,container.solid_state.owners};
         } else if (is_sheet_state(container.feature_kind)) {
             require_default_sketch_feature_placement(container.placement);
             if(container.combine_mode!=CombineMode::Add)throw std::invalid_argument("Sheet state is a body history operation.");
@@ -10551,7 +10581,7 @@ PartDocument PartDocument::from_serialized(const nlohmann::json& root,
             type != "revolution" && type != "sweep3d" && type != "helical_sweep" && type != "sweep2d" &&
             type != "imported_step" &&
             type != "fillet" && type != "chamfer" &&
-            type != "derived_copy" && type != "shell" && type != "twisted_sheet" && type != "sheet_transition" && type != "boundary_surface" && type != "unbend" && type != "bend_back" &&
+            type != "derived_copy" && type != "shell" && type != "twisted_sheet" && type != "sheet_transition" && type != "boundary_surface" && type != "unbend" && type != "bend_back" && type != "straighten" && type != "restore_shape" &&
             type != "flat" && type != "bend" && type != "holes" && type != "hole" && type != "thread" && type != "shaft_thread" &&
             type != "drill_point") {
             throw std::runtime_error("Unsupported history feature type");
@@ -10573,6 +10603,8 @@ PartDocument PartDocument::from_serialized(const nlohmann::json& root,
             : type == "boundary_surface" ? FeatureKind::BoundarySurface
             : type == "flat" ? FeatureKind::Flat
             : type == "unbend" ? FeatureKind::Unbend
+            : type == "straighten" ? FeatureKind::Straighten
+            : type == "restore_shape" ? FeatureKind::RestoreShape
             : type == "derived_copy" ? FeatureKind::DerivedCopy
             : type == "bend_back" ? FeatureKind::BendBack
             : type == "bend" ? FeatureKind::Bend
@@ -10643,6 +10675,11 @@ PartDocument PartDocument::from_serialized(const nlohmann::json& root,
         } else if (container.feature_kind == FeatureKind::Sketch) {
             // Sketch geometry is persisted in PartDocument::sketches and
             // linked through Sketch::owner_container_id.
+        } else if (is_solid_state(container.feature_kind)) {
+            const auto& definition=source.at("solid_state");
+            container.solid_state.all=definition.at("all");
+            container.solid_state.coefficient=definition.at("coefficient");
+            container.solid_state.owners=definition.at("owners").get<std::vector<std::string>>();
         } else if (is_sheet_state(container.feature_kind)) {
             const auto& definition=source.at("sheet_state");
             container.sheet_state.all=definition.at("all");
@@ -11297,7 +11334,7 @@ PartDocument PartDocument::from_serialized(const nlohmann::json& root,
         throw std::runtime_error(
             "Calculated history boundaries do not match document history");
     }
-    const auto loaded_fingerprints=loaded_boundaries.empty()?std::vector<std::string>{}:zima::kernel::history_fingerprints(expected_operations);
+    const auto loaded_fingerprints=loaded_boundaries.empty()?std::vector<std::string>{}:zima::kernel::history_fingerprints(solid_state_calculation_operations(document,&loaded_boundaries));
     std::unordered_set<std::string> available_owners;
     for (std::size_t boundary_index = 0;
          boundary_index < loaded_boundaries.size(); ++boundary_index) {
@@ -11392,6 +11429,14 @@ nlohmann::json PartDocument::serialized(
             auto parameters=container.derived_copy;
             if(parameters.source_id.empty())throw std::runtime_error("Copy source is missing.");
             resolve_copy_reference(parameters,container.id,container.placement,{});
+        } else if (is_solid_state(container.feature_kind)) {
+            require_default_sketch_feature_placement(container.placement);
+            const auto& state=container.solid_state;
+            const std::set<std::string> unique(state.owners.begin(),state.owners.end());
+            if(container.combine_mode!=CombineMode::Add||unique.size()!=state.owners.size()||
+                unique.contains("")||(!state.all&&unique.empty())||!std::isfinite(state.coefficient)||state.coefficient<=0||
+                (container.feature_kind==FeatureKind::RestoreShape&&state.coefficient!=1))
+                throw std::runtime_error("Invalid solid state parameters.");
         } else if (is_sheet_state(container.feature_kind)) {
             require_default_sketch_feature_placement(container.placement);
             const std::set<std::string> unique(container.sheet_state.owners.begin(),container.sheet_state.owners.end());
@@ -11681,6 +11726,8 @@ nlohmann::json PartDocument::serialized(
                 : container.feature_kind == FeatureKind::Flat ? "flat"
                 : container.feature_kind == FeatureKind::Bend ? "bend"
                 : container.feature_kind == FeatureKind::Unbend ? "unbend"
+                : container.feature_kind == FeatureKind::Straighten ? "straighten"
+                : container.feature_kind == FeatureKind::RestoreShape ? "restore_shape"
                 : container.feature_kind == FeatureKind::BendBack ? "bend_back"
                 : container.feature_kind == FeatureKind::Holes ? "holes"
                 : container.feature_kind == FeatureKind::Sketch ? "sketch"
@@ -11774,6 +11821,8 @@ nlohmann::json PartDocument::serialized(
         } else if (container.feature_kind == FeatureKind::Sketch) {
             // No additional feature parameters: the owned Sketch is stored
             // in the document sketch collection.
+        } else if (is_solid_state(container.feature_kind)) {
+            serialized["solid_state"]={{"all",container.solid_state.all},{"coefficient",container.solid_state.coefficient},{"owners",container.solid_state.owners}};
         } else if (is_sheet_state(container.feature_kind)) {
             serialized["sheet_state"]={{"all",container.sheet_state.all},{"owners",container.sheet_state.owners}};
         } else if (container.feature_kind == FeatureKind::Flat) {
@@ -12100,7 +12149,7 @@ nlohmann::json PartDocument::serialized(
         throw std::runtime_error(
             "Calculated history boundaries do not match document history");
     }
-    const auto saved_fingerprints=calculated_boundaries.empty()?std::vector<std::string>{}:zima::kernel::history_fingerprints(expected_operations);
+    const auto saved_fingerprints=calculated_boundaries.empty()?std::vector<std::string>{}:zima::kernel::history_fingerprints(solid_state_calculation_operations(*this,&calculated_boundaries));
     for (std::size_t index = 0; index < calculated_boundaries.size(); ++index) {
         if (calculated_boundaries[index].source_fingerprint !=
             saved_fingerprints.at(index+1)) {

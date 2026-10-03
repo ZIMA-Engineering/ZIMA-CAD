@@ -796,6 +796,30 @@ void MeshView::set_mesh(zima::kernel::ViewerMesh mesh, bool fit_view) {
         edge.points.push_back(edge.points.front());mesh.edges.push_back(std::move(edge));
     }
     impl_->mesh = std::move(mesh);
+    // Datum display size must be initialized even when a document refresh
+    // deliberately preserves the camera (and therefore does not call fit_all).
+    // A body or a point alone cannot establish this presentation baseline.
+    if (!impl_->reference_view_scale_initialized) {
+        double extent = 0;
+        for (const auto& edge : impl_->mesh.edges) {
+            if (!is_screen_constant_plane(edge.reference.semantic_key) || edge.points.size()<2) continue;
+            const auto count=edge.points.size()-1;
+            kernel::Vec3 center{};
+            for(std::size_t i=0;i<count;++i) {
+                center.x+=edge.points[i].x/count;center.y+=edge.points[i].y/count;center.z+=edge.points[i].z/count;
+            }
+            for(std::size_t i=0;i<count;++i) {
+                const auto& p=edge.points[i];
+                extent=std::max(extent,std::hypot(p.x-center.x,p.y-center.y,p.z-center.z));
+            }
+        }
+        for(const auto& axis:impl_->mesh.axes)
+            if(axis.reference.semantic_key.starts_with("origin:axis:"))extent=std::max(extent,axis.display_length);
+        if(extent>0) {
+            impl_->reference_view_scale=static_cast<float>(std::max(extent,.5)*2);
+            impl_->reference_view_scale_initialized=true;
+        }
+    }
     impl_->face_fill_keys.clear();
     impl_->face_fill_ranges.clear();
     impl_->surface_batches_dirty = true;
@@ -2279,11 +2303,13 @@ void MeshView::fit_all() {
     std::vector<zima::kernel::Vec3> bounds = impl_->mesh.vertices;
     std::vector<zima::kernel::Vec3> reference_centers;
     double reference_extent = 0.5;
+    bool has_reference_extent = false;
     for (const auto& edge : impl_->mesh.edges) {
         if (is_screen_constant_plane(edge.reference.semantic_key)) {
             const std::size_t count = edge.points.size() > 1
                 ? edge.points.size() - 1 : edge.points.size();
             if (count == 0) continue;
+            has_reference_extent = true;
             zima::kernel::Vec3 center;
             for (std::size_t index = 0; index < count; ++index) {
                 center.x += edge.points[index].x;
@@ -2322,6 +2348,7 @@ void MeshView::fit_all() {
             continue;
         }
         if (origin) {
+            has_reference_extent = true;
             reference_centers.push_back(axis.point);
             reference_extent = std::max(reference_extent, axis.display_length);
             continue;
@@ -2405,7 +2432,9 @@ void MeshView::fit_all() {
         // added, more distant geometry. Resetting it on every fit_all() call
         // (the previous behaviour) made the Origin visibly shrink each time
         // "Zobrazit vše" had to zoom out further than before.
-        if (!impl_->reference_view_scale_initialized) {
+        // A point alone does not define datum display size. Keep initialization
+        // pending until real plane/axis display geometry reaches the viewer.
+        if (!impl_->reference_view_scale_initialized && has_reference_extent) {
             // Decouple real-world startup scale from screen-constant datum
             // size: use the monitor metric scale for the world, but keep document
             // and container Origins at their established LCD size.
@@ -2463,7 +2492,7 @@ void MeshView::fit_all() {
     // here, otherwise every "Zobrazit vše" after adding new, farther-away
     // geometry would re-baseline the ratio to 1.0 and make the Origin (and
     // every container's own origin) visibly shrink.
-    if (!impl_->reference_view_scale_initialized) {
+    if (!impl_->reference_view_scale_initialized && has_reference_extent) {
         // A document may be opened for the first time with an already large
         // persisted body. The body controls only the camera fit; it must not
         // establish the LCD size of datum axes/planes. Use the datum's own
@@ -4373,8 +4402,13 @@ if (impl_->show_origins) {
                                 point.reference.owner_id == axis.reference.owner_id &&
                                 point.reference.semantic_key == "point";
                         });
+                    const bool whole_feature_axis = highlighted && !origin &&
+                        highlighted->kind == CandidateKind::Container &&
+                        highlighted->semantic_key.empty() &&
+                        highlighted->owner_id == axis.reference.owner_id;
                     const bool exact_highlight = highlighted &&
-                        ((feature_axis && highlighted->kind == CandidateKind::Container &&
+                        (whole_feature_axis ||
+                         (feature_axis && highlighted->kind == CandidateKind::Container &&
                           highlighted->owner_id == axis.reference.owner_id &&
                           (highlighted->semantic_key.empty() || highlighted->semantic_key == "axis")) ||
                          ((highlighted->kind == CandidateKind::Axis ||
@@ -4513,7 +4547,7 @@ if (impl_->show_origins) {
                         // (exact_highlight) -- matching a solid body's own
                         // origin-indicator convention -- not permanently, so it
                         // does not clutter idle/default rendering.
-                        if (exact_highlight && !feature_axis) {
+                        if (exact_highlight && !feature_axis && !whole_feature_axis) {
                             draw_circular_marker(
                                 painter, project(axis.point), presentation_color);
                         }

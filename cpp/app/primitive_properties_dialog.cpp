@@ -1641,7 +1641,13 @@ zima::document::HistoryContainer PrimitivePropertiesDialog::values() const {
         result.extrusion.direction = direction == "reverse"
             ? zima::document::ExtrusionDirection::Reverse
             : zima::document::ExtrusionDirection::Forward;
-        result.extrusion.height = result.extrusion.extent_mode ==
+        // The explicit forward/reverse extents own this operation. A native
+        // definition can retain an older auxiliary height; opening Properties
+        // alone must not normalize it into a new Undo transaction.
+        if(result.extrusion.length_forward!=initial_.extrusion.length_forward||
+           result.extrusion.length_reverse!=initial_.extrusion.length_reverse||
+           result.extrusion.extent_mode!=initial_.extrusion.extent_mode)
+            result.extrusion.height = result.extrusion.extent_mode ==
                 zima::document::ProfileExtentMode::OneSide
             ? result.extrusion.length_forward
             : result.extrusion.length_forward + result.extrusion.length_reverse;

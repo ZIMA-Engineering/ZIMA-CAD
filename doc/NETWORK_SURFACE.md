@@ -64,6 +64,44 @@ recorded Sweep 2D/Linear Pattern layout failures remain outside this change.
 
 ## Deferred extensions
 
+### Queued container redesign (approved 2026-10-02)
+
+Implement this after completing Solid Straightening / Restore shape. It is a
+queued requirement, not the behavior of the currently released command.
+
+- Boundary Surface becomes an ordinary placed container with its own Origin and
+  the complete shared container-placement controls in its properties dialog.
+- Place its Modeling action immediately below Drill Point, separated as
+  `Drill Point -> azure separator -> Boundary Surface -> azure separator`.
+  This establishes a dedicated group for future surface commands, using the
+  existing azure toolbar separator component.
+- Consolidate surface commands into Modeling and remove the separate Surfaces
+  entry from the Applications menu. Inventory its existing commands and preserve
+  their availability in the new group before removing the entry; this is a
+  navigation reorganization, not removal of surface functionality.
+- Each boundary row offers a type selector: Sketch, 2D Sweep or 3D Sweep, plus a
+  Properties button opening the existing editor for the newly owned boundary
+  element. The former external-reference prompt is replaced by this definition
+  workflow. Reuse each editor's capabilities and shared presentation rules.
+- Boundary elements belong to the Boundary Surface container. Their placements
+  use its Origin as the parent coordinate frame; moving or rotating the parent
+  carries the complete boundary definition and calculated surface together.
+- Boundary geometry must come from the exact authored curves of those elements.
+  Do not infer a boundary from display tessellation or silently introduce solid
+  material when defining a boundary curve.
+- Consume the existing shared placement contract, including reference and Origin
+  entry, inspection, offsets, preview, persistence and Cancel. The request does
+  not authorize changing the common solver equations or other containers.
+
+Before release, verify creation and later editing through the same dialog,
+owned-element editing, parent/local frame composition, rollback and Cancel,
+unchanged OK, regeneration, topology ancestry, native save/reopen, Undo/Redo and
+all five languages. Any native-format change also requires regenerated start
+templates and the ordinary new-document GUI checks. Keep this redesign separate
+from unrelated optimizations and from the current Solid Straightening work.
+
+### Other extensions
+
 Interior curve networks, movable interior control grids, tangency constraints,
 trimmed patches with holes, multiple patches, sheet creation and unfolding, and
 extrusion up to the surface remain outside this first command.

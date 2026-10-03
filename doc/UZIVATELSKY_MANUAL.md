@@ -972,6 +972,40 @@ corners and choose matching start points. Neighboring point counts must agree or
 calculation reports an error. Edit inherited profiles at their source station.
 See [3D Curve and Sweep](3D_CURVE_AND_SWEEP.md).
 
+## Straighten and Restore shape
+
+These Modeling commands follow the Sweep commands and require an active editable
+Body. They operate on additive solid Revolutions and 2D/3D/Helical Sweeps with a
+constant cross-section. These commands are included from build 2026100301; they
+are not present in Windows 2026100201 and earlier.
+
+1. Choose **Straighten** and keep **All eligible elements**, or select individual
+   elements in the reference table and View. The eye inspects a selected element;
+   removing a table row removes it from this selection, not from the model.
+2. Enter a positive **Length coefficient**. Straight length is the path length of
+   the filled section's centroid multiplied by this value: `1` retains that
+   length, `0.9` shortens it by ten percent. Section dimensions remain unchanged.
+3. Confirm with **OK**. The operation is inserted into history. **Cancel** leaves
+   the model unchanged. Opening Properties rolls back to the operation's input;
+   confirming unchanged values does not recalculate or create an Undo step.
+4. Add **Restore shape** to return eligible straight sources to their authored
+   curved trajectories, retaining supported intervening modifications.
+
+For a following profile, use the preceding end face, optionally with a point,
+two points, or a straight edge and point on that section. The filled-profile
+centroids must meet and their directed tangents must agree. Finite Extrusions
+and constant-section Revolutions or Sweeps can continue this chain. A curved
+continuation retains its own formed/straight state, including individual source
+selection. The elements move and rotate with the preceding section while their
+authored placement, reference sides and corrections stay intact. An offset or
+tilt that disconnects this join cannot be straightened by this rule.
+
+Supported Fillets and holes entirely within a straight portion are retained.
+Holes crossing a curved portion or transition, variable sections, surface results,
+and unsupported downstream modifications are rejected without committing a
+partial state. This is separate from Sheet Metal unfolding. See the
+[scope and verification record](SOLID_STRAIGHTENING.md) for current limitations.
+
 ## Mirror and Pattern
 
 These tools create referenced copies of Part bodies or immediate Assembly

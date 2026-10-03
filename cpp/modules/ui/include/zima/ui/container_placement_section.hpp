@@ -222,9 +222,11 @@ private:
     ReferenceLabelResolver reference_label_resolver_;
     std::set<std::string> value_locks_;
     std::array<bool,3> empty_reference_locks_{};
-    // Keep picked coordinates at full precision while their rounded fields
-    // remain untouched. Display precision must not quantize a surface hit.
+    // Keep loaded, picked and reference-resolved coordinates at full precision
+    // until edited. Display precision must not quantize an unchanged placement.
     std::array<std::optional<std::pair<double,double>>,3> picked_translation_values_{};
+    std::array<std::optional<std::pair<double,double>>,3> picked_rotation_values_{};
+    std::array<std::optional<std::pair<double,double>>,3> picked_rotation_offset_values_{};
     QWidget* parent_widget_;
     bool placement_confirmation_blocked_{};
     bool placement_previous_ok_enabled_{};

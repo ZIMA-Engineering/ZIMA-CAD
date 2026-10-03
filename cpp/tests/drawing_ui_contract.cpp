@@ -17,8 +17,12 @@
 #include <QOpenGLWidget>
 #include <QToolBar>
 #include <fstream>
+#include <algorithm>
+#include <cctype>
+#include <cmath>
 #include <zima/workspace/document_operations.hpp>
 #include <zima/workspace/family_operations.hpp>
+#include <zima/workspace/solid_state_operations.hpp>
 #include <zima/workspace/engineering_metadata_operations.hpp>
 #include <zima/command_host/host.hpp>
 #include <zima/drawing/measurement_dimension.hpp>
@@ -366,6 +370,80 @@ int verify_drawing_source_picker() {
 }
 int verify_drawing_ui() {
     try {
+        if(const auto input=qEnvironmentVariable("ZIMA_VERIFY_SOLID_STATE_DRAWING");!input.isEmpty()) {
+            const auto path=std::filesystem::path(input.toStdWString());
+            auto drawing=zima::drawing::DrawingDocument::load(path);
+            std::vector<zima::kernel::BodyResult> calculated;
+            auto part=zima::document::PartDocument::load(drawing.source_path,&calculated);
+            zima::workspace::Workspace live;zima::kernel::OcctKernel kernel;
+            live.add_part(part,calculated,drawing.source_path);live.add_drawing(drawing,path);
+            live.activate(drawing.document_id);live.display_top_level(drawing.document_id);
+            zima::app::DrawingWindow window(&live,false);window.edit_workspace_document(drawing.document_id);
+            window.resize(1366,900);window.show();flush();
+            auto* regenerate=window.findChild<QAction*>("regenerateDrawingViewAction");
+            require(regenerate&&regenerate->isEnabled(),"State drawing GUI has no Regenerate action");
+            const auto dimension_view=drawing.sheets.front().dimensions.front().view_id;
+            const auto dimension_value=[&] {
+                const auto& current=window.document_for_test();
+                const auto result=zima::drawing::evaluate_drawing_dimension(*current.find_view(dimension_view),current.sheets.front().dimensions.front());
+                require(result.state!=zima::drawing::MeasurementState::Unresolved&&!result.presentations.empty(),"State drawing GUI lost its dimension");
+                return result.presentations.front().value;
+            };
+            const auto before=dimension_value();
+            const auto original=window.render_sheet_for_test(true);
+            require(!original.isNull(),"State drawing GUI produced no sheet image");
+            require(original.save(QString::fromStdWString((path.parent_path()/"developed-before.png").wstring())),"Cannot save state drawing image");
+            const auto found=std::ranges::find_if(part.history,[](const auto& feature){return feature.feature_kind==zima::document::FeatureKind::Straighten;});
+            require(found!=part.history.end(),"State drawing fixture has no Straighten feature");
+            auto changed=*found;changed.solid_state.coefficient=.8;
+            require(zima::workspace::commit_solid_state(live,kernel,part.document_id,changed),"Cannot edit state drawing source");
+            const auto generation=live.open_part(part.document_id)->session.data_generation();
+            regenerate->trigger();flush();
+            require(std::abs(dimension_value()-before*.8/1.1)<1e-5,"GUI regeneration retained a stale state dimension");
+            require(live.open_part(part.document_id)->session.data_generation()==generation,"Drawing GUI recalculated the source Part");
+            const auto after=window.render_sheet_for_test(true);
+            require(after!=original,"GUI regeneration retained the old sheet image");
+            require(after.save(QString::fromStdWString((path.parent_path()/"developed-after.png").wstring())),"Cannot save changed state drawing image");
+            for(const auto& sheet:window.document_for_test().sheets)for(const auto& view:sheet.views) {
+                const auto* prior=drawing.find_view(view.id);require(prior,"GUI regeneration changed view identity");
+                const bool same_crop=view.crop.has_value()==prior->crop.has_value()&&(!view.crop||
+                    (view.crop->shape==prior->crop->shape&&view.crop->anchor==prior->crop->anchor&&view.crop->points==prior->crop->points));
+                require(view.parent_view_id==prior->parent_view_id&&view.section_id==prior->section_id&&same_crop,
+                    "GUI regeneration changed detail or section configuration");
+            }
+            window.document_for_test().save(path.parent_path()/"gui-result.drwz");
+            window.export_pdf(path.parent_path()/"gui-result.pdf");window.export_dxf(path.parent_path()/"gui-result.dxf");
+            require(std::filesystem::file_size(path.parent_path()/"gui-result.pdf")>100&&std::filesystem::file_size(path.parent_path()/"gui-result.dxf")>100,
+                "State drawing GUI export is empty");
+            // Read exported DXF group pairs, independently of the native view
+            // geometry. Projected and section views retain the full measured
+            // segment length, including the narrower carried continuation.
+            std::ifstream dxf(path.parent_path()/"gui-result.dxf");
+            std::string code,value,entity,label;
+            double x1=0,y1=0,x2=0,y2=0;int full_length_edges=0;bool correct_dimension=false;
+            const double expected_length=(qEnvironmentVariableIsSet("ZIMA_VERIFY_SOLID_STATE_DRAWING_CHAIN")?20.:110.)*std::acos(-1.)/2*.8;
+            const auto inspect_entity=[&] {
+                if(entity=="LINE"&&std::abs(x1-x2)<1e-6&&
+                    std::abs(std::abs(y2-y1)-expected_length)<1e-4)++full_length_edges;
+                if(entity=="TEXT"&&!label.empty()&&std::isdigit(static_cast<unsigned char>(label.front()))) {
+                    std::replace(label.begin(),label.end(),',','.');
+                    correct_dimension|=std::abs(std::stod(label)-expected_length)<.005;
+                }
+            };
+            while(std::getline(dxf,code)&&std::getline(dxf,value)) {
+                if(!value.empty()&&value.back()=='\r')value.pop_back();
+                const auto group=std::stoi(code);
+                if(group==0) {inspect_entity();entity=value;label.clear();x1=y1=x2=y2=0;}
+                else if(entity=="LINE") {
+                    if(group==10)x1=std::stod(value);else if(group==20)y1=std::stod(value);
+                    else if(group==11)x2=std::stod(value);else if(group==21)y2=std::stod(value);
+                } else if(entity=="TEXT"&&group==1)label=value;
+            }
+            inspect_entity();
+            require(full_length_edges>=4&&correct_dimension,"State DXF retained stale geometry or dimension text");
+            std::cout<<"Solid state drawing GUI: regeneration, dimension, detail, section, rendering and exports passed\n";
+            return 0;
+        }
         if(QGuiApplication::platformName()!="offscreen"&&QGuiApplication::platformName()!="minimal")verify_drawing_depth_rendering();
         if(const auto input=qEnvironmentVariable("ZIMA_DRAWING_PROFILE_INPUT");!input.isEmpty())return profile_drawing_ui(input);
         {

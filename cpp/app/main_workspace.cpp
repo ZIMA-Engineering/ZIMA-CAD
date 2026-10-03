@@ -25,6 +25,15 @@
 #include "console_ui_verification.hpp"
 #include "sketch_offset_dialog.hpp"
 #include "sheet_state_dialog.hpp"
+#include "solid_state_dialog.hpp"
+#include <zima/workspace/solid_state_operations.hpp>
+#include <zima/kernel/solid_state_ancestry.hpp>
+#include <zima/kernel/solid_straightening.hpp>
+#include "confirmed_face_hit.hpp"
+#include <zima/workspace/sweep_operations.hpp>
+#include "../tests/sweep_test_support.hpp"
+#include <zima/workspace/profile_operations.hpp>
+#include <zima/workspace/edge_treatment_operations.hpp>
 #include "sheet_from_body_dialog.hpp"
 #include "sheet_transition_dialog.hpp"
 #include <zima/drawing/drawing_template.hpp>
@@ -8698,6 +8707,7 @@ int verify_selection_filter(QApplication& application,
 }
 
 #include "sheet_state_ui_verification.inc"
+#include "solid_state_ui_verification.inc"
 #include "application_lifecycle_ui_verification.inc"
 #include "new_document_ui_verification.inc"
 #include "cylinder_axis_ui_verification.inc"
@@ -8878,6 +8888,8 @@ int verify_startup_contract(
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_BOUNDARY_SURFACE_ONLY")) return zima::app::verify_boundary_surface_ui(application,window,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_SPLINE_TANGENT_ONLY")) return verify_spline_tangent_selection(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_SHEET_STATE_ONLY")) return verify_sheet_state_ui(application,test_directory);
+    if (qEnvironmentVariableIsSet("ZIMA_VERIFY_SOLID_STATE_ONLY")) return verify_solid_state_ui(application,test_directory);
+    if (qEnvironmentVariableIsSet("ZIMA_VERIFY_SOLID_STATE_SWEEPS_ONLY")) return verify_solid_state_ui(application,test_directory,true);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_CONSOLE_ONLY")) return zima::app::verify_command_console(application,window,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_PROFILE_OFFSET_PLANE_ONLY")) return verify_profile_offset_dimension_plane(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_BODY_REFERENCE_DIMENSION_ONLY")) return verify_body_reference_dimension_edit(application,test_directory);

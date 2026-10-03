@@ -369,7 +369,8 @@ void add_history_container_tree_children(QTreeWidgetItem* parent,
     const zima::document::HistoryContainer& container,
     const zima::assembly::InstancePath& instance_path = {},
     const zima::sketcher::Sketch* owned_sketch = nullptr,
-    bool assembly_owned = false);
+    bool assembly_owned = false,
+    const zima::kernel::ViewerReferenceGeometry* calculated_references = nullptr);
 
 void add_construction_tree_children(QTreeWidgetItem* parent,
     const zima::document::ConstructionObject& object,

@@ -1399,7 +1399,7 @@ bool AssemblyWorkspaceWindow::accept_primitive_tree_reference(
     candidate.kind = candidate.semantic_key == "origin:point" ||
             candidate.semantic_key == "point"
         ? zima::viewer::CandidateKind::Vertex
-        : candidate.semantic_key.starts_with("origin:axis:")
+        : candidate.semantic_key.starts_with("origin:axis:") || candidate.semantic_key.starts_with("axis:") || candidate.semantic_key.starts_with("centerline:from:")
             ? zima::viewer::CandidateKind::Axis
             : zima::viewer::CandidateKind::Plane;
     const auto before = primitive_reference_dialog_->first_empty_position_index();
@@ -1505,7 +1505,7 @@ bool AssemblyWorkspaceWindow::accept_component_placement_tree_reference(
         item->data(0, Qt::UserRole + 5).toString().toStdString();
     candidate.kind = (candidate.semantic_key == "origin:point" || candidate.semantic_key == "point")
         ? zima::viewer::CandidateKind::Vertex
-        : candidate.semantic_key.starts_with("origin:axis:")
+        : candidate.semantic_key.starts_with("origin:axis:") || candidate.semantic_key.starts_with("axis:") || candidate.semantic_key.starts_with("centerline:from:")
             ? zima::viewer::CandidateKind::Axis
             : zima::viewer::CandidateKind::Face;
     const auto before = component_placement_dialog_->placement_references();
@@ -1649,7 +1649,7 @@ bool AssemblyWorkspaceWindow::accept_construction_tree_reference(
             (candidate.semantic_key == "origin:point" ||
                 candidate.semantic_key == "point")
             ? zima::viewer::CandidateKind::Vertex
-            : candidate.semantic_key.starts_with("origin:axis:")
+            : candidate.semantic_key.starts_with("origin:axis:") || candidate.semantic_key.starts_with("axis:") || candidate.semantic_key.starts_with("centerline:from:")
                 ? zima::viewer::CandidateKind::Axis
                 : zima::viewer::CandidateKind::Plane;
     } else if (item_kind == QStringLiteral("part-construction") ||

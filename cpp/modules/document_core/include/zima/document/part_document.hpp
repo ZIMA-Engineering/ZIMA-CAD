@@ -12,6 +12,7 @@
 #include <zima/document/section.hpp>
 #include <ranges>
 #include <zima/document/document_copy.hpp>
+#include <zima/document/history_reference_view.hpp>
 
 #include <zima/kernel/geometry_kernel.hpp>
 #include <zima/sketcher/sketch.hpp>
@@ -31,7 +32,10 @@
 namespace zima::document {
 
 enum class CombineMode { Add, Subtract };
-enum class FeatureKind { Sketch, Extrusion, Revolution, Sweep3D, ImportedStep, Fillet, Chamfer, Shell, Hole, Thread, DrillPoint, ShaftThread, HelicalSweep, Sweep2D, Holes, Bend, Flat, TwistedSheet, Unbend, BendBack, DerivedCopy, SheetTransition, Feature, BoundarySurface };
+enum class FeatureKind { Sketch, Extrusion, Revolution, Sweep3D, ImportedStep, Fillet, Chamfer, Shell, Hole, Thread, DrillPoint, ShaftThread, HelicalSweep, Sweep2D, Holes, Bend, Flat, TwistedSheet, Unbend, BendBack, DerivedCopy, SheetTransition, Feature, BoundarySurface, Straighten, RestoreShape };
+[[nodiscard]] inline bool is_solid_state(FeatureKind kind) {
+    return kind==FeatureKind::Straighten||kind==FeatureKind::RestoreShape;
+}
 enum class HoleType { Plain, MetricThread, PipeThread, WhitworthThread };
 enum class ThreadStandard { Metric, Whitworth, Pipe };
 enum class ThreadSide { Automatic, Internal, External };
@@ -590,6 +594,12 @@ struct SheetStateParameters {
     std::vector<std::string> owners;
     bool operator==(const SheetStateParameters&) const = default;
 };
+struct SolidStateParameters {
+    bool all{true};
+    double coefficient{1};
+    std::vector<std::string> owners;
+    bool operator==(const SolidStateParameters&) const = default;
+};
 struct SheetTransitionParameters {
     std::array<std::string,2> sketches; // Owned serialized Sketches, not external inputs.
     std::string end_origin_id;
@@ -638,6 +648,7 @@ struct HistoryContainer {
     FlatParameters flat;
     TwistedSheetParameters twisted_sheet;
     SheetStateParameters sheet_state;
+    SolidStateParameters solid_state;
     SheetTransitionParameters sheet_transition;
     BoundarySurfaceParameters boundary_surface;
     ThreadParameters thread;
@@ -732,6 +743,7 @@ public:
 
     [[nodiscard]] static PartDocument create_default();
     [[nodiscard]] static HistoryContainer create_sketch_container();
+    [[nodiscard]] static HistoryContainer create_solid_state_container(bool restore=false);
     [[nodiscard]] static HistoryContainer create_twisted_sheet_container();
     [[nodiscard]] static HistoryContainer create_hole_container();
     [[nodiscard]] static HistoryContainer create_thread_container();
@@ -774,6 +786,8 @@ public:
             zima::kernel::ViewerReferenceGeometry source_geometry) const;
     void resolve_constructions(
         zima::kernel::ViewerReferenceGeometry source_geometry = {});
+    void resolve_constructions(zima::kernel::ViewerReferenceGeometry source_geometry,
+        const HistoryReferenceViews& boundary_views);
     [[nodiscard]] std::vector<zima::kernel::ViewerEdge> extrusion_preview_edges(
         const HistoryContainer& container, double through_all_span = 1000.0,
         double through_all_reverse_span = 0.0, double draft_angle_degrees = 0.0) const;

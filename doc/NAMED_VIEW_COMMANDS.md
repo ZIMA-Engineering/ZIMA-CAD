@@ -4,6 +4,26 @@ Implementation status: 2026-09-29. Named Part/Assembly views store complete came
 state. The original dialog wrote only pan and scales, losing rotation after reopening.
 Assembly also read `named_views` but did not write it.
 
+## Initial datum display scale (2026-10-02)
+
+The viewer establishes its screen-constant datum baseline only after plane or
+Origin-axis display extents are available. An earlier scene containing a point or
+body alone must not freeze the fallback extent; doing so made later Origin planes
+and axes excessively large. Existing initialized camera states retain their datum
+baseline across zoom and Fit. This changes presentation only, with no model,
+placement, reference identity or localized text changes.
+
+Initialization also runs when a scene refresh preserves the camera and skips
+Fit. The actual new-document GUI reproduced this path with a 5 mm display axis
+and a stale 1.4 baseline, leaving the plane borders outside the viewport.
+Publishing the first datum packet establishes its baseline without changing
+camera orientation, zoom or pan.
+
+`zima_cpp_origin_camera_tests` covers empty, point-only and body-first scene setup,
+followed by Origin display with and without Fit, zoom and Fit. The regression
+failed before the fix. The new-document GUI check also measures the actual
+Origin scale in every supported language.
+
 ## Commands
 
 | Command | Required arguments | Result |

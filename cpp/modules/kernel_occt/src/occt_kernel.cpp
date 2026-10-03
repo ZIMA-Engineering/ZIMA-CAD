@@ -2,6 +2,7 @@
 #include <BRepOffsetAPI_MakeFilling.hxx>
 #include <BRepAlgoAPI_Check.hxx>
 #include <zima/kernel/profile_centerlines.hpp>
+#include <zima/kernel/feature_side_identity.hpp>
 #include <zima/kernel/drill_point_identity.hpp>
 #include <zima/kernel/inertia.hpp>
 #include <zima/kernel/occt_curve_data.hpp>
@@ -12,8 +13,12 @@
 #include <BRepOffsetAPI_DraftAngle.hxx>
 #include <zima/kernel/shaft_thread_geometry.hpp>
 #include <zima/kernel/occt_kernel.hpp>
+#include <zima/kernel/solid_straightening.hpp>
+#include <zima/kernel/solid_state_history.hpp>
+#include <zima/kernel/solid_state_ancestry.hpp>
 
 #include <BRepGProp.hxx>
+#include <GCPnts_AbscissaPoint.hxx>
 #include <BRepBndLib.hxx>
 #include <gp_Ax3.hxx>
 #include <BRepLib.hxx>
@@ -98,6 +103,8 @@
 #include <Geom_BSplineCurve.hxx>
 #include <Geom_BezierCurve.hxx>
 #include <GeomAdaptor_Curve.hxx>
+#include <GeomFill_DiscreteTrihedron.hxx>
+#include <GeomFill_CorrectedFrenet.hxx>
 #include <GeomConvert_CompCurveToBSplineCurve.hxx>
 #include <Geom_Surface.hxx>
 #include <GeomAPI_Interpolate.hxx>
@@ -420,7 +427,7 @@ std::vector<ViewerPoint> sweep_endpoints_for_operation(const HistoryOperation& o
 
 std::vector<ViewerAxis> axes_for_operation(
     const HistoryOperation& operation, const TopoDS_Shape& calculated_operand,
-    const std::vector<ViewerEdge>& centerlines) {
+    const std::vector<ViewerEdge>& centerlines, bool authored_profile_axes=false) {
     const auto fitted_axis = [&](Vec3 point, Vec3 direction,
             std::string semantic_key, double fallback_length) {
         const double magnitude = std::hypot(
@@ -467,34 +474,43 @@ std::vector<ViewerAxis> axes_for_operation(
             const Vec3 direction{primitive.direction.x / length,
                 primitive.direction.y / length, primitive.direction.z / length};
             std::vector<Vec3> centers;
-            const auto append_center = [&](const auto& profile) {
+            std::vector<std::string> profile_keys;
+            const auto append_center = [&](const auto& profile,const std::string& boundary) {
                 using Profile = std::decay_t<decltype(profile)>;
                 if constexpr (std::is_same_v<Profile,
                                   ExtrusionRequest::CircleProfile> ||
                               std::is_same_v<Profile,
                                   ExtrusionRequest::EllipseProfile>) {
-                    if (std::none_of(centers.begin(), centers.end(),
+                    // feature_side_request scopes every boundary before
+                    // calculation. Require that side ancestry explicitly:
+                    // unscoped groups do not acquire new profile identities.
+                    if(authored_profile_axes&&!feature_side_parent(boundary))return;
+                    if (authored_profile_axes || std::none_of(centers.begin(), centers.end(),
                             [&](const auto& center) {
                                 return std::hypot(std::hypot(
                                     center.x-profile.center.x,
                                     center.y-profile.center.y),
                                     center.z-profile.center.z) <= 1.0e-7;
-                            })) centers.push_back(profile.center);
+                            })) {
+                        centers.push_back(profile.center);
+                        profile_keys.push_back("axis:profile:from:"+boundary);
+                    }
                 }
             };
-            const auto append_loop = [&](const ExtrusionRequest::ProfileLoop& loop) {
-                std::visit(append_center, loop);
+            const auto append_loop = [&](const ExtrusionRequest::ProfileLoop& loop,const std::string& boundary) {
+                std::visit([&](const auto& profile){append_center(profile,boundary);}, loop);
             };
-            append_loop(primitive.outer_profile);
-            for (const auto& loop : primitive.inner_profiles) append_loop(loop);
-            for (const auto& region : primitive.additional_profile_regions) {
-                append_loop(region.outer_profile);
-                for (const auto& loop : region.inner_profiles) append_loop(loop);
-            }
+            const auto append_region=[&](const auto& region) {
+                append_loop(region.outer_profile,region.outer_boundary_id);
+                for(std::size_t i=0;i<region.inner_profiles.size();++i)
+                    append_loop(region.inner_profiles[i],i<region.inner_boundary_ids.size()?region.inner_boundary_ids[i]:std::string{});
+            };
+            append_region(primitive);
+            for (const auto& region : primitive.additional_profile_regions) append_region(region);
             std::vector<ViewerAxis> axes;
             for (std::size_t index = 0; index < centers.size(); ++index) {
                 axes.push_back(fitted_axis(centers[index], direction,
-                    index == 0 ? "axis:primary"
+                    authored_profile_axes ? profile_keys[index] : index == 0 ? "axis:primary"
                                : "axis:profile:" + std::to_string(index + 1),
                     length));
             }
@@ -1532,6 +1548,47 @@ ThinSweepWires make_thin_sweep_profiles(const Sweep3DRequest& request,
     return {std::move(joined),std::nullopt};
 }
 
+// A single authored profile on a smooth spline is inherited by rigid transport,
+// not by independently rotating its normal at every station. Explicit station
+// profiles and sharp/mitered routes keep their established behavior.
+std::optional<std::vector<gp_Trsf>> inherited_spline_frames(
+        const Sweep3DRequest& request,const std::vector<TopoDS_Edge>& edges) {
+    if(request.sections.size()!=1||request.sections.front().point_index!=0||
+        request.smooth_loft||request.fixed_section_frames||request.separate_segments||
+        std::ranges::none_of(request.path_segments,[](const auto& s){return !s.bezier_control_points.empty()||!s.bezier_spans.empty();}))return std::nullopt;
+    // A centered circle is rotationally invariant. Preserve its established
+    // seam/radial transport and approximation instead of perturbing a working
+    // circular pipe solely to align an unobservable section rotation.
+    if(const auto* circle=std::get_if<ExtrusionRequest::CircleProfile>(&request.sections.front().profile.outer_profile)) {
+        const auto p=request.path_points.front();
+        if(std::hypot(circle->center.x-p.x,circle->center.y-p.y,circle->center.z-p.z)<1e-12)return std::nullopt;
+    }
+    std::vector<gp_Trsf> frames(request.path_points.size());gp_Trsf rotation;
+    std::optional<gp_Vec> previous;
+    const auto start=request.path_points.front();const gp_Pnt origin(start.x,start.y,start.z);
+    for(std::size_t i=0;i<edges.size();++i) {
+        BRepAdaptor_Curve curve(edges[i]);gp_Pnt a,b;gp_Vec da,db;
+        curve.D1(curve.FirstParameter(),a,da);curve.D1(curve.LastParameter(),b,db);
+        da.Normalize();db.Normalize();
+        if(previous&&previous->Dot(da)<1-1e-9)return std::nullopt;
+        previous=db;
+        if(curve.GetType()==GeomAbs_Circle) {
+            gp_Trsf turn;turn.SetRotation(gp_Ax1(gp_Pnt{},curve.Circle().Axis().Direction()),curve.LastParameter()-curve.FirstParameter());rotation=turn*rotation;
+        } else if(curve.GetType()!=GeomAbs_Line) {
+            double first,last;const auto geometry=BRep_Tool::Curve(edges[i],first,last);
+            GeomFill_CorrectedFrenet law;law.SetCurve(new GeomAdaptor_Curve(geometry,first,last));
+            const auto frame=[&](double parameter) {
+                gp_Vec t,n,binormal;
+                if(!law.D0(parameter,t,n,binormal))throw std::runtime_error("Dráha nemá platnou tečnu.");
+                return gp_Ax3(geometry->Value(parameter),gp_Dir(t),gp_Dir(n));
+            };
+            gp_Trsf turn;turn.SetDisplacement(frame(first),frame(last));turn.SetTranslationPart(gp_Vec{});rotation=turn*rotation;
+        }
+        frames[i+1]=rotation;frames[i+1].SetTranslationPart(gp_Vec(origin.Transformed(rotation),b));
+    }
+    return frames;
+}
+
 PrimitiveData make_sweep3d_data(const Sweep3DRequest& request, const std::string& owner_id,
     const std::vector<SweepProfileWire>* profile_wires = nullptr);
 
@@ -1693,6 +1750,7 @@ PrimitiveData make_sweep3d_data(
         }
         return true;
     }();
+    const auto inherited_frames=inherited_spline_frames(request,spine_edges);
     std::optional<gp_Vec> previous_direction;
     std::optional<gp_Vec> transported_radial;
     for(std::size_t i=0;i<request.path_points.size();++i) {
@@ -1753,6 +1811,11 @@ PrimitiveData make_sweep3d_data(
         } else movement.SetRotation(gp_Quaternion(gp_Vec(normal.x,normal.y,normal.z),direction));
         const auto rotated=gp_Pnt(from.x,from.y,from.z).Transformed(movement);
         movement.SetTranslationPart(gp_Vec(rotated,gp_Pnt(to.x,to.y,to.z)));
+        if(inherited_frames) {
+            gp_Trsf initial;initial.SetRotation(gp_Quaternion(gp_Vec(normal.x,normal.y,normal.z),tangent(0,false)));
+            initial.SetTranslationPart(gp_Vec(gp_Pnt(from.x,from.y,from.z).Transformed(initial),gp_Pnt(from.x,from.y,from.z)));
+            movement=inherited_frames->at(i)*initial;
+        }
         BRepBuilderAPI_Transform transport(station.wire,movement,true);
         station.wire=TopoDS::Wire(transport.Shape());
         for(auto& edge:station.edges)edge=TopoDS::Edge(transport.ModifiedShape(edge));
@@ -1764,7 +1827,8 @@ PrimitiveData make_sweep3d_data(
             SurfaceGeometry geometry;
             geometry.origin = {center.X(),center.Y(),center.Z()};
             geometry.axis = {direction.X(),direction.Y(),direction.Z()};
-            geometry.radial = {transported_radial->X(),transported_radial->Y(),transported_radial->Z()};
+            const auto cap_radial=inherited_frames&&radial?gp_Vec(radial->x,radial->y,radial->z).Transformed(movement):*transported_radial;
+            geometry.radial = {cap_radial.X(),cap_radial.Y(),cap_radial.Z()};
             geometry.radius = circle->radius;
             station.circular_cap = geometry;
         }
@@ -3268,6 +3332,8 @@ std::vector<OwnedVertex> complete_boolean_vertices(const TopoDS_Shape&,
     const std::vector<OwnedFace>&,const std::vector<OwnedEdge>&,
     const std::vector<OwnedVertex>&,const std::string&,std::string_view);
 
+#include "solid_straightening.inc"
+#include "solid_state_replay.inc"
 #include "sheet_cut_clearance.inc"
 #include "sheet_state_geometry.inc"
 #include "sheet_state_sources.inc"
@@ -5493,6 +5559,17 @@ struct OcctKernel::HistoryContext {
 };
 
 OcctKernel::OcctKernel() : live_cache_(std::make_unique<LiveCache>()) {}
+
+SolidStraighteningPlan OcctKernel::prepare_straightening(
+    const RevolutionRequest& source,double coefficient) const {
+    return solid_straightening::revolution(source,coefficient);
+}
+
+SolidStraighteningPlan OcctKernel::prepare_straightening(
+    const Sweep3DRequest& source,double coefficient) const {
+    return source.transported?solid_straightening::transported_sweep(source,coefficient):
+        solid_straightening::ordinary_sweep(source,coefficient);
+}
 OcctKernel::~OcctKernel() = default;
 
 std::string OcctKernel::name() const {
@@ -5796,6 +5873,10 @@ void place_body_result(BodyResult& result, const gp_Trsf& placement) {
     };
     geometry(mesh);
     geometry(mesh.original_references);
+    for(auto& [owner,packet]:result.solid_state_reference_views) {
+        auto placed=std::make_shared<ViewerReferenceGeometry>(*packet);
+        geometry(*placed);packet=std::move(placed);
+    }
     for (auto& reference : result.shaft_thread_references) face(reference);
     for (auto& dimension : mesh.dimensions) {
         point(dimension.witness_first);
@@ -6135,6 +6216,8 @@ std::vector<BodyResult> OcctKernel::evaluate_body_histories(
             input.source_fingerprint = input_key;
         }
         if (branch.scope.source_id.empty()) document.body_inputs.emplace(branch.scope.id, input);
+        if (branch.scope.source_id.empty())
+            document.solid_state_reference_views.insert(input.solid_state_reference_views.begin(),input.solid_state_reference_views.end());
         auto output = input;
         const auto preserve_failed_inputs = [&](const std::string& message) {
             auto retained = input;
@@ -6558,6 +6641,41 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                 remember_live_boundary(boundary.source_fingerprint, result_shape,
                     owned_topology);
                 boundaries.push_back(std::move(boundary));
+                continue;
+            }
+            if(std::holds_alternative<SolidStateRequest>(operation.primitive)) {
+                const auto replay=solid_state_replay::prepare(operations,operation_index,*this);
+                HistoryContext replay_context;
+                replay_context.external_faces=context.external_faces;
+                replay_context.dependency_key=context.dependency_key;
+                replay_context.require_original_faces=true;
+                const auto rebuilt=evaluate_flat_history(replay,{},replay_context);
+                if(rebuilt.empty())throw std::invalid_argument("Select at least one eligible solid element.");
+                const auto found=live_cache_->boundaries.find(rebuilt.back().source_fingerprint);
+                if(found==live_cache_->boundaries.end())throw std::runtime_error("Solid state calculation is incomplete.");
+                result_shape=found->second.shape;
+                auto topology=std::make_shared<LiveCache::Topology>(*found->second.topology);
+                for(auto& face:topology->faces)solid_state_replay::own(face.reference,operation.owner_id);
+                for(auto& edge:topology->edges)solid_state_replay::own(edge.reference,operation.owner_id);
+                for(auto& vertex:topology->vertices)solid_state_replay::own(vertex.reference,operation.owner_id);
+                retain_originals(topology->faces);
+                auto source=make_operation_result(result_shape,topology->faces,topology->edges,
+                    topology->vertices,true,false,true);
+                append_reference_geometry(original_references,std::move(source.mesh.original_references));
+                owned_topology=std::move(topology);
+                if(context.requested_solids.contains(operation.owner_id)) {
+                    PrimitiveData operand;operand.shape=result_shape;operand.faces=owned_topology->faces;
+                    operand.edges=owned_topology->edges;operand.vertices=owned_topology->vertices;
+                    retain_copy_solid(operand);
+                }
+                auto boundary=make_operation_result(result_shape,owned_topology->faces,
+                    owned_topology->edges,owned_topology->vertices,true,persist_boundary_shape);
+                boundary.source_fingerprint=fingerprint(operations,operation_index+1);
+                boundary.mesh.original_references=original_references;
+                boundary.solid_state_reference_views.emplace(operation.owner_id,
+                    std::make_shared<const ViewerReferenceGeometry>(rebuilt.back().mesh.original_references));
+                boundaries.push_back(std::move(boundary));
+                remember_live_boundary(boundaries.back().source_fingerprint,result_shape,owned_topology);
                 continue;
             }
             if(const auto* state=std::get_if<SheetStateRequest>(&operation.primitive)) {
@@ -8174,6 +8292,17 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                     std::size_t child_index=0;
                     for (const auto& child : primitive.children) {
                         auto child_data = make_group_child(child);
+                        // General Feature profile datums retain the source
+                        // boundary's explicit Start/End ancestry. Other groups
+                        // and existing standalone axis identities are unchanged.
+                        std::visit([&](const auto& request) {
+                            if constexpr(std::is_same_v<std::decay_t<decltype(request)>,ExtrusionRequest>) {
+                                HistoryOperation axis_source{operation.owner_id,request};
+                                auto axes=axes_for_operation(axis_source,child_data.shape,{},true);
+                                child_data.profile_references.axes.insert(child_data.profile_references.axes.end(),
+                                    std::make_move_iterator(axes.begin()),std::make_move_iterator(axes.end()));
+                            }
+                        },child);
                         if(!operation.sheet_regions.empty()) {
                             const auto& region=operation.sheet_regions[child_index];
                             const auto assign=[&](auto& faces){for(auto& face:faces){
@@ -8661,8 +8790,11 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                 return op.owner_id==axis.reference.owner_id&&op.sheet_material&&std::holds_alternative<RevolutionRequest>(op.primitive);
             }))rotation_sources[axis.reference.owner_id]=axis;
         sheet_material::History display_material;
+        std::map<std::string,std::shared_ptr<const ViewerReferenceGeometry>> solid_state_views;
         for (std::size_t index=0;index<boundaries.size();++index) {
             auto& boundary=boundaries[index];
+            for(const auto& [owner,packet]:boundary.solid_state_reference_views)solid_state_views[owner]=packet;
+            boundary.solid_state_reference_views=solid_state_views;
             if(!operations[index].suppressed&&std::holds_alternative<SheetStateRequest>(operations[index].primitive)) {
                 display_material=sheet_material::regions_before(operations,index+1);
                 active_bend_lines.clear();

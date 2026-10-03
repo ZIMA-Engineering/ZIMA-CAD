@@ -83,6 +83,16 @@ void require(bool condition, const char* message) {
     if (!condition) throw std::runtime_error(message);
 }
 
+// Mesh interaction in this executable is driven by explicit synthetic events.
+// Delayed native cursor moves after exposing a new child widget must not replace
+// the tested hover between sendEvent() and its framebuffer/confirmation check.
+class SyntheticViewPointer final : public QObject {
+    bool eventFilter(QObject* object,QEvent* event) override {
+        return event->spontaneous()&&event->type()==QEvent::MouseMove&&
+            dynamic_cast<zima::viewer::MeshView*>(object);
+    }
+};
+
 bool framebuffer_contains_color_near(const QImage& image,
     const QSize& logical_size, const QPointF& logical_position,
     const QColor& expected, int tolerance = 24) {
@@ -152,7 +162,14 @@ int verify_numeric_fields(QApplication& application, QWidget& parent) {
                             <<" needs="<<needed<<" available="<<available<<'\n';
                         throw std::runtime_error("Displayed numeric value is clipped");
                     }
-                    require(field->decimals()==places,"A model field ignores document decimal precision");
+                    // Kernel approximation tolerance supports 1e-9 mm even in
+                    // documents whose ordinary dimensions display fewer places.
+                    const int expected_places=field->objectName()=="sweepPrecisionTolerance"?9:places;
+                    if(field->decimals()!=expected_places) {
+                        std::cerr<<name<<" "<<field->objectName().toStdString()
+                            <<" decimals="<<field->decimals()<<" expected="<<expected_places<<'\n';
+                        throw std::runtime_error("A model field ignores document decimal precision");
+                    }
                     QWidget* current=field;
                     while(current && current!=dialog) {
                         if(current->parentWidget() && !current->parentWidget()->rect().contains(current->geometry())) {
@@ -332,15 +349,16 @@ int verify_sketch_line_styles(QApplication& application, QWidget& parent) {
                     pointer = QPointF(x, y); break;
                 }
         require(pointer.has_value(), "Styled Sketch curve is not offered by the picker");
-        QMouseEvent move(QEvent::MouseMove, *pointer, *pointer, *pointer,
+        const auto global_pointer=view.mapToGlobal(pointer->toPoint());
+        QMouseEvent move(QEvent::MouseMove, *pointer, *pointer, global_pointer,
             Qt::NoButton, Qt::NoButton, Qt::NoModifier);
         QApplication::sendEvent(&view, &move);
         application.processEvents();
         require(view.hovered_candidate().has_value(), "Styled Sketch curve did not hover");
         const auto hover = view.grabFramebuffer();
-        QMouseEvent press(QEvent::MouseButtonPress, *pointer, *pointer, *pointer,
+        QMouseEvent press(QEvent::MouseButtonPress, *pointer, *pointer, global_pointer,
             Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
-        QMouseEvent release(QEvent::MouseButtonRelease, *pointer, *pointer, *pointer,
+        QMouseEvent release(QEvent::MouseButtonRelease, *pointer, *pointer, global_pointer,
             Qt::LeftButton, Qt::NoButton, Qt::NoModifier);
         QApplication::sendEvent(&view, &press);
         QApplication::sendEvent(&view, &release);
@@ -747,8 +765,142 @@ int verify_stable_placement_rows() {
     require(table->item(0, 1)->text().contains("Replacement") &&
         qobject_cast<QDoubleSpinBox*>(table->cellWidget(0, 3))->value() == 7,
         "Reference replacement did not refresh its label and offset");
-    std::cout << "Stable placement rows and DOF transitions passed\n";
+    // Display rounding must not become an authored placement edit on OK.
+    for(auto* field:placement.translation_fields())field->setDecimals(3);
+    zima::document::Placement precise;
+    precise.x=100.123456789;precise.y=2.987654321;precise.z=-155.508836352;
+    placement.initialize_numeric_values(precise);
+    auto values=placement.numeric_placement();
+    require(values.x==precise.x&&values.y==precise.y&&values.z==precise.z,
+        "Opening placement quantized untouched coordinates to display precision");
+    state.constrained_axes={true,false,true};state.remaining_dof=1;
+    const zima::kernel::Vec3 resolved{101.987654321,99.,-156.123456789};
+    placement.set_translation_constraint_state(state,resolved);
+    values=placement.numeric_placement();
+    require(values.x==resolved.x&&values.y==precise.y&&values.z==resolved.z,
+        "Resolved placement lost precision or overwrote an unconstrained coordinate");
+    placement.translation_fields()[1]->setValue(7.25);
+    values=placement.numeric_placement();
+    require(values.x==resolved.x&&values.y==7.25&&values.z==resolved.z,
+        "A manual coordinate edit reused a stale precise value");
+    placement.translation_fields()[1]->setValue(2.988);
+    require(placement.numeric_placement().y==2.988,
+        "Returning to the old display value resurrected an edited precise coordinate");
+    placement.translation_fields()[1]->setValue(7.25);
+    const zima::kernel::Vec3 replaced{102.111111111,99.,-157.222222222};
+    placement.set_translation_constraint_state(state,replaced);
+    values=placement.numeric_placement();
+    require(values.x==replaced.x&&values.y==7.25&&values.z==replaced.z,
+        "A new reference solution reused previous precise coordinates");
+    precise.x=4.444444444;placement.initialize_numeric_values(precise);
+    values=placement.numeric_placement();
+    require(values.x==precise.x&&values.y==precise.y&&values.z==precise.z,
+        "Reinitializing placement retained the previous reference solution");
+    for(auto* field:placement.rotation_fields())field->setDecimals(2);
+    for(auto* field:placement.rotation_offset_fields())field->setDecimals(2);
+    precise.absolute_rotation_x=12.3456789;precise.absolute_rotation_y=-3.654321;
+    precise.absolute_rotation_z=.000123456;
+    precise.rotation_offset_x=85.4501346909;precise.rotation_offset_y=-2.3456789;precise.rotation_offset_z=-0.;
+    precise.rotation_x=-94.5498653091;precise.rotation_y=7.123456789;precise.rotation_z=-.000123456;
+    precise.orientation_back=true;precise.orientation_quarter_turns=3;
+    placement.initialize_numeric_values(precise);values=placement.numeric_placement();
+    const auto exact_angles=[&](const zima::document::Placement& value) {
+        require(value.absolute_rotation_x==precise.absolute_rotation_x&&value.absolute_rotation_y==precise.absolute_rotation_y&&
+            value.absolute_rotation_z==precise.absolute_rotation_z&&value.rotation_offset_x==precise.rotation_offset_x&&
+            value.rotation_offset_y==precise.rotation_offset_y&&value.rotation_offset_z==precise.rotation_offset_z&&
+            std::signbit(value.rotation_offset_z),"Opening placement quantized authored angles or lost signed zero");
+    };
+    exact_angles(values);
+    zima::document::OrientationConstraintState angular;angular.remaining_dof=1;angular.constrained_axes={true,false,true};
+    placement.set_rotation_constraint_state(angular);
+    require(placement.numeric_placement().rotation_offset_x==precise.rotation_offset_x,
+        "Initial DOF refresh cleared the loaded correction before reference resolution");
+    placement.set_orientation_base_rotation({17.123456789,0,23.987654321},true);
+    placement.set_resolved_rotation({precise.rotation_x,precise.rotation_y,precise.rotation_z});
+    values=placement.numeric_placement();
+    require(values.absolute_rotation_x==17.123456789&&values.absolute_rotation_y==precise.absolute_rotation_y&&
+        values.absolute_rotation_z==23.987654321&&values.rotation_offset_x==precise.rotation_offset_x&&
+        values.rotation_offset_y==precise.rotation_offset_y&&values.rotation_x==precise.rotation_x,
+        "Reference refresh rounded an angle or changed a free-axis parameter");
+    placement.rotation_offset_fields()[0]->setValue(86.25);
+    require(placement.numeric_placement().rotation_offset_x==86.25,"Manual correction reused the loaded precise value");
+    placement.rotation_offset_fields()[0]->setValue(85.45);
+    require(placement.numeric_placement().rotation_offset_x==85.45,"Returning to the old display restored a stale precise correction");
+    placement.rotation_fields()[1]->setValue(-3.5);placement.rotation_fields()[1]->setValue(-3.65);
+    require(placement.numeric_placement().absolute_rotation_y==-3.65,"Manual free-axis rotation reused a stale precise angle");
+    placement.set_orientation_base_rotation({},false);values=placement.numeric_placement();
+    require(values.absolute_rotation_x==precise.rotation_x&&values.absolute_rotation_y==precise.rotation_y&&
+        values.absolute_rotation_z==precise.rotation_z&&values.rotation_offset_x==0&&values.rotation_offset_y==0&&
+        values.rotation_offset_z==0&&!values.orientation_back&&values.orientation_quarter_turns==0,
+        "Removing orientation rounded the retained frame or reapplied its correction");
+    placement.initialize_numeric_values(precise);exact_angles(placement.numeric_placement());
+    {const QSignalBlocker blocker(placement.rotation_offset_fields()[0]);placement.rotation_offset_fields()[0]->setValue(0);}
+    require(placement.numeric_placement().rotation_offset_x==0,"A blocked programmatic reset reused the loaded correction");
+    std::cout << "Stable placement rows, DOF transitions and coordinate/angular precision passed\n";
     return 0;
+}
+
+void verify_feature_axis_highlight(QApplication& application,QWidget& parent) {
+    using namespace zima;
+    viewer::MeshView view(&parent);view.setGeometry(0,0,600,500);
+    kernel::ViewerMesh mesh;
+    mesh.vertices={{-50,-50,0},{50,50,0},{-35,-35,0},{-30,-35,0},{-30,35,0},{-35,35,0}};
+    mesh.triangles={2,3,4,2,4,5};
+    mesh.triangle_references.assign(2,{"feature","side",{}});
+    const std::array<std::string,6> keys{"axis:profile:1","axis:profile:from:ellipse",
+        "centerline:from:origin:profile","centerline:from:centroid:profile",
+        "axis:profile:1","axis:profile:1"};
+    for(std::size_t i=0;i<keys.size();++i) {
+        const double y=-30+12*double(i);
+        const std::string owner=i==4?"other-feature":"feature",path=i==5?"other-instance":"";
+        mesh.axes.push_back({{0,y,0},{1,0,0},40,{owner,keys[i],path}});
+        for(const double x:{-20.,20.}) {
+            kernel::ViewerPoint point;point.position={x,y,0};
+            point.reference={owner,keys[i]+(x<0?":start":":end"),path};
+            point.display_owner_id=owner;mesh.points.push_back(point);
+        }
+    }
+    mesh.original_references.axes=mesh.axes;
+    view.set_mesh(mesh);auto camera=view.camera_state();camera[0]=1;camera[1]=camera[2]=camera[3]=0;
+    view.set_camera_state(camera);view.set_reference_visibility(viewer::ReferenceVisibility::Axes,true);
+    view.show();view.raise();application.processEvents();
+    const auto project=[&](double x,double y) {
+        const double unit=view.world_tolerance_for_pixels(1);
+        return QPointF(view.width()/2.+x/unit,view.height()/2.-y/unit);
+    };
+    const auto check_lines=[&](int selected) {
+        const auto frame=view.grabFramebuffer();
+        for(int i=0;i<6;++i) {
+            const auto center=project(0,-30+12*i);
+            const double scale=double(frame.width())/view.width();int azure=0,brown=0;
+            // Inspect the middle of each line, never its endpoint markers.
+            for(int y=qRound((center.y()-2)*scale);y<=qRound((center.y()+2)*scale);++y)
+                for(int x=qRound((center.x()-30)*scale);x<=qRound((center.x()+30)*scale);++x) {
+                    const auto color=frame.pixelColor(x,y);
+                    if(color.red()<35&&color.green()>170&&color.blue()>210)++azure;
+                    if(std::abs(color.red()-173)<25&&std::abs(color.green()-110)<25&&std::abs(color.blue()-46)<25)++brown;
+                }
+            const bool expected=selected==1?i<4:selected==2?i==0:false;
+            require(expected?azure>5:azure==0,"Whole-feature selection did not highlight exactly its own axis lines");
+            if(!expected)require(brown>5,"Unselected profile axis line lost its normal presentation");
+        }
+    };
+    check_lines(0);view.confirm_container("feature");application.processEvents();check_lines(1);
+    view.grabFramebuffer().save("feature-axis-selected.png");
+    view.clear_selection();application.processEvents();check_lines(0);
+    const auto p=project(-32,0),global=QPointF(view.mapToGlobal(p.toPoint()));
+    QMouseEvent move(QEvent::MouseMove,p,p,global,Qt::NoButton,Qt::NoButton,Qt::NoModifier);
+    QApplication::sendEvent(&view,&move);application.processEvents();
+    require(view.hovered_candidate()&&view.hovered_candidate()->owner_id=="feature","Feature View hover fixture missing");
+    check_lines(1);
+    for(const auto type:{QEvent::MouseButtonPress,QEvent::MouseButtonRelease}) {
+        QMouseEvent event(type,p,p,global,Qt::LeftButton,type==QEvent::MouseButtonPress?Qt::LeftButton:Qt::NoButton,Qt::NoModifier);
+        QApplication::sendEvent(&view,&event);
+    }
+    application.processEvents();require(view.confirmed_candidate()&&view.confirmed_candidate()->owner_id=="feature","Feature View click failed");check_lines(1);
+    view.set_selection_contract({viewer::CandidateKind::Axis});
+    view.confirm_reference("feature",keys[0],{},viewer::CandidateKind::Axis);application.processEvents();check_lines(2);
+    std::cout<<"Feature axis lines follow whole-container selection and retain exact instance/reference isolation\n";
 }
 
 #include "interaction_color_verification.inc"
@@ -759,6 +911,8 @@ int main(int argc, char* argv[]) {
     QApplication application(argc, argv);
     zima::app::apply_application_appearance(application, zima::app::ApplicationSettings{});
     zima::app::install_dialog_button_icons();
+    SyntheticViewPointer synthetic_pointer;
+    application.installEventFilter(&synthetic_pointer);
     QWidget parent;
     parent.setWindowFlag(Qt::WindowStaysOnTopHint); // Real-cursor hover checks require an unobscured test surface.
     parent.resize(900, 650);
@@ -766,6 +920,7 @@ int main(int argc, char* argv[]) {
     const auto initial = zima::document::PartDocument::create_twisted_sheet_container();
 
     try {
+        if(qEnvironmentVariableIsSet("ZIMA_VERIFY_FEATURE_AXIS_HIGHLIGHT_ONLY")) {verify_feature_axis_highlight(application,parent);return 0;}
         if(qEnvironmentVariableIsSet("ZIMA_VERIFY_RELATIONS_ONLY")) {
             using namespace zima::app;
             ApplicationSettings settings;std::string saved;bool committed=false;
@@ -922,6 +1077,7 @@ int main(int argc, char* argv[]) {
         std::cout << "Treatment Origin policy passed for creation and editing" << std::endl;
         verify_origin_display_and_pick_seed(parent);
         verify_face_fill(application,parent);
+        verify_feature_axis_highlight(application,parent);
         verify_sketch_line_styles(application,parent);
         verify_end_plane_picker(application,parent);
         verify_curve_placement_picker(application,parent);

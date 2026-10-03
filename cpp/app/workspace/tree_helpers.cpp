@@ -1,5 +1,6 @@
 #include "workspace_internal.hpp"
 #include <zima/document/sheet_transition.hpp>
+#include <zima/kernel/feature_side_identity.hpp>
 
 namespace zima::app::workspace_detail {
 
@@ -70,6 +71,8 @@ QString feature_icon_name(zima::document::FeatureKind kind) {
         case FeatureKind::Bend: return QStringLiteral("bend");
         case FeatureKind::Unbend: return QStringLiteral("unbend");
         case FeatureKind::BendBack: return QStringLiteral("bend-back");
+        case FeatureKind::Straighten: return QStringLiteral("straighten");
+        case FeatureKind::RestoreShape: return QStringLiteral("restore-shape");
         case FeatureKind::Flat: return QStringLiteral("flat");
         case FeatureKind::TwistedSheet: return QStringLiteral("sheet-twist");
         case FeatureKind::BoundarySurface: return QStringLiteral("boundary-surface");
@@ -115,7 +118,31 @@ void add_history_container_tree_children(QTreeWidgetItem* parent,
     const zima::document::HistoryContainer& container,
     const zima::assembly::InstancePath& instance_path,
     const zima::sketcher::Sketch* owned_sketch,
-    bool assembly_owned) {
+    bool assembly_owned,const zima::kernel::ViewerReferenceGeometry* calculated_references) {
+    const auto add_calculated_axes=[&] {
+        if(!calculated_references)return;
+        int profile_number=0;
+        for(const auto& axis:calculated_references->axes) {
+            const auto& ref=axis.reference;const auto& key=ref.semantic_key;
+            if(ref.owner_id!=container.id&&ref.owner_id!=container.feature_id)continue;
+            const bool origin=key.starts_with("centerline:from:origin:");
+            const bool centroid=key.starts_with("centerline:from:centroid:");
+            const bool profile=container.feature_kind==zima::document::FeatureKind::Feature&&key.starts_with("axis:profile:from:");
+            if(!origin&&!centroid&&!profile)continue;
+            auto label=origin?QObject::tr("Osa počátku profilu"):
+                centroid?QObject::tr("Osa těžiště profilu"):QObject::tr("Profile axis %1").arg(++profile_number);
+            if(const auto index=key.find("feature-side:");index!=std::string::npos)
+                if(const auto side=zima::kernel::feature_side_parent(key.substr(index)))
+                    label+=QStringLiteral(" — ")+(side->side==zima::kernel::FeatureSide::End?QObject::tr("Strana 1"):QObject::tr("Strana 2"));
+            auto* row=new QTreeWidgetItem(parent,{label});
+            row->setIcon(0,resource_icon("axis"));
+            row->setData(0,Qt::UserRole,QString::fromStdString(ref.owner_id));
+            row->setData(0,Qt::UserRole+1,QString::fromStdString(instance_path.encoded()));
+            row->setData(0,Qt::UserRole+3,"origin-reference");
+            row->setData(0,Qt::UserRole+5,QString::fromStdString(key));
+            row->setData(0,Qt::UserRole+6,QString::fromStdString(ref.owner_id));
+        }
+    };
     if (container.feature_kind != zima::document::FeatureKind::Thread &&
         container.feature_kind != zima::document::FeatureKind::DrillPoint) {
         add_construction_origin_tree_item(
@@ -302,6 +329,7 @@ void add_history_container_tree_children(QTreeWidgetItem* parent,
             row->setData(0,Qt::UserRole+6,QString::fromStdString(container.id));
             row->setData(0,Qt::UserRole+5,static_cast<int>(side));
         }
+        add_calculated_axes();
         return;
     }
     const QString feature_label = container.feature_kind ==
@@ -321,6 +349,7 @@ void add_history_container_tree_children(QTreeWidgetItem* parent,
         QString::fromStdString(container.id));
     const bool primitive_primary_axis =
         container.feature_kind == zima::document::FeatureKind::Hole;
+    add_calculated_axes();
     if (primitive_primary_axis ||
         (owned_sketch != nullptr &&
          (container.feature_kind == zima::document::FeatureKind::Extrusion ||

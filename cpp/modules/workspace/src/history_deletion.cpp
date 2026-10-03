@@ -10,6 +10,7 @@ HistoryDependencyCollector dependencies(const document::PartDocument& doc) {
         graph.use(f.id,f.holes.sketch_id);graph.use(f.id,f.flat.sketch_id);graph.use(f.id,f.bend.sketch_id);
         if(f.feature_kind==document::FeatureKind::DerivedCopy){graph.use(f.id,f.derived_copy.source_id);graph.reference(f.id,f.derived_copy.reference);}
         for(const auto& owner:f.sheet_state.owners)graph.use(f.id,owner);
+        for(const auto& owner:f.solid_state.owners)graph.use(f.id,owner);
     }
     return graph;
 }
@@ -75,6 +76,7 @@ void detach_deleted_history_references(document::PartDocument& doc,const History
         for(auto& boundary:f.boundary_surface.boundaries)if(lost(boundary.owner_id))boundary={};
         id(f.derived_copy.source_id);reference(f.derived_copy.reference);
         std::erase_if(f.sheet_state.owners,lost);
+        std::erase_if(f.solid_state.owners,lost);
     }
     for(auto& object:doc.constructions)if(plan.affected.contains(object.id))construction(construction,object);
     static_cast<void>(update_document_sketches(doc,[&](auto& sketch) {

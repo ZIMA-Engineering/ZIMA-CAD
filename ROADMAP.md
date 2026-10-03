@@ -12,6 +12,86 @@ for module boundaries and [distribution rules](doc/DISTRIBUTION_CLEANUP_PLAN.md)
 for the agreed packaging direction. Dated entries below preserve planning context;
 newer completion notes and focused contracts supersede their earlier status.
 
+## Current work and queued requests (2026-10-02)
+
+Finish [Solid Straightening / Restore shape](doc/SOLID_STRAIGHTENING.md) first.
+The next agreed modeling task is the [Boundary Surface container redesign](doc/NETWORK_SURFACE.md#queued-container-redesign-approved-2026-10-02).
+The file manager below is an additional TODO; recording it does not interrupt
+the current implementation or claim that these capabilities already exist.
+
+### Optional Drawing view descriptions (requested 2026-10-02)
+
+This is a queued design request, not implemented behavior. It does not replace
+the active modeling work.
+
+- In View Properties, place Name below Source. Below Name, offer ordered optional
+  description rows: the view name, scale with an adjacent visibility checkbox,
+  and programmable text using the existing title-block parameter substitution
+  mechanism. Support drawing/document numbers and combinations such as source
+  filename, a literal dot and revision; reuse existing field semantics rather
+  than inventing a second expression language.
+- Give each displayed row independent visibility, text height and color. Use
+  white as the default view-name color and green for additional information in
+  the interactive drawing. Retain the existing ISO drawing font. Resolve print
+  and export color behavior through the established output conventions.
+- Stack enabled rows below the view in their displayed table order, keeping
+  the description attached when the view moves. Preserve definitions in the
+  native Drawing and support editing, Cancel, Undo/Redo and save/reopen.
+- Include the descriptions in DXF output using the existing drawing text/export
+  representation, so exported cutting layouts can carry identifying text.
+  Verify content and placement in actual exported files, including parameter
+  changes and independently hidden rows. Final row controls and parameter
+  source scope remain design details to settle before implementation.
+- Localize all controls and validation in all five languages.
+
+### Native ZIMA-CAD file manager
+
+- Use the ZIMA-Parts Parts tab as a visual/workflow reference when implementing;
+  inspect the actual application before claiming an exact visual match.
+- Present the file manager inside the main application across the full working
+  area, covering the View, left Tree and right command panel. Use the available
+  width for file and Parameter columns. Closing it restores the previous
+  modeling workspace, active document and panel state.
+- Show and change the working directory. List supported native document and
+  library types, including `.prtz`, `.asmz` and `.drwz`.
+- Open a selected native file by double-clicking its row or using an Open button.
+  Reuse the normal document-opening workflow, including activating an already
+  open document rather than opening a duplicate, and normal error handling.
+  Provide per-row checkboxes for selecting multiple files; Open opens all checked
+  files when any are checked, otherwise the selected row. Double-click opens only
+  the clicked file. Report individual failures without preventing other selected
+  files from opening or discarding the user's selection.
+- Show stored document Parameters as table columns alongside file information.
+  Investigate reading only the necessary native metadata without opening editor
+  tabs, loading body geometry or invoking OCCT/regeneration. Measure cold and
+  repeated reads on representative directories before estimating performance.
+  Populate rows promptly and load parameter values incrementally; any disposable
+  metadata cache must invalidate when its source changes and remain optional.
+- Put file-type visibility toggle buttons below the list. Users can independently
+  enable Part, Assembly, Drawing and other supported native types.
+- Put ordinary file actions, including Copy, Delete and Move, at the lower right.
+  Preserve native document identities and dependency semantics; file operations
+  must not silently break references or discard unsaved open-document changes.
+- Later, offer both a flat list and a configurable tree grouped by document-number
+  rules. Users define segment widths and literal separators rather than relying
+  on one hard-coded numbering scheme. For example, `ZE0000-0000-0000` can group
+  by `ZE0000`, then two two-digit groups, then another two two-digit groups;
+  hyphens are separators, not additional hierarchy levels. Define behavior for
+  nonmatching numbers without hiding files or changing their actual names.
+- Support batch renaming by a user-defined rule, with a preview of old/new names
+  and affected references. Update links inside dependent native documents so
+  Assemblies retain their Parts/subassemblies and Drawings retain their sources.
+  Reuse and extend the existing staged native rename implementation in
+  `cpp/modules/workspace/src/file_rename_operations.cpp`; ordinary filesystem
+  renaming alone is insufficient. Explicitly define the dependency-search scope
+  and report unresolved/out-of-scope dependents rather than claiming global repair.
+- Verify collisions, case-only changes, rename cycles, interrupted operations,
+  rollback/recovery, relative paths, shared dependencies, open documents and cold
+  reopen. Benchmark large tables without reducing the model's precision or
+  recalculating stored Parameters as a side effect of browsing.
+- Follow shared Qt/Fusion presentation, working-directory configuration and all
+  five UI languages. This backlog change introduces no runtime UI strings.
+
 ## Requested follow-up features (2026-09-24)
 
 - General spherical-surface feature. Agree on its inputs and editing parameters

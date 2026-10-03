@@ -1772,7 +1772,7 @@ void AssemblyWorkspaceWindow::create_layout() {
                 if(accept_family_reference(candidate))return;
             }
             if(accept_body_scale_tree_reference(item)||accept_derived_copy_tree_reference(item))return;
-            if(properties_dialog_&&(properties_dialog_->objectName()=="sheetStateDialog"||properties_dialog_->objectName()=="boundarySurfaceDialog")&&feature_reference_pick_) {
+            if(properties_dialog_&&(properties_dialog_->objectName()=="sheetStateDialog"||properties_dialog_->objectName()=="solidStateDialog"||properties_dialog_->objectName()=="boundarySurfaceDialog")&&feature_reference_pick_) {
                 const auto role=item->data(0,Qt::UserRole+3).toString();
                 const bool boundary=properties_dialog_->objectName()=="boundarySurfaceDialog";
                 if(role!="part-container"&&role!="part-container-entity"&&!(boundary&&(role=="part-construction"||role=="part-sketch")))return;
@@ -2002,7 +2002,7 @@ void AssemblyWorkspaceWindow::create_layout() {
                     (semantic == "origin:point" || semantic == "point")
                         ? zima::viewer::CandidateKind::Vertex
                         : semantic.starts_with("origin:axis:") ||
-                              semantic.starts_with("axis:")
+                              semantic.starts_with("axis:") || semantic.starts_with("centerline:from:")
                             ? zima::viewer::CandidateKind::Axis
                             : zima::viewer::CandidateKind::Plane);
                 return;

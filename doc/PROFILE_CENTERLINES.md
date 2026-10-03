@@ -1,5 +1,54 @@
 # Profile centerlines
 
+## General Feature profile axes (2026-10-02)
+
+General Feature Extrusion sides now collect circular and elliptical profile axes
+before the child solids are fused. Previously the group retained origin and
+centroid centerlines but omitted these profile axes. Each new axis key is
+`axis:profile:from:` followed by the existing length-prefixed Feature-side
+boundary ancestry. The source boundary, Feature and Start/End side remain
+recoverable; two sides never share one primary-axis identity. Unscoped groups
+and the existing standalone Extrusion axis keys are unchanged.
+
+Part Tree entries consume the calculated axis references, including enabled
+profile-origin and profile-centroid centerlines. They retain the exact reference
+owner and key and use ordinary axis selection. Reading or selecting these rows
+does not calculate geometry. Side labels distinguish the two directions.
+New profile-axis labels are translated in Czech, English, German, French and
+Russian; origin and centroid labels reuse the existing shared catalog keys.
+
+The targeted native and actual GUI regressions pass for both circle and ellipse
+profiles, both sides, ordinary View availability, Tree selection and native
+save/reopen. The GUI test also checks the labels after switching among all five
+supported languages. Native axis binding and side ancestry, the broader Feature
+GUI contract, profile commands/references and Straightening geometry regressions
+pass. The final five-language run used a separate verification executable linked
+from the current CMake objects because the user's development executable was
+running; the production axis changes had already been built into that executable.
+
+Previously saved results lacking these new axes require explicit Regenerate.
+Opening a document alone does not invoke OCCT or silently recalculate it.
+
+### Whole-feature selection (2026-10-03)
+
+Whole-container hover and confirmation now include the lines of its visible
+profile, profile-origin and profile-centroid axes. Previously endpoint markers
+followed the selected Feature but the automatic axis lines retained their idle
+color. Matching requires both the exact owner and instance path. Selecting one
+individual axis still highlights only that axis; unrelated features and repeated
+Assembly occurrences retain their own presentation. Origin visibility rules,
+axis geometry and persisted identities are unchanged.
+
+The framebuffer regression inspects line interiors separately from endpoint
+markers and exercises whole-container confirmation, View hover/click, clearing
+selection and individual-axis selection. It fails before the renderer correction.
+No user-visible strings are introduced; existing five-language axis labels apply.
+The regression passes after the correction, together with the full shared UI
+suite and actual five-language circle/ellipse Tree lifecycle (26.49 seconds).
+Whole-feature selection does not add individual-axis inspection markers.
+
+## Profile-origin and centroid options
+
 Extrusion and Revolution properties offer two independent, disabled-by-default
 choices: **Profile origin axis** and **Profile centroid axis**. They supplement
 existing cylindrical axes; they do not change the calculated solid.

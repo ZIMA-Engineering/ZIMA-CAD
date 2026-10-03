@@ -3,6 +3,7 @@
 #include "../symbol_labels.hpp"
 #include <zima/workspace/symbol_operations.hpp>
 #include "../sheet_state_dialog.hpp"
+#include "../solid_state_dialog.hpp"
 #include "../part_reference_index.hpp"
 
 namespace zima::app {
@@ -381,6 +382,8 @@ void AssemblyWorkspaceWindow::add_pending_tree_item(QTreeWidgetItem* parent,
             feature = dialog->pending;
         else if (auto* dialog = dynamic_cast<SheetStateDialog*>(tree_edit_dialog_.data()))
             feature = dialog->pending_value();
+        else if (auto* dialog = dynamic_cast<SolidStateDialog*>(tree_edit_dialog_.data()))
+            feature = dialog->pending_container();
         else if (auto* dialog = dynamic_cast<SketchPropertiesDialog*>(tree_edit_dialog_.data())) {
             auto value = dialog->pending_value();
             pending_sketch = std::move(value.first);
@@ -460,15 +463,20 @@ void AssemblyWorkspaceWindow::add_pending_tree_item(QTreeWidgetItem* parent,
     if (feature) {
         row->setIcon(0, resource_icon(feature_icon_name(*feature),feature->is_surface_result()));
         const zima::sketcher::Sketch* sketch = nullptr;
+        const zima::kernel::ViewerReferenceGeometry* calculated_references=nullptr;
         const auto find_sketch = [&](const auto& document) {
             const auto found = std::ranges::find(document.sketches, id,
                 &zima::sketcher::Sketch::owner_container_id);
             if (found != document.sketches.end()) sketch = &*found;
         };
-        if (const auto* part = workspace_.open_part(document_id)) find_sketch(part->session.document());
+        if (const auto* part = workspace_.open_part(document_id)) {
+            find_sketch(part->session.document());
+            if(!part->session.calculated_boundaries().empty())
+                calculated_references=&part->session.calculated_boundaries().back().mesh.original_references;
+        }
         else if (const auto* source = workspace_.open_assembly(document_id)) find_sketch(source->session.document());
         if (pending_sketch) sketch = &*pending_sketch;
-        add_history_container_tree_children(row, *feature, instance_path, sketch, assembly);
+        add_history_container_tree_children(row, *feature, instance_path, sketch, assembly,calculated_references);
     } else if (construction) {
         row->setIcon(0, resource_icon(construction->kind == zima::document::ConstructionKind::Curve3D
             ? "sketch-3d" : construction->kind == zima::document::ConstructionKind::Point
@@ -514,9 +522,11 @@ void AssemblyWorkspaceWindow::add_part_tree_children(
             document.sketches.end(), [&](const auto& sketch) {
                 return sketch.owner_container_id == container.id;
             });
-        add_history_container_tree_children(item, container, construction_path,
-            owned_sketch == document.sketches.end() ? nullptr : &*owned_sketch);
         const auto* part=workspace_.open_part(document.document_id);
+        const auto* calculated_references=part&&!part->session.calculated_boundaries().empty()
+            ? &part->session.calculated_boundaries().back().mesh.original_references : nullptr;
+        add_history_container_tree_children(item, container, construction_path,
+            owned_sketch == document.sketches.end() ? nullptr : &*owned_sketch,false,calculated_references);
         const auto boundary=part ? part->session.rollback_boundary(container.id) : std::nullopt;
         const auto issue=feature_reference_issue(container,document,references,
             boundary && boundary->input_body ? &boundary->input_body->mesh : nullptr);

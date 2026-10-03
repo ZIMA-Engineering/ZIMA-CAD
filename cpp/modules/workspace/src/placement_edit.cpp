@@ -1,3 +1,5 @@
+#include <zima/document/solid_state_calculation.hpp>
+#include <zima/document/solid_state_reference_views.hpp>
 #include <zima/workspace/placement_edit.hpp>
 #include <zima/workspace/sketch_properties.hpp>
 #include <zima/workspace/profile_operations.hpp>
@@ -175,7 +177,7 @@ void commit_part_parameter_edit(PartState& part, const kernel::OcctKernel& kerne
     auto calculated = calculate_part_with_resolved_references(kernel, next, &previous, policy);
     if (const auto* edited = next.find_container(owner);
         edited && edited->feature_kind == document::FeatureKind::ShaftThread) {
-        const auto operations = next.kernel_operations();
+        const auto operations = document::solid_state_calculation_operations(next,&calculated,false);
         bool exact = calculated.size() == operations.size();
         for (std::size_t i = 0; exact && i < calculated.size(); ++i)
             exact = calculated[i].source_fingerprint == kernel::history_fingerprint(operations, i + 1);
@@ -276,6 +278,8 @@ kernel::ViewerReferenceGeometry placement_edit_geometry(const Workspace& live,
     if (const auto* state = live.open_part(id)) {
         const auto& before = state->session.document();
         auto geometry = part_construction_dimension_geometry(before, state->session.calculated_boundaries());
+        if(!state->session.calculated_boundaries().empty())geometry=document::solid_state_editor_reference_geometry(
+            before,state->session.calculated_boundaries().back(),object,std::move(geometry));
         if (before.body_history.find(object)) return geometry;
         return before.construction_reference_geometry_for(object, std::move(geometry));
     }

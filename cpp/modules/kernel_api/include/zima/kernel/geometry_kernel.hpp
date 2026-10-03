@@ -849,6 +849,14 @@ struct SheetStateRequest {
     bool operator==(const SheetStateRequest&) const = default;
 };
 
+struct SolidStateRequest {
+    bool restore{};
+    bool all{true};
+    double coefficient{1};
+    std::vector<std::string> owners;
+    bool operator==(const SolidStateRequest&) const = default;
+};
+
 struct BoundarySurfaceRequest {
     // Four authored open chains, in perimeter order. Exact curve data and
     // source point/curve identities use the same packet as Sketch profiles.
@@ -862,7 +870,15 @@ struct BoundarySurfaceRequest {
 using PrimitiveRequest = std::variant<
     ExtrusionRequest, RevolutionRequest, FeatureGroupRequest,
     Sweep3DRequest, StepRequest, FilletRequest, ChamferRequest, ShellRequest,
-    ThreadSurfaceRequest, DrillPointRequest, SheetStateRequest, BoundarySurfaceRequest>;
+    ThreadSurfaceRequest, DrillPointRequest, SheetStateRequest, BoundarySurfaceRequest,
+    SolidStateRequest>;
+
+// Transient material-frame transfer for a source end-section attachment.
+// No container/reference definition or native document format changes.
+struct SolidStateFaceTransfer {
+    std::string owner_id;
+    std::string source_owner_id;
+};
 
 struct HistoryOperation {
     std::string owner_id;
@@ -884,6 +900,11 @@ struct HistoryOperation {
     std::vector<SheetMaterialDefinition> sheet_regions;
     // A copy operand within the same Body, applied by the ordinary Boolean chain.
     std::optional<BodyHistoryScope> feature_copy;
+    // Transient, document-resolved geometry at this solid-state boundary.
+    // Earlier authored operations remain unchanged. Entries contain no states
+    // or nested replay data; their actual geometry participates in the cache key.
+    std::shared_ptr<const std::vector<HistoryOperation>> solid_state_placements;
+    std::vector<SolidStateFaceTransfer> solid_state_face_transfers;
 };
 
 // Calculated material-space trim, owned by the later cut, never by rewriting
@@ -930,6 +951,10 @@ struct VolumeIntegrals {
 };
 
 struct BodyResult {
+    // Original-source evaluation geometry at each solid-state boundary. These
+    // immutable packets are not selectable topology and never enter mesh.
+    // Native persistence retains them for reference resolution without OCCT.
+    std::map<std::string,std::shared_ptr<const ViewerReferenceGeometry>> solid_state_reference_views;
     // Failed/blocked feature owners. Geometry is the last valid input, never a
     // successful result of these operations. Persist with calculation snapshots.
     std::map<std::string, std::string> calculation_errors;

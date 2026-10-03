@@ -42,6 +42,38 @@ inline document::HistoryContainer sweep_fixture(document::FeatureKind kind) {
     c.sweep3d.profiles.push_back({kernel::make_stable_id(), c.sweep3d.path.curve_points.front().id, section.id, section.serialized()});
     return c;
 }
+// Shared native/GUI continuation inputs. TOP aligns local Z to the end face;
+// the planar guide therefore starts along +v of its explicit owned YZ plane.
+inline document::HistoryContainer continuation_sweep_fixture(document::FeatureKind kind) {
+    auto child=sweep_fixture(kind);child.sweep_precision.custom_tolerance=1e-4;
+    if(kind==document::FeatureKind::Sweep2D) {
+        auto guide=sketcher::Sketch::from_serialized(child.sweep2d.path_sketch);guide.segments.clear();guide.points.clear();
+        guide.plane=sketcher::SketchPlane::YZ;guide.plane_auto=false;guide.refresh_default_frame();
+        child.sweep2d.path_plane=document::ConstructionReference{{},child.container_origin.id,"origin:plane:yz"};
+        static_cast<void>(guide.add_bspline({{0,0},{0,10},{5,20},{15,25}}));child.sweep2d.path_sketch=guide.serialized();
+        child.sweep2d.profiles.clear();document::PartDocument::reframe_sweep2d_sketches(child);
+        const auto station=document::PartDocument::sweep2d_route(child).stations.front();
+        const auto index=document::PartDocument::ensure_sweep2d_profile(child,station.point_id,station.incoming);
+        auto profile=sketcher::Sketch::from_serialized(child.sweep2d.profiles[index].sketch_serialized);
+        static_cast<void>(profile.add_circle(0,0,.2));child.sweep2d.profiles[index].sketch_serialized=profile.serialized();
+    } else if(kind==document::FeatureKind::Sweep3D) {
+        child.sweep3d.path.curve_points.clear();child.sweep3d.path.curve_rounding_enabled=true;
+        for(const auto p:std::vector<kernel::Vec3>{{0,0,0},{0,0,20},{10,0,20}}) {
+            auto point=document::PartDocument::create_construction(document::ConstructionKind::Point);
+            point.parent_construction_id=child.sweep3d.path.id;point.origin=p;point.curve_radius=5;
+            child.sweep3d.path.curve_points.push_back(point);
+        }
+        child.sweep3d.profiles.front().point_id=child.sweep3d.path.curve_points.front().id;
+        auto profile=sketcher::Sketch::from_serialized(child.sweep3d.profiles.front().sketch_serialized);
+        profile.circles.clear();profile.points.clear();static_cast<void>(profile.add_circle(0,0,.2));
+        child.sweep3d.profiles.front().sketch_serialized=profile.serialized();
+    } else if(kind==document::FeatureKind::HelicalSweep) {
+        child.helical.pitch=5;
+        auto profile=sketcher::Sketch::from_serialized(child.helical.sketches[2]);profile.circles.clear();profile.points.clear();
+        static_cast<void>(profile.add_circle(0,0,.2));child.helical.sketches[2]=profile.serialized();
+    } else throw std::invalid_argument("Unsupported continuation fixture");
+    return child;
+}
 inline document::PartDocument standalone_sweep_sources(const document::HistoryContainer& feature) {
 
     auto part=document::PartDocument::create_default();

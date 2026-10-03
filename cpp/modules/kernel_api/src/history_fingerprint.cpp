@@ -35,6 +35,17 @@ std::string encode_history_fingerprint(
     u64(operation_count);
     for (std::size_t index = 0; index < operation_count; ++index) {
         const auto& operation = operations[index];
+        if(!operation.solid_state_face_transfers.empty()) {
+            byte(0xda);u64(operation.solid_state_face_transfers.size());
+            for(const auto& transfer:operation.solid_state_face_transfers) {
+                u64(transfer.owner_id.size());for(unsigned char c:transfer.owner_id)byte(c);
+                u64(transfer.source_owner_id.size());for(unsigned char c:transfer.source_owner_id)byte(c);
+            }
+        }
+        if(operation.solid_state_placements) {
+            const auto digest=history_fingerprint(*operation.solid_state_placements,operation.solid_state_placements->size());
+            byte(0xd9);u64(digest.size());for(unsigned char c:digest)byte(c);
+        }
         if(operation.feature_copy) {
             HistoryOperation key;key.body=*operation.feature_copy;
             const auto copy_key=history_fingerprint({key},1);
@@ -508,6 +519,7 @@ std::string encode_history_fingerprint(
                     for (const unsigned char c : primitive.wall->end_point_id) byte(c);
                 }
             } else if constexpr (std::is_same_v<Request, Sweep3DRequest>) {
+                u64(2); // Rigid inheritance of a single profile on smooth spline routes.
                 const auto append_string = [&](const std::string& value) {
                     u64(value.size());
                     for (const unsigned char character : value) byte(character);
@@ -724,6 +736,11 @@ std::string encode_history_fingerprint(
                     HistoryOperation boundary;boundary.primitive=primitive.boundaries[i];
                     text(history_fingerprint({boundary},1));
                 }
+            } else if constexpr (std::is_same_v<Request, SolidStateRequest>) {
+                u64(2);byte(primitive.restore);byte(primitive.all);
+                u64(std::bit_cast<std::uint64_t>(primitive.coefficient));
+                u64(primitive.owners.size());
+                for(const auto& owner:primitive.owners){u64(owner.size());for(unsigned char c:owner)byte(c);}
             } else if constexpr (std::is_same_v<Request, SheetStateRequest>) {
                 u64(2);byte(primitive.unfold);byte(primitive.all);
                 u64(std::bit_cast<std::uint64_t>(primitive.tolerance));

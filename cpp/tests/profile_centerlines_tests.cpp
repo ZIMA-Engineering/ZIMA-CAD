@@ -46,6 +46,42 @@ void grouped_centerlines(const kernel::OcctKernel& kernel) {
     combined.primitive=group;
     near(check_group(),volume);
 }
+void grouped_profile_axes(const kernel::OcctKernel& kernel) {
+    for(bool ellipse:{false,true}) {
+        auto part=fixture(false);
+        auto& sketch=part.sketches.front();sketch=sketcher::Sketch::create_default();
+        sketch.owner_container_id=part.history.front().id;
+        if(ellipse)static_cast<void>(sketch.add_ellipse(0,0,5,0,0,3));
+        else static_cast<void>(sketch.add_circle(0,0,5));
+        auto& feature=part.history.front();feature.feature_kind=document::FeatureKind::Feature;
+        feature.feature.sketch_id=sketch.id;
+        feature.feature.origin_centerline=feature.feature.centroid_centerline=true;
+        for(auto& side:feature.feature.sides){side.operation=document::FeatureSideOperation::Extrusion;side.length=10;}
+        const auto feature_id=feature.feature_id;
+        part.resolve_constructions();
+        const auto operations=part.kernel_operations();
+        const auto bodies=kernel.evaluate_history(operations);
+        const auto& refs=bodies.back().mesh.original_references;
+        const auto count=std::ranges::count_if(refs.axes,[](const auto& axis){return axis.reference.semantic_key.starts_with("axis:profile:");});
+        check(count==2,"General Feature lost circular/elliptical profile axes of its two authored sides");
+        for(const auto& axis:refs.axes)if(axis.reference.semantic_key.starts_with("axis:profile:")) {
+            check(axis.reference.owner_id==operations.front().owner_id,"Profile axis has the wrong reference owner");
+            const auto parent=kernel::feature_side_parent(axis.reference.semantic_key.substr(std::string("axis:profile:from:").size()));
+            if(!parent||parent->feature_id!=feature_id)
+                throw std::runtime_error("Profile axis lost authored side ancestry: "+axis.reference.semantic_key+" expected "+feature_id);
+            auto follower=document::PartDocument::create_construction(document::ConstructionKind::Axis);
+            follower.definition=document::ConstructionDefinition::AxisReference;
+            follower.references={{"",axis.reference.owner_id,axis.reference.semantic_key}};
+            check(document::resolve_construction(follower,refs),"Profile axis cannot be used as a reference");
+            check(std::ranges::any_of(bodies.back().mesh.axes,[&](const auto& visible){return visible.reference==axis.reference;}),
+                "General Feature profile axis is unavailable in ordinary View");
+        }
+        std::vector<kernel::BodyResult> reopened;
+        static_cast<void>(document::PartDocument::from_serialized(part.serialized(bodies),&reopened));
+        for(const auto& axis:refs.axes)check(std::ranges::any_of(reopened.back().mesh.original_references.axes,
+            [&](const auto& saved){return saved.reference==axis.reference;}),"Native reopening lost an axis identity");
+    }
+}
 void coincident_revolution_endpoints() {
     auto part=fixture(true);
     auto request=std::get<kernel::RevolutionRequest>(part.kernel_operations().front().primitive);
@@ -616,6 +652,7 @@ int main(){try {
  grouped_surface_history(kernel);
  grouped_original_topology(kernel);
  grouped_centerlines(kernel);
+ grouped_profile_axes(kernel);
  extrusion_identity_matrix(kernel);
  limited_centerline_matrix(kernel);
  mirrored_feature_limit(kernel);

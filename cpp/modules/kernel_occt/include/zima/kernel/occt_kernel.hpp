@@ -6,6 +6,8 @@
 
 namespace zima::kernel {
 
+struct SolidStraighteningPlan;
+
 class OcctKernel final : public GeometryKernel {
 public:
     OcctKernel();
@@ -13,6 +15,10 @@ public:
     OcctKernel(const OcctKernel&) = delete;
     OcctKernel& operator=(const OcctKernel&) = delete;
     [[nodiscard]] std::string name() const override;
+    [[nodiscard]] SolidStraighteningPlan prepare_straightening(
+        const RevolutionRequest& source, double coefficient = 1.0) const;
+    [[nodiscard]] SolidStraighteningPlan prepare_straightening(
+        const Sweep3DRequest& source, double coefficient = 1.0) const;
     [[nodiscard]] std::vector<BodyResult> evaluate_history(
         const std::vector<HistoryOperation>& operations) const override;
     [[nodiscard]] std::vector<BodyResult> evaluate_history_incremental(

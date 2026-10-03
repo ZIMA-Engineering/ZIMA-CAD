@@ -1,3 +1,4 @@
+#include <zima/document/solid_state_calculation.hpp>
 #include <zima/workspace/part_transactions.hpp>
 #include <zima/workspace/history_operations.hpp>
 #include <zima/workspace/history_deletion.hpp>
@@ -91,11 +92,11 @@ bool move_part_history(Workspace& live,const std::string& document_id,const kern
     // Persist the calculation for the exact resolved parameters. Placement
     // equality treats signed zero as equal, whereas persisted fingerprints
     // retain the floating-point bits. Do not change placement solving here.
-    const auto resolved_operations=next.kernel_operations();
+    const auto resolved_operations=document::solid_state_calculation_operations(next,&calculated,false);
     bool exact_calculation=calculated.size()==resolved_operations.size();
     for (std::size_t i=0;i<calculated.size() && exact_calculation;++i)
         exact_calculation=calculated[i].source_fingerprint==kernel::history_fingerprint(resolved_operations,i+1);
-    if (!exact_calculation) calculated=calculate_part(kernel,next);
+    if (!exact_calculation) calculated=calculate_part(kernel,next,&calculated);
 
     const auto old_graph=part_history_dependency_graph(original);
     const auto new_graph=part_history_dependency_graph(next);

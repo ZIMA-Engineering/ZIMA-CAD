@@ -1,9 +1,10 @@
 # CAD command coverage
 
-## Current scope — 2026-09-18
+## Catalog baseline — 2026-09-18
 
-The command layer covers the currently supported CAD operations with **324
-commands**. GUI and CLI use shared model operations; the audit of remaining
+The catalog audit on this date recorded **324 commands** for the supported CAD
+operations. This is a historical count, not a live total. GUI and CLI use shared
+model operations; the audit of remaining
 direct GUI writes is complete. [Holes](HOLES.md) adds `holes.create/get/set`,
 using finite Sketch segments and a common diameter for Part subtraction.
 Family Table reference queries and instance opening, plus `component.replace`,
@@ -18,6 +19,18 @@ and `bend_back.create/set` through the same workspace transaction as GUI OK.
 They support all or selected source regions, intervening material edits, native
 reopening and Undo/Redo. The former `bend.create/set` state argument is removed.
 The count above was checked against the native CLI `help` catalog.
+
+### Solid state additions — build 2026100301
+
+`straighten.create/get/set` and `restore_shape.create/get/set` share the native
+workspace transaction used by the new Modeling dialogs. They support all or
+explicit original sources, Straighten's length coefficient, read-only queries,
+atomic rejection and unchanged-definition no-ops. Native command/document tests
+cover persistence, Undo/Redo and Family variants. The attached H-Sweep Properties
+precision regression and the main Modeling/Sweep GUI gates pass after the
+approved shared-control correction. These additions are not in Windows 2026100201.
+See the [CLI arguments](CAD_COMMAND_LINE.md) and
+[solid state verification record](SOLID_STRAIGHTENING.md).
 
 The GUI does not launch the CLI executable for each action. Both applications
 call the same command/model layer. Mouse picking, camera movement and transient

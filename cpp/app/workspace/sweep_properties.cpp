@@ -1,5 +1,6 @@
 #include "workspace_internal.hpp"
 #include <zima/document/container_origin_display.hpp>
+#include <zima/document/solid_state_reference_views.hpp>
 #include <zima/workspace/sweep_operations.hpp>
 #include <zima/workspace/sheet_transition_operations.hpp>
 #include <zima/document/metadata.hpp>
@@ -117,6 +118,9 @@ void AssemblyWorkspaceWindow::show_sweep_properties(zima::document::FeatureKind 
 
     auto geometry=part->session.calculated_boundaries().empty()?zima::kernel::ViewerReferenceGeometry{}:part->session.calculated_boundaries().back().mesh.original_references;
     const auto& source=part->session.document();
+    if(!id.empty()&&!part->session.calculated_boundaries().empty())
+        geometry=zima::document::solid_state_editor_reference_geometry(
+            source,part->session.calculated_boundaries().back(),id,std::move(geometry));
     append_reference_geometry(geometry,source.origin_viewer_mesh().original_references);
     append_reference_geometry(geometry,source.construction_viewer_mesh().original_references);
     append_reference_geometry(geometry,source.history_origin_reference_geometry_before(initial.id));
@@ -366,9 +370,14 @@ void AssemblyWorkspaceWindow::show_sweep3d_properties(
             const auto& calculated = source->session.calculated_boundaries();
             auto reference_geometry =
                 construction_reference_source_geometry(calculated);
-            next.resolve_constructions(reference_geometry);
+            const auto boundary_views=calculated.empty()?zima::document::HistoryReferenceViews{}:
+                zima::document::solid_state_reference_views(next,calculated.back(),reference_geometry);
+            next.resolve_constructions(reference_geometry,boundary_views);
             const auto* resolved = next.find_container(pending.id);
             if (resolved == nullptr) return;
+
+            if(!calculated.empty())reference_geometry=zima::document::solid_state_editor_reference_geometry(
+                next,calculated.back(),pending.id,std::move(reference_geometry));
 
             auto display_path = sweep_display_path(*resolved);
             zima::document::PartDocument carrier;

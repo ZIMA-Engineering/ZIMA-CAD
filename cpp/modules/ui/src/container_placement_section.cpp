@@ -215,7 +215,13 @@ ContainerPlacementSection::ContainerPlacementSection(
         input->setObjectName(object_name);
         if (notify_on_change) {
             connect(input, &QDoubleSpinBox::valueChanged, this,
-                [this] { notify_changed(); });
+                [this,input] {
+                    for(std::size_t i=0;i<translation_.size();++i)
+                        if(translation_[i]==input)picked_translation_values_[i].reset();
+                    for(std::size_t i=0;i<rotation_offset_.size();++i)
+                        if(rotation_offset_[i]==input)picked_rotation_offset_values_[i].reset();
+                    notify_changed();
+                });
         }
         return input;
     };
@@ -250,6 +256,7 @@ ContainerPlacementSection::ContainerPlacementSection(
             connect(rotation_[index],
                 qOverload<double>(&QDoubleSpinBox::valueChanged), this,
                 [this, index](double value) {
+                    picked_rotation_values_[index].reset();
                     if (rotation_[index]->isEnabled())
                         absolute_rotation_values_[index] = value;
                     notify_changed();
@@ -294,6 +301,8 @@ void ContainerPlacementSection::initialize_numeric_values(
         const zima::document::Placement& placement) {
     value_locks_=placement.value_locks;
     picked_translation_values_={};
+    picked_rotation_values_={};
+    picked_rotation_offset_values_={};
     const std::array position{placement.x, placement.y, placement.z};
     absolute_rotation_values_ = {placement.absolute_rotation_x,
         placement.absolute_rotation_y, placement.absolute_rotation_z};
@@ -303,6 +312,7 @@ void ContainerPlacementSection::initialize_numeric_values(
         placement.rotation_offset_y, placement.rotation_offset_z};
     for (std::size_t i = 0; i < 3; ++i) {
         translation_[i]->setValue(position[i]);
+        picked_translation_values_[i]=std::pair{translation_[i]->value(),position[i]};
         const std::string axis=i==0?"x":i==1?"y":"z";
         const auto bind=[&](QDoubleSpinBox* field,const std::string& key) {
             if(!field)return;
@@ -311,8 +321,16 @@ void ContainerPlacementSection::initialize_numeric_values(
             });
         };
         bind(translation_[i],axis);bind(rotation_[i],"rotation_"+axis);bind(rotation_offset_[i],"rotation_offset_"+axis);
-        if (rotation_[i]) rotation_[i]->setValue(absolute_rotation_values_[i]);
-        if (rotation_offset_[i]) rotation_offset_[i]->setValue(correction[i]);
+        if (rotation_[i]) {
+            const QSignalBlocker blocker(rotation_[i]);
+            rotation_[i]->setValue(absolute_rotation_values_[i]);
+            picked_rotation_values_[i]=std::pair{rotation_[i]->value(),absolute_rotation_values_[i]};
+        }
+        if (rotation_offset_[i]) {
+            const QSignalBlocker blocker(rotation_offset_[i]);
+            rotation_offset_[i]->setValue(correction[i]);
+            picked_rotation_offset_values_[i]=std::pair{rotation_offset_[i]->value(),correction[i]};
+        }
     }
     orientation_back_ = placement.orientation_back;
     orientation_quarter_turns_ =
@@ -354,14 +372,17 @@ zima::document::Placement ContainerPlacementSection::numeric_placement() const {
         result.rotation_x = resolved_rotation_values_[0];
         result.rotation_y = resolved_rotation_values_[1];
         result.rotation_z = resolved_rotation_values_[2];
-        result.rotation_offset_x = rotation_offset_[0]->value();
-        result.rotation_offset_y = rotation_offset_[1]->value();
-        result.rotation_offset_z = rotation_offset_[2]->value();
+        const auto exact=[](const QDoubleSpinBox* field,const auto& picked) {
+            return picked&&field->value()==picked->first?picked->second:field->value();
+        };
+        result.rotation_offset_x = exact(rotation_offset_[0],picked_rotation_offset_values_[0]);
+        result.rotation_offset_y = exact(rotation_offset_[1],picked_rotation_offset_values_[1]);
+        result.rotation_offset_z = exact(rotation_offset_[2],picked_rotation_offset_values_[2]);
         std::array absolute = absolute_rotation_values_;
         for (std::size_t index = 0; index < absolute.size(); ++index) {
             if (!orientation_reference_driven_ ||
                 !rotation_constraint_state_.constrained_axes[index]) {
-                absolute[index] = rotation_[index]->value();
+                absolute[index] = exact(rotation_[index],picked_rotation_values_[index]);
             }
         }
         result.absolute_rotation_x = absolute[0];
@@ -384,7 +405,7 @@ void ContainerPlacementSection::set_translation_constraint_state(
         if (state.constrained_axes[i]) {
             const QSignalBlocker blocker(translation_[i]);
             translation_[i]->setValue(values[i]);
-            if(picked_translation_values_[i])picked_translation_values_[i]=std::pair{translation_[i]->value(),values[i]};
+            picked_translation_values_[i]=std::pair{translation_[i]->value(),values[i]};
         }
     }
 }
@@ -400,12 +421,17 @@ void ContainerPlacementSection::set_orientation_base_rotation(
         absolute_rotation_values_ = resolved_rotation_values_;
         orientation_back_ = false;
         orientation_quarter_turns_ = 0;
+        refresh_orientation_controls();
+    }
+    // Clear corrections only once the reference solver reports an unreferenced
+    // frame. Updating DOF widgets before that result must retain loaded angles.
+    if (!constrained) {
+        picked_rotation_offset_values_={};
         for (auto* correction : rotation_offset_) {
             if (correction == nullptr) continue;
             const QSignalBlocker blocker(correction);
             correction->setValue(0.0);
         }
-        refresh_orientation_controls();
     }
     orientation_reference_driven_ = constrained;
     if (constrained) {
@@ -451,14 +477,12 @@ void ContainerPlacementSection::refresh_rotation_field_states() {
             rotation_[i]->setValue(
                 constrained ? resolved_rotation_values_[i]
                             : absolute_rotation_values_[i]);
+            picked_rotation_values_[i]=constrained?std::nullopt:
+                std::optional{std::pair{rotation_[i]->value(),absolute_rotation_values_[i]}};
             rotation_[i]->setEnabled(!constrained);
         }
         if (!rotation_offset_[i]) continue;
         rotation_offset_[i]->setEnabled(constrained);
-        if (!orientation_reference_driven_) {
-            const QSignalBlocker offset_blocker(rotation_offset_[i]);
-            rotation_offset_[i]->setValue(0.0);
-        }
     }
 }
 

@@ -21,6 +21,36 @@ Use `all: true` or an `owners` array of original sheet creator IDs; edit command
 also require `container`. See [Sheet state operations](SHEET_STATE_DEVELOPMENT.md).
 The Bend commands no longer accept the former `state` argument.
 
+Solid state operations from build 2026100301 use the same native transaction
+as **Straighten** and **Restore shape** in Modeling. They require an active,
+editable Body containing calculated, eligible solid geometry. These commands
+are not included in Windows 2026100201 and earlier.
+
+| Commands | Arguments and result |
+| --- | --- |
+| `straighten.create`, `restore_shape.create` | Optional `document`, `name`, `all`, and `owners`. Return `document`, `container`, and `changed`. |
+| `straighten.set`, `restore_shape.set` | Require the state `container` ID; accept the same optional arguments. Unchanged definitions return `changed: false` without calculation or an Undo transaction. |
+| `straighten.get`, `restore_shape.get` | Require `container`; optional `document`. Read the name, selection, and coefficient without calculation. |
+
+`straighten.create/set` additionally accepts a positive, finite `coefficient`.
+It multiplies the filled section's centroid-trajectory length, leaving section
+dimensions unchanged. `restore_shape.create/set` has no coefficient argument.
+`owners` contains original source feature IDs, not state IDs or topology keys;
+supplying it defaults to individual selection unless `all` is explicitly given.
+With `all: true`, Straighten uses eligible sources before that history boundary;
+Restore uses those currently straight. A selection cannot cross Body ownership.
+For example, after opening a suitable Part and activating its Body:
+
+```json
+{"command":"straighten.create","arguments":{"name":"Developed","all":true,"coefficient":0.9}}
+{"command":"restore_shape.create","arguments":{"name":"Formed","all":true}}
+```
+
+Retain the returned `container` ID for later `get` or `set` calls. Unsupported
+profiles, treatments or attachments report `solid_state_rejected` and commit no
+partial result. See [Solid straightening](SOLID_STRAIGHTENING.md) for supported
+geometry, dependency rules and current verification limits.
+
 ## Build and first run
 
 The Windows build script builds both GUI and CLI:

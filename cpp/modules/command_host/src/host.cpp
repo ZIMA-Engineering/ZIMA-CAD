@@ -69,6 +69,7 @@ void Host::register_commands(){
     register_profile_commands();
     register_holes_commands();
     register_bend_commands();
+    register_solid_state_commands();
     register_flat_commands();
     register_template_commands();
     register_template_object_commands();

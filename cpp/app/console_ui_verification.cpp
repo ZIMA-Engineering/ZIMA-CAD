@@ -4,6 +4,8 @@
 #include <QToolButton>
 #include <QRadioButton>
 #include <QUuid>
+#include <QSettings>
+#include <QTemporaryDir>
 #include <QGroupBox>
 #include "primitive_properties_dialog.hpp"
 #include "feature_view_cues.hpp"
@@ -269,6 +271,10 @@ Q_NEVER_INLINE static int verify_feature_prototype(QApplication& application,Ass
 }
 #include "history_deletion_ui_verification.inc"
 int verify_command_console(QApplication& application,AssemblyWorkspaceWindow& window,const std::filesystem::path& directory) {
+    if(qEnvironmentVariableIsSet("ZIMA_VERIFY_FEATURE_AXES_ONLY")) {
+        try {verify_feature_profile_axes(application,directory);std::cout<<"Feature profile/origin/centroid axes: five languages, Tree, View selection and native reopening passed\n";return 0;}
+        catch(const std::exception& error){std::cerr<<error.what()<<'\n';return 1;}
+    }
     if(qEnvironmentVariableIsSet("ZIMA_VERIFY_HISTORY_DELETION_ONLY"))return verify_history_deletion(application,window,directory);
     if(qEnvironmentVariableIsSet("ZIMA_VERIFY_SURFACE_PLACEMENT_ONLY")) {
         try {verify_feature_surface_placement(application,window,directory);std::cout<<"Feature surface placement and shortcuts passed\n";return 0;}

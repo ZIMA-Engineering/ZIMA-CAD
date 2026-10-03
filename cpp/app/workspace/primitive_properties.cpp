@@ -1,4 +1,5 @@
 #include <zima/workspace/imported_feature_operations.hpp>
+#include <zima/document/solid_state_reference_views.hpp>
 #include <zima/workspace/hole_operations.hpp>
 #include "../feature_naming.hpp"
 #include "workspace_internal.hpp"
@@ -28,6 +29,9 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
     if(feature_kind==zima::document::FeatureKind::SheetTransition){show_sheet_transition_properties(container_id);return;}
     if(zima::document::is_sheet_state(feature_kind)) {
         show_sheet_state_properties(feature_kind==zima::document::FeatureKind::Unbend,container_id);return;
+    }
+    if(zima::document::is_solid_state(feature_kind)) {
+        show_solid_state_properties(feature_kind==zima::document::FeatureKind::RestoreShape,container_id);return;
     }
     if (feature_kind == zima::document::FeatureKind::Flat) {
         const auto* part=workspace_.open_part(workspace_.active_document_id());
@@ -936,6 +940,8 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
             const auto& calculated = part->session.calculated_boundaries();
             reference_geometry = construction_reference_source_geometry(calculated);
             const auto& document = part->session.document();
+            if(!calculated.empty())reference_geometry=zima::document::solid_state_editor_reference_geometry(
+                document,calculated.back(),initial.id,std::move(reference_geometry));
             append_reference_geometry(reference_geometry,
                 document.sketch_placement_reference_geometry(initial.id));
             append_reference_geometry(reference_geometry,
