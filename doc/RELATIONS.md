@@ -114,7 +114,7 @@ rewritten.
 A successful settings change uses the existing single document transaction;
 Undo/Redo includes units, rewritten relations and converted output parameters.
 Conversion itself does not invoke OCCT. The wider unit audit, including View
-labels, Family presentation and manufacturing-tolerance conversion, remains in
+labels and manufacturing-tolerance conversion, remains in
 progress; see [the unit audit](DOCUMENT_UNITS_AUDIT.md).
 
 ## Dimensions and Pattern

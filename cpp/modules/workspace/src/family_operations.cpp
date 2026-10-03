@@ -14,7 +14,6 @@
 #include <zima/document/document_copy_json.hpp>
 #include <zima/document/file_path.hpp>
 #include <zima/document/physical_properties.hpp>
-#include <zima/kernel/dimension_layout.hpp>
 #include <algorithm>
 #include <charconv>
 #include <cmath>
@@ -63,7 +62,18 @@ Slots feature_slots(document::HistoryContainer& f) {
     default: return {};
     }
 }
-std::string number(double value) { return kernel::dimension_number(value,12); }
+std::string number(double value) {
+    char buffer[64];
+    const auto [end,error]=std::to_chars(std::begin(buffer),std::end(buffer),value);
+    if(error!=std::errc{}||!std::isfinite(value))throw std::invalid_argument("Family dimensions must be finite numbers.");
+    return {buffer,end};
+}
+double native_number(const std::string& text) {
+    double value{};const auto [end,error]=std::from_chars(text.data(),text.data()+text.size(),value);
+    if(error!=std::errc{}||end!=text.data()+text.size()||!std::isfinite(value))
+        throw std::invalid_argument("Family dimensions must be finite numbers.");
+    return value;
+}
 bool has_feature_solid(const document::HistoryContainer& f) { return f.feature_kind!=FeatureKind::Sketch; }
 template<class Doc> void add_feature_references(std::vector<FamilyReference>& out,const Doc& doc,document::HistoryContainer f) {
     if(has_feature_solid(f)||f.feature_kind==FeatureKind::Sketch)out.push_back({{"feature",f.id,{}},f.name,f.name,f.suppressed?"no":"yes"});
@@ -185,7 +195,7 @@ template<class Doc> void apply(Doc& doc,const document::FamilyTable& table,const
     // Dimension values are applied before presence, independent of column order.
     for(const auto& [name,binding]:table.bindings)if(binding.kind=="dimension") {
         const auto value=row.values.find(name);if(value==row.values.end()||value->second.empty())continue;
-        if(!assign_dimension(doc,binding,std::stod(value->second)))throw std::invalid_argument("Family dimension no longer exists.");
+        if(!assign_dimension(doc,binding,native_number(value->second)))throw std::invalid_argument("Family dimension no longer exists.");
     }
     for(const auto& [name,binding]:table.bindings)if(binding.kind!="dimension") {
         const auto value=row.values.find(name);if(value!=row.values.end()&&!value->second.empty())presence(doc,binding,value->second=="yes");
@@ -241,6 +251,17 @@ template<class Doc> std::map<std::string,RelationDimension> dimension_inputs(con
     } else for(const auto& c:doc.components)if(c.derived_copy)pattern(c.occurrence_id,*c.derived_copy);
     return result;
 }
+template<class Doc> void dimension_units(std::vector<FamilyReference>& references,const Doc& doc) {
+    const auto dimensions=dimension_inputs(doc);
+    for(auto& reference:references)if(reference.binding.kind=="dimension") {
+        const auto found=dimensions.find(reference.name);
+        if(found==dimensions.end()||found->second.binding!=reference.binding)continue;
+        const auto& dimension=found->second;
+        reference.native_scale=dimension.native_scale;
+        if(dimension.input.value.units==std::array<int,3>{1,0,0})reference.unit=doc.document_units.at("Length");
+        else if(dimension.input.value.units==std::array<int,3>{0,1,0})reference.unit=doc.document_units.at("Angle");
+    }
+}
 }
 std::map<std::string,RelationDimension> relation_dimensions(const document::PartDocument& doc){return dimension_inputs(doc);}
 std::map<std::string,RelationDimension> relation_dimensions(const assembly::AssemblyDocument& doc){return dimension_inputs(doc);}
@@ -264,11 +285,13 @@ std::vector<FamilyReference> family_references(const Workspace& live,const std::
             document::visit_feature_sketches(f,[&](const auto& serialized,std::size_t){add_sketch_references(out,doc,sketcher::Sketch::from_serialized(serialized));});
         }
         for(const auto& sketch:doc.sketches)add_sketch_references(out,doc,sketch);
+        dimension_units(out,doc);
     } else if(const auto* state=live.open_assembly(id)) {
         const auto& doc=state->session.document();
         for(const auto& c:doc.components)out.push_back({{"component",c.occurrence_id,{}},c.name,c.name,c.suppressed?"no":"yes"});
         for(const auto& cut:doc.cuts)add_feature_references(out,doc,cut.definition);
         for(const auto& sketch:doc.sketches)add_sketch_references(out,doc,sketch);
+        dimension_units(out,doc);
     } else throw std::invalid_argument("Family Table requires a Part or Assembly.");
     std::set<std::pair<std::string,std::string>> seen;
     std::erase_if(out,[&](const auto& r){return !seen.emplace(r.binding.owner_id,r.binding.semantic_key).second;});
@@ -323,7 +346,7 @@ template<class Doc> Doc merge_member(const Doc& base,const Doc& before,Doc next)
         // Remove row-specific overrides before publishing the shared definition.
         if(generic==base_values.end())continue;
         if(binding.kind=="dimension") {
-            if(value->value!=generic->value && !assign_dimension(next,binding,std::stod(generic->value)))
+            if(value->value!=generic->value && !assign_dimension(next,binding,native_number(generic->value)))
                 throw std::invalid_argument("Cannot restore the generic family dimension.");
         } else if constexpr(std::is_same_v<Doc,document::PartDocument>) {
             if(binding.kind=="body") {

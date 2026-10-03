@@ -2018,5 +2018,7 @@
   "Straightening requires connected, tangent-continuous Sweep segments.": "Straightening requires connected, tangent-continuous Sweep segments.",
   "Unit does not match the dimension.": "Unit does not match the dimension.",
   "Invalid numeric expression.": "Invalid numeric expression.",
-  "Cannot safely convert relation units.": "Cannot safely convert relation units."
+  "Cannot safely convert relation units.": "Cannot safely convert relation units.",
+  "Invalid value in row %1, column %2.": "Invalid value in row %1, column %2.",
+  "Family dimensions must be finite numbers.": "Family dimensions must be finite numbers."
 }

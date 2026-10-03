@@ -2018,5 +2018,7 @@
   "Straightening requires connected, tangent-continuous Sweep segments.": "Narovnání vyžaduje spojené, tečně navazující úseky tažení.",
   "Unit does not match the dimension.": "Jednotka neodpovídá veličině kóty.",
   "Invalid numeric expression.": "Neplatný číselný výraz.",
-  "Cannot safely convert relation units.": "Nelze bezpečně převést jednotky relací."
+  "Cannot safely convert relation units.": "Nelze bezpečně převést jednotky relací.",
+  "Invalid value in row %1, column %2.": "Neplatná hodnota na řádku %1 ve sloupci %2.",
+  "Family dimensions must be finite numbers.": "Rozměry Family musí být konečná čísla."
 }

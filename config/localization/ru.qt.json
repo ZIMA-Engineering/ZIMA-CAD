@@ -2018,5 +2018,7 @@
   "Straightening requires connected, tangent-continuous Sweep segments.": "Для выпрямления требуются соединённые участки протяжки с касательным сопряжением.",
   "Unit does not match the dimension.": "Единица не соответствует величине размера.",
   "Invalid numeric expression.": "Недопустимое числовое выражение.",
-  "Cannot safely convert relation units.": "Невозможно безопасно преобразовать единицы соотношений."
+  "Cannot safely convert relation units.": "Невозможно безопасно преобразовать единицы соотношений.",
+  "Invalid value in row %1, column %2.": "Недопустимое значение в строке %1, столбце %2.",
+  "Family dimensions must be finite numbers.": "Размеры семейства должны быть конечными числами."
 }

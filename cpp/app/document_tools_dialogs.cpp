@@ -1,5 +1,6 @@
 #include "document_tools_dialogs.hpp"
 #include "relation_text_editor.hpp"
+#include "numeric_expression_edit.hpp"
 #include <zima/document/relation_program.hpp>
 #include <QFile>
 #include <QSaveFile>
@@ -59,6 +60,21 @@ QString value_or(const std::map<std::string, std::string>& values,
     return QString::fromStdString(found == values.end() ? fallback : found->second);
 }
 
+// Keep the original native string for untouched cells: displaying inches must
+// not round a stored millimetre value through a second floating-point conversion.
+constexpr int family_native_role=Qt::UserRole;
+constexpr int family_display_role=Qt::UserRole+1;
+QString family_display_value(const QString& native,const zima::workspace::FamilyReference& reference) {
+    bool valid{};const double value=native.toDouble(&valid);
+    if(!valid||!std::isfinite(value)||reference.binding.kind!="dimension")return native;
+    auto result=QString::number(value/reference.native_scale,'g',17);
+    if(value==0&&std::signbit(value)&&!result.startsWith('-'))result.prepend('-');
+    return result;
+}
+ui::InputQuantity family_quantity(const zima::workspace::FamilyReference& reference) {
+    if(reference.unit=="deg"||reference.unit=="rad")return ui::InputQuantity::Angle;
+    return reference.unit.empty()?ui::InputQuantity::Scalar:ui::InputQuantity::Length;
+}
 
 }  // namespace
 
@@ -566,8 +582,10 @@ FamilyTableDialog::FamilyTableDialog(
         QVariantMap labels;for(const auto& [language,label]:row.labels)labels[QString::fromStdString(language)]=QString::fromStdString(label);
         table_->item(r,1)->setData(Qt::UserRole+1,labels);
         table_->item(r,2)->setCheckState(row.shared_name?Qt::Checked:Qt::Unchecked);
-        for(int i=0;i<static_cast<int>(model.columns.size());++i)if(auto found=row.values.find(model.columns[i]);found!=row.values.end())
-            table_->item(r,4+2*i)->setText(QString::fromStdString(found->second));
+        for(int i=0;i<static_cast<int>(model.columns.size());++i)if(auto found=row.values.find(model.columns[i]);found!=row.values.end()) {
+            auto* cell=table_->item(r,4+2*i);const auto native=QString::fromStdString(found->second);
+            cell->setText(native);cell->setData(family_native_role,native);
+        }
     }
     refresh_labels();
     connect(language_combo_,&QComboBox::currentTextChanged,this,[this](const QString& language){
@@ -616,9 +634,13 @@ void FamilyTableDialog::refresh_references() {
     for(int i=0;i<static_cast<int>(columns_.size());++i) {
         const int c=4+2*i;const auto& column=columns_[i];
         table_->setColumnWidth(c,150);table_->setColumnWidth(c+1,30);
-        table_->setHorizontalHeaderItem(c,new QTableWidgetItem(column?QString::fromStdString(column->name):QStringLiteral("+")));
+        auto header=column?QString::fromStdString(column->name):QStringLiteral("+");
+        if(column&&!column->unit.empty())header+=QStringLiteral(" [%1]").arg(QString::fromStdString(column->unit));
+        table_->setHorizontalHeaderItem(c,new QTableWidgetItem(header));
         table_->setHorizontalHeaderItem(c+1,new QTableWidgetItem);
-        auto* ref=new zima::ui::ReferenceCellItem(column?QString::fromStdString(column->binding.kind=="dimension"?column->value:column->owner_name):settings_.text("dialog.family_table.pick","Pick a solid or dimension"));
+        auto* ref=new zima::ui::ReferenceCellItem(column?(column->binding.kind=="dimension"
+            ?family_display_value(QString::fromStdString(column->value),*column):QString::fromStdString(column->owner_name))
+            :settings_.text("dialog.family_table.pick","Pick a solid or dimension"));
         if(column) {
             ref->set_reference(QString::fromStdString(column->binding.owner_id+":"+column->binding.semantic_key));
             ref->setToolTip(QString::fromStdString(column->owner_name+" / "+column->binding.semantic_key));
@@ -632,7 +654,15 @@ void FamilyTableDialog::refresh_references() {
         table_->setCellWidget(0,c+1,zima::ui::centered_cell_widget(eye));
         for(int row=1;row<table_->rowCount();++row) {
             if(!table_->item(row,c))table_->setItem(row,c,new QTableWidgetItem);
-            const auto value=table_->item(row,c)->text();
+            auto* cell=table_->item(row,c);
+            // A reference refresh must never overwrite an edited cell. Missing
+            // references retain their native text until their unit is known.
+            if(column&&!column->unit.empty()&&cell->data(family_native_role).isValid()&&
+                !cell->data(family_display_role).isValid()) {
+                const auto display=family_display_value(cell->data(family_native_role).toString(),*column);
+                cell->setText(display);cell->setData(family_display_role,display);
+            }
+            const auto value=cell->text();
             table_->setSpan(row,c,1,2);
             if(column&&column->binding.kind!="dimension") {
                 if(auto* old=table_->cellWidget(row,c))old->hide();
@@ -661,7 +691,9 @@ void FamilyTableDialog::choose_reference(const zima::workspace::FamilyReference&
     while(used(selected.name))selected.name=original+" ("+std::to_string(suffix++)+")";
     const int column=4+2*active_column_;
     if(!columns_[active_column_]||columns_[active_column_]->binding!=reference.binding)
-        for(int row=1;row<table_->rowCount();++row)if(table_->item(row,column))table_->item(row,column)->setText({});
+        for(int row=1;row<table_->rowCount();++row)if(auto* cell=table_->item(row,column)) {
+            cell->setText({});cell->setData(family_native_role,QVariant{});cell->setData(family_display_role,QVariant{});
+        }
     columns_[active_column_]=std::move(selected);refresh_references();if(entry_changed)entry_changed();
 }
 void FamilyTableDialog::end_entry(){active_column_=-1;inspected_.clear();refresh_references();if(entry_changed)entry_changed();}
@@ -711,9 +743,23 @@ zima::document::FamilyTable FamilyTableDialog::read_table() const {
         const auto labels=table_->item(row,1)->data(Qt::UserRole+1).toMap();
         for(auto it=labels.begin();it!=labels.end();++it)instance.labels[it.key().toStdString()]=it.value().toString().toStdString();
         for(int i=0;i<static_cast<int>(columns_.size());++i)if(columns_[i]) {
-            auto value=table_->item(row,4+2*i)->text().trimmed();
-            if(columns_[i]->binding.kind=="dimension")value.replace(',','.');
-            instance.values[columns_[i]->name]=value.toStdString();
+            const auto* cell=table_->item(row,4+2*i);auto value=cell->text().trimmed();
+            if(columns_[i]->binding.kind=="dimension"&&!value.isEmpty()) {
+                const auto original=cell->data(family_native_role);
+                const auto display=cell->data(family_display_role);
+                if(original.isValid()&&value==(display.isValid()?display.toString():original.toString()))value=original.toString();
+                else try {
+                    const double native=quantity_expression_value(value,family_quantity(*columns_[i]),columns_[i]->native_scale);
+                    if(!std::isfinite(native))throw std::invalid_argument("Family dimensions must be finite numbers.");
+                    value=QString::number(native,'g',17);
+                    if(native==0&&std::signbit(native)&&!value.startsWith('-'))value.prepend('-');
+                } catch(const std::exception&) {
+                    throw std::invalid_argument(tr("Invalid value in row %1, column %2.")
+                        .arg(row).arg(QString::fromStdString(columns_[i]->name)).toStdString());
+                }
+            }
+            if(!value.isEmpty()||cell->data(family_native_role).isValid())
+                instance.values[columns_[i]->name]=value.toStdString();
         }
         result.instances.push_back(std::move(instance));
     }

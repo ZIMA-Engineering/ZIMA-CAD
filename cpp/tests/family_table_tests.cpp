@@ -21,6 +21,77 @@ namespace fs=std::filesystem;
 namespace {
 void require(bool condition,const char* text){if(!condition)throw std::runtime_error(text);}
 double volume(const workspace::Workspace& live,const std::string& id){return live.open_part(id)->session.calculated_boundaries().back().volume;}
+void fractional_family_test(const kernel::OcctKernel& kernel,const fs::path& directory) {
+    auto base=document::PartDocument::create_default();base.name="Fractional base";
+    auto box=test::rectangular_feature(base,{10.5,8,6});base.history={box};
+    const auto [owner,key]=test::family_length_binding(base,box);
+    base.synchronize_dimension_identifiers();
+    document::FamilyTable table;table.columns={"Length"};table.bindings["Length"]={"dimension",owner,key};
+    table.instances={{"Fractional member",{{"Length","20.25"}}}};
+    workspace::Workspace live;const auto id=base.document_id;
+    live.add_part(base,kernel.evaluate_history(base.kernel_operations()),directory/"fractional.prtz");
+    static_cast<void>(workspace::set_family_table(live,id,table));
+    const auto variant=workspace::open_family_instance(live,kernel,id,"Fractional member");
+    const auto native_length=[&](const std::string& document) {
+        const auto& model=live.open_part(document)->session.document();
+        const auto sketch=std::ranges::find(model.sketches,owner,&sketcher::Sketch::id);
+        const auto dimension=std::ranges::find(sketch->dimensions,key.substr(10),&sketcher::SketchDimension::id);
+        return sketcher::dimension_display_value(*dimension);
+    };
+    require(std::abs(native_length(id)-10.5)<1e-10&&std::abs(native_length(variant)-20.25)<1e-10,
+        "Fractional Family fixture did not establish its generic/member dimensions");
+    // A metadata-only member edit must restore the exact generic dimension.
+    auto edited=live.open_part(variant)->session.document();edited.name="Renamed member";
+    live.open_part(variant)->session.commit(edited,live.open_part(variant)->session.calculated_boundaries());
+    require(native_length(id)==10.5&&native_length(variant)==20.25,
+        "Family metadata edit truncated the fractional generic dimension");
+    edited=live.open_part(variant)->session.document();
+    require(workspace::assign_driving_dimension(edited,table.bindings.at("Length"),22.75),
+        "Fractional Family fixture lost its driving dimension");
+    auto calculated=workspace::calculate_part_with_resolved_references(kernel,edited,nullptr,{true});
+    live.open_part(variant)->session.commit(edited,std::move(calculated));
+    require(workspace::family_table(live,id).instances.front().values.at("Length")=="22.75"&&
+        native_length(id)==10.5&&native_length(variant)==22.75,
+        "Fractional Family edit lost canonical values or modified its generic");
+    require(workspace::step_document_history(live,variant,workspace::HistoryDirection::Undo)&&
+        native_length(id)==10.5&&native_length(variant)==20.25,"Fractional Family Undo changed dimensions");
+    require(workspace::step_document_history(live,id,workspace::HistoryDirection::Redo)&&
+        native_length(id)==10.5&&native_length(variant)==22.75,"Fractional Family Redo changed dimensions");
+    const auto table_before=workspace::family_table(live,id);
+    for(const auto unit:{"in","cm","m","mm"}) {
+        const auto before=live.open_part(id)->session.document().serialized();
+        const auto base_shape=live.open_part(id)->session.calculated_boundaries().back().kernel_shape;
+        const auto member_shape=live.open_part(variant)->session.calculated_boundaries().back().kernel_shape;
+        auto settings=workspace::file_settings(live,id);settings.units["Length"]=unit;
+        settings.units["Angle"]=std::string(unit)=="mm"?"deg":"rad";
+        const auto change=workspace::set_file_settings(live,kernel,id,settings);
+        require(change.changed&&!change.calculated&&workspace::family_table(live,id)==table_before&&
+            native_length(id)==10.5&&native_length(variant)==22.75,
+            "Changing Family units scaled native dimensions or table values");
+        require(live.open_part(id)->session.calculated_boundaries().back().kernel_shape==base_shape&&
+            live.open_part(variant)->session.calculated_boundaries().back().kernel_shape==member_shape,
+            "Changing Family units recalculated unchanged geometry");
+        require(live.open_part(variant)->session.document().document_units==settings.units,
+            "Family member did not inherit generic units");
+        const auto references=workspace::family_references(live,id);
+        const auto found=std::ranges::find_if(references,[&](const auto& r){return r.binding==table.bindings.at("Length");});
+        require(found!=references.end()&&found->value=="10.5"&&found->unit==unit&&
+            found->native_scale==document::length_unit_mm(unit),"Family catalog lost native value or presentation units");
+        require(workspace::step_document_history(live,id,workspace::HistoryDirection::Undo)&&
+            live.open_part(id)->session.document().serialized()==before,"Family units Undo was not atomic");
+        require(workspace::step_document_history(live,variant,workspace::HistoryDirection::Redo)&&
+            live.open_part(variant)->session.document().document_units==settings.units,"Family units Redo lost member settings");
+    }
+    const auto saved=workspace::prepare_document_save(live,id,directory/"fractional.prtz").write();
+    static_cast<void>(workspace::complete_document_save(live,saved));
+    std::vector<kernel::BodyResult> cache;
+    auto reopened=document::PartDocument::load(directory/"fractional.prtz",&cache);
+    require(std::abs(test::profile_dimension(reopened,*reopened.find_container(box.id),0)-10.5)<1e-9,
+        "Fractional generic changed on native reopen");
+    const auto member=workspace::family_part_source(reopened,cache,variant);
+    require(std::abs(test::profile_dimension(member,*member.find_container(box.id),0)-22.75)<1e-9&&
+        std::abs(cache.back().volume-22.75*8*6)<1e-8,"Fractional member changed on native reopen");
+}
 void bend_state_test(const kernel::OcctKernel& kernel,const fs::path& directory) {
     workspace::Workspace live;auto part=document::PartDocument::create_default();
     auto bend=document::PartDocument::create_sketch_container();bend.feature_kind=document::FeatureKind::Bend;
@@ -429,4 +500,4 @@ void family_test(const kernel::OcctKernel& kernel,const fs::path& directory) {
     auto opened=host.execute({{"command","document.family.open"},{"arguments",{{"document",id},{"instance","Long"}}}});if(!opened.ok)throw std::runtime_error(opened.code+": "+opened.message);require(opened.data.at("document")==variant,"CLI did not open the same family instance");
 }
 }
-int main(){try{kernel::OcctKernel kernel;const auto root=fs::canonical(fs::temp_directory_path());const auto dir=root/("zima-family-"+document::PartDocument::create_default().document_id);fs::create_directory(dir);family_test(kernel,dir);component_test(kernel,dir);bend_state_test(kernel,dir);require(dir.parent_path()==root,"Unsafe test cleanup");fs::remove_all(dir);std::cout<<"Linked Family Table, component insertion/replacement, cold nested sources, shared history, drawings and CLI passed\n";return 0;}catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}
+int main(){try{kernel::OcctKernel kernel;const auto root=fs::canonical(fs::temp_directory_path());const auto dir=root/("zima-family-"+document::PartDocument::create_default().document_id);fs::create_directory(dir);fractional_family_test(kernel,dir);family_test(kernel,dir);component_test(kernel,dir);bend_state_test(kernel,dir);require(dir.parent_path()==root,"Unsafe test cleanup");fs::remove_all(dir);std::cout<<"Linked Family Table, component insertion/replacement, cold nested sources, shared history, drawings and CLI passed\n";return 0;}catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}

@@ -7,7 +7,11 @@ struct FamilyReference {
     document::FamilyColumn binding;
     std::string name;
     std::string owner_name;
+    // Canonical mm/degrees, using a locale-independent round-trip number.
     std::string value;
+    // Presentation metadata only; neither changes native Family row storage.
+    std::string unit;
+    double native_scale{1};
 };
 // Persisted model data only. No geometry calculation or activation.
 std::vector<FamilyReference> family_references(const Workspace&, const std::string& document);

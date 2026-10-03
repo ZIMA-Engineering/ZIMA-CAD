@@ -302,6 +302,25 @@ int verify_translations(QApplication& application, QWidget& parent) {
             cancelled.buttons()->button(QDialogButtonBox::Cancel)->click();check(!accepted,"Family Cancel committed labels");
         }
         {
+            document::FamilyTable model;model.columns={"d1"};
+            model.bindings["d1"]={"dimension","owner","parameter:length"};
+            model.instances={{"Variant",{{"d1","12.5"}},"row"}};
+            app::DocumentToolData data;data.family_table=document::serialize_family_table(model);bool accepted=false;
+            app::FamilyTableDialog dialog("Base",data,[&](auto){accepted=true;},settings,&parent);
+            dialog.setAttribute(Qt::WA_DeleteOnClose,false);
+            dialog.set_references({{model.bindings.at("d1"),"d1","Feature","12.5","in",25.4}});
+            dialog.show();application.processEvents();
+            const auto expected=settings.qt_translations.value("Invalid value in row %1, column %2.").arg(1).arg("d1");
+            for(const auto* input:{"1rad","1/0","1e309","unknown"}) {
+                dialog.findChild<QTableWidget*>("familyTableTable")->item(1,4)->setText(input);
+                dialog.buttons()->button(QDialogButtonBox::Ok)->click();application.processEvents();
+                const auto labels=dialog.findChildren<QLabel*>();
+                check(!accepted&&dialog.isVisible()&&std::ranges::any_of(labels,[&](auto* label){return label->text()==expected;}),
+                    "Family unit validation is not localized, lost row/column context, or committed invalid input");
+            }
+            dialog.reject();
+        }
+        {
             const auto definition=symbols::Definition::load(catalogue.parent_path()/"symbols/surface-texture/ZE-SURFACE-TEXTURE-ISO21920.symz");
             bool accepted=false;
             app::SymbolFamilyDialog dialog(definition,[&](auto value){check(value.serialized()==definition.serialized(),"Localized Family Table changed an untouched definition");accepted=true;},&parent);dialog.setAttribute(Qt::WA_DeleteOnClose,false);

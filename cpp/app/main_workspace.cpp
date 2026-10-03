@@ -398,7 +398,7 @@ int verify_family_table(QApplication& application,zima::app::AssemblyWorkspaceWi
     if(!verify(position.has_value(),"Family double click did not expose source dimensions"))return 1;
     click(view,*position);
     const auto name=part.dimension_identifiers.identifier(box.id,"parameter:length_forward");
-    if(!verify(table->horizontalHeaderItem(4)->text().toStdString()==name,"Family dimension did not bind secondary identifier"))return 1;
+    if(!verify(table->horizontalHeaderItem(4)->text().toStdString()==name+" [mm]","Family dimension did not bind secondary identifier with its unit"))return 1;
     table->item(1,1)->setText("family-base-V01.prtz");table->item(1,4)->setText("20");flush();
     dialog->findChild<QPushButton*>("familyAddColumn")->click();flush();
     QTreeWidgetItem* body_row=nullptr;

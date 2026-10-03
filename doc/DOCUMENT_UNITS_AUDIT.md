@@ -168,7 +168,7 @@ ordinary mm/inch modeling input, and must not turn this work into a global rewri
 | Measurements | Length/area/volume and mass use document scale factors. | Verify angular results, reopened records, nested occurrences and labels. |
 | Physical properties | Existing conversion includes area/volume powers, mass and density. | Extend mixed-unit checks and inspect all editable orientation fields. |
 | Relations | Dimension inputs use document length/angle factors; existing numeric literals would change physical meaning on a later regeneration after a unit switch. | Implement the approved explicit expression conversion; one document unit system, no separate hidden relation units. Preserve meaning and reject uncertain conversions atomically. |
-| Family | Dimension application stores native numeric values; relation input conversion is a separate path. | Inspect table display, editing, variant generation and unit changes. |
+| Family | Native values remain mm/degrees; editor and unit labels use document units. | Fractional editing, unit changes, exact no-op, native reopen, shared Undo/Redo and geometry reuse verified. |
 | Drawings | Sheet geometry, pens and annotation sizing explicitly use paper mm. | Separate paper units from model dimension values; audit source units, text/tolerances, PDF/print/DXF output. |
 | Exchange | STEP/IGES/DXF need file-unit interpretation at their existing import/export boundaries. | Verify actual unit metadata and physical extents; no double scaling from document settings. |
 | Native templates | New-document creation overrides template unit metadata with configured unit defaults. | Make precedence explicit before adding mm/inch choices to first-run setup. |
@@ -319,12 +319,12 @@ Undo/Redo, atomic rejection of an incompatible inactive branch, Assembly source
 sharing and the fixed-unit sheet-thickness parameter. Existing Family and
 engineering metadata command tests passed against the rebuilt libraries.
 
-The next Family investigation must also address its numeric catalog formatter:
-`family_operations.cpp::number` currently produces display decimal commas while
-`merge_member` restores a generic dimension through `std::stod`. A fractional
-catalog value can therefore lose its fractional part on that restoration path.
-Add a reproducing variant-edit test before fixing it; do not treat existing
-integer-valued Family fixtures as proof of decimal correctness.
+The Family audit reproduced a separate decimal bug: renaming a member restored
+its generic `10.5` dimension as `10`, because display-comma text was passed to
+`std::stod`. The catalog now formats lossless, locale-independent native numbers
+and restores them with strict full-string parsing. Dimension unit metadata comes
+from the existing relation binding catalog; persisted Family values and reference
+identities keep their existing canonical contract.
 
 
 The rebuilt application and UI contracts passed. The five-language GUI check
@@ -335,3 +335,54 @@ the final localization correction. This stage preserves existing explicit
 trigonometric function conventions; the wider audit still needs to decide and
 verify how newly authored fixed-unit inverse-trigonometric results are consumed
 by angular dimensions in a differently configured document.
+
+
+### Family numeric presentation (2026-10-03)
+
+The Part/Assembly Family editor labels dimension columns with their units and
+converts base/variant values at the UI boundary. Explicit trailing units and
+arithmetic reuse the existing dimension parser. Untouched cells preserve their
+exact original native strings, including absent inherited values. Reference
+inspection does not replace pending input. Invalid values identify their row
+and column through a message localized into all five supported languages.
+
+Added regression checks cover fractional member edits and generic restoration,
+unit changes through mm/cm/m/in, member unit propagation, cached geometry reuse,
+shared Undo/Redo and native save/reopen. GUI checks cover all length/angle unit
+combinations, explicit-unit arithmetic, inheritance, signed zero, exact no-op,
+Cancel and localized invalid-input handling. These rebuilt checks passed:
+
+- `zima_cpp_family_table_tests`: fractional native values, shared edits, unit
+  changes, Undo/Redo and native reopen; the generic and member retain their
+  calculated kernel shape objects on a unit-only change.
+- `zima_cpp_feature_unit_input_contract`: all eight length/angle unit pairs,
+  exact unchanged Family rows, explicit suffixes, arithmetic and Cancel.
+- `zima_cpp_translations_contract`: catalog coverage and invalid Family input
+  in Czech, English, German, French and Russian, without committing or closing.
+- `zima_cpp_family_table_ui_contract`: real View/Tree selection, stable column
+  identity with its unit, presence controls and linked variant workflow.
+- `zima_cpp_inline_units_ui_contract` and `zima_cpp_ui_contract_tests`: View
+  entry and existing shared dialog behavior remain covered.
+
+The fractional regression was also exercised against the original number
+formatter/restoration path, where it failed. Stored dimensions are checked
+exactly; independently calculated Sketch extents use a geometric tolerance
+because solver coordinates can differ by approximately 1e-15 mm.
+
+Nominal View labels, tolerance conversion and the remaining whole-application
+unit audit remain pending. This is not the final units release. The rebuilt metadata, engineering metadata
+and relation-program suites also passed after this change.
+
+
+### Approved follow-up: optional Family CSV exchange
+
+The user approved CSV import/export on 2026-10-03 after confirming that native
+Family data is already structured text inside the document. Keep the table as
+the primary editor. CSV must remain optional; all required variant definitions,
+reference bindings and calculated state stay exclusively in `.prtz`/`.asmz`.
+CSV exchange is not implemented in the numeric-presentation stage above.
+Preserve units, stable row/reference identity, authored text and localization,
+validate the complete import before replacing pending editor data, and commit
+only through the dialog's normal OK transaction. Do not infer model references
+from coincident names or silently import one document's values into another
+binding. Cover quoted separators/newlines, Unicode, invalid data and Cancel.

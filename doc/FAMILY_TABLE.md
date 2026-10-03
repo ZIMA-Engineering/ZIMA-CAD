@@ -29,8 +29,24 @@ while generic presence and sibling overrides remain independent.
 
 For numeric parameters, click a dimension
 to bind the active column. Its header uses the existing stable secondary name
-(`d1`, `d2`, …), while the base cell shows the current numeric value. A renamed
+(`d1`, `d2`, …) followed by its document unit, for example `d1 [in]`.
+The base cell and variant values use that same unit. A renamed
 element retains its identity. Missing or unsupported references are rejected.
+
+Numeric cells accept a decimal dot or comma and arithmetic. Without a suffix,
+input uses the column's document unit. An explicit trailing unit applies to the
+whole expression: `(1/2 + 0,125)inch` is `15.875 mm`, and `25.4mm` in an inch
+column is one inch. Length supports `mm`, `cm`, `m`, `in`, `inch`, `inches` and
+`"`; angle supports `deg`, `°` and `rad`. Different units cannot be mixed within
+one expression. A length column rejects angular units and vice versa. Invalid
+input identifies its row and column and keeps the editor open for correction.
+
+Native dimension overrides remain in millimetres/degrees regardless of document
+units. Changing the generic's units updates the presentation of all linked
+members without resizing geometry or recalculating unchanged shapes. An
+untouched cell retains its exact original native value; displaying inches and
+confirming OK does not quantize dimensions. Empty cells continue to inherit the
+generic. User-authored names, row identities and presence values are unchanged.
 
 The green outline marks the one active input. The adjacent eye independently
 toggles azure inspection of an assigned reference. A short middle click ends

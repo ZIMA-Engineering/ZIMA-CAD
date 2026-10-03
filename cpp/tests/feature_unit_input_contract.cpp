@@ -15,6 +15,8 @@
 #include "sheet_from_body_dialog.hpp"
 #include "shaft_thread_dialog.hpp"
 #include "mass_properties_dialog.hpp"
+#include "document_tools_dialogs.hpp"
+#include <QTableWidget>
 #include <zima/document/physical_properties.hpp>
 #include <zima/ui/unit_spin_box.hpp>
 #include <QApplication>
@@ -37,6 +39,57 @@ void near(double actual,double expected) {
 void enter(QDoubleSpinBox* field,const QString& text) {
     check(field,"Feature numeric field is missing");
     field->findChild<QLineEdit*>()->setText(text);field->interpretText();
+}
+void family_inputs(QApplication& application,QWidget& parent,double scale,double angle_scale) {
+    using namespace zima;
+    const auto unit=ui::document_unit(&parent,"Length","mm").toStdString();
+    const auto angle=ui::document_unit(&parent,"Angle","deg").toStdString();
+    const std::vector<workspace::FamilyReference> references{
+        {{"dimension","length","parameter:length"},"d1","Length","10.5",unit,scale},
+        {{"dimension","angle","parameter:angle"},"d2","Angle","90",angle,angle_scale},
+        {{"feature","solid",{}},"Solid","Solid","yes"}};
+    document::FamilyTable model;model.columns={"d1","d2","Solid"};
+    for(const auto& reference:references)model.bindings[reference.name]=reference.binding;
+    model.instances={{"Variant",{{"d1","0.12345678901234566"},{"d2","90.123456789012337"},{"Solid","no"}},"row"},
+        {"Inherited",{},"inherit"}};
+    app::DocumentToolData data;data.family_table=document::serialize_family_table(model);
+    app::ApplicationSettings settings;int commits=0;document::FamilyTable saved;
+    const auto make=[&] {
+        auto* dialog=new app::FamilyTableDialog("Base",data,[&](auto value){saved=document::parse_family_table(value.family_table);++commits;},settings,&parent);
+        dialog->set_references(references);dialog->show();application.processEvents();return dialog;
+    };
+    auto* dialog=make();auto* table=dialog->findChild<QTableWidget*>("familyTableTable");
+    check(table->horizontalHeaderItem(4)->text()==QString("d1 [%1]").arg(QString::fromStdString(unit))&&
+        table->horizontalHeaderItem(6)->text()==QString("d2 [%1]").arg(QString::fromStdString(angle)),"Family headers omit document units");
+    near(table->item(0,4)->text().toDouble(),10.5/scale);
+    near(table->item(1,4)->text().toDouble(),.12345678901234566/scale);
+    near(table->item(0,6)->text().toDouble(),90./angle_scale);
+    near(table->item(1,6)->text().toDouble(),90.123456789012337/angle_scale);
+    dialog->buttons()->button(QDialogButtonBox::Ok)->click();application.processEvents();
+    check(commits==1&&saved==model,
+        "Unchanged Family confirmation quantized values, changed identity or lost inheritance");
+    dialog=make();table=dialog->findChild<QTableWidget*>("familyTableTable");
+    table->item(1,4)->setText("(1/2+0,125)inch");table->item(1,6)->setText("1,5707963267948966rad");
+    dialog->end_entry();dialog->set_references(references);
+    check(table->item(1,4)->text()=="(1/2+0,125)inch","Refreshing Family inspection overwrote pending input");
+    dialog->buttons()->button(QDialogButtonBox::Ok)->click();application.processEvents();
+    check(commits==2&&saved.instances.front().values.at("Solid")=="no","Family edit changed presence");
+    near(std::stod(saved.instances.front().values.at("d1")),.625*25.4);
+    near(std::stod(saved.instances.front().values.at("d2")),90.);
+    dialog=make();table=dialog->findChild<QTableWidget*>("familyTableTable");
+    table->item(1,4)->setText(".125");table->item(1,6)->setText(".25");
+    dialog->buttons()->button(QDialogButtonBox::Ok)->click();application.processEvents();
+    check(commits==3,"Family implicit-unit input did not confirm");
+    near(std::stod(saved.instances.front().values.at("d1")),.125*scale);
+    near(std::stod(saved.instances.front().values.at("d2")),.25*angle_scale);
+    dialog=make();table=dialog->findChild<QTableWidget*>("familyTableTable");
+    table->item(1,4)->setText("-0inch");table->item(1,6)->setText("-0deg");
+    dialog->buttons()->button(QDialogButtonBox::Ok)->click();application.processEvents();
+    check(commits==4&&std::signbit(std::stod(saved.instances.front().values.at("d1")))&&
+        std::signbit(std::stod(saved.instances.front().values.at("d2"))),"Family input lost signed zero");
+    dialog=make();table=dialog->findChild<QTableWidget*>("familyTableTable");
+    table->item(1,4)->setText("20mm");dialog->reject();application.processEvents();
+    check(commits==4,"Family Cancel committed pending units");
 }
 void placement_and_pattern_inputs(QApplication& application,QWidget& parent,double scale,double angle_scale) {
     using namespace zima;
@@ -216,6 +269,7 @@ int verify_feature_unit_input(QApplication& app,QWidget& parent) {
         const double scale=document::length_unit_mm(unit);
         const double angle_scale=QString(angular)=="rad"?180./std::numbers::pi:1.;
         sketch_inputs(app,parent,scale,angle_scale);
+        family_inputs(app,parent,scale,angle_scale);
         placement_and_pattern_inputs(app,parent,scale,angle_scale);
         const auto check_primitive=[&](document::HistoryContainer initial,const char* length_name,
                                      const char* angle_name,const char* scalar_name=nullptr) {
