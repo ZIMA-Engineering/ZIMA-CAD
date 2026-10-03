@@ -2,6 +2,16 @@
 
 ## Scope and status
 
+Windows build **2026100303** is signed, published and verified. It fixes ordinary
+feature selection after Straighten, original-wire/dimension inspection and
+circular Sheet Cut axes after Unbend. It also adds centroid-based Modeling Twist
+and imperial drawing tolerance presentation. Authored Origins remain unchanged;
+existing cached sheet models require explicit Regenerate once for the corrected
+axis. Fresh committed-source packaging, signed smoke/trust, six packaged GUI
+scenarios, public hashes and update discovery from 2026100302 passed. The first
+reused staging build was rejected; the accepted build was clean. See
+[the release record](releases/2026100303.md) for scope and evidence. Linux is separate.
+
 Windows build **2026100302** is signed, published and verified. It completes the
 focused document-unit audit: canonical geometry, explicit-unit dimension input,
 manufacturing annotations, typed Relations, Family, nested physical properties,
