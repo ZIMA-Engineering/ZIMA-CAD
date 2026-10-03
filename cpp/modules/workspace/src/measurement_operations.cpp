@@ -1,5 +1,6 @@
 #include <zima/workspace/measurement_operations.hpp>
 #include <zima/workspace/reference_sources.hpp>
+#include <zima/workspace/family_operations.hpp>
 #include <map>
 #include <tuple>
 #include <zima/document/physical_properties.hpp>
@@ -50,12 +51,40 @@ std::optional<measurement::MeasurementGeometry> resolve_measurement(
     if(reference.kind==kernel::MeasurementKind::Object && reference.owner_id.empty()&&!reference.instance_path.empty()){
         // Resolve metadata for this exact occurrence, without calculating its source.
         const auto address=live.resolve_occurrence(id,assembly::InstancePath::decode(reference.instance_path));
-        if(geometry&&address)if(const auto* owner=live.open_assembly(address->owner_assembly_document_id))
-            if(const auto* item=owner->session.document().find_occurrence(address->occurrence_id)){
-                geometry->values.volume=kernel::MeasurementValue{std::abs(item->calculated_source->volume),false};
-                geometry->values.area=kernel::MeasurementValue{std::abs(item->calculated_source->surface_area),false};
-                if(const auto mass=assembly::occurrence_mass_kg(*item))geometry->values.mass=kernel::MeasurementValue{*mass,false};
+        if(geometry&&address) {
+            const assembly::AssemblyDocument* owner{};
+            std::optional<assembly::AssemblyDocument> loaded;
+            if(const auto* open=live.open_assembly(address->owner_assembly_document_id))owner=&open->session.document();
+            else {
+                // Inspect the selected occurrence's saved calculation even if
+                // its immediate owner has no open tab. Skip virtual Pattern
+                // groups: only a real Assembly can own the selected occurrence.
+                // Native reads neither open a tab nor invoke the kernel/solver.
+                for(auto parent=address->instance_path.parent();parent;parent=parent->parent()) {
+                    const auto ancestor=live.resolve_occurrence(id,*parent);
+                    if(!ancestor||ancestor->source_kind!=assembly::ComponentSourceKind::Assembly||
+                       ancestor->source_document_id!=address->owner_assembly_document_id)continue;
+                    try {
+                        const auto file=live.occurrence_source_file(id,*parent);
+                        if(!file||file->empty())return {};
+                        loaded=read_family_assembly(&live,*file,address->owner_assembly_document_id);
+                        owner=&*loaded;
+                    } catch(const std::exception&) {
+                        // The native dependency may disappear or be replaced
+                        // after Open. Use the existing missing-reference UI.
+                        return {};
+                    }
+                    break;
+                }
             }
+            if(owner)if(const auto* item=owner->find_occurrence(address->occurrence_id)) {
+                if(item->source_document_id==address->source_document_id&&!item->source_missing) {
+                    geometry->values.volume=kernel::MeasurementValue{std::abs(item->calculated_source->volume),false};
+                    geometry->values.area=kernel::MeasurementValue{std::abs(item->calculated_source->surface_area),false};
+                    if(const auto mass=assembly::occurrence_mass_kg(*item))geometry->values.mass=kernel::MeasurementValue{*mass,false};
+                }
+            }
+        }
     }
     if(!geometry)return {};
     if(const auto* part=live.open_part(id)){

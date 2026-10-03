@@ -21,15 +21,18 @@ File-setting `decimal_places` controls textual result precision.
 
 ## Relations and history
 
-Default templates contain `mass = model.mass`. Physical relations and their
-dependents update inside the source-document transaction when material, units,
-or persisted calculation results change. Parameters stores one value shared by
-all languages. Undo/Redo restores model data, units, and calculated parameters together.
+Default templates contain `mass = model.mass`. Physical inputs such as
+`model.mass` read the current calculated geometry and material data. Relations
+publish their results to Parameters only on explicit **Regenerate**; a material
+edit, document opening or tab switch does not evaluate them. Explicit document
+unit conversion rewrites quantity-bearing relations and converts their existing
+numeric outputs together. Parameters stores one value shared by all languages.
+Undo/Redo restores model data, units and calculated parameters together.
 
-These calculations read persisted volume/area. They invoke no OCCT from dialogs,
-hover, painting, or tab switching, and do not change dimensions driven by other
-relations. Drawing only reads the resulting parameter; relation-driven mass cannot
-be overwritten manually through the title block.
+Physical queries read persisted volume/area without OCCT. Refreshing these inputs
+does not assign relation-driven dimensions. Drawing reads the last published
+parameter; relation-driven mass cannot be overwritten manually through the title
+block.
 
 ## Assemblies
 
@@ -37,10 +40,17 @@ Assembly sums physical mass across all unsuppressed occurrences. Repeated insert
 count repeatedly. Hiding a component does not remove its mass; suppression does.
 Each nested sum converts through kilograms into its owner's units.
 
-Part density and inserted-subassembly mass are stored in the component snapshot.
-Changing an open source does not itself recalculate the parent's physical values;
-the parent adopts the new snapshot on explicit **Regenerate**. Previously saved
-Assemblies missing this data require opening sources and regenerating the Assembly.
+Part density and inserted-subassembly mass accompany the component's current
+calculated data. Ordinary occurrences share current open-source geometry; source
+refresh also updates the associated mass and its volume basis. Repeated and nested
+occurrences must receive the same current physical data without creating an Undo
+entry, evaluating relations, solving mates or running OCCT. Source document units
+are presentation metadata, never an occurrence scale. Unsaved source geometry and
+material changes are authoritative.
+
+Assembly-owned cuts keep their calculated results until explicit **Regenerate**.
+Refreshing a source does not overwrite that operation boundary or assign an exact
+post-cut mass from an uncut heterogeneous source.
 
 Missing/invalid density is not treated as zero: dependent mass is unavailable and
 the title block shows a placeholder. Volume ratios cannot establish exact mass

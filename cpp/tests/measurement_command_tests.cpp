@@ -3,6 +3,8 @@
 #include <zima/command_host/host.hpp>
 #include <zima/document/measurement_record.hpp>
 #include <zima/document/file_path.hpp>
+#include <zima/workspace/metadata_operations.hpp>
+#include <zima/assembly/physical_properties.hpp>
 #include <zima/kernel/stable_id.hpp>
 #include <cmath>
 #include <numbers>
@@ -19,6 +21,111 @@ commands::Result run(command_host::Host& host,const char* command,Json args=Json
 }
 Json ref(const char* kind,const std::string& owner,const std::string& key={},const std::string& path={}) {
     return {{"kind",kind},{"owner",owner},{"key",key},{"instance_path",path}};
+}
+void verify_mixed_units(const kernel::OcctKernel& kernel,fs::path dir) {
+    workspace::Workspace live;command_host::Options options;
+    options.settings=[] {return command_host::Settings{{fs::absolute("config/templates"),"START_PART.prtz","START_ASSEMBLY.asmz","Body"},{}};};
+    command_host::Host host(live,kernel,dir,options);
+    const auto execute=[&](const char* n,Json a){return run(host,n,std::move(a));};
+    const auto settings=[&](const std::string& id,const char* length,const char* mass){
+        auto value=workspace::file_settings(live,id);value.units["Length"]=length;value.units["Mass"]=mass;value.units["Angle"]="rad";
+        require(!workspace::set_file_settings(live,kernel,id,value).calculated,"Unit metadata regenerated geometry");
+    };
+    run(host,"new",{{"type","part"},{"name","mixed-mm"}});const auto mm=live.active_document_id();
+    test::rectangular_commands(execute,{{"length_mm",25.4},{"width_mm",50.8},{"height_mm",76.2}});
+    run(host,"document.material.set",{{"properties",Json::array({{{"key","MASS_DENSITY"},{"value","2700"},{"unit","kg/m^3"}}})}});run(host,"save");
+    run(host,"new",{{"type","part"},{"name","mixed-inch"}});const auto inch=live.active_document_id();settings(inch,"in","lb");
+    test::rectangular_commands(execute,{{"length_mm",25.4},{"width_mm",25.4},{"height_mm",25.4}});
+    run(host,"document.material.set",{{"properties",Json::array({{{"key","MASS_DENSITY"},{"value","0.1"},{"unit","lb/in^3"}}})}});run(host,"save");
+    run(host,"new",{{"type","assembly"},{"name","mixed-sub"}});const auto sub=live.active_document_id();settings(sub,"cm","g");
+    const auto a=run(host,"component.insert",{{"source",mm}}).data.at("occurrence").get<std::string>();
+    const auto b=run(host,"component.insert",{{"source",inch}}).data.at("occurrence").get<std::string>();
+    auto placed=live.open_assembly(sub)->session.document();placed.find_occurrence(b)->placement.x=101.6;
+    placed.find_occurrence(a)->grounded=placed.find_occurrence(b)->grounded=true;live.open_assembly(sub)->session.commit(std::move(placed));run(host,"save");
+    run(host,"new",{{"type","assembly"},{"name","mixed-top"}});const auto top=live.active_document_id();settings(top,"in","lb");
+    const auto first=run(host,"component.insert",{{"source",sub}}).data.at("occurrence").get<std::string>();
+    const auto second=run(host,"component.insert",{{"source",sub}}).data.at("occurrence").get<std::string>();
+    placed=live.open_assembly(top)->session.document();placed.find_occurrence(second)->placement.x=254;placed.find_occurrence(second)->placement.rotation_z=90;
+    placed.find_occurrence(first)->grounded=placed.find_occurrence(second)->grounded=true;live.open_assembly(top)->session.commit(std::move(placed));
+    const auto first_a=assembly::InstancePath{}.child(first).child(a).encoded(),first_b=assembly::InstancePath{}.child(first).child(b).encoded();
+    const auto second_a=assembly::InstancePath{}.child(second).child(a).encoded(),second_b=assembly::InstancePath{}.child(second).child(b).encoded();
+    const auto pair=Json::array({ref("object","",{},first_a),ref("object","",{},first_b)});
+    double va=25.4*50.8*76.2,ma=va*2700e-9,model_height=76.2;
+    const double vb=std::pow(25.4,3),mb=.1*.45359237;
+    double area_a=2*(25.4*50.8+25.4*76.2+50.8*76.2);const double area_b=6*25.4*25.4;
+    const auto verify=[&](workspace::Workspace& state,command_host::Host& commands){
+        const auto& document=state.open_assembly(top)->session.document();
+        const auto physical=assembly::physical_values(document);
+        const double l=document::length_unit_mm(document.document_units.at("Length")),m=document::mass_unit_kg(document.document_units.at("Mass"));
+        near(physical.at("model.volume")*std::pow(l,3),2*(va+vb),"Mixed nested volume changed physical size");
+        near(physical.at("model.area")*l*l,2*(area_a+area_b),"Mixed nested area scaled twice");
+        require(physical.contains("model.mass"),"Updated nested Assembly lost current mass");
+        near(physical.at("model.mass")*m,2*(ma+mb),"Mixed nested density or mass units are wrong");
+        const auto scene=state.authoritative_viewer_mesh(top);require(!scene.vertices.empty(),"Mixed nested scene is empty");
+        kernel::Vec3 low{1e100,1e100,1e100},high{-1e100,-1e100,-1e100};
+        for(const auto& p:scene.vertices){low.x=std::min(low.x,p.x);low.y=std::min(low.y,p.y);low.z=std::min(low.z,p.z);high.x=std::max(high.x,p.x);high.y=std::max(high.y,p.y);high.z=std::max(high.z,p.z);}
+        near(low.x,-12.7,"Mixed Assembly X minimum");near(high.x,279.4,"Mixed Assembly X maximum");near(low.y,-25.4,"Mixed Assembly Y minimum");near(high.y,114.3,"Mixed Assembly Y maximum");near(high.z-low.z,model_height,"Mixed Assembly Z size");
+        for(const auto& refs:{pair,Json::array({ref("object","",{},second_a),ref("object","",{},second_b)})}) {
+            const auto result=run(commands,"measurement.evaluate",{{"document",top},{"references",refs}}).data;
+            near(result["distance"]["value"]["value"],76.2,"Mixed nested occurrence gap changed");
+            near(result["values"][0]["volume"]["value"],va,"Mixed mm Part volume changed");near(result["values"][1]["volume"]["value"],vb,"Mixed inch Part volume changed");
+            if(!result["values"][0]["mass"].is_object()||!result["values"][1]["mass"].is_object())throw std::runtime_error("Mixed nested mass missing with "+std::to_string(state.documents().size())+" open documents: "+result.dump());
+            near(result["values"][0]["mass"]["value"],ma,"Mixed mm Part mass changed");near(result["values"][1]["mass"]["value"],mb,"Mixed inch Part mass changed");
+            require(result["units"]["length"]=="mm"&&result["units"]["mass"]=="kg"&&!result["body_calculated"].get<bool>(),"Measurement API lost canonical units or calculated bodies");
+            require(!result["values"][0]["volume"]["approximate"].get<bool>(),"Mixed source lost exact volume");
+        }
+    };
+    verify(live,host);
+    const auto saved=run(host,"measurement.create",{{"name","Mixed gap"},{"references",pair}}).data;
+    const auto record=saved.at("object").get<std::string>();
+    const auto original_scene=live.authoritative_viewer_mesh(top);
+    const auto source_shape=live.open_part(mm)->session.calculated_boundaries().back().kernel_shape;
+    for(const auto* unit:{"in","m","cm","mm"}) {
+        const auto before=live.open_part(mm)->session.document().serialized();
+        const auto sub_revision=live.open_assembly(sub)->session.revision(),top_revision=live.open_assembly(top)->session.revision();
+        settings(mm,unit,"t");const auto after=live.open_part(mm)->session.document().serialized();live.refresh_source_geometry();verify(live,host);
+        require(live.open_part(mm)->session.calculated_boundaries().back().kernel_shape==source_shape,"Source unit change replaced calculated body");
+        require(live.open_assembly(sub)->session.revision()==sub_revision&&live.open_assembly(top)->session.revision()==top_revision,"Source unit change created Assembly history");
+        const auto scene=live.authoritative_viewer_mesh(top);require(scene.vertices==original_scene.vertices&&scene.triangles==original_scene.triangles,"Unit metadata changed scene coordinates");
+        run(host,"activate",{{"document",mm}});run(host,"undo");require(live.open_part(mm)->session.document().serialized()==before,"Source unit Undo lost document");
+        run(host,"redo");require(live.open_part(mm)->session.document().serialized()==after,"Source unit Redo lost document");run(host,"activate",{{"document",top}});live.refresh_source_geometry();verify(live,host);
+    }
+    for(const auto* unit:{"mm","cm","m","in"}) {
+        settings(top,unit,"g");settings(sub,unit,"lb");live.refresh_source_geometry();verify(live,host);
+        const auto stored=run(host,"measurement.get",{{"document",top},{"object",record}}).data;
+        require(stored.at("values")==saved.at("values")&&stored.at("distance")==saved.at("distance")&&stored.at("references")==saved.at("references"),"Unit change rewrote saved measurement values or paths");
+    }
+    const auto original_va=va,original_ma=ma,original_area=area_a;
+    const auto top_revision=live.open_assembly(top)->session.revision();
+    const auto previous_parameters=live.open_assembly(top)->session.document().user_parameters;
+    run(host,"activate",{{"document",mm}});
+    const auto feature=live.open_part(mm)->session.document().history.back().id;
+    test::resize_rectangular_commands(execute,{{"container",feature},{"height_mm",152.4}});
+    va*=2;ma*=2;model_height=152.4;area_a=2*(25.4*50.8+25.4*152.4+50.8*152.4);
+    run(host,"activate",{{"document",top}});live.refresh_source_geometry();verify(live,host);
+    require(live.open_assembly(top)->session.revision()==top_revision,"Source geometry refresh created Assembly history");
+    require(live.open_assembly(top)->session.document().user_parameters==previous_parameters,"Source geometry refresh evaluated Assembly relations");
+    run(host,"activate",{{"document",mm}});run(host,"undo");va=original_va;ma=original_ma;area_a=original_area;model_height=76.2;
+    run(host,"activate",{{"document",top}});live.refresh_source_geometry();verify(live,host);
+    run(host,"activate",{{"document",mm}});
+    run(host,"document.material.set",{{"properties",Json::array({{{"key","MASS_DENSITY"},{"value","5400"},{"unit","kg/m^3"}}})}});
+    ma*=2;run(host,"activate",{{"document",top}});live.refresh_source_geometry();verify(live,host);
+    run(host,"activate",{{"document",mm}});run(host,"undo");ma=original_ma;
+    run(host,"activate",{{"document",top}});live.refresh_source_geometry();verify(live,host);
+    run(host,"activate",{{"document",top}});run(host,"regenerate");verify(live,host);
+    for(const auto& id:{mm,inch,sub,top}){run(host,"activate",{{"document",id}});run(host,"save");}
+    // Reopen only the top document in a fresh Workspace: all sources must come
+    // from native dependencies, not from the original open document cache.
+    workspace::Workspace reopened;command_host::Host reopened_host(reopened,kernel,dir,options);
+    run(reopened_host,"open",{{"path",document::path_to_utf8(dir/"mixed-top.asmz")}});verify(reopened,reopened_host);
+    const auto restored=run(reopened_host,"measurement.get",{{"object",record}}).data;
+    require(restored.at("values")==saved.at("values")&&restored.at("distance")==saved.at("distance")&&restored.at("references")==saved.at("references"),"Mixed Assembly native reopen lost measurement data");
+    require(reopened.documents().size()==1,"Measuring a closed dependency opened a document");
+    const auto before_missing=reopened.open_assembly(top)->session.document().serialized();
+    fs::rename(dir/"mixed-sub.asmz",dir/"mixed-sub-unavailable.asmz");
+    const auto missing=reopened_host.execute({{"command","measurement.evaluate"},{"arguments",{{"references",pair}}}});
+    fs::rename(dir/"mixed-sub-unavailable.asmz",dir/"mixed-sub.asmz");
+    require(!missing.ok&&missing.code=="missing_reference"&&reopened.open_assembly(top)->session.document().serialized()==before_missing,"Unavailable measurement source did not fail without mutation");
 }
 void verify(const kernel::OcctKernel& kernel,fs::path dir) {
     workspace::Workspace live;command_host::Options options;bool editing=false;
@@ -141,6 +248,6 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
 int main(){try {
     kernel::OcctKernel kernel;const auto parent=fs::canonical(fs::temp_directory_path());
     const auto dir=parent/("zima-measurement-command-"+kernel::make_stable_id());
-    require(fs::create_directory(dir),"Cannot create test directory");verify(kernel,dir);
+    require(fs::create_directory(dir),"Cannot create test directory");verify_mixed_units(kernel,dir);verify(kernel,dir);
     require(fs::canonical(dir).parent_path()==parent,"Unexpected cleanup path");fs::remove_all(dir);return 0;
 }catch(const std::exception& error){std::cerr<<error.what()<<'\n';return 1;}}

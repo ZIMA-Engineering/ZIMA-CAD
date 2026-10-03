@@ -160,13 +160,13 @@ ordinary mm/inch modeling input, and must not turn this work into a global rewri
 | Area | Current evidence | Remaining work |
 | --- | --- | --- |
 | Document settings | Repeated mm/cm/m/in switches with rad, geometry reuse, volume, native signatures, save/reopen, Undo/Redo and explicit relation conversion pass. | Manufacturing annotations now retain their authoritative basis and derive exact or explicitly approximate View presentation; quantity validation now rejects mismatches before committing; finish remaining settings consumers. |
-| Mixed-unit Assemblies | Occurrences consume source calculated geometry; unit labels are not placement scales. | Add explicit mixed-unit/nested Assembly tests and source-unit switching. |
+| Mixed-unit Assemblies | Explicit mixed-unit tests cover repeated rotated subassemblies, source-unit switches, native reopening and current unsaved geometry/material data. | Retain the separate Drawing/exchange verification gates. |
 | Modeling input | Feature parameters and selected Sweep fields now use the shared unit control; conversion/no-op/Cancel tests pass. Other dialogs still have fixed-unit fields. | Continue command-by-command integration, retaining exact canonical values and quantity distinctions. |
 | Container placement | Numeric coordinates, angles and reference offsets now use document-unit controls; canonical values, solving and reference semantics remain unchanged. | Continue dependent GUI verification; no reference or solver redesign is part of this work. |
 | Sketch input | Dimension expressions, plane coordinates, spline points, offsets and model text sizes use document units with canonical storage; paper text sizes remain mm. | Finish annotation authoring checks and remaining context boundaries; retain counts and curve parameters. |
 | View dimensions | Ordinary nominal labels share one document-unit formatter across painting, picking, label position and grips; native values/references remain unchanged. | Exact complete specifications convert for display; otherwise show the original specification with an explicitly approximate secondary nominal. New annotation authoring and layout fields now follow document units; quantity validation passes; finish drawing/output gates. |
-| Measurements | Length/area/volume and mass use document scale factors. | Verify angular results, reopened records, nested occurrences and labels. |
-| Physical properties | Existing conversion includes area/volume powers, mass and density. | Extend mixed-unit checks and inspect all editable orientation fields. |
+| Measurements | Native and GUI checks cover reopened records, nested occurrences, length/area/volume/mass and all supported unit labels. | No angular-distance result exists in this inspector; orientation input is covered separately. |
+| Physical properties | Mixed-unit checks cover area/volume powers, kg/m³ and lb/in³ density, repeated occurrences, and current nested mass after source changes. | Finish the broader settings-consumer audit; orientation input already has unit-control coverage. |
 | Relations | Explicit source conversion preserves quantity-dependent results, inactive branches, fixed-unit sheet thickness and atomic rejection; no hidden second unit basis. | Complete the remaining dimension-binding audit; typed trigonometry is verified below. |
 | Family | Native values remain mm/degrees; editor and unit labels use document units. | Fractional editing, unit changes, exact no-op, native reopen, shared Undo/Redo and geometry reuse verified. |
 | Drawings | Sheet geometry, pens and annotation sizing explicitly use paper mm. | Separate paper units from model dimension values; audit source units, text/tolerances, PDF/print/DXF output. |
@@ -666,3 +666,46 @@ Final rebuilt verification passed all six targeted suites (10.36 seconds):
 The last suite checks production source coverage, catalogs and affected UI in
 Czech, English, German, French and Russian. The Windows application was rebuilt;
 this stage is not the final units release.
+
+### Mixed-unit Assemblies and saved measurements (2026-10-03)
+
+A native command fixture now creates a 25.4 x 50.8 x 76.2 mm Part and an
+inch-configured 25.4 mm cube with different materials. They enter a centimetre
+subassembly, which is inserted twice into an inch parent, including a translated
+90-degree copy. The test independently checks scene extents, exact areas/volumes,
+kg-based physical masses and distances of the two distinct occurrence paths.
+Unit switches preserve scene vertices/triangles, source calculated geometry,
+parent history, native identities and saved measurement values. Unsaved source
+height and material edits, their Undo, explicit Regenerate and fresh opening of
+only the top Assembly are covered.
+
+The fresh-open test reproduced missing nested mass and approximate volume when
+the immediate owning subassembly had no open tab. Measurement now uses its saved
+native calculation through the existing Family resolver. It does not open source
+tabs or run OCCT; a missing dependency uses the existing missing-reference state.
+This targeted query can read a closed owner's native sources on demand; it adds
+no persistent cache or sidecar and does not change native formats.
+
+A second regression reproduced stale nested mass after current source geometry
+changed. Source refresh now publishes the corresponding kg mass and volume basis
+with the reused/replaced geometry, including reuse for a second occurrence.
+This is physical input refresh only: existing user Parameters remain unchanged,
+and Assembly-owned cuts/mates continue to require explicit regeneration.
+
+The GUI test reopens a saved measurement in all four length and mass units,
+checks area/volume powers and approximate-distance markers, and verifies unchanged
+Save creates no history and preserves canonical values. This stage adds no UI
+messages; existing missing-reference localization is reused. Physical-properties
+documentation was corrected where it still described automatic relation updates
+and frozen ordinary occurrence geometry.
+
+Final rebuilt validation passed seven suites (19.04 seconds):
+`zima_cpp_measurement_inspector_ui_contract`, `zima_cpp_translations_contract`,
+`zima_cpp_workspace_contract_tests`, `zima_cpp_workspace_publication_tests`,
+`zima_cpp_engineering_metadata_command_tests`, `zima_cpp_measurement_edit_command_tests`
+and `zima_cpp_measurement_command_tests`. Catalog/source coverage and language
+switching pass for cs/en/de/fr/ru. The source-refresh benchmark also passed
+shared-snapshot, placement, history, source edit and Undo checks at 256 and 1024
+leaves with open/closed sources and different tab orders. This run establishes
+correct reuse after the mass fix, not a before/after speed improvement claim.
+No native file-format/template update is needed for these changes.

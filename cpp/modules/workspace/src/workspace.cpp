@@ -352,6 +352,8 @@ void Workspace::refresh_source_geometry() {
         zima::kernel::BodySnapshot body;
         std::vector<zima::assembly::OccurrenceSnapshot> occurrences;
         std::string name;
+        std::optional<double> mass_kg;
+        double mass_volume_mm3{};
     };
     // Only fully processed sources are reusable, and only within this call.
     // Keep cycle detection independent from completed-source reuse.
@@ -430,6 +432,10 @@ void Workspace::refresh_source_geometry() {
                     component.nested_snapshot=source.occurrences;
                     changed=true;
                 }
+                if(component.density_kg_mm3||component.nested_mass_kg!=source.mass_kg||component.mass_volume_mm3!=source.mass_volume_mm3) {
+                    component.density_kg_mm3.reset();component.nested_mass_kg=source.mass_kg;
+                    component.mass_volume_mm3=source.mass_volume_mm3;changed=true;
+                }
                 continue;
             }
             zima::assembly::AssemblyDocument nested;
@@ -491,8 +497,15 @@ void Workspace::refresh_source_geometry() {
                 }
                 assembly_sources.emplace(sharing_key,component.calculated_source);
             }
+            // Current source geometry and its physical metadata form one
+            // display snapshot. Updating this data is not relation evaluation
+            // or regeneration of Assembly-owned operations (skipped above).
+            const auto previous_density=component.density_kg_mm3,previous_mass=component.nested_mass_kg;
+            const double previous_volume=component.mass_volume_mm3;
+            zima::assembly::capture_nested_mass(component,nested);
+            changed=changed||component.density_kg_mm3!=previous_density||component.nested_mass_kg!=previous_mass||component.mass_volume_mm3!=previous_volume;
             refreshed_assemblies.emplace(refreshed_key,RefreshedAssembly{
-                component.calculated_source,component.nested_snapshot,nested.name});
+                component.calculated_source,component.nested_snapshot,nested.name,component.nested_mass_kg,component.mass_volume_mm3});
         }
         visiting.erase(document.document_id);
         return changed;

@@ -12,6 +12,7 @@
 #include <zima/kernel/occt_kernel.hpp>
 #include <zima/document/part_document.hpp>
 #include <zima/document/measurement_record.hpp>
+#include <zima/document/physical_properties.hpp>
 #include <zima/commands/dispatcher.hpp>
 #include <QAction>
 #include <QKeyEvent>
@@ -310,6 +311,7 @@ try{
     check(execute("measurement.get",{{"object",measurement_id}}).data.at("revision")==before_analysis_revision,"Analysis history could not be undone");flush();
     auto second_part=document::PartDocument::create_default();
     auto second_box=test::rectangular_feature(second_part,{20,20,30});second_part.history={second_box};
+    second_part.document_units["Length"]="in";second_part.document_units["Mass"]="lb";
     second_part.physical_parameters["MASS_DENSITY"]="2700";second_part.physical_parameter_units["MASS_DENSITY"]="kg/m^3";
     const auto second_bodies=kernel.evaluate_history(second_part.kernel_operations());
     const auto second_path=directory/"measurement-second.prtz";second_part.save(second_path,second_bodies);
@@ -341,6 +343,30 @@ try{
     check_before_cursor();
     window.findChild<QAction*>("saveDocumentAction")->trigger();flush();
     check(assembly::AssemblyDocument::load(assembly_path).measurements.size()==1,"Assembly lost saved measurement");
+    const auto assembly_measurement=assembly::AssemblyDocument::load(assembly_path).measurements.front().id;
+    const auto saved_assembly_measurement=execute("measurement.get",{{"object",assembly_measurement}}).data;
+    const auto native_scene=view->mesh();
+    const std::array<std::pair<const char*,const char*>,4> measurement_units{{{"mm","kg"},{"cm","g"},{"m","t"},{"in","lb"}}};
+    for(const auto& [length_unit,mass_unit]:measurement_units) {
+        execute("document.settings.set",{{"units",{{"Length",length_unit},{"Mass",mass_unit}}},{"precision",{{"decimal_places",6}}}});flush();
+        const auto before=execute("measurement.get",{{"object",assembly_measurement}}).data;
+        reopen();
+        const double length=document::length_unit_mm(length_unit),mass=document::mass_unit_kg(mass_unit);
+        const auto formatted=[](double value){return QString::fromStdString(kernel::dimension_number(value,6));};
+        for(int i=0;i<2;++i) {
+            const double volume=i?12000.:6000.,weight=i?.0324:.0471,area=i?3200.:2200.;
+            const auto text=dialog()->findChild<QLabel*>(QString("measurementInfo%1").arg(i+1))->text();
+            check(text.contains(QObject::tr("Objem: %1").arg(formatted(volume/(length*length*length))+length_unit+QStringLiteral("³"))),"Reopened measurement volume has wrong display units");
+            check(text.contains(QObject::tr("Obsah: %1").arg(formatted(area/(length*length))+length_unit+QStringLiteral("²"))),"Reopened measurement area has wrong display units");
+            check(text.contains(QObject::tr("Hmotnost: %1").arg(formatted(weight/mass)+mass_unit)),"Reopened measurement mass has wrong display units");
+        }
+        check(dialog()->distance_text()==(dialog()->distance()->distance.approximate?QStringLiteral("≈ "):QString{})+formatted(25/length)+length_unit,"Reopened measurement gap has wrong display units");
+        check(dialog()->current().distance->distance.value==25,"Measurement display conversion changed canonical stored distance");
+        dialog()->findChild<QPushButton*>("saveMeasurement")->click();flush();
+        const auto after=execute("measurement.get",{{"object",assembly_measurement}}).data;
+        check(after.at("revision")==before.at("revision")&&after.at("values")==saved_assembly_measurement.at("values")&&after.at("distance")==saved_assembly_measurement.at("distance"),"Unchanged converted measurement Save changed history or native values");
+        check(view->mesh().vertices==native_scene.vertices&&view->mesh().triangles==native_scene.triangles,"Measurement unit change moved source geometry");
+    }
     execute("component.activate",{{"instance_path",assembly::InstancePath{{first.occurrence_id}}.encoded()}});flush();
     action->trigger();flush();check(dialog()!=nullptr,"Read-only measurement inspector unavailable during activation");
     select(viewer::CandidateKind::Vertex);

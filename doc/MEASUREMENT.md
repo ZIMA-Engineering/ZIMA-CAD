@@ -62,6 +62,17 @@ toggles azure inspection of the stored reference; the cross removes it.
 Exact edge lengths/face areas available from explicit body calculation are saved
 with geometry and read without further OCCT calls. Whole-component volume/mass
 uses the source's last calculated data. Mass is not estimated without material density.
+A nested occurrence does not require its owning subassembly to have an open tab.
+If needed, the inspector reads that owner's native document and saved calculated
+sources using the existing Family/source resolver. It preserves the exact
+occurrence path, opens no tab and invokes no geometry or placement calculation.
+An unavailable or replaced dependency is reported through the existing missing
+reference state; the saved measurement remains unchanged.
+
+The command API and saved records retain canonical mm, mm², mm³ and kg. Only the
+GUI presentation uses the displayed document's units, independently of each
+source Part's or subassembly's unit settings. Reopening a saved measurement after
+a unit change converts its display, not its stored values or witness coordinates.
 
 Distances to curved geometry use its polygonal representation. These, and lengths/
 areas without saved exact values, are marked **≈**. Their accuracy depends on display
@@ -247,3 +258,10 @@ reviewed for gaps and clipping. Log: `build/measurement-compact.log`.
 
 Localization review found no new or changed product text. The five-language
 translation contract passes (`build/measurement-compact-translations.log`).
+
+Mixed-unit regression coverage also includes two Parts with different density
+units, an independently configured subassembly inserted twice (one copy rotated),
+mm/cm/m/in and kg/g/t/lb changes, exact physical totals, occurrence distances,
+source geometry/material edits without saving, Undo and a fresh native reopen.
+The GUI inspector checks both entity summaries, squared/cubed unit labels,
+approximate-distance marking and unchanged Save without a new transaction.
