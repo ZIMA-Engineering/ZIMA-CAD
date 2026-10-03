@@ -223,12 +223,12 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
     }
     auto* form = new QFormLayout;
 
-    const auto dimension = [this](double value, const char* object_name) {
-        auto* field = new QDoubleSpinBox(this);
+    const auto dimension = [this](double value, const char* object_name,
+                                  zima::ui::InputQuantity quantity=zima::ui::InputQuantity::Length) {
+        auto* field = new zima::ui::UnitDoubleSpinBox(quantity,this);
         field->setRange(0.001, 1'000'000.0);
-        field->setDecimals(zima::ui::numeric_decimal_places(this,3));
+        field->set_display_decimals(zima::ui::numeric_decimal_places(this,3));
         field->setSingleStep(1.0);
-        field->setSuffix(" mm");
         field->setObjectName(object_name);
         field->setValue(value);
         return field;
@@ -336,18 +336,16 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
         thread_chamfer_enabled_->setObjectName("threadChamferEnabled");
         thread_chamfer_enabled_->setChecked(initial.thread.chamfer_enabled);
         hole_entrance_chamfer_ = dimension(initial.thread.chamfer_depth, "threadChamferDepth");
-        thread_chamfer_angle_ = dimension(initial.thread.chamfer_angle_degrees, "threadChamferAngle");
+        thread_chamfer_angle_ = dimension(initial.thread.chamfer_angle_degrees, "threadChamferAngle",zima::ui::InputQuantity::Angle);
         thread_chamfer_angle_->setRange(1.0, 179.0);
-        thread_chamfer_angle_->setSuffix(QStringLiteral(" °"));
         form->addRow(thread_chamfer_enabled_);
         form->addRow(tr("Osová hloubka sražení"), hole_entrance_chamfer_);
         form->addRow(tr("Vrcholový úhel sražení"), thread_chamfer_angle_);
         hole_drill_point_ = new QCheckBox(tr("Špička"), this);
         hole_drill_point_->setObjectName("threadDrillPoint");
         hole_drill_point_->setChecked(initial.hole.drill_point_enabled);
-        hole_drill_angle_ = dimension(initial.hole.drill_point_angle_degrees, "threadDrillPointAngle");
+        hole_drill_angle_ = dimension(initial.hole.drill_point_angle_degrees, "threadDrillPointAngle",zima::ui::InputQuantity::Angle);
         hole_drill_angle_->setRange(1.0, 179.0);
-        hole_drill_angle_->setSuffix(QStringLiteral(" °"));
         form->addRow(hole_drill_point_);
         form->addRow(tr("Vrcholový úhel špičky"), hole_drill_angle_);
         thread_direction_ = new QComboBox(this);
@@ -355,7 +353,7 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
         thread_direction_->addItem(tr("Obrátit"), "reverse");
         thread_direction_->setCurrentIndex(initial.thread.direction == zima::document::ExtrusionDirection::Reverse ? 1 : 0);
         form->addRow(tr("Směr"), thread_direction_);
-        thread_runout_factor_ = dimension(std::max(0.001, initial.thread.runout_pitch_factor), "threadRunoutPitchFactor");
+        thread_runout_factor_ = dimension(std::max(0.001, initial.thread.runout_pitch_factor), "threadRunoutPitchFactor",zima::ui::InputQuantity::Scalar);
         thread_runout_factor_->setRange(0.0, 100.0);
         thread_runout_factor_->setValue(initial.thread.runout_pitch_factor);
         thread_runout_factor_->setSuffix(QStringLiteral(" × P"));
@@ -487,9 +485,8 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
     } else if (initial.feature_kind == zima::document::FeatureKind::DrillPoint) {
         drill_point_angle_ = dimension(
             initial.drill_point.included_angle_degrees,
-            "drillPointIncludedAngle");
+            "drillPointIncludedAngle",zima::ui::InputQuantity::Angle);
         drill_point_angle_->setRange(1.0, 179.0);
-        drill_point_angle_->setSuffix(QStringLiteral(" °"));
         form->addRow(tr("Vrcholový úhel"), drill_point_angle_);
         auto* faces_label = new QLabel(tr("Dna kruhových otvorů"), this);
         auto label_font = faces_label->font();
@@ -578,8 +575,7 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
         hole_drill_point_ = new QCheckBox(tr("Vrtaná špička"), this);
         hole_drill_point_->setChecked(initial.hole.drill_point_enabled);
         hole_drill_angle_ = dimension(initial.hole.drill_point_angle_degrees,
-            "holeDrillPointAngle");
-        hole_drill_angle_->setSuffix(" °");
+            "holeDrillPointAngle",zima::ui::InputQuantity::Angle);
         form->addRow(hole_drill_point_);
         form->addRow(tr("Úhel špičky"), hole_drill_angle_);
         hole_exit_chamfer_enabled_ = new QCheckBox(
@@ -660,9 +656,8 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
     } else if (initial.feature_kind == zima::document::FeatureKind::TwistedSheet) {
         width_ = dimension(initial.twisted_sheet.width, "twistedSheetWidth");
         length_ = dimension(initial.twisted_sheet.length, "twistedSheetLength");
-        radius_ = dimension(initial.twisted_sheet.angle_degrees, "twistedSheetAngle");
+        radius_ = dimension(initial.twisted_sheet.angle_degrees, "twistedSheetAngle",zima::ui::InputQuantity::Angle);
         radius_->setRange(0.001, 36000.0);
-        radius_->setSuffix(QStringLiteral(" °"));
         height_ = dimension(initial.twisted_sheet.thickness, "twistedSheetThickness");
         twist_developed_correction_=dimension(
             initial.twisted_sheet.developed_length_correction,
@@ -690,8 +685,10 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
             parameters.angle_degrees=radius_->value();
             parameters.developed_length_correction=twist_developed_correction_->value();
             try {
-                twist_developed_length_->setText(
-                    QString::number(zima::document::twisted_sheet_developed_length(parameters),'f',3)+QStringLiteral(" mm"));
+                const auto unit=zima::ui::document_unit(this,"Length","mm");
+                twist_developed_length_->setText(locale().toString(
+                    zima::document::twisted_sheet_developed_length(parameters)/zima::document::length_unit_mm(unit.toStdString()),
+                    'f',zima::ui::numeric_decimal_places(this,3))+QStringLiteral(" ")+unit);
             } catch(...) {twist_developed_length_->setText(QStringLiteral("—"));}
         };
         for(auto* field:{width_,length_,radius_,height_,twist_developed_correction_})
@@ -1019,15 +1016,16 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
             });
         forward_length_ = dimension(revolve ? initial.revolution.angle_degrees
                                             : initial.extrusion.length_forward,
-                                    revolve ? "revolutionAngle" : "extrusionHeight");
+                                    revolve ? "revolutionAngle" : "extrusionHeight",
+                                    revolve?zima::ui::InputQuantity::Angle:zima::ui::InputQuantity::Length);
         reverse_length_ = dimension(revolve ? initial.revolution.angle_reverse
                                             : initial.extrusion.length_reverse,
                                     revolve ? "revolutionReverseAngle"
-                                            : "extrusionReverseLength");
+                                            : "extrusionReverseLength",
+                                    revolve?zima::ui::InputQuantity::Angle:zima::ui::InputQuantity::Length);
         if (revolve) {
             for (auto* spin : {forward_length_, reverse_length_}) {
                 spin->setRange(0.001, 360.0);
-                spin->setSuffix(QStringLiteral("°"));
             }
             auto* axis_hint = new QLabel(
                 tr("Zelená konstrukční osa ve skici"), this);
@@ -1271,12 +1269,12 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
             initial.edge_treatment.primary_size, "edgeTreatmentPrimary");
         treatment_secondary_ = dimension(
             initial.edge_treatment.secondary_size, "edgeTreatmentSecondary");
-        treatment_angle_ = new QDoubleSpinBox(this);
+        auto* treatment_angle = new zima::ui::UnitDoubleSpinBox(zima::ui::InputQuantity::Angle,this);
+        treatment_angle_ = treatment_angle;
         treatment_angle_->setObjectName("edgeTreatmentAngle");
         treatment_angle_->setRange(0.1, 89.9);
-        treatment_angle_->setDecimals(zima::ui::numeric_decimal_places(this,2));
+        treatment_angle->set_display_decimals(zima::ui::numeric_decimal_places(this,2));
         treatment_angle_->setSingleStep(1.0);
-        treatment_angle_->setSuffix(QStringLiteral("°"));
         treatment_angle_->setValue(initial.edge_treatment.angle_degrees);
         treatment_primary_label_ = new QLabel(this);
         treatment_secondary_label_ = new QLabel(this);

@@ -7,6 +7,7 @@
 #include <QSignalBlocker>
 #include <QVariant>
 #include <algorithm>
+#include <cmath>
 #include <numbers>
 
 namespace zima::ui {
@@ -103,4 +104,15 @@ private:
     int display_decimals_{3};
     double native_per_unit_{1};
 };
+
+inline int numeric_display_decimals(const QDoubleSpinBox* field) {
+    if(const auto* unit=dynamic_cast<const UnitDoubleSpinBox*>(field))return unit->display_decimals();
+    return field->decimals();
+}
+// A displayed increment expressed in the canonical units used by model/View
+// comparisons. This is presentation resolution, never a solver tolerance.
+inline double numeric_display_quantum(const QDoubleSpinBox* field) {
+    const auto* unit=dynamic_cast<const UnitDoubleSpinBox*>(field);
+    return (unit?unit->native_per_unit():1.)*std::pow(10.,-numeric_display_decimals(field));
+}
 } // namespace zima::ui

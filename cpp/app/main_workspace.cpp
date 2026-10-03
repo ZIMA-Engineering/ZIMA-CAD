@@ -3794,7 +3794,7 @@ int verify_body_history_ui(QApplication& application, const std::filesystem::pat
     if (!verify(body_dialog()->findChild<QPushButton*>("containerOriginSelectionButton")!=nullptr,
             "Body placement lost its Origin control")) return 1;
     for (auto* field : body_dialog()->findChildren<QDoubleSpinBox*>())
-        if (!verify(field->decimals()==2,"Body placement field ignored document precision")) return 1;
+        if (!verify(zima::ui::numeric_display_decimals(field)==2,"Body placement field ignored document precision")) return 1;
     tree->setCurrentItem(row("document-origin",part.document_id+":origin"));flush();
     if (!verify(body_dialog()->first_empty_position_index()==3,
             "New Body did not accept all three document Origin planes without arming a field")) return 1;
@@ -3803,7 +3803,7 @@ int verify_body_history_ui(QApplication& application, const std::filesystem::pat
         if (!verify(picked_body.scope.placement.references[i].owner_id==part.document_id+":origin",
                 "Body Origin shortcut stored a different reference owner")) return 1;
     for (auto* field : body_dialog()->findChildren<QDoubleSpinBox*>())
-        if (!verify(field->decimals()==2,"Body reference offset ignored document precision")) return 1;
+        if (!verify(zima::ui::numeric_display_decimals(field)==2,"Body reference offset ignored document precision")) return 1;
     body_dialog()->buttons()->button(QDialogButtonBox::Cancel)->click(); flush();
     if (!verify(!row("part-body-boolean"), "Cancel inserted an unrelated Boolean")) return 1;
     if(!verify(activate_from_tree(row("part-body",b),"activateBodyAction"),"Cannot reactivate Body after canceled creation"))return 1;

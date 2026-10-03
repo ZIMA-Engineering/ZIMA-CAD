@@ -162,7 +162,7 @@ ordinary mm/inch modeling input, and must not turn this work into a global rewri
 | Document settings | Repeated mm/cm/m/in switches with rad, cached geometry, physical volume, native geometry signatures, save/reopen and Undo/Redo pass in the metadata command test. | Complete explicit expression/tolerance conversion; settings-only tests do not establish their safety. |
 | Mixed-unit Assemblies | Occurrences consume source calculated geometry; unit labels are not placement scales. | Add explicit mixed-unit/nested Assembly tests and source-unit switching. |
 | Modeling input | Feature parameters and selected Sweep fields now use the shared unit control; conversion/no-op/Cancel tests pass. Other dialogs still have fixed-unit fields. | Continue command-by-command integration, retaining exact canonical values and quantity distinctions. |
-| Container placement | Shared section uses mm and degrees. | Consume tested unit controls without changing placement solving, offset sign or reference semantics; observe protected-code approval rule. |
+| Container placement | Numeric coordinates, angles and reference offsets now use document-unit controls; canonical values, solving and reference semantics remain unchanged. | Continue dependent GUI verification; no reference or solver redesign is part of this work. |
 | Sketch input | Dimensions, coordinates, radii, offsets and text sizes contain fixed-unit fields. | Convert length/angle input; preserve counts, curve parameters, source geometry and expressions. |
 | View dimensions | `MeshView` formats canonical dimension values directly in several paint/pick/layout paths. | One consistent formatting path, without recalculation or changing persisted reference geometry. |
 | Measurements | Length/area/volume and mass use document scale factors. | Verify angular results, reopened records, nested occurrences and labels. |
@@ -216,7 +216,29 @@ there are no new translated user-visible messages.
 
 This does not complete document conversion, manufacturing tolerance conversion,
 expression conversion, signed-zero input integration or all command paths.
-Shared placement remains untouched pending its specifically required approval.
+The user explicitly approved the numeric input/display integration in shared
+placement. Its solver, reference identities, side flags and persistence format
+are not changed. Display quantum comparisons use the displayed increment
+converted to canonical units, rather than Qt's internal storage precision.
+
+The next integration covers Hole, Thread, Drill Point, Twisted Sheet, Shell,
+Fillet/Chamfer, standalone Extrusion/Revolution and construction geometry.
+Length, angular and dimensionless fields are classified explicitly. In
+particular, a thread runout pitch factor remains dimensionless. Thread standards,
+designations, catalogs and physical thread geometry are unchanged, as reaffirmed
+by the user on 2026-10-03; changing document units never substitutes a thread.
+
+Placement unit tests cover all eight length/angle combinations, exact unchanged
+coordinates, rotations, reference offsets, signed zero, side flags, numeric
+locks, JSON round-trip and reference solving. A pre-existing Point inline test
+now checks exact canonical input and independently rounded visible text: display
+precision no longer quantizes the stored coordinate or live preview.
+
+The placement/primitive stage passed `zima_cpp_unit_input_tests`, the expanded
+`zima_cpp_feature_unit_input_contract`, full UI contracts, numeric field layout,
+numeric locks and five-language catalog checks. Application GUI regressions for
+surface placement, Body scale and both straightening/restore fixtures also
+passed. This is incremental evidence, not completion of the remaining audit.
 
 The extended `zima_cpp_metadata_command_tests` passed repeated length-unit
 switching with radian settings, physical volume conversion, unchanged cached

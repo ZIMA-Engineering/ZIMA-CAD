@@ -4,6 +4,7 @@
 #include <zima/document/placement_mesh_surface.hpp>
 #include "zima/ui/container_placement_section.hpp"
 #include <zima/ui/properties_subwindow.hpp>
+#include <zima/ui/unit_spin_box.hpp>
 
 #include "zima/ui/reference_cell.hpp"
 
@@ -206,12 +207,12 @@ ContainerPlacementSection::ContainerPlacementSection(
 
     const auto field = [this](bool angular, const char* object_name,
                              bool notify_on_change = true) {
-        auto* input = new QDoubleSpinBox(parent_widget_);
+        auto* input = new UnitDoubleSpinBox(angular?InputQuantity::Angle:InputQuantity::Length,parent_widget_);
         input->setRange(angular ? -360'000.0 : -1'000'000.0,
                         angular ? 360'000.0 : 1'000'000.0);
-        input->setDecimals(decimal_places_);
+        input->set_display_decimals(decimal_places_);
         input->setSingleStep(angular ? 5.0 : 1.0);
-        input->setSuffix(angular ? tr(" deg") : tr(" mm"));
+        if(angular&&document_unit(parent_widget_,"Angle","deg")=="deg")input->setSuffix(tr(" deg"));
         input->setObjectName(object_name);
         if (notify_on_change) {
             connect(input, &QDoubleSpinBox::valueChanged, this,
@@ -990,12 +991,11 @@ void ContainerPlacementSection::refresh_reference_table() {
         reference_items_[index] = reference;
         reference_table_->setItem(static_cast<int>(index), 1, reference);
 
-        auto* offset = new QDoubleSpinBox(reference_table_);
+        auto* offset = new UnitDoubleSpinBox(InputQuantity::Length,reference_table_);
         offset->setRange(-1'000'000'000.0, 1'000'000'000.0);
-        offset->setDecimals(decimal_places_);
-        offset->setSuffix(QStringLiteral(" mm"));
+        offset->set_display_decimals(decimal_places_);
         // Keep the offset column no wider than one value at the configured
-        // calculation precision. QDoubleSpinBox::sizeHint() otherwise uses
+        // display precision. QDoubleSpinBox::sizeHint() otherwise uses
         // the full ±1e9 range and needlessly steals most of the useful text
         // width from the Reference column.
         const QString zero_text = QStringLiteral("-") +

@@ -3,6 +3,7 @@
 #include "sweep2d_dialog.hpp"
 #include "helical_sweep_dialog.hpp"
 #include <zima/document/physical_properties.hpp>
+#include <zima/ui/unit_spin_box.hpp>
 #include <QApplication>
 #include <QComboBox>
 #include <QDialogButtonBox>
@@ -34,6 +35,43 @@ int verify_feature_unit_input(QApplication& app,QWidget& parent) {
         parent.setProperty("zimaDocumentUnits",QVariantMap{{"Length",unit},{"Angle",angular}});
         const double scale=document::length_unit_mm(unit);
         const double angle_scale=QString(angular)=="rad"?180./std::numbers::pi:1.;
+        const auto check_primitive=[&](document::HistoryContainer initial,const char* length_name,
+                                     const char* angle_name,const char* scalar_name=nullptr) {
+            int calls=0;
+            auto* dialog=new app::PrimitivePropertiesDialog(initial,true,false,[&](auto){++calls;},&parent);
+            dialog->setLocale(QLocale::c());dialog->show();app.processEvents();
+            const auto inspect=[&](const char* name,double factor) {
+                if(!name)return;
+                auto* field=dialog->findChild<QDoubleSpinBox*>(name);
+                auto* unit_field=dynamic_cast<ui::UnitDoubleSpinBox*>(field);
+                check(unit_field&&unit_field->native_per_unit()==factor,"Primitive quantity uses the wrong units");
+                const double original=field->value();
+                enter(field,field->text());check(field->value()==original,"Unchanged primitive input lost precision");
+                const double authored=std::clamp(1.25,field->minimum()/factor,field->maximum()/factor);
+                enter(field,QLocale::c().toString(authored,'g',17));near(field->value(),authored*factor);
+            };
+            inspect(length_name,scale);inspect(angle_name,angle_scale);inspect(scalar_name,1.);
+            dialog->reject();app.processEvents();check(calls==0,"Primitive unit edit escaped Cancel");
+        };
+        check_primitive(document::PartDocument::create_hole_container(),"holeDiameter","holeDrillPointAngle");
+        check_primitive(document::PartDocument::create_thread_container(),"threadBoreLength","threadChamferAngle","threadRunoutPitchFactor");
+        check_primitive(document::PartDocument::create_drill_point_container(),nullptr,"drillPointIncludedAngle");
+        check_primitive(document::PartDocument::create_twisted_sheet_container(),"twistedSheetWidth","twistedSheetAngle");
+        check_primitive(document::PartDocument::create_shell_container(),"shellThickness",nullptr);
+        const std::vector<kernel::EdgeReference> edges{{"source","profile:edge",{}}};
+        check_primitive(document::PartDocument::create_chamfer_container(edges),"edgeTreatmentPrimary","edgeTreatmentAngle");
+        check_primitive(document::PartDocument::create_fillet_container(edges),"edgeTreatmentPrimary",nullptr);
+        check_primitive(document::PartDocument::create_extrusion_container("profile"),"extrusionHeight",nullptr);
+        check_primitive(document::PartDocument::create_revolution_container("profile"),nullptr,"revolutionAngle");
+        auto construction=document::PartDocument::create_construction(document::ConstructionKind::Axis);
+        construction.display_size=25.4123456789;
+        auto* axis=new app::ConstructionPropertiesDialog(construction,true,[](auto){},&parent);
+        axis->setLocale(QLocale::c());
+        auto* extent=axis->findChild<QDoubleSpinBox*>("constructionDisplaySize");
+        check(extent&&extent->suffix()==QString(" ")+unit,"Construction extent ignores document units");
+        enter(extent,extent->text());check(axis->pending_value().display_size==construction.display_size,"Unchanged axis length lost precision");
+        enter(extent,".125");near(axis->pending_value().display_size,.125*scale);
+        axis->reject();app.processEvents();
         auto initial=document::PartDocument::create_feature_container("unit-profile");
         initial.feature.sides[0].length=25.412345678901;
         initial.feature.sides[0].draft_angle_degrees=2.123456789;

@@ -153,17 +153,16 @@ ConstructionPropertiesDialog::ConstructionPropertiesDialog(
     definition_->hide();
     const int precision = std::clamp(decimal_places, 0, 12);
     const auto field = [this, precision](
-            double value, const char* name, const QString& suffix) {
-        auto* result = new QDoubleSpinBox(this);
+            double value, const char* name) {
+        auto* result = new zima::ui::UnitDoubleSpinBox(zima::ui::InputQuantity::Length,this);
         result->setRange(-1'000'000.0, 1'000'000.0);
-        result->setDecimals(precision);
+        result->set_display_decimals(precision);
         result->setSingleStep(1.0);
-        result->setSuffix(suffix);
         result->setObjectName(name);
         result->setValue(value);
         return result;
     };
-    offset_ = field(initial.offset, "constructionOffset", " mm");
+    offset_ = field(initial.offset, "constructionOffset");
     if (initial.kind != zima::document::ConstructionKind::Plane) {
         offset_->hide();
     }
@@ -171,7 +170,7 @@ ConstructionPropertiesDialog::ConstructionPropertiesDialog(
         this, [this] { refresh_definition_fields(); });
     refresh_definition_fields();
     if (initial.kind == zima::document::ConstructionKind::Axis) {
-        display_size_ = field(initial.display_size, "constructionDisplaySize", " mm");
+        display_size_ = field(initial.display_size, "constructionDisplaySize");
         display_size_->setRange(0.001, 1'000'000.0);
     }
     content_layout()->addLayout(form);
@@ -269,7 +268,7 @@ ConstructionPropertiesDialog::ConstructionPropertiesDialog(
             axis_extent_mode_->addItem(tr("Obě strany"));
             axis_extent_mode_->addItem(tr("Symetricky"));
             axis_extent_mode_->setCurrentIndex(static_cast<int>(initial.axis_extent_mode));
-            axis_reverse_length_ = field(initial.axis_reverse_length, "constructionAxisReverseLength", " mm");
+            axis_reverse_length_ = field(initial.axis_reverse_length, "constructionAxisReverseLength");
             axis_reverse_length_->setRange(0.001, 1'000'000.0);
             rotation_form->addRow(tr("Rozsah"), axis_extent_mode_);
             axis_ends_=initial.axis_ends;
@@ -569,7 +568,7 @@ void ConstructionPropertiesDialog::initialize_sweep_ui() {
     auto* thickness = new zima::ui::UnitDoubleSpinBox(zima::ui::InputQuantity::Length,this);
     sweep_thickness_ = thickness;
     sweep_thickness_->setObjectName("sweep3DThickness");
-    thickness->set_display_decimals(offset_->decimals());
+    thickness->set_display_decimals(zima::ui::numeric_display_decimals(offset_));
     sweep_thickness_->setRange(0.001,1'000'000.0);
     sweep_thickness_->setValue(initial_sweep_->sweep3d.thickness);
     sweep_thickness_->setProperty("zimaValueLockOwner",QString::fromStdString(initial_sweep_->id));
@@ -1207,7 +1206,7 @@ void ConstructionPropertiesDialog::filter_parameter_dimensions(
         // rather than the read-only absolute angle when a reference owns it.
         return !field || !field->isEnabled() || !field->isVisible() ||
             std::abs(dimension.value - field->value()) >
-                0.5 * std::pow(10.0, -field->decimals()) + 1e-9;
+                0.5 * zima::ui::numeric_display_quantum(field) + 1e-9;
     });
 }
 
@@ -1333,10 +1332,10 @@ void ConstructionPropertiesDialog::refresh_curve_points() {
             refresh_curve_points();
         });
         curve_points_table_->setCellWidget(static_cast<int>(index),9,zima::ui::centered_cell_widget(ordering));
-        auto* radius = new QDoubleSpinBox(curve_points_table_);
+        auto* radius = new zima::ui::UnitDoubleSpinBox(zima::ui::InputQuantity::Length,curve_points_table_);
         radius->setFont(curve_points_table_->font());
         radius->setObjectName(QString("curve3DRadius%1").arg(index+1));
-        radius->setDecimals(offset_->decimals()); radius->setRange(0,1e9);
+        radius->set_display_decimals(zima::ui::numeric_display_decimals(offset_)); radius->setRange(0,1e9);
         const bool enabled=polyline && curve_rounding_ && curve_rounding_->isChecked() && index>0 && index+1<curve_points_.size();
         radius->setEnabled(enabled);
         radius->setValue(enabled?curve_points_[index].curve_radius:0);

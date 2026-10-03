@@ -403,7 +403,7 @@ int verify_solid_state_ui(QApplication& application,const std::filesystem::path&
             check(fields.size()==3,"Missing shared placement coordinates");
             for(std::size_t i=0;i<fields.size();++i) {
                 const auto* field=fields[i];check(field,"Missing Sweep placement field");
-                const double quantum=std::pow(10.,-field->decimals());
+                const double quantum=zima::ui::numeric_display_quantum(field);
                 check(std::abs(field->value()-coordinates[i])<=quantum*.50001,
                     "GUI Properties displayed a coordinate outside its boundary's rounding interval");
             }
@@ -419,7 +419,7 @@ int verify_solid_state_ui(QApplication& application,const std::filesystem::path&
                     original_child.placement.rotation_offset_y,original_child.placement.rotation_offset_z};
                 for(int i=0;i<3;++i) {
                     const auto* field=dialog->findChild<QDoubleSpinBox*>(QString("sweepRotationOffset%1").arg(i));
-                    check(field&&std::abs(field->value()-corrections[i])<=std::pow(10.,-field->decimals())*.50001,
+                    check(field&&std::abs(field->value()-corrections[i])<=zima::ui::numeric_display_quantum(field)*.50001,
                         "Sweep Properties displayed an incorrect angular correction");
                 }
                 auto* editor=dynamic_cast<app::SweepPlacementDialog*>(dialog);editor->changed();flush();

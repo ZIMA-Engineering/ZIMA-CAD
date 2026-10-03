@@ -28,6 +28,7 @@
 #include "part_reference_index.hpp"
 #include "reference_display.hpp"
 #include <zima/ui/container_placement_section.hpp>
+#include <zima/ui/unit_spin_box.hpp>
 #include "tree_reference_state.hpp"
 #include "history_tree_widget.hpp"
 #include <zima/workspace/history_policy.hpp>
@@ -770,7 +771,7 @@ int verify_stable_placement_rows() {
         qobject_cast<QDoubleSpinBox*>(table->cellWidget(0, 3))->value() == 7,
         "Reference replacement did not refresh its label and offset");
     // Display rounding must not become an authored placement edit on OK.
-    for(auto* field:placement.translation_fields())field->setDecimals(3);
+    for(auto* field:placement.translation_fields())dynamic_cast<zima::ui::UnitDoubleSpinBox*>(field)->set_display_decimals(3);
     zima::document::Placement precise;
     precise.x=100.123456789;precise.y=2.987654321;precise.z=-155.508836352;
     placement.initialize_numeric_values(precise);
@@ -800,8 +801,8 @@ int verify_stable_placement_rows() {
     values=placement.numeric_placement();
     require(values.x==precise.x&&values.y==precise.y&&values.z==precise.z,
         "Reinitializing placement retained the previous reference solution");
-    for(auto* field:placement.rotation_fields())field->setDecimals(2);
-    for(auto* field:placement.rotation_offset_fields())field->setDecimals(2);
+    for(auto* field:placement.rotation_fields())dynamic_cast<zima::ui::UnitDoubleSpinBox*>(field)->set_display_decimals(2);
+    for(auto* field:placement.rotation_offset_fields())dynamic_cast<zima::ui::UnitDoubleSpinBox*>(field)->set_display_decimals(2);
     precise.absolute_rotation_x=12.3456789;precise.absolute_rotation_y=-3.654321;
     precise.absolute_rotation_z=.000123456;
     precise.rotation_offset_x=85.4501346909;precise.rotation_offset_y=-2.3456789;precise.rotation_offset_z=-0.;
@@ -4109,8 +4110,8 @@ int main(int argc, char* argv[]) {
                 "constructionReferenceTable")->cellWidget(0, 3));
         require(construction_point_offset != nullptr &&
                     construction_point_offset->isEnabled() &&
-                    point_x->decimals() == 2 &&
-                    construction_point_offset->decimals() == 2,
+                    zima::ui::numeric_display_decimals(point_x) == 2 &&
+                    zima::ui::numeric_display_decimals(construction_point_offset) == 2,
                 "Point Properties did not apply document precision to its fields");
         std::optional<zima::document::ConstructionObject> inline_point_preview;
         construction_point_dialog->set_preview_callback(
@@ -4119,19 +4120,21 @@ int main(int argc, char* argv[]) {
             });
         require(construction_point_dialog->set_inline_parameter_value(
                     "x", 4.126) &&
-                    std::abs(point_x->value() - 4.13) < 1.0e-9 &&
+                    std::abs(point_x->value() - 4.126) < 1.0e-9 &&
+                    point_x->cleanText()==point_x->locale().toString(4.126,'f',2) &&
                     inline_point_preview.has_value() &&
-                    std::abs(inline_point_preview->origin.x - 4.13) < 1.0e-9 &&
+                    std::abs(inline_point_preview->origin.x - 4.126) < 1.0e-9 &&
                     construction_point_dialog->set_inline_parameter_value(
                         "reference_offset:0", 12.346) &&
-                    std::abs(construction_point_offset->value() - 12.35) < 1.0e-9 &&
+                    std::abs(construction_point_offset->value() - 12.346) < 1.0e-9 &&
+                    construction_point_offset->cleanText()==construction_point_offset->locale().toString(12.346,'f',2) &&
                     inline_point_preview.has_value() &&
                     std::abs(inline_point_preview->references.front().offset -
-                        12.35) < 1.0e-9 &&
+                        12.346) < 1.0e-9 &&
                     !construction_point_dialog->set_inline_parameter_value(
                         "z", 99.0),
                 "Inline Point dimension edit did not update the matching live "
-                "dialog value and preview at document precision");
+                "exact dialog/preview value and separately rounded display");
         // Clicking a numeric value replaces it even when it already has focus.
         auto* offset_editor = construction_point_offset->findChild<QLineEdit*>();
         require(offset_editor != nullptr, "Offset has no numeric editor");
