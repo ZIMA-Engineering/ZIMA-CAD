@@ -2015,5 +2015,7 @@
   "Remove this element from the selection": "Retirer cet élément de la sélection",
   "Select at least one eligible solid element.": "Sélectionnez au moins un élément solide compatible.",
   "A selected solid element is unavailable.": "Un élément solide sélectionné est indisponible.",
-  "Straightening requires connected, tangent-continuous Sweep segments.": "Le redressement nécessite des segments de balayage raccordés avec une continuité tangentielle."
+  "Straightening requires connected, tangent-continuous Sweep segments.": "Le redressement nécessite des segments de balayage raccordés avec une continuité tangentielle.",
+  "Unit does not match the dimension.": "L’unité ne correspond pas à la grandeur de la cote.",
+  "Invalid numeric expression.": "Expression numérique non valide."
 }

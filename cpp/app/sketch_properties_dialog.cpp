@@ -3,6 +3,7 @@
 #include <zima/document/bend.hpp>
 #include <zima/document/flat.hpp>
 #include <zima/ui/numeric_value_lock.hpp>
+#include <zima/ui/unit_spin_box.hpp>
 #include "sketch_button_style.hpp"
 #include "sketch_properties_dialog.hpp"
 
@@ -54,11 +55,11 @@ SketchPropertiesDialog::SketchPropertiesDialog(
     plane_->addItem("YZ", static_cast<int>(zima::sketcher::SketchPlane::YZ));
     plane_->setCurrentIndex(plane_->findData(static_cast<int>(initial_.plane)));
     install_automatic_work_plane(plane_, initial_.plane_auto);
-    offset_ = new QDoubleSpinBox(this);
+    auto* plane_offset = new zima::ui::UnitDoubleSpinBox(zima::ui::InputQuantity::Length,this);
+    offset_ = plane_offset;
     offset_->setObjectName("sketchPlaneOffset");
     offset_->setRange(-1'000'000.0, 1'000'000.0);
-    offset_->setDecimals(zima::ui::numeric_decimal_places(this,3));
-    offset_->setSuffix(" mm");
+    plane_offset->set_display_decimals(zima::ui::numeric_decimal_places(this,3));
     offset_->setValue(initial_.plane_offset);
     setProperty("zimaValueLockOwner",QString::fromStdString(initial_.owner_container_id.empty()?initial_.id:initial_.owner_container_id));
     zima::ui::bind_numeric_value_lock(offset_,"profile_offset",initial_placement_.value_locks,[this]{notify_preview();});
@@ -146,12 +147,12 @@ void SketchPropertiesDialog::set_holes_mode(double diameter,
     set_internal_title(tr("Vlastnosti otvorů"));
     setObjectName("holesPropertiesDialog");
     auto* form = new QFormLayout;
-    auto* field = new QDoubleSpinBox(this);
+    auto* field = new zima::ui::UnitDoubleSpinBox(zima::ui::InputQuantity::Length,this);
     holes_diameter_ = field;
     field->setObjectName("holesDiameter");
-    field->setDecimals(zima::ui::numeric_decimal_places(this, 3));
+    field->set_display_decimals(zima::ui::numeric_decimal_places(this, 3));
     field->setRange(0.001, 1000000.0);
-    field->setSuffix(" mm"); field->setValue(diameter);
+    field->setValue(diameter);
     zima::ui::bind_numeric_value_lock(field, "diameter", locks, [this] { notify_preview(); });
     form->addRow(tr("Průměr otvorů"), field);
     content_layout()->insertLayout(content_layout()->indexOf(sketch_button_), form);
@@ -185,8 +186,8 @@ void SketchPropertiesDialog::set_flat_mode(zima::document::FlatParameters initia
         direction->setCurrentIndex((direction->currentIndex()+1)%direction->count());
     });
     auto* custom=new QCheckBox(tr("Vlastní tloušťka"),this);custom->setObjectName("flatThicknessOverride");custom->setChecked(initial.thickness_override);
-    auto* thickness=new QDoubleSpinBox(this);thickness->setObjectName("flatThickness");
-    thickness->setRange(.001,1000000);thickness->setDecimals(zima::ui::numeric_decimal_places(this,3));thickness->setSuffix(" mm");
+    auto* thickness=new zima::ui::UnitDoubleSpinBox(zima::ui::InputQuantity::Length,this);thickness->setObjectName("flatThickness");
+    thickness->setRange(.001,1000000);thickness->set_display_decimals(zima::ui::numeric_decimal_places(this,3));
     thickness->setToolTip(tr("Celková tloušťka plechu. Symetricky znamená polovinu na každé straně skici."));
     const double inherited=defaults.thickness_mm.value_or(1);
     const auto refresh=[=] {
@@ -240,11 +241,12 @@ void SketchPropertiesDialog::set_bend_mode(zima::document::BendParameters initia
         plane_form->setRowVisible(plane_,false);plane_form->setRowVisible(offset_,false);
     }
     auto* form=new QFormLayout;
-    const auto field=[&](const char* name,double value,double minimum,double maximum,const QString& suffix) {
-        auto* spin=new QDoubleSpinBox(this);spin->setObjectName(name);spin->setDecimals(6);spin->setRange(minimum,maximum);spin->setSuffix(suffix);spin->setValue(value);return spin;
+    using Quantity=zima::ui::InputQuantity;
+    const auto field=[&](const char* name,double value,double minimum,double maximum,Quantity quantity) {
+        auto* spin=new zima::ui::UnitDoubleSpinBox(quantity,this);spin->setObjectName(name);spin->set_display_decimals(6);spin->setRange(minimum,maximum);spin->setValue(value);return spin;
     };
-    bend_radius_=field("bendRadius",initial.radius,0,1000000," mm");
-    bend_angle_=field("bendAngle",initial.angle_degrees,0,180," °");
+    bend_radius_=field("bendRadius",initial.radius,0,1000000,Quantity::Length);
+    bend_angle_=field("bendAngle",initial.angle_degrees,0,180,Quantity::Angle);
     auto* custom_radius=new QCheckBox(tr("Vlastní poloměr"),this);
     custom_radius->setObjectName("bendRadiusOverride");
     custom_radius->setChecked(!initial.radius_follows_thickness);
@@ -325,7 +327,7 @@ void SketchPropertiesDialog::set_bend_mode(zima::document::BendParameters initia
         const double inherited=thickness?defaults.thickness_mm.value_or(1):defaults.k_factor;
         const bool local=thickness?initial.thickness_override:initial.k_factor_override;
         auto* spin=field(thickness?"bendThickness":"bendKFactor",local?(thickness?initial.thickness:initial.k_factor):inherited,
-            thickness?.000001:0,thickness?1000000:1,thickness?" mm":"");
+            thickness?.000001:0,thickness?1000000:1,thickness?Quantity::Length:Quantity::Scalar);
         override->setChecked(local);spin->setEnabled(local);layout->addWidget(override);layout->addWidget(spin,1);
         form->addRow(thickness?tr("Tloušťka materiálu"):tr("K faktor"),row);
         connect(spin,&QDoubleSpinBox::valueChanged,this,[pending,publish,thickness](double value){
@@ -345,7 +347,7 @@ void SketchPropertiesDialog::set_bend_mode(zima::document::BendParameters initia
     corner_layout->addWidget(corner_first);corner_layout->addWidget(corner_last);form->addRow(tr("Uzavření rohu"),corners);
     const auto corner_tip=tr("Zakřivený přechod k prodloužení koncového profilu. Zapněte na obou sousedních profilech; vůle ubírá polovinu hodnoty na každém konci.");
     corners->setToolTip(corner_tip);
-    auto* corner_gap=field("bendCornerGap",initial.corner_gap,0,1," mm");
+    auto* corner_gap=field("bendCornerGap",initial.corner_gap,0,1,Quantity::Length);
     corner_gap->setSingleStep(.01);corner_gap->setEnabled(initial.corner[0]||initial.corner[1]);
     form->addRow(tr("Vůle rohu"),corner_gap);
     connect(corner_first,&QCheckBox::toggled,this,[pending,publish,corner_gap](bool value){pending->corner[0]=value;corner_gap->setEnabled(value||pending->corner[1]);publish();});

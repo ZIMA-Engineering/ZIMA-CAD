@@ -21,7 +21,12 @@ void model(const fs::path& dir) {
     require(sketch.points[0].id!=sketch.points[2].id&&!sketch.points[0].construction&&sketch.points[1].construction&&sketch.points[2].construction,"Coincident entities merged or construction flags changed");near(sketch.points[1].x,1);near(sketch.points[1].y,2);
     const auto mesh=sketch.viewer_mesh();for(const auto& point:sketch.points)require(std::ranges::any_of(mesh.points,[&](const auto& shown){return shown.reference.owner_id==sketch.id&&shown.reference.semantic_key=="point:"+point.id;}),"Imported point has no native viewer identity");
     auto restored=sketcher::Sketch::from_serialized(sketch.serialized());require(restored.import_blocks==sketch.import_blocks&&restored.points==sketch.points,"Native serialization lost point-only block");
-    interchange::export_dxf(dir/"roundtrip.dxf",restored);const auto entities=test::read_dxf_entities(dir/"roundtrip.dxf");require(entities.size()==3&&std::ranges::all_of(entities,[](const auto& entity){return entity.type=="POINT";}),"Point-only DXF roundtrip lost entities");
+    // Manufacturing DXF intentionally omits construction geometry. Native
+    // persistence above must still retain all three imported source points.
+    interchange::export_dxf(dir/"roundtrip.dxf",restored);const auto entities=test::read_dxf_entities(dir/"roundtrip.dxf");require(entities.size()==1&&entities.front().type=="POINT","Manufacturing DXF lost the ordinary point or exported construction points");
+    auto ordinary=restored;for(auto& point:ordinary.points)point.construction=false;
+    interchange::export_dxf(dir/"ordinary-roundtrip.dxf",ordinary);const auto ordinary_entities=test::read_dxf_entities(dir/"ordinary-roundtrip.dxf");
+    require(ordinary_entities.size()==3&&std::ranges::all_of(ordinary_entities,[](const auto& entity){return entity.type=="POINT";}),"Point-only DXF merged coincident ordinary points");
     const auto original=sketch.points;const auto second=interchange::import_dxf(file,sketch);std::set<std::string> ids;for(const auto& point:sketch.points)require(ids.insert(point.id).second,"Repeated import reused point identity");
     sketch.transform_import_block(second.import_block_id,5,-2,std::numbers::pi/2);
     for(const auto& point:original)require(*sketch.find_point(point.id)==point,"Moving a new point block changed an older import");
@@ -39,7 +44,7 @@ void model(const fs::path& dir) {
     require(sketcher::Sketch::from_serialized(collapsed.serialized()).import_blocks==collapsed.import_blocks,"Collapsed mixed block lost native persistence");
     static_cast<void>(merged.merge_points(merged.points[0].id,merged.points[1].id));
     require(merged.points.size()==1&&merged.import_blocks.size()==1&&merged.import_blocks[0].point_ids.size()==1,"A single remaining imported point lost its block");
-    interchange::export_dxf(dir/"mixed-roundtrip.dxf",mixed);const auto mixed_entities=test::read_dxf_entities(dir/"mixed-roundtrip.dxf");require(mixed_entities.size()==4&&std::ranges::count_if(mixed_entities,[](const auto& e){return e.type=="POINT";})==3,"Mixed export lost coincident explicit points");
+    interchange::export_dxf(dir/"mixed-roundtrip.dxf",mixed);const auto mixed_entities=test::read_dxf_entities(dir/"mixed-roundtrip.dxf");require(mixed_entities.size()==2&&std::ranges::count_if(mixed_entities,[](const auto& e){return e.type=="POINT";})==1,"Mixed manufacturing export lost the ordinary point or retained construction points");
     test::write_dxf_points(dir/"inch.dxf",false,1);auto inch=sketcher::Sketch::create_default();static_cast<void>(interchange::import_dxf(dir/"inch.dxf",inch,10));near(inch.points[1].x,25.4);near(inch.points[1].y,50.8);
     test::write_dxf_points(dir/"unitless.dxf",false,0);auto scaled=sketcher::Sketch::create_default();static_cast<void>(interchange::import_dxf(dir/"unitless.dxf",scaled,10));near(scaled.points[1].x,10);near(scaled.points[1].y,20);
     for(const auto& bad:std::vector<std::string>{"10\n0\n20\n0\n30\n1\n","10\n0\n","10\nnan\n20\n0\n","10\n0\n20\n0\n210\n1\n"}) {

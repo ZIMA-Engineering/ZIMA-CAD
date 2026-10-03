@@ -246,3 +246,27 @@ shape, unchanged calculation precision, native geometry fingerprints after
 save/reopen, and Undo/Redo. Existing Feature GUI, chained Sketch fillet, Feature
 parameter and profile-centreline regressions also passed. These fixtures do not
 yet prove all mixed-unit/nested Assembly or relation-regeneration cases.
+
+
+The Sketch input stage uses canonical unit fields for plane offsets, flat/Bend
+parameters, spline control points, offsets and modeling text. Drawing text height
+remains a paper-millimetre value. K factors remain dimensionless. View dimension
+entry and Sketch Dimension Properties accept arithmetic with one optional
+trailing unit, including decimal commas and points. An explicit suffix converts
+only the submitted value; it does not change document metadata. Invalid units
+are rejected, and the error messages are translated in all five languages.
+
+The expanded Feature unit contract passed all eight length/angle combinations,
+including precise unchanged values, signed zero, invalid-expression retention,
+explicit suffixes, Sketch Properties, spline points and modeling/paper text.
+The inline View unit contract passed mm-to-inch and inch-to-mm entry, unchanged
+confirmation, native geometry fingerprints, Undo/Redo and pending Properties
+Cancel. Full UI contracts, ordinary dimension edits, numeric locks/layout and
+five-language catalogs passed. These checks do not yet establish converted
+nominal View labels, Family/Relations conversion or manufacturing tolerances.
+
+The current DXF point/spline tests also pass after rebuilding their executables.
+The point export assertion now follows the established manufacturing export
+policy: construction points remain in native persistence but are omitted from
+manufacturing DXF. Ordinary coincident points retain separate exported entities.
+No DXF production behavior was changed in this stage.

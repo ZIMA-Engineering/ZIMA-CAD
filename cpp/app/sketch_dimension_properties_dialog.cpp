@@ -16,13 +16,13 @@
 namespace zima::app {
 namespace {
 
-QDoubleSpinBox* dimension_field(double value, const char* name, QWidget* parent) {
-    auto* field = new ExpressionDoubleSpinBox(parent);
+QDoubleSpinBox* dimension_field(double value, const char* name, QWidget* parent,
+                               ui::InputQuantity quantity) {
+    auto* field = new UnitExpressionDoubleSpinBox(quantity,parent);
     field->setObjectName(name);
     field->setRange(-1'000'000.0, 1'000'000.0);
-    field->setDecimals(zima::ui::numeric_decimal_places(parent));
+    field->set_display_decimals(zima::ui::numeric_decimal_places(parent));
     field->setSingleStep(1.0);
-    field->setSuffix("mm");
     field->setValue(value);
     return field;
 }
@@ -40,7 +40,11 @@ SketchDimensionPropertiesDialog::SketchDimensionPropertiesDialog(
     setMinimumWidth(340);
     setMinimumHeight(560);
     form_ = new QFormLayout;
-    value_ = dimension_field(zima::sketcher::dimension_display_value(initial_), "sketchDimensionValue", this);
+    using Kind=zima::sketcher::DimensionKind;
+    const bool angular=initial_.kind==Kind::Angle||initial_.kind==Kind::AngleBetween||
+        initial_.kind==Kind::AngleThreePoint||initial_.kind==Kind::AngleSymmetric||initial_.kind==Kind::EllipseRotation;
+    value_ = dimension_field(zima::sketcher::dimension_display_value(initial_), "sketchDimensionValue", this,
+        angular?ui::InputQuantity::Angle:ui::InputQuantity::Length);
     form_->addRow(tr("Jmenovitá hodnota"), value_);
     driving_ = new QCheckBox(tr("Řídicí kóta"), this);
     driving_->setObjectName("sketchDimensionDriving");
@@ -57,13 +61,8 @@ SketchDimensionPropertiesDialog::SketchDimensionPropertiesDialog(
         initial_.kind == zima::sketcher::DimensionKind::AngleBetween ||
         initial_.kind == zima::sketcher::DimensionKind::EllipseRotation) {
         value_->setRange(-180.0, 180.0);
-        value_->setSuffix(" °");
     } else if (initial_.kind == zima::sketcher::DimensionKind::AngleSymmetric) {
         value_->setRange(0.0, 360.0);
-        value_->setSuffix(" °");
-    } else if (initial_.kind ==
-               zima::sketcher::DimensionKind::AngleThreePoint) {
-        value_->setSuffix(" °");
     }
     tabs_=new QTabWidget(this);content_layout()->addWidget(tabs_);
     auto* values=new QWidget(tabs_);auto* column=new QVBoxLayout(values);column->addLayout(form_);
@@ -116,12 +115,12 @@ bool SketchDimensionPropertiesDialog::submit() {
     result.single_tolerance=style.single_tolerance;result.upper_tolerance=style.upper_tolerance;result.lower_tolerance=style.lower_tolerance;
     try {
         result.value = zima::sketcher::dimension_value_from_input(initial_,
-            static_cast<ExpressionDoubleSpinBox*>(value_)->expression_value());
+            static_cast<UnitExpressionDoubleSpinBox*>(value_)->expression_value());
         zima::sketcher::validate_dimension_property_value(result);
         if(placement_fields_&&pending_layout_)pending_layout_(placement_fields_->value());
         commit_(std::move(result));
     } catch (const std::exception& failure) {
-        error_->setText(QString::fromUtf8(failure.what()));
+        error_->setText(tr(failure.what()));
         return false;
     }
     return true;

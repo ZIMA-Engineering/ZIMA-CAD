@@ -60,7 +60,8 @@ void AssemblyWorkspaceWindow::edit_dimension_inline(
     if (candidate.semantic_key.starts_with("measurement:")) return;
     if(parameter_value_locked(candidate.owner_id,candidate.semantic_key).value_or(false)){state_->setText(tr("Hodnota je zamčená. Nejprve ji odemkněte."));return;}
     const auto value = viewer_->candidate_dimension_value(candidate);
-    if (!value || candidate.kind != zima::viewer::CandidateKind::Dimension) return;
+    const auto dimension = viewer_->dimension_source(candidate);
+    if (!value||!dimension||dimension->reference.instance_path!=candidate.instance_path) return;
     if (candidate.semantic_key == "parameter:thread_designation") {
         if (!sketch_drag_dimension_id_.empty()) end_sketch_dimension_drag();
         auto* dialog = dynamic_cast<PrimitivePropertiesDialog*>(primitive_reference_dialog_);
@@ -133,23 +134,29 @@ void AssemblyWorkspaceWindow::edit_dimension_inline(
     const auto identifier = dimension_identifier(candidate.owner_id, candidate.semantic_key);
     edit->setProperty("dimensionIdentifier", identifier);
     edit->setToolTip(identifier);
-    edit->setText(QString::fromStdString(kernel::dimension_number(
-        *value, viewer_->dimension_decimal_places())));
+    const auto quantity=dimension->kind==kernel::ViewerDimensionKind::Angular?ui::InputQuantity::Angle:
+        dimension->label_only&&dimension->unit_suffix.empty()?ui::InputQuantity::Scalar:ui::InputQuantity::Length;
+    const auto unit=quantity==ui::InputQuantity::Length?ui::document_unit(this,"Length","mm"):
+        quantity==ui::InputQuantity::Angle?ui::document_unit(this,"Angle","deg"):QString{};
+    const double native_per_unit=quantity==ui::InputQuantity::Length?document::length_unit_mm(unit.toStdString()):
+        quantity==ui::InputQuantity::Angle&&unit=="rad"?180./std::numbers::pi:1.;
+    const auto initial_text=QString::fromStdString(kernel::dimension_number(
+        *value/native_per_unit, viewer_->dimension_decimal_places()))+(unit.isEmpty()?QString{}:QStringLiteral(" ")+unit);
+    edit->setText(initial_text);
     const QPoint pointer = label_position.value_or(viewer_->last_pointer_position());
     edit->move(std::clamp(pointer.x() - edit->width() / 2, 0,
                              std::max(0, viewer_->width() - edit->width())),
                std::clamp(pointer.y() - edit->height() / 2, 0,
                              std::max(0, viewer_->height() - edit->height())));
     const QPointer<InlineDimensionEdit> guarded(edit);
-    const auto commit = [this, candidate, guarded] {
+    const auto commit = [this, candidate, guarded,quantity,native_per_unit,initial_text,original=*value] {
         if (guarded.isNull() || guarded->property("committed").toBool() ||
             guarded->property("cancelled").toBool()) return;
         guarded->setProperty("committed", true);
         QString text = guarded->text().trimmed();
-        text.replace(',', '.');
         bool valid{true};
         double parsed_value{};
-        try { parsed_value = numeric_expression_value(text); }
+        try { parsed_value = text==initial_text?original:quantity_expression_value(text,quantity,native_per_unit); }
         catch (const std::exception&) { valid = false; }
         if (!valid || !std::isfinite(parsed_value)) {
             guarded->setProperty("committed", false);
@@ -158,8 +165,10 @@ void AssemblyWorkspaceWindow::edit_dimension_inline(
             guarded->selectAll();
             return;
         }
-        const double next_value = rounded_to_decimal_places(
-            parsed_value, viewer_->dimension_decimal_places());
+        const double next_value = parsed_value;
+        if(next_value==original&&std::signbit(next_value)==std::signbit(original)) {
+            guarded->hide();guarded->deleteLater();return;
+        }
         try {
             if(parameter_value_locked(candidate.owner_id,candidate.semantic_key).value_or(false))throw std::runtime_error(tr("Hodnota je zamčená.").toStdString());
             if(candidate.semantic_key.starts_with("parameter:pattern:")&&!properties_dialog_) {

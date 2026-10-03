@@ -2,6 +2,12 @@
 #include "construction_properties_dialog.hpp"
 #include "sweep2d_dialog.hpp"
 #include "helical_sweep_dialog.hpp"
+#include "numeric_expression_edit.hpp"
+#include "sketch_dimension_properties_dialog.hpp"
+#include "sketch_properties_dialog.hpp"
+#include "sketch_bspline_properties_dialog.hpp"
+#include "sketch_text_properties_dialog.hpp"
+#include "sketch_offset_dialog.hpp"
 #include <zima/document/physical_properties.hpp>
 #include <zima/ui/unit_spin_box.hpp>
 #include <QApplication>
@@ -25,6 +31,76 @@ void enter(QDoubleSpinBox* field,const QString& text) {
     check(field,"Feature numeric field is missing");
     field->findChild<QLineEdit*>()->setText(text);field->interpretText();
 }
+void sketch_inputs(QApplication& application,QWidget& parent,double scale,double angle_scale) {
+    using namespace zima;
+    for(const auto quantity:{ui::InputQuantity::Length,ui::InputQuantity::Angle}) {
+        const double factor=quantity==ui::InputQuantity::Length?scale:angle_scale;
+        app::UnitExpressionDoubleSpinBox field(quantity,&parent);
+        field.setLocale(QLocale::c());field.setRange(-1e9,1e9);field.setValue(.123456789123);
+        check(field.expression_value()==field.value(),"Unchanged dimension expression lost exact value");
+        field.findChild<QLineEdit*>()->setText("1/2 + 0.125");near(field.expression_value(),.625*factor);
+        field.interpretText();near(field.value(),.625*factor);
+        field.findChild<QLineEdit*>()->setText("-0");
+        QFocusEvent out(QEvent::FocusOut);QApplication::sendEvent(&field,&out);
+        check(field.expression_value()==0&&std::signbit(field.expression_value()),"Expression focus-out lost authored negative zero");
+        field.findChild<QLineEdit*>()->setText("1 / 0");const auto invalid_text=field.findChild<QLineEdit*>()->text();QApplication::sendEvent(&field,&out);
+        bool rejected=false;try{static_cast<void>(field.expression_value());}catch(const std::exception&){rejected=true;}
+        check(rejected,"Invalid expression was accepted");check(field.findChild<QLineEdit*>()->text()==invalid_text,"Invalid expression was silently repaired");
+        field.findChild<QLineEdit*>()->setText(quantity==ui::InputQuantity::Length?"0,254inch":".5rad");
+        near(field.expression_value(),quantity==ui::InputQuantity::Length?6.4516:.5*180./std::numbers::pi);
+        field.findChild<QLineEdit*>()->setText(quantity==ui::InputQuantity::Length?"25,4mm":"90deg");
+        near(field.expression_value(),quantity==ui::InputQuantity::Length?25.4:90.);
+        field.findChild<QLineEdit*>()->setText(quantity==ui::InputQuantity::Length?"1rad":"1mm");
+        rejected=false;try{static_cast<void>(field.expression_value());}catch(const std::exception&){rejected=true;}
+        check(rejected,"Incompatible dimension unit was accepted");
+    }
+    for(const auto kind:{sketcher::DimensionKind::Distance,sketcher::DimensionKind::AngleBetween}) {
+        sketcher::SketchDimension initial{"units",kind,"first","second",12.3456789};
+        std::optional<sketcher::SketchDimension> stored;
+        auto* dialog=new app::SketchDimensionPropertiesDialog(initial,true,[&](auto d){stored=std::move(d);},&parent);
+        dialog->setLocale(QLocale::c());
+        auto* field=dialog->findChild<QDoubleSpinBox*>("sketchDimensionValue");
+        auto* unit=dynamic_cast<app::UnitExpressionDoubleSpinBox*>(field);
+        const double factor=kind==sketcher::DimensionKind::Distance?scale:angle_scale;
+        check(unit&&unit->native_per_unit()==factor,"Sketch dimension uses incorrect units");
+        unit->findChild<QLineEdit*>()->setText(kind==sketcher::DimensionKind::Distance?"(1/2 + .125)in":"90deg");
+        dialog->buttons()->button(QDialogButtonBox::Ok)->click();application.processEvents();
+        check(stored.has_value(),"Converted Sketch dimension was not committed");
+        near(sketcher::dimension_display_value(*stored),kind==sketcher::DimensionKind::Distance?.625*25.4:90.);
+    }
+    sketcher::Sketch sketch;sketch.plane_offset=.123456789;
+    auto* properties=new app::SketchPropertiesDialog(sketch,{},true,{},[](auto,auto,bool){},&parent);
+    properties->setLocale(QLocale::c());
+    auto* offset=properties->findChild<QDoubleSpinBox*>("sketchPlaneOffset");
+    enter(offset,offset->text());check(properties->pending_value().first.plane_offset==sketch.plane_offset,"Sketch plane no-op lost precision");
+    enter(offset,".125");near(properties->pending_value().first.plane_offset,.125*scale);
+    properties->reject();application.processEvents();
+    const std::vector<std::array<double,2>> points{{.123456789,0},{10,20},{30,40},{50,60}};
+    std::vector<std::array<double,2>> saved_points;
+    auto* spline=new app::SketchBSplinePropertiesDialog(3,false,points,[&](auto,bool,const auto& p){saved_points=p;},&parent);
+    spline->setLocale(QLocale::c());
+    auto* x=spline->findChild<QDoubleSpinBox*>("splineX1");enter(x,".125");
+    spline->buttons()->button(QDialogButtonBox::Ok)->click();application.processEvents();
+    check(saved_points.size()==points.size()&&saved_points[0]==points[0],"Spline edit changed untouched precise points");
+    near(saved_points[1][0],.125*scale);
+    for(const bool paper:{false,true}) {
+        sketcher::SketchText text;text.value="A";text.height=2.5123456789;
+        std::optional<sketcher::SketchText> saved;
+        auto* dialog=new app::SketchTextPropertiesDialog(text,std::array<double,2>{0,0},{},[&](auto t){saved=std::move(t);},&parent,false,paper);
+        dialog->setLocale(QLocale::c());
+        auto* height=dialog->findChild<QDoubleSpinBox*>("sketchTextHeight");
+        auto* angle=dialog->findChild<QDoubleSpinBox*>("sketchTextAngle");
+        enter(height,".125");enter(angle,".5");
+        dialog->buttons()->button(QDialogButtonBox::Ok)->click();application.processEvents();
+        check(saved.has_value(),"Text was not committed");near(saved->height,.125*(paper?1:scale));near(saved->angle_degrees,.5*(paper?1:angle_scale));
+    }
+    sketcher::SketchOffset definition;definition.distance=.123456789;definition.source_id="source";
+    auto* offset_dialog=new app::SketchOffsetDialog(definition,[](auto,bool){},&parent);offset_dialog->setLocale(QLocale::c());
+    auto* distance=offset_dialog->findChild<QDoubleSpinBox*>("sketchOffsetDistance");
+    enter(distance,distance->text());check(offset_dialog->values().distance==definition.distance,"Unchanged Sketch offset lost precision");
+    enter(distance,".125");near(offset_dialog->values().distance,.125*scale);
+    offset_dialog->reject();application.processEvents();
+}
 }
 
 int verify_feature_unit_input(QApplication& app,QWidget& parent) {
@@ -35,6 +111,7 @@ int verify_feature_unit_input(QApplication& app,QWidget& parent) {
         parent.setProperty("zimaDocumentUnits",QVariantMap{{"Length",unit},{"Angle",angular}});
         const double scale=document::length_unit_mm(unit);
         const double angle_scale=QString(angular)=="rad"?180./std::numbers::pi:1.;
+        sketch_inputs(app,parent,scale,angle_scale);
         const auto check_primitive=[&](document::HistoryContainer initial,const char* length_name,
                                      const char* angle_name,const char* scalar_name=nullptr) {
             int calls=0;

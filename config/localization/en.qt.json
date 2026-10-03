@@ -2015,5 +2015,7 @@
   "Remove this element from the selection": "Remove this element from the selection",
   "Select at least one eligible solid element.": "Select at least one eligible solid element.",
   "A selected solid element is unavailable.": "A selected solid element is unavailable.",
-  "Straightening requires connected, tangent-continuous Sweep segments.": "Straightening requires connected, tangent-continuous Sweep segments."
+  "Straightening requires connected, tangent-continuous Sweep segments.": "Straightening requires connected, tangent-continuous Sweep segments.",
+  "Unit does not match the dimension.": "Unit does not match the dimension.",
+  "Invalid numeric expression.": "Invalid numeric expression."
 }

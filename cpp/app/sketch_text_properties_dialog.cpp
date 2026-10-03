@@ -3,6 +3,7 @@
 #include "sketch_text_properties_dialog.hpp"
 #include "annotation_symbols.hpp"
 #include <zima/sketcher/text_geometry.hpp>
+#include <zima/ui/unit_spin_box.hpp>
 
 #include <QCheckBox>
 #include <QComboBox>
@@ -56,11 +57,12 @@ SketchTextPropertiesDialog::SketchTextPropertiesDialog(
     connect(mode_, &QComboBox::currentIndexChanged,
             this, &SketchTextPropertiesDialog::update_preview);
 
-    height_ = new QDoubleSpinBox(this);
+    auto* height=new zima::ui::UnitDoubleSpinBox(drawing_text?zima::ui::InputQuantity::Scalar:zima::ui::InputQuantity::Length,this);
+    height_ = height;
     height_->setObjectName("sketchTextHeight");
     height_->setRange(0.01, 1'000'000.0);
-    height_->setDecimals(zima::ui::numeric_decimal_places(this,3));
-    height_->setSuffix(tr(" mm"));
+    height->set_display_decimals(zima::ui::numeric_decimal_places(this,3));
+    if(drawing_text)height_->setSuffix(tr(" mm"));
     height_->setValue(initial_.height);
     form->addRow(tr("Výška"), height_);
 
@@ -114,11 +116,12 @@ SketchTextPropertiesDialog::SketchTextPropertiesDialog(
     color_->setCurrentIndex(color_->findData(static_cast<int>(initial_.color)));
     form->addRow(tr("Barva"), color_);
 
-    angle_ = new QDoubleSpinBox(this);
+    auto* angle=new zima::ui::UnitDoubleSpinBox(drawing_text?zima::ui::InputQuantity::Scalar:zima::ui::InputQuantity::Angle,this);
+    angle_ = angle;
     angle_->setObjectName("sketchTextAngle");
     angle_->setRange(-360'000.0, 360'000.0);
-    angle_->setDecimals(zima::ui::numeric_decimal_places(this,3));
-    angle_->setSuffix(tr("°"));
+    angle->set_display_decimals(zima::ui::numeric_decimal_places(this,3));
+    if(drawing_text)angle_->setSuffix(tr("°"));
     angle_->setValue(initial_.angle_degrees);
     form->addRow(tr("Natočení"), angle_);
     if(action_settings) {

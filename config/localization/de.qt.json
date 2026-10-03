@@ -2015,5 +2015,7 @@
   "Remove this element from the selection": "Dieses Element aus der Auswahl entfernen",
   "Select at least one eligible solid element.": "Wählen Sie mindestens ein geeignetes Volumenelement aus.",
   "A selected solid element is unavailable.": "Ein ausgewähltes Volumenelement ist nicht verfügbar.",
-  "Straightening requires connected, tangent-continuous Sweep segments.": "Geraderichten erfordert zusammenhängende, tangential anschließende Sweep-Abschnitte."
+  "Straightening requires connected, tangent-continuous Sweep segments.": "Geraderichten erfordert zusammenhängende, tangential anschließende Sweep-Abschnitte.",
+  "Unit does not match the dimension.": "Die Einheit passt nicht zur Maßgröße.",
+  "Invalid numeric expression.": "Ungültiger numerischer Ausdruck."
 }

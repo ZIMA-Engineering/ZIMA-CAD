@@ -2,6 +2,7 @@
 #include <zima/sketcher/sketch.hpp>
 #include <zima/ui/properties_subwindow.hpp>
 #include <zima/ui/reference_cell.hpp>
+#include <zima/ui/unit_spin_box.hpp>
 #include <QCheckBox>
 #include <QDialogButtonBox>
 #include <QDoubleSpinBox>
@@ -31,8 +32,9 @@ public:
         table_->setCellWidget(0,1,ui::centered_cell_widget(eye_));
         connect(table_,&QTableWidget::cellClicked,this,[this](int,int column){if(column==0){armed_=true;notify();}});
         form->addRow(tr("Zdrojová křivka"),table_);
-        distance_=new QDoubleSpinBox(this);distance_->setObjectName("sketchOffsetDistance");distance_->setDecimals(8);
-        distance_->setRange(.00000001,1e6);distance_->setSuffix(tr(" mm"));distance_->setValue(pending_.distance);
+        auto* distance=new ui::UnitDoubleSpinBox(ui::InputQuantity::Length,this);distance_=distance;
+        distance_->setObjectName("sketchOffsetDistance");distance->set_display_decimals(8);
+        distance_->setRange(.00000001,1e6);distance_->setValue(pending_.distance);
         form->addRow(tr("Vzdálenost"),distance_);
         flip_=new QPushButton(tr("Flip"),this);flip_->setObjectName("sketchOffsetFlip");flip_->setCheckable(true);flip_->setChecked(pending_.flipped);
         form->addRow(tr("Strana odsazení"),flip_);

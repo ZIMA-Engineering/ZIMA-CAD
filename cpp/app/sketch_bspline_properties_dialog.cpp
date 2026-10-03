@@ -1,4 +1,5 @@
 #include "sketch_bspline_properties_dialog.hpp"
+#include <zima/ui/unit_spin_box.hpp>
 
 #include <QDoubleSpinBox>
 #include <QCheckBox>
@@ -31,15 +32,16 @@ SketchBSplinePropertiesDialog::SketchBSplinePropertiesDialog(
 
     auto* points = new QGridLayout;
     points->addWidget(new QLabel(tr("Řídicí bod"), this), 0, 0);
-    points->addWidget(new QLabel(tr("X [mm]"), this), 0, 1);
-    points->addWidget(new QLabel(tr("Y [mm]"), this), 0, 2);
+    points->addWidget(new QLabel(QStringLiteral("X"), this), 0, 1);
+    points->addWidget(new QLabel(QStringLiteral("Y"), this), 0, 2);
     for (std::size_t index = 0; index < control_points.size(); ++index) {
-        auto* x = new QDoubleSpinBox(this);
-        auto* y = new QDoubleSpinBox(this);
+        auto* x = new zima::ui::UnitDoubleSpinBox(zima::ui::InputQuantity::Length,this);
+        auto* y = new zima::ui::UnitDoubleSpinBox(zima::ui::InputQuantity::Length,this);
+        x->setObjectName(QString("splineX%1").arg(index));
+        y->setObjectName(QString("splineY%1").arg(index));
         for (auto* value : {x, y}) {
             value->setRange(-1'000'000.0, 1'000'000.0);
-            value->setDecimals(zima::ui::numeric_decimal_places(this,3));
-            value->setSuffix(" mm");
+            value->set_display_decimals(zima::ui::numeric_decimal_places(this,3));
         }
         x->setValue(control_points[index][0]);
         y->setValue(control_points[index][1]);

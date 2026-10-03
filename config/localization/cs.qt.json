@@ -2015,5 +2015,7 @@
   "Remove this element from the selection": "Odebrat tento prvek z výběru",
   "Select at least one eligible solid element.": "Vyberte alespoň jeden vhodný objemový prvek.",
   "A selected solid element is unavailable.": "Vybraný objemový prvek není dostupný.",
-  "Straightening requires connected, tangent-continuous Sweep segments.": "Narovnání vyžaduje spojené, tečně navazující úseky tažení."
+  "Straightening requires connected, tangent-continuous Sweep segments.": "Narovnání vyžaduje spojené, tečně navazující úseky tažení.",
+  "Unit does not match the dimension.": "Jednotka neodpovídá veličině kóty.",
+  "Invalid numeric expression.": "Neplatný číselný výraz."
 }

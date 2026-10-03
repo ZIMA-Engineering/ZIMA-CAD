@@ -6219,8 +6219,9 @@ int verify_body_reference_dimension_edit(QApplication& application, const std::f
 }
 
 int verify_inline_primitive_dimensions(QApplication& application, const std::filesystem::path& directory) {
-    if (verify_profile_offset_dimension_plane(application,directory)!=0) return 1;
-    if (verify_body_reference_dimension_edit(application,directory)!=0) return 1;
+    const bool units_only=qEnvironmentVariableIsSet("ZIMA_VERIFY_INLINE_UNITS_ONLY");
+    if (!units_only&&verify_profile_offset_dimension_plane(application,directory)!=0) return 1;
+    if (!units_only&&verify_body_reference_dimension_edit(application,directory)!=0) return 1;
     using namespace zima;
     const auto check=[](bool ok,const char* message){if(!ok)throw std::runtime_error(message);};
     const auto flush=[&]{application.processEvents();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);application.processEvents();};
@@ -6243,11 +6244,14 @@ int verify_inline_primitive_dimensions(QApplication& application, const std::fil
         {D::create_thread_container(),"placement:z",[](auto& c)->double&{return c.placement.z;}}
     };
     try {
-        for(auto test:cases) {
+        for(const auto& unit:units_only?std::vector<std::string>{"mm","in"}:std::vector<std::string>{"mm"})for(auto test:cases) {
+            if(units_only&&test.key!="bore_length")continue;
             std::cout<<"Inline primitive "<<static_cast<int>(test.feature.feature_kind)<<' '<<test.key<<std::endl;
             if(test.feature.feature_kind==document::FeatureKind::Thread) test.feature.thread.enabled=test.key=="thread_length";
             test.field(test.feature)=5;
             auto document=D::create_default();
+            document.document_units["Length"]=unit;
+            if(units_only)test.field(test.feature)=5.123456789;
             document::BodyHistoryGraph graph;const auto body=graph.create_body("Dimension audit");
             if(test.feature.feature_kind==document::FeatureKind::Thread || test.feature.feature_kind==document::FeatureKind::Shell) {
                 auto base=zima::test::rectangular_feature(document,{60,60,60});base.placement.x=-30;base.placement.y=-30;
@@ -6269,13 +6273,14 @@ int verify_inline_primitive_dimensions(QApplication& application, const std::fil
                 flush();for(auto* d:window.findChildren<QDialog*>())if(auto* p=dynamic_cast<app::PrimitivePropertiesDialog*>(d);p&&p->isVisible())return p;
                 return nullptr;
             };
-            const auto edit=[&](double value) {
+            const auto edit=[&](double value,QString input={}) {
                 viewer::ViewerCandidate c;c.kind=viewer::CandidateKind::Dimension;c.owner_id=test.feature.id;c.semantic_key="parameter:"+test.key;
                 bool found=false;
                 for(std::size_t i=0;i<view->mesh().dimensions.size()+32;++i){c.geometry_index=i;if(view->candidate_dimension_value(c)){found=true;break;}}
                 check(found,"Editable primitive dimension is absent");
                 window.edit_dimension_inline(c);flush();auto* e=view->findChild<QLineEdit*>("inlineDimensionValueEdit");
-                check(e&&e->isVisible(),"Primitive dimension does not open its editor");e->setText(QString::number(value));
+                check(e&&e->isVisible(),"Primitive dimension does not open its editor");
+                if(input!="unchanged")e->setText(input.isEmpty()?QString::number(value):input);
                 QKeyEvent enter(QEvent::KeyPress,Qt::Key_Return,Qt::NoModifier);QApplication::sendEvent(e,&enter);flush();
             };
             const auto saved_value=[&](double value) {
@@ -6286,7 +6291,21 @@ int verify_inline_primitive_dimensions(QApplication& application, const std::fil
                 check(!results.empty()&&results.back().source_fingerprint==kernel::history_fingerprint(operations,operations.size()),
                     "Dimension value and calculated body use different inputs");
             };
-            window.show_parameter_dimensions(test.feature.id);flush();edit(6);saved_value(6);
+            window.show_parameter_dimensions(test.feature.id);flush();
+            if(units_only) {
+                auto* undo=window.findChild<QAction*>("undoAction");const bool before_undo=undo->isEnabled();
+                edit(0,"unchanged");saved_value(5.123456789);
+                check(undo->isEnabled()==before_undo,"Unchanged unit input created an Undo transaction");
+                edit(0,unit=="mm"?"0,254inch":"25,4mm");saved_value(unit=="mm"?6.4516:25.4);
+                undo->trigger();flush();saved_value(5.123456789);
+                window.findChild<QAction*>("redoAction")->trigger();flush();saved_value(unit=="mm"?6.4516:25.4);
+                auto* dialog=open();check(dialog,"Cannot open unit input Properties");
+                edit(0,"(1/2 + .125)in");auto pending=dialog->pending_value();
+                check(std::abs(test.field(pending)-15.875)<1e-10,"Explicit unit did not update pending Properties");
+                dialog->buttons()->button(QDialogButtonBox::Cancel)->click();flush();saved_value(unit=="mm"?6.4516:25.4);
+                continue;
+            }
+            edit(6);saved_value(6);
             auto* dialog=open();check(dialog,"Cannot open primitive Properties");edit(7);saved_value(6);
             auto pending=dialog->pending_value();
             check(std::abs(test.field(pending)-7)<1e-7,"View edit did not update pending Properties");

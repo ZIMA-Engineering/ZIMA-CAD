@@ -24,6 +24,7 @@
 #include "mass_properties_dialog.hpp"
 #include "dimension_properties_fields.hpp"
 #include "component_properties_dialog.hpp"
+#include "sketch_dimension_properties_dialog.hpp"
 #include <QAction>
 #include <QApplication>
 #include <QDialogButtonBox>
@@ -122,6 +123,21 @@ int verify_translations(QApplication& application, QWidget& parent) {
             !settings.translations.contains("Zamknout hodnotu"), "INI sections were mixed");
         app::apply_application_translations(application, settings);
         application.processEvents();
+        {
+            sketcher::SketchDimension dimension{"units",sketcher::DimensionKind::Distance,"first","second",10};
+            app::SketchDimensionPropertiesDialog dialog(dimension,true,[](auto){},&parent);
+            dialog.setAttribute(Qt::WA_DeleteOnClose,false);dialog.show();application.processEvents();
+            auto* field=dialog.findChild<QDoubleSpinBox*>("sketchDimensionValue");
+            for(const auto& [input,message]:std::array<std::pair<const char*,const char*>,2>{{
+                    {"1rad","Unit does not match the dimension."},{"nonsense","Invalid numeric expression."}}}) {
+                field->findChild<QLineEdit*>()->setText(input);
+                dialog.buttons()->button(QDialogButtonBox::Ok)->click();application.processEvents();
+                const auto labels=dialog.findChildren<QLabel*>();
+                check(std::ranges::any_of(labels,[&](auto* label){return label->text()==settings.qt_translations.value(message);}),
+                    "Unit input validation is not translated in the dimension dialog");
+            }
+            dialog.reject();
+        }
         {
             const auto check_modes=[&](auto& dialog,const char* mode_name,const char* thickness_name) {
                 dialog.show();application.processEvents();

@@ -85,6 +85,16 @@ still must satisfy the dimension's geometry and limits. Incomplete expressions,
 division by zero and non-finite results cannot commit or silently restore an
 old value. Only the numeric result is stored, not a persistent relation.
 
+Dimension value entry also accepts a trailing length unit (`mm`, `cm`, `m`,
+`in`, `inch`, `inches` or `"`) or angular unit (`deg`, `°`, `rad`). The suffix
+applies to the whole expression: `(1/2 + .125)in` means 15.875 mm. Without a
+suffix, the current document unit applies. For example, entering `0,254inch`
+in a millimetre document gives 6.4516 mm; entering `25,4mm` in an inch document
+gives 1 inch. The document's unit setting does not change. Length units cannot
+be used for angles or dimensionless counts. Mixed-unit terms inside one
+expression are not supported. Confirming an unchanged displayed value retains
+the exact stored value, even if the display shows fewer decimal places.
+
 Placing a dimension keeps Dimension active for another one. Quick MMB
 double-click returns to Select; double-clicking an existing dimension edits its
 value. Reopening the Dimension command is not needed to finish it.

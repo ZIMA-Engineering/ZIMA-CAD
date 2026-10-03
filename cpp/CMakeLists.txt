@@ -716,6 +716,10 @@ if(ZIMA_BUILD_TESTS)
         ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_BEND_ATTACHMENT_ONLY=1"
         WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 180 RUN_SERIAL TRUE)
     add_test(NAME zima_cpp_dimension_edits_ui_contract COMMAND zima-cad-cpp --verify-startup)
+    add_test(NAME zima_cpp_inline_units_ui_contract COMMAND zima-cad-cpp --verify-startup)
+    set_tests_properties(zima_cpp_inline_units_ui_contract PROPERTIES
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_DIMENSION_EDITS_ONLY=1;ZIMA_VERIFY_INLINE_UNITS_ONLY=1"
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 120 RUN_SERIAL TRUE)
     set_tests_properties(zima_cpp_dimension_edits_ui_contract PROPERTIES
         ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_DIMENSION_EDITS_ONLY=1"
         WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 300 RUN_SERIAL TRUE)
@@ -784,6 +788,7 @@ if(ZIMA_BUILD_TESTS)
     target_sources(zima_cpp_ui_contract_tests PRIVATE app/sketch_properties_dialog.cpp)
     target_sources(zima_cpp_ui_contract_tests PRIVATE tests/feature_unit_input_contract.cpp)
     target_sources(zima_cpp_ui_contract_tests PRIVATE app/sketch_dimension_properties_dialog.cpp)
+    target_sources(zima_cpp_ui_contract_tests PRIVATE app/sketch_bspline_properties_dialog.cpp)
     target_sources(zima_cpp_ui_contract_tests PRIVATE app/sketch_text_properties_dialog.cpp)
     target_include_directories(zima_cpp_ui_contract_tests PRIVATE app)
     if(MSVC)
