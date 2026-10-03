@@ -418,3 +418,33 @@ by the application. It checks all eight length/angle unit combinations, label
 hits and all three presentation grips. Existing layout/drag/annotation tests
 continue to pass. The internal invalid-unit diagnostic is translated in all five
 language catalogs; unit symbols themselves are language-independent.
+
+
+### Exact decimal conversion and Family presentation (2026-10-03)
+
+A shared decimal-string converter now distinguishes an exact finite result from
+one that would require rounding. It uses the exact 25.4 mm inch definition and
+integer decimal arithmetic, preserving explicit signs and signed zero. Invalid
+numbers, mismatched quantities, nonterminating ratios and oversized annotation
+text are rejected. Nonzero degree/radian conversions cannot have a finite exact
+decimal result and are rejected by this exact-only helper. Ordinary approximate
+numeric entry continues to use its existing parser.
+
+Family Table uses the helper for finite exact display conversions: for example,
+2.54 mm now displays as 0.1 in without a floating-point decimal tail. Nonterminating
+ordinary Family values retain their existing numeric presentation. Unchanged
+cells still preserve the original native string independently of display.
+There is no file-format change and no new user-visible text; unit symbols are
+language-independent.
+
+Rebuilt checks passed: `zima_cpp_exact_unit_conversion_tests` (including 1,000
+inch values checked against independent integer arithmetic, exact round trips,
+scientific notation, signs, invalid and repeating values),
+`zima_cpp_feature_unit_input_contract` (all document unit pairs, exact displayed
+Family values and unchanged confirmation), `zima_cpp_family_table_tests` and
+`zima_cpp_translations_contract` (all five catalogs).
+
+This is the arithmetic foundation for manufacturing tolerance conversion, not
+its completed integration. Authoritative tolerance storage, nominal values,
+property editing and drawing/export annotation behavior still require coherent
+end-to-end implementation and validation before the final units release.

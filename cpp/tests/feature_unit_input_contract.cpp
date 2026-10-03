@@ -51,7 +51,8 @@ void family_inputs(QApplication& application,QWidget& parent,double scale,double
     document::FamilyTable model;model.columns={"d1","d2","Solid"};
     for(const auto& reference:references)model.bindings[reference.name]=reference.binding;
     model.instances={{"Variant",{{"d1","0.12345678901234566"},{"d2","90.123456789012337"},{"Solid","no"}},"row"},
-        {"Inherited",{},"inherit"}};
+        {"Inherited",{},"inherit"},
+        {"Exact",{{"d1","2.54"}},"exact"}};
     app::DocumentToolData data;data.family_table=document::serialize_family_table(model);
     app::ApplicationSettings settings;int commits=0;document::FamilyTable saved;
     const auto make=[&] {
@@ -61,6 +62,8 @@ void family_inputs(QApplication& application,QWidget& parent,double scale,double
     auto* dialog=make();auto* table=dialog->findChild<QTableWidget*>("familyTableTable");
     check(table->horizontalHeaderItem(4)->text()==QString("d1 [%1]").arg(QString::fromStdString(unit))&&
         table->horizontalHeaderItem(6)->text()==QString("d2 [%1]").arg(QString::fromStdString(angle)),"Family headers omit document units");
+    const QString exact_display=unit=="in"?"0.1":unit=="cm"?"0.254":unit=="m"?"0.00254":"2.54";
+    check(table->item(3,4)->text()==exact_display,"Exact Family conversion acquired binary decimal tails");
     near(table->item(0,4)->text().toDouble(),10.5/scale);
     near(table->item(1,4)->text().toDouble(),.12345678901234566/scale);
     near(table->item(0,6)->text().toDouble(),90./angle_scale);

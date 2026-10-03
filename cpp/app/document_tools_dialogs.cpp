@@ -2,6 +2,7 @@
 #include "relation_text_editor.hpp"
 #include "numeric_expression_edit.hpp"
 #include <zima/document/relation_program.hpp>
+#include <zima/document/exact_unit_conversion.hpp>
 #include <QFile>
 #include <QSaveFile>
 #include <QStringDecoder>
@@ -67,6 +68,11 @@ constexpr int family_display_role=Qt::UserRole+1;
 QString family_display_value(const QString& native,const zima::workspace::FamilyReference& reference) {
     bool valid{};const double value=native.toDouble(&valid);
     if(!valid||!std::isfinite(value)||reference.binding.kind!="dimension")return native;
+    const auto source_unit=reference.unit=="deg"||reference.unit=="rad"?"deg":"mm";
+    if(const auto exact=document::exact_decimal_unit_conversion(native.toStdString(),source_unit,reference.unit))
+        return QString::fromStdString(*exact);
+    // Ordinary Family input can be approximate in the selected display unit;
+    // unchanged cells retain their exact native strings independently.
     auto result=QString::number(value/reference.native_scale,'g',17);
     if(value==0&&std::signbit(value)&&!result.startsWith('-'))result.prepend('-');
     return result;
