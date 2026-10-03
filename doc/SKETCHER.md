@@ -180,6 +180,15 @@ The radius dimension drives the Sketch and is editable by double-click. Like
 other Sketch dimensions it is hidden in ordinary result View, while the arc
 remains part of the profile.
 
+Both ends of one segment can be rounded when there is enough straight length
+for both radii. Equal-length constraints continue to control the original,
+untrimmed segments. The derived filleted profile must not reapply those length
+equalities to shortened legs: doing so can reject a valid second corner or move
+the first fillet. The native source points, segments, dimensions and constraints
+remain unchanged. The constrained L-profile regression covers the second-end
+drag in a Feature Sketch, preservation of the first radius, Undo/Redo and native
+save/reopen.
+
 For drawn segments/construction lines, automatic direction inference is stored
 as point-level `H/V` on the second point, not another whole-line constraint.
 If both ends are already coincident with the origin or constrained to the same

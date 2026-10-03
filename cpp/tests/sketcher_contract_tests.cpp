@@ -24,6 +24,46 @@ void require(bool condition, const char* message) {
 int main() {
     try {
         using zima::sketcher::DimensionKind;
+        {
+            // L profile: the inner leg is rounded at both ends, while the
+            // untrimmed five-millimetre ends remain constrained equal.
+            using namespace zima::sketcher;
+            auto profile=Sketch::create_default();
+            for(const auto xy:std::vector<std::array<double,2>>{{0,0},{50,0},{0,-50},{5,-50},{5,-5},{50,-5}})
+                profile.points.push_back(Sketch::create_point(xy[0],xy[1]));
+            for(const auto ij:std::vector<std::array<int,2>>{{0,1},{2,0},{3,4},{4,5},{1,5},{3,2}})
+                profile.segments.push_back(Sketch::create_segment(profile.points[ij[0]].id,profile.points[ij[1]].id));
+            for(const auto i:{0,3,5})static_cast<void>(profile.add_segment_constraint(profile.segments[i].id,ConstraintKind::Horizontal));
+            for(const auto i:{1,2,4})static_cast<void>(profile.add_segment_constraint(profile.segments[i].id,ConstraintKind::Vertical));
+            static_cast<void>(profile.add_point_reference_constraint(profile.points[0].id,"sketch_origin"));
+            static_cast<void>(profile.add_segment_pair_constraint(profile.segments[0].id,profile.segments[1].id,ConstraintKind::EqualLength));
+            static_cast<void>(profile.add_segment_pair_constraint(profile.segments[5].id,profile.segments[4].id,ConstraintKind::EqualLength));
+            profile.apply_dimension(profile.create_segment_dimension(profile.segments[0].id));
+            profile.apply_dimension(profile.create_segment_dimension(profile.segments[4].id));
+            const auto inner=profile.add_corner_fillet(profile.segments[2].id,profile.segments[3].id,9.559749055366167);
+            const auto original=profile;
+            const auto outer=profile.add_corner_fillet(profile.segments[2].id,profile.segments[5].id,2);
+            const auto evaluated=profile.evaluated_profile_sketch();
+            require(evaluated.arcs.size()==2,"Second end of rounded L leg lost a fillet");
+            require(profile.points==original.points && profile.segments==original.segments &&
+                profile.constraints==original.constraints && profile.dimensions==original.dimensions,
+                "Chained fillets modified the untrimmed design profile");
+            for(const auto& arc:evaluated.arcs) {
+                const auto* center=evaluated.find_point(arc.center_point_id);
+                const auto* start=evaluated.find_point(arc.start_point_id);
+                const double expected=arc.id==inner.arc_id?9.559749055366167:2;
+                require(std::abs(std::hypot(start->x-center->x,start->y-center->y)-expected)<1e-7,
+                    "Chained fillet solver changed a requested radius");
+            }
+            const auto& shared=evaluated.segments[2];
+            const auto* a=evaluated.find_point(shared.first_point_id);
+            const auto* b=evaluated.find_point(shared.second_point_id);
+            require(std::abs(a->x-5)<1e-7 && std::abs(a->y+48)<1e-7 &&
+                std::abs(b->x-5)<1e-7 && std::abs(b->y+14.559749055366167)<1e-7,
+                "Chained fillets changed the retained straight leg");
+            require(Sketch::from_serialized(profile.serialized()).evaluated_profile_sketch().arcs.size()==2,
+                "Chained L fillets failed serialization");
+        }
         // Reduced 01.prtz regression: six edge lengths, but no H/V on the
         // top and right edges. Those edges must tilt when a length changes.
         {

@@ -6259,6 +6259,15 @@ static CornerFilletResult materialize_corner_fillet(
     replace_corner(*first_segment, result.first_tangent_point_id);
     replace_corner(*second_segment, result.second_tangent_point_id);
     std::erase_if(next.constraints, [&](auto& constraint) {
+        // Equal lengths describe the untrimmed design segments. Applying
+        // them again to this derived profile would stretch a shortened leg
+        // (and move an existing fillet at its other end). The persisted source
+        // Sketch keeps the relation; only its materialized copy omits it.
+        if (constraint.kind == ConstraintKind::EqualLength &&
+            (constraint.geometry_id == first_segment_id ||
+             constraint.geometry_id == second_segment_id ||
+             constraint.second_geometry_id == first_segment_id ||
+             constraint.second_geometry_id == second_segment_id)) return true;
         if (constraint.geometry_id == first_segment_id ||
             constraint.geometry_id == second_segment_id) {
             if (constraint.kind == ConstraintKind::Horizontal ||
