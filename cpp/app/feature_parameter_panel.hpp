@@ -6,6 +6,7 @@
 #include "feature_type_control.hpp"
 #include <zima/ui/container_placement_section.hpp>
 #include <zima/ui/numeric_value_lock.hpp>
+#include <zima/ui/unit_spin_box.hpp>
 #include <zima/document/feature_parameters.hpp>
 #include <zima/document/feature_rotation_span.hpp>
 #include <QScopedValueRollback>
@@ -238,7 +239,7 @@ public:
     }
 private:
     struct Side {
-        QGroupBox* box{};QComboBox* mode{};QComboBox* end{};QDoubleSpinBox* value{};QDoubleSpinBox* draft{};QLabel* label{};QLineEdit* target{};QHBoxLayout* target_layout{};
+        QGroupBox* box{};QComboBox* mode{};QComboBox* end{};ui::UnitDoubleSpinBox* value{};ui::UnitDoubleSpinBox* draft{};QLabel* label{};QLineEdit* target{};QHBoxLayout* target_layout{};
         QFormLayout* rows{};QWidget* target_row{};bool displayed_axis{};
         document::FeatureSideParameters pending;
         int previous_mode{};
@@ -261,7 +262,7 @@ private:
     std::array<int,2> saved_modes_{{1,0}};
     document::FeatureParameters initial_;
     std::array<Side,2> sides_{};
-    QDoubleSpinBox *offset_{}, *thickness_{};
+    ui::UnitDoubleSpinBox *offset_{}, *thickness_{};
     QComboBox* thin_side_{};
     QCheckBox *origin_axis_{}, *centroid_axis_{};
     QComboBox* result_{};
@@ -311,9 +312,10 @@ private:
         for(int i=0;i<2;++i)
             operation_group_->button(i)->setChecked(active&&i==last_operation_);
     }
-    QDoubleSpinBox* number(const char* name,bool angle) {
-        auto* value=new QDoubleSpinBox(this);value->setObjectName(name);value->setDecimals(ui::numeric_decimal_places(this));
-        value->setRange(-1000000,1000000);value->setSuffix(angle?QString::fromUtf8(" °"):QString(" mm"));return value;
+    ui::UnitDoubleSpinBox* number(const char* name,bool angle) {
+        auto* value=new ui::UnitDoubleSpinBox(angle?ui::InputQuantity::Angle:ui::InputQuantity::Length,this);
+        value->setObjectName(name);
+        value->setRange(-1000000,1000000);return value;
     }
     void refresh_side(int index) {
         QScopedValueRollback refreshing(refreshing_side_,true);
@@ -331,7 +333,7 @@ private:
         s.end->setEnabled(mode!=0);s.value->setEnabled(mode!=0&&s.end->currentIndex()==0);
         refresh_operations();
         s.label->setText(mode==2?tr("Úhel"):tr("Délka"));
-        s.value->setSuffix(mode==2?QString::fromUtf8(" °"):QString(" mm"));
+        s.value->set_quantity(mode==2?ui::InputQuantity::Angle:ui::InputQuantity::Length);
         s.value->setMaximum(mode==2?360:1000000);
         s.authored_value=mode==2?s.pending.angle_degrees:s.pending.length;s.value->setValue(s.authored_value);
         s.displayed_value=s.value->value();

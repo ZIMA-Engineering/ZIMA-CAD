@@ -1,0 +1,226 @@
+# Document unit audit
+
+Status: in progress, requested on 2026-10-03. The preceding chained Sketch
+fillet and mixed Feature direction fixes are committed and their native/GUI
+regressions pass. This audit must not be reported as complete yet.
+
+## Required behavior
+
+Changing document units changes numerical presentation and interpretation of
+new input, not the physical size of existing geometry. Native lengths remain
+millimetres and native angles remain degrees. A 25.4 mm Part and a one-inch
+Part occupy the same physical length in any Assembly. Counts, ratios, and
+explicitly specified paper-space or command-API units retain their semantics.
+Preserve signed zero, geometric side choice, reference identity, calculation
+accuracy, no-op editing, Undo/Redo and native persistence.
+
+## Engineering assessment: units, precision and manufacturing intent
+
+The user confirmed canonical millimetres and approved proceeding with the
+design on 2026-10-03. The scope below is not a claim of fully implemented
+support. Preserve cm as an existing supported length unit; mm/in can remain
+the primary first-run presets without deleting other unit choices.
+
+Inputs are existing canonical geometry, document units, expressions, Family
+values, explicit tolerances and drawing requirements. Available means are the
+existing canonical model, quantity-aware input/output boundaries and expression
+parser. Required outputs are unchanged physical geometry and manufacturing
+requirements, predictable editing, and reliable exchange with other documents.
+
+### Independent concepts
+
+| Concept | Proposed responsibility |
+| --- | --- |
+| Canonical geometry | Retain native mm/degrees. Do not scale stored bodies, placements or references when changing presentation units. |
+| Document authoring units | Interpret new length/angle input and numerical relation quantities consistently. A Part keeps its own units inside any Assembly. |
+| Numerical display | Control decimal places, trailing zeros, decimal separator and optional fractional notation. Never feed rounded display strings back into unchanged geometry. |
+| Manufacturing tolerance | Retain the physical permissible limits or geometric tolerance specification. Formatting and unit conversion must not change these requirements. |
+| Kernel/solver tolerance | Retain the existing physical numerical thresholds. Neither decimal count nor a change from mm to inches changes them. |
+| Display approximation | Mesh deflection controls visual approximation separately from kernel accuracy and manufacturing tolerance. Preserve its physical value. |
+| Drawing conventions | Treat drafting standard, general tolerance policy, sheet format and projection convention independently of document units and UI language. |
+
+An inch is exactly 25.4 mm according to
+[NIST](https://www.nist.gov/pml/owm/si-units-length). The conversion factor does
+not introduce a manufacturing allowance. Floating-point representation still
+has finite precision; preserve existing canonical values to avoid cumulative
+conversion drift instead of repeatedly converting stored geometry back and forth.
+
+Independent scale checks:
+
+- `25.4 +/- 0.0254 mm` and `1.000 +/- 0.001 in` describe the same limits.
+- A display increment of `0.001 in` represents `0.0254 mm`, whereas `0.001 mm`
+  is 25.4 times finer. Equal decimal counts are not equal physical resolution.
+- `10 +/- 0.01 mm` has limits `[9.99, 10.01] mm`. The superficially similar
+  rounded `0.394 +/- 0.001 in` has limits `[9.9822, 10.033] mm`: both its centre
+  and its tolerance interval have changed. This is not an acceptable conversion.
+
+Therefore no single global decimal count can express geometry accuracy and all
+manufacturing tolerances. Initial presets may offer convenient display defaults,
+but the tolerance itself must not be inferred from those defaults. Where a
+drawing explicitly defines tolerances by decimal count, trailing-zero policy is
+part of that drawing's specification and cannot be altered as mere formatting.
+
+### Tolerances and drawing output
+
+Convert nominal values and both deviations/limits together. Support symmetric,
+asymmetric and one-sided limits individually; angular tolerances require their
+own conversion. Preserve basic/reference status, geometric tolerance modifiers,
+datum references and fit/thread designations. Converting units must not change
+an M thread into a UNC thread, select another stock thickness, or replace an ISO
+fit with an assumed imperial equivalent.
+
+Current dimension tolerances contain strings, and the shared dimension formatter
+trims trailing zeros. These are concrete blockers to claiming complete numerical
+tolerance conversion. Typed numerical tolerance fields may be needed for reliable
+automatic conversion; arbitrary authored text must remain text. Do not guess the
+meaning of digits in notes, identifiers, thread names or material specifications.
+Any data-model change needs a separate traced implementation, template updates
+where required, and persistence tests.
+
+Some exact converted limits have no finite decimal representation. Merely storing
+the precise model value is insufficient if the printed drawing communicates
+different acceptance limits. For such cases, preserve the original authoritative
+specification and offer a clearly identified secondary converted indication, or
+reject a requested authoritative conversion and explain the affected item.
+Never silently round outward (looser) or inward (tighter). Choosing new practical
+manufacturing limits is a separate intentional design edit.
+
+Drawing documents own their annotation policy independently of source Parts.
+Changing a source Part's authoring units must not silently rewrite an existing
+drawing's manufacturing specification. PDF, printing and DXF must agree with the
+selected drawing policy. Paper-space text height, line width, sheet size and
+scale ratios must retain their existing meanings. A fraction display, if later
+supported, is formatting rather than automatic snapping of the model to stock
+fractions.
+
+British and American practice must not be selected merely from the UI language
+or the choice of inches. BSI describes
+[BS 8888:2025](https://pages.bsigroup.com/BS8888-whats-new-webinar) as the UK
+technical specification framework integrating ISO GPS standards. ASME describes
+[Y14.5-2018 (R2024)](https://www.asme.org/codes-standards/find-codes-standards/dimensioning-and-tolerancing)
+as establishing GD&T rules and interpretation for drawings and digital models.
+These official overviews establish that a standard is more than a unit label;
+they do not supply every detailed formatting rule. Full standards compliance
+must not be claimed from these overviews or from adding an "ISO/ASME" selector.
+
+### Relations and Family conversion
+
+Retain the approved single authoring unit system per document. Do not add a
+hidden, independently selected unit system for relations. Plain `d6 = 10`
+continues to use the document's unit for the target quantity.
+
+An explicit conversion must preserve the physical result on later regeneration
+and for every Family variant, not just the currently evaluated values. In
+`d3 = d1 * 2 + 10`, the multiplier and length literal have different meanings.
+Counts, ratios and text must not be scaled. Area, volume and density require
+their respective powers of length; temperature values and temperature differences
+cannot be treated as the same multiplicative conversion.
+
+The parser must account for dimensional comparisons, all conditional branches,
+trigonometric angle conventions, inverse functions, and rounding functions.
+For example, rounding to whole millimetres is not equivalent to rounding to whole
+inches. Formatting a dimension into a text parameter also needs an explicit
+policy; arbitrary strings cannot be safely rewritten numerically. Expressions
+whose meaning cannot be established must block the conversion with a precise
+line/field diagnostic, before any document modification.
+
+Family currently applies native numeric dimension values. Do not scale those
+native values simply because displayed cells change units. Inspect storage,
+presentation and evaluation separately to prevent double conversion.
+
+### Alternatives and implementation sequence
+
+| Candidate | Assessment |
+| --- | --- |
+| Rescale the complete internal model | Reject: unnecessary geometry/reference/cache risk and repeated-conversion drift. |
+| Permanently lock units after creation | Simpler restriction, but does not fix mixed-unit input/output defects and removes the requested conversion capability. |
+| Canonical storage with consistent quantity boundaries and explicit conversion | Recommended: preserves the established model while allowing controlled conversion where semantics are known. |
+
+1. Finish the boundary audit and fix quantity-aware input/output without changing
+   geometric identity, placement solving or calculation accuracy. Treat mm as
+   the regression baseline; verify source-document context in nested Assemblies.
+2. Establish numerical tolerance handling and drawing formatting policy. Keep
+   existing annotations intact until their semantics are known.
+3. Implement explicit document conversion as a preflighted, atomic transaction.
+   List affected quantities and any unresolved expressions/annotations. Cancel
+   or failure changes nothing. Successful conversion is one Undo step and must
+   preserve physical results after regeneration, save/reopen and variant changes.
+4. Add first-run unit presets through the already approved in-application wizard.
+   Global defaults apply to future documents, not existing open documents. Resolve
+   template/default precedence explicitly; do not create extra template copies
+   solely to compensate for inconsistent precedence.
+
+The initial supported scope should be explicit. Missing conventions or ambiguous
+authored content must not be advertised as fully supported unit conversion.
+Independent drafting-standard redesign is not a prerequisite for correcting
+ordinary mm/inch modeling input, and must not turn this work into a global rewrite.
+
+## Audit map
+
+| Area | Current evidence | Remaining work |
+| --- | --- | --- |
+| Document settings | Repeated mm/cm/m/in switches with rad, cached geometry, physical volume, native geometry signatures, save/reopen and Undo/Redo pass in the metadata command test. | Complete explicit expression/tolerance conversion; settings-only tests do not establish their safety. |
+| Mixed-unit Assemblies | Occurrences consume source calculated geometry; unit labels are not placement scales. | Add explicit mixed-unit/nested Assembly tests and source-unit switching. |
+| Modeling input | Feature parameters and selected Sweep fields now use the shared unit control; conversion/no-op/Cancel tests pass. Other dialogs still have fixed-unit fields. | Continue command-by-command integration, retaining exact canonical values and quantity distinctions. |
+| Container placement | Shared section uses mm and degrees. | Consume tested unit controls without changing placement solving, offset sign or reference semantics; observe protected-code approval rule. |
+| Sketch input | Dimensions, coordinates, radii, offsets and text sizes contain fixed-unit fields. | Convert length/angle input; preserve counts, curve parameters, source geometry and expressions. |
+| View dimensions | `MeshView` formats canonical dimension values directly in several paint/pick/layout paths. | One consistent formatting path, without recalculation or changing persisted reference geometry. |
+| Measurements | Length/area/volume and mass use document scale factors. | Verify angular results, reopened records, nested occurrences and labels. |
+| Physical properties | Existing conversion includes area/volume powers, mass and density. | Extend mixed-unit checks and inspect all editable orientation fields. |
+| Relations | Dimension inputs use document length/angle factors; existing numeric literals would change physical meaning on a later regeneration after a unit switch. | Implement the approved explicit expression conversion; one document unit system, no separate hidden relation units. Preserve meaning and reject uncertain conversions atomically. |
+| Family | Dimension application stores native numeric values; relation input conversion is a separate path. | Inspect table display, editing, variant generation and unit changes. |
+| Drawings | Sheet geometry, pens and annotation sizing explicitly use paper mm. | Separate paper units from model dimension values; audit source units, text/tolerances, PDF/print/DXF output. |
+| Exchange | STEP/IGES/DXF need file-unit interpretation at their existing import/export boundaries. | Verify actual unit metadata and physical extents; no double scaling from document settings. |
+| Native templates | New-document creation overrides template unit metadata with configured unit defaults. | Make precedence explicit before adding mm/inch choices to first-run setup. |
+| Other settings | Supported choices also include time, temperature and stress. | Identify actual consumers; do not merely relabel stored user-authored parameter strings or invent numerical consumers. |
+
+## Verification gates
+
+- Compare actual extents, volume and saved canonical dimensions before/after
+  changing units and after regeneration. Display-string checks alone are not
+  sufficient.
+- Exercise numerical entry, arithmetic expressions, stepping, Cancel and
+  unchanged OK. An unchanged rounded display must not round the stored value.
+- Verify degrees/radians separately from dimensionless counts and quantities.
+- Verify manufacturing limit intervals before/after conversion, including cases
+  that cannot be printed exactly at the requested decimal precision. Check
+  trailing zeros, explicit/general tolerances and all output paths.
+- Check repeated mm/inch switching for geometry drift, source changes in nested
+  Assemblies, all Family rows and inactive relation branches. Changing only
+  presentation must not invoke OCCT or modify reference identities.
+- Keep tests for the user's constrained L profile and mixed-side Feature active.
+- Review localization in all five languages, document the resulting contracts,
+  commit and publish only verified changes. Linux GUI acceptance remains a
+  Linux-host task.
+
+The approved built-in first-run wizard follows this work; its scope and the
+remaining modeling requests are recorded in [the roadmap](../ROADMAP.md).
+
+## Incremental implementation evidence
+
+On 2026-10-03, `zima_cpp_unit_input_tests` passed for mm/cm/m/in, deg/rad,
+stepping, unchanged values down to `1e-20`, parent-context selection and numeric
+entry in all five supported locales. The control is now used by the Feature
+parameter panel, 2D/3D Sweep thickness and Helical Sweep thickness/pitch/base
+offset. The active writable document supplies the unit context; metadata edits
+to other open documents must not replace that context.
+
+`zima_cpp_feature_unit_input_contract` verifies converted parameter input,
+length/angle mode switching, exact unchanged Feature OK without a callback,
+one changed Feature commit, unchanged values in Sweep fields, Cancel and
+retained mm kernel-approximation controls. The numeric field layout regression
+also passes after inspecting actual displayed decimal places rather than Qt's
+internal storage precision. The five-language catalog test and numeric lock
+test passed for the initial Feature integration. Unit identifiers are unchanged;
+there are no new translated user-visible messages.
+
+This does not complete document conversion, manufacturing tolerance conversion,
+expression conversion, signed-zero input integration or all command paths.
+Shared placement remains untouched pending its specifically required approval.
+
+The extended `zima_cpp_metadata_command_tests` passed repeated length-unit
+switching with radian settings, physical volume conversion, unchanged cached
+shape, unchanged calculation precision, native geometry fingerprints after
+save/reopen, and Undo/Redo. Existing Feature GUI, chained Sketch fillet, Feature
+parameter and profile-centreline regressions also passed. These fixtures do not
+yet prove all mixed-unit/nested Assembly or relation-regeneration cases.

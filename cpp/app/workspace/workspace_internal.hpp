@@ -199,6 +199,16 @@ int document_decimal_places(const auto& document) noexcept {
 
 double rounded_to_decimal_places(double value, int decimal_places);
 
+// Dialog inputs follow the writable source document, including an activated
+// Part inside an Assembly. This presentation context never scales geometry.
+void set_document_numeric_context(QWidget& owner,const auto& document) {
+    owner.setProperty("zimaDocumentDecimalPlaces",document_decimal_places(document));
+    QVariantMap units;
+    for(const auto& [quantity,unit]:document.document_units)
+        units.insert(QString::fromStdString(quantity),QString::fromStdString(unit));
+    owner.setProperty("zimaDocumentUnits",units);
+}
+
 using zima::workspace::normalize_owned_profile_front_references;
 
 zima::kernel::Vec3 euler_degrees_from_frame_columns(

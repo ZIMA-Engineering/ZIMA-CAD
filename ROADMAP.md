@@ -16,9 +16,10 @@ newer completion notes and focused contracts supersede their earlier status.
 
 Solid Straightening / Restore shape was completed and published in Windows build
 2026100301; see [the implementation and verification](doc/SOLID_STRAIGHTENING.md).
-Current regression fixes take priority: the mixed Extrusion/Revolution side
-direction and rounding the second end of an already rounded Sketch segment.
-Finish their native and GUI verification before the newly requested unit audit.
+The mixed Extrusion/Revolution side direction and rounding the second end of an
+already rounded Sketch segment are fixed, verified and pushed in commits
+`6ca431bd` and `68d5b01a`; they are not yet in a new portable Windows release.
+The unit audit is now in progress.
 The previously agreed modeling queue retains the
 [Boundary Surface container redesign](doc/NETWORK_SURFACE.md#queued-container-redesign-approved-2026-10-02)
 and optional Drawing view descriptions below; neither is superseded by the audit.
@@ -26,6 +27,9 @@ The file manager below is an additional TODO; recording it does not interrupt
 the current implementation or claim that these capabilities already exist.
 
 ### Unit audit and corrections (approved 2026-10-03)
+
+See [the audit and engineering assessment](doc/DOCUMENT_UNITS_AUDIT.md) for
+implementation evidence, tolerance/precision boundaries and remaining gates.
 
 - Audit all unit-dependent input and output: Sketch and Feature dimensions,
   placement/mates, measurements and physical properties, relations and Family,
@@ -37,15 +41,49 @@ the current implementation or claim that these capabilities already exist.
   need their documented semantics preserved.
 - Initial finding: file-settings changes retain calculated geometry, and physical
   properties and measurements already convert length units. Feature numeric fields
-  still display and accept millimetres independently of the document's Length
-  setting. This is an incomplete audit, not a claim that every other path works.
+  originally ignored document units. The first correction now covers Feature
+  parameters and selected 2D/3D/Helical Sweep parameters through one canonical
+  input control; other command paths remain under audit. Keep mm/cm/m/in support.
 - Repair confirmed discrepancies with shared conversion logic at presentation
   boundaries. Preserve precision, signed zero/side identity, reference identity,
   no-op confirmations, persistence and Undo/Redo. Do not change the protected
   container-placement contract without the required explicit review.
+- Confirmed choice: keep one unit system per document. A later explicit unit
+  conversion preserves real size and converts relevant Family presentation and
+  relation expressions in one undoable transaction. Do not add a separate hidden
+  unit basis to relations or automatically change a Part's units on insertion.
+  Distinguish dimensional constants from dimensionless multipliers/counts and
+  user-authored text. Reject a conversion atomically with a specific explanation
+  when an expression cannot be converted reliably. Unit selection is not locked
+  permanently after creation.
 - Add representative tests for mixed-unit Assemblies, unit switching, editing
   displayed values and expressions, native save/reopen, and exchange-file units.
   Complete the five-language review and English documentation with the changes.
+- Keep display decimals, physical manufacturing tolerances, kernel accuracy,
+  mesh approximation and drafting conventions independent. Conversion must not
+  silently alter manufacturing limit intervals, general tolerance rules or
+  thread/fit designations. The detailed assessment is a proposed implementation
+  design, not a claim of completed ISO/ASME support.
+
+### Built-in first-run setup (approved 2026-10-03)
+
+Implement after the unit audit and corrections. Use one wizard inside ZIMA-CAD,
+shared by Windows and Linux, rather than a separate setup executable or script.
+Offer it automatically only for a new installation that has not been configured;
+persist completion or explicit skipping in shared settings outside version
+directories. Updates must not redisplay it or reset existing configuration.
+Expose the same wizard later through Settings, initialized from current values.
+
+Cover document unit presets, working directory, default native templates and
+optional desktop integration. Reuse the existing registration service and its
+explicit choices. Prepare clear mm/inch Part and Assembly template choices;
+unit-suffixed template filenames are the proposed naming convention. Verify
+template-versus-global-default precedence so the selected template cannot be
+silently overridden with different units. Keep geometric storage canonical.
+Review title blocks and drawing formats separately: document length units do
+not by themselves select paper size, drafting convention or title-block content.
+Localize the wizard in all five languages. Linux desktop acceptance belongs on
+the Linux host.
 
 ### Optional Drawing view descriptions (requested 2026-10-02)
 

@@ -90,6 +90,30 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
         "Changing display units or precision rebuilt or rescaled geometry");
     require(std::abs(document::physical_values(part->session.document(),part->session.calculated_boundaries()).at("model.volume")-6)<1e-8,"mm to cm display conversion is incorrect");
     run(host,"undo");require(workspace::file_settings(live,id)==settings,"Settings Undo failed");run(host,"redo");
+    const auto unit_baseline=workspace::file_settings(live,id);
+    const auto native_operations=part->session.document().kernel_operations(false,true);
+    const auto native_signature=kernel::history_fingerprint(native_operations,native_operations.size());
+    for(const auto* unit:{"in","mm","m","cm","in","mm"}) {
+        auto requested=unit_baseline;requested.units["Length"]=unit;requested.units["Angle"]="rad";
+        const auto previous=workspace::file_settings(live,id);
+        const auto change=workspace::set_file_settings(live,kernel,id,requested);
+        require(!change.calculated&&part->session.calculated_boundaries().back().kernel_shape==cached,
+            "Unit conversion recalculated canonical geometry");
+        require(part->session.document().document_precision==requested.precision,"Unit change modified calculation precision");
+        const double scale=document::length_unit_mm(unit);
+        const double expected=6000./(scale*scale*scale);
+        require(std::abs(document::physical_values(part->session.document(),part->session.calculated_boundaries()).at("model.volume")-expected)<1e-10*std::max(1.,expected),
+            "Repeated unit change scaled physical geometry or used the wrong volume units");
+        const auto file=dir/(std::string("unit-")+unit+".prtz");
+        part->session.document().save(file,part->session.calculated_boundaries());
+        const auto reopened=document::PartDocument::load(file);
+        const auto operations=reopened.kernel_operations(false,true);
+        require(reopened.document_units==requested.units&&kernel::history_fingerprint(operations,operations.size())==native_signature,
+            "Unit save/reopen changed the native geometric definition");
+        run(host,"undo");require(workspace::file_settings(live,id)==previous,"Unit Undo did not restore settings");
+        run(host,"redo");require(workspace::file_settings(live,id)==requested,"Unit Redo did not restore settings");
+    }
+    static_cast<void>(workspace::set_file_settings(live,kernel,id,unit_baseline));
     const auto recalculated=run(host,"document.settings.set",{{"precision",{{"mesh_deflection",2}}}}).data;
     require(recalculated.at("calculated")==true && std::abs(part->session.calculated_boundaries().back().volume-6000)<1e-7,"Geometric precision did not explicitly calculate a consistent result");
     require(!run(host,"document.settings.set",{{"units",{{"Length","cm"}}},{"precision",{{"mesh_deflection",2},{"decimal_places",6}}}}).data.at("changed").get<bool>(),"Unchanged settings created Undo");

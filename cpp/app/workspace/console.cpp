@@ -81,8 +81,9 @@ void AssemblyWorkspaceWindow::apply_console_change(const command_host::Change& c
     if(change.kind==Kind::Rename){preserve_view_on_refresh_=true;refresh_scene();refresh_tabs();return;}
     if(change.kind==Kind::Appearance){update_viewer_body_colors();refresh_tabs();return;}
     if(change.kind==Kind::Metadata || change.kind==Kind::Model) {
-        if(const auto* part=workspace_.open_part(change.document_id))setProperty("zimaDocumentDecimalPlaces",document_decimal_places(part->session.document()));
-        else if(const auto* assembly=workspace_.open_assembly(change.document_id))setProperty("zimaDocumentDecimalPlaces",document_decimal_places(assembly->session.document()));
+        const auto& active_id=workspace_.active_document_id();
+        if(const auto* part=workspace_.open_part(active_id))set_document_numeric_context(*this,part->session.document());
+        else if(const auto* assembly=workspace_.open_assembly(active_id))set_document_numeric_context(*this,assembly->session.document());
         if(change.kind==Kind::Metadata){refresh_tabs();if(viewer_)viewer_->update();return;}
     }
     if(change.kind==Kind::Directory) {refresh_delete_file_actions();return;}

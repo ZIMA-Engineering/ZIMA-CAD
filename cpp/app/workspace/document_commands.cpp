@@ -614,8 +614,8 @@ void AssemblyWorkspaceWindow::edit_file_settings(bool sheet_metal) {
     auto* dialog = new FileSettingsDialog(std::move(data), [this, id](DocumentToolData values) {
         const auto change=zima::workspace::set_file_settings(workspace_,kernel_,id,{std::move(values.units),std::move(values.precision),values.sheet_metal});
         if(change.calculated){preserve_view_on_refresh_=true;refresh_scene();}
-        if (const auto* part=workspace_.open_part(id)) setProperty("zimaDocumentDecimalPlaces",document_decimal_places(part->session.document()));
-        else if (const auto* assembly=workspace_.open_assembly(id)) setProperty("zimaDocumentDecimalPlaces",document_decimal_places(assembly->session.document()));
+        if (const auto* part=workspace_.open_part(id)) set_document_numeric_context(*this,part->session.document());
+        else if (const auto* assembly=workspace_.open_assembly(id)) set_document_numeric_context(*this,assembly->session.document());
         refresh_tabs();
     }, application_settings_, this);
     if(sheet_metal)dialog->show_sheet_metal_page();

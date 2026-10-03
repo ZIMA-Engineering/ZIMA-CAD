@@ -782,6 +782,7 @@ if(ZIMA_BUILD_TESTS)
         app/application_settings.cpp
         app/document_tools_dialogs.cpp)
     target_sources(zima_cpp_ui_contract_tests PRIVATE app/sketch_properties_dialog.cpp)
+    target_sources(zima_cpp_ui_contract_tests PRIVATE tests/feature_unit_input_contract.cpp)
     target_sources(zima_cpp_ui_contract_tests PRIVATE app/sketch_dimension_properties_dialog.cpp)
     target_sources(zima_cpp_ui_contract_tests PRIVATE app/sketch_text_properties_dialog.cpp)
     target_include_directories(zima_cpp_ui_contract_tests PRIVATE app)
@@ -816,6 +817,14 @@ if(ZIMA_BUILD_TESTS)
     set_tests_properties(zima_cpp_point_marker_colors_contract PROPERTIES
         ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_POINT_MARKERS_ONLY=1")
     add_test(NAME zima_cpp_translations_contract COMMAND zima_cpp_ui_contract_tests)
+    add_executable(zima_cpp_unit_input_tests tests/unit_input_tests.cpp)
+    target_link_libraries(zima_cpp_unit_input_tests PRIVATE zima_ui)
+    add_test(NAME zima_cpp_unit_input_tests COMMAND zima_cpp_unit_input_tests)
+    set_tests_properties(zima_cpp_unit_input_tests PROPERTIES ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT}")
+    add_test(NAME zima_cpp_feature_unit_input_contract COMMAND zima_cpp_ui_contract_tests)
+    set_tests_properties(zima_cpp_feature_unit_input_contract PROPERTIES
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_FEATURE_UNITS_ONLY=1"
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 60)
     set_tests_properties(zima_cpp_translations_contract PROPERTIES
         ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_TRANSLATIONS_ONLY=1")
     add_test(NAME zima_cpp_face_inspection_contract COMMAND zima_cpp_ui_contract_tests)

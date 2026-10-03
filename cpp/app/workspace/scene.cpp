@@ -88,14 +88,17 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
         }
     }
     int decimal_places = 3;
+    setProperty("zimaDocumentUnits",QVariant{});
     if (const auto* active_part =
             workspace_.open_part(workspace_.active_document_id())) {
         decimal_places = document_decimal_places(
             active_part->session.document());
+        set_document_numeric_context(*this,active_part->session.document());
     } else if (const auto* active_assembly =
             workspace_.open_assembly(workspace_.active_document_id())) {
         decimal_places = document_decimal_places(
             active_assembly->session.document());
+        set_document_numeric_context(*this,active_assembly->session.document());
     }
     setProperty("zimaDocumentDecimalPlaces",decimal_places);
     viewer_->set_dimension_decimal_places(decimal_places);

@@ -165,9 +165,12 @@ int verify_numeric_fields(QApplication& application, QWidget& parent) {
                     // Kernel approximation tolerance supports 1e-9 mm even in
                     // documents whose ordinary dimensions display fewer places.
                     const int expected_places=field->objectName()=="sweepPrecisionTolerance"?9:places;
-                    if(field->decimals()!=expected_places) {
+                    const auto shown=field->cleanText();
+                    const auto decimal_position=shown.lastIndexOf(field->locale().decimalPoint());
+                    const int displayed_places=decimal_position<0?0:static_cast<int>(shown.size()-decimal_position-field->locale().decimalPoint().size());
+                    if(displayed_places!=expected_places) {
                         std::cerr<<name<<" "<<field->objectName().toStdString()
-                            <<" decimals="<<field->decimals()<<" expected="<<expected_places<<'\n';
+                            <<" displayed decimals="<<displayed_places<<" expected="<<expected_places<<'\n';
                         throw std::runtime_error("A model field ignores document decimal precision");
                     }
                     QWidget* current=field;
@@ -459,6 +462,7 @@ int verify_curve_placement_picker(QApplication& application,QWidget& parent) {
 }
 
 int verify_numeric_value_locks(QApplication&,QWidget&);
+int verify_feature_unit_input(QApplication&,QWidget&);
 int verify_translations(QApplication&,QWidget&);
 int verify_part_dialog_layout(QApplication&,QWidget&);
 
@@ -920,6 +924,7 @@ int main(int argc, char* argv[]) {
     const auto initial = zima::document::PartDocument::create_twisted_sheet_container();
 
     try {
+        if(qEnvironmentVariableIsSet("ZIMA_VERIFY_FEATURE_UNITS_ONLY"))return verify_feature_unit_input(application,parent);
         if(qEnvironmentVariableIsSet("ZIMA_VERIFY_FEATURE_AXIS_HIGHLIGHT_ONLY")) {verify_feature_axis_highlight(application,parent);return 0;}
         if(qEnvironmentVariableIsSet("ZIMA_VERIFY_RELATIONS_ONLY")) {
             using namespace zima::app;

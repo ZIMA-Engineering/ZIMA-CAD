@@ -8,6 +8,7 @@
 #include <zima/ui/reference_cell.hpp>
 #include <QComboBox>
 #include <QDoubleSpinBox>
+#include <zima/ui/unit_spin_box.hpp>
 #include <QFormLayout>
 #include <QHeaderView>
 #include <QLabel>
@@ -48,8 +49,8 @@ public:
         thin_form_=new QFormLayout;
         auto* result=new QComboBox(this);result->setObjectName("sweep2dResultType");result->addItems({tr("Těleso"),tr("Thin"),tr("Plocha")});
         result->setCurrentIndex(pending.sweep2d.result_type==document::ProfileResultType::Surface?2:pending.sweep2d.result_type==document::ProfileResultType::Thin?1:0);thin_form_->addRow(tr("Typ výsledku"),result);
-        thickness_=new QDoubleSpinBox(this);thickness_->setObjectName("sweep2dThickness");thickness_->setDecimals(zima::ui::numeric_decimal_places(this,3));
-        thickness_->setRange(.001,1'000'000);thickness_->setSuffix(" mm");thickness_->setValue(pending.sweep2d.thickness);thin_form_->addRow(tr("Tloušťka"),thickness_);
+        thickness_=new ui::UnitDoubleSpinBox(ui::InputQuantity::Length,this);thickness_->setObjectName("sweep2dThickness");
+        thickness_->setRange(.001,1'000'000);thickness_->setValue(pending.sweep2d.thickness);thin_form_->addRow(tr("Tloušťka"),thickness_);
         ui::bind_numeric_value_lock(thickness_,"thickness",pending.value_locks,[this]{if(changed)changed();});
         side_=new QComboBox(this);side_->setObjectName("sweep2dThinSide");side_->addItems({tr("Dovnitř"),tr("Ven"),tr("Symetricky")});
         side_->setCurrentIndex(pending.sweep2d.thin_mode==document::ThinMode::OneSide?0:pending.sweep2d.thin_mode==document::ThinMode::OtherSide?1:2);

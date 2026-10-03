@@ -4,6 +4,7 @@
 #include "sweep_placement_dialog.hpp"
 #include <QComboBox>
 #include <QDoubleSpinBox>
+#include <zima/ui/unit_spin_box.hpp>
 #include <QFormLayout>
 #include <QLabel>
 #include <QLineEdit>
@@ -32,8 +33,8 @@ public:
         result->addItems({tr("Těleso"),tr("Thin"),tr("Plocha")});
         result->setCurrentIndex(pending.helical.result_type==document::ProfileResultType::Surface?2:pending.helical.result_type==document::ProfileResultType::Thin?1:0);
         form->addRow(tr("Typ výsledku"),result);
-        auto* thickness=new QDoubleSpinBox(this);thickness->setObjectName("helicalThickness");
-        thickness->setDecimals(ui::numeric_decimal_places(this,3));thickness->setRange(.001,1000000);thickness->setSuffix(" mm");
+        auto* thickness=new ui::UnitDoubleSpinBox(ui::InputQuantity::Length,this);thickness->setObjectName("helicalThickness");
+        thickness->setRange(.001,1000000);
         thickness->setValue(pending.helical.thickness);form->addRow(tr("Tloušťka"),thickness);
         ui::bind_numeric_value_lock(thickness,"thickness",pending.value_locks,[this]{notify();});
         auto* side=new QComboBox(this);side->setObjectName("helicalThinSide");side->addItems({tr("Dovnitř"),tr("Ven"),tr("Symetricky")});
@@ -61,8 +62,8 @@ public:
             base.plane=static_cast<sketcher::SketchPlane>(index);
             pending.helical.sketches[0]=base.serialized();notify();
         });
-        auto* base_offset=new QDoubleSpinBox(this);base_offset->setObjectName("helicalBaseOffset");
-        base_offset->setDecimals(ui::numeric_decimal_places(this,4));base_offset->setRange(-1000000,1000000);base_offset->setSuffix(" mm");
+        auto* base_offset=new ui::UnitDoubleSpinBox(ui::InputQuantity::Length,this);base_offset->setObjectName("helicalBaseOffset");
+        base_offset->set_display_decimals(ui::numeric_decimal_places(this,4));base_offset->setRange(-1000000,1000000);
         base_offset->setValue(sketcher::Sketch::from_serialized(pending.helical.sketches[0]).plane_offset);
         form->addRow(tr("Odsazení základní skici"),base_offset);
         ui::bind_numeric_value_lock(base_offset,"base_offset",pending.value_locks,[this]{notify();});
@@ -74,7 +75,7 @@ public:
         form->addRow(tr("Základní kružnice"),circle_);form->addRow(tr("Počáteční bod"),point_);
         connect(circle_,&QComboBox::activated,this,[this]{pending.helical.circle_id=circle_->currentData().toString().toStdString();notify();});
         connect(point_,&QComboBox::activated,this,[this]{pending.helical.start_point_id=point_->currentData().toString().toStdString();notify();});
-        auto* pitch=new QDoubleSpinBox(this);pitch->setObjectName("helicalPitch");pitch->setDecimals(zima::ui::numeric_decimal_places(this,4));pitch->setRange(.0001,1000000);pitch->setSuffix(" mm");pitch->setValue(pending.helical.pitch);form->addRow(tr("Stoupání"),pitch);
+        auto* pitch=new ui::UnitDoubleSpinBox(ui::InputQuantity::Length,this);pitch->setObjectName("helicalPitch");pitch->set_display_decimals(zima::ui::numeric_decimal_places(this,4));pitch->setRange(.0001,1000000);pitch->setValue(pending.helical.pitch);form->addRow(tr("Stoupání"),pitch);
         ui::bind_numeric_value_lock(pitch,"pitch",pending.value_locks,[this]{notify();});
         connect(pitch,&QDoubleSpinBox::valueChanged,this,[this](double p){pending.helical.pitch=p;notify();});
         auto* hand=new QComboBox(this);hand->setObjectName("helicalHandedness");hand->addItems({tr("Pravý"),tr("Levý")});hand->setCurrentIndex(pending.helical.left_handed?1:0);form->addRow(tr("Směr vinutí"),hand);

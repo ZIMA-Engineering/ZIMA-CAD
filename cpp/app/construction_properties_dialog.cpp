@@ -14,6 +14,7 @@
 #include <zima/kernel/stable_id.hpp>
 
 #include <QDoubleSpinBox>
+#include <zima/ui/unit_spin_box.hpp>
 #include <QPointer>
 #include <QDialogButtonBox>
 #include <QVBoxLayout>
@@ -565,11 +566,11 @@ void ConstructionPropertiesDialog::initialize_sweep_ui() {
         zima::document::ProfileResultType::Surface ? 2 : initial_sweep_->sweep3d.result_type ==
         zima::document::ProfileResultType::Thin ? 1 : 0);
     thin_form->addRow(tr("Typ výsledku"),sweep_result_type_);
-    sweep_thickness_ = new QDoubleSpinBox(this);
+    auto* thickness = new zima::ui::UnitDoubleSpinBox(zima::ui::InputQuantity::Length,this);
+    sweep_thickness_ = thickness;
     sweep_thickness_->setObjectName("sweep3DThickness");
-    sweep_thickness_->setDecimals(offset_->decimals());
+    thickness->set_display_decimals(offset_->decimals());
     sweep_thickness_->setRange(0.001,1'000'000.0);
-    sweep_thickness_->setSuffix(tr(" mm"));
     sweep_thickness_->setValue(initial_sweep_->sweep3d.thickness);
     sweep_thickness_->setProperty("zimaValueLockOwner",QString::fromStdString(initial_sweep_->id));
     zima::ui::bind_numeric_value_lock(sweep_thickness_,"thickness",initial_sweep_->value_locks,[this]{notify_preview();});

@@ -69,7 +69,8 @@ int numeric_width(QDoubleSpinBox* spin) {
     const QFontMetricsF metrics(editor->font());
     QString zero=spin->prefix();
     if (spin->minimum()<0) zero+=spin->locale().negativeSign();
-    zero+=spin->locale().toString(0.0,'f',spin->decimals())+spin->suffix();
+    const auto unit_decimals=spin->property("zimaUnitDisplayDecimals");
+    zero+=spin->locale().toString(0.0,'f',unit_decimals.isValid()?unit_decimals.toInt():spin->decimals())+spin->suffix();
     const auto margins=editor->textMargins();
     QStyleOptionSpinBox option;
     option.initFrom(spin);

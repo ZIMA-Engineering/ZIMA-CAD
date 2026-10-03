@@ -8,8 +8,8 @@ three independent concepts.
 **Inputs**
 
 - Geometry and parameters are ordinary IEEE-754 binary64 (`double`) values.
-- `DocumentPrecision.linear_tolerance` is the accepted model resolution in the
-  document length unit (normally millimetres); its current default is
+- `DocumentPrecision.linear_tolerance` is the accepted model resolution in
+  canonical millimetres, independently of document input/display units; its current default is
   `0.001 mm`. OCCT's effective floor remains approximately `0.0000001 mm`.
 - `DocumentPrecision.mesh_deflection` is the positive absolute display
   deviation in model millimetres (default `0.1 mm`), shared by surface
@@ -17,8 +17,10 @@ three independent concepts.
 - `DocumentPrecision.decimal_places` controls presentation only.
 
 These values already belong to File Settings and are saved with the document.
-New documents inherit them from their template; there is no additional sweep
-precision control or new `config.ini` key. Persisted precision values always
+Sweep properties also provide their existing optional approximation override;
+see [the sweep precision verification](benchmarks/SWEEP_PRECISION_20260926.md).
+This override and document geometric precision retain physical millimetre units.
+Persisted precision values always
 use a decimal point and are parsed independently of the system locale. The
 whole token must be valid: a Czech decimal-comma locale must not turn `0.1`
 into zero or silently clamp `0.001` to the kernel floor. Template creation,
@@ -68,6 +70,28 @@ commas, larger signed values and enlarged fonts. It checks both text width and
 cell/dialog bounds and writes inspection images to
 `Projects/test/numeric-fields`.
 
+### Document units in property input (incremental integration)
+
+Feature lengths, profile offset, wall thickness, draft and rotation angles use
+the writable source document's units. 2D/3D Sweep wall thickness and Helical
+Sweep wall thickness, pitch and base-Sketch offset use the same input control.
+Length choices remain mm, cm, m and in; angular choices remain deg and rad.
+The display converts canonical mm/degrees on entry and presentation only.
+Numeric signals, ranges and model values retain their native units. Step buttons
+use the displayed unit. An unchanged rounded field preserves the complete stored
+value and must not create a Feature calculation/transaction.
+
+The native Qt storage precision is independent of the requested displayed
+decimals. Call `UnitDoubleSpinBox::set_display_decimals`, not the base Qt
+`setDecimals`, when configuring these controls. The properties-window width
+calculation uses their actual displayed precision. No new units, translated
+messages or drafting-standard promises are introduced by this integration.
+
+This is not yet application-wide conversion support. Shared placement, other
+commands, relations/Family, View dimensions and manufacturing tolerance handling
+are tracked in [the unit audit](DOCUMENT_UNITS_AUDIT.md). Unit changes must not
+silently reinterpret an existing relation or manufacturing specification.
+
 ## Accumulated error
 
 Tolerance is not applied by rounding every intermediate coordinate. Such
@@ -81,18 +105,19 @@ not reliably distinguishable model geometry. Reduce the document tolerance if
 such a feature is intentional.
 
 Using binary64 does not add a practical performance penalty: it is the native
-numeric representation used by Python, NumPy and OCCT. Boolean complexity and
+numeric representation used by the C++ model and OCCT. Boolean complexity and
 topology size dominate calculation time. Each tolerance-aware Boolean is built
 once; setting its fuzzy tolerance does not require a preliminary second build.
 
 ## Sweeps and display approximation
 
-2D Sweep and Helical Sweep take their path approximation tolerance from the
-Part's linear tolerance. Half is allocated to the sampled cubic-path deviation
-checks and half to OCCT's sweep surface approximation. The path check is sampled,
-not a formal global error bound. Experimental 3D Sweep passes the document
-linear tolerance to its OCCT sweep builder. Validity and self-intersection
-checks remain enabled; coarser tolerance does not bypass them.
+2D, 3D and Helical Sweep use their persisted `SweepPrecision::effective()`
+approximation tolerance: the explicit custom value when enabled, otherwise the
+default captured when the feature was created. This is distinct from the Part's
+Boolean tolerance and mesh deviation. All remain physical millimetre values
+when document input units change. Details and the limitations of sampled path
+checks belong to the [sweep precision study](benchmarks/SWEEP_PRECISION_20260926.md)
+and the operation-specific verification records.
 
 During explicit Part body calculation, all history feature results and original
 reference wires use the document mesh deviation. Curved edges are sampled by
@@ -106,10 +131,10 @@ surfaces or the STEP translator's repair tolerances.
 
 Both tolerances participate in calculation fingerprints, so explicit Regenerate
 cannot reuse a result or reference mesh calculated with another precision.
-Changing File Settings alone does not launch a body calculation. Assemblies
-continue to display their calculated component meshes until explicitly
-regenerated; the source Part owns the precision of its geometry and the
-owning Assembly uses its own precision for Assembly cuts.
+Changing only units or displayed decimals in File Settings does not launch a
+body calculation. Confirming changed geometric precision can calculate affected
+Part operations and Assembly-owned cuts; source Parts own the precision of
+their geometry. The owning Assembly uses its own precision for Assembly cuts.
 
 ## Solid operation audit
 
@@ -118,7 +143,7 @@ owning Assembly uses its own precision for Assembly cuts.
 | Box, cylinder, cone, sphere, prism, extrusion, revolution | Analytic source geometry; document tolerance for Boolean combination and Up To clipping, mesh deviation for display. |
 | Feature groups | Document tolerance for child fusion and final combination. |
 | Opening and shaft thread | Document tolerance for bore/cut/trim operations; mesh deviation also for technological thread surfaces and their persisted reference wires. |
-| 2D, helical and experimental 3D sweep | Document tolerance for sweep approximation, hollow/Thin cuts and final combination. |
+| 2D, helical and 3D sweep | Persisted feature tolerance for sweep approximation; document tolerance for final body combination. |
 | Fillet | Document tolerance for spatial solving and 3D surface approximation; OCCT angular, UV and marching parameters retain their independent meanings. |
 | Chamfer | Exact size/angle construction; shared document tolerance for subsequent trim/unification, shared mesh deviation for display. OCCT's chamfer API does not expose the fillet approximation settings. |
 | Shell | Document tolerance for offsets, wall/opening cuts and joining tools. |
