@@ -3,8 +3,9 @@
 Status: kernel state calculation, native document transactions, console commands
 and Modeling GUI are implemented for the supported cases in the current acceptance
 matrix below. The attached H-Sweep Properties precision defect is fixed and its
-strict GUI checks pass. Windows packaging and publication remain outstanding;
-this is not yet a released capability. Earlier checkpoints describe the evidence
+strict GUI checks pass. Signed Windows build [2026100301](releases/2026100301.md)
+is published and verified, including packaged GUI acceptance and public update
+discovery. Earlier checkpoints describe the evidence
 available at their date, not additional unresolved gates where the matrix records
 a later pass. Unsupported geometry remains subject to the explicit limits below.
 
@@ -34,7 +35,7 @@ and a Restore query/unchanged set that retain both revision and data generation.
 | Five-language UI | Shared dialog tests exercise all five languages, including the continuity error; catalog validation passed again in 5.38 seconds. The angular-precision correction adds no product text. |
 | Native start templates | The earlier current-serializer rewrite produced identical tracked bytes and new-document GUI checks passed in all five languages; see the template checkpoint below. The angular correction does not change the file format. |
 | User and console documentation | The user manual describes eligibility and continuity. CLI usage and command coverage now document all six state commands, their selection, coefficient, query and no-op behavior. |
-| Completion and Windows publication | Supported geometry and focused GUI gates pass. Final source review, committed-source packaging and signed Windows publication remain pending. |
+| Completion and Windows publication | Supported geometry and focused GUI gates pass. Build 2026100301 passed fresh committed-source packaging, signed smoke/trust, eight packaged GUI scenarios, public hashes and update discovery; see the release record. |
 
 The user explicitly approved the shared angular-precision correction on
 2026-10-03. The implementation retains loaded absolute angles and manual

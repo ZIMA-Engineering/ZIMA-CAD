@@ -2,6 +2,15 @@
 
 ## Scope and status
 
+Windows build **2026100301** is signed, published and verified. It adds native
+Solid Straighten/Restore for supported constant-section Revolutions and Sweeps,
+exact placement-field retention, Feature profile axes and initial Origin scaling.
+Fresh committed-source packaging, signed smoke/trust, eight packaged GUI
+scenarios, public hashes and update discovery from 2026100201 passed. Native
+state/reference persistence and regenerated start templates were verified; no
+legacy-format support is claimed. Eligibility and remaining geometry limits are
+recorded in [the release record](releases/2026100301.md). Linux remains separate.
+
 Windows build **2026100201** is signed, published and verified. It adds exact
 operation-local IGES locator reuse and updated user manuals. Clean/signed smoke,
 production trust, ten packaged GUI scenarios, frozen IGES save/reopen/regeneration,
