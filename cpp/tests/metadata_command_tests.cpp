@@ -3,6 +3,8 @@
 #include <zima/workspace/metadata_operations.hpp>
 #include <zima/workspace/relation_operations.hpp>
 #include <zima/document/physical_properties.hpp>
+#include <zima/assembly/physical_properties.hpp>
+#include <numbers>
 #include <cmath>
 #include <iostream>
 using namespace zima;using commands::Json;namespace fs=std::filesystem;
@@ -20,7 +22,7 @@ void verify_relation_conversion(const kernel::OcctKernel& kernel,fs::path dir) {
     for(const auto& [name,d]:workspace::relation_dimensions(authored))if(d.binding.owner_id==authored.history.back().id&&
         (d.binding.semantic_key=="parameter:side0_length"||d.binding.semantic_key=="parameter:length_forward"))dimension=name;
     require(!dimension.empty(),"Unit conversion fixture has no extrusion dimension");
-    authored.relations=dimension+" = 30 / 2\nlength = "+dimension+" * 2\nstock = \"Length \" & "+dimension+"\n";
+    authored.relations=dimension+" = 30 * sin(asin(0.5))\nlength = "+dimension+" * 2\nstock = \"Length \" & "+dimension+"\n";
     authored.relations+="SHEETMETAL_THICKNESS = "+dimension+" / 10\n";
     part->session.commit(std::move(authored),part->session.calculated_boundaries());run(host,"regenerate");
     const auto before=part->session.document();const auto cached=part->session.calculated_boundaries().back().kernel_shape;
@@ -57,6 +59,71 @@ void verify_relation_conversion(const kernel::OcctKernel& kernel,fs::path dir) {
     require(!assembly_change.calculated&&assembly->session.document().components.front().calculated_source.shares_with(source),"Assembly relation conversion replaced source geometry");
     require(std::abs(std::stod(assembly->session.document().user_parameters.at("volume"))-6000/std::pow(25.4,3))<1e-12,"Assembly physical relation output has incorrect units");
     run(host,"undo");require(assembly->session.document().serialized()==assembly_before.serialized(),"Assembly unit conversion Undo lost relation metadata");
+}
+void verify_angular_relations(const kernel::OcctKernel& kernel,fs::path dir) {
+    for(const bool assembly_mode:{false,true}) {
+        workspace::Workspace live;command_host::Options options;options.settings=[] {return command_host::Settings{{fs::absolute("config/templates"),"START_PART.prtz","START_ASSEMBLY.asmz","Body"},{}};};
+        command_host::Host host(live,kernel,dir,options);
+        const auto execute=[&](const char* n,Json a){return run(host,n,std::move(a));};
+        run(host,"new",{{"type","part"},{"name",assembly_mode?"angle-stock":"angle-part"}});
+        if(assembly_mode) {
+            const auto source_id=live.active_document_id();test::rectangular_commands(execute,{{"length_mm",20},{"width_mm",20},{"height_mm",20}});
+            run(host,"new",{{"type","assembly"},{"name","angle-assembly"}});
+            static_cast<void>(live.insert_open_part(live.active_document_id(),source_id,"Stock"));
+        }
+        const auto id=live.active_document_id();test::spherical_commands(execute,3);
+        run(host,"document.settings.set",{{"precision",{{"decimal_places",9}}}});
+        const auto dimensions=[&](){return assembly_mode?workspace::relation_dimensions(live.open_assembly(id)->session.document()):workspace::relation_dimensions(live.open_part(id)->session.document());};
+        std::string angle;
+        for(const auto& [name,d]:dimensions())if(d.binding.semantic_key=="parameter:angle")angle=name;
+        require(!angle.empty(),"Angular relation fixture has no Revolution dimension");
+        const auto serialized=[&](){return assembly_mode?live.open_assembly(id)->session.document().serialized():live.open_part(id)->session.document().serialized();};
+        const auto native_angle=[&](){const auto d=dimensions().at(angle);return std::get<double>(d.input.value.data)*d.native_scale;};
+        const auto volume=[&](){
+            const auto settings=workspace::file_settings(live,id);const double scale=document::length_unit_mm(settings.units.at("Length"));
+            const auto values=assembly_mode?assembly::physical_values(live.open_assembly(id)->session.document()):document::physical_values(live.open_part(id)->session.document(),live.open_part(id)->session.calculated_boundaries());
+            return values.at("model.volume")*std::pow(scale,3);
+        };
+        const auto parameters=[&](){return assembly_mode?live.open_assembly(id)->session.document().user_parameters:live.open_part(id)->session.document().user_parameters;};
+        const std::string source=angle+" = asin(0.5) * 2\ngain = sin("+angle+" / 2)\ninverse = atan2(1,1)\n";
+        run(host,"document.relations.set",{{"relations",source+"powered = "+angle+" ^ round((asin(0.5) + 30) / asin(0.5))\n"}});
+        require(native_angle()==360,"Saving angular relations changed the dimension before Regenerate");
+        const auto before=serialized();run(host,"regenerate");const auto after=serialized();
+        const double expected_volume=(assembly_mode?8000.:0.)+(assembly_mode?-1.:1.)*6*std::numbers::pi;
+        const auto verify_result=[&](){
+            require(std::abs(native_angle()-60)<1e-10,"Angular relation used the wrong native angle");
+            require(std::abs(volume()-expected_volume)<1e-7,"Angular relation changed the physical sector volume");
+            require(std::abs(std::stod(parameters().at("gain"))-.5)<1e-9,"Typed sine has wrong document units");
+            const double scale=workspace::file_settings(live,id).units.at("Angle")=="rad"?180./std::numbers::pi:1.;
+            require(std::abs(std::stod(parameters().at("inverse"))*scale-45)<1e-7,"Inverse output parameter has wrong angular units");
+        };
+        verify_result();run(host,"undo");require(serialized()==before,"Angular regeneration Undo did not restore the whole document");
+        run(host,"redo");require(serialized()==after,"Angular regeneration Redo differs");
+        for(const auto* length:{"in","mm","cm"}) {
+            const auto old=serialized();auto settings=workspace::file_settings(live,id);settings.units["Length"]=length;settings.units["Angle"]=std::string(length)=="mm"?"deg":"rad";
+            const auto changed=workspace::set_file_settings(live,kernel,id,settings);
+            require(changed.changed&&!changed.calculated,"Angular unit conversion unexpectedly calculated geometry");
+            const auto converted=serialized();verify_result();
+            run(host,"undo");require(serialized()==old,"Angular unit conversion Undo lost document data");
+            run(host,"redo");require(serialized()==converted,"Angular unit conversion Redo lost document data");
+            run(host,"regenerate");verify_result();
+            const double angular_scale=settings.units.at("Angle")=="rad"?180./std::numbers::pi:1.;
+            require(std::abs(std::stod(parameters().at("powered"))*angular_scale*angular_scale-3600)<1e-5,"Converted angle-derived exponent changed quantity or value");
+        }
+        // Fresh formulas in radians, not only converted degree-authored source.
+        run(host,"document.relations.set",{{"relations",source}});run(host,"regenerate");verify_result();
+        if(assembly_mode) {
+            const auto& doc=live.open_assembly(id)->session.document();const auto file=dir/"angular-relations.asmz";doc.save(file);
+            auto reopened=assembly::AssemblyDocument::load(file);workspace::apply_relation_dimensions(reopened,assembly::physical_values(reopened));
+            workspace::apply_relation_parameters(reopened,assembly::physical_values(reopened));
+            require(reopened.relations==source&&reopened.user_parameters==doc.user_parameters&&std::abs(reopened.cuts.back().definition.revolution.angle_degrees-60)<1e-10,"Assembly angular relations changed after native reopen");
+        } else {
+            const auto* state=live.open_part(id);const auto file=dir/"angular-relations.prtz";state->session.document().save(file,state->session.calculated_boundaries());
+            auto reopened=document::PartDocument::load(file);workspace::apply_relation_dimensions(reopened,document::physical_values(reopened,state->session.calculated_boundaries()));
+            const auto calculated=kernel.evaluate_history(reopened.kernel_operations());workspace::apply_relation_parameters(reopened,document::physical_values(reopened,calculated));
+            require(reopened.relations==source&&reopened.user_parameters==state->session.document().user_parameters&&std::abs(calculated.back().volume-expected_volume)<1e-7,"Part angular relations changed after native reopen and calculation");
+        }
+    }
 }
 void verify(const kernel::OcctKernel& kernel,fs::path dir) {
     workspace::Workspace live;command_host::Options options;options.settings=[] {return command_host::Settings{{fs::absolute("config/templates"),"START_PART.prtz","START_ASSEMBLY.asmz","Body"},{}};};
@@ -228,4 +295,4 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
     run(host,"document.parameters.set",{{"parameters",Json::array()}});require(workspace::user_parameters(live,owner).order.empty(),"Empty table evaluated a physical relation outside Regenerate");run(host,"undo");require(workspace::user_parameters(live,owner).order.size()==2,"Table removal Undo failed");
 }
 }
-int main(){try{kernel::OcctKernel kernel;const auto parent=fs::canonical(fs::temp_directory_path());const auto dir=parent/("zima-metadata-"+document::PartDocument::create_default().document_id);fs::create_directory(dir);verify_relation_conversion(kernel,dir);verify(kernel,dir);require(dir.parent_path()==parent,"Unsafe cleanup");fs::remove_all(dir);std::cout<<"Parameters, localized values, units, geometry preservation, relation errors, Undo and native metadata persistence passed\n";return 0;}catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}
+int main(){try{kernel::OcctKernel kernel;const auto parent=fs::canonical(fs::temp_directory_path());const auto dir=parent/("zima-metadata-"+document::PartDocument::create_default().document_id);fs::create_directory(dir);verify_relation_conversion(kernel,dir);verify_angular_relations(kernel,dir);verify(kernel,dir);require(dir.parent_path()==parent,"Unsafe cleanup");fs::remove_all(dir);std::cout<<"Parameters, localized values, units, geometry preservation, relation errors, Undo and native metadata persistence passed\n";return 0;}catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}

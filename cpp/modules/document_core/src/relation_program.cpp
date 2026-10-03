@@ -24,6 +24,7 @@ struct Expr {
     RelationValue value;
     std::vector<std::shared_ptr<Expr>> args;
     int line{}, column{};
+    std::size_t argument_begin{}, call_close{}, call_end{};
 };
 using Node = std::shared_ptr<Expr>;
 [[noreturn]] void fail(const Expr& e, const std::string& message, const std::string& detail = {}) {
@@ -105,7 +106,7 @@ class ExpressionParser {
             left->op = "literal"; left->value = {value, {}, true};
         } else if (letter(token.text.front())) {
             if (pos_ < tokens_.size() && tokens_[pos_].text == "(") {
-                ++pos_; left->op = "call:" + token.text;
+                left->argument_begin=tokens_[pos_++].end; left->op = "call:" + token.text;
                 if (pos_ < tokens_.size() && tokens_[pos_].text != ")") {
                     do {
                         if (left->args.size() >= 32) fail(*left, "Too many function arguments.");
@@ -115,6 +116,7 @@ class ExpressionParser {
                     } while (true);
                 }
                 require(")");
+                left->call_close=tokens_[pos_-1].column-1;left->call_end=tokens_[pos_-1].end;
                 const auto fn = functions.find(token.text);
                 if (fn == functions.end()) fail(*left, "Unknown function.", token.text);
                 if (left->args.size() < fn->second.first || left->args.size() > fn->second.second)
@@ -170,11 +172,11 @@ std::array<int,3> compatible(const RelationValue& a, const RelationValue& b, con
     if (b.literal) return a.units;
     fail(e, "Incompatible units.");
 }
-RelationValue evaluate(const Node& node, const std::function<RelationValue(const std::string&)>& lookup, int decimals) {
+RelationValue evaluate(const Node& node, const std::function<RelationValue(const std::string&)>& lookup, int decimals,double degrees_per_angle_unit=1) {
     const auto& e = *node;
     if (e.op == "literal") return e.value;
     if (e.op == "name") return lookup(std::get<std::string>(e.value.data));
-    auto a = evaluate(e.args.front(), lookup, decimals);
+    auto a = evaluate(e.args.front(), lookup, decimals,degrees_per_angle_unit);
     if (e.op == "unarynot") return { !truth(a,e) };
     if (e.op == "unary+" || e.op == "unary-") { a.data = (e.op == "unary-" ? -1.0 : 1.0) * number(a,e); return a; }
     if (e.op == "and" && !truth(a,e)) return {false};
@@ -182,7 +184,7 @@ RelationValue evaluate(const Node& node, const std::function<RelationValue(const
     RelationValue result;
     if (e.op.starts_with("call:")) {
         std::vector<RelationValue> args{a};
-        for (std::size_t i=1;i<e.args.size();++i) args.push_back(evaluate(e.args[i],lookup,decimals));
+        for (std::size_t i=1;i<e.args.size();++i) args.push_back(evaluate(e.args[i],lookup,decimals,degrees_per_angle_unit));
         const auto fn=e.op.substr(5); double x=number(a,e), y=args.size()>1?number(args[1],e):0, r{};
         result.units=a.units; result.literal=a.literal;
         const auto scalar=[&] { if(a.units!=std::array<int,3>{}) fail(e,"A dimensionless value is required."); };
@@ -200,13 +202,14 @@ RelationValue evaluate(const Node& node, const std::function<RelationValue(const
         else if(fn=="ceil") r=std::ceil(x);
         else if(fn=="sin"||fn=="cos"||fn=="tan"||fn=="sind"||fn=="cosd"||fn=="tand") {
             if(a.units!=std::array<int,3>{}&&a.units!=std::array<int,3>{0,1,0})fail(e,"An angle is required.");
-            if(fn.ends_with('d')) x*=std::numbers::pi/180.;
+            if(a.units==std::array<int,3>{0,1,0})x*=degrees_per_angle_unit*std::numbers::pi/180.;
+            else if(fn.ends_with('d'))x*=std::numbers::pi/180.;
             if(fn=="tan"||fn=="tand") {if(std::abs(std::cos(x))<1e-15)fail(e,"Undefined tangent.");r=std::tan(x);}
             else r=fn=="sin"||fn=="sind"?std::sin(x):std::cos(x);
             result.units={};result.literal=false;
         } else if(fn=="atan2"||fn=="atan2d") {
             static_cast<void>(compatible(a,args[1],e));r=std::atan2(x,y);result.units={0,1,0};result.literal=false;
-            if(fn.ends_with('d'))r*=180./std::numbers::pi;
+            r*=180./std::numbers::pi/degrees_per_angle_unit;
         } else {
             scalar();result.units={};result.literal=false;
             if(fn=="asin"||fn=="asind")r=std::asin(x);
@@ -215,11 +218,11 @@ RelationValue evaluate(const Node& node, const std::function<RelationValue(const
             else if(fn=="exp")r=std::exp(x);
             else if(fn=="log"||fn=="ln")r=std::log(x);
             else r=std::log10(x);
-            if(fn.starts_with("a")){result.units={0,1,0};if(fn.ends_with('d'))r*=180./std::numbers::pi;}
+            if(fn.starts_with("a")){result.units={0,1,0};r*=180./std::numbers::pi/degrees_per_angle_unit;}
         }
         result.data=r;
     } else {
-        auto b=evaluate(e.args[1],lookup,decimals);
+        auto b=evaluate(e.args[1],lookup,decimals,degrees_per_angle_unit);
         if(e.op=="&") {
             auto left=relation_value_text(a,decimals),right=relation_value_text(b,decimals);
             if(left.size()+right.size()>1024*1024)fail(e,"Invalid relation source size or content.");
@@ -334,9 +337,10 @@ void RelationProgram::validate(const RelationInputs& inputs) const {
     for(const auto& [name,deps]:graph)static_cast<void>(visit(name,0));
 }
 
-std::map<std::string,RelationValue> RelationProgram::evaluate(const RelationInputs& inputs,int decimals,bool dimensions_only) const {
+std::map<std::string,RelationValue> RelationProgram::evaluate(const RelationInputs& inputs,int decimals,bool dimensions_only,double degrees_per_angle_unit) const {
     validate(inputs);
     if(decimals<0||decimals>12)throw RelationError(1,1,"Invalid rounding precision.");
+    if(!(degrees_per_angle_unit>0)||!std::isfinite(degrees_per_angle_unit))throw RelationError(1,1,"Incompatible units.");
     std::map<std::string,std::vector<const Assignment*>> assignments;
     for(const auto& a:data_->assignments)assignments[a.target].push_back(&a);
     std::map<std::string,RelationValue> values,output;
@@ -345,9 +349,9 @@ std::map<std::string,RelationValue> RelationProgram::evaluate(const RelationInpu
         const auto definitions=assignments.find(name);
         if(definitions!=assignments.end())for(const auto* a:definitions->second) {
             bool selected=true;
-            for(const auto& guard:a->guards)if(truth(document::evaluate(guard.condition,lookup,decimals),*guard.condition)!=guard.expected){selected=false;break;}
+            for(const auto& guard:a->guards)if(truth(document::evaluate(guard.condition,lookup,decimals,degrees_per_angle_unit),*guard.condition)!=guard.expected){selected=false;break;}
             if(!selected)continue;
-            auto value=document::evaluate(a->expression,lookup,decimals);
+            auto value=document::evaluate(a->expression,lookup,decimals,degrees_per_angle_unit);
             if(const auto target=inputs.find(name);target!=inputs.end()&&name.size()>1&&name[0]=='d'&&std::ranges::all_of(name.substr(1),digit)) {
                 static_cast<void>(number(value,*a->expression));
                 // Unit-free formulas, like numeric literals, use the target's
@@ -368,15 +372,15 @@ std::map<std::string,RelationValue> RelationProgram::evaluate(const RelationInpu
 namespace {
 // Static quantity inference deliberately visits inactive/short-circuited paths.
 // It does not execute division, roots or transcendental functions on model data.
-RelationValue quantity_type(const Node& node,const std::function<RelationValue(const std::string&)>& lookup) {
+RelationValue quantity_type(const Node& node,const std::function<RelationValue(const std::string&)>& lookup,double degrees_per_angle_unit) {
     const auto& e=*node;
     if(e.op=="literal")return e.value;
     if(e.op=="name")return lookup(std::get<std::string>(e.value.data));
-    auto a=quantity_type(e.args.front(),lookup);
+    auto a=quantity_type(e.args.front(),lookup,degrees_per_angle_unit);
     if(e.op=="unarynot"){static_cast<void>(truth(a,e));return {false};}
     if(e.op=="unary+"||e.op=="unary-"){static_cast<void>(number(a,e));return a;}
     std::vector<RelationValue> args{a};
-    for(std::size_t i=1;i<e.args.size();++i)args.push_back(quantity_type(e.args[i],lookup));
+    for(std::size_t i=1;i<e.args.size();++i)args.push_back(quantity_type(e.args[i],lookup,degrees_per_angle_unit));
     RelationValue result{0.,a.units,a.literal};
     if(e.op.starts_with("call:")) {
         for(const auto& value:args)static_cast<void>(number(value,e));
@@ -409,7 +413,7 @@ RelationValue quantity_type(const Node& node,const std::function<RelationValue(c
             if(a.units!=std::array<int,3>{}) {
                 std::set<std::string> dependencies;names(e.args[1],dependencies);
                 if(!dependencies.empty())fail(e,"Cannot safely convert relation units.");
-                const double exponent=number(document::evaluate(e.args[1],lookup,3),e);
+                const double exponent=number(document::evaluate(e.args[1],lookup,3,degrees_per_angle_unit),e);
                 if(exponent!=std::floor(exponent)||std::abs(exponent)>16)fail(e,"Invalid quantity exponent.");
                 for(int i=0;i<3;++i)result.units[i]=a.units[i]*static_cast<int>(exponent);
             }
@@ -425,8 +429,9 @@ std::string conversion_number(double value) {
     std::ostringstream out;out.imbue(std::locale::classic());out<<std::setprecision(17)<<value;return out.str();
 }
 }
-RelationUnitConversion RelationProgram::convert_units(const RelationInputs& inputs,const std::array<double,3>& factors,const std::set<std::string>& fixed_unit_names) const {
+RelationUnitConversion RelationProgram::convert_units(const RelationInputs& inputs,const std::array<double,3>& factors,const std::set<std::string>& fixed_unit_names,double degrees_per_angle_unit) const {
     validate(inputs);
+    if(!(degrees_per_angle_unit>0)||!std::isfinite(degrees_per_angle_unit))throw RelationError(1,1,"Cannot safely convert relation units.");
     for(const double factor:factors)if(!(factor>0)||!std::isfinite(factor))throw RelationError(1,1,"Cannot safely convert relation units.");
     std::map<std::string,std::vector<const Assignment*>> assignments;
     for(const auto& a:data_->assignments)assignments[a.target].push_back(&a);
@@ -436,7 +441,7 @@ RelationUnitConversion RelationProgram::convert_units(const RelationInputs& inpu
         if(!assignments.contains(name))return inputs.at(name).value;
         std::optional<RelationValue> result;
         for(const auto* row:assignments.at(name)) {
-            auto type=quantity_type(row->expression,lookup);
+            auto type=quantity_type(row->expression,lookup,degrees_per_angle_unit);
             if(dimension_name(name)) {
                 const auto& target=inputs.at(name).value;static_cast<void>(number(type,*row->expression));
                 type.units=type.units==std::array<int,3>{}?target.units:compatible(target,type,*row->expression);type.literal=false;
@@ -453,20 +458,37 @@ RelationUnitConversion RelationProgram::convert_units(const RelationInputs& inpu
         return types[name]=*result;
     };
     for(const auto& [name,rows]:assignments)static_cast<void>(lookup(name));
-    for(const auto& condition:data_->conditions)static_cast<void>(truth(quantity_type(condition,lookup),*condition));
+    for(const auto& condition:data_->conditions)static_cast<void>(truth(quantity_type(condition,lookup,degrees_per_angle_unit),*condition));
     const auto factor_for=[&](const RelationValue& type,const Expr& location) {
         double scale=1;for(int i=0;i<3;++i)scale*=std::pow(factors[i],type.units[i]);
         if(!(scale>0)||!std::isfinite(scale))fail(location,"Cannot safely convert relation units.");return scale;
     };
     std::vector<std::size_t> line_offsets{0};
     for(std::size_t i=0;i<data_->source.size();++i)if(data_->source[i]=='\n')line_offsets.push_back(i+1);
-    struct Edit {std::size_t offset{},length{};std::string text;};std::vector<Edit> edits;
+    struct Edit {std::size_t offset{},length{};std::string text;int priority{};};std::vector<Edit> edits;
     std::set<std::pair<int,int>> visited;
     std::function<void(const Node&)> convert_names=[&](const Node& node) {
         if(!visited.emplace(node->line,node->column).second)return;
         if(node->op=="name") {
             const auto& name=std::get<std::string>(node->value.data);const double factor=fixed_unit_names.contains(name)?1.:factor_for(lookup(name),*node);
             if(factor!=1)edits.push_back({line_offsets.at(node->line-1)+node->column-1,name.size(),"("+name+" / "+conversion_number(factor)+")"});
+        }
+        if(factors[1]!=1&&node->op.starts_with("call:")) {
+            const auto fn=node->op.substr(5);const auto line=line_offsets.at(node->line-1);
+            const auto factor=conversion_number(factors[1]);
+            if(fn=="sin"||fn=="cos"||fn=="tan"||fn=="sind"||fn=="cosd"||fn=="tand") {
+                if(quantity_type(node->args.front(),lookup,degrees_per_angle_unit).units==std::array<int,3>{0,1,0}) {
+                    // The surrounding converted expression still works in old
+                    // numbers. Restore the new typed angle basis at the call.
+                    edits.push_back({line+node->argument_begin,0,"("});
+                    edits.push_back({line+node->call_close,0,") * "+factor});
+                }
+            } else if(fn=="asin"||fn=="acos"||fn=="atan"||fn=="asind"||fn=="acosd"||fn=="atand"||fn=="atan2"||fn=="atan2d") {
+                // Inverse functions return a typed angle in the new document
+                // unit. Recover old numbers before enclosing arithmetic.
+                edits.push_back({line+node->column-1,0,"("});
+                edits.push_back({line+node->call_end,0," / "+factor+")",1});
+            }
         }
         for(const auto& arg:node->args)convert_names(arg);
     };
@@ -481,7 +503,7 @@ RelationUnitConversion RelationProgram::convert_units(const RelationInputs& inpu
             edits.push_back({start+tokens.back().end,0,") * "+conversion_number(factor)});
         }
     }
-    std::sort(edits.begin(),edits.end(),[](const Edit& a,const Edit& b){return a.offset!=b.offset?a.offset>b.offset:a.length>b.length;});
+    std::sort(edits.begin(),edits.end(),[](const Edit& a,const Edit& b){return a.offset!=b.offset?a.offset>b.offset:a.length!=b.length?a.length>b.length:a.priority<b.priority;});
     for(const auto& edit:edits)converted.source.replace(edit.offset,edit.length,edit.text);
     // Conversion must produce a valid program within ordinary parser limits.
     RelationProgram(converted.source).validate(inputs);

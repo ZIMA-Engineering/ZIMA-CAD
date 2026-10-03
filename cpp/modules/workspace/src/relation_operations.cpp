@@ -10,6 +10,9 @@
 
 namespace zima::workspace {
 namespace {
+template<class Doc> double degrees_per_angle_unit(const Doc& doc) {
+    return doc.document_units.at("Angle")=="rad"?180./std::numbers::pi:1.;
+}
 template<class Doc> document::RelationInputs inputs(const Doc& doc,const std::map<std::string,double>& physical) {
     document::RelationInputs result;
     for(const auto& [name,text]:doc.user_parameters) {
@@ -41,7 +44,7 @@ template<class Doc> void convert_units(Doc& doc,const std::map<std::string,std::
     // This reserved Part parameter is explicitly native millimetres, including
     // when Relations assign it. Its existing storage contract must not change.
     std::set<std::string> fixed_units;if constexpr(requires{doc.body_history;})fixed_units.insert("SHEETMETAL_THICKNESS");
-    const auto conversion=document::RelationProgram(doc.relations).convert_units(inputs(doc,quantities),factors,fixed_units);
+    const auto conversion=document::RelationProgram(doc.relations).convert_units(inputs(doc,quantities),factors,fixed_units,degrees_per_angle_unit(doc));
     auto parameters=doc.user_parameters;auto localized=doc.user_parameter_values;
     for(const auto& [name,target]:conversion.outputs) {
         auto stored=parameters.find(name);if(stored==parameters.end())continue;
@@ -59,7 +62,7 @@ template<class Doc> void convert_units(Doc& doc,const std::map<std::string,std::
 template<class Doc> void dimensions(Doc& doc,const std::map<std::string,double>& physical) {
     if(doc.relations.empty())return;
     const auto definitions=relation_dimensions(doc);
-    const auto calculated=document::RelationProgram(doc.relations).evaluate(inputs(doc,physical),static_cast<int>(document::precision_value(doc.document_precision,"decimal_places",3)),true);
+    const auto calculated=document::RelationProgram(doc.relations).evaluate(inputs(doc,physical),static_cast<int>(document::precision_value(doc.document_precision,"decimal_places",3)),true,degrees_per_angle_unit(doc));
     for(const auto& [name,value]:calculated)if(const auto d=definitions.find(name);d!=definitions.end()) {
         const double native=std::get<double>(value.data)*d->second.native_scale;
         const double previous=std::get<double>(d->second.input.value.data)*d->second.native_scale;
@@ -71,7 +74,7 @@ template<class Doc> void parameters(Doc& doc,const std::map<std::string,double>&
     if(doc.relations.empty())return;
     const auto definitions=relation_dimensions(doc);
     const int decimals=static_cast<int>(document::precision_value(doc.document_precision,"decimal_places",3));
-    const auto calculated=document::RelationProgram(doc.relations).evaluate(inputs(doc,physical),decimals);
+    const auto calculated=document::RelationProgram(doc.relations).evaluate(inputs(doc,physical),decimals,false,degrees_per_angle_unit(doc));
     for(const auto& [name,value]:calculated)if(!definitions.contains(name)) {
         if(name=="color") {
             const auto* color=std::get_if<std::string>(&value.data);

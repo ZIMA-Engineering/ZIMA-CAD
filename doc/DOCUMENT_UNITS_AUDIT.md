@@ -167,7 +167,7 @@ ordinary mm/inch modeling input, and must not turn this work into a global rewri
 | View dimensions | Ordinary nominal labels share one document-unit formatter across painting, picking, label position and grips; native values/references remain unchanged. | Exact complete specifications convert for display; otherwise show the original specification with an explicitly approximate secondary nominal. New annotation authoring and layout fields now follow document units; quantity validation passes; finish drawing/output gates. |
 | Measurements | Length/area/volume and mass use document scale factors. | Verify angular results, reopened records, nested occurrences and labels. |
 | Physical properties | Existing conversion includes area/volume powers, mass and density. | Extend mixed-unit checks and inspect all editable orientation fields. |
-| Relations | Explicit source conversion preserves quantity-dependent results, inactive branches, fixed-unit sheet thickness and atomic rejection; no hidden second unit basis. | Complete typed trigonometric/inverse-trigonometric unit semantics and the remaining dimension-binding audit. |
+| Relations | Explicit source conversion preserves quantity-dependent results, inactive branches, fixed-unit sheet thickness and atomic rejection; no hidden second unit basis. | Complete the remaining dimension-binding audit; typed trigonometry is verified below. |
 | Family | Native values remain mm/degrees; editor and unit labels use document units. | Fractional editing, unit changes, exact no-op, native reopen, shared Undo/Redo and geometry reuse verified. |
 | Drawings | Sheet geometry, pens and annotation sizing explicitly use paper mm. | Separate paper units from model dimension values; audit source units, text/tolerances, PDF/print/DXF output. |
 | Exchange | STEP/IGES/DXF need file-unit interpretation at their existing import/export boundaries. | Verify actual unit metadata and physical extents; no double scaling from document settings. |
@@ -331,10 +331,9 @@ The rebuilt application and UI contracts passed. The five-language GUI check
 verifies that File Settings remains open and shows the localized conversion
 message with its original line and target; source/catalog coverage passes too.
 The ordinary Relations editor and the expanded metadata/core suites pass after
-the final localization correction. This stage preserves existing explicit
-trigonometric function conventions; the wider audit still needs to decide and
-verify how newly authored fixed-unit inverse-trigonometric results are consumed
-by angular dimensions in a differently configured document.
+the final localization correction. Typed inverse-function results were still
+pending at this stage; the later typed-angle verification below closes that
+specific gap.
 
 
 ### Family numeric presentation (2026-10-03)
@@ -629,10 +628,41 @@ and common picker checks pass. Derived quantity changes leave the serialized
 identifier map unchanged. Existing diagnostics are reused and verified in all
 five languages; no new user-visible messages were added.
 
-Trigonometric Relations still require a separate correction: runtime angle values are tagged
-as document-unit quantities, but named trig functions currently consume their
-raw numbers using fixed radian/degree conventions. Inverse functions return the
-same angle type with differing raw bases. Any correction must also update the
-existing explicit source-unit conversion so repeated conversions preserve
-physical results, rounding, inactive branches, comments and literal strings.
-Do not change one evaluator boundary without validating that complete path.
+### Typed trigonometric relations (2026-10-03)
+
+The audit reproduced inconsistent angular bases: values were tagged as angles
+in document units, but trig functions read their numbers in a fixed named basis,
+and inverse functions returned the same type with different numeric bases.
+The evaluator now receives the document's angular scale. Typed angle inputs
+respect that scale, while scalar sin/cos/tan and sind/cosd/tand retain their
+radian/degree conventions. Every inverse function returns a document-unit angle.
+Canonical geometry remains in degrees; there is no native format change.
+
+Explicit source conversion adjusts the typed argument/result boundaries too.
+It preserves enclosing arithmetic, rounding, conditions, text and comments;
+conversion does not execute inactive domain failures. Repeated degree/radian
+conversion is checked across all outputs, including nested inverse functions
+and trig guards. Constant quantity exponents use the source angular scale,
+and converted inverse results retain grouping when used as divisors. Signed
+zero and tangent/domain rejection remain covered.
+
+Core checks cover both angular units and all four length units. Native command
+checks create a spherical sector with a relation-driven 60-degree Revolution,
+and subtract that sector from a real Assembly occurrence. Their independently
+expected volumes are 6*pi and 8000-6*pi cubic millimetres. Fresh radian formulas,
+repeated unit conversion, explicit Regenerate, complete Undo/Redo and native
+save/reopen all retain those values. A nested inverse/sine expression also
+drives an Extrusion length through unit conversion and native reopening.
+Both relation evaluation phases and source-save validation use the same scale.
+
+No new user-visible text or translation keys are introduced. Existing quantity
+and domain errors retain their localized diagnostics. The remaining relation
+binding catalog work is separate from this evaluator correction.
+
+Final rebuilt verification passed all six targeted suites (10.36 seconds):
+`zima_cpp_relation_program_tests`, `zima_cpp_metadata_command_tests`,
+`zima_cpp_engineering_metadata_command_tests`, `zima_cpp_family_table_tests`,
+`zima_cpp_relations_editor_contract` and `zima_cpp_translations_contract`.
+The last suite checks production source coverage, catalogs and affected UI in
+Czech, English, German, French and Russian. The Windows application was rebuilt;
+this stage is not the final units release.

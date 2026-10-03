@@ -67,9 +67,24 @@ loops and arbitrary code execution are not.
 Functions include `abs`, `sqrt`, `min`, `max`, `round`, `floor`, `ceil`, `exp`,
 `ln`, `log`, `log10`, `sin`, `cos`, `tan`, `sind`, `cosd`, `tand`, `asin`, `acos`,
 `atan`, `asind`, `acosd`, `atand`, `atan2` and `atan2d`. `round(x, n)` accepts
-precision from -12 to 12. `ln` and `log` are natural logarithms. Trigonometric
-functions without a `d` suffix use radians; functions with the suffix use
-degrees. Constants are `pi`, `e`, `true` and `false`.
+precision from -12 to 12. `ln` and `log` are natural logarithms.
+Constants are `pi`, `e`, `true` and `false`.
+
+For a plain number or dimensionless expression, `sin`, `cos` and `tan` take
+radians; `sind`, `cosd` and `tand` take degrees. For example, `sin(pi / 6)` and
+`sind(30)` both return 0.5. An angular dimension already carries its quantity:
+all six functions interpret it in the document's angular unit. If `d2` is a
+30-degree angle, both `sin(d2)` and `sind(d2)` return 0.5, including when the
+document displays `d2` in radians.
+
+Inverse functions return a typed angle in the document's angular unit. Both
+`asin(0.5)` and `asind(0.5)` therefore produce 30 in a degree document or pi/6
+in a radian document. Assigning either result to an angular dimension produces
+the same physical angle. The corresponding `acos`, `atan` and `atan2` pairs
+follow the same rule; `atan2(y, x)` retains its quadrant and signed zero.
+Nested expressions such as `sin(asin(0.5))` remain physically consistent.
+This contract concerns document Relations; the separate dimensionless numeric
+expression parser used by ordinary input fields retains its named conventions.
 
 Dependencies determine evaluation order, not the order of assignments. Cycles,
 unknown names, incompatible quantities, non-finite results and division by zero

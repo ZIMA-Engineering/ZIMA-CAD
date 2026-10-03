@@ -45,7 +45,10 @@ public:
     explicit RelationProgram(const std::string& source);
     // All names, assignments and cycles are checked, including inactive branches.
     void validate(const RelationInputs&) const;
-    [[nodiscard]] std::map<std::string, RelationValue> evaluate(const RelationInputs&, int decimals = 3, bool dimensions_only = false) const;
+    // Typed angles use the document's angular unit; scalar sin/cos/tan inputs
+    // remain radians and scalar sind/cosd/tand inputs remain degrees.
+    [[nodiscard]] std::map<std::string, RelationValue> evaluate(const RelationInputs&, int decimals = 3,
+        bool dimensions_only = false, double degrees_per_angle_unit = 1) const;
     [[nodiscard]] std::map<std::string, std::string> target_expressions() const;
     // Factors convert old document numbers to new numbers (length, angle, mass).
     // Preflight every branch without evaluating domains or changing model data.
@@ -53,7 +56,8 @@ public:
     // Reserved names with an explicit fixed-unit storage contract are exempt.
     [[nodiscard]] RelationUnitConversion convert_units(const RelationInputs&,
         const std::array<double,3>& old_to_new,
-        const std::set<std::string>& fixed_unit_names = {}) const;
+        const std::set<std::string>& fixed_unit_names = {},
+        double old_degrees_per_angle_unit = 1) const;
 private:
     std::shared_ptr<const RelationProgramData> data_;
 };
