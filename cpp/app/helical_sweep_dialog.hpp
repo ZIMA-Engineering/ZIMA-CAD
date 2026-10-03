@@ -88,8 +88,11 @@ public:
         const QSignalBlocker a(circle_),b(point_);circle_->clear();point_->clear();
         circle_->addItem(tr("Vyberte kružnici"),QString());point_->addItem(tr("Vyberte bod"),QString());
         const auto s=sketcher::Sketch::from_serialized(pending.helical.sketches[0]);std::set<std::string> centers;
-        for(const auto& c:s.circles){centers.insert(c.center_point_id);if(!c.construction)circle_->addItem(tr("Kružnice %1 — ⌀%2 mm").arg(circle_->count()).arg(2*c.radius),QString::fromStdString(c.id));}
-        for(const auto& p:s.points)if(!centers.contains(p.id))point_->addItem(tr("Bod %1 [%2; %3]").arg(point_->count()).arg(p.x).arg(p.y),QString::fromStdString(p.id));
+        const auto unit=ui::document_unit(this,"Length","mm");
+        const double scale=document::length_unit_mm(unit.toStdString());
+        const auto number=[&](double value){return locale().toString(value/scale,'f',ui::numeric_decimal_places(this));};
+        for(const auto& c:s.circles){centers.insert(c.center_point_id);if(!c.construction)circle_->addItem(tr("Kružnice %1 — ⌀%2 %3").arg(circle_->count()).arg(number(2*c.radius),unit),QString::fromStdString(c.id));}
+        for(const auto& p:s.points)if(!centers.contains(p.id))point_->addItem(tr("Bod %1 [%2; %3] %4").arg(point_->count()).arg(number(p.x),number(p.y),unit),QString::fromStdString(p.id));
         auto restore=[](QComboBox* box,std::string& id){int i=box->findData(QString::fromStdString(id));if(i<=0&&id.empty()&&box->count()==2){i=1;id=box->itemData(i).toString().toStdString();}box->setCurrentIndex(std::max(0,i));};
         restore(circle_,pending.helical.circle_id);restore(point_,pending.helical.start_point_id);
     }

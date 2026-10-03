@@ -6,6 +6,7 @@
 #include <zima/workspace/assembly_scene.hpp>
 #include <zima/document/holes.hpp>
 #include "workspace_internal.hpp"
+#include "../document_numeric_display.hpp"
 #include "ordinary_selection.hpp"
 #include "../feature_view_cues.hpp"
 #include <zima/document/helical_geometry.hpp>
@@ -101,11 +102,7 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
         set_document_numeric_context(*this,active_assembly->session.document());
     }
     setProperty("zimaDocumentDecimalPlaces",decimal_places);
-    viewer_->set_dimension_decimal_places(decimal_places);
-    const auto length_unit=ui::document_unit(this,"Length","mm").toStdString();
-    const auto angle_unit=ui::document_unit(this,"Angle","deg");
-    viewer_->set_dimension_display_units({document::length_unit_mm(length_unit),length_unit,
-        angle_unit=="rad"?180./std::numbers::pi:1.,angle_unit=="rad"?"rad":"°"});
+    update_viewer_numeric_context(*viewer_,*this);
     const auto append_boundary_input_sketches = [this](zima::kernel::ViewerMesh& mesh,
             const zima::document::PartDocument& document) {
         if (!part_rollback_ || part_rollback_->part_document_id != document.document_id ||

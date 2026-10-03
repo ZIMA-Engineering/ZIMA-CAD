@@ -6,6 +6,7 @@
 #include "mass_properties_dialog.hpp"
 #include "primitive_properties_dialog.hpp"
 #include <QTableWidget>
+#include <QComboBox>
 #include "drawing_window.hpp"
 #include "drawing_dimension_dialog.hpp"
 #include <zima/viewer/mesh_view.hpp>
@@ -23,6 +24,7 @@
 #include <QMenu>
 #include <QTimer>
 #include <iostream>
+#include <numbers>
 
 namespace zima::app {
 int verify_measurement_inspector(QApplication& application,AssemblyWorkspaceWindow& window,const std::filesystem::path& directory){
@@ -229,6 +231,41 @@ try{
     check(tree->currentItem()&&tree->currentItem()->data(0,Qt::UserRole+3)=="body-properties","Mass feature not selected in Tree");
     check_before_cursor();
     check(std::ranges::any_of(view->mesh().points,[&](const auto& p){return p.reference.owner_id==mass_id+":origin";}),"COG Origin missing from View");
+    const auto centroid_before=execute("body_properties.get",{{"object",mass_id}}).data;
+    const auto centroid_geometry=view->mesh();const auto* centroid_tree_row=tree->currentItem();
+    for(const auto* unit:{"mm","cm","m","in","mm"}) {
+        const auto* angular=std::string_view(unit)=="cm"||std::string_view(unit)=="in"?"rad":"deg";
+        if(std::string_view(unit)=="cm") {
+            window.findChild<QAction*>("fileSettingsAction")->trigger();flush();
+            auto* settings=window.findChild<QDialog*>("fileSettingsDialog");check(settings,"Centroid unit test cannot open File Settings");
+            settings->findChild<QComboBox*>("fileUnitLength")->setCurrentText(unit);
+            settings->findChild<QComboBox*>("fileUnitAngle")->setCurrentText(angular);
+            settings->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
+            check(!window.findChild<QDialog*>("fileSettingsDialog"),"File Settings did not accept centroid unit change");
+        } else {
+            const auto settings=execute("document.settings.set",{{"units",{{"Length",unit},{"Angle",angular}}},{"precision",{{"decimal_places",6}}}}).data;flush();
+            check(!settings.at("calculated").get<bool>(),"Centroid tooltip unit change calculated geometry");
+        }
+        QTreeWidgetItem* row{};for(QTreeWidgetItemIterator it(tree);*it;++it)
+            if((*it)->data(0,Qt::UserRole).toString().toStdString()==mass_id&&(*it)->data(0,Qt::UserRole+3)=="body-properties"){row=*it;break;}
+        check(row==centroid_tree_row&&row->childCount()>0,"Centroid unit change rebuilt or lost the saved Tree row");
+        const auto c=centroid_before.at("integrals").at("centroid_mm").get<std::array<double,3>>();
+        const double scale=document::length_unit_mm(unit);
+        const auto number=[&](double v){return QString::fromStdString(kernel::dimension_number(v/scale,6));};
+        kernel::ViewerDimension length_probe;length_probe.value=25.4;length_probe.unit_suffix="mm";
+        kernel::ViewerDimension angle_probe;angle_probe.value=90;angle_probe.kind=kernel::ViewerDimensionKind::Angular;angle_probe.unit_suffix="°";
+        const double angular_scale=std::string_view(angular)=="rad"?180./std::numbers::pi:1.;
+        check(view->dimension_label_text(length_probe)==number(25.4)+unit&&
+            view->dimension_label_text(angle_probe)==QString::fromStdString(kernel::dimension_number(90/angular_scale,6))+
+                (std::string_view(angular)=="rad"?QStringLiteral("rad"):QString::fromUtf8("°")),
+            "Metadata-only settings left stale View dimension units or precision");
+        check(row->child(0)->toolTip(0)==QStringLiteral("X: %1; Y: %2; Z: %3 %4").arg(number(c[0]),number(c[1]),number(c[2]),unit),
+            "Centroid Tree coordinates or unit disagree with document settings");
+        check(execute("body_properties.get",{{"object",mass_id}}).data.at("integrals")==centroid_before.at("integrals")&&
+            view->mesh().vertices==centroid_geometry.vertices&&view->mesh().triangles==centroid_geometry.triangles,
+            "Centroid tooltip conversion changed stored properties or geometry");
+        tree->setCurrentItem(row);
+    }
     auto* centroid_item=tree->currentItem()->child(0);check(centroid_item&&centroid_item->text(0)==QObject::tr("Těžiště"),"Centroid Tree label is ambiguous");
     tree->setCurrentItem(centroid_item);flush();
     check(view->confirmed_candidate()&&view->confirmed_candidate()->owner_id==mass_id+":origin","Selecting centroid in Tree does not highlight its own frame");

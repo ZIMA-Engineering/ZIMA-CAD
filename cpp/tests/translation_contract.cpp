@@ -17,6 +17,7 @@
 #include "sheet_transition_dialog.hpp"
 #include "boundary_surface_dialog.hpp"
 #include "helical_sweep_dialog.hpp"
+#include "sweep_point_order_dialog.hpp"
 #include "sweep2d_dialog.hpp"
 #include "sweep_test_support.hpp"
 #include "body_scale_dialog.hpp"
@@ -180,6 +181,24 @@ int verify_translations(QApplication& application, QWidget& parent) {
             const auto commit=[&](auto value){check(value.is_surface_result(),"Properties committed wrong result mode");++committed;};
             app::HelicalSweepDialog helical(test_support::sweep_fixture(document::FeatureKind::HelicalSweep),commit,&parent);
             helical.setAttribute(Qt::WA_DeleteOnClose,false);
+            const auto unit=ui::document_unit(&helical,"Length","mm");
+            const double unit_scale=document::length_unit_mm(unit.toStdString());
+            const auto number=[&](double v){return helical.locale().toString(v/unit_scale,'f',ui::numeric_decimal_places(&helical));};
+            check(helical.findChild<QComboBox*>("helicalCircle")->currentText()==
+                settings.qt_translations.value("Kružnice %1 — ⌀%2 %3").arg(1).arg(number(20),unit)&&
+                helical.findChild<QComboBox*>("helicalStartPoint")->currentText()==
+                settings.qt_translations.value("Bod %1 [%2; %3] %4").arg(1).arg(number(10),number(0),unit),
+                "Helical choice descriptions are not localized");
+            auto profile=sketcher::Sketch::create_default();static_cast<void>(profile.add_segment(0,0,25.4,50.8));
+            app::SweepPointOrderDialog order(profile,{},[](auto){},&parent,true);order.setAttribute(Qt::WA_DeleteOnClose,false);
+            auto* coordinates=order.findChild<QTableWidget*>();
+            check(coordinates->horizontalHeaderItem(1)->text()==settings.qt_translations.value("X [%1]").arg(unit)&&
+                coordinates->horizontalHeaderItem(2)->text()==settings.qt_translations.value("Y [%1]").arg(unit),
+                "Profile coordinate unit headers are not localized");
+            app::ConstructionPropertiesDialog curve(document::PartDocument::create_construction(document::ConstructionKind::Curve3D),false,[](auto){},&parent);
+            curve.setAttribute(Qt::WA_DeleteOnClose,false);
+            check(curve.findChild<QTableWidget*>("curve3DPoints")->horizontalHeaderItem(5)->text()==
+                settings.qt_translations.value("R [%1]").arg(unit),"Curve radius unit header is not localized");
             auto* base_plane=helical.findChild<QComboBox*>("helicalBasePlane");
             check(base_plane&&base_plane->count()==3,"Helical own-plane combo missing");
             auto* base_offset=helical.findChild<QDoubleSpinBox*>("helicalBaseOffset");

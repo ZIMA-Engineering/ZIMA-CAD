@@ -2,6 +2,7 @@
 #include "construction_properties_dialog.hpp"
 #include "sweep2d_dialog.hpp"
 #include "helical_sweep_dialog.hpp"
+#include "sweep_point_order_dialog.hpp"
 #include "numeric_expression_edit.hpp"
 #include "sketch_dimension_properties_dialog.hpp"
 #include "sketch_properties_dialog.hpp"
@@ -17,6 +18,7 @@
 #include "mass_properties_dialog.hpp"
 #include "document_tools_dialogs.hpp"
 #include "dimension_properties_fields.hpp"
+#include "symbol_attachment_dialog.hpp"
 #include <QTableWidget>
 #include <zima/document/physical_properties.hpp>
 #include <zima/ui/unit_spin_box.hpp>
@@ -194,6 +196,42 @@ void placement_and_pattern_inputs(QApplication& application,QWidget& parent,doub
     dialog->buttons()->button(QDialogButtonBox::Ok)->click();application.processEvents();
     check(commits==1&&stored&&stored->source_document_id==component.source_document_id,"Component units changed ownership or commit count");
 }
+void symbol_inputs(QApplication& application,QWidget& parent,double scale,double angle_scale) {
+    using namespace zima;
+    const auto definition=symbols::projection_method();
+    sketcher::SymbolInstance symbol;symbol.id="unit-symbol";symbol.definition=definition.serialized();symbol.variant=definition.default_variant;
+    symbol.x=25.4123456789;symbol.y=-50.8123456789;symbol.angle_degrees=90.123456789;symbol.scale=1.25;
+    int commits=0;sketcher::SymbolInstance saved;
+    auto* editor=new app::SymbolDialog(symbol,{},[&](auto value){saved=std::move(value);++commits;},&parent);
+    for(int i=0;i<3;++i) {
+        auto* field=editor->findChild<QDoubleSpinBox*>(QString("symbolPlacement%1").arg(i));
+        const auto* units=dynamic_cast<ui::UnitDoubleSpinBox*>(field);
+        check(units&&units->native_per_unit()==(i==2?angle_scale:scale),"Model symbol ignores authoring units");
+        enter(field,field->text());
+    }
+    editor->buttons()->button(QDialogButtonBox::Ok)->click();application.processEvents();
+    check(commits==1&&saved==symbol,"Unchanged symbol properties quantized canonical values");
+    symbols::Placement placement;placement.symbol=symbol;placement.frame.origin={25.4,-50.8,76.2};placement.shelf_length=12.7123456789;placement.short_shelf=true;
+    for(bool sheet:{false,true}) {
+        auto* dialog=new app::SymbolAttachmentDialog(placement,[&](auto){++commits;},&parent,sheet);
+        dialog->setLocale(QLocale::c());
+        const double length=sheet?1.:scale,angle=sheet?1.:angle_scale;
+        const auto edit=[&](const QString& name,double factor) {
+            auto* field=dialog->findChild<QDoubleSpinBox*>(name);check(field,"Symbol coordinate field missing");
+            if(!sheet){const auto old=field->value();enter(field,field->text());check(field->value()==old,"Symbol no-op rounded canonical value");}
+            enter(field,".125");near(field->value(),.125*factor);
+        };
+        edit("symbolPlacement0",length);edit("symbolPlacement1",length);edit("symbolPlacement2",angle);
+        edit("symbolShelfLength",length);edit("symbolOrigin0",length);edit("symbolOrigin1",length);
+        if(!sheet)edit("symbolOrigin2",length);
+        const auto& pending=dialog->pending_placement();
+        near(pending.symbol.x,.125*length);near(pending.symbol.y,.125*length);near(pending.symbol.angle_degrees,.125*angle);
+        near(pending.frame.origin.x,.125*length);near(pending.shelf_length,.125*length);
+        check(pending.symbol.definition==symbol.definition&&pending.symbol.scale==symbol.scale&&!pending.reference,
+            "Symbol numeric edit changed definition, scale or attachment identity");
+        dialog->reject();application.processEvents();check(commits==1,"Symbol Cancel committed pending edits");
+    }
+}
 void annotation_inputs(QApplication& application,QWidget& parent,double scale,double angle_scale) {
     using namespace zima;
     for(const bool angular:{false,true}) {
@@ -339,6 +377,7 @@ int verify_feature_unit_input(QApplication& app,QWidget& parent) {
         const double angle_scale=QString(angular)=="rad"?180./std::numbers::pi:1.;
         sketch_inputs(app,parent,scale,angle_scale);
         annotation_inputs(app,parent,scale,angle_scale);
+        symbol_inputs(app,parent,scale,angle_scale);
         family_inputs(app,parent,scale,angle_scale);
         placement_and_pattern_inputs(app,parent,scale,angle_scale);
         const auto check_primitive=[&](document::HistoryContainer initial,const char* length_name,
@@ -439,8 +478,23 @@ int verify_feature_unit_input(QApplication& app,QWidget& parent) {
 
         auto helical=document::PartDocument::create_helical_sweep_container();
         helical.helical.pitch=12.345678901;
+        auto base=sketcher::Sketch::from_serialized(helical.helical.sketches[0]);
+        helical.helical.circle_id=base.add_circle(-25.4,50.8,12.7);
+        helical.helical.start_point_id=base.add_point(-12.7,50.8);
+        helical.helical.sketches[0]=base.serialized();
         auto* helix=new app::HelicalSweepDialog(helical,[&](auto){++commits;},&parent);
         helix->setLocale(QLocale::c());helix->show();app.processEvents();
+        helix->refresh_choices();
+        const auto number=[&](double value){return QLocale::c().toString(value/scale,'f',3);};
+        auto* circle_choice=helix->findChild<QComboBox*>("helicalCircle");
+        auto* point_choice=helix->findChild<QComboBox*>("helicalStartPoint");
+        check(circle_choice->currentText().endsWith(QString::fromUtf8("⌀")+number(25.4)+" "+unit)&&
+            point_choice->currentText().endsWith("["+number(-12.7)+"; "+number(50.8)+"] "+unit),
+            "H Sweep circle/point descriptions ignore document units");
+        check(helix->pending.helical.sketches==helical.helical.sketches&&
+            circle_choice->currentData().toString().toStdString()==helical.helical.circle_id&&
+            point_choice->currentData().toString().toStdString()==helical.helical.start_point_id,
+            "Formatting H Sweep choices changed geometry or selected identity");
         auto* pitch=helix->findChild<QDoubleSpinBox*>("helicalPitch");
         check(pitch&&pitch->suffix()==QString(" ")+unit,"H Sweep pitch ignores document units");
         enter(pitch,pitch->text());check(helix->pending.helical.pitch==helical.helical.pitch,"Opening H Sweep quantized pitch");
@@ -450,6 +504,44 @@ int verify_feature_unit_input(QApplication& app,QWidget& parent) {
         auto* approximation=helix->findChild<QDoubleSpinBox*>("sweepPrecisionTolerance");
         check(approximation&&approximation->suffix()==" mm","Document units relabelled kernel precision");
         helix->reject();app.processEvents();check(commits==1,"H Sweep Cancel committed input");
+
+        auto profile=sketcher::Sketch::create_default();
+        static_cast<void>(profile.add_segment(0,0,25.4,0));static_cast<void>(profile.add_segment(25.4,0,25.4,50.8));
+        static_cast<void>(profile.add_segment(25.4,50.8,0,50.8));static_cast<void>(profile.add_segment(0,50.8,0,0));
+        const auto profile_before=profile.serialized();
+        const auto mapping=document::sweep3d_profile_correspondence(profile,{},false);
+        std::string previewed;
+        auto* order=new app::SweepPointOrderDialog(profile,{},[&](auto id){previewed=std::move(id);},&parent,false);
+        auto* table=order->findChild<QTableWidget*>();auto* first=order->findChild<QComboBox*>("sweepFirstCorrespondencePoint");
+        check(table->rowCount()==4&&table->horizontalHeaderItem(1)->text()==QString("X [%1]").arg(unit)&&
+            table->horizontalHeaderItem(2)->text()==QString("Y [%1]").arg(unit),"Profile correspondence headers omit document units");
+        const auto check_points=[&](const auto& correspondence){
+            for(std::size_t i=0;i<correspondence.point_ids.size();++i) {
+                const auto* point=profile.find_point(correspondence.point_ids[i]);
+                check(table->item(i,1)->text()==order->locale().toString(point->x/scale,'f',3)&&
+                    table->item(i,2)->text()==order->locale().toString(point->y/scale,'f',3),
+                    "Profile correspondence coordinates ignore document units or selected ordering");
+            }
+        };
+        check_points(mapping);first->setCurrentIndex(2);
+        check(previewed==mapping.point_ids[1],"Profile ordering selected a displayed coordinate instead of point identity");
+        check_points(document::sweep3d_profile_correspondence(profile,previewed,false));
+        check(profile.serialized()==profile_before,"Profile coordinate display rewrote native geometry");
+        order->reject();app.processEvents();
+
+        auto curve=document::PartDocument::create_construction(document::ConstructionKind::Curve3D);
+        curve.curve_type=document::Curve3DType::Polyline;curve.curve_rounding_enabled=true;
+        for(int i=0;i<3;++i) {
+            auto point=document::PartDocument::create_construction(document::ConstructionKind::Point);
+            point.origin={double(i)*25.4,0,double(i%2)*25.4};point.curve_radius=1.23456789;curve.curve_points.push_back(point);
+        }
+        auto* curve_dialog=new app::ConstructionPropertiesDialog(curve,true,[](auto){},&parent);
+        table=curve_dialog->findChild<QTableWidget*>("curve3DPoints");
+        check(table&&table->horizontalHeaderItem(5)->text()==QString("R [%1]").arg(unit),"Curve radius header disagrees with field units");
+        auto* radius=curve_dialog->findChild<QDoubleSpinBox*>("curve3DRadius2");
+        check(radius&&radius->isEnabled()&&radius->suffix()==QString(" ")+unit,"Curve radius field ignores document units");
+        enter(radius,radius->text());check(curve_dialog->pending_value().curve_points[1].curve_radius==1.23456789,"Unchanged radius display rounded geometry");
+        curve_dialog->reject();app.processEvents();
 
         auto sweep3d=document::PartDocument::create_sweep3d_container();
         sweep3d.sweep3d.result_type=document::ProfileResultType::Thin;

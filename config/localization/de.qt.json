@@ -2026,5 +2026,10 @@
   "Jednotky hodnoty a tolerancí": "Einheiten für Nennmaß und Toleranzen",
   "Zachovat koncové nuly": "Nachgestellte Nullen beibehalten",
   "Invalid dimension text precision": "Ungültige Dezimalstellenzahl der Maßbeschriftung",
-  "Manufacturing limits remain unchanged. ≈ marks an approximate secondary value when exact conversion is not possible.": "Die Fertigungsgrenzmaße bleiben unverändert. ≈ kennzeichnet einen ungefähren Zusatzwert, wenn eine exakte Umrechnung nicht möglich ist."
+  "Manufacturing limits remain unchanged. ≈ marks an approximate secondary value when exact conversion is not possible.": "Die Fertigungsgrenzmaße bleiben unverändert. ≈ kennzeichnet einen ungefähren Zusatzwert, wenn eine exakte Umrechnung nicht möglich ist.",
+  "Kružnice %1 — ⌀%2 %3": "Kreis %1 — ⌀%2 %3",
+  "Bod %1 [%2; %3] %4": "Punkt %1 [%2; %3] %4",
+  "X [%1]": "X [%1]",
+  "Y [%1]": "Y [%1]",
+  "R [%1]": "R [%1]"
 }

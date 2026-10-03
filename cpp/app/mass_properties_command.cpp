@@ -1,5 +1,6 @@
 #include "workspace/workspace_internal.hpp"
 #include "mass_properties_dialog.hpp"
+#include "body_properties_display.hpp"
 #include <zima/workspace/body_properties_edits.hpp>
 #include <QTreeWidgetItemIterator>
 namespace zima::app {
@@ -96,7 +97,7 @@ void AssemblyWorkspaceWindow::update_mass_properties_ui() {
         auto* origin=add_origin_tree_item(item,row.id,false);origin->setText(0,tr("Těžiště"));origin->setIcon(0,resource_icon("origin"));
         origin->setData(0,Qt::UserRole,QString::fromStdString(row.id+":origin"));origin->setData(0,Qt::UserRole+3,"body-properties-origin");
         origin->setData(0,Qt::UserRole+5,QString::fromStdString(row.id));origin->setFlags(origin->flags()&~Qt::ItemIsUserCheckable);
-        if(row.centroid()){const auto c=*row.centroid();origin->setToolTip(0,QString("X: %1; Y: %2; Z: %3 mm").arg(c.x).arg(c.y).arg(c.z));}
+        origin->setToolTip(0,body_properties_centroid_tooltip(row,part->session.document(),document_decimal_places(part->session.document())));
     }
 }
 bool AssemblyWorkspaceWindow::mass_properties_context_menu(QTreeWidgetItem* item,const QPoint& position) {

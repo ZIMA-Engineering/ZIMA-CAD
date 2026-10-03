@@ -3,6 +3,7 @@
 #include <zima/workspace/metadata_operations.hpp>
 #include <zima/workspace/relation_operations.hpp>
 #include <zima/document/physical_properties.hpp>
+#include <zima/document/pattern_dimensions.hpp>
 #include <zima/assembly/physical_properties.hpp>
 #include <numbers>
 #include <cmath>
@@ -13,6 +14,85 @@ void require(bool yes,const char* message){if(!yes)throw std::runtime_error(mess
 commands::Result run(command_host::Host& host,const char* name,Json args=Json::object()) {
     auto result=host.execute({{"command",name},{"arguments",std::move(args)}});
     if(!result.ok)throw std::runtime_error(std::string(name)+": "+result.code+": "+result.message);return result;
+}
+template<class Doc> void binding_unit_matrix(Doc source) {
+    using Quantity=document::DimensionQuantity;
+    source.synchronize_dimension_identifiers();
+    const auto identities=source.dimension_identifiers.serialized();
+    const auto baseline=workspace::relation_dimensions(source);
+    require(baseline.size()>40,"Binding unit fixture did not cover the feature catalog");
+    const auto catalog=source.dimension_parameters();
+    for(const auto length:{"mm","cm","m","in"})for(const auto angular:{"deg","rad"}) {
+        auto doc=source;doc.document_units["Length"]=length;doc.document_units["Angle"]=angular;
+        const auto dimensions=workspace::relation_dimensions(doc);
+        require(dimensions.size()==baseline.size(),"Document units changed the relation binding catalog");
+        for(const auto& [name,dimension]:dimensions) {
+            const auto& binding=dimension.binding;
+            const auto slot=std::ranges::find_if(catalog,[&](const auto& p){return p.owner_id==binding.owner_id&&p.semantic_key==binding.semantic_key;});
+            require(slot!=catalog.end(),"Relation binding has no native quantity metadata");
+            const double scale=slot->quantity==Quantity::Length?document::length_unit_mm(length):
+                slot->quantity==Quantity::Angle&&std::string_view(angular)=="rad"?180./std::numbers::pi:1.;
+            const std::array<int,3> powers=slot->quantity==Quantity::Length?std::array<int,3>{1,0,0}:
+                slot->quantity==Quantity::Angle?std::array<int,3>{0,1,0}:std::array<int,3>{};
+            const auto& before=baseline.at(name);
+            const double native=std::get<double>(before.input.value.data)*before.native_scale;
+            require(dimension.binding==before.binding&&dimension.input.writable==before.input.writable&&
+                dimension.input.value.units==powers&&dimension.native_scale==scale&&
+                std::abs(std::get<double>(dimension.input.value.data)*scale-native)<1e-9,
+                "Relation catalog changed identity, quantity, access or canonical value across units");
+            // Assign through the real evaluator, not directly through a field setter.
+            if(dimension.input.writable) {
+                auto changed=doc;const double expected=slot->quantity==Quantity::Scalar?4.:
+                    slot->quantity==Quantity::Angle?30.:2.54;
+                changed.relations=name+" = "+Json(expected/scale).dump();
+                workspace::apply_relation_dimensions(changed,{});
+                const auto after=workspace::relation_dimensions(changed);
+                require(std::abs(std::get<double>(after.at(name).input.value.data)*scale-expected)<1e-9,
+                    "Relation assignment did not reach its canonical field in document units");
+                for(const auto& [other,value]:after)if(other!=name) {
+                    if(binding.semantic_key=="parameter:pattern:count"&&value.binding.owner_id==binding.owner_id&&
+                            value.binding.semantic_key=="parameter:pattern:angle"&&!value.input.writable)
+                        require(std::abs(std::get<double>(value.input.value.data)*value.native_scale-90)<1e-9,
+                            "Full-circle count did not update its calculated angular spacing");
+                    else require(value.input.value.data==dimensions.at(other).input.value.data&&
+                        value.input.value.units==dimensions.at(other).input.value.units,"Relation assignment changed an unrelated dimension");
+                }
+                require(changed.dimension_identifiers.serialized()==identities,"Relation unit assignment changed native identifiers");
+            } else {
+                auto changed=doc;changed.relations=name+" = 4";bool rejected=false;
+                try {workspace::apply_relation_dimensions(changed,{});}catch(const document::RelationError&){rejected=true;}
+                require(rejected,"Relation accepted a locked or derived dimension");
+            }
+        }
+    }
+}
+void verify_binding_units() {
+    using K=document::FeatureKind;
+    auto part=document::PartDocument::create_default();part.history.clear();part.sketches.clear();
+    for(const auto kind:{K::Extrusion,K::Revolution,K::Fillet,K::Chamfer,K::Shell,K::Hole,K::Thread,K::ShaftThread,
+            K::DrillPoint,K::Sweep2D,K::Sweep3D,K::HelicalSweep,K::Holes,K::Bend,K::Flat,K::TwistedSheet,K::SheetTransition,K::Feature}) {
+        document::HistoryContainer feature;feature.id="binding-"+std::to_string(int(kind));feature.feature_kind=kind;
+        feature.flat.thickness_override=true;feature.feature.result_type=document::ProfileResultType::Thin;
+        feature.feature.sides[1].operation=document::FeatureSideOperation::Revolution;
+        part.history.push_back(feature);
+    }
+    for(const bool circular:{false,true}) {
+        document::HistoryContainer feature;feature.id=circular?"angular-pattern":"linear-pattern";feature.feature_kind=K::DerivedCopy;
+        feature.derived_copy.pattern.emplace();auto& pattern=*feature.derived_copy.pattern;pattern.circular=circular;
+        pattern.count=3;pattern.full_circle=false;pattern.angle_degrees=45;
+        pattern.linear[0].local_axis=0;pattern.linear[0].count=3;pattern.linear[0].spacing=25.4;
+        pattern.linear[0].distribution=kernel::PatternDistribution::Both;pattern.linear[0].reverse_count=2;
+        part.history.push_back(feature);
+    }
+    // A locked input and a calculated full-circle angle must retain their access rules.
+    part.history.front().value_locks.insert("length_forward");
+    auto derived=part.history.back();derived.id="full-circle-pattern";derived.derived_copy.pattern->full_circle=true;
+    part.history.push_back(derived);
+    binding_unit_matrix(part);
+    auto assembly=assembly::AssemblyDocument::create_default();
+    // Reuse the catalog-level definitions to exercise the Assembly cut binding path.
+    for(const auto& feature:part.history){assembly::AssemblyCut cut;cut.definition=feature;assembly.cuts.push_back(cut);}
+    binding_unit_matrix(assembly);
 }
 void verify_relation_conversion(const kernel::OcctKernel& kernel,fs::path dir) {
     workspace::Workspace live;command_host::Options options;options.settings=[] {return command_host::Settings{{fs::absolute("config/templates"),"START_PART.prtz","START_ASSEMBLY.asmz","Body"},{}};};
@@ -295,4 +375,4 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
     run(host,"document.parameters.set",{{"parameters",Json::array()}});require(workspace::user_parameters(live,owner).order.empty(),"Empty table evaluated a physical relation outside Regenerate");run(host,"undo");require(workspace::user_parameters(live,owner).order.size()==2,"Table removal Undo failed");
 }
 }
-int main(){try{kernel::OcctKernel kernel;const auto parent=fs::canonical(fs::temp_directory_path());const auto dir=parent/("zima-metadata-"+document::PartDocument::create_default().document_id);fs::create_directory(dir);verify_relation_conversion(kernel,dir);verify_angular_relations(kernel,dir);verify(kernel,dir);require(dir.parent_path()==parent,"Unsafe cleanup");fs::remove_all(dir);std::cout<<"Parameters, localized values, units, geometry preservation, relation errors, Undo and native metadata persistence passed\n";return 0;}catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}
+int main(){try{kernel::OcctKernel kernel;const auto parent=fs::canonical(fs::temp_directory_path());const auto dir=parent/("zima-metadata-"+document::PartDocument::create_default().document_id);fs::create_directory(dir);verify_binding_units();verify_relation_conversion(kernel,dir);verify_angular_relations(kernel,dir);verify(kernel,dir);require(dir.parent_path()==parent,"Unsafe cleanup");fs::remove_all(dir);std::cout<<"Parameters, localized values, units, geometry preservation, relation errors, Undo and native metadata persistence passed\n";return 0;}catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}

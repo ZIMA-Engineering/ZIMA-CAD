@@ -1,5 +1,7 @@
 #include <zima/command_host/host.hpp>
 #include <zima/document/file_path.hpp>
+#include <zima/drawing/measurement_dimension.hpp>
+#include <zima/workspace/metadata_operations.hpp>
 #include <QGuiApplication>
 #include <QFile>
 #include <cmath>
@@ -24,8 +26,63 @@ std::vector<Entity> entities(const QByteArray& data) {
     return result;
 }
 bool near(double a,double b){return std::abs(a-b)<1e-7;}
+// Exercise the complete annotation -> native file -> renderer -> export boundary.
+// These are original curve references; paper scale must not scale measured values.
+void verify_manufacturing_output(fs::path directory) {
+    workspace::Workspace live;kernel::OcctKernel kernel;command_host::Host host(live,kernel,directory);
+    auto part=document::PartDocument::create_default();live.add_part(part,{},directory/"annotation-source.prtz");
+    kernel::ViewerMesh mesh;
+    const kernel::EdgeReference inch{"profile","inch",{}},metric{"profile","metric",{}},vertical{"profile","vertical",{}};
+    mesh.edges={{{{0,0,0},{25.4,0,0}},inch},{{{0,20,0},{10,20,0}},metric},{{{0,0,0},{0,25.4,0}},vertical}};
+    auto view=drawing::DrawingDocument::create_view(part.document_id,"annotation-source.prtz",mesh,drawing::ViewOrientation::Top);
+    view.camera={{1,0,0},{0,1,0},{0,0,1}};view.x=100;view.y=100;view.scale=2;view.use_sheet_scale=false;view.show_caption=false;
+    auto doc=drawing::DrawingDocument::create_default();doc.source_document_id=part.document_id;doc.source_path="annotation-source.prtz";
+    auto& sheet=doc.sheets.front();sheet.views={view};
+    const auto length=[&](kernel::EdgeReference reference,const char* unit,int decimals,const char* tolerance,double offset) {
+        auto d=drawing::make_drawing_dimension(view.id);
+        d.attachments={{drawing::DimensionAttachmentKind::CurvePoint,reference,{},0},{drawing::DimensionAttachmentKind::CurvePoint,reference,{},1}};
+        d.style.value_unit=unit;d.style.suffix=unit;d.style.decimals=decimals;d.style.keep_trailing_zeros=true;
+        d.style.tolerance_mode="symmetric";d.style.symmetric_tolerance=tolerance;
+        drawing::refresh_drawing_dimension(view,d);drawing::place_drawing_dimension(view,d,0,{20,offset});return d;
+    };
+    sheet.dimensions.push_back(length(inch,"in",4,"0.0005",-15));
+    sheet.dimensions.push_back(length(metric,"mm",2,"0.01",55));
+    auto angular=drawing::make_drawing_dimension(view.id,drawing::DrawingDimensionKind::Angular);
+    angular.attachments={{drawing::DimensionAttachmentKind::Line,inch,{},.5},{drawing::DimensionAttachmentKind::Line,vertical,{},.5}};
+    angular.style.value_unit="deg";angular.style.suffix="°";angular.style.decimals=2;angular.style.keep_trailing_zeros=true;
+    angular.style.tolerance_mode="deviations";angular.style.upper_tolerance="0.10";angular.style.lower_tolerance="0.05";
+    drawing::refresh_drawing_dimension(view,angular);drawing::place_drawing_dimension(view,angular,0,{30,30});sheet.dimensions.push_back(angular);
+    const std::vector<std::string> expected{"1,0000in ±0,0005","10,00 ±0,01","90,00° +0,10 /-0,05"};
+    const std::vector<double> values{25.4,10,90};
+    const auto path=directory/"manufacturing.drwz";doc.save(path);
+    auto loaded=drawing::DrawingDocument::load(path);
+    require(loaded.sheets.front().dimensions==sheet.dimensions,"Native drawing changed manufacturing specifications or reference identities");
+    live.add_drawing(loaded,path);live.activate(doc.document_id);live.display_top_level(doc.document_id);
+    const auto revision=live.open_drawing(doc.document_id)->revision(),generation=live.open_drawing(doc.document_id)->data_generation();
+    QByteArray baseline;
+    for(const auto unit:{"mm","cm","m","in"})for(const auto angle:{"deg","rad"}) {
+        auto settings=workspace::file_settings(live,part.document_id);settings.units["Length"]=unit;settings.units["Angle"]=angle;
+        require(!workspace::set_file_settings(live,kernel,part.document_id,settings).calculated,"Source units recalculated geometry");
+        const auto source_revision=live.open_part(part.document_id)->session.revision();
+        for(std::size_t i=0;i<expected.size();++i) {
+            const auto data=run(host,"drawing.dimension.get",{{"dimension",sheet.dimensions[i].id}}).data;
+            require(data.at("state")=="resolved"&&near(data.at("measurements")[0].at("value").get<double>(),values[i])&&
+                data.at("measurements")[0].at("text")==expected[i],"Source units changed the authoritative drawing nominal or tolerance");
+        }
+        run(host,"export.dxf",{{"path","manufacturing.dxf"},{"sheet",sheet.id},{"overwrite",true}});
+        const auto bytes=read(directory/"manufacturing.dxf");
+        QByteArray text;
+        for(const auto& e:entities(bytes))if(e.at(0)=="TEXT")text+=e.at(1);
+        for(const auto& label:expected)require(text.contains(QByteArray::fromStdString(label)),"Exported DXF lost an authoritative nominal or tolerance");
+        if(baseline.isEmpty())baseline=bytes;else require(bytes==baseline,"Source units changed exported annotation geometry or paper scale");
+        run(host,"export.pdf",{{"path",std::string("manufacturing-")+unit+"-"+angle+".pdf"},{"overwrite",true}});
+        require(live.open_drawing(doc.document_id)->revision()==revision&&live.open_drawing(doc.document_id)->data_generation()==generation&&
+            live.open_drawing(doc.document_id)->document().sheets.front().dimensions==sheet.dimensions&&
+            live.open_part(part.document_id)->session.revision()==source_revision&&live.size()==2,"Manufacturing output changed history, references or source ownership");
+    }
+}
 void verify() {
-    auto directory=fs::absolute("Projects/test/drawing-dxf-command");fs::create_directories(directory);
+    auto directory=fs::absolute("Projects/test/drawing-dxf-command");fs::create_directories(directory);verify_manufacturing_output(directory);
     workspace::Workspace live;kernel::OcctKernel kernel;command_host::Host host(live,kernel,directory);
     auto part=document::PartDocument::create_default();part.user_parameters["name"]="Šroub";part.user_parameter_values["name"][""]="Šroub";
     live.add_part(part,{},directory/"unsaved.prtz");
@@ -58,6 +115,16 @@ void verify() {
     }
     require(frame&&visible&&hidden&&circle_points>20,"DXF changed paper scale, axes, lineweights, hidden edges or circular outline");
     require(live.open_drawing(doc.document_id)->revision()==revision&&live.open_drawing(doc.document_id)->data_generation()==generation&&live.open_part(part.document_id)->session.revision()==0&&live.size()==count,"DXF mutated the model or opened sources");
+    for(const auto length:{"mm","cm","m","in"})for(const auto angle:{"deg","rad"}) {
+        auto settings=workspace::file_settings(live,part.document_id);settings.units["Length"]=length;settings.units["Angle"]=angle;
+        require(!workspace::set_file_settings(live,kernel,part.document_id,settings).calculated,"Drawing source-unit selection calculated geometry");
+        const auto source_revision=live.open_part(part.document_id)->session.revision();
+        run(host,"export.dxf",args);
+        require(read(output)==bytes,"Source document units changed paper scale, sheet geometry or DXF units");
+        require(live.open_drawing(doc.document_id)->revision()==revision&&live.open_drawing(doc.document_id)->data_generation()==generation&&
+            live.open_part(part.document_id)->session.revision()==source_revision&&live.size()==count,
+            "Drawing export changed history or opened source tabs after unit selection");
+    }
     const auto reject=[&](Json request,const char* code){const auto result=host.execute({{"command","export.dxf"},{"arguments",request}});if(result.ok||result.code!=code)throw std::runtime_error(std::string("DXF expected ")+code+" got "+result.code+": "+result.message+" for "+request.dump());require(read(output)==bytes,"Rejected DXF replaced the existing file");};
     auto bad=args;bad.erase("overwrite");reject(bad,"file_exists");
     bad=args;bad.erase("sheet");reject(bad,"invalid_arguments");

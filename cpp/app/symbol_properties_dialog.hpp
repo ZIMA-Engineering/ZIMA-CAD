@@ -3,6 +3,7 @@
 #include <zima/symbols/definition.hpp>
 #include <zima/ui/properties_subwindow.hpp>
 #include <zima/ui/numeric_value_lock.hpp>
+#include <zima/ui/unit_spin_box.hpp>
 #include <zima/kernel/stable_id.hpp>
 #include <zima/viewer/mesh_view.hpp>
 #include <QCheckBox>
@@ -26,7 +27,7 @@ namespace zima::app {
 class SymbolDialog:public ui::PropertiesSubWindow {
 public:
     using Instance=sketcher::SymbolInstance;
-    SymbolDialog(Instance value,std::function<void(const Instance&)> preview,std::function<void(Instance)> commit,QWidget* parent)
+    SymbolDialog(Instance value,std::function<void(const Instance&)> preview,std::function<void(Instance)> commit,QWidget* parent,bool sheet=false)
         :PropertiesSubWindow(tr("Vlastnosti symbolu"),parent),value_(std::move(value)),definition_(symbols::Definition::from_serialized(value_.definition)),preview_(std::move(preview)),commit_(std::move(commit)) {
         setObjectName("symbolPropertiesDialog");setAttribute(Qt::WA_DeleteOnClose);
         setProperty("expandBottomTable",true);
@@ -65,8 +66,8 @@ public:
         const std::array labels{tr("X"),tr("Y"),tr("Úhel"),tr("Měřítko")};
         const std::array values{value_.x,value_.y,value_.angle_degrees,value_.scale};
         for(std::size_t i=0;i<4;++i) {
-            values_[i]=new QDoubleSpinBox(this);values_[i]->setObjectName(QString("symbolPlacement%1").arg(i));
-            values_[i]->setRange(i==3?0.01:-100000,100000);values_[i]->setDecimals(ui::numeric_decimal_places(parent));values_[i]->setValue(values[i]);
+            values_[i]=i==3?new QDoubleSpinBox(this):coordinate_input(i==2?ui::InputQuantity::Angle:ui::InputQuantity::Length,this,sheet);values_[i]->setObjectName(QString("symbolPlacement%1").arg(i));
+            values_[i]->setRange(i==3?0.01:-100000,100000);if(i==3)values_[i]->setDecimals(ui::numeric_decimal_places(parent));values_[i]->setValue(values[i]);
             form->addRow(labels[i],values_[i]);connect(values_[i],&QDoubleSpinBox::valueChanged,this,[this]{update_preview();});
         }
         connect(variant_,&QComboBox::currentIndexChanged,this,[this]{update_preview();});
@@ -76,6 +77,16 @@ public:
     void set_anchor(double x,double y) {const QSignalBlocker a(values_[0]),b(values_[1]);values_[0]->setValue(x);values_[1]->setValue(y);update_preview();}
     void set_preview_callback(std::function<void(const Instance&)> callback) {preview_=std::move(callback);update_preview();}
 protected:
+    // Model symbols use authoring units; sheet annotation positions remain paper mm/degrees.
+    static QDoubleSpinBox* coordinate_input(ui::InputQuantity quantity,QWidget* parent,bool sheet) {
+        if(!sheet) {
+            auto* field=new ui::UnitDoubleSpinBox(quantity,parent);
+            field->set_display_decimals(ui::numeric_decimal_places(parent));return field;
+        }
+        auto* field=new QDoubleSpinBox(parent);field->setDecimals(ui::numeric_decimal_places(parent));
+        field->setSuffix(quantity==ui::InputQuantity::Angle?QString::fromUtf8(" °"):QStringLiteral(" mm"));
+        return field;
+    }
     void showEvent(QShowEvent* event) override {
         for(auto* widget:findChildren<QWidget*>())widget->ensurePolished();
         editor_layout_->activate();

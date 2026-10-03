@@ -2722,7 +2722,7 @@ void DrawingWindow::edit_title_block() {
             auto item=std::ranges::find(target->title_block_symbols,id,&sketcher::SymbolInstance::id);
             if(item==target->title_block_symbols.end())return;
             *item=std::move(symbol);refresh();
-        },this);
+        },this,true);
         view_dialog_=dialog;if(properties_handler_)properties_handler_(dialog);
         connect(dialog,&QDialog::finished,this,[this,dialog]{if(view_dialog_==dialog){view_dialog_.clear();if(properties_handler_)properties_handler_(nullptr);}update_action_states();});
         dialog->show();update_action_states();return;

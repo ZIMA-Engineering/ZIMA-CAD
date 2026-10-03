@@ -1,6 +1,7 @@
 #pragma once
 #include <zima/document/part_document.hpp>
 #include <zima/ui/properties_subwindow.hpp>
+#include <zima/ui/unit_spin_box.hpp>
 #include <QComboBox>
 #include <QHeaderView>
 #include <QLabel>
@@ -22,14 +23,15 @@ public:
         first_=new QComboBox(this);first_->setObjectName("sweepFirstCorrespondencePoint");
         first_->addItem(tr("Automaticky"),QString{});
         table_=new QTableWidget(this);table_->setColumnCount(3);
-        table_->setHorizontalHeaderLabels({tr("Pořadí"),tr("X [mm]"),tr("Y [mm]")});
+        const auto unit=zima::ui::document_unit(this,"Length","mm");
+        table_->setHorizontalHeaderLabels({tr("Pořadí"),tr("X [%1]").arg(unit),tr("Y [%1]").arg(unit)});
         table_->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
         table_->setEditTriggers(QAbstractItemView::NoEditTriggers);
         const auto mapping=zima::document::sweep3d_profile_correspondence(sketch_,{},allow_open_);
         for(std::size_t i=0;i<mapping.point_ids.size();++i) {
             if (!mapping.closed && i!=0 && i+1!=mapping.point_ids.size()) continue;
             const auto* point=sketch_.find_point(mapping.point_ids[i]);
-            first_->addItem(tr("Bod %1 (%2; %3)").arg(i+1).arg(point->x).arg(point->y),
+            first_->addItem(tr("Bod %1 (%2; %3)").arg(i+1).arg(coordinate(point->x),coordinate(point->y)),
                 QString::fromStdString(point->id));
         }
         if (!mapping.closed) {
@@ -55,6 +57,11 @@ protected:
         return true;
     }
 private:
+    QString coordinate(double native)const {
+        const auto unit=zima::ui::document_unit(this,"Length","mm");
+        return locale().toString(native/zima::document::length_unit_mm(unit.toStdString()),
+            'f',zima::ui::numeric_decimal_places(this));
+    }
     void refresh() {
         const auto mapping=zima::document::sweep3d_profile_correspondence(
             sketch_,first_->currentData().toString().toStdString(),allow_open_);
@@ -62,8 +69,8 @@ private:
         for(std::size_t i=0;i<mapping.point_ids.size();++i) {
             const auto* point=sketch_.find_point(mapping.point_ids[i]);
             table_->setItem(i,0,new QTableWidgetItem(i==0?tr("1 – začátek"):QString::number(i+1)));
-            table_->setItem(i,1,new QTableWidgetItem(QString::number(point->x)));
-            table_->setItem(i,2,new QTableWidgetItem(QString::number(point->y)));
+            table_->setItem(i,1,new QTableWidgetItem(coordinate(point->x)));
+            table_->setItem(i,2,new QTableWidgetItem(coordinate(point->y)));
         }
     }
     zima::sketcher::Sketch sketch_;

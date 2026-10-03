@@ -31,6 +31,13 @@ Results contain `document`, absolute UTF-8 `path`, `source_revision`, `bytes`,
 header and uses mm coordinates. Existing STL tessellation uses 0.1 mm deflection
 and 0.5 rad angular limit, without changing model display or saved meshes.
 
+Document authoring units do not rescale export geometry. STEP and Sketch DXF
+continue to carry millimetre coordinates and their corresponding unit metadata
+when the source uses cm, m or inches. Nested Assembly placements remain canonical
+millimetres/degrees even when each source uses different authoring units. Drawing
+DXF retains paper millimetres and the selected view scale independently of source
+Part units. See the verified matrix in [the unit audit](DOCUMENT_UNITS_AUDIT.md).
+
 ## Scope and limits
 
 STEP preserves Part and nested-Assembly product structure and consumes calculated

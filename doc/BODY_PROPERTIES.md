@@ -9,6 +9,11 @@ placement and local Origin. Neither its identity nor its placement is changed by
 measuring the body. The measured point is labelled **Center of gravity**
 (**Těžiště**) in the View and Tree.
 
+The centroid's Tree tooltip uses the owning Part's length unit and numerical
+display precision, matching the inspector. File Settings updates existing
+tooltips immediately; it does not recalculate the analysis, replace Tree rows,
+change selection or move the centroid. Stored coordinates remain millimetres.
+
 ## History and interaction
 
 - With an active Body, the feature measures its cumulative solid at the current

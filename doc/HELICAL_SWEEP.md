@@ -16,6 +16,12 @@ pre-container input and restores normal history afterward.
 Add/Subtract are the bottom Properties button pair shared with Protrusion. Selection
 remains pending until OK.
 
+Circle diameters and start-point coordinates in the Properties lists use the
+owning document's length unit and display precision, consistently with pitch
+and offset fields. The underlying Sketch coordinates and selected circle/point
+IDs remain unchanged. Kernel approximation settings retain their explicit
+physical millimetre units.
+
 ## Inputs
 
 1. Base Sketch lies normal to the winding axis. The first version accepts a circle

@@ -386,7 +386,7 @@ ConstructionPropertiesDialog::ConstructionPropertiesDialog(
         curve_points_table_->setObjectName(
             "curve3DPoints");
         curve_points_table_->setColumnCount(10);
-        curve_points_table_->setHorizontalHeaderLabels({tr("Bod"), tr("Osa směru"), tr("Přepnout osu"), tr("Obrátit"), tr("Řídit směr"), tr("R [mm]"),QString{},QString{},QString{},tr("Výběr")});
+        curve_points_table_->setHorizontalHeaderLabels({tr("Bod"), tr("Osa směru"), tr("Přepnout osu"), tr("Obrátit"), tr("Řídit směr"), tr("R [%1]").arg(zima::ui::document_unit(this,"Length","mm")),QString{},QString{},QString{},tr("Výběr")});
         // Preserve logical data columns used by parameter editing; put shared
         // reference controls beside their fields in the visual header order.
         const int visual_order[]{9,6,0,7,4,1,8,2,3,5};

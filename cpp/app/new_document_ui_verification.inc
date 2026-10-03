@@ -8,6 +8,7 @@ int verify_new_document_options(QApplication& application) {
             QSettings config(directory.filePath("config.ini"),QSettings::IniFormat);
             config.setValue("Application/Language",language);
             config.setValue("Application/UseISOFont",true);
+            config.setValue("Units/Length","in");config.setValue("Units/Angle","rad");
             config.setValue("Paths/WorkingDirectory",directory.path());
             for(const auto* key:{"Uppercase","RemoveDiacritics","ReplaceSpaces"})config.setValue(QString("DocumentNames/")+key,false);
             config.sync();
@@ -138,6 +139,7 @@ int verify_new_document_options(QApplication& application) {
             check(window.findChild<QAction*>("materialAction")->isEnabled(),"Part material action is disabled");
             check(window.findChild<QComboBox*>("applicationModeSelector")->currentData().toInt()==0,"Modeling selection was ignored");
             const auto model=document::PartDocument::load(std::filesystem::u8path(directory.filePath("model.prtz").toStdString()));
+            check(model.document_units.at("Length")=="in"&&model.document_units.at("Angle")=="rad","New document ignored configured units in favor of template units");
             check(model.history.empty()&&model.body_history.bodies().size()==1&&!model.body_history.active_body_id().empty(),"New Part template context changed");
             check(!model.user_parameters.contains("general_tolerance")&&!model.user_parameters.contains("tolerancing"),"Drawing tolerances leaked into new Part parameters");
             window.findChild<QToolButton*>("documentKindButton")->click();flush();
@@ -145,11 +147,13 @@ int verify_new_document_options(QApplication& application) {
             create("part","sheet",1);
             check(window.findChild<QComboBox*>("applicationModeSelector")->currentData().toInt()==2,"Sheet Metal selection was ignored");
             const auto sheet=document::PartDocument::load(std::filesystem::u8path(directory.filePath("sheet.prtz").toStdString()));
+            check(sheet.document_units.at("Length")=="in"&&sheet.document_units.at("Angle")=="rad","New document ignored configured units in favor of template units");
             check(sheet.history.empty()&&sheet.body_history.bodies().size()==1,"Sheet Metal choice changed the Part model");
             create("part","reference",2);
             check(window.findChild<QComboBox*>("applicationModeSelector")->currentData().toInt()==0,"Skeleton must use Modeling");
             check(QFileInfo::exists(directory.filePath("reference_skeleton.prtz")),"Skeleton filename suffix is missing");
             const auto skeleton=document::PartDocument::load(std::filesystem::u8path(directory.filePath("reference_skeleton.prtz").toStdString()));
+            check(skeleton.document_units.at("Length")=="in"&&skeleton.document_units.at("Angle")=="rad","New document ignored configured units in favor of template units");
             check(skeleton.history.empty()&&skeleton.sketches.empty()&&skeleton.constructions.empty()&&
                   skeleton.body_history.bodies().size()==1&&!skeleton.body_history.active_body_id().empty()&&
                   skeleton.document_id!=model.document_id,"Skeleton must start with a fresh active empty Body");
@@ -164,6 +168,7 @@ int verify_new_document_options(QApplication& application) {
             check(material&&!material->isEnabled()&&material_button&&material_button->isVisible()&&
                 !material_button->isEnabled(),"Assembly material action is not visibly disabled");
             const auto empty_assembly=assembly::AssemblyDocument::load(std::filesystem::u8path(directory.filePath("assembly.asmz").toStdString()));
+            check(empty_assembly.document_units.at("Length")=="in"&&empty_assembly.document_units.at("Angle")=="rad","New document ignored configured units in favor of template units");
             check(!empty_assembly.serialized().contains("physical_parameters"),"New Assembly template retained material");
             check(!empty_assembly.user_parameters.contains("general_tolerance")&&!empty_assembly.user_parameters.contains("tolerancing"),"Drawing tolerances leaked into new Assembly parameters");
             auto* insert_menu=window.findChild<QMenu*>("insertComponentMenu");

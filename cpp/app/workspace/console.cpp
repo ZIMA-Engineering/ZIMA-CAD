@@ -1,4 +1,6 @@
 #include "workspace_internal.hpp"
+#include "../document_numeric_display.hpp"
+#include "../body_properties_display.hpp"
 #include <zima/command_host/host.hpp>
 #include <zima/document/file_path.hpp>
 #include "command_console.hpp"
@@ -84,7 +86,12 @@ void AssemblyWorkspaceWindow::apply_console_change(const command_host::Change& c
         const auto& active_id=workspace_.active_document_id();
         if(const auto* part=workspace_.open_part(active_id))set_document_numeric_context(*this,part->session.document());
         else if(const auto* assembly=workspace_.open_assembly(active_id))set_document_numeric_context(*this,assembly->session.document());
-        if(change.kind==Kind::Metadata){refresh_tabs();if(viewer_)viewer_->update();return;}
+        if(viewer_)update_viewer_numeric_context(*viewer_,*this);
+        if(change.kind==Kind::Metadata){
+            if(const auto* part=workspace_.open_part(workspace_.displayed_document_id()))
+                refresh_body_properties_tooltips(*tree_,part->session.document(),document_decimal_places(part->session.document()));
+            refresh_tabs();if(viewer_)viewer_->update();return;
+        }
     }
     if(change.kind==Kind::Directory) {refresh_delete_file_actions();return;}
     if(change.kind==Kind::Copy || change.kind==Kind::Files) {refresh_delete_file_actions();return;}

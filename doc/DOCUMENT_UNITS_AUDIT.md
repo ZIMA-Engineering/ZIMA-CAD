@@ -1,8 +1,10 @@
 # Document unit audit
 
-Status: in progress, requested on 2026-10-03. The preceding chained Sketch
-fillet and mixed Feature direction fixes are committed and their native/GUI
-regressions pass. This audit must not be reported as complete yet.
+Status: implementation and focused Windows source verification completed on
+2026-10-03. Final committed-source packaging, signed acceptance and publication
+remain pending. The incremental notes below preserve the evidence and limitations
+of each stage; earlier "remaining" statements are historical, superseded by later
+gates and the current audit map. Linux GUI acceptance belongs to the Linux host.
 
 ## Required behavior
 
@@ -157,22 +159,19 @@ ordinary mm/inch modeling input, and must not turn this work into a global rewri
 
 ## Audit map
 
-| Area | Current evidence | Remaining work |
+| Area | Verified boundary | Retained scope/limitation |
 | --- | --- | --- |
-| Document settings | Repeated mm/cm/m/in switches with rad, geometry reuse, volume, native signatures, save/reopen, Undo/Redo and explicit relation conversion pass. | Manufacturing annotations now retain their authoritative basis and derive exact or explicitly approximate View presentation; quantity validation now rejects mismatches before committing; finish remaining settings consumers. |
-| Mixed-unit Assemblies | Explicit mixed-unit tests cover repeated rotated subassemblies, source-unit switches, native reopening and current unsaved geometry/material data. | Retain the separate Drawing/exchange verification gates. |
-| Modeling input | Feature parameters and selected Sweep fields now use the shared unit control; conversion/no-op/Cancel tests pass. Other dialogs still have fixed-unit fields. | Continue command-by-command integration, retaining exact canonical values and quantity distinctions. |
-| Container placement | Numeric coordinates, angles and reference offsets now use document-unit controls; canonical values, solving and reference semantics remain unchanged. | Continue dependent GUI verification; no reference or solver redesign is part of this work. |
-| Sketch input | Dimension expressions, plane coordinates, spline points, offsets and model text sizes use document units with canonical storage; paper text sizes remain mm. | Finish annotation authoring checks and remaining context boundaries; retain counts and curve parameters. |
-| View dimensions | Ordinary nominal labels share one document-unit formatter across painting, picking, label position and grips; native values/references remain unchanged. | Exact complete specifications convert for display; otherwise show the original specification with an explicitly approximate secondary nominal. New annotation authoring and layout fields now follow document units; quantity validation passes; finish drawing/output gates. |
-| Measurements | Native and GUI checks cover reopened records, nested occurrences, length/area/volume/mass and all supported unit labels. | No angular-distance result exists in this inspector; orientation input is covered separately. |
-| Physical properties | Mixed-unit checks cover area/volume powers, kg/m³ and lb/in³ density, repeated occurrences, and current nested mass after source changes. | Finish the broader settings-consumer audit; orientation input already has unit-control coverage. |
-| Relations | Explicit source conversion preserves quantity-dependent results, inactive branches, fixed-unit sheet thickness and atomic rejection; no hidden second unit basis. | Complete the remaining dimension-binding audit; typed trigonometry is verified below. |
-| Family | Native values remain mm/degrees; editor and unit labels use document units. | Fractional editing, unit changes, exact no-op, native reopen, shared Undo/Redo and geometry reuse verified. |
-| Drawings | Sheet geometry, pens and annotation sizing explicitly use paper mm. | Separate paper units from model dimension values; audit source units, text/tolerances, PDF/print/DXF output. |
-| Exchange | STEP/IGES/DXF need file-unit interpretation at their existing import/export boundaries. | Verify actual unit metadata and physical extents; no double scaling from document settings. |
-| Native templates | New-document creation overrides template unit metadata with configured unit defaults. | Make precedence explicit before adding mm/inch choices to first-run setup. |
-| Other settings | Supported choices also include time, temperature and stress. | Identify actual consumers; do not merely relabel stored user-authored parameter strings or invent numerical consumers. |
+| Document settings | Repeated mm/cm/m/in and deg/rad conversion, canonical geometry reuse, exact annotations, relation source conversion, Undo/Redo and native reopening. View labels and centroid tooltips update immediately. | Kernel accuracy is independent of display precision. |
+| Mixed-unit Assemblies | Repeated rotated subassemblies, unsaved source geometry/material changes, physical extents/mass and native reopening. | Existing heterogeneous post-cut mass limitation remains explicit in the physical-properties manual. |
+| Modeling and Sketch input | Feature, Sweep, construction, sheet, component, mate, Pattern, text, symbol and dimension fields use the appropriate length/angle/scalar basis. No-op and Cancel checks pass. | Explicit kernel, catalog and paper-space fields keep their physical contracts. |
+| Container placement | Numeric coordinates, angles and reference offsets use document units; side flags, signed zero, native references and solving pass dependent checks. | No shared placement solver or reference redesign. |
+| View and manufacturing dimensions | Common display formatter, inline explicit units, exact finite specification conversion or marked approximate secondary nominal, native precision and quantity validation. | Authored manufacturing precision is independent of global numerical display. |
+| Measurements and physical properties | Reopened records, nested occurrences, length/area/volume powers, density/mass units and current saved-centroid presentation. | Angular-distance measurement is not an existing inspector capability. |
+| Relations | Typed trigonometry, all offered binding kinds, inactive branches, cached outputs, explicit regeneration and atomic conversion rejection. | Allocated IDs without a registered relation input do not become writable. |
+| Family | Canonical numeric storage, unit-aware editing, fractional/explicit-unit input, exact no-op, rename, native reopen and Undo/Redo. | Optional CSV exchange remains a separately approved follow-up. |
+| Drawings and exchange | Native annotation reopen, paper scale, actual DXF text, eight independently rasterized PDFs, STEP Part/nested Assembly export and declared-unit STEP/IGES import. | Physical printer-driver acceptance was not run; printing and PDF share the sheet painter. IGES remains import-only. |
+| Native templates | Actual GUI creation in five languages confirms configured in/rad overrides template units for Part, Sheet Metal, Skeleton and Assembly, retaining normal editable contexts and reopening. | No new native format change in the final stage. First-run wizard remains a separate follow-up. |
+| Other settings | Source review identifies Time/Temperature/Stress as persisted metadata without numerical consumers. | No invented conversion of arbitrary authored strings. |
 
 ## Verification gates
 
@@ -709,3 +708,151 @@ shared-snapshot, placement, history, source edit and Undo checks at 256 and 1024
 leaves with open/closed sources and different tab orders. This run establishes
 correct reuse after the mass fix, not a before/after speed improvement claim.
 No native file-format/template update is needed for these changes.
+
+### Exchange unit boundaries (2026-10-03)
+
+Native command tests now export a 25.4 x 50.8 x 76.2 mm Part in all eight
+combinations of mm/cm/m/in and deg/rad. STEP declares millimetres; reimport
+preserves all three extents, the independently calculated area and volume, and
+the destination authoring units. The same source enters a centimetre subassembly
+repeated in a parent, with a 101.6 mm translation and 90-degree rotation. All
+eight parent-unit combinations preserve the independently expected extent and
+total volume. Export preserves revision, data generation and cached geometry.
+
+Exact Sketch DXF output is byte-identical across those unit combinations,
+including ellipses, rational/periodic splines and trimmed curves. Existing
+independent inch STEP/IGES fixtures and explicit/unitless DXF interpretation
+checks also pass. IGES is supported for import, not export. Drawing DXF retains
+paper millimetres, sheet anchoring, view scale, hidden-edge styles and Unicode
+metadata when source Part units change. This paper-space test does not complete
+the separate manufacturing annotation/PDF/print audit.
+
+No production change was needed at these boundaries. No user-visible strings,
+native formats or templates changed. Final validation passed all six suites
+(7.89 seconds): `zima_cpp_export_command_tests`,
+`zima_cpp_step_model_contract_tests`, `zima_cpp_import_model_contract_tests`,
+`zima_cpp_interchange_contract_tests`, `zima_cpp_drawing_dxf_command_tests` and
+`zima_cpp_translations_contract`. Localization source/catalog coverage and
+language-switch checks remain green in cs/en/de/fr/ru. This is an intermediate
+units-audit gate, not completion of the whole audit or a new Windows release.
+
+### Sweep choice and coordinate presentation (2026-10-03)
+
+The audit found three residual millimetre descriptions beside already unit-aware
+inputs: H-Sweep circle/start-point choices, 3D Sweep profile correspondence
+coordinates, and the 3D Curve radius column header. They now consume the owning
+document units and display precision. This changes presentation only; selection
+continues to store the original IDs, and correspondence ordering and geometry
+remain canonical. Local decimal formatting follows the dialog locale.
+
+The new GUI checks cover all eight length/angle combinations, selected IDs,
+unchanged serialized Sketches, reordered point coordinates, matching radius
+header/field units and unchanged radius precision. Existing pitch/offset editing
+and Cancel checks continue to pass. Translation checks exercise the new strings
+in cs/en/de/fr/ru. Rebuilt validation passed `zima_cpp_feature_unit_input_contract`,
+`zima_cpp_translations_contract` and `zima_cpp_helical_sweep_ui_contract`
+(40.29 seconds). Both the local application and UI harness were rebuilt.
+No kernel, reference, placement-solver, native-format or template changes were
+needed. The audit remains active; commit, push and the final Windows publication
+are deferred until the whole requested goal is complete.
+
+### Binding catalog and immediate metadata presentation (2026-10-03)
+
+A catalog-level test enumerates the currently offered feature inputs across
+18 feature kinds, plus linear, angular and full-circle Patterns. It exercises
+both Part and Assembly binding paths in all eight length/angle combinations.
+Each offered input is checked against the native quantity metadata, canonical
+value, stable identifier and writable state. Real relation evaluation assigns
+test values back to their canonical fields and preserves unrelated dimensions.
+Locked inputs and a full-circle derived angle reject assignment; changing the
+full-circle count updates its calculated angular spacing. Existing native/GUI
+Family and real geometric relation tests remain separate validation gates.
+These catalog fixtures do not claim every feature is a supported Assembly cut.
+
+The GUI catalogue and View picker both filter through `relation_dimensions`.
+Allocated placement/construction identifiers outside that set are not newly
+made writable by this audit. Extending those capabilities remains separate from
+correcting the unit basis of existing relation inputs; no placement solver or
+reference contract was changed here.
+
+The new saved-centroid GUI test exposed two stale-presentation defects. First,
+the centroid Tree tooltip used fixed mm coordinates and was not updated by the
+metadata-only settings path. It now formats in the owning Part's units and
+precision; a targeted tooltip refresh retains the existing Tree objects.
+Second, metadata settings updated the input context but left the View's length,
+angle and precision settings unchanged until a scene refresh. GUI and command
+settings now call the same presentation helper as ordinary scene refresh.
+The setters update labels only; no mesh publication or OCCT calculation is added.
+
+The regression failed before the View correction with stale units/precision,
+and passes after it. It covers mm/cm/m/in, deg/rad, the actual File Settings
+dialog and command path, exact saved centroid integrals, unchanged scene
+vertices/triangles and identical Tree row pointers. The application was rebuilt.
+Final verification passed seven suites (32.38 seconds):
+`zima_cpp_inline_units_ui_contract`, `zima_cpp_measurement_inspector_ui_contract`,
+`zima_cpp_translations_contract`, `zima_cpp_family_table_tests`,
+`zima_cpp_engineering_metadata_command_tests`, `zima_cpp_metadata_command_tests`
+and `zima_cpp_dimension_layout_contract_tests`.
+
+No new translatable prose was introduced: axis letters and existing unit symbols
+remain invariant. Source/catalog validation and cs/en/de/fr/ru UI checks pass.
+No native format or template changes were needed. Whole-goal verification,
+commit/push and Windows publication remain pending.
+
+
+### Manufacturing output and symbol coordinates (2026-10-03)
+
+The export regression now saves/reopens a Drawing with original curve references
+and independently specified inch, metric and angular manufacturing dimensions.
+At view scale 2, the measured values remain 25.4 mm, 10 mm and 90 degrees. Their
+authoritative output remains `1,0000in ±0,0005`, `10,00 ±0,01` and
+`90,00° +0,10 /-0,05` for all eight source length/angle combinations. Actual DXF
+TEXT entities retain these strings and the complete DXF stays byte-identical.
+Exports preserve drawing/source revisions, dimension identities and attachments.
+
+The same command fixture exports eight PDFs. Independent Poppler rasterization
+produced identical full-page images for all eight; visual inspection confirmed
+readable ISO-font numerals, plus/minus and degree glyphs. Independent pypdf
+inspection confirmed A4 page extent and all numerical nominal/deviation text.
+pypdf did not decode the ISO font's special symbols, so symbol correctness was
+verified from the raster rather than inferred from extraction. The test does not
+claim physical printer-driver acceptance; PDF and printing consume the shared
+sheet painter. Local evidence is in
+`build/l-profile-repro/manufacturing-pdf-verification.json`.
+
+The remaining numeric-field review found model symbol offset, rotation, origin
+and shelf controls using raw canonical numbers. They now consume the existing
+unit-aware control; direct sheet and title-block symbol positions explicitly
+retain paper mm/degrees. Scale and user-authored manufacturing text keep their
+existing meaning. No reference solving, symbol definitions or serialization
+changed. Tests cover all unit combinations, exact unchanged confirmation,
+editing, Cancel, and the separate sheet behavior. The existing full symbol GUI
+scenario also passes, including attachments, dragging and native persistence.
+
+Seven rebuilt suites passed (48.32 seconds): feature unit input, symbol GUI,
+translations, native documents, Drawing DXF, Drawing PDF and dimension layout.
+Localization review found only invariant unit suffixes added to existing controls;
+all five catalogs and language-switch checks pass. No template format change
+was introduced. Final audit verification and publication remain pending.
+
+
+### Final settings-consumer and template review (2026-10-03)
+
+The final source review classifies remaining fixed-unit controls: drawing layout,
+balloons, sheet guides, hatching, template regions/images and direct sheet symbols
+use paper mm/degrees; kernel cut tolerances, sweep approximation and import
+meshing use explicit physical mm; sheet thickness retains the existing reserved
+millimetre contract. Scale, ratios, counts, transparency and K factors are not
+lengths. Time/Temperature/Stress have configuration, validation and persistence
+consumers but no numerical modeling evaluator. User-authored strings are unchanged.
+
+The actual New Document GUI test passed in 34.04 seconds with configured inch
+lengths and radian angles in all five languages. Part, Sheet Metal, Skeleton and
+Assembly files reopen with those units, retaining active ordinary editing contexts,
+commands, template appearance and Drawing format behavior. Native template tests
+separately verify the cm override and unchanged template bytes. Together these
+make config-over-template precedence explicit without duplicating templates by
+unit or claiming the planned first-run wizard exists.
+
+No further unit-boundary defect is known from this audit. Focused regression gates
+are complete; final release packaging and signed/public verification are pending.

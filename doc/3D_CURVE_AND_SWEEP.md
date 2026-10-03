@@ -8,6 +8,11 @@ path stations, correspondence and explicit calculation/Undo behavior.
 A 3D Curve retains original construction points with persistent IDs. Table numbers
 are path positions, not reference identities.
 
+Profile correspondence coordinates and their table headers use the owning
+document's length unit and display precision. Choosing a first point still uses
+its persistent ID; formatted coordinates never rewrite the profile. The 3D Curve
+radius column identifies the same document unit as its numeric fields.
+
 A new point being entered does not extend the route preview until its first
 reference is supplied. Removing all of that draft point's references hides its
 connection again. Existing points, including points defined numerically, remain

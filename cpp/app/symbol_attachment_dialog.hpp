@@ -16,7 +16,7 @@ public:
     SymbolAttachmentDialog(symbols::Placement value,std::function<void(symbols::Placement)> commit,QWidget* parent,bool sheet=false)
         :SymbolDialog(value.symbol,{},[this,commit=std::move(commit)](auto instance){
             auto value=placement_;value.symbol=std::move(instance);value.validate();commit(std::move(value));
-        },parent),placement_(std::move(value)),sheet_(sheet) {
+        },parent,sheet),placement_(std::move(value)),sheet_(sheet) {
         setObjectName("symbolAttachmentDialog");
         auto* panel=new QWidget(this);auto* form=new QFormLayout(panel);form->setContentsMargins(0,0,0,0);
         table_=new QTableWidget(1,3,panel);table_->setObjectName("symbolReference");
@@ -45,7 +45,7 @@ public:
         shelf_mode_=new QComboBox(panel);shelf_mode_->setObjectName("symbolShelfMode");
         shelf_mode_->addItems({tr("Pod symbolem"),tr("K uchopovacímu bodu")});shelf_mode_->setCurrentIndex(placement_.short_shelf?1:0);
         form->addRow(tr("Police odkazu"),shelf_mode_);
-        shelf_length_=new QDoubleSpinBox(panel);shelf_length_->setObjectName("symbolShelfLength");shelf_length_->setRange(.1,1000000);shelf_length_->setDecimals(ui::numeric_decimal_places(parent));shelf_length_->setValue(placement_.shelf_length);
+        shelf_length_=coordinate_input(ui::InputQuantity::Length,panel,sheet_);shelf_length_->setObjectName("symbolShelfLength");shelf_length_->setRange(.1,1000000);shelf_length_->setValue(placement_.shelf_length);
         form->addRow(tr("Délka police"),shelf_length_);shelf_length_->setEnabled(placement_.short_shelf);
         connect(shelf_mode_,&QComboBox::currentIndexChanged,this,[this](int i){placement_.short_shelf=i==1;shelf_length_->setEnabled(i==1);notify();});
         connect(shelf_length_,&QDoubleSpinBox::valueChanged,this,[this](double v){placement_.shelf_length=v;notify();});
@@ -68,8 +68,8 @@ public:
         auto* origin_panel=new QWidget(this);auto* origin_form=new QFormLayout(origin_panel);origin_form->setContentsMargins(0,0,0,0);
         editor_layout()->insertWidget(editor_layout()->count()-1,origin_panel);
         const std::array labels{tr("Počátek X"),tr("Počátek Y"),tr("Počátek Z")};
-        for(std::size_t i=0;i<3;++i){origin_[i]=new QDoubleSpinBox(origin_panel);origin_[i]->setObjectName(QString("symbolOrigin%1").arg(i));
-            origin_[i]->setRange(-1000000,1000000);origin_[i]->setDecimals(ui::numeric_decimal_places(parent));origin_form->addRow(labels[i],origin_[i]);
+        for(std::size_t i=0;i<3;++i){origin_[i]=coordinate_input(ui::InputQuantity::Length,origin_panel,sheet_);origin_[i]->setObjectName(QString("symbolOrigin%1").arg(i));
+            origin_[i]->setRange(-1000000,1000000);origin_form->addRow(labels[i],origin_[i]);
             connect(origin_[i],&QDoubleSpinBox::valueChanged,this,[this]{placement_.frame.origin={origin_[0]->value(),origin_[1]->value(),origin_[2]->value()};notify();});}
         if(sheet_){origin_form->labelForField(origin_[2])->hide();origin_[2]->hide();}
         unresolved_=new QLabel(tr("Reference není dostupná. Symbol zachovává poslední polohu."),panel);unresolved_->setWordWrap(true);form->addRow(unresolved_);

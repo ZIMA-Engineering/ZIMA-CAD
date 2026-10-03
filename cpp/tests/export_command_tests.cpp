@@ -5,6 +5,7 @@
 #include <zima/command_host/host.hpp>
 #include <zima/workspace/export_operations.hpp>
 #include <zima/workspace/sketch_operations.hpp>
+#include <zima/workspace/metadata_operations.hpp>
 #include <zima/interchange/step_model.hpp>
 #include <zima/interchange/dxf.hpp>
 #include <zima/document/file_path.hpp>
@@ -79,12 +80,83 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
     run(host,"export.stl",{{"path","nested.stl"}});require(std::abs(stl_volume(dir/"nested.stl")-12000)<1e-5,"Nested STL changed stored geometry");
     run(host,"activate",{{"document",flat_id}});run(host,"export.stl",{{"path","flat.stl"}});require(std::abs(stl_volume(dir/"flat.stl")-12000)<1e-5,"Flat Assembly STL did not use calculated occurrence state");
 }
+void unit_exports(const kernel::OcctKernel& kernel,fs::path dir) {
+    workspace::Workspace live;command_host::Options options;
+    options.settings=[] {return command_host::Settings{{fs::absolute("config/templates"),"START_PART.prtz","START_ASSEMBLY.asmz","Body"},{}};};
+    command_host::Host host(live,kernel,dir,options);
+    run(host,"new",{{"type","part"},{"name","unit-export"}});const auto id=live.active_document_id();
+    test::rectangular_commands([&](const char* n,Json a){return run(host,n,std::move(a));},
+        {{"length_mm",25.4},{"width_mm",50.8},{"height_mm",76.2}});
+    const auto shape=live.open_part(id)->session.calculated_boundaries().back().kernel_shape;
+    const double volume=25.4*50.8*76.2,area=2*(25.4*50.8+25.4*76.2+50.8*76.2);
+    for(const auto length:{"mm","cm","m","in"})for(const auto angle:{"deg","rad"}) {
+        auto settings=workspace::file_settings(live,id);settings.units["Length"]=length;settings.units["Angle"]=angle;
+        require(!workspace::set_file_settings(live,kernel,id,settings).calculated,"Export unit selection recalculated geometry");
+        const auto* part=live.open_part(id);const auto revision=part->session.revision(),generation=part->session.data_generation();
+        const auto path=dir/(std::string("units-")+length+"-"+angle+".step");
+        run(host,"export.step",{{"path",document::path_to_utf8(path)}});
+        require(bytes(path).find("SI_UNIT(.MILLI.,.METRE.)")!=std::string::npos,"STEP did not declare canonical millimetres");
+        auto target=document::PartDocument::create_default();target.document_units["Length"]=length;target.document_units["Angle"]=angle;
+        const auto restored=interchange::import_step_part(target,{},path);const auto& body=restored.calculated.back();
+        kernel::Vec3 lo{1e100,1e100,1e100},hi{-1e100,-1e100,-1e100};
+        for(const auto& p:body.mesh.vertices) {
+            lo={std::min(lo.x,p.x),std::min(lo.y,p.y),std::min(lo.z,p.z)};
+            hi={std::max(hi.x,p.x),std::max(hi.y,p.y),std::max(hi.z,p.z)};
+        }
+        require(std::abs(hi.x-lo.x-25.4)<1e-7&&std::abs(hi.y-lo.y-50.8)<1e-7&&std::abs(hi.z-lo.z-76.2)<1e-7,
+            "STEP document-unit roundtrip changed physical extents");
+        require(std::abs(body.volume-volume)<1e-6&&std::abs(body.surface_area-area)<1e-6,
+            "STEP document-unit roundtrip changed physical area or volume");
+        require(restored.document.document_units==target.document_units,"STEP replaced destination authoring units");
+        require(part->session.revision()==revision&&part->session.data_generation()==generation&&
+            part->session.calculated_boundaries().back().kernel_shape==shape,"STEP unit export changed history or cached calculation");
+    }
+    run(host,"new",{{"type","assembly"},{"name","unit-export-sub"}});const auto sub=live.active_document_id();
+    run(host,"component.insert",{{"source",id}});
+    auto settings=workspace::file_settings(live,sub);settings.units["Length"]="cm";
+    require(!workspace::set_file_settings(live,kernel,sub,settings).calculated,"Nested unit selection recalculated geometry");
+    run(host,"new",{{"type","assembly"},{"name","unit-export-top"}});const auto top=live.active_document_id();
+    run(host,"component.insert",{{"source",sub}});
+    const auto copy=run(host,"component.insert",{{"source",sub}}).data.at("occurrence").get<std::string>();
+    auto placed=live.open_assembly(top)->session.document();placed.find_occurrence(copy)->placement.x=101.6;
+    placed.find_occurrence(copy)->placement.rotation_z=90;live.open_assembly(top)->session.commit(std::move(placed));
+    for(const auto length:{"mm","cm","m","in"})for(const auto angle:{"deg","rad"}) {
+        settings=workspace::file_settings(live,top);settings.units["Length"]=length;settings.units["Angle"]=angle;
+        require(!workspace::set_file_settings(live,kernel,top,settings).calculated,"Assembly unit selection recalculated geometry");
+        const auto* assembly=live.open_assembly(top);const auto revision=assembly->session.revision(),generation=assembly->session.data_generation();
+        const auto path=dir/(std::string("nested-units-")+length+"-"+angle+".step");
+        run(host,"export.step",{{"path",document::path_to_utf8(path)}});
+        const auto restored=interchange::import_step_part(document::PartDocument::create_default(),{},path);
+        const auto& body=restored.calculated.back();
+        kernel::Vec3 lo{1e100,1e100,1e100},hi{-1e100,-1e100,-1e100};
+        for(const auto& p:body.mesh.vertices) {
+            lo={std::min(lo.x,p.x),std::min(lo.y,p.y),std::min(lo.z,p.z)};
+            hi={std::max(hi.x,p.x),std::max(hi.y,p.y),std::max(hi.z,p.z)};
+        }
+        require(std::abs(lo.x+12.7)<1e-7&&std::abs(hi.x-127)<1e-7&&std::abs(lo.y+25.4)<1e-7&&
+            std::abs(hi.y-25.4)<1e-7&&std::abs(hi.z-lo.z-76.2)<1e-7&&std::abs(body.volume-2*volume)<1e-6,
+            "Nested STEP document units changed translation, rotation or physical size");
+        require(assembly->session.revision()==revision&&assembly->session.data_generation()==generation&&live.size()==3,
+            "Nested STEP export mutated history or opened source tabs");
+    }
+}
 void exact_dxf(const kernel::OcctKernel& kernel,fs::path dir) {
     auto sketch=test::dxf_curve_fixture();auto part=document::PartDocument::create_default();const auto id=part.document_id;part.sketches.push_back(sketch);
     workspace::Workspace live;live.add_part(part);live.activate(id);live.display_top_level(id);command_host::Host host(live,kernel,dir);
     const auto before=live.open_part(id)->session.document().sketches.front().serialized();
     run(host,"export.dxf",{{"path","exact-curves.dxf"},{"sketch",sketch.id}});test::check_dxf_curves(dir/"exact-curves.dxf");
     require(live.open_part(id)->session.revision()==0&&live.open_part(id)->session.document().sketches.front().serialized()==before,"DXF export changed spline or dependency data");
+    for(const auto length:{"mm","cm","m","in"})for(const auto angle:{"deg","rad"}) {
+        auto settings=workspace::file_settings(live,id);settings.units["Length"]=length;settings.units["Angle"]=angle;
+        require(!workspace::set_file_settings(live,kernel,id,settings).calculated,"DXF unit selection recalculated geometry");
+        const auto revision=live.open_part(id)->session.revision(),generation=live.open_part(id)->session.data_generation();
+        const auto path=dir/(std::string("curves-")+length+"-"+angle+".dxf");
+        run(host,"export.dxf",{{"path",document::path_to_utf8(path)},{"sketch",sketch.id}});
+        require(bytes(path)==bytes(dir/"exact-curves.dxf"),"Document units changed DXF units, coordinates, angles or spline parameters");
+        test::check_dxf_curves(path);
+        require(live.open_part(id)->session.revision()==revision&&live.open_part(id)->session.data_generation()==generation&&
+            workspace::document_sketch(live,id,sketch.id).serialized()==before,"DXF unit export modified its source");
+    }
     interchange::export_dxf(dir/"direct-curves.dxf",sketch);test::check_dxf_curves(dir/"direct-curves.dxf");
     auto unsupported=sketcher::Sketch::create_default();const auto a=unsupported.add_segment(0,0,10,0),b=unsupported.add_segment(10,0,10,10);static_cast<void>(unsupported.add_corner_fillet(a,b,1));
     unsupported.corner_radii.front().radius=20;
@@ -135,4 +207,4 @@ void nested_stl(const kernel::OcctKernel& kernel,fs::path dir) {
     for(const auto& entry:fs::directory_iterator(dir))require(!entry.path().filename().string().starts_with(".zima-export-"),"STL export left its staging directory");
 }
 }
-int main(){try{kernel::OcctKernel kernel;const auto parent=fs::canonical(fs::temp_directory_path());const auto dir=parent/("zima-export-command-"+document::PartDocument::create_default().document_id);fs::create_directory(dir);const auto unicode_dir=dir/fs::path(u8"český projekt");fs::create_directory(unicode_dir);verify(kernel,unicode_dir);nested_stl(kernel,unicode_dir);exact_dxf(kernel,unicode_dir);require(dir.parent_path()==parent,"Unsafe cleanup");fs::remove_all(dir);std::cout<<"STEP/STL volumes, DXF geometry, snapshot export, nested ownership, UTF-8, overwrite and atomic publication passed\n";return 0;}catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}
+int main(){try{kernel::OcctKernel kernel;const auto parent=fs::canonical(fs::temp_directory_path());const auto dir=parent/("zima-export-command-"+document::PartDocument::create_default().document_id);fs::create_directory(dir);const auto unicode_dir=dir/fs::path(u8"český projekt");fs::create_directory(unicode_dir);verify(kernel,unicode_dir);unit_exports(kernel,unicode_dir);nested_stl(kernel,unicode_dir);exact_dxf(kernel,unicode_dir);require(dir.parent_path()==parent,"Unsafe cleanup");fs::remove_all(dir);std::cout<<"STEP/STL volumes, DXF geometry, snapshot export, nested ownership, UTF-8, overwrite and atomic publication passed\n";return 0;}catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}

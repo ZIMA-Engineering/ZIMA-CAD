@@ -1,6 +1,8 @@
 #include <zima/drawing/measurement_dimension.hpp>
 #include "../drawing_annotation_layout.hpp"
 #include "workspace_internal.hpp"
+#include "../document_numeric_display.hpp"
+#include "../body_properties_display.hpp"
 #include "../symbol_family_dialog.hpp"
 #include <zima/workspace/symbol_operations.hpp>
 #include <zima/workspace/metadata_operations.hpp>
@@ -616,6 +618,9 @@ void AssemblyWorkspaceWindow::edit_file_settings(bool sheet_metal) {
         if(change.calculated){preserve_view_on_refresh_=true;refresh_scene();}
         if (const auto* part=workspace_.open_part(id)) set_document_numeric_context(*this,part->session.document());
         else if (const auto* assembly=workspace_.open_assembly(id)) set_document_numeric_context(*this,assembly->session.document());
+        if(viewer_)update_viewer_numeric_context(*viewer_,*this);
+        if(const auto* part=workspace_.open_part(workspace_.displayed_document_id()))
+            refresh_body_properties_tooltips(*tree_,part->session.document(),document_decimal_places(part->session.document()));
         refresh_tabs();
     }, application_settings_, this);
     if(sheet_metal)dialog->show_sheet_metal_page();

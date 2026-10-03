@@ -2026,5 +2026,10 @@
   "Jednotky hodnoty a tolerancí": "Единицы номинального значения и допусков",
   "Zachovat koncové nuly": "Сохранять конечные нули",
   "Invalid dimension text precision": "Недопустимое число десятичных знаков размерной надписи",
-  "Manufacturing limits remain unchanged. ≈ marks an approximate secondary value when exact conversion is not possible.": "Предельные размеры остаются неизменными. Знак ≈ обозначает приближённое дополнительное значение, если точный перевод невозможен."
+  "Manufacturing limits remain unchanged. ≈ marks an approximate secondary value when exact conversion is not possible.": "Предельные размеры остаются неизменными. Знак ≈ обозначает приближённое дополнительное значение, если точный перевод невозможен.",
+  "Kružnice %1 — ⌀%2 %3": "Окружность %1 — ⌀%2 %3",
+  "Bod %1 [%2; %3] %4": "Точка %1 [%2; %3] %4",
+  "X [%1]": "X [%1]",
+  "Y [%1]": "Y [%1]",
+  "R [%1]": "R [%1]"
 }

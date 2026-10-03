@@ -2026,5 +2026,10 @@
   "Jednotky hodnoty a tolerancí": "Jednotky hodnoty a tolerancí",
   "Zachovat koncové nuly": "Zachovat koncové nuly",
   "Invalid dimension text precision": "Neplatný počet desetinných míst textu kóty",
-  "Manufacturing limits remain unchanged. ≈ marks an approximate secondary value when exact conversion is not possible.": "Výrobní mezní rozměry se nemění. Znak ≈ označuje přibližnou doplňkovou hodnotu, pokud přesný převod není možný."
+  "Manufacturing limits remain unchanged. ≈ marks an approximate secondary value when exact conversion is not possible.": "Výrobní mezní rozměry se nemění. Znak ≈ označuje přibližnou doplňkovou hodnotu, pokud přesný převod není možný.",
+  "Kružnice %1 — ⌀%2 %3": "Kružnice %1 — ⌀%2 %3",
+  "Bod %1 [%2; %3] %4": "Bod %1 [%2; %3] %4",
+  "X [%1]": "X [%1]",
+  "Y [%1]": "Y [%1]",
+  "R [%1]": "R [%1]"
 }

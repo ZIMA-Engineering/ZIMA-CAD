@@ -17,6 +17,14 @@ The properties window controls the variant, editable text values, offset,
 angle and scale. Creation and later editing use the same window. **OK** commits
 one change; **Cancel** discards the preview. Middle-button double-click confirms.
 
+In model and Sketch symbol properties, X/Y offsets, free-origin coordinates and
+leader shelf length use the owning document's length unit; rotation uses its
+angle unit. Numeric fields keep canonical mm/degrees internally, including when
+unchanged rounded text is confirmed. Scale remains dimensionless. Direct Drawing
+and title-block symbol properties use paper mm/degrees independently of source
+model units. Authored symbol text, weld sizes and tolerance strings are not
+numerically reinterpreted by changing the coordinate units.
+
 In a model, arm the reference field and select an original planar, cylindrical
 or conical face, an original edge or a point. The contact follows that reference. The numeric origin can also
 place a free symbol. In a Drawing, select projected geometry before insertion:

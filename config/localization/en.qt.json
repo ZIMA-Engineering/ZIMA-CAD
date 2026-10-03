@@ -2026,5 +2026,10 @@
   "Jednotky hodnoty a tolerancí": "Nominal and tolerance units",
   "Zachovat koncové nuly": "Keep trailing zeros",
   "Invalid dimension text precision": "Invalid dimension text precision",
-  "Manufacturing limits remain unchanged. ≈ marks an approximate secondary value when exact conversion is not possible.": "Manufacturing limits remain unchanged. ≈ marks an approximate secondary value when exact conversion is not possible."
+  "Manufacturing limits remain unchanged. ≈ marks an approximate secondary value when exact conversion is not possible.": "Manufacturing limits remain unchanged. ≈ marks an approximate secondary value when exact conversion is not possible.",
+  "Kružnice %1 — ⌀%2 %3": "Circle %1 — ⌀%2 %3",
+  "Bod %1 [%2; %3] %4": "Point %1 [%2; %3] %4",
+  "X [%1]": "X [%1]",
+  "Y [%1]": "Y [%1]",
+  "R [%1]": "R [%1]"
 }

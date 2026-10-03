@@ -142,6 +142,12 @@ cannot be assigned. Measured geometry and `model.mass`, `model.area`,
 intermediate parameters, because that would feed calculation outputs back into
 their own geometry.
 
+A persistent identifier alone does not make a parameter a supported relation
+input. The editor catalogue and View picker filter through the same registered
+binding set. The unit audit checks that set against native quantity metadata,
+including assignment back to canonical values and read-only bindings; it does
+not add new placement or construction-reference assignment capabilities.
+
 Linear Patterns expose spacing and count for each enabled direction and a
 reverse count for bidirectional distribution. Circular Patterns expose count
 and angle. In full-circle mode the angle is derived from the count and remains
