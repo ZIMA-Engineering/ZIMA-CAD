@@ -7,12 +7,16 @@
 
 namespace zima::document {
 
+// Derived metadata only; never serialized as reference identity.
+enum class DimensionQuantity { Length, Angle, Scalar, Text };
+
 // Identity is the existing ZIMA owner and semantic dimension key. Numbers are
 // document metadata, never geometry identity or an index into visible geometry.
 struct DimensionParameter {
     std::string owner_id;
     std::string semantic_key;
     std::string owner_name;
+    DimensionQuantity quantity{DimensionQuantity::Length};
 };
 
 class DimensionIdentifiers {

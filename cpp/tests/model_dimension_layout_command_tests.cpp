@@ -49,7 +49,7 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
         require(!host.change(),"Rejected layout published a workspace change");
         require(get()==before&&state()->session.revision()==revision&&state()->session.calculated_boundaries().data()==stored_cache&&!host.change(),"Rejected layout modified document or body");
     };
-    for(const auto& patch:std::vector<Json>{{{"value_unit","unknown"}},{{"value_unit",5}},{{"keep_trailing_zeros","yes"}},{{"unexpected_field","text"}}}) {
+    for(const auto& patch:std::vector<Json>{{{"value_unit","rad"}},{{"value_unit","deg"}},{{"value_unit","unknown"}},{{"value_unit",5}},{{"keep_trailing_zeros","yes"}},{{"unexpected_field","text"}}}) {
         auto invalid_style=layout;invalid_style["text_style"].update(patch);
         fail({{"reference",ref},{"layout",invalid_style}},"invalid_arguments");
     }
@@ -70,6 +70,15 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
         require(run("dimension.layout.get",{{"reference",point_ref}}).at("has_override")==false,"An existing Point display identity is inaccessible");
         run("dimension.layout.set",{{"reference",point_ref},{"layout",layout}});
         require(run("dimension.layout.get",{{"reference",point_ref}}).at("layout")==layout,"Point appearance did not retain its exact View identity");
+    }
+    const Json rotation_ref={{"owner",point},{"key","parameter:placement:rotation_z"}};
+    fail({{"reference",rotation_ref},{"layout",layout}},"invalid_arguments");
+    for(const auto* unit:{"deg","rad"}) {
+        auto angle_layout=layout;angle_layout["text_style"]["value_unit"]=unit;angle_layout["text_style"]["suffix"]=unit;
+        run("dimension.layout.set",{{"reference",rotation_ref},{"layout",angle_layout}});
+        require(run("dimension.layout.get",{{"reference",rotation_ref}}).at("layout")==angle_layout&&state()->session.calculated_boundaries().back().kernel_shape==cache.kernel_shape,
+            "Valid angular annotation changed body geometry or was rejected");
+        run("undo");require(run("dimension.layout.get",{{"reference",rotation_ref}}).at("has_override")==false,"Angular annotation Undo did not restore inherited style");
     }
     require(state()->session.document().find_construction(point)->origin==kernel::Vec3{7,3,4},"Point appearance moved the construction");
     const auto other=run("body.create",{{"name","Other"}}).at("body").get<std::string>();fail({{"reference",ref},{"layout",layout}},"inactive_body");run("body.activate",{{"body",body}});
@@ -95,6 +104,19 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
     require(get().at("reference").at("instance_path")==first_path&&live.displayed_document_id()==top&&live.open_assembly(top)->session.document().dimension_layouts==assembly_after,"Active Part layout changed the parent Assembly or lost occurrence context");
     run("undo");require(get().at("layout")==layout,"Nested Part layout Undo failed");run("redo");run("save");
     require(zima::test::profile_dimension(state()->session.document(),*state()->session.document().find_container(box),0)==10,"Nested layout modified the modeled length");
+    const auto pattern=run("pattern.create",{{"source",box},{"linear",Json::array({{{"axis","x"},{"count",2},{"spacing_mm",40}}})}}).at("object").get<std::string>();
+    const Json count_ref={{"owner",pattern},{"key","parameter:pattern:count:0"}};
+    for(const auto* unit:{"mm","rad"}) {
+        auto invalid=layout;invalid["text_style"]["value_unit"]=unit;
+        fail({{"reference",count_ref},{"layout",invalid}},"invalid_arguments");
+    }
+    auto count_layout=layout;count_layout["text_style"]["value_unit"]="";count_layout["text_style"]["suffix"]="";
+    const auto before_count=state()->session.document().dimension_identifiers.serialized();
+    const auto count_cache=state()->session.calculated_boundaries().back().kernel_shape;
+    run("dimension.layout.set",{{"reference",count_ref},{"layout",count_layout}});
+    require(run("dimension.layout.get",{{"reference",count_ref}}).at("layout")==count_layout&&state()->session.document().dimension_identifiers.serialized()==before_count&&
+        state()->session.calculated_boundaries().back().kernel_shape==count_cache,"Scalar appearance changed dimension identity or calculated geometry");
+
 }
 }
 int main(){try{const auto root=fs::canonical(fs::temp_directory_path()),dir=root/("zima-model-layout-"+document::PartDocument::create_default().document_id);fs::create_directory(dir);kernel::OcctKernel kernel;verify(kernel,dir);require(fs::canonical(dir).parent_path()==root,"Unsafe cleanup");fs::remove_all(dir);std::cout<<"Model dimension layouts: geometry preservation, native identity, Body ownership, occurrence scope, reset and Undo passed\n";return 0;}catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}

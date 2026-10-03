@@ -21,8 +21,8 @@
 namespace zima::app {
 class DimensionTextFields final : public QWidget {
   public:
-    DimensionTextFields(kernel::DimensionTextStyle initial, QWidget *parent, bool precision = true, bool angular = false, bool document_units = false)
-        : QWidget(parent), initial_(initial) {
+    DimensionTextFields(kernel::DimensionTextStyle initial, QWidget *parent, bool precision = true, bool angular = false, bool document_units = false, bool unitless = false)
+        : QWidget(parent), initial_(initial),unitless_(unitless) {
         form_ = new QFormLayout(this);
         // Existing manufacturing annotations retain their declared basis.
         // Only an unbound new specification starts in the document's units.
@@ -43,6 +43,7 @@ class DimensionTextFields final : public QWidget {
         auto* units=new QLabel(QString::fromStdString(unit=="deg"?"°":unit),this);
         units->setObjectName("dimensionAnnotationUnits");
         form_->addRow(tr("Jednotky hodnoty a tolerancí"),units);
+        if(unitless_)form_->setRowVisible(units,false);
         form_->addRow(tr("Text před hodnotou"),
                       symbol_field(prefix_, initial.prefix, "sketchDimensionPrefix", this));
         form_->addRow(tr("Text za hodnotou"),
@@ -115,7 +116,7 @@ class DimensionTextFields final : public QWidget {
         result.decimals = decimals_->value();
         result.keep_trailing_zeros=trailing_zeros_->isChecked();
         if(result==displayed_initial_)return initial_;
-        if(result.value_unit.empty()&&(result.keep_trailing_zeros!=displayed_initial_.keep_trailing_zeros||result.decimals!=displayed_initial_.decimals||
+        if(!unitless_&&result.value_unit.empty()&&(result.keep_trailing_zeros!=displayed_initial_.keep_trailing_zeros||result.decimals!=displayed_initial_.decimals||
             result.tolerance_mode!=displayed_initial_.tolerance_mode||result.symmetric_tolerance!=displayed_initial_.symmetric_tolerance||
             result.single_tolerance!=displayed_initial_.single_tolerance||result.upper_tolerance!=displayed_initial_.upper_tolerance||result.lower_tolerance!=displayed_initial_.lower_tolerance))
             result.value_unit=annotation_unit_;
@@ -124,6 +125,7 @@ class DimensionTextFields final : public QWidget {
 
   private:
     kernel::DimensionTextStyle initial_,displayed_initial_;
+    bool unitless_{};
     QCheckBox* trailing_zeros_{};
     std::string annotation_unit_;
     QFormLayout *form_{};
@@ -291,7 +293,7 @@ class DimensionPropertiesDialog final : public ui::PropertiesSubWindow {
         value->setObjectName("dimensionMeasuredValue");
         column->addWidget(value);
         text_ = new DimensionTextFields(initial.text_style.value_or(kernel::dimension_text_style(dimension)),
-                                        page,true,angular,!scalar);
+                                        page,true,angular,!scalar,scalar);
         column->addWidget(text_);
         column->addStretch();
         placement_ = new DimensionPlacementFields(dimension, initial, tabs);

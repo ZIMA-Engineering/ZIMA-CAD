@@ -36,7 +36,12 @@ be finite. Custom `text_style` is a complete object with `prefix`, `suffix`,
 `single_tolerance`, `upper_tolerance`, and `lower_tolerance`. Optional `value_unit`
 is empty (canonical mm/degrees), `mm`, `cm`, `m`, `in`, `deg`, or `rad`; it declares
 the common numerical unit of the nominal value and its deviations, independently
-of the authored suffix. Use the correct physical quantity. `keep_trailing_zeros`
+of the authored suffix. The command validates the physical quantity before
+committing: lengths accept mm/cm/m/in, angles accept deg/rad, and scalar counts
+or ratios require an empty unit. Placement rotations, the reverse Revolution
+angle and angular Assembly-reference limits are angles despite their differing
+semantic key names. Catalog thread text remains literal; its underlying diameter
+still has length semantics. `keep_trailing_zeros`
 defaults to false and preserves the requested decimal places when true.
 Explicit annotation units are persisted and are not reinterpreted by a View
 repaint in a different document unit system. Tolerance mode is empty,

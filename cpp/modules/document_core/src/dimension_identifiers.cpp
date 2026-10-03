@@ -72,8 +72,12 @@ DimensionIdentifiers DimensionIdentifiers::from_serialized(const std::string& da
 namespace {
 void sketch_parameters(std::vector<DimensionParameter>& out,
                        const zima::sketcher::Sketch& sketch) {
-    for (const auto& dimension : sketch.dimensions)
-        out.push_back({sketch.id, "dimension:" + dimension.id, sketch.name});
+    for (const auto& dimension : sketch.dimensions) {
+        using K=zima::sketcher::DimensionKind;
+        const bool angular=dimension.kind==K::Angle||dimension.kind==K::AngleBetween||dimension.kind==K::AngleThreePoint||
+            dimension.kind==K::AngleSymmetric||dimension.kind==K::EllipseRotation;
+        out.push_back({sketch.id, "dimension:" + dimension.id, sketch.name,angular?DimensionQuantity::Angle:DimensionQuantity::Length});
+    }
     for (const auto& radius : sketch.corner_radii)
         out.push_back({sketch.id, "corner_dimension:" + radius.id, sketch.name});
 }
@@ -88,7 +92,7 @@ void placement_parameters(std::vector<DimensionParameter>& out,
     for (const auto* key : {"x", "y", "z", "rotation_x", "rotation_y", "rotation_z"}) {
         const auto prefix = point && std::string_view(key).size() == 1
             ? "parameter:" : "parameter:placement:";
-        out.push_back({id, std::string(prefix) + key, name});
+        out.push_back({id, std::string(prefix) + key, name,std::string_view(key).size()==1?DimensionQuantity::Length:DimensionQuantity::Angle});
     }
     std::size_t index = 0;
     for (const auto& reference : references) {
@@ -121,8 +125,16 @@ void append_dimension_parameters(std::vector<DimensionParameter>& out,
                                  const HistoryContainer& feature) {
     placement_parameters(out, feature.id, feature.name, feature.placement.references);
     const auto add = [&](std::initializer_list<const char*> keys) {
-        for (const auto* key : keys)
-            out.push_back({feature.id, std::string("parameter:") + key, feature.name});
+        for (const auto* key : keys) {
+            const std::string_view name=key;
+            const bool angular=name=="angle"||name=="side0_angle"||name=="side1_angle"||
+                name=="side0_draft_angle"||name=="side1_draft_angle"||name=="treatment_angle"||
+                name=="drill_point_angle"||name=="chamfer_angle"||name=="end_rx"||name=="end_ry"||name=="end_rz"||
+                (feature.feature_kind==FeatureKind::Revolution&&name=="length_reverse");
+            const auto quantity=name=="runout_pitch_factor"?DimensionQuantity::Scalar:
+                angular?DimensionQuantity::Angle:DimensionQuantity::Length;
+            out.push_back({feature.id, std::string("parameter:") + key, feature.name,quantity});
+        }
     };
     // Enumerate parameter slots, never visible dimensions or nonzero values.
     // Names are the existing semantic keys used by the feature editors.

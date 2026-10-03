@@ -159,12 +159,12 @@ ordinary mm/inch modeling input, and must not turn this work into a global rewri
 
 | Area | Current evidence | Remaining work |
 | --- | --- | --- |
-| Document settings | Repeated mm/cm/m/in switches with rad, geometry reuse, volume, native signatures, save/reopen, Undo/Redo and explicit relation conversion pass. | Manufacturing annotations now retain their authoritative basis and derive exact or explicitly approximate View presentation; finish quantity validation and remaining settings consumers. |
+| Document settings | Repeated mm/cm/m/in switches with rad, geometry reuse, volume, native signatures, save/reopen, Undo/Redo and explicit relation conversion pass. | Manufacturing annotations now retain their authoritative basis and derive exact or explicitly approximate View presentation; quantity validation now rejects mismatches before committing; finish remaining settings consumers. |
 | Mixed-unit Assemblies | Occurrences consume source calculated geometry; unit labels are not placement scales. | Add explicit mixed-unit/nested Assembly tests and source-unit switching. |
 | Modeling input | Feature parameters and selected Sweep fields now use the shared unit control; conversion/no-op/Cancel tests pass. Other dialogs still have fixed-unit fields. | Continue command-by-command integration, retaining exact canonical values and quantity distinctions. |
 | Container placement | Numeric coordinates, angles and reference offsets now use document-unit controls; canonical values, solving and reference semantics remain unchanged. | Continue dependent GUI verification; no reference or solver redesign is part of this work. |
 | Sketch input | Dimension expressions, plane coordinates, spline points, offsets and model text sizes use document units with canonical storage; paper text sizes remain mm. | Finish annotation authoring checks and remaining context boundaries; retain counts and curve parameters. |
-| View dimensions | Ordinary nominal labels share one document-unit formatter across painting, picking, label position and grips; native values/references remain unchanged. | Exact complete specifications convert for display; otherwise show the original specification with an explicitly approximate secondary nominal. New annotation authoring and layout fields now follow document units; finish quantity validation and drawing/output gates. |
+| View dimensions | Ordinary nominal labels share one document-unit formatter across painting, picking, label position and grips; native values/references remain unchanged. | Exact complete specifications convert for display; otherwise show the original specification with an explicitly approximate secondary nominal. New annotation authoring and layout fields now follow document units; quantity validation passes; finish drawing/output gates. |
 | Measurements | Length/area/volume and mass use document scale factors. | Verify angular results, reopened records, nested occurrences and labels. |
 | Physical properties | Existing conversion includes area/volume powers, mass and density. | Extend mixed-unit checks and inspect all editable orientation fields. |
 | Relations | Explicit source conversion preserves quantity-dependent results, inactive branches, fixed-unit sheet thickness and atomic rejection; no hidden second unit basis. | Complete typed trigonometric/inverse-trigonometric unit semantics and the remaining dimension-binding audit. |
@@ -593,8 +593,46 @@ claimed as a fixed plane-selection defect. No new UI strings or native fields
 were introduced in this authoring stage. All existing labels remain covered by
 the five-language source/catalog and actual-control verification.
 
-Remaining annotation work includes quantity validation at model-layout command
-boundaries and the complete drawing/export unit policy. In particular, known
-unit-token validation alone does not prove that an angular unit belongs to a
-length parameter. The typed dimension-binding audit must close that gap without
-invoking OCCT during Properties or changing reference identities.
+The following stage closes quantity validation at model-layout command
+boundaries. The complete drawing/export unit policy and remaining typed
+relation bindings still require verification. Properties must not invoke OCCT
+or change reference identities merely to establish quantity metadata.
+
+
+### Model annotation quantity validation (2026-10-03)
+
+The existing native dimension catalog now carries derived quantity metadata.
+It describes lengths, angles and scalar counts/ratios without changing any owner,
+semantic key, allocated dimension number or serialized identifier. Model-layout
+commands check an explicit annotation unit against that quantity before creating
+an undo transaction. This closes the path that accepted `rad` for a length and
+could subsequently fail during View formatting. Empty annotation units retain
+the established canonical interpretation.
+
+The catalog distinguishes Sketch angular kinds, placement rotations, reverse
+Revolution angle, Feature draft/rotation angles, Transition rotations, thread
+angles, Pattern counts and Assembly angular-reference limits. Changing metadata
+alone must not alter stored identity. Count-label property edits do not attach
+an implicit physical unit. Catalog thread designations remain literal and their
+underlying diameter remains a length; this audit does not change thread systems.
+No native file-format or template change is required by derived metadata.
+
+Rebuilt validation passed: `zima_cpp_dimension_identifiers_contract_tests`,
+`zima_cpp_model_dimension_layout_command_tests`,
+`zima_cpp_dimension_layout_contract_tests`, `zima_cpp_feature_unit_input_contract`,
+`zima_cpp_inline_units_ui_contract` and `zima_cpp_translations_contract`.
+The command test rejects deg/rad on a length, a length unit on rotation, and
+mm/rad on a real Pattern count without changing the revision, cached geometry or
+published workspace state. Both deg/rad annotations on rotation and unitless
+count appearance succeed. Existing Undo/Redo, native reopen, nested occurrence
+and common picker checks pass. Derived quantity changes leave the serialized
+identifier map unchanged. Existing diagnostics are reused and verified in all
+five languages; no new user-visible messages were added.
+
+Trigonometric Relations still require a separate correction: runtime angle values are tagged
+as document-unit quantities, but named trig functions currently consume their
+raw numbers using fixed radian/degree conventions. Inverse functions return the
+same angle type with differing raw bases. Any correction must also update the
+existing explicit source-unit conversion so repeated conversions preserve
+physical results, rounding, inactive branches, comments and literal strings.
+Do not change one evaluator boundary without validating that complete path.

@@ -2308,16 +2308,17 @@ std::vector<zima::document::DimensionParameter> AssemblyDocument::dimension_para
             component.occurrence_id,component.name,*component.derived_copy);
         for (const auto* key : {"x", "y", "z", "rotation_x", "rotation_y", "rotation_z"})
             result.push_back({component.occurrence_id,
-                std::string("parameter:placement:") + key, component.name});
+                std::string("parameter:placement:") + key, component.name,std::string_view(key).size()==1?zima::document::DimensionQuantity::Length:zima::document::DimensionQuantity::Angle});
         // Match the existing Assembly-owned dimension identity exactly.
         for (std::size_t i = 0; i < component.placement_references.size(); ++i) {
             const auto& reference = component.placement_references[i];
             const auto key = "placement-reference:" + component.occurrence_id + ":" + std::to_string(i);
-            result.push_back({document_id, key, component.name});
+            const auto quantity=reference.mate_type==MateKind::PlaneAngle?zima::document::DimensionQuantity::Angle:zima::document::DimensionQuantity::Length;
+            result.push_back({document_id, key, component.name,quantity});
             if (reference.lower_limit)
-                result.push_back({document_id, key + ":lower_limit", component.name});
+                result.push_back({document_id, key + ":lower_limit", component.name,quantity});
             if (reference.upper_limit)
-                result.push_back({document_id, key + ":upper_limit", component.name});
+                result.push_back({document_id, key + ":upper_limit", component.name,quantity});
         }
     }
     return result;

@@ -1,5 +1,7 @@
 #include <zima/drawing/measurement_dimension.hpp>
 #include <zima/document/document_session.hpp>
+#include <zima/document/pattern_dimensions.hpp>
+#include <algorithm>
 #include <zima/drawing/drawing_document.hpp>
 #include <zima/assembly/assembly_session.hpp>
 #include <zima/kernel/occt_kernel.hpp>
@@ -21,6 +23,45 @@ zima::sketcher::Sketch sketch_with_zero_dimension() {
         zima::sketcher::DimensionKind::DistanceX));
     return sketch;
 }
+void quantity_catalog() {
+    using namespace zima;using Q=document::DimensionQuantity;
+    const auto check=[](const auto& values,const std::string& owner,const std::string& key,Q expected) {
+        const auto found=std::ranges::find_if(values,[&](const auto& p){return p.owner_id==owner&&p.semantic_key==key;});
+        require(found!=values.end()&&found->quantity==expected,"Native dimension catalog has incorrect quantity metadata");
+    };
+    document::HistoryContainer feature;feature.id="feature";
+    for(const auto kind:{document::FeatureKind::Feature,document::FeatureKind::Revolution,document::FeatureKind::Thread,
+            document::FeatureKind::ShaftThread,document::FeatureKind::SheetTransition,document::FeatureKind::Chamfer}) {
+        feature.feature_kind=kind;std::vector<document::DimensionParameter> values;document::append_dimension_parameters(values,feature);
+        check(values,feature.id,"parameter:placement:x",Q::Length);check(values,feature.id,"parameter:placement:rotation_x",Q::Angle);
+        if(kind==document::FeatureKind::Feature){check(values,feature.id,"parameter:side0_length",Q::Length);check(values,feature.id,"parameter:side0_angle",Q::Angle);check(values,feature.id,"parameter:side1_draft_angle",Q::Angle);}
+        if(kind==document::FeatureKind::Revolution){check(values,feature.id,"parameter:length_reverse",Q::Angle);check(values,feature.id,"parameter:thin_thickness",Q::Length);}
+        if(kind==document::FeatureKind::Thread){check(values,feature.id,"parameter:thread_designation",Q::Length);check(values,feature.id,"parameter:chamfer_angle",Q::Angle);check(values,feature.id,"parameter:pitch",Q::Length);}
+        if(kind==document::FeatureKind::Thread||kind==document::FeatureKind::ShaftThread)check(values,feature.id,"parameter:runout_pitch_factor",Q::Scalar);
+        if(kind==document::FeatureKind::SheetTransition){check(values,feature.id,"parameter:end_rx",Q::Angle);check(values,feature.id,"parameter:end_x",Q::Length);}
+        if(kind==document::FeatureKind::Chamfer){check(values,feature.id,"parameter:treatment_angle",Q::Angle);check(values,feature.id,"parameter:secondary",Q::Length);}
+        document::DimensionIdentifiers ids;ids.synchronize(values);const auto before=ids.serialized();
+        for(auto& p:values)p.quantity=Q::Text;ids.synchronize(values);require(ids.serialized()==before,"Derived quantity metadata changed serialized identity");
+    }
+    auto part=document::PartDocument::create_default();auto sketch=sketch_with_zero_dimension();
+    const auto distance=sketch.dimensions.front().id;
+    for(const auto kind:{sketcher::DimensionKind::Angle,sketcher::DimensionKind::AngleBetween,sketcher::DimensionKind::AngleThreePoint,sketcher::DimensionKind::AngleSymmetric,sketcher::DimensionKind::EllipseRotation}) {
+        auto dimension=sketch.dimensions.front();dimension.id="angle-"+std::to_string(int(kind));dimension.kind=kind;sketch.dimensions.push_back(dimension);
+    }
+    part.sketches={sketch};auto values=part.dimension_parameters();check(values,sketch.id,"dimension:"+distance,Q::Length);
+    for(std::size_t i=1;i<sketch.dimensions.size();++i)check(values,sketch.id,"dimension:"+sketch.dimensions[i].id,Q::Angle);
+    document::DerivedCopyParameters copy;copy.pattern.emplace();copy.pattern->circular=true;
+    values.clear();document::append_pattern_dimension_parameters(values,"pattern","Pattern",copy);
+    check(values,"pattern","parameter:pattern:count",Q::Scalar);check(values,"pattern","parameter:pattern:angle",Q::Angle);
+    auto assembly=assembly::AssemblyDocument::create_default();assembly.components.emplace_back();auto& component=assembly.components.back();component.occurrence_id="component";
+    component.placement_references.resize(2);component.placement_references[1].mate_type=assembly::MateKind::PlaneAngle;
+    for(auto& reference:component.placement_references){reference.lower_limit=0;reference.upper_limit=0;}
+    values=assembly.dimension_parameters();check(values,component.occurrence_id,"parameter:placement:rotation_z",Q::Angle);
+    for(const auto suffix:{"",":lower_limit",":upper_limit"}) {
+        check(values,assembly.document_id,std::string("placement-reference:component:0")+suffix,Q::Length);
+        check(values,assembly.document_id,std::string("placement-reference:component:1")+suffix,Q::Angle);
+    }
+}
 template<class Document> void unique_catalog(const Document& document) {
     std::set<std::string> identifiers;
     for (const auto& parameter : document.dimension_parameters()) {
@@ -32,6 +73,7 @@ template<class Document> void unique_catalog(const Document& document) {
 }
 int main() {
     try {
+        quantity_catalog();
         auto doc=zima::document::PartDocument::create_default();
         doc.history.clear();doc.sketches.clear();doc.history_order.clear();
         auto sketch=sketch_with_zero_dimension();

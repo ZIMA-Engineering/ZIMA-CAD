@@ -7,10 +7,17 @@ const std::vector<kernel::DimensionLayoutEntry>& entries(const Workspace& live,c
     if(const auto* assembly=live.open_assembly(id))return assembly->session.document().dimension_layouts;
     throw ModelDimensionLayoutError("unsupported_document","Model dimension properties require an open Part or Assembly.");
 }
-void validate(const kernel::DimensionLayout& layout) {
+void validate(const kernel::DimensionLayout& layout,document::DimensionQuantity quantity) {
     try{kernel::validate_dimension_layout(layout);}catch(const std::invalid_argument&){throw ModelDimensionLayoutError("invalid_arguments","Invalid model dimension layout.");}
     if(!layout.text_style)return;const auto& style=*layout.text_style;
     if(!kernel::dimension_annotation_unit_valid(style.value_unit))throw ModelDimensionLayoutError("invalid_arguments","Invalid dimension annotation units");
+    if(!style.value_unit.empty()) {
+        if(quantity==document::DimensionQuantity::Scalar||quantity==document::DimensionQuantity::Text)
+            throw ModelDimensionLayoutError("invalid_arguments","Invalid dimension annotation units");
+        try {static_cast<void>(kernel::dimension_annotation_scale(style.value_unit,
+            quantity==document::DimensionQuantity::Angle?kernel::ViewerDimensionKind::Angular:kernel::ViewerDimensionKind::Linear));}
+        catch(const std::invalid_argument&) {throw ModelDimensionLayoutError("invalid_arguments","Invalid dimension annotation units");}
+    }
     if(style.decimals<0||style.decimals>12||(style.tolerance_mode!=""&&style.tolerance_mode!="basic"&&style.tolerance_mode!="symmetric"&&style.tolerance_mode!="single_deviation"&&style.tolerance_mode!="deviations"))
         throw ModelDimensionLayoutError("invalid_arguments","Invalid model dimension text style.");
     for(const auto* text:{&style.prefix,&style.suffix,&style.text_override,&style.tolerance_mode,&style.symmetric_tolerance,&style.single_tolerance,&style.upper_tolerance,&style.lower_tolerance})
@@ -62,7 +69,7 @@ bool set_model_dimension_layout(Workspace& live,const std::string& id,const kern
         if(!doc.body_history.find(reference.owner_id))if(const auto* body=doc.body_owner_for_object(reference.owner_id);body&&body->scope.id!=doc.body_history.active_body_id())
             throw ModelDimensionLayoutError("inactive_body","Activate the owning Body before editing its dimension properties.");
     }
-    if(layout)validate(*layout);
+    if(layout)validate(*layout,current.parameter.quantity);
     if(current.stored_layout==layout||(!current.stored_layout&&layout==default_model_dimension_layout()))return false;
     const auto update=[&](auto& values) {
         if(layout)kernel::store_dimension_layout(values,reference,*layout);

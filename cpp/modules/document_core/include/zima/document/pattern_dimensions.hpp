@@ -29,7 +29,7 @@ inline std::vector<PatternDimension> pattern_dimension_values(const DerivedCopyP
 }
 inline void append_pattern_dimension_parameters(std::vector<DimensionParameter>& out,
     const std::string& owner,const std::string& name,const DerivedCopyParameters& copy) {
-    for(const auto& d:pattern_dimension_values(copy))out.push_back({owner,"parameter:"+d.key,name});
+    for(const auto& d:pattern_dimension_values(copy))out.push_back({owner,"parameter:"+d.key,name,d.count?DimensionQuantity::Scalar:d.angular?DimensionQuantity::Angle:DimensionQuantity::Length});
 }
 // Assignment changes only the authored scalar. Full-pattern validation belongs
 // after all relation targets have been assigned, so dependent edits are atomic.

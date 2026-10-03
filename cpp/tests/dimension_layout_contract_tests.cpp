@@ -336,6 +336,16 @@ int main(int argc, char **argv) {
         verify_occurrence_bounds();
         verify_model_dimension_units();
         {
+            kernel::ViewerDimension count;count.label_only=true;count.unit_suffix.clear();count.value=4;
+            kernel::DimensionLayout saved;
+            QWidget owner;owner.setProperty("zimaDocumentUnits",QVariantMap{{"Length","in"},{"Angle","rad"}});
+            app::DimensionPropertiesDialog dialog(count,{},[&](auto value){saved=std::move(value);},&owner);
+            dialog.findChild<QSpinBox*>("dimensionDecimals")->setValue(2);
+            dialog.buttons()->button(QDialogButtonBox::Ok)->click();
+            require(saved.text_style&&saved.text_style->value_unit.empty(),"Editing a count label attached physical units");
+        }
+
+        {
             kernel::DimensionTextStyle style;style.tolerance_mode="deviations";
             style.upper_tolerance="0.2";style.lower_tolerance="0.1";
             app::DimensionTextFields fields(style,nullptr);fields.show();flush();
