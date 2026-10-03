@@ -2,6 +2,15 @@
 
 ## Scope and status
 
+Windows build **2026100302** is signed, published and verified. It completes the
+focused document-unit audit: canonical geometry, explicit-unit dimension input,
+manufacturing annotations, typed Relations, Family, nested physical properties,
+metadata presentation and exchange. Clean/signed smoke, production trust, eight
+packaged GUI scenarios, public hashes and update discovery from 2026100301 pass.
+User manuals and all five localizations are updated. See
+[the release record](releases/2026100302.md) and
+[the audit](DOCUMENT_UNITS_AUDIT.md) for exact coverage and limits. Linux is separate.
+
 Windows build **2026100301** is signed, published and verified. It adds native
 Solid Straighten/Restore for supported constant-section Revolutions and Sweeps,
 exact placement-field retention, Feature profile axes and initial Origin scaling.

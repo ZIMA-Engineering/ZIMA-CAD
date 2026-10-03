@@ -1,10 +1,11 @@
 # Document unit audit
 
-Status: implementation and focused Windows source verification completed on
-2026-10-03. Final committed-source packaging, signed acceptance and publication
-remain pending. The incremental notes below preserve the evidence and limitations
-of each stage; earlier "remaining" statements are historical, superseded by later
-gates and the current audit map. Linux GUI acceptance belongs to the Linux host.
+Status: completed and published as signed Windows **2026100302** on 2026-10-03.
+Focused source and packaged GUI checks, public asset hashes and production update
+discovery pass. See [release acceptance](releases/2026100302.md). Incremental notes
+below retain the evidence and limitations of each stage; earlier pending statements
+are historical, superseded by later gates and the current audit map. Linux GUI
+and physical printer-driver acceptance are not claimed.
 
 ## Required behavior
 
@@ -856,3 +857,15 @@ unit or claiming the planned first-run wizard exists.
 
 No further unit-boundary defect is known from this audit. Focused regression gates
 are complete; final release packaging and signed/public verification are pending.
+
+
+### Publication acceptance (2026-10-03)
+
+The completed audit was committed and pushed in `44e2f399`, then built from clean
+Git-exported data as Windows 2026100302. Candidate and signed archive smoke,
+production trust and eight packaged GUI scenarios passed. Draft and anonymous
+public downloads match the accepted hashes; the preceding signed updater offers
+the release as installable. Localization and English documentation are included.
+See [the release record](releases/2026100302.md) for immutable source, archive and
+verification details. The first-run wizard and optional Family CSV remain
+separate approved follow-ups; they are not claimed as part of this audit.
