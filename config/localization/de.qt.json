@@ -2017,5 +2017,6 @@
   "A selected solid element is unavailable.": "Ein ausgewähltes Volumenelement ist nicht verfügbar.",
   "Straightening requires connected, tangent-continuous Sweep segments.": "Geraderichten erfordert zusammenhängende, tangential anschließende Sweep-Abschnitte.",
   "Unit does not match the dimension.": "Die Einheit passt nicht zur Maßgröße.",
-  "Invalid numeric expression.": "Ungültiger numerischer Ausdruck."
+  "Invalid numeric expression.": "Ungültiger numerischer Ausdruck.",
+  "Cannot safely convert relation units.": "Die Einheiten der Beziehungen können nicht sicher umgerechnet werden."
 }

@@ -4,6 +4,9 @@
 #include <algorithm>
 #include <charconv>
 #include <cmath>
+#include <numbers>
+#include <limits>
+#include <zima/document/physical_properties.hpp>
 
 namespace zima::workspace {
 namespace {
@@ -26,6 +29,32 @@ template<class Doc> document::RelationInputs inputs(const Doc& doc,const std::ma
     if constexpr(requires{doc.body_color;})result["color"]={{doc.body_color},true};
     else result["color"]={{std::string{}},false};
     return result;
+}
+template<class Doc> void convert_units(Doc& doc,const std::map<std::string,std::string>& next) {
+    const auto& old=doc.document_units;
+    const auto angular=[](const std::string& unit){return unit=="rad"?180./std::numbers::pi:1.;};
+    const std::array<double,3> factors{document::length_unit_mm(old.at("Length"))/document::length_unit_mm(next.at("Length")),
+        angular(old.at("Angle"))/angular(next.at("Angle")),document::mass_unit_kg(old.at("Mass"))/document::mass_unit_kg(next.at("Mass"))};
+    if(doc.relations.empty()||factors==std::array<double,3>{1,1,1})return;
+    // Quantity inference needs types, not an OCCT calculation or physical values.
+    const std::map<std::string,double> quantities{{"model.mass",0},{"model.area",0},{"model.volume",0},{"material.density",0}};
+    // This reserved Part parameter is explicitly native millimetres, including
+    // when Relations assign it. Its existing storage contract must not change.
+    std::set<std::string> fixed_units;if constexpr(requires{doc.body_history;})fixed_units.insert("SHEETMETAL_THICKNESS");
+    const auto conversion=document::RelationProgram(doc.relations).convert_units(inputs(doc,quantities),factors,fixed_units);
+    auto parameters=doc.user_parameters;auto localized=doc.user_parameter_values;
+    for(const auto& [name,target]:conversion.outputs) {
+        auto stored=parameters.find(name);if(stored==parameters.end())continue;
+        const double factor=target.factor;if(factor==1)continue;
+        const auto& text=stored->second;double number{};const auto parsed=std::from_chars(text.data(),text.data()+text.size(),number);
+        const double converted=number*factor;
+        if(parsed.ec!=std::errc{}||parsed.ptr!=text.data()+text.size()||!std::isfinite(converted)||(number!=0&&converted==0))
+            throw document::RelationError(target.line,1,"Cannot safely convert relation units.",name);
+        char buffer[64];const auto formatted=std::to_chars(buffer,buffer+sizeof(buffer),converted,std::chars_format::general,std::numeric_limits<double>::max_digits10);
+        if(formatted.ec!=std::errc{})throw document::RelationError(target.line,1,"Cannot safely convert relation units.",name);
+        stored->second=std::string(buffer,formatted.ptr);localized[name][""]=stored->second;
+    }
+    doc.relations=conversion.source;doc.user_parameters=std::move(parameters);doc.user_parameter_values=std::move(localized);
 }
 template<class Doc> void dimensions(Doc& doc,const std::map<std::string,double>& physical) {
     if(doc.relations.empty())return;
@@ -67,6 +96,8 @@ template<class Doc> void parameters(Doc& doc,const std::map<std::string,double>&
 }
 document::RelationInputs relation_inputs(const document::PartDocument& d,const std::map<std::string,double>& p){return inputs(d,p);}
 document::RelationInputs relation_inputs(const assembly::AssemblyDocument& d,const std::map<std::string,double>& p){return inputs(d,p);}
+void convert_relation_units(document::PartDocument& d,const std::map<std::string,std::string>& u){convert_units(d,u);}
+void convert_relation_units(assembly::AssemblyDocument& d,const std::map<std::string,std::string>& u){convert_units(d,u);}
 void apply_relation_dimensions(document::PartDocument& d,const std::map<std::string,double>& p){dimensions(d,p);}
 void apply_relation_dimensions(assembly::AssemblyDocument& d,const std::map<std::string,double>& p){dimensions(d,p);}
 void apply_relation_parameters(document::PartDocument& d,const std::map<std::string,double>& p){parameters(d,p);}

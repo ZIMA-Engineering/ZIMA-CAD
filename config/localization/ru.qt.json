@@ -2017,5 +2017,6 @@
   "A selected solid element is unavailable.": "Выбранный твердотельный элемент недоступен.",
   "Straightening requires connected, tangent-continuous Sweep segments.": "Для выпрямления требуются соединённые участки протяжки с касательным сопряжением.",
   "Unit does not match the dimension.": "Единица не соответствует величине размера.",
-  "Invalid numeric expression.": "Недопустимое числовое выражение."
+  "Invalid numeric expression.": "Недопустимое числовое выражение.",
+  "Cannot safely convert relation units.": "Невозможно безопасно преобразовать единицы соотношений."
 }

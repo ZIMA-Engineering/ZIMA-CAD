@@ -25,6 +25,7 @@
 #include "dimension_properties_fields.hpp"
 #include "component_properties_dialog.hpp"
 #include "sketch_dimension_properties_dialog.hpp"
+#include <zima/document/relation_program.hpp>
 #include <QAction>
 #include <QApplication>
 #include <QDialogButtonBox>
@@ -123,6 +124,17 @@ int verify_translations(QApplication& application, QWidget& parent) {
             !settings.translations.contains("Zamknout hodnotu"), "INI sections were mixed");
         app::apply_application_translations(application, settings);
         application.processEvents();
+        {
+            const auto part=document::PartDocument::create_default();app::DocumentToolData data;
+            data.units=part.document_units;data.precision=part.document_precision;
+            app::FileSettingsDialog dialog(data,[](auto){throw document::RelationError(7,3,"Cannot safely convert relation units.","width");},settings,&parent);
+            dialog.setAttribute(Qt::WA_DeleteOnClose,false);dialog.show();application.processEvents();
+            dialog.buttons()->button(QDialogButtonBox::Ok)->click();application.processEvents();
+            const auto expected=settings.qt_translations.value("Line %1: %2 %3").arg(7).arg(settings.qt_translations.value("Cannot safely convert relation units."),"width");
+            const auto labels=dialog.findChildren<QLabel*>();
+            check(dialog.isVisible()&&std::ranges::any_of(labels,[&](auto* label){return label->text()==expected;}),"Settings unit conversion error is not localized or closes the dialog");
+            dialog.reject();
+        }
         {
             sketcher::SketchDimension dimension{"units",sketcher::DimensionKind::Distance,"first","second",10};
             app::SketchDimensionPropertiesDialog dialog(dimension,true,[](auto){},&parent);

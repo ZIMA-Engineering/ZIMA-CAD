@@ -2017,5 +2017,6 @@
   "A selected solid element is unavailable.": "Un élément solide sélectionné est indisponible.",
   "Straightening requires connected, tangent-continuous Sweep segments.": "Le redressement nécessite des segments de balayage raccordés avec une continuité tangentielle.",
   "Unit does not match the dimension.": "L’unité ne correspond pas à la grandeur de la cote.",
-  "Invalid numeric expression.": "Expression numérique non valide."
+  "Invalid numeric expression.": "Expression numérique non valide.",
+  "Cannot safely convert relation units.": "Impossible de convertir les unités des relations de manière sûre."
 }

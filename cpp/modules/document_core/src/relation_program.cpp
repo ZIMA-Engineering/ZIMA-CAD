@@ -6,6 +6,7 @@
 #include <iomanip>
 #include <locale>
 #include <numbers>
+#include <optional>
 #include <set>
 #include <sstream>
 #include <vector>
@@ -17,7 +18,7 @@ RelationError::RelationError(int l, int c, const std::string& m, std::string d)
 namespace {
 bool letter(char c) { return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_'; }
 bool digit(char c) { return c >= '0' && c <= '9'; }
-struct Token { std::string text; int column{}; bool quoted{}; };
+struct Token { std::string text; int column{}; bool quoted{}; std::size_t end{}; };
 struct Expr {
     std::string op;
     RelationValue value;
@@ -67,6 +68,7 @@ std::vector<Token> lex(const std::string& text, int line) {
                 throw RelationError(line, column, "Unexpected character.", op);
             out.push_back({op, column});
         }
+        out.back().end=i;
     }
     return out;
 }
@@ -252,11 +254,11 @@ RelationValue evaluate(const Node& node, const std::function<RelationValue(const
     return result;
 }
 } // namespace
-struct RelationProgramData { std::vector<Assignment> assignments; std::vector<Node> conditions; };
+struct RelationProgramData { std::vector<Assignment> assignments; std::vector<Node> conditions; std::string source; };
 
 RelationProgram::RelationProgram(const std::string& source) {
     if(source.size()>1024*1024||source.find('\0')!=std::string::npos)throw RelationError(1,1,"Invalid relation source size or content.");
-    auto data=std::make_shared<RelationProgramData>();
+    auto data=std::make_shared<RelationProgramData>();data->source=source;
     struct Block { int id{},branch{};bool otherwise{};std::vector<Node> conditions; };
     std::vector<Block> blocks;int next_block=0,line=0;std::istringstream input(source);std::string text;
     while(std::getline(input,text)) {
@@ -361,6 +363,129 @@ std::map<std::string,RelationValue> RelationProgram::evaluate(const RelationInpu
     };
     for(const auto& [name,rows]:assignments)if(!dimensions_only||(name.size()>1&&name[0]=='d'&&std::ranges::all_of(name.substr(1),digit)))static_cast<void>(lookup(name));
     return output;
+}
+
+namespace {
+// Static quantity inference deliberately visits inactive/short-circuited paths.
+// It does not execute division, roots or transcendental functions on model data.
+RelationValue quantity_type(const Node& node,const std::function<RelationValue(const std::string&)>& lookup) {
+    const auto& e=*node;
+    if(e.op=="literal")return e.value;
+    if(e.op=="name")return lookup(std::get<std::string>(e.value.data));
+    auto a=quantity_type(e.args.front(),lookup);
+    if(e.op=="unarynot"){static_cast<void>(truth(a,e));return {false};}
+    if(e.op=="unary+"||e.op=="unary-"){static_cast<void>(number(a,e));return a;}
+    std::vector<RelationValue> args{a};
+    for(std::size_t i=1;i<e.args.size();++i)args.push_back(quantity_type(e.args[i],lookup));
+    RelationValue result{0.,a.units,a.literal};
+    if(e.op.starts_with("call:")) {
+        for(const auto& value:args)static_cast<void>(number(value,e));
+        const auto fn=e.op.substr(5);
+        if(fn=="sqrt")for(auto& power:result.units){if(power%2)fail(e,"Incompatible units.");power/=2;}
+        else if(fn=="min"||fn=="max")for(std::size_t i=1;i<args.size();++i){result.units=compatible(result,args[i],e);result.literal&=args[i].literal;}
+        else if(fn=="round") {if(args.size()>1&&args[1].units!=std::array<int,3>{})fail(e,"Invalid rounding precision.");}
+        else if(fn=="sin"||fn=="cos"||fn=="tan"||fn=="sind"||fn=="cosd"||fn=="tand") {
+            if(a.units!=std::array<int,3>{}&&a.units!=std::array<int,3>{0,1,0})fail(e,"An angle is required.");
+            result.units={};result.literal=false;
+        } else if(fn=="atan2"||fn=="atan2d") {
+            static_cast<void>(compatible(a,args[1],e));result.units={0,1,0};result.literal=false;
+        } else if(fn!="abs"&&fn!="floor"&&fn!="ceil"&&fn!="sqrt"&&fn!="min"&&fn!="max"&&fn!="round") {
+            if(a.units!=std::array<int,3>{})fail(e,"A dimensionless value is required.");
+            result.units=fn.starts_with('a')?std::array<int,3>{0,1,0}:std::array<int,3>{};result.literal=false;
+        }
+    } else {
+        const auto& b=args[1];
+        if(e.op=="&")return {std::string{}};
+        if(e.op=="and"||e.op=="or"){static_cast<void>(truth(a,e));static_cast<void>(truth(b,e));return {false};}
+        if(e.op=="=="||e.op=="!="||e.op=="<"||e.op==">"||e.op=="<="||e.op==">=") {
+            if(a.data.index()!=b.data.index())fail(e,"Incompatible value types.");
+            if(std::holds_alternative<double>(a.data))static_cast<void>(compatible(a,b,e));return {false};
+        }
+        static_cast<void>(number(a,e));static_cast<void>(number(b,e));result.literal=a.literal&&b.literal;
+        if(e.op=="+"||e.op=="-"||e.op=="%")result.units=compatible(a,b,e);
+        else if(e.op=="*"||e.op=="/")for(int i=0;i<3;++i)result.units[i]=a.units[i]+(e.op=="*"?1:-1)*b.units[i];
+        else {
+            if(b.units!=std::array<int,3>{})fail(e,"A dimensionless value is required.");
+            if(a.units!=std::array<int,3>{}) {
+                std::set<std::string> dependencies;names(e.args[1],dependencies);
+                if(!dependencies.empty())fail(e,"Cannot safely convert relation units.");
+                const double exponent=number(document::evaluate(e.args[1],lookup,3),e);
+                if(exponent!=std::floor(exponent)||std::abs(exponent)>16)fail(e,"Invalid quantity exponent.");
+                for(int i=0;i<3;++i)result.units[i]=a.units[i]*static_cast<int>(exponent);
+            }
+        }
+    }
+    for(const auto power:result.units)if(std::abs(power)>64)fail(e,"Invalid quantity exponent.");
+    return result;
+}
+bool dimension_name(const std::string& name) {
+    return name.size()>1&&name[0]=='d'&&std::ranges::all_of(name.substr(1),digit);
+}
+std::string conversion_number(double value) {
+    std::ostringstream out;out.imbue(std::locale::classic());out<<std::setprecision(17)<<value;return out.str();
+}
+}
+RelationUnitConversion RelationProgram::convert_units(const RelationInputs& inputs,const std::array<double,3>& factors,const std::set<std::string>& fixed_unit_names) const {
+    validate(inputs);
+    for(const double factor:factors)if(!(factor>0)||!std::isfinite(factor))throw RelationError(1,1,"Cannot safely convert relation units.");
+    std::map<std::string,std::vector<const Assignment*>> assignments;
+    for(const auto& a:data_->assignments)assignments[a.target].push_back(&a);
+    std::map<std::string,RelationValue> types;
+    std::function<RelationValue(const std::string&)> lookup=[&](const std::string& name)->RelationValue {
+        if(types.contains(name))return types.at(name);
+        if(!assignments.contains(name))return inputs.at(name).value;
+        std::optional<RelationValue> result;
+        for(const auto* row:assignments.at(name)) {
+            auto type=quantity_type(row->expression,lookup);
+            if(dimension_name(name)) {
+                const auto& target=inputs.at(name).value;static_cast<void>(number(type,*row->expression));
+                type.units=type.units==std::array<int,3>{}?target.units:compatible(target,type,*row->expression);type.literal=false;
+            }
+            if(result&&(result->units!=type.units||result->data.index()!=type.data.index()||result->literal!=type.literal))
+                fail(*row->expression,"Cannot safely convert relation units.",name);
+            result=type;
+            // A conditional parameter can fall back to its stored input value.
+            // Different quantities there cannot be inferred from current values.
+            if(!row->guards.empty()&&!dimension_name(name))if(const auto input=inputs.find(name);input!=inputs.end())
+                if(input->second.value.units!=type.units||input->second.value.data.index()!=type.data.index())
+                    fail(*row->expression,"Cannot safely convert relation units.",name);
+        }
+        return types[name]=*result;
+    };
+    for(const auto& [name,rows]:assignments)static_cast<void>(lookup(name));
+    for(const auto& condition:data_->conditions)static_cast<void>(truth(quantity_type(condition,lookup),*condition));
+    const auto factor_for=[&](const RelationValue& type,const Expr& location) {
+        double scale=1;for(int i=0;i<3;++i)scale*=std::pow(factors[i],type.units[i]);
+        if(!(scale>0)||!std::isfinite(scale))fail(location,"Cannot safely convert relation units.");return scale;
+    };
+    std::vector<std::size_t> line_offsets{0};
+    for(std::size_t i=0;i<data_->source.size();++i)if(data_->source[i]=='\n')line_offsets.push_back(i+1);
+    struct Edit {std::size_t offset{},length{};std::string text;};std::vector<Edit> edits;
+    std::set<std::pair<int,int>> visited;
+    std::function<void(const Node&)> convert_names=[&](const Node& node) {
+        if(!visited.emplace(node->line,node->column).second)return;
+        if(node->op=="name") {
+            const auto& name=std::get<std::string>(node->value.data);const double factor=fixed_unit_names.contains(name)?1.:factor_for(lookup(name),*node);
+            if(factor!=1)edits.push_back({line_offsets.at(node->line-1)+node->column-1,name.size(),"("+name+" / "+conversion_number(factor)+")"});
+        }
+        for(const auto& arg:node->args)convert_names(arg);
+    };
+    RelationUnitConversion converted{data_->source,{}};
+    for(const auto& condition:data_->conditions)convert_names(condition);
+    for(const auto& a:data_->assignments) {
+        convert_names(a.expression);const auto type=lookup(a.target);const double factor=fixed_unit_names.contains(a.target)?1.:factor_for(type,*a.expression);
+        if(std::holds_alternative<double>(type.data))converted.outputs[a.target]={type.units,factor,a.expression->line};
+        if(factor!=1) {
+            const auto tokens=lex(a.source,a.expression->line);const auto start=line_offsets.at(a.expression->line-1);
+            edits.push_back({start+tokens[2].column-1,0,"("});
+            edits.push_back({start+tokens.back().end,0,") * "+conversion_number(factor)});
+        }
+    }
+    std::sort(edits.begin(),edits.end(),[](const Edit& a,const Edit& b){return a.offset!=b.offset?a.offset>b.offset:a.length>b.length;});
+    for(const auto& edit:edits)converted.source.replace(edit.offset,edit.length,edit.text);
+    // Conversion must produce a valid program within ordinary parser limits.
+    RelationProgram(converted.source).validate(inputs);
+    return converted;
 }
 std::map<std::string,std::string> RelationProgram::target_expressions() const {
     std::map<std::string,std::string> result;

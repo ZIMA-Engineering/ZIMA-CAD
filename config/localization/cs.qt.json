@@ -2017,5 +2017,6 @@
   "A selected solid element is unavailable.": "Vybraný objemový prvek není dostupný.",
   "Straightening requires connected, tangent-continuous Sweep segments.": "Narovnání vyžaduje spojené, tečně navazující úseky tažení.",
   "Unit does not match the dimension.": "Jednotka neodpovídá veličině kóty.",
-  "Invalid numeric expression.": "Neplatný číselný výraz."
+  "Invalid numeric expression.": "Neplatný číselný výraz.",
+  "Cannot safely convert relation units.": "Nelze bezpečně převést jednotky relací."
 }

@@ -1,5 +1,6 @@
 #include <zima/workspace/metadata_operations.hpp>
 #include <zima/workspace/model_calculation.hpp>
+#include <zima/workspace/relation_operations.hpp>
 #include <zima/document/precision.hpp>
 #include <zima/document/physical_properties.hpp>
 #include <zima/assembly/physical_properties.hpp>
@@ -108,7 +109,7 @@ SettingsChange set_file_settings(Workspace& live,const kernel::OcctKernel& kerne
         document::precision_value(before.precision,"mesh_deflection",.1)!=document::precision_value(values.precision,"mesh_deflection",.1);
     if(auto* part=live.open_part(id)) {
         const bool cut_tolerance_changed=document::sheet_cut_tolerance(before.precision)!=document::sheet_cut_tolerance(values.precision);
-        auto next=part->session.document();next.document_units=std::move(values.units);next.document_precision=std::move(values.precision);
+        auto next=part->session.document();convert_relation_units(next,values.units);next.document_units=std::move(values.units);next.document_precision=std::move(values.precision);
         if(values.sheet_metal)document::set_sheet_metal_defaults(next,*values.sheet_metal);
         bool calculate=before.sheet_metal!=values.sheet_metal&&std::ranges::any_of(next.history,[](const auto& feature) {
             return feature.feature_kind==document::FeatureKind::Flat||feature.feature_kind==document::FeatureKind::Bend||
@@ -123,7 +124,7 @@ SettingsChange set_file_settings(Workspace& live,const kernel::OcctKernel& kerne
         commit_part_document(live,id,std::move(next),std::move(calculated));return {true,calculate};
     }
     if(auto* assembly=live.open_assembly(id)) {
-        auto next=assembly->session.document();next.document_units=std::move(values.units);next.document_precision=std::move(values.precision);
+        auto next=assembly->session.document();convert_relation_units(next,values.units);next.document_units=std::move(values.units);next.document_precision=std::move(values.precision);
         const bool calculate=precision_changed && !next.cuts.empty();
         if(calculate)calculate_resolved_assembly_cuts(kernel,next);
         assembly->session.commit(std::move(next));return {true,calculate};

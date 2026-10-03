@@ -5,6 +5,7 @@
 #include <memory>
 #include <stdexcept>
 #include <string>
+#include <set>
 #include <variant>
 
 namespace zima::document {
@@ -29,6 +30,15 @@ public:
     std::string message;
     std::string detail;
 };
+struct RelationUnitTarget {
+    std::array<int,3> units{};
+    double factor{1};
+    int line{};
+};
+struct RelationUnitConversion {
+    std::string source;
+    std::map<std::string,RelationUnitTarget> outputs;
+};
 struct RelationProgramData;
 class RelationProgram {
 public:
@@ -37,6 +47,13 @@ public:
     void validate(const RelationInputs&) const;
     [[nodiscard]] std::map<std::string, RelationValue> evaluate(const RelationInputs&, int decimals = 3, bool dimensions_only = false) const;
     [[nodiscard]] std::map<std::string, std::string> target_expressions() const;
+    // Factors convert old document numbers to new numbers (length, angle, mass).
+    // Preflight every branch without evaluating domains or changing model data.
+    // Explicit factors preserve rounding, function conventions and authored text.
+    // Reserved names with an explicit fixed-unit storage contract are exempt.
+    [[nodiscard]] RelationUnitConversion convert_units(const RelationInputs&,
+        const std::array<double,3>& old_to_new,
+        const std::set<std::string>& fixed_unit_names = {}) const;
 private:
     std::shared_ptr<const RelationProgramData> data_;
 };

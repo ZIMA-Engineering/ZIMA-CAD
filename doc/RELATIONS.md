@@ -83,6 +83,40 @@ Source size is limited to 1 MiB, with at most 4096 assignments, 512 tokens per
 line, 64 nested conditionals and 256 dependency levels. A concatenated text value
 cannot exceed 1 MiB.
 
+## Changing document units
+
+Changing length, angle or mass units in File Settings preflights the relation
+program before publishing the document change. The converter writes explicit
+numeric factors into the existing source. It preserves comments, text literals,
+condition structure, multipliers, rounding increments and the documented
+trigonometric conventions. For example, converting `d3 = d1 * 2 + 10` from mm
+to inches must preserve the physical meaning of both terms, not replace every
+number or change the model scale.
+
+Quantities are checked in every conditional branch, including inactive ones.
+Assignments with incompatible or indeterminate quantities reject the complete
+settings change and identify the line/target. A quantity-bearing base with a
+variable exponent cannot be converted safely. Conditional parameters whose
+fallback value has another quantity also require clarification in the formula.
+Division by zero in an inactive branch is not executed by conversion; ordinary
+Regenerate still validates the selected arithmetic path.
+
+Numeric output parameters with an inferred physical quantity are converted
+alongside their formulas. Dimensionless parameters and counts remain unchanged.
+Existing text output retains its original content, including formatted numbers:
+visible conversion factors in concatenation expressions preserve that behavior
+on later Regenerate. Edit the text-producing expression intentionally when its
+label should change to show the new unit instead. The reserved Part parameter
+`SHEETMETAL_THICKNESS` retains its existing millimetre contract, even when a
+relation assigns it. Thread designations and material-property units are not
+rewritten.
+
+A successful settings change uses the existing single document transaction;
+Undo/Redo includes units, rewritten relations and converted output parameters.
+Conversion itself does not invoke OCCT. The wider unit audit, including View
+labels, Family presentation and manufacturing-tolerance conversion, remains in
+progress; see [the unit audit](DOCUMENT_UNITS_AUDIT.md).
+
 ## Dimensions and Pattern
 
 The catalogue uses the document's persistent `dN` identifiers. It includes

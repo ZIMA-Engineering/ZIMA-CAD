@@ -294,3 +294,44 @@ inch unit flag and is checked for 25.4 x 50.8 x 76.2 mm extents and their physic
 volume, including native save/reopen and regeneration. The STEP test also checks
 the kernel component-import path. Both model-import contract suites passed;
 this evidence does not yet cover every exchange export or nested Assembly path.
+
+
+Relation conversion now has an AST-based quantity preflight which traverses
+all branches without evaluating their numeric domains. It preserves authored
+source lines/comments/text and inserts explicit factors around quantity reads
+and results. This keeps literal ratios, comparison thresholds, rounding,
+trigonometric conventions and text output physically/semantically consistent.
+There is no separate stored relation unit basis. Ambiguous quantity branches or
+variable quantity exponents reject conversion before any live mutation.
+
+File Settings applies this conversion to its private Part/Assembly draft,
+including cached numeric output parameters. The reserved millimetre
+`SHEETMETAL_THICKNESS` parameter retains its existing fixed-unit contract.
+Canonical geometry and Family's current native numeric storage are not scaled.
+The Part/Assembly settings transaction remains the publication boundary.
+
+The core relation tests passed conditional branches, quantities including
+area/volume/density, rounding, direct/inverse trigonometry, signed zero, unchanged
+text/comments, inactive domain failures, unsafe-expression rejection and six
+round-trip unit switches. Metadata integration tests passed cached geometry
+reuse, physical volume after Regenerate and native save/reopen, full-document
+Undo/Redo, atomic rejection of an incompatible inactive branch, Assembly source
+sharing and the fixed-unit sheet-thickness parameter. Existing Family and
+engineering metadata command tests passed against the rebuilt libraries.
+
+The next Family investigation must also address its numeric catalog formatter:
+`family_operations.cpp::number` currently produces display decimal commas while
+`merge_member` restores a generic dimension through `std::stod`. A fractional
+catalog value can therefore lose its fractional part on that restoration path.
+Add a reproducing variant-edit test before fixing it; do not treat existing
+integer-valued Family fixtures as proof of decimal correctness.
+
+
+The rebuilt application and UI contracts passed. The five-language GUI check
+verifies that File Settings remains open and shows the localized conversion
+message with its original line and target; source/catalog coverage passes too.
+The ordinary Relations editor and the expanded metadata/core suites pass after
+the final localization correction. This stage preserves existing explicit
+trigonometric function conventions; the wider audit still needs to decide and
+verify how newly authored fixed-unit inverse-trigonometric results are consumed
+by angular dimensions in a differently configured document.

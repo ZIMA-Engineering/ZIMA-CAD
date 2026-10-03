@@ -1,6 +1,7 @@
 #include "profile_command_fixture.hpp"
 #include <zima/command_host/host.hpp>
 #include <zima/workspace/metadata_operations.hpp>
+#include <zima/workspace/relation_operations.hpp>
 #include <zima/document/physical_properties.hpp>
 #include <cmath>
 #include <iostream>
@@ -10,6 +11,52 @@ void require(bool yes,const char* message){if(!yes)throw std::runtime_error(mess
 commands::Result run(command_host::Host& host,const char* name,Json args=Json::object()) {
     auto result=host.execute({{"command",name},{"arguments",std::move(args)}});
     if(!result.ok)throw std::runtime_error(std::string(name)+": "+result.code+": "+result.message);return result;
+}
+void verify_relation_conversion(const kernel::OcctKernel& kernel,fs::path dir) {
+    workspace::Workspace live;command_host::Options options;options.settings=[] {return command_host::Settings{{fs::absolute("config/templates"),"START_PART.prtz","START_ASSEMBLY.asmz","Body"},{}};};
+    command_host::Host host(live,kernel,dir,options);run(host,"new",{{"type","part"},{"name","unit-relations"}});
+    const auto id=live.active_document_id();test::rectangular_commands([&](const char* n,Json a){return run(host,n,std::move(a));},{{"length_mm",10},{"width_mm",20},{"height_mm",30}});
+    auto* part=live.open_part(id);auto authored=part->session.document();std::string dimension;
+    for(const auto& [name,d]:workspace::relation_dimensions(authored))if(d.binding.owner_id==authored.history.back().id&&
+        (d.binding.semantic_key=="parameter:side0_length"||d.binding.semantic_key=="parameter:length_forward"))dimension=name;
+    require(!dimension.empty(),"Unit conversion fixture has no extrusion dimension");
+    authored.relations=dimension+" = 30 / 2\nlength = "+dimension+" * 2\nstock = \"Length \" & "+dimension+"\n";
+    authored.relations+="SHEETMETAL_THICKNESS = "+dimension+" / 10\n";
+    part->session.commit(std::move(authored),part->session.calculated_boundaries());run(host,"regenerate");
+    const auto before=part->session.document();const auto cached=part->session.calculated_boundaries().back().kernel_shape;
+    const double volume=part->session.calculated_boundaries().back().volume;
+    auto settings=workspace::file_settings(live,id);settings.units["Length"]="in";settings.units["Angle"]="rad";settings.units["Mass"]="g";
+    const auto change=workspace::set_file_settings(live,kernel,id,settings);
+    require(change.changed&&!change.calculated&&part->session.calculated_boundaries().back().kernel_shape==cached,"Relation unit conversion calculated geometry");
+    require(std::abs(std::stod(part->session.document().user_parameters.at("length"))-30./25.4)<1e-12,"Relation output parameter was not converted");
+    require(part->session.document().user_parameters.at("stock")==before.user_parameters.at("stock"),"Unit conversion rewrote authored text");
+    require(document::sheet_metal_defaults(part->session.document()).thickness_mm==document::sheet_metal_defaults(before).thickness_mm,"Relation conversion changed native sheet thickness");
+    const auto converted=part->session.document();
+    run(host,"undo");require(part->session.document().serialized()==before.serialized(),"Unit conversion did not undo as one complete document transaction");
+    run(host,"redo");require(part->session.document().serialized()==converted.serialized(),"Unit conversion Redo differs from converted document");
+    run(host,"regenerate");require(std::abs(part->session.calculated_boundaries().back().volume-volume)<1e-8,"Unit conversion changed physical geometry on regeneration");
+    require(part->session.document().user_parameters.at("stock")==before.user_parameters.at("stock"),"Converted relation text changed after regeneration");
+    require(document::sheet_metal_defaults(part->session.document()).thickness_mm==document::sheet_metal_defaults(before).thickness_mm,"Regenerated relation changed native sheet thickness");
+    const auto file=dir/"unit-relations.prtz";part->session.document().save(file,part->session.calculated_boundaries());
+    auto reopened=document::PartDocument::load(file);workspace::apply_relation_dimensions(reopened,document::physical_values(reopened,part->session.calculated_boundaries()));
+    require(reopened.relations==converted.relations&&std::abs(kernel.evaluate_history(reopened.kernel_operations()).back().volume-volume)<1e-8,"Converted relations lost physical meaning after save/reopen");
+    auto invalid=part->session.document();invalid.relations="if false\noutput = "+dimension+" + model.mass\nendif";
+    part->session.commit(std::move(invalid),part->session.calculated_boundaries());
+    const auto invalid_before=part->session.document().serialized();const auto revision=part->session.revision();
+    settings.units["Length"]="mm";bool rejected=false;
+    try {static_cast<void>(workspace::set_file_settings(live,kernel,id,settings));}catch(const document::RelationError& e){rejected=e.line==2;}
+    require(rejected&&part->session.revision()==revision&&part->session.document().serialized()==invalid_before,"Invalid inactive relation branch partly committed a unit change");
+    run(host,"undo");
+    run(host,"new",{{"type","assembly"},{"name","unit-relation-assembly"}});const auto assembly_id=live.active_document_id();
+    static_cast<void>(live.insert_open_part(assembly_id,id,"Inch Part"));auto* assembly=live.open_assembly(assembly_id);
+    auto assembly_before=assembly->session.document();assembly_before.relations="volume = model.volume\n";
+    assembly_before.user_parameters["volume"]="6000";assembly_before.user_parameter_values["volume"][""]="6000";assembly_before.user_parameter_order.push_back("volume");
+    assembly->session.commit(assembly_before);const auto source=assembly->session.document().components.front().calculated_source;
+    auto assembly_settings=workspace::file_settings(live,assembly_id);assembly_settings.units["Length"]="in";
+    const auto assembly_change=workspace::set_file_settings(live,kernel,assembly_id,assembly_settings);
+    require(!assembly_change.calculated&&assembly->session.document().components.front().calculated_source.shares_with(source),"Assembly relation conversion replaced source geometry");
+    require(std::abs(std::stod(assembly->session.document().user_parameters.at("volume"))-6000/std::pow(25.4,3))<1e-12,"Assembly physical relation output has incorrect units");
+    run(host,"undo");require(assembly->session.document().serialized()==assembly_before.serialized(),"Assembly unit conversion Undo lost relation metadata");
 }
 void verify(const kernel::OcctKernel& kernel,fs::path dir) {
     workspace::Workspace live;command_host::Options options;options.settings=[] {return command_host::Settings{{fs::absolute("config/templates"),"START_PART.prtz","START_ASSEMBLY.asmz","Body"},{}};};
@@ -181,4 +228,4 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
     run(host,"document.parameters.set",{{"parameters",Json::array()}});require(workspace::user_parameters(live,owner).order.empty(),"Empty table evaluated a physical relation outside Regenerate");run(host,"undo");require(workspace::user_parameters(live,owner).order.size()==2,"Table removal Undo failed");
 }
 }
-int main(){try{kernel::OcctKernel kernel;const auto parent=fs::canonical(fs::temp_directory_path());const auto dir=parent/("zima-metadata-"+document::PartDocument::create_default().document_id);fs::create_directory(dir);verify(kernel,dir);require(dir.parent_path()==parent,"Unsafe cleanup");fs::remove_all(dir);std::cout<<"Parameters, localized values, units, geometry preservation, relation errors, Undo and native metadata persistence passed\n";return 0;}catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}
+int main(){try{kernel::OcctKernel kernel;const auto parent=fs::canonical(fs::temp_directory_path());const auto dir=parent/("zima-metadata-"+document::PartDocument::create_default().document_id);fs::create_directory(dir);verify_relation_conversion(kernel,dir);verify(kernel,dir);require(dir.parent_path()==parent,"Unsafe cleanup");fs::remove_all(dir);std::cout<<"Parameters, localized values, units, geometry preservation, relation errors, Undo and native metadata persistence passed\n";return 0;}catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}

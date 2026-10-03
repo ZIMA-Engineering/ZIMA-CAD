@@ -338,6 +338,8 @@ bool FileSettingsDialog::submit() {
         }
         zima::document::validate_file_settings({data_.units,data_.precision,data_.sheet_metal});
         accepted_(data_);
+    } catch(const zima::document::RelationError& error) {
+        throw std::runtime_error(tr("Line %1: %2 %3").arg(error.line).arg(tr(error.message.c_str()),QString::fromStdString(error.detail)).toStdString());
     } catch(const std::exception& error) {
         throw std::runtime_error(tr(error.what()).toStdString());
     }
