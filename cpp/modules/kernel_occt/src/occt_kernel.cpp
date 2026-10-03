@@ -3,6 +3,7 @@
 #include <BRepAlgoAPI_Check.hxx>
 #include <zima/kernel/profile_centerlines.hpp>
 #include <zima/kernel/feature_side_identity.hpp>
+#include <zima/kernel/feature_rotation_direction.hpp>
 #include <zima/kernel/drill_point_identity.hpp>
 #include <zima/kernel/inertia.hpp>
 #include <zima/kernel/occt_curve_data.hpp>
@@ -6789,6 +6790,12 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                             return make_sweep3d_data(value,operation.owner_id);
                         } else {
                         validate_revolution(value);
+                        if(const auto side=feature_side_parent(value.profile_region_id)) {
+                            auto resolved=value;
+                            if(feature_rotation_reversed(resolved)!=(side->side==FeatureSide::Start))
+                                resolved.axis_direction=dimension_scale(resolved.axis_direction,-1);
+                            return make_revolution_data(resolved,operation.owner_id);
+                        }
                         return make_revolution_data(
                             value, operation.owner_id);
                         }

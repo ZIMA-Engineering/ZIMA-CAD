@@ -27,6 +27,13 @@ Revolution. Symmetry uses Side 1 on both sides while retaining the independent
 Side 2 definition for later use. A common Boolean operation applies to the
 combined operands. Surfaces remain independent surfaces and cannot subtract.
 
+For a mixed Extrusion/Revolution Feature, the initial rotational tangent follows
+the same authored side of the Sketch plane as an extrusion on that side. It is
+independent of which endpoint of the construction axis was drawn first or which
+side of that axis contains the profile. The analytical wire preview and angular
+parameter cues use the same direction rule. Start/End ancestry remains distinct;
+the standalone Revolution command retains its own Forward/Reverse convention.
+
 **Swap sides**, placed after the axis checkboxes, exchanges the complete authored
 side definitions, including inactive mode values, end references and numeric
 locks. It does not exchange the Start/End identity namespaces or the Sketch

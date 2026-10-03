@@ -1,6 +1,7 @@
 #pragma once
 #include "workspace/workspace_internal.hpp"
 #include <zima/kernel/dimension_layout.hpp>
+#include <zima/kernel/feature_rotation_direction.hpp>
 #include <cmath>
 #include <limits>
 #include <numbers>
@@ -90,7 +91,8 @@ inline FeatureViewCues feature_view_cues(const document::HistoryContainer& featu
         } else if(settings.operation==document::FeatureSideOperation::Revolution && frame &&
                   settings.rotation_extent==document::FeatureRotationExtent::Angle) {
             const double radians=sign*settings.angle_degrees*std::numbers::pi/180.;
-            const auto radial=frame->radial,axis=frame->axis;
+            const auto radial=frame->radial;
+            const auto axis=kernel::feature_rotation_reversed(frame->axis,radial,normal)?scale(frame->axis,-1):frame->axis;
             const kernel::Vec3 tangent{axis.y*radial.z-axis.z*radial.y,axis.z*radial.x-axis.x*radial.z,axis.x*radial.y-axis.y*radial.x};
             const auto rotated=add(scale(radial,std::cos(radians)),scale(tangent,std::sin(radians)));
             const auto endpoint=add(frame->center,rotated);

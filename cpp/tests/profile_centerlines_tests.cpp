@@ -596,7 +596,7 @@ void bounded_feature_rotations(const kernel::OcctKernel& kernel) {
     }
     near(kernel.evaluate_history(part.kernel_operations()).back().volume,full_volume);
     check(!part.feature_preview_edges(feature).empty(),"Reference-limited full-turn preview missing");
-    p.sides[0].targets[0].fallback_normal={-1,0,0};
+    p.sides[1].targets[0].fallback_normal={-1,0,0};
     const auto targets=p.sides;
     const auto rejected=[&](auto action) {
         try{action();}catch(const std::exception& e){
@@ -612,6 +612,38 @@ void bounded_feature_rotations(const kernel::OcctKernel& kernel) {
     p.symmetric=false;p.sides[1].operation=document::FeatureSideOperation::Extrusion;p.sides[1].length=20;
     check(!part.feature_preview_edges(feature).empty(),"Mixed operation preview was restricted");
     check(kernel.evaluate_history(part.kernel_operations()).back().volume>0,"Mixed rotation/extrusion was restricted");
+}
+void mixed_feature_directions(const kernel::OcctKernel& kernel) {
+    for(const bool opposite_profile:{false,true})
+    for(const bool reversed_axis:{false,true})for(const std::size_t rotation_side:{0u,1u}) {
+        auto part=fixture(true);auto& sketch=part.sketches.front();
+        if(opposite_profile)for(auto& point:sketch.points)point.x=-point.x;
+        auto& feature=part.history.front();const auto axis_id=feature.revolution.axis_segment_id;
+        auto& axis=*std::ranges::find(sketch.segments,axis_id,&sketcher::SketchSegment::id);
+        if(reversed_axis)std::swap(axis.first_point_id,axis.second_point_id);
+        feature.feature_kind=document::FeatureKind::Feature;
+        feature.feature.sketch_id=sketch.id;feature.feature.axis_segment_id=axis_id;
+        feature.feature.sides[rotation_side].operation=document::FeatureSideOperation::Revolution;
+        feature.feature.sides[rotation_side].angle_degrees=60;
+        feature.feature.sides[1-rotation_side].operation=document::FeatureSideOperation::Extrusion;
+        feature.feature.sides[1-rotation_side].length=7;
+        const auto operations=part.kernel_operations();
+        const auto body=kernel.evaluate_history(operations).back();
+        near(body.volume,560+800*std::numbers::pi/3);
+        auto isolated=part;isolated.history.front().feature.sides[1-rotation_side].operation=document::FeatureSideOperation::None;
+        const auto rotated=kernel.evaluate_history(isolated.kernel_operations()).back();
+        for(const auto point:rotated.mesh.vertices)
+            check(point.z*(rotation_side==0?1:-1)>-1e-8,"Feature rotation starts on the opposite authored side to extrusion");
+        const auto preview=isolated.feature_preview_edges(isolated.history.front());
+        check(!preview.empty(),"Rotation preview missing");
+        for(const auto& edge:preview)for(const auto point:edge.points)
+            check(point.z*(rotation_side==0?1:-1)>-1e-8,"Feature preview rotates into the wrong half-space");
+        std::vector<kernel::BodyResult> saved;
+        const auto reopened=document::PartDocument::from_serialized(part.serialized({body}),&saved);
+        check(saved.size()==1 && reopened.history.front().feature==feature.feature,
+            "Mixed Feature lost calculated geometry or authored side parameters on reopening");
+        near(kernel.evaluate_history(reopened.kernel_operations()).back().volume,body.volume);
+    }
 }
 void grouped_surface_history(const kernel::OcctKernel& kernel) {
     auto base=fixture(false).kernel_operations().front();
@@ -644,6 +676,7 @@ int main(){try {
  request.outer_profile=E::CurvedProfile{{parabola,E::LineCurve{{1,0,0},{-1,0,0}}}};near(kernel::profile_centerlines::centroid(request),{0,.2,0});
  request.centerlines.origin={3,5,7};request.centerlines.normal={1,0,0};request.outer_profile=E::PolygonProfile{{{3,5,7},{3,15,7},{3,15,13},{3,5,13}}};near(kernel::profile_centerlines::centroid(request),{3,10,10});
  kernel::OcctKernel kernel;
+ mixed_feature_directions(kernel);
  bounded_feature_rotations(kernel);
  inactive_profile_history(kernel);
  inactive_profile_regions(kernel);

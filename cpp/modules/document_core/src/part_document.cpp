@@ -17,6 +17,7 @@
 #include <zima/document/feature_rotation_limit.hpp>
 #include <zima/kernel/feature_side_identity.hpp>
 #include <zima/kernel/profile_centerlines.hpp>
+#include <zima/kernel/feature_rotation_direction.hpp>
 #include <zima/document/cache_storage.hpp>
 #include <zima/document/dimension_layout_json.hpp>
 #include <zima/document/appearance.hpp>
@@ -7308,11 +7309,13 @@ std::vector<zima::kernel::ViewerEdge> PartDocument::feature_preview_edges(
             p.angle_degrees=settings.rotation_extent==FeatureRotationExtent::Full?360:settings.angle_degrees;
             p.direction=side==0?ExtrusionDirection::Forward:ExtrusionDirection::Reverse;
             p.result_type=definition.result_type;p.thin_mode=definition.thin_mode;p.thin_thickness=definition.thin_thickness;
+            auto request=revolution_request(sketch->evaluated_profile_sketch(),p.axis_segment_id,1.,p.result_type,p.thin_thickness,p.thin_mode);
+            const bool reverse=zima::kernel::feature_rotation_reversed(request)!=(side==1);
+            p.direction=reverse?ExtrusionDirection::Reverse:ExtrusionDirection::Forward;
             if(settings.rotation_extent==FeatureRotationExtent::UpTo) {
                 if(settings.targets.size()!=1)throw std::runtime_error("Select exactly one extrusion end reference.");
-                auto request=revolution_request(sketch->evaluated_profile_sketch(),p.axis_segment_id,1.,p.result_type,p.thin_thickness,p.thin_mode);
                 if(sketch->owner_container_id!=container.id)apply_container_placement(request,container.placement);
-                if(side==1)request.axis_direction={-request.axis_direction.x,-request.axis_direction.y,-request.axis_direction.z};
+                if(reverse)request.axis_direction={-request.axis_direction.x,-request.axis_direction.y,-request.axis_direction.z};
                 const auto target=resolved_extrusion_end_target(*this,container,settings.targets.front(),!settings.targets.front().reference.instance_path.empty());
                 p.angle_degrees=feature_rotation_limit_angle(request.axis_point,request.axis_direction,request.profile_normal,target);
             }
@@ -7321,7 +7324,7 @@ std::vector<zima::kernel::ViewerEdge> PartDocument::feature_preview_edges(
             validate_feature_rotation_span(rotation_angles[0],rotation_angles[1]);
             edges=revolution_preview_edges(operand);
             if(definition.symmetric) {
-                p.direction=ExtrusionDirection::Reverse;
+                p.direction=reverse?ExtrusionDirection::Forward:ExtrusionDirection::Reverse;
                 auto reverse=revolution_preview_edges(operand);
                 edges.insert(edges.end(),reverse.begin(),reverse.end());
             }
@@ -9552,6 +9555,7 @@ std::vector<zima::kernel::HistoryOperation> PartDocument::kernel_operations(
                         if(settings.targets.size()!=1)throw std::runtime_error("Select exactly one extrusion end reference.");
                         const auto target=resolved_extrusion_end_target(*this,container,settings.targets.front(),allow_persisted_external_target);
                         auto axis=prepared.axis_direction;
+                        if(zima::kernel::feature_rotation_reversed(prepared)!=(side==1))axis={-axis.x,-axis.y,-axis.z};
                         if(p.symmetric&&side==1)axis={-axis.x,-axis.y,-axis.z};
                         prepared.angle_degrees=feature_rotation_limit_angle(prepared.axis_point,axis,prepared.profile_normal,target);
                     }
