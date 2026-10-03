@@ -2,6 +2,7 @@
 #include <zima/kernel/geometry_kernel.hpp>
 #include <zima/ui/properties_subwindow.hpp>
 #include <zima/ui/reference_cell.hpp>
+#include <zima/ui/unit_spin_box.hpp>
 #include <QDoubleSpinBox>
 #include <QFormLayout>
 #include <QHeaderView>
@@ -38,8 +39,8 @@ public:
         field_=new ui::ReferenceCellItem;table_->setItem(0,1,field_);
         eye_=ui::build_reference_inspection_button(false,false,[this](bool value){inspected_=value;refresh();});
         table_->setCellWidget(0,2,ui::centered_cell_widget(eye_));form->addRow(table_);
-        thickness_=new QDoubleSpinBox(this);thickness_->setObjectName("sheetSourceThickness");
-        thickness_->setDecimals(ui::numeric_decimal_places(this));thickness_->setRange(.001,1000000);thickness_->setSuffix(" mm");thickness_->setValue(thickness);
+        thickness_=new ui::UnitDoubleSpinBox(ui::InputQuantity::Length,this);thickness_->setObjectName("sheetSourceThickness");
+        thickness_->setRange(.001,1000000);thickness_->setValue(thickness);
         form->addRow(tr("Tloušťka"),thickness_);content_layout()->addWidget(fields);
         auto* note=new QLabel(tr("Vytvoří samostatné tabule a ohyby v aktivním prázdném tělese. Zdroj zůstane beze změny. Složité přechody mohou vyžadovat ruční dokončení."),this);
         note->setWordWrap(true);note->setSizePolicy(QSizePolicy::Preferred,QSizePolicy::Fixed);content_layout()->addWidget(note);content_layout()->addStretch(1);set_initial_size({400,255});

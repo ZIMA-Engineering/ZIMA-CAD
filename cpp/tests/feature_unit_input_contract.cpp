@@ -8,6 +8,13 @@
 #include "sketch_bspline_properties_dialog.hpp"
 #include "sketch_text_properties_dialog.hpp"
 #include "sketch_offset_dialog.hpp"
+#include "derived_copy_dialog.hpp"
+#include "body_scale_dialog.hpp"
+#include "component_properties_dialog.hpp"
+#include "sheet_transition_dialog.hpp"
+#include "sheet_from_body_dialog.hpp"
+#include "shaft_thread_dialog.hpp"
+#include "mass_properties_dialog.hpp"
 #include <zima/document/physical_properties.hpp>
 #include <zima/ui/unit_spin_box.hpp>
 #include <QApplication>
@@ -30,6 +37,103 @@ void near(double actual,double expected) {
 void enter(QDoubleSpinBox* field,const QString& text) {
     check(field,"Feature numeric field is missing");
     field->findChild<QLineEdit*>()->setText(text);field->interpretText();
+}
+void placement_and_pattern_inputs(QApplication& application,QWidget& parent,double scale,double angle_scale) {
+    using namespace zima;
+    const auto input=[&](QWidget* owner,const char* name,double factor) {
+        auto* field=dynamic_cast<ui::UnitDoubleSpinBox*>(owner->findChild<QDoubleSpinBox*>(name));
+        check(field&&field->native_per_unit()==factor,"Placement/Pattern input has incorrect units");
+        const double original=field->value();enter(field,field->text());
+        check(field->value()==original,"Unchanged Placement/Pattern input lost precision");
+        enter(field,".125");near(field->value(),.125*factor);
+    };
+    for(const bool rectangular:{false,true}) {
+        auto definition=document::create_sheet_transition(rectangular);
+        definition.sheet_transition.thickness=.123456789;
+        auto* transition=new app::SheetTransitionDialog(definition,[](auto){},&parent);
+        transition->setLocale(QLocale::c());
+        input(transition,"transitionThickness",scale);near(transition->pending.sheet_transition.thickness,.125*scale);
+        input(transition,"transitionRadius",scale);input(transition,"transitionEndPosition0",scale);
+        input(transition,"transitionEndRotation0",angle_scale);input(transition,"transitionKFactor",1.);
+        near(transition->pending.sheet_transition.end_position.x,.125*scale);
+        near(transition->pending.sheet_transition.end_rotation.x,.125*angle_scale);
+        near(transition->pending.sheet_transition.k_factor,.125);
+        input(transition,"transitionNotchDepth",scale);input(transition,"transitionAxisEndLength",scale);
+        if(!rectangular)input(transition,"transitionReliefDepth",scale);
+        check(transition->pending.sheet_transition.sketches==definition.sheet_transition.sketches,"Unit fields changed transition Sketches");
+        transition->reject();application.processEvents();
+    }
+    double saved_thickness{};
+    auto* sheet=new app::SheetFromBodyDialog(.123456789,[&](auto,double thickness){saved_thickness=thickness;},&parent);
+    sheet->setLocale(QLocale::c());sheet->set_reference({"source","face",{}},.123456789);
+    input(sheet,"sheetSourceThickness",scale);sheet->buttons()->button(QDialogButtonBox::Ok)->click();application.processEvents();near(saved_thickness,.125*scale);
+    auto thread_definition=document::PartDocument::create_shaft_thread_container();
+    thread_definition.shaft_thread.length=25.4123456789;
+    auto* thread=new app::ShaftThreadDialog(thread_definition,[](auto){},&parent);thread->setLocale(QLocale::c());
+    const auto original_thread=thread->pending().shaft_thread;
+    input(thread,"shaftThreadLength",scale);input(thread,"shaftThreadRunoutFactor",1.);
+    near(thread->pending().shaft_thread.length,.125*scale);near(thread->pending().shaft_thread.runout_pitch_factor,.125);
+    check(thread->pending().shaft_thread.standard==original_thread.standard&&thread->pending().shaft_thread.designation==original_thread.designation&&thread->pending().shaft_thread.pitch==original_thread.pitch&&thread->pending().shaft_thread.root_diameter==original_thread.root_diameter,"Unit entry changed the thread catalog selection");
+    thread->reject();application.processEvents();
+    document::BodyProperties properties;properties.name="Unit measurement";properties.rotation_degrees.x=.123456789;
+    const std::map<std::string,std::string> units{{"Length",ui::document_unit(&parent,"Length","mm").toStdString()},{"Angle",ui::document_unit(&parent,"Angle","deg").toStdString()},{"Mass","kg"}};
+    auto* measurement=new app::MassPropertiesDialog(properties,units,{},[](auto){},[](auto){},&parent);measurement->setLocale(QLocale::c());
+    input(measurement,"bodyPropertiesRotation0",angle_scale);near(measurement->current().rotation_degrees.x,.125*angle_scale);
+    measurement->reject();application.processEvents();
+    for(const bool circular:{false,true}) {
+        document::DerivedCopyParameters parameters;parameters.pattern.emplace();parameters.pattern->circular=circular;
+        parameters.pattern->angle_degrees=12.3456789;parameters.pattern->full_circle=false;
+        parameters.pattern->linear[0].local_axis=0;parameters.pattern->linear[0].spacing=25.4123456789;
+        int commits=0;
+        auto* pattern=new app::DerivedCopyDialog(document::PartDocument::create_twisted_sheet_container(),parameters,[&](auto,auto){++commits;},&parent);
+        pattern->setLocale(QLocale::c());
+        input(pattern,"patternAngle",angle_scale);near(pattern->derived_copy.pattern->angle_degrees,.125*angle_scale);
+        input(pattern,"patternSpacing0",scale);near(pattern->derived_copy.pattern->linear[0].spacing,.125*scale);
+        check(pattern->derived_copy.pattern->count==parameters.pattern->count&&pattern->derived_copy.pattern->linear[0].count==parameters.pattern->linear[0].count,"Unit conversion altered Pattern counts");
+        pattern->reject();application.processEvents();check(commits==0,"Pattern Cancel committed pending units");
+    }
+    document::BodyHistory body;body.name="Unit scale";body.scale=document::BodyScale{};
+    body.scale->center={.123456789,2.345678912,3.456789123};body.scale->factor=1.25;
+    auto* scaling=new app::BodyScaleDialog(body,[](auto){},&parent);scaling->setLocale(QLocale::c());
+    input(scaling,"bodyScaleCenter0",scale);near(scaling->pending.scale->center.x,.125*scale);
+    check(scaling->pending.scale->center.y==body.scale->center.y&&scaling->pending.scale->factor==1.25,"Scale center input altered another quantity");
+    scaling->reject();application.processEvents();
+    auto component=assembly::AssemblyDocument::create_part_occurrence("Unit component","source-part","source.prtz",{});
+    component.placement.x=25.4123456789;component.placement.rotation_x=12.3456789;
+    int commits=0;std::optional<assembly::PartOccurrence> stored;
+    auto* dialog=new app::ComponentPropertiesDialog(component,[&](auto value){++commits;stored=std::move(value);},&parent);
+    dialog->setLocale(QLocale::c());
+    input(dialog,"componentTranslation",scale);input(dialog,"componentRotation",angle_scale);
+    near(dialog->pending_value().placement.x,.125*scale);near(dialog->pending_value().placement.rotation_x,.125*angle_scale);
+    assembly::ComponentPlacementReference row;
+    row.component_reference={assembly::MateReferenceKind::Face,assembly::InstancePath{}.child(component.occurrence_id),"source","face"};
+    row.target_reference={assembly::MateReferenceKind::Face,{},"target","face"};
+    row.offset=.123456789;row.flip=true;
+    for(const bool angular:{false,true}) {
+        row.mate_type=angular?assembly::MateKind::PlaneAngle:assembly::MateKind::PlaneCoincident;
+        dialog->set_placement_references({row});
+        auto* table=dialog->findChild<QTableWidget*>("componentPlacementTable");
+        auto* field=dynamic_cast<ui::UnitDoubleSpinBox*>(table->cellWidget(0,4));
+        const double factor=angular?angle_scale:scale;
+        check(field&&field->native_per_unit()==factor,"Mate offset has incorrect units");
+        enter(field,field->text());check(dialog->placement_references()[0].offset==row.offset,"Mate no-op lost precision");
+        enter(field,".125");near(dialog->placement_references()[0].offset,.125*factor);
+        auto* limit_button=table->cellWidget(0,6)->findChild<QToolButton*>("mateLimitsButton0");check(limit_button&&limit_button->isEnabled(),"Mate limits button unavailable");limit_button->click();application.processEvents();
+        ui::PropertiesSubWindow* limits=nullptr;for(auto* window:parent.findChildren<QDialog*>("mateLimitsDialog"))if(window->isVisible())limits=dynamic_cast<ui::PropertiesSubWindow*>(window);check(limits,"Mate limits dialog missing");
+        limits->setLocale(QLocale::c());
+        auto* current=dynamic_cast<ui::UnitDoubleSpinBox*>(limits->findChild<QDoubleSpinBox*>("mateCurrentValue"));
+        check(current&&current->native_per_unit()==factor,"Mate limits use different units");near(current->value(),.125*factor);
+        limits->findChild<QCheckBox*>("mateLowerEnabled")->setChecked(true);
+        limits->findChild<QCheckBox*>("mateUpperEnabled")->setChecked(true);
+        enter(limits->findChild<QDoubleSpinBox*>("mateLowerLimit"),".1");
+        enter(limits->findChild<QDoubleSpinBox*>("mateUpperLimit"),".2");
+        limits->buttons()->button(QDialogButtonBox::Ok)->click();application.processEvents();
+        near(dialog->placement_references()[0].lower_limit.value(),.1*factor);
+        near(dialog->placement_references()[0].upper_limit.value(),.2*factor);
+        check(dialog->placement_references()[0].flip&&dialog->placement_references()[0].component_reference==row.component_reference,"Numeric mate input changed reference or side");
+    }
+    dialog->buttons()->button(QDialogButtonBox::Ok)->click();application.processEvents();
+    check(commits==1&&stored&&stored->source_document_id==component.source_document_id,"Component units changed ownership or commit count");
 }
 void sketch_inputs(QApplication& application,QWidget& parent,double scale,double angle_scale) {
     using namespace zima;
@@ -112,6 +216,7 @@ int verify_feature_unit_input(QApplication& app,QWidget& parent) {
         const double scale=document::length_unit_mm(unit);
         const double angle_scale=QString(angular)=="rad"?180./std::numbers::pi:1.;
         sketch_inputs(app,parent,scale,angle_scale);
+        placement_and_pattern_inputs(app,parent,scale,angle_scale);
         const auto check_primitive=[&](document::HistoryContainer initial,const char* length_name,
                                      const char* angle_name,const char* scalar_name=nullptr) {
             int calls=0;

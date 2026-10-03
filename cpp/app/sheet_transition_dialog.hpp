@@ -1,6 +1,7 @@
 #pragma once
 #include "sweep_placement_dialog.hpp"
 #include "sketch_button_style.hpp"
+#include <zima/ui/unit_spin_box.hpp>
 #include <zima/document/sheet_transition.hpp>
 #include <transition_sketches.hpp>
 #include <QPushButton>
@@ -28,18 +29,18 @@ public:
         form->addRow(new QLabel(tr("Druhý počátek — vůči počátku kontejneru"),this));
         const std::array<QString,3> axes{QStringLiteral("X"),QStringLiteral("Y"),QStringLiteral("Z")};
         for(unsigned kind=0;kind<2;++kind)for(unsigned i=0;i<3;++i) {
-            auto* field=new QDoubleSpinBox(this);end_fields_[kind*3+i]=field;
+            auto* field=new ui::UnitDoubleSpinBox(kind?ui::InputQuantity::Angle:ui::InputQuantity::Length,this);end_fields_[kind*3+i]=field;
             field->setObjectName(QString(kind?"transitionEndRotation%1":"transitionEndPosition%1").arg(i));
-            field->setDecimals(ui::numeric_decimal_places(this,4));field->setRange(-1000000,1000000);field->setSuffix(kind?QStringLiteral(" °"):QStringLiteral(" mm"));
+            field->set_display_decimals(ui::numeric_decimal_places(this,4));field->setRange(-1000000,1000000);
             auto& v=kind?pending.sheet_transition.end_rotation:pending.sheet_transition.end_position;
             field->setValue(i==0?v.x:i==1?v.y:v.z);form->addRow((kind?tr("Natočení %1"):tr("Posun %1")).arg(axes[i]),field);
             connect(field,&QDoubleSpinBox::valueChanged,this,[this,kind,i](double value){auto& v=kind?pending.sheet_transition.end_rotation:pending.sheet_transition.end_position;(i==0?v.x:i==1?v.y:v.z)=value;notify();});
         }
         auto* note=new QLabel(tr("Skici určují vnější rozměry a umístění. Tloušťka směřuje dovnitř; osy rozvinu patří na vnitřní povrch."),this);note->setWordWrap(true);form->addRow(note);
-        const auto value=[&](const QString& label,const char* object,double initial,double minimum,double maximum,const QString& unit){auto* box=new QDoubleSpinBox(this);box->setObjectName(object);box->setDecimals(4);box->setRange(minimum,maximum);box->setValue(initial);box->setSuffix(unit);form->addRow(label,box);return box;};
-        thickness_=value(tr("Tloušťka"),"transitionThickness",pending.sheet_transition.thickness,.001,1000," mm");
-        radius_=value(tr("Vnitřní poloměr ohybu"),"transitionRadius",pending.sheet_transition.inside_radius,.001,1000," mm");
-        factor_=value(tr("K-faktor"),"transitionKFactor",pending.sheet_transition.k_factor,0,1,{});
+        const auto value=[&](const QString& label,const char* object,double initial,double minimum,double maximum,ui::InputQuantity quantity=ui::InputQuantity::Length){auto* box=new ui::UnitDoubleSpinBox(quantity,this);box->setObjectName(object);box->set_display_decimals(4);box->setRange(minimum,maximum);box->setValue(initial);form->addRow(label,box);return box;};
+        thickness_=value(tr("Tloušťka"),"transitionThickness",pending.sheet_transition.thickness,.001,1000);
+        radius_=value(tr("Vnitřní poloměr ohybu"),"transitionRadius",pending.sheet_transition.inside_radius,.001,1000);
+        factor_=value(tr("K-faktor"),"transitionKFactor",pending.sheet_transition.k_factor,0,1,ui::InputQuantity::Scalar);
         const bool rectangular=document::rectangular_sheet_transition(pending);
         if(rectangular) {
             auto* sides=new QComboBox(this);sides->setObjectName("transitionSides");
@@ -55,12 +56,12 @@ public:
         form=new QFormLayout;marking_layout->addLayout(form);marking_layout->addStretch();tabs->addTab(marking_page,tr("Výroba"));
         auto& marking=pending.sheet_transition;
         notches_=new QCheckBox(tr("Zářezy na koncích ohybů"),this);notches_->setObjectName("transitionEndNotches");notches_->setChecked(marking.end_notches);form->addRow(notches_);
-        notch_depth_=value(tr("Hloubka zářezu"),"transitionNotchDepth",marking.end_notch_depth,.001,1000," mm");
+        notch_depth_=value(tr("Hloubka zářezu"),"transitionNotchDepth",marking.end_notch_depth,.001,1000);
         short_axes_=new QCheckBox(tr("Osy ohybů pouze na koncích"),this);short_axes_->setObjectName("transitionShortAxes");short_axes_->setChecked(marking.short_bend_axes);form->addRow(short_axes_);
-        axis_length_=value(tr("Délka konce osy"),"transitionAxisEndLength",marking.bend_axis_end_length,.001,1000000," mm");
+        axis_length_=value(tr("Délka konce osy"),"transitionAxisEndLength",marking.bend_axis_end_length,.001,1000000);
         if(!rectangular) {
             reliefs_=new QCheckBox(tr("Odlehčit oba rohy na obdélníkovém konci"),this);reliefs_->setObjectName("transitionReliefs");reliefs_->setChecked(marking.rectangle_reliefs);form->addRow(reliefs_);
-            relief_depth_=value(tr("Hloubka odlehčení"),"transitionReliefDepth",marking.rectangle_relief_depth,.001,1000," mm");
+            relief_depth_=value(tr("Hloubka odlehčení"),"transitionReliefDepth",marking.rectangle_relief_depth,.001,1000);
             auto* help=new QLabel(tr("Odlehčení souvisle zkrátí oba rohy včetně plošek mezi ohyby. Hloubka se měří kolmo k obdélníkovému konci."),this);help->setWordWrap(true);form->addRow(help);
         }
         const auto marking_changed=[this]{read_parameters();update_marking_controls();notify();};

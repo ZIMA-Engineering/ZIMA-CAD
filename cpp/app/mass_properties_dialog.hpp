@@ -3,6 +3,7 @@
 #include <zima/document/physical_properties.hpp>
 #include <zima/kernel/dimension_layout.hpp>
 #include <zima/ui/properties_subwindow.hpp>
+#include <zima/ui/unit_spin_box.hpp>
 #include <QCheckBox>
 #include <QDoubleSpinBox>
 #include <QDialogButtonBox>
@@ -21,6 +22,8 @@ public:
         QString scope,Save save,Preview preview,QWidget* parent)
         :PropertiesSubWindow(tr("Měření tělesa"),parent),row_(std::move(row)),save_(std::move(save)),preview_(std::move(preview)) {
         setObjectName("massPropertiesDialog");setAttribute(Qt::WA_DeleteOnClose);set_initial_size({460,430});
+        QVariantMap context;for(const auto& [key,value]:units)context.insert(QString::fromStdString(key),QString::fromStdString(value));
+        setProperty("zimaDocumentUnits",context);
         length_=document::length_unit_mm(units.at("Length"));mass_=document::mass_unit_kg(units.at("Mass"));
         length_unit_=QString::fromStdString(units.at("Length"));mass_unit_=QString::fromStdString(units.at("Mass"));
         auto* scroll=new QScrollArea(this);scroll->setObjectName("bodyPropertiesScroll");scroll->setWidgetResizable(true);scroll->setFrameShape(QFrame::NoFrame);
@@ -33,8 +36,8 @@ public:
         result_->setWordWrap(true);content->addWidget(result_);
         auto* axes=new QFormLayout;content->addLayout(axes);
         for(int i=0;i<3;++i) {
-            auto* angle=new QDoubleSpinBox;angle->setObjectName(QString("bodyPropertiesRotation%1").arg(i));
-            angle->setRange(-360000,360000);angle->setDecimals(6);angle->setSuffix(QStringLiteral("°"));
+            auto* angle=new ui::UnitDoubleSpinBox(ui::InputQuantity::Angle,this);angle->setObjectName(QString("bodyPropertiesRotation%1").arg(i));
+            angle->setRange(-360000,360000);angle->set_display_decimals(6);
             angle->setValue(i==0?row_.rotation_degrees.x:i==1?row_.rotation_degrees.y:row_.rotation_degrees.z);
             axes->addRow(i==0?tr("Natočení os kolem X"):i==1?tr("Natočení os kolem Y"):tr("Natočení os kolem Z"),angle);
             connect(angle,&QDoubleSpinBox::valueChanged,this,[this,i](double value){

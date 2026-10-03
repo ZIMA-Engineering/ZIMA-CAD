@@ -9,6 +9,7 @@
 #include <QCryptographicHash>
 #include <zima/workspace/workspace.hpp>
 #include <IGESControl_Writer.hxx>
+#include <IGESData_IGESModel.hxx>
 #include <BRepPrimAPI_MakeBox.hxx>
 #include <BRepBuilderAPI_MakeEdge.hxx>
 #include <algorithm>
@@ -153,6 +154,27 @@ int main(int argc,char** argv) {
     auto solid=interchange::import_iges_part(document::PartDocument::create_default(),{},temp/"box.igs",1.5);
     require(solid.document.kernel_operations().front().mesh_deflection==1.5,"IGES selected mesh deflection lost");
     require(std::abs(solid.calculated.back().volume-6000)<1e-5,"IGES solid volume");
+    // Build a real inch-unit IGES independently of ZIMA's import pipeline.
+    IGESControl_Writer inch_writer("INCH",1);
+    require(inch_writer.AddShape(BRepPrimAPI_MakeBox(25.4,50.8,76.2).Shape()),"Cannot prepare inch IGES fixture");
+    require(inch_writer.Model()->GlobalSection().UnitFlag()==1,"IGES fixture is not authored in inches");
+    require(inch_writer.Write((temp/"inch.igs").string().c_str()),"Cannot write inch IGES fixture");
+    for(const auto unit:{"mm","cm","m","in"}) {
+        auto destination=document::PartDocument::create_default();destination.document_units["Length"]=unit;
+        auto imported=interchange::import_iges_part(destination,{},temp/"inch.igs");
+        require(imported.document.document_units.at("Length")==unit,"IGES replaced destination document units");
+        const auto check_extent=[&](const kernel::BodyResult& body) {
+            kernel::Vec3 lo{1e100,1e100,1e100},hi{-1e100,-1e100,-1e100};
+            for(const auto p:body.mesh.vertices){lo={std::min(lo.x,p.x),std::min(lo.y,p.y),std::min(lo.z,p.z)};hi={std::max(hi.x,p.x),std::max(hi.y,p.y),std::max(hi.z,p.z)};}
+            require(std::abs(hi.x-lo.x-25.4)<1e-6&&std::abs(hi.y-lo.y-50.8)<1e-6&&std::abs(hi.z-lo.z-76.2)<1e-6,"Inch IGES was not converted to canonical millimetres");
+            require(std::abs(body.volume-25.4*50.8*76.2)<1e-4,"Inch IGES has incorrect physical volume");
+        };
+        check_extent(imported.calculated.back());
+        const auto native=temp/(std::string("inch-in-")+unit+".prtz");imported.document.save(native,imported.calculated);
+        auto reopened=document::PartDocument::load(native);
+        require(reopened.document_units==imported.document.document_units,"Native persistence changed IGES units");
+        const auto regenerated_inch=kernel.evaluate_history(reopened.kernel_operations());check_extent(regenerated_inch.back());
+    }
     const auto identities=solid.document.history.front().imported_step.topology;
     require(identities.size()==26,"IGES box needs six faces, twelve edges and eight vertices");
     for(const auto& identity:identities)require(identity.semantic_key.starts_with("iges:") && identity.semantic_key.find(":de:")!=std::string::npos,"IGES identity lacks source parent");

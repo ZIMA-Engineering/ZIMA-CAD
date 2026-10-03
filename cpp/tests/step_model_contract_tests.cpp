@@ -267,6 +267,15 @@ int main(int argc,char** argv) {
         const auto inch=interchange::import_step_part(document::PartDocument::create_default(),{},inch_path);
         const auto [lo,hi]=bounds(inch.calculated.back().mesh.vertices);
         require(std::abs(hi.x-lo.x-25.4)<1e-6&&std::abs(hi.y-lo.y-50.8)<1e-6&&std::abs(hi.z-lo.z-76.2)<1e-6,"Inch STEP was not converted to millimetres");
+        const auto inch_components=kernel.import_step_components({{inch_path.generic_string(),{},{},{},"inch-components"}},.1);
+        require(inch_components.size()==1,"Inch STEP component import changed Body count");
+        same_bounds(inch.calculated.back().mesh.vertices,inch_components.front().mesh.vertices);
+        for(const auto unit:{"cm","m","in"}) {
+            auto destination=document::PartDocument::create_default();destination.document_units["Length"]=unit;
+            const auto imported=interchange::import_step_part(destination,{},inch_path);
+            require(imported.document.document_units.at("Length")==unit,"STEP replaced destination units");
+            same_bounds(inch.calculated.back().mesh.vertices,imported.calculated.back().mesh.vertices);
+        }
         const auto flat_path=directory/"flat.step";
         kernel.export_step(std::vector<kernel::PlacedBody>{{a.body,{},{}},{b.body,{40,0,0},{}}},flat_path.string());
         const auto flat=interchange::import_step_part(document::PartDocument::create_default(),{},flat_path);

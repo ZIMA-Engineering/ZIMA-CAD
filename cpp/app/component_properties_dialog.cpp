@@ -1,4 +1,5 @@
 #include <zima/ui/numeric_value_lock.hpp>
+#include <zima/ui/unit_spin_box.hpp>
 #include "component_properties_dialog.hpp"
 #include "resource_icon.hpp"
 
@@ -68,19 +69,18 @@ public:
           current_value_(row.offset), commit_(std::move(commit)) {
         setObjectName("mateLimitsDialog");
         const bool angular = mate_type_is_angular(row.mate_type);
+        const auto quantity=angular?ui::InputQuantity::Angle:ui::InputQuantity::Length;
         auto* form = new QFormLayout;
-        current_ = new QDoubleSpinBox(this);
+        current_ = new ui::UnitDoubleSpinBox(quantity,this);
         lower_enabled_ = new QCheckBox(this);
-        lower_ = new QDoubleSpinBox(this);
+        lower_ = new ui::UnitDoubleSpinBox(quantity,this);
         upper_enabled_ = new QCheckBox(this);
-        upper_ = new QDoubleSpinBox(this);
+        upper_ = new ui::UnitDoubleSpinBox(quantity,this);
         for (auto* field : {current_, lower_, upper_}) {
             field->setObjectName(field == current_ ? "mateCurrentValue" :
                 field == lower_ ? "mateLowerLimit" : "mateUpperLimit");
-            field->setDecimals(zima::ui::numeric_decimal_places(this,3));
             field->setRange(angular ? -180.0 : -1'000'000'000.0,
                 angular ? 180.0 : 1'000'000'000.0);
-            field->setSuffix(angular ? QStringLiteral(" °") : QStringLiteral(" mm"));
         }
         current_->setValue(row.offset);
         current_->setReadOnly(true);
@@ -201,12 +201,10 @@ ComponentPropertiesDialog::ComponentPropertiesDialog(
     bom_ignore_variant_->setToolTip(tr("Použít název zdrojového souboru a sloučit jeho označené varianty do jedné položky kusovníku. Strom a geometrie se nemění."));
     form->addRow(bom_ignore_variant_);
     const auto placement = [this](double value, bool angular) {
-        auto* field = new QDoubleSpinBox(this);
+        auto* field = new ui::UnitDoubleSpinBox(angular?ui::InputQuantity::Angle:ui::InputQuantity::Length,this);
         field->setRange(angular ? -180.0 : -1'000'000.0,
                         angular ? 180.0 : 1'000'000.0);
-        field->setDecimals(zima::ui::numeric_decimal_places(this,3));
         field->setSingleStep(1.0);
-        field->setSuffix(angular ? "°" : " mm");
         field->setValue(value);
         field->setObjectName(
             angular ? "componentRotation" : "componentTranslation");
@@ -641,19 +639,16 @@ void ComponentPropertiesDialog::refresh_placement_table() {
                     const bool angular = mate_type_is_angular(next);
                     field->setRange(angular ? -180.0 : -1'000'000'000.0,
                         angular ? 180.0 : 1'000'000'000.0);
-                    field->setSuffix(angular ? QStringLiteral(" °") :
-                        QStringLiteral(" mm"));
+                    static_cast<ui::UnitDoubleSpinBox*>(field)->set_quantity(angular?ui::InputQuantity::Angle:ui::InputQuantity::Length);
                     field->setValue(row.offset);
                 }
                 notify_preview();
             });
 
-        auto* offset = new QDoubleSpinBox(placement_table_);
         const bool angular = mate_type_is_angular(row.mate_type);
+        auto* offset = new ui::UnitDoubleSpinBox(angular?ui::InputQuantity::Angle:ui::InputQuantity::Length,placement_table_);
         offset->setRange(angular ? -180.0 : -1'000'000'000.0,
             angular ? 180.0 : 1'000'000'000.0);
-        offset->setDecimals(zima::ui::numeric_decimal_places(this,3));
-        offset->setSuffix(angular ? QStringLiteral(" °") : QStringLiteral(" mm"));
         offset->setValue(row.offset);
         const bool missing=component_item->is_missing()||target_item->is_missing();
         if(component_item->is_missing())inspected_reference_cells_.erase({index,true});

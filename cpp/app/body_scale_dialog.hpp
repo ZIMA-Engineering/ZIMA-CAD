@@ -3,6 +3,7 @@
 #include <zima/kernel/scale_geometry.hpp>
 #include <zima/ui/properties_subwindow.hpp>
 #include <zima/ui/reference_cell.hpp>
+#include <zima/ui/unit_spin_box.hpp>
 #include <QDoubleSpinBox>
 #include <QFormLayout>
 #include <QHeaderView>
@@ -48,8 +49,8 @@ public:
         dimensions->addRow(tr("Scale factor"),factor);
         connect(factor,&QDoubleSpinBox::valueChanged,this,[this](double value){pending.scale->factor=value;notify();});
         for(int axis=0;axis<3;++axis) {
-            auto* coordinate=new QDoubleSpinBox(this);coordinate->setObjectName(QString("bodyScaleCenter%1").arg(axis));
-            coordinate->setDecimals(6);coordinate->setRange(-1e9,1e9);coordinate->setSuffix(tr(" mm"));
+            auto* coordinate=new ui::UnitDoubleSpinBox(ui::InputQuantity::Length,this);coordinate->setObjectName(QString("bodyScaleCenter%1").arg(axis));
+            coordinate->set_display_decimals(6);coordinate->setRange(-1e9,1e9);
             const auto c=pending.scale->center;coordinate->setValue(axis==0?c.x:axis==1?c.y:c.z);
             dimensions->addRow(tr("Scale center %1").arg(QChar("XYZ"[axis])),coordinate);
             connect(coordinate,&QDoubleSpinBox::valueChanged,this,[this,axis](double value){

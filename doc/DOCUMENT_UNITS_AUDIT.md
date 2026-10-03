@@ -270,3 +270,27 @@ The point export assertion now follows the established manufacturing export
 policy: construction points remain in native persistence but are omitted from
 manufacturing DXF. Ordinary coincident points retain separate exported entities.
 No DXF production behavior was changed in this stage.
+
+
+The subsequent parameter stage covers component placement and mate offsets/
+limits, Pattern spacing/angles, Body scale centers, sheet transition parameters,
+Sheet from Body thickness, Shaft Thread length and measurement-axis rotation.
+Counts, K factors, scale factors and thread runout factors remain dimensionless.
+Thread catalog selection, pitch and unchanged root diameter remain identical.
+Body measurement uses its explicitly supplied unit map for both the physical
+results and its angular input fields.
+
+The eight-combination GUI input matrix passed for these controls, including
+precise unchanged values, placement-reference identities and flip flags, mate
+limits, Pattern counts and unchanged sheet Sketch definitions. Full UI contracts,
+five-language source/catalog validation, numeric layout and lock tests passed.
+Application checks for ordinary/explicit-unit inline dimension edits, Pattern
+View dimensions and Body scale passed. This stage introduces no new translatable
+text and does not change placement solving or the native format.
+
+Independent inch STEP and IGES fixtures retain their physical dimensions when
+imported into mm/cm/m/in documents. The IGES fixture explicitly declares the
+inch unit flag and is checked for 25.4 x 50.8 x 76.2 mm extents and their physical
+volume, including native save/reopen and regeneration. The STEP test also checks
+the kernel component-import path. Both model-import contract suites passed;
+this evidence does not yet cover every exchange export or nested Assembly path.

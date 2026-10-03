@@ -1,5 +1,6 @@
 #include "reference_table_style.hpp"
 #include <zima/ui/numeric_value_lock.hpp>
+#include <zima/ui/unit_spin_box.hpp>
 #pragma once
 #include "table_entry.hpp"
 #include "thread_catalog.hpp"
@@ -70,7 +71,7 @@ public:
         form->addRow(tr("Typ závitu"),standard_);form->addRow(tr("Rozměr závitu"),size_);
         root_=number(pending_.shaft_thread.root_diameter,"shaftThreadRootDiameter");
         length_=number(pending_.shaft_thread.length,"shaftThreadLength");
-        factor_=number(pending_.shaft_thread.runout_pitch_factor,"shaftThreadRunoutFactor");
+        factor_=number(pending_.shaft_thread.runout_pitch_factor,"shaftThreadRunoutFactor",ui::InputQuantity::Scalar);
         setProperty("zimaValueLockOwner",QString::fromStdString(pending_.id));
         ui::bind_numeric_value_lock(root_,"root_diameter",pending_.value_locks,[this]{notify();});
         ui::bind_numeric_value_lock(length_,"length",pending_.value_locks,[this]{notify();});
@@ -151,9 +152,9 @@ public:
 protected:
     bool submit() override { commit_(pending());return true; }
 private:
-    QDoubleSpinBox* number(double value,const char* name) {
-        auto* result=new QDoubleSpinBox(this);result->setObjectName(name);
-        result->setDecimals(zima::ui::numeric_decimal_places(this,3));result->setRange(0.001,1e6);result->setSuffix(tr(" mm"));result->setValue(value);
+    QDoubleSpinBox* number(double value,const char* name,ui::InputQuantity quantity=ui::InputQuantity::Length) {
+        auto* result=new ui::UnitDoubleSpinBox(quantity,this);result->setObjectName(name);
+        result->setRange(0.001,1e6);result->setValue(value);
         result->setKeyboardTracking(false);return result;
     }
     void refill(bool select) {
