@@ -5,11 +5,14 @@ namespace zima::document {
 inline nlohmann::json dimension_text_style_json(const kernel::DimensionTextStyle& s) {
     return {{"prefix",s.prefix},{"suffix",s.suffix},{"text_override",s.text_override},{"decimals",s.decimals},
         {"tolerance_mode",s.tolerance_mode},{"symmetric_tolerance",s.symmetric_tolerance},{"single_tolerance",s.single_tolerance},
-        {"upper_tolerance",s.upper_tolerance},{"lower_tolerance",s.lower_tolerance}};
+        {"upper_tolerance",s.upper_tolerance},{"lower_tolerance",s.lower_tolerance},
+        {"value_unit",s.value_unit},{"keep_trailing_zeros",s.keep_trailing_zeros}};
 }
 inline kernel::DimensionTextStyle dimension_text_style_from_json(const nlohmann::json& j) {
     kernel::DimensionTextStyle s;s.prefix=j.at("prefix");s.suffix=j.at("suffix");s.text_override=j.at("text_override");s.decimals=j.at("decimals");
     s.tolerance_mode=j.at("tolerance_mode");s.symmetric_tolerance=j.at("symmetric_tolerance");s.single_tolerance=j.at("single_tolerance");s.upper_tolerance=j.at("upper_tolerance");s.lower_tolerance=j.at("lower_tolerance");
+    s.value_unit=j.value("value_unit",std::string{});s.keep_trailing_zeros=j.value("keep_trailing_zeros",false);
+    if(!kernel::dimension_annotation_unit_valid(s.value_unit))throw std::invalid_argument("Invalid dimension annotation units");
     if(s.decimals<0 || s.decimals>12)throw std::invalid_argument("Invalid dimension text precision");return s;
 }
 inline nlohmann::json dimension_layout_json(const kernel::DimensionLayout &v) {

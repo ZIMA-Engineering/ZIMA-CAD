@@ -317,6 +317,9 @@ struct SketchDimension {
     std::string single_tolerance;
     std::string upper_tolerance;
     std::string lower_tolerance;
+    std::string value_unit;
+    bool keep_trailing_zeros{};
+    int annotation_decimals{3};
     // Locked is an editing policy, independent of solver ownership. Both
     // locked and unlocked driving dimensions constrain geometry. Locking
     // protects direct geometry dragging; intentional numeric Properties edits

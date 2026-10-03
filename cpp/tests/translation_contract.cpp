@@ -567,6 +567,11 @@ int verify_translations(QApplication& application, QWidget& parent) {
         {
             app::DimensionTextFields fields({},&parent);
             const auto* basic=fields.findChild<QCheckBox*>("dimensionBasic");
+            const auto* zeros=fields.findChild<QCheckBox*>("dimensionTrailingZeros");
+            check(zeros&&zeros->text()==settings.qt_translations.value("Zachovat koncové nuly"),"Trailing-zero policy is untranslated");
+            bool unit_label=false;
+            for(const auto* label:fields.findChildren<QLabel*>())if(label->text()==settings.qt_translations.value("Jednotky hodnoty a tolerancí"))unit_label=true;
+            check(unit_label,"Annotation-unit label is untranslated");
             check(basic&&basic->text()==settings.qt_translations.value("Teoreticky přesná kóta (rámeček)"),"Basic dimension label is untranslated");
             check(basic->toolTip()==settings.qt_translations.value("Teoreticky přesná kóta nemá rozměrové tolerance. Platí i pro úhly, poloměry a průměry."),"Basic dimension tooltip is untranslated");
         }

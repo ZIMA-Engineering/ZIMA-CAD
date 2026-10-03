@@ -22,6 +22,10 @@ inline std::string dimension_unit_label(const kernel::ViewerDimension& d,int dec
     // lengths. A layout-generated override still has its source style.
     if(d.label_only&&d.unit_suffix.empty())return original();
     if(!d.display_text_override.empty()&&(!d.source_text_style||!d.source_text_style->text_override.empty()))return original();
+    // An explicit annotation basis owns both the nominal and its deviations.
+    // A different active document must not reinterpret that specification.
+    if(d.source_text_style&&(!d.source_text_style->value_unit.empty()||d.source_text_style->keep_trailing_zeros))
+        return kernel::dimension_text(d,*d.source_text_style);
     const bool angular=d.kind==kernel::ViewerDimensionKind::Angular;
     const double scale=angular?units.degrees_per_unit:units.millimetres_per_unit;
     const auto& suffix=angular?units.angle_suffix:units.length_suffix;

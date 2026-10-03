@@ -76,7 +76,7 @@ class DrawingDimensionDialog final : public ui::PropertiesSubWindow {
         hint->setWordWrap(true);
         column->addWidget(hint);
         tabs_->addTab(binding, tr("Typ a vazby"));
-        text_ = new DimensionTextFields(value_.style, tabs_);
+        text_ = new DimensionTextFields(value_.style, tabs_,true,value_.kind==drawing::DrawingDimensionKind::Angular);
         tabs_->addTab(text_, tr("Hodnota a tolerance"));
         auto *placement_page = new QWidget(tabs_);
         placement_column_ = new QVBoxLayout(placement_page);
@@ -147,9 +147,10 @@ class DrawingDimensionDialog final : public ui::PropertiesSubWindow {
                 for(auto& attachment:value_.attachments)if(attachment.kind!=drawing::DimensionAttachmentKind::Line)attachment={};
             }
             if(angular()!=was_angular) {
+                text_->set_angular_quantity(angular());
                 for(auto& segment:value_.segments){segment.layout={};segment.last_presentation.reset();segment.last_angular_leaders=false;}
                 auto* suffix=text_->findChild<QLineEdit*>("sketchDimensionSuffix");
-                if(suffix&&(suffix->text().isEmpty()||suffix->text()=="mm"||suffix->text()==QString::fromUtf8("°"))){QSignalBlocker block(suffix);suffix->setText(angular()?QString::fromUtf8("°"):QString{});}
+                if(suffix&&(suffix->text().isEmpty()||suffix->text()=="mm"||suffix->text()=="cm"||suffix->text()=="m"||suffix->text()=="in"||suffix->text()=="rad"||suffix->text()==QString::fromUtf8("°"))){QSignalBlocker block(suffix);suffix->setText(angular()?QString::fromUtf8("°"):QString{});}
             }
             drawing::resize_dimension_segments(value_);
             modes_.resize(value_.attachments.size(), -1);
@@ -218,7 +219,7 @@ class DrawingDimensionDialog final : public ui::PropertiesSubWindow {
         value_.chain_datum_only=true;seed_adopted_=true;extended_=true;automatic_placement_=false;
         modes_={int(value_.attachments[0].kind),int(value_.attachments[1].kind)};segment_=0;placing_=false;active_=-1;
         {QSignalBlocker block(direction_);direction_->setCurrentIndex(int(value_.direction));}
-        tabs_->removeTab(1);delete text_;text_=new DimensionTextFields(value_.style,tabs_);tabs_->insertTab(1,text_,tr("Hodnota a tolerance"));
+        tabs_->removeTab(1);delete text_;text_=new DimensionTextFields(value_.style,tabs_,true,value_.kind==drawing::DrawingDimensionKind::Angular);tabs_->insertTab(1,text_,tr("Hodnota a tolerance"));
         for(auto* input:text_->findChildren<QLineEdit*>())connect(input,&QLineEdit::textChanged,this,[this]{publish();});
         for(auto* input:text_->findChildren<QSpinBox*>())connect(input,qOverload<int>(&QSpinBox::valueChanged),this,[this]{publish();});
         for(auto* input:text_->findChildren<QComboBox*>())connect(input,qOverload<int>(&QComboBox::currentIndexChanged),this,[this]{publish();});

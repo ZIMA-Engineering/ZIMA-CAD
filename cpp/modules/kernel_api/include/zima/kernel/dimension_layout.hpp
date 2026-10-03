@@ -32,22 +32,38 @@ inline std::string dimension_decimal_text(std::string text) {
     std::replace(text.begin(), text.end(), '.', ',');
     return text;
 }
-inline std::string dimension_number(double value, int decimals) {
+inline bool dimension_annotation_unit_valid(const std::string& unit) {
+    return unit.empty()||unit=="mm"||unit=="cm"||unit=="m"||unit=="in"||unit=="deg"||unit=="rad";
+}
+inline double dimension_annotation_scale(const std::string& unit,ViewerDimensionKind kind) {
+    if(unit.empty())return 1.;
+    if(kind==ViewerDimensionKind::Angular) {
+        if(unit=="deg")return 1.;
+        if(unit=="rad")return 180./std::numbers::pi;
+    } else {
+        if(unit=="mm")return 1.;
+        if(unit=="cm")return 10.;
+        if(unit=="m")return 1000.;
+        if(unit=="in")return 25.4;
+    }
+    throw std::invalid_argument("Invalid dimension annotation units");
+}
+inline std::string dimension_number(double value, int decimals,bool keep_trailing_zeros=false) {
     std::ostringstream number;
     number.imbue(std::locale::classic());
     number << std::fixed << std::setprecision(std::clamp(decimals, 0, 12)) << value;
     auto result = number.str();
-    if (result.find('.') != std::string::npos) {
+    if (!keep_trailing_zeros && result.find('.') != std::string::npos) {
         while (result.ends_with('0')) result.pop_back();
         if (result.ends_with('.')) result.pop_back();
     }
-    if (result == "-0") result = "0";
+    if (result.starts_with('-') && result.find_first_not_of("-0.")==std::string::npos)result.erase(0,1);
     return dimension_decimal_text(std::move(result));
 }
 inline std::string dimension_text(const ViewerDimension& d,const DimensionTextStyle& style) {
     if(!style.text_override.empty())return style.text_override;
     std::ostringstream text;text<<style.prefix<<(d.kind==ViewerDimensionKind::Radius?"R":d.kind==ViewerDimensionKind::Diameter?"⌀":"")
-        <<dimension_number(d.value,style.decimals)<<dimension_unit_text(style.suffix);
+        <<dimension_number(d.value/dimension_annotation_scale(style.value_unit,d.kind),style.decimals,style.keep_trailing_zeros)<<dimension_unit_text(style.suffix);
     if(style.tolerance_mode=="symmetric")text<<" ±"<<dimension_decimal_text(style.symmetric_tolerance);
     if(style.tolerance_mode=="single_deviation")text<<" "<<dimension_decimal_text(style.single_tolerance);
     if(style.tolerance_mode=="deviations")text<<" +"<<dimension_decimal_text(style.upper_tolerance)<<" /-"<<dimension_decimal_text(style.lower_tolerance);

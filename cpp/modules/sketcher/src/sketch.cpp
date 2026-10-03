@@ -2577,6 +2577,10 @@ void Sketch::validate() const {
     }
     ids.clear();
     for (const auto& dimension : dimensions) {
+        if(dimension.annotation_decimals<0||dimension.annotation_decimals>12)throw std::invalid_argument("Invalid dimension text precision");
+        const bool angular_annotation=dimension.kind==DimensionKind::Angle||dimension.kind==DimensionKind::AngleBetween||
+            dimension.kind==DimensionKind::AngleThreePoint||dimension.kind==DimensionKind::AngleSymmetric||dimension.kind==DimensionKind::EllipseRotation;
+        static_cast<void>(kernel::dimension_annotation_scale(dimension.value_unit,angular_annotation?kernel::ViewerDimensionKind::Angular:kernel::ViewerDimensionKind::Linear));
         const bool radial_dimension = dimension.kind == DimensionKind::Radius ||
             dimension.kind == DimensionKind::Diameter;
         const bool line_pair_dimension =
@@ -13175,9 +13179,9 @@ zima::kernel::ViewerMesh Sketch::viewer_mesh() const {
             (x.z-origin.z)*(y.x-origin.x)-(x.x-origin.x)*(y.z-origin.z),
             (x.x-origin.x)*(y.y-origin.y)-(x.y-origin.y)*(y.x-origin.x)};
         rendered.source_text_style=kernel::DimensionTextStyle{dimension->prefix,
-            dimension->suffix.empty()?rendered.unit_suffix:dimension->suffix,dimension->display_text_override,3,
+            dimension->suffix.empty()?rendered.unit_suffix:dimension->suffix,dimension->display_text_override,dimension->annotation_decimals,
             dimension->tolerance_mode,dimension->symmetric_tolerance,dimension->single_tolerance,
-            dimension->upper_tolerance,dimension->lower_tolerance};
+            dimension->upper_tolerance,dimension->lower_tolerance,dimension->value_unit,dimension->keep_trailing_zeros};
         rendered.driving = dimension->driving;
         rendered.locked = dimension->locked;
         rendered.label_prefix = dimension->prefix + rendered.label_prefix;
@@ -13524,6 +13528,9 @@ nlohmann::json Sketch::serialized_json() const {
         value["single_tolerance"] = dimension.single_tolerance;
         value["upper_tolerance"] = dimension.upper_tolerance;
         value["lower_tolerance"] = dimension.lower_tolerance;
+        value["value_unit"] = dimension.value_unit;
+        value["keep_trailing_zeros"] = dimension.keep_trailing_zeros;
+        value["annotation_decimals"] = dimension.annotation_decimals;
         value["locked"] = dimension.locked;
         dimension_values.push_back(std::move(value));
     }
@@ -13808,6 +13815,10 @@ Sketch Sketch::from_serialized_json(const nlohmann::json& root) {
             value.value("upper_tolerance", std::string{});
         dimension.lower_tolerance =
             value.value("lower_tolerance", std::string{});
+        dimension.value_unit=value.value("value_unit",std::string{});
+        dimension.keep_trailing_zeros=value.value("keep_trailing_zeros",false);
+        dimension.annotation_decimals=value.value("annotation_decimals",3);
+        if(!kernel::dimension_annotation_unit_valid(dimension.value_unit))throw std::invalid_argument("Invalid dimension annotation units");
         dimension.locked = value.at("locked").get<bool>();
         sketch.dimensions.push_back(std::move(dimension));
     }

@@ -2021,5 +2021,9 @@
   "Cannot safely convert relation units.": "Nelze bezpečně převést jednotky relací.",
   "Invalid value in row %1, column %2.": "Neplatná hodnota na řádku %1 ve sloupci %2.",
   "Family dimensions must be finite numbers.": "Rozměry Family musí být konečná čísla.",
-  "Invalid dimension display units": "Neplatné jednotky zobrazení kóty"
+  "Invalid dimension display units": "Neplatné jednotky zobrazení kóty",
+  "Invalid dimension annotation units": "Neplatné jednotky anotace kóty",
+  "Jednotky hodnoty a tolerancí": "Jednotky hodnoty a tolerancí",
+  "Zachovat koncové nuly": "Zachovat koncové nuly",
+  "Invalid dimension text precision": "Neplatný počet desetinných míst textu kóty"
 }

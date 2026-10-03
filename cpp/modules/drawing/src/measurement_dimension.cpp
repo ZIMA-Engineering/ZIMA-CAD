@@ -574,6 +574,7 @@ void extend_dimension_chain(DrawingDimension &d, bool at_first, DimensionAttachm
     }
 }
 void validate_drawing_dimension(const DrawingDimension &d) {
+    static_cast<void>(kernel::dimension_annotation_scale(d.style.value_unit,d.kind==DrawingDimensionKind::Angular?kernel::ViewerDimensionKind::Angular:kernel::ViewerDimensionKind::Linear));
     if(d.chain_direction&&(!std::isfinite(d.chain_direction->x)||!std::isfinite(d.chain_direction->y)||length(*d.chain_direction)<1e-9))
         throw std::invalid_argument("Neplatná výkresová kóta.");
     const bool radial = d.kind == DrawingDimensionKind::Radius || d.kind == DrawingDimensionKind::Diameter;

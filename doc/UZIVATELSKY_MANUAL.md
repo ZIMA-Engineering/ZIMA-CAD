@@ -880,7 +880,16 @@ visible while moving to another view. OK or MMB double-click commits all edited
 views in one transaction; Cancel discards them all. There is no intermediate Apply.
 Regenerate loads newly available source annotations.
 
-Dimension Properties controls text, tolerances and presentation. Drawings store
+Dimension Properties controls text, tolerances and presentation. **Nominal and
+tolerance units** identifies the numerical unit of that annotation. **Keep
+trailing zeros** retains the selected number of decimal places, for example
+`1.0000` instead of `1`; it does not change geometry or add a tolerance. Sketch
+properties also support an explicit annotation decimal setting. An annotation
+with its own unit remains in that unit when another document's View units change.
+Complete document-unit conversion is still being finalized; see the
+[unit audit](DOCUMENT_UNITS_AUDIT.md) for its current scope.
+
+Drawings store
 view-local overrides without changing the source model or other views. Purple
 text/arrow grips change placement; RMB while dragging switches supported arrow/
 radius modes. Esc discards the drag. Model Part/Assembly presentation uses the same

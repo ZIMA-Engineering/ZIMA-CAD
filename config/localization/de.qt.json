@@ -2021,5 +2021,9 @@
   "Cannot safely convert relation units.": "Die Einheiten der Beziehungen können nicht sicher umgerechnet werden.",
   "Invalid value in row %1, column %2.": "Ungültiger Wert in Zeile %1, Spalte %2.",
   "Family dimensions must be finite numbers.": "Familienmaße müssen endliche Zahlen sein.",
-  "Invalid dimension display units": "Ungültige Anzeigeeinheiten für das Maß"
+  "Invalid dimension display units": "Ungültige Anzeigeeinheiten für das Maß",
+  "Invalid dimension annotation units": "Ungültige Einheiten der Maßbeschriftung",
+  "Jednotky hodnoty a tolerancí": "Einheiten für Nennmaß und Toleranzen",
+  "Zachovat koncové nuly": "Nachgestellte Nullen beibehalten",
+  "Invalid dimension text precision": "Ungültige Dezimalstellenzahl der Maßbeschriftung"
 }

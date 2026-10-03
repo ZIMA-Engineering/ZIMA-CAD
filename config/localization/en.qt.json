@@ -2021,5 +2021,9 @@
   "Cannot safely convert relation units.": "Cannot safely convert relation units.",
   "Invalid value in row %1, column %2.": "Invalid value in row %1, column %2.",
   "Family dimensions must be finite numbers.": "Family dimensions must be finite numbers.",
-  "Invalid dimension display units": "Invalid dimension display units"
+  "Invalid dimension display units": "Invalid dimension display units",
+  "Invalid dimension annotation units": "Invalid dimension annotation units",
+  "Jednotky hodnoty a tolerancí": "Nominal and tolerance units",
+  "Zachovat koncové nuly": "Keep trailing zeros",
+  "Invalid dimension text precision": "Invalid dimension text precision"
 }

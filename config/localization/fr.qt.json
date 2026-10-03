@@ -2021,5 +2021,9 @@
   "Cannot safely convert relation units.": "Impossible de convertir les unités des relations de manière sûre.",
   "Invalid value in row %1, column %2.": "Valeur incorrecte à la ligne %1, colonne %2.",
   "Family dimensions must be finite numbers.": "Les dimensions de la famille doivent être des nombres finis.",
-  "Invalid dimension display units": "Unités d’affichage de cote incorrectes"
+  "Invalid dimension display units": "Unités d’affichage de cote incorrectes",
+  "Invalid dimension annotation units": "Unités d’annotation de cote incorrectes",
+  "Jednotky hodnoty a tolerancí": "Unités de la valeur nominale et des tolérances",
+  "Zachovat koncové nuly": "Conserver les zéros finaux",
+  "Invalid dimension text precision": "Nombre de décimales du texte de cote incorrect"
 }

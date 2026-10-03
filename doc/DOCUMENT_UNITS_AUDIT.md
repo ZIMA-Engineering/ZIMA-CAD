@@ -448,3 +448,75 @@ This is the arithmetic foundation for manufacturing tolerance conversion, not
 its completed integration. Authoritative tolerance storage, nominal values,
 property editing and drawing/export annotation behavior still require coherent
 end-to-end implementation and validation before the final units release.
+
+
+### Explicit annotation units and exact specification conversion (2026-10-03)
+
+Manufacturing annotations now have an explicit `value_unit` independent of
+canonical geometry and authored suffix text, plus a `keep_trailing_zeros` policy.
+An empty annotation unit denotes canonical mm/degrees. The same style is carried
+by model layout, persisted Viewer dimensions and Drawing dimensions. Sketch
+annotations also persist their numerical annotation precision. No geometry,
+reference identity, side or solver tolerance is rescaled.
+
+The shared formatter uses that unit for the nominal value and leaves its authored
+deviations in the same declared unit. An explicitly based annotation is not
+reinterpreted by a View repaint in another document's units. Drawing formatting
+may omit implicit mm only for a canonical/mm annotation. Property fields show the
+unit used by nominal and tolerance values, and expose trailing-zero formatting;
+Sketch properties also retain their per-annotation decimal setting. Unit symbols
+are language-independent and the new labels/errors are translated into all five
+supported languages.
+
+`convert_dimension_annotation_units` prepares a new complete style without
+modifying its source. It converts the printed nominal and all four deviation
+fields, including currently inactive fields, using exact decimal arithmetic.
+It checks that the resulting formatter actually prints the same converted
+nominal. Nonterminating conversions, incompatible units, precision above the
+supported annotation range and ambiguous authored text return a stable field
+identifier instead of silently rounding. Fit/thread designations and arbitrary
+text are not interpreted as numbers. Choosing different practical manufacturing
+limits remains an intentional design edit, not unit conversion.
+
+This stage establishes persisted annotation meaning and the shared converter.
+Wiring that preflight into the complete Part/Assembly unit-change transaction,
+including all owned Sketches and Family variants, remains pending. Existing
+Drawing annotation policy remains independent of source Part authoring units.
+End-to-end PDF/DXF/printing checks also remain part of the full audit; formatter
+and serialization checks alone do not establish those output gates.
+
+
+Verification for this stage passed after rebuilding the affected native and GUI
+binaries:
+
+- `zima_cpp_exact_unit_conversion_tests`: exact conversion of nominal plus
+  symmetric, one-sided and asymmetric deviations; actual converted limits
+  checked against the original physical interval; inactive deviations,
+  repeating/rounded nominals and arbitrary text rejected without source mutation.
+- `zima_cpp_dimension_layout_contract_tests`: explicit inch specification across
+  View unit changes, a real Sketch radius, shared properties, drawing text,
+  Viewer serialization and actual `.prtz`, `.asmz` and `.drwz` save/reopen.
+- `zima_cpp_model_dimension_layout_command_tests`: explicit inch styles through
+  CLI, one Undo/Redo transaction, repeated no-op, invalid-input atomicity, native
+  save/reopen, nested occurrence ownership and identical calculated geometry.
+  CLI validation accepts the new typed fields and still rejects unknown fields.
+- `zima_cpp_sketch_serialization_tests`, `zima_cpp_feature_unit_input_contract`,
+  `zima_cpp_ui_contract_tests`, `zima_cpp_inline_units_ui_contract` and
+  `zima_cpp_translations_contract`: native Sketch data, existing input behavior,
+  unchanged inherited annotation formatting and all five language catalogs.
+
+`zima_refresh_start_templates` regenerated and reopened `START_PART.prtz`,
+`START_SKELETON.prtz` and `START_ASSEMBLY.asmz`. Their SHA-256 values were unchanged:
+these empty templates contain no custom annotation styles. The rebuilt
+`zima_cpp_new_document_options_ui_contract` and
+`zima_cpp_relation_templates_ui_contract` passed new-document creation from the
+native templates, normal commands and active first editable context. The final
+property/CLI-only changes do not alter those templates or creation code.
+
+The remaining transaction integration must resolve typed native dimension slots,
+cover standalone and feature-owned Sketches (including Assembly cuts and
+sections), and preflight Family variants before publishing any new unit map.
+Use the existing `visit_feature_sketches` ownership rules. Do not invoke OCCT or
+change references merely to obtain a nominal for a metadata conversion. Numeric
+input and implicit ordinary labels still require their document-unit context;
+explicit manufacturing annotations retain their independently declared basis.

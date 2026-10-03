@@ -33,7 +33,13 @@ Lengths are model mm; radius rotation uses degrees. `plane_quarter_turns` is int
 0–3; `envelope_offset` is nonnegative or `null` for free placement. All numbers must
 be finite. Custom `text_style` is a complete object with `prefix`, `suffix`,
 `text_override`, `decimals` (0–12), `tolerance_mode`, `symmetric_tolerance`,
-`single_tolerance`, `upper_tolerance`, and `lower_tolerance`. Tolerance mode is empty,
+`single_tolerance`, `upper_tolerance`, and `lower_tolerance`. Optional `value_unit`
+is empty (canonical mm/degrees), `mm`, `cm`, `m`, `in`, `deg`, or `rad`; it declares
+the common numerical unit of the nominal value and its deviations, independently
+of the authored suffix. Use the correct physical quantity. `keep_trailing_zeros`
+defaults to false and preserves the requested decimal places when true.
+Explicit annotation units are persisted and are not reinterpreted by a View
+repaint in a different document unit system. Tolerance mode is empty,
 `symmetric`, `single_deviation`, `deviations`, or `basic`; text fields allow at most 2048 UTF-8 bytes.
 `basic` selects a theoretically exact dimension with a rectangular frame and no
 displayed dimensional deviations. Stored deviation strings are inactive, and

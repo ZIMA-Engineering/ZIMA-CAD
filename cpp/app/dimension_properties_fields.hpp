@@ -19,9 +19,14 @@
 namespace zima::app {
 class DimensionTextFields final : public QWidget {
   public:
-    DimensionTextFields(kernel::DimensionTextStyle initial, QWidget *parent, bool precision = true)
+    DimensionTextFields(kernel::DimensionTextStyle initial, QWidget *parent, bool precision = true, bool angular = false)
         : QWidget(parent), initial_(initial) {
         form_ = new QFormLayout(this);
+        const auto unit=initial.value_unit.empty()?(angular?"deg":"mm"):initial.value_unit;
+        annotation_unit_=unit;
+        auto* units=new QLabel(QString::fromStdString(unit=="deg"?"°":unit),this);
+        units->setObjectName("dimensionAnnotationUnits");
+        form_->addRow(tr("Jednotky hodnoty a tolerancí"),units);
         form_->addRow(tr("Text před hodnotou"),
                       symbol_field(prefix_, initial.prefix, "sketchDimensionPrefix", this));
         form_->addRow(tr("Text za hodnotou"),
@@ -63,10 +68,21 @@ class DimensionTextFields final : public QWidget {
         decimals_->setValue(initial.decimals);
         form_->addRow(tr("Desetinná místa"), decimals_);
         form_->setRowVisible(decimals_, precision);
+        trailing_zeros_=new QCheckBox(tr("Zachovat koncové nuly"),this);
+        trailing_zeros_->setObjectName("dimensionTrailingZeros");
+        trailing_zeros_->setChecked(initial.keep_trailing_zeros);
+        form_->addRow(trailing_zeros_);
         connect(tolerance_mode_, &QComboBox::currentIndexChanged, this,
                 [this] { refresh_tolerance_fields(); });
         connect(basic_, &QCheckBox::toggled, this, [this] { refresh_tolerance_fields(); });
         refresh_tolerance_fields();
+    }
+    // Changing the dimension kind defines a different quantity; it is not a
+    // length/angle unit conversion. Follow the existing kind-change policy.
+    void set_angular_quantity(bool angular) {
+        annotation_unit_=angular?"deg":"mm";
+        if(!initial_.value_unit.empty())initial_.value_unit=annotation_unit_;
+        findChild<QLabel*>("dimensionAnnotationUnits")->setText(angular?QString::fromUtf8("°"):QStringLiteral("mm"));
     }
     kernel::DimensionTextStyle value() const {
         auto result = initial_;
@@ -80,11 +96,18 @@ class DimensionTextFields final : public QWidget {
         result.lower_tolerance = lower_tolerance_->text().trimmed().toStdString();
 
         result.decimals = decimals_->value();
+        result.keep_trailing_zeros=trailing_zeros_->isChecked();
+        if(result.value_unit.empty()&&(result.keep_trailing_zeros!=initial_.keep_trailing_zeros||result.decimals!=initial_.decimals||
+            result.tolerance_mode!=initial_.tolerance_mode||result.symmetric_tolerance!=initial_.symmetric_tolerance||
+            result.single_tolerance!=initial_.single_tolerance||result.upper_tolerance!=initial_.upper_tolerance||result.lower_tolerance!=initial_.lower_tolerance))
+            result.value_unit=annotation_unit_;
         return result;
     }
 
   private:
     kernel::DimensionTextStyle initial_;
+    QCheckBox* trailing_zeros_{};
+    std::string annotation_unit_;
     QFormLayout *form_{};
     QLineEdit *prefix_{}, *suffix_{}, *display_text_override_{}, *symmetric_tolerance_{},
         *single_tolerance_{}, *upper_tolerance_{}, *lower_tolerance_{};
@@ -241,7 +264,7 @@ class DimensionPropertiesDialog final : public ui::PropertiesSubWindow {
         value->setObjectName("dimensionMeasuredValue");
         column->addWidget(value);
         text_ = new DimensionTextFields(initial.text_style.value_or(kernel::dimension_text_style(dimension)),
-                                        page);
+                                        page,true,dimension.kind==kernel::ViewerDimensionKind::Angular);
         column->addWidget(text_);
         column->addStretch();
         placement_ = new DimensionPlacementFields(dimension, initial, tabs);

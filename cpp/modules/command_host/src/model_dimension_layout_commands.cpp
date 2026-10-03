@@ -22,8 +22,15 @@ kernel::DimensionLayout parse_layout(const Json& value) {
     for(const auto& [key,item]:value.items()) {
         if(key=="text_style") {
             if(!item.is_null()) {
-                if(!item.is_object()||item.size()!=9||!item.contains("decimals")||!item["decimals"].is_number_integer()||item["decimals"]<0||item["decimals"]>12)invalid();
-                for(const auto& [name,text]:item.items())if(name!="decimals"&&!text.is_string())invalid();
+                if(!item.is_object()||!item.contains("decimals")||!item["decimals"].is_number_integer()||item["decimals"]<0||item["decimals"]>12)invalid();
+                for(const auto& [name,text]:item.items()) {
+                    if(name=="decimals")continue;
+                    if(name=="keep_trailing_zeros"){if(!text.is_boolean())invalid();}
+                    else if(name=="prefix"||name=="suffix"||name=="text_override"||name=="tolerance_mode"||
+                        name=="symmetric_tolerance"||name=="single_tolerance"||name=="upper_tolerance"||name=="lower_tolerance"||name=="value_unit") {
+                        if(!text.is_string())invalid();
+                    } else invalid();
+                }
             }
         } else if(key=="plane_quarter_turns") {if(!item.is_number_integer()||item<0||item>3)invalid();}
         else if(key=="arrows_reversed"||key=="radius_center_line_hidden") {if(!item.is_boolean())invalid();}

@@ -10,6 +10,7 @@ const std::vector<kernel::DimensionLayoutEntry>& entries(const Workspace& live,c
 void validate(const kernel::DimensionLayout& layout) {
     try{kernel::validate_dimension_layout(layout);}catch(const std::invalid_argument&){throw ModelDimensionLayoutError("invalid_arguments","Invalid model dimension layout.");}
     if(!layout.text_style)return;const auto& style=*layout.text_style;
+    if(!kernel::dimension_annotation_unit_valid(style.value_unit))throw ModelDimensionLayoutError("invalid_arguments","Invalid dimension annotation units");
     if(style.decimals<0||style.decimals>12||(style.tolerance_mode!=""&&style.tolerance_mode!="basic"&&style.tolerance_mode!="symmetric"&&style.tolerance_mode!="single_deviation"&&style.tolerance_mode!="deviations"))
         throw ModelDimensionLayoutError("invalid_arguments","Invalid model dimension text style.");
     for(const auto* text:{&style.prefix,&style.suffix,&style.text_override,&style.tolerance_mode,&style.symmetric_tolerance,&style.single_tolerance,&style.upper_tolerance,&style.lower_tolerance})

@@ -18,6 +18,9 @@
 #include <zima/drawing/detail_view.hpp>
 #include <zima/assembly/assembly_document.hpp>
 #include <zima/document/dimension_layout_json.hpp>
+#include <zima/drawing/measurement_dimension.hpp>
+#include <zima/drawing/dimension_text.hpp>
+#include <zima/sketcher/sketch.hpp>
 #include <zima/document/object_annotation_frames.hpp>
 #include <zima/document/viewer_packet_json.hpp>
 #include <zima/drawing/model_annotations.hpp>
@@ -203,9 +206,59 @@ void verify_model_dimension_units() {
     rejects([&]{view.set_dimension_display_units({1,"mm",-1,"rad"});});
     view.close();
 }
+void verify_annotation_units() {
+    kernel::ViewerDimension d;d.value=25.4;d.reference={"source","length",{}};
+    kernel::DimensionTextStyle style;style.value_unit="in";style.suffix="in";style.decimals=4;
+    style.keep_trailing_zeros=true;style.tolerance_mode="symmetric";style.symmetric_tolerance="0.0005";
+    d.source_text_style=style;d.display_text_override=kernel::dimension_text(d,style);
+    const auto before=document::dimension_geometry_json(d);
+    const auto reopened=document::dimension_geometry_from_json(before);
+    require(document::dimension_geometry_json(reopened)==before,"Native viewer packet lost annotation-unit metadata");
+    for(const auto unit:{viewer::DimensionDisplayUnits{},viewer::DimensionDisplayUnits{25.4,"in",1,"°"},viewer::DimensionDisplayUnits{10,"cm",1,"°"}})
+        require(viewer::dimension_unit_label(reopened,2,unit)=="1,0000in ±0,0005","Document display units changed an explicit tolerance specification");
+    require(kernel::dimension_text(reopened,drawing::sheet_dimension_style(style))=="1,0000in ±0,0005","Sheet formatting stripped or rescaled inch specification");
+    app::DimensionTextFields fields(style,nullptr);fields.show();flush();
+    require(fields.findChild<QLabel*>("dimensionAnnotationUnits")->text()=="in","Properties show the wrong tolerance unit");
+    require(fields.value()==style,"Unchanged properties lost annotation units or trailing zeros");
+    fields.findChild<QCheckBox*>("dimensionTrailingZeros")->setChecked(false);
+    require(!fields.value().keep_trailing_zeros&&fields.value().value_unit=="in","Trailing-zero edit changed the specification unit");
+    auto dimension=drawing::make_drawing_dimension("view");dimension.style=style;
+    const auto drawing_packet=drawing::serialize_drawing_dimensions({dimension});
+    const auto drawing_reopened=drawing::deserialize_drawing_dimensions(drawing_packet);
+    require(drawing_reopened.front().style==style,"Drawing reopen lost annotation-unit metadata");
+    auto sketch=sketcher::Sketch::create_default();const auto circle=sketch.add_circle(0,0,25.4);
+    auto radius=sketch.create_circle_radius_dimension(circle);radius.value_unit="in";radius.suffix="in";
+    radius.keep_trailing_zeros=true;radius.annotation_decimals=4;radius.tolerance_mode="symmetric";radius.symmetric_tolerance="0.0005";
+    sketch.apply_dimension(radius);
+    const auto serialized=sketch.serialized();const auto restored=sketcher::Sketch::from_serialized(serialized);
+    require(restored.serialized()==serialized&&restored.dimensions.front()==radius,"Sketch reopen changed explicit manufacturing annotation");
+    const auto mesh=restored.viewer_mesh();
+    const auto shown=std::ranges::find_if(mesh.dimensions,[](const auto& item){return item.source_text_style&&item.source_text_style->value_unit=="in";});
+    require(shown!=mesh.dimensions.end()&&viewer::dimension_unit_label(*shown,2,{})=="R1,0000in ±0,0005","Sketch View lost its explicit nominal/tolerance units or precision");
+    auto drawing_value=d;drawing_value.display_text_override.clear();
+    require(drawing::drawing_dimension_text(drawing_reopened.front(),drawing_value)=="1,0000in ±0,0005","Drawing dimension formatter lost specification units");
+    auto invalid=restored.serialized_json();invalid["dimensions"][0]["value_unit"]="rad";
+    rejects([&]{static_cast<void>(sketcher::Sketch::from_serialized_json(invalid));});
+    QTemporaryDir files;require(files.isValid(),"Cannot create annotation native test directory");
+    kernel::DimensionLayout native_layout;native_layout.text_style=style;
+    auto part=document::PartDocument::create_default();kernel::store_dimension_layout(part.dimension_layouts,d.reference,native_layout);
+    const auto part_path=files.filePath("annotation.prtz").toStdString();part.save(part_path);
+    require(document::PartDocument::load(part_path).dimension_layouts==part.dimension_layouts,"Part native file lost explicit annotation units");
+    auto assembly=assembly::AssemblyDocument::create_default();kernel::store_dimension_layout(assembly.dimension_layouts,d.reference,native_layout);
+    const auto assembly_path=files.filePath("annotation.asmz").toStdString();assembly.save(assembly_path);
+    require(assembly::AssemblyDocument::load(assembly_path).dimension_layouts==assembly.dimension_layouts,"Assembly native file lost explicit annotation units");
+    auto drawing_doc=drawing::DrawingDocument::create_default();drawing::DrawingView view;view.id="view";view.name="Tolerance";view.source_document_id=part.document_id;
+    drawing_doc.sheets.front().views={view};drawing_doc.sheets.front().dimensions={dimension};
+    const auto drawing_path=files.filePath("annotation.drwz").toStdString();drawing_doc.save(drawing_path);
+    require(drawing::DrawingDocument::load(drawing_path).sheets.front().dimensions.front().style==style,"Drawing native file lost explicit annotation units");
+    fields.set_angular_quantity(true);
+    require(fields.value().value_unit=="deg"&&fields.findChild<QLabel*>("dimensionAnnotationUnits")->text()==QString::fromUtf8("°"),"Changing dimension kind retained length units");
+    fields.close();
+}
 int main(int argc, char **argv) {
     QApplication app(argc, argv);
     try {
+        verify_annotation_units();
         verify_occurrence_bounds();
         verify_model_dimension_units();
         {
@@ -231,7 +284,7 @@ int main(int argc, char **argv) {
                 kernel::ViewerDimension d;d.kind=kind;d.value=kind==kernel::ViewerDimensionKind::Angular?90:25;
                 d.witness_second={100,0,0};d.line_first={0,30,0};d.line_second={100,30,0};
                 if(kind==kernel::ViewerDimensionKind::Angular){d.line_first={60,0,0};d.line_second={0,60,0};d.sweep_degrees=90;}
-                auto current=style;current.suffix=kind==kernel::ViewerDimensionKind::Angular?"°":"";d.source_text_style=current;
+                auto current=style;current.value_unit=kind==kernel::ViewerDimensionKind::Angular?"deg":"mm";current.suffix=kind==kernel::ViewerDimensionKind::Angular?"°":"";d.source_text_style=current;
                 const auto text=QString::fromStdString(kernel::dimension_text(d,current));
                 require(!text.contains("0,2")&&!text.contains("0,1")&&!text.contains(QChar(0x00b1)),"Basic text includes a deviation");
                 const auto box=viewer::dimension_text_box(font,text,0,true);

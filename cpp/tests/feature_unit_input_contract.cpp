@@ -215,7 +215,7 @@ void sketch_inputs(QApplication& application,QWidget& parent,double scale,double
         check(rejected,"Incompatible dimension unit was accepted");
     }
     for(const auto kind:{sketcher::DimensionKind::Distance,sketcher::DimensionKind::AngleBetween}) {
-        sketcher::SketchDimension initial{"units",kind,"first","second",12.3456789};
+        sketcher::SketchDimension initial{"units",kind,"first","second",12.3456789};initial.annotation_decimals=7;
         std::optional<sketcher::SketchDimension> stored;
         auto* dialog=new app::SketchDimensionPropertiesDialog(initial,true,[&](auto d){stored=std::move(d);},&parent);
         dialog->setLocale(QLocale::c());
@@ -226,6 +226,7 @@ void sketch_inputs(QApplication& application,QWidget& parent,double scale,double
         unit->findChild<QLineEdit*>()->setText(kind==sketcher::DimensionKind::Distance?"(1/2 + .125)in":"90deg");
         dialog->buttons()->button(QDialogButtonBox::Ok)->click();application.processEvents();
         check(stored.has_value(),"Converted Sketch dimension was not committed");
+        check(stored->annotation_decimals==7&&stored->value_unit.empty(),"Editing only the value rewrote inherited annotation formatting");
         near(sketcher::dimension_display_value(*stored),kind==sketcher::DimensionKind::Distance?.625*25.4:90.);
     }
     sketcher::Sketch sketch;sketch.plane_offset=.123456789;

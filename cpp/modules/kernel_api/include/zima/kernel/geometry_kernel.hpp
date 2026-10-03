@@ -293,6 +293,10 @@ struct DimensionTextStyle {
     std::string prefix, suffix{"mm"}, text_override;
     int decimals{3};
     std::string tolerance_mode, symmetric_tolerance, single_tolerance, upper_tolerance, lower_tolerance;
+    // Numeric annotation units are independent of geometry (always mm/degrees)
+    // and of authored suffix text. Empty selects the canonical quantity unit.
+    std::string value_unit;
+    bool keep_trailing_zeros{};
     bool operator==(const DimensionTextStyle&) const = default;
 };
 struct ViewerDimension {

@@ -26,6 +26,7 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
     require(!run("dimension.layout.set",{{"reference",ref},{"layout",layout}}).at("changed").get<bool>()&&state()->session.revision()==rev,"Unchanged default layout pinned an override");
     layout["text_along"]=4;layout["text_outward"]=-2;layout["line_offset"]=3;layout["arrows_reversed"]=true;
     kernel::DimensionTextStyle style;style.prefix="CHECK ";style.suffix=" mm";style.decimals=4;style.tolerance_mode="deviations";style.upper_tolerance="0.1";style.lower_tolerance="0.2";
+    style.value_unit="in";style.suffix="in";style.keep_trailing_zeros=true;style.upper_tolerance="0.001";style.lower_tolerance="0.0005";
     layout["text_style"]=document::dimension_text_style_json(style);
     const auto changed=run("dimension.layout.set",{{"reference",ref},{"layout",layout}});
     require(changed.at("changed")==true&&changed.at("has_override")==true&&changed.at("body_calculated")==false&&state()->session.revision()==rev+1,"Layout did not commit exactly one metadata transaction");
@@ -48,6 +49,10 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
         require(!host.change(),"Rejected layout published a workspace change");
         require(get()==before&&state()->session.revision()==revision&&state()->session.calculated_boundaries().data()==stored_cache&&!host.change(),"Rejected layout modified document or body");
     };
+    for(const auto& patch:std::vector<Json>{{{"value_unit","unknown"}},{{"value_unit",5}},{{"keep_trailing_zeros","yes"}},{{"unexpected_field","text"}}}) {
+        auto invalid_style=layout;invalid_style["text_style"].update(patch);
+        fail({{"reference",ref},{"layout",invalid_style}},"invalid_arguments");
+    }
     for(auto bad:std::vector<Json>{{{"plane_quarter_turns",1.5}},{{"plane_quarter_turns",4}},{{"plane_quarter_turns",4294967296ULL}},{{"envelope_offset",-1}},{{"text_along",true}},{{"text_outward",std::numeric_limits<double>::infinity()}},{{"unknown",1}},{{"arrows_reversed",1}}}) {
         auto patched=layout;patched.update(bad);fail({{"reference",ref},{"layout",patched}},"invalid_arguments");
     }

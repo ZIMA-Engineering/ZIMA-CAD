@@ -7,7 +7,7 @@ namespace zima::drawing {
 inline kernel::DimensionTextStyle sheet_dimension_style(kernel::DimensionTextStyle style) {
     const auto first=style.suffix.find_first_not_of(" \t");
     const auto last=style.suffix.find_last_not_of(" \t");
-    if(first!=std::string::npos && style.suffix.substr(first,last-first+1)=="mm")
+    if((style.value_unit.empty()||style.value_unit=="mm")&&first!=std::string::npos && style.suffix.substr(first,last-first+1)=="mm")
         style.suffix.clear();
     return style;
 }

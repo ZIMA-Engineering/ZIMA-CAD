@@ -66,8 +66,9 @@ SketchDimensionPropertiesDialog::SketchDimensionPropertiesDialog(
     }
     tabs_=new QTabWidget(this);content_layout()->addWidget(tabs_);
     auto* values=new QWidget(tabs_);auto* column=new QVBoxLayout(values);column->addLayout(form_);
-    kernel::DimensionTextStyle style{initial_.prefix,initial_.suffix,initial_.display_text_override,3,initial_.tolerance_mode,initial_.symmetric_tolerance,initial_.single_tolerance,initial_.upper_tolerance,initial_.lower_tolerance};
-    text_fields_=new DimensionTextFields(style,values,false);column->addWidget(text_fields_);column->addStretch();
+    kernel::DimensionTextStyle style{initial_.prefix,initial_.suffix,initial_.display_text_override,initial_.annotation_decimals,initial_.tolerance_mode,initial_.symmetric_tolerance,initial_.single_tolerance,initial_.upper_tolerance,initial_.lower_tolerance,initial_.value_unit,initial_.keep_trailing_zeros};
+    if(style.value_unit.empty()&&!style.keep_trailing_zeros)style.decimals=ui::numeric_decimal_places(parent);
+    text_fields_=new DimensionTextFields(style,values,true,angular);column->addWidget(text_fields_);column->addStretch();
     tabs_->addTab(values,tr("Hodnota a tolerance"));
     error_ = new QLabel(this);
     error_->setStyleSheet("color: #c64b4b;");
@@ -111,6 +112,8 @@ bool SketchDimensionPropertiesDialog::submit() {
     result.locked = locked_->isChecked();
     const auto style=text_fields_->value();
     result.prefix=style.prefix;result.suffix=style.suffix;result.display_text_override=style.text_override;
+    if(!style.value_unit.empty())result.annotation_decimals=style.decimals;
+    result.value_unit=style.value_unit;result.keep_trailing_zeros=style.keep_trailing_zeros;
     result.tolerance_mode=style.tolerance_mode;result.symmetric_tolerance=style.symmetric_tolerance;
     result.single_tolerance=style.single_tolerance;result.upper_tolerance=style.upper_tolerance;result.lower_tolerance=style.lower_tolerance;
     try {

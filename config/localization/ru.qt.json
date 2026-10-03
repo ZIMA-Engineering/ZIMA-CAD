@@ -2021,5 +2021,9 @@
   "Cannot safely convert relation units.": "Невозможно безопасно преобразовать единицы соотношений.",
   "Invalid value in row %1, column %2.": "Недопустимое значение в строке %1, столбце %2.",
   "Family dimensions must be finite numbers.": "Размеры семейства должны быть конечными числами.",
-  "Invalid dimension display units": "Недопустимые единицы отображения размера"
+  "Invalid dimension display units": "Недопустимые единицы отображения размера",
+  "Invalid dimension annotation units": "Недопустимые единицы размерной надписи",
+  "Jednotky hodnoty a tolerancí": "Единицы номинального значения и допусков",
+  "Zachovat koncové nuly": "Сохранять конечные нули",
+  "Invalid dimension text precision": "Недопустимое число десятичных знаков размерной надписи"
 }
