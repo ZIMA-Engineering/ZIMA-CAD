@@ -438,3 +438,69 @@ recovers its intended result, and Undo/Redo retain the entire cascade and body
 volume. The updated contract passed in 1.09 s (`build/surface-opening-final.log`).
 This adds no user-visible text. Final source packaging will use the subsequent
 test/documentation commit, with unchanged product implementation.
+
+### Final regression and signed Windows candidate
+
+The serial 324-test run completed in 3095.29 s: 310 tests passed and 14 failed.
+The Opening target test was corrected for the explicitly requested suppression
+cascade and passed separately. The thirteen other failures were reproduced
+against the preceding 2026100303 implementation, including the Boolean split
+native crash. The additional baseline failures are Flat unchanged OK, exact
+spline extrusion eligibility, Console GUI deletion, Unicode startup Save As,
+nested Body cache validation, Section GUI rename and Modeling application tools.
+All eight native baseline failures and all five GUI failures have direct logs;
+no unrelated product workaround or relaxed expectation was introduced.
+
+The accepted candidate was built from committed source
+`d672a8b50561606cb3ae8b78c88f283aab6ff0b1` in a fresh `C:/zcb/c0401f`
+stage. Reusing the preceding build was rejected by the executable/source
+identity gate. Fresh candidate and signed archive smoke checks passed; a fresh
+signed extraction passed the production updater's bootstrap trust check.
+The user configuration and original project files remain unchanged.
+
+The original `03.prtz` and `11.prtz` caches do not match current fingerprints.
+Isolated copies retained every primary definition byte, removed only the
+optional derived cache, and explicitly regenerated through the packaged CLI.
+The original file SHA-256 values were checked unchanged. Packaged GUI checks
+passed on the recalculated `03.prtz`, including state-attached Twist Properties,
+current face candidates, Cancel, Straighten, Undo and four authored profile wires.
+
+The optional authored-model GUI verifier assumes any existing Unbend is active.
+In `11.prtz` the existing Unbend is suppressed, so that assumption fails on both
+2026100303 and 2026100401. No application defect was found: explicitly creating
+an active Unbend on another isolated copy produced the expected native axis,
+and the packaged GUI then passed current axis display, hidden original-axis
+picking, unchanged authored cut wire and native persistence. The suppressed
+original feature and all original definitions remain unchanged. This test-input
+limitation is recorded rather than hidden through a product loading fallback.
+
+The initial package driver used `ZIMA_VERIFY_TRANSLATIONS_ONLY`, a flag owned by
+the UI-contract test executable, against the product executable. That invoked
+the full startup contract and reproduced its inherited Save As failure. The
+unsupported driver case was removed; actual translation tests and the supported
+five-language symbol GUI scenario provide localization evidence.
+
+Evidence includes `build/surface-regression-all.log`,
+`build/cpp-windows-release/surface-regression.xml`,
+`build/surface-baseline-{failures,flat,spline,gui}.log`,
+`build/release-0401-clean-candidate.log`, `build/release-0401-trust.log`,
+`build/release-0401-user-models.log`, and
+`build/release-0401-axis-gui-{baseline,preunfolded}.log`.
+Generated logs and test copies remain outside Git and release source.
+
+### Published Windows acceptance
+
+Signed 2026100401 was published at 2026-10-04T16:34:32Z from the immutable
+`d672a8b50561606cb3ae8b78c88f283aab6ff0b1` tag. Eleven supported packaged GUI
+scenarios passed, with the solid-state authored checks using the explicitly
+recalculated copies described above. The draft and anonymous public downloads
+matched all three accepted asset digests. The signed 2026100303 production updater
+verified the manifest and offered 2026100401 as installable without installing it.
+The final [release record](releases/2026100401.md) retains all thirteen inherited
+regression failures and the optional authored-test limitation. Local GUI/CLI
+build identity is 2026100401; repository `zima-cad.bat` remains the entry point.
+The verified primary-definition copies are available locally as
+`Projects/03-2026100401-overeno.prtz` and
+`Projects/11-2026100401-overeno.prtz`; both original file hashes stayed unchanged.
+No user directories were deleted. No new UI text is introduced by this final
+English-only acceptance documentation.

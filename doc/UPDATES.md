@@ -337,3 +337,13 @@ scenarios and packaged frozen IGES regeneration passed. Draft and anonymous
 public downloads matched all three asset digests. The signed 2026100102 updater
 verified the manifest and offered 2026100201 as installable, without installing
 it. See [the release record](releases/2026100201.md).
+
+Windows release
+[2026100401](https://github.com/ZIMA-Engineering/ZIMA-CAD/releases/tag/ZIMA-CAD-2026100401)
+was published at 2026-10-04T16:34:32Z. A fresh committed-source build, signed
+archive smoke, production trust and eleven supported packaged GUI scenarios
+passed. Draft and anonymous public downloads matched all three accepted asset
+hashes. The signed 2026100303 updater verified the manifest and offered
+2026100401 as installable; this check installed no update. Full regression has
+thirteen failures reproduced on the preceding version. See
+[the release record](releases/2026100401.md) for scope and limitations.

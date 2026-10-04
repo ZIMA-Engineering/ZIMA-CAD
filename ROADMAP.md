@@ -87,7 +87,7 @@ the Linux host.
 
 ### Surface creation and downstream operations (clarified 2026-10-04)
 
-See [the implemented surface commands](doc/NETWORK_SURFACE.md). The native suite and command UI are implemented; final Windows packaging acceptance is tracked separately. The requirements below retain the agreed scope.
+See [the implemented surface commands](doc/NETWORK_SURFACE.md). The native suite and command UI are implemented and published in signed Windows 2026100401; [release acceptance and regression limitations](doc/releases/2026100401.md) are recorded separately. The requirements below retain the agreed scope.
 The implemented scope follows the user's clarification: owned ordinary Sketches
 and 3D Curves, G0/G1/G2 filling, Sewing, shell Fillet, Intersection and Trim.
 

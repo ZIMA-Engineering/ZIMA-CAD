@@ -2,6 +2,18 @@
 
 ## Scope and status
 
+Windows build **2026100401** is signed, published and verified. It adds General
+Surface with owned Sketch/3D Curve definitions, Fill G0/G1/G2, Sewing with shell
+Fillet, reusable Intersection, Trim and the manual bend-note symbol. It repairs
+state geometry/references/axes, dependent suppression/restoration and Sheet Cut
+from either Flat skin Up To the opposite skin. Fresh committed-source packaging,
+signed smoke/trust, eleven supported packaged GUI scenarios, draft/public hashes
+and update discovery from 2026100303 passed. The full 324-test run identified
+thirteen remaining failures reproduced on that preceding version; full regression
+is not claimed green. Recalculated isolated user-model copies were verified,
+with original projects unchanged. See [the release record](releases/2026100401.md)
+for exact evidence and test-input limitations. Grid/G3 and Linux are separate.
+
 Windows build **2026100303** is signed, published and verified. It fixes ordinary
 feature selection after Straighten, original-wire/dimension inspection and
 circular Sheet Cut axes after Unbend. It also adds centroid-based Modeling Twist
