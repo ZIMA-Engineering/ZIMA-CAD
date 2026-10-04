@@ -10,6 +10,7 @@ inline bool has_origin_display_controls(FeatureKind kind) {
     case FeatureKind::Hole: case FeatureKind::Thread: case FeatureKind::ImportedStep:
     case FeatureKind::TwistedSheet: case FeatureKind::SheetTransition:
     case FeatureKind::Flat: case FeatureKind::Bend: case FeatureKind::Holes:
+    case FeatureKind::GeneralSurface:
         return true;
     default: return false;
     }

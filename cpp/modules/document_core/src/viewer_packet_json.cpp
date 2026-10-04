@@ -1,4 +1,5 @@
 #include <zima/kernel/bspline_json.hpp>
+#include <zima/kernel/solid_state_ancestry.hpp>
 #include <zima/document/dimension_layout_json.hpp>
 #include <zima/document/viewer_packet_json.hpp>
 
@@ -19,7 +20,8 @@ namespace zima::document {
 namespace {
 
 void restore_reference_curve_style(zima::kernel::ViewerEdge& edge) {
-    if(!edge.reference.semantic_key.starts_with("centerline:from:"))return;
+    std::string source_key;
+    if(!zima::kernel::solid_state_source_key(edge.reference.semantic_key,source_key).starts_with("centerline:from:"))return;
     edge.construction=true;edge.overlay=true;edge.dash_dot=true;
     edge.display_owner_id=edge.reference.owner_id;
 }
@@ -945,12 +947,18 @@ zima::kernel::BodyResult load_body_result(const nlohmann::json& source) {
     }
     // Rotation datums are visible presentation of the same persisted
     // reference geometry. Reconstruct their display list without recalculation.
+    const auto changed_by_solid_state=[&](const auto& reference) {
+        return std::ranges::any_of(result.mesh.triangle_references,[&](const auto& face) {
+            return face.display_owner_id==reference.owner_id&&face.instance_path==reference.instance_path&&
+                zima::kernel::solid_state_parent(face.semantic_key).has_value();
+        });
+    };
     for(const auto& axis:result.mesh.original_references.axes)
-        if(axis.reference.semantic_key.starts_with("helical:rotation-axis:")&&
+        if(axis.reference.semantic_key.starts_with("helical:rotation-axis:")&&!changed_by_solid_state(axis.reference)&&
             std::none_of(result.mesh.axes.begin(),result.mesh.axes.end(),[&](const auto& value){return value.reference==axis.reference;}))
             result.mesh.axes.push_back(axis);
     for(const auto& point:result.mesh.original_references.points)
-        if(point.reference.semantic_key.starts_with("helical:axis-point:")&&
+        if(point.reference.semantic_key.starts_with("helical:axis-point:")&&!changed_by_solid_state(point.reference)&&
             std::none_of(result.mesh.points.begin(),result.mesh.points.end(),[&](const auto& value){return value.reference==point.reference;}))
             result.mesh.points.push_back(point);
     return result;

@@ -34,6 +34,22 @@ part_annotation_frames(const PartDocument &part) {
     for (const auto &c : part.history)
         if (c.feature_kind == FeatureKind::Sweep3D)
             construction(construction, c.sweep3d.path);
+        else if(c.feature_kind==FeatureKind::GeneralSurface) {
+            const auto parent=body_frame(c.id,annotation_frame(c.placement));
+            const auto owned=[&](auto&& self,const ConstructionObject& object,const kernel::ModelEnvelope& frame)->void {
+                const auto placed=kernel::composed_annotation_frame(frame,kernel::annotation_frame(object.origin,object.rotation));
+                for(const auto& id:{object.id,object.entity_id,object.container_origin.id})if(!id.empty())frames[{id,{}}]=placed;
+                for(const auto& point:object.curve_points)self(self,point,placed);
+            };
+            for(const auto& boundary:c.general_surface.boundaries)
+                if(boundary.curve)owned(owned,*boundary.curve,parent);
+                else {
+                    const auto sketch=sketcher::Sketch::from_serialized(boundary.sketch_serialized);
+                    kernel::ModelEnvelope frame;frame.origin=sketch.resolved_origin;
+                    frame.axes={sketch.resolved_x_axis,sketch.resolved_y_axis,sketch.resolved_normal};
+                    frames[{sketch.id,{}}]=body_frame(c.id,std::move(frame));
+                }
+        }
     for (const auto &sketch : part.sketches) {
         kernel::ModelEnvelope f;
         f.origin = sketch.resolved_origin;

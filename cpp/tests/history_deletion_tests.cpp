@@ -3,12 +3,40 @@
 #include <zima/workspace/history_operations.hpp>
 #include <zima/workspace/part_transactions.hpp>
 #include <zima/workspace/edge_treatment_operations.hpp>
+#include <zima/document/bend.hpp>
 #include <iostream>
 using namespace zima;
 static void require(bool value,const char* message) {if(!value)throw std::runtime_error(message);}
+static void verify_sheet_suppression(const kernel::OcctKernel& kernel) {
+    auto doc=document::PartDocument::create_default();
+    auto bend=document::PartDocument::create_sketch_container();bend.feature_kind=document::FeatureKind::Bend;
+    auto sketch=sketcher::Sketch::create_default();sketch.owner_container_id=bend.id;
+    static_cast<void>(sketch.add_segment(0,0,40,0));bend.bend.sketch_id=sketch.id;
+    bend.bend.thickness_override=true;bend.bend.thickness=2;
+    bend.bend.radius_follows_thickness=false;bend.bend.radius=8;bend.bend.angle_degrees=77;
+    auto unbend=document::PartDocument::create_sketch_container();unbend.feature_kind=document::FeatureKind::Unbend;unbend.sheet_state.all=true;
+    auto formed=document::PartDocument::create_sketch_container();formed.feature_kind=document::FeatureKind::BendBack;formed.sheet_state.all=true;
+    doc.history={bend,unbend,formed};doc.sketches={sketch};
+    document::BodyHistoryGraph graph;static_cast<void>(graph.create_body("Sheet"));
+    for(const auto& feature:doc.history)graph.insert({document::PartHistoryKind::Feature,feature.id});
+    doc.set_body_history(graph);doc.resolve_constructions();const auto original=doc.serialized();
+    workspace::Workspace live;const auto id=doc.document_id;
+    live.add_part(doc,workspace::calculate_part(kernel,doc));
+    require(workspace::set_part_history_suppressed(live,id,kernel,unbend.id,true),"Unbend suppression did not change history");
+    auto& session=live.open_part(id)->session;
+    require(!session.document().find_container(bend.id)->suppressed&&session.document().find_container(unbend.id)->suppressed&&
+        session.document().find_container(formed.id)->suppressed,"Unbend suppression omitted Bend Back or changed its source");
+    require(workspace::set_part_history_suppressed(live,id,kernel,formed.id,false)&&session.document().serialized()==original,
+        "Bend Back restoration did not restore preceding Unbend");
+    require(workspace::set_part_history_suppressed(live,id,kernel,bend.id,true),"Sheet source suppression did not change history");
+    for(const auto& feature:doc.history)require(session.document().find_container(feature.id)->suppressed,"Sheet source suppression omitted a state");
+    require(workspace::set_part_history_suppressed(live,id,kernel,formed.id,false)&&session.document().serialized()==original&&
+        session.calculated_boundaries().back().calculation_errors.empty(),"Bend Back restoration omitted its original sheet source");
+}
 int main() {
     try {
         kernel::OcctKernel kernel;
+        verify_sheet_suppression(kernel);
         auto doc=document::PartDocument::create_default();
         auto source=test::rectangular_feature(doc,{10,10,10});
         doc.history={source};
@@ -37,6 +65,56 @@ int main() {
         const auto original=doc.serialized();
         const auto plan=workspace::plan_history_deletion(doc,source.id);
         require(plan.affected==std::set<std::string>{fillet.id,chamfer.id},"Dependency closure lost descendants");
+        {
+            auto suppression_doc=doc;
+            auto independent=test::rectangular_feature(suppression_doc,{3,3,3});
+            suppression_doc.history.push_back(independent);
+            auto suppression_graph=suppression_doc.body_history;
+            const auto source_body=suppression_graph.active_body_id();
+            static_cast<void>(suppression_graph.create_body("Independent"));
+            suppression_graph.insert({document::PartHistoryKind::Feature,independent.id});
+            suppression_graph.activate(source_body);suppression_doc.set_body_history(suppression_graph);
+            const auto unchanged=suppression_doc.serialized();
+            workspace::Workspace suppression_live;
+            const auto suppression_id=suppression_doc.document_id;
+            suppression_live.add_part(suppression_doc,workspace::calculate_part(kernel,suppression_doc));
+            auto& session=suppression_live.open_part(suppression_id)->session;
+            const auto revision=session.revision();
+            require(workspace::set_part_history_suppressed(suppression_live,suppression_id,kernel,source.id,true),"Source suppression did not change history");
+            require(session.revision()==revision+1&&session.document().find_container(source.id)->suppressed&&
+                session.document().find_container(fillet.id)->suppressed&&session.document().find_container(chamfer.id)->suppressed&&
+                !session.document().find_container(independent.id)->suppressed,"Suppression lost transitive consumers or changed independent history");
+            require(session.calculated_boundaries().back().calculation_errors.empty()&&session.document().removed_reference_states.empty(),
+                "Suppression reported deleted/missing references");
+            auto expected=suppression_doc;
+            for(const auto& id:{source.id,fillet.id,chamfer.id})expected.find_container(id)->suppressed=true;
+            require(session.document().serialized()==expected.serialized(),"Suppression rewrote authored definitions or references");
+            const auto generation=session.data_generation();
+            require(!workspace::set_part_history_suppressed(suppression_live,suppression_id,kernel,source.id,true)&&
+                session.revision()==revision+1&&session.data_generation()==generation,"Repeated suppression recalculated or committed");
+            std::vector<kernel::BodyResult> saved;
+            const auto reopened=document::PartDocument::from_serialized(session.document().serialized(session.calculated_boundaries()),&saved);
+            require(reopened.serialized()==expected.serialized()&&!saved.empty(),"Native reopen lost cascaded suppression");
+            require(workspace::step_part_document_history(suppression_live,suppression_id,false)&&session.document().serialized()==unchanged,
+                "Suppression Undo did not restore source and all consumers together");
+            require(workspace::step_part_document_history(suppression_live,suppression_id,true)&&session.document().serialized()==expected.serialized(),
+                "Suppression Redo did not restore all flags together");
+            const auto restore_revision=session.revision();
+            require(workspace::set_part_history_suppressed(suppression_live,suppression_id,kernel,fillet.id,false),"Dependent restoration did not change history");
+            auto partially_restored=expected;
+            partially_restored.find_container(source.id)->suppressed=false;
+            partially_restored.find_container(fillet.id)->suppressed=false;
+            require(session.revision()==restore_revision+1&&session.document().serialized()==partially_restored.serialized()&&
+                session.calculated_boundaries().back().calculation_errors.empty(),"Restoration omitted prerequisite sources or enabled downstream history");
+            require(workspace::step_part_document_history(suppression_live,suppression_id,false)&&session.document().serialized()==expected.serialized(),
+                "Restoration Undo did not return all flags together");
+            require(workspace::set_part_history_suppressed(suppression_live,suppression_id,kernel,source.id,false)&&
+                !session.document().find_container(source.id)->suppressed&&session.document().find_container(fillet.id)->suppressed&&
+                session.document().find_container(chamfer.id)->suppressed,"Source restoration enabled its downstream consumers");
+            require(workspace::set_part_history_suppressed(suppression_live,suppression_id,kernel,chamfer.id,false)&&
+                session.document().serialized()==unchanged&&session.calculated_boundaries().back().calculation_errors.empty(),
+                "Restoring a final dependent did not enable its transitive prerequisites");
+        }
         require(doc.serialized()==original,"Preview mutated document");
         workspace::Workspace live;const auto id=doc.document_id;
         live.add_part(doc,workspace::calculate_part(kernel,doc));

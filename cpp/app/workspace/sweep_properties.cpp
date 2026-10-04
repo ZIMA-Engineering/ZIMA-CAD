@@ -5,6 +5,8 @@
 #include <zima/workspace/sheet_transition_operations.hpp>
 #include <zima/document/metadata.hpp>
 #include "../sheet_transition_dialog.hpp"
+#include "../general_surface_dialog.hpp"
+#include <zima/workspace/general_surface_operations.hpp>
 
 namespace zima::app {
 using namespace workspace_detail;
@@ -84,17 +86,19 @@ void AssemblyWorkspaceWindow::show_sweep_properties(zima::document::FeatureKind 
     const auto occurrence=resolve_active_occurrence(part->session.document().document_id);if(!occurrence)return;
     const bool planar=kind==zima::document::FeatureKind::Sweep2D;
     const bool transition=kind==zima::document::FeatureKind::SheetTransition;
+    const bool general=kind==zima::document::FeatureKind::GeneralSurface;
     if(transition&&id.empty()&&zima::document::has_sheet_transition(part->session.document())) {
         state_->setText(tr("A Part can contain only one sheet transition."));return;
     }
-    auto initial=transition?zima::document::create_sheet_transition(rectangular):planar?zima::document::PartDocument::create_sweep2d_container():zima::document::PartDocument::create_helical_sweep_container();
-    if(!transition)initial.sweep_precision.default_tolerance=planar?application_settings_.sweep_precision_defaults.sweep2d:application_settings_.sweep_precision_defaults.helical;
+    auto initial=general?zima::document::create_general_surface():transition?zima::document::create_sheet_transition(rectangular):planar?zima::document::PartDocument::create_sweep2d_container():zima::document::PartDocument::create_helical_sweep_container();
+    if(!transition&&!general)initial.sweep_precision.default_tolerance=planar?application_settings_.sweep_precision_defaults.sweep2d:application_settings_.sweep_precision_defaults.helical;
     initial.name=tr(initial.name.c_str()).toStdString();
     const auto localize_sketch = [](std::string& data) {
         auto sketch=zima::sketcher::Sketch::from_serialized(data);
         sketch.name=QObject::tr(sketch.name.c_str()).toStdString();data=sketch.serialized();
     };
-    if (planar) { for (auto& data : initial.sweep2d.sketches()) localize_sketch(data); }
+    if (general) { for(auto& boundary:initial.general_surface.boundaries)if(!boundary.curve)localize_sketch(boundary.sketch_serialized); }
+    else if (planar) { for (auto& data : initial.sweep2d.sketches()) localize_sketch(data); }
     else if(transition) { for(auto& data:initial.sheet_transition.sketches)localize_sketch(data);const auto defaults=zima::document::sheet_metal_defaults(part->session.document());initial.sheet_transition.thickness=defaults.thickness_mm.value_or(1.);initial.sheet_transition.inside_radius=initial.sheet_transition.thickness;initial.sheet_transition.k_factor=defaults.k_factor; }
     else { for (auto& data : initial.helical.sketches) localize_sketch(data); }
     if(!id.empty()){
@@ -106,12 +110,13 @@ void AssemblyWorkspaceWindow::show_sweep_properties(zima::document::FeatureKind 
             boundary ? boundary->input_body : std::nullopt};
     }
     const auto document_id=part->session.document().document_id;
-    const auto commit=[this,document_id,transition,editing=!id.empty()](auto c){
+    const auto commit=[this,document_id,transition,general,editing=!id.empty()](auto c){
+        if(general){static_cast<void>(zima::workspace::commit_general_surface(workspace_,kernel_,document_id,std::move(c)));return;}
         if(transition){static_cast<void>(zima::workspace::commit_sheet_transition(workspace_,kernel_,document_id,std::move(c)));return;}
         zima::workspace::commit_sweep(workspace_,kernel_,document_id,std::move(c),
             editing?zima::workspace::SweepEditMode::Replace:zima::workspace::SweepEditMode::Create);
     };
-    SweepPlacementDialog* dialog=transition?static_cast<SweepPlacementDialog*>(new SheetTransitionDialog(initial,commit,this)):planar?static_cast<SweepPlacementDialog*>(new Sweep2DDialog(initial,commit,this)):
+    SweepPlacementDialog* dialog=general?static_cast<SweepPlacementDialog*>(new GeneralSurfaceDialog(initial,commit,this)):transition?static_cast<SweepPlacementDialog*>(new SheetTransitionDialog(initial,commit,this)):planar?static_cast<SweepPlacementDialog*>(new Sweep2DDialog(initial,commit,this)):
         static_cast<SweepPlacementDialog*>(new HelicalSweepDialog(initial,commit,this));
     properties_dialog_=dialog;properties_dialog_instance_path_=*occurrence;
     primitive_parameter_owner_id_=initial.id;primitive_reference_dialog_=dialog;
@@ -147,7 +152,7 @@ void AssemblyWorkspaceWindow::show_sweep_properties(zima::document::FeatureKind 
         feature_reference_pick_={};feature_reference_end_={};
         start_primitive_reference_selection(i);
     };
-    dialog->changed=[this,dialog,planar,transition,geometry,body_id]{
+    dialog->changed=[this,dialog,planar,transition,general,geometry,body_id]{
         const auto* planar_editor=dynamic_cast<Sweep2DDialog*>(dialog);
         if(!dialog->isVisible()&&!(planar_editor&&planar_editor->point_order_open()))return;
         const bool valid=dialog->resolve_pending_placement(geometry);
@@ -164,7 +169,7 @@ void AssemblyWorkspaceWindow::show_sweep_properties(zima::document::FeatureKind 
             const auto points=zima::document::sheet_transition_axis_points(c,true);
             primitive_origin_preview_mesh_->points.insert(primitive_origin_preview_mesh_->points.end(),points.begin(),points.end());
         }else primitive_origin_preview_mesh_->points.push_back(zima::document::container_origin_marker(c,true));
-        if(!planar&&!transition) {
+        if(!planar&&!transition&&!general) {
             // Use ordinary axis/point presentation, including its brown datum
             // colour, rather than anonymous green transient point markers.
             const auto axis=zima::document::PartDocument::helical_axis_geometry(c,true);
@@ -172,6 +177,7 @@ void AssemblyWorkspaceWindow::show_sweep_properties(zima::document::FeatureKind 
             primitive_origin_preview_mesh_->points.insert(primitive_origin_preview_mesh_->points.end(),axis.points.begin(),axis.points.end());
         }
         if(transition)zima::document::reframe_sheet_transition(c);
+        if(general)zima::document::reframe_general_surface(c);
         parameter_dimension_preview_=c;construction_dimension_object_id_=c.id;
         viewer_->set_feature_preview_owners({c.feature_id,c.container_origin.id});
         preserve_view_on_refresh_=true;refresh_scene();
@@ -188,21 +194,30 @@ void AssemblyWorkspaceWindow::show_sweep_properties(zima::document::FeatureKind 
         try{
             if(!valid&&!c.placement.references.empty())throw std::runtime_error("Chybí reference umístění kontejneru");
             if(planar)zima::document::PartDocument::resolve_sweep2d_planes(c,geometry);
-            if(planar)preview_mesh=zima::document::PartDocument::sweep2d_preview_mesh(c);
+            if(general)preview_mesh=zima::document::general_surface_definition_mesh(c);
+            else if(planar)preview_mesh=zima::document::PartDocument::sweep2d_preview_mesh(c);
             else if(transition)preview_mesh=zima::document::sheet_transition_preview(c);
             else edges=zima::document::PartDocument::helical_preview_edges(c);
-            dialog->set_status(transition?tr("Upravte obě skici a polohu druhého počátku. OK vytvoří plech."):tr("Dráha připravena. OK vytvoří těleso."));
-        }catch(const std::exception& e){dialog->set_status(transition?tr(e.what()):QString::fromUtf8(e.what()));}
-        auto sketches=transition?std::vector<zima::kernel::ViewerEdge>{}:planar?zima::document::PartDocument::sweep2d_sketch_edges(c):
+            dialog->set_status(general?QString{}:transition?tr("Upravte obě skici a polohu druhého počátku. OK vytvoří plech."):tr("Dráha připravena. OK vytvoří těleso."));
+        }catch(const std::exception& e){dialog->set_status((transition||general)?tr(e.what()):QString::fromUtf8(e.what()));}
+        auto sketches=(transition||general)?std::vector<zima::kernel::ViewerEdge>{}:planar?zima::document::PartDocument::sweep2d_sketch_edges(c):
             zima::document::PartDocument::helical_sketch_edges(c);
         edges.insert(edges.end(),std::make_move_iterator(sketches.begin()),std::make_move_iterator(sketches.end()));
-        if(!planar&&!transition) {
+        if(!planar&&!transition&&!general) {
             if(auto marker=helical_start_marker(c))preview_mesh.points.push_back(std::move(*marker));
         }
         if(!body_id.empty())if(const auto* part=workspace_.open_part(workspace_.active_document_id())) {
             preview_mesh=part->session.document().place_body_mesh(std::move(preview_mesh),body_id);
         }
         for(auto& e:edges){e.reference.instance_path=properties_dialog_instance_path_;if(!properties_dialog_instance_path_.empty())for(auto& p:e.points)p=workspace_.occurrence_point_to_scene(workspace_.displayed_document_id(),zima::assembly::InstancePath::decode(properties_dialog_instance_path_),p);}
+        if(auto* editor=dynamic_cast<GeneralSurfaceDialog*>(dialog)) {
+            auto inspected=highlighted_reference_edge_keys(*dialog);
+            for(const auto& edge:edges)if(editor->inspected_boundaries().contains(edge.reference.owner_id))
+                inspected.insert({edge.reference.owner_id,edge.reference.semantic_key,properties_dialog_instance_path_});
+            viewer_->set_constraint_reference_highlights({},std::move(inspected));
+            if(!pending_primitive_reference_index_&&!local_origin_selection_active_)
+                feature_reference_end_=[editor]{editor->end_entry();};
+        }
         std::vector<std::pair<zima::kernel::Vec3,std::string>> labels;
         std::vector<zima::kernel::Vec3> points;
         const auto scene_point=[&](zima::kernel::Vec3 point){return properties_dialog_instance_path_.empty()?point:
@@ -214,19 +229,20 @@ void AssemblyWorkspaceWindow::show_sweep_properties(zima::document::FeatureKind 
         viewer_->set_transient_labels(std::move(labels));viewer_->set_transient_points(std::move(points));
         if(!pending_primitive_reference_index_&&!feature_reference_pick_&&!local_origin_selection_active_)set_primitive_properties_dimension_selection();
     };
-    dialog->edit_sketch=[this,dialog,planar,transition,geometry,body_id](unsigned stage){
+    dialog->edit_sketch=[this,dialog,planar,transition,general,geometry,body_id](unsigned stage){
         try{
             QString frame_warning;
             auto framed=dialog->pending;
             try {
-                if(planar)zima::document::PartDocument::resolve_sweep2d_planes(framed,geometry);
+                if(general)zima::document::reframe_general_surface(framed);
+                else if(planar)zima::document::PartDocument::resolve_sweep2d_planes(framed,geometry);
                 else if(transition)zima::document::reframe_sheet_transition(framed);
                 else zima::document::PartDocument::reframe_helical_sketches(framed,stage);
                 dialog->pending=std::move(framed);
             } catch(const std::exception& error) {
                 frame_warning=tr("Skica používá uloženou rovinu; závislost není dořešená: %1").arg(QObject::tr(error.what()));
             }
-            sweep_profile_sketch_draft_=zima::sketcher::Sketch::from_serialized(transition?dialog->pending.sheet_transition.sketches.at(stage):planar?dialog->pending.sweep2d.sketch_data(stage):dialog->pending.helical.sketches.at(stage));
+            sweep_profile_sketch_draft_=zima::sketcher::Sketch::from_serialized(general?dialog->pending.general_surface.boundaries.at(stage).sketch_serialized:transition?dialog->pending.sheet_transition.sketches.at(stage):planar?dialog->pending.sweep2d.sketch_data(stage):dialog->pending.helical.sketches.at(stage));
             embedded_sketch_finished_=[this,dialog,stage](auto s){
                 helical_sketch_context_.reset();
                 properties_dialog_=dialog;primitive_reference_dialog_=dialog;dialog->set_sketch(stage,s);dialog->show();dialog->raise();
@@ -237,7 +253,12 @@ void AssemblyWorkspaceWindow::show_sweep_properties(zima::document::FeatureKind 
             viewer_->set_constraint_reference_highlights({},{});primitive_origin_preview_mesh_.reset();parameter_dimension_preview_.reset();
             dialog->hide();properties_dialog_=nullptr;viewer_->set_transient_edges({});viewer_->set_transient_labels({});viewer_->set_transient_points({});
             active_sketch_id_=sweep_profile_sketch_draft_->id;selected_sketch_id_=active_sketch_id_;
-            if(!planar&&!transition) {
+            if(general) {
+                helical_sketch_context_=zima::document::general_surface_definition_mesh(dialog->pending);
+                auto& context=*helical_sketch_context_;
+                std::erase_if(context.edges,[&](const auto& edge){return edge.reference.owner_id==active_sketch_id_;});
+                std::erase_if(context.points,[&](const auto& point){return point.reference.owner_id==active_sketch_id_;});
+            } else if(!planar&&!transition) {
                 helical_sketch_context_=zima::document::PartDocument::helical_axis_geometry(dialog->pending,true);
                 auto& context=*helical_sketch_context_;
                 context.edges=zima::document::PartDocument::helical_sketch_edges(dialog->pending);
@@ -263,6 +284,8 @@ void AssemblyWorkspaceWindow::show_sweep_properties(zima::document::FeatureKind 
             state_->setText(frame_warning.isEmpty() ? tr("Nakreslete geometrii a potom zvolte Dokončit skicu.") : frame_warning);
         }catch(const std::exception& e){dialog->set_status(QString::fromUtf8(e.what()));}
     };
+    if(auto* editor=dynamic_cast<GeneralSurfaceDialog*>(dialog))
+        editor->edit_curve=[this,editor](unsigned stage){show_general_surface_curve_properties(editor,stage);};
     connect(dialog,&QDialog::finished,this,[this]{
         helical_sketch_context_.reset();
         feature_reference_pick_={};feature_reference_end_={};pending_primitive_reference_index_.reset();primitive_reference_auto_advance_=false;

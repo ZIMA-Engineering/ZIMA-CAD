@@ -923,26 +923,45 @@ application panels and retaining camera/highlight state. Exports do not change
 the open document's path. See [Drawing commands](DRAWING_COMMANDS.md) and
 [View export](VIEW_EXPORT_COMMAND.md).
 
-## Boundary Surface
+## Surface modeling
 
-In Modeling, activate an editable Body and choose **Boundary Surface**. Select
-four boundary curves in perimeter order. Pick individual Sketch curves in the
-View, or complete open Sketch / 3D Curve chains in the Tree. Adjacent boundaries
-must meet at their endpoints. A closed Sketch is not one boundary; select its
-four sides individually instead. Crossing or disconnected contours are invalid.
+Activate an editable Body and use the surface group after Drill Point in Modeling.
+**General Surface** owns ordinary Sketches and 3D Curves inside its container.
+Click a boundary field to edit it, choose Sketch plane/offset, and add, remove or
+reorder definitions. The container's ordinary Origin placement carries the
+complete perimeter. Nested edits commit only with the outer OK.
 
-Each numbered reference row has shared input, clear and inspection controls.
-Click its reference field to replace it; the eye independently highlights that
-boundary. Clearing a reference retains its row. A short middle click ends input
-and clears inspection. **OK**, including middle-button double-click over the
-View, calculates the surface. **Cancel** discards pending changes. Reopen the
-result's Properties to edit the same four references with normal history rollback.
+**Fill Surface** uses preceding curves or native edges. Enter a closed perimeter
+in boundary order, including triangular or two-arc contours. Each boundary can
+request G0, G1 or G2; G1/G2 also need its original supporting face. Incompatible
+geometry or unsatisfied continuity is reported rather than approximated silently.
 
-The command creates a surface with no material thickness or volume. The interior
-is generated from the boundaries; this version has no editable interior grid or
-tangency controls. Edit the source curves and explicitly regenerate to update the
-surface. Sheet conversion, unfolding and extrusion up to the surface are separate
-future work. See [Boundary Surface](NETWORK_SURFACE.md).
+**Sewing** joins contiguous calculated faces into one surface shell. Use
+**Fillet** on that shell's real input edges with a feasible radius. Neither
+operation automatically creates a solid.
+
+**Surface Intersection** selects two original bounded faces and creates reusable
+curves or isolated points. It leaves the input surfaces unchanged. Fill and Trim
+can reference the resulting edges; compatible Sweeps can use them through
+ordinary Sketch External Geometry. Coincident areas report an error.
+
+**Surface Trim** selects a current surface, cutting faces or native edges, then
+**Select retained region** lets you click inside the part to keep. A curve tool
+must lie on the bounded surface and divide it. A closed loop can keep its interior
+or the surrounding region with a hole. Avoid clicking directly on the cut.
+If a source change invalidates the retained region, reopen Properties and select
+it again. Tools and unselected surfaces/solids remain unchanged.
+
+The eye inspects an exact stored reference independently of entry. Click a field
+to replace its reference; removable list entries have a red cross. A short middle
+click ends entry and inspection without deleting values. OK (also a middle-button
+double-click over the View) calculates and commits; Cancel discards the draft.
+Properties shows the real model immediately before the feature. Unchanged OK
+adds no Undo step. Save/reopen and regeneration retain native source identities.
+
+All surface results have zero material volume. Grid editing and G3 continuity
+are deferred. See [Surface commands](NETWORK_SURFACE.md) for exact capabilities,
+identity limits and verification scope.
 
 ## 2D Sweep and profile stations
 

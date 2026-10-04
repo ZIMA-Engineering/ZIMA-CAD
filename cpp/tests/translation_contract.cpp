@@ -16,6 +16,10 @@
 #include "feature_naming.hpp"
 #include "sheet_transition_dialog.hpp"
 #include "boundary_surface_dialog.hpp"
+#include "surface_sewing_dialog.hpp"
+#include "surface_intersection_dialog.hpp"
+#include "surface_trim_dialog.hpp"
+#include "general_surface_dialog.hpp"
 #include "helical_sweep_dialog.hpp"
 #include "sweep_point_order_dialog.hpp"
 #include "sweep2d_dialog.hpp"
@@ -369,12 +373,25 @@ int verify_translations(QApplication& application, QWidget& parent) {
             auto feature=document::create_boundary_surface();feature.name="Authored surface name";
             app::BoundarySurfaceDialog dialog(feature,[](auto){},&parent);
             dialog.setAttribute(Qt::WA_DeleteOnClose,false);dialog.show();application.processEvents();
+            check(std::ranges::any_of(dialog.findChildren<QLabel*>(),[&](const auto* label){return label->text()==settings.qt_translations.value("Vlastnosti zaplnění plochy");}),
+                "Fill Surface title is untranslated");
             auto* table=dialog.findChild<QTableWidget*>("boundarySurfaceReferences");
             check(table&&table->horizontalHeaderItem(0)&&table->horizontalHeaderItem(2)&&table->item(0,2),"Boundary translation controls missing");
             check(table->horizontalHeaderItem(0)->text()==settings.qt_translations.value("Č.")&&
                 table->horizontalHeaderItem(2)->text()==settings.qt_translations.value("Hraniční křivka")&&
                 table->item(0,2)->text()==settings.qt_translations.value("Vyberte hranici"),
                 "Boundary reference labels are untranslated");
+            auto* count=dialog.findChild<QSpinBox*>("boundarySurfaceCount");check(count,"Boundary count control missing");
+            check(table->horizontalHeaderItem(4)->text()==settings.qt_translations.value("Návaznost")&&
+                table->horizontalHeaderItem(6)->text()==settings.qt_translations.value("Podpůrná plocha")&&
+                table->horizontalHeaderItem(8)->text()==settings.qt_translations.value("Opačná strana"),"Fill continuity headers are untranslated");
+            dialog.findChild<QComboBox*>("boundaryContinuity0")->setCurrentIndex(1);
+            check(table->item(0,6)->text()==settings.qt_translations.value("Vyberte podpůrnou plochu"),"Missing support prompt is untranslated");
+            dialog.findChild<QComboBox*>("boundaryContinuity0")->setCurrentIndex(0);
+            const auto boundary_labels=dialog.findChildren<QLabel*>();
+            check(std::ranges::any_of(boundary_labels,[&](const auto* label){return label->text()==settings.qt_translations.value("Počet hranic");})&&
+                std::ranges::any_of(boundary_labels,[&](const auto* label){return label->text()==settings.qt_translations.value("Vyberte hranice po obvodu: křivky Skici, otevřené 3D křivky nebo původní hrany ploch.");}),
+                "Variable boundary count labels are untranslated");
             auto* clear=table->cellWidget(0,1)->findChild<QPushButton*>();
             check(clear,"Boundary clear button missing");
             check(clear->toolTip()==settings.qt_translations.value("Vymazat hranici; řádek zůstane zachován"),
@@ -384,6 +401,54 @@ int verify_translations(QApplication& application, QWidget& parent) {
                 "Changing language translated an authored surface name");
             dialog.hide();
             std::cerr<<"Boundary translations checked"<<std::endl;
+            auto sewing=document::create_surface_sewing();sewing.name="Authored sewing name";
+            app::SurfaceSewingDialog sewing_dialog(sewing,[](auto){},&parent);sewing_dialog.setAttribute(Qt::WA_DeleteOnClose,false);
+            sewing_dialog.show();application.processEvents();
+            auto* sewing_table=sewing_dialog.findChild<QTableWidget*>("surfaceSewingReferences");
+            check(sewing_table&&sewing_table->horizontalHeaderItem(2)->text()==settings.qt_translations.value("Plocha")&&
+                sewing_table->item(0,2)->text()==settings.qt_translations.value("Vyberte plochu…"),"Sewing reference labels are untranslated");
+            check(sewing_table->cellWidget(0,1)->findChild<QPushButton*>()->toolTip()==settings.qt_translations.value("Odstranit plochu ze seznamu"),
+                "Sewing removal tooltip is untranslated");
+            const auto sewing_labels=sewing_dialog.findChildren<QLabel*>();
+            check(std::ranges::any_of(sewing_labels,[&](const auto* label){return label->text()==settings.qt_translations.value("Vlastnosti sešití ploch");})&&
+                std::ranges::any_of(sewing_labels,[&](const auto* label){return label->text()==settings.qt_translations.value("Vyberte plochy ke spojení do jednoho pláště. Sešití nepřidává objem.");}),
+                "Sewing title or instruction is untranslated");
+            check(sewing_dialog.findChild<QLineEdit*>("surfaceSewingName")->text()=="Authored sewing name","Sewing translated an authored name");
+            sewing_dialog.hide();
+            auto intersection=document::create_surface_intersection();intersection.name="Authored intersection";
+            app::SurfaceIntersectionDialog intersection_dialog(intersection,[](auto){},&parent);
+            intersection_dialog.setAttribute(Qt::WA_DeleteOnClose,false);intersection_dialog.show();application.processEvents();
+            auto* intersection_table=intersection_dialog.findChild<QTableWidget*>("surfaceIntersectionReferences");
+            check(intersection_table&&intersection_table->horizontalHeaderItem(2)->text()==settings.qt_translations.value("Plocha")&&
+                intersection_table->item(0,2)->text()==settings.qt_translations.value("Vyberte plochu…"),"Intersection reference labels are untranslated");
+            const auto intersection_labels=intersection_dialog.findChildren<QLabel*>();
+            check(std::ranges::any_of(intersection_labels,[&](const auto* label){return label->text()==settings.qt_translations.value("Vlastnosti průsečíku ploch");})&&
+                std::ranges::any_of(intersection_labels,[&](const auto* label){return label->text()==settings.qt_translations.value("Vyberte dvě původní plochy. Výsledkem jsou samostatné 3D křivky a body.");}),
+                "Intersection title or instruction is untranslated");
+            check(intersection_dialog.findChild<QLineEdit*>("surfaceIntersectionName")->text()=="Authored intersection","Intersection translated an authored name");
+            intersection_dialog.hide();
+            auto trim=document::create_surface_trim();trim.name="Authored trim";
+            app::SurfaceTrimDialog trim_dialog(trim,[](auto){},&parent);trim_dialog.setAttribute(Qt::WA_DeleteOnClose,false);
+            trim_dialog.show();application.processEvents();
+            auto* trim_table=trim_dialog.findChild<QTableWidget*>("surfaceTrimReferences");
+            check(trim_table&&trim_table->item(0,2)->text()==settings.qt_translations.value("Vyberte cílovou plochu…")&&
+                trim_table->item(1,2)->text()==settings.qt_translations.value("Vyberte řeznou plochu nebo hranu…"),"Trim reference prompts are untranslated");
+            const auto trim_labels=trim_dialog.findChildren<QLabel*>();
+            check(std::ranges::any_of(trim_labels,[&](const auto* label){return label->text()==settings.qt_translations.value("Vlastnosti oříznutí plochy");})&&
+                trim_dialog.findChild<QPushButton*>("surfaceTrimRegion")->text()==settings.qt_translations.value("Vybrat zachovanou část"),"Trim title or region action is untranslated");
+            check(trim_dialog.findChild<QLineEdit*>("surfaceTrimName")->text()=="Authored trim","Trim translated an authored name");trim_dialog.hide();
+            auto general=document::create_general_surface();general.name="Authored general surface";
+            app::GeneralSurfaceDialog general_dialog(general,[](auto){},&parent);general_dialog.setAttribute(Qt::WA_DeleteOnClose,false);
+            general_dialog.show();application.processEvents();
+            auto* general_table=general_dialog.findChild<QTableWidget*>("generalSurfaceBoundaries");
+            check(general_table&&general_table->horizontalHeaderItem(3)->text()==settings.qt_translations.value("Vlastní hranice")&&
+                general_table->cellWidget(0,2)->findChild<QPushButton*>()->toolTip()==settings.qt_translations.value("Odstranit vlastní hranici"),
+                "General surface boundary labels are untranslated");
+            check(general_dialog.findChild<QPushButton*>("generalSurfaceAddCurve")->text()==settings.qt_translations.value("Přidat 3D křivku")&&
+                general_dialog.findChild<QPushButton*>("generalSurfaceAddSketch")->text()==settings.qt_translations.value("Přidat skicu"),
+                "General surface editor actions are untranslated");
+            check(general_dialog.findChild<QLineEdit*>("generalSurfaceName")->text()=="Authored general surface","General surface translated an authored name");
+            general_dialog.hide();
         }
         {
             app::SweepPrecisionControls controls({},&parent,{});

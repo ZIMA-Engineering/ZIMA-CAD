@@ -9,6 +9,10 @@
 
 namespace zima::workspace {
 using HistoryDependencies=std::set<std::pair<std::string,std::string>>; // source, consumer
+// Includes the selected object and the transitive persisted dependency closure.
+// Suppression follows consumers; restoration follows prerequisite sources.
+[[nodiscard]] std::set<std::string> part_history_dependency_closure(
+    const document::PartDocument&,const std::string&,bool consumers);
 struct HistoryDependencyCollector {
     std::map<std::string,std::string> owners;
     HistoryDependencies edges;
@@ -104,6 +108,23 @@ struct HistoryDependencyCollector {
             for(const auto& boundary:feature.boundary_surface.boundaries) {
                 use(root,boundary.owner_id);
                 references.emplace(root,"",boundary.owner_id,boundary.curve_id);
+                if(boundary.continuity!=kernel::SurfaceContinuity::G0&&boundary.support)reference(root,*boundary.support);
+            }
+            break;
+        case FeatureKind::SurfaceSewing:
+            for(const auto& face:feature.surface_sewing.faces)reference(root,face);
+            break;
+        case FeatureKind::SurfaceTrim:
+            reference(root,feature.surface_trim.target);
+            for(const auto& tool:feature.surface_trim.tools)reference(root,tool.reference);
+            break;
+        case FeatureKind::SurfaceIntersection:
+            for(const auto& face:feature.surface_intersection.faces)reference(root,face);
+            break;
+        case FeatureKind::GeneralSurface:
+            for(const auto& boundary:feature.general_surface.boundaries) {
+                if(boundary.curve)construction(*boundary.curve,root);
+                else if(!boundary.sketch_serialized.empty())sketch(sketcher::Sketch::from_serialized(boundary.sketch_serialized),root);
             }
             break;
         case FeatureKind::Sweep3D:
@@ -126,6 +147,9 @@ inline HistoryDependencyCollector part_history_dependency_graph(const document::
         // which appear earlier in storage than their referenced object.
         if (feature.feature_kind == document::FeatureKind::Sweep3D)
             graph.register_construction(feature.sweep3d.path,feature.id);
+        if(feature.feature_kind==document::FeatureKind::GeneralSurface)
+            for(const auto& boundary:feature.general_surface.boundaries)if(boundary.curve)
+                graph.register_construction(*boundary.curve,feature.id);
         document::visit_feature_sketches(feature,[&](const auto& data,std::size_t) {
             graph.alias(sketcher::Sketch::from_serialized(data).id,feature.id);
         });

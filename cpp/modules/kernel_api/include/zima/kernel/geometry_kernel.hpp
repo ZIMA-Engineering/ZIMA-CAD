@@ -656,10 +656,15 @@ struct Sweep3DRequest {
     struct Twist {
         double length{100},angle_degrees{90};
         bool smooth{true};
+        // Disconnected regions of one profile share its combined area centroid.
+        std::optional<Vec3> axis_point;
+        ProfileCenterlines centerlines;
     };
     // Authored constant profile, rotated about its exact area centroid during
     // explicit calculation. Approximation stations never define identity.
     std::optional<Twist> twist;
+    // Datums prepared by explicit Twist expansion, including its straight state.
+    std::optional<ViewerReferenceGeometry> profile_references;
     struct PathSegment {
         std::string source_id;
         Vec3 start;
@@ -868,13 +873,53 @@ struct SolidStateRequest {
     bool operator==(const SolidStateRequest&) const = default;
 };
 
+enum class SurfaceContinuity { G0, G1, G2 };
+struct BoundarySurfaceConstraint {
+    std::optional<EdgeReference> edge;
+    SurfaceContinuity continuity{SurfaceContinuity::G0};
+    std::optional<FaceReference> support;
+    bool support_reversed{};
+};
 struct BoundarySurfaceRequest {
-    // Four authored open chains, in perimeter order. Exact curve data and
+    // Authored open chains, in perimeter order. Exact curve data and
     // source point/curve identities use the same packet as Sketch profiles.
-    std::array<ExtrusionRequest,4> boundaries;
-    std::array<std::string,4> source_owners;
+    std::vector<ExtrusionRequest> boundaries{4};
+    std::vector<std::string> source_owners{4};
+    // Empty means unconstrained authored curves. Otherwise one row per boundary.
+    // Original source topology is resolved only during explicit calculation.
+    std::vector<BoundarySurfaceConstraint> constraints;
     std::string region_id;
     double tolerance{0.001};
+    static constexpr bool surface_result=true;
+    double angular_tolerance{0.001*3.14159265358979323846/180}; // radians
+    double curvature_tolerance{1e-5}; // inverse mm
+};
+struct SurfaceSewingRequest {
+    // Original native face identities, resolved at the operation's input
+    // boundary. Sewing creates a shell and never adds material or caps.
+    std::vector<FaceReference> faces;
+    double tolerance{0.001};
+    static constexpr bool surface_result=true;
+};
+struct SurfaceIntersectionRequest {
+    // Both bounded original faces are native parents of each derived curve.
+    // This reference operation leaves the calculated body unchanged.
+    std::array<FaceReference,2> faces;
+    double tolerance{0.001};
+};
+
+struct SurfaceTrimTool {
+    EdgeReference reference;
+    bool face{};
+    bool operator==(const SurfaceTrimTool&)const=default;
+};
+struct SurfaceTrimRequest {
+    FaceReference target;
+    std::vector<SurfaceTrimTool> tools;
+    Vec3 seed;
+    double tolerance{0.001};
+    // Validation-only native intent, not another geometry input.
+    std::string expected_region_key;
     static constexpr bool surface_result=true;
 };
 
@@ -882,7 +927,7 @@ using PrimitiveRequest = std::variant<
     ExtrusionRequest, RevolutionRequest, FeatureGroupRequest,
     Sweep3DRequest, StepRequest, FilletRequest, ChamferRequest, ShellRequest,
     ThreadSurfaceRequest, DrillPointRequest, SheetStateRequest, BoundarySurfaceRequest,
-    SolidStateRequest>;
+    SolidStateRequest, SurfaceSewingRequest, SurfaceIntersectionRequest, SurfaceTrimRequest>;
 
 // Transient material-frame transfer for a source end-section attachment.
 // No container/reference definition or native document format changes.

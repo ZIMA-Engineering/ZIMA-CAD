@@ -39,6 +39,9 @@
 
 #include <zima/viewer/mesh_view.hpp>
 #include <zima/viewer/view_theme.hpp>
+#include <zima/kernel/solid_state_ancestry.hpp>
+#include <zima/document/viewer_packet_json.hpp>
+#include <nlohmann/json.hpp>
 #include <zima/ui/reference_cell.hpp>
 
 #include <QAction>
@@ -669,7 +672,7 @@ void verify_point_marker_colours(QApplication& application,QWidget& parent) {
     view.set_document_origin("document:origin");
     view.set_reference_visibility(viewer::ReferenceVisibility::Origins,true);
     view.set_reference_visibility(viewer::ReferenceVisibility::Points,true);
-    const std::array<kernel::VertexReference,9> references{{
+    std::vector<kernel::VertexReference> references{
         {"document:origin","origin:point",{}},
         {"feature:origin","origin:point",{}},
         {"document:origin","origin:point","occurrence"},
@@ -678,7 +681,23 @@ void verify_point_marker_colours(QApplication& application,QWidget& parent) {
         {"sketch","point:construction",{}},
         {"feature","point:from:end",{}},
         {"feature","axis:start",{}},
-        {"feature","axis:end",{}}}};
+        {"feature","axis:end",{}}};
+    // All axis endpoint families share the datum colour, including centroid
+    // and Origin centerlines after Straighten/Restore and repeated states.
+    for (const std::string key : {
+            "profile:path-point:start:from:centerline:from:centroid:profile",
+            "profile:path-point:end:from:centerline:from:centroid:profile",
+            "profile:path-point:start:from:centerline:from:origin:origin",
+            "profile:path-point:end:from:centerline:from:origin:origin",
+            "sweep:path-point:start:from:path", "sweep:path-point:end:from:path",
+            "helical:axis-point:start:from:axis", "helical:axis-point:end:from:axis",
+            "axis:point:start", "axis:point:end", "axis:start", "axis:end"}) {
+        references.push_back({"feature",key,{}});
+        const auto straight = kernel::solid_state_child_key("feature",key);
+        references.push_back({"straight",straight,{}});
+        references.push_back({"restore",kernel::solid_state_child_key("straight",straight),"occurrence"});
+    }
+    references.push_back({"straight",kernel::solid_state_child_key("feature","generated:vertex:from:profile"),{}});
     for(std::size_t i=0;i<references.size();++i) {
         kernel::ViewerMesh mesh;mesh.vertices={{-1,-1,0},{1,1,0}};
         mesh.points.push_back({{0,0,0},references[i]});mesh.original_references.points=mesh.points;
@@ -686,7 +705,7 @@ void verify_point_marker_colours(QApplication& application,QWidget& parent) {
         view.set_mesh(mesh);view.set_selection_contract({});view.show();view.raise();
         application.processEvents();
         require(framebuffer_contains_color_near(view.grabFramebuffer(),view.size(),{250,180},
-            i==0?QColor(0,0,0):(i==4||i==5)?viewer::view_theme(view.palette()).foreground:QColor(173,110,46),8),
+            (i==0||i==references.size()-1)?QColor(0,0,0):(i==4||i==5)?viewer::view_theme(view.palette()).foreground:QColor(173,110,46),8),
             "Main Origin and construction/feature/occurrence points have incorrect base colours");
         view.confirm_reference(references[i].owner_id,references[i].semantic_key,
             references[i].instance_path,viewer::CandidateKind::Vertex);
@@ -905,6 +924,42 @@ void verify_feature_axis_highlight(QApplication& application,QWidget& parent) {
     application.processEvents();require(view.confirmed_candidate()&&view.confirmed_candidate()->owner_id=="feature","Feature View click failed");check_lines(1);
     view.set_selection_contract({viewer::CandidateKind::Axis});
     view.confirm_reference("feature",keys[0],{},viewer::CandidateKind::Axis);application.processEvents();check_lines(2);
+    // Restored rotation centerlines retain their authored type through
+    // repeated state ancestry and native serialization, in every display mode.
+    kernel::BodyResult curved;
+    curved.mesh.vertices={{-50,-50,0},{50,50,0}};
+    kernel::ViewerEdge arc;
+    arc.points={{-25,12,0},{-15,4,0},{0,0,0},{15,4,0},{25,12,0}};
+    arc.reference={"feature","centerline:from:centroid:profile",{}};
+    arc.display_owner_id="feature";arc.construction=arc.overlay=arc.dash_dot=true;
+    curved.mesh.edges.push_back(arc);curved.mesh.original_references.edges=curved.mesh.edges;
+    for(int state=0;state<4;++state) {
+        if(state) {
+            auto& reference=curved.mesh.edges.front().reference;
+            reference.semantic_key=kernel::solid_state_child_key(reference.owner_id,reference.semantic_key);
+            reference.owner_id="state-"+std::to_string(state);
+            curved.mesh.original_references.edges=curved.mesh.edges;
+        }
+        for(const bool reopened:{false,true}) {
+            const auto packet=reopened?document::load_body_result(document::serialize_body_result(curved)):curved;
+            require(packet.mesh.edges.front().construction&&packet.mesh.edges.front().overlay&&packet.mesh.edges.front().dash_dot,
+                "Native reopen lost restored rotation centerline style");
+            view.set_mesh(packet.mesh);view.clear_selection();view.set_selection_contract({});
+            for(const auto mode:{viewer::DisplayMode::Wire,viewer::DisplayMode::ShadedWithEdges,viewer::DisplayMode::Shaded}) {
+                view.set_display_mode(mode);
+                view.set_reference_visibility(viewer::ReferenceVisibility::Axes,true);application.processEvents();
+                const auto shown=view.grabFramebuffer();
+                view.set_reference_visibility(viewer::ReferenceVisibility::Axes,false);application.processEvents();
+                const auto hidden=view.grabFramebuffer();
+                require(shown!=hidden&&framebuffer_contains_color_near(shown,view.size(),{300,250},QColor(173,110,46),35),
+                    "Restored rotation centerline disappeared or ignores axis visibility");
+            }
+            view.set_reference_visibility(viewer::ReferenceVisibility::Axes,true);
+            view.confirm_container("feature");application.processEvents();
+            require(framebuffer_contains_color_near(view.grabFramebuffer(),view.size(),{300,250},QColor("#00D1FF"),35),
+                "Restored rotation centerline omitted from authored feature highlighting");
+        }
+    }
     std::cout<<"Feature axis lines follow whole-container selection and retain exact instance/reference isolation\n";
 }
 
@@ -1503,6 +1558,8 @@ int main(int argc, char* argv[]) {
                 "3D-Sweep icon is missing from Qt resources");
         require(!zima::app::resource_icon("shell").isNull(),
                 "Shell icon is missing from Qt resources");
+        require(!zima::app::resource_icon("surface-sewing").isNull(),
+                "Surface Sewing icon is missing from Qt resources");
         require(!zima::app::resource_icon("save-as").isNull(),
                 "Save-As icon is missing from Qt resources");
 

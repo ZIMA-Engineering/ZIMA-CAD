@@ -2,6 +2,7 @@
 #include <zima/workspace/sketch_operations.hpp>
 #include <zima/workspace/sketch_reference_operations.hpp>
 #include <zima/document/feature_sketches.hpp>
+#include <zima/document/general_surface.hpp>
 #include <zima/document/viewer_packet_json.hpp>
 #include <nlohmann/json.hpp>
 #include <algorithm>
@@ -81,6 +82,10 @@ std::set<std::string> sketch_external_reference_source_owners(
                     owners.insert(feature->container_origin.id);
                     if (feature->feature_kind == zima::document::FeatureKind::Sweep3D)
                         add_construction(add_construction, feature->sweep3d.path);
+                    if(feature->feature_kind==zima::document::FeatureKind::GeneralSurface)
+                        for(const auto& boundary:feature->general_surface.boundaries)
+                            if(boundary.curve)add_construction(add_construction,*boundary.curve);
+                            else owners.insert(zima::sketcher::Sketch::from_serialized(boundary.sketch_serialized).id);
                 }
                 for (const auto& source_sketch : document.sketches)
                     if (source_sketch.owner_container_id == entry.id) owners.insert(source_sketch.id);
@@ -107,6 +112,11 @@ zima::kernel::ViewerReferenceGeometry sketch_external_reference_source_geometry(
     }
     append_reference_geometry(source,
         document.construction_viewer_mesh().original_references);
+    for(const auto& feature:document.history)if(feature.feature_kind==zima::document::FeatureKind::GeneralSurface&&!feature.suppressed) {
+        auto mesh=zima::document::general_surface_definition_mesh(feature);
+        if(const auto* body=document.body_owner_for_object(feature.id))mesh=document.place_body_mesh(std::move(mesh),body->scope.id);
+        append_reference_geometry(source,std::move(mesh.original_references));
+    }
     return source;
 }
 

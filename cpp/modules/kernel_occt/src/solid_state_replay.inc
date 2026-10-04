@@ -51,6 +51,16 @@ RevolutionRequest moved(RevolutionRequest request,const gp_Trsf& transform) {
 Sweep3DRequest moved(Sweep3DRequest request,const gp_Trsf& transform) {
     const auto position=[&](Vec3& p){p=solid_straightening::vector(solid_straightening::point(p).Transformed(transform).XYZ());};
     const auto direction=[&](Vec3& p){p=solid_straightening::vector(gp_Vec(p.x,p.y,p.z).Transformed(transform).XYZ());};
+    if(request.twist&&request.twist->axis_point)position(*request.twist->axis_point);
+    if(request.twist){position(request.twist->centerlines.origin);direction(request.twist->centerlines.normal);}
+    if(request.profile_references) {
+        for(auto& axis:request.profile_references->axes){position(axis.point);direction(axis.direction);}
+        for(auto& point:request.profile_references->points)position(point.position);
+        for(auto& edge:request.profile_references->edges) {
+            for(auto& point:edge.points)position(point);
+            if(edge.exact_spline)for(auto& point:edge.exact_spline->poles)position(point);
+        }
+    }
     for(auto& p:request.path_points)position(p);
     for(auto& segment:request.path_segments) {
         position(segment.start);position(segment.end);
@@ -390,5 +400,52 @@ template<class Reference> void own(Reference& reference,const std::string& owner
         if(reference.display_owner_id.empty())reference.display_owner_id=reference.owner_id;
     reference.semantic_key=solid_state_child_key(reference.owner_id,reference.semantic_key);
     reference.owner_id=owner;
+}
+void publish_display(BodyResult& boundary,const std::string& owner,ViewerReferenceGeometry& persisted) {
+    const auto& packet=*boundary.solid_state_reference_views.at(owner);
+    std::set<std::string> sources;
+    for(const auto& ref:packet.triangle_references)sources.insert(ref.owner_id);
+    for(const auto& edge:packet.edges)sources.insert(edge.reference.owner_id);
+    for(const auto& point:packet.points)sources.insert(point.reference.owner_id);
+    for(const auto& axis:packet.axes)sources.insert(axis.reference.owner_id);
+    const auto replaced=[&](const auto& reference) {
+        auto source=reference.owner_id,key=reference.semantic_key;
+        while(const auto parent=solid_state_parent(key)){source=parent->first;key=parent->second;}
+        return sources.contains(source);
+    };
+    // Like Unbend, publish separate state-owned datums and retain immutable
+    // authored references. The replay packet already contains their calculated
+    // positions, including carried cuts and attached features.
+    std::erase_if(boundary.mesh.axes,[&](const auto& axis){return replaced(axis.reference);});
+    for(auto axis:packet.axes) {
+        own(axis.reference,owner);
+        if(std::ranges::none_of(persisted.axes,[&](const auto& value){return value.reference==axis.reference;}))
+            persisted.axes.push_back(axis);
+        boundary.mesh.axes.push_back(std::move(axis));
+    }
+    const auto centerline=[](std::string key) {
+        while(const auto parent=solid_state_parent(key))key=parent->second;
+        return key.starts_with("centerline:from:");
+    };
+    std::erase_if(boundary.mesh.edges,[&](const auto& edge){return centerline(edge.reference.semantic_key)&&replaced(edge.reference);});
+    for(const auto& source:packet.edges)if(centerline(source.reference.semantic_key)) {
+        auto edge=source;
+        own(edge.reference,owner);
+        if(std::ranges::none_of(persisted.edges,[&](const auto& value){return value.reference==edge.reference;}))
+            persisted.edges.push_back(edge);
+        boundary.mesh.edges.push_back(std::move(edge));
+    }
+    const auto endpoint=[](std::string key) {
+        while(const auto parent=solid_state_parent(key))key=parent->second;
+        return key.starts_with("sweep:path-point:")||key.starts_with("profile:path-point:")||key.starts_with("helical:axis-point:");
+    };
+    std::erase_if(boundary.mesh.points,[&](const auto& point){return endpoint(point.reference.semantic_key)&&replaced(point.reference);});
+    for(const auto& source:packet.points)if(endpoint(source.reference.semantic_key)) {
+        auto point=source;
+        own(point.reference,owner);
+        if(std::ranges::none_of(persisted.points,[&](const auto& value){return value.reference==point.reference;}))
+            persisted.points.push_back(point);
+        boundary.mesh.points.push_back(std::move(point));
+    }
 }
 } // namespace solid_state_replay

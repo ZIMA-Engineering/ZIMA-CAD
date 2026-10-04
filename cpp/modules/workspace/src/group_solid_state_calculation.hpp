@@ -25,9 +25,8 @@ inline std::vector<kernel::HistoryOperation> group_solid_state_operations(
     }))return operations;
     std::vector<kernel::BodyResult> bootstrap;
     if(!previous||previous->empty()) {
-        auto input=operations;
-        std::erase_if(input,[](const auto& op){return std::holds_alternative<kernel::SolidStateRequest>(op.primitive);});
-        bootstrap=kernel.evaluate_history_recovering(input,{});previous=&bootstrap;
+        // State-owned references require their persisted ancestry inventory too.
+        bootstrap=kernel.evaluate_history_recovering(operations,{});previous=&bootstrap;
         if(previous->empty())return operations;
     }
     const auto& authored_geometry=previous->back().mesh.original_references;
@@ -50,13 +49,13 @@ inline std::vector<kernel::HistoryOperation> group_solid_state_operations(
             const auto* object=doc.find_construction(original.owner_id);
             const auto* refs=feature?&feature->placement.references:object?&object->references:nullptr;
             const bool dependent=refs&&std::ranges::any_of(*refs,[&](const auto& ref) {
-                return changed.contains({ref.owner_id,ref.instance_path});
+                return changed.contains({ref.owner_id,ref.instance_path})||changed.contains(document::solid_state_source_owner(ref));
             });
             auto candidate=original;
             if(dependent&&!calculated.empty()) {
+                auto current=document::solid_state_alias_geometry(authored_geometry,calculated.back().mesh.original_references,changed);
                 document::HistoryReferenceViews views{{original.owner_id,
-                    document::solid_state_reference_view(authored_geometry,
-                        calculated.back().mesh.original_references,changed,*refs)}};
+                    document::solid_state_reference_view(authored_geometry,current.geometry,current.owners,*refs)}};
                 transient.resolve_constructions(authored_geometry,views);
                 const auto resolved=transient.kernel_operations(false,false);
                 const auto found=std::ranges::find(resolved,original.owner_id,&kernel::HistoryOperation::owner_id);
@@ -78,6 +77,7 @@ inline std::vector<kernel::HistoryOperation> group_solid_state_operations(
                 },candidate.primitive);
                 changed.insert({original.owner_id,{}});
             }
+            if(targets.contains(original.owner_id))changed.insert({original.owner_id,{}});
             replay.push_back(std::move(candidate));
             calculated=kernel.evaluate_history_incremental(replay,calculated);
         }

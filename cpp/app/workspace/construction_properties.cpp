@@ -1,4 +1,6 @@
 #include <zima/workspace/placement_edit.hpp>
+#include <zima/document/general_surface.hpp>
+#include <zima/document/solid_state_reference_views.hpp>
 #include "workspace_internal.hpp"
 
 namespace zima::app {
@@ -371,13 +373,29 @@ void AssemblyWorkspaceWindow::start_curve_axis_selection(
         source.constructions.clear();
         reference_geometry = source.build_drawing_scene().original_references;
     }
-    if (auto* target = next.find_construction(curve.id)) {
+    std::optional<zima::document::HistoryContainer> surface;
+    if(general_surface_curve_preview_) {
+        surface=general_surface_curve_preview_(curve);
+        if(auto* target=next.find_container(surface->id))*target=*surface;
+        else {next.insert_history_entry(zima::document::PartHistoryKind::Feature,surface->id);next.history.push_back(*surface);}
+    } else if (auto* target = next.find_construction(curve.id)) {
         *target = curve;
     } else {
         next.constructions.push_back(curve);
     }
-    next.resolve_constructions(std::move(reference_geometry));
-    construction_preview_mesh_ = next.construction_viewer_mesh(point.id);
+    if(surface&&!part->session.calculated_boundaries().empty()) {
+        const auto views=zima::document::solid_state_reference_views(next,part->session.calculated_boundaries().back(),reference_geometry);
+        next.resolve_constructions(std::move(reference_geometry),views);
+    }else next.resolve_constructions(std::move(reference_geometry));
+    if(surface) {
+        const auto* resolved=next.find_container(surface->id);if(!resolved)return;
+        zima::document::PartDocument carrier;
+        for(const auto& boundary:resolved->general_surface.boundaries)if(boundary.curve&&boundary.curve->id==curve.id)
+            carrier.constructions.push_back(zima::document::general_surface_display_curve(*resolved,*boundary.curve));
+        construction_preview_mesh_=carrier.construction_viewer_mesh(point.id);
+        if(const auto* body=next.body_owner_for_object(surface->id))
+            construction_preview_mesh_=next.place_body_mesh(std::move(*construction_preview_mesh_),body->scope.id);
+    } else construction_preview_mesh_ = next.construction_viewer_mesh(point.id);
     construction_dimension_object_id_ = point.id;
     curve_axis_dialog_ = curve_dialog;
     pending_curve_axis_index_ = point_index;
@@ -548,7 +566,12 @@ void AssemblyWorkspaceWindow::show_curve_point_properties(
                 reference_geometry =
                     source.build_drawing_scene().original_references;
             }
-            if (parent_guard->is_sweep()) {
+            std::optional<zima::document::HistoryContainer> surface;
+            if(general_surface_curve_preview_) {
+                surface=general_surface_curve_preview_(curve_preview);
+                if(auto* target=next.find_container(surface->id))*target=*surface;
+                else {next.insert_history_entry(zima::document::PartHistoryKind::Feature,surface->id);next.history.push_back(*surface);}
+            } else if (parent_guard->is_sweep()) {
                 auto sweep = parent_guard->pending_sweep_value();
                 sweep.sweep3d.path.curve_points = curve_preview.curve_points;
                 if (auto* target = next.find_container(sweep.id)) *target = sweep;
@@ -562,7 +585,12 @@ void AssemblyWorkspaceWindow::show_curve_point_properties(
                 if (part_document) next.insert_history_entry(zima::document::PartHistoryKind::Construction, curve_preview.id);
                 next.constructions.push_back(curve_preview);
             }
-            next.resolve_constructions(reference_geometry);
+            if(surface&&!source_part->session.calculated_boundaries().empty()) {
+                const auto& calculated=source_part->session.calculated_boundaries().back();
+                const auto views=zima::document::solid_state_reference_views(next,calculated,reference_geometry);
+                next.resolve_constructions(reference_geometry,views);
+                reference_geometry=zima::document::solid_state_editor_reference_geometry(next,calculated,surface->id,std::move(reference_geometry));
+            }else next.resolve_constructions(reference_geometry);
             // The path carrier is presentation data, not a second container
             // inserted into the persisted Body ownership graph.
             std::optional<zima::document::PartDocument> sweep_carrier;
@@ -574,9 +602,22 @@ void AssemblyWorkspaceWindow::show_curve_point_properties(
                 sweep_carrier=sweep_body.empty() ? next : next.body_document(sweep_body);
                 sweep_carrier->constructions.push_back(sweep_display_path(*sweep));
             }
+            if(surface) {
+                const auto* feature=next.find_container(surface->id);if(!feature)return;
+                if(const auto* owner=next.body_owner_for_object(surface->id))sweep_body=owner->scope.id;
+                sweep_carrier=sweep_body.empty()?next:next.body_document(sweep_body);
+                for(const auto& boundary:feature->general_surface.boundaries)if(boundary.curve&&boundary.curve->id==curve_preview.id)
+                    sweep_carrier->constructions.push_back(zima::document::general_surface_display_curve(*feature,*boundary.curve));
+            }
             const auto& point_document=sweep_carrier ? *sweep_carrier : next;
             const auto* resolved = point_document.find_construction(preview.id);
             if (resolved == nullptr) return;
+            if(surface)if(const auto* parent=point_document.find_construction(curve_preview.id)) {
+                zima::document::Placement frame;
+                frame.x=parent->origin.x;frame.y=parent->origin.y;frame.z=parent->origin.z;
+                frame.rotation_x=parent->rotation.x;frame.rotation_y=parent->rotation.y;frame.rotation_z=parent->rotation.z;
+                general_surface_curve_annotation_placement_=std::move(frame);
+            }
 
             construction_parameter_preview_ = *resolved;
             if (new_point && preview.references.empty()) {
@@ -597,7 +638,7 @@ void AssemblyWorkspaceWindow::show_curve_point_properties(
                     next.origin_viewer_mesh().original_references);
             }
             append_reference_geometry(reference_geometry,
-                next.history_origin_reference_geometry_before(""));
+                next.history_origin_reference_geometry_before(surface?surface->id:""));
             append_reference_geometry(reference_geometry,
                 next.sketch_placement_reference_geometry(preview.id));
             append_reference_geometry(reference_geometry,
@@ -653,6 +694,7 @@ void AssemblyWorkspaceWindow::show_curve_point_properties(
                  curve_preview.entity_id});
             viewer_->set_transient_edges({});
             preserve_view_on_refresh_ = true;
+            if(general_surface_curve_preview_&&construction_reference_dialog_&&!construction_reference_dialog_->isVisible())return;
             refresh_scene();
             if (!pending_construction_reference_index_) {
                 tree_->setProperty("commandSelectionActive", false);
@@ -693,6 +735,9 @@ void AssemblyWorkspaceWindow::show_curve_point_properties(
     // read the unrelated primitive geometry and mark every stored row missing.
     bind_local_origin_selection(point_dialog);
     point_dialog->show();
+    // The initial callback has prepared reference state without publishing an
+    // unused scene. Editable annotations can now follow the visible fields.
+    if(general_surface_curve_preview_){preserve_view_on_refresh_=true;refresh_scene();}
     const auto first = point_dialog->first_empty_position_index();
     if (first < 3) {
         start_construction_reference_selection(first, true);

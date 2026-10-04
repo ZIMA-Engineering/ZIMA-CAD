@@ -1079,6 +1079,70 @@ void verify_sheet_cut_projection_extent(std::filesystem::path directory,bool cle
         verify({sheets[1]});
     }
 }
+void verify_sheet_cut_skin_to_skin(std::filesystem::path directory) {
+    for(const bool tilted:{false,true})for(const bool clearance:{false,true})for(const bool from_top:{false,true}) {
+        kernel::OcctKernel kernel;workspace::Workspace live;
+        auto part=document::PartDocument::create_default();const auto id=part.document_id;live.add_part(part);
+        auto flat=document::PartDocument::create_sketch_container();flat.feature_kind=document::FeatureKind::Flat;
+        auto outline=sketcher::Sketch::create_default();outline.owner_container_id=flat.id;flat.flat.sketch_id=outline.id;
+        flat.flat.thickness=2;flat.flat.thickness_override=true;static_cast<void>(outline.add_rectangle(0,0,20,20));
+        if(tilted) {
+            flat.placement.x=12;flat.placement.y=-18;flat.placement.z=23;
+            flat.placement.rotation_x=flat.placement.absolute_rotation_x=23;
+            flat.placement.rotation_y=flat.placement.absolute_rotation_y=31;
+            flat.placement.rotation_z=flat.placement.absolute_rotation_z=47;
+        }
+        check(workspace::commit_flat(live,kernel,id,flat,outline),"Cannot create skin-to-skin cut source");
+        auto* state=live.open_part(id);const auto input=state->session.calculated_boundaries().back();
+        std::optional<kernel::FaceReference> target,start;kernel::Vec3 target_point;
+        const double start_z=from_top?2.:0.,end_z=from_top?0.:2.;
+        const double k=std::numbers::pi/180.,rx=flat.placement.rotation_x*k,ry=flat.placement.rotation_y*k,rz=flat.placement.rotation_z*k;
+        const kernel::Vec3 normal{std::cos(rz)*std::sin(ry)*std::cos(rx)+std::sin(rz)*std::sin(rx),
+            std::sin(rz)*std::sin(ry)*std::cos(rx)-std::cos(rz)*std::sin(rx),std::cos(ry)*std::cos(rx)};
+        const auto& originals=input.mesh.original_references;
+        for(std::size_t triangle=0;triangle<originals.triangle_references.size();++triangle) {
+            const auto& ref=originals.triangle_references[triangle];
+            if(ref.owner_id!=flat.id||(ref.sheet_role!=kernel::SheetFaceRole::SideA&&ref.sheet_role!=kernel::SheetFaceRole::SideB))continue;
+            const auto p=originals.vertices[originals.triangles[3*triangle]];
+            const double height=(p.x-flat.placement.x)*normal.x+(p.y-flat.placement.y)*normal.y+(p.z-flat.placement.z)*normal.z;
+            if(std::abs(height-end_z)<1e-8){target=ref;target_point=p;}
+            if(std::abs(height-start_z)<1e-8)start=ref;
+        }
+        check(target.has_value()&&start.has_value()&&target!=start,"Distinct native sheet skins are missing");
+        auto sketch=sketcher::Sketch::create_default();static_cast<void>(sketch.add_rectangle(2,2,6,6));
+        auto cut=document::PartDocument::create_extrusion_container(sketch.id);
+        cut.combine_mode=document::CombineMode::Subtract;cut.extrusion.sheet_cut=true;cut.extrusion.sheet_cut_clearance=clearance;
+        cut.placement=flat.placement;
+        cut.placement.x+=start_z*normal.x;cut.placement.y+=start_z*normal.y;cut.placement.z+=start_z*normal.z;
+        cut.placement.references={{{},start->owner_id,start->semantic_key}};
+        cut.extrusion.direction=from_top?document::ExtrusionDirection::Reverse:document::ExtrusionDirection::Forward;
+        cut.extrusion.end_condition_forward=document::EndCondition::UpTo;
+        document::ExtrusionParameters::EndTarget end;end.kind=document::EndTargetKind::Plane;end.reference=*target;
+        end.fallback_origin=target_point;end.fallback_normal=normal;cut.extrusion.end_targets_forward={end};
+        std::cout<<"Sheet cut skin-to-skin: "<<(from_top?"top to bottom":"bottom to top")<<", clearance="<<clearance<<", tilted="<<tilted<<std::endl;
+        workspace::commit_profile(live,kernel,id,cut,workspace::ProfileEditMode::Create,sketch);
+        const auto& result=state->session.calculated_boundaries().back();
+        check(result.calculation_errors.empty()&&!result.sheet_cuts.empty(),"Skin-to-skin cut did not retain material-space regions");
+        // Independent scale check: 20*20*2 stock minus 4*4*2 aperture.
+        near(result.volume,768.);
+        for(const auto& region:result.sheet_cuts)for(const auto& loop:region.loops)for(const auto& trim:loop)
+            check(std::ranges::any_of(sketch.segments,[&](const auto& segment){return trim.parent_key.find(segment.id)!=std::string::npos;}),
+                "Skin-to-skin trim lost its authored Sketch-curve parent");
+        for(const auto& face:result.mesh.triangle_references)if(face.owner_id==cut.id)
+            check(face.sheet_role==kernel::SheetFaceRole::ThicknessFace,"Skin-to-skin cut retained a closing skin");
+        const auto path=directory/(std::string("skin-to-skin-")+(tilted?"tilted-":"xy-")+(from_top?"top-":"bottom-")+(clearance?"clearance":"normal")+".prtz");
+        state->session.document().save(path,state->session.calculated_boundaries());
+        std::vector<kernel::BodyResult> cache;auto reopened=document::PartDocument::load(path,&cache);
+        const auto& saved=reopened.find_container(cut.id)->extrusion;
+        check(saved.sheet_cut&&saved.sheet_cut_clearance==clearance&&saved.end_condition_forward==document::EndCondition::UpTo&&
+            saved.end_targets_forward.front().reference==*target,"Skin-to-skin cut lost its exact target skin");
+        check(reopened.find_container(cut.id)->placement.references.front().owner_id==start->owner_id&&
+            reopened.find_container(cut.id)->placement.references.front().semantic_key==start->semantic_key,
+            "Skin-to-skin cut lost its exact zero-offset starting skin");
+        kernel::OcctKernel cold;const auto recalculated=workspace::calculate_part_with_resolved_references(cold,reopened);
+        check(recalculated.back().calculation_errors.empty(),"Skin-to-skin cut failed cold regeneration");near(recalculated.back().volume,768.);
+    }
+}
 void verify_sheet_cut_rotated_origin(std::filesystem::path directory) {
     for(const bool tilted:{false,true})for(const bool reverse:{false,true}) {
         kernel::OcctKernel kernel;workspace::Workspace live;
@@ -1564,6 +1628,10 @@ int main(int argc,char** argv) {
     }
     if(argc==2&&std::string_view(argv[1])=="--verify-generic-sheet-cut") {
         try{verify_sheet_cut(directory,true);verify_sheet_cut_rotated_origin(directory);verify_sheet_cut_clearance(directory);std::filesystem::remove_all(directory);return 0;}
+        catch(const std::exception& e){std::cerr<<e.what()<<"; fixture: "<<directory<<'\n';return 1;}
+    }
+    if(argc==2&&std::string_view(argv[1])=="--verify-sheet-cut-skin-to-skin") {
+        try{verify_sheet_cut_skin_to_skin(directory);std::filesystem::remove_all(directory);return 0;}
         catch(const std::exception& e){std::cerr<<e.what()<<"; fixture: "<<directory<<'\n';return 1;}
     }
 

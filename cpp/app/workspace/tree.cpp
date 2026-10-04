@@ -1,4 +1,7 @@
 #include "../boundary_surface_dialog.hpp"
+#include "../surface_sewing_dialog.hpp"
+#include "../surface_intersection_dialog.hpp"
+#include "../surface_trim_dialog.hpp"
 #include "workspace_internal.hpp"
 #include "../symbol_labels.hpp"
 #include <zima/workspace/symbol_operations.hpp>
@@ -379,6 +382,12 @@ void AssemblyWorkspaceWindow::add_pending_tree_item(QTreeWidgetItem* parent,
         else if (auto* dialog = dynamic_cast<ShaftThreadDialog*>(tree_edit_dialog_.data()))
             feature = dialog->pending();
         else if (auto* dialog = dynamic_cast<BoundarySurfaceDialog*>(tree_edit_dialog_.data()))
+            feature = dialog->pending;
+        else if (auto* dialog = dynamic_cast<SurfaceSewingDialog*>(tree_edit_dialog_.data()))
+            feature = dialog->pending;
+        else if (auto* dialog = dynamic_cast<SurfaceTrimDialog*>(tree_edit_dialog_.data()))
+            feature = dialog->pending;
+        else if (auto* dialog = dynamic_cast<SurfaceIntersectionDialog*>(tree_edit_dialog_.data()))
             feature = dialog->pending;
         else if (auto* dialog = dynamic_cast<SheetStateDialog*>(tree_edit_dialog_.data()))
             feature = dialog->pending_value();

@@ -23,6 +23,33 @@ Q_NEVER_INLINE static int verify_history_deletion(QApplication& application,
             return nullptr;
         };
         const auto original_color=row(fillet.id)->foreground(0);
+        const auto toggle_suppression=[&](const std::string& id) {
+            auto* item=row(id);check(item,"Suppression tree row missing");tree->setCurrentItem(item);tree->scrollToItem(item);flush();
+            QTimer::singleShot(0,&window,[&] {
+                auto* menu=qobject_cast<QMenu*>(QApplication::activePopupWidget());if(!menu)return;
+                auto* action=menu->findChild<QAction*>("suppressHistoryObject");if(!action){menu->close();return;}
+                menu->setActiveAction(action);QKeyEvent enter(QEvent::KeyPress,Qt::Key_Return,Qt::NoModifier);QApplication::sendEvent(menu,&enter);
+            });
+            QMetaObject::invokeMethod(tree,"customContextMenuRequested",Qt::DirectConnection,Q_ARG(QPoint,tree->visualItemRect(item).center()));flush();
+        };
+        {
+            toggle_suppression(source.id);
+            check(row(source.id)&&row(fillet.id)&&row(source.id)->font(0).strikeOut()&&row(fillet.id)->font(0).strikeOut(),
+                "Tree suppression did not mark the source and its dependent together");
+            run("save");const auto suppressed=document::PartDocument::load(path);
+            check(suppressed.find_container(source.id)->suppressed&&suppressed.find_container(fillet.id)->suppressed,
+                "Tree suppression was not persisted");
+            run("undo");check(!row(source.id)->font(0).strikeOut()&&!row(fillet.id)->font(0).strikeOut(),
+                "Tree suppression Undo did not restore both rows");
+            run("redo");check(row(source.id)->font(0).strikeOut()&&row(fillet.id)->font(0).strikeOut(),
+                "Tree suppression Redo did not restore both rows");
+            toggle_suppression(fillet.id);
+            check(!row(source.id)->font(0).strikeOut()&&!row(fillet.id)->font(0).strikeOut(),
+                "Restoring a dependent Tree row did not restore its prerequisite");run("undo");
+            toggle_suppression(source.id);
+            check(!row(source.id)->font(0).strikeOut()&&row(fillet.id)->font(0).strikeOut(),
+                "Restoring a source Tree row restored its downstream dependent");run("undo");run("undo");
+        }
         const auto open_confirmation=[&] {
             auto* item=row(source.id);check(item,"Source tree row missing");tree->setCurrentItem(item);tree->scrollToItem(item);flush();
             QTimer::singleShot(0,&window,[&] {

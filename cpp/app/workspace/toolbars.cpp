@@ -68,7 +68,7 @@ void AssemblyWorkspaceWindow::update_application_actions() {
         }
     } else if (workspace_.open_assembly(workspace_.active_document_id()) != nullptr) {
         for (const auto mode : {ApplicationMode::Modeling, ApplicationMode::Assembly,
-                                ApplicationMode::SheetMetal, ApplicationMode::Surface}) {
+                                ApplicationMode::SheetMetal}) {
             application_actions_[static_cast<std::size_t>(mode)]->setEnabled(true);
         }
         if (!application_actions_[static_cast<std::size_t>(active_application_)]
@@ -303,18 +303,7 @@ void AssemblyWorkspaceWindow::rebuild_application_toolbar() {
         add_command(selection_action_);
         if(auto* feature=findChild<QAction*>("featurePrototypeAction"))add_command(feature);
         add_group_separator();
-        for(int i=0;i<6;++i)
-            if(auto* shortcut=findChild<QAction*>(QStringLiteral("featureShortcut%1Action").arg(i)))add_command(shortcut);
-        add_group_separator();
-        add_command(curve_3d_action_);
-        auto* boundary=findChild<QAction*>("boundarySurfaceAction");
-        if(!boundary){boundary=new QAction(resource_icon("boundary-surface"),tr("Hraniční plocha"),this);
-            boundary->setObjectName("boundarySurfaceAction");connect(boundary,&QAction::triggered,this,[this]{show_boundary_surface_properties();});}
         const auto* boundary_body=modeling_part?modeling_part->session.document().body_history.find(modeling_part->session.document().body_history.active_body_id()):nullptr;
-        boundary->setEnabled(boundary_body&&!boundary_body->derived_copy&&!properties_dialog_);add_command(boundary);
-        add_command(sweep2d_action_);
-        add_command(sweep_3d_action_);
-        add_command(helical_sweep_action_);
         auto* twist=findChild<QAction*>("modelTwistAction");
         if(!twist) {
             twist=new QAction(resource_icon("sheet-twist"),tr("Twist"),this);
@@ -322,7 +311,15 @@ void AssemblyWorkspaceWindow::rebuild_application_toolbar() {
             connect(twist,&QAction::triggered,this,[this]{show_primitive_properties(
                 zima::document::FeatureKind::Feature,{},false,zima::document::FeatureType::Modeling,false,true);});
         }
-        twist->setEnabled(boundary_body&&!boundary_body->derived_copy&&!properties_dialog_);add_command(twist);
+        twist->setEnabled(boundary_body&&!boundary_body->derived_copy&&!properties_dialog_);
+        for(int i=0;i<6;++i)
+            if(auto* shortcut=findChild<QAction*>(QStringLiteral("featureShortcut%1Action").arg(i)))add_command(shortcut);
+        add_command(twist);
+        add_group_separator();
+        add_command(curve_3d_action_);
+        add_command(sweep2d_action_);
+        add_command(sweep_3d_action_);
+        add_command(helical_sweep_action_);
         for(bool restore:{false,true}) {
             const auto name=restore?"restoreShapeAction":"straightenAction";
             auto* action=findChild<QAction*>(name);
@@ -343,6 +340,27 @@ void AssemblyWorkspaceWindow::rebuild_application_toolbar() {
         add_command(holes_action_);
         add_command(shaft_thread_action_);
         add_command(drill_point_action_);
+        add_group_separator();
+        auto* general=findChild<QAction*>("generalSurfaceAction");
+        if(!general){general=new QAction(resource_icon("boundary-surface"),tr("Obecná plocha"),this);
+            general->setObjectName("generalSurfaceAction");connect(general,&QAction::triggered,this,[this]{show_sweep_properties(zima::document::FeatureKind::GeneralSurface,{});});}
+        general->setEnabled(boundary_body&&!boundary_body->derived_copy&&!properties_dialog_);add_command(general);
+        auto* boundary=findChild<QAction*>("boundarySurfaceAction");
+        if(!boundary){boundary=new QAction(resource_icon("boundary-surface"),tr("Zaplnit plochu"),this);
+            boundary->setObjectName("boundarySurfaceAction");connect(boundary,&QAction::triggered,this,[this]{show_boundary_surface_properties();});}
+        boundary->setEnabled(boundary_body&&!boundary_body->derived_copy&&!properties_dialog_);add_command(boundary);
+        auto* sewing=findChild<QAction*>("surfaceSewingAction");
+        if(!sewing){sewing=new QAction(resource_icon("surface-sewing"),tr("Sešít plochy"),this);
+            sewing->setObjectName("surfaceSewingAction");connect(sewing,&QAction::triggered,this,[this]{show_surface_sewing_properties();});}
+        sewing->setEnabled(boundary_body&&!boundary_body->derived_copy&&!properties_dialog_);add_command(sewing);
+        auto* intersection=findChild<QAction*>("surfaceIntersectionAction");
+        if(!intersection){intersection=new QAction(resource_icon("sketch-3d"),tr("Průsečík ploch"),this);
+            intersection->setObjectName("surfaceIntersectionAction");connect(intersection,&QAction::triggered,this,[this]{show_surface_intersection_properties();});}
+        intersection->setEnabled(boundary_body&&!boundary_body->derived_copy&&!properties_dialog_);add_command(intersection);
+        auto* trim=findChild<QAction*>("surfaceTrimAction");
+        if(!trim){trim=new QAction(resource_icon("boundary-surface"),tr("Oříznout plochu"),this);
+            trim->setObjectName("surfaceTrimAction");connect(trim,&QAction::triggered,this,[this]{show_surface_trim_properties();});}
+        trim->setEnabled(boundary_body&&!boundary_body->derived_copy&&!properties_dialog_);add_command(trim);
         if (active_body) {
             add_group_separator();
             add_command(mirror_action_);

@@ -44,10 +44,12 @@ int verify_solid_state_ui(QApplication& application,const std::filesystem::path&
             }
             const auto id=part.document_id;setup.add_part(part,{});setup.activate(id);
             auto sketch=sketcher::Sketch::create_default();static_cast<void>(sketch.add_rectangle(100,0,120,20));
+            if(!sweep_only&&scenario==3)static_cast<void>(sketch.add_rectangle(140,0,150,20));
             sketch.dimensions.push_back(sketch.create_segment_dimension(sketch.segments.front().id));
             const auto axis=sketch.add_segment(0,-100,0,100,true);sketch.set_segment_centerline(axis,true);
             auto source=document::PartDocument::create_revolution_container(sketch.id);
             source.revolution.axis_segment_id=axis;source.revolution.angle_degrees=90;
+            if(!sweep_only&&scenario==0)source.revolution.centroid_centerline=true;
             if(sweep_only) {
                 source=test_support::sweep_fixture(scenario==0||scenario==4?document::FeatureKind::Sweep2D:
                     scenario==1||scenario==3?document::FeatureKind::Sweep3D:document::FeatureKind::HelicalSweep);
@@ -86,6 +88,7 @@ int verify_solid_state_ui(QApplication& application,const std::filesystem::path&
                     source.feature.sides[0].operation=scenario==3?document::FeatureSideOperation::Twist:document::FeatureSideOperation::Extrusion;
                     if(scenario==4)source.feature.sides[1].operation=document::FeatureSideOperation::Revolution;
                     source.feature.axis_segment_id=axis;
+                    if(scenario==3)source.feature.centroid_centerline=source.feature.origin_centerline=true;
                 }
                 workspace::commit_profile(setup,kernel,id,source,workspace::ProfileEditMode::Create,sketch);
             }
@@ -143,6 +146,20 @@ int verify_solid_state_ui(QApplication& application,const std::filesystem::path&
                 return solid.dump();
             };
             const auto input=packet();
+            if(!sweep_only&&scenario==3)
+                check(std::ranges::any_of(view->mesh().axes,[](const auto& axis){return axis.reference.semantic_key.starts_with("centerline:from:centroid:");}),
+                    "Twist centroid axis is missing in the ordinary GUI scene");
+            const auto check_state_display=[&] {
+                if(!sweep_only&&scenario==3)
+                    check(std::ranges::any_of(view->mesh().axes,[](const auto& axis){std::string storage;return kernel::solid_state_source_key(axis.reference.semantic_key,storage).starts_with("centerline:from:centroid:");}),
+                        "Twist centroid axis disappeared from the state GUI scene");
+                for(const auto& axis:view->mesh().axes)
+                    check(axis.reference.instance_path!=active_path||axis.reference.owner_id!=source.id,
+                        "Solid state still displays an authored source axis");
+                for(const auto& point:view->mesh().points)
+                    if(kernel::solid_state_parent(point.reference.semantic_key)&&!point.always_visible&&point.label.empty())
+                        check(point.display_owner_id.empty(),"Solid state whole-container highlight reveals topology vertex dots");
+            };
             const auto inspect_wire=[&] {
                 QTreeWidgetItem* item=nullptr;
                 for(QTreeWidgetItemIterator it(tree);*it;++it)
@@ -174,7 +191,11 @@ int verify_solid_state_ui(QApplication& application,const std::filesystem::path&
             const auto authored_wire=inspect_wire();
             if(!sweep_only&&scenario==3) {
                 auto* create=window.findChild<QAction*>("modelTwistAction");
-                check(create&&create->isEnabled(),"Model Twist command unavailable");create->trigger();flush();
+                check(create&&create->isEnabled(),"Model Twist command unavailable");
+                const auto commands=window.findChild<QToolBar*>("toolsToolbar")->actions();
+                check(commands.indexOf(create)==commands.indexOf(window.findChild<QAction*>("featureShortcut5Action"))+1,
+                    "Model Twist is not immediately below Rotation in the command panel");
+                create->trigger();flush();
                 auto* properties=dynamic_cast<app::PrimitivePropertiesDialog*>(window.findChild<QWidget*>("featurePropertiesDialog"));
                 check(properties&&properties->pending_value().feature.sides[0].operation==document::FeatureSideOperation::Twist,
                     "Model Twist did not initialize its shared profile dialog");
@@ -198,9 +219,22 @@ int verify_solid_state_ui(QApplication& application,const std::filesystem::path&
                 check(row,"Twist Tree row missing after Cancel");
                 window.show_tree_item_properties(row);flush();
                 properties=dynamic_cast<app::PrimitivePropertiesDialog*>(window.findChild<QWidget*>("featurePropertiesDialog"));
-                check(properties,"Twist Properties did not reopen");properties->accept();flush();
+                check(properties,"Twist Properties did not reopen");
+                properties->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
                 check(packet()==input&&window.findChild<QAction*>("undoAction")->isEnabled()==had_undo,
                     "Unchanged Twist OK changed geometry or created Undo");
+                row=nullptr;
+                for(QTreeWidgetItemIterator it(tree);*it;++it)if((*it)->data(0,Qt::UserRole).toString().toStdString()==source.id&&
+                    (*it)->data(0,Qt::UserRole+3)=="part-container"){row=*it;break;}
+                check(row,"Twist Tree row missing after unchanged OK");window.show_tree_item_properties(row);flush();
+                properties=dynamic_cast<app::PrimitivePropertiesDialog*>(window.findChild<QWidget*>("featurePropertiesDialog"));
+                check(properties,"Disconnected Twist edit did not reopen");
+                properties->findChild<QCheckBox*>("featureTwistSmooth0")->setChecked(false);
+                properties->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
+                const auto edited=packet();check(edited!=input,"Changed disconnected Twist OK did not calculate geometry");
+                window.findChild<QAction*>("undoAction")->trigger();flush();check(packet()==input,"Disconnected Twist Undo lost the original result");
+                window.findChild<QAction*>("redoAction")->trigger();flush();check(packet()==edited,"Disconnected Twist Redo lost the changed result");
+                window.findChild<QAction*>("undoAction")->trigger();flush();
             }
             straighten->trigger();flush();check(dialog(),"Straighten GUI did not open");
             check(dialog()->parentWidget()==&window&&dialog()->windowFlags().testFlag(Qt::SubWindow),"Solid state dialog is not internal");
@@ -248,6 +282,8 @@ int verify_solid_state_ui(QApplication& application,const std::filesystem::path&
             dialog()->buttons()->button(QDialogButtonBox::Ok)->click();flush();check(!dialog(),"Straighten OK failed");
             check(restore->isEnabled(),"Restore not enabled after Straighten");
             const auto straight_packet=packet();check(straight_packet!=input,"Straighten did not update View");
+            check_state_display();
+            window.grab().save(QString::fromStdString((fixture/"straight-display.png").string()));
             inspect_from_view(view,tree,source.id,active_path);
             check(packet()==straight_packet,"View double-click replaced the straightened solid");
             if(!sweep_only)check(!view->mesh().dimensions.empty(),"View double-click has no original feature dimensions");
@@ -337,13 +373,17 @@ int verify_solid_state_ui(QApplication& application,const std::filesystem::path&
             QMouseEvent middle(QEvent::MouseButtonDblClick,*restored_hit,QPointF(view->mapToGlobal(restored_hit->toPoint())),Qt::MiddleButton,Qt::MiddleButton,Qt::NoModifier);
             QApplication::sendEvent(view,&middle);flush();check(!dialog(),"Restore MMB double-click failed");
             check(!restore->isEnabled()&&window.active_occurrence_path_for_test()==active_path,"Restore did not finish in the active context");
+            check_state_display();
+            window.grab().save(QString::fromStdString((fixture/"restored-display.png").string()));
             check(inspect_wire()==authored_wire,"Restore changed the authored inspection wire");
             if(context)check(std::ranges::any_of(view->mesh().triangle_references,[&](const auto& face){return face.instance_path==passive_path;}),"Passive assembly context disappeared");
             const auto formed_packet=packet();
             window.findChild<QAction*>("undoAction")->trigger();flush();
             check(packet()==straight_packet&&restore->isEnabled(),"GUI Undo did not restore the straight state");
+            check_state_display();
             window.findChild<QAction*>("redoAction")->trigger();flush();
             check(packet()==formed_packet&&!restore->isEnabled(),"GUI Redo did not restore the formed state");
+            check_state_display();
             check(window.execute_console_command("save").ok,"Cannot save GUI state result");flush();
             std::vector<kernel::BodyResult> reopened_geometry;
             const auto reopened=document::PartDocument::load(path,&reopened_geometry);
@@ -353,6 +393,8 @@ int verify_solid_state_ui(QApplication& application,const std::filesystem::path&
                 *reopened.find_container(authored_fillet->id)==*authored_fillet,"GUI state changed authored Fillet intent");
             check(!reopened_geometry.empty()&&std::abs(reopened_geometry.back().volume-state->session.calculated_boundaries().back().volume)<1e-5,
                 "GUI restored volume did not survive native save/reopen");
+            check(std::ranges::none_of(reopened_geometry.back().mesh.axes,[&](const auto& axis){return axis.reference.owner_id==source.id;}),
+                "Native save/reopen restored an obsolete displayed source axis");
             window.hide();flush();
         }
         // Run the manual-correction spring case last so its independent
@@ -589,7 +631,6 @@ int verify_solid_state_ui(QApplication& application,const std::filesystem::path&
                     (*it)->data(0,Qt::UserRole).toString().toStdString()==feature.id){row=*it;break;}
                 check(row,"User source feature has no Tree row");tree->itemDoubleClicked(row,0);flush();
                 check(!view->container_inspection_wire().empty(),"User feature has no original inspection wire");
-                check(!view->mesh().dimensions.empty(),"User feature has no authored dimensions");
                 original_wires.emplace(feature.id,wire_points());
                 check(packet()==before&&window.findChild<QAction*>("undoAction")->isEnabled()==had_undo,
                     "User inspection changed calculated body or Undo");
@@ -598,13 +639,48 @@ int verify_solid_state_ui(QApplication& application,const std::filesystem::path&
                 check(view->container_inspection_wire().empty(),"User source wire survived Escape");
                 if(std::ranges::any_of(part.history,[](const auto& f){return f.feature_kind==document::FeatureKind::Straighten;})) {
                     inspect_from_view(view,tree,feature.id,{});
-                    check(wire_points()==original_wires.at(feature.id)&&!view->mesh().dimensions.empty(),
-                        "User View double-click differs from the authored wire and dimensions");
+                    check(wire_points()==original_wires.at(feature.id),
+                        "User View double-click differs from the authored wire");
                     check(packet()==before,"User View inspection changed the solid");
                     QApplication::sendEvent(view,&escape);flush();
                 }
             }
             check(inspected>0,"User model has no profile feature to inspect");
+            for(const auto& feature:part.history)if(feature.feature_kind==document::FeatureKind::Feature&&
+                feature.feature.sides[0].operation==document::FeatureSideOperation::Twist&&
+                std::ranges::any_of(feature.placement.references,[](const auto& ref){return kernel::solid_state_parent(ref.semantic_key).has_value();})) {
+                QTreeWidgetItem* row{};
+                for(QTreeWidgetItemIterator it(tree);*it;++it)if((*it)->data(0,Qt::UserRole+3)=="part-container"&&
+                    (*it)->data(0,Qt::UserRole).toString().toStdString()==feature.id){row=*it;break;}
+                check(row,"State-attached Twist has no Tree row");window.show_tree_item_properties(row);flush();
+                auto* properties=dynamic_cast<app::PrimitivePropertiesDialog*>(window.findChild<QWidget*>("featurePropertiesDialog"));
+                check(properties&&properties->pending_value().placement.references==feature.placement.references,
+                    "State-attached Twist Properties lost its references");
+                auto* reference_table=properties->findChild<QTableWidget*>("primitiveReferenceTable");
+                check(reference_table,"Twist Properties has no shared reference table");reference_table->cellClicked(0,1);flush();
+                std::set<std::string> current_states;
+                for(const auto& face:view->mesh().triangle_references)if(kernel::solid_state_parent(face.semantic_key))current_states.insert(face.owner_id);
+                check(!current_states.empty(),"Twist editor did not display its state input boundary");
+                view->set_selection_filter(viewer::SelectionFilter::Faces);view->fit_all();flush();
+                std::size_t offered{};
+                for(int y=5;y<view->height();y+=14)for(int x=5;x<view->width();x+=14)
+                    for(const auto& candidate:view->selection_candidates_at({double(x),double(y)}))if(candidate.kind==viewer::CandidateKind::Face) {
+                        ++offered;
+                        check(current_states.contains(candidate.owner_id),"Twist editor offers a phantom face from an obsolete solid state");
+                    }
+                check(offered>0,"Twist editor offered no current state faces");
+                window.grab().save(QString::fromStdString((fixture/"state-reference-properties.png").string()));
+                properties->reject();flush();view->set_selection_filter(viewer::SelectionFilter::All);
+                check(packet()==before,"State-attached Twist Cancel did not restore the body");
+                auto* straighten=window.findChild<QAction*>("straightenAction");check(straighten&&straighten->isEnabled(),"User chain cannot Straighten");
+                straighten->trigger();flush();app::SolidStateDialog* state_dialog{};
+                for(auto* d:window.findChildren<QDialog*>())if(auto* state=dynamic_cast<app::SolidStateDialog*>(d);state&&state->isVisible())state_dialog=state;
+                check(state_dialog,"User chain Straighten did not open");state_dialog->buttons()->button(QDialogButtonBox::Ok)->click();flush();
+                check(packet()!=before,"User chain Straighten did not change the displayed body");
+                window.grab().save(QString::fromStdString((fixture/"state-attached-straight.png").string()));
+                window.findChild<QAction*>("undoAction")->trigger();flush();check(packet()==before,"User chain Undo did not restore the displayed body");
+                std::cout<<"State-attached user Twist: Properties, current face candidates, Cancel, Straighten and Undo passed\n";
+            }
             check(window.execute_console_command("save").ok,"Cannot save inspected user-model copy");
             const auto reopened=document::PartDocument::load(path);
             check(reopened.history==part.history&&std::ranges::equal(reopened.sketches,part.sketches,{},

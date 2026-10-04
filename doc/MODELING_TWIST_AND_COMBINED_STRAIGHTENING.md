@@ -16,9 +16,10 @@ length.
 
 Modeling **Twist** uses the ordinary profile Feature dialog and its placement
 contract. Length, angle, right/left direction and optional smooth transitions
-define one solid side. Separate disconnected regions and multiple station
-Sketches are not inputs to this command; ordinary Sweep remains available for
-different profiles at multiple stations. The existing sheet-metal Twist command
+define one solid side. Disconnected filled regions in the owned Sketch share
+the combined area-centroid axis, including the negative area of holes. Each
+region retains its source topology ancestry. Ordinary Sweep remains available
+for different profiles at multiple stations. The existing sheet-metal Twist command
 retains its own material and thickness behavior.
 
 ## Command lifecycle
@@ -38,6 +39,18 @@ mixed datum/face placements and limit-driven cuts use an isolated document with
 the existing reference solver during explicit calculation. Authored references
 and placements are not rewritten. Subsequent fingerprint checks consume the
 calculated reference packet without invoking OCCT.
+
+Twist publishes the enabled centroid axis and the origin trajectory with their
+semantic endpoint identities. The centroid axis stays straight; an off-axis
+origin follows the same twist law as the section. Both are retained in the
+calculated native viewer packet and follow repeated Straighten/Restore states.
+
+Dependencies referencing a preceding solid state's face, edge, point or axis
+resolve that stored identity against the current source geometry during an
+explicit state calculation. Mixed global-datum and state-face constraints still
+use the existing placement solver. The common picker offers current state
+geometry and excludes source faces and older state snapshots for that exact
+source occurrence. Authored snapshots remain available for inspection.
 
 ## Authored geometry inspection
 
@@ -116,6 +129,11 @@ variant matrix. Unchanged OK remains outside the calculation path.
 - The user-model test accepts `--user-model Projects/02.prtz` and verifies the
   complete combined Feature, following extrusion and through-all cut, including
   cold regeneration. It does not write to the source file.
+- `--state-alias-model` verifies the state-attached Twist in the `03.prtz`
+  definition: movement, restoration, unchanged authored references, Undo/Redo
+  and cold native reopening. Use an explicitly regenerated test copy when its
+  stored calculation predates the current geometry inputs. GUI checks cover
+  its Properties boundary and current face candidates.
 - Drawing dimension tests cover imperial conversion, decimal alignment, signed
   zero, literal overrides and native annotation persistence.
 - Localization coverage checks all five supported catalogs. Start templates are

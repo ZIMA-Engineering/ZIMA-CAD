@@ -362,7 +362,7 @@ void AssemblyWorkspaceWindow::create_actions() {
     for (std::size_t index = 0; index < application_actions_.size(); ++index) {
         auto* action = new QAction(application_names[index],this);
         action->setIcon(resource_icon(QString::fromLatin1(application_icons[index])));
-        if(static_cast<ApplicationMode>(index)!=ApplicationMode::Piping)
+        if(static_cast<ApplicationMode>(index)!=ApplicationMode::Piping&&static_cast<ApplicationMode>(index)!=ApplicationMode::Surface)
             applications->addAction(action);
         else action->setVisible(false);
         action->setObjectName(

@@ -32,7 +32,7 @@
 namespace zima::document {
 
 enum class CombineMode { Add, Subtract };
-enum class FeatureKind { Sketch, Extrusion, Revolution, Sweep3D, ImportedStep, Fillet, Chamfer, Shell, Hole, Thread, DrillPoint, ShaftThread, HelicalSweep, Sweep2D, Holes, Bend, Flat, TwistedSheet, Unbend, BendBack, DerivedCopy, SheetTransition, Feature, BoundarySurface, Straighten, RestoreShape };
+enum class FeatureKind { Sketch, Extrusion, Revolution, Sweep3D, ImportedStep, Fillet, Chamfer, Shell, Hole, Thread, DrillPoint, ShaftThread, HelicalSweep, Sweep2D, Holes, Bend, Flat, TwistedSheet, Unbend, BendBack, DerivedCopy, SheetTransition, Feature, BoundarySurface, Straighten, RestoreShape, SurfaceSewing, GeneralSurface, SurfaceIntersection, SurfaceTrim };
 [[nodiscard]] inline bool is_solid_state(FeatureKind kind) {
     return kind==FeatureKind::Straighten||kind==FeatureKind::RestoreShape;
 }
@@ -612,13 +612,45 @@ struct SheetTransitionParameters {
     bool operator==(const SheetTransitionParameters&)const=default;
 };
 struct BoundaryCurveSource {
-    std::string owner_id; // Source Sketch container or Curve3D container.
+    std::string owner_id; // Original source container.
     std::string curve_id; // Empty selects the whole open chain.
+    enum class Kind { Curve, Edge };
+    Kind kind{Kind::Curve};
+    kernel::SurfaceContinuity continuity{kernel::SurfaceContinuity::G0};
+    std::optional<kernel::FaceReference> support;
+    bool support_reversed{};
     bool operator==(const BoundaryCurveSource&)const=default;
 };
 struct BoundarySurfaceParameters {
-    std::array<BoundaryCurveSource,4> boundaries;
+    std::vector<BoundaryCurveSource> boundaries{4};
     bool operator==(const BoundarySurfaceParameters&)const=default;
+};
+struct SurfaceSewingParameters {
+    std::vector<kernel::FaceReference> faces;
+    bool operator==(const SurfaceSewingParameters&)const=default;
+};
+struct SurfaceIntersectionParameters {
+    std::array<kernel::FaceReference,2> faces;
+    bool operator==(const SurfaceIntersectionParameters&)const=default;
+};
+struct SurfaceTrimParameters {
+    kernel::FaceReference target;
+    std::vector<kernel::SurfaceTrimTool> tools;
+    kernel::Vec3 seed;
+    bool seed_valid{};
+    std::string retained_region_key;
+    bool operator==(const SurfaceTrimParameters&)const=default;
+};
+struct GeneralSurfaceBoundary {
+    // Exactly one ordinary native definition. The parent relation is explicit;
+    // list position is only traversal/display order, never object identity.
+    std::string sketch_serialized;
+    std::optional<ConstructionObject> curve;
+    bool operator==(const GeneralSurfaceBoundary&)const=default;
+};
+struct GeneralSurfaceParameters {
+    std::vector<GeneralSurfaceBoundary> boundaries;
+    bool operator==(const GeneralSurfaceParameters&)const=default;
 };
 struct HistoryContainer {
     std::string id;
@@ -651,13 +683,17 @@ struct HistoryContainer {
     SolidStateParameters solid_state;
     SheetTransitionParameters sheet_transition;
     BoundarySurfaceParameters boundary_surface;
+    SurfaceSewingParameters surface_sewing;
+    SurfaceIntersectionParameters surface_intersection;
+    SurfaceTrimParameters surface_trim;
+    GeneralSurfaceParameters general_surface;
     ThreadParameters thread;
     ShaftThreadParameters shaft_thread;
     DrillPointParameters drill_point;
     bool suppressed{};
     std::set<std::string> value_locks;
     [[nodiscard]] bool is_surface_result() const {
-        return feature_kind==FeatureKind::BoundarySurface ||
+        return feature_kind==FeatureKind::SurfaceTrim || feature_kind==FeatureKind::BoundarySurface || feature_kind==FeatureKind::SurfaceSewing || feature_kind==FeatureKind::GeneralSurface ||
             (feature_kind==FeatureKind::Sweep2D && sweep2d.result_type==ProfileResultType::Surface) ||
             (feature_kind==FeatureKind::Sweep3D && sweep3d.result_type==ProfileResultType::Surface) ||
             (feature_kind==FeatureKind::HelicalSweep && helical.result_type==ProfileResultType::Surface) ||

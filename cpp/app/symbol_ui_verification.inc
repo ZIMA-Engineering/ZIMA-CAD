@@ -581,6 +581,28 @@ int verify_symbol_ui(QApplication& application,zima::app::AssemblyWorkspaceWindo
         save->trigger();flush();
         const auto reopened=drawing::DrawingDocument::load(drawing_path);
         check(reopened.sheets.front().symbol_annotations==drawing_window->document_for_test().sheets.front().symbol_annotations,"Weld values lost on save/reopen");
+        chosen_symbol=std::filesystem::current_path()/"config/symbols/sheetm/ZE-BEND-NOTE.symz";
+        const auto before_bend=drawing_window->document_for_test().sheets.front().symbol_annotations;
+        for(bool accept:{false,true}) {
+            chooser.start(100);insert_sheet->trigger();chooser.stop();flush();
+            auto* editor=dynamic_cast<app::SymbolAttachmentDialog*>(window.findChild<QDialog*>("symbolAttachmentDialog"));
+            check(editor,"Manual bend-note editor missing");
+            auto* text=editor->findChild<QComboBox*>("symbolField:Text");check(text&&text->isEditable(),"Bend note has no unrestricted Text field");
+            text->setCurrentText(QString::fromUtf8("Ohyb 37° dolů"));
+            attach_pending_symbol(editor);
+            editor->findChild<QCheckBox*>("symbolLeader")->setChecked(true);
+            editor->findChild<QDoubleSpinBox*>("symbolPlacement0")->setValue(25);
+            editor->findChild<QDoubleSpinBox*>("symbolPlacement1")->setValue(20);flush();
+            check(editor->pending_placement().symbol.text_values.at("Text")=="Ohyb 37° dolů","Bend note inferred or changed the authored angle/direction");
+            if(accept)editor->buttons()->button(QDialogButtonBox::Ok)->click();else editor->reject();flush();
+            const auto& annotations=drawing_window->document_for_test().sheets.front().symbol_annotations;
+            if(!accept)check(annotations==before_bend,"Bend-note Cancel changed the Drawing");
+            else check(annotations.size()==before_bend.size()+1&&annotations.back().symbol.text_values.at("Text")=="Ohyb 37° dolů",
+                "Manual bend note did not commit its authored text");
+        }
+        save->trigger();flush();
+        check(drawing::DrawingDocument::load(drawing_path).sheets.front().symbol_annotations==drawing_window->document_for_test().sheets.front().symbol_annotations,
+            "Manual bend-note embedding or placement lost on native save/reopen");
         drawing_window->render_sheet_for_test(false).save(QString::fromStdString((directory/"weld-tolerance-sheet.png").string()));
         drawing_window->export_pdf(directory/"weld-tolerance-sheet.pdf");drawing_window->export_dxf(directory/"weld-tolerance-sheet.dxf");
         auto exported=sketcher::Sketch::create_default();

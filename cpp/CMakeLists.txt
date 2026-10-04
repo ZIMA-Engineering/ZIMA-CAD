@@ -218,6 +218,9 @@ add_library(zima_document_core
     modules/document_core/src/dimension_identifiers.cpp
     modules/document_core/src/viewer_packet_json.cpp
     modules/document_core/src/cache_storage.cpp)
+# Native document serialization exceeds the standard MSVC COFF section limit.
+set_property(SOURCE modules/document_core/src/part_document.cpp APPEND PROPERTY
+    COMPILE_OPTIONS "$<$<CXX_COMPILER_ID:MSVC>:/bigobj>")
 target_include_directories(zima_document_core PUBLIC
     modules/document_core/include)
 target_link_libraries(zima_document_core
@@ -247,6 +250,10 @@ target_link_libraries(zima_measurement PUBLIC zima_kernel_api)
 add_library(zima_workspace modules/workspace/src/workspace.cpp
     modules/workspace/src/sheet_transition_operations.cpp
     modules/workspace/src/boundary_surface_operations.cpp
+    modules/workspace/src/surface_sewing_operations.cpp
+    modules/workspace/src/surface_intersection_operations.cpp
+    modules/workspace/src/surface_trim_operations.cpp
+    modules/workspace/src/general_surface_operations.cpp
     modules/workspace/src/document_copy.cpp
     modules/workspace/src/document_operations.cpp
     modules/workspace/src/archive_operations.cpp
@@ -549,6 +556,9 @@ target_link_libraries(zima-cad-drawing-harness PRIVATE
     zima_workspace zima_drawing zima_document_core zima_assembly zima_ui
     Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Svg)
 set_target_properties(zima-cad-drawing-harness PROPERTIES AUTORCC ON)
+# Native feature definitions also instantiate in the drawing test harness.
+# Match the application object format when MSVC's section limit is exceeded.
+target_compile_options(zima-cad-drawing-harness PRIVATE $<$<CXX_COMPILER_ID:MSVC>:/bigobj>)
 
 add_executable(zima_cpp_precision_benchmark tests/precision_benchmark.cpp)
 target_link_libraries(zima_cpp_precision_benchmark PRIVATE zima_workspace zima_drawing_render Qt6::Gui)
@@ -1706,12 +1716,30 @@ if(ZIMA_BUILD_TESTS)
         ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_BOUNDARY_SURFACE_ONLY=1"
         WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 120 RUN_SERIAL TRUE)
     add_executable(zima_cpp_boundary_surface_dialog_tests tests/boundary_surface_dialog_tests.cpp)
+    file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/general-surface-ui-contract")
+    add_test(NAME zima_cpp_general_surface_ui_contract COMMAND zima-cad-cpp --verify-startup
+        --working-directory "${CMAKE_BINARY_DIR}/general-surface-ui-contract")
+    set_tests_properties(zima_cpp_general_surface_ui_contract PROPERTIES
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_GENERAL_SURFACE_ONLY=1"
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 120 RUN_SERIAL TRUE)
     target_link_libraries(zima_cpp_boundary_surface_dialog_tests PRIVATE zima_ui zima_document_core Qt6::Widgets)
+    file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/surface-trim-ui-contract")
+    add_test(NAME zima_cpp_surface_trim_ui_contract COMMAND zima-cad-cpp --verify-startup
+        --working-directory "${CMAKE_BINARY_DIR}/surface-trim-ui-contract")
+    set_tests_properties(zima_cpp_surface_trim_ui_contract PROPERTIES
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_SURFACE_TRIM_ONLY=1"
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 120 RUN_SERIAL TRUE)
+    file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/surface-intersection-ui-contract")
+    add_test(NAME zima_cpp_surface_intersection_ui_contract COMMAND zima-cad-cpp --verify-startup
+        --working-directory "${CMAKE_BINARY_DIR}/surface-intersection-ui-contract")
+    set_tests_properties(zima_cpp_surface_intersection_ui_contract PROPERTIES
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_SURFACE_INTERSECTION_ONLY=1"
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 120 RUN_SERIAL TRUE)
     target_compile_options(zima_cpp_boundary_surface_dialog_tests PRIVATE $<$<CXX_COMPILER_ID:MSVC>:/utf-8>)
     add_test(NAME zima_cpp_boundary_surface_dialog_tests COMMAND zima_cpp_boundary_surface_dialog_tests)
     set_tests_properties(zima_cpp_boundary_surface_dialog_tests PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
     add_executable(zima_cpp_boundary_surface_tests tests/boundary_surface_tests.cpp)
-    target_link_libraries(zima_cpp_boundary_surface_tests PRIVATE zima_workspace zima_document_core zima_kernel_occt zima_viewer)
+    target_link_libraries(zima_cpp_boundary_surface_tests PRIVATE zima_workspace zima_document_core zima_kernel_occt zima_viewer TKTopAlgo TKGeomAlgo)
     add_test(NAME zima_cpp_boundary_surface_tests COMMAND zima_cpp_boundary_surface_tests)
     # Isolated surface research: no GUI, OCCT, persistence or placement changes.
     add_executable(zima_cpp_transition_surface_tests tests/transition_surface_tests.cpp research/transition_surface.cpp)
@@ -1813,6 +1841,14 @@ if(ZIMA_BUILD_TESTS)
         ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_ARC_ONLY_BEND=1"
         WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 120 RUN_SERIAL TRUE)
     add_test(NAME zima_cpp_bend_command_tests COMMAND zima_cpp_bend_command_tests)
+    add_test(NAME zima_cpp_sheet_cut_skin_to_skin_contract COMMAND zima_cpp_bend_command_tests --verify-sheet-cut-skin-to-skin)
+    set_tests_properties(zima_cpp_sheet_cut_skin_to_skin_contract PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
+    file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/sheet-cut-skin-ui-contract")
+    add_test(NAME zima_cpp_sheet_cut_skin_ui_contract COMMAND zima-cad-cpp --verify-startup
+        --working-directory "${CMAKE_BINARY_DIR}/sheet-cut-skin-ui-contract")
+    set_tests_properties(zima_cpp_sheet_cut_skin_ui_contract PROPERTIES
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_SHEET_CUT_SKIN_ONLY=1"
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 120 RUN_SERIAL TRUE)
     set_tests_properties(zima_cpp_bend_command_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
     add_executable(zima_cpp_twisted_sheet_tests tests/twisted_sheet_tests.cpp)
     target_link_libraries(zima_cpp_twisted_sheet_tests PRIVATE zima_workspace zima_kernel_occt)

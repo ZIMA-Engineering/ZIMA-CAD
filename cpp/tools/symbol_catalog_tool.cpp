@@ -46,6 +46,22 @@ symbols::Definition annotation_text() {
     d.sketches={std::move(base)};d.default_variant="text";d.insertion_point={0,0};
     d.validate();return d;
 }
+symbols::Definition manual_bend_note() {
+    symbols::Definition d;d.id="ze:sheetm:bend-note";d.name="ZE-BEND-NOTE";
+    auto base=sketch(d.id+":text");base.name="Text";
+    text(base,"bend:note","Ohyb 90° nahoru",0,0);
+    base.texts.back().drawing_keep_readable=true;
+    sketcher::rebuild_text_contours(base.texts.back(),true);
+    d.fields["Text"]={base.id,"bend:note",{},true};
+    const std::map<std::string,std::string> examples{
+        {"cs","Ohyb 90° nahoru"},{"en","Bend 90° up"},{"de","Biegung 90° nach oben"},
+        {"fr","Pli 90° vers le haut"},{"ru","Гиб 90° вверх"}};
+    for(const auto& [language,value]:examples) {
+        d.variants[language].sketches={base.id};d.variants[language].text_values["Text"]=value;
+    }
+    d.sketches={std::move(base)};d.default_variant="cs";d.insertion_point={0,0};
+    d.validate();return d;
+}
 symbols::Definition historical_roughness() {
     symbols::Definition d;d.id="ze:surface-texture:iso1302-1978";d.name="ZE-SURFACE-TEXTURE-ISO1302-1978";
     auto base=sketch(d.id+":base");
@@ -260,6 +276,13 @@ symbols::Definition datum_feature() {
 int main(int argc,char** argv) {
     QGuiApplication app(argc,argv);
     try {
+        if(argc==3&&std::string(argv[1])=="--create-bend-note") {
+            const auto path=std::filesystem::u8path(argv[2]);
+            if(std::filesystem::exists(path))throw std::invalid_argument("Bend-note library already exists");
+            std::filesystem::create_directories(path.parent_path());const auto definition=manual_bend_note();definition.save(path);
+            if(symbols::Definition::load(path).serialized()!=definition.serialized())throw std::runtime_error("Bend-note library roundtrip differs");
+            std::cout<<"Manual bend-note library created with editable text in all five languages\n";return 0;
+        }
         if(argc==4&&std::string(argv[1])=="--preview") {
             const auto font_path=std::filesystem::path(__FILE__).parent_path().parent_path().parent_path()/"config/fonts/osifont-lgpl3fe.ttf";
             const int font_id=QFontDatabase::addApplicationFont(QString::fromStdString(font_path.string()));

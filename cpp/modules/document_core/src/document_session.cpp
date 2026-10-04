@@ -1,5 +1,6 @@
 #include <zima/document/document_session.hpp>
 #include <zima/document/physical_properties.hpp>
+#include <zima/kernel/solid_state_ancestry.hpp>
 
 #include <algorithm>
 #include <iterator>
@@ -172,6 +173,10 @@ std::optional<zima::kernel::BodyResult> DocumentSession::calculated_boundary(
             !axis.reference.semantic_key.starts_with("centerline:from:")) {
             continue;
         }
+        if(std::ranges::any_of(result.mesh.triangle_references,[&](const auto& face) {
+            return face.display_owner_id==axis.reference.owner_id&&face.instance_path==axis.reference.instance_path&&
+                zima::kernel::solid_state_parent(face.semantic_key).has_value();
+        }))continue;
         const bool already_visible = std::ranges::any_of(result.mesh.axes,
             [&](const auto& visible) {
                 return visible.reference == axis.reference;

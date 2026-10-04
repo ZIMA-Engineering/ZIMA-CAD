@@ -552,6 +552,55 @@ void verify(bool circle,bool flip,int attachment=0,int invalid=0,int sweep_kind=
 }
 }
 int main(int argc,char** argv)try {
+    if(argc==3&&std::string(argv[1])=="--state-alias-model") {
+        auto part=document::PartDocument::load(argv[2]);
+        const auto authored=part.serialized();
+        const auto follower=std::ranges::find_if(part.history,[](const auto& feature) {
+            return feature.feature_kind==document::FeatureKind::Feature&&
+                feature.feature.sides[0].operation==document::FeatureSideOperation::Twist&&
+                std::ranges::any_of(feature.placement.references,[](const auto& ref){return kernel::solid_state_parent(ref.semantic_key).has_value();});
+        });
+        check(follower!=part.history.end(),"User model has no state-attached Twist");
+        const auto follower_id=follower->id,id=part.document_id;
+        kernel::OcctKernel kernel;
+        const auto baseline=workspace::calculate_part_with_resolved_references(kernel,part,nullptr,{true});
+        check(baseline.back().calculation_errors.empty(),"User model cold calculation failed");
+        part.save(std::filesystem::path(argv[2]).parent_path()/"03-verified.prtz",baseline);
+        workspace::Workspace live;live.add_part(part,baseline);live.activate(id);
+        const auto points_for=[&](const kernel::ViewerReferenceGeometry& geometry) {
+            std::map<std::string,kernel::Vec3> points;
+            for(const auto& point:geometry.points)if(point.reference.owner_id==follower_id)points.emplace(point.reference.semantic_key,point.position);
+            return points;
+        };
+        const auto original=points_for(baseline.back().mesh.original_references);
+        check(!original.empty(),"State-attached Twist has no persisted points");
+        auto straight=document::PartDocument::create_solid_state_container();
+        check(workspace::commit_solid_state(live,kernel,id,straight),"Cannot straighten state-attached user model");
+        const auto& straight_result=live.open_part(id)->session.calculated_boundaries().back();
+        check(straight_result.calculation_errors.empty(),"State-attached Straighten failed");
+        const auto packet=straight_result.solid_state_reference_views.at(straight.id);
+        const auto moved=points_for(*packet);
+        check(moved.size()==original.size(),"Straighten lost attached Twist point identities");
+        check(std::ranges::any_of(original,[&](const auto& item){if(!item.first.starts_with("sweep:vertex:start:"))return false;const auto& p=moved.at(item.first);return std::hypot(p.x-item.second.x,p.y-item.second.y,p.z-item.second.z)>1.;}),
+            "State-attached Twist stayed at its authored position after Straighten");
+        auto restore=document::PartDocument::create_solid_state_container(true);
+        check(workspace::commit_solid_state(live,kernel,id,restore),"Cannot restore state-attached user model");
+        const auto verify=[&](const kernel::BodyResult& result) {
+            check(result.calculation_errors.empty(),"State-attached Restore failed");
+            const auto points=points_for(*result.solid_state_reference_views.at(restore.id));
+            for(const auto& [key,p]:original){const auto& q=points.at(key);near(q.x,p.x);near(q.y,p.y);near(q.z,p.z);}
+            near(result.volume,baseline.back().volume);
+        };
+        verify(live.open_part(id)->session.calculated_boundaries().back());
+        check(workspace::step_part_document_history(live,id,false)&&workspace::step_part_document_history(live,id,true),"State alias Undo/Redo failed");
+        verify(live.open_part(id)->session.calculated_boundaries().back());
+        std::vector<kernel::BodyResult> reopened;
+        auto cold=document::PartDocument::from_serialized(live.open_part(id)->session.document().serialized(live.open_part(id)->session.calculated_boundaries()),&reopened);
+        verify(reopened.back());verify(workspace::calculate_part_with_resolved_references(kernel::OcctKernel{},cold,nullptr,{true}).back());
+        for(const auto& feature:part.history)check(*cold.find_container(feature.id)==feature,"State alias replay rewrote authored feature or references");
+        check(part.serialized()==authored,"Cold calculation rewrote authored model");
+        std::cout<<"Native state-attached Twist: moved with Straighten, restored, unchanged identities, Undo/Redo and cold reopen passed\n";return 0;
+    }
     if(argc==3&&std::string(argv[1])=="--inspect-model") {
         auto part=document::PartDocument::load(argv[2]);
         const auto value=part.serialized();

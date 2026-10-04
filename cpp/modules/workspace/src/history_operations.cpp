@@ -31,9 +31,17 @@ bool set_part_history_suppressed(Workspace& live,const std::string& document_id,
     require_editable(part.session.document(),id);
     if (current==suppressed) return false;
     auto next=part.session.document();
-    if (auto* feature=next.find_container(id)) feature->suppressed=suppressed;
-    else if (auto* construction=next.find_construction(id)) construction->suppressed=suppressed;
-    else std::ranges::find_if(next.sketches,[&](const auto& s){return s.id==id;})->suppressed=suppressed;
+    const auto set_suppressed=[&](const std::string& object) {
+        if (auto* feature=next.find_container(object)) feature->suppressed=suppressed;
+        else if (auto* construction=next.find_construction(object)) construction->suppressed=suppressed;
+        else if(auto sketch=std::ranges::find_if(next.sketches,[&](const auto& s){return s.id==object;});sketch!=next.sketches.end())
+            sketch->suppressed=suppressed;
+    };
+    // Suppression follows all consumers; restoration enables only the selected
+    // object and its prerequisites. Preserve definitions and reference identity,
+    // and commit the complete change after one calculation.
+    const auto affected=part_history_dependency_closure(part.session.document(),id,suppressed);
+    for(const auto& object:affected)set_suppressed(object);
     auto calculated=calculate_part(kernel,next,&part.session.calculated_boundaries());
     next.resolve_constructions(calculated.empty()?kernel::ViewerReferenceGeometry{}:calculated.back().mesh.original_references);
     static_cast<void>(refresh_sketch_external_references(next,calculated));

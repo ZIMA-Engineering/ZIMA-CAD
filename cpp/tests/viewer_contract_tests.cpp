@@ -1,4 +1,5 @@
 #include <zima/kernel/transition_edge_display.hpp>
+#include <zima/kernel/state_display.hpp>
 #include <zima/viewer/picking.hpp>
 #include <zima/viewer/shading.hpp>
 
@@ -15,6 +16,44 @@ void require(bool condition, const char* message) {
 
 int main() {
     try {
+        {
+            using namespace zima::kernel;
+            using namespace zima::viewer;
+            ViewerMesh mesh;
+            mesh.vertices={{-1,-1,5},{1,-1,5},{0,1,5}};mesh.triangles={0,1,2};
+            mesh.triangle_references={{"restore",solid_state_child_key("source","face"),"active"}};
+            mesh.axes.push_back({{0,0,5},{0,1,0},10,{"restore",solid_state_child_key("source","axis:primary"),"active"}});
+            mesh.original_references.axes=mesh.axes;
+            mesh.original_references.axes.push_back({{20,0,5},{0,1,0},10,{"source","axis:primary","active"}});
+            mesh.original_references.axes.push_back({{40,0,5},{0,1,0},10,{"straight",solid_state_child_key("source","axis:primary"),"active"}});
+            mesh.original_references.axes.push_back({{60,0,5},{0,1,0},10,{"source","axis:primary","passive"}});
+            mesh.points.push_back({{0,0,5},{"restore",solid_state_child_key("source","vertex"),"active"},{},false});
+            associate_solid_state_display(mesh);
+            require(mesh.points.front().display_owner_id.empty(),"State topology vertex recolours with its whole container");
+            const auto axes=[&](double x){return filter_candidates(ordered_viewer_candidates(mesh,{x,0,0},{0,0,1},.1),{CandidateKind::Axis});};
+            const auto current=axes(0);
+            require(!current.empty()&&std::ranges::all_of(current,[](const auto& axis){return axis.owner_id=="restore";}),
+                "Common picker offers a different state at the visible axis");
+            require(axes(20).empty()&&axes(40).empty(),"Hidden authored or previous-state axis remains pickable");
+            require(axes(60).size()==1&&axes(60).front().instance_path=="passive","State axis policy affected another occurrence");
+            mesh.original_references.vertices=mesh.vertices;
+            mesh.original_references.triangles=mesh.triangles;
+            mesh.original_references.triangle_references=mesh.triangle_references;
+            for(int i=1;i<=3;++i) {
+                const double x=i*20.;const auto offset=static_cast<std::uint32_t>(mesh.original_references.vertices.size());
+                mesh.original_references.vertices.insert(mesh.original_references.vertices.end(),{{x-1,-1,5},{x+1,-1,5},{x,1,5}});
+                mesh.original_references.triangles.insert(mesh.original_references.triangles.end(),{offset,offset+1,offset+2});
+                const std::string owner=i==2?"straight":"source",path=i==3?"passive":"active";
+                const auto key=[&](const char* value){return i==2?solid_state_child_key("source",value):std::string(value);};
+                mesh.original_references.triangle_references.push_back({owner,key("face"),path});
+                ViewerEdge edge;edge.reference={owner,key("edge"),path};edge.points={{x,-1,5},{x,1,5}};mesh.original_references.edges.push_back(edge);
+                mesh.original_references.points.push_back({{x,0,5},{owner,key("vertex"),path},{},false});
+            }
+            const auto topology=[&](double x){return filter_candidates(ordered_viewer_candidates(mesh,{x,0,0},{0,0,1},.1),{CandidateKind::Face,CandidateKind::Edge,CandidateKind::Vertex});};
+            require(!topology(0).empty(),"Current solid-state topology is not offered");
+            require(topology(20).empty()&&topology(40).empty(),"Common picker offers phantom source or previous-state topology");
+            require(!topology(60).empty(),"Solid-state topology policy affected another occurrence");
+        }
         {
             using namespace zima::kernel;
             ViewerEdge edge;edge.reference={"transition","junction",{}};

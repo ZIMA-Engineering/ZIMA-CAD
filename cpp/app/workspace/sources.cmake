@@ -13,6 +13,9 @@ set(ZIMA_WORKSPACE_SOURCES
     app/workspace/dimension_edit.cpp
     app/workspace/document_commands.cpp
     app/workspace/boundary_surface.cpp
+    app/workspace/surface_sewing.cpp
+    app/workspace/surface_intersection.cpp
+    app/workspace/surface_trim.cpp
     app/workspace/documents.cpp
     app/workspace/edge_preview_helpers.cpp
     app/workspace/edge_treatment.cpp
@@ -37,6 +40,7 @@ set(ZIMA_WORKSPACE_SOURCES
     app/workspace/sketch_snapping.cpp
     app/workspace/sketch_tools.cpp
     app/workspace/sweep_properties.cpp
+    app/workspace/general_surface.cpp
     app/workspace/toolbars.cpp
     app/workspace/tree.cpp
     app/workspace/tree_helpers.cpp

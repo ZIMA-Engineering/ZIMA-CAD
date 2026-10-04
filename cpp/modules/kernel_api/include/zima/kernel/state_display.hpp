@@ -22,6 +22,10 @@ inline void associate_solid_state_display(ViewerMesh& mesh) {
     for(auto& edge:mesh.edges)
         if(auto source=owner(edge.reference);!source.empty())edge.display_owner_id=std::move(source);
     for(auto& point:mesh.points)
-        if(auto source=owner(point.reference);!source.empty())point.display_owner_id=std::move(source);
+        if(auto source=owner(point.reference);!source.empty()) {
+            // As with sheet states, solid vertices remain exact reference
+            // targets; whole-container hover/selection must not reveal dots.
+            point.display_owner_id=point.always_visible||!point.label.empty()?std::move(source):std::string{};
+        }
 }
 } // namespace zima::kernel

@@ -115,6 +115,17 @@ calculate_part_reference_state(
         const auto sketch_frames_before=sketch_frames();
         // Saved centroids use this pass's actual input boundary, before any
         // downstream placement consumes the refreshed frame. No kernel call.
+        // Persist the native retained boundary only after successful explicit
+        // calculation. It is validation intent, so the settling pass reuses
+        // unchanged geometry rather than invoking Splitter a second time.
+        if(!calculated.empty())for(auto& feature:document.history)
+            if(feature.feature_kind==document::FeatureKind::SurfaceTrim&&!feature.suppressed&&
+                feature.surface_trim.retained_region_key.empty()&&!calculated.back().calculation_errors.contains(feature.id)) {
+                std::set<std::string> keys;
+                for(const auto& face:calculated.back().mesh.original_references.triangle_references)
+                    if(face.owner_id==feature.id&&face.semantic_key.starts_with("trim:face:from:"))keys.insert(face.semantic_key);
+                if(keys.size()==1)feature.surface_trim.retained_region_key=*keys.begin();
+            }
         document::refresh_body_properties(document,calculated);
         auto reference_geometry=construction_reference_source_geometry(calculated);
         const auto state_views=calculated.empty()?document::HistoryReferenceViews{}:

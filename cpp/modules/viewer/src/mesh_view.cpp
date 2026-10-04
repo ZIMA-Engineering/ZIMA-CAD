@@ -1,5 +1,6 @@
 #include <zima/kernel/transition_edge_display.hpp>
 #include <zima/kernel/state_display.hpp>
+#include <zima/kernel/solid_state_ancestry.hpp>
 #include "../../../common/datum_display.hpp"
 #include "../../../common/interaction_colors.hpp"
 #include <zima/kernel/tangent_edge_route.hpp>
@@ -3774,7 +3775,8 @@ if (impl_->show_origins) {
     const bool axes_visible = impl_->show_axes || impl_->show_origins ||
         impl_->editing_origin_visible || axes_selectable ||
         std::any_of(impl_->mesh.edges.begin(), impl_->mesh.edges.end(), [&](const auto& edge) {
-            return edge.reference.semantic_key.starts_with("centerline:from:") &&
+            std::string source_key;
+            return kernel::solid_state_source_key(edge.reference.semantic_key,source_key).starts_with("centerline:from:") &&
                 highlighted && candidate_recolors_wire_edge(*highlighted, edge);
         }) ||
         std::any_of(impl_->mesh.axes.begin(),impl_->mesh.axes.end(),[&](const auto& axis){
@@ -4119,7 +4121,9 @@ if (impl_->show_origins) {
             // QPainter only presents those same samples at a stable 1.8 px
             // width on every OpenGL driver.
             for (const auto& edge : impl_->mesh.edges) {
-                const bool centerline=edge.reference.semantic_key.starts_with("centerline:from:");
+                std::string source_key;
+                const auto datum_key=kernel::solid_state_source_key(edge.reference.semantic_key,source_key);
+                const bool centerline=datum_key.starts_with("centerline:from:");
                 const bool editing_curve = !impl_->editing_curve_owner.empty() &&
                     edge.display_owner_id == impl_->editing_curve_owner &&
                     edge.reference.instance_path == impl_->editing_curve_path;
@@ -4159,7 +4163,7 @@ if (impl_->show_origins) {
                     path.lineTo(project(edge.points[index]));
                 }
                 painter.drawPath(path);
-                if (edge.reference.semantic_key.starts_with("centerline:from:centroid:")) {
+                if (datum_key.starts_with("centerline:from:centroid:")) {
                     painter.setPen(QPen(color));
                     painter.drawText(project(edge.points.front()) + QPointF(8.0, -6.0), QStringLiteral("T"));
                 }
@@ -4713,6 +4717,10 @@ if (impl_->show_origins) {
                     // offered and cyan once confirmed (including a drag).
                     // Purple remains reserved for the separate feature and
                     // plane manipulators drawn elsewhere.
+                    // State-owned datums keep the presentation of their
+                    // authored point type through every persisted parent.
+                    std::string parent_marker_key;
+                    const auto marker_key = kernel::solid_state_source_key(point.reference.semantic_key,parent_marker_key);
                     const QColor marker_color = plane_offset_preview
                         ? interaction::selected
                         : selected
@@ -4720,18 +4728,18 @@ if (impl_->show_origins) {
                         : hovered ? interaction::hover
                         : (referenced || creation_preview)
                             ? interaction::selected
-                        : point.reference.semantic_key ==
+                        : marker_key ==
                                 "external_point:sketch_origin"
                             ? QColor(0, 0, 0)
-                        : point.reference.semantic_key.starts_with("point:")
-                            ? point.reference.semantic_key.starts_with("point:from:")
+                        : marker_key.starts_with("point:")
+                            ? marker_key.starts_with("point:from:")
                                 ? interaction::axis : theme.foreground
-                        : point.reference.semantic_key.starts_with(
+                        : marker_key.starts_with(
                                 "corner_radius_handle:")
                             ? QColor(255, 255, 255)
-                        : point.reference.semantic_key == "point" || point.reference.semantic_key == "container:origin-marker" ||
-                            point.reference.semantic_key == "axis:start" || point.reference.semantic_key == "axis:end" ||
-                            (point.reference.semantic_key.starts_with("sweep:path-point:") || point.reference.semantic_key.starts_with("profile:path-point:") || point.reference.semantic_key.starts_with("axis:point:") || point.reference.semantic_key.starts_with("helical:axis-point:"))
+                        : marker_key == "point" || marker_key == "container:origin-marker" ||
+                            marker_key == "axis:start" || marker_key == "axis:end" ||
+                            (marker_key.starts_with("sweep:path-point:") || marker_key.starts_with("profile:path-point:") || marker_key.starts_with("axis:point:") || marker_key.starts_with("helical:axis-point:"))
                             ? interaction::axis
                             : QColor(0, 0, 0);
                     painter.setPen(QPen(marker_color, 1.0));

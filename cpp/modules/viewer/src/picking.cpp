@@ -1,4 +1,5 @@
 #include <zima/kernel/transition_edge_display.hpp>
+#include <zima/kernel/solid_state_ancestry.hpp>
 #include <zima/viewer/picking.hpp>
 
 #include <algorithm>
@@ -104,10 +105,12 @@ std::size_t next_candidate_index(
 bool candidate_recolors_wire_edge(
     const ViewerCandidate& candidate,
     const zima::kernel::ViewerEdge& edge) {
+    std::string source_key;
+    const bool centerline=kernel::solid_state_source_key(edge.reference.semantic_key,source_key).starts_with("centerline:from:");
     if (candidate.kind == CandidateKind::Container &&
         (candidate.semantic_key.empty() || candidate.semantic_key == "solid") &&
-        edge.reference.semantic_key.starts_with("centerline:from:")) {
-        return edge.reference.owner_id == candidate.owner_id &&
+        centerline) {
+        return (edge.reference.owner_id == candidate.owner_id || edge.display_owner_id == candidate.owner_id) &&
             edge.reference.instance_path == candidate.instance_path;
     }
     if (candidate.kind == CandidateKind::Occurrence) {
@@ -161,7 +164,7 @@ bool candidate_recolors_wire_edge(
             edge.reference.instance_path == candidate.instance_path;
     }
     const bool exact_edge_candidate =
-        (candidate.kind == CandidateKind::Axis && edge.reference.semantic_key.starts_with("centerline:from:")) ||
+        (candidate.kind == CandidateKind::Axis && centerline) ||
         candidate.kind == CandidateKind::Edge ||
         candidate.kind == CandidateKind::TemplateRegion ||
         candidate.kind == CandidateKind::TemplateImage ||
@@ -423,6 +426,19 @@ std::vector<ViewerCandidate> ordered_viewer_candidates(
     std::vector<ViewerCandidate> result;
     using FaceIdentity = std::tuple<std::string_view,std::string_view,std::string_view>;
     const auto identity = [](const auto& ref) -> FaceIdentity { return {ref.owner_id,ref.semantic_key,ref.instance_path}; };
+    using StateOccurrence=std::pair<std::string,std::string>;
+    std::map<StateOccurrence,std::set<std::string>> current_state_owners;
+    const auto state_source=[](const auto& ref) {
+        auto owner=ref.owner_id,key=ref.semantic_key;
+        while(const auto parent=kernel::solid_state_parent(key)){owner=parent->first;key=parent->second;}
+        return StateOccurrence{std::move(owner),ref.instance_path};
+    };
+    for(const auto& ref:mesh.triangle_references)if(kernel::solid_state_parent(ref.semantic_key))
+        current_state_owners[state_source(ref)].insert(ref.owner_id);
+    const auto obsolete_state_reference=[&](const auto& ref) {
+        const auto current=current_state_owners.find(state_source(ref));
+        return current!=current_state_owners.end()&&!current->second.contains(ref.owner_id);
+    };
     // These sets answer membership only; candidate order still comes from the
     // same geometric hit lists. Views remain valid for this one pick call.
     const auto identity_hash = [](const FaceIdentity& value) {
@@ -517,6 +533,7 @@ std::vector<ViewerCandidate> ordered_viewer_candidates(
         const auto& faces = geometry == CandidateGeometry::Display
             ? display_face_hits : persisted_face_hits;
         for (const auto& face : faces) {
+            if(geometry==CandidateGeometry::OriginalReference&&obsolete_state_reference(face.reference))continue;
             // In a Part, valid display-face identities are the persisted
             // source identities carried by the actually visible Body
             // fragments. The full untrimmed source faces remain stored for
@@ -597,6 +614,7 @@ std::vector<ViewerCandidate> ordered_viewer_candidates(
         }
         for (const auto& edge : ordered_edge_candidates(
                 source, ray_origin, ray_direction, world_tolerance)) {
+            if(geometry==CandidateGeometry::OriginalReference&&obsolete_state_reference(edge.reference))continue;
             if (edge.edge < source.edges.size() &&
                 source.edges[edge.edge].parameter_seam) continue;
             // Hidden sketch construction remains persisted for existing links,
@@ -766,6 +784,7 @@ std::vector<ViewerCandidate> ordered_viewer_candidates(
         }
         for (const auto& vertex : ordered_vertex_candidates(
                 source, ray_origin, ray_direction, world_tolerance)) {
+            if(geometry==CandidateGeometry::OriginalReference&&obsolete_state_reference(vertex.reference))continue;
             if (geometry == CandidateGeometry::OriginalReference &&
                 vertex.reference.semantic_key.starts_with("point:") &&
                 std::none_of(mesh.points.begin(), mesh.points.end(), [&](const auto& shown) {
@@ -815,13 +834,16 @@ std::vector<ViewerCandidate> ordered_viewer_candidates(
         }
         for (const auto& axis : ordered_axis_candidates(
                 source, ray_origin, ray_direction, world_tolerance)) {
+            if(geometry==CandidateGeometry::OriginalReference&&obsolete_state_reference(axis.reference))continue;
             if(geometry==CandidateGeometry::OriginalReference) {
-                const bool state_axis=axis.reference.semantic_key.starts_with("sheet-state:from:")&&axis.reference.semantic_key.find(":axis:")!=std::string::npos;
+                const bool solid_state_axis=kernel::solid_state_parent(axis.reference.semantic_key).has_value();
+                const bool state_axis=solid_state_axis||(axis.reference.semantic_key.starts_with("sheet-state:from:")&&axis.reference.semantic_key.find(":axis:")!=std::string::npos);
                 const bool profile_axis=axis.reference.semantic_key=="axis:primary"||axis.reference.semantic_key.starts_with("axis:profile:");
+                const bool solid_datum=profile_axis||axis.reference.semantic_key.starts_with("centerline:from:")||axis.reference.semantic_key.starts_with("helical:rotation-axis:");
                 const bool displayed=std::ranges::any_of(mesh.axes,[&](const auto& a){return a.reference==axis.reference;});
-                if(!displayed&&(state_axis||(profile_axis&&std::ranges::any_of(mesh.triangle_references,[&](const auto& face) {
+                if(!displayed&&(state_axis||(solid_datum&&std::ranges::any_of(mesh.triangle_references,[&](const auto& face) {
                     return face.instance_path==axis.reference.instance_path&&face.display_owner_id==axis.reference.owner_id&&
-                        face.semantic_key.starts_with("sheet-state:from:");
+                        ((profile_axis&&face.semantic_key.starts_with("sheet-state:from:"))||kernel::solid_state_parent(face.semantic_key).has_value());
                 }))))continue;
             }
             const auto kind = axis.reference.semantic_key.starts_with("sketch_axis:")

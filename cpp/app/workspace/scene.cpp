@@ -11,6 +11,7 @@
 #include "../feature_view_cues.hpp"
 #include "../authored_feature_wire.hpp"
 #include <zima/document/helical_geometry.hpp>
+#include <zima/document/general_surface.hpp>
 #include "../sketch_point_pick_priority.hpp"
 
 namespace zima::app {
@@ -186,6 +187,27 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
                 if (part_rollback_ && part_rollback_->part_document_id == document.document_id &&
                     i >= part_rollback_->history_limit) break;
                 const auto& feature = document.history[i];
+                if(feature.feature_kind==zima::document::FeatureKind::SurfaceIntersection) {
+                    if(feature.suppressed||(!document.history_order.empty()&&!visible_ids.contains(feature.id)))continue;
+                    // The derived curves are native calculated reference data.
+                    // Later body operations do not consume their display wires.
+                    for(const auto& edge:reference_geometry.edges)if(edge.reference.owner_id==feature.id&&
+                        std::ranges::none_of(mesh.edges,[&](const auto& shown){return shown.reference==edge.reference;}))mesh.edges.push_back(edge);
+                    for(const auto& point:reference_geometry.points)if(point.reference.owner_id==feature.id&&
+                        std::ranges::none_of(mesh.points,[&](const auto& shown){return shown.reference==point.reference;}))mesh.points.push_back(point);
+                    continue;
+                }
+                if(feature.feature_kind==zima::document::FeatureKind::GeneralSurface) {
+                    if(feature.suppressed||feature.id==primitive_parameter_owner_id_||(!document.history_order.empty()&&!visible_ids.contains(feature.id)))continue;
+                    auto definitions=zima::document::general_surface_definition_mesh(feature);
+                    remove_sketch_computation_points(definitions);
+                    if(construction_dimension_object_id_!=feature.id)definitions.dimensions.clear();
+                    std::erase_if(definitions.edges,[&](const auto& edge){return edge.reference.owner_id==active_sketch_id_;});
+                    std::erase_if(definitions.points,[&](const auto& point){return point.reference.owner_id==active_sketch_id_;});
+                    if(const auto* body=document.body_owner_for_object(feature.id))definitions=document.place_body_mesh(std::move(definitions),body->scope.id);
+                    for(auto& edge:definitions.edges)edge.display_owner_id=feature.id;
+                    append_mesh(mesh,std::move(definitions));continue;
+                }
                 if (feature.feature_kind != zima::document::FeatureKind::Sweep3D ||
                     feature.suppressed || (!document.history_order.empty() && !visible_ids.contains(feature.id))) continue;
                 // The live path already supplies pending geometry and annotations.
@@ -317,6 +339,13 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
                 zima::document::container_placement_dimensions(
                     object->id, placement, construction_properties_preview
                         ? construction_reference_geometry_ : reference_geometry);
+            if(construction_properties_preview&&general_surface_curve_annotation_placement_) {
+                zima::kernel::ViewerMesh annotations;annotations.dimensions=std::move(dimensions);
+                annotations=zima::document::general_surface_place_definition_mesh(*general_surface_curve_annotation_placement_,std::move(annotations));
+                if constexpr(requires{document.body_history;})
+                    if(const auto* body=document.body_owner_for_object(primitive_parameter_owner_id_))annotations=document.place_body_mesh(std::move(annotations),body->scope.id);
+                dimensions=std::move(annotations.dimensions);
+            }
             append_nonzero_parameter_dimensions(
                 mesh.dimensions, std::move(dimensions));
             if (object->kind == zima::document::ConstructionKind::Axis) {

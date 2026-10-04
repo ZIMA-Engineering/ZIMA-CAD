@@ -6,6 +6,20 @@ accepts custom content. The grip is local XY zero at the start of the text;
 the default nominal text height is 2.5 mm. It uses the same placement, scale,
 rotation and reference-loss behavior as other symbols.
 
+## Manual bend notes
+
+For a Drawing or a flat-pattern view, insert
+`config/symbols/sheetm/ZE-BEND-NOTE.symz` through **Insert symbol** and select
+the projected bend axis or another suitable entity. The unrestricted **Text**
+field contains the complete note, for example `Bend 90° up` or `Bend 37° down`.
+Five language variants provide editable examples; the text is authored content,
+not a calculated angle or automatically translated model parameter.
+
+Check the angle and the up/down direction against the actual view orientation.
+Rotating or reversing a view does not rewrite the note. The symbol uses the
+ordinary leader, placement, Properties, Cancel and native embedded-definition
+workflow. It requires no dedicated bend command or 3D annotation.
+
 ## Insert and edit
 
 Use **Insert symbol** in a Part, Assembly or Drawing and select a `.symz` library

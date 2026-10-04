@@ -1,22 +1,33 @@
 // Included after the shared exact Sketch-chain adapter. No kernel calls here.
 HistoryContainer create_boundary_surface() {
     auto result=PartDocument::create_sketch_container();
-    result.feature_kind=FeatureKind::BoundarySurface;result.name="Hraniční plocha";
+    result.feature_kind=FeatureKind::BoundarySurface;result.name="Zaplnit plochu";
     return result;
 }
-bool boundary_surface_source_allowed(const PartDocument& part,const std::string& feature,const BoundaryCurveSource& source) {
-    if(source.owner_id.empty()||source.owner_id==feature)return false;
+bool boundary_surface_owner_allowed(const PartDocument& part,const std::string& feature,const std::string& owner) {
+    if(owner.empty()||owner==feature)return false;
     const auto position=[&](const std::string& id){return std::ranges::find(part.history_order,id,&PartHistoryEntry::id);};
-    const auto input=position(source.owner_id),output=position(feature);
+    const auto input=position(owner),output=position(feature);
     if(input==part.history_order.end()||(output!=part.history_order.end()&&input>=output))return false;
-    const auto* source_body=part.body_owner_for_object(source.owner_id);
+    const auto* source_body=part.body_owner_for_object(owner);
     const auto* target_body=part.body_owner_for_object(feature);
     if(!target_body)target_body=part.body_history.find(part.body_history.active_body_id());
     if(source_body&&target_body&&source_body->scope.id!=target_body->scope.id)return false;
     if(output==part.history_order.end()&&target_body) {
-        const auto entry=std::ranges::find(target_body->entries,source.owner_id,&PartHistoryEntry::id);
+        const auto entry=std::ranges::find(target_body->entries,owner,&PartHistoryEntry::id);
         if(entry==target_body->entries.end()||static_cast<std::size_t>(entry-target_body->entries.begin())>=target_body->cursor)return false;
     }
+    if(const auto* curve=part.find_construction(owner))return !curve->suppressed;
+    const auto* container=part.find_container(owner);return container&&!container->suppressed;
+}
+bool boundary_surface_support_allowed(const PartDocument& part,const std::string& feature,const kernel::FaceReference& support) {
+    return support.valid()&&support.instance_path.empty()&&part.find_container(support.owner_id)&&
+        boundary_surface_owner_allowed(part,feature,support.owner_id);
+}
+bool boundary_surface_source_allowed(const PartDocument& part,const std::string& feature,const BoundaryCurveSource& source) {
+    if(!boundary_surface_owner_allowed(part,feature,source.owner_id))return false;
+    if(source.kind==BoundaryCurveSource::Kind::Edge)
+        return !source.curve_id.empty()&&part.find_container(source.owner_id);
     if(const auto* curve=part.find_construction(source.owner_id))
         return curve->kind==ConstructionKind::Curve3D&&!curve->suppressed&&source.curve_id.empty();
     const auto* container=part.find_container(source.owner_id);
@@ -33,14 +44,26 @@ kernel::BoundarySurfaceRequest boundary_surface_request(const PartDocument& part
     using E=kernel::ExtrusionRequest;
     kernel::BoundarySurfaceRequest result;result.region_id=feature.feature_id;
     result.tolerance=precision_value(part.document_precision,"linear_tolerance",0.001);
-    std::set<std::pair<std::string,std::string>> unique;
-    for(std::size_t i=0;i<4;++i) {
+    result.angular_tolerance=precision_value(part.document_precision,"angular_tolerance",0.001)*std::acos(-1.)/180;
+    const auto count=feature.boundary_surface.boundaries.size();
+    if(count<2)throw std::runtime_error("Boundary surface requires at least two boundaries.");
+    result.boundaries.resize(count);result.source_owners.resize(count);result.constraints.resize(count);
+    std::set<std::tuple<std::string,std::string,BoundaryCurveSource::Kind>> unique;
+    for(std::size_t i=0;i<count;++i) {
         const auto& source=feature.boundary_surface.boundaries[i];
         if(!boundary_surface_source_allowed(part,feature.id,source))
-            throw std::runtime_error("Boundary surface requires preceding Sketch or 3D Curve sources in the active Body.");
-        if(!unique.emplace(source.owner_id,source.curve_id).second)
-            throw std::runtime_error("Boundary surface requires four different boundaries.");
+            throw std::runtime_error("Fill surface requires preceding curves or original edges in the active Body.");
+        if(!unique.emplace(source.owner_id,source.curve_id,source.kind).second)
+            throw std::runtime_error("Boundary surface requires different boundaries.");
         result.source_owners[i]=source.owner_id;
+        auto& constraint=result.constraints[i];constraint.continuity=source.continuity;
+        constraint.support=source.support;constraint.support_reversed=source.support_reversed;
+        if(source.continuity!=kernel::SurfaceContinuity::G0 &&
+            (source.kind!=BoundaryCurveSource::Kind::Edge||!source.support||!boundary_surface_support_allowed(part,feature.id,*source.support)))
+            throw std::runtime_error("G1 and G2 require an original edge and its supporting face.");
+        if(source.kind==BoundaryCurveSource::Kind::Edge) {
+            constraint.edge=kernel::EdgeReference{source.owner_id,source.curve_id,{}};continue;
+        }
         auto& boundary=result.boundaries[i];
         if(const auto* curve=part.find_construction(source.owner_id)) {
             if(!curve->reference_valid)throw std::runtime_error("Boundary curve has unresolved references.");

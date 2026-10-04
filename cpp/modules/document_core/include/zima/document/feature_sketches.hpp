@@ -15,6 +15,7 @@ void visit_feature_sketches(Container& feature,Visitor&& visit){
     case K::HelicalSweep: for(auto& data:feature.helical.sketches)apply(data);break;
     case K::SheetTransition: for(auto& data:feature.sheet_transition.sketches)apply(data);break;
     case K::Sweep3D: for(auto& profile:feature.sweep3d.profiles)apply(profile.sketch_serialized);break;
+    case K::GeneralSurface: for(auto& boundary:feature.general_surface.boundaries)apply(boundary.sketch_serialized);break;
     case K::Hole:case K::Thread:
         apply(feature.hole.sketch_serialized);apply(feature.hole.chamfer_sketch_serialized);apply(feature.hole.tip_sketch_serialized);break;
     default:break;

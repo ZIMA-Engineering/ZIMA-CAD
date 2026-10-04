@@ -2,6 +2,7 @@
 #include "../tests/gui_profile_fixture.hpp"
 #include <QCheckBox>
 #include <QToolButton>
+#include <QToolBar>
 #include <QRadioButton>
 #include <QUuid>
 #include <QSettings>
@@ -11,10 +12,17 @@
 #include "feature_view_cues.hpp"
 #include "orientation_dialog.hpp"
 #include "boundary_surface_dialog.hpp"
+#include "surface_sewing_dialog.hpp"
+#include "general_surface_dialog.hpp"
+#include "surface_intersection_dialog.hpp"
+#include "surface_trim_dialog.hpp"
+#include "confirmed_face_hit.hpp"
 #include <zima/document/named_views.hpp>
 #include <zima/document/placement_json.hpp>
 #include "sketch_properties_dialog.hpp"
 #include <zima/workspace/sketch_operations.hpp>
+#include <zima/workspace/flat_operations.hpp>
+#include <zima/workspace/profile_operations.hpp>
 #include <QTabBar>
 #include <QTabWidget>
 #include <QLabel>
@@ -184,6 +192,10 @@ Q_NEVER_INLINE static int verify_sketch_roles(QApplication& application, Assembl
 }
 #include "feature_ui_verification.inc"
 #include "boundary_surface_ui_verification.inc"
+#include "sheet_cut_skin_ui_verification.inc"
+#include "general_surface_ui_verification.inc"
+#include "surface_intersection_ui_verification.inc"
+#include "surface_trim_ui_verification.inc"
 
 Q_NEVER_INLINE static int verify_feature_prototype(QApplication& application,AssemblyWorkspaceWindow& window,const std::filesystem::path& directory) {
     try {

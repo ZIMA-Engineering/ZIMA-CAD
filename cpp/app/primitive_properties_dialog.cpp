@@ -56,7 +56,7 @@ bool uses_container_placement(zima::document::FeatureKind kind) {
     return kind == FeatureKind::Extrusion || kind == FeatureKind::Revolution || kind == FeatureKind::Feature ||
         kind == FeatureKind::TwistedSheet || kind == FeatureKind::DerivedCopy ||
         kind == FeatureKind::ImportedStep || kind == FeatureKind::Hole ||
-        kind == FeatureKind::Thread || kind == FeatureKind::SheetTransition;
+        kind == FeatureKind::Thread || kind == FeatureKind::SheetTransition || kind == FeatureKind::GeneralSurface;
 }
 
 namespace {

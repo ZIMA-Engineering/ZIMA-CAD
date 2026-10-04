@@ -2,6 +2,7 @@
 #include <zima/kernel/solid_straightening.hpp>
 #include <zima/kernel/solid_state_ancestry.hpp>
 #include <zima/kernel/feature_side_identity.hpp>
+#include <zima/kernel/state_display.hpp>
 #include <cmath>
 #include <algorithm>
 #include <iostream>
@@ -26,6 +27,45 @@ void ancestry() {
     }
     for(const std::string key:{"face:0","solid-state:parent:1:x:1:y:extra", "solid-state:parent:999999999999999999999:x", "solid-state:parent:0::1:x"})
         require(!solid_state_parent(key),"Malformed ancestry accepted");
+}
+void state_display() {
+    auto request=source();request.centerlines.origin_enabled=true;
+    request.centerlines.origin={110,10,0};request.centerlines.normal={0,0,1};
+    std::vector<HistoryOperation> history{{"source",request},
+        {"straight",SolidStateRequest{false,true,.9,{}}},
+        {"restore",SolidStateRequest{true,true,1,{}}},
+        {"straight-again",SolidStateRequest{false,true,1.1,{}}}};
+    OcctKernel kernel;const auto calculated=kernel.evaluate_history(history);
+    for(std::size_t i=1;i<calculated.size();++i) {
+        const auto& body=calculated[i];const auto& packet=*body.solid_state_reference_views.at(history[i].owner_id);
+        require(!packet.axes.empty(),"State fixture has no calculated centerline axes");
+        require(body.mesh.axes.size()==packet.axes.size(),"Solid state displays stale or missing axes");
+        for(const auto& axis:packet.axes) {
+            const AxisReference expected{history[i].owner_id,solid_state_child_key(axis.reference.owner_id,axis.reference.semantic_key),{}};
+            const auto found=std::ranges::find(body.mesh.axes,expected,&ViewerAxis::reference);
+            require(found!=body.mesh.axes.end()&&found->point==axis.point&&found->direction==axis.direction&&
+                found->display_length==axis.display_length,"Solid state axis differs from calculated geometry");
+            require(std::ranges::find(calculated.back().mesh.original_references.axes,expected,&ViewerAxis::reference)!=calculated.back().mesh.original_references.axes.end(),
+                "Displayed state axis has no persisted reference");
+        }
+        require(std::ranges::none_of(body.mesh.axes,[](const auto& axis){return axis.reference.owner_id=="source";}),
+            "Solid state retains an authored axis in ordinary display");
+        for(const auto& edge:packet.edges)if(edge.reference.semantic_key.starts_with("centerline:from:")) {
+            const EdgeReference expected{history[i].owner_id,solid_state_child_key(edge.reference.owner_id,edge.reference.semantic_key),{}};
+            const auto found=std::ranges::find(body.mesh.edges,expected,&ViewerEdge::reference);
+            require(found!=body.mesh.edges.end()&&found->points==edge.points,"State centerline differs from calculated geometry");
+        }
+        auto display=body.mesh;associate_solid_state_display(display);
+        require(std::ranges::all_of(display.points,[](const auto& point){return point.always_visible||!point.label.empty()||point.display_owner_id.empty();}),
+            "Solid topology vertices participate in whole-container marker highlighting");
+        for(const auto& original:calculated.front().mesh.axes) {
+            const auto retained=std::ranges::find(calculated.back().mesh.original_references.axes,original.reference,&ViewerAxis::reference);
+            require(retained!=calculated.back().mesh.original_references.axes.end()&&retained->point==original.point&&retained->direction==original.direction,
+                "State display overwrote the authored axis reference");
+        }
+    }
+    const auto reused=kernel.evaluate_history_incremental(history,calculated);
+    require(reused.back().mesh.axes.size()==calculated.back().mesh.axes.size(),"Reused state duplicated displayed axes");
 }
 void curved_chain(bool sweep) {
     RevolutionRequest root;
@@ -197,7 +237,10 @@ void combined_side_variants() {
     std::cout<<cases<<" combined-side cases: shared Sketch, direction, endpoint identities, shape and Restore passed\n";
 }
 }
-int main(){try {
+int main(int argc,char** argv){try {
+    if(argc==2&&std::string_view(argv[1])=="--display") {
+        state_display();std::cout<<"Solid state axes, centerlines, ancestry and vertex display passed\n";return 0;
+    }
     combined_side_variants();
     {
         OcctKernel twist_kernel;
@@ -240,7 +283,7 @@ int main(){try {
         near(hollow_result[1].volume,hollow_area*100);
         near(hollow_result.back().volume,hollow_result.front().volume);
     }
-    ancestry();curved_chain(false);curved_chain(true);OcctKernel kernel;
+    ancestry();state_display();curved_chain(false);curved_chain(true);OcctKernel kernel;
     const auto original=source();
     const double area=144, radius=100+(80*10+64*2)/144.;
     const double volume=area*radius*std::numbers::pi/2;

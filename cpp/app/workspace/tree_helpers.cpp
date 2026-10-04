@@ -76,6 +76,10 @@ QString feature_icon_name(zima::document::FeatureKind kind) {
         case FeatureKind::Flat: return QStringLiteral("flat");
         case FeatureKind::TwistedSheet: return QStringLiteral("sheet-twist");
         case FeatureKind::BoundarySurface: return QStringLiteral("boundary-surface");
+        case FeatureKind::SurfaceSewing: return QStringLiteral("surface-sewing");
+        case FeatureKind::GeneralSurface: return QStringLiteral("boundary-surface");
+        case FeatureKind::SurfaceIntersection: return QStringLiteral("sketch-3d");
+        case FeatureKind::SurfaceTrim: return QStringLiteral("boundary-surface");
         case FeatureKind::SheetTransition: return QStringLiteral("sheet-transition");
         case FeatureKind::Holes: return QStringLiteral("holes");
         case FeatureKind::Thread: return QStringLiteral("hole");
@@ -174,6 +178,19 @@ void add_history_container_tree_children(QTreeWidgetItem* parent,
             sketch->setData(0, Qt::UserRole, QString::fromStdString(profile.id));
             sketch->setData(0, Qt::UserRole + 1, QString::fromStdString(instance_path.encoded()));
             sketch->setData(0, Qt::UserRole + 3, "sweep3d-profile");
+        }
+        return;
+    }
+    if(container.feature_kind==zima::document::FeatureKind::GeneralSurface) {
+        for(std::size_t i=0;i<container.general_surface.boundaries.size();++i) {
+            const auto& boundary=container.general_surface.boundaries[i];
+            const auto name=boundary.curve?boundary.curve->name:zima::sketcher::Sketch::from_serialized(boundary.sketch_serialized).name;
+            auto* child=new QTreeWidgetItem(parent,{QString::fromStdString(name)});
+            child->setIcon(0,resource_icon(boundary.curve?"sketch-3d":"sketch"));
+            child->setData(0,Qt::UserRole,QString::fromStdString(container.id));
+            child->setData(0,Qt::UserRole+1,QString::fromStdString(instance_path.encoded()));
+            child->setData(0,Qt::UserRole+3,"general-surface-boundary");child->setData(0,Qt::UserRole+6,static_cast<int>(i));
+            if(boundary.curve)add_construction_tree_children(child,*boundary.curve,instance_path);
         }
         return;
     }

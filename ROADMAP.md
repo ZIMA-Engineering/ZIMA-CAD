@@ -21,7 +21,7 @@ already rounded Sketch segment are fixed, verified and pushed in commits
 `6ca431bd` and `68d5b01a`; they are not yet in a new portable Windows release.
 The unit audit is now in progress.
 The previously agreed modeling queue retains the
-[Boundary Surface container redesign](doc/NETWORK_SURFACE.md#queued-container-redesign-approved-2026-10-02)
+[Surface command suite](doc/NETWORK_SURFACE.md)
 and optional Drawing view descriptions below; neither is superseded by the audit.
 The file manager below is an additional TODO; recording it does not interrupt
 the current implementation or claim that these capabilities already exist.
@@ -85,6 +85,63 @@ not by themselves select paper size, drafting convention or title-block content.
 Localize the wizard in all five languages. Linux desktop acceptance belongs on
 the Linux host.
 
+### Surface creation and downstream operations (clarified 2026-10-04)
+
+See [the implemented surface commands](doc/NETWORK_SURFACE.md). The native suite and command UI are implemented; final Windows packaging acceptance is tracked separately. The requirements below retain the agreed scope.
+The implemented scope follows the user's clarification: owned ordinary Sketches
+and 3D Curves, G0/G1/G2 filling, Sewing, shell Fillet, Intersection and Trim.
+
+- Keep the owned-boundary general Boundary Surface plan, including its own
+  Origin and ordinary Sketch / 3D Curve definitions. Add closed three-boundary
+  patches; investigate valid two-boundary and N-sided perimeters using OCCT.
+- Preserve the existing reference-based filling workflow as a separate Fill
+  Surface command. Accept existing surface edges and retain explicit support
+  faces and side identities. Continuity belongs to each boundary: G0, G1 and G2
+  are supported by the current filling API. G3 is not required, as clarified
+  by the user on the same date. Preserve the existing G0 case and never
+  silently downgrade requested continuity.
+- Add Surface Intersection for two selected native surface faces, producing
+  reusable 3D intersection curves and isolated points where applicable. Retain
+  all branches, both source parents and stable native identities. Use actual
+  trimmed faces; distinguish disjoint and coincident cases without inventing
+  geometry. Creating intersection curves does not modify the input surfaces.
+- Add Surface Trim for a target face, trimming surface or suitable native curve,
+  and an explicitly selected retained region. Allow direct surface-to-surface
+  trimming without requiring a separate intersection feature. Preserve the
+  underlying surface geometry, tool geometry, orientation, source ancestry and
+  retained-region intent; expose real trim boundaries for subsequent operations.
+- Add Sewing as a downstream history operation joining contiguous surface faces
+  into a shell. Sewing establishes shared topology and preserves geometry; it
+  does not automatically smooth the join or create material volume.
+- Extend the existing Fillet integration to appropriate shared sharp edges of
+  sewn shells. OCCT supports shell fillets without first creating a solid;
+  verify actual input topology, feasible radii, surface ownership, reference
+  ancestry and native persistence before claiming application support.
+- Preserve rollback, unchanged OK, Cancel, regeneration and Undo/Redo. Consume
+  the existing shared properties, placement and picking contracts, and apply
+  the feature-performance and five-language localization gates.
+
+### Grid command (deferred by the user, 2026-10-04)
+
+The user requested a future Grid command (Czech working name: `Mřížka`), but
+explicitly deferred it until the surface-operation suite above is complete.
+Do not design or implement it during the current surface work.
+
+The user subsequently clarified its intended behavior on the same date:
+
+- Start from a selected existing surface and derive its boundary curves.
+- Divide the boundary curves into points and construct an editable point grid
+  for the surface. Moving its points lets the user freely reshape the surface.
+- The user's interaction reference is Blender-style point editing: select and
+  move points to shape the surface interactively. This clarifies the intended
+  interaction without prescribing a polygon-mesh implementation or importing
+  Blender's complete toolset.
+- This is a surface-editing feature, not a display grid. The complete grid
+  layout, interior points, density controls, point-to-surface relationship and
+  boundary/continuity behavior remain to be settled at the deferred design stage.
+  Do not assume that sampled points are B-spline control poles or that every
+  edited point must be interpolated by the resulting surface.
+
 ### Optional Drawing view descriptions (requested 2026-10-02)
 
 This is a queued design request, not implemented behavior. It does not replace
@@ -109,6 +166,31 @@ the active modeling work.
   changes and independently hidden rows. Final row controls and parameter
   source scope remain design details to settle before implementation.
 - Localize all controls and validation in all five languages.
+
+### Manual bend-note library symbol (requested 2026-10-04)
+
+Queued library content, not a new automatic annotation command. The user chose
+an ordinary symbol with manually authored text over a model-driven bend note.
+
+- Add a simple native `.symz` text symbol under `config/symbols/sheetm`, using
+  the existing Insert symbol, editable Text field and Drawing placement workflow.
+  Example literal Czech content: `Ohyb 90° nahoru` or `Ohyb 90° dolů`.
+- Insert it directly in the Drawing's flat-pattern view beside the bend line,
+  with the existing optional leader where useful. No 3D annotation is required.
+- The author enters and checks the complete text. Do not calculate the angle,
+  infer the direction, reverse the wording when a view flips, or introduce
+  special bend-note controls, mandatory value lists or validation.
+- Reuse ordinary symbol ownership, editing, Cancel, Undo/Redo, native embedding
+  and PDF/DXF output. A library folder does not introduce a separate renderer
+  or a new placement contract. Review factory labels/text in all five languages
+  when creating the asset; this backlog entry adds no runtime UI text.
+
+Research references: Autodesk's
+[bend-note editor](https://help.autodesk.com/cloudhelp/2022/ENU/Inventor-Help/files/GUID-1BBEF02A-DFC5-466F-871D-28E2C94C566F.htm)
+describes editable text and direction/angle fields, and its
+[flat-pattern documentation](https://help.autodesk.com/cloudhelp/2027/ENU/Inventor-Help/files/GUID-1B336854-4ED3-4C32-ADCB-E7A407485D80.htm)
+defines direction relative to the viewed side. These are workflow examples,
+not a claim of a mandatory drafting standard or authorization for automation.
 
 ### Native ZIMA-CAD file manager
 

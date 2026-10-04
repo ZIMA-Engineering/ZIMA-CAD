@@ -1,107 +1,119 @@
-# Boundary Surface
+# Surface modeling commands
 
-Implemented and verified on Windows, 2026-09-27. Portable release acceptance is
-recorded in [the release record](releases/2026092702.md).
+The 2026-10-04 implementation adds a Modeling surface group immediately after
+Drill Point: General Surface, Fill Surface, Sewing, Surface Intersection and
+Surface Trim. Existing surface result modes in profile commands remain available.
+The previous empty Surfaces application entry is hidden. Windows packaging and
+final acceptance are recorded separately; development checks do not constitute
+a published release.
 
-## Scope and inputs
+## General Surface
 
-The agreed first command creates one general surface from exactly four boundary
-chains in perimeter order. It does not create sheet material, unfold a surface,
-or extend an extrusion up to the surface. Those are separate future operations.
+Create ordinary Sketches and ordinary 3D Curves inside the surface container.
+Their native parent relation is explicit. Sketch plane and offset are local to
+the container Origin; its placement carries all boundary definitions together.
+Open a boundary field with one click to use the ordinary editor, including its
+external-reference capabilities. Pending nested edits remain inside the outer
+transaction. Cancel discards them; General Surface OK commits the complete
+definition. Add/remove boundary rows and Up/Down controls preserve object identity.
 
-Each boundary references either one supported curve in a Sketch, one complete
-open Sketch chain, or one complete open 3D Curve. A Sketch chain must be connected
-and unbranched. Individual lines, arcs, elliptical arcs and B-splines use the
-existing exact Sketch geometry adapter. Sources must precede the surface in the
-same editable Body. References retain source identities, not viewport polylines.
+General Surface consumes the complete existing container-placement contract,
+including whole-Origin references, orientation, correction and inspection. It
+does not change the protected shared solver. Empty boundaries are drafts; their
+exact authored curves must form a connected closed perimeter before calculation.
 
-## Calculation and output
+## Fill Surface
 
-The installed OCCT 8.0.0 provides `BRepOffsetAPI_MakeFilling`. Explicit OK or
-Regenerate builds a C0-constrained filling from the authored edges. Chain
-orientation is resolved automatically without changing the source geometry.
-Endpoints must close the perimeter within document linear tolerance. The
-calculation checks boundary intersections, OCCT shape validity, fitting error
-and nonzero area. An invalid definition reports an error and is not committed.
+The former Boundary Surface command is now Fill Surface (`Zaplnit plochu`).
+It retains references to preceding Sketch curves/chains, 3D Curve chains or
+original native surface edges in the active editable Body. Two closed arcs,
+triangular perimeters and general N-sided contours are supported; two separate
+rails alone are not a closed perimeter. Automatic orientation does not modify
+the inputs or invent connecting curves.
 
-The result is a surface, with zero material volume, and retains semantic face,
-boundary-edge and corner identities. Boundaries determine the generated interior;
-they do not uniquely prescribe every possible surface spanning the same contour.
-No user-editable interior grid or tangency controls are included in this version.
-Highly twisted or otherwise incompatible boundaries may be rejected.
+Each boundary independently requests G0, G1 or G2. G0 means positional contact;
+G1 adds a common tangent plane; G2 adds curvature continuity. G1/G2 require a
+native edge and its explicit support face. Support-side reversal is retained.
+Calculation independently checks fitting distance, normal and curvature errors;
+it rejects an unsatisfied constraint instead of silently lowering continuity.
 
-## Interaction and persistence
+Explicit calculation uses OCCT filling and verifies perimeter closure, crossings,
+positive area and shape validity. The result has no material volume. Boundaries
+constrain the interior but do not uniquely prescribe every possible spanning
+surface. Highly twisted or incompatible definitions may be rejected.
 
-The Modeling command is **Boundary Surface** (localized Czech label:
-**Hraniční plocha**). Its icon is a yellow curved quadrilateral with four boundary
-edges and an interior grid. One internal properties dialog serves creation and
-editing. Four numbered reference rows use shared input, clear and independent
-inspection controls. Clearing a reference retains its structural row. A short
-middle click ends reference entry and inspection. OK calculates and commits;
-Cancel restores the previous model. Editing follows the common rollback rule.
+## Sewing and Fillet
 
-The geometry follows its source curves. This command does not modify or extend
-the protected common container-placement solver. The native Part stores all four
-source references; no required sidecar or geometry cache is introduced. Source
-geometry participates in the calculation fingerprint. History dependencies
-prevent moving the surface before its inputs.
+Sewing selects current calculated surface faces and produces one connected
+manifold shell. It preserves selected surface geometry and area, including
+partial shared boundaries, and retains native source/endpoint ancestry. Unselected
+solids and surface faces remain unchanged. Disconnected or nonmanifold results
+are rejected; Sewing does not automatically cap a shell or create material.
 
-## Verification
+Use the existing Fillet command on the real input edges of a sewn shell. Feasible
+radii produce surface fillets without first converting the shell to a solid.
+Excessive radii remain calculation errors. The ordinary Fillet selection,
+rollback, persistence and Undo/Redo contracts apply.
 
-Nine focused contracts passed: boundary geometry/document/workspace, reference
-dialog, full GUI creation/editing, translations, native documents, history
-commands, existing surface profiles, existing surface GUI, and five-language
-application lifecycle. Coverage includes planar and warped patches, exact arcs
-and rational B-splines, 3D Curve chains, reversed directions, gap/crossing
-rejection, canonical source identities, source-change invalidation, native
-save/reopen, unchanged OK, Undo/Redo, rollback and Cancel. GUI checks create new
-documents from regenerated factory templates and verify active editing context.
+## Surface Intersection
 
-The combined Windows translation test uses an 8 MiB stack for its large fixture
-frame; this changes the test executable only. These checks do not guarantee that
-all arbitrary four-sided contours produce an acceptable surface. The previously
-recorded Sweep 2D/Linear Pattern layout failures remain outside this change.
+Select two original bounded faces. The command creates exact reusable native
+curves and isolated contact points while leaving both input surfaces unchanged.
+Disjoint faces give an empty result; coincident areas are rejected because they
+do not define a unique curve. Periodic section pieces are joined without fitting
+a smoother substitute. A closed branch has no invented point at its parameter
+seam. Exchanging face fields preserves branch and endpoint references.
 
-## Deferred extensions
+Both faces and native endpoint parents define branch identity. A changed source
+invalidates calculation reuse. A removed or merged branch does not silently bind
+a dependent reference to another branch. Fill and Trim can use the exact edge;
+a compatible Sweep can consume it through ordinary Sketch External Geometry
+in its owned path. Direct arbitrary 3D Curve path conversion is not introduced.
 
-### Queued container redesign (approved 2026-10-02)
+## Surface Trim
 
-Implement this after completing Solid Straightening / Restore shape. It is a
-queued requirement, not the behavior of the currently released command.
+Select one current calculated surface face, preceding cutting faces or native
+edges, then click inside the region to retain. For face tools, Trim calculates
+their bounded intersection internally; no separate Intersection feature is needed.
+A curve tool must already lie on the bounded target and separate it. Trim does
+not project arbitrary tools or extend either input.
 
-- Boundary Surface becomes an ordinary placed container with its own Origin and
-  the complete shared container-placement controls in its properties dialog.
-- Place its Modeling action immediately below Drill Point, separated as
-  `Drill Point -> azure separator -> Boundary Surface -> azure separator`.
-  This establishes a dedicated group for future surface commands, using the
-  existing azure toolbar separator component.
-- Consolidate surface commands into Modeling and remove the separate Surfaces
-  entry from the Applications menu. Inventory its existing commands and preserve
-  their availability in the new group before removing the entry; this is a
-  navigation reorganization, not removal of surface functionality.
-- Each boundary row offers a type selector: Sketch, 2D Sweep or 3D Sweep, plus a
-  Properties button opening the existing editor for the newly owned boundary
-  element. The former external-reference prompt is replaced by this definition
-  workflow. Reuse each editor's capabilities and shared presentation rules.
-- Boundary elements belong to the Boundary Surface container. Their placements
-  use its Origin as the parent coordinate frame; moving or rotating the parent
-  carries the complete boundary definition and calculated surface together.
-- Boundary geometry must come from the exact authored curves of those elements.
-  Do not infer a boundary from display tessellation or silently introduce solid
-  material when defining a boundary curve.
-- Consume the existing shared placement contract, including reference and Origin
-  entry, inspection, offsets, preview, persistence and Cancel. The request does
-  not authorize changing the common solver equations or other containers.
+The selected fragment retains the same underlying surface and orientation, with
+real native trim boundaries. Unselected solids/surface faces and tool geometry
+remain unchanged. A closed cutting loop can retain its interior or its exterior
+with a real hole. A seed on the separating boundary is rejected as ambiguous.
+The seed is obtained from the already offered face's viewer triangles; explicit
+calculation resolves it on the exact surface. Picking never invokes OCCT.
 
-Before release, verify creation and later editing through the same dialog,
-owned-element editing, parent/local frame composition, rollback and Cancel,
-unchanged OK, regeneration, topology ancestry, native save/reopen, Undo/Redo and
-all five languages. Any native-format change also requires regenerated start
-templates and the ordinary new-document GUI checks. Keep this redesign separate
-from unrelated optimizations and from the current Solid Straightening work.
+The native Part stores target/tools, seed and the selected boundary ancestry.
+Regeneration rejects a changed region signature instead of silently keeping the
+opposite fragment. Reopen Properties and explicitly select a region to repair
+that intent. The signature is validation data, excluded from the geometric
+fingerprint; cached reuse still verifies it. Capturing it after calculation
+therefore does not require another split calculation.
 
-### Other extensions
+## Shared interaction, persistence and limits
 
-Interior curve networks, movable interior control grids, tangency constraints,
-trimmed patches with holes, multiple patches, sheet creation and unfolding, and
-extrusion up to the surface remain outside this first command.
+Each command uses one internal Properties window for creation and editing, with
+OK and Cancel, shared reference controls and independent inspection. Opening
+Properties publishes the actual rollback input once. Draft entry, hover and
+inspection use persisted viewer geometry. Unchanged OK creates no calculation
+or Undo transaction; Cancel restores the normal scene. Native documents own all
+required definitions and references; no required sidecar is introduced.
+
+Suppression cascades to dependent features. Restoring a feature restores its
+earlier prerequisites; later dependents remain suppressed until explicitly
+restored. Deleted inputs retain repairable unresolved history features.
+
+Native identity must be unambiguous from source parents. Multiple branches or
+trim corners with indistinguishable parent sets are rejected; there is no
+enumeration or coordinate-based identity fallback. The tests cover representative
+planar, curved and B-spline cases, not every possible kernel input. Grid/Mesh
+editing and G3 are explicitly deferred.
+
+Verification details and measured timings are in
+[the development record](SURFACE_OPERATIONS_DEVELOPMENT.md).
+Primary kernel references: [Filling](https://occt3d.com/dev/doc/refman/html/class_b_rep_offset_a_p_i___make_filling.html),
+[Section](https://occt3d.com/dev/doc/refman/html/class_b_rep_algo_a_p_i___section.html),
+[Splitter](https://occt3d.com/dev/doc/refman/html/class_b_rep_algo_a_p_i___splitter.html),
+and [Sewing](https://occt3d.com/dev/doc/refman/html/class_b_rep_builder_a_p_i___sewing.html).

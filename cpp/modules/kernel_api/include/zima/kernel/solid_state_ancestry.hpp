@@ -28,4 +28,12 @@ inline std::optional<std::pair<std::string,std::string>> solid_state_parent(std:
     if(!read(result.second) || !key.empty())return {};
     return result;
 }
+// The returned view uses the input or caller-owned storage. Only state keys
+// require decoding; ordinary datum classification performs no allocation.
+inline std::string_view solid_state_source_key(std::string_view key,std::string& storage) {
+    while(auto parent=solid_state_parent(key)) {
+        storage=std::move(parent->second);key=storage;
+    }
+    return key;
+}
 } // namespace zima::kernel

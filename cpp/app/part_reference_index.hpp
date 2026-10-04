@@ -2,6 +2,7 @@
 #include <zima/document/part_document.hpp>
 #include <zima/workspace/reference_index.hpp>
 #include "construction_reference_index.hpp"
+#include <zima/document/general_surface.hpp>
 
 namespace zima::app {
 // Tree diagnostics query the same persisted reference owners as placement.
@@ -24,6 +25,11 @@ inline workspace::ReferenceIndex part_reference_index(const document::PartDocume
     for(const auto& feature:document.history)
         if(feature.feature_kind==document::FeatureKind::Sweep3D && !feature.suppressed)
             add_construction_origin_references(index,feature.sweep3d.path);
+        else if(feature.feature_kind==document::FeatureKind::GeneralSurface&&!feature.suppressed) {
+            auto definitions=document::general_surface_definition_mesh(feature);
+            if(const auto* body=document.body_owner_for_object(feature.id))definitions=document.place_body_mesh(std::move(definitions),body->scope.id);
+            index.add_geometry(definitions.original_references);
+        }
     return index;
 }
 }

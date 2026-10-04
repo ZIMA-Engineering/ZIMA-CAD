@@ -60,6 +60,7 @@ class PrimitivePropertiesDialog;
 class ShaftThreadDialog;
 class PlacementReferenceDialog;
 class ConstructionPropertiesDialog;
+class GeneralSurfaceDialog;
 class ComponentPropertiesDialog;
 class OrientationDialog;
 class DrawingWindow;
@@ -441,6 +442,9 @@ private:
     PrimitivePropertiesDialog* extrusion_target_dialog_{};
     bool extrusion_target_assembly_cut_{};
     ConstructionPropertiesDialog* construction_reference_dialog_{};
+    // Command-local carrier for an ordinary Curve editor nested in General Surface.
+    std::function<zima::document::HistoryContainer(zima::document::ConstructionObject)> general_surface_curve_preview_;
+    std::optional<zima::document::Placement> general_surface_curve_annotation_placement_;
     ConstructionPropertiesDialog* curve_axis_dialog_{};
     std::optional<std::size_t> pending_curve_axis_index_;
     std::optional<zima::kernel::ViewerMesh> construction_preview_mesh_;
@@ -721,6 +725,9 @@ private:
     bool accept_family_reference(const zima::viewer::ViewerCandidate&, bool show_dimensions = false);
     void edit_file_settings(bool sheet_metal = false);
     void show_boundary_surface_properties(const std::string& container_id = {});
+    void show_surface_sewing_properties(const std::string& container_id = {});
+    void show_surface_intersection_properties(const std::string& container_id = {});
+    void show_surface_trim_properties(const std::string& container_id = {});
     void show_sheet_state_properties(bool unfold,const std::string& container_id={});
     void show_solid_state_properties(bool restore,const std::string& container_id={});
     void show_sheet_transition_properties(const std::string& container_id={},bool rectangular=false);
@@ -808,6 +815,7 @@ private:
         std::optional<zima::document::FeatureType> feature_preset = {}, bool rotation_preset = false, bool twist_preset = false);
     void show_sweep_properties(zima::document::FeatureKind kind, const std::string& container_id,bool rectangular=false);
     void show_sweep2d_properties(const std::string& container_id = {});
+    void show_general_surface_curve_properties(GeneralSurfaceDialog*,unsigned);
     void show_helical_sweep_properties(const std::string& container_id = {});
     void show_sweep3d_properties(const std::string& container_id = {});
     void transform_sketch_container(

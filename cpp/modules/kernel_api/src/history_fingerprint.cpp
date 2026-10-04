@@ -133,6 +133,8 @@ std::string encode_history_fingerprint(
 
                 byte(primitive.sheet_cut);
                 byte(primitive.sheet_cut_clearance);
+                if(primitive.sheet_cut&&!primitive.sheet_cut_clearance)
+                    for(unsigned char c:std::string_view("sheet-cut-rim-ancestry-v1"))byte(c);
                 if(primitive.sheet_cut)u64(std::bit_cast<std::uint64_t>(primitive.sheet_cut_tolerance));
                 if(primitive.surface_result) {byte(0xf1);for(const auto c:primitive.open_profile_end_id)byte(c);}
                 // Exact profile bounds reject an inclined plane crossing away from seam vertices.
@@ -523,6 +525,12 @@ std::string encode_history_fingerprint(
                     byte(0xf4);u64(std::bit_cast<std::uint64_t>(primitive.twist->length));
                     u64(std::bit_cast<std::uint64_t>(primitive.twist->angle_degrees));
                     byte(primitive.twist->smooth);
+                    if(primitive.twist->axis_point) {
+                        byte(0xf5);
+                        for(const double value:{primitive.twist->axis_point->x,
+                                primitive.twist->axis_point->y,primitive.twist->axis_point->z})
+                            u64(std::bit_cast<std::uint64_t>(value));
+                    }
                 }
                 u64(2); // Rigid inheritance of a single profile on smooth spline routes.
                 const auto append_string = [&](const std::string& value) {
@@ -534,6 +542,30 @@ std::string encode_history_fingerprint(
                         u64(std::bit_cast<std::uint64_t>(value));
                     }
                 };
+                if(primitive.twist&&(primitive.twist->centerlines.origin_enabled||primitive.twist->centerlines.centroid_enabled)) {
+                    const auto& axes=primitive.twist->centerlines;byte(0xf6);
+                    byte(axes.origin_enabled);byte(axes.centroid_enabled);
+                    append_point(axes.origin);append_point(axes.normal);
+                    append_string(axes.origin_id);append_string(axes.profile_id);
+                }
+                if(primitive.profile_references) {
+                    byte(0xf7);const auto& refs=*primitive.profile_references;
+                    const auto append_ref=[&](const auto& ref){append_string(ref.owner_id);append_string(ref.semantic_key);append_string(ref.instance_path);};
+                    u64(refs.axes.size());for(const auto& axis:refs.axes) {
+                        append_ref(axis.reference);append_point(axis.point);append_point(axis.direction);
+                        u64(std::bit_cast<std::uint64_t>(axis.display_length));
+                    }
+                    u64(refs.points.size());for(const auto& point:refs.points){append_ref(point.reference);append_point(point.position);}
+                    u64(refs.edges.size());for(const auto& edge:refs.edges) {
+                        append_ref(edge.reference);u64(edge.points.size());for(const auto& point:edge.points)append_point(point);
+                        byte(edge.exact_spline.has_value());if(edge.exact_spline) {
+                            const auto& curve=*edge.exact_spline;u64(curve.degree);u64(curve.poles.size());
+                            for(const auto& point:curve.poles)append_point(point);
+                            u64(curve.knots.size());for(double value:curve.knots)u64(std::bit_cast<std::uint64_t>(value));
+                            u64(curve.weights.size());for(double value:curve.weights)u64(std::bit_cast<std::uint64_t>(value));
+                        }
+                    }
+                }
                 const auto append_profile = [&](
                         const ExtrusionRequest::ProfileLoop& profile_variant) {
                     byte(static_cast<std::uint8_t>(profile_variant.index()));
@@ -733,14 +765,35 @@ std::string encode_history_fingerprint(
                     for (const unsigned char value : fingerprint) byte(value);
                 }
             } else if constexpr (std::is_same_v<Request, BoundarySurfaceRequest>) {
-                u64(1);u64(std::bit_cast<std::uint64_t>(primitive.tolerance));
+                u64(4);u64(std::bit_cast<std::uint64_t>(primitive.tolerance));
                 const auto text=[&](const std::string& s){u64(s.size());for(unsigned char c:s)byte(c);};
                 text(primitive.region_id);
-                for(std::size_t i=0;i<4;++i) {
-                    text(primitive.source_owners[i]);
-                    HistoryOperation boundary;boundary.primitive=primitive.boundaries[i];
+                u64(std::bit_cast<std::uint64_t>(primitive.angular_tolerance));u64(std::bit_cast<std::uint64_t>(primitive.curvature_tolerance));
+                u64(primitive.source_owners.size());
+                for(const auto& owner:primitive.source_owners)text(owner);
+                u64(primitive.boundaries.size());
+                for(const auto& profile:primitive.boundaries) {
+                    HistoryOperation boundary;boundary.primitive=profile;
                     text(history_fingerprint({boundary},1));
                 }
+                u64(primitive.constraints.size());
+                for(const auto& constraint:primitive.constraints) {
+                    byte(constraint.edge.has_value());
+                    if(constraint.edge){text(constraint.edge->owner_id);text(constraint.edge->semantic_key);text(constraint.edge->instance_path);}
+                    u64(static_cast<unsigned>(constraint.continuity));byte(constraint.support.has_value());byte(constraint.support_reversed);
+                    if(constraint.support){text(constraint.support->owner_id);text(constraint.support->semantic_key);text(constraint.support->instance_path);}
+                }
+            } else if constexpr (std::is_same_v<Request, SurfaceSewingRequest>||std::is_same_v<Request, SurfaceIntersectionRequest>) {
+                u64(std::is_same_v<Request, SurfaceIntersectionRequest>?2:1);u64(std::bit_cast<std::uint64_t>(primitive.tolerance));u64(primitive.faces.size());
+                for(const auto& face:primitive.faces)for(const auto* text:{&face.owner_id,&face.semantic_key,&face.instance_path}) {
+                    u64(text->size());for(unsigned char c:*text)byte(c);
+                }
+            } else if constexpr (std::is_same_v<Request, SurfaceTrimRequest>) {
+                u64(2);u64(std::bit_cast<std::uint64_t>(primitive.tolerance));
+                const auto reference=[&](const auto& r){for(const auto* value:{&r.owner_id,&r.semantic_key,&r.instance_path}){u64(value->size());for(unsigned char c:*value)byte(c);}};
+                reference(primitive.target);u64(primitive.tools.size());
+                for(const auto& tool:primitive.tools){byte(tool.face);reference(tool.reference);}
+                for(double value:{primitive.seed.x,primitive.seed.y,primitive.seed.z})u64(std::bit_cast<std::uint64_t>(value));
             } else if constexpr (std::is_same_v<Request, SolidStateRequest>) {
                 u64(2);byte(primitive.restore);byte(primitive.all);
                 u64(std::bit_cast<std::uint64_t>(primitive.coefficient));

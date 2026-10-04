@@ -11,6 +11,10 @@
 #include <zima/document/sheet_state.hpp>
 #include <zima/document/sheet_transition.hpp>
 #include <zima/document/boundary_surface.hpp>
+#include <zima/document/surface_sewing.hpp>
+#include <zima/document/surface_intersection.hpp>
+#include <zima/document/surface_trim.hpp>
+#include <zima/document/general_surface.hpp>
 #include <zima/document/named_views.hpp>
 #include <zima/document/profile_serialization.hpp>
 #include <zima/document/feature_serialization.hpp>
@@ -4975,6 +4979,12 @@ const BodyHistory* PartDocument::body_owner_for_object(const std::string& id) co
             return body_history.owner(container.id);
     for (const auto& sketch : sketches)
         if (id == sketch.id) return body_history.owner(sketch.owner_container_id.empty() ? sketch.id : sketch.owner_container_id);
+    for(const auto& container:history)if(container.feature_kind==FeatureKind::GeneralSurface) {
+        for(const auto& boundary:container.general_surface.boundaries) {
+            if(boundary.curve&&owns_construction(owns_construction,*boundary.curve))return body_history.owner(container.id);
+            if(!boundary.sketch_serialized.empty()&&sketcher::Sketch::from_serialized(boundary.sketch_serialized).id==id)return body_history.owner(container.id);
+        }
+    }
     for(const auto& container:history)if(container.feature_kind==FeatureKind::Bend)
         for(const auto& data:container.bend.auxiliary_sketches)
             if(!data.empty()&&zima::sketcher::Sketch::from_serialized(data).id==id)return body_history.owner(container.id);
@@ -5880,6 +5890,9 @@ void PartDocument::resolve_constructions(
                 for (const auto& reference : feature.placement.references) dependency(reference);
                 if (feature.feature_kind == FeatureKind::Sweep3D)
                     construction_dependencies(construction_dependencies, feature.sweep3d.path);
+                if(feature.feature_kind==FeatureKind::GeneralSurface)
+                    for(const auto& boundary:feature.general_surface.boundaries)if(boundary.curve)
+                        construction_dependencies(construction_dependencies,*boundary.curve);
             }
             for (const auto& construction : carrier.constructions)
                 construction_dependencies(construction_dependencies, construction);
@@ -5891,6 +5904,8 @@ void PartDocument::resolve_constructions(
                 }
             };
             for (const auto& sketch : carrier.sketches) sketch_dependencies(sketch);
+            for(const auto& feature:carrier.history)if(feature.feature_kind==FeatureKind::GeneralSurface)
+                visit_feature_sketches(feature,[&](const auto& data,std::size_t){sketch_dependencies(sketcher::Sketch::from_serialized(data));});
             for (const auto& feature : carrier.history)
                 if (feature.feature_kind == FeatureKind::Sweep2D) {
                     if(feature.sweep2d.path_plane)dependency(*feature.sweep2d.path_plane);
@@ -6172,6 +6187,30 @@ void PartDocument::resolve_constructions(
             catch(const std::exception&) {container.sweep2d.reference_valid=false;}
         }
         if(container.feature_kind==FeatureKind::SheetTransition)reframe_sheet_transition(container);
+        if(container.feature_kind==FeatureKind::GeneralSurface) {
+            reframe_general_surface(container);
+            const auto& p=container.placement;
+            auto parent_geometry=transform_reference_geometry(source_geometry,{p.x,p.y,p.z},
+                {p.rotation_x,p.rotation_y,p.rotation_z});
+            for(auto& boundary:container.general_surface.boundaries) {
+                if(!boundary.curve) {
+                    append(parent_geometry,transform_reference_geometry(
+                        sketcher::Sketch::from_serialized(boundary.sketch_serialized).placement_reference_geometry(),
+                        {p.x,p.y,p.z},{p.rotation_x,p.rotation_y,p.rotation_z}));
+                    continue;
+                }
+                auto curve=*boundary.curve;curve.parent_construction_id.clear();
+                static_cast<void>(resolve_construction(curve,parent_geometry));
+                PartDocument carrier;carrier.constructions.push_back(curve);
+                auto point_geometry=carrier.construction_reference_geometry_for(
+                    curve.curve_points.empty()?curve.id:curve.curve_points.front().id,parent_geometry);
+                const bool children_valid=resolve_curve_children(curve,std::move(point_geometry));
+                curve.reference_valid=curve.reference_valid&&children_valid;
+                carrier.constructions.front()=curve;
+                append(parent_geometry,carrier.construction_viewer_mesh().original_references);
+                curve.parent_construction_id=container.id;*boundary.curve=std::move(curve);
+            }
+        }
         if(container.feature_kind==FeatureKind::HelicalSweep){
             try {reframe_helical_sketches(container);container.helical.reference_valid=true;}
             catch(const std::exception&) {container.helical.reference_valid=false;}
@@ -6303,9 +6342,11 @@ void PartDocument::resolve_constructions(
         append(source_geometry, local_origin);
         reframe_owned_sketches(container.id);
         reframe_embedded_sketches(container);
+        if(container.feature_kind==FeatureKind::GeneralSurface)
+            append(source_geometry,general_surface_definition_mesh(container).original_references);
         if(container.feature_kind==FeatureKind::Feature)append(source_geometry,feature_result_mesh(container).original_references);
         if(container.feature_kind==FeatureKind::SheetTransition)append(source_geometry,sheet_transition_end_references(container));
-        if(container.feature_kind!=FeatureKind::Hole && container.feature_kind!=FeatureKind::Thread)
+        if(container.feature_kind!=FeatureKind::Hole && container.feature_kind!=FeatureKind::Thread && container.feature_kind!=FeatureKind::GeneralSurface)
         visit_feature_sketches(container,[&](const auto& data,std::size_t) {
             const auto sketch=zima::sketcher::Sketch::from_serialized(data);
             if(!sketch.suppressed)append(source_geometry,sketch.placement_reference_geometry());
@@ -8127,6 +8168,10 @@ if (sweep.separate_segments) {
 }
 
 #include "boundary_surface.inc"
+#include "surface_sewing.inc"
+#include "surface_intersection.inc"
+#include "surface_trim.inc"
+#include "general_surface.inc"
 
 zima::kernel::Sweep3DRequest PartDocument::sweep2d_request(const HistoryContainer& input,std::optional<double> override_tolerance) {
     const double tolerance=override_tolerance.value_or(input.sweep_precision.effective());
@@ -9179,6 +9224,27 @@ std::vector<zima::kernel::HistoryOperation> PartDocument::kernel_operations(
                 kernel::BooleanOperation::Add,container.suppressed,boolean_tolerance,mesh_deflection});
             continue;
         }
+        if(container.feature_kind==FeatureKind::SurfaceTrim) {
+            require_default_sketch_feature_placement(container.placement);
+            operations.push_back({container.id,surface_trim_request(*this,container),
+                kernel::BooleanOperation::Add,container.suppressed,boolean_tolerance,mesh_deflection});continue;
+        }
+        if(container.feature_kind==FeatureKind::SurfaceIntersection) {
+            require_default_sketch_feature_placement(container.placement);
+            operations.push_back({container.id,surface_intersection_request(*this,container),
+                kernel::BooleanOperation::Add,container.suppressed,boolean_tolerance,mesh_deflection});continue;
+        }
+        if(container.feature_kind==FeatureKind::SurfaceSewing) {
+            require_default_sketch_feature_placement(container.placement);
+            operations.push_back({container.id,surface_sewing_request(*this,container),
+                kernel::BooleanOperation::Add,container.suppressed,boolean_tolerance,mesh_deflection});
+            continue;
+        }
+        if(container.feature_kind==FeatureKind::GeneralSurface) {
+            operations.push_back({container.id,general_surface_request(*this,container),
+                kernel::BooleanOperation::Add,container.suppressed,boolean_tolerance,mesh_deflection});
+            continue;
+        }
         if(container.feature_kind==FeatureKind::SheetTransition) {
             auto operation=sheet_transition_operation(*this,container);
             // Preserve the transition's tighter joining budget at its small
@@ -9580,12 +9646,14 @@ std::vector<zima::kernel::HistoryOperation> PartDocument::kernel_operations(
                 if(settings.operation==FeatureSideOperation::Twist) {
                     auto profile=prepare(body_profile_request(*sketch,settings.length,
                         ExtrusionDirection::Forward,ProfileResultType::Solid,p.thin_thickness,p.thin_mode),side);
-                    if(!profile.additional_profile_regions.empty())
-                        throw std::invalid_argument("Straightening requires a solid with a constant cross-section.");
                     zima::kernel::Sweep3DRequest twist;
                     twist.linear_tolerance=boolean_tolerance;
                     twist.twist=zima::kernel::Sweep3DRequest::Twist{settings.length,
                         settings.twist_reverse?-settings.angle_degrees:settings.angle_degrees,settings.twist_smooth};
+                    twist.twist->centerlines=profile.centerlines;
+                    if(!profile.additional_profile_regions.empty()) {
+                        twist.twist->axis_point=zima::kernel::profile_centerlines::centroid(profile);
+                    }
                     zima::kernel::Sweep3DRequest::Section section;
                     section.profile_id=sketch->id;section.point_id="twist:path:start";
                     section.profile_normal=profile.direction;
@@ -9597,7 +9665,20 @@ std::vector<zima::kernel::HistoryOperation> PartDocument::kernel_operations(
                     section.profile.outer_profile=profile.outer_profile;section.profile.inner_profiles=profile.inner_profiles;
                     section.profile.outer_edge_source_ids=profile.outer_edge_source_ids;section.profile.inner_edge_source_ids=profile.inner_edge_source_ids;
                     section.profile.outer_vertex_source_ids=profile.outer_vertex_source_ids;section.profile.inner_vertex_source_ids=profile.inner_vertex_source_ids;
-                    twist.sections.push_back(std::move(section));group.children.push_back(std::move(twist));
+                    auto primary=std::move(section.profile);
+                    bool primary_region=true;
+                    const auto append_region=[&](zima::kernel::ExtrusionRequest::ProfileRegion region) {
+                        auto child=twist;
+                        if(!primary_region)child.twist->centerlines.origin_enabled=child.twist->centerlines.centroid_enabled=false;
+                        primary_region=false;
+                        auto station=section;station.profile=std::move(region);
+                        child.sections.push_back(std::move(station));
+                        group.children.push_back(std::move(child));
+                    };
+                    append_region(std::move(primary));
+                    for(auto& region:profile.additional_profile_regions) {
+                        append_region(std::move(region));
+                    }
                 } else if(settings.operation==FeatureSideOperation::Revolution) {
                     auto request=revolution_request(*sketch,p.axis_segment_id,
                         settings.rotation_extent==FeatureRotationExtent::Full?360.:settings.angle_degrees,
@@ -10641,7 +10722,7 @@ PartDocument PartDocument::from_serialized(const nlohmann::json& root,
             type != "revolution" && type != "sweep3d" && type != "helical_sweep" && type != "sweep2d" &&
             type != "imported_step" &&
             type != "fillet" && type != "chamfer" &&
-            type != "derived_copy" && type != "shell" && type != "twisted_sheet" && type != "sheet_transition" && type != "boundary_surface" && type != "unbend" && type != "bend_back" && type != "straighten" && type != "restore_shape" &&
+            type != "derived_copy" && type != "shell" && type != "twisted_sheet" && type != "sheet_transition" && type != "boundary_surface" && type != "surface_sewing" && type != "surface_intersection" && type != "surface_trim" && type != "general_surface" && type != "unbend" && type != "bend_back" && type != "straighten" && type != "restore_shape" &&
             type != "flat" && type != "bend" && type != "holes" && type != "hole" && type != "thread" && type != "shaft_thread" &&
             type != "drill_point") {
             throw std::runtime_error("Unsupported history feature type");
@@ -10661,6 +10742,10 @@ PartDocument PartDocument::from_serialized(const nlohmann::json& root,
             : type == "twisted_sheet" ? FeatureKind::TwistedSheet
             : type == "sheet_transition" ? FeatureKind::SheetTransition
             : type == "boundary_surface" ? FeatureKind::BoundarySurface
+            : type == "surface_sewing" ? FeatureKind::SurfaceSewing
+            : type == "surface_trim" ? FeatureKind::SurfaceTrim
+            : type == "surface_intersection" ? FeatureKind::SurfaceIntersection
+            : type == "general_surface" ? FeatureKind::GeneralSurface
             : type == "flat" ? FeatureKind::Flat
             : type == "unbend" ? FeatureKind::Unbend
             : type == "straighten" ? FeatureKind::Straighten
@@ -10992,10 +11077,57 @@ PartDocument PartDocument::from_serialized(const nlohmann::json& root,
             if(!std::isfinite(p.angle_degrees)||p.angle_degrees<=0||p.angle_degrees>36000)
                 throw std::runtime_error("Invalid Twisted Sheet angle");
             static_cast<void>(twisted_sheet_developed_length(p));
+        } else if (container.feature_kind == FeatureKind::GeneralSurface) {
+            const auto& data=source.at("general_surface");
+            if(!data.is_array())throw std::runtime_error("Invalid owned surface boundary.");
+            for(const auto& row:data) {
+                GeneralSurfaceBoundary boundary;
+                const auto kind=row.at("kind").get<std::string>();
+                if(kind=="sketch")boundary.sketch_serialized=row.at("sketch_serialized").get<std::string>();
+                else if(kind=="curve3d") {
+                    auto definition=row.at("curve");
+                    if(definition.at("parent_construction_id")!=container.id)throw std::runtime_error("Invalid owned surface boundary.");
+                    definition["parent_construction_id"]="";
+                    auto curves=deserialize_construction_objects(nlohmann::json::array({definition}).dump());
+                    curves.front().parent_construction_id=container.id;boundary.curve=std::move(curves.front());
+                }else throw std::runtime_error("Invalid owned surface boundary.");
+                container.general_surface.boundaries.push_back(std::move(boundary));
+            }
+            validate_general_surface(container);
+        } else if (container.feature_kind == FeatureKind::SurfaceTrim) {
+            const auto& data=source.at("surface_trim");auto& p=container.surface_trim;
+            const auto& target=data.at("target");p.target={target.at("owner_id"),target.at("semantic_key"),target.at("instance_path")};
+            for(const auto& tool:data.at("tools"))p.tools.push_back({{tool.at("owner_id"),tool.at("semantic_key"),tool.at("instance_path")},tool.at("face")});
+            const auto& seed=data.at("seed");
+            if(!seed.is_array()||seed.size()!=3)throw std::runtime_error("Specify a surface, cutting tools and a retained region.");
+            p.seed={seed.at(0),seed.at(1),seed.at(2)};p.seed_valid=data.at("seed_valid");
+            p.retained_region_key=data.at("retained_region_key");
+            if(!document.removed_reference_states.contains(container.id))validate_surface_trim(container);
+        } else if (container.feature_kind == FeatureKind::SurfaceIntersection) {
+            const auto& data=source.at("surface_intersection");
+            if(!data.is_array()||data.size()!=2)throw std::runtime_error("Intersection face reference is invalid.");
+            for(unsigned i=0;i<2;++i)container.surface_intersection.faces[i]={data[i].at("owner_id"),data[i].at("semantic_key"),data[i].at("instance_path")};
+        } else if (container.feature_kind == FeatureKind::SurfaceSewing) {
+            const auto& data=source.at("surface_sewing");
+            if(!data.is_array())throw std::runtime_error("Sewing surface reference is invalid.");
+            for(const auto& face:data)container.surface_sewing.faces.push_back({face.at("owner_id"),face.at("semantic_key"),face.at("instance_path")});
         } else if (container.feature_kind == FeatureKind::BoundarySurface) {
             const auto& data=source.at("boundary_surface");
-            if(data.size()!=4)throw std::runtime_error("Boundary surface requires four boundaries.");
-            for(std::size_t i=0;i<4;++i)container.boundary_surface.boundaries[i]={data[i].at("owner_id"),data[i].at("curve_id")};
+            if(!data.is_array()||data.size()<2)throw std::runtime_error("Boundary surface requires at least two boundaries.");
+            container.boundary_surface.boundaries.clear();
+            for(const auto& boundary:data) {
+                BoundaryCurveSource value{boundary.at("owner_id"),boundary.at("curve_id")};
+                const auto kind=boundary.at("kind").get<std::string>();
+                if(kind!="curve"&&kind!="edge")throw std::runtime_error("Invalid boundary surface definition.");
+                value.kind=kind=="edge"?BoundaryCurveSource::Kind::Edge:BoundaryCurveSource::Kind::Curve;
+                const auto continuity=boundary.at("continuity").get<unsigned>();
+                if(continuity>2)throw std::runtime_error("Invalid boundary surface definition.");
+                value.continuity=static_cast<kernel::SurfaceContinuity>(continuity);
+                value.support_reversed=boundary.at("support_reversed");
+                if(const auto& support=boundary.at("support");!support.is_null())
+                    value.support=kernel::FaceReference{support.at("owner_id"),support.at("semantic_key"),support.at("instance_path")};
+                container.boundary_surface.boundaries.push_back(std::move(value));
+            }
         } else if (container.feature_kind == FeatureKind::SheetTransition) {
             const auto& data=source.at("sheet_transition");auto& p=container.sheet_transition;
             p.sketches=data.at("sketches").get<std::array<std::string,2>>();p.facets=data.at("facets").get<std::array<unsigned,2>>();
@@ -11277,6 +11409,7 @@ PartDocument PartDocument::from_serialized(const nlohmann::json& root,
         // Derived Sketch frames depend on the fully loaded feature placement.
         // Reframing before reading it silently resets translated/rotated helices.
         if(container.feature_kind==FeatureKind::SheetTransition)reframe_sheet_transition(container);
+        if(container.feature_kind==FeatureKind::GeneralSurface)reframe_general_surface(container);
         if (container.feature_kind == FeatureKind::HelicalSweep) {
             reframe_helical_sketches(container);
         }
@@ -11306,6 +11439,7 @@ PartDocument PartDocument::from_serialized(const nlohmann::json& root,
     }
     document.constructions = deserialize_construction_objects(
         root.at("constructions").dump());
+    validate_general_surface_document_ownership(document);
     std::unordered_set<std::string> ordered_ids;
     for (const auto& serialized : root.at("history_order")) {
         const std::string kind = serialized.at("kind").get<std::string>();
@@ -11466,6 +11600,7 @@ PartDocument PartDocument::from_serialized(const nlohmann::json& root,
 nlohmann::json PartDocument::serialized(
     const std::vector<zima::kernel::BodyResult>& calculated_boundaries,
     const zima::document::DocumentCopyIdentity& copy) const {
+    validate_general_surface_document_ownership(*this);
     nlohmann::json serialized_history = nlohmann::json::array();
     std::unordered_set<std::string> container_ids;
     for (const auto& container : history) {
@@ -11502,11 +11637,39 @@ nlohmann::json PartDocument::serialized(
             const std::set<std::string> unique(container.sheet_state.owners.begin(),container.sheet_state.owners.end());
             if(container.combine_mode!=CombineMode::Add||unique.size()!=container.sheet_state.owners.size()||
                 unique.contains("")||(!container.sheet_state.all&&unique.empty()))throw std::runtime_error("Invalid sheet state parameters.");
+        } else if (container.feature_kind == FeatureKind::GeneralSurface) {
+            validate_general_surface(container);
+        } else if (container.feature_kind == FeatureKind::SurfaceTrim) {
+            require_default_sketch_feature_placement(container.placement);
+            if(container.combine_mode!=CombineMode::Add)throw std::runtime_error("A surface cannot subtract material.");
+            validate_surface_trim(container);
+        } else if (container.feature_kind == FeatureKind::SurfaceIntersection) {
+            require_default_sketch_feature_placement(container.placement);
+            if(container.combine_mode!=CombineMode::Add)throw std::runtime_error("A surface cannot subtract material.");
+            for(const auto& face:container.surface_intersection.faces)
+                if(!face.valid()||!face.instance_path.empty())throw std::runtime_error("Intersection face reference is invalid.");
+            if(container.surface_intersection.faces[0]==container.surface_intersection.faces[1])
+                throw std::runtime_error("Intersection requires two different original faces and a positive tolerance.");
+        } else if (container.feature_kind == FeatureKind::SurfaceSewing) {
+            require_default_sketch_feature_placement(container.placement);
+            if(container.combine_mode!=CombineMode::Add)throw std::runtime_error("A surface cannot subtract material.");
+            if(container.surface_sewing.faces.size()<2)throw std::runtime_error("Sewing requires at least two surfaces and a positive tolerance.");
+            std::set<std::tuple<std::string,std::string,std::string>> unique;
+            for(const auto& face:container.surface_sewing.faces)
+                if(!face.valid()||!face.instance_path.empty()||!unique.emplace(face.owner_id,face.semantic_key,face.instance_path).second)
+                    throw std::runtime_error("Sewing surface reference is invalid.");
         } else if (container.feature_kind == FeatureKind::BoundarySurface) {
             require_default_sketch_feature_placement(container.placement);
             if(container.combine_mode!=CombineMode::Add)throw std::runtime_error("A surface cannot subtract material.");
-            for(const auto& boundary:container.boundary_surface.boundaries)
-                if(boundary.owner_id.empty())throw std::runtime_error("Boundary surface requires four boundaries.");
+            if(container.boundary_surface.boundaries.size()<2)throw std::runtime_error("Boundary surface requires at least two boundaries.");
+            for(const auto& boundary:container.boundary_surface.boundaries) {
+                if(boundary.owner_id.empty()||(boundary.kind==BoundaryCurveSource::Kind::Edge&&boundary.curve_id.empty()))
+                    throw std::runtime_error("Boundary surface requires all boundary references.");
+                if(static_cast<unsigned>(boundary.continuity)>2)throw std::runtime_error("Invalid boundary surface definition.");
+                if(boundary.continuity!=kernel::SurfaceContinuity::G0 &&
+                    (boundary.kind!=BoundaryCurveSource::Kind::Edge||!boundary.support||!boundary.support->valid()||!boundary.support->instance_path.empty()))
+                    throw std::runtime_error("G1 and G2 require an original edge and its supporting face.");
+            }
         } else if (container.feature_kind == FeatureKind::SheetTransition) {
             const auto& p=container.sheet_transition;
             if(container.combine_mode!=CombineMode::Add||p.sketches[0].empty()||p.sketches[1].empty()||p.sketches[0]==p.sketches[1]||
@@ -11796,6 +11959,10 @@ nlohmann::json PartDocument::serialized(
                 : container.feature_kind == FeatureKind::Feature ? "feature"
                 : container.feature_kind == FeatureKind::SheetTransition ? "sheet_transition"
                 : container.feature_kind == FeatureKind::BoundarySurface ? "boundary_surface"
+                : container.feature_kind == FeatureKind::SurfaceSewing ? "surface_sewing"
+                : container.feature_kind == FeatureKind::SurfaceTrim ? "surface_trim"
+                : container.feature_kind == FeatureKind::SurfaceIntersection ? "surface_intersection"
+                : container.feature_kind == FeatureKind::GeneralSurface ? "general_surface"
                 : container.feature_kind == FeatureKind::Extrusion
                     ? "extrusion"
                 : container.feature_kind == FeatureKind::Revolution
@@ -12074,10 +12241,44 @@ nlohmann::json PartDocument::serialized(
                 {"reverse",p.reverse},{"sheet_attachment",p.sheet_attachment},
                 {"thickness_override",p.thickness_override},
                 {"attachment_material_side",p.attachment_material_side}};
+        } else if (container.feature_kind == FeatureKind::GeneralSurface) {
+            validate_general_surface(container);auto rows=nlohmann::json::array();
+            for(const auto& boundary:container.general_surface.boundaries) {
+                if(boundary.curve) {
+                    auto curve=*boundary.curve;curve.parent_construction_id.clear();
+                    auto definition=nlohmann::json::parse(serialize_construction_objects({curve})).front();
+                    definition["parent_construction_id"]=container.id;
+                    rows.push_back({{"kind","curve3d"},{"curve",std::move(definition)}});
+                }else rows.push_back({{"kind","sketch"},{"sketch_serialized",boundary.sketch_serialized}});
+            }
+            serialized["general_surface"]=std::move(rows);
+        } else if (container.feature_kind == FeatureKind::SurfaceTrim) {
+            if(!removed_reference_states.contains(container.id))validate_surface_trim(container);
+            const auto& p=container.surface_trim;auto tools=nlohmann::json::array();
+            for(const auto& tool:p.tools)tools.push_back({{"owner_id",tool.reference.owner_id},{"semantic_key",tool.reference.semantic_key},{"instance_path",tool.reference.instance_path},{"face",tool.face}});
+            serialized["surface_trim"]={{"target",{{"owner_id",p.target.owner_id},{"semantic_key",p.target.semantic_key},{"instance_path",p.target.instance_path}}},
+                {"tools",std::move(tools)},{"seed",{p.seed.x,p.seed.y,p.seed.z}},{"seed_valid",p.seed_valid},{"retained_region_key",p.retained_region_key}};
+        } else if (container.feature_kind == FeatureKind::SurfaceIntersection) {
+            auto data=nlohmann::json::array();
+            for(const auto& face:container.surface_intersection.faces) {
+                if(!removed_reference_states.contains(container.id)&&(!face.valid()||!face.instance_path.empty()))throw std::runtime_error("Intersection face reference is invalid.");
+                data.push_back({{"owner_id",face.owner_id},{"semantic_key",face.semantic_key},{"instance_path",face.instance_path}});
+            }
+            if(!removed_reference_states.contains(container.id)&&container.surface_intersection.faces[0]==container.surface_intersection.faces[1])throw std::runtime_error("Intersection requires two different original faces and a positive tolerance.");
+            serialized["surface_intersection"]=std::move(data);
+        } else if (container.feature_kind == FeatureKind::SurfaceSewing) {
+            auto data=nlohmann::json::array();
+            for(const auto& face:container.surface_sewing.faces)data.push_back({{"owner_id",face.owner_id},{"semantic_key",face.semantic_key},{"instance_path",face.instance_path}});
+            serialized["surface_sewing"]=std::move(data);
         } else if (container.feature_kind == FeatureKind::BoundarySurface) {
             auto data=nlohmann::json::array();
-            for(const auto& boundary:container.boundary_surface.boundaries)
-                data.push_back({{"owner_id",boundary.owner_id},{"curve_id",boundary.curve_id}});
+            for(const auto& boundary:container.boundary_surface.boundaries) {
+                nlohmann::json support=nullptr;
+                if(boundary.support)support={{"owner_id",boundary.support->owner_id},{"semantic_key",boundary.support->semantic_key},{"instance_path",boundary.support->instance_path}};
+                data.push_back({{"owner_id",boundary.owner_id},{"curve_id",boundary.curve_id},
+                    {"kind",boundary.kind==BoundaryCurveSource::Kind::Edge?"edge":"curve"},
+                    {"continuity",static_cast<unsigned>(boundary.continuity)},{"support",std::move(support)},{"support_reversed",boundary.support_reversed}});
+            }
             serialized["boundary_surface"]=std::move(data);
         } else if (container.feature_kind == FeatureKind::SheetTransition) {
             const auto& p=container.sheet_transition;serialized["sheet_transition"]={{"sketches",p.sketches},{"end_origin_id",p.end_origin_id},{"end_position",{p.end_position.x,p.end_position.y,p.end_position.z}},{"end_rotation",{p.end_rotation.x,p.end_rotation.y,p.end_rotation.z}},{"facets",p.facets},{"thickness",p.thickness},{"inside_radius",p.inside_radius},{"k_factor",p.k_factor},{"bend_marking",{{"end_notches",p.end_notches},{"end_notch_depth",p.end_notch_depth},{"short_axes",p.short_bend_axes},{"axis_end_length",p.bend_axis_end_length},{"rectangle_reliefs",p.rectangle_reliefs},{"relief_depth",p.rectangle_relief_depth},{"relieved_bends",p.relieved_bends}}}};

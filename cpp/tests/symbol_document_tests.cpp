@@ -76,6 +76,24 @@ void contact_transactions() {
 }
 }
 int main(){try {
+    const auto bend_path=std::filesystem::path(__FILE__).parent_path().parent_path().parent_path()/"config/symbols/sheetm/ZE-BEND-NOTE.symz";
+    const auto bend=symbols::Definition::load(bend_path);
+    check(bend.variant_source.empty()&&bend.fields.size()==1&&bend.fields.at("Text").allow_custom&&bend.fields.at("Text").choices.empty(),
+        "Bend note introduced automatic values or restricted text entry");
+    const auto bend_native=document::PartDocument::load(bend_path);
+    check(bend_native.history.size()==1&&bend_native.sketches.size()==1&&bend_native.body_history.bodies().size()==1&&
+        bend_native.body_owner_for_object(bend_native.history.front().id),"Bend-note Sketch is not owned by an ordinary Body");
+    for(const auto* language:{"cs","en","de","fr","ru"}) {
+        const auto evaluated=bend.evaluate(language,{{"Text","Ohyb 37° dolů / custom"}});
+        check(evaluated.size()==1&&evaluated.front().texts.size()==1&&evaluated.front().texts.front().value=="Ohyb 37° dolů / custom",
+            "Bend note does not preserve manual custom text");
+        sketcher::SymbolInstance note;note.id="bend-note";note.definition=bend.serialized();note.variant=language;
+        note.text_values["Text"]="Ohyb 37° dolů / custom";
+        for(double angle:{0.,90.,180.,270.}) {
+            note.angle_degrees=angle;check(!symbols::instance_mesh(note).edges.empty(),"Rotated bend note has no renderable text");
+            check(note.text_values.at("Text")=="Ohyb 37° dolů / custom","Rotation rewrote manual bend direction");
+        }
+    }
     const auto root=std::filesystem::temp_directory_path()/("zima-symbol-editor-"+kernel::make_stable_id());
     std::filesystem::create_directory(root);
     native_annotations(root);

@@ -4,12 +4,41 @@
 #include <zima/workspace/component_operations.hpp>
 #include <zima/document/file_path.hpp>
 #include "../file_dialog.hpp"
+#include "../general_surface_dialog.hpp"
 
 namespace zima::app {
 using namespace workspace_detail;
 
 
 void AssemblyWorkspaceWindow::show_tree_item_properties(QTreeWidgetItem* item) {
+    if(item&&(item->data(0,Qt::UserRole+3)=="curve3d-point"||item->data(0,Qt::UserRole+3)=="construction-origin")) {
+        const bool editing_point=item->data(0,Qt::UserRole+3)=="curve3d-point";
+        const auto selected_id=item->data(0,Qt::UserRole).toString().toStdString();
+        for(auto* ancestor=item->parent();ancestor;ancestor=ancestor->parent()) {
+            if(ancestor->data(0,Qt::UserRole+3)!="general-surface-boundary")continue;
+            const auto stage=ancestor->data(0,Qt::UserRole+6).toUInt();
+            show_sweep_properties(zima::document::FeatureKind::GeneralSurface,ancestor->data(0,Qt::UserRole).toString().toStdString());
+            if(auto* parent=dynamic_cast<GeneralSurfaceDialog*>(properties_dialog_)) {
+                const auto& curve=parent->pending.general_surface.boundaries.at(stage).curve;
+                if(!curve)return;
+                std::optional<std::size_t> point_index;
+                if(editing_point) {
+                    for(std::size_t i=0;i<curve->curve_points.size();++i)if(curve->curve_points[i].id==selected_id)point_index=i;
+                }
+                parent->edit_curve(stage);
+                if(point_index)if(auto* dialog=dynamic_cast<ConstructionPropertiesDialog*>(properties_dialog_))show_curve_point_properties(dialog,*point_index);
+            }
+            return;
+        }
+    }
+    if(item&&item->data(0,Qt::UserRole+3)=="general-surface-boundary") {
+        const auto stage=item->data(0,Qt::UserRole+6).toUInt();
+        show_sweep_properties(zima::document::FeatureKind::GeneralSurface,item->data(0,Qt::UserRole).toString().toStdString());
+        if(auto* dialog=dynamic_cast<GeneralSurfaceDialog*>(properties_dialog_)) {
+            if(dialog->pending.general_surface.boundaries.at(stage).curve)dialog->edit_curve(stage);else dialog->edit_sketch(stage);
+        }
+        return;
+    }
     if(item&&item->data(0,Qt::UserRole+3)=="feature-operation") {
         const int side=item->data(0,Qt::UserRole+5).toInt();
         show_tree_item_properties(item->parent());
@@ -100,6 +129,10 @@ void AssemblyWorkspaceWindow::show_tree_item_properties(QTreeWidgetItem* item) {
                         feature->feature_kind==document::FeatureKind::Extrusion||
                         feature->feature_kind==document::FeatureKind::Revolution||
                         feature->feature_kind==document::FeatureKind::BoundarySurface||
+                        feature->feature_kind==document::FeatureKind::GeneralSurface||
+                        feature->feature_kind==document::FeatureKind::SurfaceSewing||
+                        feature->feature_kind==document::FeatureKind::SurfaceTrim||
+                        feature->feature_kind==document::FeatureKind::SurfaceIntersection||
                         feature->feature_kind==document::FeatureKind::Fillet||
                         feature->feature_kind==document::FeatureKind::Chamfer||
                         feature->feature_kind==document::FeatureKind::Shell||

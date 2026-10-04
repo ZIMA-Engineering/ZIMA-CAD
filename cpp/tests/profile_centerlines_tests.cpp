@@ -1,11 +1,15 @@
 #include <zima/kernel/profile_centerlines.hpp>
 #include <zima/kernel/feature_side_identity.hpp>
+#include <zima/kernel/solid_state_ancestry.hpp>
+#include <zima/kernel/solid_straightening.hpp>
 #include <zima/kernel/occt_kernel.hpp>
 #include <zima/document/part_document.hpp>
 #include <zima/document/document_session.hpp>
 #include <zima/document/profile_serialization.hpp>
 #include <zima/document/feature_rotation_span.hpp>
 #include <zima/document/viewer_packet_json.hpp>
+#include <zima/workspace/model_calculation.hpp>
+#include <zima/workspace/history_operations.hpp>
 #include <nlohmann/json.hpp>
 #include <iostream>
 #include <set>
@@ -45,6 +49,133 @@ void grouped_centerlines(const kernel::OcctKernel& kernel) {
     std::reverse(group.children.begin(),group.children.end());
     combined.primitive=group;
     near(check_group(),volume);
+}
+void repeated_mixed_state_centerlines(const kernel::OcctKernel& kernel) {
+    auto part=fixture(true);auto& feature=part.history.front();
+    const auto source=feature.id,axis=feature.revolution.axis_segment_id;
+    feature.feature_kind=document::FeatureKind::Feature;
+    feature.feature.sketch_id=part.sketches.front().id;feature.feature.axis_segment_id=axis;
+    feature.feature.centroid_centerline=true;
+    feature.feature.sides[0].operation=document::FeatureSideOperation::Extrusion;feature.feature.sides[0].length=7;
+    feature.feature.sides[1].operation=document::FeatureSideOperation::Revolution;feature.feature.sides[1].angle_degrees=90;
+    auto calculated=workspace::calculate_part(kernel,part);
+    for(int step=0;step<4;++step) {
+        const bool restore=step%2!=0;
+        auto state=document::PartDocument::create_solid_state_container(restore);state.solid_state.owners={source};
+        const auto state_id=state.id;
+        part.history.push_back(std::move(state));
+        auto graph=part.body_history;graph.insert({document::PartHistoryKind::Feature,state_id});part.set_body_history(graph);
+        calculated=workspace::calculate_part(kernel,part,&calculated);
+        const auto check_display=[&](const kernel::BodyResult& body) {
+            int curves=0;
+            for(const auto& edge:body.mesh.edges) {
+                std::string storage;
+                if(!kernel::solid_state_source_key(edge.reference.semantic_key,storage).starts_with("centerline:from:centroid:"))continue;
+                ++curves;
+                check(edge.reference.owner_id==state_id&&edge.exact_spline&&edge.construction&&edge.overlay&&edge.dash_dot,
+                    "Repeated mixed state lost rotation centerline identity, exact curve or style");
+            }
+            check(curves==(restore?1:0),"Repeated mixed state lost or duplicated its rotation centerline");
+        };
+        check_display(calculated.back());
+        std::vector<kernel::BodyResult> reopened;
+        static_cast<void>(document::PartDocument::from_serialized(part.serialized(calculated),&reopened));
+        check(!reopened.empty(),"Repeated mixed state native packet missing");check_display(reopened.back());
+    }
+    workspace::Workspace live;const auto document_id=part.document_id;
+    const auto first_state=part.history[1].id,last_state=part.history.back().id;
+    live.add_part(part,calculated);
+    check(workspace::set_part_history_suppressed(live,document_id,kernel,first_state,true),"Repeated state suppression did not change history");
+    const auto& suppressed=live.open_part(document_id)->session.document();
+    check(!suppressed.find_container(source)->suppressed,"State suppression suppressed its prerequisite source");
+    for(std::size_t i=1;i<part.history.size();++i)
+        check(suppressed.find_container(part.history[i].id)->suppressed,"State suppression omitted a later dependent state");
+    check(workspace::set_part_history_suppressed(live,document_id,kernel,last_state,false),"Repeated state restoration did not change history");
+    check(live.open_part(document_id)->session.document().serialized()==part.serialized(),
+        "Final state restoration did not restore every earlier prerequisite state");
+}
+void disconnected_twist(const kernel::OcctKernel& kernel) {
+    auto part=fixture(false);auto& feature=part.history.front();auto& sketch=part.sketches.front();
+    sketch=sketcher::Sketch::create_default();sketch.owner_container_id=feature.id;
+    static_cast<void>(sketch.add_rectangle(0,0,4,2));
+    static_cast<void>(sketch.add_rectangle(10,0,12,2));
+    static_cast<void>(sketch.add_rectangle(1,.5,2,1.5));
+    feature.feature_kind=document::FeatureKind::Feature;feature.feature.sketch_id=sketch.id;
+    feature.feature.centroid_centerline=feature.feature.origin_centerline=true;
+    feature.feature.sides[0].operation=document::FeatureSideOperation::Twist;
+    feature.feature.sides[0].length=100;feature.feature.sides[0].angle_degrees=90;
+    const double area=11,cx=(60-1.5)/area;
+    for(bool smooth:{false,true})for(bool reverse:{false,true}) {
+        feature.feature.sides[0].twist_smooth=smooth;feature.feature.sides[0].twist_reverse=reverse;
+        const auto operations=part.kernel_operations();
+        const auto& group=std::get<kernel::FeatureGroupRequest>(operations.front().primitive);
+        check(group.children.size()==2,"Disconnected Twist did not retain both profile regions");
+        const auto bodies=kernel.evaluate_history(operations);
+        const auto& datums=bodies.back().mesh.original_references;
+        check(std::ranges::count_if(datums.axes,[](const auto& axis){return axis.reference.semantic_key.starts_with("centerline:from:centroid:")&&axis.reference.semantic_key.find(":end:")!=std::string::npos;})==1,
+            "Disconnected Twist did not publish exactly one combined centroid axis");
+        const auto centroid_axis=std::ranges::find_if(datums.axes,[](const auto& axis){return axis.reference.semantic_key.starts_with("centerline:from:centroid:")&&axis.reference.semantic_key.find(":end:")!=std::string::npos;});
+        near(centroid_axis->point,{cx,1,50});near(centroid_axis->direction,{0,0,1});near(centroid_axis->display_length,102);
+        check(std::ranges::count_if(datums.edges,[](const auto& edge){return edge.reference.semantic_key.starts_with("centerline:from:origin:")&&edge.exact_spline&&edge.construction&&edge.overlay&&edge.dash_dot;})==1,
+            "Twist lost its origin trajectory or persisted exact curve");
+        check(bodies.back().calculation_errors.empty(),"Disconnected Twist failed calculation");
+        check(std::abs(bodies.back().volume-area*100)<.2,"Disconnected Twist changed section volume");
+        const auto preview=part.feature_preview_edges(feature);
+        std::set<std::string> regions,cap_keys;
+        for(const auto& child:group.children) {
+            const auto& twist=std::get<kernel::Sweep3DRequest>(child);
+            check(twist.twist&&twist.twist->axis_point,"Disconnected Twist has no shared axis");
+            near(*twist.twist->axis_point,{cx,1,0});
+            const auto& section=twist.sections.front();regions.insert(section.profile.region_id);
+            const auto& vertices=std::get<kernel::ExtrusionRequest::PolygonProfile>(section.profile.outer_profile).vertices;
+            const auto plan=kernel.prepare_straightening(twist,.9);
+            near(plan.source_end_centroid,{cx+(reverse?1:-1)*(plan.source_start_centroid.y-1),
+                1+(reverse?-1:1)*(plan.source_start_centroid.x-cx),100});
+            near(plan.straight_end_centroid,{plan.source_start_centroid.x,plan.source_start_centroid.y,90});
+            for(std::size_t i=0;i<vertices.size();++i) {
+                const auto& p=vertices[i];
+                const kernel::Vec3 end{cx+(reverse?1:-1)*(p.y-1),1+(reverse?-1:1)*(p.x-cx),100};
+                const auto key="sweep:vertex:end:at:twist:path:end:profile:"+section.profile_id+":from:"+section.profile.outer_vertex_source_ids[i];
+                const auto& refs=bodies.back().mesh.original_references;
+                const auto found=std::ranges::find_if(refs.points,[&](const auto& point){return point.reference.semantic_key==key;});
+                check(found!=refs.points.end(),"Disconnected Twist lost a source endpoint identity");near(found->position,end);
+                check(std::ranges::any_of(preview,[&](const auto& edge){return std::ranges::any_of(edge.points,[&](const auto& point){const auto delta=kernel::dimension_sub(point,end);return kernel::dimension_dot(delta,delta)<1e-14;});}),
+                    "Disconnected Twist calculated endpoint differs from lightweight preview");
+            }
+        }
+        check(regions.size()==2,"Disconnected Twist merged persisted region identities");
+        for(const auto& ref:bodies.back().mesh.original_references.triangle_references)
+            if(ref.semantic_key.starts_with("sweep:cap:"))cap_keys.insert(ref.semantic_key);
+        check(cap_keys.size()==4,"Disconnected Twist merged distinct region cap identities");
+        auto changed=operations;
+        std::get<kernel::Sweep3DRequest>(std::get<kernel::FeatureGroupRequest>(changed.front().primitive).children.front()).twist->axis_point->x+=1;
+        check(kernel::history_fingerprint(changed,1)!=kernel::history_fingerprint(operations,1),"Twist axis absent from geometry cache input");
+        auto without_axes=operations;
+        auto& settings=*std::get<kernel::Sweep3DRequest>(std::get<kernel::FeatureGroupRequest>(without_axes.front().primitive).children.front()).twist;
+        settings.centerlines.origin_enabled=settings.centerlines.centroid_enabled=false;
+        check(kernel::history_fingerprint(without_axes,1)!=kernel::history_fingerprint(operations,1),"Twist centerline settings absent from geometry cache input");
+        std::vector<kernel::BodyResult> reopened;
+        const auto loaded=document::PartDocument::from_serialized(part.serialized(bodies),&reopened);
+        check(loaded.serialized()==part.serialized()&&!reopened.empty(),"Disconnected Twist native definition or geometry did not reopen");
+        near(reopened.back().volume,bodies.back().volume);
+        check(identities(reopened.back().mesh.original_references)==identities(datums),"Twist centerline identities did not survive native reopen");
+        if(smooth&&!reverse) {
+            auto state_history=operations;
+            state_history.push_back({"straight",kernel::SolidStateRequest{false,true,.9,{}}});
+            state_history.push_back({"restore",kernel::SolidStateRequest{true,true,1,{}}});
+            state_history.push_back({"straight-again",kernel::SolidStateRequest{false,true,1.1,{}}});
+            state_history.push_back({"restore-again",kernel::SolidStateRequest{true,true,1,{}}});
+            for(auto& operation:state_history)operation.body=operations.front().body;
+            const auto states=kernel.evaluate_history(state_history);
+            for(const auto& state:std::span(states).subspan(1)) {
+                const auto axis=std::ranges::find_if(state.mesh.axes,[](const auto& value){std::string storage;return kernel::solid_state_source_key(value.reference.semantic_key,storage).starts_with("centerline:from:centroid:");});
+                check(axis!=state.mesh.axes.end(),"Twist centroid axis disappeared during state replay");
+            }
+            check(states.back().calculation_errors.empty(),"Disconnected Twist state sequence failed");
+            near(states[1].volume,area*90);near(states[3].volume,area*110);
+            near(states[2].volume,bodies.back().volume);near(states.back().volume,bodies.back().volume);
+        }
+    }
 }
 void grouped_profile_axes(const kernel::OcctKernel& kernel) {
     for(bool ellipse:{false,true}) {
@@ -685,6 +816,8 @@ int main(){try {
  grouped_surface_history(kernel);
  grouped_original_topology(kernel);
  grouped_centerlines(kernel);
+ repeated_mixed_state_centerlines(kernel);
+ disconnected_twist(kernel);
  grouped_profile_axes(kernel);
  extrusion_identity_matrix(kernel);
  limited_centerline_matrix(kernel);

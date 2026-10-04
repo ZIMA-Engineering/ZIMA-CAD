@@ -1,6 +1,8 @@
 #include <zima/workspace/history_deletion.hpp>
 #include <zima/workspace/history_policy.hpp>
 #include <zima/workspace/sketch_operations.hpp>
+#include <zima/workspace/solid_state_operations.hpp>
+#include <zima/workspace/sheet_state_operations.hpp>
 #include <nlohmann/json.hpp>
 namespace zima::workspace {
 namespace {
@@ -20,6 +22,49 @@ std::string signature(const HistoryDependencyCollector& graph,const std::string&
     for(const auto& [source,target]:graph.edges)if(target==consumer)edges.push_back(source);
     return nlohmann::json{{"references",refs},{"sources",edges}}.dump();
 }
+}
+std::set<std::string> part_history_dependency_closure(const document::PartDocument& doc,const std::string& id,bool consumers) {
+    auto graph=dependencies(doc);
+    if(std::ranges::any_of(doc.history,[](const auto& feature) {
+        return document::is_solid_state(feature.feature_kind)||document::is_sheet_state(feature.feature_kind);
+    })) {
+        // State commands also require the preceding state of each selected
+        // source. Inspect authored definitions even while those predecessors
+        // are suppressed; restoration must be able to reach them again.
+        auto authored=doc;
+        for(auto& feature:authored.history)feature.suppressed=false;
+        for(const auto& body:authored.body_history.bodies()) {
+            std::map<std::string,std::string> previous_states;
+            for(const auto& entry:body.entries) {
+                const auto* feature=authored.find_container(entry.id);
+                if(!feature)continue;
+                std::vector<std::string> sources;
+                if(document::is_solid_state(feature->feature_kind)) {
+                    sources=feature->solid_state.all?solid_state_sources(authored,
+                        feature->feature_kind==document::FeatureKind::RestoreShape,feature->id):feature->solid_state.owners;
+                } else if(document::is_sheet_state(feature->feature_kind)) {
+                    sources=feature->sheet_state.owners;
+                    if(feature->sheet_state.all)for(const auto& region:sheet_state_regions(authored,feature->id))
+                        sources.push_back(region.owner_id);
+                } else continue;
+                for(const auto& source:sources) {
+                    graph.use(feature->id,source);
+                    if(const auto prior=previous_states.find(source);prior!=previous_states.end())graph.use(feature->id,prior->second);
+                    previous_states[source]=feature->id;
+                }
+            }
+        }
+    }
+    std::set<std::string> reached{id};
+    for(bool changed=true;changed;) {
+        changed=false;
+        for(const auto& [source,target]:graph.edges) {
+            const auto& from=consumers?source:target;
+            const auto& to=consumers?target:source;
+            if(reached.contains(from))changed|=reached.insert(to).second;
+        }
+    }
+    return reached;
 }
 HistoryDeletionPlan plan_history_deletion(const document::PartDocument& doc,const std::string& id) {
     HistoryDeletionPlan plan;plan.removed.insert(id);
@@ -69,11 +114,19 @@ void detach_deleted_history_references(document::PartDocument& doc,const History
                 if(i<f.edge_treatment.route_start_vertices.size())
                     f.edge_treatment.route_start_vertices.erase(f.edge_treatment.route_start_vertices.begin()+i);
             }
-        refs(f.shell.removed_faces);refs(f.drill_point.bottom_faces);
+        refs(f.shell.removed_faces);refs(f.drill_point.bottom_faces);refs(f.surface_sewing.faces);
+        for(auto& face:f.surface_intersection.faces)reference(face);
+        reference(f.surface_trim.target);
+        for(auto& tool:f.surface_trim.tools)reference(tool.reference);
         if(f.sweep2d.path_plane&&local(*f.sweep2d.path_plane))f.sweep2d.path_plane.reset();
         construction(construction,f.sweep3d.path);
+        if(f.feature_kind==document::FeatureKind::GeneralSurface)
+            for(auto& boundary:f.general_surface.boundaries)if(boundary.curve)construction(construction,*boundary.curve);
         for(auto& profile:f.sweep3d.profiles)id(profile.sketch_id);
-        for(auto& boundary:f.boundary_surface.boundaries)if(lost(boundary.owner_id))boundary={};
+        for(auto& boundary:f.boundary_surface.boundaries) {
+            if(lost(boundary.owner_id))boundary={};
+            else if(boundary.support&&lost(boundary.support->owner_id))boundary.support.reset();
+        }
         id(f.derived_copy.source_id);reference(f.derived_copy.reference);
         std::erase_if(f.sheet_state.owners,lost);
         std::erase_if(f.solid_state.owners,lost);
