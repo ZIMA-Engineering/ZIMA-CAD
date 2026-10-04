@@ -415,3 +415,26 @@ was not reproduced, and no product/style change was made for it. Factory Part,
 Skeleton and Assembly templates were rewritten and reopened with the current
 serializer; their tracked bytes are unchanged. Full serial regression and fresh
 committed-source Windows packaging remain the final gates.
+
+### Broad regression baseline comparison
+
+The serial full run exposed six unrelated failures reproduced directly against
+the accepted 2026100303 source commit `25a9db8a`: Drawing DXF manufacturing text,
+bundled Material count, Boolean split edge (native crash), Section reference
+value, profile command volume and command catalog count. Only the relevant seven
+native test executables were built in the existing accepted baseline stage.
+The six failures reproduce with the same diagnostics; Opening target passes on
+that baseline. The baseline source differs from pre-work HEAD `b9ca8477` only in
+two release documentation files. Evidence is `build/surface-baseline-build.log`
+and `build/surface-baseline-failures.log`. Existing material files total 49 on
+both versions, while the old test requires at least 62. No unrelated product or
+test changes are included to conceal these failures.
+
+The Opening target failure is a stale expectation for the behavior deliberately
+changed in this task. Its test now checks that suppressing either target also
+suppresses the dependent Opening without calculation errors, restoring the
+target leaves the later Opening suppressed, explicitly restoring Opening
+recovers its intended result, and Undo/Redo retain the entire cascade and body
+volume. The updated contract passed in 1.09 s (`build/surface-opening-final.log`).
+This adds no user-visible text. Final source packaging will use the subsequent
+test/documentation commit, with unchanged product implementation.

@@ -69,14 +69,22 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
     const auto loaded=document::PartDocument::load(directory/"opening-limits.prtz",&stored);
     near(stored.back().volume,216000-std::numbers::pi*r*r*25);
     const auto cold=kernel.evaluate_history(loaded.kernel_operations());near(cold.back().volume,stored.back().volume);
-    require(host.execute({{"command","history.suppress"},{"arguments",{{"object",bore.at("construction")},{"suppressed",true}}}}).code=="calculation_errors","Suppressing an opening target did not report dependent errors");
-    require(state->session.calculated_boundaries().back().calculation_errors.contains(id),"Suppressed opening target left a silently valid stale bore");
+    run(host,"history.suppress",{{"object",bore.at("construction")},{"suppressed",true}});
+    require(state->session.document().find_container(id)->suppressed&&
+        state->session.calculated_boundaries().back().calculation_errors.empty(),"Suppressing an opening target did not suppress its dependent feature");
+    near(state->session.calculated_boundaries().back().volume,216000);
     run(host,"history.suppress",{{"object",bore.at("construction")},{"suppressed",false}});
-    require(!state->session.calculated_boundaries().back().calculation_errors.contains(id),"Restored opening target did not repair the feature");volume(25);
-    require(host.execute({{"command","history.suppress"},{"arguments",{{"object",thread.at("construction")},{"suppressed",true}}}}).code=="calculation_errors","Suppressing an opening target did not report dependent errors");
-    require(state->session.calculated_boundaries().back().calculation_errors.contains(id),"Missing thread end remained valid");
+    require(state->session.document().find_container(id)->suppressed,"Restoring a target also restored a later dependent opening");
+    near(state->session.calculated_boundaries().back().volume,216000);
+    run(host,"history.suppress",{{"object",id},{"suppressed",false}});volume(25);
+    run(host,"history.suppress",{{"object",thread.at("construction")},{"suppressed",true}});
+    require(state->session.document().find_container(id)->suppressed&&
+        state->session.calculated_boundaries().back().calculation_errors.empty(),"Suppressing the thread target left its dependent opening active");
+    near(state->session.calculated_boundaries().back().volume,216000);
     run(host,"undo");volume(25);sheet_end(-12);
-    run(host,"redo");require(state->session.calculated_boundaries().back().calculation_errors.contains(id),"Redo lost missing thread target error");
+    run(host,"redo");require(state->session.document().find_container(id)->suppressed&&
+        state->session.calculated_boundaries().back().calculation_errors.empty(),"Redo lost dependent opening suppression");
+    near(state->session.calculated_boundaries().back().volume,216000);
     run(host,"undo");
 
     run(host,"new",{{"type","part"},{"name","opening-faces"}});
