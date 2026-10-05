@@ -177,25 +177,58 @@ PrimitiveData make_boundary_surface_data(const BoundarySurfaceRequest& request,c
                 throw std::runtime_error("Boundary curves must not cross or overlap.");
     }
     const bool g2=std::ranges::any_of(inputs,[](const auto& input){return input.continuity==SurfaceContinuity::G2;});
-    BRepOffsetAPI_MakeFilling fill(g2?4:3,25,3,false,1e-7,tolerance/4,request.angular_tolerance/4,request.curvature_tolerance/4,8,32);
-    // A shared support already provides a suitable initial parametric surface.
-    // Starting from it avoids solving an unnecessary plane-to-curved fit.
-    if(!inputs.front().support.IsNull()&&std::ranges::all_of(inputs,[&](const auto& input){return !input.support.IsNull()&&input.support.IsSame(inputs.front().support);}))
-        fill.LoadInitSurface(inputs.front().support);
-    for(const auto& input:inputs) {
-        if(input.continuity==SurfaceContinuity::G0)fill.Add(input.edge,GeomAbs_C0);
-        else {
-            // OCCT 8.0 forwards this enum to BRepFill_CurveConstraint's
-            // integer Gi order. GeomAbs_G2 is 3 and is rejected there; order 2
-            // is the actual curvature constraint (not a C1 downgrade).
-            static_assert(static_cast<int>(GeomAbs_C1)==2);
-            fill.Add(input.edge,input.support,input.continuity==SurfaceContinuity::G1?GeomAbs_G1:GeomAbs_C1);
+    const auto build_fill=[&](int degree,int segments) {
+        auto fill=std::make_unique<BRepOffsetAPI_MakeFilling>(g2?4:3,25,3,false,1e-7,tolerance/4,request.angular_tolerance/4,request.curvature_tolerance/4,degree,segments);
+        // A shared support already provides a suitable initial parametric surface.
+        // Starting from it avoids solving an unnecessary plane-to-curved fit.
+        if(!inputs.front().support.IsNull()&&std::ranges::all_of(inputs,[&](const auto& input){return !input.support.IsNull()&&input.support.IsSame(inputs.front().support);}))
+            fill->LoadInitSurface(inputs.front().support);
+        for(const auto& input:inputs) {
+            if(input.continuity==SurfaceContinuity::G0)fill->Add(input.edge,GeomAbs_C0);
+            else {
+                // OCCT 8.0 forwards this enum to BRepFill_CurveConstraint's
+                // integer Gi order. GeomAbs_G2 is 3 and is rejected there; order 2
+                // is the actual curvature constraint (not a C1 downgrade).
+                static_assert(static_cast<int>(GeomAbs_C1)==2);
+                fill->Add(input.edge,input.support,input.continuity==SurfaceContinuity::G1?GeomAbs_G1:GeomAbs_C1);
+            }
         }
+        fill->Build();return fill;
+    };
+    auto candidate=build_fill(8,32);
+    // Filling's G0Error measures the intermediate plate, not the final
+    // B-spline. Check every actual 3D/2D boundary representation on that
+    // final surface. OCCT's sampled SameParameter tolerance can miss a peak;
+    // correct it only within document precision, without moving any curve.
+    const auto precise_boundary=[&](const TopoDS_Shape& shape) {
+        if(shape.IsNull()||shape.ShapeType()!=TopAbs_FACE)return false;
+        const auto face=TopoDS::Face(shape);
+        std::vector<std::pair<TopoDS_Edge,double>> checked;
+        for(TopExp_Explorer it(face,TopAbs_EDGE);it.More();it.Next()) {
+            const auto edge=TopoDS::Edge(it.Current());
+            BRepLib_CheckCurveOnSurface check(edge,face);check.Perform();
+            if(!check.IsDone()||!std::isfinite(check.MaxDistance()))return false;
+            const auto required=std::nextafter(check.MaxDistance()*1.01,std::numeric_limits<double>::infinity());
+            if(required>tolerance)return false;
+            checked.emplace_back(edge,required);
+        }
+        BRep_Builder builder;
+        for(const auto& [edge,required]:checked)if(required>BRep_Tool::Tolerance(edge))builder.UpdateEdge(edge,required);
+        return BRepCheck_Analyzer(shape,true,false,true).IsValid();
+    };
+    // Preserve the established cheap fit for already precise surfaces. A
+    // difficult boundary gets at most two bounded approximation retries;
+    // never relax precision or run an unbounded fitting loop.
+    bool precise=candidate->IsDone()&&precise_boundary(candidate->Shape());
+    for(const auto& [degree,segments]:std::array<std::pair<int,int>,2>{{{12,64},{12,128}}}) {
+        if(precise||!candidate->IsDone())break;
+        candidate=build_fill(degree,segments);
+        precise=candidate->IsDone()&&precise_boundary(candidate->Shape());
     }
-    fill.Build();
+    auto& fill=*candidate;
     if(!fill.IsDone()||!BRepCheck_Analyzer(fill.Shape()).IsValid())
         throw std::runtime_error("OCCT could not create a valid boundary surface.");
-    if(!std::isfinite(fill.G0Error())||fill.G0Error()>tolerance)
+    if(!precise||!std::isfinite(fill.G0Error())||fill.G0Error()>tolerance)
         throw std::runtime_error("Boundary surface exceeds the document geometry tolerance.");
     // OCCT adapts the point count per constraint during fitting. Its indexed
     // error accessors allocate only the initial point count and can overrun

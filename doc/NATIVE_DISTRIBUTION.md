@@ -2,6 +2,12 @@
 
 ## Scope and status
 
+Windows build **2026100502** has passed focused source verification. It checks
+final surface approximation precision with bounded refinement and retains yellow
+surface Fillet/Chamfer appearance in mixed shell/solid Parts. Fresh signed
+Windows acceptance is pending; see [the release record](releases/2026100502.md)
+for the reported-model measurements, recalculation requirement and limits.
+
 Windows build **2026100401** is signed, published and verified. It adds General
 Surface with owned Sketch/3D Curve definitions, Fill G0/G1/G2, Sewing with shell
 Fillet, reusable Intersection, Trim and the manual bend-note symbol. It repairs

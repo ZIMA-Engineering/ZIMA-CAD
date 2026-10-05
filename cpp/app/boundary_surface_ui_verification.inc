@@ -330,6 +330,10 @@ int verify_boundary_surface_ui(QApplication& application,AssemblyWorkspaceWindow
         check(fillet_saved.history.back().feature_kind==document::FeatureKind::Fillet&&!fillet_results.empty()&&
             fillet_results.back().calculation_errors.empty()&&std::abs(fillet_results.back().volume)<1e-9&&
             fillet_results.back().surface_area>14000&&fillet_results.back().surface_area<14400,"GUI Fillet changed shell volume or lost its geometry");
+        check(std::ranges::any_of(view->mesh().triangle_references,[&](const auto& face){return face.owner_id==fillet_id&&face.surface_result;})&&
+            std::ranges::all_of(view->mesh().triangle_references,[](const auto& face){return face.surface_result;})&&
+            std::ranges::all_of(fillet_results.back().mesh.triangle_references,[](const auto& face){return face.surface_result;}),
+            "Surface Fillet did not retain the yellow viewer style after native save");
         window.show_tree_item_properties(row(fillet_id));flush();check(fillet_dialog(),"Sewn shell Fillet Properties cannot reopen");
         fillet_dialog()->findChild<QDoubleSpinBox*>("edgeTreatmentPrimary")->setValue(6);flush();fillet_dialog()->reject();flush();
         window.findChild<QAction*>("saveDocumentAction")->trigger();flush();

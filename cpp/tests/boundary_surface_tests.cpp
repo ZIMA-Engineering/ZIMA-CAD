@@ -26,8 +26,11 @@
 #include <BRepTools.hxx>
 #include <BRep_Tool.hxx>
 #include <BRep_Builder.hxx>
+#include <BRepCheck_Analyzer.hxx>
+#include <BRepLib_CheckCurveOnSurface.hxx>
 #include <TopExp_Explorer.hxx>
 #include <TopoDS.hxx>
+#include <TopoDS_Edge.hxx>
 #include <Geom_BSplineSurface.hxx>
 #include <GeomAPI_ProjectPointOnSurf.hxx>
 #include <GeomLProp_SLProps.hxx>
@@ -42,6 +45,23 @@ kernel::BoundarySurfaceRequest rectangle(double height=0){
         b.outer_edge_source_ids={"curve"};b.outer_vertex_source_ids={"a"};b.open_profile_end_id="b";b.direction={0,0,1};}
     return r;
 }
+kernel::BoundarySurfaceRequest difficult_arc_patch(){
+    using E=kernel::ExtrusionRequest;
+    kernel::BoundarySurfaceRequest r;r.region_id="difficult-arc";
+    const auto spline=[](std::vector<kernel::Vec3> poles){E::BSplineCurve c;c.start=poles.front();c.end=poles.back();c.control_points=std::move(poles);return c;};
+    const std::vector<std::variant<E::LineCurve,E::ArcCurve,E::EllipticalArcCurve,E::BSplineCurve>> curves{
+        E::LineCurve{{76.044647,21.511673,15.968643},{76.044647,-60.043415,53.869020}},
+        spline({{76.044647,-60.043415,53.869020},{49.347028,-60.043415,45.589482},{22.649409,-60.043415,37.309943},{-3.955353,-60.043415,37.869020}}),
+        spline({{-3.955353,-60.043415,37.869020},{-28.035833,-60.043415,38.375051},{-52.040240,-60.043415,46.122036},{-76.044647,-60.043415,53.869020}}),
+        spline({{-76.044647,-60.043415,53.869020},{-82.086810,-19.157159,55.637536},{-88.128973,21.729098,57.406053},{-76.044647,51.188370,53.869020}}),
+        spline({{-76.044647,51.188370,53.869020},{-56.608586,98.569767,48.180164},{9.718031,116.391237,28.766634},{76.044647,134.212708,9.353104}}),
+        E::ArcCurve{{76.044647,134.212708,9.353104},{76.044647,77.232220,1.928821},{76.044647,21.511673,15.968643}}
+    };
+    r.boundaries.resize(curves.size());r.source_owners.resize(curves.size());
+    for(std::size_t i=0;i<curves.size();++i){auto& b=r.boundaries[i];r.source_owners[i]="arc-boundary-"+std::to_string(i);
+        b.outer_profile=E::CurvedProfile{{curves[i]}};b.outer_edge_source_ids={"curve"};b.outer_vertex_source_ids={"start"};b.open_profile_end_id="end";b.direction={0,0,1};}
+    return r;
+}
 int main(){try{
     kernel::OcctKernel k;
     const auto calculate=[&](const auto& r){return k.evaluate_history({{"boundary",r}}).back();};
@@ -50,6 +70,24 @@ int main(){try{
     require(kernel::has_surface_results(flat.mesh),"Surface classification lost");
     require(flat.mesh.original_references.edges.size()==4,"Boundary edge identities missing");
     require(flat.mesh.original_references.points.size()==4,"Corner identities missing");
+    // A tight circle/line join exposes filling's final approximation error,
+    // which its plate G0Error and sampled shape validator both underestimate.
+    const auto difficult=difficult_arc_patch();const auto accurate=calculate(difficult);
+    require(accurate.calculation_errors.empty(),"Difficult arc patch failed bounded refinement");
+    {
+        TopoDS_Shape shape;BRep_Builder builder;std::istringstream stream(accurate.kernel_shape);BRepTools::Read(shape,stream,builder);
+        require(BRepCheck_Analyzer(shape,true,false,true).IsValid(),"Final arc patch has an invalid 3D/2D boundary representation");
+        unsigned edges=0;
+        for(TopExp_Explorer f(shape,TopAbs_FACE);f.More();f.Next())for(TopExp_Explorer e(f.Current(),TopAbs_EDGE);e.More();e.Next()){
+            const auto edge=TopoDS::Edge(e.Current());BRepLib_CheckCurveOnSurface check(edge,TopoDS::Face(f.Current()));check.Perform();
+            require(check.IsDone()&&check.MaxDistance()<=difficult.tolerance&&BRep_Tool::Tolerance(edge)<=difficult.tolerance,
+                "Refinement relaxed document precision instead of fitting the boundary");++edges;
+        }
+        require(edges==6&&accurate.mesh.original_references.edges.size()==6,"Refinement changed authored boundary identities");
+    }
+    auto strict_arc=difficult;strict_arc.tolerance=1e-5;
+    bool precision_rejected=false;try{precision_rejected=!calculate(strict_arc).calculation_errors.empty();}catch(const std::exception&){precision_rejected=true;}
+    require(precision_rejected,"Unattainable boundary precision was silently relaxed");
     auto section_plane=rectangle();section_plane.region_id="section-plane";
     for(unsigned i=0;i<4;++i) {
         section_plane.source_owners[i]="section-boundary-"+std::to_string(i);
@@ -385,6 +423,17 @@ int main(){try{
     const auto shell_fillet=k.evaluate_history(fillet_history).back();
     require(shell_fillet.calculation_errors.empty()&&std::abs(shell_fillet.volume)<1e-9&&shell_fillet.surface_area>14000&&shell_fillet.surface_area<14400,
         "Fillet did not operate on a sewn surface shell");
+    require(std::ranges::any_of(shell_fillet.mesh.triangle_references,[](const auto& face){return face.owner_id=="shell-fillet";})&&
+        std::ranges::all_of(shell_fillet.mesh.triangle_references,[](const auto& face){return face.surface_result;}),
+        "Surface Fillet lost the yellow surface-result classification");
+    auto hidden_fillet=shell_fillet.mesh;kernel::hide_surface_results(hidden_fillet);
+    require(hidden_fillet.triangles.empty()&&hidden_fillet.original_references.triangles.empty(),"Hiding surfaces left Fillet geometry visible or selectable");
+    auto chamfer_history=sewing_history(80,sew);chamfer_history.push_back({"shell-chamfer",kernel::ChamferRequest{{joint},5}});
+    const auto shell_chamfer=k.evaluate_history(chamfer_history).back();
+    require(shell_chamfer.calculation_errors.empty()&&std::abs(shell_chamfer.volume)<1e-9&&
+        std::ranges::any_of(shell_chamfer.mesh.triangle_references,[](const auto& face){return face.owner_id=="shell-chamfer";})&&
+        std::ranges::all_of(shell_chamfer.mesh.triangle_references,[](const auto& face){return face.surface_result;}),
+        "Surface Chamfer lost the shared surface-result classification");
     auto disconnected=rectangle();for(auto& boundary:disconnected.boundaries) {
         auto& line=std::get<kernel::ExtrusionRequest::LineCurve>(std::get<kernel::ExtrusionRequest::CurvedProfile>(boundary.outer_profile).curves.front());line.start.x+=200;line.end.x+=200;
     }
@@ -406,6 +455,18 @@ int main(){try{
     const auto mixed_sew=k.evaluate_history(with_solid).back();
     require(mixed_sew.calculation_errors.empty()&&std::abs(mixed_sew.volume-3000)<1e-7&&std::abs(mixed_sew.surface_area-15800)<.01,
         "Sewing changed an unselected solid or its mass properties");
+    auto mixed_fillet_history=with_solid;mixed_fillet_history.push_back({"mixed-fillet",kernel::FilletRequest{{joint},5}});
+    const auto mixed_fillet=k.evaluate_history(mixed_fillet_history).back();
+    require(mixed_fillet.calculation_errors.empty()&&std::abs(mixed_fillet.volume-3000)<1e-7&&
+        std::ranges::any_of(mixed_fillet.mesh.triangle_references,[](const auto& face){return face.owner_id=="mixed-fillet"&&face.surface_result;})&&
+        std::ranges::none_of(mixed_fillet.mesh.triangle_references,[](const auto& face){return face.owner_id=="unaffected-solid"&&face.surface_result;}),
+        "Surface Fillet classification changed an unrelated solid in a mixed compound");
+    auto solid_fillet_history=with_solid;solid_fillet_history.push_back({"solid-fillet",kernel::FilletRequest{{{"unaffected-solid","generated:p0",{}}},2}});
+    const auto solid_fillet=k.evaluate_history(solid_fillet_history).back();
+    require(solid_fillet.calculation_errors.empty()&&solid_fillet.volume>2900&&solid_fillet.volume<3000&&
+        std::ranges::any_of(solid_fillet.mesh.triangle_references,[](const auto& face){return face.owner_id=="solid-fillet";})&&
+        std::ranges::none_of(solid_fillet.mesh.triangle_references,[](const auto& face){return face.owner_id=="solid-fillet"&&face.surface_result;}),
+        "Solid Fillet became a yellow surface in a mixed compound");
     auto mixed_trim=intersection_operations;auto mixed_trim_request=trim;
     mixed_trim.insert(mixed_trim.begin()+2,{"unaffected-solid",solid});mixed_trim.push_back({"mixed-trim",mixed_trim_request});
     const auto mixed_trimmed=k.evaluate_history(mixed_trim).back();

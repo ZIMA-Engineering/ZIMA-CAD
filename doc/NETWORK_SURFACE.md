@@ -75,6 +75,14 @@ positive area and shape validity. The result has no material volume. Boundaries
 constrain the interior but do not uniquely prescribe every possible spanning
 surface. Highly twisted or incompatible definitions may be rejected.
 
+The final B-spline boundary is checked independently of OCCT's intermediate
+plate error. The usual approximation is retained when it meets document
+precision. Otherwise explicit calculation allows at most two finer fits,
+then rejects an inaccurate result. Edge representation tolerances may only
+cover measured errors within the document tolerance; authored 3D curves and
+their native identities are retained. This additional work happens on OK or
+Regenerate, never on opening Properties, hovering or unchanged confirmation.
+
 ## Sewing and Fillet
 
 Sewing selects current calculated surface faces and produces one connected
@@ -92,6 +100,12 @@ Use the existing Fillet command on the real input edges of a sewn shell. Feasibl
 radii produce surface fillets without first converting the shell to a solid.
 Excessive radii remain calculation errors. The ordinary Fillet selection,
 rollback, persistence and Undo/Redo contracts apply.
+
+Surface Fillet and Chamfer faces retain the yellow surface style and participate
+in surface visibility. The classification is per face, so a Part containing
+both a sewn shell and unrelated solids keeps ordinary solid appearance and
+mass properties. Existing calculated files require explicit Regenerate to
+replace their stored approximation or surface classification.
 
 ## Surface Intersection
 

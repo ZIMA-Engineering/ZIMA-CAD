@@ -1,5 +1,6 @@
 #include <IntCurvesFace_ShapeIntersector.hxx>
 #include <BRepOffsetAPI_MakeFilling.hxx>
+#include <BRepLib_CheckCurveOnSurface.hxx>
 #include <BRepAlgoAPI_Check.hxx>
 #include <zima/kernel/profile_centerlines.hpp>
 #include <zima/kernel/feature_side_identity.hpp>
@@ -4009,6 +4010,18 @@ std::vector<OwnedFace> generated_edge_treatment_faces(
     return result;
 }
 
+void classify_edge_treatment_surfaces(const TopoDS_Shape& shape,
+    const std::string& owner,std::vector<OwnedFace>& faces) {
+    // Explicit calculation only: distinguish a surface blend from a solid
+    // blend even when both coexist in the same Part compound. This flag is
+    // persisted with the existing native reference; it does not define identity.
+    TopTools_IndexedMapOfShape solid_faces;
+    for(TopExp_Explorer it(shape,TopAbs_SOLID);it.More();it.Next())
+        TopExp::MapShapes(it.Current(),TopAbs_FACE,solid_faces);
+    for(auto& face:faces)if(face.reference.owner_id==owner)
+        face.reference.surface_result=!solid_faces.Contains(face.shape);
+}
+
 void append_unmapped_edge_treatment_faces(
     const TopoDS_Shape& result_shape,
     const std::vector<std::pair<TopoDS_Edge, EdgeReference>>& selected,
@@ -7575,6 +7588,7 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                         operation.owner_id, "fillet:face",
                         std::max(1.0e-7, operation.boolean_tolerance),
                         treatment_faces);
+                    classify_edge_treatment_surfaces(algorithm.Shape(),operation.owner_id,treatment_faces);
                     auto treatment_topology = std::make_shared<LiveCache::Topology>(
                         LiveCache::Topology{
                             std::move(treatment_faces),
@@ -7688,6 +7702,7 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                         operation.owner_id, "chamfer:face",
                         std::max(1.0e-7, operation.boolean_tolerance),
                         treatment_faces);
+                    classify_edge_treatment_surfaces(algorithm.Shape(),operation.owner_id,treatment_faces);
                     auto treatment_topology = std::make_shared<LiveCache::Topology>(
                         LiveCache::Topology{
                             std::move(treatment_faces),

@@ -940,6 +940,13 @@ geometry or unsatisfied continuity is reported rather than approximated silently
 **Fillet** on that shell's real input edges with a feasible radius. Neither
 operation automatically creates a solid.
 
+New Fillet and Chamfer faces on a surface shell are yellow, like other surfaces.
+Unrelated solids keep their ordinary appearance. If an older calculated model
+fails at a radius that should fit, use **Regenerate** once before retrying:
+General Surface and Fill now check the final boundary at document precision
+and perform a bounded finer fit when needed. Opening the file alone retains
+its saved geometry.
+
 **Surface Intersection** selects two original bounded faces and creates reusable
 curves or isolated points. It leaves the input surfaces unchanged. Fill and Trim
 can reference the resulting edges; compatible Sweeps can use them through
