@@ -2,6 +2,15 @@
 
 ## Scope and status
 
+Windows build **2026100503** is signed, published and verified. It adds exact
+Revolution Up To general-surface limits and zero-thickness Surfaces from solid,
+repairs drafted surface end ancestry and improves Fill/Trim resizing. All fifteen
+focused suites, fresh committed-source packaging, signed smoke/trust, five
+packaged GUI scenarios, skin CLI and reported-model R 1/2/5/10 checks passed.
+Draft/public hashes and update discovery from 2026100502 passed. Documentation
+and all five localizations are complete; inherited broader regression limits and
+Linux remain separate. See [the release record](releases/2026100503.md).
+
 Windows build **2026100502** is signed, published and verified. It checks final
 surface approximation precision with bounded refinement and retains yellow
 surface Fillet/Chamfer appearance in mixed shell/solid Parts. Twelve focused
