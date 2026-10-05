@@ -141,7 +141,7 @@ std::string encode_history_fingerprint(
                 if (primitive.extent == ExtrusionRequest::Extent::UpToPlane) byte(2);
                 if (primitive.extent == ExtrusionRequest::Extent::UpToPlane ||
                     primitive.extent == ExtrusionRequest::Extent::UpToSurface || primitive.reverse_limit)
-                    for (const unsigned char value : std::string_view("original-extrusion-limits-v1")) byte(value);
+                    for (const unsigned char value : std::string_view("original-extrusion-limits-v2")) byte(value);
                 const auto append_profile = [&](const auto& profile_variant) {
                     byte(static_cast<std::uint8_t>(profile_variant.index()));
                     std::visit([&](const auto& profile) {
@@ -370,6 +370,15 @@ std::string encode_history_fingerprint(
                     u64(key.size());for(const unsigned char value:key)byte(value);
                 }
             } else if constexpr (std::is_same_v<Request, RevolutionRequest>) {
+                if(primitive.end_limit) {
+                    for(unsigned char c:std::string_view("revolution-exact-end-v1"))byte(c);
+                    const auto& limit=*primitive.end_limit;byte(limit.planar);byte(limit.datum);byte(primitive.mirror_end_limit);
+                    for(const auto& text:{limit.reference.owner_id,limit.reference.semantic_key,limit.reference.instance_path}) {
+                        u64(text.size());for(unsigned char c:text)byte(c);
+                    }
+                    for(auto p:{limit.origin,limit.normal})for(double v:{p.x,p.y,p.z})u64(std::bit_cast<std::uint64_t>(v));
+                    u64(limit.triangles.size());for(auto p:limit.triangles)for(double v:{p.x,p.y,p.z})u64(std::bit_cast<std::uint64_t>(v));
+                }
                 byte(primitive.centerlines.origin_enabled);byte(primitive.centerlines.centroid_enabled);
                 for(const auto& text:{primitive.centerlines.origin_id,primitive.centerlines.profile_id}){u64(text.size());for(unsigned char c:text)byte(c);}
                 for(double value:{primitive.centerlines.origin.x,primitive.centerlines.origin.y,primitive.centerlines.origin.z,primitive.centerlines.normal.x,primitive.centerlines.normal.y,primitive.centerlines.normal.z})u64(std::bit_cast<std::uint64_t>(value));

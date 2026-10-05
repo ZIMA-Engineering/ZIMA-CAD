@@ -264,6 +264,11 @@ dependencies beside CLI.
 
 ### Modeling command overview
 
+`surface_shell.create/set` converts the active Body's input solid into exact
+zero-volume surface pieces with optional face removal. It uses `shell.faces/get`
+for input inspection and has no thickness argument. See
+[Shell and surface-skin commands](SHELL_COMMANDS.md).
+
 `construction.list/get` reads construction geometry and 3D-curve point ownership
 without calculation. Units, coordinate systems, and pagination are described in
 [CONSTRUCTION_COMMANDS.md](CONSTRUCTION_COMMANDS.md).

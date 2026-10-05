@@ -55,19 +55,23 @@ void Host::register_shell_commands() {
                     {"items",std::move(items)},{"total",total},{"offset",offset},{"limit",limit},{"has_more",more}});
             }catch(const Error& error){return Result::failure(error.code,tr(error.what()));}
         });
-    for(const bool create:{true,false}) {
+    for(const bool surface_only:{false,true})for(const bool create:{true,false}) {
         std::vector<commands::Argument> args;if(!create)args.push_back({"container",true});
-        args.push_back({"thickness_mm",false,Type::Number});args.push_back({"faces",false,Type::Array});
+        if(!surface_only)args.push_back({"thickness_mm",false,Type::Number});args.push_back({"faces",false,Type::Array});
         args.push_back({"name",false});args.push_back({"document",false});
-        dispatcher_.add({create?"shell.create":"shell.set",create?tr("Create an inward Shell with optional opening faces."):
-            tr("Change Shell thickness and opening faces."),std::move(args),true},[this,create](const Json& args) {
+        dispatcher_.add({surface_only?(create?"surface_shell.create":"surface_shell.set"):(create?"shell.create":"shell.set"),
+            surface_only?(create?tr("Extract exact surfaces from a solid, optionally removing faces."):tr("Change the removed faces of a surface shell.")):
+            create?tr("Create an inward Shell with optional opening faces."):tr("Change Shell thickness and opening faces."),
+            std::move(args),true},[this,create,surface_only](const Json& args) {
             const auto checked=target(args);if(!checked.ok)return checked;const auto id=workspace_.active_document_id();
             try {
                 auto* state=workspace_.open_part(id);
                 if(!state||interaction().template_document)throw Error("unsupported_document","Shell operations require an open Part.");
                 if(!create&&args.size()==1+(args.contains("document")?1:0))throw Error("invalid_arguments","Specify at least one Shell parameter.");
                 auto feature=create?document::PartDocument::create_shell_container():shell(state,args.at("container"));
-                if(create)feature.name=tr("Shell");
+                if(create){feature.name=surface_only?tr("Plochy z tělesa"):tr("Shell");if(surface_only)feature.shell.thickness=0.;}
+                if(!create&&(feature.shell.thickness==0.)!=surface_only)
+                    throw Error("wrong_feature","Use the command belonging to this shell type.");
                 const auto* body=create?state->session.document().body_history.find(state->session.document().body_history.active_body_id()):state->session.document().body_owner_for_object(feature.id);
                 if(body&&body->scope.id!=state->session.document().body_history.active_body_id())throw Error("inactive_body","Activate the owning Body before editing its Shell.");
                 if(args.contains("name")) {
@@ -75,7 +79,11 @@ void Host::register_shell_commands() {
                     if(feature.name.empty()||std::ranges::all_of(feature.name,[](unsigned char c){return std::isspace(c)!=0;}))
                         throw Error("invalid_arguments","Specify a nonempty object name.");
                 }
-                if(args.contains("thickness_mm"))feature.shell.thickness=args.at("thickness_mm").get<double>();
+                if(args.contains("thickness_mm")) {
+                    feature.shell.thickness=args.at("thickness_mm").get<double>();
+                    if(feature.shell.thickness<.001||feature.shell.thickness>1e6)
+                        throw Error("invalid_arguments","Shell thickness must be between 0.001 and 1000000 mm.");
+                }
                 if(args.contains("faces")) {
                     if(args.at("faces").size()>10000)throw Error("invalid_arguments","Too many Shell opening faces.");
                     feature.shell.removed_faces.clear();

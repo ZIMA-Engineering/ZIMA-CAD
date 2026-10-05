@@ -136,6 +136,8 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
       accepted_target_baseline_(selected_targets), commit_(std::move(commit)) {
     if(initial.extrusion.sheet_cut)set_internal_title(tr("Vlastnosti řezu plechem"));
     else if(initial.revolution.sheet_metal)set_internal_title(tr("Vlastnosti rotačního plechu"));
+    else if(initial.feature_kind==zima::document::FeatureKind::Shell&&initial.shell.thickness==0.)
+        set_internal_title(tr("Vlastnosti ploch z tělesa"));
     setAttribute(Qt::WA_DeleteOnClose, true);
     setMinimumWidth(340);
     auto* header_form = new QFormLayout;
@@ -1213,9 +1215,14 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
                 field->setToolTip(hint);
         }
     } else if (initial.feature_kind == zima::document::FeatureKind::Shell) {
-        shell_thickness_ = dimension(initial.shell.thickness, "shellThickness");
-        form->addRow(tr("Tloušťka"), shell_thickness_);
-        auto* faces_label = new QLabel(tr("Otevřené plochy"), this);
+        if(initial.shell.thickness!=0.) {
+            shell_thickness_ = dimension(initial.shell.thickness, "shellThickness");
+            form->addRow(tr("Tloušťka"), shell_thickness_);
+        } else {
+            auto* note=new QLabel(tr("Převést těleso na plášť bez objemu. Volitelně vyberte plochy k odstranění."),this);
+            note->setWordWrap(true);form->addRow(note);
+        }
+        auto* faces_label = new QLabel(initial.shell.thickness==0.?tr("Odstraňované plochy"):tr("Otevřené plochy"), this);
         auto label_font = faces_label->font();
         label_font.setBold(true);
         faces_label->setFont(label_font);
@@ -1233,7 +1240,7 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
                 if (request_shell_face_selection_)
                     request_shell_face_selection_();
             });
-        connect(shell_thickness_, qOverload<double>(&QDoubleSpinBox::valueChanged),
+        if(shell_thickness_)connect(shell_thickness_, qOverload<double>(&QDoubleSpinBox::valueChanged),
             this, [this] { notify_preview(); });
         set_shell_faces(initial.shell.removed_faces);
     } else if (initial.feature_kind == zima::document::FeatureKind::ImportedStep) {
@@ -1684,7 +1691,7 @@ zima::document::HistoryContainer PrimitivePropertiesDialog::values() const {
         result.revolution.angle_reverse = primitive_value(reverse_length_);
     } else if (result.feature_kind == zima::document::FeatureKind::Shell) {
         result.shell.removed_faces = shell_faces_;
-        result.shell.thickness = shell_thickness_->value();
+        result.shell.thickness = shell_thickness_?shell_thickness_->value():0.;
     } else if (result.feature_kind != zima::document::FeatureKind::ImportedStep) {
         const auto mode = treatment_type_->currentData().toString();
         if (result.feature_kind == zima::document::FeatureKind::Fillet) {
@@ -1800,7 +1807,6 @@ void PrimitivePropertiesDialog::set_edge_group_callbacks(
 }
 
 bool PrimitivePropertiesDialog::requires_planar_end_target() const {
-    if(feature_panel_)return feature_panel_->parameters().effective_side(active_end_target_side_=="reverse"?1:0).operation==zima::document::FeatureSideOperation::Revolution;
     return initial_.feature_kind==zima::document::FeatureKind::Thread && active_end_target_side_=="reverse";
 }
 

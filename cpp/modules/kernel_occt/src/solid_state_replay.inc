@@ -46,6 +46,10 @@ RevolutionRequest moved(RevolutionRequest request,const gp_Trsf& transform) {
     const auto direction=[&](Vec3& p){p=solid_straightening::vector(gp_Vec(p.x,p.y,p.z).Transformed(transform).XYZ());};
     position(request.axis_point);direction(request.axis_direction);direction(request.profile_normal);
     position(request.centerlines.origin);direction(request.centerlines.normal);
+    if(request.end_limit) {
+        position(request.end_limit->origin);direction(request.end_limit->normal);
+        for(auto& p:request.end_limit->triangles)position(p);
+    }
     return request;
 }
 Sweep3DRequest moved(Sweep3DRequest request,const gp_Trsf& transform) {

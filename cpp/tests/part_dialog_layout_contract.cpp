@@ -9,6 +9,11 @@
 #include "section_properties_dialog.hpp"
 #include "derived_copy_dialog.hpp"
 #include "sheet_state_dialog.hpp"
+#include "general_surface_dialog.hpp"
+#include "boundary_surface_dialog.hpp"
+#include "surface_sewing_dialog.hpp"
+#include "surface_intersection_dialog.hpp"
+#include "surface_trim_dialog.hpp"
 #include <QApplication>
 #include <QSettings>
 #include <QTemporaryDir>
@@ -99,6 +104,13 @@ int verify_part_dialog_layout(QApplication& application, QWidget& parent) {
                 check(new app::PrimitivePropertiesDialog(feature,false,true,[](auto){},&parent),revolve?"revolution":"extrusion");
             }
             check(new app::PrimitivePropertiesDialog(Part::create_shell_container(),false,true,[](auto){},&parent),"shell");
+            auto skin=Part::create_shell_container();skin.shell.thickness=0.;skin.name="Surfaces from solid";
+            check(new app::PrimitivePropertiesDialog(skin,false,true,[](auto){},&parent),"surface-from-solid");
+            check(new app::GeneralSurfaceDialog(document::create_general_surface(),[](auto){},&parent),"general-surface");
+            check(new app::BoundarySurfaceDialog(document::create_boundary_surface(),[](auto){},&parent),"fill-surface");
+            check(new app::SurfaceSewingDialog(document::create_surface_sewing(),[](auto){},&parent),"sew-surfaces");
+            check(new app::SurfaceIntersectionDialog(document::create_surface_intersection(),[](auto){},&parent),"surface-intersection");
+            check(new app::SurfaceTrimDialog(document::create_surface_trim(),[](auto){},&parent),"trim-surface");
             for(auto kind:{document::FeatureKind::Fillet,document::FeatureKind::Chamfer}) {
                 auto feature=Part::create_twisted_sheet_container();feature.feature_kind=kind;
                 check(new app::PrimitivePropertiesDialog(feature,false,true,[](auto){},&parent),kind==document::FeatureKind::Fillet?"fillet":"chamfer");

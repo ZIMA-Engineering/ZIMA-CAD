@@ -24,6 +24,8 @@ bool commit_shell(Workspace& live,const kernel::OcctKernel& kernel,const std::st
     if(mode==ShellEditMode::Replace) {
         if(!stored)throw ShellOperationError("container_not_found","The requested container does not exist.");
         if(stored->feature_kind!=feature.feature_kind)throw ShellOperationError("wrong_feature","This container is not a Shell.");
+        if((stored->shell.thickness==0.)!=(feature.shell.thickness==0.))
+            throw ShellOperationError("wrong_feature","Use the command belonging to this shell type.");
         if(stored->feature_id!=feature.feature_id||stored->feature_parent_id!=feature.feature_parent_id||stored->container_origin!=feature.container_origin)
             throw ShellOperationError("identity_changed","Editing must preserve the container identity.");
         if(stored->value_locks.contains("thickness")&&feature.value_locks.contains("thickness")&&stored->shell.thickness!=feature.shell.thickness)
@@ -32,7 +34,7 @@ bool commit_shell(Workspace& live,const kernel::OcctKernel& kernel,const std::st
         throw ShellOperationError("identity_changed","A new container must have a new nonempty identity.");
     const auto* body=stored?before.body_owner_for_object(feature.id):before.body_history.find(before.body_history.active_body_id());
     if(body&&body->derived_copy)throw ShellOperationError("read_only_body","A derived Body cannot be edited directly.");
-    if(!std::isfinite(feature.shell.thickness)||feature.shell.thickness<.001||feature.shell.thickness>1e6)
+    if(!std::isfinite(feature.shell.thickness)||(feature.shell.thickness!=0.&&feature.shell.thickness<.001)||feature.shell.thickness>1e6)
         throw ShellOperationError("invalid_arguments","Shell thickness must be between 0.001 and 1000000 mm.");
     const auto available=shell_input_faces(*state,stored?feature.id:std::string{});
     std::set<std::pair<std::string,std::string>> unique;

@@ -338,7 +338,7 @@ bool AssemblyWorkspaceWindow::finish_edge_treatment_selection() {
     return false;
 }
 
-void AssemblyWorkspaceWindow::start_shell() {
+void AssemblyWorkspaceWindow::start_shell(bool surface_only) {
     if (properties_dialog_ != nullptr) return;
     auto* part = workspace_.open_part(workspace_.active_document_id());
     if (part == nullptr || part->session.document().history.empty() ||
@@ -355,7 +355,8 @@ void AssemblyWorkspaceWindow::start_shell() {
     }
 
     auto initial = zima::document::PartDocument::create_shell_container();
-    initial.name = tr("Shell").toStdString();
+    initial.name = tr(surface_only?"Plochy z tělesa":"Shell").toStdString();
+    if(surface_only)initial.shell.thickness=0.;
     const std::string part_id = part->session.document().document_id;
     pending_shell_faces_.clear();
     shell_face_selection_active_ = true;
@@ -376,8 +377,8 @@ void AssemblyWorkspaceWindow::start_shell() {
         [this] {
             shell_face_selection_active_ = true;
             refresh_shell_selection_ui();
-            state_->setText(tr(
-                "Vyberte plochy, které mají Shell otevřít."));
+            state_->setText(shell_dialog_->pending_value().shell.thickness==0.?tr("Vyberte plochy k odstranění. MMB výběr ukončí."):
+                tr("Vyberte plochy, které mají Shell otevřít."));
         });
     refresh_shell_selection_ui();
     connect(dialog, &QObject::destroyed, this, [this] {
@@ -393,8 +394,8 @@ void AssemblyWorkspaceWindow::start_shell() {
         refresh_scene();
     });
     dialog->show();
-    state_->setText(tr(
-        "Vyberte plochy, které mají Shell otevřít. MMB výběr ukončí."));
+    state_->setText(surface_only?tr("Vyberte plochy k odstranění. MMB výběr ukončí."):
+        tr("Vyberte plochy, které mají Shell otevřít. MMB výběr ukončí."));
 }
 
 void AssemblyWorkspaceWindow::accept_shell_face(
@@ -424,8 +425,8 @@ void AssemblyWorkspaceWindow::accept_shell_face(
         pending_shell_faces_.erase(found);
     }
     refresh_shell_selection_ui();
-    state_->setText(tr("Vybrané plochy Shellu: %1.")
-        .arg(pending_shell_faces_.size()));
+    state_->setText((shell_dialog_->pending_value().shell.thickness==0.?tr("Vybrané plochy k odstranění: %1."):
+        tr("Vybrané plochy Shellu: %1.")).arg(pending_shell_faces_.size()));
 }
 
 void AssemblyWorkspaceWindow::refresh_shell_selection_ui() {
@@ -454,14 +455,24 @@ void AssemblyWorkspaceWindow::refresh_shell_selection_ui() {
         return;
     }
     viewer_->set_selection_contract({zima::viewer::CandidateKind::Face});
+    const bool solid_skin=shell_dialog_->pending_value().shell.thickness==0.;
+    std::set<std::pair<std::string,std::string>> solid_faces;
+    if(solid_skin&&part) {
+        const auto& id=shell_dialog_->pending_value().id;
+        const auto* input=zima::workspace::calculated_operation_input(part->session,
+            part->session.document().find_container(id)?id:std::string{});
+        if(input)for(const auto& face:input->mesh.triangle_references)
+            if(!face.surface_result)solid_faces.emplace(face.owner_id,face.semantic_key);
+    }
     viewer_->set_candidate_filter(
-        [expected_path = instance_path](const auto& candidate) {
+        [expected_path = instance_path,solid_skin,solid_faces=std::move(solid_faces)](const auto& candidate) {
             return candidate.kind == zima::viewer::CandidateKind::Face &&
                 candidate.geometry ==
                     zima::viewer::CandidateGeometry::Display &&
                 candidate.instance_path == expected_path &&
                 !candidate.owner_id.empty() &&
-                !candidate.semantic_key.empty();
+                !candidate.semantic_key.empty()&&
+                (!solid_skin||solid_faces.contains({candidate.owner_id,candidate.semantic_key}));
         });
 }
 

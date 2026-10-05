@@ -2127,5 +2127,19 @@
   "Odstranit vlastní hranici": "Eigene Begrenzung entfernen",
   "Nakreslete hranice vlastními skicami nebo 3D křivkami. OK vypočítá plochu.": "Zeichnen Sie Begrenzungen mit eigenen Skizzen oder 3D-Kurven. OK berechnet die Fläche.",
   "Přidat vlastní hranici…": "Eigene Begrenzung hinzufügen…",
-  "Pro jiný typ odstraňte hranici a přidejte novou.": "Für einen anderen Typ entfernen Sie die Begrenzung und fügen eine neue hinzu."
+  "Pro jiný typ odstraňte hranici a přidejte novou.": "Für einen anderen Typ entfernen Sie die Begrenzung und fügen eine neue hinzu.",
+  "Plochy z tělesa": "Flächen aus Volumenkörper",
+  "Vlastnosti ploch z tělesa": "Eigenschaften der Flächen aus Volumenkörper",
+  "Převést těleso na plášť bez objemu. Volitelně vyberte plochy k odstranění.": "Volumenkörper in eine Hülle ohne Volumen umwandeln. Optional zu entfernende Flächen auswählen.",
+  "Odstraňované plochy": "Zu entfernende Flächen",
+  "Vyberte plochy k odstranění. MMB výběr ukončí.": "Zu entfernende Flächen auswählen. MMT beendet die Auswahl.",
+  "Vybrané plochy k odstranění: %1.": "Ausgewählte Flächen zum Entfernen: %1.",
+  "Extract exact surfaces from a solid, optionally removing faces.": "Exakte Flächen aus einem Volumenkörper erzeugen und optional Flächen entfernen.",
+  "Change the removed faces of a surface shell.": "Zu entfernende Flächen der Flächenhülle ändern.",
+  "Use the command belonging to this shell type.": "Den Befehl für diesen Hüllentyp verwenden.",
+  "Revolution profile misses target surface.": "Das Rotationsprofil erreicht die Zielfläche nicht.",
+  "Revolution target does not define an unambiguous end.": "Die Zielfläche bestimmt kein eindeutiges Rotationsende.",
+  "Exact Revolution target surface is missing or ambiguous.": "Die exakte Zielfläche der Rotation fehlt oder ist mehrdeutig.",
+  "Select fewer faces; the surface shell must retain a face.": "Weniger Flächen auswählen; die Flächenhülle muss mindestens eine Fläche behalten.",
+  "Surface shell could not retain valid input surfaces.": "Die Flächenhülle konnte keine gültigen Eingangsflächen erhalten."
 }

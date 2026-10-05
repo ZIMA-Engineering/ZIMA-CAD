@@ -19,6 +19,7 @@
 #include <zima/document/profile_serialization.hpp>
 #include <zima/document/feature_serialization.hpp>
 #include <zima/document/feature_rotation_limit.hpp>
+#include <zima/kernel/rotation_target.hpp>
 #include <zima/kernel/feature_side_identity.hpp>
 #include <zima/kernel/profile_centerlines.hpp>
 #include <zima/kernel/sheet_material.hpp>
@@ -7400,20 +7401,32 @@ std::vector<zima::kernel::ViewerEdge> PartDocument::feature_preview_edges(
             auto request=revolution_request(sketch->evaluated_profile_sketch(),p.axis_segment_id,1.,p.result_type,p.thin_thickness,p.thin_mode);
             const bool reverse=zima::kernel::feature_rotation_reversed(request)!=(side==1);
             p.direction=reverse?ExtrusionDirection::Reverse:ExtrusionDirection::Forward;
+            std::optional<ExtrusionParameters::EndTarget> angular_target;
             if(settings.rotation_extent==FeatureRotationExtent::UpTo) {
                 if(settings.targets.size()!=1)throw std::runtime_error("Select exactly one extrusion end reference.");
                 if(sketch->owner_container_id!=container.id)apply_container_placement(request,container.placement);
                 if(reverse)request.axis_direction={-request.axis_direction.x,-request.axis_direction.y,-request.axis_direction.z};
                 const auto target=resolved_extrusion_end_target(*this,container,settings.targets.front(),!settings.targets.front().reference.instance_path.empty());
-                p.angle_degrees=feature_rotation_limit_angle(request.axis_point,request.axis_direction,request.profile_normal,target);
+                if(feature_rotation_has_uniform_end(request.axis_point,request.axis_direction,target))
+                    p.angle_degrees=feature_rotation_limit_angle(request.axis_point,request.axis_direction,request.profile_normal,target);
+                else {angular_target=target;p.angle_degrees=360.;}
             }
-            rotation_angles[side]=p.angle_degrees;
-            if(definition.symmetric)rotation_angles[1]=p.angle_degrees;
+            rotation_angles[side]=angular_target?0.:p.angle_degrees;
+            if(definition.symmetric)rotation_angles[1]=rotation_angles[side];
             validate_feature_rotation_span(rotation_angles[0],rotation_angles[1]);
-            edges=revolution_preview_edges(operand);
+            edges=revolution_preview_edges(operand,angular_target?&*angular_target:nullptr);
             if(definition.symmetric) {
                 p.direction=reverse?ExtrusionDirection::Forward:ExtrusionDirection::Reverse;
-                auto reverse=revolution_preview_edges(operand);
+                if(angular_target) {
+                    using namespace zima::kernel;
+                    const auto n=dimension_unit(request.profile_normal),o=request.axis_point;
+                    const auto reflect=[&](Vec3 p){return dimension_sub(p,dimension_scale(n,2*dimension_dot(dimension_sub(p,o),n)));};
+                    angular_target->fallback_origin=reflect(angular_target->fallback_origin);
+                    angular_target->fallback_normal=dimension_sub(angular_target->fallback_normal,
+                        dimension_scale(n,2*dimension_dot(angular_target->fallback_normal,n)));
+                    for(auto& point:angular_target->fallback_triangles)point=reflect(point);
+                }
+                auto reverse=revolution_preview_edges(operand,angular_target?&*angular_target:nullptr);
                 edges.insert(edges.end(),reverse.begin(),reverse.end());
             }
         }
@@ -7423,7 +7436,7 @@ std::vector<zima::kernel::ViewerEdge> PartDocument::feature_preview_edges(
 }
 
 std::vector<zima::kernel::ViewerEdge> PartDocument::revolution_preview_edges(
-    const HistoryContainer& container) const {
+    const HistoryContainer& container,const ExtrusionParameters::EndTarget* target) const {
     if (container.feature_kind != FeatureKind::Revolution) return {};
     const auto sketch = std::find_if(sketches.begin(), sketches.end(),
         [&](const auto& value) { return value.id == container.revolution.sketch_id; });
@@ -7442,6 +7455,18 @@ std::vector<zima::kernel::ViewerEdge> PartDocument::revolution_preview_edges(
         request.axis_direction.x = -request.axis_direction.x;
         request.axis_direction.y = -request.axis_direction.y;
         request.axis_direction.z = -request.axis_direction.z;
+    }
+    std::optional<zima::kernel::ExtrusionLimit> limit;
+    if(target) {
+        limit=zima::kernel::ExtrusionLimit{target->kind==EndTargetKind::Plane,target->reference,false,
+            target->fallback_origin,target->fallback_normal,target->fallback_triangles};
+        if(sketch->owner_container_id!=container.id) {
+            const auto rotation=placement_rotation_matrix_from_euler_degrees({container.placement.rotation_x,container.placement.rotation_y,container.placement.rotation_z});
+            const zima::kernel::Vec3 origin{container.placement.x,container.placement.y,container.placement.z};
+            limit->origin=placement_inverse_transform_point(rotation,origin,limit->origin);
+            limit->normal=placement_inverse_transform_direction(rotation,limit->normal);
+            for(auto& point:limit->triangles)point=placement_inverse_transform_point(rotation,origin,point);
+        }
     }
     const double length = std::sqrt(
         request.axis_direction.x * request.axis_direction.x +
@@ -7473,6 +7498,9 @@ std::vector<zima::kernel::ViewerEdge> PartDocument::revolution_preview_edges(
     };
     const double start_angle = -reverse;
     const double end_angle = parameters.angle_degrees;
+    const auto angular_end=[&](zima::kernel::Vec3 point) {
+        return limit?zima::kernel::rotation_target_preview_angle(point,request.axis_point,request.axis_direction,*limit):end_angle;
+    };
     std::vector<zima::kernel::ViewerEdge> result;
     const auto profile_edges = parameters.result_type == ProfileResultType::Thin
         ? thin_profile_preview_edges(evaluated_profile,
@@ -7489,18 +7517,19 @@ std::vector<zima::kernel::ViewerEdge> PartDocument::revolution_preview_edges(
         end.reference = {container.id, "preview:end" + profile_role, {}};
         for (const auto& point : source.points) {
             start.points.push_back(rotate(point, start_angle));
-            end.points.push_back(rotate(point, end_angle));
+            end.points.push_back(rotate(point, angular_end(point)));
         }
         result.push_back(std::move(start));
         result.push_back(std::move(end));
         for (const auto endpoint : {source.points.front(), source.points.back()}) {
+            const auto sweep_end=angular_end(endpoint);
             zima::kernel::ViewerEdge sweep;
             sweep.reference = {container.id, "preview:sweep", {}};
             constexpr int samples = 32;
             for (int sample = 0; sample <= samples; ++sample) {
                 const double fraction = static_cast<double>(sample) / samples;
                 sweep.points.push_back(rotate(endpoint,
-                    start_angle + (end_angle - start_angle) * fraction));
+                    start_angle + (sweep_end - start_angle) * fraction));
             }
             result.push_back(std::move(sweep));
         }
@@ -9706,9 +9735,18 @@ std::vector<zima::kernel::HistoryOperation> PartDocument::kernel_operations(
                         auto axis=prepared.axis_direction;
                         if(zima::kernel::feature_rotation_reversed(prepared)!=(side==1))axis={-axis.x,-axis.y,-axis.z};
                         if(p.symmetric&&side==1)axis={-axis.x,-axis.y,-axis.z};
-                        prepared.angle_degrees=feature_rotation_limit_angle(prepared.axis_point,axis,prepared.profile_normal,target);
+                        if(feature_rotation_has_uniform_end(prepared.axis_point,axis,target))
+                            prepared.angle_degrees=feature_rotation_limit_angle(prepared.axis_point,axis,prepared.profile_normal,target);
+                        else {
+                            prepared.end_limit=zima::kernel::ExtrusionLimit{target.kind==EndTargetKind::Plane,target.reference,
+                                target.kind==EndTargetKind::Plane&&profile_target_is_datum(target.reference),
+                                target.fallback_origin,target.fallback_normal,target.fallback_triangles};
+                            if(allow_persisted_external_target)prepared.end_limit->reference.instance_path.clear();
+                            prepared.mirror_end_limit=p.symmetric&&side==1;
+                            prepared.angle_degrees=360.; // Exact calculation resolves the per-point end.
+                        }
                     }
-                    rotation_angles[side]=prepared.angle_degrees;
+                    rotation_angles[side]=prepared.end_limit?0.:prepared.angle_degrees;
                     validate_feature_rotation_span(rotation_angles[0],rotation_angles[1]);
                     group.children.push_back(std::move(prepared));
                 } else {
@@ -11336,7 +11374,7 @@ PartDocument PartDocument::from_serialized(const nlohmann::json& root,
             }
             std::set<std::pair<std::string, std::string>> unique_faces;
             if (!std::isfinite(container.shell.thickness) ||
-                container.shell.thickness <= 0.0 ||
+                container.shell.thickness < 0.0 ||
                 std::any_of(container.shell.removed_faces.begin(),
                     container.shell.removed_faces.end(), [&](const auto& face) {
                         return !face.valid() || !face.instance_path.empty() ||
@@ -11932,7 +11970,7 @@ nlohmann::json PartDocument::serialized(
         } else if (container.feature_kind == FeatureKind::Shell) {
             std::set<std::pair<std::string, std::string>> unique_faces;
             if (!std::isfinite(container.shell.thickness) ||
-                container.shell.thickness <= 0.0 ||
+                container.shell.thickness < 0.0 ||
                 std::any_of(container.shell.removed_faces.begin(),
                     container.shell.removed_faces.end(), [&](const auto& face) {
                         return !face.valid() || !face.instance_path.empty() ||

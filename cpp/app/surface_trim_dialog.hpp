@@ -19,6 +19,7 @@ public:
     SurfaceTrimDialog(document::HistoryContainer initial,std::function<void(document::HistoryContainer)> commit,QWidget* parent)
         :PropertiesSubWindow(tr("Vlastnosti oříznutí plochy"),parent),pending(std::move(initial)),commit_(std::move(commit)) {
         setObjectName("surfaceTrimDialog");setAttribute(Qt::WA_DeleteOnClose);setProperty("originSelectionBound",true);
+        setProperty("expandBottomTable",true);
         auto* form=new QFormLayout;content_layout()->addLayout(form);
         auto* name=new QLineEdit(QString::fromStdString(pending.name),this);name->setObjectName("surfaceTrimName");form->addRow(tr("Název"),name);
         connect(name,&QLineEdit::textChanged,this,[this](const auto& text){pending.name=text.toStdString();});

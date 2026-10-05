@@ -56,6 +56,27 @@ opening faces. Shell exposes neither independent placement nor a new solver.
 
 ## Native data and verification
 
+### Surfaces from solid
+
+`surface_shell.create/set` is the zero-volume surface extraction command. It
+accepts `faces`, `name` and `document`, with `container` required for set. There
+is no `thickness_mm` argument. Use the existing `shell.faces` input query and
+`shell.get` property query; get reports thickness zero for this distinct mode.
+Ordinary `shell.create/set` still requires positive thickness and cannot convert
+between the two command types.
+
+```json
+{"command":"surface_shell.create","arguments":{"faces":[]}}
+{"command":"surface_shell.set","arguments":{"container":"SURFACE-SHELL-ID","faces":[{"owner":"SOURCE-ID","key":"FACE-KEY"}]}}
+```
+
+The exact input solid faces are reused without offsets. Selected faces are
+removed, at least one must remain, and the material volume becomes zero. A
+native child key retains each face/edge/point's original owner and key. Unrelated
+surfaces retain their owners. An unchanged set creates neither calculation nor
+Undo entry. Zero is stored in the existing native Shell thickness field; no new
+document field or required sidecar is introduced.
+
 Shell format, document extensions, and start-template structure are unchanged.
 Parameters/identities remain in `.prtz`, with no required sidecars.
 

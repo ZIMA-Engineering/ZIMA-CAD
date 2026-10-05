@@ -746,7 +746,7 @@ private:
         std::size_t group, std::optional<std::size_t> member);
     void restore_edge_treatment_route(std::size_t group);
     [[nodiscard]] bool finish_edge_treatment_selection();
-    void start_shell();
+    void start_shell(bool surface_only=false);
     void accept_shell_face(const zima::viewer::ViewerCandidate& candidate);
     void refresh_shell_selection_ui();
     void remove_shell_face(std::size_t index);

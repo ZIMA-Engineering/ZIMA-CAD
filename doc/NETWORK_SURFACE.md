@@ -3,6 +3,7 @@
 The 2026-10-04 implementation adds a Modeling surface group immediately after
 Drill Point: General Surface, Fill Surface, Sewing, Surface Intersection and
 Surface Trim. Existing surface result modes in profile commands remain available.
+The surface group also includes **Surfaces from solid** (`Plochy z tělesa`).
 The previous empty Surfaces application entry is hidden. Windows packaging and
 final acceptance are recorded separately; development checks do not constitute
 a published release.
@@ -107,6 +108,40 @@ both a sewn shell and unrelated solids keeps ordinary solid appearance and
 mass properties. Existing calculated files require explicit Regenerate to
 replace their stored approximation or surface classification.
 
+## Surfaces from solid
+
+Convert one calculated solid at the active Body's insertion boundary into its
+exact surface skin. An empty removal list retains every face as a closed shell;
+selected faces are omitted to create openings. The result has zero material
+volume and yellow surface faces. It does not offset or approximate the input
+surfaces. This is a separate command from the positive-thickness Shell command.
+
+Properties uses the existing Shell input-face selection and rollback behavior,
+without thickness or Origin controls. All faces cannot be removed. Remaining
+faces may form separate surface pieces. Each extracted face, edge and point has
+its own native child identity containing the original owner and parent key.
+Source edits update the extracted geometry on explicit calculation. Unrelated
+surface faces in a mixed Body retain their geometry and ownership. Fillet can
+operate on the extracted shell's real input edges.
+
+## Profile Up To surfaces
+
+Extrusion with a supported draft angle can terminate on an original general
+surface. Calculation preserves the exact target support and the Sketch parent
+identity of replacement end rims and points. Open surface prisms are drafted
+before curved clipping because OCCT Draft cannot reliably modify their free
+curved rims. Solid prisms retain the established clip-then-draft path.
+
+Feature Revolution Up To also accepts general surfaces and planes that do not
+contain the rotation axis. Every profile trajectory must reach a distinct first
+forward contact. Exact circular-trajectory intersections bound an operation-local
+overrun, and an exact surface Boolean creates the end. Missing contacts, tangencies,
+overlapping start/end or ambiguous later crossings are rejected. A plane containing
+the axis keeps the existing uniform-angle calculation. The cyan wire preview
+uses saved triangles only; neither Properties nor picking calculates OCCT geometry.
+Symmetric sides reflect the target through the profile plane. A nonuniform angular
+end is not a constant-section input for Solid Straighten. Twist is unchanged.
+
 ## Surface Intersection
 
 Select two original bounded faces. The command creates exact reusable native
@@ -172,6 +207,9 @@ their ordinary Sketch/datum colors; only inspected definitions use azure. The
 expanded Tree permits selecting an owned Sketch or 3D Curve independently and
 highlights only that boundary's native wire, including hidden definitions,
 without recalculating geometry.
+Fill and Trim allocate additional window height to their lower editable tables;
+row heights and upper-field spacing stay fixed. Sewing and Intersection keep
+their existing compact two-row reference viewports.
 The existing child Properties routes remain available. Surface Intersection
 curves also offer their owning history feature through ordinary View hover,
 candidate cycling and confirmation. Fill Surface consumes source boundaries
@@ -198,6 +236,8 @@ editing and G3 are explicitly deferred.
 
 Verification details and measured timings are in
 [the development record](SURFACE_OPERATIONS_DEVELOPMENT.md).
+Exact profile limits and skin-extraction contracts are described in
+[the focused development note](SURFACE_UP_TO_AND_SOLID_SKIN.md).
 Primary kernel references: [Filling](https://occt3d.com/dev/doc/refman/html/class_b_rep_offset_a_p_i___make_filling.html),
 [Section](https://occt3d.com/dev/doc/refman/html/class_b_rep_algo_a_p_i___section.html),
 [Splitter](https://occt3d.com/dev/doc/refman/html/class_b_rep_algo_a_p_i___splitter.html),

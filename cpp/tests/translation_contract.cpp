@@ -373,6 +373,18 @@ int verify_translations(QApplication& application, QWidget& parent) {
                 source->item(0,2)->text()==settings.qt_translations.value("Vyberte…"),"Scale source field is untranslated");
             check(scale.findChild<QLineEdit*>("bodyScaleName")->text()=="Authored scale","Scale translated an authored name");
             scale.hide();
+            {
+                auto skin=document::PartDocument::create_shell_container();skin.shell.thickness=0.;skin.name="Authored surface shell";
+                app::PrimitivePropertiesDialog skin_dialog(skin,false,false,[](auto){},&parent);
+                skin_dialog.setAttribute(Qt::WA_DeleteOnClose,false);skin_dialog.show();application.processEvents();
+                const auto labels=skin_dialog.findChildren<QLabel*>();
+                check(!skin_dialog.findChild<QDoubleSpinBox*>("shellThickness"),"Surface shell exposes a thickness field");
+                for(const auto key:{"Vlastnosti ploch z tělesa","Odstraňované plochy",
+                    "Převést těleso na plášť bez objemu. Volitelně vyberte plochy k odstranění."})
+                    check(std::ranges::any_of(labels,[&](const auto* label){return label->text()==settings.qt_translations.value(QString::fromUtf8(key));}),
+                        "Surface shell title or instructions are untranslated");
+                skin_dialog.hide();
+            }
             std::cerr<<"Boundary translations: "<<languages[language].toStdString()<<std::endl;
             auto feature=document::create_boundary_surface();feature.name="Authored surface name";
             app::BoundarySurfaceDialog dialog(feature,[](auto){},&parent);

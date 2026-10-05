@@ -340,6 +340,119 @@ int verify_boundary_surface_ui(QApplication& application,AssemblyWorkspaceWindow
         check(document::PartDocument::load(sewing_path).find_container(fillet_id)->edge_treatment.primary_size==5,"Sewn shell Fillet Cancel changed its definition");
         undo->trigger();flush();check(!row(fillet_id)&&row(sewing_id),"Sewn shell Fillet Undo removed the shell");redo->trigger();flush();check(row(fillet_id),"Sewn shell Fillet Redo failed");
         window.grab().save(QString::fromStdString((directory/"boundary-surface-ui.png").string()));
-        std::cout<<"Boundary/fill/sewing GUI: common picking, middle confirmation, native save, edit, Cancel, unchanged OK and shell Fillet passed\n";return 0;
+        {
+            const auto run=[&](const char* command,commands::Json args=commands::Json::object()) {
+                auto reply=window.execute_console_command(QString::fromStdString(commands::Json{{"command",command},{"arguments",std::move(args)}}.dump()));
+                if(!reply.ok)throw std::runtime_error(reply.message);flush();return reply;
+            };
+            const auto name="surface-shell-ui-"+document::PartDocument::create_default().document_id;
+            run("new",{{"type","part"},{"name",name}});
+            const auto box=zima::test::gui_rectangular_profile(window,10,10,10).data.at("container").get<std::string>();flush();
+            auto* skin_action=window.findChild<QAction*>("surfaceFromSolidAction");
+            check(skin_action&&skin_action->isEnabled()&&!skin_action->icon().isNull(),"Surface extraction action or icon missing");
+            const auto skin_dialog=[&]()->PrimitivePropertiesDialog* {
+                for(auto* dialog:window.findChildren<QDialog*>())
+                    if(auto* candidate=dynamic_cast<PrimitivePropertiesDialog*>(dialog);candidate&&candidate->isVisible()&&candidate->findChild<QTableWidget*>("shellFaces"))return candidate;
+                return nullptr;
+            };
+            const auto solid_packet=mesh_packet();skin_action->trigger();flush();
+            check(skin_dialog()&&!skin_dialog()->findChild<QDoubleSpinBox*>("shellThickness"),"Surface extraction exposes thickness");
+            check(!skin_dialog()->findChild<QPushButton*>("containerOriginSelectionButton"),"Surface extraction exposes unrelated placement");
+            skin_dialog()->reject();flush();check(mesh_packet()==solid_packet,"Surface extraction Cancel changed solid");
+            skin_action->trigger();flush();
+            QMouseEvent accept_skin(QEvent::MouseButtonDblClick,QPointF(20,20),QPointF(view->mapToGlobal(QPoint(20,20))),
+                Qt::MiddleButton,Qt::MiddleButton,Qt::NoModifier);
+            QApplication::sendEvent(view,&accept_skin);flush();check(!skin_dialog(),"Surface extraction middle confirmation failed");
+            run("save");const auto file=directory/(name+".prtz");std::vector<kernel::BodyResult> cache;
+            const auto native=document::PartDocument::load(file,&cache);const auto skin=native.history.back().id;
+            check(native.history.back().is_surface_result()&&native.history.back().shell.thickness==0.&&cache.back().volume==0.&&
+                std::abs(cache.back().surface_area-600)<1e-7,"Surface extraction changed geometry or retained volume");
+            check(std::ranges::all_of(view->mesh().triangle_references,[](const auto& face){return face.surface_result;}),"Extracted faces are not yellow");
+            const auto shell_packet=mesh_packet();const auto revision=run("shell.get",{{"container",skin}}).data.at("revision");
+            window.show_tree_item_properties(row(skin));flush();check(skin_dialog(),"Surface extraction Properties cannot reopen");
+            check(std::ranges::any_of(view->mesh().triangle_references,[&](const auto& face){return face.owner_id==box;}),
+                "Surface extraction edit did not show its real input solid");
+            skin_dialog()->buttons()->button(QDialogButtonBox::Ok)->click();flush();
+            check(!skin_dialog()&&mesh_packet()==shell_packet&&run("shell.get",{{"container",skin}}).data.at("revision")==revision,
+                "Unchanged surface extraction recalculated or committed");
+            undo->trigger();flush();check(!row(skin)&&row(box),"Surface extraction Undo lost source solid");
+            redo->trigger();flush();check(row(skin)&&mesh_packet()==shell_packet,"Surface extraction Redo changed output");
+            window.show_tree_item_properties(row(skin));flush();check(skin_dialog(),"Surface extraction editor missing for picking");
+            view->fit_all();flush();std::optional<QPointF> face_pick;
+            for(int y=20;y<view->height()-20&&!face_pick;y+=8)for(int x=20;x<view->width()-20&&!face_pick;x+=8) {
+                const auto offered=view->selection_candidates_at(QPointF(x,y));
+                if(!offered.empty()&&offered.front().kind==viewer::CandidateKind::Face&&offered.front().owner_id==box)face_pick=QPointF(x,y);
+            }
+            check(face_pick.has_value(),"Surface extraction offers no input face");
+            for(auto type:{QEvent::MouseMove,QEvent::MouseButtonPress,QEvent::MouseButtonRelease}) {
+                QMouseEvent click(type,*face_pick,QPointF(view->mapToGlobal(face_pick->toPoint())),
+                    type==QEvent::MouseMove?Qt::NoButton:Qt::LeftButton,type==QEvent::MouseButtonRelease?Qt::NoButton:Qt::LeftButton,Qt::NoModifier);
+                QApplication::sendEvent(view,&click);flush();
+            }
+            check(skin_dialog()->pending_value().shell.removed_faces.size()==1,"Surface extraction common picker lost the face");
+            skin_dialog()->buttons()->button(QDialogButtonBox::Ok)->click();flush();check(!skin_dialog(),"Surface extraction opening OK failed");
+            run("save");cache.clear();const auto opened=document::PartDocument::load(file,&cache);
+            check(opened.find_container(skin)->shell.removed_faces.size()==1&&cache.back().volume==0.&&std::abs(cache.back().surface_area-500)<1e-7,
+                "Surface extraction opening did not persist");
+            window.grab().save(QString::fromStdString((directory/"surface-shell-ui.png").string()));
+        }
+        {
+            auto limited=document::PartDocument::create_default();document::BodyHistoryGraph history;
+            const auto limited_body=history.create_body("Curved angular end");
+            auto target=document::create_general_surface();
+            const std::array<kernel::Vec3,4> corners{{{-30,5,-10},{30,5,-10},{30,7,10},{-30,5,10}}};
+            for(unsigned i=0;i<4;++i) {
+                target.general_surface.boundaries[i]=document::create_general_surface_curve(target);
+                auto& curve=*target.general_surface.boundaries[i].curve;curve.curve_type=document::Curve3DType::Polyline;curve.curve_points.clear();
+                for(auto p:{corners[i],corners[(i+1)%4]}){auto point=document::create_owned_point(curve.id);point.origin=p;curve.curve_points.push_back(point);}
+            }
+            auto sketch=sketcher::Sketch::create_default();sketch.plane=sketcher::SketchPlane::XZ;sketch.plane_auto=false;sketch.refresh_default_frame();
+            static_cast<void>(sketch.add_rectangle(10,0,20,5));const auto axis=sketch.add_segment(0,-1,0,6);sketch.set_segment_centerline(axis,true);
+            auto feature=document::PartDocument::create_feature_container(sketch.id);sketch.owner_container_id=feature.id;
+            feature.feature.axis_segment_id=axis;feature.feature.sides[0].operation=document::FeatureSideOperation::Revolution;
+            feature.feature.sides[0].angle_degrees=20;
+            for(const auto& item:{target,feature})history.insert({document::PartHistoryKind::Feature,item.id});
+            limited.history={target,feature};limited.sketches={sketch};limited.set_body_history(history);limited.resolve_constructions();
+            const auto file=directory/"rotation-general-surface-ui.prtz";
+            limited.save(file,fixture_kernel.evaluate_history(limited.kernel_operations()));
+            check(window.open_document_path(QString::fromStdString(file.string())),"Curved angular end fixture cannot open");flush();
+            check(window.execute_console_command(QString::fromStdString(commands::Json{{"command","body.activate"},{"arguments",{{"body",limited_body}}}}.dump())).ok,
+                "Curved angular end Body cannot activate");flush();
+            const auto editor=[&]{return dynamic_cast<PrimitivePropertiesDialog*>(window.findChild<QWidget*>("featurePropertiesDialog"));};
+            window.show_tree_item_properties(row(feature.id));flush();check(editor(),"Rotation Properties cannot reopen");
+            editor()->findChild<QComboBox*>("featureSideEnd0")->setCurrentIndex(2);flush();
+            check(!editor()->requires_planar_end_target(),"Rotation still filters out original general surfaces");
+            QLineEdit* input{};for(auto* field:editor()->findChildren<QLineEdit*>())
+                if(!input&&field->isVisible()&&field->isReadOnly()&&field->placeholderText()==QObject::tr("Reference"))input=field;
+            check(input,"Rotation target field missing");
+            QMouseEvent arm(QEvent::MouseButtonPress,QPointF(10,10),QPointF(input->mapToGlobal(QPoint(10,10))),Qt::LeftButton,Qt::LeftButton,Qt::NoModifier);
+            QApplication::sendEvent(input,&arm);flush();view->fit_all();flush();
+            std::optional<QPointF> target_pick;std::size_t target_index{};
+            for(int y=20;y<view->height()-20&&!target_pick;y+=8)for(int x=20;x<view->width()-20&&!target_pick;x+=8) {
+                const auto offered=view->selection_candidates_at(QPointF(x,y));
+                for(std::size_t i=0;i<offered.size();++i)if(offered[i].kind==viewer::CandidateKind::Face&&offered[i].owner_id==target.id&&
+                    offered[i].semantic_key=="surface:from:"+target.feature_id){target_pick=QPointF(x,y);target_index=i;break;}
+            }
+            check(target_pick.has_value(),"Rotation common picker omitted its real original surface");
+            const auto select_target=[&](QEvent::Type type,Qt::MouseButton button,Qt::MouseButtons buttons) {
+                QMouseEvent event(type,*target_pick,QPointF(view->mapToGlobal(target_pick->toPoint())),button,buttons,Qt::NoModifier);
+                QApplication::sendEvent(view,&event);flush();
+            };
+            select_target(QEvent::MouseMove,Qt::NoButton,Qt::NoButton);
+            for(std::size_t i=0;i<target_index;++i){select_target(QEvent::MouseButtonPress,Qt::RightButton,Qt::RightButton);select_target(QEvent::MouseButtonRelease,Qt::RightButton,Qt::NoButton);}
+            select_target(QEvent::MouseButtonPress,Qt::LeftButton,Qt::LeftButton);select_target(QEvent::MouseButtonRelease,Qt::LeftButton,Qt::NoButton);
+            check(editor()->pending_value().feature.sides[0].targets.size()==1&&
+                editor()->pending_value().feature.sides[0].targets.front().reference.owner_id==target.id,"Rotation common picker lost curved target");
+            window.grab().save(QString::fromStdString((directory/"rotation-general-surface-properties.png").string()));
+            editor()->buttons()->button(QDialogButtonBox::Ok)->click();flush();check(!editor(),"Curved Revolution Up To OK failed");
+            window.findChild<QAction*>("saveDocumentAction")->trigger();flush();std::vector<kernel::BodyResult> cache;
+            const auto saved=document::PartDocument::load(file,&cache);
+            check(saved.find_container(feature.id)->feature.sides[0].rotation_extent==document::FeatureRotationExtent::UpTo&&
+                saved.find_container(feature.id)->feature.sides[0].targets.front().reference.owner_id==target.id&&cache.back().calculation_errors.empty()&&cache.back().volume>0.,
+                "Curved rotation GUI lost native extent, reference or solid");
+            const auto before=mesh_packet();window.show_tree_item_properties(row(feature.id));flush();check(editor(),"Curved Up To editor cannot reopen");
+            editor()->reject();flush();check(mesh_packet()==before,"Curved Up To Cancel changed its result");
+        }
+        std::cout<<"Boundary/fill/sewing GUI: common picking, middle confirmation, native save, edit, Cancel, unchanged OK, surface extraction and curved Revolution Up To passed\n";return 0;
     }catch(const std::exception& error){std::cerr<<error.what()<<'\n';return 1;}
 }

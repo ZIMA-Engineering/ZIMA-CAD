@@ -26,6 +26,7 @@ public:
     BoundarySurfaceDialog(document::HistoryContainer initial,std::function<void(document::HistoryContainer)> commit,QWidget* parent)
         :PropertiesSubWindow(tr("Vlastnosti zaplnění plochy"),parent),pending(std::move(initial)),commit_(std::move(commit)) {
         setObjectName("boundarySurfaceDialog");setAttribute(Qt::WA_DeleteOnClose);
+        setProperty("expandBottomTable",true);
         setProperty("originSelectionBound",true);
         auto* form=new QFormLayout;content_layout()->addLayout(form);
         auto* name=new QLineEdit(QString::fromStdString(pending.name),this);name->setObjectName("boundarySurfaceName");form->addRow(tr("Název"),name);

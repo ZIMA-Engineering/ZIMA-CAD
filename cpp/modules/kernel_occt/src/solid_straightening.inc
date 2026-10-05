@@ -40,7 +40,7 @@ template<class From,class To> void copy_profile(const From& from,To& to) {
 SolidStraighteningPlan revolution(const RevolutionRequest& source,double coefficient) {
     if(!std::isfinite(coefficient)||coefficient<=0)
         throw std::invalid_argument("Straightening coefficient must be positive and finite.");
-    if(source.surface_result)throw std::invalid_argument("Straightening requires a solid with a constant cross-section.");
+    if(source.surface_result||source.end_limit)throw std::invalid_argument("Straightening requires a solid with a constant cross-section.");
     validate_revolution(source);
     // Measure the exact filled section, including holes and profile offsets.
     // A bounding box or a sampled display polygon is not a section centroid.

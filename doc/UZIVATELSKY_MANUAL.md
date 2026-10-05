@@ -368,12 +368,19 @@ The cyan preview uses stored Sketch/reference geometry. OK or Regenerate perform
 the solid calculation against the exact target surface. A planar target uses its
 infinite supporting plane, not the finite boundary of the selected face.
 
+**Draft angle** also works with Up To a general surface. Feature **Revolution →
+Up To** accepts an original general surface or an inclined/offset plane. The
+profile's circular trajectories must all reach a unique first forward contact;
+a target outside their reach or tangent to them is rejected. The exact surface
+defines the calculated end; the cyan preview uses stored reference geometry.
+Planes through the axis retain their ordinary uniform-angle behavior.
+
 A closed profile can create a solid or **Thin** walls. An open profile uses Thin.
 Choose first side, second side or symmetric thickness. The supported Thin input
 is one continuous unbranched chain or one closed loop of segments, arcs, ellipses,
 elliptic arcs, splines and evaluated corner radii. Branches, disconnected chains,
-collapsed offsets or self-intersections are rejected. Ordinary Part modeling does
-not create standalone surface bodies.
+collapsed offsets or self-intersections are rejected. **Surface** creates uncapped
+zero-volume geometry through the profile Feature's existing result selection.
 
 The Thin preview shows both offset boundaries, longitudinal corner edges and open
 end caps. Direction, extent and wall-side changes update the same pending preview.
@@ -939,6 +946,13 @@ geometry or unsatisfied continuity is reported rather than approximated silently
 **Sewing** joins contiguous calculated faces into one surface shell. Use
 **Fillet** on that shell's real input edges with a feasible radius. Neither
 operation automatically creates a solid.
+
+**Surfaces from solid** converts one calculated solid to exact yellow surface
+faces with zero material volume. Select faces to remove, or leave the list empty
+to retain its complete closed skin. There is no thickness field. Properties,
+Cancel, Undo/Redo and input-face selection follow Shell. The last remaining face
+cannot be removed; disconnected retained pieces are permitted. Unrelated surfaces
+in the Body retain their ownership.
 
 New Fillet and Chamfer faces on a surface shell are yellow, like other surfaces.
 Unrelated solids keep their ordinary appearance. If an older calculated model

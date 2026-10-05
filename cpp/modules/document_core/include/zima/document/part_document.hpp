@@ -688,6 +688,7 @@ struct HistoryContainer {
     std::set<std::string> value_locks;
     [[nodiscard]] bool is_surface_result() const {
         return feature_kind==FeatureKind::SurfaceTrim || feature_kind==FeatureKind::BoundarySurface || feature_kind==FeatureKind::SurfaceSewing || feature_kind==FeatureKind::GeneralSurface ||
+            (feature_kind==FeatureKind::Shell && shell.thickness==0.) ||
             (feature_kind==FeatureKind::Sweep2D && sweep2d.result_type==ProfileResultType::Surface) ||
             (feature_kind==FeatureKind::Sweep3D && sweep3d.result_type==ProfileResultType::Surface) ||
             (feature_kind==FeatureKind::HelicalSweep && helical.result_type==ProfileResultType::Surface) ||
@@ -860,7 +861,8 @@ public:
         const zima::kernel::ViewerMesh* supporting_body = nullptr,
         std::optional<zima::kernel::ViewerAxis>* preview_axis = nullptr) const;
     [[nodiscard]] std::vector<zima::kernel::ViewerEdge> revolution_preview_edges(
-        const HistoryContainer& container) const;
+        const HistoryContainer& container,
+        const ExtrusionParameters::EndTarget* target=nullptr) const;
     [[nodiscard]] static HistoryContainer create_extrusion_container(
         std::string sketch_id);
     [[nodiscard]] static HistoryContainer create_feature_container(std::string sketch_id);

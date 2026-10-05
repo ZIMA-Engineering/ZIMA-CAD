@@ -1855,8 +1855,8 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
             [this] {
                 shell_face_selection_active_ = true;
                 refresh_shell_selection_ui();
-                state_->setText(tr(
-                    "Vyberte plochy, které má Shell otevřít."));
+                state_->setText(shell_dialog_->pending_value().shell.thickness==0.?tr("Vyberte plochy k odstranění. MMB výběr ukončí."):
+                    tr("Vyberte plochy, které má Shell otevřít."));
             });
         refresh_shell_selection_ui();
     }

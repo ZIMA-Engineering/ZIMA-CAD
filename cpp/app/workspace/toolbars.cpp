@@ -1,6 +1,7 @@
 #include "workspace_internal.hpp"
 #include <zima/document/sheet_transition.hpp>
 #include <zima/workspace/solid_state_operations.hpp>
+#include <zima/workspace/operation_input.hpp>
 #include "../command_button_paint.hpp"
 
 namespace zima::app {
@@ -361,6 +362,12 @@ void AssemblyWorkspaceWindow::rebuild_application_toolbar() {
         if(!trim){trim=new QAction(resource_icon("boundary-surface"),tr("Oříznout plochu"),this);
             trim->setObjectName("surfaceTrimAction");connect(trim,&QAction::triggered,this,[this]{show_surface_trim_properties();});}
         trim->setEnabled(boundary_body&&!boundary_body->derived_copy&&!properties_dialog_);add_command(trim);
+        auto* skin=findChild<QAction*>("surfaceFromSolidAction");
+        if(!skin){skin=new QAction(resource_icon("surface-from-solid"),tr("Plochy z tělesa"),this);
+            skin->setObjectName("surfaceFromSolidAction");connect(skin,&QAction::triggered,this,[this]{start_shell(true);});}
+        const auto* skin_input=modeling_part?zima::workspace::calculated_operation_input(modeling_part->session,{}):nullptr;
+        skin->setEnabled(boundary_body&&!boundary_body->derived_copy&&!properties_dialog_&&skin_input&&skin_input->volume>0.);
+        add_command(skin);
         if (active_body) {
             add_group_separator();
             add_command(mirror_action_);

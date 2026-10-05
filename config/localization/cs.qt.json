@@ -2127,5 +2127,19 @@
   "Odstranit vlastní hranici": "Odstranit vlastní hranici",
   "Nakreslete hranice vlastními skicami nebo 3D křivkami. OK vypočítá plochu.": "Nakreslete hranice vlastními skicami nebo 3D křivkami. OK vypočítá plochu.",
   "Přidat vlastní hranici…": "Přidat vlastní hranici…",
-  "Pro jiný typ odstraňte hranici a přidejte novou.": "Pro jiný typ odstraňte hranici a přidejte novou."
+  "Pro jiný typ odstraňte hranici a přidejte novou.": "Pro jiný typ odstraňte hranici a přidejte novou.",
+  "Plochy z tělesa": "Plochy z tělesa",
+  "Vlastnosti ploch z tělesa": "Vlastnosti ploch z tělesa",
+  "Převést těleso na plášť bez objemu. Volitelně vyberte plochy k odstranění.": "Převést těleso na plášť bez objemu. Volitelně vyberte plochy k odstranění.",
+  "Odstraňované plochy": "Odstraňované plochy",
+  "Vyberte plochy k odstranění. MMB výběr ukončí.": "Vyberte plochy k odstranění. MMB výběr ukončí.",
+  "Vybrané plochy k odstranění: %1.": "Vybrané plochy k odstranění: %1.",
+  "Extract exact surfaces from a solid, optionally removing faces.": "Vytvořit přesné plochy z tělesa, volitelně s odstraněním ploch.",
+  "Change the removed faces of a surface shell.": "Změnit odstraňované plochy plošného pláště.",
+  "Use the command belonging to this shell type.": "Použijte příkaz odpovídající tomuto typu pláště.",
+  "Revolution profile misses target surface.": "Profil rotace nedosahuje cílové plochy.",
+  "Revolution target does not define an unambiguous end.": "Cílová plocha neurčuje jednoznačné zakončení rotace.",
+  "Exact Revolution target surface is missing or ambiguous.": "Přesná cílová plocha rotace chybí nebo je nejednoznačná.",
+  "Select fewer faces; the surface shell must retain a face.": "Vyberte méně ploch; plošný plášť musí obsahovat alespoň jednu plochu.",
+  "Surface shell could not retain valid input surfaces.": "Plošný plášť nedokázal zachovat platné vstupní plochy."
 }

@@ -3,6 +3,7 @@
 #include <zima/command_host/host.hpp>
 #include <zima/workspace/shell_operations.hpp>
 #include <zima/workspace/operation_input.hpp>
+#include <zima/kernel/surface_shell_identity.hpp>
 #include <algorithm>
 #include <cmath>
 #include <iostream>
@@ -135,6 +136,67 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
         return edge.reference.valid()&&edge.points.size()>2&&std::ranges::all_of(edge.points,[&](const auto& point){
             return std::abs(point.z)<1e-5&&std::abs(std::hypot(point.x,point.y)-radius)<1e-5;});
     }),"Shell discarded a real circular rim of a trimmed spherical face");
+    // Surface extraction reuses exact topology, creates its own ancestry and
+    // removes solid volume without an offset calculation or a thickness field.
+    run(host,"new",{{"type","part"},{"name","surface-shell"}});state=live.open_part(live.active_document_id());
+    const auto skin_box=zima::test::rectangular_commands([&](const char* n,Json a){return run(host,n,std::move(a));},
+        {{"length_mm","10"},{"width_mm","10"},{"height_mm","10"}}).data.at("container").get<std::string>();
+    const auto skin_input=run(host,"shell.faces").data.at("items");
+    const auto skin_id=run(host,"surface_shell.create").data.at("container").get<std::string>();
+    const auto skin_definition=*state->session.document().find_container(skin_id);
+    require(skin_definition.is_surface_result()&&skin_definition.shell.thickness==0.,"Surface shell retained a wall thickness");
+    near(state->session.calculated_boundaries().back().volume,0);near(state->session.calculated_boundaries().back().surface_area,600);
+    std::set<std::string> skin_faces;
+    for(const auto& r:state->session.calculated_boundaries().back().mesh.original_references.triangle_references)if(r.owner_id==skin_id) {
+        const auto parent=kernel::surface_shell_parent(r.semantic_key);
+        require(r.surface_result&&parent&&parent->first==skin_box,"Surface shell lost face parent identity or yellow classification");
+        skin_faces.insert(r.semantic_key);
+    }
+    require(skin_faces.size()==6,"Surface shell lost an original face");
+    // Downstream treatments consume the actual extracted shell edges.
+    const auto skin_edge=state->session.calculated_boundaries().back().mesh.edges.front().reference;
+    const auto blend=run(host,"fillet.create",{{"radius_mm",1},{"routes",Json::array({Json{{"edges",Json::array({Json{{"owner",skin_edge.owner_id},{"key",skin_edge.semantic_key}}})}}})}}).data.at("container").get<std::string>();
+    near(state->session.calculated_boundaries().back().volume,0);
+    require(std::ranges::all_of(state->session.calculated_boundaries().back().mesh.triangle_references,[](const auto& face){return face.surface_result;}),
+        "Extracted shell Fillet lost yellow surface classification");
+    run(host,"undo");require(!state->session.document().find_container(blend),"Shell Fillet Undo failed");
+    run(host,"undo");near(state->session.calculated_boundaries().back().volume,1000);
+    run(host,"redo");require(*state->session.document().find_container(skin_id)==skin_definition,"Surface shell Redo changed definition");
+    const auto skin_revision=state->session.revision();const auto* skin_cache=state->session.calculated_boundaries().data();
+    require(!run(host,"surface_shell.set",{{"container",skin_id},{"faces",Json::array()}}).data.at("changed").get<bool>(),"Unchanged surface shell committed");
+    require(state->session.revision()==skin_revision&&state->session.calculated_boundaries().data()==skin_cache,"Unchanged surface shell recalculated");
+    require(!host.execute({{"command","surface_shell.set"},{"arguments",{{"container",skin_id},{"faces",skin_input}}}}).ok,
+        "Surface shell accepted removal of all faces");
+    require(state->session.revision()==skin_revision,"Rejected surface shell edit changed document");
+    run(host,"surface_shell.set",{{"container",skin_id},{"faces",Json::array({skin_input.front()})}});
+    near(state->session.calculated_boundaries().back().volume,0);near(state->session.calculated_boundaries().back().surface_area,500);
+    run(host,"save");std::vector<kernel::BodyResult> skin_saved;
+    auto skin_reopened=document::PartDocument::load(directory/"surface-shell.prtz",&skin_saved);
+    require(skin_reopened.find_container(skin_id)->shell.thickness==0.,"Native surface shell became a thick Shell");
+    near(skin_saved.back().volume,0);near(kernel.evaluate_history(skin_reopened.kernel_operations()).back().surface_area,500);
+    // Removing the four walls leaves two exact disconnected cap surfaces.
+    Json walls=Json::array();for(const auto& entry:skin_input)
+        if(entry.at("key")!=face("z_max",skin_box).at("key")&&entry.at("key")!=face("z_min",skin_box).at("key"))walls.push_back(entry);
+    run(host,"surface_shell.set",{{"container",skin_id},{"faces",walls}});
+    near(state->session.calculated_boundaries().back().surface_area,200);near(state->session.calculated_boundaries().back().volume,0);
+    const auto removed_walls=state->session.document().find_container(skin_id)->shell.removed_faces;
+    zima::test::resize_rectangular_commands([&](const char* n,Json a){return run(host,n,std::move(a));},{{"container",skin_box},{"length_mm","12"}});
+    near(state->session.calculated_boundaries().back().surface_area,240);near(state->session.calculated_boundaries().back().volume,0);
+    require(state->session.document().find_container(skin_id)->shell.removed_faces==removed_walls,"Source edit changed extraction references");
+    run(host,"new",{{"type","part"},{"name","surface-shell-sphere"}});
+    zima::test::spherical_commands([&](const char* n,Json a){return run(host,n,std::move(a));},10);
+    run(host,"surface_shell.create");state=live.open_part(live.active_document_id());
+    near(state->session.calculated_boundaries().back().volume,0);near(state->session.calculated_boundaries().back().surface_area,400*std::numbers::pi);
+    // A separate surface in the same Body keeps its original ownership.
+    run(host,"new",{{"type","part"},{"name","surface-shell-mixed"}});state=live.open_part(live.active_document_id());
+    auto mixed=state->session.document();auto mixed_box=zima::test::rectangular_feature(mixed,{10,10,10});
+    auto unrelated=zima::test::rectangular_feature(mixed,{10,10,10});unrelated.extrusion.result_type=document::ProfileResultType::Surface;unrelated.placement.x=30;
+    for(const auto& feature:{mixed_box,unrelated}){mixed.insert_history_entry(document::PartHistoryKind::Feature,feature.id);mixed.history.push_back(feature);}
+    mixed.resolve_constructions();auto mixed_results=kernel.evaluate_history(mixed.kernel_operations());
+    state->session.commit(std::move(mixed),std::move(mixed_results));run(host,"surface_shell.create");
+    near(state->session.calculated_boundaries().back().volume,0);near(state->session.calculated_boundaries().back().surface_area,1000);
+    require(std::ranges::any_of(state->session.calculated_boundaries().back().mesh.triangle_references,[&](const auto& ref){return ref.owner_id==unrelated.id&&ref.surface_result;}),
+        "Solid extraction changed unrelated surface ownership");
     // Two disconnected solids are not a valid single Shell input.
     run(host,"new",{{"type","part"},{"name","shell-disconnected"}});state=live.open_part(live.active_document_id());
     auto split=state->session.document();auto first=zima::test::rectangular_feature(split,{10,10,10});

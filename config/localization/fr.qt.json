@@ -2127,5 +2127,19 @@
   "Odstranit vlastní hranici": "Supprimer la limite propre",
   "Nakreslete hranice vlastními skicami nebo 3D křivkami. OK vypočítá plochu.": "Tracez les limites avec des esquisses ou courbes 3D propres. OK calcule la surface.",
   "Přidat vlastní hranici…": "Ajouter une limite propre…",
-  "Pro jiný typ odstraňte hranici a přidejte novou.": "Pour changer de type, supprimez la limite et ajoutez-en une nouvelle."
+  "Pro jiný typ odstraňte hranici a přidejte novou.": "Pour changer de type, supprimez la limite et ajoutez-en une nouvelle.",
+  "Plochy z tělesa": "Surfaces du solide",
+  "Vlastnosti ploch z tělesa": "Propriétés des surfaces du solide",
+  "Převést těleso na plášť bez objemu. Volitelně vyberte plochy k odstranění.": "Convertir le solide en coque sans volume. Sélectionner éventuellement les faces à supprimer.",
+  "Odstraňované plochy": "Faces à supprimer",
+  "Vyberte plochy k odstranění. MMB výběr ukončí.": "Sélectionner les faces à supprimer. Le bouton central termine la sélection.",
+  "Vybrané plochy k odstranění: %1.": "Faces sélectionnées à supprimer : %1.",
+  "Extract exact surfaces from a solid, optionally removing faces.": "Extraire les surfaces exactes du solide et supprimer éventuellement des faces.",
+  "Change the removed faces of a surface shell.": "Modifier les faces supprimées de la coque surfacique.",
+  "Use the command belonging to this shell type.": "Utiliser la commande correspondant à ce type de coque.",
+  "Revolution profile misses target surface.": "Le profil de révolution ne rencontre pas la surface cible.",
+  "Revolution target does not define an unambiguous end.": "La surface cible ne définit pas une fin de révolution univoque.",
+  "Exact Revolution target surface is missing or ambiguous.": "La surface cible exacte de révolution est absente ou ambiguë.",
+  "Select fewer faces; the surface shell must retain a face.": "Sélectionner moins de faces ; la coque doit conserver au moins une face.",
+  "Surface shell could not retain valid input surfaces.": "La coque surfacique ne peut pas conserver des surfaces valides."
 }

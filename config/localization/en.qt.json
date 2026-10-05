@@ -2127,5 +2127,19 @@
   "Odstranit vlastní hranici": "Remove the owned boundary",
   "Nakreslete hranice vlastními skicami nebo 3D křivkami. OK vypočítá plochu.": "Draw boundaries with owned Sketches or 3D Curves. OK calculates the surface.",
   "Přidat vlastní hranici…": "Add owned boundary…",
-  "Pro jiný typ odstraňte hranici a přidejte novou.": "For a different type, remove the boundary and add a new one."
+  "Pro jiný typ odstraňte hranici a přidejte novou.": "For a different type, remove the boundary and add a new one.",
+  "Plochy z tělesa": "Surfaces from solid",
+  "Vlastnosti ploch z tělesa": "Surfaces from solid properties",
+  "Převést těleso na plášť bez objemu. Volitelně vyberte plochy k odstranění.": "Convert the solid to a shell without volume. Optionally select faces to remove.",
+  "Odstraňované plochy": "Faces to remove",
+  "Vyberte plochy k odstranění. MMB výběr ukončí.": "Select faces to remove. MMB ends selection.",
+  "Vybrané plochy k odstranění: %1.": "Selected faces to remove: %1.",
+  "Extract exact surfaces from a solid, optionally removing faces.": "Extract exact surfaces from a solid, optionally removing faces.",
+  "Change the removed faces of a surface shell.": "Change the removed faces of a surface shell.",
+  "Use the command belonging to this shell type.": "Use the command belonging to this shell type.",
+  "Revolution profile misses target surface.": "Revolution profile misses target surface.",
+  "Revolution target does not define an unambiguous end.": "Revolution target does not define an unambiguous end.",
+  "Exact Revolution target surface is missing or ambiguous.": "Exact Revolution target surface is missing or ambiguous.",
+  "Select fewer faces; the surface shell must retain a face.": "Select fewer faces; the surface shell must retain a face.",
+  "Surface shell could not retain valid input surfaces.": "Surface shell could not retain valid input surfaces."
 }

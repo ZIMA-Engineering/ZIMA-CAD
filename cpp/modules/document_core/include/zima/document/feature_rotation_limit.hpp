@@ -1,10 +1,19 @@
 #pragma once
 #include <zima/document/profile_parameters.hpp>
+#include <zima/kernel/dimension_layout.hpp>
 #include <cmath>
 #include <numbers>
 #include <stdexcept>
 
 namespace zima::document {
+inline bool feature_rotation_has_uniform_end(kernel::Vec3 axis_point,
+        kernel::Vec3 axis,const ExtrusionParameters::EndTarget& target) {
+    using namespace kernel;
+    if(target.kind!=EndTargetKind::Plane)return false;
+    axis=dimension_unit(axis);const auto normal=dimension_unit(target.fallback_normal);
+    return std::abs(dimension_dot(normal,axis))<=1e-8 &&
+        std::abs(dimension_dot(dimension_sub(target.fallback_origin,axis_point),normal))<=1e-6;
+}
 // A uniform rotation can finish on a plane only when that plane contains the
 // rotation axis. Preserve the oriented target normal: opposite plane sides
 // describe different angular ends. No kernel query is needed for this datum.

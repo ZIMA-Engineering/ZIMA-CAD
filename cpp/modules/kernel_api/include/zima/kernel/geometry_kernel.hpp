@@ -615,6 +615,10 @@ struct RevolutionRequest {
     bool first_cap_is_start{true};
     double start_angle_degrees{};
     double angle_degrees{360.0};
+    // A nonuniform angular end is calculated against the exact original face.
+    // This is transient calculation input; the native Feature owns the target.
+    std::optional<ExtrusionLimit> end_limit;
+    bool mirror_end_limit{};
     bool surface_result{};
     std::string open_profile_end_id;
 };

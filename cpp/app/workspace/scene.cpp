@@ -697,7 +697,7 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
                                 base, start, {front.x*8,front.y*8,front.z*8}, offset);
                         }
                     }
-                } else if (container->feature_kind == FeatureKind::Shell) {
+                } else if (container->feature_kind == FeatureKind::Shell&&container->shell.thickness!=0.) {
                     // Shell thickness is anchored to an actual face of the
                     // persisted input body immediately before this feature.
                     // Prefer the first selected opening; a closed Shell uses

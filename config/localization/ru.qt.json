@@ -2127,5 +2127,19 @@
   "Odstranit vlastní hranici": "Удалить собственную границу",
   "Nakreslete hranice vlastními skicami nebo 3D křivkami. OK vypočítá plochu.": "Создайте границы собственными эскизами или 3D-кривыми. OK рассчитывает поверхность.",
   "Přidat vlastní hranici…": "Добавить собственную границу…",
-  "Pro jiný typ odstraňte hranici a přidejte novou.": "Чтобы выбрать другой тип, удалите границу и добавьте новую."
+  "Pro jiný typ odstraňte hranici a přidejte novou.": "Чтобы выбрать другой тип, удалите границу и добавьте новую.",
+  "Plochy z tělesa": "Поверхности из тела",
+  "Vlastnosti ploch z tělesa": "Свойства поверхностей из тела",
+  "Převést těleso na plášť bez objemu. Volitelně vyberte plochy k odstranění.": "Преобразовать тело в оболочку без объёма. При необходимости выберите грани для удаления.",
+  "Odstraňované plochy": "Удаляемые грани",
+  "Vyberte plochy k odstranění. MMB výběr ukončí.": "Выберите грани для удаления. Средняя кнопка завершает выбор.",
+  "Vybrané plochy k odstranění: %1.": "Выбрано граней для удаления: %1.",
+  "Extract exact surfaces from a solid, optionally removing faces.": "Создать точные поверхности из тела с возможностью удаления граней.",
+  "Change the removed faces of a surface shell.": "Изменить удаляемые грани поверхностной оболочки.",
+  "Use the command belonging to this shell type.": "Используйте команду для этого типа оболочки.",
+  "Revolution profile misses target surface.": "Профиль вращения не достигает целевой поверхности.",
+  "Revolution target does not define an unambiguous end.": "Целевая поверхность не определяет однозначное окончание вращения.",
+  "Exact Revolution target surface is missing or ambiguous.": "Точная целевая поверхность вращения отсутствует или неоднозначна.",
+  "Select fewer faces; the surface shell must retain a face.": "Выберите меньше граней; оболочка должна сохранить хотя бы одну грань.",
+  "Surface shell could not retain valid input surfaces.": "Не удалось сохранить корректные входные поверхности оболочки."
 }
