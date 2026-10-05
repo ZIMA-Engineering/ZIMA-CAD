@@ -142,7 +142,9 @@ int main(){try{
     auto changed=feature;changed.surface_thicken.thickness=3.;check(workspace::commit_surface_thicken(live,kernel,part.document_id,changed),"Thickness edit did not commit");near(state->session.calculated_boundaries().back().volume,600.);
     check(workspace::step_part_document_history(live,part.document_id,false),"Thickness Undo failed");near(state->session.calculated_boundaries().back().volume,400.);
     check(workspace::step_part_document_history(live,part.document_id,true),"Thickness Redo failed");near(state->session.calculated_boundaries().back().volume,600.);
-    changed.value_locks.insert("thickness");check(workspace::commit_surface_thicken(live,kernel,part.document_id,changed),"Thickness lock did not persist");
+    changed.surface_thicken.thickness=3.5;changed.value_locks.insert("thickness");
+    check(workspace::commit_surface_thicken(live,kernel,part.document_id,changed),"Edited thickness could not be locked on the same confirmation");
+    near(state->session.calculated_boundaries().back().volume,700.);
     const auto locked_family=workspace::family_references(live,part.document_id);
     check(std::ranges::none_of(locked_family,[&](const auto& value){return value.binding.owner_id==feature.id&&value.binding.semantic_key=="parameter:thickness";}),"Family offered a locked thickness");
     auto locked_edit=changed;locked_edit.surface_thicken.thickness=4.;bool lock_rejected=false;
@@ -151,7 +153,7 @@ int main(){try{
     const auto path=std::filesystem::temp_directory_path()/"zima-surface-thicken.prtz";state->session.document().save(path,state->session.calculated_boundaries());std::vector<kernel::BodyResult> cache;
     const auto reopened=document::PartDocument::load(path,&cache);std::filesystem::remove(path);
     check(reopened.find_container(feature.id)->surface_thicken==changed.surface_thicken,"Native side or thickness did not round trip");
-    kernel::OcctKernel cold;const auto rebuilt=cold.evaluate_history_incremental(reopened.kernel_operations(),cache).back();valid(rebuilt);near(rebuilt.volume,600.);
+    kernel::OcctKernel cold;const auto rebuilt=cold.evaluate_history_incremental(reopened.kernel_operations(),cache).back();valid(rebuilt);near(rebuilt.volume,700.);
     changed.surface_thicken.face.semantic_key="missing";bool rejected=false;try{static_cast<void>(workspace::commit_surface_thicken(live,kernel,part.document_id,changed));}catch(const std::exception&){rejected=true;}
     check(rejected&&state->session.document().serialized()==reopened.serialized(),"Invalid edit changed native history");
     std::cout<<"Surface thickening: exact planes and curved offsets, all sides, native ancestry, context, persistence, no-op and Undo/Redo passed\n";

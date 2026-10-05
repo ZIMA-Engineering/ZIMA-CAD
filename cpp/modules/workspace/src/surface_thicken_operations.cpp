@@ -15,7 +15,7 @@ bool commit_surface_thicken(Workspace& live,const kernel::OcctKernel& kernel,con
         throw std::invalid_argument("Activate an editable Body before thickening a surface.");
     document::validate_native_metadata_text(feature.name);
     if(feature.name.empty())throw std::invalid_argument("Specify a surface thickening feature name.");
-    if(existing&&feature.value_locks.contains("thickness")&&existing->surface_thicken.thickness!=feature.surface_thicken.thickness)
+    if(existing&&existing->value_locks.contains("thickness")&&feature.value_locks.contains("thickness")&&existing->surface_thicken.thickness!=feature.surface_thicken.thickness)
         throw std::invalid_argument("The requested value is locked.");
     if(existing&&*existing==feature&&!state->session.calculated_boundaries().empty())return false;
     auto next=before;const auto owner=feature.id;
