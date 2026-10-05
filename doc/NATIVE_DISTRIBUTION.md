@@ -2,6 +2,17 @@
 
 ## Scope and status
 
+Windows build **2026100505** is signed, published and verified. It adds normal
+surface thickening with first/second/symmetric sides, native child ancestry,
+source-dependent cache invalidation, shared reference/inspection controls and
+numeric locking. Ten focused suites, the revised native locking regression,
+committed-source packaging, signed smoke/trust, six packaged GUI scenarios and
+cold Thicken CLI regeneration passed. Authenticated/public hashes and update
+discovery from 2026100503 passed. The unpublished 2026100504 candidate was
+superseded during acceptance. Documentation and all five localizations are
+complete; inherited broader regression limits and Linux remain separate. See
+[the release record](releases/2026100505.md).
+
 Windows build **2026100503** is signed, published and verified. It adds exact
 Revolution Up To general-surface limits and zero-thickness Surfaces from solid,
 repairs drafted surface end ancestry and improves Fill/Trim resizing. All fifteen
