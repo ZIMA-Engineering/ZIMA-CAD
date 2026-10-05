@@ -136,8 +136,12 @@ Actual CLI tests use `.prtz`, `.asmz`, and `.drwz`. GUI checks invalid names, Ca
 confirmation, later command renaming, actual source references, model history,
 camera, tab titles, and Save after renaming all three types with Czech characters.
 `zima_cpp_drawing_file_rename_ui_contract` starts on the Drawing tab and checks
-Cancel, differently named source/ Drawing files, both native renames, repeated
+Cancel, differently named source/Drawing files, both native renames, repeated
 occurrences in an open Assembly, refreshed tabs/Tree labels and saved references.
+The final four targeted suites passed in 12.64 s on 2026-10-05: native file
+transactions, the dedicated Drawing GUI scenario, Family Rename and all five
+translation catalogs. The signed Windows package repeated the Drawing GUI
+scenario successfully; see [release acceptance](releases/2026100501.md).
 
 Final Windows Release built both applications and all targets. All **13 affected
 tests** passed across several runs; this is not a new full regression of all 154 tests.

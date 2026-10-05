@@ -347,3 +347,13 @@ hashes. The signed 2026100303 updater verified the manifest and offered
 2026100401 as installable; this check installed no update. Full regression has
 thirteen failures reproduced on the preceding version. See
 [the release record](releases/2026100401.md) for scope and limitations.
+
+Windows release
+[2026100501](https://github.com/ZIMA-Engineering/ZIMA-CAD/releases/tag/ZIMA-CAD-2026100501)
+was published at 2026-10-05T11:46:38Z. Fresh committed-source packaging,
+clean/signed smoke, production trust and seventeen packaged GUI scenarios
+passed. Authenticated draft and anonymous public downloads matched all three
+accepted asset digests. The signed 2026100401 updater verified the public
+manifest and offered 2026100501 as installable, without installing an update.
+Targeted source checks and remaining extended Section/full-suite limitations
+are recorded in [the release record](releases/2026100501.md).

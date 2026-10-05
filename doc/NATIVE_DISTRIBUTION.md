@@ -711,3 +711,10 @@ run. Subsequent updater implementation and verification are in [UPDATES.md](UPDA
 Earlier local candidates remain available as ZIPs. The prepared runnable
 installation keeps the current and previous versions; custom/user directories
 were not pruned. Package test staging is disposable and is not the user's data.
+
+Signed Windows release [2026100501](releases/2026100501.md) was accepted on
+2026-10-05 after a fresh committed-source build, native smoke and seventeen
+packaged GUI scenarios. Production trust, all three public asset digests and
+update discovery from signed 2026100401 passed. The stable development BAT
+still launches the current local C++ build. User configuration and projects
+were preserved; Linux was not verified by this Windows acceptance.
