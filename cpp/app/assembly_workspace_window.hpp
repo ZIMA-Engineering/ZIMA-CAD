@@ -726,6 +726,7 @@ private:
     void edit_file_settings(bool sheet_metal = false);
     void show_boundary_surface_properties(const std::string& container_id = {});
     void show_surface_sewing_properties(const std::string& container_id = {});
+    void show_surface_thicken_properties(const std::string& container_id = {});
     void show_surface_intersection_properties(const std::string& container_id = {});
     void show_surface_trim_properties(const std::string& container_id = {});
     void show_sheet_state_properties(bool unfold,const std::string& container_id={});

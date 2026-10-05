@@ -630,6 +630,8 @@ void AssemblyWorkspaceWindow::edit_dimension_inline(
                         container->edge_treatment.angle_degrees = next_value;
                         changed = true;
                     }
+                } else if (container->feature_kind == FeatureKind::SurfaceThicken && key=="thickness") {
+                    positive(container->surface_thicken.thickness);
                 } else if (container->feature_kind == FeatureKind::Shell &&
                            key == "thickness") {
                     positive(container->shell.thickness);

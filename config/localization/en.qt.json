@@ -2141,5 +2141,19 @@
   "Revolution target does not define an unambiguous end.": "Revolution target does not define an unambiguous end.",
   "Exact Revolution target surface is missing or ambiguous.": "Exact Revolution target surface is missing or ambiguous.",
   "Select fewer faces; the surface shell must retain a face.": "Select fewer faces; the surface shell must retain a face.",
-  "Surface shell could not retain valid input surfaces.": "Surface shell could not retain valid input surfaces."
+  "Surface shell could not retain valid input surfaces.": "Surface shell could not retain valid input surfaces.",
+  "Zesílit plochu": "Thicken surface",
+  "Vlastnosti zesílení plochy": "Surface thickening properties",
+  "Tloušťka se měří kolmo k ploše. Symetricky znamená polovinu tloušťky na každou stranu.": "Thickness is measured normal to the surface. Symmetric applies half the thickness on each side.",
+  "Select a calculated surface to thicken.": "Select a calculated surface to thicken.",
+  "Surface thickness must be positive.": "Surface thickness must be positive.",
+  "Invalid surface thickening definition.": "Invalid surface thickening definition.",
+  "Select a preceding surface in the active Body.": "Select a preceding surface in the active Body.",
+  "Surface thickening reference is ambiguous.": "Surface thickening reference is ambiguous.",
+  "Surface thickening could not create a valid solid.": "Surface thickening could not create a valid solid.",
+  "Surface thickening could not resolve native topology ancestry.": "Surface thickening could not resolve native topology ancestry.",
+  "Surface thickening requires an open Part.": "Surface thickening requires an open Part.",
+  "Surface thickening editing must preserve feature identity.": "Surface thickening editing must preserve feature identity.",
+  "Activate an editable Body before thickening a surface.": "Activate an editable Body before thickening a surface.",
+  "Specify a surface thickening feature name.": "Specify a surface thickening feature name."
 }

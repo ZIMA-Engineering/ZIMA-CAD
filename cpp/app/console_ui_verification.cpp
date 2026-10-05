@@ -14,6 +14,7 @@
 #include "orientation_dialog.hpp"
 #include "boundary_surface_dialog.hpp"
 #include "surface_sewing_dialog.hpp"
+#include "surface_thicken_dialog.hpp"
 #include "general_surface_dialog.hpp"
 #include "surface_intersection_dialog.hpp"
 #include "surface_trim_dialog.hpp"

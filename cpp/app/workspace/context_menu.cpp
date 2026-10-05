@@ -131,6 +131,7 @@ void AssemblyWorkspaceWindow::show_tree_item_properties(QTreeWidgetItem* item) {
                         feature->feature_kind==document::FeatureKind::BoundarySurface||
                         feature->feature_kind==document::FeatureKind::GeneralSurface||
                         feature->feature_kind==document::FeatureKind::SurfaceSewing||
+                        feature->feature_kind==document::FeatureKind::SurfaceThicken||
                         feature->feature_kind==document::FeatureKind::SurfaceTrim||
                         feature->feature_kind==document::FeatureKind::SurfaceIntersection||
                         feature->feature_kind==document::FeatureKind::Fillet||

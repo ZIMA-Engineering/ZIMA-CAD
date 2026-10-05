@@ -153,6 +153,7 @@ void append_dimension_parameters(std::vector<DimensionParameter>& out,
         add({"primary", "secondary"}); break;
     case FeatureKind::Chamfer:
         add({"primary", "secondary", "treatment_angle"}); break;
+    case FeatureKind::SurfaceThicken:
     case FeatureKind::Shell:
         add({"thickness"}); break;
     case FeatureKind::Hole:

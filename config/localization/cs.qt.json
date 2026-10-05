@@ -2141,5 +2141,19 @@
   "Revolution target does not define an unambiguous end.": "Cílová plocha neurčuje jednoznačné zakončení rotace.",
   "Exact Revolution target surface is missing or ambiguous.": "Přesná cílová plocha rotace chybí nebo je nejednoznačná.",
   "Select fewer faces; the surface shell must retain a face.": "Vyberte méně ploch; plošný plášť musí obsahovat alespoň jednu plochu.",
-  "Surface shell could not retain valid input surfaces.": "Plošný plášť nedokázal zachovat platné vstupní plochy."
+  "Surface shell could not retain valid input surfaces.": "Plošný plášť nedokázal zachovat platné vstupní plochy.",
+  "Zesílit plochu": "Zesílit plochu",
+  "Vlastnosti zesílení plochy": "Vlastnosti zesílení plochy",
+  "Tloušťka se měří kolmo k ploše. Symetricky znamená polovinu tloušťky na každou stranu.": "Tloušťka se měří kolmo k ploše. Symetricky znamená polovinu tloušťky na každou stranu.",
+  "Select a calculated surface to thicken.": "Vyberte vypočtenou plochu k zesílení.",
+  "Surface thickness must be positive.": "Tloušťka plochy musí být kladná.",
+  "Invalid surface thickening definition.": "Neplatné zadání zesílení plochy.",
+  "Select a preceding surface in the active Body.": "Vyberte předcházející plochu v aktivním těle.",
+  "Surface thickening reference is ambiguous.": "Reference zesílení plochy je nejednoznačná.",
+  "Surface thickening could not create a valid solid.": "Zesílení plochy nedokázalo vytvořit platné těleso.",
+  "Surface thickening could not resolve native topology ancestry.": "Zesílení plochy nedokázalo určit původ geometrie.",
+  "Surface thickening requires an open Part.": "Zesílení plochy vyžaduje otevřený díl.",
+  "Surface thickening editing must preserve feature identity.": "Úprava zesílení plochy musí zachovat identitu prvku.",
+  "Activate an editable Body before thickening a surface.": "Před zesílením plochy aktivujte upravitelné tělo.",
+  "Specify a surface thickening feature name.": "Zadejte název prvku zesílení plochy."
 }

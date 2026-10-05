@@ -954,6 +954,14 @@ Cancel, Undo/Redo and input-face selection follow Shell. The last remaining face
 cannot be removed; disconnected retained pieces are permitted. Unrelated surfaces
 in the Body retain their ownership.
 
+**Thicken Surface** converts one selected calculated surface to a solid with a
+positive thickness measured normal to the surface. Choose First side, Second
+side or Symmetric; symmetric applies half the total thickness on each side.
+Only the selected free face is consumed. Unselected surfaces remain and touching
+preceding solids are joined through Add. The source eye is independent of input;
+OK commits, unchanged OK adds no Undo step, and Cancel restores the result.
+See [Thicken Surface](SURFACE_THICKEN.md).
+
 New Fillet and Chamfer faces on a surface shell are yellow, like other surfaces.
 Unrelated solids keep their ordinary appearance. If an older calculated model
 fails at a radius that should fit, use **Regenerate** once before retrying:

@@ -140,6 +140,7 @@ int verify_new_document_options(QApplication& application) {
             check(window.findChild<QAction*>("sketchAction")->isEnabled()&&window.findChild<QAction*>("featurePrototypeAction")->isEnabled(),
                   "Part start template must activate its Body and enable normal modeling commands");
             check(window.findChild<QComboBox*>("applicationModeSelector")->currentData().toInt()==0,"Modeling selection was ignored");
+            check(window.findChild<QAction*>("surfaceThickenAction")&&window.findChild<QAction*>("surfaceThickenAction")->isEnabled(),"New Part template must enable Thicken Surface in its active Body");
             const auto model=document::PartDocument::load(std::filesystem::u8path(directory.filePath("model.prtz").toStdString()));
             check(model.document_units.at("Length")=="in"&&model.document_units.at("Angle")=="rad","New document ignored configured units in favor of template units");
             check(model.history.empty()&&model.body_history.bodies().size()==1&&!model.body_history.active_body_id().empty(),"New Part template context changed");

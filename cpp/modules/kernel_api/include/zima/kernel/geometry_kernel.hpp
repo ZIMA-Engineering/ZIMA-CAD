@@ -898,6 +898,13 @@ struct BoundarySurfaceRequest {
     double angular_tolerance{0.001*3.14159265358979323846/180}; // radians
     double curvature_tolerance{1e-5}; // inverse mm
 };
+enum class SurfaceThicknessSide { First, Second, Symmetric };
+struct SurfaceThickenRequest {
+    FaceReference face;
+    double thickness{1.}; // Total thickness; symmetric uses half on each side.
+    SurfaceThicknessSide side{SurfaceThicknessSide::First};
+    double tolerance{0.001};
+};
 struct SurfaceSewingRequest {
     // Original native face identities, resolved at the operation's input
     // boundary. Sewing creates a shell and never adds material or caps.
@@ -931,7 +938,7 @@ using PrimitiveRequest = std::variant<
     ExtrusionRequest, RevolutionRequest, FeatureGroupRequest,
     Sweep3DRequest, StepRequest, FilletRequest, ChamferRequest, ShellRequest,
     ThreadSurfaceRequest, DrillPointRequest, SheetStateRequest, BoundarySurfaceRequest,
-    SolidStateRequest, SurfaceSewingRequest, SurfaceIntersectionRequest, SurfaceTrimRequest>;
+    SolidStateRequest, SurfaceSewingRequest, SurfaceIntersectionRequest, SurfaceTrimRequest, SurfaceThickenRequest>;
 
 // Transient material-frame transfer for a source end-section attachment.
 // No container/reference definition or native document format changes.

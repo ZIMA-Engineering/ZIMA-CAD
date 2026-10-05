@@ -2141,5 +2141,19 @@
   "Revolution target does not define an unambiguous end.": "La surface cible ne définit pas une fin de révolution univoque.",
   "Exact Revolution target surface is missing or ambiguous.": "La surface cible exacte de révolution est absente ou ambiguë.",
   "Select fewer faces; the surface shell must retain a face.": "Sélectionner moins de faces ; la coque doit conserver au moins une face.",
-  "Surface shell could not retain valid input surfaces.": "La coque surfacique ne peut pas conserver des surfaces valides."
+  "Surface shell could not retain valid input surfaces.": "La coque surfacique ne peut pas conserver des surfaces valides.",
+  "Zesílit plochu": "Épaissir une surface",
+  "Vlastnosti zesílení plochy": "Propriétés d’épaississement de surface",
+  "Tloušťka se měří kolmo k ploše. Symetricky znamená polovinu tloušťky na každou stranu.": "L’épaisseur est mesurée perpendiculairement à la surface. Le mode symétrique applique la moitié de l’épaisseur de chaque côté.",
+  "Select a calculated surface to thicken.": "Sélectionnez une surface calculée à épaissir.",
+  "Surface thickness must be positive.": "L’épaisseur de la surface doit être positive.",
+  "Invalid surface thickening definition.": "Définition d’épaississement de surface non valide.",
+  "Select a preceding surface in the active Body.": "Sélectionnez une surface précédente dans le corps actif.",
+  "Surface thickening reference is ambiguous.": "La référence d’épaississement de surface est ambiguë.",
+  "Surface thickening could not create a valid solid.": "L’épaississement de surface n’a pas pu créer un solide valide.",
+  "Surface thickening could not resolve native topology ancestry.": "L’épaississement de surface n’a pas pu déterminer l’origine de la géométrie.",
+  "Surface thickening requires an open Part.": "L’épaississement de surface nécessite une pièce ouverte.",
+  "Surface thickening editing must preserve feature identity.": "La modification de l’épaississement doit conserver l’identité de la fonction.",
+  "Activate an editable Body before thickening a surface.": "Activez un corps modifiable avant d’épaissir une surface.",
+  "Specify a surface thickening feature name.": "Indiquez un nom pour la fonction d’épaississement de surface."
 }

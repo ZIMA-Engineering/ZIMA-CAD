@@ -368,6 +368,10 @@ void AssemblyWorkspaceWindow::rebuild_application_toolbar() {
         const auto* skin_input=modeling_part?zima::workspace::calculated_operation_input(modeling_part->session,{}):nullptr;
         skin->setEnabled(boundary_body&&!boundary_body->derived_copy&&!properties_dialog_&&skin_input&&skin_input->volume>0.);
         add_command(skin);
+        auto* thicken=findChild<QAction*>("surfaceThickenAction");
+        if(!thicken){thicken=new QAction(resource_icon("surface-thicken"),tr("Zesílit plochu"),this);
+            thicken->setObjectName("surfaceThickenAction");connect(thicken,&QAction::triggered,this,[this]{show_surface_thicken_properties();});}
+        thicken->setEnabled(boundary_body&&!boundary_body->derived_copy&&!properties_dialog_);add_command(thicken);
         if (active_body) {
             add_group_separator();
             add_command(mirror_action_);

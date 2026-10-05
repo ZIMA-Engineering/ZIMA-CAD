@@ -5077,6 +5077,7 @@ std::vector<OwnedVertex> complete_shell_vertices(const TopoDS_Shape& shape,
 }
 
 #include "surface_sewing_geometry.inc"
+#include "surface_thicken_geometry.inc"
 #include "surface_intersection_geometry.inc"
 #include "surface_trim_geometry.inc"
 
@@ -8848,6 +8849,14 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                     auto swept=make_sweep3d_data(primitive, operation.owner_id);
                     if(!primitive.make_solid)for(auto& face:swept.faces)face.reference.surface_result=true;
                     return swept;
+                } else if constexpr (std::is_same_v<Request, SurfaceThickenRequest>) {
+                    auto thickened=make_thickened_surface_data(primitive,operation.owner_id,result_shape,
+                        owned_topology->faces,owned_topology->edges,owned_topology->vertices);
+                    result_shape=std::move(thickened.remaining.shape);
+                    owned_topology=std::make_shared<LiveCache::Topology>(LiveCache::Topology{
+                        std::move(thickened.remaining.faces),std::move(thickened.remaining.edges),
+                        std::move(thickened.remaining.vertices),owned_topology->hidden_display_edges});
+                    return std::move(thickened.operand);
                 } else if constexpr (std::is_same_v<Request, BoundarySurfaceRequest>) {
                     std::vector<OwnedFace> sources;std::vector<OwnedEdge> edges;std::vector<OwnedVertex> vertices;
                     for(auto node=context.original_faces;node;node=node->previous) {
@@ -8919,6 +8928,7 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
             const auto* boundary_request=std::get_if<BoundarySurfaceRequest>(&operation.primitive);
             const bool referenced_boundary=boundary_request&&std::ranges::any_of(boundary_request->constraints,[](const auto& c){return c.edge.has_value();});
             const bool cache_reference_mesh =
+                !std::holds_alternative<SurfaceThickenRequest>(operation.primitive) &&
                 !referenced_boundary && !operation.feature_copy && !imported_step && !std::holds_alternative<FeatureGroupRequest>(operation.primitive) &&
                 (extrusion_request == nullptr || (!extrusion_request->sheet_cut &&
                  (extrusion_request->extent == ExtrusionRequest::Extent::Blind &&

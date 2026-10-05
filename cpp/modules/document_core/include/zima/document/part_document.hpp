@@ -32,7 +32,7 @@
 namespace zima::document {
 
 enum class CombineMode { Add, Subtract };
-enum class FeatureKind { Sketch, Extrusion, Revolution, Sweep3D, ImportedStep, Fillet, Chamfer, Shell, Hole, Thread, DrillPoint, ShaftThread, HelicalSweep, Sweep2D, Holes, Bend, Flat, TwistedSheet, Unbend, BendBack, DerivedCopy, SheetTransition, Feature, BoundarySurface, Straighten, RestoreShape, SurfaceSewing, GeneralSurface, SurfaceIntersection, SurfaceTrim };
+enum class FeatureKind { Sketch, Extrusion, Revolution, Sweep3D, ImportedStep, Fillet, Chamfer, Shell, Hole, Thread, DrillPoint, ShaftThread, HelicalSweep, Sweep2D, Holes, Bend, Flat, TwistedSheet, Unbend, BendBack, DerivedCopy, SheetTransition, Feature, BoundarySurface, Straighten, RestoreShape, SurfaceSewing, GeneralSurface, SurfaceIntersection, SurfaceTrim, SurfaceThicken };
 [[nodiscard]] inline bool is_solid_state(FeatureKind kind) {
     return kind==FeatureKind::Straighten||kind==FeatureKind::RestoreShape;
 }
@@ -625,6 +625,12 @@ struct BoundarySurfaceParameters {
     std::vector<BoundaryCurveSource> boundaries{4};
     bool operator==(const BoundarySurfaceParameters&)const=default;
 };
+struct SurfaceThickenParameters {
+    kernel::FaceReference face;
+    double thickness{1.};
+    kernel::SurfaceThicknessSide side{kernel::SurfaceThicknessSide::First};
+    bool operator==(const SurfaceThickenParameters&)const=default;
+};
 struct SurfaceSewingParameters {
     std::vector<kernel::FaceReference> faces;
     bool operator==(const SurfaceSewingParameters&)const=default;
@@ -678,6 +684,7 @@ struct HistoryContainer {
     SheetTransitionParameters sheet_transition;
     BoundarySurfaceParameters boundary_surface;
     SurfaceSewingParameters surface_sewing;
+    SurfaceThickenParameters surface_thicken;
     SurfaceIntersectionParameters surface_intersection;
     SurfaceTrimParameters surface_trim;
     GeneralSurfaceParameters general_surface;

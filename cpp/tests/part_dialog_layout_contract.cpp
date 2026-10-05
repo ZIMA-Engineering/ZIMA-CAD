@@ -12,6 +12,7 @@
 #include "general_surface_dialog.hpp"
 #include "boundary_surface_dialog.hpp"
 #include "surface_sewing_dialog.hpp"
+#include "surface_thicken_dialog.hpp"
 #include "surface_intersection_dialog.hpp"
 #include "surface_trim_dialog.hpp"
 #include <QApplication>
@@ -108,6 +109,7 @@ int verify_part_dialog_layout(QApplication& application, QWidget& parent) {
             check(new app::PrimitivePropertiesDialog(skin,false,true,[](auto){},&parent),"surface-from-solid");
             check(new app::GeneralSurfaceDialog(document::create_general_surface(),[](auto){},&parent),"general-surface");
             check(new app::BoundarySurfaceDialog(document::create_boundary_surface(),[](auto){},&parent),"fill-surface");
+            check(new app::SurfaceThickenDialog(document::create_surface_thicken(),[](auto){},&parent),"thicken-surface");
             check(new app::SurfaceSewingDialog(document::create_surface_sewing(),[](auto){},&parent),"sew-surfaces");
             check(new app::SurfaceIntersectionDialog(document::create_surface_intersection(),[](auto){},&parent),"surface-intersection");
             check(new app::SurfaceTrimDialog(document::create_surface_trim(),[](auto){},&parent),"trim-surface");

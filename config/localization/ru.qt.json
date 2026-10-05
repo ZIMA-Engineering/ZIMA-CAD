@@ -2141,5 +2141,19 @@
   "Revolution target does not define an unambiguous end.": "Целевая поверхность не определяет однозначное окончание вращения.",
   "Exact Revolution target surface is missing or ambiguous.": "Точная целевая поверхность вращения отсутствует или неоднозначна.",
   "Select fewer faces; the surface shell must retain a face.": "Выберите меньше граней; оболочка должна сохранить хотя бы одну грань.",
-  "Surface shell could not retain valid input surfaces.": "Не удалось сохранить корректные входные поверхности оболочки."
+  "Surface shell could not retain valid input surfaces.": "Не удалось сохранить корректные входные поверхности оболочки.",
+  "Zesílit plochu": "Придать поверхности толщину",
+  "Vlastnosti zesílení plochy": "Свойства придания толщины поверхности",
+  "Tloušťka se měří kolmo k ploše. Symetricky znamená polovinu tloušťky na každou stranu.": "Толщина измеряется по нормали к поверхности. Симметричный режим задаёт половину толщины с каждой стороны.",
+  "Select a calculated surface to thicken.": "Выберите рассчитанную поверхность для придания толщины.",
+  "Surface thickness must be positive.": "Толщина поверхности должна быть положительной.",
+  "Invalid surface thickening definition.": "Недопустимое задание толщины поверхности.",
+  "Select a preceding surface in the active Body.": "Выберите предшествующую поверхность в активном теле.",
+  "Surface thickening reference is ambiguous.": "Ссылка для придания толщины поверхности неоднозначна.",
+  "Surface thickening could not create a valid solid.": "Не удалось создать корректное твёрдое тело при придании толщины поверхности.",
+  "Surface thickening could not resolve native topology ancestry.": "Не удалось определить происхождение геометрии при придании толщины поверхности.",
+  "Surface thickening requires an open Part.": "Для придания толщины поверхности требуется открытая деталь.",
+  "Surface thickening editing must preserve feature identity.": "Редактирование толщины поверхности должно сохранять идентификатор элемента.",
+  "Activate an editable Body before thickening a surface.": "Перед приданием толщины поверхности активируйте редактируемое тело.",
+  "Specify a surface thickening feature name.": "Задайте имя элемента придания толщины поверхности."
 }

@@ -2141,5 +2141,19 @@
   "Revolution target does not define an unambiguous end.": "Die Zielfläche bestimmt kein eindeutiges Rotationsende.",
   "Exact Revolution target surface is missing or ambiguous.": "Die exakte Zielfläche der Rotation fehlt oder ist mehrdeutig.",
   "Select fewer faces; the surface shell must retain a face.": "Weniger Flächen auswählen; die Flächenhülle muss mindestens eine Fläche behalten.",
-  "Surface shell could not retain valid input surfaces.": "Die Flächenhülle konnte keine gültigen Eingangsflächen erhalten."
+  "Surface shell could not retain valid input surfaces.": "Die Flächenhülle konnte keine gültigen Eingangsflächen erhalten.",
+  "Zesílit plochu": "Fläche verdicken",
+  "Vlastnosti zesílení plochy": "Eigenschaften der Flächenverdickung",
+  "Tloušťka se měří kolmo k ploše. Symetricky znamená polovinu tloušťky na každou stranu.": "Die Dicke wird senkrecht zur Fläche gemessen. Symmetrisch bedeutet die halbe Dicke auf jeder Seite.",
+  "Select a calculated surface to thicken.": "Wählen Sie eine berechnete Fläche zum Verdicken.",
+  "Surface thickness must be positive.": "Die Flächendicke muss positiv sein.",
+  "Invalid surface thickening definition.": "Ungültige Definition der Flächenverdickung.",
+  "Select a preceding surface in the active Body.": "Wählen Sie eine vorhergehende Fläche im aktiven Körper.",
+  "Surface thickening reference is ambiguous.": "Die Referenz der Flächenverdickung ist mehrdeutig.",
+  "Surface thickening could not create a valid solid.": "Die Flächenverdickung konnte keinen gültigen Volumenkörper erzeugen.",
+  "Surface thickening could not resolve native topology ancestry.": "Die Flächenverdickung konnte die Herkunft der Geometrie nicht bestimmen.",
+  "Surface thickening requires an open Part.": "Die Flächenverdickung erfordert ein geöffnetes Teil.",
+  "Surface thickening editing must preserve feature identity.": "Beim Bearbeiten der Flächenverdickung muss die Elementidentität erhalten bleiben.",
+  "Activate an editable Body before thickening a surface.": "Aktivieren Sie vor dem Verdicken einer Fläche einen bearbeitbaren Körper.",
+  "Specify a surface thickening feature name.": "Geben Sie einen Namen für das Flächenverdickungselement ein."
 }

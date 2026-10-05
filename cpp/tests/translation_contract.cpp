@@ -17,6 +17,7 @@
 #include "sheet_transition_dialog.hpp"
 #include "boundary_surface_dialog.hpp"
 #include "surface_sewing_dialog.hpp"
+#include "surface_thicken_dialog.hpp"
 #include "surface_intersection_dialog.hpp"
 #include "surface_trim_dialog.hpp"
 #include "general_surface_dialog.hpp"
@@ -417,6 +418,13 @@ int verify_translations(QApplication& application, QWidget& parent) {
                 "Changing language translated an authored surface name");
             dialog.hide();
             std::cerr<<"Boundary translations checked"<<std::endl;
+            auto thick=document::create_surface_thicken();thick.name="Authored thickening";
+            app::SurfaceThickenDialog thick_dialog(thick,[](auto){},&parent);thick_dialog.setAttribute(Qt::WA_DeleteOnClose,false);thick_dialog.show();application.processEvents();
+            const auto thick_labels=thick_dialog.findChildren<QLabel*>();
+            check(std::ranges::any_of(thick_labels,[&](const auto* label){return label->text()==settings.qt_translations.value("Vlastnosti zesílení plochy");}),"Thickening title is untranslated");
+            auto* thick_side=thick_dialog.findChild<QComboBox*>("surfaceThickenSide");
+            check(thick_side&&thick_side->itemText(0)==settings.qt_translations.value("První strana")&&thick_side->itemText(1)==settings.qt_translations.value("Druhá strana")&&thick_side->itemText(2)==settings.qt_translations.value("Symetricky"),"Thickening sides are untranslated");
+            check(thick_dialog.findChild<QLineEdit*>("surfaceThickenName")->text()=="Authored thickening","Thickening translated an authored name");thick_dialog.hide();
             auto sewing=document::create_surface_sewing();sewing.name="Authored sewing name";
             app::SurfaceSewingDialog sewing_dialog(sewing,[](auto){},&parent);sewing_dialog.setAttribute(Qt::WA_DeleteOnClose,false);
             sewing_dialog.show();application.processEvents();

@@ -248,6 +248,55 @@ int verify_boundary_surface_ui(QApplication& application,AssemblyWorkspaceWindow
         dialog()->reject();flush();window.show_tree_item_properties(row(supported_id));flush();
         check(dialog()&&dialog()->pending.boundary_surface==supported_parameters,"Supported fill Cancel changed stored references");dialog()->reject();flush();
         window.findChild<QAction*>("saveDocumentAction")->trigger();flush();
+        // Thicken Surface uses the common original-face picker and one rollback
+        // publication. Changing draft fields never calculates an OCCT preview.
+        auto thick_source=saved;thick_source.document_id=document::PartDocument::create_default().document_id;
+        kernel::OcctKernel thick_fixture_kernel;const auto thick_inputs=thick_fixture_kernel.evaluate_history(thick_source.kernel_operations());
+        const auto thick_path=directory/"surface-thicken-ui.prtz";thick_source.save(thick_path,thick_inputs);
+        std::cout<<"Thickening GUI fixture saved"<<std::endl;
+        check(window.open_document_path(QString::fromStdString(thick_path.string())),"Thickening fixture cannot open");flush();
+        check(window.execute_console_command(QString::fromStdString(commands::Json{{"command","body.activate"},{"arguments",{{"body",body}}}}.dump())).ok,"Thickening Body cannot activate");flush();view->fit_all();flush();
+        std::cout<<"Thickening GUI fixture opened"<<std::endl;
+        auto* thick_action=window.findChild<QAction*>("surfaceThickenAction");check(thick_action&&thick_action->isEnabled()&&!thick_action->icon().isNull(),"Thickening action or icon missing");
+        const auto thick_dialog=[&]{return dynamic_cast<SurfaceThickenDialog*>(window.findChild<QWidget*>("surfaceThickenDialog"));};
+        const auto thick_revision=view->base_mesh_revision();thick_action->trigger();flush();check(thick_dialog(),"Thickening creation dialog missing");
+        check(view->base_mesh_revision()-thick_revision==1,"Thickening opening published an unused intermediate scene");
+        std::cout<<"Thickening GUI source scene ready"<<std::endl;
+        check(!thick_dialog()->findChild<QPushButton*>("containerOriginSelectionButton"),"Thickening exposes an unrelated Origin action");
+        pick_original(viewer::CandidateKind::Face,id,"surface:from:"+saved.find_container(id)->feature_id);
+        check(thick_dialog()->pending.surface_thicken.face.owner_id==id&&thick_dialog()->inspected()&&thick_dialog()->active_row()==-1,"Thickening common picking lost its input or inspection");
+        std::cout<<"Thickening GUI source selected"<<std::endl;
+        auto* thick_table=thick_dialog()->findChild<QTableWidget*>("surfaceThickenReferences");
+        thick_table->cellWidget(0,3)->findChild<QToolButton*>()->click();flush();check(!thick_dialog()->inspected()&&thick_dialog()->pending.surface_thicken.face.valid(),"Thickening eye changed the source");
+        thick_table->cellWidget(0,3)->findChild<QToolButton*>()->click();flush();
+        const auto field_revision=view->base_mesh_revision();thick_dialog()->findChild<QDoubleSpinBox*>("surfaceThickenThickness")->setValue(2.);
+        thick_dialog()->findChild<QComboBox*>("surfaceThickenSide")->setCurrentIndex(2);flush();check(view->base_mesh_revision()==field_revision,"Thickening draft parameters recalculated the scene");
+        const auto thick_id=thick_dialog()->pending.id;const auto thick_parameters=thick_dialog()->pending.surface_thicken;
+        window.grab().save(QString::fromStdString((directory/"surface-thicken-properties.png").string()));
+        thick_dialog()->buttons()->button(QDialogButtonBox::Ok)->click();flush();check(!thick_dialog(),"Thickening OK failed");
+        window.findChild<QAction*>("saveDocumentAction")->trigger();flush();std::vector<kernel::BodyResult> thick_cache;
+        const auto thick_saved=document::PartDocument::load(thick_path,&thick_cache);
+        check(thick_saved.find_container(thick_id)&&thick_saved.find_container(thick_id)->surface_thicken==thick_parameters&&std::abs(thick_cache.back().volume-16000.)<.01,"Thickening did not persist its exact solid");
+        undo->trigger();flush();check(!row(thick_id),"Thickening Undo retained the feature");redo->trigger();flush();check(row(thick_id),"Thickening Redo lost the feature");
+        const auto thick_state=window.execute_console_command("documents").data;
+        const auto thick_packet=mesh_packet();
+        window.show_tree_item_properties(row(thick_id));flush();check(thick_dialog()&&thick_dialog()->pending.surface_thicken==thick_parameters,"Thickening edit did not reopen the stored definition");
+        check(std::ranges::none_of(view->mesh().triangle_references,[&](const auto& f){return f.owner_id==thick_id;}),"Thickening edit retained final geometry");
+        thick_dialog()->buttons()->button(QDialogButtonBox::Ok)->click();flush();check(!thick_dialog()&&window.execute_console_command("documents").data==thick_state&&mesh_packet()==thick_packet,"Unchanged thickening OK changed the document or result");
+        window.show_tree_item_properties(row(thick_id));flush();check(thick_dialog(),"Thickening cannot reopen for Cancel");
+        auto* replace_table=thick_dialog()->findChild<QTableWidget*>("surfaceThickenReferences");
+        const QPointF replace_point(replace_table->visualItemRect(replace_table->item(0,2)).center());
+        for(const auto type:{QEvent::MouseButtonPress,QEvent::MouseButtonRelease}){QMouseEvent event(type,replace_point,QPointF(replace_table->viewport()->mapToGlobal(replace_point.toPoint())),Qt::LeftButton,type==QEvent::MouseButtonPress?Qt::LeftButton:Qt::NoButton,Qt::NoModifier);QApplication::sendEvent(replace_table->viewport(),&event);flush();}
+        check(thick_dialog()->pending.surface_thicken.face==thick_parameters.face&&thick_dialog()->active_row()==0,"Required thickening source was deleted instead of arming replacement");
+        pick_original(viewer::CandidateKind::Face,id,"surface:from:"+saved.find_container(id)->feature_id);
+        thick_dialog()->findChild<QDoubleSpinBox*>("surfaceThickenThickness")->setValue(3.);
+        thick_dialog()->reject();flush();check(mesh_packet()==thick_packet,"Thickening Cancel did not restore result");
+        window.show_tree_item_properties(row(thick_id));flush();check(thick_dialog()->pending.surface_thicken==thick_parameters,"Thickening Cancel changed stored reference");
+        // Confirm from the document view through the shared middle-double-click.
+        const QPointF middle(view->rect().center());QMouseEvent middle_event(QEvent::MouseButtonDblClick,middle,QPointF(view->mapToGlobal(middle.toPoint())),Qt::MiddleButton,Qt::MiddleButton,Qt::NoModifier);
+        QApplication::sendEvent(view,&middle_event);flush();check(!thick_dialog(),"Thickening middle double-click did not confirm over the view");
+        window.findChild<QAction*>("saveDocumentAction")->trigger();flush();
+        std::cout<<"Thicken Surface GUI: picking, exact solid, draft/no-op, rollback, independent eye, replacement/Cancel, Undo/Redo and middle confirmation passed"<<std::endl;
         auto sewing_source=saved;sewing_source.document_id=document::PartDocument::create_default().document_id;
         auto wall_source=document::PartDocument::create_sketch_container();wall_source.name="Sewing wall Sketch";
         auto wall_feature=document::create_boundary_surface();wall_feature.name="Sewing wall surface";

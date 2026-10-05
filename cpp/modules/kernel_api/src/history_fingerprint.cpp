@@ -797,6 +797,12 @@ std::string encode_history_fingerprint(
                 for(const auto& face:primitive.faces)for(const auto* text:{&face.owner_id,&face.semantic_key,&face.instance_path}) {
                     u64(text->size());for(unsigned char c:*text)byte(c);
                 }
+            } else if constexpr (std::is_same_v<Request, SurfaceThickenRequest>) {
+                u64(1);u64(std::bit_cast<std::uint64_t>(primitive.thickness));
+                u64(std::bit_cast<std::uint64_t>(primitive.tolerance));u64(static_cast<unsigned>(primitive.side));
+                for(const auto* value:{&primitive.face.owner_id,&primitive.face.semantic_key,&primitive.face.instance_path}) {
+                    u64(value->size());for(unsigned char c:*value)byte(c);
+                }
             } else if constexpr (std::is_same_v<Request, SurfaceTrimRequest>) {
                 u64(2);u64(std::bit_cast<std::uint64_t>(primitive.tolerance));
                 const auto reference=[&](const auto& r){for(const auto* value:{&r.owner_id,&r.semantic_key,&r.instance_path}){u64(value->size());for(unsigned char c:*value)byte(c);}};

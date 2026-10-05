@@ -23,6 +23,7 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
     const std::string& container_id, bool sheet_metal,
     std::optional<zima::document::FeatureType> feature_preset, bool rotation_preset, bool twist_preset) {
     if(feature_kind==zima::document::FeatureKind::BoundarySurface){show_boundary_surface_properties(container_id);return;}
+    if(feature_kind==zima::document::FeatureKind::SurfaceThicken){show_surface_thicken_properties(container_id);return;}
     if(feature_kind==zima::document::FeatureKind::SurfaceSewing){show_surface_sewing_properties(container_id);return;}
     if(feature_kind==zima::document::FeatureKind::SurfaceTrim){show_surface_trim_properties(container_id);return;}
     if(feature_kind==zima::document::FeatureKind::SurfaceIntersection){show_surface_intersection_properties(container_id);return;}

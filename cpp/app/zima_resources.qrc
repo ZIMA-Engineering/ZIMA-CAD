@@ -1,6 +1,7 @@
 <RCC>
   <qresource prefix="/zima">
     <file alias="icons/boundary-surface.svg">../../resources/icons/boundary-surface.svg</file>
+    <file alias="icons/surface-thicken.svg">../../resources/icons/surface-thicken.svg</file>
     <file alias="icons/surface-from-solid.svg">../../resources/icons/surface-from-solid.svg</file>
     <file alias="icons/surface-sewing.svg">../../resources/icons/surface-sewing.svg</file>
     <file alias="icons/feature.svg">../../resources/icons/feature.svg</file>

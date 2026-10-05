@@ -78,6 +78,7 @@ template<class Document> auto fields(Document& doc,const std::string& owner) {
             case Kind::Revolution:add({"profile_offset","angle","length_reverse","thin_thickness"});break;
             case Kind::Fillet:add({"primary","secondary"});break;
             case Kind::Chamfer:add({"primary","secondary","treatment_angle"});break;
+            case Kind::SurfaceThicken:
             case Kind::Shell:add({"thickness"});break;
             case Kind::Hole:add({"diameter","bore_length","entrance_chamfer","exit_chamfer","drill_point_angle","thread_diameter","pitch","thread_length"});break;
             case Kind::Thread:add({"bore_diameter","bore_length","nominal_diameter","pitch","thread_length","length_reverse","chamfer_depth","chamfer_angle","drill_point_angle","runout_pitch_factor"});break;

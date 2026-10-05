@@ -12,6 +12,7 @@
 #include <zima/document/sheet_transition.hpp>
 #include <zima/document/boundary_surface.hpp>
 #include <zima/document/surface_sewing.hpp>
+#include <zima/document/surface_thicken.hpp>
 #include <zima/document/surface_intersection.hpp>
 #include <zima/document/surface_trim.hpp>
 #include <zima/document/general_surface.hpp>
@@ -8210,6 +8211,7 @@ if (sweep.separate_segments) {
 
 #include "boundary_surface.inc"
 #include "surface_sewing.inc"
+#include "surface_thicken.inc"
 #include "surface_intersection.inc"
 #include "surface_trim.inc"
 #include "general_surface.inc"
@@ -9273,6 +9275,11 @@ std::vector<zima::kernel::HistoryOperation> PartDocument::kernel_operations(
         if(container.feature_kind==FeatureKind::SurfaceIntersection) {
             require_default_sketch_feature_placement(container.placement);
             operations.push_back({container.id,surface_intersection_request(*this,container),
+                kernel::BooleanOperation::Add,container.suppressed,boolean_tolerance,mesh_deflection});continue;
+        }
+        if(container.feature_kind==FeatureKind::SurfaceThicken) {
+            require_default_sketch_feature_placement(container.placement);
+            operations.push_back({container.id,surface_thicken_request(*this,container),
                 kernel::BooleanOperation::Add,container.suppressed,boolean_tolerance,mesh_deflection});continue;
         }
         if(container.feature_kind==FeatureKind::SurfaceSewing) {
@@ -10774,7 +10781,7 @@ PartDocument PartDocument::from_serialized(const nlohmann::json& root,
             type != "revolution" && type != "sweep3d" && type != "helical_sweep" && type != "sweep2d" &&
             type != "imported_step" &&
             type != "fillet" && type != "chamfer" &&
-            type != "derived_copy" && type != "shell" && type != "twisted_sheet" && type != "sheet_transition" && type != "boundary_surface" && type != "surface_sewing" && type != "surface_intersection" && type != "surface_trim" && type != "general_surface" && type != "unbend" && type != "bend_back" && type != "straighten" && type != "restore_shape" &&
+            type != "derived_copy" && type != "shell" && type != "twisted_sheet" && type != "sheet_transition" && type != "boundary_surface" && type != "surface_sewing" && type != "surface_thicken" && type != "surface_intersection" && type != "surface_trim" && type != "general_surface" && type != "unbend" && type != "bend_back" && type != "straighten" && type != "restore_shape" &&
             type != "flat" && type != "bend" && type != "holes" && type != "hole" && type != "thread" && type != "shaft_thread" &&
             type != "drill_point") {
             throw std::runtime_error("Unsupported history feature type");
@@ -10794,6 +10801,7 @@ PartDocument PartDocument::from_serialized(const nlohmann::json& root,
             : type == "twisted_sheet" ? FeatureKind::TwistedSheet
             : type == "sheet_transition" ? FeatureKind::SheetTransition
             : type == "boundary_surface" ? FeatureKind::BoundarySurface
+            : type == "surface_thicken" ? FeatureKind::SurfaceThicken
             : type == "surface_sewing" ? FeatureKind::SurfaceSewing
             : type == "surface_trim" ? FeatureKind::SurfaceTrim
             : type == "surface_intersection" ? FeatureKind::SurfaceIntersection
@@ -11170,6 +11178,14 @@ PartDocument PartDocument::from_serialized(const nlohmann::json& root,
             const auto& data=source.at("surface_intersection");
             if(!data.is_array()||data.size()!=2)throw std::runtime_error("Intersection face reference is invalid.");
             for(unsigned i=0;i<2;++i)container.surface_intersection.faces[i]={data[i].at("owner_id"),data[i].at("semantic_key"),data[i].at("instance_path")};
+        } else if (container.feature_kind == FeatureKind::SurfaceThicken) {
+            const auto& data=source.at("surface_thicken");const auto& face=data.at("face");
+            auto& value=container.surface_thicken;
+            value.face={face.at("owner_id"),face.at("semantic_key"),face.at("instance_path")};
+            value.thickness=data.at("thickness");
+            const auto side=data.at("side").get<unsigned>();
+            if(side>2)throw std::runtime_error("Invalid surface thickening definition.");
+            value.side=static_cast<kernel::SurfaceThicknessSide>(side);
         } else if (container.feature_kind == FeatureKind::SurfaceSewing) {
             const auto& data=source.at("surface_sewing");
             if(!data.is_array())throw std::runtime_error("Sewing surface reference is invalid.");
@@ -11713,6 +11729,10 @@ nlohmann::json PartDocument::serialized(
                 if(!face.valid()||!face.instance_path.empty())throw std::runtime_error("Intersection face reference is invalid.");
             if(container.surface_intersection.faces[0]==container.surface_intersection.faces[1])
                 throw std::runtime_error("Intersection requires two different original faces and a positive tolerance.");
+        } else if (container.feature_kind == FeatureKind::SurfaceThicken) {
+            require_default_sketch_feature_placement(container.placement);
+            validate_surface_thicken_parameters(container.surface_thicken);
+            if(container.combine_mode!=CombineMode::Add)throw std::runtime_error("Invalid surface thickening definition.");
         } else if (container.feature_kind == FeatureKind::SurfaceSewing) {
             require_default_sketch_feature_placement(container.placement);
             if(container.combine_mode!=CombineMode::Add)throw std::runtime_error("A surface cannot subtract material.");
@@ -12022,6 +12042,7 @@ nlohmann::json PartDocument::serialized(
                 : container.feature_kind == FeatureKind::Feature ? "feature"
                 : container.feature_kind == FeatureKind::SheetTransition ? "sheet_transition"
                 : container.feature_kind == FeatureKind::BoundarySurface ? "boundary_surface"
+                : container.feature_kind == FeatureKind::SurfaceThicken ? "surface_thicken"
                 : container.feature_kind == FeatureKind::SurfaceSewing ? "surface_sewing"
                 : container.feature_kind == FeatureKind::SurfaceTrim ? "surface_trim"
                 : container.feature_kind == FeatureKind::SurfaceIntersection ? "surface_intersection"
@@ -12335,6 +12356,11 @@ nlohmann::json PartDocument::serialized(
             }
             if(!removed_reference_states.contains(container.id)&&container.surface_intersection.faces[0]==container.surface_intersection.faces[1])throw std::runtime_error("Intersection requires two different original faces and a positive tolerance.");
             serialized["surface_intersection"]=std::move(data);
+        } else if (container.feature_kind == FeatureKind::SurfaceThicken) {
+            const auto& value=container.surface_thicken;const auto& face=value.face;
+            if(!removed_reference_states.contains(container.id))validate_surface_thicken_parameters(value);
+            serialized["surface_thicken"]={{"face",{{"owner_id",face.owner_id},{"semantic_key",face.semantic_key},{"instance_path",face.instance_path}}},
+                {"thickness",value.thickness},{"side",static_cast<unsigned>(value.side)}};
         } else if (container.feature_kind == FeatureKind::SurfaceSewing) {
             auto data=nlohmann::json::array();
             for(const auto& face:container.surface_sewing.faces)data.push_back({{"owner_id",face.owner_id},{"semantic_key",face.semantic_key},{"instance_path",face.instance_path}});

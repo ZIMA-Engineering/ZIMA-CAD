@@ -251,6 +251,7 @@ add_library(zima_workspace modules/workspace/src/workspace.cpp
     modules/workspace/src/sheet_transition_operations.cpp
     modules/workspace/src/boundary_surface_operations.cpp
     modules/workspace/src/surface_sewing_operations.cpp
+    modules/workspace/src/surface_thicken_operations.cpp
     modules/workspace/src/surface_intersection_operations.cpp
     modules/workspace/src/surface_trim_operations.cpp
     modules/workspace/src/general_surface_operations.cpp
@@ -1744,6 +1745,9 @@ if(ZIMA_BUILD_TESTS)
     target_compile_options(zima_cpp_boundary_surface_dialog_tests PRIVATE $<$<CXX_COMPILER_ID:MSVC>:/utf-8>)
     add_test(NAME zima_cpp_boundary_surface_dialog_tests COMMAND zima_cpp_boundary_surface_dialog_tests)
     set_tests_properties(zima_cpp_boundary_surface_dialog_tests PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+    add_executable(zima_cpp_surface_thicken_tests tests/surface_thicken_tests.cpp)
+    target_link_libraries(zima_cpp_surface_thicken_tests PRIVATE zima_workspace zima_document_core zima_kernel_occt TKTopAlgo)
+    add_test(NAME zima_cpp_surface_thicken_tests COMMAND zima_cpp_surface_thicken_tests)
     add_executable(zima_cpp_boundary_surface_tests tests/boundary_surface_tests.cpp)
     if(MSVC)
         # Combined surface fixtures use ~832 KiB before nested OCCT calls.

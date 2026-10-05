@@ -117,6 +117,7 @@ void detach_deleted_history_references(document::PartDocument& doc,const History
         refs(f.shell.removed_faces);refs(f.drill_point.bottom_faces);refs(f.surface_sewing.faces);
         for(auto& face:f.surface_intersection.faces)reference(face);
         reference(f.surface_trim.target);
+        reference(f.surface_thicken.face);
         for(auto& tool:f.surface_trim.tools)reference(tool.reference);
         if(f.sweep2d.path_plane&&local(*f.sweep2d.path_plane))f.sweep2d.path_plane.reset();
         construction(construction,f.sweep3d.path);

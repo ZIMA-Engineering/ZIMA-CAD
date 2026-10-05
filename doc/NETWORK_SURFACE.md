@@ -124,6 +124,17 @@ Source edits update the extracted geometry on explicit calculation. Unrelated
 surface faces in a mixed Body retain their geometry and ownership. Fillet can
 operate on the extracted shell's real input edges.
 
+## Thicken Surface
+
+**Thicken Surface** (`Zesílit plochu`) converts one selected calculated surface
+into a solid using positive normal thickness. First side, second side and
+symmetric modes are available; symmetric uses half the total thickness on each
+side. It consumes only that face, retains unselected free surfaces and uses the
+ordinary Add path to join preceding solids. The internal properties window uses
+the common reference field and independent inspection eye, with no Origin.
+See [Thicken Surface](SURFACE_THICKEN.md) for side conventions, native ancestry,
+persistence, lifecycle and verification.
+
 ## Profile Up To surfaces
 
 Extrusion with a supported draft angle can terminate on an original general

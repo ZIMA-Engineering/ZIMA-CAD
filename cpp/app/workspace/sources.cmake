@@ -14,6 +14,7 @@ set(ZIMA_WORKSPACE_SOURCES
     app/workspace/document_commands.cpp
     app/workspace/boundary_surface.cpp
     app/workspace/surface_sewing.cpp
+    app/workspace/surface_thicken.cpp
     app/workspace/surface_intersection.cpp
     app/workspace/surface_trim.cpp
     app/workspace/documents.cpp

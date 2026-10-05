@@ -1,5 +1,6 @@
 #include "../boundary_surface_dialog.hpp"
 #include "../surface_sewing_dialog.hpp"
+#include "../surface_thicken_dialog.hpp"
 #include "../surface_intersection_dialog.hpp"
 #include "../surface_trim_dialog.hpp"
 #include "workspace_internal.hpp"
@@ -384,6 +385,8 @@ void AssemblyWorkspaceWindow::add_pending_tree_item(QTreeWidgetItem* parent,
         else if (auto* dialog = dynamic_cast<ShaftThreadDialog*>(tree_edit_dialog_.data()))
             feature = dialog->pending();
         else if (auto* dialog = dynamic_cast<BoundarySurfaceDialog*>(tree_edit_dialog_.data()))
+            feature = dialog->pending;
+        else if (auto* dialog = dynamic_cast<SurfaceThickenDialog*>(tree_edit_dialog_.data()))
             feature = dialog->pending;
         else if (auto* dialog = dynamic_cast<SurfaceSewingDialog*>(tree_edit_dialog_.data()))
             feature = dialog->pending;

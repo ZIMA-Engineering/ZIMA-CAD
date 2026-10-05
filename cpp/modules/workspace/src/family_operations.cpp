@@ -44,6 +44,7 @@ Slots feature_slots(document::HistoryContainer& f) {
     case FeatureKind::Revolution: return {{"angle",&f.revolution.angle_degrees},{"length_reverse",&f.revolution.angle_reverse},{"profile_offset",&f.revolution.profile_plane_offset},{"thin_thickness",&f.revolution.thin_thickness}};
     case FeatureKind::Fillet: return {{"primary",&f.edge_treatment.primary_size},{"secondary",&f.edge_treatment.secondary_size}};
     case FeatureKind::Chamfer: return {{"primary",&f.edge_treatment.primary_size},{"secondary",&f.edge_treatment.secondary_size},{"treatment_angle",&f.edge_treatment.angle_degrees}};
+    case FeatureKind::SurfaceThicken: return {{"thickness",&f.surface_thicken.thickness}};
     case FeatureKind::Shell: return f.shell.thickness==0.?Slots{}:Slots{{"thickness",&f.shell.thickness}};
     case FeatureKind::Flat: return f.flat.thickness_override?Slots{{"thickness",&f.flat.thickness}}:Slots{};
     case FeatureKind::Bend: {
