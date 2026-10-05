@@ -2,11 +2,14 @@
 
 ## Scope and status
 
-Windows build **2026100502** has passed focused source verification. It checks
-final surface approximation precision with bounded refinement and retains yellow
-surface Fillet/Chamfer appearance in mixed shell/solid Parts. Fresh signed
-Windows acceptance is pending; see [the release record](releases/2026100502.md)
-for the reported-model measurements, recalculation requirement and limits.
+Windows build **2026100502** is signed, published and verified. It checks final
+surface approximation precision with bounded refinement and retains yellow
+surface Fillet/Chamfer appearance in mixed shell/solid Parts. Twelve focused
+source suites, fresh committed-source packaging, signed smoke/trust, five
+packaged GUI scenarios, exact validation of reported-model R 1/2/5/10 fillets,
+public hashes and update discovery from 2026100501 passed. See
+[the release record](releases/2026100502.md) for measured costs, the explicit
+Regenerate requirement and inherited broader regression limits. Linux is separate.
 
 Windows build **2026100401** is signed, published and verified. It adds General
 Surface with owned Sketch/3D Curve definitions, Fill G0/G1/G2, Sewing with shell
