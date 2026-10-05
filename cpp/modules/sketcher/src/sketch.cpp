@@ -1615,11 +1615,11 @@ std::optional<double> segment_curve_endpoint_tangent_residual(
         if (id == segment->first_point_id || id == segment->second_point_id)
             shared_id = id;
     };
-    if (const auto arc = std::ranges::find_if(sketch.arcs,
+    const auto native_arc = std::ranges::find_if(sketch.arcs,
             [&](const auto& value) { return value.id == curve_id; });
-        arc != sketch.arcs.end()) {
-        offer_shared(arc->start_point_id);
-        offer_shared(arc->end_point_id);
+    if (native_arc != sketch.arcs.end()) {
+        offer_shared(native_arc->start_point_id);
+        offer_shared(native_arc->end_point_id);
     }
     if (const auto arc = std::ranges::find_if(sketch.elliptical_arcs,
             [&](const auto& value) { return value.id == curve_id; });
@@ -1633,8 +1633,15 @@ std::optional<double> segment_curve_endpoint_tangent_residual(
         segment->first_point_id == shared_id
             ? segment->second_point_id : segment->first_point_id);
     if (contact == nullptr || other == nullptr) return std::nullopt;
-    const auto tangent = sketch.curve_tangent_at_point(
-        curve_id, contact->x, contact->y);
+    auto tangent = sketch.curve_tangent_at_point(curve_id, contact->x, contact->y);
+    if (native_arc != sketch.arcs.end()) {
+        // Differentiate the native junction, not a nearest domain-clamped
+        // point. At an Arc end, one-sided numerical perturbations otherwise
+        // freeze its angle and make an independent Tangent look redundant.
+        const auto* center=sketch.find_point(native_arc->center_point_id);
+        const double dx=contact->x-center->x,dy=contact->y-center->y,radius=std::hypot(dx,dy);
+        if(radius>1e-12)tangent=std::array{-dy/radius,dx/radius};
+    }
     const double length = std::hypot(
         other->x - contact->x, other->y - contact->y);
     if (!tangent || length <= 1.0e-12) return std::nullopt;
@@ -2960,7 +2967,7 @@ void Sketch::filter_hidden_3d_geometry(zima::kernel::ViewerMesh& mesh, bool cons
     std::erase_if(mesh.points,[&](auto& point){
         if(!point.reference.semantic_key.starts_with("point:"))return construction_only;
         const auto id=point.reference.semantic_key.substr(6);
-        if(shown_points.contains(id)){point.construction=false;return false;}
+        if(shown_points.contains(id))return false;
         const auto* p=find_point(id);
         return construction_only||owned_points.contains(id)||point.construction||(p&&p->centerline&&!p->visible_in_3d);
     });
@@ -8926,7 +8933,7 @@ SolveResult Sketch::solve_impl(
         return result;
     };
     const auto directional_group_anchored = [&](
-            const std::set<std::string>& group, DimensionKind kind) {
+            const std::set<std::string>& group, DimensionKind kind,bool free_tangent_contacts=false) {
         if (std::any_of(group.begin(), group.end(), [&](const auto& point_id) {
                 const auto* point = find_point(point_id);
                 return point == nullptr || immutable(*point) ||
@@ -8934,7 +8941,7 @@ SolveResult Sketch::solve_impl(
                         return !support.suppressed && support.first_point_id == point_id &&
                             (support.kind == ConstraintKind::PointReference ||
                              support.kind == ConstraintKind::PointOnCircle ||
-                             support.kind == ConstraintKind::Tangent);
+                             (support.kind == ConstraintKind::Tangent&&!free_tangent_contacts));
                     });
             })) return true;
         // A support is not a fixed point: an X-axis slider is free in X.
@@ -8970,7 +8977,7 @@ SolveResult Sketch::solve_impl(
     };
     const auto move_directional_pair = [&](const std::string& first_id,
             const std::string& second_id, DimensionKind kind,
-            double correction) {
+            double correction,bool first_free_tangent_contacts=false,bool second_free_tangent_contacts=false) {
         const auto first_group = directional_translation_closure(first_id, kind);
         const auto second_group = directional_translation_closure(second_id, kind);
         const bool first_external = first_group.empty() &&
@@ -8984,9 +8991,9 @@ SolveResult Sketch::solve_impl(
                     return second_group.contains(point_id);
                 })) return false;
         const bool first_anchored = first_external ||
-            directional_group_anchored(first_group, kind);
+            directional_group_anchored(first_group, kind,first_free_tangent_contacts);
         const bool second_anchored = second_external ||
-            directional_group_anchored(second_group, kind);
+            directional_group_anchored(second_group, kind,second_free_tangent_contacts);
         if (first_anchored && second_anchored) return false;
         const double first_shift = second_anchored ? -correction
             : first_anchored ? 0.0 : -correction * 0.5;
@@ -9003,12 +9010,203 @@ SolveResult Sketch::solve_impl(
         shift(second_group, second_shift);
         return true;
     };
+    const auto independent_arc_center = [&](const SketchArc& arc) {
+        const auto* center=find_point(arc.center_point_id);
+        return !contact_immutable(*center) &&
+            std::ranges::none_of(constraints,[&](const auto& constraint) {
+                return !constraint.suppressed &&
+                    (constraint.first_point_id==center->id || constraint.second_point_id==center->id ||
+                     ((constraint.geometry_id==arc.id || constraint.second_geometry_id==arc.id) &&
+                      constraint.kind!=ConstraintKind::Tangent));
+            }) && std::ranges::none_of(dimensions,[&](const auto& dimension) {
+                return !dimension.suppressed && dimension.driving &&
+                    (dimension.geometry_id==arc.id || dimension.geometry_id==center->id ||
+                     dimension.second_geometry_id==center->id || dimension.third_geometry_id==center->id ||
+                     dimension.first_point_id==center->id || dimension.second_point_id==center->id);
+            }) && std::ranges::none_of(arcs,[&](const auto& other) {
+                return other.id!=arc.id && (other.center_point_id==center->id ||
+                    other.start_point_id==center->id || other.end_point_id==center->id);
+            }) && std::ranges::none_of(circles,[&](const auto& other) {return other.center_point_id==center->id;}) &&
+            std::ranges::none_of(segments,[&](const auto& other) {
+                return other.first_point_id==center->id || other.second_point_id==center->id;
+            }) && std::ranges::none_of(ellipses,[&](const auto& other) {
+                return other.center_point_id==center->id || other.major_point_id==center->id || other.minor_point_id==center->id;
+            }) && std::ranges::none_of(elliptical_arcs,[&](const auto& other) {
+                return other.center_point_id==center->id || other.major_point_id==center->id || other.minor_point_id==center->id ||
+                    other.start_point_id==center->id || other.end_point_id==center->id;
+            }) && std::ranges::none_of(bsplines,[&](const auto& other) {
+                return std::ranges::find(other.control_point_ids,center->id)!=other.control_point_ids.end();
+            });
+    };
+    struct ParallelArcTangents {
+        std::array<const SketchSegment*,2> lines{};
+        std::array<SketchPoint*,2> contacts{};
+        std::array<std::array<double,2>,2> directions{};
+    };
+    const auto parallel_endpoint_tangents = [&](const SketchArc& arc)->std::optional<ParallelArcTangents> {
+        if(!independent_arc_center(arc))return std::nullopt;
+        std::array<const SketchSegment*,2> lines{};
+        std::array<SketchPoint*,2> contacts{find_point(arc.start_point_id),find_point(arc.end_point_id)};
+        std::size_t count{};
+        for(const auto& c:constraints) {
+            if(c.suppressed||c.kind!=ConstraintKind::Tangent)continue;
+            const auto line_id=c.geometry_id==arc.id?c.second_geometry_id:
+                c.second_geometry_id==arc.id?c.geometry_id:std::string{};
+            if(line_id.empty())continue;
+            ++count;const auto line=std::ranges::find(segments,line_id,&SketchSegment::id);
+            if(line==segments.end())return std::nullopt;
+            for(std::size_t i=0;i<2;++i)if((c.first_point_id.empty()||c.first_point_id==contacts[i]->id)&&
+                (line->first_point_id==contacts[i]->id||line->second_point_id==contacts[i]->id))lines[i]=&*line;
+        }
+        if(count!=2||!lines[0]||!lines[1]||lines[0]==lines[1])return std::nullopt;
+        std::array<std::array<double,2>,2> directions{};
+        for(std::size_t i=0;i<2;++i) {
+            const auto* other=find_point(lines[i]->first_point_id==contacts[i]->id?lines[i]->second_point_id:lines[i]->first_point_id);
+            const double dx=other->x-contacts[i]->x,dy=other->y-contacts[i]->y,length=std::hypot(dx,dy);
+            if(length<=tolerance)return std::nullopt;directions[i]={dx/length,dy/length};
+        }
+        if(std::abs(directions[0][0]*directions[1][1]-directions[0][1]*directions[1][0])>1e-10)return std::nullopt;
+        return ParallelArcTangents{lines,contacts,directions};
+    };
+    const auto fit_parallel_endpoint_tangents = [&](SketchArc& arc) {
+        const auto support=parallel_endpoint_tangents(arc);if(!support)return false;
+        const auto [lines,contacts,directions]=*support;
+        for(std::size_t i=0;i<2;++i) {
+            auto* moving=contacts[i];const auto* anchored=contacts[1-i];const auto direction=directions[i];
+            if(contact_immutable(*moving))continue;
+            // Only use an undimensioned contact free to slide along its own
+            // tangent line. Other ownership/supports retain their equations.
+            const auto owns=[&](const std::string& id){return id==moving->id||geometry_owns_point(*this,id,moving->id);};
+            if(std::ranges::any_of(dimensions,[&](const auto& d){return !d.suppressed&&d.driving&&
+                (d.first_point_id==moving->id||d.second_point_id==moving->id||owns(d.geometry_id)||
+                 owns(d.second_geometry_id)||owns(d.third_geometry_id));}))continue;
+            bool blocked=false;
+            for(const auto& c:constraints) {
+                if(c.suppressed)continue;
+                const bool touches=c.first_point_id==moving->id||c.second_point_id==moving->id||
+                    c.geometry_id==lines[i]->id||c.second_geometry_id==lines[i]->id;
+                if(!touches)continue;
+                if(c.kind==ConstraintKind::Tangent&&
+                    ((c.geometry_id==arc.id&&c.second_geometry_id==lines[i]->id)||
+                     (c.second_geometry_id==arc.id&&c.geometry_id==lines[i]->id)))continue;
+                if(c.kind==ConstraintKind::Horizontal&&std::abs(direction[1])<=1e-10)continue;
+                if(c.kind==ConstraintKind::Vertical&&std::abs(direction[0])<=1e-10)continue;
+                if(c.kind==ConstraintKind::PointOnLine&&c.first_point_id==moving->id) {
+                    const auto axis=sketch_axis_line(*this,c.geometry_id);
+                    const auto support=axis?axis:segment_or_external_line(*this,c.geometry_id);
+                    if(support&&std::abs(direction[0]*support->second[1]-direction[1]*support->second[0])<=
+                        1e-10*std::hypot(support->second[0],support->second[1]))continue;
+                }
+                blocked=true;break;
+            }
+            if(blocked||std::ranges::any_of(segments,[&](const auto& line){return line.id!=lines[i]->id&&owns(line.id);})||
+                std::ranges::any_of(arcs,[&](const auto& a){return a.id!=arc.id&&owns(a.id);})||
+                std::ranges::any_of(circles,[&](const auto& c){return owns(c.id);})||
+                std::ranges::any_of(ellipses,[&](const auto& e){return owns(e.id);})||
+                std::ranges::any_of(elliptical_arcs,[&](const auto& a){return owns(a.id);})||
+                std::ranges::any_of(bsplines,[&](const auto& s){return owns(s.id);}))continue;
+            const double along=(anchored->x-moving->x)*direction[0]+(anchored->y-moving->y)*direction[1];
+            const double x=moving->x+along*direction[0],y=moving->y+along*direction[1];
+            const double dx=anchored->x-x,dy=anchored->y-y;
+            auto* center=find_point(arc.center_point_id);
+            const auto* other=find_point(lines[i]->first_point_id==moving->id?lines[i]->second_point_id:lines[i]->first_point_id);
+            if(std::hypot(dx,dy)<=tolerance||(center->x-moving->x)*dx+(center->y-moving->y)*dy<=0||
+                (other->x-x)*direction[0]+(other->y-y)*direction[1]<=tolerance)continue;
+            maximum_residual=std::max({maximum_residual,std::abs(along),
+                std::hypot((x+anchored->x)/2-center->x,(y+anchored->y)/2-center->y)});
+            moving->x=x;moving->y=y;center->x=(x+anchored->x)/2;center->y=(y+anchored->y)/2;
+            arc.radius=std::hypot(dx,dy)/2;
+            arc.start_angle=std::atan2(contacts[0]->y-center->y,contacts[0]->x-center->x);
+            arc.end_angle=std::atan2(contacts[1]->y-center->y,contacts[1]->x-center->x);
+            while(arc.end_angle<=arc.start_angle)arc.end_angle+=2*3.14159265358979323846;
+            return true;
+        }
+        return false;
+    };
+    const auto free_parallel_tangent_group = [&](const std::set<std::string>& group,DimensionKind kind,bool along_only=true) {
+        bool found=false;
+        for(const auto& c:constraints) {
+            if(c.suppressed||c.kind!=ConstraintKind::Tangent||!group.contains(c.first_point_id))continue;
+            const auto arc=std::ranges::find_if(arcs,[&](const auto& a){return a.id==c.geometry_id||a.id==c.second_geometry_id;});
+            if(arc==arcs.end())return false;
+            const auto support=parallel_endpoint_tangents(*arc);if(!support)return false;
+            if(along_only&&std::abs(support->directions[0][kind==DimensionKind::DistanceX?1:0])>1e-10)return false;
+            found=true;
+        }
+        return found;
+    };
+    const auto fit_free_arc_tangent = [&](SketchArc& arc,const SketchPoint& contact,const SketchPoint& other) {
+        if(!independent_arc_center(arc) ||
+            (contact.id!=arc.start_point_id && contact.id!=arc.end_point_id))return false;
+        if(fit_parallel_endpoint_tangents(arc))return true;
+        auto* center=find_point(arc.center_point_id);
+        const auto* opposite=find_point(contact.id==arc.start_point_id ? arc.end_point_id : arc.start_point_id);
+        const double length=std::hypot(other.x-contact.x,other.y-contact.y);
+        if(length<=tolerance)return false;
+        const double nx=-(other.y-contact.y)/length,ny=(other.x-contact.x)/length;
+        const double dx=opposite->x-contact.x,dy=opposite->y-contact.y,projection=dx*nx+dy*ny;
+        if(std::abs(projection)<=tolerance)return false;
+        const double radius=(dx*dx+dy*dy)/(2*projection);
+        // Retain the persisted tangent side; do not jump across the line.
+        if(radius*((center->x-contact.x)*nx+(center->y-contact.y)*ny)<=0)return false;
+        const double x=contact.x+radius*nx,y=contact.y+radius*ny;
+        maximum_residual=std::max(maximum_residual,std::hypot(x-center->x,y-center->y));
+        center->x=x;center->y=y;arc.radius=std::abs(radius);
+        const auto* start=find_point(arc.start_point_id);const auto* end=find_point(arc.end_point_id);
+        arc.start_angle=std::atan2(start->y-y,start->x-x);arc.end_angle=std::atan2(end->y-y,end->x-x);
+        while(arc.end_angle<=arc.start_angle)arc.end_angle+=2*3.14159265358979323846;
+        return true;
+    };
+    const auto fit_coordinate_linked_arc = [&](const std::string& curve_id,
+            const SketchPoint& contact,const SketchPoint& other) {
+        auto arc=std::ranges::find(arcs,curve_id,&SketchArc::id);
+        if(arc==arcs.end())return false;
+        if(!directional_translation_closure(contact.id,DimensionKind::DistanceX).contains(other.id) &&
+            !directional_translation_closure(contact.id,DimensionKind::DistanceY).contains(other.id))return false;
+        return fit_free_arc_tangent(*arc,contact,other);
+    };
     const auto synchronize_curves = [&]() {
         constexpr double full_turn = 2.0 * 3.14159265358979323846;
         for (auto& arc : arcs) {
-            const auto* center = find_point(arc.center_point_id);
+            auto* center = find_point(arc.center_point_id);
             const auto* start = find_point(arc.start_point_id);
             const auto* end = find_point(arc.end_point_id);
+            // A moved shared endpoint does not freeze an independent radius.
+            // Fit its free centre to the chord bisector and endpoint tangent.
+            if(std::abs(std::hypot(start->x-center->x,start->y-center->y)-
+                    std::hypot(end->x-center->x,end->y-center->y))>tolerance) {
+                const auto tangent_count=std::ranges::count_if(constraints,[&](const auto& constraint) {
+                    return !constraint.suppressed && constraint.kind==ConstraintKind::Tangent &&
+                        (constraint.geometry_id==arc.id || constraint.second_geometry_id==arc.id);
+                });
+                if(tangent_count>1 && independent_arc_center(arc)) {
+                    // Restore only the intrinsic circle equation here. Making
+                    // one tangent exact would undo the other tangent's allowed
+                    // correction and cause a cycle at solver tolerance.
+                    const double dx=end->x-start->x,dy=end->y-start->y,squared=dx*dx+dy*dy;
+                    if(squared>tolerance*tolerance) {
+                        const double shift=((end->x+start->x-2*center->x)*dx+
+                            (end->y+start->y-2*center->y)*dy)/(2*squared);
+                        maximum_residual=std::max(maximum_residual,std::abs(shift)*std::sqrt(squared));
+                        center->x+=shift*dx;center->y+=shift*dy;
+                    }
+                } else {
+                    for(const auto& constraint:constraints) {
+                        if(constraint.suppressed || constraint.kind!=ConstraintKind::Tangent)continue;
+                        const auto line_id=constraint.geometry_id==arc.id ? constraint.second_geometry_id :
+                            constraint.second_geometry_id==arc.id ? constraint.geometry_id : std::string{};
+                        const auto segment=std::ranges::find(segments,line_id,&SketchSegment::id);
+                        if(segment==segments.end())continue;
+                        bool fitted=false;
+                        for(const auto* endpoint:{start,end}) {
+                            if(endpoint->id!=segment->first_point_id && endpoint->id!=segment->second_point_id)continue;
+                            const auto* other=find_point(endpoint->id==segment->first_point_id ? segment->second_point_id : segment->first_point_id);
+                            fitted=fit_free_arc_tangent(arc,*endpoint,*other);break;
+                        }
+                        if(fitted)break;
+                    }
+                }
+            }
             const double start_radius = std::hypot(
                 start->x - center->x, start->y - center->y);
             const double end_radius = std::hypot(
@@ -9461,6 +9659,8 @@ SolveResult Sketch::solve_impl(
                             segment_y * (*tangent)[0]);
                         maximum_residual = std::max(maximum_residual, residual);
                         if (residual <= tolerance) continue;
+                        // H/V fixes this arm's direction; adapt a free Arc.
+                        if(fit_coordinate_linked_arc(curve_id,*contact,*other))continue;
                         if (supported_circular_arm(*other)) {
                             if (!restore_supported_circular_tangent(curve_id, *contact, *other))
                                 immovable_conflict = true;
@@ -9620,6 +9820,7 @@ SolveResult Sketch::solve_impl(
                             segment_y * (*tangent)[0]);
                         maximum_residual = std::max(maximum_residual, residual);
                         if (residual <= tolerance) continue;
+                        if(fit_coordinate_linked_arc(curve_id,*contact,*other))continue;
                         if (circular_curve_radius(*this, curve_id) && supported_circular_arm(*other)) {
                             if (!restore_supported_circular_tangent(curve_id, *contact, *other))
                                 immovable_conflict = true;
@@ -10784,7 +10985,19 @@ SolveResult Sketch::solve_impl(
                         }
                         maximum_residual = std::max(maximum_residual,
                             std::hypot(slider->x-target_x,slider->y-target_y));
-                        slider->x=target_x;slider->y=target_y;
+                        // A slider can own H/V-connected endpoints. Moving
+                        // only this point tears that group apart before arc
+                        // synchronization in the next iteration.
+                        const auto x_group=directional_translation_closure(slider_id,DimensionKind::DistanceX);
+                        const auto y_group=directional_translation_closure(slider_id,DimensionKind::DistanceY);
+                        const double shift_x=target_x-slider->x,shift_y=target_y-slider->y;
+                        // A free Arc between parallel endpoint tangents may
+                        // adapt to a driving length. Tangency itself does not
+                        // freeze that contact; fixed/reference supports still do.
+                        if ((std::abs(shift_x)>tolerance && directional_group_anchored(x_group,DimensionKind::DistanceX,free_parallel_tangent_group(x_group,DimensionKind::DistanceX))) ||
+                            (std::abs(shift_y)>tolerance && directional_group_anchored(y_group,DimensionKind::DistanceY,free_parallel_tangent_group(y_group,DimensionKind::DistanceY)))) continue;
+                        for (const auto& id:x_group) find_point(id)->x+=shift_x;
+                        for (const auto& id:y_group) find_point(id)->y+=shift_y;
                         return true;
                     }
                     return false;
@@ -10839,16 +11052,17 @@ SolveResult Sketch::solve_impl(
                 const bool axis_aligned_distance_y =
                     dimension.kind == DimensionKind::Distance &&
                     std::abs(dx) <= tolerance && std::abs(dy) > tolerance;
+                const auto move_dimension_pair=[&](DimensionKind kind,double correction) {
+                    return move_directional_pair(dimension.first_point_id,dimension.second_point_id,kind,correction,
+                        free_parallel_tangent_group(directional_translation_closure(dimension.first_point_id,kind),kind,false),
+                        free_parallel_tangent_group(directional_translation_closure(dimension.second_point_id,kind),kind,false));
+                };
                 const bool moved = dimension.kind == DimensionKind::DistanceX ||
                         axis_aligned_distance_x
-                    ? move_directional_pair(dimension.first_point_id,
-                        dimension.second_point_id, DimensionKind::DistanceX,
-                        correction_x)
+                    ? move_dimension_pair(DimensionKind::DistanceX,correction_x)
                     : dimension.kind == DimensionKind::DistanceY ||
                             axis_aligned_distance_y
-                    ? move_directional_pair(dimension.first_point_id,
-                        dimension.second_point_id, DimensionKind::DistanceY,
-                        correction_y)
+                    ? move_dimension_pair(DimensionKind::DistanceY,correction_y)
                     : move_point_pair(dimension.first_point_id,
                         dimension.second_point_id, correction_x, correction_y);
                 if (!moved) immovable_conflict = true;
@@ -11881,6 +12095,17 @@ zima::kernel::ViewerMesh Sketch::viewer_mesh() const {
     result.points.push_back(
         {origin, {id, "external_point:sketch_origin", {}}, {}, true});
     std::set<std::string> hidden_derived_poles;
+    std::set<std::string> auxiliary_points,profile_points;
+    const auto point_roles=[&](const auto& values,auto ids) {
+        for(const auto& value:values)for(const auto& point:ids(value))
+            (value.construction?auxiliary_points:profile_points).insert(point);
+    };
+    point_roles(segments,[](const auto& v){return std::vector{v.first_point_id,v.second_point_id};});
+    point_roles(circles,[](const auto& v){return std::vector{v.center_point_id};});
+    point_roles(arcs,[](const auto& v){return std::vector{v.center_point_id,v.start_point_id,v.end_point_id};});
+    point_roles(ellipses,[](const auto& v){return std::vector{v.center_point_id,v.major_point_id,v.minor_point_id};});
+    point_roles(elliptical_arcs,[](const auto& v){return std::vector{v.center_point_id,v.major_point_id,v.minor_point_id,v.start_point_id,v.end_point_id};});
+    point_roles(bsplines,[](const auto& v){return v.control_point_ids;});
     for(const auto& spline:bsplines)if(find_offset(spline.id) || std::ranges::any_of(curve_trims,[&](const auto& c){return c.id==spline.id;})) {
         if(spline.control_point_ids.size()>2)hidden_derived_poles.insert(spline.control_point_ids.begin()+1,spline.control_point_ids.end()-1);
     }
@@ -11888,7 +12113,7 @@ zima::kernel::ViewerMesh Sketch::viewer_mesh() const {
         if(hidden_derived_poles.contains(point.id))continue;
         result.points.push_back(
             {project(point), {id, "point:" + point.id, {}}, {}, true,
-             point.construction});
+             point.construction||(auxiliary_points.contains(point.id)&&!profile_points.contains(point.id))});
         const auto text=std::ranges::find_if(texts,[&](const auto& value){return value.anchor_point_id==point.id;});
         if(text!=texts.end())result.points.back().sketch_text_key="text:"+text->id+":"+text_color_name(text->color);
     }
@@ -13280,6 +13505,19 @@ zima::kernel::ViewerMesh Sketch::viewer_mesh() const {
     for(const auto& symbol:symbols)for(auto edge:zima::symbols::instance_mesh(symbol).edges) {
         for(auto& point:edge.points)point=world_point(drawing_template?2*symbol.x-point.x:point.x,point.y);
         edge.reference.owner_id=id;result.edges.push_back(std::move(edge));
+    }
+    // Precise native tangents for open auxiliary curves; reference samples stay exact.
+    for(auto& edge:result.edges)if(edge.construction&&!edge.exact_spline&&edge.points.size()>2) {
+        const auto& a=edge.points.front();const auto& b=edge.points.back();
+        if(std::hypot(a.x-b.x,a.y-b.y,a.z-b.z)<1e-10)continue;
+        const auto pos=edge.reference.semantic_key.find(':');
+        const auto curve=edge.reference.semantic_key.substr(pos+1);
+        bool auxiliary=false;
+        visit_sketch_geometry(*this,curve,[&](const auto& value){auxiliary=value.construction;});
+        if(!auxiliary)continue;
+        auto exact=supporting_curve(curve);
+        for(auto& p:exact.poles)p=world_point(p.x,p.y);
+        edge.exact_spline=std::move(exact);
     }
     for(auto& dimension:result.dimensions)dimension.plane_normal=normal();
     return result;

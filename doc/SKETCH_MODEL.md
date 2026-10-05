@@ -203,6 +203,33 @@ The following principles guide that consolidation:
 
 ## Current reliability boundary
 
+Distance edits on an endpoint-connected tangent Arc may adapt its independent,
+undimensioned centre and radius. The solver intersects the chord's perpendicular
+bisector with the radius normal at the persisted tangent contact, retaining the
+existing side. Fixed, referenced, shared or dimensioned centres/radii keep their
+existing restrictions. Point-on-line distance corrections propagate through
+the native H/V coordinate groups instead of separating their shared endpoints.
+The reduced current `01.prtz` regression covers both dimensions, larger and
+smaller values, sequential edits, returning values, serialization and atomic
+rejection with a fixed centre.
+
+An H/V-linked tangent Segment arm keeps that direction while an independent
+Arc centre/radius adapts. With tangents at both ends, intrinsic circle repair
+uses the nearest centre displacement rather than privileging either tangent.
+The `polyline-tangent-point.json` native fixture and GUI endpoint regression
+cover the near-quarter-Arc case that previously cycled at a residual above the
+solver tolerance. Solving keeps the existing iteration limit and accuracy.
+
+Adding a second parallel endpoint tangent may slide an undimensioned native
+contact along its supporting line while fitting the independent Arc centre
+and radius. Driving endpoint dimensions, fixed or external points, other
+geometry ownership and incompatible supports remain enforced. The current
+`dimensioned-arc-second-tangent.json` fixture records `01.prtz` at width 60 and
+height 80, checks both selection orders, subsequent dimension edits and native
+serialization. Endpoint tangent rank uses the actual contact-to-centre vector
+instead of a nearest domain-clamped point, which has an incorrect one-sided
+derivative at an Arc boundary and can falsely report a redundant relation.
+
 Centre/start/end Arcs, both B-spline creation modes, point-pair symmetry and
 Trim with dependency remapping are implemented on the canonical point model.
 They remain subject to combined-interaction regression testing; they are no

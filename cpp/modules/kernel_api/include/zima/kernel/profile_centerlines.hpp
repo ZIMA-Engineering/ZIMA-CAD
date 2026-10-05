@@ -101,8 +101,11 @@ template<class Request> inline std::vector<std::pair<std::string,Vec3>> seeds(co
     return result;
 }
 
+inline void endpoints(std::vector<ViewerPoint>& points,const std::string& owner,const std::string& key,Vec3 a,Vec3 b) {
+    for(bool start:{true,false}){ViewerPoint p;p.position=start?a:b;p.reference={owner,"profile:path-point:"+std::string(start?"start:from:":"end:from:")+key,{}};p.display_owner_id=owner;points.push_back(p);}
+}
 inline void endpoints(ViewerReferenceGeometry& out,const std::string& owner,const std::string& key,Vec3 a,Vec3 b) {
-    for(bool start:{true,false}){ViewerPoint p;p.position=start?a:b;p.reference={owner,"profile:path-point:"+std::string(start?"start:from:":"end:from:")+key,{}};p.display_owner_id=owner;out.points.push_back(p);}
+    endpoints(out.points,owner,key,a,b);
 }
 inline void line(ViewerReferenceGeometry& out,const std::string& owner,const std::string& key,Vec3 a,Vec3 b) {
     const auto delta=dimension_sub(b,a);const double length=std::sqrt(dimension_dot(delta,delta));

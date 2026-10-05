@@ -20,6 +20,7 @@
 #include "surface_intersection_dialog.hpp"
 #include "surface_trim_dialog.hpp"
 #include "general_surface_dialog.hpp"
+#include "sketch_properties_dialog.hpp"
 #include "helical_sweep_dialog.hpp"
 #include "sweep_point_order_dialog.hpp"
 #include "sweep2d_dialog.hpp"
@@ -129,6 +130,9 @@ int verify_translations(QApplication& application, QWidget& parent) {
             !settings.translations.contains("Zamknout hodnotu"), "INI sections were mixed");
         app::apply_application_translations(application, settings);
         application.processEvents();
+        check(QObject::tr("Disconnected centerline source segments")==
+                settings.qt_translations.value("Disconnected centerline source segments"),
+            "Axis continuity error did not follow the selected UI language");
         {
             const auto part=document::PartDocument::create_default();app::DocumentToolData data;
             data.units=part.document_units;data.precision=part.document_precision;
@@ -442,11 +446,30 @@ int verify_translations(QApplication& application, QWidget& parent) {
             general_dialog.show();application.processEvents();
             auto* general_table=general_dialog.findChild<QTableWidget*>("generalSurfaceBoundaries");
             check(general_table&&general_table->horizontalHeaderItem(3)->text()==settings.qt_translations.value("Vlastní hranice")&&
-                general_table->cellWidget(0,2)->findChild<QPushButton*>()->toolTip()==settings.qt_translations.value("Odstranit vlastní hranici"),
+                general_table->cellWidget(0,1)->findChild<QPushButton*>()->toolTip()==settings.qt_translations.value("Odstranit vlastní hranici"),
                 "General surface boundary labels are untranslated");
-            check(general_dialog.findChild<QPushButton*>("generalSurfaceAddCurve")->text()==settings.qt_translations.value("Přidat 3D křivku")&&
-                general_dialog.findChild<QPushButton*>("generalSurfaceAddSketch")->text()==settings.qt_translations.value("Přidat skicu"),
-                "General surface editor actions are untranslated");
+            auto* general_type=qobject_cast<QComboBox*>(general_table->cellWidget(4,2));
+            check(general_type&&general_type->itemText(0)==settings.qt_translations.value("Skica")&&
+                general_type->itemText(1)==settings.qt_translations.value("3D křivka")&&
+                general_table->item(4,3)->text()==settings.qt_translations.value("Přidat vlastní hranici…"),
+                "General surface row creation actions are untranslated");
+            auto owned=sketcher::Sketch::from_serialized(general.general_surface.boundaries[0].sketch_serialized);
+            app::PrimitivePropertiesDialog owned_dialog(*general.general_surface.boundaries[0].sketch_feature,true,false,
+                [](document::HistoryContainer){},&parent);owned_dialog.setAttribute(Qt::WA_DeleteOnClose,false);
+            owned_dialog.set_profile_plane_selection(owned,[](auto,auto){});
+            owned_dialog.findChild<QComboBox*>("featureType")->setEnabled(false);
+            owned_dialog.show();application.processEvents();
+            check(owned_dialog.findChild<QPushButton*>("featureSketchButton")->text()==settings.qt_translations.value("Skica")&&
+                owned_dialog.findChild<QTableWidget*>("primitiveReferenceTable")->isVisible()&&
+                owned_dialog.findChild<QDoubleSpinBox*>("featureProfileOffset")->isVisible(),"Owned Sketch fields are untranslated or lose ordinary placement");
+            owned_dialog.hide();
+            auto boundary=document::create_general_surface_curve(general);
+            app::ConstructionPropertiesDialog curve_dialog(*boundary.curve,true,[](auto){},&parent,3,true);
+            curve_dialog.setAttribute(Qt::WA_DeleteOnClose,false);curve_dialog.show();application.processEvents();
+            check(curve_dialog.findChild<QTableWidget*>("curve3DPoints")->isVisible()&&
+                !curve_dialog.findChild<QTableWidget*>("constructionReferenceTable")->isVisible(),
+                "Owned Curve lost point editing or exposed independent placement after language change");
+            curve_dialog.hide();
             check(general_dialog.findChild<QLineEdit*>("generalSurfaceName")->text()=="Authored general surface","General surface translated an authored name");
             general_dialog.hide();
         }

@@ -113,6 +113,7 @@ void AssemblyWorkspaceWindow::preview_sketch_segment_ray(
         }
     }
     auto inference = inferred_sketch_segment_end(*position);
+    const auto offered_start_tangent=inference.tangent_at_start ? inference.tangent_reference_id : std::string{};
     std::optional<SketchCandidateSnap> endpoint_snap;
     if (!sketch_skip_candidate_snap_) {
         if (const auto candidate = viewer_->hovered_candidate()) {
@@ -270,6 +271,13 @@ void AssemblyWorkspaceWindow::preview_sketch_segment_ray(
     } else if (endpoint_perpendicular) {
         inference.perpendicular_reference_id = endpoint_snap_geometry;
     }
+    const bool snapped_start_tangent=(endpoint_snap || pending_sketch_snap_kind_) &&
+        automatic_constraint_enabled(zima::sketcher::ConstraintKind::Tangent) &&
+        start_tangent_matches_endpoint(*sketch,offered_start_tangent,*pending_segment_start_,inference.position,tangent_tolerance);
+    if(snapped_start_tangent) {
+        if(!endpoint_tangent) {inference.tangent_reference_id=offered_start_tangent;inference.tangent_at_start=true;}
+        inference.kind.reset();inference.perpendicular_reference_id.clear();endpoint_perpendicular=false;
+    }
     sketch_segment_inference_variant_count_ = inference.variant_count;
     const auto& preview_position = inference.position;
     const auto active_point = sketch->world_point(
@@ -420,7 +428,7 @@ void AssemblyWorkspaceWindow::preview_sketch_segment_ray(
     if (endpoint_snap) marker = endpoint_on_keypoint ? "K" :
         endpoint_snap->support_geometry_id.find("||") != std::string::npos ? "CC" : "C";
     const bool common_contact = endpoint_tangent && common_tangent_supports(
-        *sketch,pending_segment_start_snap_geometry_id_,endpoint_snap_geometry,
+        *sketch,snapped_start_tangent ? offered_start_tangent : pending_segment_start_snap_geometry_id_,endpoint_snap_geometry,
         *pending_segment_start_,preview_position,tangent_tolerance).has_value();
     if (endpoint_tangent) marker = endpoint_on_keypoint && !common_contact ? "K  T" : "C  T";
     else if (endpoint_perpendicular) marker = "C  ⊥";
@@ -447,7 +455,7 @@ void AssemblyWorkspaceWindow::preview_sketch_segment_ray(
     }
     std::vector<std::pair<zima::kernel::Vec3, std::string>> markers;
     if (!marker.empty()) markers.push_back({active_point, std::move(marker)});
-    if (common_contact || (!inference.tangent_reference_id.empty() && !endpoint_tangent)) {
+    if (common_contact || snapped_start_tangent || (!inference.tangent_reference_id.empty() && !endpoint_tangent)) {
         markers.push_back({sketch->world_point(
             (*pending_segment_start_)[0], (*pending_segment_start_)[1]), "C  T"});
     }
@@ -1246,6 +1254,54 @@ AssemblyWorkspaceWindow::inferred_sketch_circle_tangent(
             true);
     }
     return best;
+}
+
+std::vector<kernel::ViewerPoint> AssemblyWorkspaceWindow::pending_arc_keypoints(
+        const kernel::Vec3& origin,const kernel::Vec3& direction) const {
+    const auto* sketch=active_sketch();if(!sketch)return {};
+    const auto ray=active_part_local_ray(origin,direction);
+    const auto cursor=sketch->intersect_ray(ray.first,ray.second);if(!cursor)return {};
+    std::optional<SketchPosition> center;
+    SketchPosition major{},minor{};
+    if(sketch_arc_active_&&pending_arc_center_) {
+        center=pending_arc_center_;
+        const auto rim=pending_arc_start_.value_or(*cursor);
+        const double radius=std::hypot(rim[0]-(*center)[0],rim[1]-(*center)[1]);
+        if(radius<=1e-9)return {};
+        major={radius,0};minor={0,radius};
+    } else if(sketch_elliptical_arc_active_&&pending_elliptical_arc_center_) {
+        center=pending_elliptical_arc_center_;
+        if(!pending_elliptical_arc_major_) {
+            const double radius=std::hypot((*cursor)[0]-(*center)[0],(*cursor)[1]-(*center)[1]);
+            if(radius<=1e-9)return {};
+            major={radius,0};minor={0,radius};
+        } else {
+            major={(*pending_elliptical_arc_major_)[0]-(*center)[0],(*pending_elliptical_arc_major_)[1]-(*center)[1]};
+            const auto minor_point=pending_elliptical_arc_minor_?pending_elliptical_arc_minor_:
+                projected_ellipse_minor(*center,*pending_elliptical_arc_major_,*cursor);
+            if(!minor_point)return {};
+            minor={(*minor_point)[0]-(*center)[0],(*minor_point)[1]-(*center)[1]};
+        }
+    } else return {};
+    std::vector<kernel::ViewerPoint> points;
+    for(int quarter=0;quarter<4;++quarter) {
+        // While defining the minor semi-axis only its two ends are valid.
+        if(sketch_elliptical_arc_active_&&pending_elliptical_arc_major_&&!pending_elliptical_arc_minor_&&quarter%2==0)continue;
+        const auto vector=quarter%2?minor:major;const double sign=quarter<2?1.:-1.;
+        const SketchPosition point{(*center)[0]+sign*vector[0],(*center)[1]+sign*vector[1]};
+        // Returning to the accepted start is a zero sweep, not an endpoint K.
+        const auto start=sketch_arc_active_?pending_arc_start_:pending_elliptical_arc_start_;
+        if(start&&std::hypot(point[0]-(*start)[0],point[1]-(*start)[1])<=1e-9)continue;
+        auto world=sketch->world_point(point[0],point[1]);
+        if(const auto* body=sketch_body(*sketch)) {
+            kernel::ViewerMesh mesh;mesh.points.push_back({world,{}});
+            world=workspace_.open_part(workspace_.active_document_id())->session.document().place_body_mesh(std::move(mesh),body->scope.id).points.front().position;
+        }
+        if(!workspace_.active_occurrence_path().empty())world=workspace_.occurrence_point_to_scene(workspace_.displayed_document_id(),
+            assembly::InstancePath::decode(workspace_.active_occurrence_path()),world);
+        points.push_back({world,{active_sketch_id_,"sketch_curve_keypoint:preview:"+std::to_string(quarter),properties_dialog_instance_path_}});
+    }
+    return points;
 }
 
 bool AssemblyWorkspaceWindow::accept_sketch_arc_ray(

@@ -1,4 +1,5 @@
 #include "resource_icon.hpp"
+#include "../common/interaction_colors.hpp"
 #include "../tests/gui_profile_fixture.hpp"
 #include <QCheckBox>
 #include <QToolButton>
@@ -16,6 +17,7 @@
 #include "general_surface_dialog.hpp"
 #include "surface_intersection_dialog.hpp"
 #include "surface_trim_dialog.hpp"
+#include "surface_wire_visibility.hpp"
 #include "confirmed_face_hit.hpp"
 #include <zima/document/named_views.hpp>
 #include <zima/document/placement_json.hpp>
@@ -193,15 +195,18 @@ Q_NEVER_INLINE static int verify_sketch_roles(QApplication& application, Assembl
 #include "feature_ui_verification.inc"
 #include "boundary_surface_ui_verification.inc"
 #include "sheet_cut_skin_ui_verification.inc"
+#include "surface_wire_visibility_ui_verification.inc"
 #include "general_surface_ui_verification.inc"
 #include "surface_intersection_ui_verification.inc"
 #include "surface_trim_ui_verification.inc"
+#include "drawing_file_rename_ui_verification.inc"
 
 Q_NEVER_INLINE static int verify_feature_prototype(QApplication& application,AssemblyWorkspaceWindow& window,const std::filesystem::path& directory) {
     try {
         const auto check=[](bool ok,const char* message){if(!ok)throw std::runtime_error(message);};
         const auto flush=[&]{application.processEvents();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);application.processEvents();};
         window.showMaximized();flush();
+        if(qEnvironmentVariableIsSet("ZIMA_VERIFY_DRAWING_RENAME_ONLY")){verify_drawing_file_rename_ui(application,window,directory);return 0;}
         if(qEnvironmentVariableIsSet("ZIMA_VERIFY_SKETCH_CONTEXT_ONLY")){verify_sketch_context_conversion(application,window,directory);return 0;}
         check(window.execute_console_command(QString::fromStdString(commands::Json{{"command","new"},{"arguments",{{"type","part"},{"name","feature-gui"}}}}.dump())).ok,"Prototype Part creation failed");flush();
         auto* action=window.findChild<QAction*>("featurePrototypeAction");check(action&&action->isEnabled(),"Feature command unavailable");action->trigger();flush();

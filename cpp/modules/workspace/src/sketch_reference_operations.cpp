@@ -11,13 +11,17 @@ kernel::ViewerReferenceGeometry part_sketch_body_reference_geometry(
     const document::DocumentSession& session,const sketcher::Sketch& sketch,const std::string& draft_body_id) {
     const auto& document=session.document();
     auto context=document.body_history;
-    if(const auto* owner=context.owner(sketch.owner_container_id)) {
+    auto boundary_id=sketch.owner_container_id;
+    for(const auto& parent:document.history)if(parent.feature_kind==document::FeatureKind::GeneralSurface)
+        for(const auto& boundary:parent.general_surface.boundaries)
+            if(boundary.sketch_feature&&boundary.sketch_feature->id==boundary_id)boundary_id=parent.id;
+    if(const auto* owner=context.owner(boundary_id)) {
         context.activate(owner->scope.id);
-        context.set_history_cursor(owner->scope.id,context.rollback_before(sketch.owner_container_id).entry_count);
+        context.set_history_cursor(owner->scope.id,context.rollback_before(boundary_id).entry_count);
     } else if(!draft_body_id.empty()) context.activate(draft_body_id);
     kernel::ViewerReferenceGeometry result;
     if(!context.bodies().empty()) result.edges=session.body_context_mesh(&context).edges;
-    else if(const auto boundary=session.rollback_boundary(sketch.owner_container_id);boundary&&boundary->input_body)
+    else if(const auto boundary=session.rollback_boundary(boundary_id);boundary&&boundary->input_body)
         result.edges=boundary->input_body->mesh.edges;
     else if(!session.calculated_boundaries().empty()) result.edges=session.calculated_boundaries().back().mesh.edges;
     return !draft_body_id.empty()&&!document.body_owner_for_object(sketch.owner_container_id)

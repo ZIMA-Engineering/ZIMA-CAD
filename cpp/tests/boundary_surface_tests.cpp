@@ -18,6 +18,7 @@
 #include <zima/workspace/part_transactions.hpp>
 #include <zima/workspace/model_calculation.hpp>
 #include <zima/workspace/sketch_reference_operations.hpp>
+#include "../app/surface_wire_visibility.hpp"
 #include <zima/workspace/sweep_operations.hpp>
 #include <zima/workspace/history_policy.hpp>
 #include <zima/workspace/history_operations.hpp>
@@ -594,7 +595,8 @@ int main(){try{
     const std::array<std::array<double,4>,4> lines{{{0,0,100,0},{100,0,100,80},{100,80,0,80},{0,80,0,0}}};
     for(unsigned i=0;i<4;++i)feature.boundary_surface.boundaries[i]={container.id,sketch.add_segment(lines[i][0],lines[i][1],lines[i][2],lines[i][3])};
     part.history={container,feature};part.sketches={sketch};graph.insert({document::PartHistoryKind::Feature,container.id});graph.insert({document::PartHistoryKind::Feature,feature.id});part.set_body_history(graph);part.resolve_constructions();
-    const auto output=k.evaluate_history(part.kernel_operations());require(output.back().calculation_errors.empty(),"Native Sketch boundary failed");
+    const auto native_operations=part.kernel_operations();
+    const auto output=k.evaluate_history(native_operations);require(!output.empty()&&output.back().calculation_errors.empty(),"Native Sketch boundary failed");
     auto sewing_part=part;auto wall_source=document::PartDocument::create_sketch_container();auto wall_feature=document::create_boundary_surface();
     auto wall_sketch=sketcher::Sketch::create_default();wall_sketch.owner_container_id=wall_source.id;wall_sketch.plane=sketcher::SketchPlane::YZ;
     wall_sketch.plane_auto=false;wall_sketch.plane_offset=100;wall_source.feature_kind=document::FeatureKind::Feature;
@@ -756,7 +758,11 @@ int main(){try{
     const std::array<kernel::Vec3,4> owned_corners{{{0,0,0},{100,0,0},{100,80,0},{0,80,0}}};
     for(unsigned i=0;i<3;++i) {
         auto sketch=sketcher::Sketch::from_serialized(owned.general_surface.boundaries[i].sketch_serialized);
-        static_cast<void>(sketch.add_segment(owned_corners[i].x,owned_corners[i].y,owned_corners[i+1].x,owned_corners[i+1].y));
+        auto& placement=owned.general_surface.boundaries[i].sketch_feature->placement;
+        if(i==0){placement.x=13;static_cast<void>(sketch.add_segment(-13,0,87,0));}
+        else {placement.x=100;placement.y=i==2?80:0;
+            placement.rotation_z=placement.absolute_rotation_z=i==2?180:90;
+            static_cast<void>(sketch.add_segment(0,0,i==2?100:80,0));}
         owned.general_surface.boundaries[i].sketch_serialized=sketch.serialized();
     }
     owned.general_surface.boundaries[3]=document::create_general_surface_curve(owned);
@@ -772,6 +778,39 @@ int main(){try{
     require(workspace::commit_general_surface(owned_live,k,owned_input.document_id,owned),"Owned general surface did not commit");
     auto* owned_state=owned_live.open_part(owned_input.document_id);
     const auto stored_owned=*owned_state->session.document().find_container(owned.id);
+    {
+        auto presentation=owned_state->session.document();
+        const auto hidden=app::hidden_surface_wires(presentation);
+        require(hidden.size()==4&&hidden.contains(closing.id),"Committed Surface does not hide all owned definitions");
+        require(app::surface_wire_owner(presentation,closing.entity_id)==closing.id,"Curve wire visibility uses a transient packet identity");
+        const auto owners=app::surface_wire_packet_owners(presentation,hidden);
+        require(owners.contains(closing.entity_id)&&owners.contains(closing.curve_points.front().id),"Hidden Curve retains visible entity/Point aliases");
+        auto display=document::general_surface_definition_mesh(stored_owned);
+        const auto references=display.original_references;
+        app::filter_surface_wires(display,owners);
+        require(display.edges.empty()&&display.points.empty()&&display.original_references.edges.size()==references.edges.size()&&
+            display.original_references.points.size()==references.points.size(),"Hiding Surface definitions removed their native references or retained visible geometry");
+        presentation.surface_wire_visibility[closing.id]=true;
+        presentation.surface_wire_visibility[stored_owned.general_surface.boundaries[0].sketch_feature->feature.sketch_id]=false;
+        require(!app::hidden_surface_wires(presentation).contains(closing.id),"Manual visibility cannot show an owned Curve");
+        const auto restored=document::PartDocument::from_serialized(presentation.serialized());
+        require(restored.surface_wire_visibility==presentation.surface_wire_visibility&&
+            !app::hidden_surface_wires(restored).contains(closing.id),"Native Surface wire visibility did not survive serialization");
+        const auto visibility_file=std::filesystem::temp_directory_path()/"zima-native-surface-visibility-test.prtz";
+        presentation.save(visibility_file,owned_state->session.calculated_boundaries());
+        std::vector<kernel::BodyResult> visibility_cache;
+        const auto file_restored=document::PartDocument::load(visibility_file,&visibility_cache);std::filesystem::remove(visibility_file);
+        require(file_restored.surface_wire_visibility==presentation.surface_wire_visibility&&!visibility_cache.empty()&&
+            visibility_cache.back().source_fingerprint==owned_state->session.calculated_boundaries().back().source_fingerprint,
+            "Native Part file lost wire presentation overrides or calculated geometry");
+        require(kernel::history_fingerprint(presentation.kernel_operations(),presentation.kernel_operations().size())==
+            kernel::history_fingerprint(owned_state->session.document().kernel_operations(),owned_state->session.document().kernel_operations().size()),
+            "Presentation-only Surface visibility invalidates geometry calculation");
+    }
+    require(stored_owned.general_surface.boundaries[0].sketch_feature->placement.x==13&&
+        stored_owned.general_surface.boundaries[1].sketch_feature->placement.absolute_rotation_z==90&&
+        stored_owned.general_surface.boundaries[2].sketch_feature->placement.absolute_rotation_z==180,
+        "Owned Sketch features lost independent parent-local placement");
     const auto& owned_result=owned_state->session.calculated_boundaries().back();
     require(owned_result.calculation_errors.empty()&&std::abs(owned_result.surface_area-8000)<.01&&std::abs(owned_result.volume)<1e-9,
         "Mixed owned Sketch/3D Curve surface lost area or became solid");
@@ -784,6 +823,20 @@ int main(){try{
     require(std::hypot(start.x-20,start.y+30,start.z-40)<1e-8,"Owned boundary did not follow complete parent placement");
     const auto owner_body=owned_state->session.document().body_owner_for_object(closing.curve_points.front().id);
     require(owner_body&&owner_body==owned_state->session.document().body_owner_for_object(owned.id),"Owned 3D Point lost Body ownership");
+    require(owner_body==owned_state->session.document().body_owner_for_object(stored_owned.general_surface.boundaries[0].sketch_feature->id),
+        "Owned Sketch Feature lost its Surface Body ownership");
+    {
+        auto displayed=owned_state->session.document();
+        auto& surface=*displayed.find_container(owned.id);
+        auto& own=*surface.general_surface.boundaries[0].sketch_feature;
+        own.feature.show_point=true;own.feature.show_text=true;
+        const auto mesh=displayed.construction_viewer_mesh();
+        const auto marker=std::ranges::find_if(mesh.points,[&](const auto& point){return point.reference.owner_id==own.id&&point.reference.semantic_key=="point";});
+        const auto expected=document::general_surface_display_sketch(surface,surface.general_surface.boundaries[0]).resolved_origin;
+        require(marker!=mesh.points.end()&&marker->always_visible&&marker->label==own.name&&
+            std::hypot(marker->position.x-expected.x,marker->position.y-expected.y,marker->position.z-expected.z)<1e-7,
+            "Owned Sketch Feature point/text display escaped its parent placement");
+    }
     const auto point_frames=document::part_annotation_frames(owned_state->session.document());
     const auto point_frame=point_frames.at({closing.curve_points.front().id,{}});
     const auto& curve_start=std::get<kernel::ExtrusionRequest::LineCurve>(std::get<kernel::ExtrusionRequest::CurvedProfile>(owned_request.boundaries[3].outer_profile).curves.front()).start;
@@ -794,6 +847,60 @@ int main(){try{
         "Unchanged owned surface confirmation created a transaction");
     const auto owned_copy=document::PartDocument::from_serialized(owned_before);
     require(owned_copy.find_container(owned.id)->general_surface==stored_owned.general_surface,"Owned geometry did not round trip native data");
+    {
+        auto projection=document::PartDocument::create_default();
+        document::BodyHistoryGraph graph;static_cast<void>(graph.create_body("Projection"));
+        auto root=document::PartDocument::create_sketch_container();
+        auto parent=stored_owned;
+        graph.insert({document::PartHistoryKind::Feature,root.id});
+        graph.insert({document::PartHistoryKind::Feature,parent.id});
+        auto& boundary=parent.general_surface.boundaries[0];
+        auto sketch=sketcher::Sketch::from_serialized(boundary.sketch_serialized);
+        sketcher::SketchExternalReference reference;
+        reference.id="owned-external-point";reference.kind=sketcher::ExternalReferenceKind::Point;
+        reference.source_document_id=projection.document_id;reference.source_owner_id=root.id;
+        reference.source_semantic_key="anchor";reference.cached_points={{0,0}};
+        sketch.add_external_reference(reference);boundary.sketch_serialized=sketch.serialized();
+        projection.history={root,parent};projection.set_body_history(graph);
+        kernel::BodyResult source;const kernel::Vec3 fixed{100,200,300};
+        source.mesh.original_references.points.push_back({fixed,{root.id,"anchor",{}}});
+        for(double shift:{0.,50.}) {
+            auto& surface=projection.history.back();surface.placement.x=20+shift;
+            static_cast<void>(workspace::refresh_sketch_external_references(projection,{source}));
+            const auto actual=document::general_surface_display_sketch(surface,surface.general_surface.boundaries[0]);
+            require(projection.reference_errors.empty()&&!actual.external_references.empty()&&!actual.external_references.front().cached_points.empty(),
+                "Owned external point refresh has no valid projected point");
+            const auto expected=actual.local_point(fixed);
+            const auto& cached=actual.external_references.front().cached_points.front();
+            require(projection.reference_errors.empty()&&!actual.external_references.front().broken&&
+                std::hypot(cached[0]-expected[0],cached[1]-expected[1])<1e-7,
+                "Owned external projection did not compose Sketch and Surface frames");
+            require(!workspace::refresh_sketch_external_references(projection,{source}),
+                "Unchanged owned external projection drifted or caused repeated refresh");
+        }
+    }
+    {
+        auto referenced=stored_owned;
+        auto& boundary=referenced.general_surface.boundaries[0];
+        boundary.sketch_feature->placement.references={{{},referenced.container_origin.id,"origin:point"}};
+        document::resolve_general_surface_sketch(boundary,
+            document::general_surface_boundary_reference_geometry(referenced,0,{}));
+        require(boundary.sketch_feature->placement.reference_valid&&boundary.sketch_feature->placement.x==0,
+            "Owned Sketch cannot use the Surface Origin as a placement reference");
+        kernel::ViewerReferenceGeometry external;
+        external.points.push_back({{100,200,300},{"fixed","point",{}}});
+        boundary.sketch_feature->placement.references={{{},"fixed","point"}};
+        for(double displacement:{0.,50.}) {
+            referenced.placement.x=20+displacement;
+            document::resolve_general_surface_sketch(boundary,
+                document::general_surface_boundary_reference_geometry(referenced,0,external));
+            const auto sketch=document::general_surface_display_sketch(referenced,boundary);
+            require(boundary.sketch_feature->placement.reference_valid&&
+                std::hypot(sketch.resolved_origin.x-100,sketch.resolved_origin.y-200,sketch.resolved_origin.z-300)<1e-7&&
+                boundary.sketch_feature->placement.references.front().owner_id=="fixed",
+                "Moving the Surface broke or silently detached an external Sketch placement reference");
+        }
+    }
     const auto owned_file=std::filesystem::temp_directory_path()/"zima-owned-surface-test.prtz";
     owned_state->session.document().save(owned_file,owned_state->session.calculated_boundaries());
     std::vector<kernel::BodyResult> owned_cache;

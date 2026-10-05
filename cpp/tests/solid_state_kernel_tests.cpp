@@ -120,7 +120,10 @@ void curved_chain(bool sweep) {
         near(result.volume,25*std::numbers::pi*coefficient+1.08);
         const auto& packet=*result.solid_state_reference_views.at("straight");
         std::size_t child_count=0;
-        for(const auto& original:authored.mesh.original_references.points)if(original.reference.owner_id=="child") {
+        // Fitted rotation-axis grips are datums, not vertices of an end section.
+        // Straightening replaces the rotation primitive; Restore checks all datums below.
+        for(const auto& original:authored.mesh.original_references.points)if(original.reference.owner_id=="child"&&
+            original.reference.semantic_key.find(":from:axis:")==std::string::npos) {
             const auto point=std::ranges::find_if(packet.points,[&](const auto& item){return item.reference==original.reference;});
             require(point!=packet.points.end(),"Curved continuation lost its semantic vertex");
             const auto p=original.position;const bool start=std::abs(p.x)<1e-7;

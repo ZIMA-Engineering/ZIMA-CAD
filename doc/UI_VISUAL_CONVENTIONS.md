@@ -178,9 +178,10 @@ font default.
   as planes. Marker sizes and hover/confirmation colours are unchanged.
   Sweep path endpoint markers also use brown in their ordinary state, with
   green hover and azure confirmation/reference colours.
-- The Sketch icon, ordinary Sketch curves and Sketch point markers are white.
-  Sketch construction lines and centerlines remain brown; Feature points keep
-  their brown colour so they are distinct from Sketch points.
+- The Sketch icon, ordinary Sketch curves and profile point markers use the
+  theme foreground. Construction lines, centerlines and points belonging only
+  to auxiliary curves use brown. Shared profile/auxiliary points retain their
+  profile role. Feature points also use brown.
 - Sheet Metal geometry uses azure `#39C5E8`. Sheet Cut shares Sheet Blank's
   square outline and adds an internal green diagonal. Thread remains green.
 - Unbend reuses the azure Sheet Profile silhouette with a green horizontal
@@ -309,6 +310,9 @@ ownership and Tree groups are described in [Show/Erase](DRAWING_SHOW_ERASE.md).
   connectors remain continuous; both terminals are dashed for two-sided
   through-all. This changes transient presentation only, never calculated
   geometry, end conditions, topology identity, or print/export line semantics.
+  Stroke each sampled terminal as one continuous path so short curve chords
+  do not restart the dash pattern. Framebuffer checks cover a densely sampled
+  straight terminal and a circular terminal as well as an ordinary line.
 
 Hover,
 selection and colour changes must not invoke OCCT or change the common picking
@@ -481,3 +485,17 @@ checks the existing toolbar palettes and rendered document-strip background,
 and confirms technical ISO fonts remain unchanged. Missing working-directory
 theme overrides inherit the global setting; the factory default is Light.
 No user-visible text was added by this correction.
+
+## Tree visibility
+
+Use a gray name for hidden geometry and inherited hidden descendants. Do not add
+an eye badge or a hidden suffix. Keep suppression fonts and dependency state
+separate; a hidden Assembly parent does not suppress its children. Reference
+errors keep their diagnostic foreground color. Show/Hide is offered only when it
+changes the represented display object. An Extrusion or Revolution result row
+must not offer an action that merely hides its internal Sketch.
+
+Sewing Properties has a fixed two-row reference viewport. Additional references
+remain available by scrolling, and a new trailing input scrolls into view after
+selection or removal. Upper controls retain their spacing during resize or move;
+additional height remains below the form under the shared properties policy.

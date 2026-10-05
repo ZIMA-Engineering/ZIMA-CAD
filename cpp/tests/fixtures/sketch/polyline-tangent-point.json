@@ -1,0 +1,184 @@
+{
+  "arcs": [
+    {
+      "center": "01a109f97164741da85077efce086dd6",
+      "centerline": false,
+      "construction": false,
+      "end": "01a109f97164741da85077efce086dd7",
+      "end_angle": 4.712390124794338,
+      "id": "01a109f97164741da85077efce086dd8",
+      "radius": 39.99995803835937,
+      "start": "01a109f97164741da85077efce086dcf",
+      "start_angle": 3.141592653589793,
+      "visible_in_3d": true
+    }
+  ],
+  "bsplines": [],
+  "circles": [],
+  "constraints": [
+    {
+      "first": "",
+      "geometry": "01a109f97164741da85077efce086dd0",
+      "id": "01a109f97164741da85077efce086dd1",
+      "kind": "midpoint_on_line",
+      "second": "",
+      "second_geometry": "sketch_axis:x",
+      "suppressed": false,
+      "tangent_internal": false
+    },
+    {
+      "first": "01a109f97164741da85077efce086dcf",
+      "geometry": "01a109f97164741da85077efce086dd0",
+      "id": "01a109f97164741da85077efce086dd9",
+      "kind": "tangent",
+      "second": "",
+      "second_geometry": "01a109f97164741da85077efce086dd8",
+      "suppressed": false,
+      "tangent_internal": false
+    },
+    {
+      "first": "01a109f97164741da85077efce086dc9",
+      "geometry": "",
+      "id": "01a109f97164741da85077efce086dda",
+      "kind": "horizontal",
+      "second": "01a109f97164741da85077efce086dd7",
+      "second_geometry": "",
+      "suppressed": false,
+      "tangent_internal": false
+    }
+  ],
+  "corner_radii": [],
+  "curve_supports": [],
+  "curve_trims": [],
+  "dimension_layouts": [],
+  "dimensions": [],
+  "ellipses": [],
+  "elliptical_arcs": [],
+  "external_references": [],
+  "format": "zima-cad-cpp-sketch",
+  "id": "01a109f97164741da85077efce086dc4",
+  "import_blocks": [],
+  "name": "Snapped tangent polyline",
+  "offsets": [],
+  "owner_container_id": "",
+  "plane": "xy",
+  "plane_auto": true,
+  "plane_offset": 0.0,
+  "plane_reference_owner_id": "",
+  "points": [
+    {
+      "centerline": false,
+      "construction": false,
+      "fixed": false,
+      "id": "01a109f97164741da85077efce086dc5",
+      "visible_in_3d": true,
+      "x": 0.0,
+      "y": -160.0
+    },
+    {
+      "centerline": false,
+      "construction": false,
+      "fixed": false,
+      "id": "01a109f97164741da85077efce086dc6",
+      "visible_in_3d": true,
+      "x": 140.0,
+      "y": -160.0
+    },
+    {
+      "centerline": false,
+      "construction": false,
+      "fixed": false,
+      "id": "01a109f97164741da85077efce086dc8",
+      "visible_in_3d": true,
+      "x": 0.0,
+      "y": 40.0
+    },
+    {
+      "centerline": false,
+      "construction": false,
+      "fixed": false,
+      "id": "01a109f97164741da85077efce086dc9",
+      "visible_in_3d": true,
+      "x": 100.0,
+      "y": -60.0
+    },
+    {
+      "centerline": false,
+      "construction": false,
+      "fixed": false,
+      "id": "01a109f97164741da85077efce086dce",
+      "visible_in_3d": true,
+      "x": 20.00000762939453,
+      "y": 20.00004196166683
+    },
+    {
+      "centerline": false,
+      "construction": false,
+      "fixed": false,
+      "id": "01a109f97164741da85077efce086dcf",
+      "visible_in_3d": true,
+      "x": 20.00000762939453,
+      "y": -20.00004196166683
+    },
+    {
+      "centerline": false,
+      "construction": false,
+      "fixed": false,
+      "id": "01a109f97164741da85077efce086dd6",
+      "visible_in_3d": true,
+      "x": 59.9999656677539,
+      "y": -20.00004196166683
+    },
+    {
+      "centerline": false,
+      "construction": false,
+      "fixed": false,
+      "id": "01a109f97164741da85077efce086dd7",
+      "visible_in_3d": true,
+      "x": 60.0000114440918,
+      "y": -60.0
+    }
+  ],
+  "resolved_normal": [
+    0.0,
+    0.0,
+    1.0
+  ],
+  "resolved_origin": [
+    0.0,
+    0.0,
+    0.0
+  ],
+  "resolved_x_axis": [
+    1.0,
+    0.0,
+    0.0
+  ],
+  "resolved_y_axis": [
+    0.0,
+    1.0,
+    0.0
+  ],
+  "segments": [
+    {
+      "centerline": false,
+      "construction": true,
+      "first": "01a109f97164741da85077efce086dc5",
+      "id": "01a109f97164741da85077efce086dc7",
+      "second": "01a109f97164741da85077efce086dc6",
+      "visible_in_3d": true
+    },
+    {
+      "centerline": false,
+      "construction": false,
+      "first": "01a109f97164741da85077efce086dce",
+      "id": "01a109f97164741da85077efce086dd0",
+      "second": "01a109f97164741da85077efce086dcf",
+      "visible_in_3d": true
+    }
+  ],
+  "suppressed": false,
+  "symbols": [],
+  "texts": [],
+  "version": 35
+}

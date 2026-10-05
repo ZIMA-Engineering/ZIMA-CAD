@@ -25,6 +25,172 @@ int main() {
     try {
         using zima::sketcher::DimensionKind;
         {
+            // Current 01.prtz after editing its height/width to 80/60. Adding
+            // the second vertical tangent must use the free left contact.
+            using namespace zima::sketcher;
+            const auto path=std::filesystem::path(__FILE__).parent_path()/"fixtures/sketch/dimensioned-arc-second-tangent.json";
+            std::ifstream file(path);require(file.good(),"Second tangent fixture missing");
+            const auto base=Sketch::from_serialized(std::string(std::istreambuf_iterator<char>(file),{}));
+            for(const bool reversed:{false,true}) {
+                auto value=base;const auto arc=value.arcs.front().id;const auto line=value.segments[1].id;
+                const auto before_dof=value.solve().remaining_degrees_of_freedom;
+                const auto added=value.add_tangent_constraint(reversed?line:arc,reversed?arc:line);
+                require(value.solve().remaining_degrees_of_freedom<before_dof,"Independent second tangent did not reduce DOF");
+                const auto verify=[&](Sketch& s) {
+                    const auto result=s.solve();
+                    require(result.status!=SolveStatus::Conflicting&&result.status!=SolveStatus::Invalid&&result.maximum_residual<1e-8,
+                        "Second parallel endpoint tangent failed to solve");
+                    const auto& a=s.arcs.front();const auto* c=s.find_point(a.center_point_id);
+                    const auto* p=s.find_point(a.start_point_id);const auto* q=s.find_point(a.end_point_id);
+                    require(std::abs(p->y-q->y)<1e-7&&std::abs(c->y-q->y)<1e-7&&
+                        std::abs(c->x-(p->x+q->x)/2)<1e-7&&std::abs(a.radius-std::abs(q->x-p->x)/2)<1e-7,
+                        "Second tangent did not form the dimensioned semicircle");
+                    for(const auto& d:s.dimensions) {
+                        const auto* first=s.find_point(d.first_point_id);const auto* second=s.find_point(d.second_point_id);
+                        require(std::abs(std::hypot(second->x-first->x,second->y-first->y)-d.value)<1e-7,
+                            "Second tangent changed a driving dimension");
+                    }
+                };
+                verify(value);require(value.constraints.size()==base.constraints.size()+1,"Second tangent lost an existing relation");
+                const auto mesh=value.viewer_mesh();
+                require(std::ranges::any_of(mesh.constraint_markers,[&](const auto& marker){return marker.label=="T"&&
+                    marker.reference.semantic_key=="constraint:"+added;}),"Second tangent has no visible T marker");
+                auto reopened=Sketch::from_serialized(value.serialized());verify(reopened);
+                require(reopened.set_dimension_value(reopened.dimensions[0].id,100),"Two-tangent height edit failed");verify(reopened);
+                require(reopened.set_dimension_value(reopened.dimensions[1].id,40),"Two-tangent width edit failed");verify(reopened);
+            }
+            auto fixed=base;fixed.find_point(fixed.arcs.front().start_point_id)->fixed=true;
+            const auto before=fixed.serialized();bool rejected=false;
+            try {static_cast<void>(fixed.add_tangent_constraint(fixed.arcs.front().id,fixed.segments[1].id));}
+            catch(const std::runtime_error&){rejected=true;}
+            require(rejected&&fixed.serialized()==before,"Second tangent bypassed a fixed contact or mutated rejected input");
+            auto radius_driven=base;
+            radius_driven.apply_dimension(radius_driven.create_arc_radius_dimension(radius_driven.arcs.front().id));
+            const auto radius_before=radius_driven.serialized();rejected=false;
+            try {static_cast<void>(radius_driven.add_tangent_constraint(radius_driven.arcs.front().id,radius_driven.segments[1].id));}
+            catch(const std::runtime_error&){rejected=true;}
+            require(rejected&&radius_driven.serialized()==radius_before,"Second tangent bypassed a driving radius");
+            auto rotated=base;
+            for(auto& p:rotated.points){const double x=p.x;p.x=-p.y;p.y=x;}
+            rotated.arcs.front().start_angle+=std::numbers::pi/2;rotated.arcs.front().end_angle+=std::numbers::pi/2;
+            for(auto& c:rotated.constraints) {
+                if(c.geometry_id=="sketch_axis:x")c.geometry_id="sketch_axis:y";
+                else if(c.geometry_id=="sketch_axis:y")c.geometry_id="sketch_axis:x";
+                if(c.kind==ConstraintKind::Vertical)c.kind=ConstraintKind::Horizontal;
+            }
+            static_cast<void>(rotated.add_tangent_constraint(rotated.arcs.front().id,rotated.segments[1].id));
+            require(rotated.set_dimension_value(rotated.dimensions[0].id,100)&&
+                rotated.set_dimension_value(rotated.dimensions[1].id,40),"Two-tangent correction depends on axis orientation");
+            const auto& a=rotated.arcs.front();const auto* p=rotated.find_point(a.start_point_id);
+            const auto* q=rotated.find_point(a.end_point_id);const auto* center=rotated.find_point(a.center_point_id);
+            require(std::abs(p->x-q->x)<1e-7&&std::abs(center->x-q->x)<1e-7&&std::abs(a.radius-20)<1e-7,
+                "Rotated second tangent lost its semicircle geometry");
+        }
+        {
+            // Exact native geometry from the GUI line/arc/line gesture. The
+            // Arc end is already H-linked to the selected destination point.
+            // A second tangent must adapt its free centre, not rotate that arm.
+            using namespace zima::sketcher;
+            const auto path=std::filesystem::path(__FILE__).parent_path()/"fixtures/sketch/polyline-tangent-point.json";
+            std::ifstream file(path);require(file.good(),"Snapped tangent fixture missing");
+            auto value=Sketch::from_serialized(std::string(std::istreambuf_iterator<char>(file),{}));
+            const auto arc_id=value.arcs.front().id;const auto contact_id=value.arcs.front().end_point_id;
+            const auto* contact=value.find_point(contact_id);
+            const auto line=value.add_segment(contact->x,contact->y,100,-60);
+            const auto tangent=value.add_tangent_constraint(arc_id,line,contact_id);
+            const auto solved=value.solve();
+            require(solved.status!=SolveStatus::Conflicting&&solved.status!=SolveStatus::Invalid&&solved.maximum_residual<1e-8,
+                "Snapped polyline tangent cycles instead of solving");
+            require(value.arcs.front().end_point_id==contact_id&&value.segments.back().first_point_id==contact_id,
+                "Tangent correction lost shared endpoint identity");
+            const auto* end=value.find_point(value.segments.back().second_point_id);
+            require(std::hypot(end->x-100,end->y+60)<1e-7&&std::abs(value.find_point(contact_id)->y-end->y)<1e-7,
+                "Tangent correction moved the snapped destination or broke H");
+            const auto mesh=value.viewer_mesh();
+            require(std::ranges::any_of(mesh.constraint_markers,[&](const auto& marker){return marker.label=="T"&&
+                marker.reference.semantic_key=="constraint:"+tangent;}),"Native polyline tangent has no T marker");
+            auto reopened=Sketch::from_serialized(value.serialized());const auto result=reopened.solve();
+            require(result.status!=SolveStatus::Conflicting&&result.status!=SolveStatus::Invalid,
+                "Snapped tangent failed serialization");
+        }
+        {
+            // Reduced current 01.prtz: an axis-supported tangent arc closes
+            // three straight sides. Its centre and radius are not dimensioned.
+            using namespace zima::sketcher;
+            auto base=Sketch::create_default();
+            for(const auto xy:std::vector<std::array<double,2>>{{0,0},{0,-70.76268768310695},
+                {33.672466278092784,-70.76268768310695},{67.3449325561847,-70.76268005371242},{67.3449325561847,0}})
+                base.points.push_back(Sketch::create_point(xy[0],xy[1]));
+            for(const auto ij:std::vector<std::array<int,2>>{{0,1},{3,4},{4,0}})
+                base.segments.push_back(Sketch::create_segment(base.points[ij[0]].id,base.points[ij[1]].id));
+            const auto arc=base.add_arc(base.points[2].x,base.points[2].y,base.points[1].x,base.points[1].y,
+                base.points[3].x,base.points[3].y);
+            static_cast<void>(base.add_point_on_line_constraint(base.points[0].id,"sketch_axis:x"));
+            static_cast<void>(base.add_point_on_line_constraint(base.points[0].id,"sketch_axis:y"));
+            static_cast<void>(base.add_point_on_line_constraint(base.points[1].id,"sketch_axis:y"));
+            static_cast<void>(base.add_tangent_constraint(base.segments[0].id,arc,base.points[1].id));
+            static_cast<void>(base.add_point_on_line_constraint(base.points[4].id,"sketch_axis:x"));
+            static_cast<void>(base.add_segment_constraint(base.segments[1].id,ConstraintKind::Vertical));
+            base.apply_dimension(base.create_segment_dimension(base.segments[1].id));
+            base.apply_dimension(base.create_segment_dimension(base.segments[2].id));
+            const auto verify=[&](Sketch& value) {
+                const auto solved=value.solve();
+                require(solved.status!=SolveStatus::Conflicting&&solved.status!=SolveStatus::Invalid&&solved.maximum_residual<1e-7,
+                    "Tangent arc profile failed after dimension edit");
+                const auto& a=value.arcs.front();const auto* c=value.find_point(a.center_point_id);
+                const auto* s=value.find_point(a.start_point_id);const auto* e=value.find_point(a.end_point_id);
+                require(std::abs(std::hypot(s->x-c->x,s->y-c->y)-a.radius)<1e-7&&
+                    std::abs(std::hypot(e->x-c->x,e->y-c->y)-a.radius)<1e-7,
+                    "Dimension edit broke native arc endpoints");
+                require(std::abs(s->x)<1e-7&&std::abs(s->y-c->y)<1e-7&&c->x>s->x&&
+                    a.end_angle-a.start_angle>0&&a.end_angle-a.start_angle<2*std::numbers::pi,
+                    "Dimension edit lost tangent support or arc branch");
+                for(const auto& d:value.dimensions) {
+                    const auto* p=value.find_point(d.first_point_id);const auto* q=value.find_point(d.second_point_id);
+                    require(std::abs(std::hypot(q->x-p->x,q->y-p->y)-d.value)<1e-7,
+                        "Tangent arc edit changed another driving dimension");
+                }
+            };
+            for(std::size_t index=0;index<2;++index)for(const double target:{100.0,40.0}) {
+                auto edited=base;
+                require(edited.set_dimension_value(edited.dimensions[index].id,target),
+                    "Current 01.prtz tangent arc rejects a feasible dimension edit");
+                verify(edited);
+                auto reopened=Sketch::from_serialized(edited.serialized());verify(reopened);
+                require(edited.set_dimension_value(edited.dimensions[index].id,base.dimensions[index].value),
+                    "Tangent arc dimension cannot return to its original value");verify(edited);
+            }
+            auto sequential=base;
+            require(sequential.set_dimension_value(sequential.dimensions[0].id,100)&&
+                sequential.set_dimension_value(sequential.dimensions[1].id,100),
+                "Sequential tangent arc dimension edits failed");verify(sequential);
+            auto fixed=base;fixed.find_point(fixed.arcs.front().center_point_id)->fixed=true;
+            const auto before=fixed.serialized();
+            require(!fixed.set_dimension_value(fixed.dimensions[1].id,100)&&fixed.serialized()==before,
+                "Conflicting fixed-centre edit was accepted or mutated the sketch");
+            auto radius_driven=base;
+            radius_driven.apply_dimension(radius_driven.create_arc_radius_dimension(radius_driven.arcs.front().id));
+            const auto radius_before=radius_driven.serialized();
+            require(!radius_driven.set_dimension_value(radius_driven.dimensions[1].id,100)&&radius_driven.serialized()==radius_before,
+                "Free-centre correction bypassed a driving radius");
+            auto rotated=base;
+            for(auto& point:rotated.points){const double x=point.x;point.x=-point.y;point.y=x;}
+            rotated.arcs.front().start_angle+=std::numbers::pi/2;rotated.arcs.front().end_angle+=std::numbers::pi/2;
+            for(auto& constraint:rotated.constraints) {
+                if(constraint.geometry_id=="sketch_axis:x")constraint.geometry_id="sketch_axis:y";
+                else if(constraint.geometry_id=="sketch_axis:y")constraint.geometry_id="sketch_axis:x";
+                if(constraint.kind==ConstraintKind::Vertical)constraint.kind=ConstraintKind::Horizontal;
+            }
+            require(rotated.set_dimension_value(rotated.dimensions[1].id,100),"Tangent arc correction depends on axis orientation");
+            const auto solved=rotated.solve();
+            require(solved.status!=SolveStatus::Conflicting&&solved.status!=SolveStatus::Invalid,
+                "Rotated tangent arc profile did not solve");
+            for(const auto& d:rotated.dimensions) {
+                const auto* p=rotated.find_point(d.first_point_id);const auto* q=rotated.find_point(d.second_point_id);
+                require(std::abs(std::hypot(q->x-p->x,q->y-p->y)-d.value)<1e-7,"Rotated arc edit violated a driving dimension");
+            }
+        }
+        {
             // L profile: the inner leg is rounded at both ends, while the
             // untrimmed five-millimetre ends remain constrained equal.
             using namespace zima::sketcher;

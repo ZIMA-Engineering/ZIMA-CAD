@@ -580,6 +580,7 @@ nlohmann::json read_part_ini(const std::filesystem::path& path) {
         {"body_history", nlohmann::json::parse(ini_required(ini, "Document", "body_history"))},
         {"body_color", ini_value(ini, "Document", "body_color", "#B9C2CC")},
         {"face_colors", nlohmann::json::object()},
+        {"surface_wire_visibility", nlohmann::json::parse(ini_value(ini,"Document","surface_wire_visibility","{}"))},
         {"appearance", ini_value(ini, "Document", "appearance", "{}")},
         {"user_parameters", nlohmann::json::object()},
         {"user_parameter_order", nlohmann::json::array()},
@@ -738,6 +739,7 @@ void write_part_ini(
         {"removed_reference_states",root.at("removed_reference_states").dump()},
         {"body_history", root.at("body_history").dump()},
         {"body_color", root.value("body_color", std::string("#B9C2CC"))},
+        {"surface_wire_visibility", root.at("surface_wire_visibility").dump()},
         {"appearance", root.value("appearance", std::string("{}"))},
         {"history_cursor", std::to_string(root.at("history_cursor").get<std::size_t>())},
     };
@@ -4983,6 +4985,11 @@ const BodyHistory* PartDocument::body_owner_for_object(const std::string& id) co
         for(const auto& boundary:container.general_surface.boundaries) {
             if(boundary.curve&&owns_construction(owns_construction,*boundary.curve))return body_history.owner(container.id);
             if(!boundary.sketch_serialized.empty()&&sketcher::Sketch::from_serialized(boundary.sketch_serialized).id==id)return body_history.owner(container.id);
+            if(boundary.sketch_feature) {
+                const auto& owned=*boundary.sketch_feature;
+                if(id==owned.id||id==owned.feature_id||id==owned.container_origin.id||
+                    std::ranges::any_of(owned.container_origin.children,[&](const auto& child){return child.id==id;}))return body_history.owner(container.id);
+            }
         }
     }
     for(const auto& container:history)if(container.feature_kind==FeatureKind::Bend)
@@ -5762,6 +5769,12 @@ zima::kernel::ViewerMesh PartDocument::construction_viewer_mesh(
     // with the solid's wire when the whole history container is hovered or
     // selected.  This is ZIMA viewer data; no OCCT topology is inspected.
     for (const auto& container : history) {
+        if(container.feature_kind==FeatureKind::GeneralSurface&&!container.suppressed&&!excluded_features.contains(container.id)) {
+            for(const auto& boundary:container.general_surface.boundaries)if(boundary.sketch_feature) {
+                PartDocument carrier;carrier.sketches={general_surface_display_sketch(container,boundary)};
+                append_body_mesh(mesh,carrier.feature_result_mesh(*boundary.sketch_feature));
+            }
+        }
         if(container.feature_kind==FeatureKind::Feature) {
             if(!excluded_features.contains(container.id))append_body_mesh(mesh,feature_result_mesh(container));
             continue;
@@ -5891,8 +5904,10 @@ void PartDocument::resolve_constructions(
                 if (feature.feature_kind == FeatureKind::Sweep3D)
                     construction_dependencies(construction_dependencies, feature.sweep3d.path);
                 if(feature.feature_kind==FeatureKind::GeneralSurface)
-                    for(const auto& boundary:feature.general_surface.boundaries)if(boundary.curve)
-                        construction_dependencies(construction_dependencies,*boundary.curve);
+                    for(const auto& boundary:feature.general_surface.boundaries) {
+                        if(boundary.curve)construction_dependencies(construction_dependencies,*boundary.curve);
+                        else for(const auto& reference:boundary.sketch_feature->placement.references)dependency(reference);
+                    }
             }
             for (const auto& construction : carrier.constructions)
                 construction_dependencies(construction_dependencies, construction);
@@ -6189,14 +6204,11 @@ void PartDocument::resolve_constructions(
         if(container.feature_kind==FeatureKind::SheetTransition)reframe_sheet_transition(container);
         if(container.feature_kind==FeatureKind::GeneralSurface) {
             reframe_general_surface(container);
-            const auto& p=container.placement;
-            auto parent_geometry=transform_reference_geometry(source_geometry,{p.x,p.y,p.z},
-                {p.rotation_x,p.rotation_y,p.rotation_z});
-            for(auto& boundary:container.general_surface.boundaries) {
+            for(std::size_t i=0;i<container.general_surface.boundaries.size();++i) {
+                auto parent_geometry=general_surface_boundary_reference_geometry(container,i,source_geometry);
+                auto& boundary=container.general_surface.boundaries[i];
                 if(!boundary.curve) {
-                    append(parent_geometry,transform_reference_geometry(
-                        sketcher::Sketch::from_serialized(boundary.sketch_serialized).placement_reference_geometry(),
-                        {p.x,p.y,p.z},{p.rotation_x,p.rotation_y,p.rotation_z}));
+                    resolve_general_surface_sketch(boundary,parent_geometry);
                     continue;
                 }
                 auto curve=*boundary.curve;curve.parent_construction_id.clear();
@@ -10710,6 +10722,8 @@ PartDocument PartDocument::from_serialized(const nlohmann::json& root,
     document.appearance = deserialize_appearance(root.value("appearance",std::string("{}")));
     document.face_colors = root.value("face_colors",
         std::map<std::string, std::string>{});
+    document.surface_wire_visibility = root.value("surface_wire_visibility",
+        std::map<std::string, bool>{});
     const auto& source_history = root.at("history");
     if (!source_history.is_array()) {
         throw std::runtime_error("Document history must be an array");
@@ -11083,7 +11097,18 @@ PartDocument PartDocument::from_serialized(const nlohmann::json& root,
             for(const auto& row:data) {
                 GeneralSurfaceBoundary boundary;
                 const auto kind=row.at("kind").get<std::string>();
-                if(kind=="sketch")boundary.sketch_serialized=row.at("sketch_serialized").get<std::string>();
+                if(kind=="sketch") {
+                    boundary.sketch_serialized=row.at("sketch_serialized").get<std::string>();
+                    const auto& data=row.at("sketch_feature");
+                    boundary.sketch_parent_id=data.at("parent_id");
+                    HistoryContainer owned;owned.feature_kind=FeatureKind::Feature;
+                    owned.id=data.at("id");owned.feature_id=data.at("feature_id");owned.feature_parent_id=data.at("feature_parent_id");
+                    owned.name=data.at("name");owned.container_origin=create_container_origin(owned.id);
+                    owned.placement=data.at("placement").get<Placement>();
+                    owned.feature=load_feature_parameters(data.at("feature"));owned.value_locks=data.at("value_locks").get<std::set<std::string>>();
+                    owned.origin_point_visible=data.at("origin_point_visible");owned.origin_text_visible=data.at("origin_text_visible");
+                    boundary.sketch_feature=std::move(owned);
+                }
                 else if(kind=="curve3d") {
                     auto definition=row.at("curve");
                     if(definition.at("parent_construction_id")!=container.id)throw std::runtime_error("Invalid owned surface boundary.");
@@ -12249,7 +12274,13 @@ nlohmann::json PartDocument::serialized(
                     auto definition=nlohmann::json::parse(serialize_construction_objects({curve})).front();
                     definition["parent_construction_id"]=container.id;
                     rows.push_back({{"kind","curve3d"},{"curve",std::move(definition)}});
-                }else rows.push_back({{"kind","sketch"},{"sketch_serialized",boundary.sketch_serialized}});
+                }else {
+                    const auto& owned=*boundary.sketch_feature;
+                    rows.push_back({{"kind","sketch"},{"sketch_serialized",boundary.sketch_serialized},
+                        {"sketch_feature",{{"id",owned.id},{"parent_id",boundary.sketch_parent_id},{"feature_id",owned.feature_id},{"feature_parent_id",owned.feature_parent_id},
+                            {"name",owned.name},{"placement",owned.placement},{"feature",serialize_feature_parameters(owned.feature)},
+                            {"value_locks",owned.value_locks},{"origin_point_visible",owned.origin_point_visible},{"origin_text_visible",owned.origin_text_visible}}}});
+                }
             }
             serialized["general_surface"]=std::move(rows);
         } else if (container.feature_kind == FeatureKind::SurfaceTrim) {
@@ -12532,6 +12563,7 @@ nlohmann::json PartDocument::serialized(
         {"body_color", body_color},
         {"appearance", serialize_appearance(appearance)},
         {"face_colors", face_colors},
+        {"surface_wire_visibility", surface_wire_visibility},
         {"history", std::move(serialized_history)},
         {"sketches", std::move(serialized_sketches)},
         {"constructions", std::move(serialized_constructions)},

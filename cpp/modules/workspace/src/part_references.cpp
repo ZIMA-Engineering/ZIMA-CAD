@@ -85,7 +85,12 @@ std::set<std::string> sketch_external_reference_source_owners(
                     if(feature->feature_kind==zima::document::FeatureKind::GeneralSurface)
                         for(const auto& boundary:feature->general_surface.boundaries)
                             if(boundary.curve)add_construction(add_construction,*boundary.curve);
-                            else owners.insert(zima::sketcher::Sketch::from_serialized(boundary.sketch_serialized).id);
+                            else {
+                                owners.insert(zima::sketcher::Sketch::from_serialized(boundary.sketch_serialized).id);
+                                const auto& owned=*boundary.sketch_feature;
+                                owners.insert(owned.id);owners.insert(owned.feature_id);owners.insert(owned.container_origin.id);
+                                for(const auto& child:owned.container_origin.children)owners.insert(child.id);
+                            }
                 }
                 for (const auto& source_sketch : document.sketches)
                     if (source_sketch.owner_container_id == entry.id) owners.insert(source_sketch.id);
@@ -181,8 +186,17 @@ bool refresh_sketch_external_references(
         kernel::ViewerReferenceGeometry body;
         if(std::ranges::any_of(sketch.external_references,[](const auto& r){return r.body_edge;}))
             body=part_sketch_body_reference_geometry(document::DocumentSession(document,calculated_boundaries),sketch);
+        auto geometry=document.sketch_reference_geometry_for(sketch,std::move(allowed_source));
+        // Owned Sketch frames are stored relative to their General Surface.
+        // Body reference packets have already been converted to Body-local space.
+        for(const auto& parent:document.history)if(parent.feature_kind==document::FeatureKind::GeneralSurface)
+            for(const auto& boundary:parent.general_surface.boundaries)
+                if(boundary.sketch_feature&&boundary.sketch_feature->id==sketch.owner_container_id) {
+                    geometry=document::general_surface_local_reference_geometry(parent,std::move(geometry));
+                    body=document::general_surface_local_reference_geometry(parent,std::move(body));
+                }
         return sketch.refresh_external_references(
-            document.document_id, document.sketch_reference_geometry_for(sketch, std::move(allowed_source)),false,&body);
+            document.document_id,geometry,false,&body);
     };
     const auto before=document.reference_errors;
     std::map<std::string,std::string> errors;
@@ -192,8 +206,12 @@ bool refresh_sketch_external_references(
         try {
             return refresh(sketch);
         } catch(const std::exception& error) {
-            if(sketch.owner_container_id.empty()||!document.find_container(sketch.owner_container_id))throw;
-            errors[sketch.owner_container_id]=sketch.name+": "+error.what();
+            auto owner=sketch.owner_container_id;
+            for(const auto& parent:document.history)if(parent.feature_kind==document::FeatureKind::GeneralSurface)
+                for(const auto& boundary:parent.general_surface.boundaries)
+                    if(boundary.sketch_feature&&boundary.sketch_feature->id==owner)owner=parent.id;
+            if(owner.empty()||!document.find_container(owner))throw;
+            errors[owner]=sketch.name+": "+error.what();
             return false;
         }
     });

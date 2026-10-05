@@ -1,4 +1,5 @@
 #include <zima/ui/close_button.hpp>
+#include <zima/viewer/view_theme.hpp>
 
 void benchmark_selection_wire(QApplication& application,QWidget& parent) {
     using namespace zima;
@@ -212,6 +213,28 @@ void verify_interaction_colors(QApplication& application,QWidget& parent) {
         view.set_feature_selected_edges({});view.set_constraint_reference_highlights({},{});
     }
     view.clear_selection();mesh.triangles.clear();mesh.edges.clear();mesh.original_references={};view.set_mesh(mesh);
+    const auto point_palette=view.palette();
+    for(const bool dark : {false,true}) {
+        auto palette=point_palette;
+        palette.setColor(QPalette::Window,dark?QColor("#202020"):QColor("#FFFFFF"));
+        palette.setColor(QPalette::WindowText,dark?QColor("#EEEEEE"):QColor("#202020"));
+        view.setPalette(palette);
+        view.set_transient_model_points({{{0,0,0},{"surface-sketch","point:authored",{}}}});
+        application.processEvents();auto frame=view.grabFramebuffer();
+        require(framebuffer_contains_color_near(frame,view.size(),center,viewer::view_theme(palette).foreground,3),
+            "Uninspected Surface Sketch point does not use its ordinary light/dark color");
+        require(view.selection_candidates_at(center).empty(),"Passive Surface draft point entered ordinary picking");
+        view.set_constraint_reference_highlights({},{{"surface-sketch","point:authored",{}}});
+        application.processEvents();frame=view.grabFramebuffer();
+        require(framebuffer_contains_color_near(frame,view.size(),center,QColor("#00D1FF"),3),
+            "Inspected Surface Sketch point is not azure");
+        view.set_constraint_reference_highlights({},{});
+        kernel::ViewerPoint construction{{0,0,0},{"surface-sketch","point:construction",{}}};construction.construction=true;
+        view.set_transient_model_points({construction});application.processEvents();frame=view.grabFramebuffer();
+        require(framebuffer_contains_color_near(frame,view.size(),center,QColor("#AD6E2E"),3),
+            "Surface construction point lost its ordinary axis color");
+    }
+    view.setPalette(point_palette);view.set_transient_model_points({});
     kernel::ViewerEdge edge{{{-1,0,0},{1,0,0}},{"feature","preview:end",{}}};
     view.set_transient_edges({edge});application.processEvents();
     const auto solid=view.grabFramebuffer();
@@ -226,6 +249,32 @@ void verify_interaction_colors(QApplication& application,QWidget& parent) {
     require(count_azure(solid)>100 && count_azure(dashed)<count_azure(solid)*.85 && count_azure(dashed)>count_azure(solid)*.3,
         "Through-all terminal preview is not dashed or changed its selection colour");
     dashed.save("interaction-through-all.png");
+
+    // The same terminal sampled into short chords must retain the dash gaps.
+    // Resetting the pen on each chord made circular/curved terminals solid.
+    edge.points.clear();
+    for(int i=0;i<=128;++i)edge.points.push_back({-1.+2.*i/128.,0,0});
+    view.set_transient_edges({edge});application.processEvents();
+    const auto sampled_dashed=view.grabFramebuffer();
+    require(count_azure(sampled_dashed)<count_azure(solid)*.85 &&
+        count_azure(sampled_dashed)>count_azure(solid)*.3,
+        "Sampled through-all terminal lost its dash gaps");
+    require(view.transient_edges().front().points.size()==129,
+        "Terminal dash rendering changed the preview geometry");
+
+    edge.points.clear();
+    for(int i=0;i<=128;++i) {
+        const double angle=2.*3.14159265358979323846*i/128.;
+        edge.points.push_back({.7*std::cos(angle),.7*std::sin(angle),0});
+    }
+    edge.preview_terminal_dashed=false;
+    view.set_transient_edges({edge});application.processEvents();const auto circle_solid=view.grabFramebuffer();
+    edge.preview_terminal_dashed=true;
+    view.set_transient_edges({edge});application.processEvents();const auto circle_dashed=view.grabFramebuffer();
+    require(count_azure(circle_solid)>100 && count_azure(circle_dashed)<count_azure(circle_solid)*.85 &&
+        count_azure(circle_dashed)>count_azure(circle_solid)*.3,
+        "Circular through-all terminal lost its azure dash gaps");
+    circle_dashed.save("build/interaction-through-all-circle.png");
 
     auto document=document::PartDocument::create_default();
     auto sketch=sketcher::Sketch::create_default();static_cast<void>(sketch.add_circle(0,0,10));

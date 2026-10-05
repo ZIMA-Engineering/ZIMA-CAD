@@ -1,4 +1,5 @@
 #include <zima/kernel/profile_centerlines.hpp>
+#include <zima/kernel/axis_display.hpp>
 #include <zima/kernel/feature_side_identity.hpp>
 #include <zima/kernel/solid_state_ancestry.hpp>
 #include <zima/kernel/solid_straightening.hpp>
@@ -10,6 +11,7 @@
 #include <zima/document/viewer_packet_json.hpp>
 #include <zima/workspace/model_calculation.hpp>
 #include <zima/workspace/history_operations.hpp>
+#include <zima/workspace/drawing_sources.hpp>
 #include <nlohmann/json.hpp>
 #include <iostream>
 #include <set>
@@ -18,7 +20,7 @@ namespace {
 void check(bool value,const char* message){if(!value)throw std::runtime_error(message);}
 void near(double a,double b){if(!std::isfinite(a)||std::abs(a-b)>1e-7)throw std::runtime_error("Expected "+std::to_string(b)+", got "+std::to_string(a));}
 void near(kernel::Vec3 a,kernel::Vec3 b){near(a.x,b.x);near(a.y,b.y);near(a.z,b.z);}
-std::set<std::string> identities(const kernel::ViewerReferenceGeometry& refs){std::set<std::string> result;for(const auto& a:refs.axes)if(a.reference.semantic_key.starts_with("centerline:from:"))result.insert(a.reference.semantic_key);for(const auto& e:refs.edges)if(e.reference.semantic_key.starts_with("centerline:from:"))result.insert(e.reference.semantic_key);for(const auto& p:refs.points)if(p.reference.semantic_key.starts_with("profile:path-point:"))result.insert(p.reference.semantic_key);return result;}
+std::set<std::string> identities(const kernel::ViewerReferenceGeometry& refs){std::set<std::string> result;for(const auto& a:refs.axes)if(a.reference.semantic_key.starts_with("centerline:from:"))result.insert(a.reference.semantic_key);for(const auto& e:refs.edges)if(e.reference.semantic_key.starts_with("centerline:from:"))result.insert(e.reference.semantic_key);for(const auto& p:refs.points)if(p.reference.semantic_key.starts_with("profile:path-point:")&&p.reference.semantic_key.find(":from:centerline:")!=std::string::npos)result.insert(p.reference.semantic_key);return result;}
 document::PartDocument fixture(bool revolve){
  auto sketch=sketcher::Sketch::create_default();static_cast<void>(sketch.add_rectangle(5,0,15,8));
  auto feature=revolve?document::PartDocument::create_revolution_container(sketch.id):document::PartDocument::create_extrusion_container(sketch.id);
@@ -50,6 +52,61 @@ void grouped_centerlines(const kernel::OcctKernel& kernel) {
     combined.primitive=group;
     near(check_group(),volume);
 }
+void body_cursor_profile_axes(const kernel::OcctKernel& kernel) {
+    auto part=document::PartDocument::create_default();
+    document::BodyHistoryGraph graph;const auto body=graph.create_body("Cursor axes");
+    for(int index=0;index<3;++index) {
+        auto sketch=sketcher::Sketch::create_default();
+        if(index==1)static_cast<void>(sketch.add_rectangle(4,-6,16,6));
+        else static_cast<void>(sketch.add_circle(index==0?0:8,0,index==0?5:2));
+        auto feature=document::PartDocument::create_feature_container(sketch.id);
+        feature.feature.origin_centerline=feature.feature.centroid_centerline=index!=1;
+        feature.feature.sides[0].operation=document::FeatureSideOperation::Extrusion;
+        feature.feature.sides[0].length=10;
+        if(index==2) {
+            feature.combine_mode=document::CombineMode::Subtract;
+            feature.feature.sides[0].extrusion_extent=document::EndCondition::ThroughAll;
+        }
+        sketch.owner_container_id=feature.id;part.sketches.push_back(sketch);part.history.push_back(feature);
+        graph.insert({document::PartHistoryKind::Feature,feature.id});
+    }
+    part.set_body_history(graph);part.resolve_constructions();
+    const auto calculated=kernel.evaluate_history(part.kernel_operations());
+    std::vector<kernel::BodyResult> persisted;
+    const auto reopened=document::PartDocument::from_serialized(part.serialized(calculated),&persisted);
+    document::DocumentSession session(reopened,persisted);
+    const auto* allocation=session.calculated_boundaries().data();
+    const auto revision=session.revision(),generation=session.data_generation();
+    const auto& references=persisted.back().body_boundaries.at(body).back().mesh.original_references.axes;
+    const auto& endpoints=persisted.back().body_boundaries.at(body).back().mesh.original_references.points;
+    for(std::size_t count=0;count<=3;++count) {
+        auto context=session.document().body_history;context.set_history_cursor(body,count);
+        const auto displayed=session.body_context_mesh(&context);
+        std::set<std::string> owners;
+        for(std::size_t i=0;i<count;++i)owners.insert(part.history[i].id);
+        std::size_t expected{};
+        for(const auto& axis:references)if(owners.contains(axis.reference.owner_id)) {
+            ++expected;
+            const auto found=std::ranges::find(displayed.axes,axis.reference,&kernel::ViewerAxis::reference);
+            check(found!=displayed.axes.end(),"Body cursor lost a preceding persisted profile axis");
+            near(found->point,axis.point);near(found->direction,axis.direction);near(found->display_length,axis.display_length);
+        }
+        check(displayed.axes.size()==expected,"Body cursor leaked downstream or duplicated profile axes");
+        std::size_t expected_points{};
+        for(const auto& point:endpoints)if(point.reference.semantic_key.starts_with("profile:path-point:")&&owners.contains(point.reference.owner_id)) {
+            ++expected_points;
+            const auto found=std::ranges::find(displayed.points,point.reference,&kernel::ViewerPoint::reference);
+            check(found!=displayed.points.end(),"Body cursor lost a preceding axis endpoint");
+            near(found->position,point.position);
+            check(found->always_visible&&found->display_owner_id==point.display_owner_id,"Body cursor lost endpoint presentation");
+        }
+        check(std::ranges::count_if(displayed.points,[](const auto& point){return point.reference.semantic_key.starts_with("profile:path-point:");})==expected_points,
+            "Body cursor leaked downstream or duplicated axis endpoints");
+        if(count)near(session.calculated_body_boundary(body,count)->volume,persisted.back().body_boundaries.at(body)[count-1].volume);
+    }
+    check(session.calculated_boundaries().data()==allocation&&session.revision()==revision&&session.data_generation()==generation&&
+        !session.can_undo(),"Body cursor inspection mutated calculated geometry or history");
+}
 void repeated_mixed_state_centerlines(const kernel::OcctKernel& kernel) {
     auto part=fixture(true);auto& feature=part.history.front();
     const auto source=feature.id,axis=feature.revolution.axis_segment_id;
@@ -78,6 +135,14 @@ void repeated_mixed_state_centerlines(const kernel::OcctKernel& kernel) {
             check(curves==(restore?1:0),"Repeated mixed state lost or duplicated its rotation centerline");
         };
         check_display(calculated.back());
+        document::DocumentSession session(part,calculated);
+        const auto displayed=session.body_context_mesh();
+        check(std::ranges::none_of(displayed.points,[&](const auto& point){return point.reference.owner_id==source&&point.reference.semantic_key.starts_with("profile:path-point:");}),
+            "Body cursor revived original endpoints after a solid-state replacement");
+        for(const auto& point:calculated.back().mesh.points)if(point.reference.owner_id==state_id) {
+            const auto shown=std::ranges::find(displayed.points,point.reference,&kernel::ViewerPoint::reference);
+            check(shown!=displayed.points.end(),"Body cursor lost a transformed axis endpoint");near(shown->position,point.position);
+        }
         std::vector<kernel::BodyResult> reopened;
         static_cast<void>(document::PartDocument::from_serialized(part.serialized(calculated),&reopened));
         check(!reopened.empty(),"Repeated mixed state native packet missing");check_display(reopened.back());
@@ -204,6 +269,18 @@ void grouped_profile_axes(const kernel::OcctKernel& kernel) {
             follower.definition=document::ConstructionDefinition::AxisReference;
             follower.references={{"",axis.reference.owner_id,axis.reference.semantic_key}};
             check(document::resolve_construction(follower,refs),"Profile axis cannot be used as a reference");
+            for(bool start:{true,false}) {
+                const auto key="profile:path-point:"+std::string(start?"start:from:":"end:from:")+axis.reference.semantic_key;
+                const auto endpoint=std::ranges::find_if(refs.points,[&](const auto& point){return point.reference.owner_id==axis.reference.owner_id&&point.reference.semantic_key==key;});
+                check(endpoint!=refs.points.end(),"Automatic profile axis has no independent endpoint");
+                near(endpoint->position,kernel::dimension_add(axis.point,kernel::dimension_scale(axis.direction,(start?-1:1)*5.)));
+                check(axis.display_length>10.,"Automatic axis lost its display overhang");
+                auto contact=document::PartDocument::create_construction(document::ConstructionKind::Point);
+                contact.definition=document::ConstructionDefinition::PointReference;
+                contact.references={{"",endpoint->reference.owner_id,endpoint->reference.semantic_key}};
+                check(document::resolve_construction(contact,refs),"A dependent Point cannot bind an automatic axis endpoint");
+                near(contact.origin,endpoint->position);
+            }
             check(std::ranges::any_of(bodies.back().mesh.axes,[&](const auto& visible){return visible.reference==axis.reference;}),
                 "General Feature profile axis is unavailable in ordinary View");
         }
@@ -212,6 +289,116 @@ void grouped_profile_axes(const kernel::OcctKernel& kernel) {
         for(const auto& axis:refs.axes)check(std::ranges::any_of(reopened.back().mesh.original_references.axes,
             [&](const auto& saved){return saved.reference==axis.reference;}),"Native reopening lost an axis identity");
     }
+}
+void axis_display_contract(const kernel::OcctKernel& kernel) {
+    kernel::ViewerEdge line;line.points={{0,0,0},{10,0,0}};
+    auto ends=kernel::axis_curve_overhang(line);check(ends.has_value(),"Straight construction line has no overhang");
+    near((*ends)[0],{-1,0,0});near((*ends)[1],{11,0,0});near(line.points.front(),{0,0,0});
+    line.infinite=true;check(!kernel::axis_curve_overhang(line),"Infinite axis received artificial ends");
+    kernel::RevolutionRequest turn;turn.axis_direction={0,0,1};turn.angle_degrees=90;
+    turn.centerlines.origin_enabled=true;turn.centerlines.origin={10,0,0};turn.centerlines.origin_id="origin";
+    auto refs=kernel::profile_centerlines::revolution(turn,"turn");
+    ends=kernel::axis_curve_overhang(refs.edges.front());check(ends.has_value(),"Rotation arc lacks tangent overhang");
+    near((*ends)[0],{10,-1,0});near((*ends)[1],{-1,10,0});
+    near(refs.points.front().position,{10,0,0});near(refs.points.back().position,{0,10,0});
+    turn.angle_degrees=360;refs=kernel::profile_centerlines::revolution(turn,"turn");
+    check(!kernel::axis_curve_overhang(refs.edges.front()),"Closed rotation axis has an artificial seam overhang");
+    turn.centerlines.origin={1e6,0,0};refs=kernel::profile_centerlines::revolution(turn,"turn");
+    check(!kernel::axis_curve_overhang(refs.edges.front()),"Large closed rotation axis gained a rounding seam overhang");
+    for(bool rotation:{false,true}) {
+        auto part=fixture(rotation);
+        if(!rotation) {
+            auto& sketch=part.sketches.front();const auto owner=sketch.owner_container_id;
+            sketch=sketcher::Sketch::create_default();sketch.owner_container_id=owner;
+            part.history.front().extrusion.sketch_id=sketch.id;
+            part.history.front().extrusion.length_forward=15;
+            static_cast<void>(sketch.add_circle(0,0,5));
+        }
+        const auto calculated=kernel.evaluate_history(part.kernel_operations());
+        if(rotation) {
+            workspace::Workspace live;const auto id=part.document_id;
+            live.add_part(part,calculated);
+            const auto sources=workspace::drawing_annotation_sources(&live,id,"axis-source.prtz");
+            bool found=false;
+            for(const auto& source:sources)for(const auto& curve:source.construction)
+                if(curve.reference.semantic_key.starts_with("centerline:from:centroid:")) {
+                    found=true;check(curve.exact_spline&&kernel::axis_curve_overhang(curve),
+                        "Drawing source lost calculated rotation path or tangent geometry");
+                }
+            check(found,"Drawing source did not expose the current curved rotation axis");
+        }
+        const auto saved=document::load_body_result(document::serialize_body_result(calculated.back()));
+        const auto& axes=saved.mesh.original_references.axes;
+        const auto axis=std::ranges::find_if(axes,[](const auto& a){return a.reference.semantic_key=="axis:primary";});
+        check(axis!=axes.end(),"Standalone circular/rotation axis missing");
+        near(kernel::axis_display_length(*axis),axis->display_length);
+        for(bool start:{true,false}) {
+            const auto key="profile:path-point:"+std::string(start?"start:from:":"end:from:")+axis->reference.semantic_key;
+            const auto point=std::ranges::find_if(saved.mesh.original_references.points,[&](const auto& p){return p.reference.semantic_key==key;});
+            check(point!=saved.mesh.original_references.points.end()&&point->always_visible,"Standalone automatic axis endpoint missing after native reopen");
+            const auto expected=rotation?kernel::Vec3{0,start?0.:8.,0}:kernel::Vec3{0,0,start?0.:15.};
+            near(point->position,expected);
+        }
+    }
+    {
+        auto part=fixture(false);auto& sketch=part.sketches.front();const auto owner=sketch.owner_container_id;
+        sketch=sketcher::Sketch::create_default();sketch.owner_container_id=owner;
+        static_cast<void>(sketch.add_circle(0,0,5));part.history.front().extrusion.sketch_id=sketch.id;
+        part.history.front().extrusion.length_forward=15;
+        auto& placement=part.history.front().placement;
+        placement.x=7;placement.y=9;placement.z=11;
+        placement.absolute_rotation_x=17;placement.absolute_rotation_y=29;placement.absolute_rotation_z=43;
+        part.resolve_constructions();
+        const auto resolved=part.sketches.front();
+        const auto calculated=kernel.evaluate_history(part.kernel_operations());
+        const auto& points=calculated.back().mesh.original_references.points;
+        const auto direction=kernel::dimension_scale(resolved.resolved_normal,15.);
+        for(bool start:{true,false}) {
+            const auto key=std::string("profile:path-point:")+(start?"start:from:axis:primary":"end:from:axis:primary");
+            const auto point=std::ranges::find_if(points,[&](const auto& p){return p.reference.semantic_key==key;});
+            check(point!=points.end(),"Oblique cylinder has no axial end point");
+            near(point->position,start?resolved.resolved_origin:kernel::dimension_add(resolved.resolved_origin,direction));
+        }
+    }
+    kernel::Sweep3DRequest path;path.path_points={{0,0,-10},{-10,0,-20}};path.path_point_ids={"s0","s1"};
+    path.path_segments.push_back({"arc",path.path_points.front(),path.path_points.back(),{},kernel::Vec3{-std::sqrt(50.),0,-20+std::sqrt(50.)}});
+    kernel::Sweep3DRequest::Section section;section.profile_id="section";section.point_id="s0";section.profile_normal={-1,0,0};
+    section.profile.region_id="section";section.profile.outer_boundary_id="outline";
+    section.profile.outer_profile=kernel::ExtrusionRequest::PolygonProfile{{{0,-.5,-10.5},{0,.5,-10.5},{0,.5,-9.5},{0,-.5,-9.5}}};
+    section.profile.outer_edge_source_ids={"a","b","c","d"};section.profile.outer_vertex_source_ids={"p0","p1","p2","p3"};
+    path.sections={section};path.attachment_endpoints=true;path.linear_tolerance=1e-5;
+    const auto swept=kernel.evaluate_history({{"sweep",path}}).back();
+    const auto saved=document::load_body_result(document::serialize_body_result(swept));
+    const auto edge=std::ranges::find_if(saved.mesh.edges,[](const auto& e){return e.reference.semantic_key=="centerline:from:arc";});
+    check(edge!=saved.mesh.edges.end()&&edge->exact_spline,"Sweep tangent geometry did not persist");
+    ends=kernel::axis_curve_overhang(*edge);check(ends.has_value(),"Sweep arc lacks overhang");
+    near((*ends)[0],{1,0,-10});near((*ends)[1],{-10,0,-21});
+    for(const auto& p:saved.mesh.points)if(p.reference.semantic_key.starts_with("sweep:path-point:"))
+        near(p.position,p.reference.semantic_key.starts_with("sweep:path-point:start:")?path.path_points.front():path.path_points.back());
+    // Coarse display samples still use the exact tangent, never a chord direction.
+    auto coarse=*edge;coarse.points={edge->points.front(),edge->points.back()};
+    const auto coarse_ends=kernel::axis_curve_overhang(coarse);near((*coarse_ends)[0],(*ends)[0]);near((*coarse_ends)[1],(*ends)[1]);
+    auto cubic=path;
+    cubic.path_segments={{"spline",path.path_points.front(),path.path_points.back(),
+        {path.path_points.front(),{-5,0,-10},{-10,0,-15},path.path_points.back()}}};
+    const auto spline_body=kernel.evaluate_history({{"spline-sweep",cubic}}).back();
+    const auto spline_packet=document::load_body_result(document::serialize_body_result(spline_body));
+    const auto spline_edge=std::ranges::find_if(spline_packet.mesh.edges,[](const auto& e){return e.reference.semantic_key=="centerline:from:spline";});
+    check(spline_edge!=spline_packet.mesh.edges.end()&&spline_edge->exact_spline,"Sweep spline lacks persisted exact tangents");
+    const auto spline_ends=kernel::axis_curve_overhang(*spline_edge);
+    check(spline_ends.has_value(),"Sweep spline lacks tangent overhangs");
+    near((*spline_ends)[0],{1,0,-10});near((*spline_ends)[1],{-10,0,-21});
+    auto sketch=sketcher::Sketch::create_default();const auto aux=sketch.add_segment(0,0,10,0);
+    sketch.set_segment_centerline(aux,true);
+    const auto shared=sketch.segments.front().second_point_id;
+    const auto profile=sketch.add_segment(10,0,10,10);
+    sketch.segments.back().first_point_id=shared;
+    const auto before=sketch.serialized();const auto packet=sketch.viewer_mesh();
+    const auto shared_point=std::ranges::find_if(packet.points,[&](const auto& p){return p.reference.semantic_key=="point:"+shared;});
+    const auto aux_point=std::ranges::find_if(packet.points,[&](const auto& p){return p.reference.semantic_key=="point:"+sketch.segments.front().first_point_id;});
+    check(shared_point!=packet.points.end()&&!shared_point->construction&&aux_point!=packet.points.end()&&aux_point->construction,
+        "Auxiliary point color classification changed a shared profile point");
+    check(sketch.serialized()==before,"Viewer point roles changed authored Sketch geometry");
 }
 void coincident_revolution_endpoints() {
     auto part=fixture(true);
@@ -807,6 +994,7 @@ int main(){try {
  request.outer_profile=E::CurvedProfile{{parabola,E::LineCurve{{1,0,0},{-1,0,0}}}};near(kernel::profile_centerlines::centroid(request),{0,.2,0});
  request.centerlines.origin={3,5,7};request.centerlines.normal={1,0,0};request.outer_profile=E::PolygonProfile{{{3,5,7},{3,15,7},{3,15,13},{3,5,13}}};near(kernel::profile_centerlines::centroid(request),{3,10,10});
  kernel::OcctKernel kernel;
+ axis_display_contract(kernel);
  mixed_feature_directions(kernel);
  bounded_feature_rotations(kernel);
  inactive_profile_history(kernel);
@@ -816,6 +1004,7 @@ int main(){try {
  grouped_surface_history(kernel);
  grouped_original_topology(kernel);
  grouped_centerlines(kernel);
+ body_cursor_profile_axes(kernel);
  repeated_mixed_state_centerlines(kernel);
  disconnected_twist(kernel);
  grouped_profile_axes(kernel);
@@ -837,7 +1026,7 @@ int main(){try {
   if(revolve){
    const auto& refs=moved.back().mesh.original_references;check(refs.edges.end()!=std::ranges::find_if(refs.edges,[](const auto& e){return e.reference.semantic_key.starts_with("centerline:from:centroid:")&&e.exact_spline.has_value();}),"Rotated centerline has no exact curve");
    changed.history.front().revolution.angle_degrees=360;auto full=kernel.evaluate_history(changed.kernel_operations());
-   check(std::ranges::none_of(full.back().mesh.original_references.points,[](const auto& p){return p.reference.semantic_key.starts_with("profile:path-point:");}),"Full revolution exposed an unwanted grip point");
+   check(std::ranges::none_of(full.back().mesh.original_references.points,[](const auto& p){return p.reference.semantic_key.starts_with("profile:path-point:")&&p.reference.semantic_key.find(":from:centerline:")!=std::string::npos;}),"Full revolution exposed an unwanted path grip point");
    changed.history.front().revolution.angle_degrees=135;
   }else {
    const auto& refs=moved.back().mesh.original_references;check(original.size()==6,"Extrusion requires two axes and four endpoints");

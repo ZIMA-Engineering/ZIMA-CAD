@@ -631,6 +631,16 @@ void AssemblyWorkspaceWindow::show_curve_point_properties(
                     construction_preview_mesh_ = display.construction_viewer_mesh(curve->id);
                 }
             } else construction_preview_mesh_ = point_document.construction_viewer_mesh(preview.id);
+            if(surface) {
+                // A Point editor replaces the construction layer with its
+                // pending curve. Keep the other owned Surface boundaries as
+                // passive context, without publishing the active curve twice.
+                auto context=*next.find_container(surface->id);
+                std::erase_if(context.general_surface.boundaries,[&](const auto& boundary){
+                    return boundary.curve&&boundary.curve->id==curve_preview.id;
+                });
+                append_mesh(*construction_preview_mesh_,zima::document::general_surface_definition_mesh(context));
+            }
             if (!sweep_body.empty())
                 construction_preview_mesh_=next.place_body_mesh(std::move(*construction_preview_mesh_),sweep_body);
             if (part_document) {

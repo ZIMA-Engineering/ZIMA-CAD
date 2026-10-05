@@ -1,4 +1,5 @@
 #include <zima/kernel/transition_edge_display.hpp>
+#include <zima/kernel/axis_display.hpp>
 #include <zima/kernel/state_display.hpp>
 #include <zima/kernel/solid_state_ancestry.hpp>
 #include "../../../common/datum_display.hpp"
@@ -270,8 +271,10 @@ struct MeshView::Impl {
     std::vector<zima::kernel::ViewerEdge> transient_edges;
     std::vector<zima::kernel::ViewerDimension> transient_dimensions;
     std::vector<zima::kernel::ViewerPoint> command_snap_points;
+    std::function<std::vector<kernel::ViewerPoint>(const kernel::Vec3&,const kernel::Vec3&)> command_snap_point_provider;
     bool command_snap_points_visible{};
     std::vector<zima::kernel::Vec3> transient_points;
+    std::vector<kernel::ViewerPoint> transient_model_points;
     std::vector<std::pair<zima::kernel::Vec3, std::string>> transient_labels;
     std::optional<zima::kernel::Vec3> sketch_cursor;
     bool sketch_cursor_snapped{};
@@ -1088,6 +1091,8 @@ std::vector<ViewerCandidate> MeshView::selection_candidates_at(
     const auto ray = ray_at(position);
     if (!ray) return {};
     const auto& [ray_origin, ray_direction] = *ray;
+    if(impl_->command_snap_point_provider)
+        impl_->command_snap_points=impl_->command_snap_point_provider(ray_origin,ray_direction);
     // Python parity: point/topology picking uses a 9 px radius scaled by the
     // Wayland device pixel ratio. Keep this expressed through the camera's
     // world-per-pixel conversion so the visible marker and its hit area stay
@@ -1955,6 +1960,7 @@ void MeshView::set_transient_edges(std::vector<zima::kernel::ViewerEdge> edges) 
     // Every edge submission starts a fresh preview frame. Callers that need
     // active input markers append them immediately with set_transient_points.
     impl_->transient_points.clear();
+    impl_->transient_model_points.clear();
     impl_->transient_labels.clear();
     update();
 }
@@ -2014,6 +2020,7 @@ std::size_t MeshView::base_mesh_revision() const {
 }
 
 void MeshView::set_command_snap_points(std::vector<zima::kernel::ViewerPoint> points,bool visible) {
+    impl_->command_snap_point_provider={};
     impl_->command_snap_points_visible=visible;
     impl_->command_snap_points=std::move(points);
     impl_->candidates.clear();
@@ -2021,13 +2028,26 @@ void MeshView::set_command_snap_points(std::vector<zima::kernel::ViewerPoint> po
     update();
 }
 
+void MeshView::set_command_snap_point_provider(std::function<std::vector<kernel::ViewerPoint>(
+        const kernel::Vec3&,const kernel::Vec3&)> provider) {
+    set_command_snap_points({});
+    impl_->command_snap_point_provider=std::move(provider);
+}
+
 void MeshView::set_transient_points(std::vector<zima::kernel::Vec3> points) {
+    impl_->transient_model_points.clear();
     if (impl_->transient_point_transform) {
         for (auto& point : points) point = impl_->transient_point_transform(point);
     }
     impl_->transient_points = std::move(points);
     update();
 }
+
+void MeshView::set_transient_model_points(std::vector<kernel::ViewerPoint> points) {
+    if(impl_->transient_point_transform)for(auto& point:points)point.position=impl_->transient_point_transform(point.position);
+    impl_->transient_points.clear();impl_->transient_model_points=std::move(points);update();
+}
+const std::vector<kernel::ViewerPoint>& MeshView::transient_model_points() const {return impl_->transient_model_points;}
 
 void MeshView::set_transient_labels(
     std::vector<std::pair<zima::kernel::Vec3, std::string>> labels) {
@@ -3836,7 +3856,7 @@ if (impl_->show_origins) {
     if (impl_->command_snap_points_visible || overlay_edges_visible || axes_visible || points_visible || planes_visible ||
         sketch_geometry_visible || curve3d_geometry_visible ||
         dimensions_visible ||
-        !impl_->transient_edges.empty() || !impl_->transient_points.empty() ||
+        !impl_->transient_edges.empty() || !impl_->transient_points.empty() || !impl_->transient_model_points.empty() ||
         !impl_->transient_labels.empty() ||
         impl_->sketch_cursor.has_value() ||
         impl_->component_origin_handle || !impl_->extent_manipulators.empty() ||
@@ -4106,11 +4126,14 @@ if (impl_->show_origins) {
                     // on every chord, which makes construction circles/arcs/
                     // ellipses look almost solid while a one-chord segment
                     // has the intended spacing.
-                    QPainterPath path(project(edge.points.front()));
+                    const auto overhang=edge.construction?kernel::axis_curve_overhang(edge):std::nullopt;
+                    QPainterPath path(project(overhang?(*overhang)[0]:edge.points.front()));
+                    if(overhang)path.lineTo(project(edge.points.front()));
                     for (std::size_t index = 1;
                          index < edge.points.size(); ++index) {
                         path.lineTo(project(edge.points[index]));
                     }
+                    if(overhang)path.lineTo(project((*overhang)[1]));
                     painter.drawPath(path);
                 }
             }
@@ -4157,11 +4180,14 @@ if (impl_->show_origins) {
                 }
                 painter.setPen(curve_pen);
                 if (edge.points.empty()) continue;
-                QPainterPath path(project(edge.points.front()));
+                const auto overhang=centerline?kernel::axis_curve_overhang(edge):std::nullopt;
+                QPainterPath path(project(overhang?(*overhang)[0]:edge.points.front()));
+                if(overhang)path.lineTo(project(edge.points.front()));
                 for (std::size_t index = 1;
                      index < edge.points.size(); ++index) {
                     path.lineTo(project(edge.points[index]));
                 }
+                if(overhang)path.lineTo(project((*overhang)[1]));
                 painter.drawPath(path);
                 if (datum_key.starts_with("centerline:from:centroid:")) {
                     painter.setPen(QPen(color));
@@ -4322,13 +4348,30 @@ if (impl_->show_origins) {
                 painter.setPen(QPen(inference_reference
                         ? interaction::hover : !edge.color.empty()?QColor(QString::fromStdString(edge.color)):interaction::selected,
                     2.0, edge.preview_terminal_dashed?Qt::DashLine:Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
-                for (std::size_t index = 1; index < edge.points.size(); ++index) {
-                    painter.drawLine(project(edge.points[index - 1]), project(edge.points[index]));
+                if (edge.preview_terminal_dashed && !edge.points.empty()) {
+                    // Continue the dash pattern across the sampled terminal.
+                    // Per-chord drawLine restarts it and fills every gap on
+                    // finely sampled circles/arcs, making them appear solid.
+                    QPainterPath path(project(edge.points.front()));
+                    for (std::size_t index = 1; index < edge.points.size(); ++index)
+                        path.lineTo(project(edge.points[index]));
+                    painter.drawPath(path);
+                } else {
+                    for (std::size_t index = 1; index < edge.points.size(); ++index) {
+                        painter.drawLine(project(edge.points[index - 1]), project(edge.points[index]));
+                    }
                 }
             }
         }
         for (const auto& point : impl_->transient_points) {
             draw_circular_marker(painter, project(point), interaction::hover);
+        }
+        for(const auto& point:impl_->transient_model_points) {
+            const auto& ref=point.reference;
+            const bool inspected=impl_->constraint_reference_edges.contains(EdgeKey{ref.owner_id,ref.semantic_key,ref.instance_path});
+            const auto color=inspected?interaction::selected:
+                point.construction||!ref.semantic_key.starts_with("point:")?interaction::axis:theme.foreground;
+            draw_circular_marker(painter,project(point.position),color);
         }
         if (impl_->sketch_cursor) {
             const QColor cursor_color = impl_->sketch_cursor_snapped
@@ -4496,10 +4539,11 @@ if (impl_->show_origins) {
                     const double axis_width=((exact_highlight && impl_->confirmed_candidate) || referenced) ? interaction::selected_wire_width : origin ? 2.0 : 1.5;
                     painter.setPen(QPen(presentation_color, axis_width,
                         Qt::SolidLine));
-                    const double first = origin ? 0.0 : -axis.display_length * 0.5;
+                    const double display_length=kernel::axis_display_length(axis);
+                    const double first = origin ? 0.0 : -display_length * 0.5;
                     const double second = origin
                         ? axis.display_length * reference_scale
-                        : axis.display_length * 0.5;
+                        : display_length * 0.5;
                     const QPointF start = project({axis.point.x + axis.direction.x * first,
                                                     axis.point.y + axis.direction.y * first,
                                                     axis.point.z + axis.direction.z * first});
@@ -4655,8 +4699,16 @@ if (impl_->show_origins) {
                     const bool creation_preview =
                         impl_->feature_preview_owner_ids.contains(
                             point.reference.owner_id);
+                    const auto parent_axis=kernel::axis_endpoint_parent_key(point.reference.semantic_key);
+                    const auto axis_candidate=[&](const auto& candidate) {
+                        return candidate&&!parent_axis.empty()&&
+                            (candidate->kind==CandidateKind::Axis||candidate->kind==CandidateKind::Edge)&&
+                            candidate->owner_id==point.reference.owner_id&&candidate->semantic_key==parent_axis&&
+                            candidate->instance_path==point.reference.instance_path;
+                    };
                     const bool selected = point.reference.owner_id ==
                             impl_->selected_container_origin_id ||
+                        axis_candidate(impl_->confirmed_candidate) ||
                         (!point.display_owner_id.empty() && impl_->confirmed_candidate &&
                          impl_->confirmed_candidate->kind == CandidateKind::Container &&
                          impl_->confirmed_candidate->owner_id == point.display_owner_id &&
@@ -4674,7 +4726,7 @@ if (impl_->show_origins) {
                          impl_->confirmed_candidate->instance_path ==
                             point.reference.instance_path);
                     const bool hovered = !impl_->confirmed_candidate && highlighted &&
-                        ((!point.display_owner_id.empty() &&
+                        (axis_candidate(highlighted) || (!point.display_owner_id.empty() &&
                           highlighted->kind == CandidateKind::Container &&
                           highlighted->owner_id == point.display_owner_id) ||
                          (highlighted->kind == CandidateKind::Container &&
@@ -4693,9 +4745,11 @@ if (impl_->show_origins) {
                     // Match ONLY the precise per-entity key -- see the
                     // identical comment on the plane block above.
                     const bool referenced = !selected && !hovered &&
-                        impl_->constraint_reference_edges.contains(EdgeKey{
+                        (impl_->constraint_reference_edges.contains(EdgeKey{
                             point.reference.owner_id, point.reference.semantic_key,
-                            point.reference.instance_path});
+                            point.reference.instance_path}) || (!parent_axis.empty()&&
+                         impl_->constraint_reference_edges.contains(EdgeKey{
+                             point.reference.owner_id,parent_axis,point.reference.instance_path})));
                     // An Axis/Plane container's own marker
                     // (always_visible=false) stays fully invisible in the
                     // ordinary state -- the Axis line / Plane border is
@@ -4733,7 +4787,7 @@ if (impl_->show_origins) {
                             ? QColor(0, 0, 0)
                         : marker_key.starts_with("point:")
                             ? marker_key.starts_with("point:from:")
-                                ? interaction::axis : theme.foreground
+                                ? interaction::axis : point.construction?interaction::axis:theme.foreground
                         : marker_key.starts_with(
                                 "corner_radius_handle:")
                             ? QColor(255, 255, 255)

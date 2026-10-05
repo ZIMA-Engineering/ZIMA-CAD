@@ -641,13 +641,7 @@ struct SurfaceTrimParameters {
     std::string retained_region_key;
     bool operator==(const SurfaceTrimParameters&)const=default;
 };
-struct GeneralSurfaceBoundary {
-    // Exactly one ordinary native definition. The parent relation is explicit;
-    // list position is only traversal/display order, never object identity.
-    std::string sketch_serialized;
-    std::optional<ConstructionObject> curve;
-    bool operator==(const GeneralSurfaceBoundary&)const=default;
-};
+struct GeneralSurfaceBoundary;
 struct GeneralSurfaceParameters {
     std::vector<GeneralSurfaceBoundary> boundaries;
     bool operator==(const GeneralSurfaceParameters&)const=default;
@@ -704,6 +698,17 @@ struct HistoryContainer {
     bool operator==(const HistoryContainer&) const = default;
 };
 
+struct GeneralSurfaceBoundary {
+    // Owned Sketch features have an independent, parent-local placement.
+    // Curve3D definitions inherit the Surface frame; their Points are local.
+    // List order never defines object identity.
+    std::string sketch_serialized;
+    std::optional<ConstructionObject> curve;
+    std::optional<HistoryContainer> sketch_feature;
+    std::string sketch_parent_id;
+    bool operator==(const GeneralSurfaceBoundary&)const=default;
+};
+
 [[nodiscard]] zima::kernel::ViewerMesh sweep3d_profiles_viewer_mesh(
     const HistoryContainer& container);
 
@@ -747,6 +752,9 @@ public:
     // Optional presentation overrides addressed by persisted ZIMA face
     // identity (owner_id + semantic_key), never by OCCT enumeration order.
     std::map<std::string, std::string> face_colors;
+    // Manual display overrides for authored surface wires. Calculation and
+    // persisted topology references are independent of this presentation data.
+    std::map<std::string, bool> surface_wire_visibility;
     BodyHistoryGraph body_history;
     void validate_body_ownership() const;
     [[nodiscard]] zima::kernel::ViewerMesh place_body_mesh(zima::kernel::ViewerMesh mesh, const std::string& body_id) const;

@@ -5573,10 +5573,12 @@ int verify_sketch_dimension_entry_ui(QApplication& application,const std::filesy
     }catch(const std::exception& error){std::cerr<<error.what()<<'\n';return 1;}
 }
 
+#include "sketch_arc_keypoint_ui_verification.inc"
 int verify_sketch_arc_direction_ui(QApplication& application,const std::filesystem::path& directory) {
     using namespace zima;
     int shape{},flips{};
     try {
+        if(verify_pending_arc_keypoints_ui(application,directory)!=0)return 1;
         const auto check=[](bool ok,const char* message){if(!ok)throw std::runtime_error(message);};
         const auto flush=[&]{application.processEvents();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);application.processEvents();};
         for(shape=0;shape<5;++shape)for(flips=0;flips<3;++flips) {
@@ -5719,12 +5721,14 @@ int verify_rectangle_external_contact_ui(QApplication& application,const std::fi
 
 #include "sketch_corner_chain_ui_verification.inc"
 
+#include "sketch_polyline_tangent_ui_verification.inc"
 int verify_sketch_endpoint_priority_ui(QApplication& application,const std::filesystem::path& directory) {
     using namespace zima;
     try {
         const auto check=[](bool ok,const char* message){if(!ok)throw std::runtime_error(message);};
         const auto flush=[&]{application.processEvents();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);application.processEvents();};
         // Both C cases put the proposed new segment midpoint near the X axis.
+        if(verify_polyline_snapped_tangent_ui(application,directory)!=0)return 1;
         // The final case removes endpoint contact while retaining that M offer.
         for(int kind:{0,1,2,3}) {
             auto part=document::PartDocument::create_default();auto feature=document::PartDocument::create_sketch_container();
@@ -6800,6 +6804,8 @@ int verify_profile_opening_limits(QApplication& application, const std::filesyst
             const auto& actual=view->transient_edges();
             check(actual.size()==expected.size(),"Opening changed the number of profile wire edges");
             for(std::size_t i=0;i<expected.size();++i) {
+                check(actual[i].preview_terminal_dashed==expected[i].preview_terminal_dashed,
+                    "Opening lost the through-all terminal dash role");
                 check(actual[i].points.size()==expected[i].points.size(),"Opening changed profile wire sampling");
                 for(std::size_t j=0;j<expected[i].points.size();++j) {
                     const auto& a=actual[i].points[j];const auto& b=expected[i].points[j];
@@ -8439,7 +8445,32 @@ int verify_component_references(QApplication& application, const std::filesystem
             if(!verify(valid_menu,"Component origin menu exposed unrelated Part operations"))return 1;
             const auto expected=hide?std::set<std::string>{""}:std::set<std::string>{"",path};
             if(!verify(offered_origins()==expected,"Origin context action did not change the exact occurrence visibility"))return 1;
+            if(!verify((origin_row->foreground(0).color()==QColor(125,125,125))==hide,
+                "Occurrence Origin name does not follow its exact path visibility"))return 1;
         }
+    }
+    for(bool hide:{true,false}) {
+        auto* component_row=find(outer,outer_path);
+        for(auto* parent=component_row->parent();parent;parent=parent->parent())parent->setExpanded(true);
+        tree->scrollToItem(component_row);flush();bool invoked=false;
+        QTimer::singleShot(0,&window,[&] {
+            auto* menu=qobject_cast<QMenu*>(QApplication::activePopupWidget());if(!menu)return;
+            for(auto* action:menu->actions())if(action->text()==QObject::tr(hide?"Skrýt":"Zobrazit")) {
+                invoked=true;menu->setActiveAction(action);
+                QKeyEvent enter(QEvent::KeyPress,Qt::Key_Return,Qt::NoModifier);QApplication::sendEvent(menu,&enter);return;
+            }menu->close();
+        });
+        tree->customContextMenuRequested(tree->visualItemRect(component_row).center());flush();
+        if(!verify(invoked,"Subassembly Show/Hide menu action missing"))return 1;
+        auto* child=find(second,nested_path);component_row=find(outer,outer_path);
+        if(!verify(child&&(component_row->foreground(0).color()==QColor(125,125,125))==hide&&
+            (child->foreground(0).color()==QColor(125,125,125))==hide&&
+            !child->text(0).contains(QObject::tr(" [potlačeno závislostí]"))&&
+            !component_row->text(0).contains(QObject::tr(" [skryto]")),
+            "Hidden subassembly is not gray or incorrectly marks descendants as suppressed"))return 1;
+        if(!verify(std::ranges::any_of(view->mesh().triangle_references,[&](const auto& reference){return reference.instance_path.starts_with(outer_path);})==!hide&&
+            std::ranges::any_of(view->mesh().triangle_references,[&](const auto& reference){return reference.instance_path.starts_with(passive_path);}),
+            "Component visibility affected another occurrence or retained hidden geometry"))return 1;
     }
     // Import keeps its owning Assembly tab, even when editing a nested source.
     kernel::StepProduct imported_part;imported_part.definition_id="import-tab-part";

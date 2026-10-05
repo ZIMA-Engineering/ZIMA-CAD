@@ -221,6 +221,8 @@ int verify_sections(QApplication& application,AssemblyWorkspaceWindow& window,co
         save->trigger();flush();const bool initially_visible=document::PartDocument::load(path).sections.front().show_plane;
         check(menu_action(tree->topLevelItem(0)->child(1)->child(1),initially_visible?QObject::tr("Skrýt rovinu řezu"):QObject::tr("Zobrazit rovinu řezu")),"Section menu lacks plane visibility toggle");
         check(plane_shown()!=initially_visible&&view->mesh().triangles.size()==cache.back().mesh.triangles.size(),"Plane visibility changed the solid or failed to update the overlay");
+        check((tree->topLevelItem(0)->child(1)->child(1)->foreground(0).color()==QColor(125,125,125))==initially_visible,
+            "Section Tree name does not follow plane visibility");
         save->trigger();flush();check(!document::PartDocument::load(path).sections.front().show_cut,"Showing the plane activated cutting");
         const auto plane_calculations=window.property("sectionCalculationCount").toULongLong();
         check(menu_action(tree->topLevelItem(0)->child(1)->child(1),initially_visible?QObject::tr("Zobrazit rovinu řezu"):QObject::tr("Skrýt rovinu řezu")),"Section menu did not reverse its plane visibility label");
@@ -364,7 +366,11 @@ int verify_sections(QApplication& application,AssemblyWorkspaceWindow& window,co
         dw->select_view_for_test({});dw->document_for_test().save(drawing_path);dw->export_pdf(dir/"section.pdf");window.grab().save(QString::fromStdString((dir/"section-drawing.png").string()));
         // Regenerate reads the currently open, unsaved source definition.
         const bool old_reverse=dw->document_for_test().find_view(cut.id)->section_snapshot->reversed;
-        check(window.open_document_path(QString::fromStdString(path.string())),"Cannot return to source Part");flush();root=tree->topLevelItem(0);group=root->child(1);window.show_tree_item_properties(group->child(1));flush();
+        check(window.open_document_path(QString::fromStdString(path.string())),"Cannot return to source Part");flush();
+        const auto source_section_row=[&]{QTreeWidgetItem* found{};for(QTreeWidgetItemIterator it(tree);*it;++it)
+            if((*it)->data(0,Qt::UserRole+3)=="document-section"&&(*it)->data(0,Qt::UserRole).toString().toStdString()==section_id){found=*it;break;}
+            check(found,"Saved source Section is missing from Tree");return found;};
+        window.show_tree_item_properties(source_section_row());flush();check(dialog()!=nullptr,"Source Section Properties did not open");
         const auto source_style=dialog()->values().components.begin()->second;
         check(source_style.custom_hatch&&std::abs(source_style.hatch.offset_mm-.35)<1e-9,"Drawing hatch changes did not reach source Part");
         dialog()->findChild<QCheckBox*>("sectionReverse")->setChecked(!old_reverse);dialog()->buttons()->button(QDialogButtonBox::Ok)->click();flush();
@@ -372,7 +378,7 @@ int verify_sections(QApplication& application,AssemblyWorkspaceWindow& window,co
         check(dw->document_for_test().find_view(cut.id)->section_snapshot->reversed!=old_reverse,"Regenerate ignored unsaved source section edit");
         check(dw->document_for_test().find_view(parent.id)->section_markers.front().reversed!=old_reverse,"Regenerate ignored the unsaved section trace direction");
         check(has_hatch(),"Changing the Part display side concealed the Drawing cut");
-        check(window.open_document_path(QString::fromStdString(path.string())),"Cannot return to Part for section removal");flush();root=tree->topLevelItem(0);group=root->child(1);auto* section_row=group->child(1);
+        check(window.open_document_path(QString::fromStdString(path.string())),"Cannot return to Part for section removal");flush();auto* section_row=source_section_row();group=section_row->parent();
         bool removed=false;QTimer::singleShot(0,[&]{for(auto* menu:window.findChildren<QMenu*>())if(menu->isVisible())for(auto* action:menu->actions())if(action->text()==QObject::tr("Odstranit")){removed=true;menu->setActiveAction(action);QKeyEvent enter(QEvent::KeyPress,Qt::Key_Return,Qt::NoModifier);QApplication::sendEvent(menu,&enter);return;}});
         group->setExpanded(true);tree->customContextMenuRequested(tree->visualItemRect(section_row).center());flush();check(removed,"Cannot remove section from tree");
         check(window.open_document_path(QString::fromStdString(drawing_path.string())),"Cannot reopen linked drawing");flush();const auto prior_edges=dw->document_for_test().find_view(cut.id)->projected_edges.size();window.findChild<QAction*>("regenerateDrawingViewAction")->trigger();flush();

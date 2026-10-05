@@ -504,3 +504,207 @@ The verified primary-definition copies are available locally as
 `Projects/11-2026100401-overeno.prtz`; both original file hashes stayed unchanged.
 No user directories were deleted. No new UI text is introduced by this final
 English-only acceptance documentation.
+
+## General Surface owned Sketch frames (2026-10-05)
+
+Inputs are authored Sketch/3D Curve boundaries, the General Surface placement
+and persisted external references. Outputs are a movable surface container and
+independently placed internal Sketch Features. The implementation consumes the
+ordinary Feature Properties, Sketcher, Curve/Point editors, native placement
+solver and viewer reference packets. It does not change shared container
+placement or standalone Sketch/Curve behavior.
+
+An owned Sketch now persists its ordinary Feature identity, Origin, parameters,
+placement and explicit surface parent. Its resolved Sketch frame is local to
+the surface; display, exact boundary calculation, annotations and external
+projection compose both frames. Feature conversion is disabled. Sketch editing
+returns to the same pending Feature Properties window; nested OK updates only
+the outer draft and Cancel discards pending edits. Curve roots inherit the
+surface frame directly and expose no independent placement controls. Child
+Points retain their ordinary properties and references. All boundary rows may
+be removed; only final OK requires a valid closed perimeter.
+
+This changes the native owned-Sketch row definition. The earlier General Surface
+row format is not migrated. Current native start templates were rewritten and
+reopened; the template GUI check passed active editing-context and command
+availability checks. Empty start templates retain identical serialized content.
+
+Native checks independently recover an 8000 mm² rectangular surface from
+Sketches placed at different local translations/rotations and a closing Curve,
+including a translated and rotated parent. They cover anchored external
+placement, external projection after parent movement, point/text presentation,
+native ownership, persistence, unchanged OK and Undo/Redo. GUI checks cover the
+complete Sketch Feature properties, fixed type, numeric and whole-Origin
+placement, Sketcher return, nested Cancel, inherited Curve frame, Point editing,
+inspection scene counts, save/reopen and Tree editing. Dialog tests cover
+removing every row and adding a new definition afterward. The source/catalog
+coverage, placeholder validation and affected controls pass in all five
+languages; the change reuses existing localized UI text.
+
+All 12 final CTest cases passed in 85.05 s, recorded in
+`build/cpp-windows-release/general-surface-frame-regressions.xml`. They include
+surface kernel/dialog/GUI checks, ordinary Feature types, Sketch conversion,
+external references, Body references, profile commands, axis highlighting and
+profile centerlines. Separate Sketcher, automatic-axis GUI, pending Curve Point
+GUI and template GUI checks also passed. Ordinary Feature behavior and placement
+remain covered alongside the new owned-editor role.
+
+The expanded combined surface test initially exhausted the default Windows
+1 MiB stack (`0xc00000fd`). Disassembly measured an 851856-byte main fixture
+frame before nested OCCT calls. Its MSVC test target now reserves 8 MiB, matching
+the product and other combined test suites. Temporary diagnostics were removed;
+no product geometry workaround or relaxed geometric assertion was introduced.
+This is local Windows verification, not a new portable release.
+
+### Boundary context and independent inspection (2026-10-05)
+
+Inputs are the pending owned boundary definitions and the independent eye states.
+The required output is continuous passive boundary context while editing another
+Sketch, Curve or Curve Point, with azure inspection independent of visibility.
+The existing native definition mesh, nested editor previews and shared inspection
+controls provide this without a kernel calculation or persistence change.
+
+The Surface preview now includes every boundary instead of filtering by eye
+state. The eye recolours only its exact wire, retaining original references and
+coordinates. Toggling eyes does not publish a base scene or create a transaction.
+The Curve Point preview retains the other Surface boundaries alongside its
+pending curve, excluding that active curve from the appended context to avoid
+duplicate geometry. Existing local/Body/occurrence transforms remain in use.
+
+The Windows regression set passed all five cases in 71.92 s: General Surface GUI,
+surface dialogs, translations, ordinary pending Curve Points and solid-state
+Sweep GUI. It covers all boundary wires visible with eyes off, exact independent
+inspection colours, unchanged wire identities/coordinates and base-scene counts,
+new Sketch Properties, Sketcher context, new Curve and new/existing Curve Point
+Properties, nested Cancel, native save/reopen and unchanged OK. Evidence is
+`build/cpp-windows-release/general-surface-context-regressions.xml`.
+The final mixed-boundary check also verifies Sketch Properties and Sketcher
+beside an existing Curve, followed by Cancel, and independent Curve-wire
+inspection. Curve row identities are mapped to their native wire entity identities
+without changing either stored identity. After this mapping was added, all three
+affected GUI/dialog/translation checks passed in 12.30 s, recorded in
+`build/cpp-windows-release/general-surface-mixed-context-regression.xml`.
+No user-visible text was added; source/catalog validation and affected controls
+passed in Czech, English, German, French and Russian. This is a local Windows
+build; it does not publish a portable release.
+
+## Boundary selection and presentation follow-up (2026-10-05)
+
+General Surface boundary Tree rows retain the parent feature/index routing used
+by Properties, while ordinary selection confirms a stable child component and
+highlights only its already displayed Sketch or Curve wire. Selecting another
+child, clearing selection or selecting the parent retires the previous wire.
+The GUI check verifies both child kinds, exact owners, unchanged scene revision
+and history, and the existing nested Sketch/Point Properties and Cancel routes.
+
+Surface Intersection publishes its calculated curve ownership to the common
+viewer picker. Hover, RMB candidate cycling, exact wire highlighting and LMB
+confirmation synchronize the feature Tree row. Its persisted topology identities
+remain unchanged. Fill Surface omits the unrelated Origin action. General
+Surface starts taller and expands the lower boundary table while retaining fixed
+row heights and upper fields. A resize check uses a parent window with sufficient
+room so it tests table growth rather than the required application-bounds clamp.
+
+Passive native preview points preserve their Sketch/construction presentation;
+inspection changes only their color. The native Windows framebuffer check passed
+in both light and dark themes, including ordinary, construction and inspected
+points and exclusion of passive points from picking (4.03 s). The offscreen
+backend could not validate the existing point-color fixture; verification used
+the repository's Windows GUI platform.
+
+The final five checks passed in 65.11 s: localization, viewer picking, Arc
+direction/own K, spline tangency/closure and surface dialogs. Evidence is
+`build/cpp-windows-release/arc-surface-final-regressions.xml`. The same product
+changes also passed General Surface GUI (5.66 s), Fill Surface GUI (10.17 s),
+Surface Intersection GUI (3.88 s) and Sketcher contracts (0.61 s). The own-K test
+uses actual free-input camera-ray coordinates and compares snap confirmations
+against the exact offered points, rather than assuming a screen projection
+recovers an ideal decimal coordinate. Native save/reopen and the established
+Arc reversal cases are included. No new user-visible text is introduced;
+source/catalog coverage and UI checks passed in all five supported languages.
+These are local Windows build checks, not a portable-release acceptance claim.
+
+## Completed surface wire visibility (2026-10-05)
+
+Ordinary Part display hides committed General Surface definitions and authored
+wire tools consumed by active Trim features. Visibility follows the effective
+history boundary and suppression state, so rollback and Undo restore unused
+inputs without changing their definitions. The existing preview publishes all
+owned definitions while editing; Trim Properties temporarily exposes its stored
+wire tools. Inspection remains independent of visibility.
+
+The native Part stores manual `surface_wire_visibility` overrides by stable
+authored object identity. Curve packet and owned Point identities are resolved
+to that object before display filtering; original reference packets remain
+available for explicit reference entry. Tree Show/Hide commits presentation with
+the already calculated boundaries. It does not invoke OCCT or invalidate the
+geometry fingerprint. A manual choice overrides automatic hiding. Hidden owned
+boundary selection uses the existing native definition mesh for that one
+boundary and the established Body/occurrence transforms, without publishing a
+new base scene or changing history.
+
+The regression fixtures cover mixed owned Sketch/Curve definitions, a cutting
+Intersection wire and ordinary Curve visibility, point visibility, Tree Show/Hide,
+Undo/Redo, unchanged OK, Cancel and actual GUI reopen of shown/hidden native
+files. Part and Skeleton start templates are saved with the changed native
+implementation; the New Document GUI gate checks active Body and ordinary
+modeling command availability. New actions reuse existing localized Show/Hide
+keys in all five catalogs.
+
+Trim's existing native-edge tool contract is unchanged. Standalone authored
+3D Curves are not accepted as Trim tools by that contract; their manual display
+is verified separately. No sampled-curve substitution or new kernel input path
+is introduced for the visibility change.
+
+The final Windows scene checks passed all four cases in 28.09 s: Fill Surface,
+General Surface, Trim and Intersection GUI. Evidence is
+`build/cpp-windows-release/surface-wire-visibility-scene-final.xml`. Native
+surface operations, surface dialogs and localization passed all three cases
+in 37.33 s, recorded in
+`build/cpp-windows-release/surface-wire-visibility-native-final.xml`. The New
+Document gate passed after both templates were regenerated (37.79 s), including
+active Body and normal commands in all five languages. Its testcase is in
+`build/cpp-windows-release/surface-wire-visibility-gui-final.xml`; that earlier
+run also contains the unsupported standalone-Curve Trim fixture failure,
+superseded by the corrected final scene suite above. The native file regression
+explicitly verifies both boolean visibility values and retention of calculated
+geometry. No portable release is published by these local checks.
+
+## Tree visibility and Sewing layout audit (2026-10-05)
+
+Wire visibility is offered only for standalone Sketches, authored Curves,
+Intersection containers and owned General Surface boundaries. Solid-producing
+Feature rows do not hide an unrelated source Sketch. Hidden names and inherited
+descendants are gray without an eye badge or hidden suffix; reference diagnostics
+retain their error presentation. Hidden Assembly parents no longer label their
+children as dependency-suppressed. Origin visibility remains scoped to an exact
+occurrence under the established temporary Origin selection policy.
+
+Body display filters its authored construction edges, points, axes, dimensions
+and constraint markers from persisted viewer data. The normal Part and active
+Part-in-Assembly paths consume the same filter. Original reference packets and
+cached calculated boundaries remain unchanged; editing keeps its ordinary
+rollback/context rules. The all-visible case returns immediately and hidden-owner
+resolution is reused within one scene publication, without OCCT.
+
+Sewing uses a fixed two-row viewport, centered uncaptioned row numbers, compact
+indicator/eye columns and a stretching reference field. Selection and removal
+scroll the trailing entry into view after the table layout is updated. Resizing
+and moving preserve upper controls, row heights and viewport height. Cancel,
+independent inspection, duplicate rejection and native OK remain unchanged.
+
+The repaired three-case Windows GUI/dialog run passed in 24.22 s, recorded in
+`build/cpp-windows-release/release-0501-visibility-repair.xml`. It verifies hidden
+Body construction/points, native persistence, unchanged fingerprints, Undo/Redo,
+gray descendant names, isolated repeated Assembly occurrences and Sewing
+layout/scrolling. Six independent native geometry checks passed in 43.92 s:
+surfaces, solid-state kernel, profile axes, rotation commands, Sketcher and
+drawing annotations (`release-0501-native.xml`).
+
+The initial visibility audit also passed measurement/centroid presentation,
+five-language localization, Sketch conversion, Fill/Sewing/Fillet, General
+Surface and Intersection. Its repaired failures are superseded above. Section
+plane visibility and its gray name passed before the existing Drawing Rename
+failure, which was already reproduced for release 2026100401. The complete
+repository-wide suite is not claimed green. The release record owns portable
+acceptance and final additional checks.

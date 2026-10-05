@@ -816,6 +816,7 @@ private:
     void show_sweep_properties(zima::document::FeatureKind kind, const std::string& container_id,bool rectangular=false);
     void show_sweep2d_properties(const std::string& container_id = {});
     void show_general_surface_curve_properties(GeneralSurfaceDialog*,unsigned);
+    void show_general_surface_sketch_properties(GeneralSurfaceDialog*,unsigned);
     void show_helical_sweep_properties(const std::string& container_id = {});
     void show_sweep3d_properties(const std::string& container_id = {});
     void transform_sketch_container(
@@ -952,6 +953,8 @@ private:
         const zima::viewer::ViewerCandidate& candidate,
         const zima::kernel::Vec3& origin,
         const zima::kernel::Vec3& direction) const;
+    [[nodiscard]] std::vector<zima::kernel::ViewerPoint> pending_arc_keypoints(
+        const zima::kernel::Vec3& origin,const zima::kernel::Vec3& direction) const;
     bool accept_sketch_segment_ray(
         const zima::kernel::Vec3& origin, const zima::kernel::Vec3& direction);
     struct SketchSegmentInference {

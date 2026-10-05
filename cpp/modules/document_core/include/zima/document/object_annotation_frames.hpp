@@ -47,7 +47,10 @@ part_annotation_frames(const PartDocument &part) {
                     const auto sketch=sketcher::Sketch::from_serialized(boundary.sketch_serialized);
                     kernel::ModelEnvelope frame;frame.origin=sketch.resolved_origin;
                     frame.axes={sketch.resolved_x_axis,sketch.resolved_y_axis,sketch.resolved_normal};
-                    frames[{sketch.id,{}}]=body_frame(c.id,std::move(frame));
+                    frames[{sketch.id,{}}]=kernel::composed_annotation_frame(parent,frame);
+                    const auto& feature=*boundary.sketch_feature;
+                    const auto placed=kernel::composed_annotation_frame(parent,annotation_frame(feature.placement));
+                    for(const auto& id:{feature.id,feature.feature_id,feature.container_origin.id})frames[{id,{}}]=placed;
                 }
         }
     for (const auto &sketch : part.sketches) {

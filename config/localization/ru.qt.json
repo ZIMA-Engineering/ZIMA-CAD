@@ -1,4 +1,5 @@
 {
+  "Disconnected centerline source segments": "Исходные сегменты оси не соединены.",
   "Oříznout plochu": "Обрезать поверхность",
   "Vlastnosti oříznutí plochy": "Свойства обрезки поверхности",
   "Vyberte cílovou plochu, řezné plochy nebo hrany a část, kterou chcete zachovat.": "Выберите целевую поверхность, режущие грани или рёбра и сохраняемую область.",
@@ -2124,5 +2125,7 @@
   "Vlastní hranice": "Собственная граница",
   "Přidat 3D křivku": "Добавить 3D-кривую",
   "Odstranit vlastní hranici": "Удалить собственную границу",
-  "Nakreslete hranice vlastními skicami nebo 3D křivkami. OK vypočítá plochu.": "Создайте границы собственными эскизами или 3D-кривыми. OK рассчитывает поверхность."
+  "Nakreslete hranice vlastními skicami nebo 3D křivkami. OK vypočítá plochu.": "Создайте границы собственными эскизами или 3D-кривыми. OK рассчитывает поверхность.",
+  "Přidat vlastní hranici…": "Добавить собственную границу…",
+  "Pro jiný typ odstraňte hranici a přidejte novou.": "Чтобы выбрать другой тип, удалите границу и добавьте новую."
 }

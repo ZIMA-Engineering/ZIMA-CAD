@@ -171,6 +171,18 @@ Completed native coverage includes:
   failure atomicity, target refresh on regeneration and Undo/Redo;
 - rotation Up To and symmetric extrusion Up To with independent volume checks.
 
+Directed **Up To** rotation coverage also checks both Feature sides, both
+zero-offset target-plane orientations and both drawing orders of the same
+construction axis. For a profile spanning radii 5 to 15 with height 8, the
+independent sector formula is `pi*(15^2-5^2)*8*angle/360`. On the End side,
+the +X target normal requires 270 degrees and the -X normal requires 90;
+Start exchanges these angles. Reversing the drawn axis does not exchange
+the authored Feature sides. The tests measure the preview's swept angle,
+verify the calculated volume, explicit regeneration, unchanged confirmation,
+Undo/Redo, native target persistence and a cold calculation after reopening.
+Symmetric 270-degree limits remain invalid because their combined span
+exceeds 360 degrees; they must not be shortened to force a quarter turn.
+
 The GUI contract exercises the public command, drawing a rectangle in the
 embedded Sketcher, native OK, reopening, Cancel, Undo/Redo and unrounded values.
 The expanded whole-Body-Origin placement and standalone-dimension checks pass.

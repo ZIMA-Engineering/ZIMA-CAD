@@ -5,6 +5,7 @@
 #include "measurement_dialog.hpp"
 #include "mass_properties_dialog.hpp"
 #include "primitive_properties_dialog.hpp"
+#include "tree_reference_state.hpp"
 #include <QTableWidget>
 #include <QComboBox>
 #include "drawing_window.hpp"
@@ -334,7 +335,22 @@ try{
         QMetaObject::invokeMethod(tree,"customContextMenuRequested",Qt::DirectConnection,Q_ARG(QPoint,tree->visualItemRect(item).center()));flush();
         check(invoked,"Body properties visibility context action missing");
         check(execute("body_properties.get",{{"object",in_body}}).data.at("visible")==expected,"Context menu did not save Origin visibility");
+        check((analysis_row(in_body)->foreground(0).color()==QColor(125,125,125))==!expected&&
+            (analysis_row(in_body)->child(0)->foreground(0).color()==QColor(125,125,125))==!expected,
+            "Centroid visibility does not shade both the saved record and its Origin");
         check(std::ranges::any_of(view->mesh().points,[&](const auto& p){return p.reference.owner_id==in_body+":origin";})==expected,"Origin picker/display ignored visibility");
+    }
+    for(bool visible:{false,true}) {
+        execute("body.set",{{"body",active_body},{"visible",visible}});flush();
+        check((analysis_row(in_body)->foreground(0).color()==QColor(125,125,125))==!visible&&
+            (analysis_row(in_body)->child(0)->foreground(0).color()==QColor(125,125,125))==!visible,
+            "Centroid rows do not inherit hidden Body names");
+        auto* measurement=analysis_row(body_measurement);
+        if(!measurement->data(0,missing_reference_role).toBool())
+            check((measurement->foreground(0).color()==QColor(125,125,125))==!visible,"Measurement name does not inherit hidden Body state");
+        else check(measurement->foreground(0).color()==QColor("#d85858"),"Body visibility erased a reference error");
+        check(execute("body_properties.get",{{"object",in_body}}).data.at("visible").get<bool>(),
+            "Body visibility changed the centroid's independent display choice");
     }
     // Restore the original source before the existing Assembly inspector test.
     // Each profile fixture now uses six public editing commands; two profiles

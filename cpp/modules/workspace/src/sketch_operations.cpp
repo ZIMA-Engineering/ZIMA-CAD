@@ -3,6 +3,7 @@
 #include <zima/workspace/sketch_operations.hpp>
 #include <zima/workspace/part_transactions.hpp>
 #include <zima/document/feature_sketches.hpp>
+#include <zima/document/general_surface.hpp>
 #include <zima/document/bend.hpp>
 #include <algorithm>
 
@@ -24,6 +25,11 @@ template<class Document,class Visitor> void visit_sketches(const Document& docum
     for(const auto& sketch:document.sketches)if(!visit(sketch))return;
     bool more=true;
     const auto feature=[&](const auto& container) {
+        if(container.feature_kind==document::FeatureKind::GeneralSurface) {
+            for(const auto& boundary:container.general_surface.boundaries)
+                if(more&&boundary.sketch_feature)more=visit(document::general_surface_display_sketch(container,boundary));
+            return;
+        }
         document::visit_feature_sketches(container,[&](const auto& data,std::size_t) {
             if(more)more=visit(sketcher::Sketch::from_serialized(data));
         });

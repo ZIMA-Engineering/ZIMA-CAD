@@ -97,12 +97,22 @@ int main(int argc,char** argv) {
         sewing_dialog->show();application.processEvents();auto* sewing_table=sewing_dialog->findChild<QTableWidget*>("surfaceSewingReferences");
         check(sewing_dialog->windowFlags().testFlag(Qt::SubWindow)&&sewing_table->rowCount()==1&&sewing_dialog->active_row()==0,
             "Sewing did not reuse internal reference-entry properties");
+        const int sewing_height=sewing_table->height();
+        check(sewing_height==sewing_table->horizontalHeader()->sizeHint().height()+2*sewing_table->frameWidth()+68&&
+            sewing_table->horizontalHeaderItem(0)->text().isEmpty(),"Sewing does not use a fixed two-row viewport with uncaptioned numbering");
         const kernel::FaceReference first{"first","face",{}},second{"second","face",{}};
         sewing_dialog->set_face(first);sewing_dialog->set_face(first);
         check(sewing_table->rowCount()==2&&sewing_dialog->pending.surface_sewing.faces.size()==1,"Sewing duplicate input inserted a second row");
         sewing_dialog->set_face(second);check(sewing_table->rowCount()==3&&sewing_dialog->inspected(0)&&sewing_dialog->inspected(1),"Sewing did not inspect selected faces independently");
         const int row_height=sewing_table->rowHeight(0),sewing_top=sewing_table->pos().y();sewing_dialog->resize(800,550);application.processEvents();
-        check(sewing_table->rowHeight(0)==row_height&&sewing_table->pos().y()==sewing_top,"Sewing resize moved upper fields or stretched rows");
+        check(sewing_table->rowHeight(0)==row_height&&sewing_table->pos().y()==sewing_top&&sewing_table->height()==sewing_height,
+            "Sewing resize moved upper fields or stretched its two-row viewport");
+        check(!sewing_table->visualItemRect(sewing_table->item(2,2)).isEmpty()&&
+            sewing_table->viewport()->rect().intersects(sewing_table->visualItemRect(sewing_table->item(2,2))),
+            "Sewing did not scroll the trailing entry into its fixed viewport");
+        const auto table_position=sewing_table->pos();sewing_dialog->move(40,60);application.processEvents();
+        check(sewing_table->pos()==table_position&&parent.rect().contains(sewing_dialog->geometry()),
+            "Moving Sewing properties changed its form layout or escaped the parent bounds");
         sewing_table->cellWidget(0,3)->findChild<QToolButton*>()->click();check(!sewing_dialog->inspected(0)&&sewing_dialog->inspected(1)&&sewing_dialog->active_row()==2,
             "Sewing inspection changed input ownership or another face");
         sewing_dialog->end_entry();check(sewing_dialog->active_row()==-1&&!sewing_dialog->inspected(1)&&sewing_dialog->pending.surface_sewing.faces.size()==2,"Ending sewing entry deleted data");
@@ -114,22 +124,30 @@ int main(int argc,char** argv) {
         auto* sewing_edit=new app::SurfaceSewingDialog(sewn,[&](auto){++sewing_commits;},&parent);sewing_edit->show();application.processEvents();
         sewing_edit->findChild<QTableWidget*>("surfaceSewingReferences")->cellWidget(0,1)->findChild<QPushButton*>()->click();sewing_edit->reject();application.processEvents();
         check(sewing_commits==1&&sewn.surface_sewing.faces.size()==2,"Sewing Cancel committed reference removal");
+        // Leave room to exercise growth without the required parent-bounds clamp.
+        parent.resize(1000,1100);application.processEvents();
         auto general=document::create_general_surface();int general_commits=0;document::HistoryContainer general_committed;
         auto* general_dialog=new app::GeneralSurfaceDialog(general,[&](auto value){++general_commits;general_committed=std::move(value);},&parent);
         general_dialog->show();application.processEvents();auto* general_table=general_dialog->findChild<QTableWidget*>("generalSurfaceBoundaries");
-        check(general_dialog->windowFlags().testFlag(Qt::SubWindow)&&general_table->rowCount()==4,"Owned surface did not use shared internal properties");
+        check(general_dialog->windowFlags().testFlag(Qt::SubWindow)&&general_table->rowCount()==5&&general_table->columnCount()==5,
+            "Owned surface did not use shared internal properties with a trailing row");
+        check(general_table->verticalHeader()->isVisible()&&general_table->model()->headerData(0,Qt::Vertical).toString()=="1"&&
+            general_table->horizontalHeaderItem(0)->text().isEmpty()&&!general_dialog->findChild<QPushButton*>("generalSurfaceAddSketch")&&
+            !general_dialog->findChild<QPushButton*>("generalSurfaceAddCurve"),"Owned boundary table retained its custom number column or bottom add actions");
         const auto first_owned=sketcher::Sketch::from_serialized(general.general_surface.boundaries[0].sketch_serialized).id;
-        general_table->cellWidget(0,1)->findChild<QCheckBox*>()->click();
+        general_table->cellWidget(0,0)->findChild<QCheckBox*>()->click();
         auto* down=general_dialog->findChild<QPushButton*>("generalSurfaceMoveDown");down->click();
         check(sketcher::Sketch::from_serialized(general_dialog->pending.general_surface.boundaries[1].sketch_serialized).id==first_owned&&
-            general_table->cellWidget(1,1)->findChild<QCheckBox*>()->isChecked(),"Owned boundary reorder changed identity or ordering selection");
+            general_table->cellWidget(1,0)->findChild<QCheckBox*>()->isChecked(),"Owned boundary reorder changed identity or ordering selection");
         general_table->cellWidget(1,4)->findChild<QToolButton*>()->click();
-        check(general_dialog->inspected_boundaries().contains(first_owned)&&general_table->cellWidget(1,1)->findChild<QCheckBox*>()->isChecked(),
+        check(general_dialog->inspected_boundaries().contains(first_owned)&&general_table->cellWidget(1,0)->findChild<QCheckBox*>()->isChecked(),
             "Owned inspection changed ordering selection");
-        int sketch_edits=0;general_dialog->edit_sketch=[&](unsigned row){check(row==1,"Owned field edited another boundary");++sketch_edits;};
+        int sketch_edits=0;general_dialog->edit_sketch_properties=[&](unsigned row){check(row==1,"Owned field edited another boundary");++sketch_edits;};
         general_table->cellClicked(1,3);check(sketch_edits==1,"Owned editable field did not open Sketch with one click");
-        qobject_cast<QComboBox*>(general_table->cellWidget(1,5))->setCurrentIndex(1);
-        qobject_cast<QDoubleSpinBox*>(general_table->cellWidget(1,6))->setValue(12);
+        auto edited_sketch=sketcher::Sketch::from_serialized(general_dialog->pending.general_surface.boundaries[1].sketch_serialized);
+        edited_sketch.plane=sketcher::SketchPlane::XZ;edited_sketch.plane_auto=false;edited_sketch.plane_offset=12;
+        static_cast<void>(edited_sketch.add_segment(0,0,10,0));general_dialog->set_sketch(1,edited_sketch);
+        check(!qobject_cast<QComboBox*>(general_table->cellWidget(1,2))->isEnabled(),"Populated type selector can discard authored geometry");
         const auto moved_sketch=sketcher::Sketch::from_serialized(general_dialog->pending.general_surface.boundaries[1].sketch_serialized);
         check(moved_sketch.plane==sketcher::SketchPlane::XZ&&moved_sketch.plane_offset==12&&moved_sketch.resolved_origin.y==12,
             "Owned Sketch plane/offset did not preserve ordinary local geometry");
@@ -137,16 +155,35 @@ int main(int argc,char** argv) {
         general_dialog->resize(general_dialog->width(),general_dialog->height()+100);application.processEvents();
         check(general_table->pos().y()==general_top&&general_table->rowHeight(1)==34&&general_table->viewport()->height()>general_height,
             "Owned surface resizing redistributed upper content or stretched rows");
-        general_dialog->findChild<QPushButton*>("generalSurfaceAddCurve")->click();application.processEvents();
-        check(general_table->rowCount()==5&&general_dialog->pending.general_surface.boundaries.back().curve&&
+        int curve_edits=0;general_dialog->edit_curve=[&](unsigned row){check(row==4,"Trailing row opened another Curve");++curve_edits;};
+        qobject_cast<QComboBox*>(general_table->cellWidget(4,2))->setCurrentIndex(1);general_table->cellClicked(4,3);application.processEvents();
+        check(general_table->rowCount()==6&&curve_edits==1&&general_dialog->pending.general_surface.boundaries.back().curve&&
             general_dialog->pending.general_surface.boundaries.back().curve->parent_construction_id==general.id,"Owned 3D Curve was not inserted inside its feature");
-        general_dialog->end_entry();check(general_dialog->inspected_boundaries().empty()&&general_table->rowCount()==5,"Owned end-entry deleted data");
-        general_table->cellWidget(4,2)->findChild<QPushButton*>()->click();check(general_table->rowCount()==4,"Owned remove failed to delete its list item");
+        general_dialog->end_entry();check(general_dialog->inspected_boundaries().empty()&&general_table->rowCount()==6,"Owned end-entry deleted data");
+        general_table->cellWidget(4,1)->findChild<QPushButton*>()->click();check(general_table->rowCount()==5,"Owned remove failed to delete its list item");
+        const auto blank_id=sketcher::Sketch::from_serialized(general_dialog->pending.general_surface.boundaries[2].sketch_serialized).id;
+        qobject_cast<QComboBox*>(general_table->cellWidget(2,2))->setCurrentIndex(1);
+        check(general_dialog->pending.general_surface.boundaries[2].curve&&general_dialog->pending.general_surface.boundaries[2].curve->id!=blank_id,
+            "Empty boundary type did not create a new correctly owned definition");
         general_dialog->buttons()->button(QDialogButtonBox::Ok)->click();application.processEvents();
         check(general_commits==1&&sketcher::Sketch::from_serialized(general_committed.general_surface.boundaries[1].sketch_serialized).id==first_owned,
             "Owned OK lost edited boundary identity");
         auto* general_edit=new app::GeneralSurfaceDialog(general_committed,[&](auto){++general_commits;},&parent);general_edit->show();application.processEvents();
-        general_edit->findChild<QTableWidget*>("generalSurfaceBoundaries")->cellWidget(0,2)->findChild<QPushButton*>()->click();general_edit->reject();application.processEvents();
+        auto* empty_table=general_edit->findChild<QTableWidget*>("generalSurfaceBoundaries");
+        while(!general_edit->pending.general_surface.boundaries.empty()) {
+            auto* remove=empty_table->cellWidget(0,1)->findChild<QPushButton*>();
+            check(remove->isEnabled(),"The last owned boundaries cannot be removed");remove->click();
+        }
+        check(empty_table->rowCount()==1&&general_edit->inspected_boundaries().empty()&&
+            !general_edit->findChild<QPushButton*>("generalSurfaceMoveUp")->isEnabled()&&
+            !general_edit->findChild<QPushButton*>("generalSurfaceMoveDown")->isEnabled(),"Empty draft retained stale rows or ordering controls");
+        general_edit->buttons()->button(QDialogButtonBox::Ok)->click();application.processEvents();
+        check(general_edit->isVisible()&&general_commits==1,"Empty surface OK bypassed boundary validation");
+        int replacement_edits=0;general_edit->edit_sketch_properties=[&](unsigned row){check(row==0,"Empty draft added the wrong row");++replacement_edits;};
+        empty_table->cellClicked(0,3);
+        check(replacement_edits==1&&empty_table->rowCount()==2&&general_edit->pending.general_surface.boundaries.size()==1,
+            "Empty surface draft cannot add a new owned boundary");
+        general_edit->reject();application.processEvents();
         check(general_commits==1&&general_committed.general_surface.boundaries.size()==4,"Owned Cancel committed a draft removal");
         int intersection_commits=0;document::HistoryContainer intersection_committed;
         auto* intersection_dialog=new app::SurfaceIntersectionDialog(document::create_surface_intersection(),[&](auto value){++intersection_commits;intersection_committed=std::move(value);},&parent);

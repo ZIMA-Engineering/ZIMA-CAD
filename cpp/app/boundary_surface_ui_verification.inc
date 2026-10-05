@@ -22,6 +22,7 @@ int verify_boundary_surface_ui(QApplication& application,AssemblyWorkspaceWindow
         const auto row=[&](const std::string& id)->QTreeWidgetItem*{for(QTreeWidgetItemIterator it(tree);*it;++it)if((*it)->data(0,Qt::UserRole).toString().toStdString()==id&&(*it)->data(0,Qt::UserRole+3)!="part-sketch-plane")return *it;return nullptr;};
         const auto dialog=[&]{return dynamic_cast<BoundarySurfaceDialog*>(window.findChild<QWidget*>("boundarySurfaceDialog"));};
         action->trigger();flush();check(dialog(),"Boundary creation did not open");
+        check(!dialog()->findChild<QPushButton*>("containerOriginSelectionButton"),"Fill Surface exposes an unrelated Origin action");
         for(int i=0;i<4;++i){
             // Use the Sketch child as well as its history-container parent.
             // Re-arm by a real cell click after ending reference entry.

@@ -52,6 +52,7 @@ void AssemblyWorkspaceWindow::start_sketch_polyline() {
 }
 
 void AssemblyWorkspaceWindow::cancel_sketch_segment() {
+    if(sketch_arc_active_||sketch_elliptical_arc_active_)viewer_->set_command_snap_points({});
     template_region_picking_=false;template_region_first_.reset();
     // Switching directly from Trim to another Sketch command commits the
     // accumulated preview as one revision. Escape cancels Trim explicitly in
@@ -988,6 +989,7 @@ void AssemblyWorkspaceWindow::start_sketch_arc() {
     if (active_sketch() == nullptr) return;
     cancel_sketch_segment();
     sketch_arc_active_ = true;
+    viewer_->set_command_snap_point_provider([this](const auto& origin,const auto& direction){return pending_arc_keypoints(origin,direction);});
     set_sketch_placement_selection_contract();
     sketch_arc_clockwise_ = false;
     selected_sketch_segment_id_.clear();
@@ -1001,6 +1003,7 @@ void AssemblyWorkspaceWindow::start_sketch_arc() {
 }
 
 void AssemblyWorkspaceWindow::cancel_sketch_arc() {
+    viewer_->set_command_snap_points({});
     sketch_arc_active_ = false;
     sketch_arc_clockwise_ = false;
     pending_arc_center_.reset();
@@ -1038,6 +1041,7 @@ void AssemblyWorkspaceWindow::start_sketch_elliptical_arc() {
     if (active_sketch() == nullptr) return;
     cancel_sketch_segment();
     sketch_elliptical_arc_active_ = true;
+    viewer_->set_command_snap_point_provider([this](const auto& origin,const auto& direction){return pending_arc_keypoints(origin,direction);});
     set_sketch_placement_selection_contract();
     selected_sketch_segment_id_.clear();
     selected_sketch_point_id_.clear();
@@ -1051,6 +1055,7 @@ void AssemblyWorkspaceWindow::start_sketch_elliptical_arc() {
 }
 
 void AssemblyWorkspaceWindow::cancel_sketch_elliptical_arc() {
+    viewer_->set_command_snap_points({});
     sketch_elliptical_arc_active_ = false;
     pending_elliptical_arc_center_.reset();
     pending_elliptical_arc_major_.reset();

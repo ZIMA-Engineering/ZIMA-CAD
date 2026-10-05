@@ -190,7 +190,12 @@ void add_history_container_tree_children(QTreeWidgetItem* parent,
             child->setData(0,Qt::UserRole,QString::fromStdString(container.id));
             child->setData(0,Qt::UserRole+1,QString::fromStdString(instance_path.encoded()));
             child->setData(0,Qt::UserRole+3,"general-surface-boundary");child->setData(0,Qt::UserRole+6,static_cast<int>(i));
-            if(boundary.curve)add_construction_tree_children(child,*boundary.curve,instance_path);
+            if(boundary.curve) {
+                add_construction_tree_children(child,*boundary.curve,instance_path);
+                // This owned Curve has no independently editable Origin.
+                delete child->takeChild(0);
+            }else add_construction_origin_tree_item(child,boundary.sketch_feature->container_origin,
+                boundary.sketch_feature->name,instance_path);
         }
         return;
     }

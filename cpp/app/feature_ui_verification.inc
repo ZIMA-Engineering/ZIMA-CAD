@@ -16,8 +16,12 @@ static void verify_feature_profile_axes(QApplication& application,const std::fil
         feature.feature.origin_centerline=feature.feature.centroid_centerline=true;
         for(auto& side:feature.feature.sides){side.operation=document::FeatureSideOperation::Extrusion;side.length=10;}
         sketch.owner_container_id=feature.id;part.history={feature};part.sketches={sketch};
+        auto next_sketch=sketcher::Sketch::create_default();static_cast<void>(next_sketch.add_rectangle(4,-5,14,9));
+        auto next_feature=document::PartDocument::create_feature_container(next_sketch.id);
+        next_feature.feature.sides[0].operation=document::FeatureSideOperation::Extrusion;next_feature.feature.sides[0].length=5;
+        next_sketch.owner_container_id=next_feature.id;part.history.push_back(next_feature);part.sketches.push_back(next_sketch);
         document::BodyHistoryGraph graph;const auto body=graph.create_body("Profile axes");
-        graph.insert({document::PartHistoryKind::Feature,feature.id});part.set_body_history(graph);part.resolve_constructions();
+        graph.insert({document::PartHistoryKind::Feature,feature.id});graph.insert({document::PartHistoryKind::Feature,next_feature.id});part.set_body_history(graph);part.resolve_constructions();
         const auto calculated=kernel::OcctKernel{}.evaluate_history(part.kernel_operations());
         const auto path=directory/(ellipse?"feature-ellipse-axes.prtz":"feature-circle-axes.prtz");part.save(path,calculated);
         for(int reopen=0;reopen<2;++reopen) {
@@ -31,6 +35,50 @@ static void verify_feature_profile_axes(QApplication& application,const std::fil
             for(const auto& axis:calculated.back().mesh.original_references.axes)
                 if(axis.reference.semantic_key.starts_with("axis:profile:from:")||axis.reference.semantic_key.starts_with("centerline:from:"))axes.push_back(axis.reference);
             check(axes.size()==6,"Profile fixture needs two profile, origin and centroid axes");
+            std::vector<kernel::ViewerPoint> endpoints;
+            for(const auto& point:calculated.back().mesh.original_references.points)
+                if(point.reference.owner_id==feature.id&&point.reference.semantic_key.starts_with("profile:path-point:"))endpoints.push_back(point);
+            check(endpoints.size()==12,"Profile fixture needs two independent endpoints for every automatic and optional axis");
+            const auto expect_axes=[&](bool enabled=true) {
+                for(const auto& ref:axes)check(std::ranges::count_if(view->mesh().axes,[&](const auto& a){return a.reference==ref;})==
+                    (enabled||ref.semantic_key.starts_with("axis:profile:")?1:0),"Properties/cursor lost or duplicated a profile axis");
+                for(const auto& point:endpoints) {
+                    const bool visible=enabled||point.reference.semantic_key.find(":from:axis:")!=std::string::npos;
+                    const auto found=std::ranges::find(view->mesh().points,point.reference,&kernel::ViewerPoint::reference);
+                    check((found!=view->mesh().points.end())==visible,"Properties/cursor lost or exposed a disabled axis endpoint");
+                    if(visible) {
+                        check(found->always_visible&&found->display_owner_id==feature.id,"Axis endpoint lost its visible construction role");
+                        check(found->position==point.position,"Axis endpoint changed its persisted position");
+                        check(std::ranges::count_if(view->mesh().points,[&](const auto& p){return p.reference==point.reference;})==1,"Axis endpoint duplicated");
+                    }
+                }
+            };
+            auto* history_tree=dynamic_cast<HistoryTreeWidget*>(tree);check(history_tree,"Axes history Tree missing");
+            history_tree->body_cursor_moved(QString::fromStdString(body),1);flush();expect_axes();
+            if(language=="cs"&&reopen==0) {
+                const auto open_properties=[&] {
+                    QTreeWidgetItem* item{};
+                    for(QTreeWidgetItemIterator it(tree);*it;++it)if((*it)->data(0,Qt::UserRole).toString().toStdString()==feature.id&&(*it)->data(0,Qt::UserRole+3)=="part-container"){item=*it;break;}
+                    check(item,"Axes Feature row missing");window.show_tree_item_properties(item);flush();
+                    auto* dialog=dynamic_cast<PrimitivePropertiesDialog*>(window.findChild<QWidget*>("featurePropertiesDialog"));
+                    check(dialog,"Axes Feature properties missing");return dialog;
+                };
+                auto* dialog=open_properties();dialog->findChild<QCheckBox*>("featureOriginAxis")->setChecked(false);
+                dialog->findChild<QCheckBox*>("featureCentroidAxis")->setChecked(false);dialog->reject();flush();expect_axes();
+                dialog=open_properties();dialog->findChild<QCheckBox*>("featureOriginAxis")->setChecked(false);
+                dialog->findChild<QCheckBox*>("featureCentroidAxis")->setChecked(false);
+                dialog->buttons()->button(QDialogButtonBox::Ok)->click();flush();expect_axes(false);
+                check(window.execute_console_command("undo").ok,"Axes Undo failed");flush();expect_axes();
+                check(window.execute_console_command("redo").ok,"Axes Redo failed");flush();expect_axes(false);
+                dialog=open_properties();dialog->findChild<QCheckBox*>("featureOriginAxis")->setChecked(true);
+                dialog->findChild<QCheckBox*>("featureCentroidAxis")->setChecked(true);
+                dialog->buttons()->button(QDialogButtonBox::Ok)->click();flush();expect_axes();
+            }
+            history_tree->body_cursor_moved(QString::fromStdString(body),0);flush();
+            check(std::ranges::none_of(view->mesh().axes,[&](const auto& a){return a.reference.owner_id==feature.id;}),"Cursor exposed downstream axes");
+            check(std::ranges::none_of(view->mesh().points,[&](const auto& p){return p.reference.owner_id==feature.id&&p.reference.semantic_key.starts_with("profile:path-point:");}),"Cursor exposed downstream axis endpoints");
+            history_tree->body_cursor_moved(QString::fromStdString(body),1);flush();expect_axes();
+            history_tree->body_cursor_moved(QString::fromStdString(body),2);flush();expect_axes();
             for(const auto& ref:axes) {
                 QTreeWidgetItem* found{};
                 for(QTreeWidgetItemIterator row(tree);*row;++row)
@@ -830,14 +878,16 @@ static void verify_sketch_context_conversion(QApplication& application, Assembly
             auto* tree=window.findChild<QTreeWidget*>("documentTree");QTreeWidgetItem* row{};
             for(QTreeWidgetItemIterator it(tree);*it;++it)if((*it)->data(0,Qt::UserRole).toString().toStdString()==feature.id&&(*it)->data(0,Qt::UserRole+3)=="part-container"){row=*it;break;}
             check(row,"Sketch Feature context row missing");for(auto* parent=row->parent();parent;parent=parent->parent())parent->setExpanded(true);
-            tree->setCurrentItem(row);tree->scrollToItem(row);flush();bool found=false;
+            tree->setCurrentItem(row);tree->scrollToItem(row);flush();bool found=false,wire_visibility=false;
             QTimer::singleShot(0,&window,[&]{
                 auto* menu=qobject_cast<QMenu*>(QApplication::activePopupWidget());if(!menu)return;
+                wire_visibility=std::ranges::any_of(menu->actions(),[](const auto* action){return action->objectName()=="surfaceWireVisibilityAction";});
                 for(auto* action:menu->actions())if(action->text()==QObject::tr(rotation?"Rotace":"Vytažení")) {
                     found=true;menu->setActiveAction(action);QKeyEvent enter(QEvent::KeyPress,Qt::Key_Return,Qt::NoModifier);QApplication::sendEvent(menu,&enter);return;
                 }menu->close();
             });
             tree->customContextMenuRequested(tree->visualItemRect(row).center());flush();check(found,"Sketch conversion shortcut missing");
+            check(wire_visibility,"Standalone Sketch context lost its wire visibility action");
             auto* dialog=dynamic_cast<PrimitivePropertiesDialog*>(window.findChild<QWidget*>("featurePropertiesDialog"));
             check(dialog&&dialog->pending_value().id==feature.id,"Shortcut did not edit the same Feature");
             const auto pending=dialog->pending_value();check(pending.feature.type==document::FeatureType::Modeling&&pending.feature.sketch_id==sketch.id,"Shortcut lost type or Sketch identity");
@@ -847,7 +897,21 @@ static void verify_sketch_context_conversion(QApplication& application, Assembly
         open()->reject();flush();run("save");check(document::PartDocument::load(path).find_container(feature.id)->feature==feature.feature,"Shortcut Cancel modified Feature");
         open()->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();run("save");
         auto saved=document::PartDocument::load(path);check(saved.history.size()==1&&saved.find_container(feature.id)->feature.type==document::FeatureType::Modeling&&saved.find_container(feature.id)->name==feature.name,"Shortcut commit replaced identity or authored name");
-        check(saved.sketches.front().id==sketch.id,"Shortcut commit replaced Sketch");run("undo");run("save");check(document::PartDocument::load(path).find_container(feature.id)->feature.type==document::FeatureType::Sketch,"Shortcut Undo failed");
+        check(saved.sketches.front().id==sketch.id,"Shortcut commit replaced Sketch");
+        auto* tree=window.findChild<QTreeWidget*>("documentTree");QTreeWidgetItem* result_row{};
+        for(QTreeWidgetItemIterator it(tree);*it;++it)if((*it)->data(0,Qt::UserRole).toString().toStdString()==feature.id&&
+            (*it)->data(0,Qt::UserRole+3)=="part-container"){result_row=*it;break;}
+        check(result_row,"Converted Feature context row missing");
+        for(auto* parent=result_row->parent();parent;parent=parent->parent())parent->setExpanded(true);
+        tree->scrollToItem(result_row);flush();bool menu_opened=false,wire_visibility=false;
+        QTimer::singleShot(0,&window,[&] {
+            auto* menu=qobject_cast<QMenu*>(QApplication::activePopupWidget());if(!menu)return;
+            menu_opened=true;wire_visibility=std::ranges::any_of(menu->actions(),[](const auto* action){return action->objectName()=="surfaceWireVisibilityAction";});
+            menu->close();
+        });
+        tree->customContextMenuRequested(tree->visualItemRect(result_row).center());flush();
+        check(menu_opened&&!wire_visibility,"Extrusion/Revolution context offers ineffective Sketch-wire Show/Hide");
+        run("undo");run("save");check(document::PartDocument::load(path).find_container(feature.id)->feature.type==document::FeatureType::Sketch,"Shortcut Undo failed");
         run("redo");run("save");check(document::PartDocument::load(path).find_container(feature.id)->feature.type==document::FeatureType::Modeling,"Shortcut Redo failed");
     }
 }

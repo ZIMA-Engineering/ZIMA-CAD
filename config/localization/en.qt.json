@@ -1,4 +1,5 @@
 {
+  "Disconnected centerline source segments": "The source segments of the axis are disconnected.",
   "Oříznout plochu": "Trim surface",
   "Vlastnosti oříznutí plochy": "Surface trim properties",
   "Vyberte cílovou plochu, řezné plochy nebo hrany a část, kterou chcete zachovat.": "Select the target surface, cutting faces or edges, and the region to retain.",
@@ -2124,5 +2125,7 @@
   "Vlastní hranice": "Owned boundary",
   "Přidat 3D křivku": "Add 3D Curve",
   "Odstranit vlastní hranici": "Remove the owned boundary",
-  "Nakreslete hranice vlastními skicami nebo 3D křivkami. OK vypočítá plochu.": "Draw boundaries with owned Sketches or 3D Curves. OK calculates the surface."
+  "Nakreslete hranice vlastními skicami nebo 3D křivkami. OK vypočítá plochu.": "Draw boundaries with owned Sketches or 3D Curves. OK calculates the surface.",
+  "Přidat vlastní hranici…": "Add owned boundary…",
+  "Pro jiný typ odstraňte hranici a přidejte novou.": "For a different type, remove the boundary and add a new one."
 }

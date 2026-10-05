@@ -24,6 +24,15 @@ struct ExternalPointContact {
     std::string reference_id;
     bool midpoint{};
 };
+// Endpoint snapping owns the end position, but does not cancel an already
+// offered tangent at the other end. Preview and confirmation share this check.
+inline bool start_tangent_matches_endpoint(const sketcher::Sketch& sketch,
+        const std::string& curve,std::array<double,2> start,std::array<double,2> end,double tolerance) {
+    if(curve.empty())return false;
+    const auto tangent=sketch.curve_tangent_at_point(curve,start[0],start[1]);
+    return tangent && std::hypot(end[0]-start[0],end[1]-start[1])>1e-9 &&
+        std::abs((end[0]-start[0])*(*tangent)[1]-(end[1]-start[1])*(*tangent)[0])<=tolerance;
+}
 inline std::vector<ExternalPointContact> infer_external_point_contacts(const sketcher::Sketch& sketch,
         std::array<double,2> start,std::array<double,2> end,double tolerance,const SketchInferenceSettings& settings) {
     std::vector<ExternalPointContact> midpoints,contacts;

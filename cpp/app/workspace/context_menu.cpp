@@ -20,7 +20,7 @@ void AssemblyWorkspaceWindow::show_tree_item_properties(QTreeWidgetItem* item) {
             show_sweep_properties(zima::document::FeatureKind::GeneralSurface,ancestor->data(0,Qt::UserRole).toString().toStdString());
             if(auto* parent=dynamic_cast<GeneralSurfaceDialog*>(properties_dialog_)) {
                 const auto& curve=parent->pending.general_surface.boundaries.at(stage).curve;
-                if(!curve)return;
+                if(!curve){parent->edit_sketch_properties(stage);return;}
                 std::optional<std::size_t> point_index;
                 if(editing_point) {
                     for(std::size_t i=0;i<curve->curve_points.size();++i)if(curve->curve_points[i].id==selected_id)point_index=i;
@@ -35,7 +35,7 @@ void AssemblyWorkspaceWindow::show_tree_item_properties(QTreeWidgetItem* item) {
         const auto stage=item->data(0,Qt::UserRole+6).toUInt();
         show_sweep_properties(zima::document::FeatureKind::GeneralSurface,item->data(0,Qt::UserRole).toString().toStdString());
         if(auto* dialog=dynamic_cast<GeneralSurfaceDialog*>(properties_dialog_)) {
-            if(dialog->pending.general_surface.boundaries.at(stage).curve)dialog->edit_curve(stage);else dialog->edit_sketch(stage);
+            if(dialog->pending.general_surface.boundaries.at(stage).curve)dialog->edit_curve(stage);else dialog->edit_sketch_properties(stage);
         }
         return;
     }

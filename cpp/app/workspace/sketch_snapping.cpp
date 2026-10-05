@@ -109,6 +109,16 @@ AssemblyWorkspaceWindow::sketch_candidate_snap_ray(
     std::optional<std::array<double, 2>> position;
     std::string support_geometry_id;
     std::optional<zima::sketcher::ConstraintKind> relation;
+    if(candidate.semantic_key.starts_with("sketch_curve_keypoint:preview:")) {
+        if(!(sketch_arc_active_||sketch_elliptical_arc_active_)||
+            !automatic_constraint_enabled(zima::sketcher::ConstraintKind::Coincident))return std::nullopt;
+        const auto point=viewer_->candidate_point(candidate);if(!point)return std::nullopt;
+        const auto local=sketch->local_point(active_part_local_ray(point->position,{0,0,1}).first);
+        const auto ray=sketch->normal_ray(local[0],local[1]);
+        // Draft K positions are transient input, never references to the
+        // not-yet-created curve. The authored curve stores the exact point.
+        return SketchCandidateSnap{ray.first,ray.second,"sketch_preview_keypoint",std::nullopt};
+    }
     if (candidate.kind == zima::viewer::CandidateKind::SketchPoint &&
         candidate.semantic_key.starts_with("point:")) {
         support_geometry_id = candidate.semantic_key.substr(6);
@@ -523,6 +533,7 @@ bool AssemblyWorkspaceWindow::accept_sketch_segment_ray(
         return true;
     }
     auto inferred_end = inferred_sketch_segment_end(*position);
+    const auto offered_start_tangent=inferred_end.tangent_at_start ? inferred_end.tangent_reference_id : std::string{};
     auto confirmed_position = inferred_end.position;
     auto direction_inference = inferred_end.kind;
     const auto offered_direction_inference = direction_inference;
@@ -690,6 +701,16 @@ bool AssemblyWorkspaceWindow::accept_sketch_segment_ray(
         }
     }
     const bool polyline_arc = sketch_polyline_active_ && sketch_polyline_arc_mode_;
+    const bool snapped_start_tangent=!polyline_arc && end_snap_kind &&
+        automatic_constraint_enabled(zima::sketcher::ConstraintKind::Tangent) &&
+        start_tangent_matches_endpoint(*sketch,offered_start_tangent,*pending_segment_start_,confirmed_position,
+            viewer_->world_tolerance_for_pixels(sketch_tangent_intent_pixels*viewer_->devicePixelRatioF()));
+    if(snapped_start_tangent) {
+        if(inferred_end.tangent_reference_id.empty()) {
+            inferred_end.tangent_reference_id=offered_start_tangent;inferred_end.tangent_at_start=true;
+        }
+        direction_inference.reset();inferred_end.perpendicular_reference_id.clear();
+    }
     const bool polyline_arc_endpoint_snap = polyline_arc && end_snap_kind.has_value();
     const bool polyline_arc_point_alignment = polyline_arc &&
         !polyline_arc_endpoint_snap && direction_inference.has_value() &&
@@ -721,7 +742,7 @@ bool AssemblyWorkspaceWindow::accept_sketch_segment_ray(
     }
     const auto common_supports = !polyline_arc &&
             automatic_constraint_enabled(zima::sketcher::ConstraintKind::Tangent)
-        ? common_tangent_supports(*sketch,pending_segment_start_snap_geometry_id_,
+        ? common_tangent_supports(*sketch,snapped_start_tangent ? offered_start_tangent : pending_segment_start_snap_geometry_id_,
             end_snap_geometry_id,*pending_segment_start_,confirmed_position,
             viewer_->world_tolerance_for_pixels(sketch_tangent_intent_pixels*viewer_->devicePixelRatioF()))
         : std::nullopt;
@@ -873,6 +894,12 @@ bool AssemblyWorkspaceWindow::accept_sketch_segment_ray(
                         // Exact snapped endpoints can already imply tangency.
                         // Keep the segment and its support references.
                     }
+                }
+                if(snapped_start_tangent && (!inferred_end.tangent_at_start ||
+                        inferred_end.tangent_reference_id!=offered_start_tangent)) {
+                    try {static_cast<void>(target.add_tangent_constraint(offered_start_tangent,
+                        created_geometry_id,effective_first_point_id));}
+                    catch(const zima::sketcher::RedundantConstraint&) {}
                 }
                 if (!inferred_end.perpendicular_reference_id.empty()) {
                     static_cast<void>(target.add_segment_pair_constraint(

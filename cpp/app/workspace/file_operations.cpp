@@ -13,6 +13,7 @@
 #include <zima/document/versioned_file.hpp>
 #include <QSvgRenderer>
 #include <QPainter>
+#include "../surface_wire_visibility.hpp"
 
 namespace zima::app {
 using namespace workspace_detail;
@@ -456,7 +457,9 @@ void AssemblyWorkspaceWindow::refresh_delete_file_actions() {
     const auto archives = has_saved_document
         ? document_archive_paths(*target) : std::vector<std::filesystem::path>{};
     const auto active=workspace_.active_document_id();
-    rename_document_action_->setEnabled(has_saved_document||(!active.empty()&&workspace::family_owner(workspace_,active)!=active));
+    const auto* drawing=workspace_.open_drawing(workspace_.displayed_document_id());
+    rename_document_action_->setEnabled((drawing&&!drawing->path.empty()&&std::filesystem::is_regular_file(drawing->path))||
+        has_saved_document||(!active.empty()&&workspace::family_owner(workspace_,active)!=active));
     delete_old_versions_action_->setEnabled(!archives.empty());
     delete_old_versions_keep_latest_action_->setEnabled(archives.size() > 1);
     delete_current_file_action_->setEnabled(has_saved_document);
@@ -497,7 +500,8 @@ bool AssemblyWorkspaceWindow::native_file_operation_ready(QDialog* own_dialog) {
 }
 
 void AssemblyWorkspaceWindow::add_object_rename_action(QMenu& menu,const std::string& document,const std::string& kind,const std::string& object) {
-    if(properties_dialog_||!active_sketch_id_.empty()||document!=workspace_.active_document_id())return;
+    if(properties_dialog_||!active_sketch_id_.empty()||(document!=workspace_.active_document_id()&&
+        !(document==workspace_.displayed_document_id()&&workspace_.open_drawing(document))))return;
     const auto initial=workspace::tree_object_name(workspace_,document,kind,object);
     if(!initial)return;
     auto* action=menu.addAction(resource_icon("rename"),tr("Přejmenovat…"));action->setObjectName("renameTreeItemAction");
@@ -519,19 +523,43 @@ void AssemblyWorkspaceWindow::add_object_rename_action(QMenu& menu,const std::st
 
 void AssemblyWorkspaceWindow::add_tree_rename_action(QMenu& menu,QTreeWidgetItem* item) {
     if(!item||properties_dialog_||!active_sketch_id_.empty())return;
+    const auto target=workspace_.open_drawing(workspace_.displayed_document_id())?workspace_.displayed_document_id():workspace_.active_document_id();
     if(!item->parent()) {
-        if(workspace_.active_document_id()!=workspace_.displayed_document_id())return;
+        if(target!=workspace_.displayed_document_id())return;
         if(rename_document_action_->isEnabled())menu.addAction(rename_document_action_);
-        else add_object_rename_action(menu,workspace_.active_document_id(),"document",workspace_.active_document_id());
+        else add_object_rename_action(menu,target,"document",target);
         return;
     }
     const auto path=item->data(0,Qt::UserRole+1).toString().toStdString();
     if(!path.empty()&&path!=resolve_active_occurrence(workspace_.active_document_id()).value_or(std::string{}))return;
     const auto kind=item->data(0,Qt::UserRole+3).toString().toStdString();
-    add_object_rename_action(menu,workspace_.active_document_id(),kind,item->data(0,Qt::UserRole).toString().toStdString());
+    add_object_rename_action(menu,target,kind,item->data(0,Qt::UserRole).toString().toStdString());
 }
 
 QAction* AssemblyWorkspaceWindow::exec_tree_menu(QMenu& menu,QTreeWidgetItem* item,const QPoint& position) {
+    if(item&&!properties_dialog_&&active_sketch_id_.empty())if(auto* part=workspace_.open_part(workspace_.active_document_id())) {
+        const auto role=item->data(0,Qt::UserRole+3).toString();
+        std::optional<std::string> owner;
+        const auto id=item->data(0,Qt::UserRole).toString().toStdString();
+        const auto& document=part->session.document();
+        if(role=="general-surface-boundary") {
+            const auto* feature=document.find_container(id);const auto index=item->data(0,Qt::UserRole+6).toUInt();
+            if(feature&&index<feature->general_surface.boundaries.size())owner=surface_boundary_wire_owner(feature->general_surface.boundaries[index]);
+        }else if(role=="part-sketch"||role=="part-construction")owner=surface_wire_owner(document,id);
+        else if(role=="part-container")owner=surface_wire_container_owner(document,id);
+        if(owner) {
+            const bool visible=!hidden_surface_wires(document).contains(*owner);
+            auto* visibility=menu.addAction(resource_icon(visible?"hide":"show"),visible?tr("Skrýt"):tr("Zobrazit"));
+            visibility->setObjectName("surfaceWireVisibilityAction");
+            connect(visibility,&QAction::triggered,this,[this,document_id=document.document_id,owner=*owner,visible] {
+                auto* current=workspace_.open_part(document_id);if(!current)return;
+                auto next=current->session.document();next.surface_wire_visibility[owner]=!visible;
+                current->session.commit(std::move(next),current->session.calculated_boundaries());
+                viewer_->clear_selection();tree_->clearSelection();
+                preserve_view_on_refresh_=true;refresh_tabs();refresh_scene();
+            });
+        }
+    }
     add_tree_rename_action(menu,item);
     return menu.exec(tree_->viewport()->mapToGlobal(position));
 }
@@ -539,7 +567,8 @@ QAction* AssemblyWorkspaceWindow::exec_tree_menu(QMenu& menu,QTreeWidgetItem* it
 void AssemblyWorkspaceWindow::rename_document_file(std::string document_id) {
     if (rename_document_dialog_) { rename_document_dialog_->raise(); return; }
     if (!native_file_operation_ready()) return;
-    const auto id = document_id.empty()?workspace_.active_document_id():document_id;
+    const auto id = document_id.empty()?(workspace_.open_drawing(workspace_.displayed_document_id())?
+        workspace_.displayed_document_id():workspace_.active_document_id()):document_id;
     const bool family_instance=!id.empty()&&workspace::family_owner(workspace_,id)!=id;
     const auto* selected=workspace_.find(id);
     const auto target=selected?std::visit([](const auto& value)->std::optional<std::filesystem::path> {

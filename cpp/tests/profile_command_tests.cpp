@@ -5,12 +5,16 @@
 #include <numbers>
 #include <cmath>
 #include <algorithm>
+#include <source_location>
 using namespace zima;
 using commands::Json;
 namespace fs=std::filesystem;
 namespace {
 void require(bool ok,const char* message){if(!ok)throw std::runtime_error(message);}
-void near(double actual,double expected){if(!std::isfinite(actual)||std::abs(actual-expected)>1e-5)throw std::runtime_error("Expected "+std::to_string(expected)+", got "+std::to_string(actual));}
+void near(double actual,double expected,const std::source_location location=std::source_location::current()) {
+    if(!std::isfinite(actual)||std::abs(actual-expected)>1e-5)throw std::runtime_error(
+        std::string(location.function_name())+":"+std::to_string(location.line())+": Expected "+std::to_string(expected)+", got "+std::to_string(actual));
+}
 struct Fixture {
     workspace::Workspace live;const kernel::OcctKernel& kernel;fs::path directory;command_host::Interaction interaction;command_host::Host host;
     Fixture(const kernel::OcctKernel& kernel,fs::path directory):kernel(kernel),directory(std::move(directory)),host(live,kernel,this->directory,options()){}
@@ -192,6 +196,7 @@ void unified_feature(const kernel::OcctKernel& kernel,fs::path directory) {
     // Creation from a transient owned Sketch uses the same atomic transaction.
     draft=*std::ranges::find(f.doc().sketches,sketch,&sketcher::Sketch::id);
     f.run("new",{{"type","part"},{"name","unified-feature-created"}});
+    const auto opposite=f.run("construction.create",{{"kind","plane"},{"name","Opposite rotation end"},{"base_plane","yz"},{"values",{{"rotation_z",180}}}});
     auto created=document::PartDocument::create_feature_container(draft.id);
     draft.owner_container_id=created.id;
     created.feature.sides[0].length=2;
@@ -220,13 +225,24 @@ void unified_feature(const kernel::OcctKernel& kernel,fs::path directory) {
     document::ExtrusionParameters::EndTarget end;
     end.reference={f.doc().document_id+":origin","origin:plane:yz",{}};
     limited.feature.sides[0].targets={end};
-    commit(limited);near(f.volume(),800*std::numbers::pi);
+    // End rotates into the positive Sketch-normal half-space. The +X
+    // target normal therefore requires 270 degrees, not the shorter 90.
+    commit(limited);near(f.volume(),2400*std::numbers::pi);
     require(!f.doc().feature_preview_edges(*f.doc().find_container(created.id)).empty(),"Rotation limit has no analytical preview");
+    limited=*f.doc().find_container(created.id);limited.feature.symmetric=true;
+    const auto directed=f.doc().serialized();
+    rejected=false;try{commit(limited);}catch(const std::exception&){rejected=true;}
+    require(rejected&&f.doc().serialized()==directed,"Symmetric 270-degree limits were shortened or committed");
+    // A separate datum at the same zero-offset plane retains the opposite
+    // normal. This target requires 90 degrees on End and permits symmetry.
+    limited=*f.doc().find_container(created.id);
+    limited.feature.sides[0].targets.front().reference={opposite.at("entity").get<std::string>(),"plane",{}};
+    commit(limited);near(f.volume(),800*std::numbers::pi);
     limited=*f.doc().find_container(created.id);limited.feature.symmetric=true;
     commit(limited);near(f.volume(),1600*std::numbers::pi);
     f.run("undo");near(f.volume(),800*std::numbers::pi);f.run("redo");near(f.volume(),1600*std::numbers::pi);
     limited=*f.doc().find_container(created.id);
-    limited.feature.sides[0].targets.front().reference.semantic_key="origin:plane:xz";
+    limited.feature.sides[0].targets.front().reference={f.doc().document_id+":origin","origin:plane:xz",{}};
     const auto valid=f.doc().serialized();
     rejected=false;try{commit(limited);}catch(const std::exception&){rejected=true;}
     require(rejected&&f.doc().serialized()==valid,"Invalid rotation limit changed committed state");
@@ -243,6 +259,64 @@ void front_reference() {
         references[1].orientation_role=="front" && references[1].offset==12 &&
         references[2].orientation_role=="top" && !references[2].orientation_only,
         "Profile normalization discarded a stored reference or changed FRONT/TOP order");
+}
+void directed_rotation_targets(const kernel::OcctKernel& kernel,const fs::path& directory) {
+    for(bool reversed_axis:{false,true})for(std::size_t side:{0u,1u})for(bool opposite_target:{false,true}) {
+        Fixture f(kernel,directory);
+        const auto name="directed-rotation-"+std::to_string(reversed_axis)+std::to_string(side)+std::to_string(opposite_target);
+        f.run("new",{{"type","part"},{"name",name}});
+        const auto target=f.run("construction.create",{{"kind","plane"},{"name","Rotation end"},{"base_plane","yz"},
+            {"offset_mm",0.0},{"values",{{"rotation_z",opposite_target?180:0}}}});
+        const auto sketch=f.rectangle(5,0,10,8);
+        const auto axis=f.line(sketch,0,reversed_axis?10:-2,0,reversed_axis?-2:10);
+        f.run("sketch.segment.centerline",{{"sketch",sketch},{"segment",axis},{"centerline",true}});
+        auto value=workspace::profile_from_sketch(f.doc(),sketch,document::FeatureKind::Feature);
+        for(auto& settings:value.feature.sides)settings.operation=document::FeatureSideOperation::None;
+        auto& settings=value.feature.sides[side];settings.operation=document::FeatureSideOperation::Revolution;
+        settings.rotation_extent=document::FeatureRotationExtent::UpTo;
+        document::ExtrusionParameters::EndTarget end;
+        end.reference={target.at("entity").get<std::string>(),"plane",{}};settings.targets={end};
+        workspace::commit_profile(f.live,kernel,f.doc().document_id,value,workspace::ProfileEditMode::TransformSketch);
+        const auto id=value.id;
+        // Annular cylinder sector: pi*(15^2-5^2)*8*angle/360.
+        // +X is 270 on End, 90 on Start; -X exchanges those angles.
+        const double angle=(opposite_target==(side==0))?90:270;
+        const double expected=std::numbers::pi*(15*15-5*5)*8*angle/360;
+        const auto verify=[&] {
+            near(f.volume(),expected);
+            const auto& feature=*f.doc().find_container(id);
+            require(feature.feature.axis_segment_id==axis,"Rotation limit changed the authored axis identity");
+            const auto& saved_target=feature.feature.sides[side].targets.front();
+            require(saved_target.reference==end.reference&&saved_target.kind==document::EndTargetKind::Plane,
+                "Rotation limit lost its original oriented datum");
+            near(saved_target.fallback_normal.x,opposite_target?-1:1);
+            near(saved_target.fallback_normal.y,0);near(saved_target.fallback_normal.z,0);
+            const auto operations=f.doc().kernel_operations();
+            const auto& group=std::get<kernel::FeatureGroupRequest>(operations.back().primitive);
+            require(group.children.size()==1,"Rotation limit produced another active side");
+            near(std::get<kernel::RevolutionRequest>(group.children.front()).angle_degrees,angle);
+            bool swept=false;
+            for(const auto& edge:f.doc().feature_preview_edges(feature))if(edge.reference.semantic_key=="preview:sweep") {
+                double sweep{};
+                for(std::size_t i=1;i<edge.points.size();++i) {
+                    const auto a=edge.points[i-1],b=edge.points[i];
+                    sweep+=std::abs(std::atan2(a.x*b.z-a.z*b.x,a.x*b.x+a.z*b.z))*180/std::numbers::pi;
+                }
+                near(sweep,angle);swept=true;
+            }
+            require(swept,"Rotation limit has no measurable wire preview");
+        };
+        verify();const auto revision=f.part().session.revision();const auto* cache=f.part().session.calculated_boundaries().data();
+        workspace::commit_profile(f.live,kernel,f.doc().document_id,*f.doc().find_container(id),workspace::ProfileEditMode::Replace);
+        require(f.part().session.revision()==revision&&f.part().session.calculated_boundaries().data()==cache,
+            "Unchanged rotation limit recalculated or inserted an Undo step");
+        f.run("regenerate");verify();f.run("save");
+        std::vector<kernel::BodyResult> persisted;
+        const auto reopened=document::PartDocument::load(directory/(name+".prtz"),&persisted);
+        require(reopened.find_container(id)->feature==f.doc().find_container(id)->feature,"Native rotation limit lost its side or target orientation");
+        near(persisted.back().volume,expected);near(kernel::OcctKernel{}.evaluate_history(reopened.kernel_operations()).back().volume,expected);
+        f.run("undo");f.run("redo");verify();
+    }
 }
 void sheet_cut_methods(const kernel::OcctKernel& kernel,fs::path directory) {
     Fixture f(kernel,directory);f.run("new",{{"type","part"},{"name","sheet-cut-methods"}});
@@ -453,5 +527,6 @@ void revolution(const kernel::OcctKernel& kernel,fs::path directory){
 }
 int main(){try{const auto root=fs::canonical(fs::temp_directory_path());const auto directory=root/("zima-profile-commands-"+document::PartDocument::create_default().document_id);
     require(fs::create_directory(directory),"Cannot create fixture directory");kernel::OcctKernel kernel;front_reference();touching_features(kernel,directory);drafted_feature(kernel,directory);unified_feature(kernel,directory);surfaces(kernel,directory);sheet_cut_methods(kernel,directory);extrusion(kernel,directory);thin_and_cut(kernel,directory);end_targets(kernel,directory);original_body_target_commands(kernel,directory);revolution(kernel,directory);
+    directed_rotation_targets(kernel,directory);
     require(directory.parent_path()==root,"Unexpected cleanup path");fs::remove_all(directory);std::cout<<"Profile commands: native ownership, exact solid volumes, Thin walls, cuts, dimensions, locks, atomic errors and Undo/Redo passed\n";return 0;
 }catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}

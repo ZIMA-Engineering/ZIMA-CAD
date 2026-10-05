@@ -7,11 +7,23 @@
 #include "../sheet_transition_dialog.hpp"
 #include "../general_surface_dialog.hpp"
 #include <zima/workspace/general_surface_operations.hpp>
+#include <zima/viewer/view_theme.hpp>
+#include "../../common/interaction_colors.hpp"
 
 namespace zima::app {
 using namespace workspace_detail;
 
 namespace {
+void colour_surface_boundary_preview(std::vector<kernel::ViewerEdge>& edges,
+        const GeneralSurfaceDialog& dialog,const QPalette& palette) {
+    const auto foreground=viewer::view_theme(palette).foreground.name().toStdString();
+    for(auto& edge:edges) {
+        if(dialog.inspects_boundary_owner(edge.reference.owner_id))
+            edge.color=interaction::selected.name().toStdString();
+        else if(edge.color.empty())
+            edge.color=edge.construction?interaction::axis.name().toStdString():foreground;
+    }
+}
 std::optional<zima::kernel::ViewerPoint> helical_start_marker(zima::document::HistoryContainer container) {
     try {
         zima::document::PartDocument::reframe_helical_sketches(container,0);
@@ -97,7 +109,9 @@ void AssemblyWorkspaceWindow::show_sweep_properties(zima::document::FeatureKind 
         auto sketch=zima::sketcher::Sketch::from_serialized(data);
         sketch.name=QObject::tr(sketch.name.c_str()).toStdString();data=sketch.serialized();
     };
-    if (general) { for(auto& boundary:initial.general_surface.boundaries)if(!boundary.curve)localize_sketch(boundary.sketch_serialized); }
+    if (general) { for(auto& boundary:initial.general_surface.boundaries)if(!boundary.curve){localize_sketch(boundary.sketch_serialized);
+        boundary.sketch_feature->name=sketcher::Sketch::from_serialized(boundary.sketch_serialized).name;
+        boundary.sketch_feature->feature.automatic_name=boundary.sketch_feature->name;} }
     else if (planar) { for (auto& data : initial.sweep2d.sketches()) localize_sketch(data); }
     else if(transition) { for(auto& data:initial.sheet_transition.sketches)localize_sketch(data);const auto defaults=zima::document::sheet_metal_defaults(part->session.document());initial.sheet_transition.thickness=defaults.thickness_mm.value_or(1.);initial.sheet_transition.inside_radius=initial.sheet_transition.thickness;initial.sheet_transition.k_factor=defaults.k_factor; }
     else { for (auto& data : initial.helical.sketches) localize_sketch(data); }
@@ -194,7 +208,9 @@ void AssemblyWorkspaceWindow::show_sweep_properties(zima::document::FeatureKind 
         try{
             if(!valid&&!c.placement.references.empty())throw std::runtime_error("Chybí reference umístění kontejneru");
             if(planar)zima::document::PartDocument::resolve_sweep2d_planes(c,geometry);
-            if(general)preview_mesh=zima::document::general_surface_definition_mesh(c);
+            if(general) {
+                preview_mesh=zima::document::general_surface_definition_mesh(c);
+            }
             else if(planar)preview_mesh=zima::document::PartDocument::sweep2d_preview_mesh(c);
             else if(transition)preview_mesh=zima::document::sheet_transition_preview(c);
             else edges=zima::document::PartDocument::helical_preview_edges(c);
@@ -211,8 +227,9 @@ void AssemblyWorkspaceWindow::show_sweep_properties(zima::document::FeatureKind 
         }
         for(auto& e:edges){e.reference.instance_path=properties_dialog_instance_path_;if(!properties_dialog_instance_path_.empty())for(auto& p:e.points)p=workspace_.occurrence_point_to_scene(workspace_.displayed_document_id(),zima::assembly::InstancePath::decode(properties_dialog_instance_path_),p);}
         if(auto* editor=dynamic_cast<GeneralSurfaceDialog*>(dialog)) {
+            colour_surface_boundary_preview(edges,*editor,viewer_->palette());
             auto inspected=highlighted_reference_edge_keys(*dialog);
-            for(const auto& edge:edges)if(editor->inspected_boundaries().contains(edge.reference.owner_id))
+            for(const auto& edge:edges)if(editor->inspects_boundary_owner(edge.reference.owner_id))
                 inspected.insert({edge.reference.owner_id,edge.reference.semantic_key,properties_dialog_instance_path_});
             viewer_->set_constraint_reference_highlights({},std::move(inspected));
             if(!pending_primitive_reference_index_&&!local_origin_selection_active_)
@@ -226,10 +243,26 @@ void AssemblyWorkspaceWindow::show_sweep_properties(zima::document::FeatureKind 
         for(const auto& point:preview_mesh.points)points.push_back(scene_point(point.position));
         viewer_->set_transient_edges(std::move(edges));
         // A new edge frame clears its preceding point/label overlays.
-        viewer_->set_transient_labels(std::move(labels));viewer_->set_transient_points(std::move(points));
+        viewer_->set_transient_labels(std::move(labels));
+        if(auto* editor=dynamic_cast<GeneralSurfaceDialog*>(dialog)) {
+            auto inspected=highlighted_reference_edge_keys(*dialog);
+            for(const auto& edge:viewer_->transient_edges())if(editor->inspects_boundary_owner(edge.reference.owner_id))
+                inspected.insert({edge.reference.owner_id,edge.reference.semantic_key,properties_dialog_instance_path_});
+            for(auto& point:preview_mesh.points) {
+                point.position=scene_point(point.position);point.reference.instance_path=properties_dialog_instance_path_;
+                if(editor->inspects_boundary_owner(point.reference.owner_id))
+                    inspected.insert({point.reference.owner_id,point.reference.semantic_key,properties_dialog_instance_path_});
+            }
+            viewer_->set_constraint_reference_highlights({},std::move(inspected));
+            viewer_->set_transient_model_points(std::move(preview_mesh.points));
+        } else viewer_->set_transient_points(std::move(points));
         if(!pending_primitive_reference_index_&&!feature_reference_pick_&&!local_origin_selection_active_)set_primitive_properties_dimension_selection();
     };
     dialog->edit_sketch=[this,dialog,planar,transition,general,geometry,body_id](unsigned stage){
+        if(general) {
+            if(auto* editor=dynamic_cast<GeneralSurfaceDialog*>(dialog))show_general_surface_sketch_properties(editor,stage);
+            return;
+        }
         try{
             QString frame_warning;
             auto framed=dialog->pending;
@@ -284,8 +317,34 @@ void AssemblyWorkspaceWindow::show_sweep_properties(zima::document::FeatureKind 
             state_->setText(frame_warning.isEmpty() ? tr("Nakreslete geometrii a potom zvolte Dokončit skicu.") : frame_warning);
         }catch(const std::exception& e){dialog->set_status(QString::fromUtf8(e.what()));}
     };
-    if(auto* editor=dynamic_cast<GeneralSurfaceDialog*>(dialog))
+    if(auto* editor=dynamic_cast<GeneralSurfaceDialog*>(dialog)) {
         editor->edit_curve=[this,editor](unsigned stage){show_general_surface_curve_properties(editor,stage);};
+        editor->edit_sketch_properties=[this,editor](unsigned stage){show_general_surface_sketch_properties(editor,stage);};
+        editor->inspection_changed=[this,editor,body_id] {
+            if(!editor->isVisible())return;
+            auto mesh=zima::document::general_surface_definition_mesh(editor->pending);
+            colour_surface_boundary_preview(mesh.edges,*editor,viewer_->palette());
+            if(!body_id.empty())if(const auto* part=workspace_.open_part(workspace_.active_document_id()))mesh=part->session.document().place_body_mesh(std::move(mesh),body_id);
+            auto highlights=highlighted_reference_edge_keys(*editor);
+            const auto scene_point=[&](zima::kernel::Vec3 point){return properties_dialog_instance_path_.empty()?point:
+                workspace_.occurrence_point_to_scene(workspace_.displayed_document_id(),zima::assembly::InstancePath::decode(properties_dialog_instance_path_),point);};
+            for(auto& edge:mesh.edges) {
+                edge.reference.instance_path=properties_dialog_instance_path_;
+                for(auto& point:edge.points)point=scene_point(point);
+                if(editor->inspects_boundary_owner(edge.reference.owner_id))
+                    highlights.insert({edge.reference.owner_id,edge.reference.semantic_key,properties_dialog_instance_path_});
+            }
+            for(auto& point:mesh.points) {
+                point.position=scene_point(point.position);point.reference.instance_path=properties_dialog_instance_path_;
+                if(editor->inspects_boundary_owner(point.reference.owner_id))
+                    highlights.insert({point.reference.owner_id,point.reference.semantic_key,properties_dialog_instance_path_});
+            }
+            std::vector<std::pair<zima::kernel::Vec3,std::string>> labels;
+            for(const auto& marker:mesh.constraint_markers)labels.emplace_back(scene_point(marker.position),marker.label);
+            viewer_->set_constraint_reference_highlights({},std::move(highlights));viewer_->set_transient_edges(std::move(mesh.edges));
+            viewer_->set_transient_model_points(std::move(mesh.points));viewer_->set_transient_labels(std::move(labels));
+        };
+    }
     connect(dialog,&QDialog::finished,this,[this]{
         helical_sketch_context_.reset();
         feature_reference_pick_={};feature_reference_end_={};pending_primitive_reference_index_.reset();primitive_reference_auto_advance_=false;

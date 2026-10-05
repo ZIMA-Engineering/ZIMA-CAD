@@ -17,6 +17,17 @@ H-Sweep additionally retains its other pending source Sketches as passive contex
 
 ## Tool confirmation
 
+When a Polyline continues from an Arc, snapping the new Segment's other end to
+a point, line, axis or curve retains the offered start tangency if the accepted
+endpoint remains within the same tangent-intent tolerance. The endpoint keeps
+its exact common-picker contact. Preview shows `C T` at the start and the native
+Sketch persists the tangent relation and its `T` marker. Tangency does not carry
+over to an endpoint outside that intent tolerance. This also applies to an
+ordinary Segment starting at a supported curve endpoint.
+When both ends offer curve tangency, the Polyline reuses the existing common
+tangent construction, including its `C T` contact and quadrant-as-branch-hint
+rules. It retains the chain's shared native Arc endpoint.
+
 Geometry and dimension entry offer eligible points before overlapping curves,
 lines, axes or annotations, including the second reference after selecting a
 line. Native endpoints and external characteristic points follow the same rule.
@@ -381,6 +392,14 @@ input points visible through subsequent steps. Ordinary geometry snapping offers
 `C`; exact quadrant points of circles/arcs/ellipses offer `K`. Confirmed offers
 persist as real constraints; preview cannot show a relationship that disappears
 on completion.
+
+Circular and elliptical Arc entry also offers the pending curve's own exact
+quadrant points through the common viewer candidate list. A circular Arc uses
+its entered centre and live/fixed radius; an elliptical Arc uses its entered
+semi-axes, including rotated axes. The cursor displays `K`, and confirmation
+uses the exact offered point. These draft points define the new curve and do
+not create a persisted constraint referring to that same unfinished curve.
+Finishing or cancelling the command removes its temporary candidates.
 
 After confirming an arc's start point, RMB in empty View space reverses the
 direction before the final LMB click. This applies to both circular and

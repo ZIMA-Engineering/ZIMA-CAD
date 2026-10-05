@@ -19,6 +19,7 @@ named_views=[]
 reference_errors={}
 removed_reference_states={}
 sections=[]
+surface_wire_visibility={}
 symbol_annotations=[]
 symbol_editor_definition=null
 type=part

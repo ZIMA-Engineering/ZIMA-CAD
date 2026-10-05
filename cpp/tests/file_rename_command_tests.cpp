@@ -348,15 +348,62 @@ int main() {
         }
         {
             Fixture fixture(root / "drawing-only", part, boundaries);
-            const auto part_bytes=read(fixture.source);
+            const auto closed_bytes=read(fixture.closed_file);
             auto job=workspace::prepare_document_file_rename(fixture.live,fixture.drawing.document_id,"drawing-only.drwz",fixture.work);
-            job.stage();require(job.commit(fixture.live).ok(),"Standalone Drawing rename failed");
+            job.stage();require(job.commit(fixture.live).ok(),"Drawing/model rename failed");
             const auto destination=fixture.companion.parent_path()/"drawing-only.drwz";
-            require(fs::exists(destination)&&!fs::exists(fixture.companion)&&read(fixture.source)==part_bytes,
-                "Drawing rename moved or rewrote its Part");
+            const auto model=fixture.source.parent_path()/"drawing-only.prtz";
+            require(fs::exists(destination)&&!fs::exists(fixture.companion)&&fs::exists(model)&&!fs::exists(fixture.source)&&read(fixture.closed_file)==closed_bytes,
+                "Drawing rename did not rename its Part or rewrote a closed dependency");
             const auto saved=drawing::DrawingDocument::load(destination);
-            require(saved.document_id==fixture.drawing.document_id&&saved.source_path==fixture.source&&
-                fixture.live.open_drawing(saved.document_id)->path==destination,"Drawing rename lost source identity or tab path");
+            require(saved.document_id==fixture.drawing.document_id&&saved.source_document_id==part.document_id&&saved.source_path==model&&
+                fixture.live.open_drawing(saved.document_id)->path==destination&&fixture.live.open_part(part.document_id)->path==model&&
+                fixture.cached==&fixture.live.open_part(part.document_id)->session.calculated_boundaries().back()&&
+                fixture.live.open_part(part.document_id)->session.document().user_parameters.at("LIVE_ONLY")=="one",
+                "Drawing rename lost source identity, unsaved edits, cache or tab path");
+            for(const auto& component:fixture.live.open_assembly(fixture.group.document_id)->session.document().components)
+                require(component.source_path==model&&component.name=="drawing-only","Drawing rename missed open Assembly occurrences");
+            require(fixture.live.open_part(part.document_id)->session.undo()&&fixture.live.open_part(part.document_id)->session.redo()&&
+                fixture.live.open_part(part.document_id)->session.document().name=="drawing-only","Model Undo restored its old file name");
+        }
+        {
+            Fixture fixture(root / "drawing-assembly",part,boundaries);
+            auto* state=fixture.live.open_drawing(fixture.drawing.document_id);auto drawing=state->document();
+            drawing.source_document_id=fixture.group.document_id;drawing.source_path=fixture.assembly_file;state->commit(drawing);
+            auto parent=assembly::AssemblyDocument::create_default();
+            const auto occurrence=assembly::AssemblyDocument::create_assembly_occurrence("Child",fixture.group.document_id,fixture.assembly_file,fixture.group);
+            parent.components={occurrence};const auto parent_path=fixture.root/"parent.asmz";parent.save(parent_path);fixture.live.add_assembly(parent,parent_path);
+            state=fixture.live.open_drawing(fixture.drawing.document_id);
+            auto job=workspace::prepare_document_file_rename(fixture.live,fixture.drawing.document_id,"renamed-group.drwz",fixture.work);
+            job.stage();require(job.commit(fixture.live).ok(),"Drawing did not rename its Assembly source");
+            const auto target=fixture.assembly_file.parent_path()/"renamed-group.asmz";
+            require(!fs::exists(fixture.assembly_file)&&fs::exists(target)&&read(fixture.source)==fixture.original.at(fixture.source)&&
+                fixture.live.open_assembly(parent.document_id)->session.document().components.front().source_path==target&&
+                state->document().source_path==target&&state->document().sheets.front().views.front().source_path==fixture.source,
+                "Assembly Drawing rename changed an unrelated view source or missed its parent Assembly");
+        }
+        {
+            Fixture fixture(root/"drawing-collision",part,boundaries);write(fixture.target,"occupied");
+            rejects([&]{static_cast<void>(workspace::prepare_document_file_rename(fixture.live,fixture.drawing.document_id,
+                document::path_to_utf8(fixture.renamed_companion.filename()),fixture.work));},"destination_exists");
+            for(const auto& [path,bytes]:fixture.original)require(read(path)==bytes,"Rejected paired rename changed an original");
+        }
+        {
+            Fixture fixture(root/"drawing-closed-model",part,boundaries);
+            require(fixture.live.remove(part.document_id),"Cannot close the primary model fixture");
+            auto job=workspace::prepare_document_file_rename(fixture.live,fixture.drawing.document_id,"closed-model.drwz",fixture.work);
+            job.stage();require(job.commit(fixture.live).ok(),"Drawing rename requires an already-open model tab");
+            const auto model=fixture.source.parent_path()/"closed-model.prtz";
+            require(fs::exists(model)&&!fs::exists(fixture.source)&&
+                fixture.live.open_assembly(fixture.group.document_id)->session.document().components.front().source_path==model,
+                "Closed primary model rename missed open Assembly references");
+        }
+        {
+            const auto folder=root/"blank-drawing";fs::create_directory(folder);
+            auto drawing=drawing::DrawingDocument::create_default();const auto source=folder/"blank.drwz";drawing.save(source);
+            workspace::Workspace live;live.add_drawing(drawing,source);
+            auto job=workspace::prepare_document_file_rename(live,drawing.document_id,"renamed.drwz",folder);job.stage();
+            require(job.commit(live).ok()&&fs::exists(folder/"renamed.drwz"),"Drawing without a primary model cannot be renamed");
         }
         {
             const auto folder=root/"case-only";fs::create_directory(folder);

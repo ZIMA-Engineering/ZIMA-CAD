@@ -121,7 +121,10 @@ void detach_deleted_history_references(document::PartDocument& doc,const History
         if(f.sweep2d.path_plane&&local(*f.sweep2d.path_plane))f.sweep2d.path_plane.reset();
         construction(construction,f.sweep3d.path);
         if(f.feature_kind==document::FeatureKind::GeneralSurface)
-            for(auto& boundary:f.general_surface.boundaries)if(boundary.curve)construction(construction,*boundary.curve);
+            for(auto& boundary:f.general_surface.boundaries) {
+                if(boundary.curve)construction(construction,*boundary.curve);
+                else refs(boundary.sketch_feature->placement.references);
+            }
         for(auto& profile:f.sweep3d.profiles)id(profile.sketch_id);
         for(auto& boundary:f.boundary_surface.boundaries) {
             if(lost(boundary.owner_id))boundary={};

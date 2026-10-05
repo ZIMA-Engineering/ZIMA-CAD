@@ -705,7 +705,7 @@ void verify_point_marker_colours(QApplication& application,QWidget& parent) {
         view.set_mesh(mesh);view.set_selection_contract({});view.show();view.raise();
         application.processEvents();
         require(framebuffer_contains_color_near(view.grabFramebuffer(),view.size(),{250,180},
-            (i==0||i==references.size()-1)?QColor(0,0,0):(i==4||i==5)?viewer::view_theme(view.palette()).foreground:QColor(173,110,46),8),
+            (i==0||i==references.size()-1)?QColor(0,0,0):i==4?viewer::view_theme(view.palette()).foreground:QColor(173,110,46),8),
             "Main Origin and construction/feature/occurrence points have incorrect base colours");
         view.confirm_reference(references[i].owner_id,references[i].semantic_key,
             references[i].instance_path,viewer::CandidateKind::Vertex);
@@ -880,7 +880,7 @@ void verify_feature_axis_highlight(QApplication& application,QWidget& parent) {
         mesh.axes.push_back({{0,y,0},{1,0,0},40,{owner,keys[i],path}});
         for(const double x:{-20.,20.}) {
             kernel::ViewerPoint point;point.position={x,y,0};
-            point.reference={owner,keys[i]+(x<0?":start":":end"),path};
+            point.reference={owner,"profile:path-point:"+std::string(x<0?"start:from:":"end:from:")+keys[i],path};
             point.display_owner_id=owner;mesh.points.push_back(point);
         }
     }
@@ -907,6 +907,9 @@ void verify_feature_axis_highlight(QApplication& application,QWidget& parent) {
             const bool expected=selected==1?i<4:selected==2?i==0:false;
             require(expected?azure>5:azure==0,"Whole-feature selection did not highlight exactly its own axis lines");
             if(!expected)require(brown>5,"Unselected profile axis line lost its normal presentation");
+            for(const double x:{-20.,20.})
+                require(framebuffer_contains_color_near(frame,view.size(),project(x,-30+12*i),expected?QColor("#00D1FF"):QColor(173,110,46),3),
+                    "Automatic/origin/centroid axis endpoint does not follow its axis color");
         }
     };
     check_lines(0);view.confirm_container("feature");application.processEvents();check_lines(1);
@@ -933,12 +936,23 @@ void verify_feature_axis_highlight(QApplication& application,QWidget& parent) {
     arc.reference={"feature","centerline:from:centroid:profile",{}};
     arc.display_owner_id="feature";arc.construction=arc.overlay=arc.dash_dot=true;
     curved.mesh.edges.push_back(arc);curved.mesh.original_references.edges=curved.mesh.edges;
+    for(const bool start:{true,false}) {
+        kernel::ViewerPoint point;point.position=start?arc.points.front():arc.points.back();
+        point.reference={"feature","profile:path-point:"+std::string(start?"start:from:":"end:from:")+arc.reference.semantic_key,{}};
+        point.display_owner_id="feature";curved.mesh.points.push_back(point);
+    }
+    curved.mesh.original_references.points=curved.mesh.points;
     for(int state=0;state<4;++state) {
         if(state) {
             auto& reference=curved.mesh.edges.front().reference;
             reference.semantic_key=kernel::solid_state_child_key(reference.owner_id,reference.semantic_key);
             reference.owner_id="state-"+std::to_string(state);
             curved.mesh.original_references.edges=curved.mesh.edges;
+            for(auto& point:curved.mesh.points) {
+                point.reference.semantic_key=kernel::solid_state_child_key(point.reference.owner_id,point.reference.semantic_key);
+                point.reference.owner_id=reference.owner_id;
+            }
+            curved.mesh.original_references.points=curved.mesh.points;
         }
         for(const bool reopened:{false,true}) {
             const auto packet=reopened?document::load_body_result(document::serialize_body_result(curved)):curved;
@@ -949,6 +963,9 @@ void verify_feature_axis_highlight(QApplication& application,QWidget& parent) {
                 view.set_display_mode(mode);
                 view.set_reference_visibility(viewer::ReferenceVisibility::Axes,true);application.processEvents();
                 const auto shown=view.grabFramebuffer();
+                for(const auto& point:packet.mesh.points)
+                    require(framebuffer_contains_color_near(shown,view.size(),project(point.position.x,point.position.y),QColor(173,110,46),3),
+                        "Rotation path endpoint lost its brown axis color after state changes or native reopen");
                 view.set_reference_visibility(viewer::ReferenceVisibility::Axes,false);application.processEvents();
                 const auto hidden=view.grabFramebuffer();
                 require(shown!=hidden&&framebuffer_contains_color_near(shown,view.size(),{300,250},QColor(173,110,46),35),
@@ -960,7 +977,22 @@ void verify_feature_axis_highlight(QApplication& application,QWidget& parent) {
                 "Restored rotation centerline omitted from authored feature highlighting");
         }
     }
-    std::cout<<"Feature axis lines follow whole-container selection and retain exact instance/reference isolation\n";
+    // Rotation's authored Sketch axis must have brown grips in active and passive views.
+    auto sketch=sketcher::Sketch::create_default();
+    const auto segment=sketch.add_segment(-20,0,20,0);sketch.set_segment_centerline(segment,true);
+    for(const bool passive:{false,true}) {
+        auto packet=sketch.viewer_mesh();if(passive)sketch.filter_hidden_3d_geometry(packet,true);
+        packet.vertices={{-50,-50,0},{50,50,0}};
+        view.set_mesh(packet);view.clear_selection();view.set_selection_contract({});
+        view.set_display_mode(viewer::DisplayMode::Wire);
+        view.set_reference_visibility(viewer::ReferenceVisibility::Sketches,true);application.processEvents();
+        const auto frame=view.grabFramebuffer();
+        for(const double x:{-20.,20.})
+            require(framebuffer_contains_color_near(frame,view.size(),project(x,0),QColor(173,110,46),3),
+                "Rotation Sketch axis grip is white instead of the axis color");
+    }
+    view.grabFramebuffer().save("build/axis-endpoints-brown.png");
+    std::cout<<"Feature axis lines and grips retain colors, native persistence and instance/reference isolation\n";
 }
 
 #include "interaction_color_verification.inc"

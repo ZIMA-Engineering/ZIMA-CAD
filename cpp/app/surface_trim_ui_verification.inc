@@ -87,6 +87,129 @@ int verify_surface_trim_ui(QApplication& application,AssemblyWorkspaceWindow& wi
         editor()->buttons()->button(QDialogButtonBox::Cancel)->click();flush();check(window.execute_console_command("documents").data==before,"Trim Cancel changed history");
         window.findChild<QAction*>("undoAction")->trigger();flush();window.findChild<QAction*>("saveDocumentAction")->trigger();flush();check(!document::PartDocument::load(path).find_container(id),"Trim Undo failed");
         window.findChild<QAction*>("redoAction")->trigger();flush();window.findChild<QAction*>("saveDocumentAction")->trigger();flush();check(document::PartDocument::load(path).find_container(id),"Trim Redo failed");
+        // Consume a supported native Intersection wire. Separately verify
+        // ordinary Curve presentation without extending Trim's tool contract.
+        for(const bool intersection_tool:{true,false}) {
+            auto fixture=part;fixture.document_id=QUuid::createUuid().toString(QUuid::WithoutBraces).toStdString();
+            std::string source_id,packet_owner;
+            if(intersection_tool) {
+                auto source=document::create_surface_intersection();source.surface_intersection.faces={
+                    kernel::FaceReference{surfaces[0].id,"surface:from:"+surfaces[0].feature_id,{}},
+                    kernel::FaceReference{surfaces[1].id,"surface:from:"+surfaces[1].feature_id,{}}};
+                source_id=packet_owner=source.id;fixture.insert_history_entry(document::PartHistoryKind::Feature,source.id);fixture.history.push_back(std::move(source));
+            }else {
+                auto source=document::PartDocument::create_construction(document::ConstructionKind::Curve3D);source.curve_points.clear();
+                for(const kernel::Vec3 position: {kernel::Vec3{50,0,0},kernel::Vec3{50,80,0}}) {
+                    auto point=document::create_owned_point(source.id);point.origin=position;source.curve_points.push_back(std::move(point));
+                }
+                source_id=source.id;packet_owner=source.entity_id;fixture.insert_history_entry(document::PartHistoryKind::Construction,source.id);fixture.constructions.push_back(std::move(source));
+            }
+            const auto calculated=workspace::calculate_part_with_resolved_references(kernel,fixture);
+            const auto wire_mesh=intersection_tool?calculated.back().mesh:fixture.construction_viewer_mesh();
+            const auto edge=std::ranges::find_if(wire_mesh.original_references.edges,[&](const auto& value){return value.reference.owner_id==packet_owner;});
+            check(edge!=wire_mesh.original_references.edges.end(),"Trim wire source has no calculated native edge");
+            const auto tool=edge->reference;
+            const auto wire_path=directory/(intersection_tool?"trim-intersection-visibility.prtz":"trim-curve-visibility.prtz");fixture.save(wire_path,calculated);
+            std::cout<<(intersection_tool?"Intersection":"Curve")<<" Trim wire fixture: open, commit and presentation"<<std::endl;
+            check(window.open_document_path(QString::fromStdString(wire_path.string())),"Trim wire fixture cannot open");flush();
+            check(window.execute_console_command(QString::fromStdString(commands::Json{{"command","body.activate"},{"arguments",{{"body",body}}}}.dump())).ok,"Trim wire Body cannot activate");flush();
+            const auto displayed=[&]{return std::ranges::any_of(view->mesh().edges,[&](const auto& value){return value.reference.owner_id==packet_owner;});};
+            check(displayed(),"Unused wire starts hidden");
+            const auto find_row=[&](const std::string& owner,const char* role)->QTreeWidgetItem* {
+                auto* tree=window.findChild<QTreeWidget*>("documentTree");
+                for(QTreeWidgetItemIterator it(tree);*it;++it)if((*it)->data(0,Qt::UserRole).toString().toStdString()==owner&&(*it)->data(0,Qt::UserRole+3)==role)return *it;
+                return nullptr;
+            };
+            auto* tree=window.findChild<QTreeWidget*>("documentTree");
+            const auto hidden_owners=surface_wire_packet_owners(fixture,{source_id});
+            if(!intersection_tool) {
+                const auto body_visibility=[&](bool visible) {
+                    auto* row=find_row(body,"part-body");check(row,"Body visibility Tree row is missing");
+                    for(auto* parent=row->parent();parent;parent=parent->parent())parent->setExpanded(true);
+                    tree->scrollToItem(row);flush();bool selected=false;
+                    QTimer::singleShot(0,tree,[&] {
+                        auto* menu=qobject_cast<QMenu*>(QApplication::activePopupWidget());if(!menu)return;
+                        for(auto* item:menu->actions())if(item->objectName()=="bodyVisibilityAction") {
+                            selected=item->text()==QObject::tr(visible?"Zobrazit":"Skrýt");
+                            menu->setActiveAction(item);QKeyEvent enter(QEvent::KeyPress,Qt::Key_Return,Qt::NoModifier);
+                            QApplication::sendEvent(menu,&enter);return;
+                        }menu->close();
+                    });
+                    tree->customContextMenuRequested(tree->visualItemRect(row).center());flush();
+                    check(selected,"Body Show/Hide action is unavailable or untranslated");
+                    check((find_row(body,"part-body")->foreground(0).color()==QColor(125,125,125))==!visible&&
+                        (find_row(source_id,"part-construction")->foreground(0).color()==QColor(125,125,125))==!visible,
+                        "Body visibility did not shade its own Tree row and construction descendants");
+                };
+                const auto triangles=view->mesh().triangles;
+                body_visibility(false);
+                check(!displayed()&&view->mesh().triangles.empty()&&
+                    std::ranges::none_of(view->mesh().points,[&](const auto& point){return hidden_owners.contains(point.reference.owner_id);}),
+                    "Hidden Body retained its solid, construction wire or child points");
+                window.findChild<QAction*>("saveDocumentAction")->trigger();flush();
+                std::vector<kernel::BodyResult> body_cache;const auto hidden_body=document::PartDocument::load(wire_path,&body_cache);
+                check(!hidden_body.body_history.find(body)->visible&&body_cache.back().source_fingerprint==calculated.back().source_fingerprint,
+                    "Body Hide lost persisted visibility or recalculated geometry");
+                verify_surface_wire_reopened_ui(application,wire_path,packet_owner,false);flush();
+                window.findChild<QAction*>("undoAction")->trigger();flush();check(displayed(),"Body Hide Undo failed");
+                window.findChild<QAction*>("redoAction")->trigger();flush();check(!displayed(),"Body Hide Redo failed");
+                body_visibility(true);check(displayed()&&view->mesh().triangles==triangles,"Body Show changed its calculated geometry");
+                toggle_surface_wire_tree_ui(application,tree,find_row(source_id,"part-construction"),true);flush();
+                check(find_row(source_id,"part-construction")->foreground(0).color()==QColor(125,125,125),"Hidden Curve is not gray in Tree");
+                check(!displayed()&&std::ranges::none_of(view->mesh().points,[&](const auto& point){return hidden_owners.contains(point.reference.owner_id);}),
+                    "Manual Curve Hide retained its wire or child points");
+                window.findChild<QAction*>("saveDocumentAction")->trigger();flush();
+                std::vector<kernel::BodyResult> hidden_cache;const auto hidden=document::PartDocument::load(wire_path,&hidden_cache);
+                check(!hidden.surface_wire_visibility.at(source_id)&&hidden_cache.back().source_fingerprint==calculated.back().source_fingerprint,
+                    "Manual Curve Hide lost native visibility or changed geometry");
+                verify_surface_wire_reopened_ui(application,wire_path,packet_owner,false);flush();
+                window.findChild<QAction*>("undoAction")->trigger();flush();check(displayed(),"Manual Curve Hide Undo failed");
+                window.findChild<QAction*>("redoAction")->trigger();flush();check(!displayed(),"Manual Curve Hide Redo failed");
+                toggle_surface_wire_tree_ui(application,tree,find_row(source_id,"part-construction"),false);flush();check(displayed(),"Manual Curve Show failed");
+                check(find_row(source_id,"part-construction")->foreground(0).color()!=QColor(125,125,125),"Shown Curve remains gray in Tree");
+                window.findChild<QAction*>("saveDocumentAction")->trigger();flush();verify_surface_wire_reopened_ui(application,wire_path,packet_owner,true);flush();
+                continue;
+            }
+            action->trigger();flush();check(editor(),"Trim wire creation dialog is unavailable");
+            const auto wire_trim=editor()->pending.id;
+            editor()->set_target({surfaces[0].id,"surface:from:"+surfaces[0].feature_id,{}});
+            editor()->set_tool({{tool.owner_id,tool.semantic_key,{}},false});editor()->set_region({25,40,0});flush();
+            check(displayed(),"Pending Trim hid its cutting wire before OK");
+            editor()->buttons()->button(QDialogButtonBox::Ok)->click();flush();
+            if(editor()) {
+                QStringList diagnostics;for(auto* label:editor()->findChildren<QLabel*>())if(!label->text().isEmpty())diagnostics.push_back(label->text());
+                throw std::runtime_error("Trim wire OK did not commit: "+diagnostics.join(" | ").toStdString());
+            }
+            check(!displayed(),"Trim OK did not hide its consumed cutting wire");
+            check(find_row(source_id,"part-container")->foreground(0).color()==QColor(125,125,125),"Consumed Intersection is not gray in Tree");
+            check(std::ranges::none_of(view->mesh().points,[&](const auto& point){return hidden_owners.contains(point.reference.owner_id);}),"Hidden Trim wire retained its points");
+            window.findChild<QAction*>("undoAction")->trigger();flush();check(displayed(),"Undo Trim did not restore its previously visible wire");
+            window.findChild<QAction*>("redoAction")->trigger();flush();check(!displayed(),"Redo Trim did not hide its wire again");
+            window.findChild<QAction*>("saveDocumentAction")->trigger();flush();
+            std::vector<kernel::BodyResult> trim_results;const auto committed=document::PartDocument::load(wire_path,&trim_results);
+            check(committed.find_container(wire_trim)&&trim_results.back().calculation_errors.empty()&&std::abs(trim_results.back().surface_area-12000)<.02,
+                "Trim wire visibility changed the calculated result");
+            const auto unchanged=window.execute_console_command("documents").data;
+            window.show_tree_item_properties(find_row(wire_trim,"part-container"));flush();
+            check(editor()&&displayed(),"Editing Trim does not temporarily restore its cutting wire");
+            editor()->buttons()->button(QDialogButtonBox::Cancel)->click();flush();
+            check(!displayed()&&window.execute_console_command("documents").data==unchanged,"Trim Cancel did not restore hidden wire/history");
+            toggle_surface_wire_tree_ui(application,tree,find_row(source_id,intersection_tool?"part-container":"part-construction"),false);flush();check(displayed(),"Tree Show cannot display a consumed Trim wire");
+            check(find_row(source_id,"part-container")->foreground(0).color()!=QColor(125,125,125),"Shown Intersection remains gray in Tree");
+            window.findChild<QAction*>("saveDocumentAction")->trigger();flush();
+            std::vector<kernel::BodyResult> shown_results;const auto shown=document::PartDocument::load(wire_path,&shown_results);
+            check(shown.surface_wire_visibility.at(source_id)&&shown_results.back().source_fingerprint==trim_results.back().source_fingerprint,
+                "Trim wire Show lost its native presentation or recalculated geometry");
+            verify_surface_wire_reopened_ui(application,wire_path,packet_owner,true);flush();
+            toggle_surface_wire_tree_ui(application,tree,find_row(source_id,intersection_tool?"part-container":"part-construction"),true);flush();check(!displayed(),"Tree Hide cannot hide a consumed Trim wire");
+            window.findChild<QAction*>("undoAction")->trigger();flush();check(displayed(),"Trim wire Hide Undo failed");
+            window.findChild<QAction*>("redoAction")->trigger();flush();check(!displayed(),"Trim wire Hide Redo failed");
+            window.show_tree_item_properties(find_row(wire_trim,"part-container"));flush();check(editor()&&displayed(),"Trim edit did not override manual wire hiding temporarily");
+            const auto no_op=window.execute_console_command("documents").data;editor()->buttons()->button(QDialogButtonBox::Ok)->click();flush();
+            check(!editor()&&!displayed()&&window.execute_console_command("documents").data==no_op,"Unchanged Trim OK changed visibility/history");
+            window.findChild<QAction*>("saveDocumentAction")->trigger();flush();
+            verify_surface_wire_reopened_ui(application,wire_path,packet_owner,false);flush();
+        }
         return 0;
     }catch(const std::exception& error){std::cerr<<error.what()<<std::endl;return 1;}
 }

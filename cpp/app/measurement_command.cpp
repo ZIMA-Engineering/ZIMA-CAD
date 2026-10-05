@@ -1,4 +1,5 @@
 #include "assembly_workspace_window.hpp"
+#include "tree_visibility.hpp"
 #include "measurement_dialog.hpp"
 #include "resource_icon.hpp"
 #include <zima/workspace/measurement_edits.hpp>
@@ -185,6 +186,8 @@ void AssemblyWorkspaceWindow::update_measurement_ui(){
         item->setData(0,missing_reference_role,missing);
         if(missing){item->setForeground(0,QColor("#d85858"));item->setToolTip(0,tr("Měření má chybějící referenci. Otevřete vlastnosti a vyberte náhradu."));}
         else item->setToolTip(0,tr("Uložené měření. Vlastnosti znovu vyhodnotí reference v aktuálním modelu."));
+        if(part)if(const auto* body=part->session.document().body_history.find(row.body_id);body&&!body->visible)
+            shade_hidden_tree_geometry(item);
     }
 }
 bool AssemblyWorkspaceWindow::measurement_context_menu(QTreeWidgetItem* item,const QPoint& position){

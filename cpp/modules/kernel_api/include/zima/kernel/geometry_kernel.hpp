@@ -268,8 +268,8 @@ struct ViewerPoint {
     // container's own marker (and any other caller that does not set this)
     // defaults to true and always renders, since it IS the visible entity.
     bool always_visible{true};
-    // Sketch geometry role. Ordinary/profile points render white; auxiliary
-    // construction points render green, matching construction edges.
+    // Sketch geometry role. Ordinary/profile points use the theme foreground;
+    // auxiliary construction points use the axis color, matching their curves.
     bool construction{};
     // Sketch display association, derived from persisted SketchText.anchor_point_id.
     std::string sketch_text_key;

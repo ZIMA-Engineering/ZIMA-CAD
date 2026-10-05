@@ -50,6 +50,7 @@ public:
         zima::document::Placement initial_placement, bool edit_mode,
         std::vector<PlaneOption> plane_options,
         CommitCallback commit, QWidget* parent);
+    void set_pending_sketch_editor(std::function<void()> callback) { edit_pending_sketch_=std::move(callback); }
     using ReferenceRequestCallback = std::function<void(std::size_t)>;
     using HighlightsChangedCallback = std::function<void()>;
     using PreviewCallback = std::function<void(

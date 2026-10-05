@@ -5,6 +5,8 @@
 #include "drawing_annotation_layout_test_support.hpp"
 #include <zima/document/dimension_layout_json.hpp>
 #include <limits>
+#include <zima/kernel/profile_centerlines.hpp>
+#include <zima/kernel/axis_display.hpp>
 using namespace zima;using commands::Json;namespace fs=std::filesystem;
 namespace {
 void require(bool value,const char* message){if(!value)throw std::runtime_error(message);}
@@ -14,6 +16,35 @@ commands::Result run(command_host::Host& host,const char* name,Json args=Json::o
 }
 Json ref(const drawing::ModelAnnotationReference& r){return {{"source_document",r.document_id},{"owner",r.owner_id},{"key",r.semantic_id},{"instance_path",r.instance_path}};}
 void verify(const kernel::OcctKernel& kernel,fs::path directory) {
+    {
+        drawing::DrawingView view;view.source_document_id="axis-part";
+        view.camera.vertical={0,1,0};view.camera.depth={0,0,1};
+        drawing::ModelAnnotationSource source;source.document_id="axis-part";
+        kernel::ViewerEdge line;line.reference={"sketch","segment:axis",{}};
+        line.points={{0,0,0},{10,0,0}};line.construction=line.dash_dot=true;
+        source.construction={line};
+        source.axes.push_back({{5,5,0},{1,0,0},10,{"datum","axis",{}}});
+        kernel::RevolutionRequest turn;turn.axis_direction={0,0,1};turn.angle_degrees=90;
+        turn.centerlines.origin_enabled=true;turn.centerlines.origin={10,0,0};turn.centerlines.origin_id="origin";
+        const auto refs=kernel::profile_centerlines::revolution(turn,"rotation");
+        source.construction.push_back(refs.edges.front());
+        drawing::refresh_model_annotations(view,std::span(&source,1));
+        require(view.model_annotations.size()==3,"Drawing axis annotations missing");
+        const auto& straight=view.model_annotations[0].curves.front();
+        require(std::abs(std::hypot(straight.back().x-straight.front().x,straight.back().y-straight.front().y)-12)<1e-9,
+            "Drawing construction axis has no 1 mm end overhang");
+        const auto& curved=view.model_annotations[1].curves.front();
+        require(curved.size()==refs.edges.front().points.size()+2&&std::abs(std::hypot(curved[1].x-curved[0].x,curved[1].y-curved[0].y)-1)<1e-9,
+            "Drawing rotation axis lost its tangent overhang");
+        const auto& axis=view.model_annotations[2].curves.front();
+        require(std::abs(std::hypot(axis.back().x-axis.front().x,axis.back().y-axis.front().y)-12)<1e-9,
+            "Drawing standalone axis has no matching overhang");
+        require(source.construction.front().points==line.points&&source.axes.front().display_length==10,
+            "Drawing presentation altered source references");
+        const auto saved=drawing::deserialize_model_annotations(drawing::serialize_model_annotations(view.model_annotations));
+        require(saved[0].curves==view.model_annotations[0].curves&&saved[1].curves==view.model_annotations[1].curves,
+            "Drawing native annotation persistence lost overhangs");
+    }
     workspace::Workspace live;auto doc=drawing::DrawingDocument::create_default();
     auto first=drawing::DrawingDocument::create_view("unavailable-source","missing.prtz",{});
     drawing::ModelAnnotation a;a.source={"original-part","sketch","dimension:width","assembly/first"};a.curves={{{0,0},{10,0}}};a.text="10";a.value=10;

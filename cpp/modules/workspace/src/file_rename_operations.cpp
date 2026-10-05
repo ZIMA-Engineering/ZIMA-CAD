@@ -157,10 +157,30 @@ FileRenameJob prepare_document_file_rename(const Workspace& live, const std::str
         name = fs::u8path(document::path_to_utf8(name.stem()) + "_skeleton" + document::path_to_utf8(name.extension()));
     if(normalize_name)name=fs::u8path(normalize_name(document::path_to_utf8(name)));
     impl->to = impl->from.parent_path() / name;
+    if(const auto* drawing=live.open_drawing(id);drawing&&impl->to!=impl->from&&
+            !drawing->document().source_document_id.empty()) {
+        const auto& source=drawing->document();
+        if(source.source_document_id.find(":family:")!=std::string::npos)
+            throw FileRenameError("family_instance", "Rename the family variant through its name, not its owning native file.");
+        if(source.source_path.empty())throw FileRenameError("path_required", "The document has no saved native file.");
+        const auto from=(source.source_path.is_absolute()?source.source_path:impl->from.parent_path()/source.source_path).lexically_normal();
+        if(native_document_type(from)==NativeDocumentType::Drawing)
+            throw FileRenameError("document_type_mismatch", "Document type does not match target path");
+        auto target=from.parent_path()/impl->to.stem();target+=from.extension();
+        if(assembly::is_skeleton_file(from)&&!assembly::is_skeleton_file(target)) {
+            impl->to=impl->to.parent_path()/fs::u8path(document::path_to_utf8(impl->to.stem())+"_skeleton"+document::path_to_utf8(impl->to.extension()));
+            target=from.parent_path()/impl->to.stem();target+=from.extension();
+        }
+        static_cast<void>(stamp(from));
+        if(target!=from)impl->destination_available(target,from);
+        impl->moves.push_back({source.source_document_id,from,target});
+    }
     for (const auto& open_state : live.documents()) if (const auto* owner = std::get_if<AssemblyState>(&open_state)) {
         const auto count = std::ranges::count_if(owner->session.document().components, [&](const auto& component) {
+            auto target=component.source_document_id==id?impl->to:component.source_path;
+            for(const auto& move:impl->moves)if(move.document_id==component.source_document_id)target=move.to;
             return !component.derived_copy && component.source_kind == assembly::ComponentSourceKind::Part &&
-                assembly::is_skeleton_file(component.source_document_id == id ? impl->to : component.source_path);
+                assembly::is_skeleton_file(target);
         });
         if (count > 1) throw FileRenameError("duplicate_skeleton", "An Assembly can contain only one Skeleton.");
     }
@@ -193,6 +213,8 @@ void FileRenameJob::stage() {
         const auto before = stamp(input);
         auto loaded = read_native_document(input,{},false);
         if (input == job.from && loaded.id() != job.id)
+            throw FileRenameError("stale_document", "The saved native file has a different document identity.");
+        for(const auto& move:job.moves)if(move.from==input&&loaded.id()!=move.document_id)
             throw FileRenameError("stale_document", "The saved native file has a different document identity.");
         for (const auto& state : job.open)
             if (state.path == input && state.id != loaded.id())

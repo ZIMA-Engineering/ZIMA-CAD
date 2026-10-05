@@ -124,7 +124,10 @@ struct HistoryDependencyCollector {
         case FeatureKind::GeneralSurface:
             for(const auto& boundary:feature.general_surface.boundaries) {
                 if(boundary.curve)construction(*boundary.curve,root);
-                else if(!boundary.sketch_serialized.empty())sketch(sketcher::Sketch::from_serialized(boundary.sketch_serialized),root);
+                else if(!boundary.sketch_serialized.empty()) {
+                    for(const auto& ref:boundary.sketch_feature->placement.references)reference(root,ref);
+                    sketch(sketcher::Sketch::from_serialized(boundary.sketch_serialized),root);
+                }
             }
             break;
         case FeatureKind::Sweep3D:
@@ -148,8 +151,14 @@ inline HistoryDependencyCollector part_history_dependency_graph(const document::
         if (feature.feature_kind == document::FeatureKind::Sweep3D)
             graph.register_construction(feature.sweep3d.path,feature.id);
         if(feature.feature_kind==document::FeatureKind::GeneralSurface)
-            for(const auto& boundary:feature.general_surface.boundaries)if(boundary.curve)
-                graph.register_construction(*boundary.curve,feature.id);
+            for(const auto& boundary:feature.general_surface.boundaries) {
+                if(boundary.curve)graph.register_construction(*boundary.curve,feature.id);
+                else {
+                    const auto& owned=*boundary.sketch_feature;
+                    graph.alias(owned.id,feature.id);graph.alias(owned.feature_id,feature.id);graph.alias(owned.container_origin.id,feature.id);
+                    for(const auto& child:owned.container_origin.children)graph.alias(child.id,feature.id);
+                }
+            }
         document::visit_feature_sketches(feature,[&](const auto& data,std::size_t) {
             graph.alias(sketcher::Sketch::from_serialized(data).id,feature.id);
         });

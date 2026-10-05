@@ -1554,6 +1554,12 @@ if(ZIMA_BUILD_TESTS)
         ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_ASSEMBLY_REFRESH_ONLY=1"
         WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
     add_test(NAME zima_cpp_section_ui_contract COMMAND zima-cad-cpp --verify-startup)
+    file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/drawing-file-rename-ui-contract")
+    add_test(NAME zima_cpp_drawing_file_rename_ui_contract COMMAND zima-cad-cpp --verify-startup
+        --working-directory "${CMAKE_BINARY_DIR}/drawing-file-rename-ui-contract")
+    set_tests_properties(zima_cpp_drawing_file_rename_ui_contract PROPERTIES
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_CONSOLE_ONLY=1;ZIMA_VERIFY_FEATURE_PROTOTYPE_ONLY=1;ZIMA_VERIFY_DRAWING_RENAME_ONLY=1"
+        RUN_SERIAL TRUE TIMEOUT 120 WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
     set_tests_properties(zima_cpp_section_ui_contract PROPERTIES
         ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_SECTIONS_ONLY=1"
         WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
@@ -1739,6 +1745,11 @@ if(ZIMA_BUILD_TESTS)
     add_test(NAME zima_cpp_boundary_surface_dialog_tests COMMAND zima_cpp_boundary_surface_dialog_tests)
     set_tests_properties(zima_cpp_boundary_surface_dialog_tests PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
     add_executable(zima_cpp_boundary_surface_tests tests/boundary_surface_tests.cpp)
+    if(MSVC)
+        # Combined surface fixtures use ~832 KiB before nested OCCT calls.
+        # Match the product and the other combined Windows regression suites.
+        target_link_options(zima_cpp_boundary_surface_tests PRIVATE /STACK:8388608)
+    endif()
     target_link_libraries(zima_cpp_boundary_surface_tests PRIVATE zima_workspace zima_document_core zima_kernel_occt zima_viewer TKTopAlgo TKGeomAlgo)
     add_test(NAME zima_cpp_boundary_surface_tests COMMAND zima_cpp_boundary_surface_tests)
     # Isolated surface research: no GUI, OCCT, persistence or placement changes.

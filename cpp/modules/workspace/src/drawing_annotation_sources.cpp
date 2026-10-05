@@ -12,6 +12,7 @@
 #include <zima/document/part_document.hpp>
 #include <zima/document/feature_sketches.hpp>
 #include <zima/kernel/sheet_material.hpp>
+#include <zima/kernel/solid_state_ancestry.hpp>
 #include <zima/workspace/workspace.hpp>
 namespace zima::workspace {
 namespace {
@@ -35,9 +36,11 @@ void transform_annotations(kernel::ViewerMesh &mesh,
   };
   for (auto &p : mesh.vertices)
     p = point(p);
-  for (auto &edge : mesh.edges)
+  for (auto &edge : mesh.edges) {
     for (auto &p : edge.points)
       p = point(p);
+    if(edge.exact_spline)for(auto& p:edge.exact_spline->poles)p=point(p);
+  }
   for (auto &axis : mesh.axes) {
     axis.point = point(axis.point);
     axis.direction = vector(axis.direction);
@@ -111,6 +114,13 @@ drawing_annotation_sources(const Workspace *workspace,
       }
       mesh.axes.insert(mesh.axes.end(), calculated.axes.begin(),
                        calculated.axes.end());
+      // Curved rotation/Sweep centerlines are native edges, rather than axes.
+      // Offer the current displayed material state, including restored paths.
+      for(const auto& edge:calculated.edges) {
+        std::string storage;
+        if(kernel::solid_state_source_key(edge.reference.semantic_key,storage).starts_with("centerline:from:"))
+          mesh.edges.push_back(edge);
+      }
       // Historical flat axes remain valid original references, but only the
       // current material state offers bend lines in this Drawing source.
       std::erase_if(mesh.axes,[&](const auto& axis) {

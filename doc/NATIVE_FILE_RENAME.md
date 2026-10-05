@@ -12,7 +12,9 @@ type is rejected. Commands remain English; messages are localized in cs/en/de/fr
 ```
 
 GUI Rename uses the same `FileRenameJob` as CLI and one internal PropertiesSubWindow
-with OK/Cancel and shared middle-button confirmation. Invalid names are reported
+with OK/Cancel and shared middle-button confirmation. In a displayed Drawing,
+the GUI targets that Drawing even when its source model is the writable context.
+Invalid names are reported
 inside the window; Cancel changes nothing. Renaming and current-file deletion must
 not interrupt other editing windows, including material Properties, active Sketcher,
 or selection.
@@ -59,14 +61,24 @@ save pending parameters or geometry of open documents. Their metadata is updated
 only after the complete file batch succeeds.
 
 A same-stem Drawing in the same directory is renamed together with its Part or
-Assembly, even if the Drawing is closed. Renaming a Drawing alone does not rename
-its model. The companion's pending in-memory edits and source ownership remain
-unchanged; the filename rule does not transfer document ownership.
+Assembly, even if the Drawing is closed. Renaming a Drawing also renames its primary
+Part or Assembly to the Drawing's new stem, preserving the model's own extension
+and directory. Their previous stems need not match. This uses the same staged
+transaction; a collision or invalid source identity rejects the complete batch.
+A Drawing without a primary model can be renamed independently. A family-variant
+source must be renamed through its variant name rather than its owning native file.
+Skeleton sources retain their required suffix in both new filenames.
+The companion's pending in-memory edits and source ownership remain unchanged;
+the filename rule does not transfer document ownership. Other model sources in
+the Drawing keep their names and paths unless they refer to the renamed primary model.
 
 Dependency updates apply only to documents currently open in the Workspace.
 Closed Assemblies and other closed Drawings are neither scanned nor changed.
-The same-stem companion is the only closed-document exception. The working
-directory is not traversed. This scope was explicitly agreed on 2026-09-25.
+The same-stem companion and a renamed Drawing's explicit primary model are the
+closed-document exceptions. Open Assemblies, including repeated/nested occurrences,
+and open Drawing/model tabs follow both relocations. The working directory is not
+traversed. The open-dependency scope was agreed on 2026-09-25; the paired
+Drawing-to-model rename was requested on 2026-10-05.
 Numbered archives are not renamed.
 
 ## Preparation, publication, and errors
@@ -100,7 +112,8 @@ Temporary `.zima-rename-<ID>` directories belong to one transaction; cleanup ver
 parent and exact name. They are not required storage for reopening documents.
 Multi-file publication is not an OS-atomic transaction against process crashes or
 concurrent external changes; incomplete recovery must explicitly retain manual-recovery
-data. On Windows, case-only renaming is rejected as an occupied destination.
+data. On Windows, case-only renaming of the same file is supported; a different
+existing file or hard link remains an occupied destination.
 
 The operation invokes no OCCT or mate solving and changes no native schema. Start
 templates remain valid. Required data remains in native `.prtz`, `.asmz`, and `.drwz`.
@@ -113,7 +126,8 @@ parameter preservation.
 
 `zima_cpp_file_rename_command_tests` checks physical renaming, unchanged closed dependencies,
 open documents outside the working directory, same-name Drawing companions,
-standalone Drawing rename, drawings/BOMs, identical
+Drawing-to-Part and Drawing-to-Assembly rename, closed primary models,
+source-target collisions, independent blank Drawings, drawings/BOMs, identical
 names, Unicode, input changes during I/O, identities, and cache/Undo/Redo preservation.
 On Windows it locks an original, later dependency, and staged file, verifying restoration
 of original bytes.
@@ -121,6 +135,9 @@ of original bytes.
 Actual CLI tests use `.prtz`, `.asmz`, and `.drwz`. GUI checks invalid names, Cancel,
 confirmation, later command renaming, actual source references, model history,
 camera, tab titles, and Save after renaming all three types with Czech characters.
+`zima_cpp_drawing_file_rename_ui_contract` starts on the Drawing tab and checks
+Cancel, differently named source/ Drawing files, both native renames, repeated
+occurrences in an open Assembly, refreshed tabs/Tree labels and saved references.
 
 Final Windows Release built both applications and all targets. All **13 affected
 tests** passed across several runs; this is not a new full regression of all 154 tests.

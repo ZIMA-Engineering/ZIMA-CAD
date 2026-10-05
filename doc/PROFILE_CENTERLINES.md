@@ -1,5 +1,84 @@
 # Profile centerlines
 
+## Axis endpoints and display overhangs (2026-10-05)
+
+Automatic circular and elliptical Extrusion axes, including General Feature
+sides, and the standalone Revolution axis expose two independent points at
+the actual axial ends of the calculated geometry. The fitted axis line retains
+its display margin; its extra length does not move these reference points.
+An axis-aligned exact bounding calculation determines the endpoint positions,
+including when the feature is rotated. Their keys are
+`profile:path-point:start:from:<axis-key>` and
+`profile:path-point:end:from:<axis-key>`. The owner and axis ancestry remain
+unchanged. The calculated reference packet persists these points for native
+reopening and downstream point references. Profile-origin and centroid points
+retain their actual operation endpoint positions. Intermediate Body boundaries
+publish preceding points without calculating geometry, duplicating markers or
+reviving original datums replaced by Straighten/Restore Shape.
+
+Open Sketch construction curves, ordinary construction axes and curved model
+centerlines have a 1 mm presentation overhang at both ends in the View and
+Drawing model annotations. Automatically fitted profile axes already have their
+margin and receive no second overhang. Curved overhangs follow exact endpoint
+tangents, including Sweep arcs and splines; closed paths and infinite Sketch
+axes have no artificial end extensions. Native Sweep calculation captures exact
+centerline curves once. Repaint and drawing projection consume native curves
+without OCCT. Reference coordinates, constraint geometry and picking samples
+remain unchanged.
+
+Idle axis/path points use the same brown as their axes. Sketch points belonging
+only to auxiliary curves also use brown, including the authored Revolution axis
+in active and passive Sketch views. A point shared with ordinary profile
+geometry keeps its profile presentation. Hover, confirmation and inspection
+retain their established interaction colors. Existing axis labels apply;
+the shared disconnected-centerline error is localized in all five languages.
+
+Previously calculated documents require explicit **Regenerate** to acquire new
+automatic-axis points and exact Sweep centerline curves. Opening alone never
+calculates geometry. Native and framebuffer regressions cover endpoint identity,
+tangents independent of tessellation, closed-path behavior, Body cursor changes,
+state ancestry, drawing projection and native persistence.
+
+Windows verification passed all 13 targeted CTest checks: profile centerlines,
+axis highlighting, point-marker colors, five-language translations and feature
+UI, Sketcher, profile commands, solid-state kernel/document behavior, Body
+references, derived copies and drawing annotations/contracts. A disposable copy
+of the user's `01.prtz` also passed Regenerate, Save and Reopen with four new
+automatic-axis endpoints and unchanged volume/input fingerprint. The original
+file remained byte-for-byte unchanged. The local Windows development launcher
+continues to use the newly built native application.
+
+The subsequent physical-endpoint correction passed independent 15 mm circular
+Extrusion and Revolution endpoint checks, an oblique translated/rotated cylinder,
+General Feature sides, downstream references and native persistence. The axis
+line remains longer than the actual geometry. The user's `01.prtz` copy again
+passed Regenerate, Save and Reopen with four automatic-axis points, unchanged
+volume/input fingerprint and an unchanged original file. The profile-centerline,
+axis-highlight and automatic-axis GUI regressions passed on Windows.
+
+## Body history cursor display (2026-10-05)
+
+Body history boundaries publish preceding profile, origin and centroid axes
+from their persisted reference packet using the same presentation path as
+document history boundaries. Moving **Insert Here**, or confirming axis options
+while the cursor precedes downstream operations, must not hide those axes.
+Downstream axes remain excluded. This display preparation invokes no OCCT,
+does not modify cached geometry and preserves transformed solid-state axes.
+Native tests cover coincident circle axes, a later union and a through-all cut,
+native persistence and every cursor boundary; GUI tests exercise Properties,
+Cancel, Undo/Redo and the actual Tree cursor callback.
+
+The broader `zima_cpp_profile_command_tests` initially reported an independent
+stale expectation for an **Up To** rotation. The selected +X target normal
+requires 270 degrees on the End side, giving `2400*pi`, whereas the test
+expected the 90-degree volume `800*pi`. Stretching the owned Sketch was correct.
+The corrected regression distinguishes both target orientations, rejects
+symmetric 270-degree limits without committing, and verifies the valid
+90-degree symmetric result using a separate opposite-normal datum. No product
+geometry or side conventions were changed. Axis regressions, Body references,
+session transactions, solid-state document tests and five-language UI/catalog
+checks pass.
+
 ## General Feature profile axes (2026-10-02)
 
 General Feature Extrusion sides now collect circular and elliptical profile axes

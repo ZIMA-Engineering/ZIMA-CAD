@@ -1,5 +1,6 @@
 #include "workspace/workspace_internal.hpp"
 #include "mass_properties_dialog.hpp"
+#include "tree_visibility.hpp"
 #include "body_properties_display.hpp"
 #include <zima/workspace/body_properties_edits.hpp>
 #include <QTreeWidgetItemIterator>
@@ -98,6 +99,8 @@ void AssemblyWorkspaceWindow::update_mass_properties_ui() {
         origin->setData(0,Qt::UserRole,QString::fromStdString(row.id+":origin"));origin->setData(0,Qt::UserRole+3,"body-properties-origin");
         origin->setData(0,Qt::UserRole+5,QString::fromStdString(row.id));origin->setFlags(origin->flags()&~Qt::ItemIsUserCheckable);
         origin->setToolTip(0,body_properties_centroid_tooltip(row,part->session.document(),document_decimal_places(part->session.document())));
+        const auto* body=part->session.document().body_history.find(row.body_id);
+        if(!row.visible||(body&&!body->visible))shade_hidden_tree_geometry(item);
     }
 }
 bool AssemblyWorkspaceWindow::mass_properties_context_menu(QTreeWidgetItem* item,const QPoint& position) {

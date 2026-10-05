@@ -237,8 +237,15 @@ public:
     // Active Sketch input points are deliberately separate from model points:
     // they are transient, non-pickable and always rendered in inference orange.
     void set_transient_points(std::vector<zima::kernel::Vec3> points);
+    // Passive native draft geometry retains ordinary point roles and colours.
+    void set_transient_model_points(std::vector<kernel::ViewerPoint> points);
+    [[nodiscard]] const std::vector<kernel::ViewerPoint>& transient_model_points() const;
     // Command-owned points participate in the same hover/click candidate list.
     void set_command_snap_points(std::vector<zima::kernel::ViewerPoint> points, bool visible = false);
+    // Evaluate cursor-dependent draft points before the common picker runs.
+    // The resulting packet also supplies candidate_point() on confirmation.
+    void set_command_snap_point_provider(std::function<std::vector<kernel::ViewerPoint>(
+        const kernel::Vec3&,const kernel::Vec3&)> provider);
     void set_transient_labels(std::vector<std::pair<zima::kernel::Vec3,
         std::string>> labels);
     // Sketch placement cursor: white in free space, orange when a persisted

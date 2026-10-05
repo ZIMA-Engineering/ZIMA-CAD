@@ -1,6 +1,7 @@
 #include <zima/workspace/section_operations.hpp>
 #include "assembly_workspace_window.hpp"
 #include "section_properties_dialog.hpp"
+#include "tree_visibility.hpp"
 #include "section_source.hpp"
 #include "resource_icon.hpp"
 #include "reference_tree_policy.hpp"
@@ -218,7 +219,8 @@ void AssemblyWorkspaceWindow::update_section_ui(){
     } else {
         references.add_geometry(workspace_.authoritative_viewer_mesh(id).original_references);
     }
-    for(const auto& s:sections){auto* item=row(QString::fromStdString(s.name),s.id,"document-section",s.show_cut);tree_reference_state_.apply(item,id,s.id,placement_reference_issue(s.placement,references));}
+    for(const auto& s:sections){auto* item=row(QString::fromStdString(s.name),s.id,"document-section",s.show_cut);tree_reference_state_.apply(item,id,s.id,placement_reference_issue(s.placement,references));
+        if(!s.show_plane)shade_hidden_tree_geometry(item);}
     // Tree presentation changes must never commit a section or destroy the
     // emitting item inside QTreeWidget::itemChanged.
     if(section_dialog_){preview_section();return;}if(properties_dialog_)return;

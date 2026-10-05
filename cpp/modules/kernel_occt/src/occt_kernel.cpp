@@ -387,6 +387,7 @@ std::vector<ViewerEdge> centerlines_for_operation(const HistoryOperation& operat
     if(!request || !request->make_solid)return {};
     std::vector<ViewerEdge> result;
     std::map<std::string,std::size_t> sources;
+    std::map<std::string,GeomConvert_CompCurveToBSplineCurve> exact_sources;
     for(const auto& segment:request->path_segments) {
         std::vector<Vec3> points;
         const auto geometry=sweep_spine_curve(segment);
@@ -397,6 +398,8 @@ std::vector<ViewerEdge> centerlines_for_operation(const HistoryOperation& operat
             for(int i=1;i<=samples.NbPoints();++i){const auto p=curve.Value(samples.Parameter(i));points.push_back({p.X(),p.Y(),p.Z()});}
         }
         if(points.size()<2)continue;
+        if(!geometry.IsNull()&&!exact_sources[segment.source_id].Add(Handle(Geom_BoundedCurve)::DownCast(geometry),1e-7,true,true,1))
+            throw std::runtime_error("Disconnected centerline source segments");
         // Tessellation pieces of one source curve share one identity. The
         // source ZIMA segment, not an approximation index, defines the part.
         const auto [entry,inserted]=sources.emplace(segment.source_id,result.size());
@@ -411,6 +414,8 @@ std::vector<ViewerEdge> centerlines_for_operation(const HistoryOperation& operat
             edge.points.insert(edge.points.end(),points.begin()+1,points.end());
         }
     }
+    for(const auto& [source,curve]:exact_sources)
+        result[sources.at(source)].exact_spline=capture_bspline_geometry(curve.BSplineCurve());
     return result;
 }
 
@@ -444,7 +449,8 @@ std::vector<ViewerPoint> sweep_endpoints_for_operation(const HistoryOperation& o
 
 std::vector<ViewerAxis> axes_for_operation(
     const HistoryOperation& operation, const TopoDS_Shape& calculated_operand,
-    const std::vector<ViewerEdge>& centerlines, bool authored_profile_axes=false) {
+    const std::vector<ViewerEdge>& centerlines, bool authored_profile_axes=false,
+    std::vector<ViewerPoint>* endpoints=nullptr) {
     const auto fitted_axis = [&](Vec3 point, Vec3 direction,
             std::string semantic_key, double fallback_length) {
         const double magnitude = std::hypot(
@@ -478,8 +484,24 @@ std::vector<ViewerAxis> axes_for_operation(
                 fallback_length = maximum - minimum + 2.0 * margin;
             }
         }
-        return ViewerAxis{point, direction, std::max(1.0, fallback_length),
+        ViewerAxis axis{point, direction, std::max(1.0, fallback_length),
             {operation.owner_id, std::move(semantic_key)}};
+        if(endpoints&&!calculated_operand.IsNull()) {
+            // Reference points belong to the physical axial ends, not to the
+            // display overhang. Measure in the axis frame without mesh padding
+            // or shape tolerances (also correct for an oblique cylinder).
+            gp_Trsf into_axis;
+            into_axis.SetTransformation(gp_Ax3(gp_Pnt(point.x,point.y,point.z),
+                gp_Dir(direction.x,direction.y,direction.z)));
+            Bnd_Box axial;
+            BRepBndLib::AddOptimal(BRepBuilderAPI_Transform(calculated_operand,into_axis,false).Shape(),axial,false,false);
+            Standard_Real xmin{},ymin{},zmin{},xmax{},ymax{},zmax{};
+            axial.Get(xmin,ymin,zmin,xmax,ymax,zmax);
+            profile_centerlines::endpoints(*endpoints,operation.owner_id,axis.reference.semantic_key,
+                dimension_add(axis.point,dimension_scale(axis.direction,zmin)),
+                dimension_add(axis.point,dimension_scale(axis.direction,zmax)));
+        }
+        return axis;
     };
     return std::visit([&](const auto& primitive) {
         using Request = std::decay_t<decltype(primitive)>;
@@ -548,7 +570,7 @@ std::vector<ViewerAxis> axes_for_operation(
                     return std::hypot(std::hypot(v.y*d.z-v.z*d.y,v.z*d.x-v.x*d.z),v.x*d.y-v.y*d.x)<=1e-9*std::max(1.0,length);
                 });
                 if(!straight)continue;
-                ViewerAxis axis{{(start.x+end.x)*.5,(start.y+end.y)*.5,(start.z+end.z)*.5},d,length,
+                ViewerAxis axis{{(start.x+end.x)*.5,(start.y+end.y)*.5,(start.z+end.z)*.5},d,length+2.,
                     {operation.owner_id,edge.reference.semantic_key,{}}};
                 axis.label="Osa dráhy";axes.push_back(std::move(axis));
             }
@@ -6828,7 +6850,10 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                 copy_operands.insert_or_assign(operation.owner_id,operand);
                 auto solid=make_operation_result(operand.shape,operand.faces,operand.edges,operand.vertices,true,true,true);
                 const auto centerlines=centerlines_for_operation(operation);
-                solid.mesh.axes=axes_for_operation(operation,operand.shape,centerlines);
+                const auto automatic_point_begin=solid.mesh.points.size();
+                solid.mesh.axes=axes_for_operation(operation,operand.shape,centerlines,false,&solid.mesh.points);
+                solid.mesh.original_references.points.insert(solid.mesh.original_references.points.end(),
+                    solid.mesh.points.begin()+automatic_point_begin,solid.mesh.points.end());
                 const auto endpoints = sweep_endpoints_for_operation(operation);
                 solid.mesh.points.insert(solid.mesh.points.end(), endpoints.begin(), endpoints.end());
                 solid.mesh.edges.insert(solid.mesh.edges.end(), centerlines.begin(), centerlines.end());
@@ -8580,7 +8605,7 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                         std::visit([&](const auto& request) {
                             if constexpr(std::is_same_v<std::decay_t<decltype(request)>,ExtrusionRequest>) {
                                 HistoryOperation axis_source{operation.owner_id,request};
-                                auto axes=axes_for_operation(axis_source,child_data.shape,{},true);
+                                auto axes=axes_for_operation(axis_source,child_data.shape,{},true,&child_data.profile_references.points);
                                 child_data.profile_references.axes.insert(child_data.profile_references.axes.end(),
                                     std::make_move_iterator(axes.begin()),std::make_move_iterator(axes.end()));
                             }
@@ -8770,13 +8795,13 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                     });
                     append_original_reference_geometry(original_references,std::move(original.mesh));
                 }
-                operand_mesh.axes=axes_for_operation(operation,operand.shape,{});
+                operand_mesh.axes=axes_for_operation(operation,operand.shape,{},false,&operand_mesh.points);
             } else {
                 auto operand_result = make_operation_result(
                     operand.shape, operand.faces, operand.edges,
                     operand.vertices, true, false, false, {}, false);
                 const auto centerlines=centerlines_for_operation(operation);
-                operand_result.mesh.axes = axes_for_operation(operation, operand.shape,centerlines);
+                operand_result.mesh.axes = axes_for_operation(operation, operand.shape,centerlines,false,&operand_result.mesh.points);
                 operand_result.mesh.edges.insert(operand_result.mesh.edges.end(),centerlines.begin(),centerlines.end());
                 const auto endpoints = sweep_endpoints_for_operation(operation);
                 operand_result.mesh.points.insert(operand_result.mesh.points.end(), endpoints.begin(), endpoints.end());

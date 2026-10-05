@@ -1,4 +1,5 @@
 {
+  "Disconnected centerline source segments": "Zdrojové úseky osy na sebe nenavazují.",
   "Oříznout plochu": "Oříznout plochu",
   "Vlastnosti oříznutí plochy": "Vlastnosti oříznutí plochy",
   "Vyberte cílovou plochu, řezné plochy nebo hrany a část, kterou chcete zachovat.": "Vyberte cílovou plochu, řezné plochy nebo hrany a část, kterou chcete zachovat.",
@@ -2124,5 +2125,7 @@
   "Vlastní hranice": "Vlastní hranice",
   "Přidat 3D křivku": "Přidat 3D křivku",
   "Odstranit vlastní hranici": "Odstranit vlastní hranici",
-  "Nakreslete hranice vlastními skicami nebo 3D křivkami. OK vypočítá plochu.": "Nakreslete hranice vlastními skicami nebo 3D křivkami. OK vypočítá plochu."
+  "Nakreslete hranice vlastními skicami nebo 3D křivkami. OK vypočítá plochu.": "Nakreslete hranice vlastními skicami nebo 3D křivkami. OK vypočítá plochu.",
+  "Přidat vlastní hranici…": "Přidat vlastní hranici…",
+  "Pro jiný typ odstraňte hranici a přidejte novou.": "Pro jiný typ odstraňte hranici a přidejte novou."
 }

@@ -1,4 +1,5 @@
 {
+  "Disconnected centerline source segments": "Les segments sources de l’axe ne sont pas raccordés.",
   "Oříznout plochu": "Rogner une surface",
   "Vlastnosti oříznutí plochy": "Propriétés du rognage de surface",
   "Vyberte cílovou plochu, řezné plochy nebo hrany a část, kterou chcete zachovat.": "Sélectionnez la surface cible, les faces ou arêtes de coupe et la région à conserver.",
@@ -2124,5 +2125,7 @@
   "Vlastní hranice": "Limite propre",
   "Přidat 3D křivku": "Ajouter une courbe 3D",
   "Odstranit vlastní hranici": "Supprimer la limite propre",
-  "Nakreslete hranice vlastními skicami nebo 3D křivkami. OK vypočítá plochu.": "Tracez les limites avec des esquisses ou courbes 3D propres. OK calcule la surface."
+  "Nakreslete hranice vlastními skicami nebo 3D křivkami. OK vypočítá plochu.": "Tracez les limites avec des esquisses ou courbes 3D propres. OK calcule la surface.",
+  "Přidat vlastní hranici…": "Ajouter une limite propre…",
+  "Pro jiný typ odstraňte hranici a přidejte novou.": "Pour changer de type, supprimez la limite et ajoutez-en une nouvelle."
 }

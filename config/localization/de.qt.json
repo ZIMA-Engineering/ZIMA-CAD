@@ -1,4 +1,5 @@
 {
+  "Disconnected centerline source segments": "Die Quellsegmente der Achse sind nicht verbunden.",
   "Oříznout plochu": "Fläche trimmen",
   "Vlastnosti oříznutí plochy": "Eigenschaften der Flächentrimmung",
   "Vyberte cílovou plochu, řezné plochy nebo hrany a část, kterou chcete zachovat.": "Wählen Sie die Zielfläche, schneidende Flächen oder Kanten und den beizubehaltenden Bereich.",
@@ -2124,5 +2125,7 @@
   "Vlastní hranice": "Eigene Begrenzung",
   "Přidat 3D křivku": "3D-Kurve hinzufügen",
   "Odstranit vlastní hranici": "Eigene Begrenzung entfernen",
-  "Nakreslete hranice vlastními skicami nebo 3D křivkami. OK vypočítá plochu.": "Zeichnen Sie Begrenzungen mit eigenen Skizzen oder 3D-Kurven. OK berechnet die Fläche."
+  "Nakreslete hranice vlastními skicami nebo 3D křivkami. OK vypočítá plochu.": "Zeichnen Sie Begrenzungen mit eigenen Skizzen oder 3D-Kurven. OK berechnet die Fläche.",
+  "Přidat vlastní hranici…": "Eigene Begrenzung hinzufügen…",
+  "Pro jiný typ odstraňte hranici a přidejte novou.": "Für einen anderen Typ entfernen Sie die Begrenzung und fügen eine neue hinzu."
 }

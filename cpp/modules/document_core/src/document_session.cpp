@@ -10,6 +10,31 @@
 
 namespace zima::document {
 namespace {
+void publish_profile_axes(zima::kernel::ViewerMesh& mesh) {
+    // Calculated intermediate boundaries may retain these axes only in the
+    // persisted reference packet. Publish that exact geometry without OCCT.
+    const auto replaced=[&](const auto& reference) {
+        return std::ranges::any_of(mesh.triangle_references,[&](const auto& face) {
+            return face.display_owner_id==reference.owner_id &&
+                face.instance_path==reference.instance_path &&
+                zima::kernel::solid_state_parent(face.semantic_key).has_value();
+        });
+    };
+    for (const auto& axis : mesh.original_references.axes) {
+        if (axis.reference.semantic_key != "axis:primary" &&
+            !axis.reference.semantic_key.starts_with("axis:profile:") &&
+            !axis.reference.semantic_key.starts_with("centerline:from:")) continue;
+        if (replaced(axis.reference)) continue;
+        if (std::ranges::none_of(mesh.axes,[&](const auto& visible) {
+            return visible.reference==axis.reference;
+        })) mesh.axes.push_back(axis);
+    }
+    for(const auto& point:mesh.original_references.points) {
+        if(!point.reference.semantic_key.starts_with("profile:path-point:")||replaced(point.reference))continue;
+        if(std::ranges::none_of(mesh.points,[&](const auto& visible){return visible.reference==point.reference;}))
+            mesh.points.push_back(point);
+    }
+}
 void refresh_symbol_contacts(PartDocument& document,const std::vector<kernel::BodyResult>& boundaries) {
     if(std::ranges::none_of(document.symbol_annotations,[](const auto& value){return value.reference&&value.reference->surface_kind.has_value();}))return;
     const kernel::ViewerReferenceGeometry empty;
@@ -163,26 +188,7 @@ std::optional<zima::kernel::BodyResult> DocumentSession::calculated_boundary(
     }
     result.mesh.original_references = references_for_owners(
         current_->calculated_boundaries.back().mesh.original_references, owners);
-    // Feature axes are persisted reference geometry, but they are also part
-    // of the ordinary Part presentation. A loaded or fully reused calculated
-    // boundary can legitimately contain them only in original_references;
-    // publish them into the display packet without invoking OCCT.
-    for (const auto& axis : result.mesh.original_references.axes) {
-        if (axis.reference.semantic_key != "axis:primary" &&
-            !axis.reference.semantic_key.starts_with("axis:profile:") &&
-            !axis.reference.semantic_key.starts_with("centerline:from:")) {
-            continue;
-        }
-        if(std::ranges::any_of(result.mesh.triangle_references,[&](const auto& face) {
-            return face.display_owner_id==axis.reference.owner_id&&face.instance_path==axis.reference.instance_path&&
-                zima::kernel::solid_state_parent(face.semantic_key).has_value();
-        }))continue;
-        const bool already_visible = std::ranges::any_of(result.mesh.axes,
-            [&](const auto& visible) {
-                return visible.reference == axis.reference;
-            });
-        if (!already_visible) result.mesh.axes.push_back(axis);
-    }
+    publish_profile_axes(result.mesh);
     return result;
 }
 
@@ -265,6 +271,7 @@ std::optional<zima::kernel::BodyResult> DocumentSession::calculated_body_boundar
     }
     result.mesh.original_references = references_for_owners(
         found->second.back().mesh.original_references, owners);
+    publish_profile_axes(result.mesh);
     return result;
 }
 

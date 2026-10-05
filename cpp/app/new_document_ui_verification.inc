@@ -137,6 +137,8 @@ int verify_new_document_options(QApplication& application) {
             create("part","model");
             check_origin();
             check(window.findChild<QAction*>("materialAction")->isEnabled(),"Part material action is disabled");
+            check(window.findChild<QAction*>("sketchAction")->isEnabled()&&window.findChild<QAction*>("featurePrototypeAction")->isEnabled(),
+                  "Part start template must activate its Body and enable normal modeling commands");
             check(window.findChild<QComboBox*>("applicationModeSelector")->currentData().toInt()==0,"Modeling selection was ignored");
             const auto model=document::PartDocument::load(std::filesystem::u8path(directory.filePath("model.prtz").toStdString()));
             check(model.document_units.at("Length")=="in"&&model.document_units.at("Angle")=="rad","New document ignored configured units in favor of template units");

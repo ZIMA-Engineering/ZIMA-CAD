@@ -39,7 +39,8 @@ public:
 
     ConstructionPropertiesDialog(
         const zima::document::ConstructionObject& initial, bool edit_mode,
-        CommitCallback commit, QWidget* parent, int decimal_places = 3);
+        CommitCallback commit, QWidget* parent, int decimal_places = 3,
+        bool inherit_parent_frame = false);
     using SweepCommitCallback =
         std::function<void(zima::document::HistoryContainer)>;
     ConstructionPropertiesDialog(

@@ -59,6 +59,28 @@ int verify_surface_intersection_ui(QApplication& application,AssemblyWorkspaceWi
         window.grab().save(QString::fromStdString((directory/"surface-intersection-properties.png").string()));
         editor()->buttons()->button(QDialogButtonBox::Ok)->click();flush();check(!editor(),"Intersection failed on OK");
         check(std::ranges::count_if(view->mesh().edges,[&](const auto& edge){return edge.reference.owner_id==id;})==1,"Intersection curve is missing or drawn twice");
+        view->fit_all();flush();
+        std::optional<QPointF> wire_position;
+        for(int y=15;y<view->height()-15&&!wire_position;y+=4)for(int x=15;x<view->width()-15&&!wire_position;x+=4)
+            if(std::ranges::any_of(view->selection_candidates_at(QPointF(x,y)),[&](const auto& candidate){
+                return candidate.kind==viewer::CandidateKind::Container&&candidate.owner_id==id;
+            }))wire_position=QPointF(x,y);
+        check(wire_position.has_value(),"Intersection container is absent from ordinary View picking");
+        QMouseEvent wire_move(QEvent::MouseMove,*wire_position,QPointF(view->mapToGlobal(wire_position->toPoint())),Qt::NoButton,Qt::NoButton,Qt::NoModifier);
+        QApplication::sendEvent(view,&wire_move);flush();
+        for(std::size_t i=0;i<view->selection_candidates_at(*wire_position).size();++i) {
+            const auto offered=view->offered_candidate();if(offered&&offered->owner_id==id)break;
+            click(view,*wire_position,Qt::RightButton);
+        }
+        check(view->offered_candidate()&&view->offered_candidate()->owner_id==id,"Intersection wire cannot be offered by hover/cycling");
+        const auto hover_candidate=*view->offered_candidate();
+        check(std::ranges::any_of(view->mesh().edges,[&](const auto& edge){return edge.reference.owner_id==id&&viewer::candidate_recolors_wire_edge(hover_candidate,edge);}),
+            "Intersection container hover does not highlight its exact wire");
+        click(view,*wire_position,Qt::LeftButton);
+        auto* selection_tree=window.findChild<QTreeWidget*>("documentTree");
+        check(view->confirmed_candidate()&&view->confirmed_candidate()->owner_id==id&&selection_tree->currentItem()&&
+            selection_tree->currentItem()->data(0,Qt::UserRole).toString().toStdString()==id,"Intersection View selection did not synchronize the Tree");
+        view->clear_selection();selection_tree->clearSelection();
         window.findChild<QAction*>("saveDocumentAction")->trigger();flush();
         std::vector<kernel::BodyResult> cache;const auto saved=document::PartDocument::load(path,&cache);
         check(saved.find_container(id)&&!cache.empty()&&cache.back().calculation_errors.empty()&&std::abs(cache.back().surface_area-16000)<.02,"Intersection native result changed its surfaces");

@@ -133,7 +133,7 @@ bool candidate_recolors_wire_edge(
             return false;
         }
         const bool screen_curve = edge.overlay &&
-            is_curve3d_edge(edge.reference.semantic_key);
+            (is_curve3d_edge(edge.reference.semantic_key)||edge.reference.semantic_key.starts_with("intersection:curve:from:"));
         const auto& key = edge.reference.semantic_key;
         const bool inactive_sketch_profile = edge.overlay &&
             (key.starts_with("segment:") || key.starts_with("circle:") ||
@@ -734,7 +734,8 @@ std::vector<ViewerCandidate> ordered_viewer_candidates(
                                   edge.reference.owner_id, edge.reference.semantic_key,
                                   edge.reference.instance_path, geometry});
             }
-            if (is_curve3d_edge(edge.reference.semantic_key) &&
+            if ((is_curve3d_edge(edge.reference.semantic_key)||
+                 (geometry==CandidateGeometry::Display&&edge.reference.semantic_key.starts_with("intersection:curve:from:"))) &&
                 edge.edge < source.edges.size() &&
                 !source.edges[edge.edge].display_owner_id.empty() &&
                 std::none_of(result.begin(), result.end(),

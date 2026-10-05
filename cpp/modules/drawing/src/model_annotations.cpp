@@ -1,4 +1,5 @@
 #include <zima/drawing/dimension_text.hpp>
+#include <zima/kernel/axis_display.hpp>
 #include <zima/document/dimension_layout_json.hpp>
 #include <algorithm>
 #include <cmath>
@@ -298,8 +299,11 @@ void refresh_model_annotations(DrawingView &view,
       item.source = identity(edge.reference);
       item.kind = ModelAnnotationKind::Construction;
       std::vector<Point2> curve;
+      const auto overhang=kernel::axis_curve_overhang(edge);
+      if(overhang)curve.push_back(project((*overhang)[0]));
       for (auto p : edge.points)
         curve.push_back(project(p));
+      if(overhang)curve.push_back(project((*overhang)[1]));
       item.curves.push_back(std::move(curve));
       add(std::move(item));
     }
@@ -326,7 +330,7 @@ void refresh_model_annotations(DrawingView &view,
           axis.display_length <= 0)
         throw std::invalid_argument("Invalid model axis");
       auto a = axis.point, b = a;
-      const double half = axis.display_length / 2 / length;
+      const double half = kernel::axis_display_length(axis) / 2 / length;
       a = {a.x - axis.direction.x * half, a.y - axis.direction.y * half,
            a.z - axis.direction.z * half};
       b = {b.x + axis.direction.x * half, b.y + axis.direction.y * half,

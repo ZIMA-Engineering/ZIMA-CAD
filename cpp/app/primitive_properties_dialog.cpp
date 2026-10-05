@@ -754,7 +754,9 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
         thin_thickness_=feature_panel_->thickness_control();
         own_sketch_button_=feature_panel_->sketch_button();
         connect(own_sketch_button_,&QPushButton::clicked,this,[this] {
-            auto pending=values();accept();if(edit_sketch_)edit_sketch_(std::move(pending));
+            auto pending=values();
+            if(property("retainForSketchEditing").toBool())hide();else accept();
+            if(edit_sketch_)edit_sketch_(std::move(pending));
         });
         for(std::size_t side=0;side<2;++side) {
             auto* target=feature_panel_->target_control(side);

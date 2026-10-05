@@ -110,7 +110,7 @@ zima::document::ConstructionObject sweep_dialog_path(
 
 ConstructionPropertiesDialog::ConstructionPropertiesDialog(
     const zima::document::ConstructionObject& initial, bool edit_mode,
-    CommitCallback commit, QWidget* parent, int decimal_places)
+    CommitCallback commit, QWidget* parent, int decimal_places, bool inherit_parent_frame)
     : PropertiesSubWindow(construction_properties_title(initial.kind), parent),
       initial_(initial), commit_(std::move(commit)),
       curve_points_(initial.curve_points) {
@@ -174,8 +174,15 @@ ConstructionPropertiesDialog::ConstructionPropertiesDialog(
         display_size_->setRange(0.001, 1'000'000.0);
     }
     content_layout()->addLayout(form);
+    QWidget* placement_parent=this;auto* placement_layout=content_layout();
+    if(inherit_parent_frame) {
+        if(initial.kind!=zima::document::ConstructionKind::Curve3D)
+            throw std::invalid_argument("Invalid owned surface boundary.");
+        placement_parent=new QWidget(this);placement_layout=new QVBoxLayout(placement_parent);
+        placement_parent->hide();setProperty("originSelectionBound",true);
+    }
     placement_ = std::make_unique<zima::ui::ContainerPlacementSection>(
-        this, content_layout(),
+        placement_parent, placement_layout,
         /*with_orientation=*/true,
         // A Point fixes only the Container Origin translation.  Its local
         // frame still owns three rotational degrees of freedom and may be
@@ -323,7 +330,7 @@ ConstructionPropertiesDialog::ConstructionPropertiesDialog(
     }
     content_layout()->addLayout(rotation_form);
 
-    placement_->install_dof_label(content_layout());
+    placement_->install_dof_label(placement_layout);
     if (initial.kind == zima::document::ConstructionKind::Plane) {
         // "Work plane offset" is only meaningful once the user has chosen
         // what the Plane is parallel to / anchored on, so keep it at the

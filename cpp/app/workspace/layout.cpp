@@ -5,6 +5,8 @@
 #include "tool_button_style.hpp"
 #include <zima/workspace/body_operations.hpp>
 #include <zima/workspace/sheet_state_operations.hpp>
+#include <zima/document/general_surface.hpp>
+#include "../tree_visibility.hpp"
 
 namespace zima::app {
 using namespace workspace_detail;
@@ -1215,7 +1217,8 @@ void AssemblyWorkspaceWindow::create_layout() {
         }
 
         std::string label;
-        if (cursor_snap && cursor_snap->relation) {
+        if(cursor_snap&&cursor_snap->support_geometry_id=="sketch_preview_keypoint")label="K";
+        else if (cursor_snap && cursor_snap->relation) {
             if (cursor_snap->support_geometry_id.starts_with("sketch_keypoint:")) {
                 label = "K";
             } else {
@@ -1954,6 +1957,38 @@ void AssemblyWorkspaceWindow::create_layout() {
                 viewer_->confirm_container(id);
                 return;
             }
+            if (item->data(0, Qt::UserRole + 3).toString() == "general-surface-boundary") {
+                const auto* part = workspace_.open_part(workspace_.active_document_id());
+                const auto id = item->data(0, Qt::UserRole).toString().toStdString();
+                const auto* feature = part ? part->session.document().find_container(id) : nullptr;
+                const auto index = item->data(0, Qt::UserRole + 6).toUInt();
+                if (!feature || index >= feature->general_surface.boundaries.size()) return;
+                const auto& boundary = feature->general_surface.boundaries[index];
+                const auto owner = boundary.curve ? boundary.curve->entity_id :
+                    zima::sketcher::Sketch::from_serialized(boundary.sketch_serialized).id;
+                const auto path = item->data(0, Qt::UserRole + 1).toString().toStdString();
+                // Reuse the already displayed definition in its Body/occurrence frame.
+                // The row retains its outer feature ID for the existing Properties route.
+                std::vector<zima::kernel::ViewerEdge> wire;
+                for (const auto& edge : viewer_->mesh().edges)
+                    if (edge.reference.owner_id == owner && edge.reference.instance_path == path)
+                        wire.push_back(edge);
+                if(wire.empty()) {
+                    auto definition=*feature;definition.general_surface.boundaries={boundary};
+                    auto mesh=document::general_surface_definition_mesh(definition);
+                    if(const auto* body=part->session.document().body_owner_for_object(id))
+                        mesh=part->session.document().place_body_mesh(std::move(mesh),body->scope.id);
+                    for(auto& edge:mesh.edges)if(edge.reference.owner_id==owner) {
+                        edge.reference.instance_path=path;
+                        if(!path.empty())for(auto& point:edge.points)point=workspace_.occurrence_point_to_scene(
+                            workspace_.displayed_document_id(),assembly::InstancePath::decode(path),point);
+                        wire.push_back(std::move(edge));
+                    }
+                }
+                viewer_->confirm_container_component_wire(id, "general-surface-boundary:" + owner,
+                    std::move(wire), path);
+                return;
+            }
             if (item->data(0, Qt::UserRole + 3).toString() == "part-sketch" ||
                 item->data(0, Qt::UserRole + 3).toString() == "assembly-sketch") {
                 selected_sketch_id_ =
@@ -2223,6 +2258,7 @@ void AssemblyWorkspaceWindow::create_layout() {
                     if(menu.exec(tree_->viewport()->mapToGlobal(position))==visibility) {
                         if(visible){shown_occurrence_origin_paths_.erase(path);visible_occurrence_origin_paths_.erase(path);}
                         else shown_occurrence_origin_paths_.insert(path);
+                        shade_hidden_tree_geometry(item,visible);
                         viewer_->clear_selection();tree_->clearSelection();viewer_->update();
                     }
                     return;
@@ -2235,6 +2271,7 @@ void AssemblyWorkspaceWindow::create_layout() {
                 if(!item->isSelected())tree_->setCurrentItem(item,0,QItemSelectionModel::ClearAndSelect);
                 synchronize_tree_selection();
                 QMenu menu(this);menu.setObjectName("drawingTreeSelectionMenu");
+                add_tree_rename_action(menu,item);
                 drawing_workspace_->populate_selection_menu(menu);
                 if(!menu.isEmpty())menu.exec(tree_->viewport()->mapToGlobal(position));
                 return;
@@ -2489,6 +2526,10 @@ void AssemblyWorkspaceWindow::create_layout() {
                         QMessageBox::warning(this,tr("Trasu nelze změnit"),tr(error.what()));
                     }
                 }
+            } else if(item->data(0,Qt::UserRole+3).toString()=="general-surface-boundary") {
+                if(properties_dialog_)return;
+                QMenu menu(this);auto* properties=menu.addAction(resource_icon("properties"),tr("Vlastnosti…"));
+                if(exec_tree_menu(menu,item,position)==properties)show_tree_item_properties(item);
             } else if(item->data(0,Qt::UserRole+3).toString()=="part-helical-sketch" || item->data(0,Qt::UserRole+3).toString()=="part-sweep2d-sketch") {
                 if(properties_dialog_)return;QMenu menu(this);auto* edit=menu.addAction(tr("Edit"));
                 if(exec_tree_menu(menu,item,position)==edit)show_tree_item_properties(item);

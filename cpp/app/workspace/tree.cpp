@@ -8,6 +8,8 @@
 #include "../sheet_state_dialog.hpp"
 #include "../solid_state_dialog.hpp"
 #include "../part_reference_index.hpp"
+#include "../surface_wire_visibility.hpp"
+#include "../tree_visibility.hpp"
 
 namespace zima::app {
 using namespace workspace_detail;
@@ -800,6 +802,32 @@ void AssemblyWorkspaceWindow::add_part_tree_children(
         for (const auto& [id, row] : entries) parent->addChild(row);
         if (pending_entry) parent->addChild(pending_entry);
     }
+    const auto hidden_wires=hidden_surface_wires(document);
+    const auto shade_wires=[&](auto&& self,QTreeWidgetItem* row)->void {
+        const auto role=row->data(0,Qt::UserRole+3).toString();
+        const auto id=row->data(0,Qt::UserRole).toString().toStdString();
+        bool hidden=false;
+        if(role=="part-body") {
+            if(const auto* body=document.body_history.find(id))hidden=!body->visible;
+        }else if(role=="document-origin") {
+            const auto path=row->data(0,Qt::UserRole+1).toString().toStdString();
+            if(!path.empty()&&workspace_.open_assembly(workspace_.displayed_document_id()))
+                hidden=!(shown_occurrence_origin_paths_.contains(path)||visible_occurrence_origin_paths_.contains(path)||
+                    (component_placement_dialog_&&properties_dialog_instance_path_==path)||
+                    (workspace_.active_occurrence_path()==path&&visible_local_origin_ids_.contains(id)));
+        }else if(role=="general-surface-boundary") {
+            const auto* feature=document.find_container(id);const auto index=row->data(0,Qt::UserRole+6).toUInt();
+            if(feature&&index<feature->general_surface.boundaries.size())
+                hidden=hidden_wires.contains(surface_boundary_wire_owner(feature->general_surface.boundaries[index]));
+        }else if(role=="part-container") {
+            if(const auto owner=surface_wire_container_owner(document,id))hidden=hidden_wires.contains(*owner);
+        }else if(role=="part-sketch"||role=="part-construction") {
+            if(const auto owner=surface_wire_owner(document,id))hidden=hidden_wires.contains(*owner);
+        }
+        if(hidden)shade_hidden_tree_geometry(row);
+        else for(int i=0;i<row->childCount();++i)self(self,row->child(i));
+    };
+    for(int i=0;i<parent->childCount();++i)shade_wires(shade_wires,parent->child(i));
 }
 
 void AssemblyWorkspaceWindow::add_assembly_tree_children(
@@ -919,7 +947,6 @@ void AssemblyWorkspaceWindow::add_snapshot_tree_children(
         else if (suppressed) {
             label += tr(" [potlačeno závislostí]");
         }
-        else if (!component.visible) label += tr(" [skryto]");
         if (component.grounded && component.derived_source_id.empty()) label += tr(" [uzemněno]");
         auto* item = new QTreeWidgetItem(parent, {label});
         if(component.source_missing)item->setToolTip(0,tr("Zdrojový soubor nebyl nalezen. Použijte příkaz Zdrojový soubor… v kontextovém menu komponenty."));
@@ -967,12 +994,12 @@ void AssemblyWorkspaceWindow::add_snapshot_tree_children(
                 ? workspace_.open_assembly(component.source_document_id) : nullptr;
             if (active_source != nullptr) {
                 add_assembly_tree_children(item, component.source_document_id, path,
-                    suppressed || !component.visible);
+                    suppressed);
             } else {
                 add_origin_tree_item(item, component.source_document_id, true, path);
                 add_snapshot_tree_children(
                     item, component.children, component.source_document_id, path,
-                    suppressed || !component.visible);
+                    suppressed);
             }
             item->setExpanded(true);
         } else if (active_occurrence) {
@@ -984,6 +1011,16 @@ void AssemblyWorkspaceWindow::add_snapshot_tree_children(
         } else {
             add_origin_tree_item(item, component.source_document_id, false, path);
         }
+        for(int i=0;i<item->childCount();++i) {
+            auto* origin=item->child(i);
+            if(origin->data(0,Qt::UserRole+3)=="document-origin"&&
+                origin->data(0,Qt::UserRole).toString().toStdString()==component.source_document_id+":origin"&&
+                !(shown_occurrence_origin_paths_.contains(path.encoded())||visible_occurrence_origin_paths_.contains(path.encoded())||
+                  (component_placement_dialog_&&properties_dialog_instance_path_==path.encoded())||
+                  (workspace_.active_occurrence_path()==path.encoded()&&visible_local_origin_ids_.contains(component.source_document_id+":origin"))))
+                shade_hidden_tree_geometry(origin);
+        }
+        if(!component.visible)shade_hidden_tree_geometry(item);
     }
 }
 

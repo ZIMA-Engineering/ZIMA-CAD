@@ -13,6 +13,8 @@
 #include <zima/document/helical_geometry.hpp>
 #include <zima/document/general_surface.hpp>
 #include "../sketch_point_pick_priority.hpp"
+#include "../surface_wire_visibility.hpp"
+#include "../surface_trim_dialog.hpp"
 
 namespace zima::app {
 using namespace workspace_detail;
@@ -117,6 +119,19 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
         }
         if(!wire.empty())viewer_->set_container_inspection_wire(std::move(wire));
     };
+    const auto hidden_surface_packet_owners = [this](const zima::document::PartDocument& document) {
+        const auto limit=part_rollback_&&part_rollback_->part_document_id==document.document_id
+            ? part_rollback_->history_limit : document.history.size();
+        auto hidden=hidden_surface_wires(document,limit);
+        if(!active_sketch_id_.empty())hidden.erase(active_sketch_id_);
+        if(properties_dialog_) {
+            if(const auto owner=surface_wire_owner(document,construction_dimension_object_id_))hidden.erase(*owner);
+            if(auto* trim=dynamic_cast<SurfaceTrimDialog*>(properties_dialog_))
+                for(const auto& tool:trim->pending.surface_trim.tools)if(!tool.face)
+                    if(const auto owner=surface_wire_owner(document,tool.reference.owner_id))hidden.erase(*owner);
+        }
+        return surface_wire_packet_owners(document,hidden);
+    };
     const auto append_boundary_input_sketches = [this](zima::kernel::ViewerMesh& mesh,
             const zima::document::PartDocument& document) {
         if (!part_rollback_ || part_rollback_->part_document_id != document.document_id ||
@@ -140,8 +155,12 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
         const auto radii = zima::document::curve3d_radius_dimensions(*object);
         mesh.dimensions.insert(mesh.dimensions.end(), radii.begin(), radii.end());
     };
-    const auto construction_mesh = [this, &append_curve_radii](const auto& document, double scene_size,
+    const auto construction_mesh = [this, &append_curve_radii, &hidden_surface_packet_owners](const auto& document, double scene_size,
             const zima::kernel::ViewerReferenceGeometry& reference_geometry) {
+        const auto hidden_wires=[&] {
+            if constexpr(requires {document.surface_wire_visibility;})return hidden_surface_packet_owners(document);
+            else return std::set<std::string>{};
+        }();
         auto mesh = [&] {
             if(construction_preview_mesh_)return *construction_preview_mesh_;
             if constexpr(requires { document.history; }) {
@@ -192,14 +211,26 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
                     // The derived curves are native calculated reference data.
                     // Later body operations do not consume their display wires.
                     for(const auto& edge:reference_geometry.edges)if(edge.reference.owner_id==feature.id&&
-                        std::ranges::none_of(mesh.edges,[&](const auto& shown){return shown.reference==edge.reference;}))mesh.edges.push_back(edge);
+                        std::ranges::none_of(mesh.edges,[&](const auto& shown){return shown.reference==edge.reference;})) {
+                        auto shown=edge;shown.display_owner_id=feature.id;mesh.edges.push_back(std::move(shown));
+                    }
                     for(const auto& point:reference_geometry.points)if(point.reference.owner_id==feature.id&&
-                        std::ranges::none_of(mesh.points,[&](const auto& shown){return shown.reference==point.reference;}))mesh.points.push_back(point);
+                        std::ranges::none_of(mesh.points,[&](const auto& shown){return shown.reference==point.reference;})) {
+                        auto shown=point;shown.display_owner_id=feature.id;mesh.points.push_back(std::move(shown));
+                    }
                     continue;
                 }
                 if(feature.feature_kind==zima::document::FeatureKind::GeneralSurface) {
                     if(feature.suppressed||feature.id==primitive_parameter_owner_id_||(!document.history_order.empty()&&!visible_ids.contains(feature.id)))continue;
-                    auto definitions=zima::document::general_surface_definition_mesh(feature);
+                    if(std::ranges::all_of(feature.general_surface.boundaries,[&](const auto& boundary){
+                        return hidden_wires.contains(surface_boundary_wire_owner(boundary));
+                    }))continue;
+                    auto displayed_feature=feature;
+                    std::erase_if(displayed_feature.general_surface.boundaries,[&](const auto& boundary){
+                        return hidden_wires.contains(surface_boundary_wire_owner(boundary));
+                    });
+                    if(displayed_feature.general_surface.boundaries.empty())continue;
+                    auto definitions=zima::document::general_surface_definition_mesh(displayed_feature);
                     remove_sketch_computation_points(definitions);
                     if(construction_dimension_object_id_!=feature.id)definitions.dimensions.clear();
                     std::erase_if(definitions.edges,[&](const auto& edge){return edge.reference.owner_id==active_sketch_id_;});
@@ -1014,6 +1045,7 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
             std::erase_if(mesh.points, profile_preview);
             std::erase_if(mesh.constraint_markers, profile_preview);
         }
+        filter_surface_wires(mesh,hidden_wires);
         return mesh;
     };
     if (workspace_.size() == 0) {
@@ -1656,6 +1688,7 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
                         zima::viewer::ReferenceVisibility::Planes)));
             }
             if (!part->native_drawing_template)if (const auto* selected=template_sketch()) display = sketch_viewer_mesh(*selected);
+            if(!properties_dialog_&&active_sketch_id_.empty())filter_hidden_body_geometry(display,document);
             viewer_->set_mesh(std::move(display),
                 !preserve_view_on_refresh_ && active_sketch_id_.empty());
             preserve_view_on_refresh_ = false;
@@ -1718,8 +1751,10 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
             display.edges.insert(display.edges.end(),
                 std::make_move_iterator(cosmetic_threads.begin()),
                 std::make_move_iterator(cosmetic_threads.end()));
+            const auto hidden_wires=hidden_surface_packet_owners(document);
             for (const auto& sketch : document.sketches) {
                 if (sketch.id == sketch_properties_preview_id_) continue;
+                if (hidden_wires.contains(sketch.id)) continue;
                 if (sketch.id != active_sketch_id_ &&
                     !sketch_visible_outside_sketcher(document, sketch)) continue;
                 const auto* displayed_sketch = sketch_trim_active_ &&
@@ -1788,6 +1823,7 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
                 }
             }
             if (!part->native_drawing_template)if (const auto* selected=template_sketch()) display = sketch_viewer_mesh(*selected);
+            if(!properties_dialog_&&active_sketch_id_.empty())filter_hidden_body_geometry(display,document);
             viewer_->set_mesh(std::move(display),
                 !preserve_view_on_refresh_ && active_sketch_id_.empty());
             preserve_view_on_refresh_ = false;
@@ -2271,8 +2307,10 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
                     viewer_->reference_visible(zima::viewer::ReferenceVisibility::Axes),
                     viewer_->reference_visible(zima::viewer::ReferenceVisibility::Planes)));
             }
+            const auto hidden_wires=hidden_surface_packet_owners(active_part->session.document());
             for (const auto& sketch : active_part->session.document().sketches) {
                 if (sketch.id == sketch_properties_preview_id_) continue;
+                if (hidden_wires.contains(sketch.id)) continue;
                 if (sketch.id != active_sketch_id_ &&
                     !sketch_visible_outside_sketcher(
                         active_part->session.document(), sketch)) continue;
@@ -2309,6 +2347,8 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
                         std::move(preview), sketch_properties_body_id_);
                 append_mesh(live_source.mesh, std::move(preview));
             }
+            if(!properties_dialog_&&active_sketch_id_.empty())
+                filter_hidden_body_geometry(live_source.mesh,active_part->session.document());
             viewer_->set_mesh(workspace_.build_scene_with_part_override(
                 document.document_id,
                 zima::assembly::InstancePath::decode(*active_part_occurrence),
