@@ -2,6 +2,14 @@
 
 ## Scope and status
 
+Linux build **2026100602** is signed, published and verified on Debian 13.6
+x86_64 with KDE/Wayland. It uses OCCT 8.0.0, matching Windows, with one shared
+surface-intersection implementation. Clean committed-source packaging,
+candidate/signed smoke, production trust, packaged Templates/General Surface/
+Intersection/Trim GUI checks, remote hashes and update discovery from 2026100601
+passed. See [the release record](releases/2026100602.md) for source identity and
+inherited regression limits. GNOME acceptance is not claimed.
+
 Linux build **2026100601** is signed, published and verified on Debian 13.6
 x86_64 with KDE/Wayland. It includes the current native surface modeling work
 and supports the pinned OCCT 7.9.3 wire-connection API. Candidate/signed smoke,

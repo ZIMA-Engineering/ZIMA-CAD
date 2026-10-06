@@ -9,9 +9,20 @@ scenarios and a relocated native smoke passed, with existing/configuration-
 dependent test limits recorded in [Linux build verification](LINUX_BUILD.md#occt-alignment-verification-on-2026-10-06).
 The root development launcher selects the rebuilt OCCT 8 application. This does
 not replace the immutable signed 2026100601 archive, which uses OCCT 7.9.3.
-A future release needs a new build identity and its own signing/acceptance gates.
+Signed 2026100602 now includes this alignment and passed its independent release
+acceptance gates.
 
 ## Current signed release (2026-10-06)
+
+[Linux 2026100602](releases/2026100602.md) is signed and public. It ships OCCT
+8.0.0 and the shared Windows/Linux surface-intersection implementation. Clean
+committed-source packaging, current template byte checks, candidate/signed smoke,
+production trust, packaged Templates/General Surface/Intersection/Trim GUI checks,
+remote asset hashes and authenticated update discovery from 2026100601 passed.
+Accepted assets are under `.dist-output/linux-0602-signed-final/` and on GitHub.
+See the release record for inherited regression limits. GNOME remains unverified.
+
+## Previous signed release (2026-10-06)
 
 [Linux 2026100601](releases/2026100601.md) is signed and public. It includes the
 current surface modeling commands and a small OCCT SDK API adaptation for the
