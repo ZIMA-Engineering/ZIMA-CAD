@@ -2,12 +2,16 @@
 
 ## Scope and status
 
-Windows build **2026100610** is undergoing committed-source packaging after
-local native and GUI verification. It adds persistent circle tangent contacts,
-external-point H/V, exact local arc Trim, and bounded double-tangent dragging
-and dimension changes. The verification matrix records applicable variants and
-scope limits. Publication and packaged acceptance are pending; see
-[the release record](releases/2026100610.md).
+Windows build **2026100610** is signed, published and verified. It adds persistent
+circle tangent contacts, external-point H/V, exact local arc Trim, and bounded
+double-tangent dragging and dimension changes. Six native suites, nineteen
+generated GUI scenarios and all five translation catalogs passed locally.
+Fresh committed-source packaging, signature/trust, packaged FORM regeneration,
+twelve packaged GUI suites, public asset hashes and update discovery from
+2026100609 passed. No native format or protected shared placement changes.
+Linux acceptance remains separate. See
+[the release record](releases/2026100610.md) and
+[the verification matrix](AI/SKETCH_TANGENCY_VERIFICATION.md).
 
 Windows build **2026100609** is signed, published and verified. It fixes external
 Sketch tangency, sliding equal-length arms and endpoint C with compatible P/H/V.

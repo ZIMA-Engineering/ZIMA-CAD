@@ -30,6 +30,7 @@ solely because its requested dimension value was stored.
 | Orientation and side | 0, 90 and 37 degrees; reflected and ordinary sides | Signed line side, centre separation, unlocked driver dragging and native reopen |
 | Rejection | Duplicate radius driver; R1 outside the retained external arc domain | Exception and byte-identical original Sketch serialization |
 | External-point H/V | Both constraint kinds and both selection orders | Only native point moves; source-coordinate refresh; save/reopen |
+| Native exact arc packet | Translated, rotated Sketch plane; projection to local coordinates | 65 independent radial samples with 1e-10 tolerance |
 | Exact external contour | Imported circular arc, local Trim, native reopen | 65 independent radial samples with 1e-10 tolerance; source unchanged |
 | FORM-like native arc endpoint | Original saved start-profile coordinates and axis incidence | Endpoint tangent fit retains endpoint and axis geometry |
 | GUI | 19 generated scenarios | Common picker, axis/external T, H/V, local arc Trim, six actual centre/contact drag gestures, commit, save/reopen, Undo/Redo |
@@ -49,3 +50,12 @@ that private document. Existing FORM modeling and packaged regeneration checks
 remain separate release gates. Actual dimension editing has native equation
 coverage; the six new drag variants additionally use real GUI mouse events.
 Linux execution is not inferred from Windows verification.
+
+## Windows package acceptance
+
+Release [2026100610](../releases/2026100610.md) passed fresh committed-source
+packaging, native smoke, production signature/trust and all twelve packaged GUI
+suites, including nineteen generated Sketcher scenarios and four actual FORM
+cases. Packaged FORM regeneration retained independently checked removed volume.
+Authenticated and anonymous asset hashes matched, and the previous signed updater
+offered the release as installable without installing it during verification.
