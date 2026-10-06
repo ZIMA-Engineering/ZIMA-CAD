@@ -3,11 +3,12 @@
 #include <algorithm>
 #include <cmath>
 #include <numeric>
+#include <set>
 #include <unordered_map>
 
 namespace zima::sketcher {
-bool seed_rectilinear_equations(Sketch& sketch,const std::vector<std::string>& anchors,bool allow_nonlinear_distances) {
-    if(!sketch.external_references.empty() || sketch.points.empty() ||
+bool seed_rectilinear_equations(Sketch& sketch,const std::vector<std::string>& anchors,bool allow_nonlinear_distances,bool allow_constraint_only) {
+    if((!allow_constraint_only&&!sketch.external_references.empty()) || sketch.points.empty() ||
        !sketch.arcs.empty() || !sketch.ellipses.empty() ||
        !sketch.elliptical_arcs.empty() || !sketch.bsplines.empty() ||
        !sketch.corner_radii.empty() || !sketch.curve_trims.empty() ||
@@ -19,7 +20,7 @@ bool seed_rectilinear_equations(Sketch& sketch,const std::vector<std::string>& a
     // below, before any coordinates are published.
     // Undimensioned point/line commands retain their existing picked-reference
     // priority. Coupled dimension equations need the simultaneous solve.
-    if(!sketch.drawing_template && std::ranges::none_of(sketch.dimensions,
+    if(!allow_constraint_only && !sketch.drawing_template && std::ranges::none_of(sketch.dimensions,
        [](const auto& d){return d.driving&&!d.suppressed;}))return false;
     const std::size_t count=sketch.points.size()*2;
     std::unordered_map<std::string,std::size_t> index;
@@ -67,10 +68,27 @@ bool seed_rectilinear_equations(Sketch& sketch,const std::vector<std::string>& a
             if(!pair(c.first_point_id,c.second_point_id,c.kind==ConstraintKind::Horizontal?1:0,0))return false;
         } else if(c.kind==ConstraintKind::Coincident) {
             if(!pair(c.first_point_id,c.second_point_id,0,0)||!pair(c.first_point_id,c.second_point_id,1,0))return false;
-        } else if(c.kind==ConstraintKind::PointReference&&c.second_point_id=="sketch_origin") {
-            for(int axis=0;axis<2;++axis){const auto i=coordinate(c.first_point_id,axis);if(!i)return false;Row row(count);row[*i]=1;add(std::move(row),0);}
+        } else if(c.kind==ConstraintKind::PointReference) {
+            std::optional<std::array<double,2>> position;
+            if(c.second_point_id=="sketch_origin")position=std::array{0.,0.};
+            else {
+                const auto ref=std::ranges::find(sketch.external_references,c.second_point_id,&SketchExternalReference::id);
+                if(ref!=sketch.external_references.end()&&!ref->broken&&ref->cached_points.size()==1)
+                    position=ref->cached_points.front();
+            }
+            if(!position)return false;
+            for(int axis=0;axis<2;++axis){const auto i=coordinate(c.first_point_id,axis);if(!i)return false;Row row(count);row[*i]=1;add(std::move(row),(*position)[axis]);}
         } else if(c.kind==ConstraintKind::PointOnLine&&axis_coordinate(c.geometry_id)>=0) {
             if(!pair("sketch_origin",c.first_point_id,axis_coordinate(c.geometry_id),0))return false;
+        } else if(c.kind==ConstraintKind::PointOnLine) {
+            const auto ref=std::ranges::find(sketch.external_references,c.geometry_id,&SketchExternalReference::id);
+            if(ref==sketch.external_references.end())return false;
+            const auto line=external_reference_line(*ref);const auto x=coordinate(c.first_point_id,0),y=coordinate(c.first_point_id,1);
+            if(!line||!x||!y)return false;
+            const double length=std::hypot(line->second[0],line->second[1]);
+            const double nx=-line->second[1]/length,ny=line->second[0]/length;
+            Row row(count);row[*x]=nx;row[*y]=ny;
+            add(std::move(row),nx*line->first[0]+ny*line->first[1]);
         } else if(c.kind==ConstraintKind::EqualLength) {
             auto a=segment_row(c.geometry_id),b=segment_row(c.second_geometry_id);if(!a||!b)return false;
             for(std::size_t i=0;i<count;++i)(*a)[i]-=(*b)[i];add(std::move(*a),0);
@@ -197,22 +215,101 @@ bool seed_rectilinear_equations(Sketch& sketch,const std::vector<std::string>& a
     for(std::size_t i=0;i<sketch.points.size();++i){sketch.points[i].x=solved[i*2];sketch.points[i].y=solved[i*2+1];}
     return true;
 }
+
+bool seed_equal_length_components(Sketch& sketch,const std::vector<std::string>& anchors) {
+    std::set<std::string> visited;
+    std::set<std::string> local_geometry;
+    for(const auto& line:sketch.segments)local_geometry.insert(line.id);
+    for(const auto& circle:sketch.circles)local_geometry.insert(circle.id);
+    for(const auto& arc:sketch.arcs)local_geometry.insert(arc.id);
+    for(const auto& ellipse:sketch.ellipses)local_geometry.insert(ellipse.id);
+    for(const auto& arc:sketch.elliptical_arcs)local_geometry.insert(arc.id);
+    for(const auto& spline:sketch.bsplines)local_geometry.insert(spline.id);
+    bool changed=false;
+    for(const auto& equal:sketch.constraints) {
+        if(equal.suppressed||equal.kind!=ConstraintKind::EqualLength||visited.contains(equal.geometry_id))continue;
+        std::set<std::string> points,geometry;
+        geometry.insert(equal.geometry_id);geometry.insert(equal.second_geometry_id);
+        bool expanded=true;
+        while(expanded) {
+            const auto size=points.size()+geometry.size();
+            for(const auto& line:sketch.segments)
+                if(geometry.contains(line.id)||points.contains(line.first_point_id)||points.contains(line.second_point_id)) {
+                    geometry.insert(line.id);points.insert(line.first_point_id);points.insert(line.second_point_id);
+                }
+            for(const auto& c:sketch.constraints)if(!c.suppressed&&
+                (points.contains(c.first_point_id)||points.contains(c.second_point_id)||geometry.contains(c.geometry_id)||geometry.contains(c.second_geometry_id))) {
+                for(const auto& id:{c.first_point_id,c.second_point_id})if(sketch.find_point(id))points.insert(id);
+                for(const auto& id:{c.geometry_id,c.second_geometry_id})if(local_geometry.contains(id))geometry.insert(id);
+            }
+            for(const auto& d:sketch.dimensions)if(!d.suppressed&&d.driving&&
+                (points.contains(d.first_point_id)||points.contains(d.second_point_id)||geometry.contains(d.geometry_id)||geometry.contains(d.second_geometry_id))) {
+                for(const auto& id:{d.first_point_id,d.second_point_id})if(sketch.find_point(id))points.insert(id);
+                for(const auto& id:{d.geometry_id,d.second_geometry_id})if(local_geometry.contains(id))geometry.insert(id);
+            }
+            expanded=size!=points.size()+geometry.size();
+        }
+        visited.insert(geometry.begin(),geometry.end());
+        auto component=sketch;
+        std::erase_if(component.points,[&](const auto& p){return !points.contains(p.id);});
+        std::erase_if(component.segments,[&](const auto& line){return !geometry.contains(line.id);});
+        const auto unused_curve=[&](const auto& c){return !geometry.contains(c.id)&&!points.contains(c.center_point_id);};
+        std::erase_if(component.circles,unused_curve);std::erase_if(component.arcs,unused_curve);
+        std::erase_if(component.ellipses,unused_curve);std::erase_if(component.elliptical_arcs,unused_curve);
+        // Nonlinear and derived geometry remains an unsupported component.
+        std::erase_if(component.constraints,[&](const auto& c){return c.suppressed||
+            (!points.contains(c.first_point_id)&&!points.contains(c.second_point_id)&&!geometry.contains(c.geometry_id)&&!geometry.contains(c.second_geometry_id));});
+        std::erase_if(component.dimensions,[&](const auto& d){return d.suppressed||!d.driving||
+            (!points.contains(d.first_point_id)&&!points.contains(d.second_point_id)&&!geometry.contains(d.geometry_id)&&!geometry.contains(d.second_geometry_id));});
+        if(std::ranges::none_of(component.constraints,[](const auto& c){return c.kind==ConstraintKind::PointOnLine;}))continue;
+        if(!seed_rectilinear_equations(component,anchors,false,true)) {
+            if(!component.circles.empty()||!component.arcs.empty()||!component.ellipses.empty()||
+                !component.elliptical_arcs.empty()||!component.bsplines.empty()||
+                !component.corner_radii.empty()||!component.curve_trims.empty()||!component.offsets.empty())continue;
+            // Reuse the bounded simultaneous equation solver for oblique line
+            // components. A fresh scratch Sketch has no copied point-index cache.
+            auto nonlinear=Sketch::create_default();
+            nonlinear.points=component.points;nonlinear.segments=component.segments;
+            nonlinear.constraints=component.constraints;nonlinear.dimensions=component.dimensions;
+            nonlinear.external_references=component.external_references;
+            if(!seed_circular_equations(nonlinear,anchors,true))continue;
+            component.points=std::move(nonlinear.points);
+        }
+        for(const auto& p:component.points)if(auto* target=sketch.find_point(p.id)) {
+            changed=changed||target->x!=p.x||target->y!=p.y;target->x=p.x;target->y=p.y;
+        }
+    }
+    return changed;
+}
 // A failed circular drag needs simultaneous point, radius and tangent updates.
 // This bounded seed covers native line/arc graphs only; unsupported equations
 // leave the transaction untouched and the ordinary solver verifies the result.
-bool seed_circular_equations(Sketch& sketch,const std::vector<std::string>& anchors) {
-    if(sketch.arcs.empty()||sketch.points.size()>32||!sketch.external_references.empty()||
+bool seed_circular_equations(Sketch& sketch,const std::vector<std::string>& anchors,bool line_component) {
+    if((!line_component&&(sketch.arcs.empty()||!sketch.external_references.empty()))||sketch.points.size()>32||
        !sketch.circles.empty()||!sketch.ellipses.empty()||!sketch.elliptical_arcs.empty()||
        !sketch.bsplines.empty()||!sketch.corner_radii.empty()||!sketch.offsets.empty()||!sketch.curve_trims.empty())return false;
     auto next=sketch;
     const auto point=[&](const std::string& id)->std::optional<std::array<double,2>> {
         if(id=="sketch_origin")return std::array{0.,0.};
-        const auto* p=next.find_point(id);if(!p)return {};return std::array{p->x,p->y};
+        const auto* p=next.find_point(id);if(p)return std::array{p->x,p->y};
+        if(line_component) {
+            const auto ref=std::ranges::find(next.external_references,id,&SketchExternalReference::id);
+            if(ref!=next.external_references.end()&&!ref->broken&&ref->cached_points.size()==1)return ref->cached_points.front();
+        }
+        return {};
     };
     const auto line=[&](const std::string& id)->std::optional<std::array<double,4>> {
         if(id=="sketch_axis:x")return std::array{0.,0.,1.,0.};
         if(id=="sketch_axis:y")return std::array{0.,0.,0.,1.};
-        const auto s=std::ranges::find(next.segments,id,&SketchSegment::id);if(s==next.segments.end())return {};
+        const auto s=std::ranges::find(next.segments,id,&SketchSegment::id);
+        if(s==next.segments.end()) {
+            if(!line_component)return {};
+            const auto ref=std::ranges::find(next.external_references,id,&SketchExternalReference::id);
+            if(ref==next.external_references.end())return {};
+            const auto value=external_reference_line(*ref);if(!value)return {};
+            const double length=std::hypot(value->second[0],value->second[1]);
+            return std::array{value->first[0],value->first[1],value->second[0]/length,value->second[1]/length};
+        }
         const auto a=point(s->first_point_id),b=point(s->second_point_id);if(!a||!b)return {};
         const double length=std::hypot((*b)[0]-(*a)[0],(*b)[1]-(*a)[1]);if(length<1e-10)return {};
         return std::array{(*a)[0],(*a)[1],((*b)[0]-(*a)[0])/length,((*b)[1]-(*a)[1])/length};
@@ -228,7 +325,10 @@ bool seed_circular_equations(Sketch& sketch,const std::vector<std::string>& anch
         }
         for(const auto& c:next.constraints) {
             if(c.suppressed)continue;
-            if(c.kind==ConstraintKind::PointOnLine) {
+            if(line_component&&(c.kind==ConstraintKind::PointReference||c.kind==ConstraintKind::Coincident)) {
+                const auto a=point(c.first_point_id),b=point(c.second_point_id);if(!a||!b)return {};
+                r.push_back((*a)[0]-(*b)[0]);r.push_back((*a)[1]-(*b)[1]);
+            } else if(c.kind==ConstraintKind::PointOnLine) {
                 const auto p=point(c.first_point_id);const auto l=line(c.geometry_id);if(!p||!l)return {};
                 r.push_back(((*p)[0]-(*l)[0])*(*l)[3]-((*p)[1]-(*l)[1])*(*l)[2]);
             } else if(c.kind==ConstraintKind::Horizontal||c.kind==ConstraintKind::Vertical) {
@@ -280,6 +380,11 @@ bool seed_circular_equations(Sketch& sketch,const std::vector<std::string>& anch
     for(int iteration=0;iteration<48;++iteration) {
         const auto residual=equations();if(!residual)return false;
         if(std::ranges::all_of(*residual,[](double v){return std::isfinite(v)&&std::abs(v)<1e-9;})) {
+            if(line_component)for(const auto& segment:sketch.segments) {
+                const auto* a=sketch.find_point(segment.first_point_id);const auto* b=sketch.find_point(segment.second_point_id);
+                const auto p=point(segment.first_point_id),q=point(segment.second_point_id);
+                if(!a||!b||((*q)[0]-(*p)[0])*(b->x-a->x)+((*q)[1]-(*p)[1])*(b->y-a->y)<=1e-12)return false;
+            }
             for(auto& a:next.arcs) {
                 const auto c=point(a.center_point_id),p=point(a.start_point_id),q=point(a.end_point_id);
                 const double old_start=a.start_angle,old_sweep=a.end_angle-a.start_angle;

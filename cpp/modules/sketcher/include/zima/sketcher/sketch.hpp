@@ -263,6 +263,10 @@ struct SketchExternalReference {
 [[nodiscard]] std::optional<std::array<double, 3>> external_reference_circle(
     const SketchExternalReference& reference);
 
+// A straight persisted reference: origin and direction, never a curved-edge chord.
+[[nodiscard]] std::optional<std::pair<std::array<double, 2>, std::array<double, 2>>>
+external_reference_line(const SketchExternalReference& reference);
+
 struct SketchConstraint {
     std::string id;
     ConstraintKind kind{ConstraintKind::Coincident};

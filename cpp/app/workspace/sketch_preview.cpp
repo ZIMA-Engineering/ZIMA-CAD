@@ -379,6 +379,17 @@ void AssemblyWorkspaceWindow::preview_sketch_segment_ray(
     } else if (endpoint_perpendicular) {
         inference.perpendicular_reference_id = endpoint_snap_geometry;
     }
+    if (!endpoint_tangent && !endpoint_perpendicular &&
+        endpoint_snap_kind == zima::sketcher::ConstraintKind::PointOnLine) {
+        // C fixes support, not the new line's direction. Keep compatible H/V
+        // relative to its accepted first point in preview and confirmation.
+        if (automatic_constraint_enabled(zima::sketcher::ConstraintKind::Horizontal) &&
+            std::abs(cursor_y) <= direction_tolerance)
+            inference.kind = zima::sketcher::ConstraintKind::Horizontal;
+        else if (automatic_constraint_enabled(zima::sketcher::ConstraintKind::Vertical) &&
+                 std::abs(cursor_x) <= direction_tolerance)
+            inference.kind = zima::sketcher::ConstraintKind::Vertical;
+    }
     const bool snapped_start_tangent=(endpoint_snap || pending_sketch_snap_kind_) &&
         automatic_constraint_enabled(zima::sketcher::ConstraintKind::Tangent) &&
         start_tangent_matches_endpoint(*sketch,offered_start_tangent,*pending_segment_start_,inference.position,tangent_tolerance);

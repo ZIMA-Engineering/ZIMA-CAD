@@ -5729,6 +5729,7 @@ int verify_rectangle_external_contact_ui(QApplication& application,const std::fi
 #include "system_setup_ui_verification.inc"
 
 #include "sketch_corner_chain_ui_verification.inc"
+#include "sketch_external_constraints_ui_verification.inc"
 
 #include "sketch_polyline_tangent_ui_verification.inc"
 int verify_sketch_endpoint_priority_ui(QApplication& application,const std::filesystem::path& directory) {
@@ -8968,6 +8969,7 @@ int verify_startup_contract(
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_SHEET_EXCHANGE")) return verify_sheet_exchange_ui(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_SHEET_TRANSITION")) return verify_sheet_transition_ui(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_CORNER_CHAIN_FILE") || qEnvironmentVariableIsSet("ZIMA_VERIFY_CORNER_CHAIN_ONLY")) return verify_sketch_corner_chain_ui(application,test_directory);
+    if (qEnvironmentVariableIsSet("ZIMA_VERIFY_EXTERNAL_CONSTRAINTS_ONLY")) return verify_sketch_external_constraints_ui(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_SHEET_CORNER_FILE")) return verify_sheet_corner_ui(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_BOUNDARY_SURFACE_ONLY")) return zima::app::verify_boundary_surface_ui(application,window,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_SHEET_CUT_SKIN_ONLY")) return zima::app::verify_sheet_cut_skin_ui(application,window,test_directory);

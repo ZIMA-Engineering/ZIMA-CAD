@@ -699,6 +699,15 @@ bool AssemblyWorkspaceWindow::accept_sketch_segment_ray(
                         end_snap_geometry_id;
                 }
             }
+            if (inferred_end.perpendicular_reference_id.empty() && !direction_inference) {
+                const double intent_tolerance = viewer_->world_tolerance_for_pixels(2.0 * viewer_->devicePixelRatioF());
+                if (automatic_constraint_enabled(zima::sketcher::ConstraintKind::Horizontal) &&
+                    std::abs(confirmed_position[1]-(*pending_segment_start_)[1]) <= intent_tolerance)
+                    direction_inference = zima::sketcher::ConstraintKind::Horizontal;
+                else if (automatic_constraint_enabled(zima::sketcher::ConstraintKind::Vertical) &&
+                         std::abs(confirmed_position[0]-(*pending_segment_start_)[0]) <= intent_tolerance)
+                    direction_inference = zima::sketcher::ConstraintKind::Vertical;
+            }
         }
     }
     const bool polyline_arc = sketch_polyline_active_ && sketch_polyline_arc_mode_;
@@ -1384,29 +1393,11 @@ AssemblyWorkspaceWindow::sketch_line_support_direction(
         }
         return std::nullopt;
     }
-    const auto reference = std::find_if(sketch->external_references.begin(),
-        sketch->external_references.end(), [&](const auto& value) {
-            return value.id == support_id &&
-                (value.kind == zima::sketcher::ExternalReferenceKind::Edge ||
-                 value.kind == zima::sketcher::ExternalReferenceKind::Axis) &&
-                value.cached_points.size() >= 2;
-        });
+    const auto reference = std::ranges::find(sketch->external_references, support_id,
+        &zima::sketcher::SketchExternalReference::id);
     if (reference == sketch->external_references.end()) return std::nullopt;
-    const auto& first = reference->cached_points.front();
-    const auto& last = reference->cached_points.back();
-    const double dx = last[0] - first[0];
-    const double dy = last[1] - first[1];
-    const double length = std::hypot(dx, dy);
-    if (length <= 1.0e-12) return std::nullopt;
-    if (reference->kind == zima::sketcher::ExternalReferenceKind::Edge) {
-        for (const auto& point : reference->cached_points) {
-            const double deviation = std::abs(
-                (point[0] - first[0]) * dy -
-                (point[1] - first[1]) * dx) / length;
-            if (deviation > 1.0e-8) return std::nullopt;
-        }
-    }
-    return std::array{dx, dy};
+    const auto line = zima::sketcher::external_reference_line(*reference);
+    return line ? std::optional{line->second} : std::nullopt;
 }
 
 } // namespace zima::app

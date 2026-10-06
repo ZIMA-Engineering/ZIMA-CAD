@@ -26,6 +26,110 @@ int main() {
         using zima::sketcher::DimensionKind;
         {
             using namespace zima::sketcher;
+            const auto reference = [](std::string id, ExternalReferenceKind kind,
+                    std::vector<std::array<double,2>> points, bool infinite=false) {
+                SketchExternalReference ref;
+                ref.id=id;ref.kind=kind;ref.source_document_id="source";
+                ref.source_owner_id="source-feature";ref.source_semantic_key=id;
+                ref.cached_points=std::move(points);ref.infinite=infinite;
+                return ref;
+            };
+            const auto line=reference("plane-line",ExternalReferenceKind::Face,{{49,10},{51,10}},true);
+            const auto anchor=reference("anchor",ExternalReferenceKind::Point,{{0,3}});
+            for(const bool reverse:{false,true}) {
+                auto s=Sketch::create_default();
+                const auto ab=s.add_segment(0,3,-8.31,3),bc=s.add_segment(-8.31,3,-8.31,10);
+                s.add_external_reference(line);s.add_external_reference(anchor);
+                const auto a=s.segments[0].first_point_id,b=s.segments[0].second_point_id,c=s.segments[1].second_point_id;
+                static_cast<void>(s.add_point_reference_constraint(a,"anchor"));
+                static_cast<void>(s.add_point_pair_constraint(a,b,ConstraintKind::Horizontal));
+                static_cast<void>(s.add_point_on_line_constraint(c,"plane-line"));
+                static_cast<void>(s.add_point_pair_constraint(c,b,ConstraintKind::Vertical));
+                const auto circle=s.add_circle(-14,-3.57,13.63);
+                const auto before_circle=s.circles.front();
+                static_cast<void>(s.add_segment_pair_constraint(reverse?bc:ab,reverse?ab:bc,ConstraintKind::EqualLength));
+                require(std::abs(s.find_point(b)->x+7)<1e-8&&std::abs(s.find_point(c)->x+7)<1e-8&&
+                    s.find_point(a)->x==0&&s.find_point(a)->y==3&&s.find_point(c)->y==10,
+                    "EqualLength failed on H/V arms with external sliding endpoint");
+                require(s.circles.front()==before_circle&&s.external_references==std::vector{line,anchor},
+                    "EqualLength changed an unrelated circle or external reference");
+                auto loaded=Sketch::from_serialized(s.serialized());
+                require(loaded.solve().status!=SolveStatus::Conflicting,"External sliding EqualLength did not reopen");
+                loaded.external_references[0].cached_points={{49,12},{51,12}};
+                require(loaded.solve().status!=SolveStatus::Conflicting&&std::abs(loaded.find_point(b)->x+9)<1e-8,
+                    "EqualLength retained stale coordinates after external line change");
+                (void)circle;
+            }
+            for(const bool reverse:{false,true}) {
+                auto s=Sketch::create_default();
+                const auto ab=s.add_segment(8,0,8,5),bc=s.add_segment(8,5,0,5);
+                const auto a=s.segments[0].first_point_id,c=s.segments[1].second_point_id;
+                static_cast<void>(s.add_point_on_line_constraint(a,"sketch_axis:x"));
+                static_cast<void>(s.add_point_on_line_constraint(c,"sketch_axis:y"));
+                static_cast<void>(s.add_segment_pair_constraint(ab,bc,ConstraintKind::Perpendicular));
+                static_cast<void>(s.add_segment_pair_constraint(reverse?bc:ab,reverse?ab:bc,ConstraintKind::EqualLength));
+                const auto* p=s.find_point(a);const auto* q=s.find_point(s.segments[0].second_point_id);const auto* r=s.find_point(c);
+                require(std::abs(p->y)<1e-8&&std::abs(r->x)<1e-8&&
+                    std::abs(std::hypot(q->x-p->x,q->y-p->y)-std::hypot(r->x-q->x,r->y-q->y))<1e-8&&
+                    std::abs((q->x-p->x)*(r->x-q->x)+(q->y-p->y)*(r->y-q->y))<1e-7,
+                    "EqualLength failed on perpendicular arms sliding along different axes");
+            }
+            for(const bool reverse:{false,true}) {
+                auto s=Sketch::create_default();s.add_external_reference(line);
+                const auto circle=s.add_circle(-14,-3.57,13.63);
+                static_cast<void>(s.add_tangent_constraint(reverse?circle:line.id,reverse?line.id:circle));
+                const auto* centre=s.find_point(s.circles.front().center_point_id);
+                require(std::abs(centre->y-(10-13.63))<1e-8&&s.external_references.front()==line,
+                    "Circle tangent to infinite external face line failed or moved its reference");
+                auto loaded=Sketch::from_serialized(s.serialized());
+                require(loaded.solve().status!=SolveStatus::Invalid&&loaded.constraints==s.constraints,
+                    "External line Tangent did not persist");
+            }
+            auto arc=reference("trimmed-arc",ExternalReferenceKind::Edge,
+                {{0,3},{.228361402466,1.851949702905},{.87867965644,.87867965644},
+                 {1.851949702905,.228361402466},{3,0}});
+            zima::kernel::BSplineGeometry exact;
+            exact.degree=2;exact.poles={{0,3,0},{0,0,0},{3,0,0}};
+            exact.weights={1,std::sqrt(.5),1};exact.knots={0,0,0,1,1,1};arc.exact_spline=exact;
+            require(external_reference_circle(arc).has_value()&&!external_reference_line(arc),
+                "Short exact circular arc was rejected or classified as a chord");
+            for(const bool reverse:{false,true}) {
+                auto s=Sketch::create_default();s.add_external_reference(arc);
+                const auto circle=s.add_circle(-14,-3.57,13.63);
+                static_cast<void>(s.add_tangent_constraint(reverse?circle:arc.id,reverse?arc.id:circle));
+                const auto* centre=s.find_point(s.circles.front().center_point_id);
+                require(std::abs(std::hypot(centre->x-3,centre->y-3)-16.63)<1e-8&&s.external_references.front()==arc,
+                    "Circle tangent to external trimmed arc failed");
+            }
+            for(const bool arc_contact:{false,true})for(const bool reverse:{false,true}) {
+                auto s=Sketch::create_default();s.add_external_reference(line);s.add_external_reference(arc);
+                const auto circle=s.add_circle(-14.113200233087127,-3.5749458189590086,13.633686118333486);
+                const auto rim=s.add_point(-12.848983801629856,10,1e-9);
+                static_cast<void>(s.add_point_on_circle_constraint(rim,circle));
+                static_cast<void>(s.add_point_on_line_constraint(rim,line.id));
+                const auto ref=arc_contact?arc.id:line.id;
+                static_cast<void>(s.add_tangent_constraint(reverse?circle:ref,reverse?ref:circle));
+                const auto* p=s.find_point(rim);const auto* c=s.find_point(s.circles.front().center_point_id);
+                require(std::abs(p->y-10)<1e-8&&std::abs(std::hypot(p->x-c->x,p->y-c->y)-s.circles.front().radius)<1e-8&&
+                    s.solve().status!=SolveStatus::Conflicting&&s.external_references==std::vector{line,arc},
+                    "External Tangent failed with a rim C point on an external line");
+            }
+            {
+                auto s=Sketch::create_default();s.add_external_reference(arc);
+                const auto circle=s.add_circle(14,3,2);
+                const auto before=s.serialized();bool rejected=false;
+                try { static_cast<void>(s.add_tangent_constraint(arc.id,circle)); }
+                catch(const std::invalid_argument&) { rejected=true; }
+                require(rejected&&s.serialized()==before,"External Tangent ignored the retained arc domain or changed a rejected transaction");
+            }
+            auto s=Sketch::create_default();s.add_external_reference(line);
+            const auto segment=s.add_segment(-8,3,-7,10);
+            static_cast<void>(s.add_segment_pair_constraint(line.id,segment,ConstraintKind::Perpendicular));
+            require(std::abs(s.points[0].x-s.points[1].x)<1e-8&&s.external_references.front()==line,
+                "Perpendicular did not accept the external face intersection line");
+        }
+        {
+            using namespace zima::sketcher;
             for(const auto direction:{std::array{40.,0.},std::array{0.,40.},std::array{32.,24.},std::array{-32.,24.}}) {
                 auto s=Sketch::create_default();const auto ids=s.add_slot(10,20,10+direction[0],20+direction[1],5);
                 require(ids.size()==4&&s.arcs.size()==2&&s.segments.size()==2,"Slot did not create two arcs and two segments");

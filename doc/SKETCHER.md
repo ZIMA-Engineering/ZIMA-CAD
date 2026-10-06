@@ -1,5 +1,37 @@
 # ZIMA-CAD Sketcher
 
+## External tangency and sliding equal-length arms (2026-10-06)
+
+Tangent accepts persisted external straight lines and circular arcs/circles.
+Infinite face-plane intersection lines also support Parallel and Perpendicular.
+The reference stays read-only in either tangent selection order. Curved edges
+are never treated as their endpoint chords. Short exact rational circular arcs
+are recognized using the retained curve, and tangent contact respects its trim.
+
+A circle rim point already bound to a reference line remains on that line.
+Line tangency constrains the radius at the contact to be perpendicular to the
+line, avoiding a singular distance-only redundancy test. For tangency to another
+external circle/arc, circle/line intersections preserve an existing rim C point
+while its centre moves. These calculations use persisted Sketch geometry only.
+
+When the ordinary solver cannot resolve EqualLength on connected arms with
+sliding PointOnLine endpoints, it solves that supported component simultaneously.
+H/V equations reuse the existing row-space QR; oblique line components reuse
+the bounded nonlinear equation solver with at most 32 points. Shared immutable
+references do not merge otherwise independent components. The common solver
+then verifies all original constraints and dimensions before accepting the seed.
+Unsupported or conflicting components remain unchanged. Ordinary working
+EqualLength selection priority and free-segment direction are preserved.
+
+During segment creation, endpoint C and direction are independent. Compatible
+P/H/V relates to the accepted first endpoint in both preview and confirmation;
+an unrelated nearby point cannot replace that direction. Existing automatic
+constraint switches remain effective. GUI regression checks mouse selection,
+external references, P/H/V, Properties OK, Undo/Redo and native reopening.
+
+No new UI text or format is introduced. All five catalogs were validated.
+The private FORM regression uses a copy; the original document is unchanged.
+
 ## Slot and dimension interaction (2026-10-06)
 
 Slot is available below Rectangle. Select the first semicircle centre, the

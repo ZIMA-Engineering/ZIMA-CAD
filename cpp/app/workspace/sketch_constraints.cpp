@@ -361,7 +361,16 @@ void AssemblyWorkspaceWindow::accept_sketch_concentric_selection(
 }
 
 void AssemblyWorkspaceWindow::set_sketch_tangent_contract() {
-    const auto curve_candidate = [](const auto& candidate) {
+    std::set<std::string> external_lines, external_curves;
+    if (const auto* sketch = active_sketch()) for (const auto& reference : sketch->external_references) {
+        if (zima::sketcher::external_reference_line(reference)) external_lines.insert(reference.id);
+        if (zima::sketcher::external_reference_circle(reference)) external_curves.insert(reference.id);
+    }
+    const auto curve_candidate = [external_curves](const auto& candidate) {
+        if (candidate.kind == zima::viewer::CandidateKind::SketchExternalReference) {
+            const auto id = sketch_external_reference_id_from_key(candidate.semantic_key);
+            return id && external_curves.contains(*id);
+        }
         return candidate.kind == zima::viewer::CandidateKind::SketchCurve &&
             (candidate.semantic_key.starts_with("circle:") ||
              candidate.semantic_key.starts_with("arc:") ||
@@ -369,30 +378,27 @@ void AssemblyWorkspaceWindow::set_sketch_tangent_contract() {
              candidate.semantic_key.starts_with("elliptical_arc:") ||
              candidate.semantic_key.starts_with("bspline:"));
     };
-    const auto segment_candidate = [](const auto& candidate) {
+    const auto segment_candidate = [external_lines](const auto& candidate) {
+        if (candidate.kind == zima::viewer::CandidateKind::SketchExternalReference) {
+            const auto id = sketch_external_reference_id_from_key(candidate.semantic_key);
+            return id && external_lines.contains(*id);
+        }
         return candidate.kind == zima::viewer::CandidateKind::SketchSegment &&
             candidate.semantic_key.starts_with("segment:");
     };
-    const auto curve_pair_candidate = [](const auto& candidate) {
-        return candidate.kind == zima::viewer::CandidateKind::SketchCurve &&
-            (candidate.semantic_key.starts_with("circle:") ||
-             candidate.semantic_key.starts_with("arc:") ||
-             candidate.semantic_key.starts_with("ellipse:") ||
-             candidate.semantic_key.starts_with("elliptical_arc:") ||
-             candidate.semantic_key.starts_with("bspline:"));
-    };
+    const auto curve_pair_candidate = curve_candidate;
     if (pending_tangent_geometry_id_.empty()) {
         viewer_->set_selection_contract({
             zima::viewer::CandidateKind::SketchSegment,
-            zima::viewer::CandidateKind::SketchCurve});
+            zima::viewer::CandidateKind::SketchCurve, zima::viewer::CandidateKind::SketchExternalReference});
     } else if (pending_tangent_reference_is_segment_) {
-        viewer_->set_selection_contract({zima::viewer::CandidateKind::SketchCurve});
+        viewer_->set_selection_contract({zima::viewer::CandidateKind::SketchCurve, zima::viewer::CandidateKind::SketchExternalReference});
     } else if (pending_tangent_reference_supports_curve_pair_) {
         viewer_->set_selection_contract({
             zima::viewer::CandidateKind::SketchSegment,
-            zima::viewer::CandidateKind::SketchCurve});
+            zima::viewer::CandidateKind::SketchCurve, zima::viewer::CandidateKind::SketchExternalReference});
     } else {
-        viewer_->set_selection_contract({zima::viewer::CandidateKind::SketchSegment});
+        viewer_->set_selection_contract({zima::viewer::CandidateKind::SketchSegment, zima::viewer::CandidateKind::SketchExternalReference});
     }
     const auto owner_id = active_sketch_id_;
     const bool first_pending = !pending_tangent_geometry_id_.empty();
@@ -410,9 +416,17 @@ void AssemblyWorkspaceWindow::set_sketch_tangent_contract() {
                 return segment_candidate(candidate) || curve_candidate(candidate);
             }
             const auto* sketch=active_sketch();
+            const bool pending_external=sketch && std::ranges::any_of(sketch->external_references,
+                [&](const auto& ref) { return ref.id == pending_geometry_id; });
+            if (candidate.kind == zima::viewer::CandidateKind::SketchExternalReference && sketch &&
+                pending_external)
+                return false;
             const bool pending_spline=sketch && std::ranges::any_of(sketch->bsplines,
                 [&](const auto& value){return value.id==pending_geometry_id;});
+            if (pending_spline && candidate.kind == zima::viewer::CandidateKind::SketchExternalReference)
+                return false;
             const bool candidate_spline=candidate.semantic_key.starts_with("bspline:");
+            if (candidate_spline && pending_external) return false;
             if ((pending_spline && candidate.kind==zima::viewer::CandidateKind::SketchCurve) ||
                 (candidate_spline && !reference_is_segment)) {
                 return sketch && sketch->spline_tangent_contact(pending_geometry_id,
@@ -472,6 +486,18 @@ void AssemblyWorkspaceWindow::accept_sketch_tangent_selection(
                 break;
             }
         }
+    }
+    if (candidate.kind == zima::viewer::CandidateKind::SketchExternalReference) {
+        const auto id = sketch_external_reference_id_from_key(candidate.semantic_key);
+        if (!id) return;
+        const auto* sketch = active_sketch();
+        const auto reference = std::ranges::find(sketch->external_references, *id,
+            &zima::sketcher::SketchExternalReference::id);
+        if (reference == sketch->external_references.end()) return;
+        is_segment = zima::sketcher::external_reference_line(*reference).has_value();
+        supports_curve_pair = zima::sketcher::external_reference_circle(*reference).has_value();
+        if (!is_segment && !supports_curve_pair) return;
+        geometry_id = *id;
     }
     if (geometry_id.empty()) return;
     if (pending_tangent_geometry_id_.empty()) {
@@ -902,11 +928,13 @@ void AssemblyWorkspaceWindow::set_sketch_pair_contract() {
     const auto owner_id = active_sketch_id_;
     const auto pending_geometry_id = pending_pair_geometry_id_;
     const bool reference_is_circular = pending_pair_reference_is_circular_;
-    std::set<std::string> circular_references;
-    if (const auto* sketch=active_sketch()) for(const auto& reference:sketch->external_references)
+    std::set<std::string> circular_references, line_references;
+    if (const auto* sketch=active_sketch()) for(const auto& reference:sketch->external_references) {
         if(zima::sketcher::external_reference_circle(reference)) circular_references.insert(reference.id);
+        if(zima::sketcher::external_reference_line(reference)) line_references.insert(reference.id);
+    }
     viewer_->set_candidate_filter(
-        [owner_id, pending_geometry_id, reference_is_circular, equal, circular_references](
+        [owner_id, pending_geometry_id, reference_is_circular, equal, circular_references, line_references](
             const auto& candidate) {
             if (candidate.owner_id != owner_id) return false;
             const bool segment =
@@ -919,8 +947,7 @@ void AssemblyWorkspaceWindow::set_sketch_pair_contract() {
             const bool external_direction = !equal &&
                 candidate.kind ==
                     zima::viewer::CandidateKind::SketchExternalReference &&
-                (candidate.semantic_key.starts_with("external_edge:") ||
-                 candidate.semantic_key.starts_with("external_axis:"));
+                line_references.contains(sketch_external_reference_id_from_key(candidate.semantic_key).value_or(""));
             const auto external_id=sketch_external_reference_id_from_key(candidate.semantic_key);
             const bool external_circle = equal && !pending_geometry_id.empty() &&
                 candidate.kind == zima::viewer::CandidateKind::SketchExternalReference &&
@@ -966,8 +993,7 @@ void AssemblyWorkspaceWindow::accept_sketch_segment_pair(
     } else if (pending_pair_kind_ != zima::sketcher::ConstraintKind::EqualLength &&
                candidate.kind ==
                    zima::viewer::CandidateKind::SketchExternalReference &&
-               (candidate.semantic_key.starts_with("external_edge:") ||
-                candidate.semantic_key.starts_with("external_axis:"))) {
+               sketch_line_support_direction(sketch_external_reference_id_from_key(candidate.semantic_key).value_or("")).has_value()) {
         const auto reference_id = sketch_external_reference_id_from_key(
             candidate.semantic_key);
         if (reference_id) geometry_id = *reference_id;

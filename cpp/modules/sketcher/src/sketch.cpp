@@ -26,6 +26,29 @@
 
 namespace zima::sketcher {
 
+std::optional<std::pair<std::array<double, 2>, std::array<double, 2>>>
+external_reference_line(const SketchExternalReference& reference) {
+    if (reference.broken || reference.cached_points.size() < 2 ||
+        (reference.kind != ExternalReferenceKind::Edge &&
+         reference.kind != ExternalReferenceKind::Axis &&
+         !(reference.kind == ExternalReferenceKind::Face && reference.infinite)))
+        return std::nullopt;
+    const auto& first = reference.cached_points.front();
+    const auto& last = reference.cached_points.back();
+    const std::array direction{last[0] - first[0], last[1] - first[1]};
+    const double length = std::hypot(direction[0], direction[1]);
+    if (length <= 1.0e-12) return std::nullopt;
+    const auto on_line = [&](double x, double y) {
+        return std::abs((x - first[0]) * direction[1] -
+            (y - first[1]) * direction[0]) / length <= 1.0e-8;
+    };
+    for (const auto& point : reference.cached_points)
+        if (!on_line(point[0], point[1])) return std::nullopt;
+    if (reference.exact_spline) for (const auto& pole : reference.exact_spline->poles)
+        if (!on_line(pole.x, pole.y)) return std::nullopt;
+    return std::pair{first, direction};
+}
+
 std::optional<std::array<double, 3>> external_reference_circle(
     const SketchExternalReference& reference) {
     if (reference.broken || reference.infinite ||
@@ -36,7 +59,7 @@ std::optional<std::array<double, 3>> external_reference_circle(
         if (reference.cached_paths.size() != 1) return std::nullopt;
         points = &reference.cached_paths.front();
     }
-    if (points->size() < 8) return std::nullopt;
+    if (points->size() < (reference.exact_spline ? 3U : 8U)) return std::nullopt;
     const auto& a = points->front();
     const auto& b = (*points)[points->size()/3];
     const auto& c = (*points)[2*points->size()/3];
@@ -54,6 +77,11 @@ std::optional<std::array<double, 3>> external_reference_circle(
     for (const auto& point : *points) {
         const double distance=std::hypot(point[0]-a[0]-ux,point[1]-a[1]-uy);
         if (!std::isfinite(distance) || std::abs(distance-radius)>tolerance)
+            return std::nullopt;
+    }
+    if (reference.exact_spline) for (unsigned i = 0; i <= 32; ++i) {
+        const auto point = zima::kernel::bspline_value(*reference.exact_spline, double(i) / 32);
+        if (std::abs(std::hypot(point.x-a[0]-ux, point.y-a[1]-uy)-radius)>tolerance)
             return std::nullopt;
     }
     return std::array{a[0]+ux,a[1]+uy,radius};
@@ -299,19 +327,10 @@ std::optional<std::pair<std::array<double, 2>, std::array<double, 2>>>
 external_reference_line(const Sketch& sketch, const std::string& reference_id) {
     const auto found = std::find_if(sketch.external_references.begin(),
         sketch.external_references.end(), [&](const auto& reference) {
-            return reference.id == reference_id &&
-                (reference.kind == ExternalReferenceKind::Edge ||
-                 reference.kind == ExternalReferenceKind::Axis) &&
-                reference.cached_points.size() >= 2;
+            return reference.id == reference_id;
         });
     if (found == sketch.external_references.end()) return std::nullopt;
-    const auto& first = found->cached_points.front();
-    const auto& second = found->cached_points.back();
-    if (std::hypot(second[0] - first[0], second[1] - first[1]) <= 1.0e-12) {
-        return std::nullopt;
-    }
-    return std::pair{first,
-        std::array{second[0] - first[0], second[1] - first[1]}};
+    return zima::sketcher::external_reference_line(*found);
 }
 
 std::optional<std::pair<std::array<double, 2>, std::array<double, 2>>>
@@ -1147,6 +1166,19 @@ std::set<std::string> circular_curve_radial_points(
     return {};
 }
 
+std::string bound_external_line_contact(const Sketch& sketch,
+    const std::string& line_id, const std::string& curve_id) {
+    if (!external_reference_line(sketch, line_id)) return {};
+    for (const auto& c : sketch.constraints) {
+        if (c.suppressed || c.kind != ConstraintKind::PointOnCircle || c.geometry_id != curve_id) continue;
+        if (std::ranges::any_of(sketch.constraints, [&](const auto& support) {
+                return !support.suppressed && support.kind == ConstraintKind::PointOnLine &&
+                    support.first_point_id == c.first_point_id && support.geometry_id == line_id;
+            })) return c.first_point_id;
+    }
+    return {};
+}
+
 struct TangentCurveData {
     std::string center_point_id;
     double major_x{};
@@ -1155,7 +1187,15 @@ struct TangentCurveData {
     double minor_y{};
     std::optional<std::pair<double, double>> parameter_domain;
     std::optional<double> circular_radius;
+    std::optional<std::array<double, 2>> external_center;
 };
+
+std::optional<std::array<double, 2>> tangent_curve_center(
+    const Sketch& sketch, const TangentCurveData& curve) {
+    if (curve.external_center) return curve.external_center;
+    const auto* center = sketch.find_point(curve.center_point_id);
+    return center ? std::optional{std::array{center->x, center->y}} : std::nullopt;
+}
 
 std::optional<TangentCurveData> tangent_curve_data(
     const Sketch& sketch, const std::string& geometry_id) {
@@ -1208,6 +1248,30 @@ std::optional<TangentCurveData> tangent_curve_data(
             major->x - center->x, major->y - center->y,
             minor->x - center->x, minor->y - center->y,
             std::pair{arc->start_parameter, arc->end_parameter}};
+    }
+    for (const auto& reference : sketch.external_references) {
+        if (reference.id != geometry_id) continue;
+        const auto circle = external_reference_circle(reference);
+        if (!circle) return std::nullopt;
+        TangentCurveData result{"", (*circle)[2], 0.0, 0.0, (*circle)[2]};
+        result.circular_radius = (*circle)[2];
+        result.external_center = std::array{(*circle)[0], (*circle)[1]};
+        const auto& points = reference.cached_points.empty()
+            ? reference.cached_paths.front() : reference.cached_points;
+        double previous = std::atan2(points.front()[1]-(*circle)[1], points.front()[0]-(*circle)[0]);
+        double sweep = 0.0;
+        constexpr double turn = 2.0 * 3.14159265358979323846;
+        for (std::size_t i = 1; i < points.size(); ++i) {
+            const double angle = std::atan2(points[i][1]-(*circle)[1], points[i][0]-(*circle)[0]);
+            sweep += std::remainder(angle-previous, turn);
+            previous = angle;
+        }
+        if (std::abs(sweep) < turn-1.0e-8) {
+            const double start = std::atan2(points.front()[1]-(*circle)[1], points.front()[0]-(*circle)[0]);
+            result.parameter_domain = sweep >= 0.0
+                ? std::pair{start, start+sweep} : std::pair{start+sweep, start};
+        }
+        return result;
     }
     return std::nullopt;
 }
@@ -1438,11 +1502,11 @@ std::optional<CircularConstraintTarget> circular_constraint_target(
             : sampled_curve_constraint_target(
                   sampled_bspline_points(sketch, *spline), point_x, point_y);
     }
-    const auto* center = sketch.find_point(curve->center_point_id);
-    if (center == nullptr) return std::nullopt;
+    const auto center = tangent_curve_center(sketch, *curve);
+    if (!center) return std::nullopt;
     constexpr double full_turn = 2.0 * 3.14159265358979323846;
-    const double relative_x = point_x - center->x;
-    const double relative_y = point_y - center->y;
+    const double relative_x = point_x - (*center)[0];
+    const double relative_y = point_y - (*center)[1];
     const double determinant =
         curve->major_x * curve->minor_y -
         curve->major_y * curve->minor_x;
@@ -1478,9 +1542,9 @@ std::optional<CircularConstraintTarget> circular_constraint_target(
     }
     const auto position_at = [&](double value) {
         return std::array{
-            center->x + curve->major_x * std::cos(value) +
+            (*center)[0] + curve->major_x * std::cos(value) +
                 curve->minor_x * std::sin(value),
-            center->y + curve->major_y * std::cos(value) +
+            (*center)[1] + curve->major_y * std::cos(value) +
                 curve->minor_y * std::sin(value)};
     };
     if (curve->parameter_domain) {
@@ -1522,9 +1586,8 @@ std::optional<SegmentCurveTangentState> segment_curve_tangent_state(
     const auto segment = std::find_if(
         sketch.segments.begin(), sketch.segments.end(),
         [&](const auto& value) { return value.id == segment_id; });
-    const auto axis = segment == sketch.segments.end() &&
-            is_base_sketch_axis(segment_id)
-        ? sketch_axis_line(sketch, segment_id) : std::nullopt;
+    const auto axis = segment == sketch.segments.end()
+        ? segment_or_external_line(sketch, segment_id) : std::nullopt;
     const auto curve = tangent_curve_data(sketch, curve_id);
     if ((segment == sketch.segments.end() && !axis) || !curve)
         return std::nullopt;
@@ -1532,8 +1595,8 @@ std::optional<SegmentCurveTangentState> segment_curve_tangent_state(
         ? nullptr : sketch.find_point(segment->first_point_id);
     const auto* second = segment == sketch.segments.end()
         ? nullptr : sketch.find_point(segment->second_point_id);
-    const auto* center = sketch.find_point(curve->center_point_id);
-    if ((!axis && (first == nullptr || second == nullptr)) || center == nullptr)
+    const auto center = tangent_curve_center(sketch, *curve);
+    if ((!axis && (first == nullptr || second == nullptr)) || !center)
         return std::nullopt;
     const double first_x = axis ? axis->first[0] : first->x;
     const double first_y = axis ? axis->first[1] : first->y;
@@ -1545,8 +1608,8 @@ std::optional<SegmentCurveTangentState> segment_curve_tangent_state(
     const double tangent_y = dy / length;
     const double normal_x = -tangent_y;
     const double normal_y = tangent_x;
-    const double center_x = center->x - first_x;
-    const double center_y = center->y - first_y;
+    const double center_x = (*center)[0] - first_x;
+    const double center_y = (*center)[1] - first_y;
     const double signed_distance = center_x * normal_x + center_y * normal_y;
     const double normal_major =
         normal_x * curve->major_x + normal_y * curve->major_y;
@@ -1569,7 +1632,10 @@ std::optional<SegmentCurveTangentState> segment_curve_tangent_state(
     const double target_distance = signed_distance >= 0.0
         ? support : -support;
     constexpr double linear_tolerance = 1.0e-8;
-    const bool contact_on_segment = axis ||
+    const auto external_line = std::ranges::find(sketch.external_references, segment_id, &SketchExternalReference::id);
+    const bool unbounded = is_base_sketch_axis(segment_id) ||
+        (external_line != sketch.external_references.end() && external_line->infinite);
+    const bool contact_on_segment = unbounded ||
         (along >= -linear_tolerance && along <= length + linear_tolerance);
     bool contact_on_curve = true;
     if (curve->parameter_domain) {
@@ -1598,7 +1664,7 @@ std::optional<SegmentCurveTangentState> segment_curve_tangent_state(
         axis ? std::string{} : segment->second_point_id,
         curve->center_point_id, normal_x, normal_y,
         signed_distance, target_distance,
-        center->x + contact_offset_x, center->y + contact_offset_y,
+        (*center)[0] + contact_offset_x, (*center)[1] + contact_offset_y,
         contact_on_segment, contact_on_curve};
 }
 
@@ -1803,11 +1869,11 @@ struct GeneralCurvePairTangentState {
 
 std::array<double, 2> tangent_curve_point(
     const Sketch& sketch, const TangentCurveData& curve, double parameter) {
-    const auto* center = sketch.find_point(curve.center_point_id);
+    const auto center = tangent_curve_center(sketch, curve);
     return {
-        center->x + curve.major_x * std::cos(parameter) +
+        (*center)[0] + curve.major_x * std::cos(parameter) +
             curve.minor_x * std::sin(parameter),
-        center->y + curve.major_y * std::cos(parameter) +
+        (*center)[1] + curve.major_y * std::cos(parameter) +
             curve.minor_y * std::sin(parameter)};
 }
 
@@ -1966,11 +2032,11 @@ std::optional<CurvePairTangentState> curve_pair_tangent_state(
         !driven->circular_radius) {
         return std::nullopt;
     }
-    const auto* reference_center = sketch.find_point(reference->center_point_id);
-    const auto* driven_center = sketch.find_point(driven->center_point_id);
-    if (reference_center == nullptr || driven_center == nullptr) return std::nullopt;
-    const double dx = driven_center->x - reference_center->x;
-    const double dy = driven_center->y - reference_center->y;
+    const auto reference_center = tangent_curve_center(sketch, *reference);
+    const auto driven_center = tangent_curve_center(sketch, *driven);
+    if (!reference_center || !driven_center) return std::nullopt;
+    const double dx = (*driven_center)[0] - (*reference_center)[0];
+    const double dy = (*driven_center)[1] - (*reference_center)[1];
     const double distance = std::hypot(dx, dy);
     if (distance <= 1.0e-12) return std::nullopt;
     const double reference_radius = *reference->circular_radius;
@@ -2487,8 +2553,8 @@ void Sketch::validate() const {
             is_base_sketch_axis(constraint.geometry_id);
         const bool second_is_axis = tangent &&
             is_base_sketch_axis(constraint.second_geometry_id);
-        const bool first_is_line = first_is_segment || first_is_axis;
-        const bool second_is_line = second_is_segment || second_is_axis;
+        const bool first_is_line = segment_or_external_line(*this, constraint.geometry_id).has_value();
+        const bool second_is_line = segment_or_external_line(*this, constraint.second_geometry_id).has_value();
         const bool external_direction_pair = pair_constraint &&
             constraint.kind != ConstraintKind::EqualLength &&
             segment_or_external_line(*this, constraint.geometry_id).has_value() &&
@@ -4547,14 +4613,14 @@ std::optional<std::array<double, 2>> Sketch::curve_tangent_at_point(
         }
         return tangent;
     }
-    const auto* center = find_point(curve->center_point_id);
-    if (center == nullptr) return std::nullopt;
+    const auto center = tangent_curve_center(*this, *curve);
+    if (!center) return std::nullopt;
     const double determinant =
         curve->major_x * curve->minor_y -
         curve->major_y * curve->minor_x;
     if (std::abs(determinant) <= 1.0e-18) return std::nullopt;
-    const double relative_x = target->position[0] - center->x;
-    const double relative_y = target->position[1] - center->y;
+    const double relative_x = target->position[0] - (*center)[0];
+    const double relative_y = target->position[1] - (*center)[1];
     const double cosine =
         (relative_x * curve->minor_y - relative_y * curve->minor_x) /
         determinant;
@@ -4738,13 +4804,13 @@ std::vector<std::array<double, 2>> Sketch::curve_line_intersections(
             })) result.push_back(point);
     };
     if (const auto curve = tangent_curve_data(*this, geometry_id)) {
-        const auto* center = find_point(curve->center_point_id);
-        if (center == nullptr) return result;
+        const auto center = tangent_curve_center(*this, *curve);
+        if (!center) return result;
         const double determinant = curve->major_x * curve->minor_y -
             curve->major_y * curve->minor_x;
         if (std::abs(determinant) <= 1.0e-18) return result;
-        const double offset_x = line_origin[0] - center->x;
-        const double offset_y = line_origin[1] - center->y;
+        const double offset_x = line_origin[0] - (*center)[0];
+        const double offset_y = line_origin[1] - (*center)[1];
         const double local_u =
             (offset_x * curve->minor_y - offset_y * curve->minor_x) /
             determinant;
@@ -5042,9 +5108,19 @@ std::optional<std::string> Sketch::spline_tangent_contact(
 }
 
 std::string Sketch::add_tangent_constraint(
-    const std::string& reference_geometry_id,
-    const std::string& driven_geometry_id,
+    const std::string& reference_input_id,
+    const std::string& driven_input_id,
     const std::string& contact_point_id) {
+    auto reference_geometry_id = reference_input_id;
+    auto driven_geometry_id = driven_input_id;
+    const auto is_external = [&](const std::string& id) {
+        return std::ranges::any_of(external_references, [&](const auto& ref) { return ref.id == id; });
+    };
+    // An external reference is immutable regardless of selection order.
+    if (is_external(driven_geometry_id) && !is_external(reference_geometry_id))
+        std::swap(reference_geometry_id, driven_geometry_id);
+    if (is_external(driven_geometry_id))
+        throw std::invalid_argument("Tangent constraint input is invalid");
     std::string resolved_contact_point_id = contact_point_id;
     const auto junction=spline_junction(*this,reference_geometry_id,driven_geometry_id);
     if(junction) {
@@ -5062,8 +5138,8 @@ std::string Sketch::add_tangent_constraint(
         });
     const bool reference_is_axis = is_base_sketch_axis(reference_geometry_id);
     const bool driven_is_axis = is_base_sketch_axis(driven_geometry_id);
-    const bool reference_is_line = reference_is_segment || reference_is_axis;
-    const bool driven_is_line = driven_is_segment || driven_is_axis;
+    const bool reference_is_line = segment_or_external_line(*this, reference_geometry_id).has_value();
+    const bool driven_is_line = segment_or_external_line(*this, driven_geometry_id).has_value();
     const auto reference_curve = tangent_curve_data(*this, reference_geometry_id);
     const auto driven_curve = tangent_curve_data(*this, driven_geometry_id);
     const bool reference_spline = std::ranges::any_of(bsplines,
@@ -5077,6 +5153,10 @@ std::string Sketch::add_tangent_constraint(
     const bool curve_pair =
         !reference_is_line && !driven_is_line &&
         reference_curve && driven_curve;
+    if (resolved_contact_point_id.empty() && line_curve)
+        resolved_contact_point_id = bound_external_line_contact(*this,
+            reference_is_line ? reference_geometry_id : driven_geometry_id,
+            reference_is_line ? driven_geometry_id : reference_geometry_id);
     const auto persisted_curve_contact = [&](const std::string& curve_id,
                                               const std::string& point_id) {
         const auto curve = tangent_curve_data(*this, curve_id);
@@ -8754,6 +8834,15 @@ void Sketch::apply_dimension(SketchDimension dimension) {
 SolveResult Sketch::solve(std::size_t maximum_iterations) {
     if(std::ranges::any_of(external_references,[](const auto& ref){return ref.kind==ExternalReferenceKind::AxisPoint&&ref.broken;}))return {};
     auto result=solve_impl(maximum_iterations, true);
+    if (result.status == SolveStatus::Conflicting &&
+        std::ranges::any_of(constraints, [](const auto& c) { return !c.suppressed && c.kind == ConstraintKind::EqualLength; })) {
+        auto before = *this;
+        if (seed_equal_length_components(*this, {})) {
+            result = solve_impl(maximum_iterations, true);
+            if (result.status == SolveStatus::Conflicting || result.status == SolveStatus::Invalid)
+                *this = std::move(before);
+        }
+    }
     if(result.status != SolveStatus::Invalid && result.status != SolveStatus::Conflicting)refresh_curve_dependencies();
     return result;
 }
@@ -9683,10 +9772,8 @@ SolveResult Sketch::solve_impl(
                     segments.begin(), segments.end(), [&](const auto& value) {
                         return value.id == constraint.second_geometry_id;
                     });
-                const bool reference_is_line = reference_is_segment ||
-                    is_base_sketch_axis(constraint.geometry_id);
-                const bool driven_is_line = driven_is_segment ||
-                    is_base_sketch_axis(constraint.second_geometry_id);
+                const bool reference_is_line = segment_or_external_line(*this, constraint.geometry_id).has_value();
+                const bool driven_is_line = segment_or_external_line(*this, constraint.second_geometry_id).has_value();
                 if (!reference_is_line && !driven_is_line) {
                     const auto reference_curve = tangent_curve_data(
                         *this, constraint.geometry_id);
@@ -9737,6 +9824,23 @@ SolveResult Sketch::solve_impl(
                     if (residual <= tolerance) continue;
                     const auto reference_points = center_curve_translation_points(
                         *this, constraint.geometry_id);
+                    std::vector<std::pair<std::string,std::string>> line_contacts;
+                    if (reference_curve && reference_curve->external_center && driven_curve &&
+                        driven_curve->circular_radius) {
+                        for (const auto& contact : constraints) {
+                            if (contact.suppressed || contact.kind != ConstraintKind::PointOnCircle ||
+                                contact.geometry_id != constraint.second_geometry_id) continue;
+                            for (const auto& support : constraints) {
+                                if (support.suppressed || support.kind != ConstraintKind::PointOnLine ||
+                                    support.first_point_id != contact.first_point_id ||
+                                    !external_reference_line(*this, support.geometry_id)) continue;
+                                const auto* point=find_point(contact.first_point_id);
+                                if (!point || immutable(*point)) continue;
+                                line_contacts.emplace_back(point->id,support.geometry_id);
+                                translated.erase(point->id);
+                            }
+                        }
+                    }
                     const bool blocked = translated.empty() || std::any_of(
                         translated.begin(), translated.end(),
                         [&](const auto& point_id) {
@@ -9751,6 +9855,22 @@ SolveResult Sketch::solve_impl(
                             auto* point = find_point(point_id);
                             point->x += correction_x;
                             point->y += correction_y;
+                        }
+                        // Keep C points on immutable lines while the circle
+                        // centre moves. Resolve their exact circle/line
+                        // intersections together instead of alternating two
+                        // nearest-point projections.
+                        for (const auto& [point_id,line_id] : line_contacts) {
+                            auto* point=find_point(point_id);
+                            const auto line=external_reference_line(*this,line_id);
+                            const auto ref=std::ranges::find(external_references,line_id,&SketchExternalReference::id);
+                            const auto contacts=curve_line_intersections(constraint.second_geometry_id,
+                                line->first,line->second,!ref->infinite);
+                            if (contacts.empty()) { immovable_conflict=true;continue; }
+                            const auto target=std::ranges::min_element(contacts,{},[&](const auto& p) {
+                                return std::hypot(p[0]-point->x,p[1]-point->y);
+                            });
+                            point->x=(*target)[0];point->y=(*target)[1];
                         }
                     }
                     continue;
@@ -10048,9 +10168,14 @@ SolveResult Sketch::solve_impl(
                 }
                 const double correction =
                     state->target_distance - state->signed_distance;
+                const auto contact_id = bound_external_line_contact(*this, segment_id, curve_id);
+                const auto* bound_contact = contact_id.empty() ? nullptr : find_point(contact_id);
+                const double along_correction = bound_contact
+                    ? (bound_contact->x-state->contact_x) * state->normal_y -
+                        (bound_contact->y-state->contact_y) * state->normal_x : 0.0;
                 maximum_residual = std::max(
-                    maximum_residual, std::abs(correction));
-                if (std::abs(correction) <= tolerance) continue;
+                    maximum_residual, std::max(std::abs(correction), std::abs(along_correction)));
+                if (std::abs(correction) <= tolerance && std::abs(along_correction) <= tolerance) continue;
                 // A curve translated against a line cannot move as one rigid
                 // body when their tangent contact is also a shared endpoint.
                 // That is the normal polyline/connected-curve state, not an
@@ -10122,6 +10247,15 @@ SolveResult Sketch::solve_impl(
                         reference_points.insert(state->second_point_id);
                     translation_x = correction * state->normal_x;
                     translation_y = correction * state->normal_y;
+                    // A rim point already bound to an immutable line is the
+                    // tangent contact. Preserve that C point and align the
+                    // centre underneath it, rather than alternately translating
+                    // the rim off the line and projecting it back onto the circle.
+                    if (bound_contact) {
+                        translation_x += along_correction * state->normal_y;
+                        translation_y -= along_correction * state->normal_x;
+                        translated.erase(contact_id);
+                    }
                 } else {
                     translated.insert(state->first_point_id);
                     translated.insert(state->second_point_id);
@@ -11422,10 +11556,8 @@ SolveResult Sketch::solve_impl(
                     segments.begin(), segments.end(), [&](const auto& value) {
                         return value.id == constraint.second_geometry_id;
                     });
-                const bool reference_is_line = reference_is_segment ||
-                    is_base_sketch_axis(constraint.geometry_id);
-                const bool driven_is_line = driven_is_segment ||
-                    is_base_sketch_axis(constraint.second_geometry_id);
+                const bool reference_is_line = segment_or_external_line(*this, constraint.geometry_id).has_value();
+                const bool driven_is_line = segment_or_external_line(*this, constraint.second_geometry_id).has_value();
                 if (!reference_is_line && !driven_is_line) {
                     const auto reference_curve = tangent_curve_data(
                         *this, constraint.geometry_id);
@@ -11473,6 +11605,18 @@ SolveResult Sketch::solve_impl(
                             ? constraint.geometry_id : constraint.second_geometry_id,
                         reference_is_line
                             ? constraint.second_geometry_id : constraint.geometry_id);
+                    const auto contact_id = bound_external_line_contact(*this, segment_id, curve_id);
+                    const auto* contact = contact_id.empty() ? nullptr : find_point(contact_id);
+                    const auto curve = tangent_curve_data(*this, curve_id);
+                    const auto center = curve ? tangent_curve_center(*this, *curve) : std::nullopt;
+                    if (state && contact && center) {
+                        // C on the line and circle already owns normal separation.
+                        // T adds radial/line orthogonality; its derivative stays
+                        // independent at the exact tangent (distance alone is singular).
+                        result.push_back(((*center)[0]-contact->x)*state->normal_y -
+                            ((*center)[1]-contact->y)*state->normal_x);
+                        continue;
+                    }
                     result.push_back(state
                         ? std::abs(state->signed_distance) -
                             std::abs(state->target_distance)
