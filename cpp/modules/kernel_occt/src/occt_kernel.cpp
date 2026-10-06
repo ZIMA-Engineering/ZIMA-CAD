@@ -75,7 +75,8 @@
 #include <BRep_Tool.hxx>
 #include <ShapeUpgrade_UnifySameDomain.hxx>
 #include <ShapeAnalysis_FreeBounds.hxx>
-#if __has_include(<NCollection_HSequence.hxx>)
+#include <Standard_Version.hxx>
+#if OCC_VERSION_MAJOR >= 8
 #include <NCollection_HSequence.hxx>
 #else
 #include <TopTools_HSequenceOfShape.hxx>

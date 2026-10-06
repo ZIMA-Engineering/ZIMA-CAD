@@ -61,13 +61,13 @@ PrimitiveData make_surface_intersection_data(const SurfaceIntersectionRequest& r
         // Join only shared vertices and the same analytic/C1 spline domain.
         // The endpoints of each completed branch retain native ancestry.
         // No source shape is modified.
-#if __has_include(<NCollection_HSequence.hxx>)
+#if OCC_VERSION_MAJOR >= 8
         Handle(NCollection_HSequence<TopoDS_Shape>) sequence=new NCollection_HSequence<TopoDS_Shape>;
 #else
         Handle(TopTools_HSequenceOfShape) sequence=new TopTools_HSequenceOfShape;
 #endif
         for(int i=1;i<=result_edges.Extent();++i)sequence->Append(result_edges.FindKey(i));
-#if __has_include(<NCollection_HSequence.hxx>)
+#if OCC_VERSION_MAJOR >= 8
         const auto wires=ShapeAnalysis_FreeBounds::ConnectEdgesToWires(sequence,request.tolerance,true);
 #else
         Handle(TopTools_HSequenceOfShape) wires;
