@@ -2,6 +2,15 @@
 
 ## Scope and status
 
+Windows build **2026100606** is signed, published and verified. It fixes corner
+rounding with midpoint/axis constraints and uses original design endpoints for
+midpoint solving, display and snapping. Seven affected suites, three final
+follow-up suites, FORM GUI and independent extrusion-volume checks, fresh
+packaging, signed smoke/trust, seven packaged GUI scenarios, public asset hashes
+and update discovery from 2026100605 passed. No new UI strings are introduced;
+all five catalogs were validated. Linux acceptance remains separate. See
+[the release record](releases/2026100606.md).
+
 Windows build **2026100605** is signed, published and verified. It adds ordered
 Drawing view descriptions with source-parameter text and all five localizations.
 Eleven affected suites, fresh packaging, signed smoke/trust, six packaged GUI

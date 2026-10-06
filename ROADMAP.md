@@ -213,6 +213,34 @@ describes editable text and direction/angle fields, and its
 defines direction relative to the viewed side. These are workflow examples,
 not a claim of a mandatory drafting standard or authorization for automation.
 
+### Sheet forming library (design agreed 2026-10-06)
+
+- Start with forming in one planar sheet Flat. Forming across a Flat/Bend corner
+  is deferred until a concrete part establishes the required geometry and
+  flat-pattern mapping.
+- Store library Parts in shared `config/lib/01-SHEETMETAL/01-FORM/`. Directory
+  names and numeric prefixes determine category order; later mechanical-table
+  categories and ZIMA-Parts integration are separate work.
+- Author two Bodies named `FORM` and `FORM_FLAT`, sharing origin/orientation.
+  `FORM` defines the tool/form geometry including radii; `FORM_FLAT` supplies
+  its simplified flat-pattern sketch. Review the user's actual FORM Part before
+  finalizing surface selection, thickness construction and connection boundaries.
+- Place the tool's zero plane on the outer sheet surface, viewed from the tool
+  toward the sheet. Preserve the selected thickness side explicitly.
+- Reuse the existing file browser and insertion/placement paths where suitable.
+  Copy the editable definition and required internal references into the target
+  native Part with distinct stable identities; do not require an external link
+  to the library file. Persist source roles and affected Flat references in the
+  forming operation so Unbend does not depend on mutable Body names.
+- Use the inserted feature name as its tool designation. Suppress spatial
+  forming in the flat pattern and retain the simplified sketch for drawing and
+  DXF, on a configurable layer initially named `FORMING`. Real holes remain
+  independent sheet cuts. Optional designation text must stay distinct from
+  cutting geometry. Automatic CAM recognition requires validation with the
+  particular receiving system; a layer name is not a universal machine protocol.
+- These are agreed design requirements, not implemented capabilities. Resolve
+  the actual native insertion and Unbend contracts before editing working code.
+
 ### Native ZIMA-CAD file manager
 
 - Use the ZIMA-Parts Parts tab as a visual/workflow reference when implementing;
