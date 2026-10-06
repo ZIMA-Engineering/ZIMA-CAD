@@ -75,12 +75,7 @@
 #include <BRep_Tool.hxx>
 #include <ShapeUpgrade_UnifySameDomain.hxx>
 #include <ShapeAnalysis_FreeBounds.hxx>
-#include <Standard_Version.hxx>
-#if OCC_VERSION_MAJOR >= 8
 #include <NCollection_HSequence.hxx>
-#else
-#include <TopTools_HSequenceOfShape.hxx>
-#endif
 #include <STEPControl_Reader.hxx>
 #include <IGESControl_Reader.hxx>
 #include <IGESData_IGESModel.hxx>

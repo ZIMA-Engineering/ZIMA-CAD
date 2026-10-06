@@ -27,9 +27,9 @@ find_package(OpenSSL 3 REQUIRED COMPONENTS Crypto)
 find_package(OpenCASCADE REQUIRED)
 set(ZIMA_OCCT_VERSION
     "${OpenCASCADE_MAJOR_VERSION}.${OpenCASCADE_MINOR_VERSION}.${OpenCASCADE_MAINTENANCE_VERSION}")
-if(ZIMA_OCCT_VERSION VERSION_LESS 7.9)
+if(ZIMA_OCCT_VERSION VERSION_LESS 8.0)
     message(FATAL_ERROR
-        "ZIMA-CAD requires OpenCASCADE 7.9 or newer; found ${ZIMA_OCCT_VERSION}")
+        "ZIMA-CAD requires OpenCASCADE 8.0 or newer; found ${ZIMA_OCCT_VERSION}")
 endif()
 find_package(nlohmann_json 3.11 REQUIRED)
 find_package(Freetype REQUIRED)

@@ -8,7 +8,8 @@
       "binaryDir": "${sourceDir}/../build/cpp-debug",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Debug",
-        "CMAKE_PREFIX_PATH": "${sourceDir}/../build/native-sdk/occt"
+        "CMAKE_PREFIX_PATH": "${sourceDir}/../build/native-sdk/occt-8.0.0",
+        "OpenCASCADE_DIR": "${sourceDir}/../build/native-sdk/occt-8.0.0/lib/cmake/opencascade"
       }
     },
     {

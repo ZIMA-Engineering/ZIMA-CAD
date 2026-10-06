@@ -7,14 +7,14 @@ solid-model calculations. The active implementation lives in [`cpp/`](cpp/).
 
 The C++ build requires CMake 3.24+, a C++20 compiler, Qt 6.5+ (Core, Gui,
 Widgets, OpenGL, OpenGLWidgets, Svg and Network, plus CorePrivate), OpenSSL 3,
-OpenCASCADE 7.9+, and nlohmann_json 3.11+. On Windows, use the pinned vcpkg setup through the repository script:
+OpenCASCADE 8.0+, and nlohmann_json 3.11+. On Windows, use the pinned vcpkg setup through the repository script:
 
 ```powershell
 ./tools/build-windows.ps1 -Configuration Release
 ./zima-cad.bat -w Projects
 ```
 
-Linux `linux-runtime-*` presets use the native SDK under `build/native-sdk/occt`;
+Linux `linux-runtime-*` presets use the native SDK under `build/native-sdk/occt-8.0.0`;
 the historical preset names do not imply a Python runtime. Provision the native
 Qt/OCCT dependencies on the supported Linux host before configuring. Follow the [Linux handoff](doc/LINUX_RELEASE_HANDOFF.md)
 on Linux to select compatible native Qt/OCCT dependencies and verify the build.

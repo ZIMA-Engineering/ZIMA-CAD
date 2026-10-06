@@ -1,5 +1,16 @@
 # Linux build and distribution handoff — 2026-09-15
 
+## Development SDK alignment (2026-10-06)
+
+Linux development now uses OCCT 8.0.0, matching the pinned Windows dependency.
+The 7.x surface-intersection branch was removed; both platforms share the same
+modeling implementation. SDK/application builds, focused contracts, actual GUI
+scenarios and a relocated native smoke passed, with existing/configuration-
+dependent test limits recorded in [Linux build verification](LINUX_BUILD.md#occt-alignment-verification-on-2026-10-06).
+The root development launcher selects the rebuilt OCCT 8 application. This does
+not replace the immutable signed 2026100601 archive, which uses OCCT 7.9.3.
+A future release needs a new build identity and its own signing/acceptance gates.
+
 ## Current signed release (2026-10-06)
 
 [Linux 2026100601](releases/2026100601.md) is signed and public. It includes the
