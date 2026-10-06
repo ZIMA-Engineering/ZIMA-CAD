@@ -97,7 +97,16 @@ void AssemblyWorkspaceWindow::start_sketch_coincident(
                       zima::viewer::CandidateKind::SketchSegment,
                       zima::viewer::CandidateKind::SketchExternalReference}
         : std::vector{zima::viewer::CandidateKind::SketchPoint,
-                      zima::viewer::CandidateKind::SketchSegment});
+                      zima::viewer::CandidateKind::SketchSegment,
+                      zima::viewer::CandidateKind::SketchExternalReference});
+    if (kind != zima::sketcher::ConstraintKind::Coincident) {
+        const auto owner_id=active_sketch_id_;
+        viewer_->set_candidate_filter([owner_id](const auto& candidate) {
+            return candidate.owner_id==owner_id &&
+                (candidate.kind!=zima::viewer::CandidateKind::SketchExternalReference ||
+                 candidate.semantic_key.starts_with("external_point:"));
+        });
+    }
     state_->setText(!pending_coincident_point_id_.empty()
         ? kind == zima::sketcher::ConstraintKind::Horizontal
             ? tr("Vodorovnost bodů: vyberte řízený bod.")
@@ -379,6 +388,8 @@ void AssemblyWorkspaceWindow::set_sketch_tangent_contract() {
              candidate.semantic_key.starts_with("bspline:"));
     };
     const auto segment_candidate = [external_lines](const auto& candidate) {
+        if (candidate.kind == zima::viewer::CandidateKind::SketchAxis)
+            return candidate.semantic_key=="sketch_axis:x" || candidate.semantic_key=="sketch_axis:y";
         if (candidate.kind == zima::viewer::CandidateKind::SketchExternalReference) {
             const auto id = sketch_external_reference_id_from_key(candidate.semantic_key);
             return id && external_lines.contains(*id);
@@ -390,15 +401,18 @@ void AssemblyWorkspaceWindow::set_sketch_tangent_contract() {
     if (pending_tangent_geometry_id_.empty()) {
         viewer_->set_selection_contract({
             zima::viewer::CandidateKind::SketchSegment,
-            zima::viewer::CandidateKind::SketchCurve, zima::viewer::CandidateKind::SketchExternalReference});
+            zima::viewer::CandidateKind::SketchCurve, zima::viewer::CandidateKind::SketchExternalReference,
+            zima::viewer::CandidateKind::SketchAxis});
     } else if (pending_tangent_reference_is_segment_) {
         viewer_->set_selection_contract({zima::viewer::CandidateKind::SketchCurve, zima::viewer::CandidateKind::SketchExternalReference});
     } else if (pending_tangent_reference_supports_curve_pair_) {
         viewer_->set_selection_contract({
             zima::viewer::CandidateKind::SketchSegment,
-            zima::viewer::CandidateKind::SketchCurve, zima::viewer::CandidateKind::SketchExternalReference});
+            zima::viewer::CandidateKind::SketchCurve, zima::viewer::CandidateKind::SketchExternalReference,
+            zima::viewer::CandidateKind::SketchAxis});
     } else {
-        viewer_->set_selection_contract({zima::viewer::CandidateKind::SketchSegment, zima::viewer::CandidateKind::SketchExternalReference});
+        viewer_->set_selection_contract({zima::viewer::CandidateKind::SketchSegment, zima::viewer::CandidateKind::SketchExternalReference,
+            zima::viewer::CandidateKind::SketchAxis});
     }
     const auto owner_id = active_sketch_id_;
     const bool first_pending = !pending_tangent_geometry_id_.empty();
@@ -486,6 +500,10 @@ void AssemblyWorkspaceWindow::accept_sketch_tangent_selection(
                 break;
             }
         }
+    }
+    if (candidate.kind == zima::viewer::CandidateKind::SketchAxis &&
+        (candidate.semantic_key=="sketch_axis:x" || candidate.semantic_key=="sketch_axis:y")) {
+        geometry_id=candidate.semantic_key;is_segment=true;
     }
     if (candidate.kind == zima::viewer::CandidateKind::SketchExternalReference) {
         const auto id = sketch_external_reference_id_from_key(candidate.semantic_key);
@@ -743,8 +761,7 @@ void AssemblyWorkspaceWindow::accept_sketch_coincident_point(
     }
     if (pending_point_pair_constraint_kind_ !=
             zima::sketcher::ConstraintKind::Coincident &&
-        (candidate.kind != zima::viewer::CandidateKind::SketchPoint ||
-         point_id.empty())) return;
+        point_id.empty()) return;
     if ((pending_coincident_point_id_ == "sketch_axis:x" ||
          pending_coincident_point_id_ == "sketch_axis:y") &&
         !point_id.empty()) {
@@ -780,10 +797,14 @@ void AssemblyWorkspaceWindow::accept_sketch_coincident_point(
                           zima::viewer::CandidateKind::SketchSegment,
                           zima::viewer::CandidateKind::SketchCurve,
                           zima::viewer::CandidateKind::SketchExternalReference}
-            : std::vector{zima::viewer::CandidateKind::SketchPoint});
+            : std::vector{zima::viewer::CandidateKind::SketchPoint,
+                          zima::viewer::CandidateKind::SketchExternalReference});
         const auto owner_id = active_sketch_id_;
-        viewer_->set_candidate_filter([owner_id](const auto& value) {
+        const bool directional=pending_point_pair_constraint_kind_!=zima::sketcher::ConstraintKind::Coincident;
+        viewer_->set_candidate_filter([owner_id,directional](const auto& value) {
             return value.owner_id == owner_id &&
+                (!directional || value.kind!=zima::viewer::CandidateKind::SketchExternalReference ||
+                 value.semantic_key.starts_with("external_point:")) &&
                 (value.kind != zima::viewer::CandidateKind::SketchCurve ||
                  value.semantic_key.starts_with("circle:") ||
                  value.semantic_key.starts_with("arc:") ||

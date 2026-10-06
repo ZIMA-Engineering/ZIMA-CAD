@@ -30,6 +30,27 @@
   any remaining uncertainty.
 - This requirement was agreed with the user on 2026-09-24.
 
+## Sketcher dimension and manipulation verification (mandatory)
+
+- Whenever modifying or testing Sketcher behavior, build and run a regression
+  matrix covering every applicable way of dimensioning the affected geometry,
+  dragging its points, and changing dimension values. Do not accept an initial
+  constraint solve alone as evidence that the geometry is editable.
+- Include applicable dimension kinds, driving/reference and locked/unlocked
+  states, underconstrained/fully constrained geometry, both selection orders,
+  orientations and contact sides, native and external supports, and dependent
+  operations such as trimming. Exercise multiple successive edits and drags.
+- Check the geometric equations independently after each action. Verify actual
+  movement when a degree of freedom permits it, stable reference identity and
+  read-only external sources. Impossible or redundant edits must be rejected
+  without changing the document; fully constrained geometry must not escape
+  its constraints when dragged.
+- Cover save/reopen and Undo/Redo, and verify the affected mouse interactions
+  in the GUI as well as the native equations. Record the matrix, results and
+  any unverified applicable variants explicitly; do not claim exhaustive
+  coverage from one example or silently omit a failing variant.
+- This requirement was agreed with the user on 2026-10-06.
+
 ## Part-based library document consistency (mandatory)
 
 - Part-based title blocks, drawing frames and symbols must use the same Body

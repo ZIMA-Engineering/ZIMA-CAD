@@ -1,5 +1,6 @@
-#include <zima/sketcher/sketch.hpp>
+﻿#include <zima/sketcher/sketch.hpp>
 #include <zima/sketcher/sketch_trim.hpp>
+#include <zima/sketcher/curve_geometry.hpp>
 #include <zima/viewer/picking.hpp>
 #include <zima/document/part_document.hpp>
 
@@ -93,6 +94,203 @@ int main() {
             exact.weights={1,std::sqrt(.5),1};exact.knots={0,0,0,1,1,1};arc.exact_spline=exact;
             require(external_reference_circle(arc).has_value()&&!external_reference_line(arc),
                 "Short exact circular arc was rejected or classified as a chord");
+            {
+                auto s=Sketch::create_default();s.add_external_reference(arc);
+                const auto contour=s.add_external_profile_geometry(arc.id);
+                static_cast<void>(s.add_segment(1,-1,1,4));
+                const auto pieces=sketch_trim_topology(s,false);
+                const auto selected=nearest_sketch_trim_piece(pieces,{.228361402466,1.851949702905},.01);
+                require(selected && selected->geometry_id==contour,"External circular contour cannot be selected for trimming");
+                static_cast<void>(apply_sketch_trim(s,{*selected}));
+                require(s.external_references.front()==arc,"Trimming a linked arc modified the source reference");
+                auto loaded=Sketch::from_serialized(s.serialized());
+                const auto retained=zima::sketcher::sketch_curve_geometry(loaded,contour);
+                for(unsigned i=0;i<=64;++i) {
+                    const auto point=zima::kernel::bspline_value(retained,double(i)/64);
+                    require(std::abs(std::hypot(point.x-3,point.y-3)-3)<1e-10,
+                        "Trimmed external arc lost its exact circular shape after reopening");
+                }
+            }
+            {
+                auto source=Sketch::create_default();source.resolved_origin={10,20,30};
+                source.resolved_x_axis={0,1,0};source.resolved_y_axis={0,0,1};source.resolved_normal={1,0,0};
+                const auto id=source.add_arc(3,3,0,3,3,0);
+                const auto mesh=source.viewer_mesh();
+                const auto edge=std::ranges::find_if(mesh.edges,[&](const auto& e){return e.reference.semantic_key=="arc:"+id;});
+                require(edge!=mesh.edges.end() && edge->exact_spline.has_value(),"Native arc viewer packet lacks exact geometry");
+                auto projected=arc;projected.cached_points.clear();projected.exact_spline=edge->exact_spline;
+                for(const auto& p:edge->points)projected.cached_points.push_back(source.local_point(p));
+                for(auto& p:projected.exact_spline->poles) {
+                    const auto local=source.local_point(p);p={local[0],local[1],0};
+                }
+                auto local=Sketch::create_default();local.add_external_reference(projected);
+                const auto contour=local.add_external_profile_geometry(projected.id);
+                const auto exact=sketch_curve_geometry(local,contour);
+                for(unsigned i=0;i<=64;++i) {
+                    const auto p=zima::kernel::bspline_value(exact,double(i)/64);
+                    require(std::abs(std::hypot(p.x-3,p.y-3)-3)<1e-10,
+                        "Rotated-plane exact arc projection changed its shape");
+                }
+            }
+            for(const double source_radius:{13.63,20.425365935154556})for(const bool reverse:{false,true}) {
+                auto shifted=arc;
+                for(auto& point:shifted.cached_points)point[1]-=10;
+                for(auto& point:shifted.exact_spline->poles)point.y-=10;
+                auto s=Sketch::create_default();s.add_external_reference(shifted);
+                const auto circle=s.add_circle(-14,-10.6,source_radius);
+                static_cast<void>(s.add_tangent_constraint("sketch_axis:x",circle));
+                static_cast<void>(s.add_tangent_constraint(reverse?circle:arc.id,reverse?arc.id:circle));
+                const auto* centre=s.find_point(s.circles.front().center_point_id);
+                require(std::abs(centre->y+source_radius)<1e-8 &&
+                    std::abs(std::hypot(centre->x-3,centre->y+7)-(source_radius+3))<1e-8,
+                    "Circle could not remain simultaneously tangent to axis and external arc");
+                std::set<std::string> contacts;
+                for(const auto& constraint:s.constraints)if(constraint.kind==ConstraintKind::Tangent) {
+                    require(!constraint.first_point_id.empty() && s.find_point(constraint.first_point_id),
+                        "External/axis circle tangency has no persisted contact point");
+                    contacts.insert(constraint.first_point_id);
+                    const auto* point=s.find_point(constraint.first_point_id);
+                    require(std::abs(std::hypot(point->x-centre->x,point->y-centre->y)-source_radius)<1e-8,
+                        "Tangent contact point is not on its circle");
+                }
+                require(contacts.size()==2,"Double tangent circle did not retain two distinct contact points");
+                for(const auto& point_id:std::vector<std::string>{s.circles.front().center_point_id,
+                        *contacts.begin(),*contacts.rbegin()}) {
+                    auto dragged=s;
+                    const auto* before=dragged.find_point(point_id);
+                    const auto before_x=before->x,before_y=before->y;
+                    require(dragged.move_point(point_id,before_x-1,before_y-.25),
+                        "A free double tangent circle point cannot be dragged");
+                    const auto* moved=dragged.find_point(point_id);
+                    require(std::hypot(moved->x-before_x,moved->y-before_y)>1e-5,
+                        "Double tangent point drag reported success without movement");
+                    const auto* center=dragged.find_point(dragged.circles.front().center_point_id);
+                    const double r=dragged.circles.front().radius;
+                    require(std::abs(center->y+r)<1e-8 && std::abs(std::hypot(center->x-3,center->y+7)-r-3)<1e-8 &&
+                        dragged.external_references==s.external_references,"Dragging broke a tangent or moved the external source");
+                }
+                auto loaded=Sketch::from_serialized(s.serialized());
+                require(loaded.solve().status==SolveStatus::UnderConstrained,"Double tangent contact points did not survive reopening");
+                for(const auto kind:{DimensionKind::DistanceX,DimensionKind::DistanceY,DimensionKind::Distance}) {
+                    auto positioned=loaded;
+                    auto coordinate=positioned.create_point_dimension(positioned.circles.front().center_point_id,"sketch_origin",kind);
+                    coordinate.value+=1;
+                    try {positioned.apply_dimension(coordinate);} catch(const std::exception& error) {throw std::runtime_error("Double tangent coordinate kind "+std::to_string(int(kind))+": "+error.what());}
+                    const auto* center=positioned.find_point(positioned.circles.front().center_point_id);
+                    const double measured=kind==DimensionKind::DistanceX?std::abs(center->x):
+                        kind==DimensionKind::DistanceY?std::abs(center->y):std::hypot(center->x,center->y);
+                    require(std::abs(measured-coordinate.value)<1e-8,
+                        "A positional dimension cannot drive the double tangent circle");
+                }
+                auto driven=loaded;
+                auto radius=driven.create_circle_radius_dimension(circle);radius.value=15;
+                try {driven.apply_dimension(radius);} catch(const std::exception& e){throw std::runtime_error(std::string("Double tangent radius: ")+e.what());}
+                const auto* moved=driven.find_point(driven.circles.front().center_point_id);
+                require(std::abs(moved->y+15)<1e-8 && std::abs(std::hypot(moved->x-3,moved->y+7)-18)<1e-8,
+                    "Radius dimension did not retain both external/axis tangencies");
+                for(const auto& contact:contacts) {
+                    const auto* point=driven.find_point(contact);
+                    require(std::abs(std::hypot(point->x-moved->x,point->y-moved->y)-15)<1e-8,
+                        "Radius edit left a tangent contact at its old position");
+                }
+                for(const bool diameter:{false,true}) {
+                    auto sized=loaded;
+                    auto size=sized.create_circle_radius_dimension(circle);
+                    if(diameter)size.kind=DimensionKind::Diameter;
+                    for(const double r:{15.,17.,14.}) {
+                        size.value=diameter?2*r:r;sized.apply_dimension(size);
+                        require(std::abs(sized.circles.front().radius-r)<1e-8,
+                            "Successive radius/diameter edits failed");
+                    }
+                    size.locked=true;sized.apply_dimension(size);
+                    const auto unchanged=sized.serialized();
+                    const auto* p=sized.find_point(sized.circles.front().center_point_id);
+                    require(!sized.move_point(p->id,p->x-1,p->y-.25) && sized.serialized()==unchanged,
+                        "Locked fully constrained tangent circle moved");
+                    auto duplicate=sized.create_circle_radius_dimension(circle);bool rejected=false;
+                    try {sized.apply_dimension(duplicate);}catch(const std::invalid_argument&){rejected=true;}
+                    require(rejected && sized.serialized()==unchanged,
+                        "Redundant radius driver was not rejected transactionally");
+                }
+                {
+                    auto referenced=loaded;auto reference=referenced.create_circle_radius_dimension(circle);
+                    reference.driving=false;referenced.apply_dimension(reference);
+                    const auto* p=referenced.find_point(referenced.circles.front().center_point_id);
+                    require(referenced.move_point(p->id,p->x-1,p->y-.25) &&
+                        std::abs(referenced.dimensions.front().value-referenced.circles.front().radius)<1e-8,
+                        "Reference radius did not follow tangent-circle drag");
+                }
+                {
+                    auto impossible=loaded;const auto unchanged=impossible.serialized();
+                    auto radius=impossible.create_circle_radius_dimension(circle);radius.value=1;
+                    bool rejected=false;
+                    try {impossible.apply_dimension(radius);}catch(const std::exception&){rejected=true;}
+                    require(rejected && impossible.serialized()==unchanged,
+                        "Impossible radius outside the external arc domain changed the Sketch");
+                }
+                const auto topology=sketch_trim_topology(loaded,false);
+                const auto removed=nearest_sketch_trim_piece(topology,{centre->x-source_radius,centre->y},.01);
+                require(removed && removed->geometry_id==circle,"Tangent contact points did not divide the circle for trimming");
+                static_cast<void>(apply_sketch_trim(loaded,{*removed}));
+                require(loaded.circles.empty() && loaded.arcs.size()==1,
+                    "Trimming between tangent contacts did not produce one native arc");
+                require(std::ranges::count_if(loaded.constraints,[](const auto& c){return c.kind==ConstraintKind::Tangent;})==2,
+                    "Trimming removed a surviving tangent contact");
+                require(Sketch::from_serialized(loaded.serialized()).solve().status==SolveStatus::UnderConstrained,
+                    "Trimmed double tangent arc did not reopen and solve");
+                for(const auto& point_id:{loaded.arcs.front().center_point_id,loaded.arcs.front().start_point_id,loaded.arcs.front().end_point_id}) {
+                    auto dragged=loaded;const auto* before=dragged.find_point(point_id);
+                    const double px=before->x,py=before->y;
+                    require(dragged.move_point(point_id,px-1,py-.25),"Trimmed double tangent arc point cannot be dragged");
+                    const auto* point=dragged.find_point(point_id);const auto* center=dragged.find_point(dragged.arcs.front().center_point_id);
+                    const double r=dragged.arcs.front().radius;
+                    require(std::hypot(point->x-px,point->y-py)>1e-5 && std::abs(center->y+r)<1e-8 &&
+                        std::abs(std::hypot(center->x-3,center->y+7)-r-3)<1e-8,
+                        "Trimmed arc drag was ineffective or lost a tangent");
+                }
+                auto radius_arc=loaded;auto edit=radius_arc.create_arc_radius_dimension(radius_arc.arcs.front().id);edit.value=16;
+                try {radius_arc.apply_dimension(edit);} catch(const std::exception& e){throw std::runtime_error(std::string("Double tangent arc radius: ")+e.what());}
+                require(std::abs(radius_arc.arcs.front().radius-16)<1e-8,"Radius dimension cannot drive trimmed tangent arc");
+                auto angled=loaded;const auto& a=angled.arcs.front();
+                auto angle=angled.create_three_point_angle_dimension(a.start_point_id,a.center_point_id,a.end_point_id);
+                angle.value+=1;angled.apply_dimension(angle);
+                require(std::abs(angled.dimensions.front().value-angle.value)<1e-8 &&
+                    std::abs(angled.arcs.front().radius-loaded.arcs.front().radius)>1e-5,
+                    "Angular dimension did not drive the trimmed double tangent arc");
+
+            }
+            for(const double rotation:{0.,std::numbers::pi/2,37*std::numbers::pi/180})for(const double mirror:{-1.,1.}) {
+                const auto transform=[&](double x,double y) {
+                    y*=mirror;return std::array{x*std::cos(rotation)-y*std::sin(rotation),
+                        x*std::sin(rotation)+y*std::cos(rotation)};
+                };
+                auto support=arc;
+                for(auto& p:support.cached_points)p=transform(p[0],p[1]-10);
+                for(auto& p:support.exact_spline->poles) {
+                    const auto q=transform(p.x,p.y-10);p.x=q[0];p.y=q[1];
+                }
+                auto baseline=reference("rotated-line",ExternalReferenceKind::Edge,{transform(-50,0),transform(50,0)});
+                baseline.infinite=true;
+                auto s=Sketch::create_default();s.add_external_reference(support);s.add_external_reference(baseline);
+                const auto initial=transform(-14,-10.6);const auto circle=s.add_circle(initial[0],initial[1],13.63);
+                try {
+                    static_cast<void>(s.add_tangent_constraint(baseline.id,circle));
+                    static_cast<void>(s.add_tangent_constraint(support.id,circle));
+                }catch(const std::exception& e){throw std::runtime_error("Rotated tangent "+std::to_string(rotation)+" mirror "+std::to_string(mirror)+": "+e.what());}
+                auto dimension=s.create_circle_radius_dimension(circle);dimension.value=16;s.apply_dimension(dimension);
+                const auto* center=s.find_point(s.circles.front().center_point_id);const auto refcenter=transform(3,-7);
+                const auto expected=transform(0,-16);const auto unit=transform(1,0);
+                require(std::abs((center->x-expected[0])*(-unit[1])+(center->y-expected[1])*unit[0])<1e-8 &&
+                    std::abs(std::hypot(center->x-refcenter[0],center->y-refcenter[1])-19)<1e-8,
+                    "Rotated or mirrored double tangent lost its selected side");
+                const auto delta=transform(-1,-.25);const auto id=center->id;
+                require(s.move_point(id,center->x+delta[0],center->y+delta[1]),
+                    "Rotated or mirrored double tangent cannot be dragged with an unlocked driver");
+                require(s.external_references[0]==support && s.external_references[1]==baseline,
+                    "Rotated tangent manipulation changed source identity or geometry");
+                require(Sketch::from_serialized(s.serialized()).solve().status!=SolveStatus::Conflicting,
+                    "Rotated double tangent did not reopen");
+            }
             for(const bool reverse:{false,true}) {
                 auto s=Sketch::create_default();s.add_external_reference(arc);
                 const auto circle=s.add_circle(-14,-3.57,13.63);
@@ -8000,6 +8198,32 @@ int main() {
                     "Symmetric line dimension did not survive serialization");
         }
 
+        for(const auto kind:{zima::sketcher::ConstraintKind::Horizontal,zima::sketcher::ConstraintKind::Vertical})
+        for(const bool reverse:{false,true}) {
+            auto s=zima::sketcher::Sketch::create_default();const auto p=s.add_point(5,8);
+            auto e=zima::sketcher::Sketch::create_external_reference(zima::sketcher::ExternalReferenceKind::Point);
+            e.source_document_id="external";e.source_owner_id="source";e.source_semantic_key="point:source";
+            e.cached_points={{2,3}};s.add_external_reference(e);const auto refs=s.external_references;
+            static_cast<void>(s.add_point_pair_constraint(reverse?p:e.id,reverse?e.id:p,kind));
+            require(std::abs(kind==zima::sketcher::ConstraintKind::Horizontal?s.find_point(p)->y-3:s.find_point(p)->x-2)<1e-8,
+                "External point H/V did not drive the native point in both selection orders");
+            require(s.external_references==refs,"External point H/V modified its reference");
+            auto saved=zima::sketcher::Sketch::from_serialized(s.serialized());
+            saved.external_references.front().cached_points={{7,9}};static_cast<void>(saved.solve());
+            require(std::abs(kind==zima::sketcher::ConstraintKind::Horizontal?saved.find_point(p)->y-9:saved.find_point(p)->x-7)<1e-8,
+                "External point H/V did not follow the refreshed reference after reopening");
+        }
+        {
+            auto s=zima::sketcher::Sketch::create_default();
+            const auto arc=s.add_arc(-17.769718691882524,-17.794563149026544,
+                .4132225810589758,-8.489928806411118,-7.742301481043377,0);
+            const auto end=s.arcs.front().end_point_id;
+            static_cast<void>(s.add_point_on_line_constraint(end,"sketch_axis:x"));
+            static_cast<void>(s.add_tangent_constraint("sketch_axis:x",arc));
+            require(std::abs(s.find_point(end)->y)<1e-8 &&
+                std::abs(s.find_point(end)->x-s.find_point(s.arcs.front().center_point_id)->x)<1e-8,
+                "FORM-like Arc endpoint on the axis did not become its tangent contact");
+        }
         std::cout << "C++ Sketcher contracts passed\n";
         return 0;
     } catch (const std::exception& error) {

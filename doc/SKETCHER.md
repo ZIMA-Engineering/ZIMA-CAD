@@ -1,4 +1,36 @@
-# ZIMA-CAD Sketcher
+﻿# ZIMA-CAD Sketcher
+
+## Tangent contacts, axes and external points (2026-10-06)
+
+Horizontal and Vertical accept a native point and a persisted external point in
+either selection order. Only the native geometry moves; source refresh updates
+the equation from the external point's current position.
+
+A circle tangent to a Sketch axis or external circular arc creates an ordinary
+persisted contact point with incidence to both inputs. Two tangent constraints
+retain two distinct contacts. Circle/arc tangency at that point uses radial
+collinearity for the rank check, avoiding a singular distance-only equation.
+These contacts divide the circle for Trim; removing the surplus arc preserves
+the tangencies at surviving endpoints. Radius changes update the contacts.
+
+An arc endpoint already coincident with an axis or external line can accept
+Tangent there. An independent, undimensioned centre reuses the existing
+endpoint-tangent fit, retaining the endpoints and the chosen side of the line.
+Other constraints still undergo the ordinary solver's validation.
+
+Curved Reference Profile geometry can be trimmed through the existing exact
+curve/dependency path. This edits the local contour and preserves its exact
+support and source identity; it does not trim the source Part's edge. Save/reopen
+retains the local trimmed interval and its dependency.
+
+Dragging the centre or either contact of a circle tangent to an immutable line
+and an external circular arc follows the remaining one-parameter family. It
+retains the selected side and the external arc's finite contact domain. The same
+bounded geometric seed supports position, radius, diameter and trimmed-arc angle
+dimensions when the ordinary sequential solve cannot find a valid solution.
+Every seed is verified by the ordinary solver against all original equations
+before committing. Locked drivers still block incompatible movement; reference
+and unlocked driving dimensions update their measured values during dragging.
 
 ## External tangency and sliding equal-length arms (2026-10-06)
 

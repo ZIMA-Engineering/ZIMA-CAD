@@ -59,6 +59,13 @@ representation; this change concerns straight line profiles. Offset curves show
 an informational **O** marker; the curve itself remains the selection/edit target.
 See [Sketcher offset](SKETCH_OFFSET.md).
 
+Exact circular profiles, including projected Fillet arcs represented by rational
+splines, also support local Trim. Their retained intervals keep the exact curve
+support and external link. Trimming the local profile does not change the source
+edge. External circle/arc tangency creates a real contact point on a native circle;
+contacts can then delimit the native arc retained by Trim. See
+[tangent contacts and external points](SKETCHER.md).
+
 The native external-reference record uses additional endpoint kind values; no
 sidecar or separate geometry file is introduced. Empty Part and Assembly start
 templates contain no projected references and remain valid with this contract.

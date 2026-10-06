@@ -1,6 +1,7 @@
 #include "../tests/preview_refresh_probe.hpp"
 #include <QCryptographicHash>
 #include <QDirIterator>
+#include <zima/sketcher/sketch_trim.hpp>
 #include <zima/document/viewer_packet_json.hpp>
 #include "../common/datum_display.hpp"
 #include "../tests/gui_profile_fixture.hpp"
