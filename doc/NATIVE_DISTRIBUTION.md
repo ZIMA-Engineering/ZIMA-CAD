@@ -2,6 +2,15 @@
 
 ## Scope and status
 
+Windows build **2026100608** is signed, published and verified. Planar segmented
+2D Sweep preserves its profile side through opposite tangents. Seven affected
+suites, independent FORM removed-volume checks, unchanged Properties GUI,
+fresh packaging, signature/trust, packaged FORM regeneration, ten packaged GUI
+scenarios, public asset hashes and update discovery from 2026100607 passed.
+No UI strings or formats change; all five catalogs were validated. Existing
+calculated Parts need explicit Regenerate. Linux acceptance remains separate.
+See [the release record](releases/2026100608.md).
+
 Windows build **2026100607** is signed, published and verified. Equal corner
 radii follow their driving dimension in either selection order. Four relevant
 suites, real FORM inline GUI editing/Undo/Redo, independent extrusion-volume
