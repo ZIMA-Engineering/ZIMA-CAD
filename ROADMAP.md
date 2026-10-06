@@ -217,10 +217,13 @@ not a claim of a mandatory drafting standard or authorization for automation.
 
 - Use the ZIMA-Parts Parts tab as a visual/workflow reference when implementing;
   inspect the actual application before claiming an exact visual match.
-- Present the file manager inside the main application across the full working
-  area, covering the View, left Tree and right command panel. Use the available
-  width for file and Parameter columns. Closing it restores the previous
-  modeling workspace, active document and panel state.
+- Present the file manager in a separate window connected to ZIMA-CAD, as
+  clarified by the user on 2026-10-06. Reuse the existing Working Directory
+  and available CAD information. It is a simplified ZIMA-Parts-style browser
+  focused on native ZIMA files, not integration of the entire ZIMA-Parts product.
+  Use the available width for file and Parameter columns. Closing it preserves
+  the modeling workspace, active document and panel state. Implementation is
+  deferred until after the current Sketch fixes and sheet-forming work.
 - Show and change the working directory. List supported native document and
   library types, including `.prtz`, `.asmz` and `.drwz`.
 - Open a selected native file by double-clicking its row or using an Open button.
