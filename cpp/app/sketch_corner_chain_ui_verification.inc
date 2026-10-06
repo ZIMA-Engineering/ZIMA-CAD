@@ -43,6 +43,37 @@ int verify_sketch_corner_chain_ui(QApplication& application,const std::filesyste
         check(window.findChild<QAction*>("finishSketchAction")->isEnabled(),"Sketch editor did not open");
         QEventLoop animation;QTimer::singleShot(950,&animation,&QEventLoop::quit);animation.exec();
         auto* view=dynamic_cast<viewer::MeshView*>(window.findChild<QOpenGLWidget*>());check(view,"View missing");
+        if(qEnvironmentVariableIsSet("ZIMA_VERIFY_CORNER_EQUAL_DIMENSION")) {
+            const auto driver=std::ranges::find_if(sketch.corner_radii,[](const auto& r){return r.dimension_visible;});
+            check(driver!=sketch.corner_radii.end(),"Driving corner dimension missing");
+            viewer::ViewerCandidate candidate;candidate.kind=viewer::CandidateKind::Dimension;
+            candidate.owner_id=sketch.id;candidate.semantic_key="corner_dimension:"+driver->id;
+            for(std::size_t i=0;i<view->mesh().dimensions.size();++i) {
+                const auto& ref=view->mesh().dimensions[i].reference;
+                if(ref.owner_id==candidate.owner_id && ref.semantic_key==candidate.semantic_key)
+                    candidate.geometry_index=i;
+            }
+            window.edit_dimension_inline(candidate);flush();
+            auto* field=view->findChild<QLineEdit*>("inlineDimensionValueEdit");
+            check(field,"Corner dimension inline editor missing");
+            field->setText("5");QKeyEvent enter(QEvent::KeyPress,Qt::Key_Return,Qt::NoModifier);
+            QApplication::sendEvent(field,&enter);flush();
+            check(view->candidate_dimension_value(candidate).has_value() &&
+                std::abs(*view->candidate_dimension_value(candidate)-5)<1e-7,"Inline corner edit failed");
+            window.findChild<QAction*>("finishSketchAction")->trigger();flush();
+            for(auto* dialog:window.findChildren<QDialog*>())if(dialog->isVisible())if(auto* buttons=dialog->findChild<QDialogButtonBox*>())if(auto* ok=buttons->button(QDialogButtonBox::Ok)){ok->click();flush();break;}
+            check(window.execute_console_command("save").ok,"Equal corner Save failed");
+            const auto after=document::PartDocument::load(path);
+            check(after.sketches.front().corner_radii.size()==2 &&
+                std::ranges::all_of(after.sketches.front().corner_radii,[](const auto& r){return std::abs(r.radius-5)<1e-7;}),"Saved equal radii differ from edited value");
+            check(after.sketches.front().points==sketch.points && after.sketches.front().segments==sketch.segments &&
+                after.sketches.front().constraints==sketch.constraints,"Equal radius edit changed source geometry or constraints");
+            check(window.execute_console_command("undo").ok && window.execute_console_command("save").ok,"Equal corner Undo failed");
+            check(document::PartDocument::load(path).sketches.front().corner_radii==sketch.corner_radii,"Equal corner Undo did not restore both radii");
+            check(window.execute_console_command("redo").ok && window.execute_console_command("save").ok,"Equal corner Redo failed");
+            check(document::PartDocument::load(path).sketches.front().serialized()==after.sketches.front().serialized(),"Equal corner Redo did not restore edited sketch");
+            std::cout<<"Equal corner inline dimension, native save/reopen and Undo/Redo passed\n";return 0;
+        }
         const auto local=[&](QPointF p){const auto ray=view->ray_at(p);check(ray.has_value(),"Camera ray missing");const auto q=sketch.intersect_ray(ray->first,ray->second);check(q.has_value(),"Camera not facing Sketch");return *q;};
         const auto a=local({0,0}),b=local({100,0}),c=local({0,100});
         const double ux=(b[0]-a[0])/100,uy=(b[1]-a[1])/100,vx=(c[0]-a[0])/100,vy=(c[1]-a[1])/100,det=ux*vy-uy*vx;

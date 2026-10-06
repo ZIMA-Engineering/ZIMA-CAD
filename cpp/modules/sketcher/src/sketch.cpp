@@ -10161,6 +10161,10 @@ SolveResult Sketch::solve_impl(
                 if (owns_dragged_radius(driven_id) && !owns_dragged_radius(reference_id))
                     std::swap(reference_id, driven_id);
                 const auto has_radius_driver = [&](const std::string& id) {
+                    if (std::ranges::any_of(corner_radii, [&](const auto& corner) {
+                            return !corner.suppressed && corner.id == id &&
+                                corner.dimension_visible;
+                        })) return true;
                     return std::ranges::any_of(dimensions, [&](const auto& dimension) {
                         return !dimension.suppressed && dimension.driving &&
                             dimension.geometry_id == id &&

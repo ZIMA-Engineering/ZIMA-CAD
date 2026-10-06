@@ -5572,7 +5572,22 @@ int main() {
             require(loaded_equal.solve().status!=zima::sketcher::SolveStatus::Conflicting &&
                 std::abs(*loaded_equal.circular_radius(second)-3.0)<1e-7,
                 "Corner equality did not survive serialization");
+            for (const bool reverse : {false, true}) {
+                auto driven=equal_corners;
+                if (reverse) std::swap(driven.constraints.back().geometry_id,
+                    driven.constraints.back().second_geometry_id);
+                driven.corner_radii.back().dimension_visible=true;
+                static_cast<void>(driven.add_corner_fillet(c,d,5.0));
+                require(std::abs(*driven.circular_radius(first)-5.0)<1e-7 &&
+                    std::abs(*driven.circular_radius(second)-5.0)<1e-7,
+                    "Driving corner radius did not control equality in both selection orders");
+                auto reopened=zima::sketcher::Sketch::from_serialized(driven.serialized());
+                require(reopened.solve().status!=zima::sketcher::SolveStatus::Conflicting &&
+                    std::abs(*reopened.circular_radius(first)-5.0)<1e-7,
+                    "Driving corner equality did not survive serialization");
+            }
             auto conflicting=equal_corners;
+            conflicting.corner_radii.front().dimension_visible=true;
             conflicting.corner_radii.back().dimension_visible=true;
             conflicting.corner_radii.front().radius=5.0;
             require(conflicting.solve().status==zima::sketcher::SolveStatus::Conflicting &&

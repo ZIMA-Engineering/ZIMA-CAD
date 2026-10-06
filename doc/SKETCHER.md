@@ -804,6 +804,20 @@ at origin and another on X. Radii, equality and tangency remain; tests cover
 original spacing 19.448732 mm and repeated changes to 12, 20 and 35 mm. Tangent
 contacts retain their own anchoring rules during segment-length edits.
 
+## Driving dimensions of equal corner radii (2026-10-06)
+
+An equal-radius relation is symmetric. A visible driving corner-radius dimension
+controls the unconstrained radius at the other end of the relation, regardless
+of the selection order used to create it. The solver recognizes this persisted
+corner dimension in the same driver-selection path as ordinary radius and
+diameter dimensions. Two incompatible driving radii still report a conflict.
+
+Verification covers both selection orders, conflicting drivers and native
+serialization. A private copy of the user's FORM profile passes inline GUI
+editing, feature confirmation, save/reopen and Undo/Redo. Explicit regeneration
+also passes at radii 2, 5 and 12 mm without changing the original source points,
+segments or constraints. There are no new user-visible strings or format changes.
+
 ## Authored segment midpoint after corner rounding (2026-10-06)
 
 A segment has one midpoint: halfway between its persisted source endpoints.
