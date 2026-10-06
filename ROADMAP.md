@@ -16,7 +16,8 @@ newer completion notes and focused contracts supersede their earlier status.
 
 ### Sketch circular tangency studies and rectangle symmetry
 
-Local implementation and verification cover tangent Reference Profile trimming,
+Windows 2026100611 is signed, published and verified. Its case studies cover
+tangent Reference Profile trimming,
 following contacts through radius edits and dragging, directly created arcs on
 external supports, three-curve tangent chains and three mutual tangencies.
 Automatic rectangle centring on an axis now uses corner-pair symmetry (S).
