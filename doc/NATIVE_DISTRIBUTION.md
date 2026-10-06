@@ -2,6 +2,15 @@
 
 ## Scope and status
 
+Windows build **2026100607** is signed, published and verified. Equal corner
+radii follow their driving dimension in either selection order. Four relevant
+suites, real FORM inline GUI editing/Undo/Redo, independent extrusion-volume
+checks, fresh packaging, signed smoke/trust, eight packaged GUI scenarios,
+public asset hashes and update discovery from 2026100606 passed. All five
+catalogs were validated; no new strings or format changes are introduced.
+Sheet forming remains deferred. Linux acceptance remains separate. See
+[the release record](releases/2026100607.md).
+
 Windows build **2026100606** is signed, published and verified. It fixes corner
 rounding with midpoint/axis constraints and uses original design endpoints for
 midpoint solving, display and snapping. Seven affected suites, three final
