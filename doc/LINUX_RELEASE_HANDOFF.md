@@ -1,6 +1,17 @@
 # Linux build and distribution handoff — 2026-09-15
 
-## Current signed release (2026-09-30)
+## Current signed release (2026-10-06)
+
+[Linux 2026100601](releases/2026100601.md) is signed and public. It includes the
+current surface modeling commands and a small OCCT SDK API adaptation for the
+pinned Linux 7.9.3 SDK. Candidate/signed native smoke, production trust, focused
+geometry/localization checks, packaged templates and three surface GUI scenarios,
+remote asset hashes and update discovery from 2026093001 passed. Exact scope and
+the extended Boundary Surface GUI fixture limitation are recorded in the release
+record. Durable accepted assets are under `.dist-output/linux-0601-signed/` and
+on GitHub. GNOME acceptance remains unverified.
+
+## Previous signed release (2026-09-30)
 
 [Linux 2026093001](releases/2026093001.md) is signed and public. The existing
 encrypted publisher key was successfully unlocked through a local password

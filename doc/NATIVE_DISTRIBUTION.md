@@ -2,6 +2,14 @@
 
 ## Scope and status
 
+Linux build **2026100601** is signed, published and verified on Debian 13.6
+x86_64 with KDE/Wayland. It includes the current native surface modeling work
+and supports the pinned OCCT 7.9.3 wire-connection API. Candidate/signed smoke,
+production trust, focused geometry/localization checks, packaged templates,
+General Surface/Intersection/Trim GUI checks and update discovery from 2026093001
+passed. See [the release record](releases/2026100601.md) for hashes and the
+remaining extended GUI fixture limitation. GNOME acceptance is not claimed.
+
 Windows build **2026100505** is signed, published and verified. It adds normal
 surface thickening with first/second/symmetric sides, native child ancestry,
 source-dependent cache invalidation, shared reference/inspection controls and
