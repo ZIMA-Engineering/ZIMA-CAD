@@ -2,6 +2,13 @@
 
 ## Scope and status
 
+Windows build **2026100605** is signed, published and verified. It adds ordered
+Drawing view descriptions with source-parameter text and all five localizations.
+Eleven affected suites, fresh packaging, signed smoke/trust, six packaged GUI
+scenarios, remote asset hashes and update discovery from 2026100604 passed.
+Linux acceptance of this new feature remains separate. See
+[the release record](releases/2026100605.md).
+
 Windows build **2026100604** is signed, published and verified. It adds independent
 Sheet from Body reconstruction in the active Body and compacts System Setup.
 Fourteen affected native/GUI suites, fresh committed-source packaging, signed
