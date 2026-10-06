@@ -55,6 +55,7 @@ std::string encode_history_fingerprint(
         for (const unsigned char value : operation.owner_id) byte(value);
         byte(static_cast<std::uint8_t>(operation.operation));
         byte(operation.suppressed ? 1U : 0U);
+        if(operation.replaces_body)byte(0xe3);
         if (!operation.input_error.empty()) {
             u64(operation.input_error.size());
             for (const unsigned char value : operation.input_error) byte(value);

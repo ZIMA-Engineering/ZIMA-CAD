@@ -243,6 +243,7 @@ inline History regions_before(const std::vector<HistoryOperation>& operations,st
     History history;
     for(std::size_t i=0;i<std::min(limit,operations.size());++i) {
         const auto& operation=operations[i];if(operation.suppressed||!operation.input_error.empty())continue;
+        if(operation.replaces_body)history={};
         if(operation.sheet_material) {
             const auto& material=*operation.sheet_material;
             const auto parent=std::ranges::find(history.regions,material.parent_owner_id,&SheetMaterialDefinition::owner_id);

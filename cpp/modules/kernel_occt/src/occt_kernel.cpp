@@ -9035,7 +9035,8 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
             }
             if(reference_only) {
                 // Reference-only history boundaries leave material untouched.
-            } else if (result_shape.IsNull()) {
+            } else if (result_shape.IsNull() || operation.replaces_body) {
+                if(operation.replaces_body){sheet_input={};sheet_sources={};}
                 result_shape = operand.shape;
                 owned_topology = std::make_shared<LiveCache::Topology>(
                     LiveCache::Topology{
@@ -9188,7 +9189,7 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                     owned_topology->hidden_display_edges));
             }
             append_technological_surfaces(boundaries.back(), operation.mesh_deflection);
-            if(boundaries.size()>1)boundaries.back().sheet_cuts=boundaries[boundaries.size()-2].sheet_cuts;
+            if(boundaries.size()>1&&!operation.replaces_body)boundaries.back().sheet_cuts=boundaries[boundaries.size()-2].sheet_cuts;
             boundaries.back().sheet_cuts.insert(boundaries.back().sheet_cuts.end(),operand.sheet_cuts.begin(),operand.sheet_cuts.end());
             if (imported_step) {
                 if (standalone_import && persist_boundary_shape) {
@@ -9314,6 +9315,11 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
         std::string solid_display_state;
         for (std::size_t index=0;index<boundaries.size();++index) {
             auto& boundary=boundaries[index];
+            if(operations[index].replaces_body&&!operations[index].suppressed&&
+                !boundary.calculation_errors.contains(operations[index].owner_id)) {
+                solid_display_state.clear();sheet_display_state.clear();display_material={};
+                active_bend_lines.clear();cut_axis_frames.clear();cut_axis_creation.clear();
+            }
             for(const auto& [owner,packet]:boundary.solid_state_reference_views)solid_state_views[owner]=packet;
             boundary.solid_state_reference_views=solid_state_views;
             if(!operations[index].suppressed&&std::holds_alternative<SolidStateRequest>(operations[index].primitive))

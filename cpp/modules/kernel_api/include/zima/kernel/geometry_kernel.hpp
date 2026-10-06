@@ -972,6 +972,7 @@ struct HistoryOperation {
     // or nested replay data; their actual geometry participates in the cache key.
     std::shared_ptr<const std::vector<HistoryOperation>> solid_state_placements;
     std::vector<SolidStateFaceTransfer> solid_state_face_transfers;
+    bool replaces_body{};
 };
 
 // Calculated material-space trim, owned by the later cut, never by rewriting

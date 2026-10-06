@@ -6,16 +6,17 @@ int verify_sheet_exchange_ui(QApplication& application,const std::filesystem::pa
         kernel::OcctKernel kernel;std::vector<kernel::BodyResult> cache;
         auto part=document::PartDocument::create_default();
         const auto fixture=qEnvironmentVariable("ZIMA_VERIFY_SHEET_EXCHANGE");
+        const bool same_body=qEnvironmentVariableIsSet("ZIMA_VERIFY_SHEET_SAME_BODY");
         if(fixture!="1")part=document::PartDocument::load(fixture.toStdString(),&cache);
         else {
             static_cast<void>(part.body_history.create_body("Source"));
             auto box=test::rectangular_feature(part,{100,80,3});
             part.insert_history_entry(document::PartHistoryKind::Feature,box.id);part.history.push_back(box);
             cache=workspace::calculate_part_with_resolved_references(kernel,part);
-            static_cast<void>(part.body_history.create_body("Sheet"));
+            if(!same_body)static_cast<void>(part.body_history.create_body("Sheet"));
         }
         const auto target=std::ranges::find_if(part.body_history.bodies(),[](const auto& body){return body.entries.empty();});
-        const auto target_id=target==part.body_history.bodies().end()?part.body_history.create_body("Conversion verification"):target->scope.id;
+        const auto target_id=same_body?part.body_history.active_body_id():target==part.body_history.bodies().end()?part.body_history.create_body("Conversion verification"):target->scope.id;
         part.body_history.move_body(target_id,part.body_history.order().size()-1);part.body_history.activate(target_id);
         const auto fixture_bodies=part.body_history.bodies();
         for(auto body:fixture_bodies){body.visible=true;part.body_history.update_body(body);}
@@ -33,6 +34,7 @@ int verify_sheet_exchange_ui(QApplication& application,const std::filesystem::pa
         view->set_view_direction(direction);view->fit_all();flush();
         const auto dialog=[&]{auto* result=dynamic_cast<app::SheetFromBodyDialog*>(window.findChild<QDialog*>("sheetFromBodyDialog"));check(result&&result->isVisible(),"Sheet from Body dialog did not open");return result;};
         const auto pick=[&] {
+            const auto thickness=dialog()->findChild<QDoubleSpinBox*>("sheetSourceThickness")->value();
             view->fit_all();flush();
             std::optional<QPointF> hit;std::size_t cycles=0;
             for(int step:{50,5})for(int y=10;y<view->height()&&!hit;y+=step)for(int x=10;x<view->width();x+=step) {
@@ -52,7 +54,7 @@ int verify_sheet_exchange_ui(QApplication& application,const std::filesystem::pa
             QMouseEvent release(QEvent::MouseButtonRelease,*hit,*hit,*hit,Qt::LeftButton,Qt::NoButton,Qt::NoModifier);
             QApplication::sendEvent(view,&press);QApplication::sendEvent(view,&release);flush();
             check(dialog()->selected().has_value(),"Source face click was not accepted");
-            check(std::abs(dialog()->findChild<QDoubleSpinBox*>("sheetSourceThickness")->value()-3)<1e-6,"Thickness inference failed");
+            check(dialog()->findChild<QDoubleSpinBox*>("sheetSourceThickness")->value()==thickness,"Source selection replaced the configured sheet thickness");
         };
         const auto settings_before=app::ApplicationSettings::load();QTemporaryDir languages;
         for(const auto* language:{"cs","en","de","fr","ru"}) {
@@ -87,7 +89,8 @@ int verify_sheet_exchange_ui(QApplication& application,const std::filesystem::pa
         check(!window.findChild<QDialog*>("sheetFromBodyDialog"),"Conversion OK failed");
         const auto save=[&]{window.findChild<QAction*>("saveDocumentAction")->trigger();flush();return document::PartDocument::load(path);};
         const auto saved=save();check(saved.history.size()>original,"Conversion created no native sheet features");
-        check(!window.findChild<QAction*>("sheetFromBodyAction")->isEnabled(),"Conversion enabled for a nonempty Body");
+        check(window.findChild<QAction*>("sheetFromBodyAction")->isEnabled(),"Conversion unavailable in the active editable Body");
+        if(same_body)check(std::ranges::any_of(saved.history.begin()+original,saved.history.end(),[](const auto& f){return f.flat.replaces_body;}),"Same-Body conversion did not persist replacement");
         window.findChild<QAction*>("undoAction")->trigger();flush();check(save().history.size()==original,"Conversion Undo did not remove the whole batch");
         window.findChild<QAction*>("redoAction")->trigger();flush();check(save().history.size()==saved.history.size(),"Conversion Redo lost features");
         const auto unchanged=save().serialized();

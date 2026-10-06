@@ -5,6 +5,11 @@ Templates and Desktop integration reuse ordinary settings controls and the
 existing registration service. OK validates and saves; Cancel discards pending
 changes. There is no Apply transaction.
 
+The Czech menu and window title are **Nastavení systému**. The initial window
+height follows the largest of its three applicable pages; unrelated settings
+pages do not contribute to its minimum size. Switching pages keeps the window
+size stable, and manual resizing remains available.
+
 A new installed portable root offers setup automatically. Completing or
 explicitly skipping the initial offer records `Setup/Status` in shared
 installation-root `config/config.ini`, outside version directories. Existing

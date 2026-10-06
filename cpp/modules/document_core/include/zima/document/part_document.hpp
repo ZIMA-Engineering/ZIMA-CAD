@@ -541,6 +541,8 @@ struct HolesParameters {
 
 struct FlatParameters {
     std::string sketch_id;
+    // Independent conversion starts a new material result at this boundary.
+    bool replaces_body{};
     bool sheet_attachment{};
     double thickness{1.0};
     bool thickness_override{};

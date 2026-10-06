@@ -42,7 +42,7 @@ public:
         thickness_=new ui::UnitDoubleSpinBox(ui::InputQuantity::Length,this);thickness_->setObjectName("sheetSourceThickness");
         thickness_->setRange(.001,1000000);thickness_->setValue(thickness);
         form->addRow(tr("Tloušťka"),thickness_);content_layout()->addWidget(fields);
-        auto* note=new QLabel(tr("Vytvoří samostatné tabule a ohyby v aktivním prázdném tělese. Zdroj zůstane beze změny. Složité přechody mohou vyžadovat ruční dokončení."),this);
+        auto* note=new QLabel(tr("Creates independent Flats and Bends in the active Body. Existing solid history is retained. Unsupported transitions cancel conversion."),this);
         note->setWordWrap(true);note->setSizePolicy(QSizePolicy::Preferred,QSizePolicy::Fixed);content_layout()->addWidget(note);content_layout()->addStretch(1);set_initial_size({400,255});
         connect(table_,&QTableWidget::cellClicked,this,[this](int,int column){if(column==1){active_=true;refresh();}});
         refresh();
@@ -52,15 +52,22 @@ public:
     const std::optional<kernel::FaceReference>& selected()const{return selected_;}
     void end_entry(){active_=inspected_=false;refresh();}
     void set_reference(kernel::FaceReference face,double inferred_thickness) {
-        selected_=std::move(face);if(inferred_thickness>=.001)thickness_->setValue(inferred_thickness);
+        selected_=std::move(face);
+        // Selecting source geometry must not replace the Part's sheet settings
+        // or a thickness explicitly entered by the user. Keep inference as a hint.
+        const auto* unit=static_cast<const ui::UnitDoubleSpinBox*>(thickness_);
+        thickness_->setToolTip(inferred_thickness>=.001?
+            tr("Odhad tloušťky zdroje: %1. Nastavení plechu zůstává zachováno.").arg(
+                thickness_->locale().toString(inferred_thickness/unit->native_per_unit(),'f',unit->display_decimals())+unit->suffix()):QString{});
         active_=false;refresh();
     }
 private:
     bool submit()override {
-        if(!selected_)throw std::invalid_argument(tr("Select a planar face of another Body.").toStdString());
+        if(!selected_)throw std::invalid_argument(tr("Select a calculated planar source face.").toStdString());
         commit_(*selected_,thickness_->value());return true;
     }
     void refresh() {
+        if(!selected_)thickness_->setToolTip({});
         field_->setText(selected_?tr("Výchozí rovinná plocha"):tr("Vyberte rovinnou plochu ve View."));
         if(selected_)field_->set_reference(QString::fromStdString(selected_->semantic_key));else field_->clear_reference();
         field_->set_active_input(active_);field_->set_inspected(inspected_);

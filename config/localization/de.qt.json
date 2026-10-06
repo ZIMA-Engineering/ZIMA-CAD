@@ -1,4 +1,12 @@
 {
+  "Creates independent Flats and Bends in the active Body. Existing solid history is retained. Unsupported transitions cancel conversion.": "Erzeugt unabhängige Bleche und Biegungen im aktiven Körper. Die ursprüngliche Volumenkörperhistorie bleibt erhalten. Nicht unterstützte Übergänge brechen die Konvertierung ab.",
+  "Sheet from Body requires an editable active Body.": "Blech aus Körper benötigt einen aktiven bearbeitbaren Körper.",
+  "Select a planar face of the active Body.": "Wählen Sie eine ebene Fläche des aktiven Körpers.",
+  "Select a calculated planar source face.": "Wählen Sie eine berechnete ebene Quellfläche.",
+  "Show a calculated planar face in the active Body, or activate an empty Body after the source Body.": "Zeigen Sie eine berechnete ebene Fläche im aktiven Körper oder aktivieren Sie einen leeren Körper nach dem Quellkörper.",
+  "Sheet conversion cannot reproduce this surface transition.": "Die Blechkonvertierung kann diesen Flächenübergang nicht erzeugen.",
+  "Sheet conversion cannot reproduce every connected face.": "Die Blechkonvertierung kann nicht alle verbundenen Flächen erzeugen.",
+  "Odhad tloušťky zdroje: %1. Nastavení plechu zůstává zachováno.": "Geschätzte Quelldicke: %1. Die Blecheinstellungen bleiben erhalten.",
   "System Setup": "Systemeinrichtung",
   "Vítejte v ZIMA-CAD. Projděte nastavení, šablony a volitelnou registraci. OK nastavení uloží. Cancel úvodní nastavení přeskočí; později je otevřete přes Nástroje → System Setup.": "Willkommen bei ZIMA-CAD. Prüfen Sie Einstellungen, Vorlagen und die optionale Registrierung. OK speichert die Einrichtung. Abbrechen überspringt die Ersteinrichtung; öffnen Sie sie später über Werkzeuge → Systemeinrichtung.",
   "Upravte nastavení, výchozí šablony a volitelnou registraci do systému. Změny potvrdíte tlačítkem OK.": "Passen Sie Einstellungen, Standardvorlagen und die optionale Systemregistrierung an. Bestätigen Sie mit OK.",

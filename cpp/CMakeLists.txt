@@ -1805,7 +1805,7 @@ if(ZIMA_BUILD_TESTS)
     target_compile_options(zima-transition-study PRIVATE $<$<CXX_COMPILER_ID:MSVC>:/utf-8>)
     add_test(NAME zima_cpp_transition_study_ui_contract COMMAND zima-transition-study --verify)
     set_tests_properties(zima_cpp_transition_study_ui_contract PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." RUN_SERIAL TRUE TIMEOUT 90)
-    target_link_libraries(zima_cpp_sheet_exchange_tests PRIVATE zima_workspace)
+    target_link_libraries(zima_cpp_sheet_exchange_tests PRIVATE zima_workspace Qt6::Core)
     add_test(NAME zima_cpp_sheet_exchange_tests COMMAND zima_cpp_sheet_exchange_tests)
     set_tests_properties(zima_cpp_sheet_exchange_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
     file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/sheet-exchange-ui-contract")
@@ -1813,6 +1813,12 @@ if(ZIMA_BUILD_TESTS)
         --working-directory "${CMAKE_BINARY_DIR}/sheet-exchange-ui-contract")
     set_tests_properties(zima_cpp_sheet_exchange_ui_contract PROPERTIES
         ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_SHEET_EXCHANGE=1"
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 120 RUN_SERIAL TRUE)
+    file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/sheet-same-body-ui-contract")
+    add_test(NAME zima_cpp_sheet_same_body_ui_contract COMMAND zima-cad-cpp --verify-startup
+        --working-directory "${CMAKE_BINARY_DIR}/sheet-same-body-ui-contract")
+    set_tests_properties(zima_cpp_sheet_same_body_ui_contract PROPERTIES
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_SHEET_EXCHANGE=1;ZIMA_VERIFY_SHEET_SAME_BODY=1"
         WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 120 RUN_SERIAL TRUE)
     add_executable(zima_cpp_sheet_state_tests tests/sheet_state_tests.cpp)
     add_executable(zima_cpp_sheet_state_cone_tests tests/sheet_state_cone_tests.cpp)

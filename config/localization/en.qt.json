@@ -1,4 +1,12 @@
 {
+  "Creates independent Flats and Bends in the active Body. Existing solid history is retained. Unsupported transitions cancel conversion.": "Creates independent Flats and Bends in the active Body. Existing solid history is retained. Unsupported transitions cancel conversion.",
+  "Sheet from Body requires an editable active Body.": "Sheet from Body requires an editable active Body.",
+  "Select a planar face of the active Body.": "Select a planar face of the active Body.",
+  "Select a calculated planar source face.": "Select a calculated planar source face.",
+  "Show a calculated planar face in the active Body, or activate an empty Body after the source Body.": "Show a calculated planar face in the active Body, or activate an empty Body after the source Body.",
+  "Sheet conversion cannot reproduce this surface transition.": "Sheet conversion cannot reproduce this surface transition.",
+  "Sheet conversion cannot reproduce every connected face.": "Sheet conversion cannot reproduce every connected face.",
+  "Odhad tloušťky zdroje: %1. Nastavení plechu zůstává zachováno.": "Estimated source thickness: %1. Sheet settings are preserved.",
   "System Setup": "System Setup",
   "Vítejte v ZIMA-CAD. Projděte nastavení, šablony a volitelnou registraci. OK nastavení uloží. Cancel úvodní nastavení přeskočí; později je otevřete přes Nástroje → System Setup.": "Welcome to ZIMA-CAD. Review settings, templates and optional registration. OK saves the setup. Cancel skips initial setup; you can return through Tools → System Setup.",
   "Upravte nastavení, výchozí šablony a volitelnou registraci do systému. Změny potvrdíte tlačítkem OK.": "Adjust settings, default templates and optional desktop registration. Confirm changes with OK.",

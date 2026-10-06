@@ -58,10 +58,12 @@ GlobalSettingsDialog::GlobalSettingsDialog(
       settings_(std::move(settings)),system_setup_(system_setup),first_launch_(first_launch) {
     setObjectName(system_setup_?"systemSetupDialog":"globalSettingsDialog");
     setMinimumWidth(620);
-    content_layout()->addWidget(new QLabel(
+    auto* config_label = new QLabel(
         QStringLiteral("%1: %2").arg(
             settings_.text("label.options", tr("Nastavení")),
-            settings_.config_path), this));
+            settings_.config_path), this);
+    config_label->setWordWrap(system_setup_);
+    content_layout()->addWidget(config_label);
 
     sections_ = new QTabWidget(this);
     sections_->setObjectName("globalSettingsSections");
@@ -247,8 +249,12 @@ GlobalSettingsDialog::GlobalSettingsDialog(
     desktop_ = desktop_context?desktop::settings_page(sections_,*desktop_context):desktop::settings_page(sections_);
     sections_->addTab(desktop_, tr("Desktop integration"));
     if(system_setup_) {
-        for(int i=0;i<sections_->count();++i)sections_->setTabVisible(i,sections_->widget(i)==general||sections_->widget(i)==template_page_||sections_->widget(i)==desktop_);
-        set_initial_size({800,720});set_centered_on_show();
+        // Hidden tabs still contribute to QStackedWidget's minimum size.
+        // Remove the setup-inapplicable pages from the stack, retaining their
+        // controls and existing settings values without sizing the wizard by them.
+        for(int i=sections_->count()-1;i>=0;--i)if(sections_->widget(i)!=general&&sections_->widget(i)!=template_page_&&sections_->widget(i)!=desktop_)sections_->removeTab(i);
+        const int natural_height=layout()->totalHeightForWidth(800);
+        set_initial_size({800,natural_height>0?natural_height:minimumSizeHint().height()});set_centered_on_show();
         if(first_launch_)connect(this,&QDialog::rejected,this,[this]{
             if(!save_setup_status(settings_,"skipped"))QMessageBox::critical(this,tr("Uložení selhalo"),tr("Průběh nastavení nelze uložit."));
         });

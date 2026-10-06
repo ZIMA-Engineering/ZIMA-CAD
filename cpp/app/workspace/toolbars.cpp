@@ -415,7 +415,7 @@ void AssemblyWorkspaceWindow::rebuild_application_toolbar() {
                 connect(convert,&QAction::triggered,this,[this]{show_sheet_from_body();});}
             const auto& part=workspace_.open_part(workspace_.active_document_id())->session.document();
             const auto* body=part.body_history.find(part.body_history.active_body_id());
-            convert->setEnabled(!properties_dialog_&&body&&body->entries.empty()&&!body->derived_copy);add_command(convert);
+            convert->setEnabled(!properties_dialog_&&body&&!body->derived_copy);add_command(convert);
             auto* flat=findChild<QAction*>("flatAction");
             if(!flat) {
                 flat=new QAction(resource_icon("flat"),tr("Tabule"),this);flat->setObjectName("flatAction");

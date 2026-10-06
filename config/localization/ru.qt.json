@@ -1,4 +1,12 @@
 {
+  "Creates independent Flats and Bends in the active Body. Existing solid history is retained. Unsupported transitions cancel conversion.": "Создаёт независимые листы и сгибы в активном теле. История исходного твёрдого тела сохраняется. Неподдерживаемые переходы отменяют преобразование.",
+  "Sheet from Body requires an editable active Body.": "Преобразование в лист требует активного редактируемого тела.",
+  "Select a planar face of the active Body.": "Выберите плоскую грань активного тела.",
+  "Select a calculated planar source face.": "Выберите рассчитанную плоскую грань источника.",
+  "Show a calculated planar face in the active Body, or activate an empty Body after the source Body.": "Покажите рассчитанную плоскую грань активного тела или активируйте пустое тело после исходного.",
+  "Sheet conversion cannot reproduce this surface transition.": "Преобразование в лист не может воспроизвести этот переход поверхностей.",
+  "Sheet conversion cannot reproduce every connected face.": "Преобразование в лист не может воспроизвести все связанные грани.",
+  "Odhad tloušťky zdroje: %1. Nastavení plechu zůstává zachováno.": "Оценка толщины источника: %1. Настройки листового металла сохраняются.",
   "System Setup": "Настройка системы",
   "Vítejte v ZIMA-CAD. Projděte nastavení, šablony a volitelnou registraci. OK nastavení uloží. Cancel úvodní nastavení přeskočí; později je otevřete přes Nástroje → System Setup.": "Добро пожаловать в ZIMA-CAD. Проверьте настройки, шаблоны и необязательную регистрацию. OK сохраняет настройку. Отмена пропускает первоначальную настройку; вернуться к ней можно через Инструменты → Настройка системы.",
   "Upravte nastavení, výchozí šablony a volitelnou registraci do systému. Změny potvrdíte tlačítkem OK.": "Измените настройки, шаблоны по умолчанию и необязательную регистрацию в системе. Подтвердите изменения кнопкой OK.",

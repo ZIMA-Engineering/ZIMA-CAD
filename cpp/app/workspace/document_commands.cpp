@@ -33,17 +33,22 @@ void AssemblyWorkspaceWindow::show_sheet_from_body() {
     try {
         const auto& source=part->session.document();
         const auto* target=source.body_history.find(source.body_history.active_body_id());
-        if(!target||!target->entries.empty()||target->derived_copy)throw std::invalid_argument("Sheet from Body requires an empty active Body.");
+        if(!target||target->derived_copy)throw std::invalid_argument("Sheet from Body requires an editable active Body.");
         const auto path=resolve_active_occurrence(document_id);if(!path)throw std::invalid_argument("Activate the exact Part occurrence first.");
         const auto geometry=workspace::construction_reference_source_geometry(part->session.calculated_boundaries());
+        std::set<std::pair<std::string,std::string>> current_faces;
+        if(!part->session.calculated_boundaries().empty())
+            for(const auto& [body,output]:part->session.calculated_boundaries().back().body_outputs)
+                if(output->calculation_errors.empty())for(const auto& face:output->mesh.triangle_references)
+                    current_faces.emplace(face.owner_id,face.semantic_key);
         const auto& order=source.body_history.order();const auto target_position=std::ranges::find(order,target->scope.id);
         auto offered=std::make_shared<std::map<std::pair<std::string,std::string>,kernel::FaceReference>>();
         for(const auto& face:geometry.triangle_references) {
             const auto* owner=source.body_owner_for_object(face.owner_id);
-            if(owner&&owner->visible&&std::ranges::find(order,owner->scope.id)<target_position&&face.instance_path.empty()&&face.surface&&face.surface->kind==kernel::SurfaceGeometry::Kind::Plane)
+            if(owner&&owner->visible&&current_faces.contains({face.owner_id,face.semantic_key})&&(target->entries.empty()?std::ranges::find(order,owner->scope.id)<target_position:owner->scope.id==target->scope.id)&&face.instance_path.empty()&&face.surface&&face.surface->kind==kernel::SurfaceGeometry::Kind::Plane)
                 offered->emplace(std::pair{face.owner_id,face.semantic_key},face);
         }
-        if(offered->empty())throw std::invalid_argument("Create the empty target Body after the source Body and show its planar faces.");
+        if(offered->empty())throw std::invalid_argument("Show a calculated planar face in the active Body, or activate an empty Body after the source Body.");
         auto* dialog=new SheetFromBodyDialog(document::sheet_metal_defaults(source).thickness_mm.value_or(1.),
             [this,document_id](auto face,double thickness) {
                 auto* state=workspace_.open_part(document_id);if(!state)throw std::invalid_argument("Sheet from Body requires a calculated source body.");

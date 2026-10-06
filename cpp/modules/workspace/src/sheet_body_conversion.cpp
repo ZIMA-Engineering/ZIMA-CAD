@@ -30,20 +30,39 @@ std::map<std::string,Face> faces(const kernel::ViewerMesh& mesh) {
     return result;
 }
 struct Node {Face face;std::string parent;kernel::ViewerEdge entry;};
+std::optional<V> sampled_normal(const kernel::ViewerMesh& mesh,const Face& face,V at) {
+    double best=INFINITY;std::optional<V> result;
+    for(std::size_t i=0;i<mesh.triangle_references.size();++i) {
+        if(key(mesh.triangle_references[i])!=key(face)||3*i+2>=mesh.triangles.size())continue;
+        const auto a=mesh.vertices.at(mesh.triangles[3*i]),b=mesh.vertices.at(mesh.triangles[3*i+1]),c=mesh.vertices.at(mesh.triangles[3*i+2]);
+        const auto center=mul(add(add(a,b),c),1./3),delta=sub(center,at);
+        const double distance=dot(delta,delta);const auto n=cross(sub(b,a),sub(c,a));
+        if(distance<best&&dot(n,n)>1e-18){best=distance;result=unit(n);}
+    }
+    return result;
+}
 std::vector<Node> skin(const kernel::ViewerMesh& mesh,const Face& first) {
     const auto available=faces(mesh);std::vector<Node> result{{first,{},{}}};std::set<std::string> visited{key(first)};
     for(std::size_t i=0;i<result.size();++i) {
         const auto current=result[i].face;
         for(const auto& edge:mesh.edges) {
-            if(edge.parameter_seam||!straight(edge)||edge.edge_treatment_side_references.size()!=2)continue;
+            if(edge.parameter_seam||edge.points.size()<2||edge.edge_treatment_side_references.size()!=2)continue;
             const auto& sides=edge.edge_treatment_side_references;
             const Face* next=sides[0]==current?&sides[1]:sides[1]==current?&sides[0]:nullptr;
             if(!next||visited.contains(key(*next)))continue;
-            const auto it=available.find(key(*next));if(it==available.end()||!it->second.surface)continue;
+            const auto it=available.find(key(*next));if(it==available.end())continue;
             next=&it->second;
-            const auto kind=next->surface->kind;if(kind!=kernel::SurfaceGeometry::Kind::Plane&&kind!=kernel::SurfaceGeometry::Kind::Cylinder)continue;
-            const auto at=mul(add(edge.points.front(),edge.points.back()),.5);
+            const auto at=edge.points[edge.points.size()/2];
+            if(!next->surface||next->surface->kind==kernel::SurfaceGeometry::Kind::Cone) {
+                const auto n=sampled_normal(mesh,*next,at);
+                // Unknown surfaces have only the calculated mesh normal here.
+                // Allow its display tessellation deviation, not a planar join.
+                if(n&&std::abs(dot(normal(current,at),*n))>.95)
+                    throw std::invalid_argument("Sheet conversion cannot reproduce this surface transition.");
+                continue;
+            }
             if(dot(normal(current,at),normal(*next,at))<1-1e-6)continue;
+            if(!straight(edge))throw std::invalid_argument("Sheet conversion cannot reproduce this surface transition.");
             visited.insert(key(*next));result.push_back({*next,key(current),edge});
         }
     }
@@ -116,13 +135,14 @@ double suggest_sheet_thickness(const kernel::ViewerMesh& mesh,const Face& select
 SheetBodyConversion prepare_sheet_from_body(const document::PartDocument& source,
         const std::vector<kernel::BodyResult>& cache,const Face& selected,double thickness,const kernel::OcctKernel& kernel) {
     const auto* target=source.body_history.find(source.body_history.active_body_id());
-    if(!target||!target->entries.empty()||target->derived_copy)throw std::invalid_argument("Sheet from Body requires an empty active Body.");
+    if(!target||target->derived_copy)throw std::invalid_argument("Sheet from Body requires an editable active Body.");
     if(!(thickness>=.001)||thickness>1000000||!std::isfinite(thickness))throw std::invalid_argument("Sheet thickness must be between 0.001 and 1000000 mm.");
     if(cache.empty())throw std::invalid_argument("Sheet from Body requires a calculated source body.");
     const auto source_owner=source.body_owner_for_object(selected.owner_id);
-    if(!source_owner||source_owner->scope.id==target->scope.id)throw std::invalid_argument("Select a planar face of another Body.");
+    const bool replaces_body=!target->entries.empty();
+    if(!source_owner||(replaces_body&&source_owner->scope.id!=target->scope.id))throw std::invalid_argument("Select a planar face of the active Body.");
     const auto& order=source.body_history.order();
-    if(std::ranges::find(order,source_owner->scope.id)>=std::ranges::find(order,target->scope.id))
+    if(!replaces_body&&std::ranges::find(order,source_owner->scope.id)>=std::ranges::find(order,target->scope.id))
         throw std::invalid_argument("Source Body must precede the active Body.");
     const auto input=cache.back().body_outputs.find(source_owner->scope.id);
     if(input==cache.back().body_outputs.end()||!input->second->calculation_errors.empty())throw std::invalid_argument("Sheet from Body requires a calculated source body.");
@@ -137,12 +157,13 @@ SheetBodyConversion prepare_sheet_from_body(const document::PartDocument& source
     mesh.original_references=source.sketch_reference_geometry_for(local_context,std::move(mesh.original_references));
     const auto available=faces(mesh);const auto root=available.find(key(selected));
     if(root==available.end()||!root->second.surface||root->second.surface->kind!=kernel::SurfaceGeometry::Kind::Plane)
-        throw std::invalid_argument("Select a planar face of another Body.");
+        throw std::invalid_argument("Select a calculated planar source face.");
     const auto nodes=skin(mesh,root->second);SheetBodyConversion result;result.document=source;result.calculated=cache;
     // Author a new root frame and new profile geometry; no source reference is
     // persisted. Subsequent features will use only newly authored references.
     auto sketch=sketcher::Sketch::create_default();auto feature=document::PartDocument::create_sketch_container();
     feature.feature_kind=document::FeatureKind::Flat;feature.name="Tabule";feature.flat.sketch_id=sketch.id;
+    feature.flat.replaces_body=replaces_body;
     feature.flat.thickness_override=true;feature.flat.thickness=thickness;feature.flat.direction=document::ExtrusionDirection::Reverse;
     sketch.owner_container_id=feature.id;sketch.name=feature.name;
     const auto n=normal(root->second,root->second.surface->origin);const auto x=root->second.surface->radial;
@@ -251,6 +272,7 @@ SheetBodyConversion prepare_sheet_from_body(const document::PartDocument& source
         result.document=std::move(next);result.calculated=std::move(calculated);
         result.created.push_back(added.id);authored.emplace(key(node.face),added.id);
     }
+    if(result.skipped)throw std::invalid_argument("Sheet conversion cannot reproduce every connected face.");
     return result;
 }
 }

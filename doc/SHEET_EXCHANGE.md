@@ -5,13 +5,18 @@ commands retain their previous scope and behavior.
 
 ## Sheet from Body
 
-Create and activate an empty Body after the source Body in the tree, then choose **Sheet from Body** and a planar
-face of another visible Body in the same Part. The source may be a STEP import
-or a native solid. The source must precede the destination; the command does not
+Choose **Sheet from Body** in an active editable Body. In a nonempty Body,
+select a planar face of its calculated solid: the first generated Flat starts a
+new material result at that history boundary. Preceding source operations remain
+in history, and Undo restores the original solid. In an empty Body, select a planar
+face of another visible preceding Body in the same Part. The source may be a STEP import
+or a native solid. A separate source must precede the destination; the command does not
 reorder Bodies or expose later history. The internal properties window offers
 the starting face and
-material thickness; a matching opposite planar skin supplies a thickness hint.
-The hint remains editable. Selection and inspection consume calculated viewer
+material thickness initialized from the Part's sheet settings. Selecting a
+source face preserves those settings and any manually entered thickness. A
+matching opposite planar skin supplies a unit-aware tooltip hint without
+overwriting the value. Selection and inspection consume calculated viewer
 data and do not run OCCT. Only OK starts conversion; Cancel changes nothing.
 
 The source-face field uses the shared reference controls: a green arrow for an
@@ -24,7 +29,7 @@ Conversion walks the connected tangent planar/cylindrical skin. The initial
 wall becomes a native Flat with a numeric position and orientation. Adjacent
 cylinders become native Sheet Profiles; subsequent planar walls become native
 Flats attached to those new profiles. Terminal bends are supported. The complete
-batch is one Undo/Redo transaction. The source Body is unchanged.
+batch is one Undo/Redo transaction. A separate source Body is unchanged.
 
 The entry and exit generatrices of a cylinder need not have equal lengths.
 Conversion measures the exit endpoints in the generated Bend's end-profile
@@ -58,11 +63,13 @@ concave bends.
 This is a basic reconstruction command, not a general inverse sheet-metal
 solver. It follows tangent planar/cylindrical transitions; sharp corners without
 a cylindrical bend, conical/freeform transitions, and complex corner treatments
-may need manual construction or finishing. Unmatched faces on the discovered
-skin and their dependent continuations are skipped and counted in the completion
-message. Disconnected skins are not inferred from the selected starting face.
-The skipped count is not a certification that every surface of the source solid
-has been reconstructed.
+may need manual construction or finishing. Unsupported tangent transitions and
+unmatched faces on the discovered skin reject the entire pending conversion;
+no partial batch is committed. Existing geometry is not modified to remove corner
+fillets. Disconnected skins are not inferred from the selected starting face.
+Conversion is independent: changing or regenerating the source does not update
+the generated sheet. Relationships among the new native sheet features remain
+editable through their ordinary Properties windows.
 
 ## DXF
 
@@ -138,3 +145,31 @@ editing/Cancel, Undo/Redo and the configured DXF toolbar destination. Its larger
 fixture mode creates a private empty target when the supplied document already
 contains a previous partial conversion. No new user-visible strings were added;
 the existing five-language catalog/dialog validation remains required.
+
+### Active-Body conversion verification, 2026-10-06
+
+Windows Release verification used Qt 6.11 and OCCT 8.0.0, with baseline source
+`8f3d7ef4`. Fourteen affected native/GUI suites passed, covering conversion,
+material states, Flat/Bend commands, multiple Bodies, history recovery, solid
+states, five-language catalogs, System Setup and creation from native templates.
+All seven tracked Part/Assembly start templates were regenerated through the
+current native CLI; their empty definitions remained identical.
+
+The conversion contracts now include same-Body replacement with a deliberately
+different thickness, independence after source edits and deletion, serialization,
+cold regeneration, STEP export/import and an actual three-edge corner Fillet.
+The corner transition rejects the pending conversion without changing the source.
+The older Flat test now checks the established no-calculation/no-transaction
+contract for unchanged OK instead of expecting it to regenerate an empty cache.
+
+A private copy of `Projects/01.prtz`, seeded from its planar outer side rather
+than its extrusion cap, produced two Flats and one Bend with no skipped faces.
+Conversion took approximately 0.326 seconds in one local sample, excluding file
+loading and subsequent cold verification. The generated sheet retained the Part's
+1 mm setting; its volume was 12032.5095753 mm3. This intentionally differs from
+the original thick solid's 462065.087039 mm3. Cold regeneration and a subsequent
+10 mm increase in the source extrusion length preserved the generated volume.
+GUI conversion into both an empty and the same Body passed native picking,
+five languages, Cancel, generated-feature Properties/Cancel, middle-button OK,
+Undo/Redo and DXF checks on private copies. The user's original file was not saved.
+These results verify the Windows development build; Linux execution is separate.

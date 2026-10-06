@@ -3,6 +3,8 @@
 #include <zima/kernel/occt_kernel.hpp>
 #include <zima/workspace/sheet_exchange_operations.hpp>
 #include <zima/interchange/dxf.hpp>
+#include <zima/interchange/step_model.hpp>
+#include <QTemporaryDir>
 #include <zima/document/flat.hpp>
 #include <zima/document/profile_status.hpp>
 #include <zima/document/bend.hpp>
@@ -13,6 +15,7 @@
 #include <chrono>
 #include <numbers>
 #include <iomanip>
+#include "profile_solid_fixture.hpp"
 
 namespace {
 using namespace zima;
@@ -20,6 +23,26 @@ void check(bool value,const char* message){if(!value)throw std::runtime_error(me
 void near(double a,double b,double tolerance=1e-5){if(std::abs(a-b)>tolerance)throw std::runtime_error("Mismatch: "+std::to_string(a)+" versus "+std::to_string(b));}
 void contract() {
     kernel::OcctKernel kernel;
+    {
+        auto part=document::PartDocument::create_default();const auto body=part.body_history.create_body("Rounded solid");
+        auto box=test::rectangular_feature(part,{100,80,20});
+        part.insert_history_entry(document::PartHistoryKind::Feature,box.id);part.history.push_back(box);
+        auto cache=workspace::calculate_part_with_resolved_references(kernel,part);
+        std::vector<kernel::EdgeReference> edges;
+        for(const auto& edge:cache.back().body_outputs.at(body)->mesh.edges)
+            if(std::ranges::any_of(edge.points,[](auto p){return std::hypot(p.x+50,p.y+40,p.z+10)<1e-6;}))edges.push_back(edge.reference);
+        check(edges.size()==3,"Rounded corner fixture lacks three joining edges");
+        auto fillet=document::PartDocument::create_fillet_container(edges);fillet.edge_treatment.primary_size=4;
+        part.insert_history_entry(document::PartHistoryKind::Feature,fillet.id);part.history.push_back(fillet);
+        workspace::PartCalculationPolicy policy;policy.reject_errors=true;
+        cache=workspace::calculate_part_with_resolved_references(kernel,part,&cache,policy);
+        const auto& references=cache.back().mesh.original_references.triangle_references;
+        const auto seed=std::ranges::max_element(references,{},[](const auto& f){return f.surface&&f.surface->kind==kernel::SurfaceGeometry::Kind::Plane?f.measured_area.value_or(0):0;});
+        const auto before=part.serialized();bool rejected=false;
+        try{static_cast<void>(workspace::prepare_sheet_from_body(part,cache,*seed,1,kernel));}
+        catch(const std::invalid_argument& error){rejected=std::string_view(error.what())=="Sheet conversion cannot reproduce this surface transition.";}
+        check(rejected&&part.serialized()==before,"Three-edge corner blend was silently converted or modified");
+    }
     for(bool reverse:{false,true}) {
         auto part=document::PartDocument::create_default();const auto source=part.body_history.create_body("Source");
         auto feature=document::PartDocument::create_sketch_container();feature.feature_kind=document::FeatureKind::Flat;
@@ -56,6 +79,38 @@ void contract() {
         check(!document::flat_preview(part.history.front(),part.sketches.front(),document::sheet_metal_defaults(part)).edges.empty(),"Multi-slot Flat lacks an edit preview");
         const auto seed=*std::ranges::max_element(cache.back().mesh.original_references.triangle_references,{},[](const auto& f){return f.surface&&f.surface->kind==kernel::SurfaceGeometry::Kind::Plane?f.measured_area.value_or(0):0;});
         near(workspace::suggest_sheet_thickness(cache.back().mesh,seed),3);
+        if(!reverse) {
+            QTemporaryDir directory;check(directory.isValid(),"Cannot create STEP fixture directory");
+            const auto path=std::filesystem::u8path(directory.path().toStdString())/"source.step";
+            kernel.export_step(std::vector<kernel::PlacedBody>{{cache.back().body_outputs.at(source).get(),{},{}}},path.string());
+            auto imported=interchange::import_step_part(document::PartDocument::create_default(),{},path);
+            const auto& references=imported.calculated.back().mesh.original_references.triangle_references;
+            const auto face=std::ranges::max_element(references,{},[](const auto& f){return f.surface&&f.surface->kind==kernel::SurfaceGeometry::Kind::Plane?f.measured_area.value_or(0):0;});
+            check(face!=references.end(),"Imported STEP lacks a planar seed");
+            auto converted=workspace::prepare_sheet_from_body(imported.document,imported.calculated,*face,2,kernel);
+            const auto body=converted.document.body_history.active_body_id();
+            near(converted.calculated.back().body_outputs.at(body)->volume,expected*2/3,.001);
+            converted.document.erase_history_object(imported.document.history.front().id);
+            auto reopened=document::PartDocument::from_serialized(converted.document.serialized());
+            const auto cold=workspace::calculate_part_with_resolved_references(kernel,reopened);
+            near(cold.back().body_outputs.at(body)->volume,expected*2/3,.001);
+        }
+        {
+            const auto original=part.serialized();
+            auto same=workspace::prepare_sheet_from_body(part,cache,seed,2,kernel);
+            check(part.serialized()==original,"Same-Body conversion changed its input");
+            check(same.created.size()==1&&same.document.history.back().flat.replaces_body,"Same-Body conversion did not replace its solid");
+            near(same.calculated.back().body_outputs.at(source)->volume,expected*2/3,.001);
+            same.document.history.front().flat.thickness=7;
+            same.calculated=workspace::calculate_part_with_resolved_references(kernel,same.document);
+            near(same.calculated.back().body_outputs.at(source)->volume,expected*2/3,.001);
+            auto reopened=document::PartDocument::from_serialized(same.document.serialized());
+            auto cold=workspace::calculate_part_with_resolved_references(kernel,reopened);
+            near(cold.back().body_outputs.at(source)->volume,expected*2/3,.001);
+            reopened.erase_history_object(same.created.front());
+            cold=workspace::calculate_part_with_resolved_references(kernel,reopened);
+            near(cold.back().body_outputs.at(source)->volume,expected*7/3,.001);
+        }
         const auto target=part.body_history.create_body("Sheet");
         if(reverse) {
             auto body=*part.body_history.find(target);body.scope.placement.x=-30;body.scope.placement.z=17;
@@ -130,6 +185,28 @@ void contract() {
         const auto& faces=cache.back().mesh.original_references.triangle_references;
         const auto seed=std::ranges::find_if(faces,[&](const auto& f){return f.owner_id==flat.id&&f.sheet_role==kernel::SheetFaceRole::SideA;});
         check(seed!=faces.end(),"Bend fixture has no base skin");
+        {
+            auto invalid=cache;auto input=invalid.back().body_outputs.at(source).get();
+            for(auto* list:{&input.mesh.triangle_references,&input.mesh.original_references.triangle_references})
+                for(auto& face:*list)if(face.surface&&face.surface->kind==kernel::SurfaceGeometry::Kind::Cylinder) {
+                    auto surface=*face.surface;surface.radius=1;
+                    face.surface=std::make_shared<const kernel::SurfaceGeometry>(std::move(surface));
+                }
+            invalid.back().body_outputs[source]=kernel::BodySnapshot(std::move(input));
+            const auto before=part.serialized();bool rejected=false;
+            try{static_cast<void>(workspace::prepare_sheet_from_body(part,invalid,*seed,2,kernel));}
+            catch(const std::invalid_argument&){rejected=true;}
+            check(rejected&&part.serialized()==before,"Unsupported branch committed a partial conversion");
+        }
+        {
+            auto same=workspace::prepare_sheet_from_body(part,cache,*seed,2,kernel);
+            check(same.created.size()==3&&same.skipped==0,"Same-Body conversion lost a connected wall or bend");
+            near(same.calculated.back().body_outputs.at(source)->volume,cache.back().body_outputs.at(source)->volume,.01);
+            auto cold=workspace::calculate_part_with_resolved_references(kernel,same.document);
+            near(cold.back().body_outputs.at(source)->volume,cache.back().body_outputs.at(source)->volume,.01);
+            const auto dxf=workspace::prepare_sheet_dxf(same.document,cold,kernel);
+            check(dxf.export_options.bend_axis_ids.size()==1,"Same-Body DXF retained source bend material");
+        }
         const auto target=part.body_history.create_body("Converted");
         auto converted=workspace::prepare_sheet_from_body(part,cache,*seed,2,kernel);
         check(converted.created.size()==3&&converted.skipped==0,"Converter failed to follow the cylinder and its next wall");
@@ -188,23 +265,28 @@ void contract() {
 int main(int argc,char** argv) {
     try {
         if(argc==1){contract();return 0;}
-        if(argc!=2&&argc!=3)return 2;
+        if(argc!=2&&argc!=3&&argc!=4)return 2;
         std::vector<zima::kernel::BodyResult> cache;
         auto part=zima::document::PartDocument::load(argv[1],&cache);
         std::cout<<"Part "<<part.name<<" features="<<part.history.size()<<" bodies="<<part.body_history.bodies().size()<<" cached="<<cache.size()<<'\n';
         if(cache.empty())return 1;
-        if(argc==3) {
+        if(argc>=3) {
             const auto before=part.serialized();zima::kernel::OcctKernel kernel;
             if(std::filesystem::path(argv[2]).extension()==".prtz") {
-                std::string target;for(const auto& body:part.body_history.bodies())if(body.entries.empty()){target=body.scope.id;break;}
+                const bool same_body=argc==4&&std::string_view(argv[3])=="same-body";
+                std::string target;if(same_body)target=part.body_history.order().front();
+                else for(const auto& body:part.body_history.bodies())if(body.entries.empty()){target=body.scope.id;break;}
                 if(target.empty())target=part.body_history.create_body("Conversion verification");
                 if(!target.empty()){part.body_history.move_body(target,part.body_history.order().size()-1);part.body_history.activate(target);}
                 const auto& mesh=cache.back().body_outputs.at(part.body_history.order().front())->mesh;
-                const auto first=std::ranges::max_element(mesh.triangle_references,{},[](const auto& face){return face.surface&&face.surface->kind==zima::kernel::SurfaceGeometry::Kind::Plane?face.measured_area.value_or(0):0;});
-                const double thickness=zima::workspace::suggest_sheet_thickness(mesh,*first);
+                const auto& seed_faces=same_body?mesh.original_references.triangle_references:mesh.triangle_references;
+                const auto first=same_body?std::ranges::find_if(seed_faces,[](const auto& face){return face.surface&&face.surface->kind==zima::kernel::SurfaceGeometry::Kind::Plane&&face.surface->axis.z<-.99&&!face.surface->reversed;}):std::ranges::max_element(seed_faces,{},[](const auto& face){return face.surface&&face.surface->kind==zima::kernel::SurfaceGeometry::Kind::Plane?face.measured_area.value_or(0):0;});
+                check(first!=seed_faces.end(),"Fixture lacks the requested planar branch seed");
+                const double thickness=same_body?zima::document::sheet_metal_defaults(part).thickness_mm.value_or(1.):zima::workspace::suggest_sheet_thickness(mesh,*first);
                 std::cout<<"seed="<<first->semantic_key<<" thickness="<<thickness<<std::endl;
                 const auto started=std::chrono::steady_clock::now();
                 const auto converted=zima::workspace::prepare_sheet_from_body(part,cache,*first,thickness,kernel);
+                if(same_body)check(converted.created.size()==3,"01.prtz branch did not create two Flats and a Bend");
                 converted.document.save(argv[2],converted.calculated);
                 std::size_t lines=0,arcs=0,circles=0,splines=0;for(const auto& sketch:converted.document.sketches)if(std::ranges::find(converted.created,sketch.owner_container_id)!=converted.created.end()){lines+=sketch.segments.size();arcs+=sketch.arcs.size();circles+=sketch.circles.size();splines+=sketch.bsplines.size();}
                 std::cout<<"Created="<<converted.created.size()<<" skipped="<<converted.skipped<<" lines="<<lines<<" arcs="<<arcs<<" circles="<<circles<<" splines="<<splines
@@ -214,6 +296,11 @@ int main(int argc,char** argv) {
                 check(regenerated.back().calculation_errors.empty(),"Converted fixture failed cold regeneration");
                 const auto volume=converted.calculated.back().body_outputs.at(target)->volume;
                 near(regenerated.back().body_outputs.at(target)->volume,volume,.001);
+                if(same_body) {
+                    reopened.history.front().feature.sides[0].length+=10;
+                    const auto independent=zima::workspace::calculate_part_with_resolved_references(cold,reopened);
+                    near(independent.back().body_outputs.at(target)->volume,volume,.001);
+                }
                 std::cout<<std::setprecision(12)<<"source_volume="<<cache.back().body_outputs.at(part.body_history.order().front())->volume<<" converted_volume="<<volume<<" cold_regeneration=passed\n";
                 return 0;
             }

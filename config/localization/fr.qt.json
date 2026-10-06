@@ -1,4 +1,12 @@
 {
+  "Creates independent Flats and Bends in the active Body. Existing solid history is retained. Unsupported transitions cancel conversion.": "Crée des panneaux et des plis indépendants dans le corps actif. L’historique du solide initial est conservé. Les transitions non prises en charge annulent la conversion.",
+  "Sheet from Body requires an editable active Body.": "La conversion en tôle nécessite un corps actif modifiable.",
+  "Select a planar face of the active Body.": "Sélectionnez une face plane du corps actif.",
+  "Select a calculated planar source face.": "Sélectionnez une face source plane calculée.",
+  "Show a calculated planar face in the active Body, or activate an empty Body after the source Body.": "Affichez une face plane calculée du corps actif ou activez un corps vide après le corps source.",
+  "Sheet conversion cannot reproduce this surface transition.": "La conversion en tôle ne peut pas reproduire cette transition de surfaces.",
+  "Sheet conversion cannot reproduce every connected face.": "La conversion en tôle ne peut pas reproduire toutes les faces raccordées.",
+  "Odhad tloušťky zdroje: %1. Nastavení plechu zůstává zachováno.": "Épaisseur estimée de la source : %1. Les paramètres de tôlerie sont conservés.",
   "System Setup": "Configuration système",
   "Vítejte v ZIMA-CAD. Projděte nastavení, šablony a volitelnou registraci. OK nastavení uloží. Cancel úvodní nastavení přeskočí; později je otevřete přes Nástroje → System Setup.": "Bienvenue dans ZIMA-CAD. Vérifiez les paramètres, les modèles et l’enregistrement facultatif dans le système. OK enregistre la configuration. Annuler ignore la configuration initiale ; vous pourrez y revenir via Outils → Configuration système.",
   "Upravte nastavení, výchozí šablony a volitelnou registraci do systému. Změny potvrdíte tlačítkem OK.": "Modifiez les paramètres, les modèles par défaut et l’enregistrement facultatif dans le système. Confirmez avec OK.",

@@ -10095,6 +10095,7 @@ std::vector<zima::kernel::HistoryOperation> PartDocument::kernel_operations(
             feature_mesh_deflection,
         });
         if(container.feature_kind==FeatureKind::Flat) {
+            operations.back().replaces_body=container.flat.replaces_body;
             operations.back().sheet_operation=kernel::SheetOperation::Flat;
             operations.back().sheet_thickness=flat_thickness(container,sheet_metal_defaults(*this));
         } else if(container.feature_kind==FeatureKind::Bend) {
@@ -10891,6 +10892,7 @@ PartDocument PartDocument::from_serialized(const nlohmann::json& root,
             container.sheet_state.owners=definition.at("owners").get<std::vector<std::string>>();
         } else if (container.feature_kind == FeatureKind::Flat) {
             const auto& f=source.at("flat");auto& p=container.flat;
+            p.replaces_body=f.value("replaces_body",false);
             p.sheet_attachment=f.at("sheet_attachment");
             p.sketch_id=f.at("sketch_id");p.thickness=f.at("thickness");p.thickness_override=f.at("thickness_override");
             const auto direction=f.at("direction").get<std::string>();
@@ -12140,6 +12142,7 @@ nlohmann::json PartDocument::serialized(
             const auto& p=container.flat;
             serialized["flat"]={{"sketch_id",p.sketch_id},{"sheet_attachment",p.sheet_attachment},{"thickness",p.thickness},{"thickness_override",p.thickness_override},
                 {"direction",p.direction==ExtrusionDirection::Forward?"forward":p.direction==ExtrusionDirection::Reverse?"reverse":"symmetric"}};
+            if(p.replaces_body)serialized["flat"]["replaces_body"]=true;
         } else if (container.feature_kind == FeatureKind::Bend) {
             const auto& p=container.bend;
             serialized["bend"]={{"sketch_id",p.sketch_id},{"radius",p.radius},{"angle",p.angle_degrees},

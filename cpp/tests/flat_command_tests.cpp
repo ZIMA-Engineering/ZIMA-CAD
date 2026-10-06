@@ -205,9 +205,11 @@ void verify(std::filesystem::path directory) {
     {
         const auto unchanged=*state->session.document().find_container(owner);
         const auto unchanged_profile=sketch();
+        auto calculated=state->session.calculated_boundaries();
         state->session.update_calculated_boundaries({});
-        static_cast<void>(workspace::commit_flat(live,kernel,id,unchanged,unchanged_profile));
-        check(!state->session.calculated_boundaries().empty(),"Flat OK left its body uncalculated");
+        check(!workspace::commit_flat(live,kernel,id,unchanged,unchanged_profile),"Unchanged Flat OK created a transaction");
+        check(state->session.calculated_boundaries().empty(),"Unchanged Flat OK calculated geometry");
+        state->session.update_calculated_boundaries(std::move(calculated));
         near(volume(),1200);
     }
     const auto identities=faces(state->session.calculated_boundaries().back(),owner);
