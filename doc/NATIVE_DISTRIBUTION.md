@@ -2,6 +2,16 @@
 
 ## Scope and status
 
+Windows build **2026100609** is signed, published and verified. It fixes external
+Sketch tangency, sliding equal-length arms and endpoint C with compatible P/H/V.
+Six native suites, endpoint-priority and spline-tangent GUI regressions, seven
+generated GUI cases and four actual FORM cases passed. Fresh packaging,
+production signature/trust, packaged FORM regeneration, twelve packaged GUI
+scenarios, public asset hashes and update discovery from 2026100608 passed.
+All five catalogs were validated; there are no new UI strings or format changes.
+Shared placement is unchanged. Linux acceptance remains separate. See
+[the release record](releases/2026100609.md).
+
 Windows build **2026100608** is signed, published and verified. Planar segmented
 2D Sweep preserves its profile side through opposite tangents. Seven affected
 suites, independent FORM removed-volume checks, unchanged Properties GUI,
