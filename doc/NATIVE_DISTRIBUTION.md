@@ -2,6 +2,14 @@
 
 ## Scope and status
 
+Windows build **2026100604** is signed, published and verified. It adds independent
+Sheet from Body reconstruction in the active Body and compacts System Setup.
+Fourteen affected native/GUI suites, fresh committed-source packaging, signed
+smoke/trust, five packaged GUI scenarios, authenticated/public asset hashes and
+update discovery from 2026100603 passed. Documentation and all five localizations
+are complete. Linux acceptance remains separate. See
+[the release record](releases/2026100604.md).
+
 Linux build **2026100602** is signed, published and verified on Debian 13.6
 x86_64 with KDE/Wayland. It uses OCCT 8.0.0, matching Windows, with one shared
 surface-intersection implementation. Clean committed-source packaging,

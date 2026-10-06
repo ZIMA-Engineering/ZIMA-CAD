@@ -12,7 +12,19 @@ for module boundaries and [distribution rules](doc/DISTRIBUTION_CLEANUP_PLAN.md)
 for the agreed packaging direction. Dated entries below preserve planning context;
 newer completion notes and focused contracts supersede their earlier status.
 
-## Current work and queued requests (2026-10-03)
+## Current work and queued requests (2026-10-06)
+
+### Part direct modeling and basic FEM (requested 2026-10-06)
+
+- Add direct modeling of imported STEP solid geometry within a Part. Define the
+  supported editing operations and preserve ordinary Body ownership, history,
+  reference identity, native persistence and Undo/Redo.
+- Complete a basic FEM analysis workflow for Parts. Define the initial scope of
+  materials, loads, boundary conditions, meshing and results before implementation;
+  verify it against independently checked reference cases.
+
+These are queued requests, not implemented capabilities. Detailed command and
+analysis scope remains to be agreed.
 
 Solid Straightening / Restore shape was completed and published in Windows build
 2026100301; see [the implementation and verification](doc/SOLID_STRAIGHTENING.md).
