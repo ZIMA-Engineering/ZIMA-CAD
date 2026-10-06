@@ -197,4 +197,130 @@ bool seed_rectilinear_equations(Sketch& sketch,const std::vector<std::string>& a
     for(std::size_t i=0;i<sketch.points.size();++i){sketch.points[i].x=solved[i*2];sketch.points[i].y=solved[i*2+1];}
     return true;
 }
+// A failed circular drag needs simultaneous point, radius and tangent updates.
+// This bounded seed covers native line/arc graphs only; unsupported equations
+// leave the transaction untouched and the ordinary solver verifies the result.
+bool seed_circular_equations(Sketch& sketch,const std::vector<std::string>& anchors) {
+    if(sketch.arcs.empty()||sketch.points.size()>32||!sketch.external_references.empty()||
+       !sketch.circles.empty()||!sketch.ellipses.empty()||!sketch.elliptical_arcs.empty()||
+       !sketch.bsplines.empty()||!sketch.corner_radii.empty()||!sketch.offsets.empty()||!sketch.curve_trims.empty())return false;
+    auto next=sketch;
+    const auto point=[&](const std::string& id)->std::optional<std::array<double,2>> {
+        if(id=="sketch_origin")return std::array{0.,0.};
+        const auto* p=next.find_point(id);if(!p)return {};return std::array{p->x,p->y};
+    };
+    const auto line=[&](const std::string& id)->std::optional<std::array<double,4>> {
+        if(id=="sketch_axis:x")return std::array{0.,0.,1.,0.};
+        if(id=="sketch_axis:y")return std::array{0.,0.,0.,1.};
+        const auto s=std::ranges::find(next.segments,id,&SketchSegment::id);if(s==next.segments.end())return {};
+        const auto a=point(s->first_point_id),b=point(s->second_point_id);if(!a||!b)return {};
+        const double length=std::hypot((*b)[0]-(*a)[0],(*b)[1]-(*a)[1]);if(length<1e-10)return {};
+        return std::array{(*a)[0],(*a)[1],((*b)[0]-(*a)[0])/length,((*b)[1]-(*a)[1])/length};
+    };
+    const auto equations=[&]()->std::optional<std::vector<double>> {
+        std::vector<double> r;
+        for(const auto& a:next.arcs) {
+            if(a.radius<=1e-9)return {};
+            const auto c=point(a.center_point_id);
+            for(const auto& id:{a.start_point_id,a.end_point_id}) {
+                const auto p=point(id);r.push_back(std::hypot((*p)[0]-(*c)[0],(*p)[1]-(*c)[1])-a.radius);
+            }
+        }
+        for(const auto& c:next.constraints) {
+            if(c.suppressed)continue;
+            if(c.kind==ConstraintKind::PointOnLine) {
+                const auto p=point(c.first_point_id);const auto l=line(c.geometry_id);if(!p||!l)return {};
+                r.push_back(((*p)[0]-(*l)[0])*(*l)[3]-((*p)[1]-(*l)[1])*(*l)[2]);
+            } else if(c.kind==ConstraintKind::Horizontal||c.kind==ConstraintKind::Vertical) {
+                const auto a=point(c.first_point_id),b=point(c.second_point_id);if(!a||!b)return {};
+                const int axis=c.kind==ConstraintKind::Horizontal?1:0;r.push_back((*b)[axis]-(*a)[axis]);
+            } else if(c.kind==ConstraintKind::Parallel||c.kind==ConstraintKind::Perpendicular||c.kind==ConstraintKind::EqualLength) {
+                const auto a=line(c.geometry_id),b=line(c.second_geometry_id);if(!a||!b)return {};
+                if(c.kind==ConstraintKind::EqualLength) {
+                    const auto sa=std::ranges::find(next.segments,c.geometry_id,&SketchSegment::id);
+                    const auto sb=std::ranges::find(next.segments,c.second_geometry_id,&SketchSegment::id);
+                    if(sa==next.segments.end()||sb==next.segments.end())return {};
+                    const auto length=[&](const auto& s){const auto p=point(s.first_point_id),q=point(s.second_point_id);return std::hypot((*p)[0]-(*q)[0],(*p)[1]-(*q)[1]);};
+                    r.push_back(length(*sa)-length(*sb));
+                } else r.push_back(c.kind==ConstraintKind::Parallel?(*a)[2]*(*b)[3]-(*a)[3]*(*b)[2]:(*a)[2]*(*b)[2]+(*a)[3]*(*b)[3]);
+            } else if(c.kind==ConstraintKind::Tangent) {
+                auto a=std::ranges::find(next.arcs,c.geometry_id,&SketchArc::id);auto l=line(c.second_geometry_id);
+                if(a==next.arcs.end()){a=std::ranges::find(next.arcs,c.second_geometry_id,&SketchArc::id);l=line(c.geometry_id);}
+                const auto p=point(c.first_point_id);if(a==next.arcs.end()||!l||!p)return {};
+                const auto center=point(a->center_point_id);
+                r.push_back(((*p)[0]-(*center)[0])*(*l)[2]+((*p)[1]-(*center)[1])*(*l)[3]);
+            } else if(c.kind==ConstraintKind::EqualRadius) {
+                const auto a=std::ranges::find(next.arcs,c.geometry_id,&SketchArc::id),b=std::ranges::find(next.arcs,c.second_geometry_id,&SketchArc::id);
+                if(a==next.arcs.end()||b==next.arcs.end())return {};r.push_back(a->radius-b->radius);
+            } else if(c.kind==ConstraintKind::Symmetric) {
+                const auto a=point(c.first_point_id),b=point(c.second_point_id);const auto l=line(c.geometry_id);if(!a||!b||!l)return {};
+                const double projection=((*a)[0]-(*l)[0])*(*l)[2]+((*a)[1]-(*l)[1])*(*l)[3];
+                r.push_back((*a)[0]+(*b)[0]-2*((*l)[0]+projection*(*l)[2]));
+                r.push_back((*a)[1]+(*b)[1]-2*((*l)[1]+projection*(*l)[3]));
+            } else return {};
+        }
+        for(const auto& d:next.dimensions) {
+            if(d.suppressed||!d.driving)continue;
+            if(d.kind==DimensionKind::Radius||d.kind==DimensionKind::Diameter) {
+                const auto a=std::ranges::find(next.arcs,d.geometry_id,&SketchArc::id);if(a==next.arcs.end())return {};
+                r.push_back(a->radius-d.value*(d.kind==DimensionKind::Diameter?.5:1.));
+            } else if(d.kind==DimensionKind::Distance||d.kind==DimensionKind::DistanceX||d.kind==DimensionKind::DistanceY) {
+                const auto a=point(d.first_point_id),b=point(d.second_point_id);if(!a||!b)return {};
+                const double x=(*b)[0]-(*a)[0],y=(*b)[1]-(*a)[1];
+                r.push_back((d.kind==DimensionKind::Distance?std::hypot(x,y):d.kind==DimensionKind::DistanceX?x:y)-d.value);
+            } else return {};
+        }
+        return r;
+    };
+    std::vector<double*> variables;
+    for(auto& p:next.points)if(!p.fixed&&std::ranges::find(anchors,p.id)==anchors.end()){variables.push_back(&p.x);variables.push_back(&p.y);}
+    for(auto& a:next.arcs)variables.push_back(&a.radius);
+    if(variables.empty())return false;
+    const auto norm=[](const auto& r){double value=0;for(double v:r)value+=v*v;return value;};
+    for(int iteration=0;iteration<48;++iteration) {
+        const auto residual=equations();if(!residual)return false;
+        if(std::ranges::all_of(*residual,[](double v){return std::isfinite(v)&&std::abs(v)<1e-9;})) {
+            for(auto& a:next.arcs) {
+                const auto c=point(a.center_point_id),p=point(a.start_point_id),q=point(a.end_point_id);
+                const double old_start=a.start_angle,old_sweep=a.end_angle-a.start_angle;
+                a.start_angle=std::atan2((*p)[1]-(*c)[1],(*p)[0]-(*c)[0]);
+                while(a.start_angle-old_start>3.141592653589793)a.start_angle-=6.283185307179586;
+                while(a.start_angle-old_start<-3.141592653589793)a.start_angle+=6.283185307179586;
+                a.end_angle=std::atan2((*q)[1]-(*c)[1],(*q)[0]-(*c)[0]);
+                while(a.end_angle<=a.start_angle)a.end_angle+=6.283185307179586;
+                if(std::abs(a.end_angle-a.start_angle-old_sweep)>3.141592653589793)return false;
+            }
+            sketch=std::move(next);return true;
+        }
+        const auto n=variables.size();std::vector<std::vector<double>> jacobian(residual->size(),std::vector<double>(n));
+        for(std::size_t j=0;j<n;++j) {
+            const double original=*variables[j],step=1e-5;*variables[j]+=step;
+            const auto shifted=equations();*variables[j]=original;if(!shifted)return false;
+            for(std::size_t i=0;i<residual->size();++i)jacobian[i][j]=((*shifted)[i]-(*residual)[i])/step;
+        }
+        bool accepted=false;
+        for(double damping:{1e-8,1e-6,1e-4,.01,1.}) {
+            std::vector<std::vector<double>> matrix(n,std::vector<double>(n+1));
+            for(std::size_t j=0;j<n;++j) {
+                matrix[j][j]=damping;
+                for(std::size_t i=0;i<residual->size();++i){matrix[j][n]-=jacobian[i][j]*(*residual)[i];for(std::size_t k=0;k<n;++k)matrix[j][k]+=jacobian[i][j]*jacobian[i][k];}
+            }
+            for(std::size_t j=0;j<n;++j) {
+                std::size_t pivot=j;for(std::size_t k=j+1;k<n;++k)if(std::abs(matrix[k][j])>std::abs(matrix[pivot][j]))pivot=k;
+                std::swap(matrix[j],matrix[pivot]);const double divisor=matrix[j][j];
+                for(std::size_t k=j;k<=n;++k)matrix[j][k]/=divisor;
+                for(std::size_t i=0;i<n;++i)if(i!=j){const double factor=matrix[i][j];for(std::size_t k=j;k<=n;++k)matrix[i][k]-=factor*matrix[j][k];}
+            }
+            std::vector<double> original;for(const auto v:variables)original.push_back(*v);
+            for(double step=1;step>=1./128;step*=.5) {
+                for(std::size_t j=0;j<n;++j)*variables[j]=original[j]+step*matrix[j][n];
+                const auto candidate=equations();if(candidate&&norm(*candidate)<norm(*residual)){accepted=true;break;}
+            }
+            if(accepted)break;
+            for(std::size_t j=0;j<n;++j)*variables[j]=original[j];
+        }
+        if(!accepted)return false;
+    }
+    return false;
+}
 } // namespace zima::sketcher

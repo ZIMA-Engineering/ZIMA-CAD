@@ -37,7 +37,8 @@ inline std::optional<QPointF> dimension_plane_drag(QPointF move,QPointF along,QP
 template <class Project>
 DimensionPresentation dimension_presentation(const kernel::ViewerDimension &d, Project project,
                                              double text_width, double arrow = 10, double gap = 3, bool angular_leaders = false,
-                                             const QRectF& text_bounds = {}, double witness_extension = 1.5) {
+                                             const QRectF& text_bounds = {}, double witness_extension = 1.5,
+                                             bool angular_text_shelf = true) {
     DimensionPresentation out;
     auto a = project(d.line_first), b = project(d.line_second);
     const auto w1 = project(d.witness_first), w2 = project(d.witness_second);
@@ -68,7 +69,8 @@ DimensionPresentation dimension_presentation(const kernel::ViewerDimension &d, P
             out.curves.push_back({tip,join});
             const auto direction=dimension_screen_unit(tip-join);out.arrows.push_back({tip,d.arrows_reversed?-direction:direction});
         }
-        out.curves.push_back({start,end});out.handles={center,w1,w2};out.text_baseline=start-QPointF(0,gap);
+        if(angular_text_shelf)out.curves.push_back({start,end});
+        out.handles={center,w1,w2};out.text_baseline=start-QPointF(0,gap);
         out.outside=true;out.valid=true;return out;
     }
     auto normal = kernel::dimension_unit(d.plane_normal);
@@ -192,7 +194,45 @@ DimensionPresentation dimension_presentation(const kernel::ViewerDimension &d, P
         text_direction = -text_direction;
     QPointF center = middle + along * shift;
     QPointF attachment;
-    if (out.outside) {
+    const bool planar_angular_text = angular && !angular_text_shelf;
+    if (planar_angular_text) {
+        // The label grip follows the dimension circle, including beyond the
+        // measured sector. Its radial distance is owned by the arc grip.
+        const auto u=kernel::dimension_sub(d.line_first,d.witness_first);
+        const auto v=kernel::dimension_cross(normal,u);
+        const auto screen_u=project(kernel::dimension_add(d.witness_first,u))-w1;
+        const auto screen_v=project(kernel::dimension_add(d.witness_first,v))-w1;
+        const auto delta=requested-w1;
+        const double determinant=screen_u.x()*screen_v.y()-screen_u.y()*screen_v.x();
+        double angle=d.sweep_degrees*std::numbers::pi/360.0;
+        if(std::abs(determinant)>1e-12&&QLineF(requested,w1).length()>1e-9) {
+            const double x=(delta.x()*screen_v.y()-delta.y()*screen_v.x())/determinant;
+            const double y=(screen_u.x()*delta.y()-screen_u.y()*delta.x())/determinant;
+            angle=std::atan2(y,x);
+        }
+        center=w1+screen_u*std::cos(angle)+screen_v*std::sin(angle);
+        const double sign=d.sweep_degrees<0?-1.:1.;
+        const double sweep=std::abs(d.sweep_degrees)*std::numbers::pi/180.;
+        double bearing=angle*sign;
+        while(bearing-sweep/2>std::numbers::pi)bearing-=2*std::numbers::pi;
+        while(bearing-sweep/2<-std::numbers::pi)bearing+=2*std::numbers::pi;
+        if(bearing<0||bearing>sweep) {
+            const double speed=QLineF(QPointF{},-screen_u*std::sin(angle)+screen_v*std::cos(angle)).length();
+            const double margin=speed>1e-9?std::asin(std::clamp(text_width/(2*speed),0.0,1.0)):0;
+            const double from=bearing<0?0:sweep,to=bearing+(bearing<0?-margin:margin);
+            QPolygonF extension;
+            for(int i=0;i<=48;++i) {
+                const double t=sign*(from+(to-from)*i/48);
+                extension<<w1+screen_u*std::cos(t)+screen_v*std::sin(t);
+            }
+            out.curves.push_back(extension);
+        }
+        text_direction=dimension_screen_unit(-screen_u*std::sin(angle)+screen_v*std::cos(angle));
+        if(text_direction.x()<-1e-6||(std::abs(text_direction.x())<=1e-6&&text_direction.y()>0))
+            text_direction=-text_direction;
+        out.outside = false;
+    }
+    if (out.outside && !planar_angular_text) {
         if (out.oblique) {
             const double side = requested.x() < middle.x() - gap ? -1 : 1;
             attachment = (a.x() * side > b.x() * side) ? a : b;
@@ -225,12 +265,12 @@ DimensionPresentation dimension_presentation(const kernel::ViewerDimension &d, P
     const auto start = center - text_direction * text_width / 2,
                end = center + text_direction * text_width / 2;
     out.curves.push_back(line);
-    if (out.outside) {
+    if (out.outside && !planar_angular_text) {
         const auto join =
             QLineF(attachment, start).length() < QLineF(attachment, end).length() ? start : end;
         out.curves.push_back({attachment, join});
     }
-    out.curves.push_back({start, end});
+    if (!planar_angular_text) out.curves.push_back({start, end});
     const bool external = out.outside != d.arrows_reversed;
     auto first_dir = collapsed_measure?along:dimension_screen_unit(line[1] - a),
          last_dir = collapsed_measure?along:dimension_screen_unit(b - line[line.size() - 2]);
@@ -245,7 +285,7 @@ DimensionPresentation dimension_presentation(const kernel::ViewerDimension &d, P
     out.handles = {center, a, b};
     if (d.kind == kernel::ViewerDimensionKind::Radius)
         out.handles = {center, b, b};
-    const QPointF up(text_direction.y(), -text_direction.x());
+    const QPointF up=planar_angular_text?dimension_screen_unit(center-w1):QPointF(text_direction.y(), -text_direction.x());
     out.text_baseline = start + up * gap;
     out.text_angle = std::atan2(text_direction.y(), text_direction.x()) * 180 / std::numbers::pi;
     out.valid = true;

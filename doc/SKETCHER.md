@@ -1,5 +1,29 @@
 # ZIMA-CAD Sketcher
 
+## Slot and dimension interaction (2026-10-06)
+
+Slot is available below Rectangle. Select the first semicircle centre, the
+second centre, then a point defining the perpendicular radius. The result is
+two equal semicircular arcs joined by two tangent segments, using ordinary
+persisted Sketch geometry and constraints. Centre symmetry can be inferred
+against either Sketch axis or an oblique construction line. Preview is
+transient; the third click commits one operation and Escape cancels an
+unfinished slot.
+
+Planar angular labels follow the dimension circle. Moving the text extends
+the arc toward the text when necessary, without a straight underline or leader.
+Text and arrow grips share the circle placement. Radius and diameter text grips
+also update the arrow position using a common polar placement calculation.
+
+Failed dimension edits on connected tangent arc chains can propagate a moved
+shared centre to the companion arc before the ordinary solve. Failed point
+drags on supported native line/arc chains have a bounded simultaneous equation
+fallback; fixed points, incompatible driving constraints and unsupported
+geometry still reject transactionally. Regression fixtures cover the reported
+connected directions and dimensioned tangent chains, forward/restoring edits,
+feasible drags and unchanged rejected drags. This is deterministic numerical
+solving; regression cases do not train a learning model.
+
 This document defines binding interaction, snapping, constraint and degree-of-
 freedom behavior. `SKETCH_MODEL.md` describes data/equations,
 `SKETCHER-TERMINOLOGY.md` terminology and `UZIVATELSKY_MANUAL.md` ordinary usage.

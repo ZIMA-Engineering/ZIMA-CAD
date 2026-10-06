@@ -406,8 +406,12 @@ void AssemblyWorkspaceWindow::create_actions() {
         t("menu.tools.global_settings", "Globální nastavení..."), "settings");
     settings_action_->setObjectName("globalSettingsAction");
     connect(settings_action_, &QAction::triggered,
-        this, &AssemblyWorkspaceWindow::show_global_settings);
+        this, [this] { show_global_settings(); });
     tools->addAction(settings_action_);
+    auto* setup_action=make_action(tr("System Setup"),"settings");
+    setup_action->setObjectName("systemSetupAction");
+    tools->addAction(setup_action);
+    connect(setup_action,&QAction::triggered,this,[this]{show_global_settings(true);});
     auto* window_menu = menuBar()->addMenu(t("menu.window", "Okno"));
     window_menu->setObjectName("windowMenu");
     connect(window_menu, &QMenu::aboutToShow, this, [this, window_menu] {
@@ -562,6 +566,9 @@ void AssemblyWorkspaceWindow::create_actions() {
     sketch_polyline_action_->setEnabled(false);
     sketch_rectangle_action_ = make_action(tr("Obdélník"), "sketch-rectangle");
     sketch_rectangle_action_->setObjectName("sketchRectangleAction");
+    sketch_slot_action_ = make_action(tr("Drážka"), "sketch-slot");
+    sketch_slot_action_->setObjectName("sketchSlotAction");
+    connect(sketch_slot_action_, &QAction::triggered, this, [this] { start_sketch_slot(); });
     // One continuous Python-parity command: after the centre is placed RMB
     // cycles 4 -> 6 -> 8 sides while the live preview stays under the cursor.
     sketch_polygon_action_ = make_action(tr("Mnohoúhelník"), "sketch-hexagon");
@@ -602,7 +609,7 @@ void AssemblyWorkspaceWindow::create_actions() {
         "sketchInterpolatingSplineAction");
     for (auto* action : {sketch_point_action_, sketch_construction_action_,
                          sketch_segment_action_, sketch_polyline_action_,
-                         sketch_rectangle_action_, sketch_polygon_action_,
+                         sketch_rectangle_action_, sketch_slot_action_, sketch_polygon_action_,
                          sketch_circle_action_, sketch_arc_action_,
                          sketch_ellipse_action_, sketch_elliptical_arc_action_,
                          sketch_bspline_action_,
@@ -803,7 +810,7 @@ void AssemblyWorkspaceWindow::create_actions() {
         [this] { start_sketch_bspline(true); });
     for (auto* action : {sketch_point_action_, sketch_construction_action_,
                          sketch_segment_action_, sketch_polyline_action_,
-                         sketch_rectangle_action_, sketch_polygon_action_,
+                         sketch_rectangle_action_, sketch_slot_action_, sketch_polygon_action_,
                          sketch_circle_action_, sketch_arc_action_,
                          sketch_ellipse_action_, sketch_elliptical_arc_action_,
                          sketch_bspline_action_,

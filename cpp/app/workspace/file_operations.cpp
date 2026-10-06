@@ -729,16 +729,23 @@ void AssemblyWorkspaceWindow::prune_file_archives(bool whole_directory, std::siz
     }
 }
 
-void AssemblyWorkspaceWindow::show_global_settings() {
+void AssemblyWorkspaceWindow::offer_system_setup() {
+    if(GlobalSettingsDialog::needs_initial_setup(application_settings_))
+        QTimer::singleShot(0,this,[this]{show_global_settings(true,true);});
+}
+
+void AssemblyWorkspaceWindow::show_global_settings(bool system_setup,bool first_launch) {
     if (global_settings_dialog_ != nullptr) {
         global_settings_dialog_->raise();
         global_settings_dialog_->activateWindow();
         return;
     }
     auto pending = application_settings_;
-    pending.language = ApplicationSettings::load(
+    if(system_setup)pending=ApplicationSettings::load(QFileInfo(application_settings_.installation_root.isEmpty()
+        ?application_settings_.base_config_path:application_settings_.installation_root+"/config/config.ini").absolutePath());
+    if(!system_setup)pending.language = ApplicationSettings::load(
         QFileInfo(application_settings_.config_path).absolutePath()).language;
-    auto* dialog = new GlobalSettingsDialog(std::move(pending), this);
+    auto* dialog = new GlobalSettingsDialog(std::move(pending), this,system_setup,first_launch);
     global_settings_dialog_ = dialog;
     connect(dialog, &QDialog::accepted, this, [this] {
         auto next = ApplicationSettings::load(

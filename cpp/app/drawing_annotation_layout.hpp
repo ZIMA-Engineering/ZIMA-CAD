@@ -39,7 +39,7 @@ unbroken_model_annotation_layout(const drawing::DrawingView &view,
     const auto original=[&](kernel::Vec3 p){return drawing::Point2{kernel::dimension_dot(p,view.camera.horizontal),kernel::dimension_dot(p,view.camera.vertical)};};
     if(drawing::break_hidden(view,original(d.witness_first))||drawing::break_hidden(view,original(d.witness_second)))return out;
     const auto project=[&](kernel::Vec3 p){auto q=drawing::break_map(view,original(p));return QPointF(q.x*view.scale,-q.y*view.scale);};
-    const auto layout=viewer::dimension_presentation(d,project,text_width<0?double(item.text.size())*2:text_width,2.5,text_gap);
+    const auto layout=viewer::dimension_presentation(d,project,text_width<0?double(item.text.size())*2:text_width,2.5,text_gap,false,{},1.5,false);
     if(!layout.valid)return out;
     const auto paper=[](QPointF p){return QPointF(p.x(),-p.y());};
     for(const auto& curve:layout.curves){std::vector<QPointF> points;for(auto p:curve)points.push_back(paper(p));out.curves.push_back(std::move(points));}

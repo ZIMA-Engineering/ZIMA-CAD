@@ -81,6 +81,13 @@ void AssemblyWorkspaceWindow::cancel_sketch_segment() {
     sketch_polyline_arc_mode_ = false;
     pending_polyline_tangent_geometry_id_.clear();
     sketch_rectangle_active_ = false;
+    sketch_slot_active_ = false;
+    pending_slot_second_center_.reset();
+    pending_slot_symmetry_axis_id_.clear();
+    pending_slot_direction_kind_.reset();
+    pending_slot_reference_point_id_.clear();
+    pending_slot_second_snap_geometry_id_.clear();
+    pending_slot_second_snap_kind_.reset();
     sketch_rectangle_axis_selecting_ = false;
     pending_rectangle_axis_id_.clear();
     sketch_polygon_active_ = false;
@@ -134,10 +141,22 @@ void AssemblyWorkspaceWindow::cancel_sketch_segment() {
     pending_rectangle_corner_snap_geometry_id_.clear();
     pending_rectangle_corner_snap_kind_.reset();
     sketch_segment_inference_cycle_ = 0;
+    pending_slot_second_center_.reset();
+    pending_slot_symmetry_axis_id_.clear();
+    pending_slot_direction_kind_.reset();
+    pending_slot_reference_point_id_.clear();
+    pending_slot_second_snap_geometry_id_.clear();
+    pending_slot_second_snap_kind_.reset();
     sketch_skip_candidate_snap_ = false;
     sketch_polyline_arc_mode_ = false;
     pending_rectangle_corner_.reset();
     pending_polygon_center_.reset();
+    pending_slot_second_center_.reset();
+    pending_slot_symmetry_axis_id_.clear();
+    pending_slot_direction_kind_.reset();
+    pending_slot_reference_point_id_.clear();
+    pending_slot_second_snap_geometry_id_.clear();
+    pending_slot_second_snap_kind_.reset();
     pending_mirror_geometry_ids_.clear();
     pending_mirror_axis_id_.clear();
     pending_circle_center_.reset();
@@ -191,7 +210,7 @@ bool AssemblyWorkspaceWindow::finish_current_sketch_tool() {
     if (properties_dialog_ != nullptr || active_sketch_id_.empty()) return false;
     const bool active = sketch_point_active_ || sketch_segment_active_ ||
         sketch_external_reference_active_ ||
-        sketch_rectangle_active_ || sketch_polygon_active_ || sketch_trim_active_ ||
+        sketch_rectangle_active_ || sketch_slot_active_ || sketch_polygon_active_ || sketch_trim_active_ ||
         sketch_circle_active_ || sketch_offset_dialog_ || sketch_mirror_active_ || sketch_arc_active_ ||
         sketch_ellipse_active_ || sketch_elliptical_arc_active_ ||
         sketch_bspline_active_ || sketch_coincident_active_ ||
@@ -259,7 +278,7 @@ bool AssemblyWorkspaceWindow::cancel_current_sketch_step(
         state_->setText(tr("Ořezání bylo zrušeno beze změny skici."));
         return true;
     }
-    if (right_click_behavior && sketch_segment_active_ &&
+    if (right_click_behavior && (sketch_segment_active_ || (sketch_slot_active_ && !pending_slot_second_center_)) &&
         !sketch_polyline_active_ && pending_segment_start_) {
         ++sketch_segment_inference_cycle_;
         sketch_inference_cycle_refresh_ = true;
@@ -412,7 +431,7 @@ bool AssemblyWorkspaceWindow::cancel_current_sketch_step(
         return true;
     }
     const bool active = sketch_point_active_ || sketch_segment_active_ ||
-        sketch_rectangle_active_ || sketch_polygon_active_ || sketch_circle_active_ ||
+        sketch_rectangle_active_ || sketch_slot_active_ || sketch_polygon_active_ || sketch_circle_active_ ||
         sketch_arc_active_ || sketch_ellipse_active_ ||
         sketch_elliptical_arc_active_ || sketch_bspline_active_;
     if (!active) return false;
@@ -474,6 +493,13 @@ bool AssemblyWorkspaceWindow::finish_sketch_polyline() {
     state_->setText(tr(
         "Řetězec lomené čáry dokončen. Kliknutím začnete nový řetězec."));
     return true;
+}
+
+void AssemblyWorkspaceWindow::start_sketch_slot() {
+    if(properties_dialog_ != nullptr || active_sketch() == nullptr)return;
+    cancel_sketch_segment();sketch_slot_active_=true;
+    set_sketch_placement_selection_contract();clear_sketch_confirmed_selection();
+    state_->setText(tr("Drážka skici: určete střed prvního oblouku. Escape příkaz zruší."));
 }
 
 void AssemblyWorkspaceWindow::start_sketch_rectangle() {

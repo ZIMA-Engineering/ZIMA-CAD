@@ -573,6 +573,9 @@ public:
     [[nodiscard]] std::vector<std::string> add_rectangle(
         double first_x, double first_y, double second_x, double second_y,
         double snap_tolerance = 1.0e-6);
+    [[nodiscard]] std::vector<std::string> add_slot(
+        double first_x, double first_y, double second_x, double second_y,
+        double radius, double snap_tolerance = 1.0e-6);
     [[nodiscard]] std::vector<std::string> add_oriented_rectangle(
         double first_x, double first_y, double guide_x, double guide_y,
         const std::string& symmetry_axis_id,

@@ -351,6 +351,37 @@ void verify_annotation_units() {
 int main(int argc, char **argv) {
     QApplication app(argc, argv);
     try {
+        // Polar grips change presentation only; circle radii and measured rays stay fixed.
+        for(auto kind:{kernel::ViewerDimensionKind::Radius,kernel::ViewerDimensionKind::Diameter,kernel::ViewerDimensionKind::Angular}){
+            kernel::ViewerDimension source;source.kind=kind;source.plane_normal={0,0,1};
+            source.witness_first={0,0,0};source.witness_second={10,0,0};
+            source.line_first={10,0,0};source.line_second={0,10,0};source.label_position=kernel::Vec3{15,0,0};source.value=90;source.sweep_degrees=90;
+            kernel::DimensionLayout initial;initial.text_along=3;initial.text_outward=2;
+            auto shown=kernel::layout_dimension(source,{},initial);
+            const auto grip=kernel::Vec3{18,0,0};
+            auto layout=kernel::dragged_dimension_layout(shown,{},initial,0,-6,16,true,grip);
+            auto moved=kernel::layout_dimension(source,{},layout);
+            near(moved.label_position->x,12);near(moved.label_position->y,16);near(moved.value,90);
+            if(kind==kernel::ViewerDimensionKind::Angular){
+                near(moved.line_first.x,20);near(moved.line_second.y,20);
+                for(int handle:{1,2}){
+                    const double along=handle==1?5:0,outward=handle==2?5:0;
+                    auto arrow=kernel::layout_dimension(source,{},kernel::dragged_dimension_layout(shown,{},initial,handle,along,outward,true));
+                    near(arrow.line_first.x,15);near(arrow.line_second.y,15);
+                    near(arrow.label_position->x,shown.label_position->x*1.5);near(arrow.label_position->y,shown.label_position->y*1.5);
+                }
+                kernel::ModelEnvelope envelope;envelope.include({20,20,0});envelope.include({-20,-20,0});
+                auto automatic=initial;automatic.envelope_offset=8;
+                const auto outside=kernel::layout_dimension(source,envelope,automatic);
+                const auto clamped=kernel::layout_dimension(source,envelope,
+                    kernel::dragged_dimension_layout(outside,envelope,automatic,1,-30,0,true));
+                near(kernel::dimension_dot(kernel::dimension_unit(*outside.label_position),kernel::dimension_unit(*clamped.label_position)),1);
+                require(clamped.line_first.x>=std::hypot(20.,20.),"Angular grip crossed its configured envelope");
+            }else{
+                near(moved.witness_second.x,6);near(moved.witness_second.y,8);
+            }
+            require(document::dimension_layout_from_json(document::dimension_layout_json(layout))==layout,"Polar grip layout persistence changed");
+        }
         verify_annotation_units();
         verify_converted_tolerance_layout();
         verify_occurrence_bounds();
@@ -842,6 +873,34 @@ int main(int argc, char **argv) {
         angle.line_second = {0, 4, 0};
         angle.sweep_degrees = 90;
         angle.value = 90;
+        {
+            const auto project=[](kernel::Vec3 p){return QPointF(p.x*10,-p.y*10);};
+            for(const auto position:{kernel::Vec3{2,2,0},kernel::Vec3{15,-12,0}}) {
+                auto d=angle;d.label_position=position;
+                const auto planar=viewer::dimension_presentation(d,project,40,10,3,false,{},1.5,false);
+                require(planar.valid&&planar.curves.size()==(position.y<0?4:3)&&planar.arrows.size()==2,
+                    "Planar angular dimension has a text shelf or leader");
+                const auto arc_center=project(d.witness_first);
+                near(QLineF(planar.handles[0],arc_center).length(),QLineF(project(d.line_first),arc_center).length());
+                const double text_angle=planar.text_angle*std::numbers::pi/180;
+                const auto baseline_middle=planar.text_baseline+QPointF(std::cos(text_angle),std::sin(text_angle))*20;
+                near(QLineF(baseline_middle,planar.handles[0]).length(),3);
+                if(position.y<0) {
+                    const auto& extension=planar.curves[2];
+                    require(extension.size()>2,"Outside angular text has a straight extension");
+                    for(const auto p:extension)near(QLineF(p,arc_center).length(),40);
+                    near(std::abs(viewer::dimension_screen_dot(extension.back()-planar.handles[0],
+                        QPointF(std::cos(text_angle),std::sin(text_angle)))),20);
+                }
+                auto radial=d;radial.label_position=kernel::dimension_add(d.witness_first,
+                    kernel::dimension_scale(kernel::dimension_sub(position,d.witness_first),3));
+                const auto farther=viewer::dimension_presentation(radial,project,40,10,3,false,{},1.5,false);
+                near(QLineF(planar.handles[0],farther.handles[0]).length(),0);
+                near(QLineF(planar.text_baseline,farther.text_baseline).length(),0);
+                const auto spatial=viewer::dimension_presentation(d,project,40);
+                require(spatial.curves.size()>3,"3D angular dimension lost its existing text shelf");
+            }
+        }
         rejects([&] { kernel::layout_dimension(angle, bounds, {1, 8., 0, 0}); });
         auto arc = kernel::layout_dimension(angle, bounds, {0, 8., 0, 0});
         near(arc.value, 90);
@@ -1062,19 +1121,51 @@ int main(int argc, char **argv) {
                     viewer.confirm_reference("feature","parameter:length",{},viewer::CandidateKind::Dimension);
                     const auto candidate=*viewer.confirmed_candidate();
                     const auto text=*viewer.dimension_handle_position(candidate,0);
-                    const auto rim=*viewer.dimension_handle_position(candidate,1);
                     mouse(&viewer,QEvent::MouseButtonPress,text,Qt::LeftButton,Qt::LeftButton);
                     mouse(&viewer,QEvent::MouseMove,text+delta,Qt::NoButton,Qt::LeftButton);
                     const auto moved=*viewer.dimension_handle_position(candidate,0);
-                    require(QLineF(moved,text+QPointF(delta.x(),0)).length()<.01,"Radius grip left its projected radial line");
-                    require(QLineF(*viewer.dimension_handle_position(candidate,1),rim).length()<.01,
-                            "Dragging shortened radius text moved measured rim");
+                    require(QLineF(moved,text+delta).length()<.01,"Polar radius text grip did not follow the cursor");
                     mouse(&viewer,QEvent::MouseButtonRelease,text+delta,Qt::LeftButton,Qt::NoButton);
+                    const auto placed=kernel::layout_dimension(radial_source,{},persisted);
+                    const auto radial=kernel::dimension_sub(placed.witness_second,placed.witness_first);
+                    const auto label=kernel::dimension_sub(*placed.label_position,placed.witness_first);
+                    near(kernel::dimension_dot(kernel::dimension_cross(radial,label),placed.plane_normal),0);
+                    const auto original=kernel::dimension_sub(radial_source.witness_second,radial_source.witness_first);
+                    near(kernel::dimension_dot(radial,radial),kernel::dimension_dot(original,original));
                 }
                 viewer.grab().save("build/radius-free-label-view.png");
                 kernel::cycle_dimension_presentation(persisted,kind);
                 require(!persisted.arrows_reversed&&!persisted.radius_center_line_hidden,"Radius cycle did not return to full line");
             }
+        }
+        {
+            auto angular=source;angular.kind=kernel::ViewerDimensionKind::Angular;
+            angular.witness_first={};angular.witness_second={0,20,0};angular.plane_normal={0,0,1};
+            angular.line_first={20,0,0};angular.line_second={0,20,0};angular.sweep_degrees=90;angular.value=90;
+            angular.label_position.reset();persisted={};mesh.dimensions={angular};
+            viewer.set_active_sketch_owner("feature");viewer.set_mesh(mesh);viewer.set_view_direction({0,0,1});
+            for(auto* animation:viewer.findChildren<QVariantAnimation*>())animation->setCurrentTime(animation->duration());
+            viewer.fit_all();flush();
+            viewer.confirm_reference("feature","parameter:length",{},viewer::CandidateKind::Dimension);
+            const auto c=*viewer.confirmed_candidate();
+            const auto text=*viewer.dimension_handle_position(c,0),rim=*viewer.dimension_handle_position(c,1);
+            const QPointF delta(30,-25);
+            mouse(&viewer,QEvent::MouseButtonPress,text,Qt::LeftButton,Qt::LeftButton);
+            mouse(&viewer,QEvent::MouseMove,text+delta,Qt::NoButton,Qt::LeftButton);
+            require(QLineF(*viewer.dimension_handle_position(c,0),text+delta).length()<.1,"Sketch angular text grip did not follow cursor");
+            require(QLineF(*viewer.dimension_handle_position(c,1),rim).length()>1,"Angular text grip did not resize arrow arc");
+            mouse(&viewer,QEvent::MouseButtonRelease,text+delta,Qt::LeftButton,Qt::NoButton);
+            for(int handle:{1,2}){
+                const auto before=kernel::layout_dimension(angular,{},persisted);
+                const auto grip=*viewer.dimension_handle_position(c,handle),target=grip+QPointF(22,-17);
+                mouse(&viewer,QEvent::MouseButtonPress,grip,Qt::LeftButton,Qt::LeftButton);
+                mouse(&viewer,QEvent::MouseMove,target,Qt::NoButton,Qt::LeftButton);
+                mouse(&viewer,QEvent::MouseButtonRelease,target,Qt::LeftButton,Qt::NoButton);
+                const auto after=kernel::layout_dimension(angular,{},persisted);
+                const auto a=kernel::dimension_unit(*before.label_position),b=kernel::dimension_unit(*after.label_position);
+                near(kernel::dimension_dot(a,b),1);near(after.sweep_degrees,90);
+            }
+            viewer.set_active_sketch_owner({});
         }
         for(const auto direction:{kernel::Vec3{0,-1,0},kernel::Vec3{0,0,1}}) {
             auto radius=source;radius.kind=kernel::ViewerDimensionKind::Radius;
@@ -1085,13 +1176,16 @@ int main(int argc, char **argv) {
             for(auto* animation:viewer.findChildren<QVariantAnimation*>())animation->setCurrentTime(animation->duration());
             viewer.fit_all();flush();viewer.confirm_reference("feature","parameter:length",{},viewer::CandidateKind::Dimension);
             const auto selected=*viewer.confirmed_candidate();const auto grip=*viewer.dimension_handle_position(selected,0);
-            const auto rim=*viewer.dimension_handle_position(selected,1);
             mouse(&viewer,QEvent::MouseButtonPress,grip,Qt::LeftButton,Qt::LeftButton);
             mouse(&viewer,QEvent::MouseMove,grip+QPointF(-60,20),Qt::NoButton,Qt::LeftButton);
             const auto after=*viewer.dimension_handle_position(selected,0);
             require(QLineF(grip,after).length()>15,"XZ/edge-on radius grip cannot move");
-            require(QLineF(rim,*viewer.dimension_handle_position(selected,1)).length()<.01,"XZ radius moved measured arrow");
             mouse(&viewer,QEvent::MouseButtonRelease,after,Qt::LeftButton,Qt::NoButton);
+            const auto placed=kernel::layout_dimension(radius,{},persisted);
+            const auto ray=kernel::dimension_sub(placed.witness_second,placed.witness_first);
+            const auto original=kernel::dimension_sub(radius.witness_second,radius.witness_first);
+            near(kernel::dimension_dot(ray,ray),kernel::dimension_dot(original,original));
+            near(kernel::dimension_dot(ray,placed.plane_normal),0);
         }
 
         {
@@ -1211,7 +1305,7 @@ int main(int argc, char **argv) {
                 for(int grip:{0,1}){
                     const auto moved=kernel::layout_dimension(radius,{},kernel::dragged_dimension_layout(shown,{},placement,grip,-4,5));
                     near(moved.value,20);near(kernel::dimension_dot(kernel::dimension_sub(*moved.label_position,moved.witness_first),moved.plane_normal),0);
-                    if(grip==0)require(moved.witness_second==shown.witness_second,"Text point moved radius arrow");
+                    if(grip==0)require(moved.witness_second!=shown.witness_second,"Text point did not rotate radius arrow");
                     else {require(moved.witness_second!=shown.witness_second,"Arrow point did not move around radius");near(std::sqrt(kernel::dimension_dot(moved.witness_second,moved.witness_second)),20);}
                 }
                 painter.setPen(QPen(Qt::black,2));painter.setBrush(Qt::NoBrush);painter.drawArc(QRectF(center.x()-100,center.y()-100,200,200),-10*16,115*16);painter.drawEllipse(center,4,4);

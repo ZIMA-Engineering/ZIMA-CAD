@@ -25,6 +25,188 @@ int main() {
     try {
         using zima::sketcher::DimensionKind;
         {
+            using namespace zima::sketcher;
+            for(const auto direction:{std::array{40.,0.},std::array{0.,40.},std::array{32.,24.},std::array{-32.,24.}}) {
+                auto s=Sketch::create_default();const auto ids=s.add_slot(10,20,10+direction[0],20+direction[1],5);
+                require(ids.size()==4&&s.arcs.size()==2&&s.segments.size()==2,"Slot did not create two arcs and two segments");
+                require(s.points.size()==6,"Slot endpoints were not shared");
+                const auto verify=[&](Sketch& value) {
+                    const auto solved=value.solve();require(solved.status!=SolveStatus::Invalid&&solved.status!=SolveStatus::Conflicting&&solved.maximum_residual<1e-8,"Slot constraints do not solve");
+                    require(std::abs(value.arcs[0].radius-value.arcs[1].radius)<1e-7,"Slot lost equal radii");
+                    for(const auto& line:value.segments)for(const auto& arc:value.arcs) {
+                        const auto id=line.first_point_id==arc.start_point_id||line.first_point_id==arc.end_point_id?line.first_point_id:line.second_point_id;
+                        const auto* p=value.find_point(id);const auto* c=value.find_point(arc.center_point_id);
+                        const auto* a=value.find_point(line.first_point_id);const auto* b=value.find_point(line.second_point_id);
+                        require(std::abs((p->x-c->x)*(b->x-a->x)+(p->y-c->y)*(b->y-a->y))<1e-6,"Slot lost a tangent contact");
+                    }
+                };
+                verify(s);auto reopened=Sketch::from_serialized(s.serialized());verify(reopened);
+                const auto radial=s.create_arc_radius_dimension(ids[0]);s.apply_dimension(radial);
+                require(s.set_dimension_value(radial.id,8),"Slot radius dimension cannot be edited");verify(s);
+                const auto center_id=s.arcs[0].center_point_id;
+                const auto center=*s.find_point(center_id);
+                require(s.move_point(center_id,center.x+3,center.y+4),"Slot centre cannot be dragged");verify(s);
+                const auto before=s.serialized();bool rejected=false;try{static_cast<void>(s.add_slot(0,0,0,0,5));}catch(const std::invalid_argument&){rejected=true;}
+                require(rejected&&s.serialized()==before,"Invalid slot changed its Sketch");
+            }
+        }
+        {
+            using namespace zima::sketcher;
+            std::ifstream file(std::filesystem::path(__FILE__).parent_path()/"fixtures/sketch/dimensioned-offset-tangent-chain.json");
+            require(file.good(),"Shared-centre tangent chain fixture missing");
+            const auto base=Sketch::from_serialized(std::string(std::istreambuf_iterator<char>(file),{}));
+            const auto verify=[&](Sketch& s) {
+                const auto result=s.solve();
+                require(result.status!=SolveStatus::Conflicting&&result.status!=SolveStatus::Invalid&&result.maximum_residual<1e-8,
+                    "Shared-centre tangent chain did not converge");
+                require(s.constraints==base.constraints,"Shared-centre solve changed constraint definitions");
+                for(const auto& a:s.arcs) {
+                    const auto* c=s.find_point(a.center_point_id);
+                    for(const auto& id:{a.start_point_id,a.end_point_id}) {
+                        const auto* p=s.find_point(id);
+                        require(std::abs(std::hypot(p->x-c->x,p->y-c->y)-a.radius)<1e-7,"Shared-centre solve broke arc endpoints");
+                    }
+                }
+                auto reopened=Sketch::from_serialized(s.serialized());
+                require(reopened.solve().maximum_residual<1e-8,"Shared-centre solve failed after reopening");
+            };
+            for(const auto& dimension:base.dimensions)for(double delta:{-5.0,5.0}) {
+                auto s=base;auto d=dimension;d.value+=delta;s.apply_dimension(d);verify(s);
+                for(const auto& before:base.dimensions)if(before.id!=d.id) {
+                    const auto after=std::ranges::find(s.dimensions,before.id,&SketchDimension::id);
+                    require(after->value==before.value,"Shared-centre dimension edit changed another driver");
+                }
+                require(s.set_dimension_value(d.id,dimension.value),"Shared-centre dimension cannot be restored");verify(s);
+            }
+            for(std::size_t i=1;i<base.points.size();++i)for(const auto delta:{std::array{5.0,0.0},std::array{0.0,5.0},std::array{-5.0,-3.0}}) {
+                const auto& p=base.points[i];auto s=base;
+                const bool axis_blocked=(i==1&&delta[0]==0)||(i==8&&delta[1]==0);
+                const auto before=s.serialized();const bool moved=s.move_point(p.id,p.x+delta[0],p.y+delta[1]);
+                if(axis_blocked){require(!moved&&s.serialized()==before,"Axis blocked drag changed the Sketch");continue;}
+                require(moved,"Feasible shared-centre drag rejected");
+                const auto* after=s.find_point(p.id);
+                require(std::abs(after->x-(i==8?0:p.x+delta[0]))<1e-7&&std::abs(after->y-(i==1?0:p.y+delta[1]))<1e-7,
+                    "Shared-centre drag lost its cursor anchor");
+                verify(s);
+            }
+            auto blocked=base;for(auto& p:blocked.points)p.fixed=true;
+            const auto before=blocked.serialized();
+            require(!blocked.set_dimension_value(base.dimensions[1].id,45)&&blocked.serialized()==before,
+                "Failed fixed shared-centre dimension edit changed the Sketch");
+        }
+        {
+            using namespace zima::sketcher;
+            std::ifstream file(std::filesystem::path(__FILE__).parent_path()/"fixtures/sketch/connected-direction-pairs-lower.json");
+            require(file.good(),"Lower tangent-arm fixture missing");
+            const auto base=Sketch::from_serialized(std::string(std::istreambuf_iterator<char>(file),{}));
+            for(bool reverse:{false,true})for(const auto reference:{base.segments[0].id,std::string("sketch_axis:x")}){
+                if(reverse&&reference=="sketch_axis:x")continue;
+                auto s=base;const auto arm=s.segments[4].id;
+                try{static_cast<void>(s.add_segment_pair_constraint(reverse?arm:reference,reverse?reference:arm,ConstraintKind::Parallel));}
+                catch(const std::exception& e){throw std::runtime_error("Lower arm parallel ("+reference+", reverse="+std::to_string(reverse)+"): "+e.what());}
+                require(s.solve().maximum_residual<1e-8,"Lower arm parallel constraint failed");
+                const auto* a=s.find_point(s.segments[4].first_point_id);const auto* b=s.find_point(s.segments[4].second_point_id);
+                require(std::abs(a->y-b->y)<1e-7,"Lower arm is not horizontal");
+                auto reopened=Sketch::from_serialized(s.serialized());require(reopened.solve().maximum_residual<1e-8,"Lower arm failed reopen");
+            }
+            for(bool reverse:{false,true}){
+                auto s=base;const auto a=s.segments[5].id,b=s.segments[2].id;
+                try{static_cast<void>(s.add_segment_pair_constraint(reverse?b:a,reverse?a:b,ConstraintKind::EqualLength));}
+                catch(const std::exception& e){throw std::runtime_error("Connector equal length (reverse="+std::to_string(reverse)+"): "+e.what());}
+                require(s.solve().maximum_residual<1e-8,"Connector equal length failed");
+                const auto length=[&](const auto& line){const auto* a=s.find_point(line.first_point_id);const auto* b=s.find_point(line.second_point_id);return std::hypot(b->x-a->x,b->y-a->y);};
+                require(std::abs(length(s.segments[5])-length(s.segments[2]))<1e-7,"Connector lengths differ geometrically");
+                for(std::size_t i=0;i<base.dimensions.size();++i)require(s.dimensions[i].value==base.dimensions[i].value,"Equal length changed a driving dimension");
+                for(const auto& id:{base.segments[0].first_point_id,base.arcs[0].center_point_id,base.segments[2].first_point_id,base.segments[2].second_point_id}){
+                    const auto* before=base.find_point(id);const auto* after=s.find_point(id);
+                    require(std::hypot(after->x-before->x,after->y-before->y)<1e-7,"Equal length moved supported geometry");
+                }
+                auto reopened=Sketch::from_serialized(s.serialized());require(reopened.solve().maximum_residual<1e-8,"Connector equal length failed reopen");
+            }
+        }
+        {
+            using namespace zima::sketcher;
+            const auto path=std::filesystem::path(__FILE__).parent_path()/"fixtures/sketch/connected-direction-pairs.json";
+            std::ifstream file(path);require(file.good(),"Connected direction-pair fixture missing");
+            const auto base=Sketch::from_serialized(std::string(std::istreambuf_iterator<char>(file),{}));
+            const auto verify=[&](Sketch& s) {
+                const auto solved=s.solve();
+                require(solved.status!=SolveStatus::Invalid&&solved.status!=SolveStatus::Conflicting&&solved.maximum_residual<1e-8,
+                    "Connected direction-pair sketch failed to solve");
+                for(std::size_t i=0;i<base.dimensions.size();++i)
+                    require(s.dimensions[i].value==base.dimensions[i].value,"Direction relation changed a driving dimension");
+                const auto* before=base.find_point(base.arcs.front().center_point_id);
+                const auto* center=s.find_point(s.arcs.front().center_point_id);
+                require(s.arcs[0].center_point_id==s.arcs[1].center_point_id&&
+                    std::hypot(center->x-before->x,center->y-before->y)<1e-7,
+                    "Direction relation moved or separated the shared arc centre");
+                for(const auto& c:s.constraints)if(c.kind==ConstraintKind::Parallel||c.kind==ConstraintKind::Perpendicular) {
+                    const auto a=std::ranges::find(s.segments,c.geometry_id,&SketchSegment::id);
+                    const auto b=std::ranges::find(s.segments,c.second_geometry_id,&SketchSegment::id);
+                    const auto *p=s.find_point(a->first_point_id),*q=s.find_point(a->second_point_id);
+                    const auto *r=s.find_point(b->first_point_id),*t=s.find_point(b->second_point_id);
+                    const double ax=q->x-p->x,ay=q->y-p->y,bx=t->x-r->x,by=t->y-r->y;
+                    require(std::abs(c.kind==ConstraintKind::Parallel?ax*by-ay*bx:ax*bx+ay*by)/
+                        (std::hypot(ax,ay)*std::hypot(bx,by))<1e-8,"Direction relation has an incorrect geometric angle");
+                }
+            };
+            for(const bool reverse:{false,true})for(const auto kind:{ConstraintKind::Perpendicular,ConstraintKind::Parallel}) {
+                auto s=base;const auto a=s.segments[1].id;
+                const auto b=s.segments[kind==ConstraintKind::Perpendicular?2:3].id;
+                const auto dof=s.solve().remaining_degrees_of_freedom;
+                static_cast<void>(s.add_segment_pair_constraint(reverse?b:a,reverse?a:b,kind));
+                verify(s);require(s.solve().remaining_degrees_of_freedom<dof,"Direction relation did not reduce DOF");
+                auto reopened=Sketch::from_serialized(s.serialized());verify(reopened);
+            }
+            for(const bool reverse:{false,true})for(const bool parallel_first:{false,true}) {
+                auto s=base;
+                for(const auto kind:parallel_first?std::array{ConstraintKind::Parallel,ConstraintKind::Perpendicular}:
+                    std::array{ConstraintKind::Perpendicular,ConstraintKind::Parallel}) {
+                    const auto a=s.segments[1].id,b=s.segments[kind==ConstraintKind::Perpendicular?2:3].id;
+                    static_cast<void>(s.add_segment_pair_constraint(reverse?b:a,reverse?a:b,kind));
+                    verify(s);
+                }
+            }
+        }
+        {
+            using namespace zima::sketcher;
+            const auto path=std::filesystem::path(__FILE__).parent_path()/"fixtures/sketch/dimensioned-tangent-chain.json";
+            std::ifstream file(path);require(file.good(),"Tangent chain fixture missing");
+            const auto base=Sketch::from_serialized(std::string(std::istreambuf_iterator<char>(file),{}));
+            for(const double delta:{-5.0,5.0}) for(std::size_t i=0;i<base.dimensions.size();++i) {
+                auto edited=base;
+                auto d=edited.dimensions[i];d.value+=delta;
+                edited.apply_dimension(d);
+                const auto solved=edited.solve();
+                require(solved.status!=SolveStatus::Invalid&&solved.status!=SolveStatus::Conflicting&&solved.maximum_residual<1e-8,
+                    "Tangent chain dimension edit does not satisfy its constraints");
+                require(std::abs(edited.dimensions[i].value-d.value)<1e-8,"Tangent chain lost its edited value");
+                for(std::size_t j=0;j<base.dimensions.size();++j) if(j!=i)
+                    require(edited.dimensions[j].value==base.dimensions[j].value,
+                        "Tangent chain edit changed another driving dimension");
+                require(edited.constraints==base.constraints,"Tangent chain edit changed its constraints");
+                const auto& arc=edited.arcs.front();const auto* center=edited.find_point(arc.center_point_id);
+                for(const auto& line:edited.segments) {
+                    const auto* contact=edited.find_point(line.first_point_id==arc.start_point_id||line.first_point_id==arc.end_point_id
+                        ?line.first_point_id:line.second_point_id);
+                    const auto* other=edited.find_point(contact->id==line.first_point_id?line.second_point_id:line.first_point_id);
+                    const double rx=contact->x-center->x,ry=contact->y-center->y;
+                    const double dx=other->x-contact->x,dy=other->y-contact->y;
+                    require(std::abs(std::hypot(rx,ry)-arc.radius)<1e-7&&
+                        std::abs((rx*dx+ry*dy)/std::hypot(dx,dy))<1e-7,
+                        "Tangent chain edit broke a circular contact");
+                }
+                auto reopened=Sketch::from_serialized(edited.serialized());
+                require(reopened.solve().maximum_residual<1e-8,"Tangent chain edit did not survive serialization");
+                require(reopened.set_dimension_value(d.id,base.dimensions[i].value),"Tangent chain cannot restore its dimension");
+                auto blocked=base;
+                for(auto& p:blocked.points)p.fixed=true;
+                const auto before=blocked.serialized();
+                require(!blocked.set_dimension_value(d.id,d.value)&&blocked.serialized()==before,
+                    "Conflicting tangent chain edit changed a fixed sketch");
+            }
+        }
+        {
             // Current 01.prtz after editing its height/width to 80/60. Adding
             // the second vertical tangent must use the free left contact.
             using namespace zima::sketcher;

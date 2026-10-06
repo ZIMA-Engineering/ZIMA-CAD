@@ -72,7 +72,10 @@ shared by Windows and Linux, rather than a separate setup executable or script.
 Offer it automatically only for a new installation that has not been configured;
 persist completion or explicit skipping in shared settings outside version
 directories. Updates must not redisplay it or reset existing configuration.
-Expose the same wizard later through Settings, initialized from current values.
+Expose the same wizard later through Tools > System Setup, initialized from current values.
+
+The shared native implementation and Windows contract are described in
+[System Setup](doc/SYSTEM_SETUP.md). Linux desktop acceptance remains separate.
 
 Cover document unit presets, working directory, default native templates and
 optional desktop integration. Reuse the existing registration service and its

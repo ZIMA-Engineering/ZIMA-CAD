@@ -268,6 +268,7 @@ public:
 };
 }
 QWidget* settings_page(QWidget* parent) {return new Page(parent);}
+QWidget* settings_page(QWidget* parent,const Context& context) {return new Page(parent,context);}
 bool submit_settings(QWidget* page) {return static_cast<Page*>(page)->submit();}
 void offer_first_launch(QWidget* parent) {
     offer_first_launch(parent,current_context());

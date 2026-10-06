@@ -418,8 +418,8 @@ int verify_measurement_dimension_ui() {
             mouse(canvas, QEvent::MouseMove, text + QPointF(45, -20), Qt::NoButton, Qt::LeftButton);
             const auto moved_text = *window.annotation_handle_for_test(radius_id, 0, true);
             require(QLineF(text, moved_text).length() > 10, "Text grip is locked in radius mode");
-            require(QLineF(moved_rim, *window.annotation_handle_for_test(radius_id, 1, true)).length() < .01,
-                    "Text grip moved radius arrow");
+            require(QLineF(moved_rim, *window.annotation_handle_for_test(radius_id, 1, true)).length() > 1,
+                    "Text grip did not rotate radius arrow");
             mouse(canvas, QEvent::MouseButtonPress, moved_text, Qt::RightButton,
                   Qt::LeftButton | Qt::RightButton);
             mouse(canvas, QEvent::MouseButtonRelease, moved_text, Qt::RightButton, Qt::LeftButton);
@@ -531,6 +531,24 @@ int verify_measurement_dimension_ui() {
         mouse(canvas,QEvent::MouseButtonDblClick,point(40,30),Qt::MiddleButton,Qt::MiddleButton);require(count()==1&&!dialog(),"Middle double click did not confirm angle");
         const auto angular=window.document_for_test().sheets.front().dimensions.front();auto measured=evaluate_drawing_dimension(*window.document_for_test().find_view(view.id),angular);
         require(measured.state==MeasurementState::Resolved&&std::abs(measured.presentations[0].value-90)<1e-6&&drawing_dimension_text(angular,measured.presentations[0])=="90°","Angular UI measured the wrong value or unit");
+        for(int handle:{0,1,2}){
+            const auto before=window.document_for_test().sheets.front().dimensions.front();
+            const auto prior=evaluate_drawing_dimension(*window.document_for_test().find_view(view.id),before).presentations[0];
+            const auto from=*window.annotation_handle_for_test(angular.id,handle,true),target=from+QPointF(28,-23);
+            const auto arrow=*window.annotation_handle_for_test(angular.id,1,true);
+            pick(canvas,from);mouse(canvas,QEvent::MouseButtonPress,from,Qt::LeftButton,Qt::LeftButton);
+            mouse(canvas,QEvent::MouseMove,target,Qt::NoButton,Qt::LeftButton);
+            if(handle==0)require(QLineF(arrow,*window.annotation_handle_for_test(angular.id,1,true)).length()>1,"Angular drawing text did not resize arrow arc");
+            mouse(canvas,QEvent::MouseButtonRelease,target,Qt::LeftButton,Qt::NoButton);
+            const auto after=window.document_for_test().sheets.front().dimensions.front();
+            const auto current=evaluate_drawing_dimension(*window.document_for_test().find_view(view.id),after).presentations[0];
+            require(after.attachments==before.attachments&&std::abs(current.value-90)<1e-8,"Angular grip changed references or measured value");
+            if(handle!=0){
+                const auto a=kernel::dimension_unit(kernel::dimension_sub(*prior.label_position,prior.witness_first));
+                const auto b=kernel::dimension_unit(kernel::dimension_sub(*current.label_position,current.witness_first));
+                require(std::abs(kernel::dimension_dot(a,b)-1)<1e-8,"Angular drawing arrow grip changed text bearing");
+            }
+        }
         const auto pixels=[&](QColor color){
             const auto image=canvas->grab().toImage();std::size_t found=0;
             for(int y=0;y<image.height();++y)for(int x=0;x<image.width();++x) {
@@ -543,6 +561,7 @@ int verify_measurement_dimension_ui() {
             }
             return found;
         };
+        pick(canvas,point(-40,-30));
         window.grab().save("build/drawing-angle-valid.png");require(pixels(QColor("#FFD400"))>10,"Valid angle is not yellow");
         auto invalid_document=DrawingDocument::create_default();auto invalid_view=angular_view;auto packet=*invalid_view.measurement_geometry;
         std::erase_if(packet.curves,[](const auto& c){return c.source.semantic_key=="right";});invalid_view.measurement_geometry=share_measurement_geometry(std::move(packet));

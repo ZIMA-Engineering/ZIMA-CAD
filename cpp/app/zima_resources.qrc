@@ -95,6 +95,7 @@
     <file alias="icons/sketch-construction.svg">../../resources/icons/sketch-construction.svg</file>
     <file alias="icons/sketch-polyline.svg">../../resources/icons/sketch-polyline.svg</file>
     <file alias="icons/sketch-rectangle.svg">../../resources/icons/sketch-rectangle.svg</file>
+    <file alias="icons/sketch-slot.svg">../../resources/icons/sketch-slot.svg</file>
     <file alias="icons/sketch-hexagon.svg">../../resources/icons/sketch-hexagon.svg</file>
     <file alias="icons/sketch-trim.svg">../../resources/icons/sketch-trim.svg</file>
     <file alias="icons/sketch-offset.svg">../../resources/icons/sketch-offset.svg</file>

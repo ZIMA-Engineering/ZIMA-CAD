@@ -1,5 +1,6 @@
 #include "../tests/preview_refresh_probe.hpp"
 #include <QCryptographicHash>
+#include <QDirIterator>
 #include <zima/document/viewer_packet_json.hpp>
 #include "../common/datum_display.hpp"
 #include "../tests/gui_profile_fixture.hpp"
@@ -4144,10 +4145,16 @@ int verify_body_sketch_ui(QApplication& application, const std::filesystem::path
             }
             image.save(QString::fromStdString((directory/("sketch-grips-"+source.id+".png")).string()));
             const auto point=*viewer->dimension_handle_position(*selected,0);
+            const auto arrow_before=viewer->dimension_handle_position(*selected,1);
             const auto mouse=[&](QEvent::Type type,QPointF p,Qt::MouseButton button,Qt::MouseButtons buttons){QMouseEvent e(type,p,QPointF(viewer->mapToGlobal(p.toPoint())),button,buttons,Qt::NoModifier);QApplication::sendEvent(viewer,&e);flush();};
             mouse(QEvent::MouseButtonPress,point,Qt::LeftButton,Qt::LeftButton);
             mouse(QEvent::MouseMove,point+QPointF(35,25),Qt::NoButton,Qt::LeftButton);
             mouse(QEvent::MouseButtonRelease,point+QPointF(35,25),Qt::LeftButton,Qt::NoButton);
+            if(source.kind==zima::sketcher::DimensionKind::Radius||source.kind==zima::sketcher::DimensionKind::Diameter){
+                const auto arrow_after=viewer->dimension_handle_position(*selected,1);
+                if(!verify(arrow_before&&arrow_after&&QLineF(*arrow_before,*arrow_after).length()>1,
+                    "Text grip did not rotate the radius/diameter arrow in the rotated Sketch"))return 1;
+            }
         }
         window.findChild<QAction*>("finishSketchAction")->trigger();flush();
         sketch_dialog=nullptr;
@@ -5718,6 +5725,8 @@ int verify_rectangle_external_contact_ui(QApplication& application,const std::fi
 }
 
 #include "sketch_intersection_ui_verification.inc"
+#include "sketch_slot_ui_verification.inc"
+#include "system_setup_ui_verification.inc"
 
 #include "sketch_corner_chain_ui_verification.inc"
 
@@ -9061,6 +9070,8 @@ int verify_startup_contract(
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_SURFACE_ONLY")) return verify_surface_profiles_ui(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_SKETCH_DIMENSION_ENTRY_ONLY")) return verify_sketch_dimension_entry_ui(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_RECTANGLE_EXTERNAL_CONTACT_ONLY")) return verify_rectangle_external_contact_ui(application,test_directory);
+    if (qEnvironmentVariableIsSet("ZIMA_VERIFY_SKETCH_SLOT_ONLY")) return verify_sketch_slot_ui(application,test_directory);
+    if (qEnvironmentVariableIsSet("ZIMA_VERIFY_SYSTEM_SETUP_ONLY")) return verify_system_setup_ui(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_SKETCH_COINCIDENT_ONLY")) return verify_sketch_coincident_ui(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_SKETCH_ENDPOINT_PRIORITY_ONLY")) return verify_sketch_endpoint_priority_ui(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_SKETCH_ARC_DIRECTION_ONLY")) return verify_sketch_arc_direction_ui(application,test_directory);
@@ -13333,7 +13344,7 @@ int main(int argc, char* argv[]) {
     zima::app::install_instance_verification(window, startup_directory);
     UpdateService::get()->acknowledgeStartup();
     UpdateService::get()->scheduleStartupCheck();
-    zima::app::desktop::offer_first_launch(&window);
+    window.offer_system_setup();
     const int result = application.exec();
     if (!window.restart_state()) return result;
     startup_directory = window.restart_state()->working_directory;

@@ -1213,12 +1213,10 @@ void drag_drawing_dimension(const DrawingView &view, DrawingDimension &d, std::s
     if(d.kind==DrawingDimensionKind::Angular) {
         auto& layout=d.segments[index].layout;
         const auto direction=unit({source.line_first.x-source.witness_first.x,source.line_first.y-source.witness_first.y});
-        if(handle==0||(!result.angular_leaders.empty()&&result.angular_leaders[index])) {
+        if(!result.angular_leaders.empty()&&result.angular_leaders[index]) {
             layout.text_along+=dot(delta,direction);layout.text_outward+=dot(delta,perp(direction));
         }else{
-            const auto tip=handle==2?source.line_second:source.line_first;
-            const Point2 radius{tip.x-source.witness_first.x,tip.y-source.witness_first.y};
-            layout.line_offset+=length(add(radius,delta))-length(radius);
+            layout=kernel::dragged_dimension_layout(source,{},layout,handle,dot(delta,direction),dot(delta,perp(direction)),true);
         }
         refresh_drawing_dimension(view,d);return;
     }

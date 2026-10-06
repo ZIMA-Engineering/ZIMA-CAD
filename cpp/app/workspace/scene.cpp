@@ -1088,7 +1088,7 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
                              sketch_external_profile_action_, sketch_point_action_,
                              sketch_construction_action_, sketch_segment_action_,
                              sketch_polyline_action_,
-                             sketch_rectangle_action_, sketch_polygon_action_,
+                             sketch_rectangle_action_, sketch_slot_action_, sketch_polygon_action_,
                              sketch_trim_action_,
                              sketch_mirror_action_, sketch_offset_action_,
                              sketch_circle_action_,
@@ -1174,7 +1174,7 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
             tree_->setRootIndex(QModelIndex{});
         }
         const bool sketch_placement_active = sketch_point_active_ ||
-            sketch_segment_active_ || sketch_rectangle_active_ ||
+            sketch_segment_active_ || sketch_rectangle_active_ || sketch_slot_active_ ||
             sketch_polygon_active_ || sketch_circle_active_ ||
             sketch_arc_active_ || sketch_ellipse_active_ ||
             sketch_elliptical_arc_active_ || sketch_bspline_active_;
@@ -1910,6 +1910,7 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
         sketch_common_tangent_action_->setEnabled(!active_sketch_id_.empty());
         sketch_polyline_action_->setEnabled(!active_sketch_id_.empty());
         sketch_rectangle_action_->setEnabled(!active_sketch_id_.empty());
+        sketch_slot_action_->setEnabled(!active_sketch_id_.empty());
         sketch_polygon_action_->setEnabled(!active_sketch_id_.empty());
         sketch_trim_action_->setEnabled(!active_sketch_id_.empty());
         sketch_mirror_action_->setEnabled(
@@ -2130,7 +2131,7 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
         tree_->setRootIndex(QModelIndex{});
     }
     const bool sketch_placement_active = sketch_point_active_ ||
-        sketch_segment_active_ || sketch_rectangle_active_ ||
+        sketch_segment_active_ || sketch_rectangle_active_ || sketch_slot_active_ ||
         sketch_polygon_active_ || sketch_circle_active_ || sketch_arc_active_ ||
         sketch_ellipse_active_ || sketch_elliptical_arc_active_ ||
         sketch_bspline_active_;
@@ -2418,6 +2419,7 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
     sketch_common_tangent_action_->setEnabled(has_active_part_sketch);
     sketch_polyline_action_->setEnabled(has_active_part_sketch);
     sketch_rectangle_action_->setEnabled(has_active_part_sketch);
+    sketch_slot_action_->setEnabled(has_active_part_sketch);
     sketch_polygon_action_->setEnabled(has_active_part_sketch);
     sketch_trim_action_->setEnabled(has_active_part_sketch);
     sketch_mirror_action_->setEnabled(

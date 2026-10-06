@@ -111,13 +111,13 @@ template<class Project>
 DimensionPresentation dimension_text_presentation(const kernel::ViewerDimension& dimension,
     Project project, const QFont& font, const QString& text, double padding,
     double stroke_width, double arrow=10, double minimum_gap=3, bool angular_leaders=false,
-    double witness_extension=6) {
+    double witness_extension=6, bool angular_text_shelf=true) {
     const bool basic=kernel::dimension_is_basic(dimension);
     const auto bounds = dimension_text_box(font,text,padding,basic);
     const double gap = std::max(minimum_gap,bounds.bottom()+stroke_width*.5+padding*.5);
     auto result=dimension_presentation(dimension,project,dimension_text_width(font,text,basic),arrow,
         gap,angular_leaders,basic?bounds.translated(dimension_frame_padding(font),0):bounds,
-        witness_extension);
+        witness_extension,angular_text_shelf);
     if(basic) {
         const double angle=result.text_angle*std::numbers::pi/180.;
         result.text_baseline+=dimension_frame_padding(font)*QPointF(std::cos(angle),std::sin(angle));

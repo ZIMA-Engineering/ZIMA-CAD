@@ -1865,7 +1865,9 @@ protected:
                     const QPointF a(kernel::dimension_dot(u,view.camera.horizontal),kernel::dimension_dot(u,view.camera.vertical)),b(kernel::dimension_dot(v,view.camera.horizontal),kernel::dimension_dot(v,view.camera.vertical));
                     const QPointF move(snapped_delta.x()/(zoom*view.scale),-snapped_delta.y()/(zoom*view.scale));
                     if(const auto movement=viewer::dimension_plane_drag(move,a,b)){const double along=movement->x(),outward=movement->y();
-                        item.view_layout=kernel::dragged_dimension_layout(shown,item.model_envelope,model_drag_layout_initial_,dragged_model_->key.end,along,outward);
+                        std::optional<kernel::Vec3> text_grip;
+                        const bool polar=angular||shown.kind==kernel::ViewerDimensionKind::Radius||shown.kind==kernel::ViewerDimensionKind::Diameter;
+                        if(!polar)item.view_layout=kernel::dragged_dimension_layout(shown,item.model_envelope,model_drag_layout_initial_,dragged_model_->key.end,along,outward);
                         if(shown.kind==kernel::ViewerDimensionKind::Linear) {
                             // Drawing placement is signed: crossing the object must not
                             // clamp the actual grip to the old envelope's positive side.
@@ -1878,9 +1880,11 @@ protected:
                             const QPointF original(start.x/view.scale,start.y/view.scale);
                             const auto correction=original-QPointF(kernel::dimension_dot(label,view.camera.horizontal),kernel::dimension_dot(label,view.camera.vertical));
                             if(const auto offset=viewer::dimension_plane_drag(correction,a,b)) {
-                                item.view_layout->text_along+=offset->x();item.view_layout->text_outward+=offset->y();
+                                if(polar)text_grip=kernel::dimension_add(label,kernel::dimension_add(kernel::dimension_scale(u,offset->x()),kernel::dimension_scale(v,offset->y())));
+                                else {item.view_layout->text_along+=offset->x();item.view_layout->text_outward+=offset->y();}
                             }
                         }
+                        if(polar)item.view_layout=kernel::dragged_dimension_layout(shown,item.model_envelope,model_drag_layout_initial_,dragged_model_->key.end,along,outward,angular,text_grip);
                         item.paper_handles.clear();model_moved_=true;
                         if(snap_point_&&dragged_model_->key.end!=0) {
                             const auto placed=drawing::drawing_model_dimension(view,item);

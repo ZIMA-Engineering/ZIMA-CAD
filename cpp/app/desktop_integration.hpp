@@ -25,6 +25,7 @@ void remove(const Context& context);
 void offer_first_launch(QWidget* parent);
 void offer_first_launch(QWidget* parent, const Context& context);
 QWidget* settings_page(QWidget* parent);
+QWidget* settings_page(QWidget* parent,const Context& context);
 bool submit_settings(QWidget* page);
 // Returns -1 when no desktop-integration argument was supplied.
 int command_line();

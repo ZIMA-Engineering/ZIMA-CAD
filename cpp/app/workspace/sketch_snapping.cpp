@@ -16,7 +16,7 @@ std::optional<SketchPointAlignment> AssemblyWorkspaceWindow::sketch_point_alignm
         (sketch_ellipse_active_ && pending_ellipse_major_) ||
         (sketch_elliptical_arc_active_ && pending_elliptical_arc_major_)) return std::nullopt;
 
-    if (!(sketch_point_active_ || sketch_segment_active_ || sketch_rectangle_active_ || sketch_polygon_active_ ||
+    if (!(sketch_point_active_ || sketch_segment_active_ || sketch_rectangle_active_ || sketch_slot_active_ || sketch_polygon_active_ ||
           sketch_circle_active_ || sketch_arc_active_ || sketch_ellipse_active_ || sketch_elliptical_arc_active_ || sketch_bspline_active_)) return std::nullopt;
     const auto position=sketch->intersect_ray(origin,direction);
     if (!position) return std::nullopt;
@@ -489,7 +489,7 @@ bool AssemblyWorkspaceWindow::accept_sketch_external_snap(
     const zima::kernel::Vec3& origin,
     const zima::kernel::Vec3& direction) {
     if (!(sketch_point_active_ || sketch_segment_active_ ||
-          sketch_rectangle_active_ || sketch_polygon_active_ ||
+          sketch_rectangle_active_ || sketch_slot_active_ || sketch_polygon_active_ ||
           sketch_circle_active_ || sketch_arc_active_ || sketch_ellipse_active_ ||
           sketch_elliptical_arc_active_ || sketch_bspline_active_)) return false;
     const auto snap = sketch_candidate_snap_ray(candidate, origin, direction);
@@ -500,6 +500,7 @@ bool AssemblyWorkspaceWindow::accept_sketch_external_snap(
         accept_sketch_point_ray(snap->origin, snap->direction) ||
         accept_sketch_segment_ray(snap->origin, snap->direction) ||
         accept_sketch_rectangle_ray(snap->origin, snap->direction) ||
+        accept_sketch_slot_ray(snap->origin, snap->direction) ||
         accept_sketch_polygon_ray(snap->origin, snap->direction) ||
         accept_sketch_circle_ray(snap->origin, snap->direction) ||
         accept_sketch_arc_ray(snap->origin, snap->direction) ||

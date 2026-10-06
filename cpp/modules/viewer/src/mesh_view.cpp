@@ -882,7 +882,7 @@ std::optional<QPointF> MeshView::dimension_handle_position(const ViewerCandidate
     const auto mvp=impl_->projection(width(),height())*impl_->view();
     const auto project=[&](kernel::Vec3 p){auto q=mvp*QVector4D(p.x,p.y,p.z,1);if(std::abs(q.w())>1e-9)q/=q.w();return QPointF((q.x()+1)*width()/2.,(1-q.y())*height()/2.);};
     const auto text=dimension_label_text(*d);
-    const auto layout=dimension_text_presentation(*d,project,font(),text,.5*logicalDpiX()/25.4,1.5,10,3,false,1.5*logicalDpiX()/25.4);
+    const auto layout=dimension_text_presentation(*d,project,font(),text,.5*logicalDpiX()/25.4,1.5,10,3,false,1.5*logicalDpiX()/25.4,impl_->active_sketch_owner_id.empty());
     return layout.valid?std::optional(layout.handles[index]):std::nullopt;
 }
 void MeshView::set_symbol_handle_callbacks(std::function<std::optional<SymbolHandles>()> provider,
@@ -1196,7 +1196,7 @@ std::vector<ViewerCandidate> MeshView::selection_candidates_at(
         const QPointF line_first = project(dimension.line_first);
         const QPointF line_second = project(dimension.line_second);
         const auto text=dimension_label_text(dimension);
-        const auto layout=dimension_text_presentation(dimension,project,font(),text,.5*logicalDpiX()/25.4,1.5,10,3,false,1.5*logicalDpiX()/25.4);
+        const auto layout=dimension_text_presentation(dimension,project,font(),text,.5*logicalDpiX()/25.4,1.5,10,3,false,1.5*logicalDpiX()/25.4,impl_->active_sketch_owner_id.empty());
         if(!layout.valid) {
             std::erase_if(candidates,[index](const auto& c){return c.kind==CandidateKind::Dimension && c.geometry_index==index;});
             continue;
@@ -1890,7 +1890,7 @@ std::optional<QPoint> MeshView::candidate_dimension_label_position(
     };
     const auto text=dimension_label_text(dimension);
     const QFontMetricsF metrics(font());
-    const auto layout=dimension_text_presentation(dimension,project,font(),text,.5*logicalDpiX()/25.4,1.5,10,3,false,1.5*logicalDpiX()/25.4);
+    const auto layout=dimension_text_presentation(dimension,project,font(),text,.5*logicalDpiX()/25.4,1.5,10,3,false,1.5*logicalDpiX()/25.4,impl_->active_sketch_owner_id.empty());
     if(!layout.valid)return std::nullopt;
     QTransform transform;transform.translate(layout.text_baseline.x(),layout.text_baseline.y());transform.rotate(layout.text_angle);
     return transform.map(dimension_text_box(font(),text,0,kernel::dimension_is_basic(dimension)).center()).toPoint();
@@ -4423,7 +4423,7 @@ if (impl_->show_origins) {
                 painter.setPen(QPen(color, 1.5));
                 painter.setBrush(color);
                 const auto text=dimension_label_text(dimension);
-                const auto layout=dimension_text_presentation(dimension,project,font(),text,.5*logicalDpiX()/25.4,1.5,10,3,false,1.5*logicalDpiX()/25.4);
+                const auto layout=dimension_text_presentation(dimension,project,font(),text,.5*logicalDpiX()/25.4,1.5,10,3,false,1.5*logicalDpiX()/25.4,impl_->active_sketch_owner_id.empty());
                 if(!layout.valid)continue;
                 if (dimension.rotation_handle) {
                     const QColor purple("#D05CFF");
@@ -5821,18 +5821,27 @@ void MeshView::mouseMoveEvent(QMouseEvent* event) {
         const auto movement=dimension_plane_drag(delta,a,b);
         if(!movement){event->accept();return;}
         const double along=movement->x(),outward=movement->y();
-        drag.current=kernel::dragged_dimension_layout(drag.shown,drag.bounds,drag.initial,drag.handle,along,outward);
+        std::optional<kernel::Vec3> text_grip;
+        const bool polar=d.kind==kernel::ViewerDimensionKind::Radius||d.kind==kernel::ViewerDimensionKind::Diameter||
+            (angular&&!impl_->active_sketch_owner_id.empty());
         if(drag.handle==0) {
             const auto label=d.label_position.value_or(kernel::dimension_scale(kernel::dimension_add(d.line_first,d.line_second),.5));
             const auto i=drag.candidate.geometry_index;
             // Use the original rendered grip, not the source label (automatic
             // outside placement can put these far apart in an oblique view).
             const auto text=dimension_label_text(d);
-            const auto initial_grip=dimension_text_presentation(d,project,font(),text,.5*logicalDpiX()/25.4,1.5,10,3,false,1.5*logicalDpiX()/25.4).handles[0];
+            const auto initial_grip=dimension_text_presentation(d,project,font(),text,.5*logicalDpiX()/25.4,1.5,10,3,false,1.5*logicalDpiX()/25.4,impl_->active_sketch_owner_id.empty()).handles[0];
             const auto correction=initial_grip-project(label);
             if(const auto offset=dimension_plane_drag(correction,a,b)) {
-                drag.current.text_along+=offset->x();drag.current.text_outward+=offset->y();
+                text_grip=kernel::dimension_add(label,kernel::dimension_add(kernel::dimension_scale(u,offset->x()),kernel::dimension_scale(v,offset->y())));
             }
+        }
+        drag.current=kernel::dragged_dimension_layout(drag.shown,drag.bounds,drag.initial,drag.handle,along,outward,
+            angular&&!impl_->active_sketch_owner_id.empty(),polar?text_grip:std::nullopt);
+        if(!polar&&text_grip){
+            const auto label=d.label_position.value_or(kernel::dimension_scale(kernel::dimension_add(d.line_first,d.line_second),.5));
+            const auto correction=kernel::dimension_sub(*text_grip,label);
+            drag.current.text_along+=kernel::dimension_dot(correction,u);drag.current.text_outward+=kernel::dimension_dot(correction,v);
         }
         auto display=kernel::layout_dimension(drag.source,drag.bounds,drag.current);const auto i=drag.candidate.geometry_index;
         if(i<impl_->mesh.dimensions.size())impl_->mesh.dimensions[i]=std::move(display);else impl_->transient_dimensions[i-impl_->mesh.dimensions.size()]=std::move(display);

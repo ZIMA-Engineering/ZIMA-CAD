@@ -1682,6 +1682,15 @@ if(ZIMA_BUILD_TESTS)
         ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_CORNER_CHAIN_ONLY=1"
         TIMEOUT 120)
     add_test(NAME zima_cpp_sketch_arc_direction_ui_contract COMMAND zima-cad-cpp --verify-startup)
+    add_test(NAME zima_cpp_sketch_slot_ui_contract COMMAND zima-cad-cpp --verify-startup)
+    add_test(NAME zima_cpp_system_setup_ui_contract COMMAND zima-cad-cpp --verify-startup)
+    set_tests_properties(zima_cpp_system_setup_ui_contract PROPERTIES
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.."
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_SYSTEM_SETUP_ONLY=1"
+        TIMEOUT 90)
+    set_tests_properties(zima_cpp_sketch_slot_ui_contract PROPERTIES
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_SKETCH_SLOT_ONLY=1"
+        TIMEOUT 90)
     add_test(NAME zima_cpp_spline_tangent_ui_contract COMMAND zima-cad-cpp --verify-startup)
     set_tests_properties(zima_cpp_spline_tangent_ui_contract PROPERTIES
         WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.."

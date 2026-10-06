@@ -37,11 +37,13 @@ The application exposes the same operations as
 complete registration, 1 for missing/incomplete registration, and 2 for errors.
 These operations do not open or change CAD documents.
 
-Settings contains a Desktop integration page. Select an operation and confirm
-with OK; Cancel leaves the registration unchanged. An installed runtime offers
-registration once for each user and installation location. Dismissing that
-offer preserves portable operation. Development builds expose the Settings
-page without an automatic offer and register their current executable.
+Tools > System Setup and Global Settings contain the same Desktop integration
+page. Select an operation and confirm
+with OK; Cancel leaves registration unchanged. A new unconfigured installed
+root offers System Setup once, including optional registration. Completing or
+skipping setup is persisted outside version directories; updates preserve that
+choice. See [System Setup](SYSTEM_SETUP.md). Development builds expose both
+menu commands without an automatic offer and register their current executable.
 
 Installed runtimes resolve their installation using the existing validated
 runtime layout and register `ZIMA-CAD.exe` or `ZIMA-CAD.sh` in its root.

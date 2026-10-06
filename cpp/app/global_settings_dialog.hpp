@@ -1,6 +1,7 @@
 #pragma once
 
 #include "application_settings.hpp"
+#include "desktop_integration.hpp"
 
 #include <zima/ui/properties_subwindow.hpp>
 
@@ -18,7 +19,9 @@ class AiSettingsPage;
 
 class GlobalSettingsDialog final : public zima::ui::PropertiesSubWindow {
 public:
-    explicit GlobalSettingsDialog(ApplicationSettings settings, QWidget* parent);
+    explicit GlobalSettingsDialog(ApplicationSettings settings, QWidget* parent,
+        bool system_setup=false,bool first_launch=false,const desktop::Context* desktop_context=nullptr);
+    [[nodiscard]] static bool needs_initial_setup(const ApplicationSettings& settings);
     [[nodiscard]] const ApplicationSettings& settings() const;
     void show_updates();
     void show_ai();
@@ -30,6 +33,12 @@ private:
     void browse_path(const QString& key);
 
     ApplicationSettings settings_;
+    bool system_setup_{};
+    bool first_launch_{};
+    QComboBox* unit_preset_{};
+    QComboBox* part_template_{};
+    QComboBox* assembly_template_{};
+    QWidget* template_page_{};
     QTabWidget* sections_{};
     UpdatesPage* updates_{};
     AiSettingsPage* ai_{};

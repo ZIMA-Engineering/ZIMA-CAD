@@ -1075,6 +1075,7 @@ void AssemblyWorkspaceWindow::create_layout() {
         if (accept_sketch_point_ray(local_origin, local_direction)) return true;
         if (accept_sketch_segment_ray(local_origin, local_direction)) return true;
         if (accept_sketch_rectangle_ray(local_origin, local_direction)) return true;
+        if (accept_sketch_slot_ray(local_origin, local_direction)) return true;
         if (accept_sketch_polygon_ray(local_origin, local_direction)) return true;
         if (accept_sketch_circle_ray(local_origin, local_direction)) return true;
         if (accept_sketch_arc_ray(local_origin, local_direction)) return true;
@@ -1184,6 +1185,7 @@ void AssemblyWorkspaceWindow::create_layout() {
         viewer_->set_sketch_relation_highlights({});
         preview_sketch_segment_ray(local_origin, local_direction);
         preview_sketch_rectangle_ray(local_origin, local_direction);
+        preview_sketch_slot_ray(local_origin, local_direction);
         preview_sketch_polygon_ray(local_origin, local_direction);
         preview_sketch_circle_ray(local_origin, local_direction);
         preview_sketch_arc_ray(local_origin, local_direction);
@@ -1191,7 +1193,7 @@ void AssemblyWorkspaceWindow::create_layout() {
         preview_sketch_elliptical_arc_ray(local_origin, local_direction);
         preview_sketch_bspline_ray(local_origin, local_direction);
         const bool placement_tool = sketch_point_active_ || sketch_segment_active_ ||
-            sketch_rectangle_active_ || sketch_polygon_active_ ||
+            sketch_rectangle_active_ || sketch_slot_active_ || sketch_polygon_active_ ||
             sketch_circle_active_ || sketch_arc_active_ ||
             sketch_ellipse_active_ || sketch_elliptical_arc_active_ ||
             sketch_bspline_active_;

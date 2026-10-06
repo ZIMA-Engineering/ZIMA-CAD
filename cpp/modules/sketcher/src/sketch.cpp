@@ -3807,7 +3807,9 @@ bool Sketch::move_point(const std::string& point_id, double x, double y) {
     // Point coordinates do not change the constraint graph or its rank.
     // Interactive dragging therefore needs equation convergence and final
     // residual verification, but not a fresh numerical DOF analysis.
-    const auto solved = next.solve_impl(100, false, {point_id});
+    auto solved = next.solve_impl(100, false, {point_id});
+    if (solved.status == SolveStatus::Conflicting && seed_circular_equations(next, {point_id}))
+        solved = next.solve_impl(100, false, {point_id});
     if (solved.status == SolveStatus::Conflicting || solved.status == SolveStatus::Invalid) {
         return false;
     }
@@ -5643,6 +5645,27 @@ std::vector<std::string> Sketch::add_rectangle(
     next.validate();
     *this = std::move(next);
     return ids;
+}
+
+std::vector<std::string> Sketch::add_slot(
+    double first_x,double first_y,double second_x,double second_y,
+    double radius,double snap_tolerance) {
+    for(double value:{first_x,first_y,second_x,second_y,radius,snap_tolerance})require_finite(value,"slot parameter");
+    const double length=std::hypot(second_x-first_x,second_y-first_y);
+    if(length<=1e-9||radius<=1e-9||snap_tolerance<0)throw std::invalid_argument("Slot centres and radius must be distinct and non-zero");
+    auto next=*this;
+    const double nx=-(second_y-first_y)/length*radius,ny=(second_x-first_x)/length*radius;
+    const std::array a{first_x+nx,first_y+ny},b{first_x-nx,first_y-ny};
+    const std::array c{second_x-nx,second_y-ny},d{second_x+nx,second_y+ny};
+    std::vector<std::string> ids{
+        next.add_arc(first_x,first_y,a[0],a[1],b[0],b[1],false,snap_tolerance),
+        next.add_segment(b[0],b[1],c[0],c[1],snap_tolerance),
+        next.add_arc(second_x,second_y,c[0],c[1],d[0],d[1],false,snap_tolerance),
+        next.add_segment(d[0],d[1],a[0],a[1],snap_tolerance)};
+    static_cast<void>(next.add_equal_radius_constraint(ids[0],ids[2]));
+    for(const auto pair:{std::array{0,1},std::array{2,1},std::array{2,3},std::array{0,3}})
+        static_cast<void>(next.add_tangent_constraint(ids[pair[0]],ids[pair[1]]));
+    next.validate();*this=std::move(next);return ids;
 }
 
 std::vector<std::string> Sketch::add_oriented_rectangle(
@@ -8600,6 +8623,111 @@ void Sketch::apply_dimension(SketchDimension dimension) {
     if(result.status==SolveStatus::Conflicting &&
        seed_rectilinear_equations(next,{},true))
         result=next.solve_impl(100,needs_rank_for_redundancy);
+    if (result.status == SolveStatus::Conflicting && editing_existing_dimension) {
+        // Sequential endpoint/tangent corrections can fight a radius driver.
+        // Seed the circular junction as one geometric unit, retaining the two
+        // existing contact sides. The ordinary solver still checks all supports.
+        auto candidate = *this;
+        candidate.dimensions = next.dimensions;
+        bool seeded = false;
+        for (auto& arc : candidate.arcs) {
+            const auto radius = std::ranges::find_if(candidate.dimensions, [&](const auto& d) {
+                return !d.suppressed && d.driving && d.geometry_id == arc.id &&
+                    (d.kind == DimensionKind::Radius || d.kind == DimensionKind::Diameter);
+            });
+            if (radius == candidate.dimensions.end()) continue;
+            std::array<SketchSegment*, 2> lines{};
+            std::array<SketchPoint*, 2> contacts{
+                candidate.find_point(arc.start_point_id), candidate.find_point(arc.end_point_id)};
+            for (const auto& c : candidate.constraints) {
+                if (c.suppressed || c.kind != ConstraintKind::Tangent) continue;
+                const auto line_id = c.geometry_id == arc.id ? c.second_geometry_id :
+                    c.second_geometry_id == arc.id ? c.geometry_id : std::string{};
+                const auto line = std::ranges::find(candidate.segments, line_id, &SketchSegment::id);
+                if (line == candidate.segments.end()) continue;
+                for (std::size_t i = 0; i < 2; ++i)
+                    if (c.first_point_id == contacts[i]->id &&
+                        (line->first_point_id == contacts[i]->id || line->second_point_id == contacts[i]->id))
+                        lines[i] = &*line;
+            }
+            if (!lines[0] || !lines[1] || lines[0] == lines[1]) continue;
+            const auto linked = externally_linked_point_ids(candidate);
+            const auto movable = [&](const SketchPoint* p) { return p && !p->fixed && !linked.contains(p->id); };
+            auto* center = candidate.find_point(arc.center_point_id);
+            if (!movable(center)) continue;
+            std::array<SketchPoint*, 2> others{};
+            std::array<std::array<double, 2>, 2> directions{}, normals{};
+            std::array<double, 2> lengths{};
+            bool valid = true;
+            std::size_t anchor = 0;
+            for (std::size_t i = 0; i < 2; ++i) {
+                others[i] = candidate.find_point(lines[i]->first_point_id == contacts[i]->id
+                    ? lines[i]->second_point_id : lines[i]->first_point_id);
+                const double dx = others[i]->x - contacts[i]->x, dy = others[i]->y - contacts[i]->y;
+                lengths[i] = std::hypot(dx, dy);
+                if (lengths[i] < 1e-12) { valid = false; break; }
+                directions[i] = {dx / lengths[i], dy / lengths[i]};
+                for (const auto& d : candidate.dimensions) {
+                    if (d.suppressed || !d.driving) continue;
+                    if (d.kind == DimensionKind::Distance &&
+                        ((d.first_point_id == contacts[i]->id && d.second_point_id == others[i]->id) ||
+                         (d.second_point_id == contacts[i]->id && d.first_point_id == others[i]->id))) {
+                        lengths[i] = d.value;
+                        if (!movable(contacts[i])) { valid = false; break; }
+                        contacts[i]->x = others[i]->x - directions[i][0] * lengths[i];
+                        contacts[i]->y = others[i]->y - directions[i][1] * lengths[i];
+                        anchor = i;
+                    }
+                    if (d.kind == DimensionKind::AngleBetween && d.second_geometry_id == lines[i]->id) {
+                        const auto reference = sketch_axis_line(candidate, d.geometry_id);
+                        if (!reference) continue;
+                        const auto& r = reference->second;
+                        const double sign = r[0] * dy - r[1] * dx < 0 ? -1.0 : 1.0;
+                        const double angle = std::atan2(r[1], r[0]) + sign * std::abs(d.value) *
+                            std::numbers::pi / 180.0;
+                        const double orientation = lines[i]->first_point_id == contacts[i]->id ? 1.0 : -1.0;
+                        directions[i] = {orientation * std::cos(angle), orientation * std::sin(angle)};
+                    }
+                }
+                normals[i] = {-directions[i][1], directions[i][0]};
+                if ((center->x - contacts[i]->x) * normals[i][0] +
+                    (center->y - contacts[i]->y) * normals[i][1] < 0) {
+                    normals[i][0] = -normals[i][0]; normals[i][1] = -normals[i][1];
+                }
+            }
+            const std::size_t free = 1 - anchor;
+            if (!valid || !movable(contacts[free]) || !movable(others[free])) continue;
+            arc.radius = radius->kind == DimensionKind::Diameter ? radius->value * .5 : radius->value;
+            center->x = contacts[anchor]->x + arc.radius * normals[anchor][0];
+            center->y = contacts[anchor]->y + arc.radius * normals[anchor][1];
+            const auto* old_center = find_point(arc.center_point_id);
+            for (auto& companion : candidate.arcs) {
+                if (companion.id == arc.id || companion.center_point_id != arc.center_point_id) continue;
+                for (const auto& id : {companion.start_point_id, companion.end_point_id}) {
+                    if (id == arc.start_point_id || id == arc.end_point_id) continue;
+                    auto* p = candidate.find_point(id);
+                    const auto* old = find_point(id);
+                    if (!movable(p) || !old || !old_center) continue;
+                    p->x = old->x + center->x - old_center->x;
+                    p->y = old->y + center->y - old_center->y;
+                }
+            }
+            contacts[free]->x = center->x - arc.radius * normals[free][0];
+            contacts[free]->y = center->y - arc.radius * normals[free][1];
+            others[free]->x = contacts[free]->x + directions[free][0] * lengths[free];
+            others[free]->y = contacts[free]->y + directions[free][1] * lengths[free];
+            arc.start_angle = std::atan2(contacts[0]->y - center->y, contacts[0]->x - center->x);
+            arc.end_angle = std::atan2(contacts[1]->y - center->y, contacts[1]->x - center->x);
+            while (arc.end_angle <= arc.start_angle) arc.end_angle += 2 * std::numbers::pi;
+            seeded = true;
+        }
+        if (seeded) {
+            const auto checked = candidate.solve_impl(100, needs_rank_for_redundancy);
+            if (checked.status != SolveStatus::Conflicting && checked.status != SolveStatus::Invalid) {
+                next = std::move(candidate); result = checked;
+            }
+        }
+    }
     if (result.status == SolveStatus::Conflicting || result.status == SolveStatus::Invalid) {
         throw std::runtime_error("Sketch dimension conflicts with existing geometry");
     }
@@ -8735,6 +8863,15 @@ SolveResult Sketch::solve_impl(
                     constraint.first_point_id == point.id;
             });
         return tangent_contact ? 1 : 0;
+    };
+    const auto direction_priority=[&](const std::string& id){
+        const auto segment=std::ranges::find(segments,id,&SketchSegment::id);
+        if(segment==segments.end())return 3;
+        if(std::ranges::any_of(dimensions,[&](const auto& d){return !d.suppressed&&d.driving&&
+            ((d.kind==DimensionKind::Angle&&d.geometry_id==id)||(d.kind==DimensionKind::AngleBetween&&d.second_geometry_id==id));}))return 2;
+        for(const auto& a:constraints)if(!a.suppressed&&a.kind==ConstraintKind::PointOnLine&&a.first_point_id==segment->first_point_id)
+            for(const auto& b:constraints)if(!b.suppressed&&b.kind==ConstraintKind::PointOnLine&&b.first_point_id==segment->second_point_id&&b.geometry_id==a.geometry_id)return 2;
+        return 0;
     };
     const auto translate_point_closure = [&](const std::string& root_id,
                                              double dx, double dy) {
@@ -9654,11 +9791,63 @@ SolveResult Sketch::solve_impl(
                             (other->x - contact->x) / segment_length;
                         const double segment_y =
                             (other->y - contact->y) / segment_length;
-                        const double residual = std::abs(
+                        double residual = std::abs(
                             segment_x * (*tangent)[1] -
                             segment_y * (*tangent)[0]);
+                        double tx=segment_x,ty=segment_y;
+                        for(const auto& c:constraints){
+                            if(c.suppressed||(c.kind!=ConstraintKind::Parallel&&c.kind!=ConstraintKind::Perpendicular))continue;
+                            std::string reference;
+                            if(c.second_geometry_id==segment_id&&direction_priority(c.geometry_id)>=direction_priority(segment_id))reference=c.geometry_id;
+                            else if(c.geometry_id==segment_id&&direction_priority(c.second_geometry_id)>direction_priority(segment_id))reference=c.second_geometry_id;
+                            else continue;
+                            const auto line=segment_or_external_line(*this,reference);if(!line)continue;
+                            const double length=std::hypot(line->second[0],line->second[1]);if(length<=tolerance)continue;
+                            tx=line->second[0]/length;ty=line->second[1]/length;
+                            if(c.kind==ConstraintKind::Perpendicular){const auto x=-ty;ty=tx;tx=x;}
+                            residual=std::max(residual,std::abs(segment_x*ty-segment_y*tx));break;
+                        }
                         maximum_residual = std::max(maximum_residual, residual);
                         if (residual <= tolerance) continue;
+                        const bool direction_constrained=std::ranges::any_of(constraints,[&](const auto& c) {
+                            return !c.suppressed && (c.kind==ConstraintKind::Parallel||c.kind==ConstraintKind::Perpendicular) &&
+                                (c.geometry_id==segment_id||c.second_geometry_id==segment_id);
+                        });
+                        if(direction_constrained) {
+                            auto arc=std::ranges::find(arcs,curve_id,&SketchArc::id);
+                            if(arc!=arcs.end()&&fit_free_arc_tangent(*arc,*contact,*other))continue;
+                            // A shared centre cannot move to fit the new line.
+                            // Slide its free contact around the calculated circle
+                            // and translate the arm, preserving radius and side.
+                            if(arc!=arcs.end()&&!contact_immutable(*contact)&&!immutable(*other)) {
+                                const auto* center=find_point(arc->center_point_id);
+                                double nx=-ty,ny=tx;
+                                if((contact->x-center->x)*nx+(contact->y-center->y)*ny<0){nx=-nx;ny=-ny;}
+                                const double dx=center->x+arc->radius*nx-contact->x;
+                                const double dy=center->y+arc->radius*ny-contact->y;
+                                contact->x+=dx;contact->y+=dy;
+                                const double arm_sign=segment_x*tx+segment_y*ty<0?-1.:1.;
+                                other->x=contact->x+arm_sign*segment_length*tx;other->y=contact->y+arm_sign*segment_length*ty;
+                                const bool free_length=!std::ranges::any_of(dimensions,[&](const auto& d){return !d.suppressed&&d.driving&&d.kind==DimensionKind::Distance&&
+                                    (d.geometry_id==segment_id||(d.first_point_id==contact->id&&d.second_point_id==other->id)||(d.second_point_id==contact->id&&d.first_point_id==other->id));})&&
+                                    !std::ranges::any_of(constraints,[&](const auto& c){return !c.suppressed&&c.kind==ConstraintKind::EqualLength&&(c.geometry_id==segment_id||c.second_geometry_id==segment_id);});
+                                if(free_length)for(const auto& c:constraints){
+                                    if(c.suppressed||c.kind!=ConstraintKind::PointOnLine||c.first_point_id!=other->id)continue;
+                                    const auto line=segment_or_external_line(*this,c.geometry_id);if(!line)continue;
+                                    const double ax=line->second[0],ay=line->second[1],det=tx*ay-ty*ax;
+                                    if(std::abs(det)<1e-12)continue;
+                                    const double t=((line->first[0]-contact->x)*ay-(line->first[1]-contact->y)*ax)/det;
+                                    if(t*(segment_x*tx+segment_y*ty)<=0)continue;
+                                    other->x=contact->x+t*tx;other->y=contact->y+t*ty;break;
+                                }
+                                arc->start_angle=std::atan2(find_point(arc->start_point_id)->y-center->y,
+                                    find_point(arc->start_point_id)->x-center->x);
+                                arc->end_angle=std::atan2(find_point(arc->end_point_id)->y-center->y,
+                                    find_point(arc->end_point_id)->x-center->x);
+                                while(arc->end_angle<=arc->start_angle)arc->end_angle+=2*3.14159265358979323846;
+                                continue;
+                            }
+                        }
                         // H/V fixes this arm's direction; adapt a free Arc.
                         if(fit_coordinate_linked_arc(curve_id,*contact,*other))continue;
                         if (supported_circular_arm(*other)) {
@@ -10257,11 +10446,28 @@ SolveResult Sketch::solve_impl(
                 continue;
             }
             if (is_segment_pair_constraint(constraint.kind)) {
-                const auto reference_line = segment_or_external_line(
-                    *this, constraint.geometry_id);
+                auto reference_id=constraint.geometry_id,driven_id=constraint.second_geometry_id;
+                const auto length_support=[&](const std::string& id){
+                    const auto line=std::ranges::find(segments,id,&SketchSegment::id);if(line==segments.end())return 0;
+                    int score=0;
+                    for(const auto& d:dimensions)if(!d.suppressed&&d.driving){
+                        const auto other=std::ranges::find_if(segments,[&](const auto& s){return s.id==d.geometry_id||(d.kind==DimensionKind::AngleBetween&&s.id==d.second_geometry_id)||
+                            ((s.first_point_id==d.first_point_id&&s.second_point_id==d.second_point_id)||(s.first_point_id==d.second_point_id&&s.second_point_id==d.first_point_id));});
+                        if(other!=segments.end()&&other->id==id&&d.kind==DimensionKind::Distance)score+=4;
+                        else if(other!=segments.end()&&(d.kind==DimensionKind::Distance||d.kind==DimensionKind::Angle||d.kind==DimensionKind::AngleBetween)&&
+                            (other->first_point_id==line->first_point_id||other->first_point_id==line->second_point_id||
+                             other->second_point_id==line->first_point_id||other->second_point_id==line->second_point_id))score+=1;
+                    }
+                    return score;
+                };
+                if(constraint.kind==ConstraintKind::EqualLength&&length_support(driven_id)>length_support(reference_id))std::swap(reference_id,driven_id);
+                if(constraint.kind!=ConstraintKind::EqualLength&&direction_priority(driven_id)>direction_priority(reference_id)&&
+                    std::ranges::any_of(segments,[&](const auto& s){return s.id==reference_id;}))
+                    std::swap(reference_id,driven_id);
+                const auto reference_line = segment_or_external_line(*this, reference_id);
                 const auto second_segment = std::find_if(segments.begin(), segments.end(),
                     [&](const auto& value) {
-                        return value.id == constraint.second_geometry_id;
+                        return value.id == driven_id;
                     });
                 auto* driven_first = find_point(second_segment->first_point_id);
                 auto* driven_second = find_point(second_segment->second_point_id);
@@ -10302,9 +10508,61 @@ SolveResult Sketch::solve_impl(
                 const double correction_x = desired_x - dx;
                 const double correction_y = desired_y - dy;
                 maximum_residual = std::max(maximum_residual, residual);
-                if (residual > tolerance && !move_pair(
-                        *driven_first, *driven_second, correction_x, correction_y)) {
-                    immovable_conflict = true;
+                if (residual > tolerance) {
+                    // At a junction with another direction-controlled arm the
+                    // undimensioned span may change. Use the intersection of
+                    // the two lines rather than rotating the junction off one.
+                    const bool length_driven=std::ranges::any_of(dimensions,[&](const auto& d) {
+                        return !d.suppressed&&d.driving&&d.kind==DimensionKind::Distance&&
+                            (d.geometry_id==driven_id||
+                             (d.first_point_id==driven_first->id&&d.second_point_id==driven_second->id)||
+                             (d.first_point_id==driven_second->id&&d.second_point_id==driven_first->id));
+                    })||std::ranges::any_of(constraints,[&](const auto& c) {
+                        return !c.suppressed&&c.kind==ConstraintKind::EqualLength&&
+                            (c.geometry_id==driven_id||c.second_geometry_id==driven_id);
+                    });
+                    bool intersected=false;
+                    if(constraint.kind!=ConstraintKind::EqualLength&&!length_driven) {
+                        for(const auto pair:{std::pair{driven_first,driven_second},std::pair{driven_second,driven_first}}) {
+                            const auto* anchor=pair.first;auto* moving=pair.second;
+                            if(immutable(*moving))continue;
+                            for(const auto& adjacent:segments) {
+                                if(adjacent.id==driven_id||adjacent.id==reference_id||
+                                    (adjacent.first_point_id!=moving->id&&adjacent.second_point_id!=moving->id))continue;
+                                if(!std::ranges::any_of(constraints,[&](const auto& c) {
+                                    return !c.suppressed&&c.id!=constraint.id&&
+                                        (c.kind==ConstraintKind::Parallel||c.kind==ConstraintKind::Perpendicular)&&
+                                        (c.geometry_id==adjacent.id||c.second_geometry_id==adjacent.id);
+                                }))continue;
+                                const auto* other=find_point(adjacent.first_point_id==moving->id?adjacent.second_point_id:adjacent.first_point_id);
+                                const double ax=moving->x-other->x,ay=moving->y-other->y;
+                                const double denominator=desired_x*ay-desired_y*ax;
+                                if(std::abs(denominator)<1e-12)continue;
+                                const double t=((other->x-anchor->x)*ay-(other->y-anchor->y)*ax)/denominator;
+                                const double x=anchor->x+t*desired_x,y=anchor->y+t*desired_y;
+                                if((x-anchor->x)*(moving->x-anchor->x)+(y-anchor->y)*(moving->y-anchor->y)<=0)continue;
+                                moving->x=x;moving->y=y;intersected=true;break;
+                            }
+                            if(intersected)break;
+                        }
+                    }
+                    if(intersected)continue;
+                    const auto reference_segment=std::ranges::find(segments,reference_id,&SketchSegment::id);
+                    const auto shared=[&](const SketchPoint& p) {return reference_segment!=segments.end()&&
+                        (reference_segment->first_point_id==p.id||reference_segment->second_point_id==p.id);};
+                    const auto support=[&](const SketchPoint& p){
+                        return 10*point_support_priority(p)+(constraint.kind==ConstraintKind::EqualLength?
+                            int(std::ranges::count_if(constraints,[&](const auto& c){return !c.suppressed&&c.kind==ConstraintKind::PointOnLine&&c.first_point_id==p.id;})):0);
+                    };
+                    if(!immutable(*driven_second)&&(shared(*driven_first)||
+                        support(*driven_first)>support(*driven_second))) {
+                        driven_second->x+=correction_x;driven_second->y+=correction_y;
+                    } else if(!immutable(*driven_first)&&(shared(*driven_second)||
+                        support(*driven_second)>support(*driven_first))) {
+                        driven_first->x-=correction_x;driven_first->y-=correction_y;
+                    } else if(!move_pair(*driven_first,*driven_second,correction_x,correction_y)) {
+                        immovable_conflict = true;
+                    }
                 }
                 continue;
             }

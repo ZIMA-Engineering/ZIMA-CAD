@@ -21,15 +21,42 @@
 #include <QMessageBox>
 #include <QPushButton>
 #include <QWidget>
+#include <QSettings>
+#include <QSaveFile>
+#include <algorithm>
+#include <vector>
+#include <zima/document/part_document.hpp>
+#include <zima/assembly/assembly_document.hpp>
 
 namespace zima::app {
 
+namespace {
+QString setup_config(const ApplicationSettings& settings) {
+    return settings.installation_root.isEmpty()?settings.base_config_path:settings.installation_root+"/config/config.ini";
+}
+bool save_setup_status(const ApplicationSettings& settings,const QString& status) {
+    QSettings preferences(setup_config(settings),QSettings::IniFormat);
+    preferences.setValue("Setup/Status",status);preferences.sync();return preferences.status()==QSettings::NoError;
+}
+}
+
+bool GlobalSettingsDialog::needs_initial_setup(const ApplicationSettings& settings) {
+    if(settings.installation_root.isEmpty())return false;
+    QSettings shared(setup_config(settings),QSettings::IniFormat);
+    if(!shared.value("Setup/Status").toString().isEmpty())return false;
+    // Factory defaults and a version switch do not identify a new installation.
+    // Existing user configuration must never trigger setup after an update.
+    for(const auto& key:shared.allKeys())if(key.startsWith("Application/")||key.startsWith("Units/")||
+        key.startsWith("Templates/")||key.startsWith("Paths/"))return false;
+    return true;
+}
+
 GlobalSettingsDialog::GlobalSettingsDialog(
-    ApplicationSettings settings, QWidget* parent)
-    : PropertiesSubWindow(settings.text(
+    ApplicationSettings settings, QWidget* parent,bool system_setup,bool first_launch,const desktop::Context* desktop_context)
+    : PropertiesSubWindow(system_setup?tr("System Setup"):settings.text(
           "dialog.options.title", tr("Globální nastavení")), parent),
-      settings_(std::move(settings)) {
-    setObjectName("globalSettingsDialog");
+      settings_(std::move(settings)),system_setup_(system_setup),first_launch_(first_launch) {
+    setObjectName(system_setup_?"systemSetupDialog":"globalSettingsDialog");
     setMinimumWidth(620);
     content_layout()->addWidget(new QLabel(
         QStringLiteral("%1: %2").arg(
@@ -43,6 +70,17 @@ GlobalSettingsDialog::GlobalSettingsDialog(
     sections_->addTab(general, tr("Obecné"));
     content_layout()->addWidget(sections_);
     auto* form = new QFormLayout;
+    if(system_setup_) {
+        auto* note=new QLabel(first_launch_?
+            tr("Vítejte v ZIMA-CAD. Projděte nastavení, šablony a volitelnou registraci. OK nastavení uloží. Cancel úvodní nastavení přeskočí; později je otevřete přes Nástroje → System Setup."):
+            tr("Upravte nastavení, výchozí šablony a volitelnou registraci do systému. Změny potvrdíte tlačítkem OK."),general);
+        note->setWordWrap(true);general_layout->addWidget(note);
+        unit_preset_=new QComboBox(this);unit_preset_->setObjectName("setupUnitPreset");
+        unit_preset_->addItem(tr("Zachovat aktuální jednotky"),"");
+        unit_preset_->addItem(tr("Metrické jednotky (mm)"),"mm");
+        unit_preset_->addItem(tr("Palcové jednotky (in)"),"in");
+        form->addRow(tr("Předvolba jednotek"),unit_preset_);
+    }
     language_ = new QComboBox(this);
     language_->setObjectName("globalSettingsLanguage");
     language_->addItems({"cs", "de", "en", "fr", "ru"});
@@ -129,11 +167,37 @@ GlobalSettingsDialog::GlobalSettingsDialog(
         row_layout->addWidget(browse);
         path_fields_.insert(it.key(), edit);
         form->addRow(it.value(), row);
+        if(system_setup_&&it.key()!="WorkingDirectory"&&it.key()!="Templates") {
+            row->hide();form->labelForField(row)->hide();
+        }
     }
     general_layout->addLayout(form);
     auto* language_note = new QLabel(tr("Po změně jazyka restartujte aplikaci, aby se přeložily i všechny otevřené nabídky a panely."), this);
     language_note->setWordWrap(true);
     general_layout->addWidget(language_note);
+    if(system_setup_) {
+        template_page_=new QWidget(sections_);auto* template_form=new QFormLayout(template_page_);
+        part_template_=new QComboBox(template_page_);part_template_->setEditable(true);part_template_->setObjectName("setupPartTemplate");
+        assembly_template_=new QComboBox(template_page_);assembly_template_->setEditable(true);assembly_template_->setObjectName("setupAssemblyTemplate");
+        const QDir templates(settings_.resolved_paths.value("Templates"));
+        part_template_->addItems(templates.entryList({"*.prtz"},QDir::Files));part_template_->setCurrentText(settings_.part_template);
+        assembly_template_->addItems(templates.entryList({"*.asmz"},QDir::Files));assembly_template_->setCurrentText(settings_.assembly_template);
+        template_form->addRow(tr("Výchozí šablona dílu"),part_template_);
+        template_form->addRow(tr("Výchozí šablona sestavy"),assembly_template_);
+        auto* note=new QLabel(tr("Jednotky vybraných šablon musí odpovídat předvolbě. Formát papíru a rohové razítko se vybírají samostatně ve výkresu."),template_page_);
+        note->setWordWrap(true);template_form->addRow(note);
+        sections_->addTab(template_page_,tr("Šablony"));
+        connect(unit_preset_,&QComboBox::currentIndexChanged,this,[this]{
+            const auto unit=unit_preset_->currentData().toString();if(unit.isEmpty())return;
+            unit_fields_["Length"]->setCurrentText(unit);unit_fields_["Angle"]->setCurrentText("deg");
+            unit_fields_["Mass"]->setCurrentText(unit=="mm"?"kg":"lb");
+            unit_fields_["Stress"]->setCurrentText(unit=="mm"?"MPa":"psi");
+            unit_fields_["Temperature"]->setCurrentText(unit=="mm"?"C":"F");
+            unit_fields_["Time"]->setCurrentText("s");
+            part_template_->setCurrentText("START_PART_"+unit+".prtz");
+            assembly_template_->setCurrentText("START_ASSEMBLY_"+unit+".asmz");
+        });
+    }
     auto* sheet_page=new QWidget(sections_);
     auto* sheet_form=new QFormLayout(sheet_page);
     sheet_cut_tolerance_=new QDoubleSpinBox(sheet_page);
@@ -180,8 +244,15 @@ GlobalSettingsDialog::GlobalSettingsDialog(
         : settings_.installation_root + "/config/config.ini";
     ai_ = new AiSettingsPage(ai_preferences_path_, sections_);
     sections_->addTab(ai_, tr("AI"));
-    desktop_ = desktop::settings_page(sections_);
+    desktop_ = desktop_context?desktop::settings_page(sections_,*desktop_context):desktop::settings_page(sections_);
     sections_->addTab(desktop_, tr("Desktop integration"));
+    if(system_setup_) {
+        for(int i=0;i<sections_->count();++i)sections_->setTabVisible(i,sections_->widget(i)==general||sections_->widget(i)==template_page_||sections_->widget(i)==desktop_);
+        set_initial_size({800,720});set_centered_on_show();
+        if(first_launch_)connect(this,&QDialog::rejected,this,[this]{
+            if(!save_setup_status(settings_,"skipped"))QMessageBox::critical(this,tr("Uložení selhalo"),tr("Průběh nastavení nelze uložit."));
+        });
+    }
     connect(this, &QDialog::finished, updates_, [this] { updates_->cancelPendingInstallation(); });
     connect(this, &QDialog::rejected, this, [] {
         if (UpdateService::get()->busy()) UpdateService::get()->cancel();
@@ -231,6 +302,43 @@ bool GlobalSettingsDialog::submit() {
         settings_.configured_paths[it.key()] = it.value()->text().trimmed();
     }
     QString error;
+    if(system_setup_) {
+        settings_.part_template=part_template_->currentText().trimmed();settings_.assembly_template=assembly_template_->currentText().trimmed();
+        const QDir config(QFileInfo(settings_.config_path).absolutePath());
+        const QDir templates(config.absoluteFilePath(settings_.configured_paths.value("Templates")));
+        try {
+            const auto part=zima::document::PartDocument::load(std::filesystem::u8path(templates.absoluteFilePath(settings_.part_template).toStdString()));
+            const auto assembly=zima::assembly::AssemblyDocument::load(std::filesystem::u8path(templates.absoluteFilePath(settings_.assembly_template).toStdString()));
+            for(auto it=settings_.units.cbegin();it!=settings_.units.cend();++it)
+                if(part.document_units.at(it.key().toStdString())!=it.value().toStdString()||assembly.document_units.at(it.key().toStdString())!=it.value().toStdString()) {
+                    sections_->setCurrentWidget(template_page_);QMessageBox::critical(this,tr("Uložení selhalo"),tr("Jednotky šablon neodpovídají zvoleným jednotkám."));return false;
+                }
+        } catch(const std::exception&) {
+            sections_->setCurrentWidget(template_page_);QMessageBox::critical(this,tr("Uložení selhalo"),tr("Vyberte platné nativní šablony dílu a sestavy."));return false;
+        }
+        struct Snapshot {QString path;QByteArray bytes;bool existed;};std::vector<Snapshot> snapshots;
+        for(const auto& path:{settings_.config_path,settings_.platform_config_path,setup_config(settings_)}) {
+            if(path.isEmpty()||std::ranges::any_of(snapshots,[&](const auto& s){return s.path==path;}))continue;
+            QFile file(path);const bool existed=file.exists();
+            if(existed&&!file.open(QIODevice::ReadOnly)){QMessageBox::critical(this,tr("Uložení selhalo"),tr("Průběh nastavení nelze uložit."));return false;}
+            snapshots.push_back({path,existed?file.readAll():QByteArray{},existed});
+        }
+        const QString working=config.absoluteFilePath(settings_.configured_paths.value("WorkingDirectory"));
+        const bool created=!QDir(working).exists();
+        if(!QDir().mkpath(working)){QMessageBox::critical(this,tr("Uložení selhalo"),tr("Pracovní adresář nelze vytvořit."));return false;}
+        bool saved=settings_.save(&error);
+        if(saved&&!save_setup_status(settings_,"completed")){saved=false;error=tr("Průběh nastavení nelze uložit.");}
+        if(saved&&desktop::submit_settings(desktop_))return true;
+        bool restored=true;
+        for(const auto& snapshot:snapshots) {
+            if(snapshot.existed){QSaveFile file(snapshot.path);restored=(file.open(QIODevice::WriteOnly)&&file.write(snapshot.bytes)==snapshot.bytes.size()&&file.commit())&&restored;}
+            else if(QFileInfo::exists(snapshot.path))restored=QFile::remove(snapshot.path)&&restored;
+        }
+        if(created)QDir().rmdir(working);
+        sections_->setCurrentWidget(desktop_);
+        if(!restored||!error.isEmpty())QMessageBox::critical(this,tr("Uložení selhalo"),error.isEmpty()?tr("Průběh nastavení nelze uložit."):error);
+        return false;
+    }
     auto* update_service = UpdateService::get();
     const bool previous_automatic = update_service->automatic();
     const auto previous_ai = CadAi::preferences(ai_preferences_path_);

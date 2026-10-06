@@ -131,6 +131,16 @@ int main() {
             require(drawing_dimension_text(angle,evaluation.presentations[0])=="60°","Angle has wrong units");
             place_drawing_dimension(v,angle,0,{-10,10});evaluation=evaluate_drawing_dimension(v,angle);near(evaluation.presentations[0].value,120);
             place_drawing_dimension(v,angle,0,{10,5});evaluation=evaluate_drawing_dimension(v,angle);near(evaluation.presentations[0].value,60);
+            {
+                auto dragged=angle;const auto before=evaluate_drawing_dimension(v,dragged).presentations[0];
+                const auto label=*before.label_position;
+                drag_drawing_dimension(v,dragged,0,0,{4,7});
+                const auto after=evaluate_drawing_dimension(v,dragged).presentations[0];
+                near(after.label_position->x,label.x+4);near(after.label_position->y,label.y+7);
+                near(std::hypot(after.line_first.x-after.witness_first.x,after.line_first.y-after.witness_first.y),
+                    std::hypot(label.x+4-before.witness_first.x,label.y+7-before.witness_first.y));
+                near(after.value,60);
+            }
             const auto identity=angle.id,segment=angle.segments[0].id;const auto refs=angle.attachments;
             const auto replace=[&](kernel::ViewerMesh changed){capture_measurement_geometry(v,changed);v.projected_edges=project_edges(changed,v.camera);};
             auto trimmed=mesh;trimmed.edges[0].points={{12,0,0},{20,0,0}};replace(trimmed);refresh_drawing_dimension(v,angle);near(evaluate_drawing_dimension(v,angle).presentations[0].value,60);
@@ -457,7 +467,7 @@ int main() {
                 const auto rim = source.witness_second;
                 drag_drawing_dimension(v, radius, 0, 0, {-12, 3});
                 source = evaluate_drawing_dimension(v, radius).presentations[0];
-                require(source.witness_second == rim, "Text grip moved measured radius arrow");
+                require(source.witness_second != rim, "Text grip did not rotate radius arrow");
                 near(source.label_position->z, 0);
                 drag_drawing_dimension(v, radius, 0, 1, {-1, 2});
                 source = evaluate_drawing_dimension(v, radius).presentations[0];

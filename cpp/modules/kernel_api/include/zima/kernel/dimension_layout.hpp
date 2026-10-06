@@ -339,14 +339,78 @@ inline ViewerDimension layout_dimension(ViewerDimension d, const ModelEnvelope &
 inline DimensionLayout dragged_dimension_layout(const ViewerDimension &shown,
                                                 const ModelEnvelope &bounds,
                                                 DimensionLayout initial, int handle, double along,
-                                                double outward) {
+                                                double outward, bool circular_angular = false,
+                                                std::optional<Vec3> text_grip = std::nullopt) {
     if (shown.kind == ViewerDimensionKind::Radius || shown.kind == ViewerDimensionKind::Diameter) {
-        if(handle==0){initial.text_along+=along;initial.text_outward+=outward;return initial;}
+        if(handle==0){
+            // Use the rendered grip as the interaction root. The text and rim
+            // share one bearing; the measured circle radius never changes.
+            const auto u=dimension_measurement_direction(shown);
+            const auto v=dimension_unit(dimension_cross(shown.plane_normal,u));
+            const auto old=dimension_sub(shown.label_position.value_or(shown.witness_second),shown.witness_first);
+            const auto grip=dimension_sub(text_grip.value_or(shown.label_position.value_or(shown.witness_second)),shown.witness_first);
+            const double x=dimension_dot(grip,u)+along,y=dimension_dot(grip,v)+outward;
+            const double sign=dimension_dot(grip,u)<0?-1.:1.;
+            const double distance=sign*std::hypot(x,y);
+            if(std::abs(distance)<1e-9)return initial;
+            const double rotation=std::atan2(sign*y,sign*x);
+            initial.radius_rotation_degrees+=rotation*180/std::numbers::pi;
+            double base=dimension_dot(old,u)-initial.text_along;
+            if(initial.envelope_offset&&bounds.valid){
+                const auto ray=dimension_add(dimension_scale(u,std::cos(rotation)),dimension_scale(v,std::sin(rotation)));
+                base=std::sqrt(dimension_dot(dimension_sub(shown.witness_second,shown.witness_first),dimension_sub(shown.witness_second,shown.witness_first)));
+                for(auto corner:bounds.corners())base=std::max(base,dimension_dot(dimension_sub(corner,shown.witness_first),ray));
+                base+=*initial.envelope_offset;
+            }
+            initial.text_along=distance-base;initial.text_outward=0;
+            return initial;
+        }
         const auto radius_vector=dimension_sub(shown.witness_second,shown.witness_first);
         const double radius=std::sqrt(dimension_dot(radius_vector,radius_vector));
         const double side=shown.kind==ViewerDimensionKind::Diameter&&handle==1?-1.:1.;
         if(std::hypot(radius+side*along,outward)>1e-9)
             initial.radius_rotation_degrees+=std::atan2(side*outward,radius+side*along)*180/std::numbers::pi;
+        return initial;
+    }
+    if(circular_angular&&shown.kind==ViewerDimensionKind::Angular){
+        const auto u=dimension_measurement_direction(shown);
+        const auto v=dimension_unit(dimension_cross(shown.plane_normal,u));
+        const auto old_radius=dimension_sub(shown.line_first,shown.witness_first);
+        const double radius=std::sqrt(dimension_dot(old_radius,old_radius));
+        if(radius<1e-9)return initial;
+        const auto default_label=dimension_scale(dimension_add(shown.line_first,shown.line_second),.5);
+        const auto label=dimension_sub(shown.label_position.value_or(default_label),shown.witness_first);
+        const auto grip=dimension_sub(handle==0?text_grip.value_or(shown.label_position.value_or(default_label)):
+            handle==2?shown.line_second:shown.line_first,shown.witness_first);
+        const auto target=dimension_add(grip,dimension_add(dimension_scale(u,along),dimension_scale(v,outward)));
+        const double target_radius=std::sqrt(dimension_dot(target,target));
+        if(target_radius<1e-9)return initial;
+        double next=std::max(.1,target_radius);
+        if(initial.envelope_offset&&bounds.valid){
+            double support=0;
+            for(auto corner:bounds.corners()){
+                auto p=dimension_sub(corner,shown.witness_first);
+                p=dimension_sub(p,dimension_scale(shown.plane_normal,dimension_dot(p,shown.plane_normal)));
+                support=std::max(support,std::sqrt(dimension_dot(p,p)));
+            }
+            initial.envelope_offset=std::max(0.,next-support-initial.line_offset);
+            next=support+*initial.envelope_offset+initial.line_offset;
+        }else initial.line_offset+=next-radius;
+        const double ratio=next/radius;
+        auto base=dimension_scale(dimension_sub(label,dimension_add(dimension_scale(u,initial.text_along),dimension_scale(v,initial.text_outward))),ratio);
+        if(initial.envelope_offset&&bounds.valid){
+            // Envelope placement rebuilds its automatic label with a fixed
+            // model-space gap before applying line_offset and text offsets.
+            const double raw_radius=next-initial.line_offset;
+            if(raw_radius>1e-9){
+                const double theta=shown.sweep_degrees*std::numbers::pi/360.;
+                base=dimension_scale(dimension_add(dimension_scale(u,std::cos(theta)),dimension_scale(v,std::sin(theta))),
+                    (raw_radius+2)*next/raw_radius);
+            }
+        }
+        const auto wanted=handle==0?dimension_scale(dimension_unit(target),next):dimension_scale(label,ratio);
+        const auto offset=dimension_sub(wanted,base);
+        initial.text_along=dimension_dot(offset,u);initial.text_outward=dimension_dot(offset,v);
         return initial;
     }
     if (handle == 0) {

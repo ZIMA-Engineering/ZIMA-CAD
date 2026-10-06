@@ -248,7 +248,7 @@ void AssemblyWorkspaceWindow::rebuild_application_toolbar() {
         for (auto* action : {sketch_point_action_, sketch_construction_action_,
                              sketch_segment_action_, sketch_common_tangent_action_,
                              sketch_polyline_action_,
-                             sketch_rectangle_action_, sketch_polygon_action_,
+                             sketch_rectangle_action_, sketch_slot_action_, sketch_polygon_action_,
                              sketch_circle_action_, sketch_arc_action_,
                              sketch_ellipse_action_, sketch_elliptical_arc_action_,
                              sketch_bspline_action_,
@@ -499,6 +499,7 @@ void AssemblyWorkspaceWindow::sync_sketch_tool_action_checks() {
     set_checked(sketch_polyline_action_,
         sketch_segment_active_ && sketch_polyline_active_);
     set_checked(sketch_rectangle_action_, sketch_rectangle_active_);
+    set_checked(sketch_slot_action_, sketch_slot_active_);
     set_checked(sketch_polygon_action_, sketch_polygon_active_);
     set_checked(sketch_circle_action_, sketch_circle_active_);
     set_checked(sketch_arc_action_, sketch_arc_active_);

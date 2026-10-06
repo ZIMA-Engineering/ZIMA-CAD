@@ -79,6 +79,7 @@ public:
     [[nodiscard]] const std::optional<RestartState>& restart_state() const { return restart_state_; }
     [[nodiscard]] zima::commands::Result execute_console_command(const QString& text);
     [[nodiscard]] bool open_document_path(const QString& path);
+    void offer_system_setup();
     void show_tree_item_properties(QTreeWidgetItem* item);
     void export_sheet_dxf();
     void show_sheet_from_body();
@@ -304,6 +305,7 @@ private:
     QAction* sketch_common_tangent_action_{};
     QAction* sketch_polyline_action_{};
     QAction* sketch_rectangle_action_{};
+    QAction* sketch_slot_action_{};
     QAction* sketch_polygon_action_{};
     QAction* sketch_trim_action_{};
     QAction* sketch_corner_fillet_action_{};
@@ -538,6 +540,13 @@ private:
     bool sketch_polyline_arc_mode_{};
     std::string pending_polyline_tangent_geometry_id_;
     bool sketch_rectangle_active_{};
+    bool sketch_slot_active_{};
+    std::optional<std::array<double,2>> pending_slot_second_center_;
+    std::string pending_slot_symmetry_axis_id_;
+    std::optional<zima::sketcher::ConstraintKind> pending_slot_direction_kind_;
+    std::string pending_slot_reference_point_id_;
+    std::string pending_slot_second_snap_geometry_id_;
+    std::optional<zima::sketcher::ConstraintKind> pending_slot_second_snap_kind_;
     bool sketch_rectangle_axis_selecting_{};
     std::string pending_rectangle_axis_id_;
     std::optional<std::array<double, 2>> pending_rectangle_corner_;
@@ -805,7 +814,7 @@ private:
         const std::filesystem::path& file_path);
     void prune_file_archives(bool whole_directory, std::size_t keep);
     void set_working_directory();
-    void show_global_settings();
+    void show_global_settings(bool system_setup=false,bool first_launch=false);
     void show_about();
     void import_file();
     void import_selected_file(const QString& path, std::optional<double> mesh_deflection = {});
@@ -895,6 +904,7 @@ private:
     bool confirm_current_sketch_step();
     bool finish_current_sketch_tool();
     void start_sketch_rectangle();
+    void start_sketch_slot();
     void cancel_sketch_rectangle();
     void start_sketch_polygon(unsigned sides);
     void cancel_sketch_polygon();
@@ -975,6 +985,7 @@ private:
     };
     [[nodiscard]] SketchSegmentInference inferred_sketch_segment_end(
         const std::array<double, 2>& position) const;
+    [[nodiscard]] SketchSegmentInference inferred_sketch_slot_center(const std::array<double,2>& position) const;
     void clear_completed_sketch_interaction();
     void clear_sketch_confirmed_selection();
     [[nodiscard]] std::optional<std::array<double, 2>>
@@ -983,6 +994,8 @@ private:
         const zima::kernel::Vec3& origin, const zima::kernel::Vec3& direction);
     bool accept_sketch_rectangle_ray(
         const zima::kernel::Vec3& origin, const zima::kernel::Vec3& direction);
+    bool accept_sketch_slot_ray(const zima::kernel::Vec3& origin,const zima::kernel::Vec3& direction);
+    void preview_sketch_slot_ray(const zima::kernel::Vec3& origin,const zima::kernel::Vec3& direction);
     void preview_sketch_rectangle_ray(
         const zima::kernel::Vec3& origin, const zima::kernel::Vec3& direction);
     struct SketchRectangleMidpointSnap {

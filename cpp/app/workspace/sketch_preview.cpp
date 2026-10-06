@@ -11,6 +11,114 @@ bool ellipse_axes_reversed(const std::array<double,2>& center,
 }
 }
 
+AssemblyWorkspaceWindow::SketchSegmentInference AssemblyWorkspaceWindow::inferred_sketch_slot_center(
+    const std::array<double,2>& position) const {
+    const auto* sketch=active_sketch();
+    if(!sketch||!pending_segment_start_)return {position,std::nullopt,{}};
+    if(automatic_constraint_enabled(zima::sketcher::ConstraintKind::Symmetric)) {
+        const double tolerance=viewer_->world_tolerance_for_pixels(3.*viewer_->devicePixelRatioF());
+        struct Axis {std::string id;std::array<double,2> origin,direction;};
+        std::vector<Axis> axes{{"sketch_axis:x",{0.,0.},{1.,0.}},{"sketch_axis:y",{0.,0.},{0.,1.}}};
+        for(const auto& s:sketch->segments)if(s.construction) {
+            const auto* a=sketch->find_point(s.first_point_id);const auto* b=sketch->find_point(s.second_point_id);
+            axes.push_back({s.id,{a->x,a->y},{b->x-a->x,b->y-a->y}});
+        }
+        for(const auto& axis:axes) {
+            const auto& a=*pending_segment_start_;const auto& d=axis.direction;
+            const double length_squared=d[0]*d[0]+d[1]*d[1];if(length_squared<1e-18)continue;
+            const double t=((a[0]-axis.origin[0])*d[0]+(a[1]-axis.origin[1])*d[1])/length_squared;
+            const std::array mirrored{2*(axis.origin[0]+t*d[0])-a[0],2*(axis.origin[1]+t*d[1])-a[1]};
+            if(std::hypot(mirrored[0]-a[0],mirrored[1]-a[1])>1e-9&&
+               std::hypot(position[0]-mirrored[0],position[1]-mirrored[1])<=tolerance) {
+                SketchSegmentInference result{mirrored,std::nullopt,{}};result.symmetry_axis_id=axis.id;return result;
+            }
+        }
+    }
+    auto result=inferred_sketch_segment_end(position);
+    if(result.kind && (*result.kind==zima::sketcher::ConstraintKind::Horizontal||*result.kind==zima::sketcher::ConstraintKind::Vertical))return result;
+    return {position,std::nullopt,{}};
+}
+
+bool AssemblyWorkspaceWindow::accept_sketch_slot_ray(
+    const zima::kernel::Vec3& origin,const zima::kernel::Vec3& direction) {
+    if(!sketch_slot_active_)return false;
+    const auto* sketch=active_sketch();if(!sketch)return false;
+    const auto position=sketch->intersect_ray(origin,direction);if(!position)return true;
+    if(!pending_segment_start_) {
+        pending_segment_start_=*position;
+        pending_segment_start_snap_geometry_id_=std::exchange(pending_sketch_snap_geometry_id_,{});
+        pending_segment_start_snap_kind_=std::exchange(pending_sketch_snap_kind_,std::nullopt);
+        state_->setText(tr("Drážka skici: určete střed druhého oblouku. Přichycení nabízí symetrii vůči ose nebo konstrukční čáře."));
+        return true;
+    }
+    if(!pending_slot_second_center_) {
+        const auto inferred=pending_sketch_snap_kind_?SketchSegmentInference{*position,std::nullopt,{}}:inferred_sketch_slot_center(*position);
+        if(std::hypot(inferred.position[0]-(*pending_segment_start_)[0],inferred.position[1]-(*pending_segment_start_)[1])<=1e-9)return true;
+        pending_slot_second_center_=inferred.position;pending_slot_symmetry_axis_id_=inferred.symmetry_axis_id;
+        pending_slot_direction_kind_=inferred.kind;pending_slot_reference_point_id_=inferred.reference_point_id;
+        pending_slot_second_snap_geometry_id_=std::exchange(pending_sketch_snap_geometry_id_,{});
+        pending_slot_second_snap_kind_=std::exchange(pending_sketch_snap_kind_,std::nullopt);
+        state_->setText(tr("Drážka skici: určete poloměr bodem na boku drážky."));return true;
+    }
+    const auto first=*pending_segment_start_,second=*pending_slot_second_center_;
+    const double dx=second[0]-first[0],dy=second[1]-first[1],length=std::hypot(dx,dy);
+    const double radius=std::abs(((*position)[0]-first[0])*dy-((*position)[1]-first[1])*dx)/length;
+    if(radius<=1e-9){state_->setText(tr("Drážka musí mít nenulový poloměr."));return true;}
+    if(!mutate_active_sketch([&](auto& target) {
+        const auto ids=target.add_slot(first[0],first[1],second[0],second[1],radius);
+        const auto a=std::ranges::find(target.arcs,ids[0],&zima::sketcher::SketchArc::id);
+        const auto b=std::ranges::find(target.arcs,ids[2],&zima::sketcher::SketchArc::id);
+        const auto first_id=a->center_point_id,second_id=b->center_point_id;
+        const auto snap=[&](const auto& id,const auto& geometry,const auto& kind) {
+            if(!kind||geometry.empty())return;
+            try {static_cast<void>(apply_sketch_point_snap(target,id,geometry,kind));}
+            catch(const zima::sketcher::RedundantConstraint&) {}
+        };
+        snap(first_id,pending_segment_start_snap_geometry_id_,pending_segment_start_snap_kind_);
+        snap(second_id,pending_slot_second_snap_geometry_id_,pending_slot_second_snap_kind_);
+        if(!pending_slot_symmetry_axis_id_.empty())static_cast<void>(target.add_symmetric_constraint(first_id,second_id,pending_slot_symmetry_axis_id_));
+        else if(pending_slot_direction_kind_)static_cast<void>(target.add_point_pair_constraint(
+            pending_slot_reference_point_id_.empty()?first_id:pending_slot_reference_point_id_,second_id,*pending_slot_direction_kind_));
+    }))return true;
+    pending_segment_start_.reset();pending_slot_second_center_.reset();
+    pending_segment_start_snap_geometry_id_.clear();pending_segment_start_snap_kind_.reset();
+    pending_slot_second_snap_geometry_id_.clear();pending_slot_second_snap_kind_.reset();
+    pending_slot_symmetry_axis_id_.clear();pending_slot_direction_kind_.reset();pending_slot_reference_point_id_.clear();
+    clear_completed_sketch_interaction();preserve_view_on_refresh_=true;refresh_tabs();refresh_scene();
+    state_->setText(tr("Drážka vytvořena. Určete střed prvního oblouku další drážky."));return true;
+}
+
+void AssemblyWorkspaceWindow::preview_sketch_slot_ray(
+    const zima::kernel::Vec3& origin,const zima::kernel::Vec3& direction) {
+    if(!sketch_slot_active_||!pending_segment_start_)return;
+    const auto* sketch=active_sketch();if(!sketch)return;
+    const auto position=sketch->intersect_ray(origin,direction);if(!position)return;
+    const auto first=*pending_segment_start_;
+    const auto inferred=inferred_sketch_slot_center(*position);
+    const auto second=pending_slot_second_center_.value_or(inferred.position);
+    const double dx=second[0]-first[0],dy=second[1]-first[1],length=std::hypot(dx,dy);
+    viewer_->set_transient_labels({});if(length<=1e-9){viewer_->set_transient_edges({});return;}
+    if(!pending_slot_second_center_) {
+        viewer_->set_transient_edges({{{sketch->world_point(first[0],first[1]),sketch->world_point(second[0],second[1])},{}}});
+        if(!inferred.symmetry_axis_id.empty())viewer_->set_transient_labels({{sketch->world_point((first[0]+second[0])*.5,(first[1]+second[1])*.5),"S"}});
+        return;
+    }
+    const double radius=std::abs(((*position)[0]-first[0])*dy-((*position)[1]-first[1])*dx)/length;
+    if(radius<=1e-9){viewer_->set_transient_edges({});return;}
+    const double angle=std::atan2(dy,dx),half_turn=3.141592653589793;
+    std::vector<zima::kernel::ViewerEdge> edges(4);
+    for(int cap=0;cap<2;++cap) {
+        const auto center=cap?second:first;
+        for(int i=0;i<=32;++i) {
+            const double a=angle+(cap?-.5:.5)*half_turn+half_turn*i/32;
+            edges[cap*2].points.push_back(sketch->world_point(center[0]+radius*std::cos(a),center[1]+radius*std::sin(a)));
+        }
+    }
+    edges[1].points={edges[0].points.back(),edges[2].points.front()};
+    edges[3].points={edges[2].points.back(),edges[0].points.front()};
+    viewer_->set_transient_edges(std::move(edges));
+}
+
 void AssemblyWorkspaceWindow::preview_sketch_segment_ray(
     const zima::kernel::Vec3& origin, const zima::kernel::Vec3& direction) {
     if (!sketch_segment_active_ || !pending_segment_start_) return;
