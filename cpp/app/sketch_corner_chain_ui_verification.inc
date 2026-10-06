@@ -1,5 +1,6 @@
 int verify_sketch_corner_chain_ui(QApplication& application,const std::filesystem::path& directory) {
     using namespace zima;
+    if(qEnvironmentVariableIsSet("ZIMA_SKETCH_TRACE"))qInstallMessageHandler([](QtMsgType,const QMessageLogContext&,const QString& message){std::cerr<<message.toStdString()<<'\n';});
     try {
         const auto check=[](bool ok,const char* text){if(!ok)throw std::runtime_error(text);};
         const auto flush=[&]{application.processEvents();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);application.processEvents();};
@@ -71,12 +72,16 @@ int verify_sketch_corner_chain_ui(QApplication& application,const std::filesyste
             }
             click(*hit,Qt::ControlModifier);
         };
-        select_segment(2);select_segment(5);
+        const bool rectangle_fixture=sketch.segments.size()==4;
+        select_segment(rectangle_fixture?0:2);select_segment(rectangle_fixture?3:5);
         check(view->sketch_selection().size()==2,"Ctrl clicks did not select two native legs");
-        mouse(screen(5,-50),QEvent::MouseMove,Qt::NoButton,Qt::NoButton);
-        mouse(screen(5,-50),QEvent::MouseButtonPress,Qt::LeftButton,Qt::LeftButton);
-        mouse(screen(3,-48),QEvent::MouseMove,Qt::NoButton,Qt::LeftButton);
-        mouse(screen(3,-48),QEvent::MouseButtonRelease,Qt::LeftButton,Qt::NoButton);
+        const auto* corner=rectangle_fixture?sketch.find_point(sketch.segments[0].first_point_id):nullptr;
+        const double corner_x=corner?corner->x:5,corner_y=corner?corner->y:-50;
+        const double drag_x=corner_x+(rectangle_fixture?2:-2),drag_y=corner_y+2;
+        mouse(screen(corner_x,corner_y),QEvent::MouseMove,Qt::NoButton,Qt::NoButton);
+        mouse(screen(corner_x,corner_y),QEvent::MouseButtonPress,Qt::LeftButton,Qt::LeftButton);
+        mouse(screen(drag_x,drag_y),QEvent::MouseMove,Qt::NoButton,Qt::LeftButton);
+        mouse(screen(drag_x,drag_y),QEvent::MouseButtonRelease,Qt::LeftButton,Qt::NoButton);
         view->grabFramebuffer().save(QString::fromStdString((directory/"corner-chain.png").string()));
         window.findChild<QAction*>("finishSketchAction")->trigger();flush();
         for(auto* dialog:window.findChildren<QDialog*>())if(dialog->isVisible())if(auto* buttons=dialog->findChild<QDialogButtonBox*>())if(auto* ok=buttons->button(QDialogButtonBox::Ok)){ok->click();flush();break;}
@@ -85,8 +90,8 @@ int verify_sketch_corner_chain_ui(QApplication& application,const std::filesyste
         check(after.sketches.front().corner_radii.size()==sketch.corner_radii.size()+1,"Second corner drag did not add a radius");
         check(after.sketches.front().segments==sketch.segments,"Corner drag changed source segments");
         check(after.sketches.front().constraints==sketch.constraints,"Corner drag changed source constraints");
-        check(after.sketches.front().corner_radii.front()==sketch.corner_radii.front(),"Corner drag changed the first radius");
-        check(after.sketches.front().evaluated_profile_sketch().arcs.size()==2,"Reopened profile lost a fillet");
+        if(!sketch.corner_radii.empty())check(after.sketches.front().corner_radii.front()==sketch.corner_radii.front(),"Corner drag changed the first radius");
+        check(after.sketches.front().evaluated_profile_sketch().arcs.size()==sketch.corner_radii.size()+1,"Reopened profile lost a fillet");
         check(window.execute_console_command("undo").ok,"Corner Undo failed");
         check(window.execute_console_command("save").ok,"Save after Undo failed");
         check(document::PartDocument::load(path).sketches.front().corner_radii.size()==sketch.corner_radii.size(),"One Undo did not restore the first radius only");

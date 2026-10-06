@@ -412,6 +412,65 @@ int main() {
             require(Sketch::from_serialized(profile.serialized()).evaluated_profile_sketch().arcs.size()==2,
                 "Chained L fillets failed serialization");
         }
+        {
+            // FORM rectangle: the design midpoint of the lower leg remains
+            // on Y even when either end of that leg is rounded.
+            using namespace zima::sketcher;
+            for(const bool midpoint_on_line:{false,true}) {
+            auto base=Sketch::create_default();
+            for(const auto xy:std::vector<std::array<double,2>>{{-50,-20},{50,-20},{50,0},{-50,0},{0,-20}})
+                base.points.push_back(Sketch::create_point(xy[0],xy[1]));
+            for(const auto ij:std::vector<std::array<int,2>>{{0,1},{1,2},{2,3},{3,0}})
+                base.segments.push_back(Sketch::create_segment(base.points[ij[0]].id,base.points[ij[1]].id));
+            for(int i=0;i<4;++i)static_cast<void>(base.add_segment_constraint(base.segments[i].id,
+                i%2?ConstraintKind::Vertical:ConstraintKind::Horizontal));
+            static_cast<void>(base.add_point_on_line_constraint(base.points[2].id,"sketch_axis:x"));
+            if(midpoint_on_line)static_cast<void>(base.add_midpoint_on_line_constraint(base.segments[0].id,"sketch_axis:y"));
+            else static_cast<void>(base.add_midpoint_constraint(base.points[4].id,base.segments[0].id));
+            static_cast<void>(base.add_point_on_line_constraint(base.points[4].id,"sketch_axis:y"));
+            base.apply_dimension(base.create_segment_dimension(base.segments[0].id));
+            base.apply_dimension(base.create_segment_dimension(base.segments[1].id));
+            const auto verify=[&](Sketch& value,std::size_t count) {
+                const auto solved=value.solve();
+                require(solved.status!=SolveStatus::Invalid&&solved.status!=SolveStatus::Conflicting,
+                    "Original midpoint cannot solve after corner rounding");
+                const auto evaluated=value.evaluated_profile_sketch();
+                require(evaluated.arcs.size()==count,"Midpoint rectangle lost corner arcs");
+                require(value.points==base.points&&value.segments==base.segments&&
+                    value.constraints==base.constraints&&value.dimensions==base.dimensions,
+                    "Rectangle rounding changed the untrimmed midpoint/axis design");
+                for(const auto& arc:evaluated.arcs) {
+                    const auto* center=evaluated.find_point(arc.center_point_id);
+                    const auto* end=evaluated.find_point(arc.start_point_id);
+                    require(std::abs(std::hypot(end->x-center->x,end->y-center->y)-2)<1e-7,
+                        "Midpoint rectangle rounding changed radius");
+                }
+                const auto mesh=value.viewer_mesh();
+                const auto& segment=value.segments[0];
+                const auto* first=value.find_point(segment.first_point_id);
+                const auto* second=value.find_point(segment.second_point_id);
+                require(std::ranges::count_if(mesh.points,[&](const auto& point){
+                    return point.reference.semantic_key=="sketch_midpoint:"+segment.id;
+                })==1,"Rounded leg publishes multiple midpoints");
+                require(std::ranges::any_of(mesh.points,[&](const auto& point){
+                    return point.reference.semantic_key=="sketch_midpoint:"+segment.id&&
+                        std::abs(point.position.x-(first->x+second->x)*0.5)<1e-7;
+                }),"Rounded leg publishes a midpoint of trimmed geometry");
+                for(const auto& constraint:value.constraints)if(constraint.kind==ConstraintKind::Midpoint||constraint.kind==ConstraintKind::MidpointOnLine)
+                    require(std::ranges::any_of(mesh.constraint_markers,[&](const auto& marker){
+                        return marker.reference.semantic_key=="constraint:"+constraint.id;
+                    }),"Rounded leg lost its authored midpoint marker");
+            };
+            for(int i=0;i<4;++i) {
+                auto rounded=base;static_cast<void>(rounded.add_corner_fillet(base.segments[i].id,base.segments[(i+3)%4].id,2));
+                verify(rounded,1);
+                auto reopened=Sketch::from_serialized(rounded.serialized());verify(reopened,1);
+            }
+            auto rounded=base;
+            for(int i=0;i<4;++i)static_cast<void>(rounded.add_corner_fillet(base.segments[i].id,base.segments[(i+3)%4].id,2));
+            verify(rounded,4);
+            }
+        }
         // Reduced 01.prtz regression: six edge lengths, but no H/V on the
         // top and right edges. Those edges must tilt when a length changes.
         {
@@ -5651,7 +5710,7 @@ int main() {
                         [&](const auto& point) {
                             return point.reference.semantic_key ==
                                     "sketch_midpoint:" + fillet_first &&
-                                std::abs(point.position.x - 6.0) < 1.0e-7;
+                                std::abs(point.position.x - 5.0) < 1.0e-7;
                         }),
                 "Corner radius View exposed derived points or lost its child arc");
         auto ordinary_segment_sketch =

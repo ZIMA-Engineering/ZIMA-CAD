@@ -138,12 +138,12 @@ AssemblyWorkspaceWindow::sketch_candidate_snap_ray(
             sketch->segments.begin(), sketch->segments.end(),
             [&](const auto& value) { return value.id == support_geometry_id; });
         if (segment == sketch->segments.end()) return std::nullopt;
-        const auto visible = sketch->visible_segment_endpoints(
-            support_geometry_id);
-        if (!visible) return std::nullopt;
+        const auto* first=sketch->find_point(segment->first_point_id);
+        const auto* second=sketch->find_point(segment->second_point_id);
+        if(!first||!second)return std::nullopt;
         position = std::array{
-            (visible->first[0] + visible->second[0]) * 0.5,
-            (visible->first[1] + visible->second[1]) * 0.5};
+            (first->x + second->x) * 0.5,
+            (first->y + second->y) * 0.5};
         relation = zima::sketcher::ConstraintKind::Midpoint;
     } else if (candidate.kind ==
                    zima::viewer::CandidateKind::SketchExternalReference &&

@@ -6297,7 +6297,11 @@ static CornerFilletResult materialize_corner_fillet(
         // them again to this derived profile would stretch a shortened leg
         // (and move an existing fillet at its other end). The persisted source
         // Sketch keeps the relation; only its materialized copy omits it.
-        if (constraint.kind == ConstraintKind::EqualLength &&
+        // A midpoint belongs to the full design leg, too. Its retained
+        // source point must not become the midpoint of the trimmed leg.
+        if ((constraint.kind == ConstraintKind::EqualLength ||
+             constraint.kind == ConstraintKind::Midpoint ||
+             constraint.kind == ConstraintKind::MidpointOnLine) &&
             (constraint.geometry_id == first_segment_id ||
              constraint.geometry_id == second_segment_id ||
              constraint.second_geometry_id == first_segment_id ||
@@ -10312,13 +10316,8 @@ SolveResult Sketch::solve_impl(
                 auto* point = find_point(constraint.first_point_id);
                 auto* first = find_point(segment->first_point_id);
                 auto* second = find_point(segment->second_point_id);
-                const auto visible = visible_segment_endpoints(segment->id);
-                const double target_x = visible
-                    ? (visible->first[0] + visible->second[0]) * 0.5
-                    : (first->x + second->x) * 0.5;
-                const double target_y = visible
-                    ? (visible->first[1] + visible->second[1]) * 0.5
-                    : (first->y + second->y) * 0.5;
+                const double target_x = (first->x + second->x) * 0.5;
+                const double target_y = (first->y + second->y) * 0.5;
                 const double residual_x =
                     point->x - target_x;
                 const double residual_y =
@@ -11531,13 +11530,8 @@ SolveResult Sketch::solve_impl(
                 const auto* point = find_point(constraint.first_point_id);
                 const auto* first = find_point(segment->first_point_id);
                 const auto* second = find_point(segment->second_point_id);
-                const auto visible = visible_segment_endpoints(segment->id);
-                const double target_x = visible
-                    ? (visible->first[0] + visible->second[0]) * 0.5
-                    : (first->x + second->x) * 0.5;
-                const double target_y = visible
-                    ? (visible->first[1] + visible->second[1]) * 0.5
-                    : (first->y + second->y) * 0.5;
+                const double target_x = (first->x + second->x) * 0.5;
+                const double target_y = (first->y + second->y) * 0.5;
                 result.push_back(point->x - target_x);
                 result.push_back(point->y - target_y);
                 continue;
@@ -12247,7 +12241,47 @@ zima::kernel::ViewerMesh Sketch::viewer_mesh() const {
             display.placement = radius.dimension_placement;
             evaluated.dimensions.push_back(std::move(display));
         }
+        // Retain source midpoint annotation/selection after geometric
+        // evaluation; these relations must not solve the trimmed profile.
+        for(const auto& constraint:constraints) {
+            if(constraint.kind!=ConstraintKind::Midpoint&&constraint.kind!=ConstraintKind::MidpointOnLine)continue;
+            if(std::ranges::none_of(evaluated.constraints,[&](const auto& value){return value.id==constraint.id;}))
+                evaluated.constraints.push_back(constraint);
+        }
         auto result = evaluated.viewer_mesh();
+        // Publish one midpoint for the authored endpoints, never another
+        // midpoint for the tangent-trimmed display leg.
+        for(auto& point:result.points) {
+            constexpr std::string_view prefix{"sketch_midpoint:"};
+            if(!point.reference.semantic_key.starts_with(prefix))continue;
+            const auto segment_id=point.reference.semantic_key.substr(prefix.size());
+            const auto segment=std::ranges::find_if(segments,[&](const auto& value){return value.id==segment_id;});
+            if(segment==segments.end())continue;
+            const auto* first=find_point(segment->first_point_id);
+            const auto* second=find_point(segment->second_point_id);
+            point.position=world_point((first->x+second->x)*0.5,(first->y+second->y)*0.5);
+        }
+        for(auto& marker:result.constraint_markers) {
+            const auto constraint=std::ranges::find_if(constraints,[&](const auto& value){
+                return marker.reference.semantic_key=="constraint:"+value.id&&
+                    (value.kind==ConstraintKind::Midpoint||value.kind==ConstraintKind::MidpointOnLine);
+            });
+            if(constraint==constraints.end())continue;
+            const auto segment=std::ranges::find_if(segments,[&](const auto& value){return value.id==constraint->geometry_id;});
+            if(segment==segments.end())continue;
+            const auto* first=find_point(segment->first_point_id);
+            const auto* second=find_point(segment->second_point_id);
+            if(constraint->kind==ConstraintKind::MidpointOnLine)
+                marker.position=world_point((first->x+second->x)*0.5,(first->y+second->y)*0.5);
+            std::erase_if(marker.participant_semantic_keys,[&](const auto& key){
+                return key.starts_with("point:")&&!find_point(key.substr(6));
+            });
+            for(const auto& point_id:{segment->first_point_id,segment->second_point_id}) {
+                const auto key="point:"+point_id;
+                if(std::ranges::find(marker.participant_semantic_keys,key)==marker.participant_semantic_keys.end())
+                    marker.participant_semantic_keys.push_back(key);
+            }
+        }
         for (auto& edge : result.edges) {
             constexpr std::string_view arc_prefix{"arc:"};
             if (!edge.reference.semantic_key.starts_with(arc_prefix)) continue;

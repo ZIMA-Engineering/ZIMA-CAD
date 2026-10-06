@@ -804,6 +804,23 @@ at origin and another on X. Radii, equality and tangency remain; tests cover
 original spacing 19.448732 mm and repeated changes to 12, 20 and 35 mm. Tangent
 contacts retain their own anchoring rules during segment-length edits.
 
+## Authored segment midpoint after corner rounding (2026-10-06)
+
+A segment has one midpoint: halfway between its persisted source endpoints.
+Corner rounding trims the displayed/profile leg, but does not define another
+midpoint between the tangent endpoints. Midpoint constraints, snap candidates
+and automatic midpoint entry use the original endpoints. Midpoint-on-line uses
+the same definition. Source dimensions and midpoint/axis constraints remain
+unchanged when a radius is created, edited or suppressed.
+
+Materializing a rounded profile omits midpoint relations on the affected design
+legs from the derived solve, as it already does for equal design lengths. Their
+markers remain available in the Sketch view. The native regression covers a
+100-by-20 rectangle, each corner and all four corners, both midpoint relation
+forms, native round-trip, source preservation and one midpoint candidate. The
+user's `FORM.prtz` is verified through copies, never modified by the tests.
+This change adds no user-visible strings; existing localized labels are reused.
+
 ## Coupled distance edits (2026-09-24)
 
 A closed point/line loop may require several vertices to move simultaneously
