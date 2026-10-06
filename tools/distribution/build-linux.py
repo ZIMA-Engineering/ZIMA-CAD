@@ -127,7 +127,8 @@ def main():
         shared.export_source(repo, commit, source)
     shared.write_json(stage / 'source.json', dict(commit=commit))
     shared.run(['cmake', '-S', source / 'cpp', '-B', build, '-G', 'Ninja', '-DCMAKE_BUILD_TYPE=Release',
-                '-DZIMA_BUILD_TESTS=OFF', '-DZIMA_SOURCE_COMMIT=' + commit, '-DCMAKE_PREFIX_PATH=' + str(sdk)])
+                '-DZIMA_BUILD_TESTS=OFF', '-DZIMA_SOURCE_COMMIT=' + commit, '-DCMAKE_PREFIX_PATH=' + str(sdk),
+                '-DOpenCASCADE_DIR=' + str(sdk / 'lib/cmake/opencascade')])
     shared.run(['cmake', '--build', build, '--target', 'zima-cad-cpp', 'zima-cad-cli', 'zima-cad-update', '--parallel', str(args.jobs)])
     assembly = Path(tempfile.mkdtemp(prefix='p-', dir=stage)); root = assembly / 'ZIMA-CAD'
     runtime = root / 'linux' / version; (runtime / 'bin').mkdir(parents=True)
