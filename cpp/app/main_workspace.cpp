@@ -5671,19 +5671,19 @@ int verify_rectangle_external_contact_ui(QApplication& application,const std::fi
     const auto check=[](bool ok,const char* message){if(!ok)throw std::runtime_error(message);};
     const auto flush=[&]{application.processEvents();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);application.processEvents();};
     try {
-        for(bool vertical:{false,true})for(bool midpoint:{false,true}) {
+        for(bool axis_symmetry:{false,true})for(bool vertical:{false,true})for(bool midpoint:{false,true}) {
             auto part=document::PartDocument::create_default();
             auto feature=document::PartDocument::create_sketch_container();
             auto sketch=sketcher::Sketch::create_default();sketch.owner_container_id=feature.id;
             auto source=document::PartDocument::create_construction(document::ConstructionKind::Point);
-            source.origin=vertical?kernel::Vec3{0,5,0}:kernel::Vec3{5,0,0};
+            source.origin=axis_symmetry?kernel::Vec3{25,25,0}:(vertical?kernel::Vec3{0,5,0}:kernel::Vec3{5,0,0});
             part.constructions={source};part.history={feature};
             document::BodyHistoryGraph graph;const auto body=graph.create_body("Rectangle external contact");
             graph.insert({document::PartHistoryKind::Construction,source.id});
             graph.insert({document::PartHistoryKind::Feature,feature.id});part.set_body_history(graph);
             auto reference=sketcher::Sketch::create_external_reference(sketcher::ExternalReferenceKind::Point);
             reference.source_document_id=part.document_id;reference.source_owner_id=source.entity_id;reference.source_semantic_key="point";
-            reference.cached_points={vertical?std::array{0.,5.}:std::array{5.,0.}};
+            reference.cached_points={axis_symmetry?std::array{25.,25.}:(vertical?std::array{0.,5.}:std::array{5.,0.})};
             sketch.add_external_reference(reference);part.sketches={sketch};part.resolve_constructions();
             const auto path=directory/"rectangle-external-contact.prtz";part.save(path);
             app::AssemblyWorkspaceWindow window(QString::fromStdString(directory.string()));window.resize(1200,900);window.show();
@@ -5704,9 +5704,10 @@ int verify_rectangle_external_contact_ui(QApplication& application,const std::fi
             const auto mouse=[&](QPointF p,QEvent::Type type,Qt::MouseButton button){QMouseEvent event(type,p,QPointF(view->mapToGlobal(p.toPoint())),button,type==QEvent::MouseButtonPress?button:Qt::NoButton,Qt::NoModifier);QApplication::sendEvent(view,&event);flush();};
             auto* rectangle=window.findChild<QAction*>("sketchRectangleAction");check(rectangle&&rectangle->isEnabled(),"Rectangle unavailable");rectangle->trigger();flush();
             const auto click=[&](std::array<double,2> p){const auto at=screen(p);mouse(at,QEvent::MouseMove,Qt::NoButton);mouse(at,QEvent::MouseButtonPress,Qt::LeftButton);mouse(at,QEvent::MouseButtonRelease,Qt::LeftButton);};
-            click({0,0});
+            const double sign=midpoint?1.:-1.;
+            click(axis_symmetry?(vertical?std::array{-4*sign,-8.}:std::array{-8.,-4*sign}):std::array{0.,0.});
             const double length=midpoint?10.1:18.;
-            const auto opposite=vertical?std::array{13.,length}:std::array{length,13.};
+            const auto opposite=axis_symmetry?(vertical?std::array{4.1*sign,13.}:std::array{13.,4.1*sign}):(vertical?std::array{13.,length}:std::array{length,13.});
             mouse(screen(opposite),QEvent::MouseMove,Qt::NoButton);
             view->grab().save(QString("build/rectangle-external-%1-%2.png").arg(vertical?"y":"x",midpoint?"M":"C"));
             click(opposite);
@@ -5717,11 +5718,26 @@ int verify_rectangle_external_contact_ui(QApplication& application,const std::fi
             window.findChild<QAction*>("saveDocumentAction")->trigger();flush();
             const auto saved=document::PartDocument::load(path);const auto& result=saved.sketches.front();
             check(result.segments.size()==4,"Rectangle did not create four sides");
+            if(axis_symmetry) {
+                check(std::ranges::any_of(result.constraints,[&](const auto& c){return c.kind==sketcher::ConstraintKind::Symmetric && c.geometry_id==(vertical?"sketch_axis:y":"sketch_axis:x");}),
+                    "Rectangle did not commit offered corner symmetry to its axis");
+                check(std::ranges::none_of(result.constraints,[](const auto& c){return c.kind==sketcher::ConstraintKind::MidpointOnLine;}),
+                    "Rectangle still uses edge midpoint anchoring instead of corner symmetry");
+                for(const auto index:{vertical?0u:1u,vertical?2u:3u}) {
+                    const auto& edge=result.segments[index];const auto* p=result.find_point(edge.first_point_id);const auto* q=result.find_point(edge.second_point_id);
+                    check(std::abs(vertical?p->x+q->x:p->y+q->y)<1e-8,"Rectangle corner pair is not mirrored about its axis");
+                }
+                check(window.execute_console_command("undo").ok&&window.execute_console_command("save").ok,"Rectangle symmetry Undo failed");
+                check(document::PartDocument::load(path).sketches.front().segments.empty(),"Rectangle symmetry Undo retained geometry");
+                check(window.execute_console_command("redo").ok&&window.execute_console_command("save").ok,"Rectangle symmetry Redo failed");
+                check(document::PartDocument::load(path).sketches.front().serialized()==result.serialized(),"Rectangle symmetry Redo changed its geometry");
+                continue;
+            }
             const auto binding=std::ranges::find_if(result.constraints,[&](const auto& value){return value.kind==sketcher::ConstraintKind::PointReference && value.second_point_id==reference.id;});
             check(binding!=result.constraints.end(),"Rectangle lost the external source point");
             check(std::ranges::any_of(result.constraints,[&](const auto& value){return value.first_point_id==binding->first_point_id && value.kind==(midpoint?sketcher::ConstraintKind::Midpoint:sketcher::ConstraintKind::PointOnLine);}),"Offered rectangle C/M was not committed");
         }
-        std::cout<<"Rectangle external C/M on both origin axes passed through preview, mouse confirmation and save/reopen\n";return 0;
+        std::cout<<"Eight rectangle external C/M and axis S variants passed through preview, mouse confirmation and save/reopen\n";return 0;
     }catch(const std::exception& error){std::cerr<<error.what()<<'\n';return 1;}
 }
 

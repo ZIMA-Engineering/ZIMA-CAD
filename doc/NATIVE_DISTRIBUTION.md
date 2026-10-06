@@ -2,6 +2,13 @@
 
 ## Scope and status
 
+Windows build **2026100611** is locally verified; release acceptance is pending.
+It repairs tangent Reference Profile Trim and dependency updates, extends native
+circular-network fitting, and uses corner-pair S for rectangle axis centring.
+Seven native suites, 25 external-constraint GUI cases and eight rectangle GUI
+variants passed. See [the release record](releases/2026100611.md) and
+[the case studies](AI/SKETCH_TANGENCY_CASE_STUDIES.md).
+
 Windows build **2026100610** is signed, published and verified. It adds persistent
 circle tangent contacts, external-point H/V, exact local arc Trim, and bounded
 double-tangent dragging and dimension changes. Six native suites, nineteen

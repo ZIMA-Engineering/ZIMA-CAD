@@ -14,6 +14,21 @@ newer completion notes and focused contracts supersede their earlier status.
 
 ## Current work and queued requests (2026-10-06)
 
+### Sketch circular tangency studies and rectangle symmetry
+
+Local implementation and verification cover tangent Reference Profile trimming,
+following contacts through radius edits and dragging, directly created arcs on
+external supports, three-curve tangent chains and three mutual tangencies.
+Automatic rectangle centring on an axis now uses corner-pair symmetry (S).
+See [the case studies](doc/AI/SKETCH_TANGENCY_CASE_STUDIES.md) for the executed
+matrix and [Windows 2026100611](doc/releases/2026100611.md) for release acceptance.
+
+Continue extending these regression studies for newly reported constraint
+combinations. Mixed larger native/external networks, ellipse/spline contacts,
+internal arc tangency and additional dimension combinations remain verification
+work; the current studies do not claim universal solver convergence. Linux
+verification of this change belongs on the Linux host.
+
 ### Part direct modeling and basic FEM (requested 2026-10-06)
 
 - Add direct modeling of imported STEP solid geometry within a Part. Define the

@@ -282,11 +282,11 @@ bool seed_equal_length_components(Sketch& sketch,const std::vector<std::string>&
     return changed;
 }
 // A failed circular drag needs simultaneous point, radius and tangent updates.
-// This bounded seed covers native line/arc graphs only; unsupported equations
+// This bounded seed covers native line/circle/arc graphs; unsupported equations
 // leave the transaction untouched and the ordinary solver verifies the result.
 bool seed_circular_equations(Sketch& sketch,const std::vector<std::string>& anchors,bool line_component) {
-    if((!line_component&&(sketch.arcs.empty()||!sketch.external_references.empty()))||sketch.points.size()>32||
-       !sketch.circles.empty()||!sketch.ellipses.empty()||!sketch.elliptical_arcs.empty()||
+    if((!line_component&&((sketch.arcs.empty()&&sketch.circles.empty())||!sketch.external_references.empty()))||sketch.points.size()>32||
+       !sketch.ellipses.empty()||!sketch.elliptical_arcs.empty()||
        !sketch.bsplines.empty()||!sketch.corner_radii.empty()||!sketch.offsets.empty()||!sketch.curve_trims.empty())return false;
     auto next=sketch;
     const auto point=[&](const std::string& id)->std::optional<std::array<double,2>> {
@@ -314,8 +314,37 @@ bool seed_circular_equations(Sketch& sketch,const std::vector<std::string>& anch
         const double length=std::hypot((*b)[0]-(*a)[0],(*b)[1]-(*a)[1]);if(length<1e-10)return {};
         return std::array{(*a)[0],(*a)[1],((*b)[0]-(*a)[0])/length,((*b)[1]-(*a)[1])/length};
     };
+    const auto circular=[&](const std::string& id)->std::optional<std::array<double,3>> {
+        for(const auto& c:next.circles)if(c.id==id) {
+            const auto p=point(c.center_point_id);return std::array{(*p)[0],(*p)[1],c.radius};
+        }
+        for(const auto& c:next.arcs)if(c.id==id) {
+            const auto p=point(c.center_point_id);return std::array{(*p)[0],(*p)[1],c.radius};
+        }
+        return {};
+    };
+    std::set<std::string> derived_endpoints;
+    for(const auto& arc:next.arcs)for(const auto& id:{arc.start_point_id,arc.end_point_id}) {
+        const auto* p=next.find_point(id);
+        if(!p || p->fixed || std::ranges::find(anchors,id)!=anchors.end())continue;
+        const auto owners=std::ranges::count_if(next.arcs,[&](const auto& a){return a.start_point_id==id || a.end_point_id==id;});
+        if(owners!=1 || std::ranges::any_of(next.segments,[&](const auto& l){return l.first_point_id==id || l.second_point_id==id;}))continue;
+        if(std::ranges::any_of(next.constraints,[&](const auto& c){return !c.suppressed && (c.first_point_id==id || c.second_point_id==id);}) ||
+           std::ranges::any_of(next.dimensions,[&](const auto& d){return !d.suppressed && d.driving && (d.first_point_id==id || d.second_point_id==id || d.third_geometry_id==id);}))continue;
+        derived_endpoints.insert(id);
+    }
     const auto equations=[&]()->std::optional<std::vector<double>> {
         std::vector<double> r;
+        // A free arc end carries no independent equation. Preserve its angle
+        // during radial fitting instead of rotating it outside a valid contact
+        // domain merely to minimize displacement of its old coordinates.
+        for(const auto& arc:next.arcs)for(const auto& [id,angle]:{
+                std::pair{arc.start_point_id,arc.start_angle},std::pair{arc.end_point_id,arc.end_angle}}) {
+            if(!derived_endpoints.contains(id))continue;
+            auto* p=next.find_point(id);const auto c=point(arc.center_point_id);
+            p->x=(*c)[0]+arc.radius*std::cos(angle);p->y=(*c)[1]+arc.radius*std::sin(angle);
+        }
+        for(const auto& c:next.circles)if(c.radius<=1e-9)return {};
         for(const auto& a:next.arcs) {
             if(a.radius<=1e-9)return {};
             const auto c=point(a.center_point_id);
@@ -344,6 +373,27 @@ bool seed_circular_equations(Sketch& sketch,const std::vector<std::string>& anch
                     r.push_back(length(*sa)-length(*sb));
                 } else r.push_back(c.kind==ConstraintKind::Parallel?(*a)[2]*(*b)[3]-(*a)[3]*(*b)[2]:(*a)[2]*(*b)[2]+(*a)[3]*(*b)[3]);
             } else if(c.kind==ConstraintKind::Tangent) {
+                const auto first=circular(c.geometry_id),second=circular(c.second_geometry_id);
+                if(first && second) {
+                    // Keep the persisted internal/external side; this is only
+                    // a seed and the ordinary solver checks arc domains too.
+                    const double target=c.tangent_internal?std::abs((*first)[2]-(*second)[2]):(*first)[2]+(*second)[2];
+                    const double distance=std::hypot((*first)[0]-(*second)[0],(*first)[1]-(*second)[1]);
+                    r.push_back(distance-target);
+                    const auto a=std::ranges::find(next.arcs,c.geometry_id,&SketchArc::id);
+                    const auto b=std::ranges::find(next.arcs,c.second_geometry_id,&SketchArc::id);
+                    if(a!=next.arcs.end() && b!=next.arcs.end()) {
+                        if(distance<1e-9)return {};
+                        for(const auto& id:{a->start_point_id,a->end_point_id}) {
+                            if(id!=b->start_point_id && id!=b->end_point_id)continue;
+                            const auto p=point(id);
+                            const double factor=(*first)[2]/distance*(c.tangent_internal&&(*first)[2]<(*second)[2]?-1.:1.);
+                            r.push_back((*p)[0]-(*first)[0]-((*second)[0]-(*first)[0])*factor);
+                            r.push_back((*p)[1]-(*first)[1]-((*second)[1]-(*first)[1])*factor);
+                        }
+                    }
+                    continue;
+                }
                 auto a=std::ranges::find(next.arcs,c.geometry_id,&SketchArc::id);auto l=line(c.second_geometry_id);
                 if(a==next.arcs.end()){a=std::ranges::find(next.arcs,c.second_geometry_id,&SketchArc::id);l=line(c.geometry_id);}
                 const auto p=point(c.first_point_id);if(a==next.arcs.end()||!l||!p)return {};
@@ -362,8 +412,8 @@ bool seed_circular_equations(Sketch& sketch,const std::vector<std::string>& anch
         for(const auto& d:next.dimensions) {
             if(d.suppressed||!d.driving)continue;
             if(d.kind==DimensionKind::Radius||d.kind==DimensionKind::Diameter) {
-                const auto a=std::ranges::find(next.arcs,d.geometry_id,&SketchArc::id);if(a==next.arcs.end())return {};
-                r.push_back(a->radius-d.value*(d.kind==DimensionKind::Diameter?.5:1.));
+                const auto c=circular(d.geometry_id);if(!c)return {};
+                r.push_back((*c)[2]-d.value*(d.kind==DimensionKind::Diameter?.5:1.));
             } else if(d.kind==DimensionKind::Distance||d.kind==DimensionKind::DistanceX||d.kind==DimensionKind::DistanceY) {
                 const auto a=point(d.first_point_id),b=point(d.second_point_id);if(!a||!b)return {};
                 const double x=(*b)[0]-(*a)[0],y=(*b)[1]-(*a)[1];
@@ -373,8 +423,9 @@ bool seed_circular_equations(Sketch& sketch,const std::vector<std::string>& anch
         return r;
     };
     std::vector<double*> variables;
-    for(auto& p:next.points)if(!p.fixed&&std::ranges::find(anchors,p.id)==anchors.end()){variables.push_back(&p.x);variables.push_back(&p.y);}
+    for(auto& p:next.points)if(!p.fixed&&!derived_endpoints.contains(p.id)&&std::ranges::find(anchors,p.id)==anchors.end()){variables.push_back(&p.x);variables.push_back(&p.y);}
     for(auto& a:next.arcs)variables.push_back(&a.radius);
+    for(auto& c:next.circles)variables.push_back(&c.radius);
     if(variables.empty())return false;
     const auto norm=[](const auto& r){double value=0;for(double v:r)value+=v*v;return value;};
     for(int iteration=0;iteration<48;++iteration) {

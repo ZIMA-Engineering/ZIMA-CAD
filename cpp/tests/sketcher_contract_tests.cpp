@@ -3,6 +3,7 @@
 #include <zima/sketcher/curve_geometry.hpp>
 #include <zima/viewer/picking.hpp>
 #include <zima/document/part_document.hpp>
+#include "sketch_tangent_reference_studies.hpp"
 
 #include <algorithm>
 #include <chrono>
@@ -24,6 +25,7 @@ void require(bool condition, const char* message) {
 
 int main() {
     try {
+        run_sketch_tangent_reference_studies();
         using zima::sketcher::DimensionKind;
         {
             using namespace zima::sketcher;

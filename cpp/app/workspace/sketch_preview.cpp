@@ -778,8 +778,15 @@ bool AssemblyWorkspaceWindow::accept_sketch_rectangle_ray(
                         try {
                             if(constraint.external_point)static_cast<void>(target.add_external_point_segment_constraint(
                                 constraint.axis_id,rectangle_ids[constraint.side_index],constraint.midpoint));
-                            else static_cast<void>(target.add_midpoint_on_line_constraint(
-                                rectangle_ids[constraint.side_index],constraint.axis_id));
+                            else {
+                                std::array<std::pair<std::string,std::string>,2> pairs;
+                                for(std::size_t i=0;i<2;++i) {
+                                    const auto& edge_id=rectangle_ids[constraint.side_index+2*i];
+                                    const auto edge=std::ranges::find(target.segments,edge_id,&zima::sketcher::SketchSegment::id);
+                                    pairs[i]={edge->first_point_id,edge->second_point_id};
+                                }
+                                for(const auto& pair:pairs)static_cast<void>(target.add_symmetric_constraint(pair.first,pair.second,constraint.axis_id));
+                            }
                         } catch(const zima::sketcher::RedundantConstraint&) {}
                     }
                 }
@@ -915,7 +922,7 @@ void AssemblyWorkspaceWindow::preview_sketch_rectangle_ray(
                 ? std::array{(x0 + x1) * 0.5, y0}
                 : std::array{x1, (y0 + y1) * 0.5};
             labels.emplace_back(
-                sketch->world_point(midpoint[0], midpoint[1]), "M");
+                sketch->world_point(midpoint[0], midpoint[1]), "S");
         }
         viewer_->set_transient_labels(std::move(labels));
     }
@@ -925,8 +932,9 @@ std::optional<AssemblyWorkspaceWindow::SketchRectangleMidpointSnap>
 AssemblyWorkspaceWindow::inferred_sketch_rectangle_midpoint_snap(
     const std::array<double, 2>& opposite) const {
     const bool midpoint_enabled=automatic_constraint_enabled(zima::sketcher::ConstraintKind::Midpoint);
+    const bool symmetry_enabled=automatic_constraint_enabled(zima::sketcher::ConstraintKind::Symmetric);
     const bool contact_enabled=automatic_constraint_enabled(zima::sketcher::ConstraintKind::Coincident);
-    if(!midpoint_enabled&&!contact_enabled)return std::nullopt;
+    if(!midpoint_enabled&&!contact_enabled&&!symmetry_enabled)return std::nullopt;
     const auto* sketch = active_sketch();
     if (sketch == nullptr || viewer_ == nullptr || !pending_rectangle_corner_) {
         return std::nullopt;
@@ -971,7 +979,7 @@ AssemblyWorkspaceWindow::inferred_sketch_rectangle_midpoint_snap(
             if(chosen)return chosen;
         }
     }
-    if(!midpoint_enabled)return std::nullopt;
+    if(!symmetry_enabled)return std::nullopt;
     struct AxisCandidate {
         std::string axis_id;
         double coordinate{};

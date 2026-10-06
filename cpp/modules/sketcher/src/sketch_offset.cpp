@@ -64,6 +64,21 @@ void follow_anchor(const Sketch& sketch,const Curve& curve,double& parameter,std
     if(!anchor)return;
     const auto other=anchor->curve_id.starts_with("__sketch_axis_")?axis_geometry(anchor->curve_id):sketch.supporting_curve(anchor->curve_id);
     const double original=parameter,previous=anchor->parameter;double t=parameter,u=previous;
+    // At tangency the intersection Jacobian is singular. Follow the already
+    // persisted native contact, verifying incidence on both current supports.
+    // This also avoids accepting a nearby point on the wrong retained branch.
+    for(const auto& constraint:sketch.constraints) {
+        if(constraint.suppressed || constraint.kind!=ConstraintKind::Tangent ||
+           (constraint.geometry_id!=anchor->curve_id && constraint.second_geometry_id!=anchor->curve_id))continue;
+        const auto* contact=sketch.find_point(constraint.first_point_id);
+        if(!contact)continue;
+        const kernel::Vec3 point{contact->x,contact->y,0};
+        const double own_parameter=nearest_parameter(curve,point),other_parameter=nearest_parameter(other,point);
+        const auto p=kernel::bspline_value(curve,own_parameter),q=kernel::bspline_value(other,other_parameter);
+        if(std::hypot(p.x-point.x,p.y-point.y)>1e-8 || std::hypot(q.x-point.x,q.y-point.y)>1e-8 ||
+           std::abs(own_parameter-original)>.15 || std::abs(other_parameter-previous)>.15)continue;
+        parameter=own_parameter;anchor->parameter=other_parameter;return;
+    }
     const auto derivative=[](const Curve& c,double t){const double a=std::max(0.,t-1e-6),b=std::min(1.,t+1e-6);const auto p=kernel::bspline_value(c,a),q=kernel::bspline_value(c,b);return std::array{(q.x-p.x)/(b-a),(q.y-p.y)/(b-a)};};
     for(unsigned i=0;i<30;++i) {
         const auto p=kernel::bspline_value(curve,t),q=kernel::bspline_value(other,u);const double x=p.x-q.x,y=p.y-q.y;

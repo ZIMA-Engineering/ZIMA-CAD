@@ -32,9 +32,7 @@ Point2 exact_geometry_point(
     double parameter);
 
 Point2 local_point(const Sketch& sketch, const zima::kernel::Vec3& point) {
-    if (sketch.plane == SketchPlane::XY) return {point.x, point.y};
-    if (sketch.plane == SketchPlane::XZ) return {point.x, point.z};
-    return {point.y, point.z};
+    return sketch.local_point(point);
 }
 
 std::vector<SampledCurve> sample_curves(const Sketch& sketch) {
@@ -418,7 +416,24 @@ double persisted_contact_parameter(
             return std::clamp((angle - arc->start_angle) / sweep, 0.0, 1.0);
         }
     }
-    return nearest_curve_parameter(curve, {point.x, point.y});
+    const double sampled=nearest_curve_parameter(curve, {point.x, point.y});
+    if(curve.kind!=SampledKind::BSpline)return sampled;
+    // The display polyline only selects a neighbourhood. A persisted contact
+    // must be located on the exact rational support, especially at tangency.
+    const auto exact=sketch_curve_geometry(sketch,curve.geometry_id);
+    const auto error=[&](double t) {
+        const auto p=kernel::bspline_value(exact,t);
+        return std::hypot(p.x-point.x,p.y-point.y);
+    };
+    const double span=2./std::max<std::size_t>(1,curve.points.size()-1);
+    double low=std::max(0.,sampled-span),high=std::min(1.,sampled+span);
+    for(unsigned i=0;i<70;++i) {
+        const double a=low+(high-low)/3,b=high-(high-low)/3;
+        if(error(a)<error(b))high=b;else low=a;
+    }
+    double best=(low+high)/2;
+    for(const double endpoint:{0.,1.})if(error(endpoint)<error(best))best=endpoint;
+    return best;
 }
 
 std::vector<PersistedCurveContact> persisted_curve_contacts(
@@ -431,25 +446,34 @@ std::vector<PersistedCurveContact> persisted_curve_contacts(
              constraint.kind != ConstraintKind::PointOnCircle && !keypoint_owner)) {
             continue;
         }
-        const auto curve = std::find_if(curves.begin(), curves.end(),
-            [&](const auto& value) {
-                return value.geometry_id == keypoint_owner.value_or(constraint.geometry_id);
-            });
         const auto* point = sketch.find_point(constraint.first_point_id);
-        if (curve == curves.end() || point == nullptr) continue;
-        // Persisted C contacts are exact ZIMA topology. In particular, a
-        // common tangent supplies the exact circle contact used by both C and
-        // T. Deriving an Arc boundary from the sampled display polyline moves
-        // it slightly past that contact; the resulting closed two-circle/two-
-        // tangent loop is inconsistent and the global solver then rejects
-        // dragging even unrelated points.
-        const double parameter = persisted_contact_parameter(
-            sketch, *curve, *point);
-        if (std::none_of(result.begin(), result.end(), [&](const auto& old) {
-                return old.geometry_id == curve->geometry_id &&
-                    old.point_id == point->id;
-            })) {
-            result.push_back({curve->geometry_id, point->id, parameter});
+        if(point==nullptr)continue;
+        const auto owner=keypoint_owner.value_or(constraint.geometry_id);
+        for(const auto& curve:curves) {
+            const bool direct=curve.geometry_id==owner;
+            const bool projected=!direct && std::ranges::any_of(sketch.import_blocks,[&](const auto& block) {
+                return block.source_path=="external-reference:"+owner &&
+                    std::ranges::find(block.geometry_ids,curve.geometry_id)!=block.geometry_ids.end();
+            });
+            if(!direct && !projected)continue;
+            // Persisted C contacts are exact ZIMA topology. In particular, a
+            // common tangent supplies the exact circle contact used by both C and
+            // T. Deriving an Arc boundary from the sampled display polyline moves
+            // it slightly past that contact; the resulting closed two-circle/two-
+            // tangent loop is inconsistent and the global solver then rejects
+            // dragging even unrelated points.
+            const double parameter = persisted_contact_parameter(
+                sketch, curve, *point);
+            if(projected) {
+                const auto p=exact_geometry_point(sketch,curve,parameter);
+                if(std::hypot(p[0]-point->x,p[1]-point->y)>1e-8)continue;
+            }
+            if (std::none_of(result.begin(), result.end(), [&](const auto& old) {
+                    return old.geometry_id == curve.geometry_id &&
+                        old.point_id == point->id;
+                })) {
+                result.push_back({curve.geometry_id, point->id, parameter});
+            }
         }
     }
     return result;
