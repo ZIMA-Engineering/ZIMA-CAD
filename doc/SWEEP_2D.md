@@ -18,6 +18,21 @@ and inherited-profile status remain distinct operations with unchanged semantics
 
 ## Placement and path Sketch
 
+A planar route keeps the profile on its authored side when its tangent turns
+through 180 degrees. The kernel establishes the route plane from its tangents
+and verifies all endpoints, arc midpoints and spline controls against that plane.
+Profile transport then rotates about the plane normal instead of inferring an
+ambiguous half-turn axis from two opposite tangents. Spatial routes retain their
+ordinary transport. No placement or native-format changes are required.
+
+The regression uses a rounded U-shaped route, an offset quarter-circle profile,
+both profile sides and an arbitrarily rotated plane. It checks the complete
+vertex extent, analytic swept volume and a real subtraction from a rounded
+extrusion. A private FORM copy additionally passes explicit regeneration,
+save/reopen, 16 visible cut edges, and unchanged Properties OK/Cancel in the GUI.
+Existing calculated files need explicit **Regenerate** to refresh their geometry;
+opening a document never performs this calculation.
+
 The container uses shared placement: position references, FRONT/TOP, X/Y/Z, rotations,
 corrections, and Origin selection. The dropdown before **Path Sketch** defaults
 to the container's own XY plane and offers XY, XZ and YZ. Choosing a plane updates

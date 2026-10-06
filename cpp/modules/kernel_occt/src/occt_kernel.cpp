@@ -1813,6 +1813,31 @@ PrimitiveData make_sweep3d_data(
         return true;
     }();
     const auto inherited_frames=inherited_spline_frames(request,spine_edges);
+    const auto planar_binormal=[&]() -> std::optional<gp_Vec> {
+        if(!request.separate_segments)return std::nullopt;
+        const auto first=tangent(0,false);
+        std::optional<gp_Vec> normal;
+        for(std::size_t i=0;i<spine_edges.size()&&!normal;++i)
+            for(bool end:{false,true}) {
+                const auto candidate=first.Crossed(tangent(i,end));
+                if(candidate.Magnitude()>1e-8){normal=candidate.Normalized();break;}
+            }
+        if(!normal)return std::nullopt;
+        const auto& origin=request.path_points.front();
+        const auto on_plane=[&](const Vec3& p) {
+            return std::abs(gp_Vec(p.x-origin.x,p.y-origin.y,p.z-origin.z).Dot(*normal))<=1e-8;
+        };
+        // Check the exact control data, not a few sampled curve positions.
+        // A spatial spline must retain its ordinary transport behavior.
+        for(const auto& segment:request.path_segments) {
+            if(!on_plane(segment.start)||!on_plane(segment.end)||
+                (segment.arc_midpoint&&!on_plane(*segment.arc_midpoint)))return std::nullopt;
+            for(const auto& p:segment.bezier_control_points)if(!on_plane(p))return std::nullopt;
+            for(const auto& span:segment.bezier_spans)
+                for(const auto& p:span)if(!on_plane(p))return std::nullopt;
+        }
+        return normal;
+    }();
     std::optional<gp_Vec> previous_direction;
     std::optional<gp_Vec> transported_radial;
     for(std::size_t i=0;i<request.path_points.size();++i) {
@@ -1870,6 +1895,12 @@ PrimitiveData make_sweep3d_data(
         if(request.fixed_section_frames) {
             if(!request.smooth_loft||request.sections.size()!=request.path_points.size()||section->point_index!=i)
                 throw std::invalid_argument("Fixed section frames require an explicit smooth loft section at each station.");
+        } else if(planar_binormal && std::abs(planar_binormal->Dot(gp_Vec(normal.x,normal.y,normal.z).Normalized()))<1e-8) {
+            // Opposite tangents alone do not define a half-turn axis. Use the
+            // path plane so the profile keeps its authored material side.
+            const gp_Vec source(normal.x,normal.y,normal.z);
+            const double angle=std::atan2(planar_binormal->Dot(source.Crossed(direction)),source.Dot(direction));
+            movement.SetRotation(gp_Ax1(gp_Pnt(0,0,0),gp_Dir(*planar_binormal)),angle);
         } else movement.SetRotation(gp_Quaternion(gp_Vec(normal.x,normal.y,normal.z),direction));
         const auto rotated=gp_Pnt(from.x,from.y,from.z).Transformed(movement);
         movement.SetTranslationPart(gp_Vec(rotated,gp_Pnt(to.x,to.y,to.z)));

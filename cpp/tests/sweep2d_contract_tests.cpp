@@ -31,6 +31,54 @@ static document::HistoryContainer fixture(bool arc=false,bool open=false){
 }
 int main(int argc,char** argv){try{
     kernel::OcctKernel kernel;
+    // A U-shaped route reaches a tangent opposite to its first tangent.
+    // An offset quarter-circle must retain its planar side at that half-turn.
+    for(bool outside:{false,true})for(bool rotated:{false,true}) {
+        auto native=document::PartDocument::create_default();
+        auto stock=sketcher::Sketch::create_default();
+        static_cast<void>(stock.add_rectangle(-50,-20,50,0));
+        static_cast<void>(stock.add_corner_fillet(stock.segments[0].id,stock.segments[3].id,12));
+        static_cast<void>(stock.add_corner_fillet(stock.segments[0].id,stock.segments[1].id,12));
+        auto base=document::PartDocument::create_extrusion_container(stock.id);
+        base.extrusion.length_forward=10;stock.owner_container_id=base.id;
+        native.sketches.push_back(stock);
+        auto cut=document::PartDocument::create_sweep2d_container();
+        auto path=sketcher::Sketch::from_serialized(cut.sweep2d.path_sketch);
+        static_cast<void>(path.add_segment(0,0,0,-8));
+        static_cast<void>(path.add_arc(12,-8,0,-8,12,-20));
+        static_cast<void>(path.add_segment(12,-20,88,-20));
+        static_cast<void>(path.add_arc(88,-8,88,-20,100,-8));
+        static_cast<void>(path.add_segment(100,-8,100,0));
+        cut.sweep2d.path_sketch=path.serialized();cut.placement.x=-50;cut.placement.z=10;
+        if(rotated){cut.placement.rotation_x=25;cut.placement.rotation_y=35;cut.placement.rotation_z=15;}
+        cut.sweep2d.path_plane=document::ConstructionReference{{},cut.container_origin.id,"origin:plane:xy"};
+        document::PartDocument::resolve_sweep2d_planes(cut,{});
+        const auto route=document::PartDocument::sweep2d_route(cut);
+        const auto index=document::PartDocument::ensure_sweep2d_profile(cut,route.stations.front().point_id,false);
+        auto profile=sketcher::Sketch::from_serialized(cut.sweep2d.profiles[index].sketch_serialized);
+        const double height=outside?10:-10;
+        static_cast<void>(profile.add_segment(10,0,0,0));
+        static_cast<void>(profile.add_segment(0,height,0,0));
+        static_cast<void>(profile.add_arc(0,0,0,height,10,0,false,1e-6,outside));
+        cut.sweep2d.profiles[index].sketch_serialized=profile.serialized();
+        const auto request=document::PartDocument::sweep2d_request(cut);
+        const auto body=kernel.evaluate_history({{cut.id,request,kernel::BooleanOperation::Add}}).back();
+        const auto frame=sketcher::Sketch::from_serialized(cut.sweep2d.path_sketch);
+        for(const auto& point:body.mesh.vertices) {
+            const double offset=document::helical_geometry::dot(document::helical_geometry::sub(point,frame.resolved_origin),frame.resolved_normal);
+            require(offset>=std::min(0.,height)-1e-6 && offset<=std::max(0.,height)+1e-6,
+                "Planar half-turn flipped the authored profile side");
+        }
+        const double length=140+(std::numbers::pi-4)*12;
+        const double expected=(length-40./3)*25*std::numbers::pi;
+        close(body.volume,expected,"Planar quarter-circle sweep has incorrect volume");
+        if(!rotated) {
+            native.history={base,cut};native.history.back().combine_mode=document::CombineMode::Subtract;
+            const auto result=kernel.evaluate_history(native.kernel_operations());
+            close(result.back().volume,result.front().volume-(outside?0:expected),
+                "Planar U sweep did not subtract its intersecting profile");
+        }
+    }
     if(argc==2) {
         std::vector<kernel::BodyResult> cache;
         auto native=document::PartDocument::load(std::filesystem::u8path(argv[1]),&cache);
