@@ -3,6 +3,31 @@
 This manual describes the native C++ application. UI labels follow the selected
 application language; documentation is maintained in English.
 
+## Initial setup
+
+A new portable installation offers **System Setup**. Choose a metric or inch
+preset, review the working directory and matching Part/Assembly templates, and
+optionally register the application for your user account. **OK** saves;
+**Cancel** skips the initial offer. Open it again through **Tools > System
+Setup**. Updates preserve completion and existing shared configuration. Paper
+format and title blocks are selected separately in drawings. See
+[System Setup](SYSTEM_SETUP.md).
+
+## Sketch slots and dimension grips
+
+**Slot**, below **Rectangle**, uses three clicks: first arc centre, second arc
+centre, then the radius point on the side of the slot. The radius is the
+perpendicular distance from the line between the centres. The resulting two
+equal semicircles join the straight sides tangentially. Snapping can make the
+centres symmetric about a Sketch axis or an oblique construction line.
+**Escape** cancels an unfinished slot.
+
+Use the dimension text grip to place radius/diameter labels and their arrows.
+Angular labels in Sketches and drawings follow the dimension circle; moving
+the label beyond the measured sector extends the arc to the text. Dimension
+value edits remain subject to the Sketch's driving constraints. An incompatible
+edit or a drag against fixed geometry is rejected without changing the Sketch.
+
 ## Document compatibility
 
 Part, Assembly and Drawing use `.prtz`, `.asmz` and `.drwz`. Each native type has
