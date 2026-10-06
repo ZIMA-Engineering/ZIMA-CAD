@@ -58,7 +58,9 @@ ImageExportResult export_image(const drawing::DrawingDocument& doc,const std::st
         if(image.isNull())throw ExportOperationError("image_allocation_failed","Cannot allocate the requested image.");
         image.fill(Qt::white);image.setDotsPerMeterX(qRound(settings.dpi/.0254));image.setDotsPerMeterY(qRound(settings.dpi/.0254));
         SheetRenderer output;output.set_render_sheet(sheet);
-        output.set_render_context(sheet_export_context(doc,static_cast<std::size_t>(sheet-doc.sheets.data()),document_path,live));
+        std::map<std::string,drawing::TitleBlockContext> view_contexts;
+        output.set_render_context(sheet_export_context(doc,static_cast<std::size_t>(sheet-doc.sheets.data()),document_path,live,nullptr,&view_contexts));
+        output.set_view_description_contexts(std::move(view_contexts));
         QPainter painter(&image);output.paint_sheet(painter,zoom,{-crop.x()*zoom,-crop.y()*zoom},true);
         if(!painter.end())throw std::runtime_error("Cannot finish image output");
         encode(image,staged,format,settings.quality);

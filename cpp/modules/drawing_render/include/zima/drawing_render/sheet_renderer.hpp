@@ -18,6 +18,8 @@ public:
     virtual ~SheetRenderer() = default;
     void set_render_sheet(const drawing::DrawingSheet* sheet) {sheet_=sheet;shaded_cache_.clear();stroke_cache_.clear();layout_cache_.reset();}
     void set_render_context(drawing::TitleBlockContext context) {title_block_context_=std::move(context);layout_cache_.reset();}
+    void set_view_description_contexts(std::map<std::string,drawing::TitleBlockContext> contexts) {view_description_contexts_=std::move(contexts);}
+    void set_view_description_context(const std::string& id,drawing::TitleBlockContext context) {view_description_contexts_[id]=std::move(context);}
     void set_native_text_output(bool enabled) {native_text_output_=enabled;}
     void paint_sheet(QPainter&,double zoom,QPointF origin,bool printing);
 protected:
@@ -67,6 +69,7 @@ protected:
     std::optional<drawing::DrawingText> text_preview_;
     std::optional<symbols::Placement> symbol_preview_;
     std::optional<zima::drawing::TitleBlockContext> title_block_context_;
+    std::map<std::string,drawing::TitleBlockContext> view_description_contexts_;
     const drawing::DrawingSheet* sheet_{};
     virtual const drawing::DrawingDimension* pending_dimension() const {return nullptr;}
     virtual const std::vector<drawing::DrawingBalloon>* pending_balloons() const {return nullptr;}
@@ -74,6 +77,7 @@ protected:
     QColor annotation_color(const AnnotationKey&,QColor,bool) const;
     QRectF view_bounds_at(const drawing::DrawingView&,double,QPointF) const;
     QString label_text(const drawing::DrawingView&,bool,bool printing=false) const;
+    QString description_text(const drawing::DrawingView&,const drawing::ViewDescriptionRow&) const;
     QRectF label_bounds(const drawing::DrawingView&,bool,double,QPointF) const;
 };
 }

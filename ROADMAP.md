@@ -30,8 +30,12 @@ Solid Straightening / Restore shape was completed and published in Windows build
 2026100301; see [the implementation and verification](doc/SOLID_STRAIGHTENING.md).
 The mixed Extrusion/Revolution side direction and rounding the second end of an
 already rounded Sketch segment are fixed, verified and pushed in commits
-`6ca431bd` and `68d5b01a`; they are not yet in a new portable Windows release.
-The unit audit is now in progress.
+`6ca431bd` and `68d5b01a` and included in subsequent portable Windows releases.
+The unit audit was completed and published in Windows 2026100302; System Setup
+and independent Sheet from Body are also implemented and published.
+On 2026-10-06 the user confirmed completing Linux verification and publication
+of the preceding changes. This is user-reported Linux acceptance; the Windows
+verification records do not claim to have run Linux checks themselves.
 The previously agreed modeling queue retains the
 [Surface command suite](doc/NETWORK_SURFACE.md)
 and optional Drawing view descriptions below; neither is superseded by the audit.
@@ -159,8 +163,9 @@ The user subsequently clarified its intended behavior on the same date:
 
 ### Optional Drawing view descriptions (requested 2026-10-02)
 
-This is a queued design request, not implemented behavior. It does not replace
-the active modeling work.
+Implemented and verified on Windows following the user's priority choice on
+2026-10-06; see [view descriptions](doc/DRAWING_VIEW_DESCRIPTIONS.md).
+The requirements below retain the agreed scope.
 
 - In View Properties, place Name below Source. Below Name, offer ordered optional
   description rows: the view name, scale with an adjacent visibility checkbox,
@@ -184,7 +189,8 @@ the active modeling work.
 
 ### Manual bend-note library symbol (requested 2026-10-04)
 
-Queued library content, not a new automatic annotation command. The user chose
+Completed and published in Windows 2026100401; see
+[the symbol user guide](doc/SYMBOLS_USER_GUIDE.md). The user chose
 an ordinary symbol with manually authored text over a model-driven bend note.
 
 - Add a simple native `.symz` text symbol under `config/symbols/sheetm`, using
@@ -280,8 +286,12 @@ These are backlog entries, not part of the current UI, import and measurement fi
   editing, regeneration, save/reopen and Undo/Redo.
 - Keep picking and property editing fast and free of OCCT body calculations.
   Preserve existing point, axis, plane and curve placement behavior.
-- Status: requested backlog only. Changes to the protected shared placement
-  contract still require explicit approval of the proposed design.
+- Status: implemented after the scoped approval of 2026-09-29; see
+  [general surface placement](doc/GENERAL_SURFACE_PLACEMENT.md). Planes, cylinders
+  and cones use analytic behavior; general surfaces use persisted finite mesh
+  patches with the documented accuracy and nonlinear-reference limitations.
+  Future changes to the protected shared placement contract still require
+  explicit approval of the proposed design.
 
 ## Agreed command console and Codex integration (2026-09-09)
 

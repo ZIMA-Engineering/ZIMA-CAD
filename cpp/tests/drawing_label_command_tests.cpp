@@ -1,5 +1,6 @@
 #include <zima/command_host/host.hpp>
 #include <zima/workspace/drawing_label_operations.hpp>
+#include <zima/workspace/drawing_projection.hpp>
 #include "drawing_label_test_support.hpp"
 #include <iostream>
 #include <limits>
@@ -49,6 +50,35 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
     require(get().at("markers")[0].at("displayable")==false,"Unprojected trace reported available");
     fail({{"view",view_id},{"values",values}},"trace_unavailable");set({{"markers",Json::array({{{"section",marker},{"offsets_mm",nullptr}}})}});
     auto draft=original;
+    {
+        auto descriptions=doc;auto accepted=original;
+        accepted.description_rows={{drawing::ViewDescriptionKind::Text,true,"&document.file_stem",2.5,"#00ff00"},
+            {drawing::ViewDescriptionKind::Name,false,"",5,"#ffffff"},{drawing::ViewDescriptionKind::Scale,true,"",3.5,"#ffff00"}};
+        workspace::DrawingProjection projection(nullptr,dir/"descriptions.drwz");
+        workspace::edit_drawing_view(descriptions,descriptions.sheets.front().id,accepted,false,projection);
+        require(projection.source_load_count()==0&&projection.calculated_camera_count()==0&&projection.calculated_interactive_camera_count()==0,
+            "Description-only edit loaded an unavailable source or calculated projection");
+        require(descriptions.find_view(view_id)->projected_edges==original.projected_edges&&descriptions.find_view(view_id)->measurement_geometry==original.measurement_geometry,
+            "Description-only edit changed reference geometry");
+        descriptions.save(dir/"descriptions.drwz");const auto reopened=drawing::DrawingDocument::load(dir/"descriptions.drwz");
+        require(reopened.find_view(view_id)->description_rows==accepted.description_rows,"Description order, visibility, text, height or color lost on reopen");
+        auto bad=accepted;bad.description_rows[0].height=0;
+        try{workspace::edit_drawing_view(descriptions,descriptions.sheets.front().id,bad,false,projection);throw std::logic_error("Invalid description height accepted");}catch(const workspace::DrawingOperationError&){}
+        require(descriptions.find_view(view_id)->description_rows==accepted.description_rows,"Invalid description partially committed");
+        const auto rows=Json::array({
+            {{"kind","text"},{"visible",true},{"text","&document.file_stem"},{"height_mm",2.5},{"color","#00ff00"}},
+            {{"kind","name"},{"visible",false},{"height_mm",5},{"color","#ffffff"}},
+            {{"kind","scale"},{"visible",true},{"height_mm",3.5},{"color","#ffff00"}}});
+        const auto before=state->revision();run("drawing.view.set",{{"view",view_id},{"description_rows",rows}});
+        require(state->revision()==before+1&&state->document().find_view(view_id)->description_rows==accepted.description_rows,"CLI description edit did not commit one atomic definition");
+        const auto generation=state->data_generation();
+        require(run("drawing.view.set",{{"view",view_id},{"description_rows",rows}}).at("changed")==false&&state->revision()==before+1&&state->data_generation()==generation,"Unchanged CLI descriptions created history or invalidated geometry");
+        run("undo");require(state->document().find_view(view_id)->description_rows==original.description_rows,"Description Undo failed");
+        run("redo");require(state->document().find_view(view_id)->description_rows==accepted.description_rows,"Description Redo failed");
+        auto invalid=rows;invalid[0]["height_mm"]=true;const auto revision=state->revision();
+        const auto rejected=host.execute({{"command","drawing.view.set"},{"arguments",{{"view",view_id},{"description_rows",invalid}}}});
+        require(!rejected.ok&&rejected.code=="invalid_arguments"&&state->revision()==revision,"Invalid CLI description partially committed");
+    }
     try{workspace::set_drawing_section_end(draft,marker,2,4,-10);throw std::logic_error("Bad end accepted");}catch(const workspace::DrawingOperationError&){}
     try{workspace::set_drawing_label_position(draft,workspace::DrawingLabel::Caption,drawing::Point2{0,std::numeric_limits<double>::quiet_NaN()});throw std::logic_error("NaN position accepted");}catch(const workspace::DrawingOperationError&){}
     require(!draft.caption_position&&draft.section_marker_offsets.empty(),"Invalid shared operation changed GUI draft");

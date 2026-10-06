@@ -1,4 +1,5 @@
 #include <zima/kernel/annotation_layout.hpp>
+#include <zima/document/file_path.hpp>
 #include "../../../common/interaction_colors.hpp"
 #include <zima/drawing_render/crop_path.hpp>
 #include "../../../common/technical_font.hpp"
@@ -68,14 +69,38 @@ QRectF SheetRenderer::view_bounds_at(const zima::drawing::DrawingView& view,doub
         if (first) include({});
         return QRectF(QPointF(xmin,ymin),QPointF(xmax,ymax));
     }
+QString SheetRenderer::description_text(const drawing::DrawingView& view,const drawing::ViewDescriptionRow& row)const {
+    if(row.kind==drawing::ViewDescriptionKind::Name)return QString::fromStdString(view.name);
+    if(row.kind==drawing::ViewDescriptionKind::Scale)return view.scale>=1?QStringLiteral("%1:1").arg(view.scale,0,'g',6):QStringLiteral("1:%1").arg(1/view.scale,0,'g',6);
+    drawing::TitleBlockField field;field.expression=row.text;
+    if(const auto found=view_description_contexts_.find(view.id);found!=view_description_contexts_.end())
+        return QString::fromStdString(drawing::resolve_title_block_text(field,found->second,*sheet_));
+    drawing::TitleBlockContext context;context.file_stem=document::path_to_utf8(view.source_path.stem());
+    return QString::fromStdString(drawing::resolve_title_block_text(field,context,*sheet_));
+}
 QString SheetRenderer::label_text(const zima::drawing::DrawingView& view,bool section,bool printing)const{
         if(section?(!view.show_section_label||view.section_id.empty()||!view.section_snapshot):!view.show_caption)return {};
-        auto value=QString::fromStdString(section?view.section_snapshot->name:view.name);
-        if(!section&&view.detail_view)value+=QStringLiteral(" (%1:1)").arg(view.scale,0,'g',6);
-        return !printing&&value.trimmed().isEmpty()?QStringLiteral("-"):value;
+        QString value;
+        if(section)value=QString::fromStdString(view.section_snapshot->name);
+        else for(const auto& row:view.description_rows)if(row.visible){const auto text=description_text(view,row);if(!text.isEmpty()){if(!value.isEmpty())value+='\n';value+=text;}}
+        return section&&!printing&&value.trimmed().isEmpty()?QStringLiteral("-"):value;
     }
 QRectF SheetRenderer::label_bounds(const zima::drawing::DrawingView& view,bool section,double zoom,QPointF origin)const{
         const auto text=label_text(view,section);if(text.isEmpty())return {};
+        if(!section) {
+            QFont font(drawing_font_family());font.setPixelSize(1000);const QFontMetricsF metrics(font);
+            double width=0,height=0;
+            for(const auto& row:view.description_rows)if(row.visible&&!description_text(view,row).isEmpty()) {
+                width=std::max(width,metrics.horizontalAdvance(description_text(view,row))*row.height/metrics.capHeight());
+                height+=row.height+2;
+            }
+            if(height==0)return {};
+            const auto bounds=view_bounds_at(view,zoom,origin);
+            const auto position=view.caption_position;
+            const QPointF center=position?QPointF(origin.x()+(sheet_->width_mm()-view.x+position->x)*zoom,origin.y()+(sheet_->height_mm()-view.y-position->y)*zoom)
+                :QPointF(bounds.center().x(),bounds.bottom()+(3+height/2)*zoom);
+            return {center.x()-(width+2)*zoom/2,center.y()-height*zoom/2,(width+2)*zoom,height*zoom};
+        }
         QFont font(drawing_font_family());font.setWeight(QFont::Normal);font.setPixelSize(1000);const QFontMetricsF metrics(font);
         const auto bounds=view_bounds_at(view,zoom,origin);const auto& position=section?view.section_label_position:view.caption_position;
         const bool both=view.show_caption&&view.show_section_label&&!view.section_id.empty()&&view.section_snapshot;
@@ -366,6 +391,18 @@ void SheetRenderer::paint_sheet(QPainter& painter,double zoom,QPointF origin,boo
                 const auto rect=label_bounds(*view,section,zoom,origin);
                 const AnnotationKey key{section?AnnotationKind::SectionLabel:AnnotationKind::Caption,view->id,{},0};
                 if(!printing){QPainterPath hit;hit.addRect(rect);annotation_handles_.push_back({key,rect.center(),hit});}
+                if(!section) {
+                    double top=rect.top();
+                    for(const auto& row:view->description_rows)if(row.visible) {
+                        const auto row_text=description_text(*view,row);if(row_text.isEmpty())continue;
+                        painter.save();painter.setPen(annotation_color(key,printing?ink:QColor(QString::fromStdString(row.color)),printing));
+                        QFont font(drawing_font_family());font.setWeight(QFont::Normal);font.setPixelSize(1000);painter.setFont(font);const QFontMetricsF metrics(font);
+                        const double size=row.height*zoom/metrics.capHeight();
+                        painter.translate(rect.center().x()-metrics.horizontalAdvance(row_text)*size/2,top+(row.height+1)*zoom);
+                        painter.scale(size,size);painter.drawText(QPointF(0,0),row_text);painter.restore();top+=(row.height+2)*zoom;
+                    }
+                    continue;
+                }
                 painter.save();painter.setPen(annotation_color(key,ink,printing));
                 QFont font(drawing_font_family());font.setWeight(QFont::Normal);font.setPixelSize(1000);painter.setFont(font);const QFontMetricsF metrics(font);
                 painter.translate(rect.left()+zoom,rect.bottom()-zoom);const double scale=5.0*zoom/metrics.capHeight();painter.scale(scale,scale);painter.drawText(QPointF(0,0),text);painter.restore();

@@ -145,6 +145,16 @@ struct ViewCrop {
     Point2 anchor;
     // Circle/ellipse: one positive radius pair. Spline: periodic interpolation points.
     std::vector<Point2> points;
+    bool operator==(const ViewCrop&) const = default;
+};
+enum class ViewDescriptionKind { Name, Scale, Text };
+struct ViewDescriptionRow {
+    ViewDescriptionKind kind{ViewDescriptionKind::Name};
+    bool visible{true};
+    std::string text;
+    double height{5.0}; // Paper millimetres, independent of model/view scale.
+    std::string color{"#ffffff"};
+    bool operator==(const ViewDescriptionRow&) const = default;
 };
 struct DrawingView {
     std::vector<ViewBreak> breaks;
@@ -180,6 +190,10 @@ struct DrawingView {
     // Drawing-only limits for hatch ink; source Section definitions are unchanged.
     std::map<std::string,ViewCrop> section_hatch_crops;
     bool show_caption{};
+    std::vector<ViewDescriptionRow> description_rows{
+        {ViewDescriptionKind::Name,true,"",5.0,"#ffffff"},
+        {ViewDescriptionKind::Scale,false,"",3.5,"#00ff00"},
+        {ViewDescriptionKind::Text,false,"",3.5,"#00ff00"}};
     bool show_section_label{true};
     // Optional paper-mm offsets from the view origin: right/up, independent
     // of model scale. Unset labels follow the top of the calculated bounds.

@@ -26,11 +26,13 @@
 #include <zima/workspace/engineering_metadata_operations.hpp>
 #include <zima/command_host/host.hpp>
 #include <zima/drawing/measurement_dimension.hpp>
+#include <zima/drawing/annotation_guides.hpp>
 #include "drawing_shading.hpp"
 #include "drawing_depth_view.hpp"
 #include <zima/kernel/occt_kernel.hpp>
 #include "drawing_projection_fixture.hpp"
 #include "drawing_window.hpp"
+#include "drawing_detail_dialog.hpp"
 #include "resource_icon.hpp"
 #include <zima/workspace/workspace.hpp>
 #include <QAction>
@@ -529,7 +531,17 @@ int verify_drawing_ui() {
         display_mode->setCurrentIndex(0);
         require(properties->findChild<QLineEdit*>("drawingViewName")->text()==QString::fromUtf8("Pohled 1"),"First view has no numbered default name");
         properties->findChild<QLineEdit*>("drawingViewName")->setText("Front test");
-        properties->findChild<QCheckBox*>()->setChecked(true);
+        properties->findChild<QCheckBox*>("drawingViewCaption")->setChecked(true);
+        auto* descriptions=properties->findChild<QTableWidget*>("drawingViewDescriptions");
+        require(descriptions&&descriptions->rowCount()==3,"View description rows missing");
+        qobject_cast<QCheckBox*>(descriptions->cellWidget(1,1))->setChecked(true);
+        qobject_cast<QCheckBox*>(descriptions->cellWidget(2,1))->setChecked(true);
+        qobject_cast<QLineEdit*>(descriptions->cellWidget(2,3))->setText("CUT NOTE &document.file_stem");
+        qobject_cast<QDoubleSpinBox*>(descriptions->cellWidget(2,4))->setValue(2.5);
+        qobject_cast<QCheckBox*>(descriptions->cellWidget(2,0))->click();
+        properties->findChild<QPushButton*>("drawingDescriptionUp")->click();
+        properties->findChild<QPushButton*>("drawingDescriptionUp")->click();
+        require(qobject_cast<QLineEdit*>(descriptions->cellWidget(0,3))->text().startsWith("CUT NOTE"),"Ordering selection did not follow the description row");
         properties->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click(); flush();
         require(workspace.open_drawing(drawing.document_id)->is_dirty(),"Confirmed view creation was not tracked");
         const auto tracked_revision=workspace.open_drawing(drawing.document_id)->revision();
@@ -544,12 +556,30 @@ int verify_drawing_ui() {
             "Unchanged properties created an Undo transaction");
         require(state.sheets.front().views.front().x==original.x&&state.sheets.front().views.front().y==original.y,
             "Unchanged properties rounded stored coordinates");
+        {
+            const auto saved_settings=zima::app::ApplicationSettings::load();QTemporaryDir language_directory;
+            const auto catalogs=std::filesystem::absolute("config/localization");
+            for(const auto* language:{"cs","en","de","fr","ru"}) {
+                QSettings config(language_directory.filePath("config.ini"),QSettings::IniFormat);config.setValue("Application/Language",language);
+                config.setValue("Paths/Localization",QString::fromStdString(catalogs.generic_string()));config.sync();
+                const auto settings=zima::app::ApplicationSettings::load(language_directory.path());zima::app::apply_application_translations(*qApp,settings);
+                window.select_view(original.id);action("editDrawingViewAction")->trigger();flush();auto* editing=dialog();require(editing,"Localized view description properties missing");
+                auto* table=editing->findChild<QTableWidget*>("drawingViewDescriptions");
+                require(table&&table->horizontalHeaderItem(4)->text()==settings.qt_translations.value("Výška [mm]")&&editing->findChild<QCheckBox*>("drawingViewCaption")->text()==settings.qt_translations.value("Zobrazit popis pohledu"),"View descriptions did not follow language switch");
+                qobject_cast<QLineEdit*>(table->cellWidget(0,3))->setText("CANCELLED DESCRIPTION");editing->resize(1000,850);flush();
+                editing->grab().save(QString("build/drawing-view-description-%1.png").arg(language));editing->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Cancel)->click();flush();
+                require(state.sheets.front().views.front().description_rows==original.description_rows&&workspace.open_drawing(drawing.document_id)->revision()==tracked_revision,"Description Cancel changed native state or Undo history");
+            }
+            zima::app::apply_application_translations(*qApp,saved_settings);
+        }
         require(original.tangent_edge_style==zima::drawing::TangentEdgeStyle::Thin,"Tangent edge property did not persist on OK");
         require(original.show_caption && original.name=="Front test","Caption properties were not persisted");
+        require(original.description_rows[0].kind==zima::drawing::ViewDescriptionKind::Text&&original.description_rows[0].height==2.5&&original.description_rows[2].visible,
+            "Description properties did not persist on OK");
         require(std::abs(original.x-state.sheets.front().width_mm()/2)<1.0 &&
                 std::abs(original.y-state.sheets.front().height_mm()/2)<1.0,"Click location was not converted to sheet coordinates");
-        // Labels live above the model bounds and move independently in paper units.
-        const auto caption=window.view_label_center_for_test(original.id);require(caption&&caption->y()<center.y(),"Default caption is not above the view");
+        // Descriptions live below the model bounds and move independently in paper units.
+        const auto caption=window.view_label_center_for_test(original.id);require(caption&&caption->y()>center.y(),"Default description is not below the view");
         mouse(canvas,QEvent::MouseMove,*caption,Qt::NoButton,Qt::NoButton);
         const auto hover_image=canvas->grab().toImage();bool green_handle=false;
         // QWidget positions are logical pixels; the grabbed image uses device pixels.
@@ -566,11 +596,16 @@ int verify_drawing_ui() {
         const auto caption_point=selected_caption.pixelColor((*caption*selected_caption.devicePixelRatio()).toPoint());
         require(caption_point.red()>150&&caption_point.blue()>200&&caption_point.green()<150,"Selected text manipulation point is not a solid purple dot");
         mouse(canvas,QEvent::MouseButtonPress,*caption,Qt::LeftButton,Qt::LeftButton);
-        mouse(canvas,QEvent::MouseMove,*caption+QPointF(60,-25),Qt::NoButton,Qt::LeftButton);
+        const auto guide=zima::drawing::annotation_guides(original).at(8);
+        const zima::drawing::Point2 guide_mid{(guide.first.x+guide.second.x)/2,(guide.first.y+guide.second.y)/2};
+        const auto paper=window.sheet_rectangle_for_test();const auto zoom=paper.width()/state.sheets.front().width_mm();
+        const QPointF guide_target(paper.left()+(state.sheets.front().width_mm()-original.x+guide_mid.x)*zoom,
+            paper.top()+(state.sheets.front().height_mm()-original.y-guide_mid.y)*zoom);
+        mouse(canvas,QEvent::MouseMove,guide_target,Qt::NoButton,Qt::LeftButton);
         require(canvas->property("annotationSnapActive").toBool(),"Caption guide snap feedback missing");
-        mouse(canvas,QEvent::MouseButtonRelease,*caption+QPointF(60,-25),Qt::LeftButton,Qt::NoButton);
+        mouse(canvas,QEvent::MouseButtonRelease,guide_target,Qt::LeftButton,Qt::NoButton);
         require(state.sheets.front().views.front().caption_position.has_value(),"Caption drag was not saved");
-        require(QLineF(*window.view_label_center_for_test(original.id),*caption+QPointF(60,-25)).length()<=6.01,"Caption does not follow the mouse within guide snap tolerance");
+        require(QLineF(*window.view_label_center_for_test(original.id),guide_target).length()<=6.01,"Caption does not follow the mouse within guide snap tolerance");
         require(state.sheets.front().views.front().x==original.x&&state.sheets.front().views.front().y==original.y,"Caption drag moved the model");
         {
             zima::kernel::OcctKernel label_kernel;auto label_directory=std::filesystem::current_path();zima::command_host::Host host(workspace,label_kernel,label_directory);
@@ -1643,6 +1678,22 @@ int verify_drawing_details_ui() {
         const auto detail=window.document_for_test().sheets.front().views.back();
         require(detail.detail_view&&detail.name=="X"&&detail.parent_view_id==source.id&&!detail.show_detail_boundary&&detail.show_detail_label,"Detail metadata is incorrect");
         require(detail.projected_edges.size()==source.projected_edges.size(),"Detail lost parent geometry");
+        require(detail.description_rows[1].visible,"New detail lost its visible scale description");
+        const auto detail_revision=live.open_drawing(document.document_id)->revision();
+        window.select_view_for_test(detail.id);action("editDrawingViewAction")->trigger();flush();require(dialog(),"Detail description properties missing");
+        require(dialog()->findChild<QTableWidget*>("drawingViewDescriptions"),"Detail does not share ordinary description controls");
+        dialog()->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
+        require(live.open_drawing(document.document_id)->revision()==detail_revision,"Unchanged detail descriptions created an Undo transaction");
+        {
+            auto precise=detail;precise.scale=.123456789;precise.crop->anchor={3,4};
+            auto* fields=new app::DrawingDetailDialog(precise,&window);
+            auto* table=fields->findChild<QTableWidget*>("drawingViewDescriptions");
+            qobject_cast<QLineEdit*>(table->cellWidget(2,3))->setText("PRECISION NOTE");
+            qobject_cast<QCheckBox*>(table->cellWidget(2,1))->setChecked(true);
+            require(fields->values().scale==precise.scale&&fields->values().x==precise.x&&fields->values().y==precise.y,
+                "Editing a detail description rounded its scale or moved its geometry");
+            fields->reject();flush();
+        }
         const auto path=std::filesystem::u8path(temporary.filePath("detail.drwz").toStdString());window.document_for_test().save(path);
         const auto reopened=drawing::DrawingDocument::load(path);
         require(reopened.sheets.front().views.back().detail_view&&reopened.sheets.front().views.back().crop->shape==drawing::ViewCropShape::Spline,"Detail save/reopen failed");

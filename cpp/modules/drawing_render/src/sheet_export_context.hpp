@@ -4,8 +4,10 @@ namespace zima::drawing_render {
 // One synchronous export owns this map; nothing survives into a later export.
 using ExportSourceContexts=std::map<std::pair<std::string,std::filesystem::path>,drawing::TitleBlockContext>;
 inline drawing::TitleBlockContext sheet_export_context(const drawing::DrawingDocument& doc,
-    std::size_t index,const std::filesystem::path& document_path,const workspace::Workspace* live,ExportSourceContexts* sources=nullptr) {
+    std::size_t index,const std::filesystem::path& document_path,const workspace::Workspace* live,ExportSourceContexts* sources=nullptr,
+    std::map<std::string,drawing::TitleBlockContext>* view_contexts=nullptr) {
     const auto& sheet=doc.sheets.at(index);
+    ExportSourceContexts local_sources;if(!sources)sources=&local_sources;
     const auto id=sheet.bom_source_document_id.empty()?doc.source_document_id:sheet.bom_source_document_id;
     auto source=doc.source_path;
     if(source.empty()&&!sheet.views.empty())source=sheet.views.front().source_path;
@@ -24,8 +26,9 @@ inline drawing::TitleBlockContext sheet_export_context(const drawing::DrawingDoc
         auto view_source=view.source_path;
         if(!view_source.empty()&&view_source.is_relative()&&!document_path.empty())
             view_source=document_path.parent_path()/view_source;
-        if(view.source_document_id!=id||view_source.lexically_normal()!=source.lexically_normal())
-            static_cast<void>(read(view.source_document_id,view_source));
+        auto view_context=(view.source_document_id==id&&view_source.lexically_normal()==source.lexically_normal())?context:read(view.source_document_id,view_source);
+        view_context.sheet_index=static_cast<int>(index);view_context.sheet_count=static_cast<int>(doc.sheets.size());
+        if(view_contexts)view_contexts->emplace(view.id,std::move(view_context));
     }
     context.sheet_index=static_cast<int>(index);context.sheet_count=static_cast<int>(doc.sheets.size());
     return context;

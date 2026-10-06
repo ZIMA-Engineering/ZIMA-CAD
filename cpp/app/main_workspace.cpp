@@ -8609,12 +8609,29 @@ int verify_drawing_workspace(QApplication& application, zima::app::AssemblyWorks
     properties=window.findChild<QDialog*>("drawingViewProperties");
     if(!verify(properties && properties->isVisible() && properties->parentWidget()==&window,"Drawing properties are not inside the main application"))return 1;
     properties->findChild<QLineEdit*>("drawingViewName")->setText("Renamed drawing view");
+    auto* descriptions=properties->findChild<QTableWidget*>("drawingViewDescriptions");
+    if(!verify(descriptions&&descriptions->rowCount()==3,"Drawing view description controls are missing"))return 1;
+    properties->findChild<QCheckBox*>("drawingViewCaption")->setChecked(true);
+    qobject_cast<QCheckBox*>(descriptions->cellWidget(1,1))->setChecked(true);
+    qobject_cast<QCheckBox*>(descriptions->cellWidget(2,1))->setChecked(true);
+    qobject_cast<QLineEdit*>(descriptions->cellWidget(2,3))->setText("&document.file_stem.&name");
+    qobject_cast<QDoubleSpinBox*>(descriptions->cellWidget(2,4))->setValue(2.5);
+    qobject_cast<QCheckBox*>(descriptions->cellWidget(2,0))->click();
+    properties->findChild<QPushButton*>("drawingDescriptionUp")->click();
     properties->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
     root=tree->topLevelItem(0);
     if(!verify(root->child(0)->child(0)->text(0)=="Renamed drawing view" && tree->selectedItems().size()==1,
         "Committing properties did not refresh and select the matching Tree row"))return 1;
     if(!verify(tree_reference.has_value(),"Drawing tree fixture has no dimension"))return 1;
     auto* drawing_window=dynamic_cast<zima::app::DrawingWindow*>(window.findChild<QMainWindow*>("drawingWorkspace"));
+    const auto& described=drawing_window->document_for_test().sheets.front().views.front();
+    if(!verify(described.show_caption&&described.description_rows[1].kind==zima::drawing::ViewDescriptionKind::Text&&
+        described.description_rows[1].visible&&described.description_rows[1].height==2.5,
+        "Drawing view descriptions did not commit in the actual workspace"))return 1;
+    drawing_window->document_for_test().save(directory/"drawing-described.drwz");
+    const auto reopened_descriptions=zima::drawing::DrawingDocument::load(directory/"drawing-described.drwz");
+    if(!verify(reopened_descriptions.sheets.front().views.front().description_rows==described.description_rows,
+        "Drawing view descriptions did not survive native reopening"))return 1;
     auto* view_item=root->child(0)->child(0);
     if(!verify(view_item->childCount()>=2,"Drawing view is missing annotation groups"))return 1;
     // Handles are produced by painting; an obscured Windows test window may

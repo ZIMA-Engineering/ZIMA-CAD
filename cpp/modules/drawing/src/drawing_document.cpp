@@ -705,6 +705,9 @@ void DrawingDocument::save(const std::filesystem::path& path,
                 {"tangent_edge_style",static_cast<int>(view.tangent_edge_style)},
                 {"use_sheet_scale", view.use_sheet_scale}, {"show_caption", view.show_caption},
                 {"x", view.x}, {"y", view.y}, {"scale", view.scale}, {"value_locks",view.value_locks}};
+            item["description_rows"]=nlohmann::json::array();
+            for(const auto& row:view.description_rows)item["description_rows"].push_back({
+                {"kind",int(row.kind)},{"visible",row.visible},{"text",row.text},{"height",row.height},{"color",row.color}});
             for(const auto& [id,offsets]:view.section_marker_offsets)for(double offset:offsets)if(!std::isfinite(offset))throw std::runtime_error("Invalid section marker offset");
             validate_view_crop(view);item["crop"]=nullptr;item["show_thread_leadins"]=view.show_thread_leadins;
             if(view.crop){auto& crop=item["crop"];crop={{"shape",int(view.crop->shape)},{"anchor",{view.crop->anchor.x,view.crop->anchor.y}},{"points",nlohmann::json::array()}};for(auto p:view.crop->points)crop["points"].push_back({p.x,p.y});}
@@ -937,6 +940,12 @@ DrawingDocument DrawingDocument::load(const std::filesystem::path& path) {
             view.hidden_edge_style=item.value("hidden_edge_style","dashed")=="gray"?HiddenEdgeStyle::Gray:HiddenEdgeStyle::Dashed;
             view.use_sheet_scale = item.value("use_sheet_scale", true);
             view.show_caption = item.value("show_caption", false);
+            if(item.contains("description_rows")) {
+                view.description_rows.clear();
+                for(const auto& row:item.at("description_rows"))view.description_rows.push_back({
+                    static_cast<ViewDescriptionKind>(row.at("kind").get<int>()),row.at("visible").get<bool>(),
+                    row.at("text").get<std::string>(),row.at("height").get<double>(),row.at("color").get<std::string>()});
+            }
             view.show_thread_leadins=item.value("show_thread_leadins",false);
             if(item.contains("crop")&&!item.at("crop").is_null()){
                 const auto& saved=item.at("crop");ViewCrop crop;crop.shape=static_cast<ViewCropShape>(saved.at("shape").get<int>());crop.anchor={saved.at("anchor").at(0),saved.at("anchor").at(1)};

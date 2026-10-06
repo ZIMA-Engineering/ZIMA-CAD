@@ -1,5 +1,6 @@
 #include <zima/drawing/view_orientation.hpp>
 #include "standard_view_labels.hpp"
+#include "drawing_view_description_fields.hpp"
 #include <zima/document/named_views.hpp>
 #include <QQuaternion>
 #include <zima/kernel/annotation_layout.hpp>
@@ -329,7 +330,7 @@ public:
         };
         name_ = new QLineEdit(QString::fromStdString(value_.name), content);
         name_->setObjectName("drawingViewName");
-        caption_ = new QCheckBox(QObject::tr("Zobrazit název pohledu"), content);
+        caption_ = new QCheckBox(QObject::tr("Zobrazit popis pohledu"), content);
         caption_->setObjectName("drawingViewCaption");
         caption_->setChecked(value_.show_caption);
         source_ = new QComboBox(content);
@@ -397,9 +398,11 @@ public:
         // Projected views keep the position constrained by their parent's ray.
         x_->setEnabled(value_.parent_view_id.empty()); y_->setEnabled(value_.parent_view_id.empty());
         auto* identity=group(tr("Pohled"));
-        field(identity,0,0,tr("Zdroj"),source_row);
+        field(identity,0,0,tr("Zdroj"),source_row,2);
         auto* name_row=new QWidget(content);auto* name_layout=new QHBoxLayout(name_row);name_layout->setContentsMargins(0,0,0,0);
-        name_layout->addWidget(name_,1);name_layout->addWidget(caption_);field(identity,0,1,tr("Název"),name_row);
+        name_layout->addWidget(name_,1);name_layout->addWidget(caption_);field(identity,1,0,tr("Název"),name_row,2);
+        descriptions_=new ViewDescriptionFields(value_.description_rows,content);
+        identity->addWidget(descriptions_,4,0,1,2);descriptions_->changed=[this]{preview_values();};
         auto* orientation=group(tr("Orientace"));
         field(orientation,0,0,tr("Základní pohled"),orientation_,3);
         rotation_base_=value_.camera;
@@ -489,6 +492,7 @@ public:
         connect(name_, &QLineEdit::textChanged, this, preview_change);
         connect(caption_, &QCheckBox::toggled, this, preview_change);
         setAttribute(Qt::WA_DeleteOnClose);
+        descriptions_->set_computed_text(name_->text(),scale_mode_->currentIndex()==0?sheet_scale_:scale_->value());
         if(!creating)initial_settings_=settings_key(values());
     }
     void move_preview(zima::drawing::Point2 position) {
@@ -507,6 +511,7 @@ public:
         auto result = value_;
         result.name = name_->text().trimmed().toStdString();
         result.show_caption = caption_->isChecked();result.show_thread_leadins=thread_leadins_->isChecked();
+        result.description_rows=descriptions_->values();
         result.dimension_guide_count=guide_count_->value();result.show_dimension_guides=guides_->isChecked();result.dimension_guide_offset=guide_offset_->value();result.dimension_guide_spacing=guide_spacing_->value();
         result.show_section_label=section_label_->isChecked();
         result.tangent_edge_style=static_cast<zima::drawing::TangentEdgeStyle>(tangent_style_->currentIndex());
@@ -541,7 +546,8 @@ private:
             nlohmann::json points=nlohmann::json::array();for(const auto& p:c->points)points.push_back(point(p));
             return {{"shape",static_cast<int>(c->shape)},{"anchor",point(c->anchor)},{"points",points}};
         };
-        nlohmann::json breaks=nlohmann::json::array(),hatch=nlohmann::json::object();
+        nlohmann::json breaks=nlohmann::json::array(),hatch=nlohmann::json::object(),descriptions=nlohmann::json::array();
+        for(const auto& row:v.description_rows)descriptions.push_back({int(row.kind),row.visible,row.text,row.height,row.color});
         for(const auto& b:v.breaks)breaks.push_back({b.id,b.vertical,b.start,b.length,b.gap,static_cast<int>(b.mark)});
         for(const auto& [id,c]:v.section_hatch_crops)hatch[id]=crop(c);
         return nlohmann::json::array({v.name,v.source_document_id,document::path_to_utf8(v.source_path),
@@ -550,7 +556,7 @@ private:
             v.x,v.y,v.scale,v.use_sheet_scale,static_cast<int>(v.display_style),static_cast<int>(v.hidden_edge_style),
             static_cast<int>(v.tangent_edge_style),v.show_thread_leadins,v.show_caption,v.show_section_label,
             v.show_dimension_guides,v.dimension_guide_count,v.dimension_guide_offset,v.dimension_guide_spacing,
-            v.value_locks,v.section_id,document::serialize_sections(v.section_markers),
+            descriptions,v.value_locks,v.section_id,document::serialize_sections(v.section_markers),
             document::serialize_sections(v.section_snapshot?std::vector{*v.section_snapshot}:std::vector<document::SectionDefinition>{}),
             v.hidden_hatch_components,breaks,crop(v.crop),hatch}).dump();
     }
@@ -622,11 +628,13 @@ private:
     std::function<bool(zima::drawing::DrawingView)> accepted_;
     std::function<void(std::optional<zima::drawing::DrawingView>)> preview_;
     void preview_values() {
+        descriptions_->set_computed_text(name_->text(),scale_mode_->currentIndex()==0?sheet_scale_:scale_->value());
         const int i=source_->currentIndex();
         if(i>=0&&!sources_[i].evaluated){preview_({});set_error(tr("Varianta se vypočítá po potvrzení OK."));return;}
         preview_(values());
     }
     QLineEdit* name_{};
+    ViewDescriptionFields* descriptions_{};
     QCheckBox* caption_{};QCheckBox* thread_leadins_{};
     QComboBox *source_{}, *orientation_{}, *display_{}, *scale_mode_{}, *tangent_style_{};
     QDoubleSpinBox *scale_{}, *x_{}, *y_{};
@@ -2793,6 +2801,7 @@ void DrawingWindow::insert_detail() {
     if(view_dialog_||raise_open_properties(window())||!active_sheet()||active_sheet()->views.empty())return;
     drawing::DrawingView detail;detail.id=kernel::make_stable_id();detail.name=drawing::next_detail_name(document_);
     detail.detail_view=true;detail.use_sheet_scale=false;detail.show_caption=true;
+    detail.description_rows[1].visible=true;
     detail.scale=active_sheet()->default_scale*2;
     show_detail_properties(std::move(detail),true);
 }
@@ -2802,8 +2811,19 @@ void DrawingWindow::show_detail_properties(drawing::DrawingView view,bool creati
     const auto sheet_id=sheet->id,document_id=document_.document_id;
     auto* dialog=new DrawingDetailDialog(std::move(view),window());view_dialog_=dialog;
     const QPointer<DrawingDetailDialog> guarded(dialog);
-    dialog->preview=[this](auto value) {
-        if(const auto* parent=document_.find_view(value.parent_view_id)){drawing::refresh_detail_view(value,*parent);canvas_->set_preview(std::move(value));}
+    auto description_contexts=std::make_shared<std::map<std::pair<std::string,std::filesystem::path>,drawing::TitleBlockContext>>();
+    dialog->preview=[this,description_contexts](auto value) {
+        if(const auto* parent=document_.find_view(value.parent_view_id)) {
+            drawing::refresh_detail_view(value,*parent);
+            if(value.show_caption&&std::ranges::any_of(value.description_rows,[](const auto& row){return row.kind==drawing::ViewDescriptionKind::Text&&row.visible&&!row.text.empty();})) {
+                auto source=value.source_path;if(source.is_relative()&&!path_.empty())source=path_.parent_path()/source;
+                const auto key=std::make_pair(value.source_document_id,source.lexically_normal());
+                if(!description_contexts->contains(key))(*description_contexts)[key]=build_title_block_context_for_source(key.first,key.second,workspace_);
+                auto context=description_contexts->at(key);context.sheet_index=sheets_->currentIndex();context.sheet_count=int(document_.sheets.size());
+                canvas_->set_view_description_context(value.id,std::move(context));
+            }
+            canvas_->set_preview(std::move(value));
+        }
     };
     dialog->commit=[this,sheet_id,document_id,creating](auto value) {
         if(document_.document_id!=document_id)throw std::runtime_error("The Drawing changed while editing the detail.");
@@ -3019,6 +3039,7 @@ void DrawingWindow::show_view_properties(zima::drawing::DrawingView view, bool c
     const auto error=[this](const QString& message) {
         if (auto* dialog=dynamic_cast<ViewPropertiesDialog*>(view_dialog_.data())) dialog->set_error(message);
     };
+    auto description_contexts=std::make_shared<std::map<std::pair<std::string,std::filesystem::path>,drawing::TitleBlockContext>>();
     auto* owner=qobject_cast<QMainWindow*>(window());
     auto* dialog=new ViewPropertiesDialog(owner ? owner : this, view, std::move(sources),sheet->default_scale,
         [this,error,sheet_id,drawing_id,creating,cache](auto accepted) {
@@ -3027,9 +3048,18 @@ void DrawingWindow::show_view_properties(zima::drawing::DrawingView view, bool c
                 commit_view(std::move(accepted),sheet_id,creating,cache.get());
                 return true;
             } catch (const std::exception& exception) { error(tr(exception.what())); return false; }
-        }, [this,project,error](auto pending) {
+        }, [this,project,error,description_contexts](auto pending) {
             if(!pending){canvas_->set_preview({});return;}
-            try { project(*pending,true); canvas_->set_preview(std::move(pending)); error({}); }
+            try {
+                if(pending->show_caption&&std::ranges::any_of(pending->description_rows,[](const auto& row){return row.kind==drawing::ViewDescriptionKind::Text&&row.visible&&!row.text.empty();})) {
+                    auto source=pending->source_path;if(source.is_relative()&&!path_.empty())source=path_.parent_path()/source;
+                    const auto key=std::make_pair(pending->source_document_id,source.lexically_normal());
+                    if(!description_contexts->contains(key))(*description_contexts)[key]=build_title_block_context_for_source(key.first,key.second,workspace_);
+                    auto context=description_contexts->at(key);context.sheet_index=sheets_->currentIndex();context.sheet_count=int(document_.sheets.size());
+                    canvas_->set_view_description_context(pending->id,std::move(context));
+                }
+                project(*pending,true); canvas_->set_preview(std::move(pending)); error({});
+            }
             catch (const std::exception& exception) { canvas_->set_preview({});error(tr(exception.what())); }
         },[this](const auto& id,auto path){
             if(path.is_relative()&&!path_.empty())path=path_.parent_path()/path;
@@ -3082,6 +3112,7 @@ void DrawingWindow::create_projected_view() {
         view.display_style=parent_copy.display_style;
         view.hidden_edge_style=parent_copy.hidden_edge_style;view.tangent_edge_style=parent_copy.tangent_edge_style;
         view.show_thread_leadins=parent_copy.show_thread_leadins;view.show_caption=parent_copy.show_caption;
+        view.description_rows=parent_copy.description_rows;
         view.show_section_label=parent_copy.show_section_label;view.show_dimension_guides=parent_copy.show_dimension_guides;
         view.dimension_guide_offset=parent_copy.dimension_guide_offset;view.dimension_guide_spacing=parent_copy.dimension_guide_spacing;
         view.dimension_guide_count=parent_copy.dimension_guide_count;
@@ -3396,6 +3427,19 @@ void DrawingWindow::refresh_title_block_context() {
     }
     context.sheet_index=sheets_->currentIndex();context.sheet_count=static_cast<int>(document_.sheets.size());
     canvas_->set_title_block_context(std::move(context));
+    std::map<std::string,drawing::TitleBlockContext> view_contexts;
+    std::map<std::pair<std::string,std::filesystem::path>,drawing::TitleBlockContext> source_contexts;
+    for(const auto& view:sheet->views) {
+        if(!view.show_caption||std::ranges::none_of(view.description_rows,[](const auto& row){return row.kind==drawing::ViewDescriptionKind::Text&&row.visible&&!row.text.empty();}))continue;
+        auto source=view.source_path;
+        if(source.is_relative()&&!path_.empty())source=path_.parent_path()/source;
+        try {const auto key=std::make_pair(view.source_document_id,source.lexically_normal());
+            if(!source_contexts.contains(key))source_contexts[key]=build_title_block_context_for_source(key.first,key.second,workspace_);
+            auto value=source_contexts.at(key);
+            value.sheet_index=sheets_->currentIndex();value.sheet_count=static_cast<int>(document_.sheets.size());view_contexts.emplace(view.id,std::move(value));}
+        catch(const std::exception&) { /* Unavailable source parameters resolve empty through the existing text contract. */ }
+    }
+    canvas_->set_view_description_contexts(std::move(view_contexts));
 }
 
 void DrawingWindow::sync_workspace_document(bool changed) {

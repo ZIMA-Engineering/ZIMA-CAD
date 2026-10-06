@@ -17,6 +17,8 @@ Json sheet_json(const drawing::DrawingSheet& s){return {{"sheet",s.id},{"name",s
     {"title_lines",s.title_block_lines.size()},{"title_circles",s.title_block_circles.size()},{"title_texts",s.title_block_texts.size()},{"title_fields",s.title_block_fields.size()},{"title_images",s.title_block_images.size()},{"repeat_regions",s.repeat_regions.size()}};}
 Json vector_json(const kernel::Vec3& p){return Json::array({p.x,p.y,p.z});}
 Json view_json(const drawing::DrawingView& v,const std::string& sheet){
+    Json descriptions=Json::array();constexpr std::array description_kinds{"name","scale","text"};
+    for(const auto& row:v.description_rows)descriptions.push_back({{"kind",description_kinds.at(int(row.kind))},{"visible",row.visible},{"text",row.text},{"height_mm",row.height},{"color",row.color}});
     constexpr std::array orientations{"front","back","left","right","top","bottom","isometric"};
     constexpr std::array styles{"visible_edges","hidden_edges","shaded_with_edges","shaded"};
     constexpr std::array directions{"none","right","top_right","top","top_left","left","bottom_left","bottom","bottom_right"};
@@ -29,7 +31,7 @@ Json view_json(const drawing::DrawingView& v,const std::string& sheet){
         {"hidden_edge_style",v.hidden_edge_style==drawing::HiddenEdgeStyle::Dashed?"dashed":"gray"},{"tangent_edge_style",v.tangent_edge_style==drawing::TangentEdgeStyle::Visible?"visible":v.tangent_edge_style==drawing::TangentEdgeStyle::Thin?"thin":"hidden"},
         {"section",v.section_id},{"section_markers",std::move(markers)},{"hidden_hatch_components",v.hidden_hatch_components},{"section_parent_view",v.section_parent_id},{"show_caption",v.show_caption},{"show_section_label",v.show_section_label},
         {"show_dimension_guides",v.show_dimension_guides},{"guide_offset_mm",v.dimension_guide_offset},{"guide_spacing_mm",v.dimension_guide_spacing},{"guide_count",v.dimension_guide_count},{"breaks",breaks},
-        {"projected_edges",v.projected_edges.size()},{"projected_triangles",v.projected_triangles.size()},{"model_annotations",v.model_annotations.size()},
+        {"description_rows",descriptions},{"projected_edges",v.projected_edges.size()},{"projected_triangles",v.projected_triangles.size()},{"model_annotations",v.model_annotations.size()},
         {"measurement_curves",v.measurement_geometry->curves.size()},{"measurement_points",v.measurement_geometry->points.size()},{"value_locks",v.value_locks}};
 }
 Json hatch_json(const drawing::DrawingView& view,const document::SectionDefinition& source,std::size_t limit=10000) {
@@ -83,6 +85,23 @@ template<class Enum,std::size_t N> void enum_argument(const Json& args,const cha
     if(found==names.end())invalid_view_arguments();target=static_cast<Enum>(found-names.begin());
 }
 void view_settings(drawing::DrawingView& value,const Json& args) {
+    if(args.contains("description_rows")) {
+        value.description_rows.clear();
+        for(const auto& row:args.at("description_rows")) {
+            if(!row.is_object())invalid_view_arguments();
+            if(!row.contains("kind")||!row.at("kind").is_string()||
+               (row.contains("visible")&&!row.at("visible").is_boolean())||
+               (row.contains("text")&&!row.at("text").is_string())||
+               (row.contains("height_mm")&&!row.at("height_mm").is_number())||
+               (row.contains("color")&&!row.at("color").is_string()))invalid_view_arguments();
+            for(const auto& [key,item]:row.items())if(key!="kind"&&key!="visible"&&key!="text"&&key!="height_mm"&&key!="color")invalid_view_arguments();
+            drawing::ViewDescriptionRow entry;
+            enum_argument(row,"kind",entry.kind,std::array{"name","scale","text"});
+            if(!row.contains("kind"))invalid_view_arguments();
+            entry.visible=row.value("visible",true);entry.text=row.value("text",std::string{});entry.height=row.value("height_mm",3.5);
+            entry.color=row.value("color",std::string{"#00ff00"});value.description_rows.push_back(std::move(entry));
+        }
+    }
     value.name=args.value("name",value.name);value.x=args.value("x_mm",value.x);value.y=args.value("y_mm",value.y);
     value.scale=args.value("scale",value.scale);value.use_sheet_scale=args.value("use_sheet_scale",args.contains("scale")?false:value.use_sheet_scale);
     if(args.contains("scale")&&value.use_sheet_scale)invalid_view_arguments();
@@ -255,7 +274,7 @@ void Host::register_drawing_commands(){
         std::vector<commands::Argument> parameters={{creating?"sheet":"view",true},{"source",false},{"name",false},{"orientation",false},{"camera",false,Type::Object},
             {"x_mm",false,Type::Number},{"y_mm",false,Type::Number},{"scale",false,Type::Number},{"use_sheet_scale",false,Type::Boolean},
             {"display_style",false},{"hidden_edge_style",false},{"tangent_edge_style",false},{"show_caption",false,Type::Boolean},{"show_section_label",false,Type::Boolean},
-            {"show_dimension_guides",false,Type::Boolean},{"guide_offset_mm",false,Type::Number},{"guide_spacing_mm",false,Type::Number},{"guide_count",false,Type::Integer},{"breaks",false,Type::Array},
+            {"description_rows",false,Type::Array},{"show_dimension_guides",false,Type::Boolean},{"guide_offset_mm",false,Type::Number},{"guide_spacing_mm",false,Type::Number},{"guide_count",false,Type::Integer},{"breaks",false,Type::Array},
             {"section",false},{"section_markers",false,Type::Array},{"hidden_hatch_components",false,Type::Array},{"value_locks",false,Type::Array},{"distance_mm",false,Type::Number},{"document",false}};
         if(creating){parameters.push_back({"parent_view",false});parameters.push_back({"projection_direction",false});}
         add({creating?"drawing.view.create":"drawing.view.set",creating?tr("Create a drawing view from a calculated source or a parent view."):tr("Edit a drawing view and update its projected descendants."),std::move(parameters),true},[this,creating](auto& doc,const Json& args,const auto& document_path){
@@ -306,6 +325,13 @@ void Host::register_drawing_commands(){
                 value.section_markers.clear();const auto& sections=projection.source(value).sections;std::set<std::string> seen;
                 for(const auto& key:args["section_markers"]){if(!key.is_string()||!seen.insert(key.get<std::string>()).second)invalid_view_arguments();const auto found=std::ranges::find(sections,key.get<std::string>(),&document::SectionDefinition::id);
                     if(found==sections.end())throw workspace::DrawingOperationError("section_not_found","A source section trace no longer exists. Edit the drawing view first.");value.section_markers.push_back(*found);}
+            }
+            if(!creating&&args.contains("description_rows")&&std::ranges::all_of(args.items(),[](const auto& item){
+                const auto& key=item.key();return key=="view"||key=="document"||key=="description_rows"||key=="show_caption"||key=="name";})) {
+                workspace::validate_drawing_view(value);const auto* current=doc.find_view(value.id);
+                if(current->description_rows==value.description_rows&&current->show_caption==value.show_caption&&current->name==value.name) {
+                    auto result=view_json(*current,sheet_id);result["changed"]=false;return result;
+                }
             }
             workspace::edit_drawing_view(doc,sheet_id,value,creating,projection);
             auto result=view_json(*doc.find_view(value.id),sheet_id);result["changed"]=true;return result;

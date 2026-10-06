@@ -20,7 +20,9 @@ std::uint64_t export_dxf(const drawing::DrawingDocument& doc,const std::string& 
     if(!qobject_cast<QGuiApplication*>(QCoreApplication::instance()))throw ExportOperationError("graphics_unavailable","Drawing DXF export requires an initialized graphics runtime.");
     return workspace::write_export_file(destination,overwrite,[&](const auto& staged) {
         SheetRenderer output;output.set_render_sheet(sheet);output.set_native_text_output(true);
-        output.set_render_context(sheet_export_context(doc,static_cast<std::size_t>(sheet-doc.sheets.data()),document_path,live));
+        std::map<std::string,drawing::TitleBlockContext> view_contexts;
+        output.set_render_context(sheet_export_context(doc,static_cast<std::size_t>(sheet-doc.sheets.data()),document_path,live,nullptr,&view_contexts));
+        output.set_view_description_contexts(std::move(view_contexts));
         DrawingDxfDevice device(sheet->width_mm(),sheet->height_mm());
         QPainter painter;
         if(!painter.begin(&device))throw std::runtime_error("Cannot start DXF output");

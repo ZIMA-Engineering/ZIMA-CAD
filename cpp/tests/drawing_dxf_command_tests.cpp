@@ -4,6 +4,8 @@
 #include <zima/workspace/metadata_operations.hpp>
 #include <QGuiApplication>
 #include <QFile>
+#include <QTemporaryDir>
+#include <zima/drawing_render/dxf_export.hpp>
 #include <cmath>
 #include <iostream>
 using namespace zima;using commands::Json;namespace fs=std::filesystem;
@@ -26,6 +28,34 @@ std::vector<Entity> entities(const QByteArray& data) {
     return result;
 }
 bool near(double a,double b){return std::abs(a-b)<1e-7;}
+void verify_view_descriptions() {
+    QTemporaryDir temp;require(temp.isValid(),"Description test directory unavailable");const auto dir=fs::u8path(temp.path().toStdString());
+    workspace::Workspace live;auto part=document::PartDocument::create_default();part.user_parameters["REV"]="B";
+    live.add_part(part,{},dir/"bracket.prtz");
+    auto other=document::PartDocument::create_default();other.user_parameters["REV"]="X";live.add_part(other,{},dir/"other.prtz");
+    auto doc=drawing::DrawingDocument::create_default();doc.source_document_id=part.document_id;doc.source_path="bracket.prtz";
+    auto& sheet=doc.sheets.front();drawing::DrawingView view;view.id="description-view";view.name="CUTTING VIEW";view.source_document_id=part.document_id;view.source_path="bracket.prtz";
+    view.show_caption=true;view.scale=.5;view.use_sheet_scale=false;
+    drawing::ProjectedEdge edge;edge.points={{-10,0},{10,0}};edge.source={"profile","edge",{}};view.projected_edges={edge};
+    view.description_rows={{drawing::ViewDescriptionKind::Text,true,"&document.file_stem.&REV",2.5,"#00ff00"},
+        {drawing::ViewDescriptionKind::Scale,true,"",3.5,"#00ff00"},{drawing::ViewDescriptionKind::Name,false,"",5,"#ffffff"}};
+    auto independent=view;independent.id="independent-view";independent.source_document_id=other.document_id;independent.source_path="other.prtz";independent.x+=80;independent.description_rows[1].visible=false;
+    sheet.views={view,independent};doc.save(dir/"description.drwz");auto reopened=drawing::DrawingDocument::load(dir/"description.drwz");
+    const auto export_text=[&](const auto& model,const char* file){static_cast<void>(drawing_render::export_dxf(model,sheet.id,dir/file,dir/"description.drwz",&live,true));return entities(read(dir/file));};
+    const auto output=export_text(reopened,"description.dxf");std::vector<Entity> texts;
+    for(const auto& e:output)if(e.at(0)=="TEXT")texts.push_back(e);
+    require(texts.size()==3&&texts[0].at(1)=="bracket.B"&&texts[1].at(1)=="1:2"&&texts[2].at(1)=="other.X","Description visibility, independent parameter source or row order lost in DXF");
+    require(near(texts[0].at(40).toDouble(),2.5)&&near(texts[1].at(40).toDouble(),3.5)&&texts[0].at(20).toDouble()>texts[1].at(20).toDouble(),"Description paper heights or vertical stacking changed in DXF");
+    auto parameters=workspace::user_parameters(live,part.document_id);parameters.flat["REV"]="C";
+    parameters.values["REV"][""]="C";require(workspace::set_user_parameters(live,part.document_id,std::move(parameters)),"Source revision parameter did not change");
+    std::vector<Entity> current_texts;for(const auto& e:export_text(reopened,"description-current.dxf"))if(e.at(0)=="TEXT")current_texts.push_back(e);
+    require(current_texts[0].at(1)=="bracket.C","Description did not resolve the current source parameter");
+    require(current_texts[2].at(1)=="other.X","Description source change leaked into an independent view");
+    auto moved=reopened;moved.sheets.front().views.front().x+=20;moved.sheets.front().views.front().y+=10;
+    const auto shifted=export_text(moved,"description-moved.dxf");std::vector<Entity> moved_texts;
+    for(const auto& e:shifted)if(e.at(0)=="TEXT")moved_texts.push_back(e);
+    require(moved_texts[0].at(1)=="bracket.C"&&near(moved_texts[0].at(10).toDouble(),current_texts[0].at(10).toDouble()-20)&&near(moved_texts[0].at(20).toDouble(),current_texts[0].at(20).toDouble()+10),"Description failed view attachment");
+}
 // Exercise the complete annotation -> native file -> renderer -> export boundary.
 // These are original curve references; paper scale must not scale measured values.
 void verify_manufacturing_output(fs::path directory) {
@@ -52,7 +82,9 @@ void verify_manufacturing_output(fs::path directory) {
     angular.style.value_unit="deg";angular.style.suffix="°";angular.style.decimals=2;angular.style.keep_trailing_zeros=true;
     angular.style.tolerance_mode="deviations";angular.style.upper_tolerance="0.10";angular.style.lower_tolerance="0.05";
     drawing::refresh_drawing_dimension(view,angular);drawing::place_drawing_dimension(view,angular,0,{30,30});sheet.dimensions.push_back(angular);
-    const std::vector<std::string> expected{"1,0000in ±0,0005","10,00 ±0,01","90,00° +0,10 /-0,05"};
+    // Inch Drawing annotations use a decimal point and omit a leading zero in
+    // fractional tolerances; source unit switching must retain that convention.
+    const std::vector<std::string> expected{"1.0000in ±.0005","10,00 ±0,01","90,00° +0,10 /-0,05"};
     const std::vector<double> values{25.4,10,90};
     const auto path=directory/"manufacturing.drwz";doc.save(path);
     auto loaded=drawing::DrawingDocument::load(path);
@@ -66,8 +98,8 @@ void verify_manufacturing_output(fs::path directory) {
         const auto source_revision=live.open_part(part.document_id)->session.revision();
         for(std::size_t i=0;i<expected.size();++i) {
             const auto data=run(host,"drawing.dimension.get",{{"dimension",sheet.dimensions[i].id}}).data;
-            require(data.at("state")=="resolved"&&near(data.at("measurements")[0].at("value").get<double>(),values[i])&&
-                data.at("measurements")[0].at("text")==expected[i],"Source units changed the authoritative drawing nominal or tolerance");
+            if(!(data.at("state")=="resolved"&&near(data.at("measurements")[0].at("value").get<double>(),values[i])&&data.at("measurements")[0].at("text")==expected[i]))
+                throw std::runtime_error("Source units changed the authoritative drawing nominal or tolerance: "+data.dump());
         }
         run(host,"export.dxf",{{"path","manufacturing.dxf"},{"sheet",sheet.id},{"overwrite",true}});
         const auto bytes=read(directory/"manufacturing.dxf");
@@ -155,4 +187,4 @@ void verify() {
     std::cout<<"Drawing DXF sheet selection, millimetres, styles, UTF-8, live metadata and atomic errors passed\n";
 }
 }
-int main(int argc,char** argv){QGuiApplication app(argc,argv);try{verify();return 0;}catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}
+int main(int argc,char** argv){QGuiApplication app(argc,argv);try{verify();verify_view_descriptions();return 0;}catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}

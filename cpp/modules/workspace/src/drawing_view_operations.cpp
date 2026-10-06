@@ -31,6 +31,15 @@ std::string next_drawing_view_name(const drawing::DrawingDocument& document,cons
     return prefix+" "+std::to_string(number);
 }
 void validate_drawing_view(const drawing::DrawingView& view) {
+    if(view.description_rows.size()!=3)invalid_view();
+    std::set<int> description_kinds;
+    for(const auto& row:view.description_rows) {
+        if(int(row.kind)<0||int(row.kind)>2||!description_kinds.insert(int(row.kind)).second||row.text.size()>4096||
+           std::ranges::any_of(row.text,[](unsigned char c){return c<32||c==127;})||
+           row.color.size()!=7||row.color.front()!='#'||
+           !std::ranges::all_of(row.color.substr(1),[](unsigned char c){return (c>='0'&&c<='9')||(c>='a'&&c<='f')||(c>='A'&&c<='F');}))invalid_view();
+        bounded(row.height,.5,100);
+    }
     drawing::validate_view_crop(view);drawing::validate_view_breaks(view);
     if(view.id.empty()||view.name.empty()||view.name.size()>256||std::ranges::all_of(view.name,[](unsigned char c){return c==' ';})||
        std::ranges::any_of(view.name,[](unsigned char c){return c<32||c==127;}))invalid_view();
@@ -73,6 +82,24 @@ void edit_drawing_view(drawing::DrawingDocument& document,const std::string& she
     if(!creating&&found->parent_view_id!=accepted.parent_view_id)invalid_view();
     if(accepted.use_sheet_scale)accepted.scale=sheet->default_scale;
     validate_drawing_view(accepted);
+    // Text-only edits consume the stored projection. No source load, projection,
+    // section/hatch calculation or descendant refresh is required.
+    if(!creating&&(accepted.description_rows!=found->description_rows||accepted.name!=found->name||accepted.show_caption!=found->show_caption)) {
+        const auto geometry=[](const drawing::DrawingView& v) {
+            return std::tie(v.source_document_id,v.source_path,v.parent_view_id,v.orientation,v.camera,v.projection_direction,
+                v.display_style,v.hidden_edge_style,v.tangent_edge_style,v.show_thread_leadins,v.x,v.y,v.scale,v.use_sheet_scale,
+                v.section_id,v.section_parent_id,v.hidden_hatch_components,v.breaks,v.crop,v.section_hatch_crops,
+                v.show_dimension_guides,v.dimension_guide_count,v.dimension_guide_offset,v.dimension_guide_spacing,
+                v.show_section_label,v.value_locks,v.detail_view,v.show_detail_boundary,v.show_detail_label,v.detail_label_position,
+                v.caption_position,v.section_label_position,v.section_marker_offsets,v.inherited_crops,v.section_display_reversed);
+        };
+        const auto sections=[](const drawing::DrawingView& v){return document::serialize_sections(v.section_markers)+
+            document::serialize_sections(v.section_snapshot?std::vector{*v.section_snapshot}:std::vector<document::SectionDefinition>{});};
+        if(geometry(accepted)==geometry(*found)&&sections(accepted)==sections(*found)) {
+            found->name=accepted.name;found->show_caption=accepted.show_caption;found->description_rows=std::move(accepted.description_rows);
+            document=std::move(next);return;
+        }
+    }
     if(!accepted.parent_view_id.empty()) {
         const auto parent=std::ranges::find(sheet->views,accepted.parent_view_id,&drawing::DrawingView::id);
         if(parent==sheet->views.end())throw DrawingOperationError("view_not_found","The parent drawing view is unavailable.");
