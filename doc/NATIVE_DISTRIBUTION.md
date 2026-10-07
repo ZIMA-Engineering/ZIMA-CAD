@@ -2,6 +2,19 @@
 
 ## Scope and status
 
+Windows build **2026100704** is signed, published and independently verified.
+It adds focused Form placement with a zero-offset sheet face, two positioning
+references, signed offsets and an in-plane angle; repairs Flat Default Origin;
+localizes Form terminology in all five languages; and rounds the Ventilation
+Window cutting Sketch with two R15 corners. Eight focused suites and eleven
+packaged GUI cases passed. Production trust, native smoke, public asset hashes
+and update discovery from 2026100703 passed. Complete packaged Form confirmation
+measured 1.365 seconds with one result preparation. Post-publication cleanup
+removed 9.84 GB of temporary data while retaining personal projects, the original
+FORM backup, current SDK/build and accepted releases. Native formats and shared
+general placement are unchanged; Linux acceptance is separate. See
+[the release record](releases/2026100704.md).
+
 Windows build **2026100703** is signed, published and independently verified.
 It adds native Sheet Metal FORM with copied Part definitions, planar side-aware
 attachment and rotation, replacement, flat precuts and Drawing symbols. It also

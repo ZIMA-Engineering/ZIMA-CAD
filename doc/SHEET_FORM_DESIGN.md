@@ -253,6 +253,10 @@ offset shells, recursive symbols inside FORM_SYMBOL, and direct editing of the
 embedded definition are not established GUI workflows. Linux build and GUI
 acceptance must be performed on the Linux host. Windows 2026100703 is signed,
 published and independently verified; see [the release record](releases/2026100703.md).
+Windows 2026100704 independently verifies the focused placement extension,
+translated saved reference labels, two R15 cut corners and all eleven packaged
+GUI cases. Complete packaged confirmation measured 1.365 s; production trust,
+public bytes and update discovery passed. See [the current release record](releases/2026100704.md).
 
 ## Prerequisites agreed in the same discussion
 
