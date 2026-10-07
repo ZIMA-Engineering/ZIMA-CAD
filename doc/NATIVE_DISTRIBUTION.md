@@ -2,6 +2,18 @@
 
 ## Scope and status
 
+Windows build **2026100703** is signed, published and independently verified.
+It adds native Sheet Metal FORM with copied Part definitions, planar side-aware
+attachment and rotation, replacement, flat precuts and Drawing symbols. It also
+adds Default Origin, retained failed/no-op feature definitions, whole-shell
+thickening, passive FORM context corrections and shared animated calculation
+feedback. Fresh committed-source packaging, native smoke, production trust,
+eleven packaged GUI cases, public asset hashes and update discovery from 2026100702
+passed. Actual packaged FORM confirmation measured 1.586 seconds with one
+body/result preparation. English documentation and all five catalogs were checked.
+Linux acceptance remains separate; see [the release record](releases/2026100703.md)
+and [FORM design and verification](SHEET_FORM_DESIGN.md).
+
 Windows build **2026100702** is signed, published and verified. It fixes FORM
 profile dimension/grip edits with external supports, externally anchored native
 circle contacts, owned-Sketch reprojection after Extrusion/Revolution placement

@@ -133,7 +133,8 @@ This command-local preparation preserves reference sides and the shared placemen
 contract; it does not normalize angles or signed zero globally. Initial local
 measurements fell to 1.159 and 1.176 s with one kernel/result preparation instead
 of two. Correctly rotated GUI insertion subsequently measured 1.183 s. Packaged
-GUI acceptance is recorded with the final release.
+GUI acceptance is recorded with the final release. The signed Windows package
+measured 1.586 s, passed the two-second gate, and prepared exactly one body/result.
 
 The FORM rotation control uses the shared absolute local-Y angle that remains
 free with a FRONT face reference. The local-Y correction is ignored by that
@@ -211,8 +212,8 @@ They also passed a real nonempty `FORM_FLAT` replacement: its 4 x 4 mm precut re
 Verification is focused, not universal. Insertion across a bend, unsupported
 offset shells, recursive symbols inside FORM_SYMBOL, and direct editing of the
 embedded definition are not established GUI workflows. Linux build and GUI
-acceptance must be performed on the Linux host. A Windows release remains pending
-the remaining regression and packaging gates.
+acceptance must be performed on the Linux host. Windows 2026100703 is signed,
+published and independently verified; see [the release record](releases/2026100703.md).
 
 ## Prerequisites agreed in the same discussion
 
