@@ -17,6 +17,15 @@ Manual Origin selection remains available. A completed placement has no empty
 position row; Default leaves it unchanged, as complete-Origin Tree entry does.
 Existing references are not silently deleted or replaced.
 
+Flat Properties has an explicitly requested feature-specific exception: Default
+resets the pending Flat attachment and then consumes the complete owning Origin,
+including when its placement rows were already populated. It retires only the
+pending edge-attachment mode; other container shortcuts retain the behavior
+above. The user can subsequently replace the first reference with an eligible
+Side A end-cap boundary edge, which restores the ordinary inherited joining face, endpoint frame and
+thickness. Cancel retains the original document. This change does not modify the
+shared reference solver, edge-attachment equations or general Origin policy.
+
 Only dialogs implementing the shared placement interface receive the shortcut.
 Origin inspection and ordinary reference replacement retain their existing paths.
 No OCCT operation is added to Default entry. OK owns calculation and commit;
@@ -34,3 +43,8 @@ and immediate-parent identity. Source-face-only Shell offers neither Origin nor
 Default. Linux GUI execution remains
 to be performed on the Linux host. No persistence format or template change is
 introduced by this shortcut.
+
+The requested Flat extension passed complete owning-Body Origin entry in all five
+languages, repeated Default, subsequent native Bend end-cap boundary attachment,
+inherited endpoint references, locked attachment plane and Cancel. The shortcut
+does not broaden the existing set of eligible joining edges.

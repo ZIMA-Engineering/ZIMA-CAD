@@ -23,6 +23,8 @@
 #include "confirmed_face_hit.hpp"
 #include <zima/document/sheet_form_definition.hpp>
 #include <zima/document/body_origin_attachment.hpp>
+#include <zima/document/flat.hpp>
+#include <zima/document/bend.hpp>
 #include <zima/document/placement_orientation.hpp>
 #include <zima/kernel/sheet_material.hpp>
 #include <zima/document/named_views.hpp>
@@ -729,6 +731,52 @@ static int verify_general_command_console(QApplication& application,AssemblyWork
                 }
             }
             QObject::disconnect(connection);
+            auto flat_source=document::PartDocument::create_default();
+            static_cast<void>(document::create_origin_bound_body(flat_source.body_history,flat_source.document_id,"Sheet"));
+            auto stock=document::PartDocument::create_sketch_container();stock.feature_kind=document::FeatureKind::Bend;
+            stock.bend.thickness=1.;
+            auto outline=sketcher::Sketch::create_default();outline.owner_container_id=stock.id;
+            static_cast<void>(outline.add_segment(-50,0,50,0));stock.bend.sketch_id=outline.id;
+            document::prepare_bend_sketches(stock,outline,document::sheet_metal_defaults(flat_source));
+            flat_source.history.push_back(stock);flat_source.sketches.push_back(outline);
+            flat_source.insert_history_entry(document::PartHistoryKind::Feature,stock.id);
+            kernel::OcctKernel flat_kernel;const auto flat_boundaries=flat_kernel.evaluate_history(flat_source.kernel_operations());
+            const auto flat_path=directory/(fixture_name+"-flat.prtz");flat_source.save(flat_path,flat_boundaries);
+            check(window.open_document_path(QString::fromStdString(flat_path.string())),"Cannot open Flat Default fixture");flush();
+            const auto body_id=flat_source.body_owner_for_object(stock.id)->scope.id;
+            run(QString::fromStdString("body.activate "+body_id));flush();
+            window.findChild<QAction*>("applicationModeAction2")->trigger();flush();
+            const auto flat_editor=[&]() -> SketchPropertiesDialog* {
+                for(auto* candidate:window.findChildren<QDialog*>())if(candidate->isVisible()&&candidate->objectName()=="flatPropertiesDialog")
+                    return dynamic_cast<SketchPropertiesDialog*>(candidate);return nullptr;
+            };
+            for(const auto& language:languages) {
+                QSettings config(translation_directory.filePath("config.ini"),QSettings::IniFormat);
+                config.setValue("Application/Language",language);config.sync();
+                apply_application_translations(application,ApplicationSettings::load(translation_directory.path()));
+                window.findChild<QAction*>("flatAction")->trigger();flush();auto* dialog=flat_editor();check(dialog,"Flat creation did not open");
+                auto* shortcut=dialog->findChild<QPushButton*>("containerDefaultOriginButton");check(shortcut,"Flat Default shortcut missing");
+                shortcut->click();flush();const auto first=dialog->pending_value();
+                check(dialog->first_empty_position_index()==3&&first.second.references.size()>=3,"Flat Default did not fill the complete Origin");
+                for(const auto& ref:first.second.references)check(ref.owner_id==body_id+":origin","Flat Default chose another Origin");
+                shortcut->click();flush();check(commands::Json(dialog->pending_value().second.references)==commands::Json(first.second.references),"Repeated Flat Default changed references");
+                dialog->buttons()->button(QDialogButtonBox::Cancel)->click();flush();
+            }
+            window.findChild<QAction*>("flatAction")->trigger();flush();auto* attached=flat_editor();check(attached,"Flat edge fixture did not open");
+            attached->findChild<QPushButton*>("containerDefaultOriginButton")->click();flush();
+            const auto edge=std::ranges::find_if(flat_boundaries.back().mesh.original_references.edges,[](const auto& e){
+                try {static_cast<void>(document::flat_sheet_references(e));return true;}catch(const std::exception&){return false;}
+            });
+            check(edge!=flat_boundaries.back().mesh.original_references.edges.end(),"Flat Default fixture has no boundary edge");
+            const document::ConstructionReference ref{{},edge->reference.owner_id,edge->reference.semantic_key};
+            check(attached->sheet_reference_allowed(0,ref)&&attached->set_reference(0,ref,"Boundary"),"Flat Default broke subsequent edge attachment");flush();
+            const auto edge_placement=attached->pending_value();
+            check(edge_placement.second.references.size()==3&&edge_placement.second.references.front().semantic_key==edge->reference.semantic_key&&
+                !attached->findChild<QComboBox*>("sketchPlane")->isEnabled()&&edge_placement.first.external_references.size()==2,
+                "Flat edge placement lost its inherited frame or endpoints after Default");
+            attached->buttons()->button(QDialogButtonBox::Cancel)->click();flush();
+            check(document::PartDocument::load(flat_path).serialized()==flat_source.serialized(),"Flat Default/edge Cancel modified the source");
+            std::cout<<"Flat Default: five languages, repeated complete Origin, then sheet boundary attachment PASS"<<std::endl;
             return 0;
         }
         const auto verify_named_views=[&] {

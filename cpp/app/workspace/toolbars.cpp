@@ -443,7 +443,7 @@ void AssemblyWorkspaceWindow::rebuild_application_toolbar() {
             }
             twist->setEnabled(!properties_dialog_);add_command(twist);
             auto* form=findChild<QAction*>("sheetFormAction");
-            if(!form){form=new QAction(resource_icon("sheet-form"),tr("FORM"),this);
+            if(!form){form=new QAction(resource_icon("sheet-form"),tr("Form"),this);
                 form->setObjectName("sheetFormAction");
                 connect(form,&QAction::triggered,this,[this]{show_primitive_properties(zima::document::FeatureKind::SheetForm,{},true);});}
             form->setEnabled(!properties_dialog_&&body&&!body->derived_copy&&!body->suppressed);add_command(form);

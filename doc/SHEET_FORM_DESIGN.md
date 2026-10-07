@@ -1,4 +1,4 @@
-# Sheet FORM design
+# Sheet Form design
 
 User agreement: 2026-10-07. This document records the intended behavior;
 implementation and verification status must be recorded separately.
@@ -65,18 +65,57 @@ corner remains deferred. Align the definition planes with the selected outer
 sheet side, with the fixed forming direction pointing into the sheet. The
 defined outer surface stays in place; the sheet thickness grows inward.
 
-After choosing the insertion position and supporting sheet face, keep both
-fixed and offer rotation around the sheet normal only. All four roles share
-this transform. Consume the established placement contract without changing
-its general reference solver or side semantics.
+Form Properties now presents a feature-specific placement form: the sheet face,
+two positioning references with signed offsets, and one in-plane angle. It
+uses the shared reference-entry items, entry indicators and independent inspection
+eyes. The generic Origin, FRONT/TOP, flip and numeric XYZ controls are not shown.
+Creation and later editing use the same internal Properties dialog.
 
-Face entry uses the common confirmed face-hit point. Three existing native
-position references (the sheet and two independent owning-Body datum planes)
-fix that point. FRONT follows the sheet's oriented normal; the local Y rotation
-correction rotates in its plane. No new general placement equations are added.
+Face entry consumes the common confirmed face-hit point and fixes the sheet
+side with zero offset. Two independent owning-Body datum planes initially retain
+the clicked position. Either positioning row may be replaced with a straight
+segment, point, plane or planar face. A plane contributes its ordinary signed
+distance; a segment contributes the signed distance to its projection in the
+sheet plane, with the distance normal defined by sheet normal cross segment
+direction. A point contributes the zero-angle sheet-frame X coordinate in row
+2 or Z coordinate in row 3, plus that row's offset. The same point can therefore
+drive both independent coordinates. Parallel/dependent constraints, curved
+segments and missing sources are rejected without replacing the calculated frame.
+Each position edit preserves the support side and normal. The angle rotates the
+definition about that normal without changing its insertion point.
+
+The placement equations belong only to Form. Persisted references retain their
+original source identities, offsets and side flags in the existing native schema;
+the shared general placement solver is unchanged. The ordinary native FRONT
+solution supplies the exact side-aware orientation, with its free absolute
+local-Y angle. Preview and confirmation consume the same Body-local resolver;
+hover, click and cycling retain the viewer's common candidate list. No OCCT
+calculation occurs during reference entry, offset editing or rotation.
 During explicit reference regeneration, FORM consumes the current support's
 native thickness metadata and updates its inward offset. Three successive sheet
 thickness changes, actual skin metadata and thickness Undo/Redo passed.
+
+The command is localized as **Form** in English, **Tváření** in Czech,
+**Umformen** in German, **Formage** in French and **Формовка** in Russian.
+The literal native role names `FORM_CUT`, `FORM`, `FORM_FLAT` and `FORM_SYMBOL`
+and user-authored names remain unchanged.
+
+The Ventilation Window's first `FORM_CUT` Sketch now rounds its two corners at
+the 20 mm end with R15, matching the two quarter-circle guide corners of the
+outer Form surface. This is distinct from its separate R3 spatial edge treatment.
+The original 100 by 20 mm dimensions, four design points and segment identities
+remain intact. The same native edit was applied to the user's `Projects/FORM.prtz`;
+its previous contents were preserved as `FORM-before-cut-radius-20261007.prtz`.
+
+The feature-specific placement extension passed eight focused Windows suites.
+Native equations cover both sheet sides, signed offsets from points, straight
+segments, planes and planar faces, rejected dependent lines and persisted signed
+zero. The actual GUI checks successive reference/offset/angle edits, removing and
+restoring both positioning rows, exact native preview/confirmation agreement,
+unchanged OK, rollback, replacement, Cancel, resizing, Undo/Redo and save/reopen.
+All five translated placement controls and tooltips were checked. The current
+native schema and general placement implementation are unchanged. Linux execution
+and arbitrary curved-sheet insertion remain outside this verification scope.
 
 ## Interactive performance requirement
 

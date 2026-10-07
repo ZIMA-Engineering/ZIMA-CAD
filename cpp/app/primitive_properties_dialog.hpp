@@ -35,6 +35,7 @@ class ReferenceCellItem;
 namespace zima::app {
 
 class FeatureParameterPanel;
+class SheetFormPlacementSection;
 
 // Single source of truth for history features that consume the complete
 // shared container-placement contract in both Properties and the View.
@@ -51,6 +52,7 @@ public:
     void replace_sheet_form_definition(zima::document::SheetFormParameters);
     [[nodiscard]] const std::vector<zima::kernel::ViewerEdge>& sheet_form_preview() const { return sheet_form_preview_; }
     bool sheet_reference_allowed(std::size_t,const zima::document::ConstructionReference&) const;
+    [[nodiscard]] bool is_sheet_form() const { return initial_.feature_kind==zima::document::FeatureKind::SheetForm; }
     bool is_sheet_revolution() const { return initial_.revolution.sheet_metal; }
     bool is_sheet_edge_feature() const { return initial_.revolution.sheet_metal ||
         initial_.feature_kind==zima::document::FeatureKind::TwistedSheet; }
@@ -188,6 +190,7 @@ protected:
 
 private:
     std::string sheet_form_body_origin_;
+    std::shared_ptr<SheetFormPlacementSection> sheet_form_placement_;
     bool sheet_form_face_entry_{};
     QLabel* sheet_form_source_{};
     std::vector<zima::kernel::ViewerEdge> sheet_form_preview_;

@@ -23,6 +23,14 @@ struct SheetFormDefinition {
 [[nodiscard]] Placement sheet_form_attachment(const kernel::FaceReference&,
     const std::string& body_origin, const kernel::ViewerReferenceGeometry&,
     Placement seed, kernel::Vec3 insertion_point);
+// Feature-owned planar positioning. Row zero is the zero-offset support;
+// rows one/two are signed line/plane distances or sheet-frame point X/Z.
+// Source identities and offsets remain ordinary persisted native references.
+[[nodiscard]] bool resolve_sheet_form_placement(Placement&,
+    const kernel::ViewerReferenceGeometry&, kernel::Vec3* base_rotation=nullptr,
+    bool* orientation_from_reference=nullptr);
+[[nodiscard]] bool sheet_form_position_reference_available(ConstructionReference,
+    const kernel::ViewerReferenceGeometry&,kernel::Vec3 sheet_normal);
 [[nodiscard]] SheetFormParameters copy_sheet_form_definition(const SheetFormDefinition&,
     const std::vector<kernel::BodyResult>& calculated={});
 [[nodiscard]] HistoryContainer create_sheet_form();

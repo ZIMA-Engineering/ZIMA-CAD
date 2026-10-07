@@ -26,6 +26,9 @@ namespace zima::app {
 class SketchPropertiesDialog final : public zima::ui::PropertiesSubWindow,
                                      public PlacementReferenceDialog {
 public:
+    // Explicit Flat shortcut: retire an edge attachment before consuming the
+    // ordinary complete owning Origin. Other Sketch/container modes are unchanged.
+    void prepare_flat_default_origin();
     [[nodiscard]] bool sheet_reference_allowed(std::size_t, const zima::document::ConstructionReference&) const;
     [[nodiscard]] bool is_sheet_edge_feature() const {
         return static_cast<bool>(bend_pending_)||static_cast<bool>(flat_pending_);

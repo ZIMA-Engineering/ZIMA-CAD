@@ -550,6 +550,17 @@ void SketchPropertiesDialog::lock_flat_attachment_fields() {
     }
 }
 
+void SketchPropertiesDialog::prepare_flat_default_origin() {
+    if(!flat_pending_)return;
+    flat_pending_->sheet_attachment=false;flat_changed_(*flat_pending_);
+    placement_->clear_reference_highlights();
+    placement_->initialize_from_references({},[](const auto& key){return QString::fromStdString(key);});
+    zima::document::Placement origin;
+    origin.value_locks=placement_->numeric_placement().value_locks;
+    placement_->initialize_numeric_values(origin);
+    lock_flat_attachment_fields();refresh_resolved_placement();
+}
+
 bool SketchPropertiesDialog::sheet_reference_allowed(std::size_t index,const zima::document::ConstructionReference& reference) const {
     if(!is_sheet_edge_feature())return true;
     const auto edge=std::ranges::find_if(reference_geometry_.edges,[&](const auto& e) {

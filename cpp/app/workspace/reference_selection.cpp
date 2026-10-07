@@ -9,6 +9,7 @@ namespace {
 document::ConstructionReference prepare_placement_pick(PlacementReferenceDialog* dialog,
         std::size_t index,document::ConstructionReference ref,
         const kernel::ViewerReferenceGeometry& geometry,const kernel::Vec3& origin) {
+    if(const auto* form=dynamic_cast<const PrimitivePropertiesDialog*>(dialog);form&&form->is_sheet_form())return ref;
     const auto measured=document::measure_placement_reference_offset(ref,geometry,origin);
     ref.measured_offset=measured;
     if(auto* widget=dynamic_cast<QWidget*>(dialog))
@@ -328,7 +329,12 @@ void AssemblyWorkspaceWindow::bind_local_origin_selection(QDialog* dialog) {
                     parent_id = construction->pending_value().parent_construction_id;
                 }
             } else if (auto* sketch = dynamic_cast<SketchPropertiesDialog*>(dialog)) {
-                edited_id = sketch->pending_value().first.id;
+                const auto pending=sketch->pending_value().first;
+                // A Flat's owned Sketch is displayed below its own pending
+                // container. Starting at that Sketch would choose the Flat's
+                // own Origin, which reference entry correctly rejects.
+                edited_id=dialog->objectName()=="flatPropertiesDialog"
+                    ? pending.owner_container_id : pending.id;
             }
             const auto path = workspace_.active_occurrence_path();
             const auto origin_child = [&](QTreeWidgetItem* row) -> QTreeWidgetItem* {
@@ -369,6 +375,7 @@ void AssemblyWorkspaceWindow::bind_local_origin_selection(QDialog* dialog) {
             }
             if (!origin || !placement_origin_allowed(origin->data(0, Qt::UserRole).toString().toStdString())) return;
             set_local_origin_selection_mode(false);
+            if(auto* sketch=dynamic_cast<SketchPropertiesDialog*>(dialog))sketch->prepare_flat_default_origin();
             const auto index = placement->first_empty_position_index();
             if (index >= 3) return;
             if (dialog == dynamic_cast<QDialog*>(construction_reference_dialog_)) {
@@ -1019,6 +1026,8 @@ void AssemblyWorkspaceWindow::start_primitive_reference_selection(
         auto candidate_reference = zima::document::ConstructionReference{
             std::move(local_path), candidate.owner_id, candidate.semantic_key, 0.0,
             candidate_supports_offset(candidate)};
+        if(const auto* form=dynamic_cast<const PrimitivePropertiesDialog*>(primitive_reference_dialog_);form&&form->is_sheet_form())
+            return form->sheet_reference_allowed(index,candidate_reference);
         if(const auto* sketch_dialog=dynamic_cast<const SketchPropertiesDialog*>(primitive_reference_dialog_)) {
             if(!sketch_dialog->sheet_reference_allowed(index,candidate_reference))return false;
             // Sheet Profile and Flat consume one boundary edge as an atomic
@@ -1237,6 +1246,8 @@ void AssemblyWorkspaceWindow::accept_primitive_reference(
     }
     if (!placement_reference_exists(candidate,primitive_reference_geometry_,local_path)) return;
     const std::size_t selected_index = *pending_primitive_reference_index_;
+    const auto* form_dialog=dynamic_cast<const PrimitivePropertiesDialog*>(primitive_reference_dialog_);
+    const bool form_placement=form_dialog&&form_dialog->is_sheet_form();
     const bool orientation_reference = selected_index >= 3;
     auto baseline_references =
         primitive_reference_dialog_->references_without(selected_index);
@@ -1253,7 +1264,7 @@ void AssemblyWorkspaceWindow::accept_primitive_reference(
         zima::document::orientation_constraint_remaining_dof(
             baseline_references, primitive_reference_geometry_, true,
             orientation_origin);
-    const bool direction_reference = !orientation_reference &&
+    const bool direction_reference = !form_placement && !orientation_reference &&
         selected_index < 3 && baseline_translation_dof == 0 &&
         baseline_rotation_dof > 0;
     const int baseline_dof = orientation_reference
@@ -1276,7 +1287,7 @@ void AssemblyWorkspaceWindow::accept_primitive_reference(
             ? "direction" : selected_index == 3 ? "front" : "top";
         proposed_reference.orientation_only = true;
         if (direction_reference) proposed_reference.supports_offset = false;
-    } else if (candidate_drives_rotation(candidate)) {
+    } else if (!form_placement && candidate_drives_rotation(candidate)) {
         assign_automatic_orientation_role(
             proposed_reference, baseline_references);
     }
@@ -1312,7 +1323,7 @@ void AssemblyWorkspaceWindow::accept_primitive_reference(
         proposed_placement.z=(*committed_reference.picked_position)[2];
     }
     proposed_placement.references = baseline_references;
-    if (!zima::document::resolve_placement(proposed_placement, primitive_reference_geometry_)) {
+    if (!form_placement && !zima::document::resolve_placement(proposed_placement, primitive_reference_geometry_)) {
         state_->setText(tr("Navržené reference umístění prvku nelze vyřešit."));
         return;
     }
@@ -1326,8 +1337,8 @@ void AssemblyWorkspaceWindow::accept_primitive_reference(
         : proposed_rotation_dof +
             zima::document::point_constraint_remaining_dof(
                 baseline_references, primitive_reference_geometry_, proposed_origin);
-    if (proposed_dof > baseline_dof ||
-        (primitive_reference_auto_advance_ && proposed_dof == baseline_dof)) {
+    if (!form_placement && (proposed_dof > baseline_dof ||
+        (primitive_reference_auto_advance_ && proposed_dof == baseline_dof))) {
         state_->setText(tr("Tato reference nepřidává žádnou nezávislou vazbu."));
         viewer_->clear_selection();
         return;

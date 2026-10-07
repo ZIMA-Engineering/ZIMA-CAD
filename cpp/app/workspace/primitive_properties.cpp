@@ -233,9 +233,10 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
             ? zima::document::PartDocument::create_extrusion_container(source_sketch_id)
         : zima::document::PartDocument::create_revolution_container(source_sketch_id);
     if(feature_kind==zima::document::FeatureKind::SheetForm&&!edit_mode) {
+        initial.name=tr("Form").toStdString();
         const auto* body=part->session.document().body_history.find(part->session.document().body_history.active_body_id());
         if(!body||body->derived_copy||body->suppressed)return;
-        const auto file=open_file(this,tr("Insert FORM"),application_settings_.resolved_paths.value("Forms"),
+        const auto file=open_file(this,tr("Insert Form"),application_settings_.resolved_paths.value("Forms"),
             tr("ZIMA-CAD Part (*.prtz)"),application_settings_.translations);
         if(file.isEmpty())return;
         try {
@@ -542,7 +543,7 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
         if(!body)body=document.body_history.find(document.body_history.active_body_id());
         dialog->set_sheet_form_body_origin(body->origin().id);
         dialog->set_sheet_form_definition_request([this,dialog]{
-            const auto file=open_file(this,tr("Replace FORM definition"),application_settings_.resolved_paths.value("Forms"),
+            const auto file=open_file(this,tr("Replace Form definition"),application_settings_.resolved_paths.value("Forms"),
                 tr("ZIMA-CAD Part (*.prtz)"),application_settings_.translations);
             if(file.isEmpty())return;
             try {dialog->replace_sheet_form_definition(zima::document::copy_sheet_form_definition(
@@ -1089,7 +1090,9 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
             bool orientation_from_reference = false;
             const bool point=resolved_preview.feature_kind==zima::document::FeatureKind::Feature &&
                 resolved_preview.feature.type==zima::document::FeatureType::Point;
-            bool placement_valid = (point ? zima::document::resolve_point_placement : zima::document::resolve_placement)(
+            bool placement_valid = (resolved_preview.feature_kind==zima::document::FeatureKind::SheetForm
+                ? zima::document::resolve_sheet_form_placement
+                : point ? zima::document::resolve_point_placement : zima::document::resolve_placement)(
                 placement, primitive_reference_geometry_, &base_rotation,
                 &orientation_from_reference);
             if(resolved_preview.feature_kind==zima::document::FeatureKind::SheetForm&&
@@ -1118,8 +1121,10 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
                 const auto derived=zima::document::point_circle_plane_offsets(effective_references,primitive_reference_geometry_);
                 for(std::size_t i=0;i<derived.size();++i)if(derived[i])effective_references[i].offset=*derived[i];
             }
-            const auto constraint_state = zima::document::point_constraint_state(
-                effective_references, primitive_reference_geometry_, {placement.x,placement.y,placement.z});
+            const auto constraint_state = resolved_preview.feature_kind==zima::document::FeatureKind::SheetForm&&placement_valid
+                ? zima::document::PointConstraintState{0,{true,true,true}}
+                : zima::document::point_constraint_state(
+                    effective_references, primitive_reference_geometry_, {placement.x,placement.y,placement.z});
             primitive_translation_dof_ = constraint_state.remaining_dof;
             primitive_reference_dialog_->set_translation_constraint_state(
                 constraint_state,

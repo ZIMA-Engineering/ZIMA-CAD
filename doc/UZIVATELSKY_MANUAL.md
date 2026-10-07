@@ -1020,12 +1020,17 @@ preceding solids are joined through Add. The source eye is independent of input;
 OK commits, unchanged OK adds no Undo step, and Cancel restores the result.
 See [Thicken Surface](SURFACE_THICKEN.md).
 
-**FORM** inserts a symbolic manufactured shape on a planar outer sheet face.
+**Form** (Czech: **Tváření**) inserts a symbolic manufactured shape on a planar outer sheet face.
 Choose an ordinary `.prtz` definition from the Forms library, then click the
 sheet at its insertion point. The attachment follows that side's normal and
-allows rotation within the sheet plane. Its complete calculated outside surface
+allows rotation within the sheet plane. Properties offers the zero-offset sheet
+face, two positioning references with signed offsets, and one in-plane angle.
+Use a straight segment, plane or planar face for a signed distance. A point
+sets the sheet-plane X coordinate in the second row or Z in the third row;
+the offset is added to that coordinate. The angle does not relocate the feature.
+Its complete calculated outside surface
 is offset inward by the sheet thickness. Changing that thickness and regenerating
-updates the offset. FORM represents appearance and manufacturing intent; it does
+updates the offset. Form represents appearance and manufacturing intent; it does
 not predict actual forming deformation or thinning.
 
 The library Part uses four ordinary Bodies named `FORM_CUT`, `FORM`, `FORM_FLAT`
@@ -1035,13 +1040,13 @@ calculated connected outside shell; FLAT contains an optional precut Sketch
 Sketch. The default library includes `VentilationWindow.prtz`. Global Settings
 provides a separate Forms directory. Only native Parts are offered in its picker.
 
-Insertion stores an independent complete copy in the destination Part. FORM
+Insertion stores an independent complete copy in the destination Part. Form
 Properties can replace that definition while retaining the feature identity,
 attachment and rotation. Cancel preserves the prior definition. Unbend replaces
 the spatial shape by its optional flat cut; Bend Back restores it. Symbolic skins
 are excluded from Sheet Cut region calculations. Drawing Show/Erase offers
 `FORM_SYMBOL` through the existing manufacturing-symbol controls.
-See [Sheet FORM](SHEET_FORM_DESIGN.md) for the definition contract and verified
+See [Sheet Form](SHEET_FORM_DESIGN.md) for the definition contract and verified
 scope.
 
 New Fillet and Chamfer faces on a surface shell are yellow, like other surfaces.

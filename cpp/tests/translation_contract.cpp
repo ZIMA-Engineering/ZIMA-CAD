@@ -142,11 +142,19 @@ int verify_translations(QApplication& application, QWidget& parent) {
             feature.sheet_form=document::copy_sheet_form_definition(document::read_sheet_form_definition(
                 std::filesystem::path(__FILE__).parent_path().parent_path().parent_path()/"config/lib/01-SHEETMETAL/01-FORM/VentilationWindow.prtz"));
             app::PrimitivePropertiesDialog dialog(feature,false,false,[](auto){},&parent);
-            check(dialog.windowTitle()==settings.qt_translations.value("FORM Properties"),"FORM title is not localized");
+            check(dialog.windowTitle()==settings.qt_translations.value("Form Properties"),"Form title is not localized");
             check(dialog.findChild<QPushButton*>("sheetFormReplaceDefinition")->text()==settings.qt_translations.value("Replace definition…"),
                 "FORM definition replacement is not localized");
             const auto labels=dialog.findChildren<QLabel*>();
-            check(std::ranges::any_of(labels,[&](auto* label){return label->text()==settings.qt_translations.value("FORM definition");}),
+            for(const auto* key:{"Form placement","In-plane angle"})
+                check(std::ranges::any_of(labels,[&](auto* label){return label->text()==settings.qt_translations.value(key);}),"Form placement label is not localized");
+            auto* references=dialog.findChild<QTableWidget*>("primitiveReferenceTable");
+            check(references&&references->rowCount()==3,"Form placement rows missing");
+            int row=0;for(const auto* key:{"Sheet face","Position 1","Position 2"})
+                check(references->item(row++,2)->text()==settings.qt_translations.value(key),"Form reference role is not localized");
+            check(dialog.findChild<QDoubleSpinBox*>("sheetFormOffset1")->toolTip()==settings.qt_translations.value(
+                "Signed distance to a line or plane. A point sets sheet-plane X in row 2 or Z in row 3."),"Form offset tooltip is not localized");
+            check(std::ranges::any_of(labels,[&](auto* label){return label->text()==settings.qt_translations.value("Form definition");}),
                 "FORM definition label is not localized");
         }
         check(QObject::tr("Disconnected centerline source segments")==

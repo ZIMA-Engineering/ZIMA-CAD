@@ -10,6 +10,8 @@
 #include <zima/document/profile_status.hpp>
 #include <zima/document/bend.hpp>
 #include <zima/document/sheet_form_definition.hpp>
+#include <zima/kernel/sheet_material.hpp>
+#include "sheet_form_placement.hpp"
 #include "thread_catalog.hpp"
 
 #include <zima/ui/reference_cell.hpp>
@@ -90,7 +92,7 @@ QString primitive_properties_title(zima::document::FeatureKind kind) {
 
 
         case FeatureKind::TwistedSheet: return QObject::tr("Vlastnosti krouceného plechu");
-        case FeatureKind::SheetForm: return QObject::tr("FORM Properties");
+        case FeatureKind::SheetForm: return QObject::tr("Form Properties");
         case FeatureKind::Feature: return QObject::tr("Vlastnosti prvku");
         case FeatureKind::Extrusion: return QObject::tr("Vlastnosti vytažení");
         case FeatureKind::Revolution: return QObject::tr("Vlastnosti rotace");
@@ -180,8 +182,14 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
     // the same position as ConstructionPropertiesDialog's Point/Axis/Plane
     // dialogs, before any shape-specific dimension fields.
     if (uses_container_placement(initial.feature_kind)) {
+        auto* placement_parent=static_cast<QWidget*>(this);
+        auto* placement_layout=content_layout();
+        if(is_sheet_form()) {
+            auto* adapter=new QWidget(this);adapter->setObjectName("sheetFormNativePlacementAdapter");
+            adapter->hide();placement_parent=adapter;placement_layout=new QVBoxLayout(adapter);
+        }
         placement_ = std::make_unique<zima::ui::ContainerPlacementSection>(
-            this, content_layout(), /*with_orientation=*/true,
+            placement_parent, placement_layout, /*with_orientation=*/true,
             /*position_rows_can_define_rotation=*/true, zima::ui::numeric_decimal_places(this));
         placement_->initialize_from_references(initial.placement.references,
             [](const std::string& semantic) {
@@ -204,7 +212,7 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
         for (auto* input : rotation_) input->setObjectName("primitiveRotation");
         reference_status_ = placement_->reference_status_label();
         dof_label_ = placement_->dof_label();
-        placement_->reference_table()->setObjectName("primitiveReferenceTable");
+        placement_->reference_table()->setObjectName(is_sheet_form()?"sheetFormNativeReferenceAdapter":"primitiveReferenceTable");
         if (placement_->orientation_table() != nullptr) {
             placement_->orientation_table()->setObjectName("primitiveOrientationTable");
         }
@@ -217,10 +225,16 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
             [this] { if (reference_highlights_changed_) reference_highlights_changed_(); });
         placement_->refresh_reference_table();
         placement_->refresh_orientation_table();
+        if(is_sheet_form()) {
+            sheet_form_placement_=std::make_shared<SheetFormPlacementSection>(this,content_layout(),initial.placement.references);
+            sheet_form_placement_->request=[this](std::size_t index){if(reference_request_)reference_request_(index);};
+            sheet_form_placement_->changed=[this]{notify_preview();};
+            sheet_form_placement_->highlights_changed=[this]{if(reference_highlights_changed_)reference_highlights_changed_();};
+        }
         placement_->install_dof_label(content_layout());
     }
 
-    if (treatment) {
+    if (treatment || is_sheet_form()) {
         // These body operations have no Origin input. Also prevent the
         // workspace's generic dialog binding from adding the action later.
         setProperty("originSelectionBound", true);
@@ -1249,12 +1263,14 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
         set_shell_faces(initial.shell.removed_faces);
     } else if (initial.feature_kind == zima::document::FeatureKind::SheetForm) {
         placement_->rotation_fields()[1]->setObjectName("sheetFormRotation");
+        placement_->rotation_fields()[1]->setParent(this);
+        form->addRow(tr("In-plane angle"),placement_->rotation_fields()[1]);
         sheet_form_preview_=zima::document::sheet_form_preview_edges(initial.sheet_form);
         sheet_form_source_=new QLabel(QString::fromStdString(initial.sheet_form.source_name),this);
         sheet_form_source_->setObjectName("sheetFormDefinition");
         sheet_form_source_->setTextInteractionFlags(Qt::TextSelectableByMouse);
         sheet_form_source_->setWordWrap(true);
-        form->addRow(tr("FORM definition"),sheet_form_source_);
+        form->addRow(tr("Form definition"),sheet_form_source_);
         auto* replace=new QPushButton(tr("Replace definition…"),this);
         replace->setObjectName("sheetFormReplaceDefinition");
         connect(replace,&QPushButton::clicked,this,[this]{
@@ -1737,6 +1753,7 @@ zima::document::HistoryContainer PrimitivePropertiesDialog::values() const {
         result.placement.references = placement_references;
     }
     if(result.feature_kind==zima::document::FeatureKind::SheetForm) {
+        result.placement.references=sheet_form_placement_->references();
         result.sheet_form.support={};
         if(!result.placement.references.empty()) {
             const auto& reference=result.placement.references.front();
@@ -2482,6 +2499,7 @@ PrimitivePropertiesDialog::highlighted_reference_owner_ids() const {
 
 std::vector<zima::document::ConstructionReference>
 PrimitivePropertiesDialog::highlighted_reference_entries() const {
+    if(sheet_form_placement_)return sheet_form_placement_->highlighted();
     auto result = placement_ ? placement_->highlighted_reference_entries()
                              : std::vector<zima::document::ConstructionReference>{};
     const auto append_target = [&](bool highlighted, const auto& targets) {
@@ -2548,13 +2566,27 @@ void PrimitivePropertiesDialog::lock_sheet_attachment_fields() {
     }
 }
 bool PrimitivePropertiesDialog::sheet_reference_allowed(std::size_t index,const zima::document::ConstructionReference& reference) const {
-    if(initial_.feature_kind==zima::document::FeatureKind::SheetForm&&index==0&&
-       !reference.semantic_key.starts_with("origin:")) {
+    if(is_sheet_form()&&index==0) {
         return std::ranges::any_of(sheet_reference_geometry_.triangle_references,[&](const auto& face){return
             face.owner_id==reference.owner_id&&face.semantic_key==reference.semantic_key&&
             face.instance_path==reference.instance_path&&reference.instance_path.empty()&&face.surface&&
             face.surface->kind==zima::kernel::SurfaceGeometry::Kind::Plane&&face.sheet_thickness>0&&
             (face.sheet_role==zima::kernel::SheetFaceRole::SideA||face.sheet_role==zima::kernel::SheetFaceRole::SideB);});
+    }
+    if(is_sheet_form()) {
+        if(index>=3||!sheet_form_placement_)return false;
+        auto value=values().placement;
+        if(value.references.size()!=4)return false;
+        const auto support=values().sheet_form.support;
+        if(!support.surface)return false;
+        const auto normal=zima::kernel::sheet_material::mul(support.surface->axis,support.surface->reversed?-1.:1.);
+        if(!zima::document::sheet_form_position_reference_available(reference,sheet_reference_geometry_,normal))return false;
+        const auto other=index==1?2:1;
+        if(!zima::document::sheet_form_position_reference_available(value.references[other],sheet_reference_geometry_,normal))return true;
+        auto proposed=reference;proposed.orientation_only=false;proposed.orientation_drives_rotation=false;
+        proposed.orientation_role="none";proposed.supports_offset=true;
+        proposed.offset=value.references[index].offset;value.references[index]=std::move(proposed);
+        return zima::document::resolve_sheet_form_placement(value,sheet_reference_geometry_);
     }
     const bool sheet_feature=initial_.revolution.sheet_metal||
         initial_.feature_kind==zima::document::FeatureKind::TwistedSheet;
@@ -2583,8 +2615,7 @@ bool PrimitivePropertiesDialog::set_reference(std::size_t index,
     zima::document::ConstructionReference reference, const QString& label) {
     if (!placement_) return false;
     if(!sheet_reference_allowed(index,reference))return false;
-    if(initial_.feature_kind==zima::document::FeatureKind::SheetForm&&index==0&&
-       !reference.semantic_key.starts_with("origin:")) {
+    if(is_sheet_form()&&index==0) {
         const auto face=std::ranges::find_if(sheet_reference_geometry_.triangle_references,[&](const auto& candidate){return
             candidate.owner_id==reference.owner_id&&candidate.semantic_key==reference.semantic_key&&
             candidate.instance_path==reference.instance_path;});
@@ -2597,8 +2628,14 @@ bool PrimitivePropertiesDialog::set_reference(std::size_t index,
             initial_.sheet_form.support=*face;initial_.sheet_form.thickness=face->sheet_thickness;
             sheet_form_face_entry_=false;
             placement_->initialize_from_references(attached.references,[](const auto& semantic){return readable_placement_reference_kind(semantic);});
+            sheet_form_placement_->initialize(attached.references);
+            sheet_form_placement_->set_reference(0,reference,label);
             placement_->initialize_numeric_values(attached);error_->clear();notify_preview();return true;
         } catch(const std::exception& failure){error_->setText(tr(failure.what()));return false;}
+    }
+    if(is_sheet_form()) {
+        sheet_form_placement_->set_reference(index,std::move(reference),label);
+        error_->clear();notify_preview();return true;
     }
     if((initial_.revolution.sheet_metal||
         initial_.feature_kind==zima::document::FeatureKind::TwistedSheet)&&index==0) {
@@ -2681,27 +2718,36 @@ PrimitivePropertiesDialog::references_without(std::size_t index) const {
     // Replacing FORM's support picks a new insertion point with the common
     // face-hit seed, rather than retaining coordinates constrained to its old face.
     if(initial_.feature_kind==zima::document::FeatureKind::SheetForm&&index==0&&sheet_form_face_entry_)return {};
+    if(sheet_form_placement_) {
+        auto refs=sheet_form_placement_->references();
+        if(index<refs.size())refs.erase(refs.begin()+static_cast<std::ptrdiff_t>(index));
+        return refs;
+    }
     return placement_ ? placement_->references_without(index)
                        : std::vector<zima::document::ConstructionReference>{};
 }
 
 std::size_t PrimitivePropertiesDialog::first_empty_position_index() const {
     if(initial_.feature_kind==zima::document::FeatureKind::SheetForm&&sheet_form_face_entry_)return 0;
+    if(sheet_form_placement_)return sheet_form_placement_->first_empty();
     return placement_ ? placement_->first_empty_position_index() : 3;
 }
 
 void PrimitivePropertiesDialog::set_active_reference_index(
     std::optional<std::size_t> index) {
     sheet_form_face_entry_=initial_.feature_kind==zima::document::FeatureKind::SheetForm&&index==0;
+    if(sheet_form_placement_)sheet_form_placement_->set_active(index);
     if (placement_) placement_->set_active_reference_index(index);
 }
 
 void PrimitivePropertiesDialog::set_reference_inspected(
     std::size_t index, bool inspected) {
+    if(sheet_form_placement_){sheet_form_placement_->set_inspected(index,inspected);return;}
     if (placement_) placement_->set_reference_inspected(index, inspected);
 }
 
 void PrimitivePropertiesDialog::clear_reference_highlights() {
+    if(sheet_form_placement_)sheet_form_placement_->clear_highlights();
     if (placement_) placement_->clear_reference_highlights();
     const bool had_target_highlights = forward_end_target_highlighted_ ||
         reverse_end_target_highlighted_;

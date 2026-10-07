@@ -209,7 +209,117 @@ Placement sheet_form_attachment(const kernel::FaceReference& face,
     seed.rotation_offset_x=0;seed.rotation_offset_z=0;
     seed.orientation_back=false;seed.orientation_quarter_turns=0;
     if(!resolve_placement(seed,geometry))throw std::invalid_argument("Navržené reference umístění prvku nelze vyřešit.");
+    // Present the default datums in the same order as point-coordinate entry:
+    // X first, then Z in the zero-angle sheet frame. This also permits replacing
+    // one datum at a time without temporarily duplicating the other equation.
+    auto zero=seed;zero.absolute_rotation_y=0;
+    if(!resolve_placement(zero,geometry))throw std::invalid_argument("Navržené reference umístění prvku nelze vyřešit.");
+    const auto x=construction_direction_from_local_axis("x",{zero.rotation_x,zero.rotation_y,zero.rotation_z});
+    if(std::abs(kernel::sheet_material::dot(normals[pair[0]],x))<std::abs(kernel::sheet_material::dot(normals[pair[1]],x)))
+        std::swap(seed.references[1],seed.references[2]);
     return seed;
+}
+bool sheet_form_position_reference_available(ConstructionReference ref,
+        const kernel::ViewerReferenceGeometry& geometry,kernel::Vec3 normal) {
+    using namespace kernel::sheet_material;
+    const auto same=[&](const auto& a) {return a.owner_id==ref.owner_id&&a.semantic_key==ref.semantic_key&&a.instance_path==ref.instance_path;};
+    if(ref.owner_id.empty())return false;
+    if(std::ranges::any_of(geometry.points,[&](const auto& p){return same(p.reference);}))return true;
+    const auto face=std::ranges::find_if(geometry.triangle_references,same);
+    const bool datum=ref.semantic_key=="plane"||ref.semantic_key.starts_with("plane:")||ref.semantic_key.starts_with("origin:plane:");
+    if(face!=geometry.triangle_references.end()||datum) {
+        if(!datum&&(!face->surface||face->surface->kind!=kernel::SurfaceGeometry::Kind::Plane))return false;
+        ref.supports_offset=true;
+        const auto a=measure_placement_reference_offset(ref,geometry,{}),x=measure_placement_reference_offset(ref,geometry,{1,0,0});
+        const auto y=measure_placement_reference_offset(ref,geometry,{0,1,0}),z=measure_placement_reference_offset(ref,geometry,{0,0,1});
+        if(!a||!x||!y||!z)return false;
+        const auto projected=cross(normal,{*x-*a,*y-*a,*z-*a});return dot(projected,projected)>1e-16;
+    }
+    kernel::Vec3 direction;
+    const auto axis=std::ranges::find_if(geometry.axes,[&](const auto& a){return same(a.reference);});
+    if(axis!=geometry.axes.end())direction=axis->direction;
+    else {
+        const auto edge=std::ranges::find_if(geometry.edges,[&](const auto& e){return same(e.reference);});
+        if(edge==geometry.edges.end()||edge->points.size()<2)return false;
+        direction=sub(edge->points.back(),edge->points.front());const auto length=std::sqrt(dot(direction,direction));
+        if(length<1e-10)return false;const auto unit=mul(direction,1./length);
+        const auto straight=[&](const auto& points){return std::ranges::all_of(points,[&](const auto& p){const auto v=cross(sub(p,edge->points.front()),unit);return dot(v,v)<=1e-14;});};
+        if(!straight(edge->points)||(edge->exact_spline&&!straight(edge->exact_spline->poles)))return false;
+    }
+    const auto projected=cross(normal,direction);return dot(projected,projected)>1e-16;
+}
+bool resolve_sheet_form_placement(Placement& placement,
+        const kernel::ViewerReferenceGeometry& geometry,kernel::Vec3* base_rotation,
+        bool* orientation_from_reference) {
+    using namespace kernel::sheet_material;
+    const auto fail=[&] {placement.reference_valid=false;return false;};
+    const auto same=[](const auto& a,const auto& b) {return a.owner_id==b.owner_id&&
+        a.semantic_key==b.semantic_key&&a.instance_path==b.instance_path;};
+    std::vector<ConstructionReference> rows;
+    for(const auto& ref:placement.references)if(!ref.orientation_only)rows.push_back(ref);
+    if(rows.size()!=3||std::ranges::any_of(rows,[](const auto& r){return r.owner_id.empty();}))return fail();
+    const auto support=std::ranges::find_if(geometry.triangle_references,[&](const auto& f){return same(f,rows[0]);});
+    if(support==geometry.triangle_references.end()||!support->surface||
+       support->surface->kind!=kernel::SurfaceGeometry::Kind::Plane||
+       rows[0].offset!=0.)return fail();
+    auto next=placement;auto front=rows[0];front.orientation_only=true;
+    front.orientation_drives_rotation=true;front.orientation_role="front";
+    next.references={rows[0],front};
+    kernel::Vec3 base;bool oriented=false;
+    if(!resolve_placement(next,geometry,&base,&oriented))return fail();
+    auto zero=next;zero.absolute_rotation_y=0;
+    if(!resolve_placement(zero,geometry))return fail();
+    const auto x=construction_direction_from_local_axis("x",{zero.rotation_x,zero.rotation_y,zero.rotation_z});
+    const auto z=construction_direction_from_local_axis("z",{zero.rotation_x,zero.rotation_y,zero.rotation_z});
+    const auto normal=construction_direction_from_local_axis("y",{zero.rotation_x,zero.rotation_y,zero.rotation_z});
+    const auto origin=support->surface->origin;
+    std::array<kernel::Vec3,2> normals;std::array<double,2> rhs;
+    for(std::size_t row=0;row<2;++row) {
+        const auto& ref=rows[row+1];if(!std::isfinite(ref.offset))return fail();
+        const auto face=std::ranges::find_if(geometry.triangle_references,[&](const auto& f){return same(f,ref);});
+        const bool datum_plane=ref.semantic_key=="plane"||ref.semantic_key.starts_with("plane:")||
+            ref.semantic_key.starts_with("origin:plane:");
+        if(face!=geometry.triangle_references.end()||datum_plane) {
+            if(!datum_plane&&face!=geometry.triangle_references.end()&&
+               (!face->surface||face->surface->kind!=kernel::SurfaceGeometry::Kind::Plane))return fail();
+            const auto b=measure_placement_reference_offset(ref,geometry,{});
+            const auto dx=measure_placement_reference_offset(ref,geometry,{1,0,0});
+            const auto dy=measure_placement_reference_offset(ref,geometry,{0,1,0});
+            const auto dz=measure_placement_reference_offset(ref,geometry,{0,0,1});
+            if(!b||!dx||!dy||!dz)return fail();
+            normals[row]={*dx-*b,*dy-*b,*dz-*b};rhs[row]=ref.offset-*b;
+            continue;
+        }
+        const auto point=std::ranges::find_if(geometry.points,[&](const auto& p){return same(p.reference,ref);});
+        if(point!=geometry.points.end()) {normals[row]=row==0?x:z;
+            rhs[row]=dot(normals[row],point->position)+ref.offset;continue;}
+        kernel::Vec3 anchor,direction;
+        const auto axis=std::ranges::find_if(geometry.axes,[&](const auto& a){return same(a.reference,ref);});
+        if(axis!=geometry.axes.end()) {anchor=axis->point;direction=axis->direction;}
+        else {
+            const auto edge=std::ranges::find_if(geometry.edges,[&](const auto& e){return same(e.reference,ref);});
+            if(edge==geometry.edges.end()||edge->points.size()<2)return fail();
+            anchor=edge->points.front();direction=sub(edge->points.back(),anchor);
+            const auto length=std::sqrt(dot(direction,direction));if(length<1e-10)return fail();
+            const auto unit=mul(direction,1./length);
+            for(const auto& p:edge->points) {const auto v=cross(sub(p,anchor),unit);
+                if(dot(v,v)>1e-14)return fail();}
+            if(edge->exact_spline)for(const auto& p:edge->exact_spline->poles) {const auto v=cross(sub(p,anchor),unit);if(dot(v,v)>1e-14)return fail();}
+        }
+        auto perpendicular=cross(normal,direction);const auto length=std::sqrt(dot(perpendicular,perpendicular));
+        if(length<1e-10)return fail();normals[row]=mul(perpendicular,1./length);
+        rhs[row]=dot(normals[row],anchor)+ref.offset;
+    }
+    const auto a=dot(normals[0],x),b=dot(normals[0],z);
+    const auto c=dot(normals[1],x),d=dot(normals[1],z);const auto determinant=a*d-b*c;
+    if(std::abs(determinant)<1e-8)return fail();
+    const auto e=rhs[0]-dot(normals[0],origin),f=rhs[1]-dot(normals[1],origin);
+    const auto result=add(origin,add(mul(x,(e*d-b*f)/determinant),mul(z,(a*f-e*c)/determinant)));
+    if(!std::isfinite(result.x)||!std::isfinite(result.y)||!std::isfinite(result.z))return fail();
+    next.x=result.x;next.y=result.y;next.z=result.z;next.references=placement.references;
+    next.reference_valid=true;placement=std::move(next);
+    if(base_rotation)*base_rotation=base;if(orientation_from_reference)*orientation_from_reference=oriented;
+    return true;
 }
 void validate_sheet_form_parameters(const SheetFormParameters& value) {
     if(!value.definition||value.definition->empty()||!value.surface.valid()||

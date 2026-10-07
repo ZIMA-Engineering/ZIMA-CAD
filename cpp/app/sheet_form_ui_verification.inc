@@ -50,10 +50,12 @@ Q_NEVER_INLINE static int verify_sheet_form_ui(QApplication& application,Assembl
         const auto mouse=[&](QPointF p,QEvent::Type type,Qt::MouseButton button,Qt::MouseButtons held){
             QMouseEvent event(type,p,QPointF(view->mapToGlobal(p.toPoint())),button,held,Qt::NoModifier);QApplication::sendEvent(view,&event);flush();};
         auto* dialog=open();const auto canceled=dialog->container_id();
-        auto* default_origin=dialog->findChild<QPushButton*>("containerDefaultOriginButton");check(default_origin,"FORM Default Origin shortcut missing");
-        default_origin->click();flush();
-        check(dialog->pending_value().placement.references.size()>=3&&std::ranges::all_of(dialog->pending_value().placement.references,[&](const auto& reference){
-            return reference.owner_id==part.body_owner_for_object(stock.id)->origin().id;}),"FORM Default did not select its owning Body Origin");
+        check(!dialog->findChild<QPushButton*>("containerDefaultOriginButton"),"Form exposes a generic Default action");
+        if(const auto* origin=dialog->findChild<QPushButton*>("containerOriginSelectionButton"))
+            check(!origin->isVisible(),"Form exposes a generic Origin action");
+        const auto* adapter=dialog->findChild<QWidget*>("sheetFormNativePlacementAdapter");
+        check(adapter&&!adapter->isVisible(),"Form exposes its generic placement adapter");
+        check(dialog->findChild<QDoubleSpinBox*>("sheetFormOffset1")&&dialog->findChild<QDoubleSpinBox*>("sheetFormOffset2"),"Form positioning offsets are missing");
         dialog->buttons()->button(QDialogButtonBox::Cancel)->click();flush();
         check(!native().first.find_container(canceled),"FORM creation Cancel inserted history");
         dialog=open();check(dialog->windowFlags().testFlag(Qt::SubWindow),"FORM Properties are not an internal SubWindow");
@@ -114,6 +116,43 @@ Q_NEVER_INLINE static int verify_sheet_form_ui(QApplication& application,Assembl
             check(!view->transient_edges().empty(),"FORM rotation lost its native wire preview");
         }
         check(run("documents").data==revision&&view->camera_state()==camera,"FORM preview changed a document revision or camera");
+        const auto point_owner=part.body_owner_for_object(stock.id)->origin().id;
+        const document::ConstructionReference point_reference{{},point_owner,"origin:point"};
+        dialog->set_reference_inspected(1,true);flush();
+        for(int index:{1,2}) {
+            auto* clear=placement_table->cellWidget(index,0)->findChild<QPushButton*>();
+            check(clear&&clear->isVisible(),"Form positioning reference cannot be cleared");
+            clear->click();flush();
+        }
+        check(!dialog->buttons()->button(QDialogButtonBox::Ok)->isEnabled()&&
+            dialog->highlighted_reference_entries().empty(),"Incomplete Form references retained confirmation or inspection");
+        check(placement_table->rowCount()==3,"Clearing a Form reference deleted its structural row");
+        check(dialog->set_reference(1,point_reference,"Sheet datum point")&&
+            dialog->set_reference(2,point_reference,"Sheet datum point"),"Form rejected independent coordinates from one native point");flush();
+        check(dialog->buttons()->button(QDialogButtonBox::Ok)->isEnabled(),"Restoring Form references did not restore confirmation");
+        auto* offset1=dialog->findChild<QDoubleSpinBox*>("sheetFormOffset1");
+        auto* offset2=dialog->findChild<QDoubleSpinBox*>("sheetFormOffset2");check(offset1&&offset2,"Form offsets missing");
+        // The native Body-local resolver owns the sheet frame; inspect its
+        // actual zero-angle preview rather than an untransformed cache packet.
+        angle->setValue(0);flush();const auto zero_point=dialog->pending_value().placement;
+        const auto coordinate_x=document::construction_direction_from_local_axis("x",{zero_point.rotation_x,zero_point.rotation_y,zero_point.rotation_z});
+        const auto coordinate_z=document::construction_direction_from_local_axis("z",{zero_point.rotation_x,zero_point.rotation_y,zero_point.rotation_z});
+        angle->setValue(15);flush();
+        for(const auto values:{std::array{12.,-8.},std::array{-15.,7.},std::array{0.,0.},std::array{12.,-8.}}) {
+            offset1->setValue(values[0]);offset2->setValue(values[1]);flush();pending=dialog->pending_value();
+            const kernel::Vec3 origin{pending.placement.x,pending.placement.y,pending.placement.z};
+            check(std::abs(kernel::sheet_material::dot(origin,coordinate_x)-values[0])<1e-8&&
+                std::abs(kernel::sheet_material::dot(origin,coordinate_z)-values[1])<1e-8,
+                "Form point offsets do not independently control its planar coordinates");
+            check(kernel::sheet_material::dot(document::construction_direction_from_local_axis("y",{pending.placement.rotation_x,pending.placement.rotation_y,pending.placement.rotation_z}),outward)>1.-1e-8,
+                "Form offset edit tilted its sheet normal");
+        }
+        check(run("documents").data==revision,"Form reference/offset drafts committed a revision");
+        const auto before_resize=placement_table->geometry();
+        dialog->resize(dialog->width()+80,dialog->height()+80);flush();
+        check(placement_table->geometry().y()==before_resize.y()&&placement_table->height()==before_resize.height(),
+            "Form resizing redistributed space between reference rows");
+        window.grab().save(QString::fromStdString((directory/"sheet-form-placement.png").string()));
         const std::array preview_axes{
             document::construction_direction_from_local_axis("x",{pending.placement.rotation_x,pending.placement.rotation_y,pending.placement.rotation_z}),
             document::construction_direction_from_local_axis("y",{pending.placement.rotation_x,pending.placement.rotation_y,pending.placement.rotation_z}),

@@ -51,6 +51,15 @@ int main(int argc,char** argv){try {
     const auto elapsed=[](const auto start){return std::chrono::duration<double>(std::chrono::steady_clock::now()-start).count();};
     const auto source=document::read_sheet_form_definition("config/lib/01-SHEETMETAL/01-FORM/VentilationWindow.prtz");
     const auto authored=source.part.serialized();
+    const auto cut=std::ranges::find(source.part.sketches,source.cut_sketch,&sketcher::Sketch::id);
+    check(cut!=source.part.sketches.end()&&cut->corner_radii.size()==2,
+        "Ventilation Window cutting Sketch must contain two rounded corners");
+    for(const auto& corner:cut->corner_radii) {
+        near(corner.radius,15.);
+        const auto vertex=std::ranges::find(cut->points,corner.vertex_id,&sketcher::SketchPoint::id);
+        check(vertex!=cut->points.end(),"Window corner lost its source vertex");
+        near(vertex->y,-20.);near(std::abs(vertex->x),50.);
+    }
     auto part=document::PartDocument::create_default();
     static_cast<void>(document::create_origin_bound_body(part.body_history,part.document_id,"Sheet"));
     auto stock=document::PartDocument::create_sketch_container();stock.feature_kind=document::FeatureKind::Flat;
@@ -83,9 +92,61 @@ int main(int argc,char** argv){try {
         const auto zero=document::sheet_form_attachment(side,origin,reference_geometry,{},seed_point);
         const auto zero_tangent=document::construction_direction_from_local_axis("x",
             {zero.rotation_x,zero.rotation_y,zero.rotation_z});
+        const auto zero_z=document::construction_direction_from_local_axis("z",
+            {zero.rotation_x,zero.rotation_y,zero.rotation_z});
+        auto positioning_geometry=reference_geometry;
+        kernel::ViewerPoint point;point.position={12,17,9};point.reference={"native-position-point","position"};
+        positioning_geometry.points.push_back(point);
+        kernel::ViewerEdge line;line.reference={"native-position-line","segment"};
+        const auto anchor=kernel::sheet_material::add(side.surface->origin,
+            kernel::sheet_material::add(kernel::sheet_material::mul(zero_tangent,21),kernel::sheet_material::mul(zero_z,13)));
+        line.points={anchor,kernel::sheet_material::add(anchor,kernel::sheet_material::mul(zero_z,20))};
+        positioning_geometry.edges.push_back(line);
+        auto positioning_face=std::make_shared<kernel::SurfaceGeometry>();
+        positioning_face->kind=kernel::SurfaceGeometry::Kind::Plane;
+        positioning_face->origin=anchor;positioning_face->axis=zero_tangent;
+        positioning_geometry.triangle_references.push_back({"native-position-face","face",{},positioning_face});
+        check(document::sheet_form_position_reference_available({{},point.reference.owner_id,point.reference.semantic_key},positioning_geometry,outward)&&
+            document::sheet_form_position_reference_available({{},line.reference.owner_id,line.reference.semantic_key},positioning_geometry,outward)&&
+            document::sheet_form_position_reference_available({{},"native-position-face","face"},positioning_geometry,outward),
+            "Form positioning reference kinds unavailable");
+        auto curved=line;curved.reference.owner_id="curved-position-line";
+        curved.points.insert(curved.points.begin()+1,kernel::sheet_material::add(anchor,zero_tangent));
+        positioning_geometry.edges.push_back(curved);
+        check(!document::sheet_form_position_reference_available({{},curved.reference.owner_id,curved.reference.semantic_key},positioning_geometry,outward),
+            "Form offered a curved positioning segment");
+        for(double offset:{0.,3.,-4.,-0.}) {
+            auto posed=zero;
+            posed.references[1]={"",point.reference.owner_id,point.reference.semantic_key,offset,true};
+            posed.references[2]={"",point.reference.owner_id,point.reference.semantic_key,-2*offset,true};
+            check(document::resolve_sheet_form_placement(posed,positioning_geometry),"FORM two point coordinates failed");
+            const kernel::Vec3 result{posed.x,posed.y,posed.z};
+            near(kernel::sheet_material::dot(result,zero_tangent),kernel::sheet_material::dot(point.position,zero_tangent)+offset);
+            near(kernel::sheet_material::dot(result,zero_z),kernel::sheet_material::dot(point.position,zero_z)-2*offset);
+            near(kernel::sheet_material::dot(kernel::sheet_material::sub(result,side.surface->origin),outward),0);
+            auto serialized=document::create_sheet_form();serialized.placement=posed;
+            serialized.sheet_form=document::copy_sheet_form_definition(source);serialized.sheet_form.support=side;
+            auto point_part=part;point_part.insert_history_entry(document::PartHistoryKind::Feature,serialized.id);
+            point_part.history.push_back(serialized);
+            const auto reopened=document::PartDocument::from_serialized(point_part.serialized());
+            check(std::signbit(reopened.history.back().placement.references[1].offset)==std::signbit(offset)&&
+                std::signbit(reopened.history.back().placement.references[2].offset)==std::signbit(-2*offset),
+                "Form persistence lost the authored signed zero offset");
+            posed.references[1]={"","native-position-face","face",offset,true};
+            check(document::resolve_sheet_form_placement(posed,positioning_geometry),"Form planar face and point positioning failed");
+            near(kernel::sheet_material::dot(kernel::sheet_material::sub({posed.x,posed.y,posed.z},anchor),zero_tangent),offset);
+            posed.references[1]={"",line.reference.owner_id,line.reference.semantic_key,offset,true};
+            check(document::resolve_sheet_form_placement(posed,positioning_geometry),"FORM line and point coordinates failed");
+            const auto distance_normal=kernel::sheet_material::cross(outward,zero_z);
+            near(kernel::sheet_material::dot(kernel::sheet_material::sub({posed.x,posed.y,posed.z},anchor),distance_normal),offset);
+            const auto before=posed;posed.references[2]=posed.references[1];
+            check(!document::resolve_sheet_form_placement(posed,positioning_geometry),"FORM accepted dependent positioning lines");
+            near(posed.x,before.x);near(posed.y,before.y);near(posed.z,before.z);
+        }
         for(double angle:{0.,30.,-70.}) {
             document::Placement seed;seed.absolute_rotation_y=angle;
             auto attached=document::sheet_form_attachment(side,origin,reference_geometry,seed,seed_point);
+            check(document::resolve_sheet_form_placement(attached,reference_geometry),"FORM native plane positioning failed");
             near(attached.x,seed_point.x);near(attached.y,seed_point.y);near(attached.z,seed_point.z);
             check(attached.references.size()==4,"FORM did not retain three position references and FRONT");
             check(document::point_constraint_remaining_dof(attached.references,reference_geometry,seed_point)==0,
