@@ -43,3 +43,20 @@ screenshots/
 /*-STARTUP-*.prtz.*
 /*-STARTUP-*.asmz.*
 /*-STARTUP-*.drwz.*
+
+# Numbered local settings/library backups (keep current assets tracked)
+/config/**/*.ini.[0-9]*
+/config/**/*.prtz.[0-9]*
+/config/**/*.asmz.[0-9]*
+/config/**/*.drwz.[0-9]*
+/config/**/*.tblz.[0-9]*
+/config/**/*.frmz.[0-9]*
+/config/**/*.symz.[0-9]*
+
+# Native verification scratch documents written in the repository root
+/helical-noop.prtz
+/owned-profile-frame.prtz
+/owned-profile-frame.prtz.[0-9]*
+/other-profile-plane.prtz
+/other-profile-plane.prtz.[0-9]*
+/zima-cpp-workspace-lifecycle.prtz.[0-9]*
