@@ -48,6 +48,29 @@ feature produces a different signature and cannot reuse stale topology. This
 cache limits transitional cost; it is not permission to restore eager registry
 creation in the viewer or Assembly insertion path.
 
+## Oldest coplanar original reference
+
+The user reaffirmed this permanent modeling contract on 2026-10-07: when a
+later operation retains the supporting plane of an original face, references
+must retain the identity of the oldest contributing element in document
+history. Coplanar extension, merging, trimming and disconnected splitting do
+not transfer ownership of that original planar reference to a later feature.
+
+Operational fragment identities can distinguish exact pieces for body
+operations. They must retain explicit parent ancestry and remain separate from
+the oldest original reference used for placement and source references. Record
+the relationship during explicit calculation and consume persisted ZIMA data
+for selection and highlighting. Never infer age from UUID order or runtime
+topology traversal. Preserve material/contact side choices even at zero offset.
+
+Offer and highlight the actual currently displayed face fragment. Translate its
+persisted ancestry to the original identity for reference validation and storage;
+never offer an untrimmed original or intermediate history face instead.
+
+Verification must cover the original identity as well as geometry through
+dimension edits, regeneration, native save/reopen, Undo/Redo and actual GUI
+placement selection. See the binding rule in [AGENTS.md](../AGENTS.md).
+
 ## Current implementation status (August 2026)
 
 The central implementation is active, not only a design proposal:
@@ -90,8 +113,11 @@ The central implementation is active, not only a design proposal:
   stored plane equation are upgraded without trusting their numerical index;
 - supported Part `Fuse`/`Cut` history propagates existing semantic face, edge
   and vertex ancestry; splits expose deterministic fragment references while
-  the pre-split reference remains explicitly ambiguous, and merges never bind
-  silently to one ancestry;
+  exact operational fragments remain distinct. The original implementation
+  treated the pre-split reference and multiple merge parents as ambiguous;
+  planar source-reference behavior must follow the permanent oldest-coplanar
+  identity contract above. That contract is a requirement, not a claim that
+  the current FORM implementation already satisfies it;
 - new Boolean section edges and their vertices receive kernel-independent
   ZIMA identities from canonical sets of adjacent/incident semantic `FaceRef`
   values; OCCT section history only locates the transient runtime shapes;

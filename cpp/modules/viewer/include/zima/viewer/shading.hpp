@@ -6,6 +6,7 @@
 #include <array>
 #include <cmath>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 namespace zima::viewer {
@@ -35,7 +36,7 @@ inline std::vector<float> shaded_triangle_vertices(const kernel::ViewerMesh& mes
     };
     // This index is only queried by position, never iterated. Keep each
     // adjacency list in original triangle order so normal sums stay identical.
-    std::unordered_map<NormalPointKey, std::vector<std::size_t>, NormalPointHash> triangles_at_point;
+    std::unordered_map<NormalPointKey, std::vector<std::pair<std::size_t,float>>, NormalPointHash> triangles_at_point;
     triangles_at_point.reserve(std::min(mesh.vertices.size(), mesh.triangles.size()));
     for (std::size_t triangle = 0; triangle < triangle_count; ++triangle) {
         const auto a = mesh.triangles[triangle * 3];
@@ -51,9 +52,17 @@ inline std::vector<float> shaded_triangle_vertices(const kernel::ViewerMesh& mes
             QVector3D(pc.x - pa.x, pc.y - pa.y, pc.z - pa.z));
         if (normal.lengthSquared() > 1.0e-12F) normal.normalize();
         triangle_normals[triangle] = normal;
-        for (const auto index : {a, b, c}) {
+        const std::array indices{a,b,c};
+        for (std::size_t corner=0;corner<indices.size();++corner) {
+            const auto index=indices[corner];
+            const auto& point=mesh.vertices[index];
+            const auto& next=mesh.vertices[indices[(corner+1)%3]];
+            const auto& previous=mesh.vertices[indices[(corner+2)%3]];
+            const QVector3D u(next.x-point.x,next.y-point.y,next.z-point.z);
+            const QVector3D v(previous.x-point.x,previous.y-point.y,previous.z-point.z);
+            const float angle=std::atan2(QVector3D::crossProduct(u,v).length(),QVector3D::dotProduct(u,v));
             triangles_at_point[normal_point_key(mesh.vertices[index])]
-                .push_back(triangle);
+                .emplace_back(triangle,angle);
         }
     }
     std::vector<float> vertex_data;
@@ -69,15 +78,28 @@ inline std::vector<float> shaded_triangle_vertices(const kernel::ViewerMesh& mes
             for (const auto index : {a, b, c}) {
                 const auto& point = mesh.vertices[index];
                 const QVector3D face_normal = triangle_normals[triangle];
+                const bool referenced = triangle < mesh.triangle_references.size() &&
+                    mesh.triangle_references[triangle].valid();
+                auto orientation_normal=face_normal;
+                if(referenced) {
+                    // Use one hemisphere for this whole same-face vertex fan.
+                    // A triangle-local angular cutoff gives shared vertices
+                    // different normals on coarsely triangulated small radii.
+                    for(const auto& [adjacent_triangle,angle]:triangles_at_point[normal_point_key(point)]) {
+                        if(adjacent_triangle<mesh.triangle_references.size()&&
+                           mesh.triangle_references[triangle]==mesh.triangle_references[adjacent_triangle]&&
+                           triangle_normals[adjacent_triangle].lengthSquared()>1.0e-12F) {
+                            orientation_normal=triangle_normals[adjacent_triangle];break;
+                        }
+                    }
+                }
                 QVector3D normal;
-                for (const auto adjacent_triangle : triangles_at_point[normal_point_key(point)]) {
+                for (const auto& [adjacent_triangle,corner_angle] : triangles_at_point[normal_point_key(point)]) {
                     // Referenced meshes can duplicate seam vertices, so match
                     // the persisted face and exact occurrence at this position.
                     // Result bodies have no selectable face references; their
                     // per-face vertex indices already delimit shading domains.
                     if (adjacent_triangle != triangle) {
-                        const bool referenced = triangle < mesh.triangle_references.size() &&
-                            mesh.triangle_references[triangle].valid();
                         const bool adjacent_referenced = adjacent_triangle < mesh.triangle_references.size() &&
                             mesh.triangle_references[adjacent_triangle].valid();
                         if (referenced != adjacent_referenced) continue;
@@ -93,12 +115,14 @@ inline std::vector<float> shaded_triangle_vertices(const kernel::ViewerMesh& mes
                     }
                     auto adjacent = triangle_normals[adjacent_triangle];
                     const float alignment = QVector3D::dotProduct(
-                        face_normal, adjacent);
-                    if (std::abs(alignment) < smooth_crease_cosine) continue;
+                        orientation_normal, adjacent);
+                    if (!referenced && std::abs(alignment) < smooth_crease_cosine) continue;
                     // Mirrored/reversed tessellation is not a geometric
                     // crease. Align its hemisphere before averaging.
                     if (alignment < 0.0F) adjacent = -adjacent;
-                    normal += adjacent;
+                    // A subdivided fan must not gain influence just because
+                    // it contains more triangles around this vertex.
+                    normal += adjacent*corner_angle;
                 }
                 if (normal.lengthSquared() > 1.0e-12F) normal.normalize();
                 else normal = face_normal;

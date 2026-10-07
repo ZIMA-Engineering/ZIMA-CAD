@@ -71,7 +71,7 @@ QRectF SheetRenderer::view_bounds_at(const zima::drawing::DrawingView& view,doub
     }
 QString SheetRenderer::description_text(const drawing::DrawingView& view,const drawing::ViewDescriptionRow& row)const {
     if(row.kind==drawing::ViewDescriptionKind::Name)return QString::fromStdString(view.name);
-    if(row.kind==drawing::ViewDescriptionKind::Scale)return view.scale>=1?QStringLiteral("%1:1").arg(view.scale,0,'g',6):QStringLiteral("1:%1").arg(1/view.scale,0,'g',6);
+    if(row.kind==drawing::ViewDescriptionKind::Scale)return view.scale>=1?QStringLiteral("M%1:1").arg(view.scale,0,'g',6):QStringLiteral("M1:%1").arg(1/view.scale,0,'g',6);
     drawing::TitleBlockField field;field.expression=row.text;
     if(const auto found=view_description_contexts_.find(view.id);found!=view_description_contexts_.end())
         return QString::fromStdString(drawing::resolve_title_block_text(field,found->second,*sheet_));

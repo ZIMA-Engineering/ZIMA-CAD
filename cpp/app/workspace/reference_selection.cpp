@@ -185,6 +185,7 @@ void AssemblyWorkspaceWindow::set_construction_properties_dimension_selection() 
 
 void AssemblyWorkspaceWindow::set_primitive_properties_dimension_selection() {
     tree_->setProperty("commandSelectionActive", false);
+    viewer_->set_original_face_selection(false);
     viewer_->clear_selection();
     if (primitive_reference_dialog_ == nullptr ||
         primitive_parameter_owner_id_.empty()) {
@@ -535,7 +536,8 @@ void AssemblyWorkspaceWindow::start_construction_reference_selection(
     viewer_->set_candidate_filter([this, prefix, active_part, index,
             orientation_reference, direction_reference, orientation_origin,
             baseline_references, baseline_dof, axis_extent_row,
-            unavailable_construction_owners, auto_advance](const auto& candidate) {
+            unavailable_construction_owners, auto_advance](const auto& offered) {
+        const auto candidate=placement_reference_source_candidate(offered);
         if (construction_reference_dialog_ == nullptr ||
             !placement_origin_allowed(candidate.owner_id)) return false;
         if (candidate.kind == zima::viewer::CandidateKind::Dimension &&
@@ -626,7 +628,8 @@ void AssemblyWorkspaceWindow::start_construction_reference_selection(
 }
 
 void AssemblyWorkspaceWindow::accept_construction_reference(
-    const zima::viewer::ViewerCandidate& candidate) {
+    const zima::viewer::ViewerCandidate& offered) {
+    const auto candidate=placement_reference_source_candidate(offered);
     if (!placement_origin_allowed(candidate.owner_id)) return;
     if (construction_reference_dialog_ == nullptr ||
         !pending_construction_reference_index_) return;
@@ -830,6 +833,7 @@ void AssemblyWorkspaceWindow::accept_construction_reference(
         viewer_->clear_selection();
         return;
     }
+    viewer_->remember_reference_face(offered);
     if (auto_advance)
         construction_reference_dialog_->set_reference_inspected(
             selected_index, true);
@@ -892,6 +896,9 @@ void AssemblyWorkspaceWindow::start_primitive_reference_selection(
     }
     pending_primitive_reference_index_ = index;
     tree_->setProperty("commandSelectionActive", true);
+    // Offer the actual visible boundary; resolve its original parent only
+    // when validating/storing the placement reference.
+    viewer_->set_original_face_selection(false);
     viewer_->set_selection_contract(placement_reference_candidate_kinds());
     const auto prefix = workspace_.active_occurrence_path().empty()
         ? zima::assembly::InstancePath{}
@@ -901,7 +908,8 @@ void AssemblyWorkspaceWindow::start_primitive_reference_selection(
     viewer_->set_candidate_filter([this, prefix, active_part, index,
             orientation_reference, direction_reference, orientation_origin,
             baseline_references, baseline_placement, baseline_dof, auto_advance](
-                const auto& candidate) {
+                const auto& offered) {
+        const auto candidate=placement_reference_source_candidate(offered);
         if (candidate.kind == zima::viewer::CandidateKind::Dimension &&
             candidate.owner_id == construction_dimension_object_id_ &&
             candidate.semantic_key.starts_with("parameter:")) return true;
@@ -1127,7 +1135,8 @@ void AssemblyWorkspaceWindow::accept_component_placement_reference(
 }
 
 void AssemblyWorkspaceWindow::accept_primitive_reference(
-    const zima::viewer::ViewerCandidate& candidate, bool from_view) {
+    const zima::viewer::ViewerCandidate& offered, bool from_view) {
+    const auto candidate=placement_reference_source_candidate(offered);
     if (!placement_origin_allowed(candidate.owner_id)) return;
     if (primitive_reference_dialog_ == nullptr ||
         !pending_primitive_reference_index_ || candidate.owner_id.empty() ||
@@ -1198,7 +1207,7 @@ void AssemblyWorkspaceWindow::accept_primitive_reference(
     if(from_view && selected_index==0 && baseline_references.empty() &&
        primitive_reference_dialog_->first_empty_position_index()==0 && candidate.kind==zima::viewer::CandidateKind::Face) {
         if(const auto ray=viewer_->ray_at(viewer_->last_pointer_position()))
-        if(auto hit=confirmed_face_hit(viewer_->candidate_face_triangles(candidate),ray->first,ray->second)) {
+        if(auto hit=confirmed_face_hit(viewer_->candidate_face_triangles(offered),ray->first,ray->second)) {
             const auto path=zima::assembly::InstancePath::decode(workspace_.active_occurrence_path());
             if(!path.occurrence_ids.empty())*hit=workspace_.occurrence_point_from_scene(workspace_.displayed_document_id(),path,*hit);
             if(const auto* part=workspace_.open_part(workspace_.active_document_id());part && body_dialog_step_id_.empty()) {
@@ -1309,6 +1318,7 @@ void AssemblyWorkspaceWindow::accept_primitive_reference(
             primitive_reference_dialog_->set_reference(2,{local_path,endpoint.owner_id,endpoint.semantic_key},tr("Bod"));
         }
     }
+    viewer_->remember_reference_face(offered);
     if (auto_advance)
         primitive_reference_dialog_->set_reference_inspected(selected_index, true);
     pending_primitive_reference_index_.reset();

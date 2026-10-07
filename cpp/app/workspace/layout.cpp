@@ -1337,6 +1337,18 @@ void AssemblyWorkspaceWindow::create_layout() {
                 relation_support_ids.insert(equal->second);
             }
         }
+        if(cursor&&sketch_segment_active_&&pending_segment_start_&&
+           !(sketch_polyline_active_&&sketch_polyline_arc_mode_)) {
+            const auto& preview=viewer_->transient_edges();
+            if(!preview.empty()&&preview.front().points.size()==2)
+                if(const auto endpoint=sketch->intersect_ray(preview.front().points.back(),local_direction)) {
+                    // The segment preview already resolved the exact contact
+                    // and publishes its complete C/T/H/V marker. A second
+                    // cursor C at the raw curve projection creates two apparent
+                    // states while the segment is held at its tangent contact.
+                    *cursor=*endpoint;label.clear();
+                }
+        }
         const std::vector<std::string> support_keys(relation_support_ids.begin(),relation_support_ids.end());
         for (const auto& support : support_keys) {
             if (const auto curve=sketch_keypoint_curve_id(support)) relation_support_ids.insert(*curve);

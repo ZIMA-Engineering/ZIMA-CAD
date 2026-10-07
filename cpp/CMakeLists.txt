@@ -1244,9 +1244,13 @@ if(ZIMA_BUILD_TESTS)
     set_tests_properties(zima_cpp_edge_treatment_command_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
 
     add_executable(zima_cpp_boolean_split_edge_tests tests/boolean_split_edge_tests.cpp)
-    target_link_libraries(zima_cpp_boolean_split_edge_tests PRIVATE zima_command_host)
+    target_link_libraries(zima_cpp_boolean_split_edge_tests PRIVATE zima_command_host TKTopAlgo)
     add_test(NAME zima_cpp_boolean_split_edge_tests COMMAND zima_cpp_boolean_split_edge_tests)
     set_tests_properties(zima_cpp_boolean_split_edge_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
+    add_test(NAME zima_cpp_boolean_part_fragment_tests COMMAND zima_cpp_boolean_split_edge_tests --part-only)
+    set_tests_properties(zima_cpp_boolean_part_fragment_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
+    add_test(NAME zima_cpp_boolean_form_tests COMMAND zima_cpp_boolean_split_edge_tests --form-only)
+    set_tests_properties(zima_cpp_boolean_form_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 180)
 
     add_executable(zima_cpp_edge_treatment_query_tests tests/edge_treatment_query_tests.cpp)
     target_link_libraries(zima_cpp_edge_treatment_query_tests PRIVATE zima_command_host)
@@ -1494,6 +1498,10 @@ if(ZIMA_BUILD_TESTS)
         WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 120)
     add_test(NAME zima_cpp_holes_ui_contract COMMAND zima-cad-cpp --verify-startup)
     add_test(NAME zima_cpp_edge_treatment_ui_contract COMMAND zima-cad-cpp --verify-startup)
+    add_test(NAME zima_cpp_form_topology_ui_contract COMMAND zima-cad-cpp --verify-startup)
+    set_tests_properties(zima_cpp_form_topology_ui_contract PROPERTIES
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_CONSOLE_ONLY=1;ZIMA_VERIFY_EDGE_TREATMENT_ONLY=1;ZIMA_VERIFY_FORM_TOPOLOGY=1"
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." RUN_SERIAL TRUE TIMEOUT 180)
     set_tests_properties(zima_cpp_edge_treatment_ui_contract PROPERTIES
         ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_CONSOLE_ONLY=1;ZIMA_VERIFY_EDGE_TREATMENT_ONLY=1"
         WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 120)
@@ -1681,6 +1689,11 @@ if(ZIMA_BUILD_TESTS)
     add_test(NAME zima_cpp_sketch_offset_ui_contract COMMAND zima-cad-cpp --verify-startup)
     add_test(NAME zima_cpp_sketch_endpoint_priority_ui_contract COMMAND zima-cad-cpp --verify-startup)
     add_test(NAME zima_cpp_sketch_corner_chain_ui_contract COMMAND zima-cad-cpp --verify-startup)
+    add_test(NAME zima_cpp_sketch_four_equal_corners_ui_contract COMMAND zima-cad-cpp --verify-startup)
+    set_tests_properties(zima_cpp_sketch_four_equal_corners_ui_contract PROPERTIES
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.."
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_CORNER_CHAIN_ONLY=1;ZIMA_VERIFY_CORNER_EQUAL_FOUR=1;ZIMA_VERIFY_CORNER_EQUAL_DIMENSION=1"
+        TIMEOUT 120 RUN_SERIAL TRUE)
     set_tests_properties(zima_cpp_sketch_corner_chain_ui_contract PROPERTIES
         WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.."
         ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_CORNER_CHAIN_ONLY=1"

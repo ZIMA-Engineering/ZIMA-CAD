@@ -6753,6 +6753,9 @@ CornerFilletResult Sketch::add_corner_fillet(
                 return corner.id==relation.geometry_id || corner.id==relation.second_geometry_id;
             });
     });
+    std::erase_if(evaluated.dimensions,[&](const auto& dimension) {
+        return std::ranges::any_of(next.corner_radii,[&](const auto& corner){return corner.id==dimension.geometry_id;});
+    });
     evaluated.corner_radii.clear();
     const auto materialized = materialize_corner_fillet(
         evaluated, first_segment_id, second_segment_id, radius, snap_tolerance);
@@ -6792,6 +6795,16 @@ Sketch Sketch::evaluated_profile_sketch(bool allow_broken_axis_points) const {
         throw std::runtime_error("Externí bod osy není platný. Obnovte kolmost osy k rovině skici nebo opravte referenci.");
     auto result = *this;
     const auto records = result.corner_radii;
+    // Corner dimensions retain their identity when their derived arcs are
+    // materialized, but those arcs do not exist during intermediate validation.
+    std::vector<SketchDimension> corner_dimensions;
+    std::erase_if(result.dimensions,[&](const auto& dimension) {
+        const bool derived=std::ranges::any_of(records,[&](const auto& corner) {
+            return !corner.suppressed&&corner.radius>1e-9&&corner.id==dimension.geometry_id;
+        });
+        if(derived)corner_dimensions.push_back(dimension);
+        return derived;
+    });
     std::vector<SketchConstraint> corner_relations;
     std::erase_if(result.constraints,[&](const auto& relation) {
         if (relation.kind != ConstraintKind::EqualRadius) return false;
@@ -6852,6 +6865,7 @@ Sketch Sketch::evaluated_profile_sketch(bool allow_broken_axis_points) const {
         }
     }
     result.constraints.insert(result.constraints.end(),corner_relations.begin(),corner_relations.end());
+    result.dimensions.insert(result.dimensions.end(),corner_dimensions.begin(),corner_dimensions.end());
     result.validate();
     return result;
 }
@@ -9129,6 +9143,9 @@ void Sketch::apply_dimension(SketchDimension dimension) {
             *this, result, "Sketch dimension is redundant");
     }
     next.refresh_curve_dependencies();
+    if((dimension_kind==DimensionKind::Radius||dimension_kind==DimensionKind::Diameter)&&
+        std::ranges::any_of(next.corner_radii,[&](const auto& corner){return corner.id==dimension_geometry_id;}))
+        static_cast<void>(next.evaluated_profile_sketch());
     *this = std::move(next);
 }
 
@@ -10045,6 +10062,35 @@ SolveResult Sketch::solve_impl(
         }
         return false;
     };
+    // A driving radius owns its complete equal-radius component,
+    // including relations that do not directly mention the dimensioned corner.
+    // Pair-local direction otherwise repeatedly overwrites propagated values.
+    std::map<std::string,std::vector<std::string>> radius_adjacency;
+    for(const auto& relation:constraints)if(!relation.suppressed&&relation.kind==ConstraintKind::EqualRadius) {
+        radius_adjacency[relation.geometry_id].push_back(relation.second_geometry_id);
+        radius_adjacency[relation.second_geometry_id].push_back(relation.geometry_id);
+    }
+    std::vector<std::pair<int,std::string>> radius_drivers;
+    for(const auto& corner:corner_radii)if(!corner.suppressed&&corner.dimension_visible&&radius_adjacency.contains(corner.id))
+        radius_drivers.emplace_back(3,corner.id);
+    for(const auto& dimension:dimensions)if(!dimension.suppressed&&dimension.driving&&radius_adjacency.contains(dimension.geometry_id)&&
+        (dimension.kind==DimensionKind::Radius||dimension.kind==DimensionKind::Diameter))
+        radius_drivers.emplace_back(3,dimension.geometry_id);
+    for(const auto& reference:external_references)if(!reference.broken&&radius_adjacency.contains(reference.id)&&circular_curve_radius(*this,reference.id))
+        radius_drivers.emplace_back(4,reference.id);
+    for(const auto& [id,neighbors]:radius_adjacency)if(std::ranges::any_of(
+        circular_curve_radial_points(*this,id),[&](const auto& point){return preferred_points.contains(point);}))
+        radius_drivers.emplace_back(2,id);
+    std::stable_sort(radius_drivers.begin(),radius_drivers.end(),[](const auto& a,const auto& b){return a.first>b.first;});
+    std::map<std::string,std::string> equal_radius_drivers;
+    for(const auto& [priority,driver]:radius_drivers)if(radius_adjacency.contains(driver)&&!equal_radius_drivers.contains(driver)) {
+        std::vector<std::string> pending{driver};
+        for(std::size_t i=0;i<pending.size();++i) {
+            const auto id=pending[i];
+            if(!equal_radius_drivers.emplace(id,driver).second)continue;
+            for(const auto& neighbor:radius_adjacency.at(id))pending.push_back(neighbor);
+        }
+    }
     for (std::size_t iteration = 0; iteration < maximum_iterations; ++iteration) {
         project_common_tangent_segments();
         maximum_residual = 0.0;
@@ -10615,6 +10661,18 @@ SolveResult Sketch::solve_impl(
                 continue;
             }
             if (constraint.kind == ConstraintKind::EqualRadius) {
+                if(const auto driver=equal_radius_drivers.find(constraint.geometry_id);driver!=equal_radius_drivers.end()) {
+                    const auto target=circular_curve_radius(*this,driver->second);
+                    for(const auto& id:{constraint.geometry_id,constraint.second_geometry_id}) {
+                        const auto current=circular_curve_radius(*this,id);
+                        if(!target||!current){maximum_residual=std::max(maximum_residual,1.0);immovable_conflict=true;continue;}
+                        const double residual=std::abs(*current-*target);
+                        maximum_residual=std::max(maximum_residual,residual);
+                        if(residual>tolerance&&!resize_circular_curve(id,*target,center_curve_translation_points(*this,driver->second)))
+                            immovable_conflict=true;
+                    }
+                    continue;
+                }
                 auto reference_id = constraint.geometry_id;
                 auto driven_id = constraint.second_geometry_id;
                 const auto owns_dragged_radius = [&](const std::string& id) {

@@ -11,6 +11,9 @@
 #include <vector>
 
 namespace zima::viewer {
+// Visible treatment boundaries, including faces trimmed by later Booleans.
+[[nodiscard]] std::vector<std::string> edge_treatment_boundary_owners(
+    const kernel::ViewerEdge& edge);
 
 // Rendering and picking share the complete persisted 3D route vocabulary.
 [[nodiscard]] inline bool is_curve3d_edge(std::string_view key) {
@@ -130,6 +133,10 @@ struct EdgeKey {
     const zima::kernel::Vec3& ray_origin,
     const zima::kernel::Vec3& ray_direction,
     bool include_occurrence_surfaces = false);
+
+[[nodiscard]] std::vector<ViewerCandidate> inspected_face_candidates(
+    const zima::kernel::ViewerMesh& mesh, const std::set<EdgeKey>& references,
+    const std::vector<ViewerCandidate>& confirmed_faces = {});
 
 [[nodiscard]] std::size_t next_candidate_index(
     std::size_t current, std::size_t candidate_count);

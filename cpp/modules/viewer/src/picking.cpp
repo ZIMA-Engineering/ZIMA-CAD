@@ -1,6 +1,7 @@
 #include <zima/kernel/transition_edge_display.hpp>
 #include <zima/kernel/solid_state_ancestry.hpp>
 #include <zima/viewer/picking.hpp>
+#include <zima/kernel/boolean_face_ancestry.hpp>
 
 #include <algorithm>
 #include <cmath>
@@ -42,7 +43,30 @@ double length(const Vec3& value) {
     return std::sqrt(dot(value, value));
 }
 
+std::string source_face_owner(const kernel::FaceReference& face) {
+    auto owner=face.owner_id;
+    auto key=face.semantic_key;
+    while(const auto parent=kernel::boolean_face_parent(key)) {
+        owner=parent->first;key=parent->second;
+    }
+    return owner;
+}
+
 }  // namespace
+
+std::vector<std::string> edge_treatment_boundary_owners(const kernel::ViewerEdge& edge) {
+    std::set<std::string> owners(edge.edge_treatment_owner_ids.begin(),edge.edge_treatment_owner_ids.end());
+    std::map<std::string,std::size_t> side_counts;
+    for(const auto& side:edge.edge_treatment_side_references) {
+        auto owner=side.owner_id,key=side.semantic_key;
+        while(const auto parent=kernel::boolean_face_parent(key)) {
+            owner=parent->first;key=parent->second;
+        }
+        if(key.starts_with("fillet:face")||key.starts_with("chamfer:face"))++side_counts[owner];
+    }
+    for(const auto& [owner,count]:side_counts)if(count==1)owners.insert(owner);
+    return {owners.begin(),owners.end()};
+}
 
 std::vector<PickCandidate> ordered_ray_candidates(
     const zima::kernel::ViewerMesh& mesh,
@@ -97,6 +121,47 @@ std::vector<PickCandidate> ordered_ray_candidates(
     return unique_faces;
 }
 
+std::vector<ViewerCandidate> inspected_face_candidates(
+    const kernel::ViewerMesh& mesh,const std::set<EdgeKey>& references,
+    const std::vector<ViewerCandidate>& confirmed_faces) {
+    const auto identity=[](const auto& face) {return EdgeKey{face.owner_id,face.semantic_key,face.instance_path};};
+    const auto source_identity=[&](const auto& face) {
+        auto key=identity(face);
+        while(const auto parent=kernel::boolean_face_parent(key.semantic_key)) {
+            key.owner_id=parent->first;key.semantic_key=parent->second;
+        }
+        return key;
+    };
+    std::vector<ViewerCandidate> result;
+    std::set<EdgeKey> found,displayed_sources;
+    const auto append=[&](const auto& geometry,CandidateGeometry kind) {
+        for(std::size_t i=0;i<geometry.triangle_references.size();++i) {
+            const auto& face=geometry.triangle_references[i];
+            const auto key=identity(face),source=source_identity(face);
+            if(i*3+2>=geometry.triangles.size()||face.semantic_key=="plane"||
+                face.semantic_key.starts_with("origin:plane:"))continue;
+            const auto requested=references.contains(key)?key:source;
+            if(!references.contains(requested))continue;
+            if(kind==CandidateGeometry::OriginalReference&&displayed_sources.contains(requested))continue;
+            if(kind==CandidateGeometry::Display) {
+                displayed_sources.insert(requested);
+                // An in-session click keeps the exact fragment. Reopening
+                // inspection uses all currently visible descendants of the source.
+                const auto choice=std::ranges::find_if(confirmed_faces,[&](const auto& candidate) {
+                    return source_identity(candidate)==requested&&std::ranges::any_of(mesh.triangle_references,
+                        [&](const auto& current){return identity(current)==identity(candidate);});
+                });
+                if(choice!=confirmed_faces.end()&&identity(*choice)!=key)continue;
+            }
+            if(!found.insert(key).second)continue;
+            result.push_back({CandidateKind::Face,0,i,face.owner_id,face.semantic_key,face.instance_path,kind});
+        }
+    };
+    append(mesh,CandidateGeometry::Display);
+    append(mesh.original_references,CandidateGeometry::OriginalReference);
+    return result;
+}
+
 std::size_t next_candidate_index(
     std::size_t current, std::size_t candidate_count) {
     return candidate_count == 0 ? 0 : (current + 1) % candidate_count;
@@ -126,10 +191,9 @@ bool candidate_recolors_wire_edge(
         // treatment face. The application presents that persisted input
         // geometry separately; never let these OCCT-created result edges
         // fall through to display_owner_id and join the Container highlight.
+        const auto treatment_owners=edge_treatment_boundary_owners(edge);
         if (edge.reference.instance_path == candidate.instance_path &&
-            std::find(edge.edge_treatment_owner_ids.begin(),
-                edge.edge_treatment_owner_ids.end(), candidate.owner_id) !=
-                edge.edge_treatment_owner_ids.end()) {
+            std::find(treatment_owners.begin(),treatment_owners.end(),candidate.owner_id)!=treatment_owners.end()) {
             return false;
         }
         const bool screen_curve = edge.overlay &&
@@ -184,6 +248,10 @@ bool candidate_uses_original_container_wire_edge(
     const ViewerCandidate& candidate,
     const zima::kernel::ViewerEdge& edge) {
     if(candidate.semantic_key=="container:display"||zima::kernel::smooth_transition_junction(edge))return false;
+    // Boolean result fragments are retained for operational topology picks,
+    // not as the authored solid/tool wire of the cutting/adding container.
+    std::string source_key;
+    if(kernel::solid_state_source_key(edge.reference.semantic_key,source_key).starts_with("boolean:"))return false;
     return candidate.kind == CandidateKind::Container &&
         (candidate.semantic_key.empty() || candidate.semantic_key == "solid") &&
         !edge.construction && !edge.overlay && edge.reference.valid() &&
@@ -452,9 +520,18 @@ std::vector<ViewerCandidate> ordered_viewer_candidates(
     std::unordered_set<FaceIdentity, decltype(identity_hash)> persisted_identities(0, identity_hash);
     for (const auto& ref : references.triangle_references)
         if (ref.valid()) persisted_identities.insert(identity(ref));
+    const auto has_persisted_source=[&](const auto& ref) {
+        if(persisted_identities.contains(identity(ref)))return true;
+        if(!ref.semantic_key.starts_with("boolean:"))return false;
+        auto source=ref;
+        while(const auto parent=kernel::boolean_face_parent(source.semantic_key)) {
+            source.owner_id=parent->first;source.semantic_key=parent->second;
+        }
+        return persisted_identities.contains(identity(source));
+    };
     std::unordered_set<std::string_view> displayed_source_paths;
     for (const auto& ref : mesh.triangle_references)
-        if (!ref.instance_path.empty() && ref.valid() && persisted_identities.contains(identity(ref)))
+        if (!ref.instance_path.empty() && ref.valid() && has_persisted_source(ref))
             displayed_source_paths.insert(ref.instance_path);
     const bool has_local_display_faces = std::any_of(
         mesh.triangle_references.begin(), mesh.triangle_references.end(),
@@ -579,7 +656,7 @@ std::vector<ViewerCandidate> ordered_viewer_candidates(
             // contract as Part. Match all three identity fields so repeated
             // occurrences never borrow another instance's original topology.
             const bool displayed_source = geometry == CandidateGeometry::Display &&
-                persisted_identities.contains(identity(face.reference));
+                has_persisted_source(face.reference);
             const bool hidden_source_face = !offer_original_faces && geometry == CandidateGeometry::OriginalReference &&
                 displayed_source_paths.contains(face.reference.instance_path);
             if (!hidden_source_face && (!persisted_occurrence || offer_result_faces || displayed_source) &&
@@ -599,7 +676,7 @@ std::vector<ViewerCandidate> ordered_viewer_candidates(
                     face.reference.owner_id.size() - entity_suffix.size())
                 : !face.reference.display_owner_id.empty()
                     ? face.reference.display_owner_id
-                    : transparent_sheet_state ? std::string{} : face.reference.owner_id;
+                    : transparent_sheet_state ? std::string{} : source_face_owner(face.reference);
             if (!container_owner.empty() && !origin_reference && !persisted_container &&
                 (!hidden_source_face || offer_original_containers) &&
                 std::none_of(result.begin(), result.end(), [&](const ViewerCandidate& item) {
@@ -1046,7 +1123,7 @@ std::optional<ViewerCandidate> container_candidate(
         const auto triangle = std::find_if(
         references.begin(), references.end(),
         [&](const zima::kernel::FaceReference& reference) {
-            return reference.valid() && (reference.owner_id == owner_id ||
+            return reference.valid() && (source_face_owner(reference) == owner_id ||
                 (geometry==CandidateGeometry::Display&&reference.display_owner_id==owner_id)) &&
                 reference.instance_path == instance_path;
         });

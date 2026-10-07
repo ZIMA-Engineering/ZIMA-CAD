@@ -319,25 +319,10 @@ struct MeshView::Impl {
     // Face identities are stable across camera changes; source/reference changes invalidate them.
     bool reference_faces_dirty{true};
     std::vector<ViewerCandidate> reference_faces;
+    std::vector<ViewerCandidate> confirmed_reference_faces;
     void prepare_reference_faces() {
         if(!reference_faces_dirty)return;
-        reference_faces.clear();
-        std::set<EdgeKey> found;
-        const auto append=[&](const auto& source,CandidateGeometry geometry) {
-            for(std::size_t i=0;i<source.triangle_references.size();++i) {
-                const auto& face=source.triangle_references[i];
-                const EdgeKey key{face.owner_id,face.semantic_key,face.instance_path};
-                if(!constraint_reference_edges.contains(key) || face.semantic_key=="plane" ||
-                    face.semantic_key.starts_with("origin:plane:") || i*3+2>=source.triangles.size() || !found.insert(key).second)continue;
-                reference_faces.push_back({CandidateKind::Face,0,i,face.owner_id,face.semantic_key,face.instance_path,geometry});
-            }
-        };
-        // Keep the existing visible-fragment preference and exact occurrence
-        // identity, then use the same fill and silhouette path as face selection.
-        if(!constraint_reference_edges.empty()) {
-            append(mesh,CandidateGeometry::Display);
-            append(mesh.original_references,CandidateGeometry::OriginalReference);
-        }
+        reference_faces=inspected_face_candidates(mesh,constraint_reference_edges,confirmed_reference_faces);
         reference_faces_dirty=false;
     }
     struct SurfaceBatch {
@@ -524,7 +509,7 @@ struct MeshView::Impl {
         }
         for (std::size_t index = 0; index < mesh.edges.size(); ++index) {
             const auto& edge = mesh.edges[index];
-            for (const auto& owner_id : edge.edge_treatment_owner_ids) {
+            for (const auto& owner_id : edge_treatment_boundary_owners(edge)) {
                 edge_treatment_boundary_edge_indices[
                     {owner_id, edge.reference.instance_path}].push_back(index);
             }
@@ -2204,11 +2189,19 @@ void MeshView::set_sketch_relation_highlights(std::set<EdgeKey> references) {
 void MeshView::set_constraint_reference_highlights(
     std::set<std::string> owner_ids, std::set<EdgeKey> edges) {
     impl_->constraint_reference_owner_ids = std::move(owner_ids);
+    if(edges.empty())impl_->confirmed_reference_faces.clear();
     if (impl_->constraint_reference_edges != edges) {
         impl_->constraint_reference_edges = std::move(edges);
         impl_->reference_faces_dirty = true;
     }
     update();
+}
+
+void MeshView::remember_reference_face(const ViewerCandidate& candidate) {
+    if(candidate.kind!=CandidateKind::Face||candidate.geometry!=CandidateGeometry::Display)return;
+    // Most recent confirmation wins when several fragments share a source.
+    impl_->confirmed_reference_faces.insert(impl_->confirmed_reference_faces.begin(),candidate);
+    impl_->reference_faces_dirty=true;update();
 }
 
 void MeshView::set_assembly_reference_edges(std::set<EdgeKey> edges) {

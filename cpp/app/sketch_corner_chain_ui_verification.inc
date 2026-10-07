@@ -7,6 +7,17 @@ int verify_sketch_corner_chain_ui(QApplication& application,const std::filesyste
         const auto source=qEnvironmentVariable("ZIMA_VERIFY_CORNER_CHAIN_FILE");
         auto part=document::PartDocument::create_default();
         if(!source.isEmpty())part=document::PartDocument::load(std::filesystem::path(source.toStdWString()));
+        else if(qEnvironmentVariableIsSet("ZIMA_VERIFY_CORNER_EQUAL_FOUR")) {
+            auto profile=sketcher::Sketch::create_default();
+            const auto sides=profile.add_rectangle(0,0,60,40);
+            for(std::size_t i=0;i<4;++i)static_cast<void>(profile.add_corner_fillet(sides[i],sides[(i+1)%4],3));
+            profile.corner_radii.back().dimension_visible=true;
+            auto feature=document::PartDocument::create_sketch_container();
+            profile.owner_container_id=feature.id;
+            part.history={feature};part.sketches={profile};document::BodyHistoryGraph graph;
+            static_cast<void>(graph.create_body("Four equal rectangle corners"));
+            graph.insert({document::PartHistoryKind::Feature,feature.id});part.set_body_history(graph);part.resolve_constructions();
+        }
         else {
             auto profile=sketcher::Sketch::create_default();
             for(const auto xy:std::vector<std::array<double,2>>{{0,0},{50,0},{0,-50},{5,-50},{5,-5},{50,-5}})
@@ -43,6 +54,28 @@ int verify_sketch_corner_chain_ui(QApplication& application,const std::filesyste
         check(window.findChild<QAction*>("finishSketchAction")->isEnabled(),"Sketch editor did not open");
         QEventLoop animation;QTimer::singleShot(950,&animation,&QEventLoop::quit);animation.exec();
         auto* view=dynamic_cast<viewer::MeshView*>(window.findChild<QOpenGLWidget*>());check(view,"View missing");
+        const bool four=qEnvironmentVariableIsSet("ZIMA_VERIFY_CORNER_EQUAL_FOUR");
+        if(four) {
+            const auto pick_corner=[&](const std::string& id) {
+                for(int y=8;y<view->height()-8;y+=3)for(int x=8;x<view->width()-8;x+=3) {
+                    const QPointF point(x,y);const auto offered=view->selection_candidates_at(point);
+                    if(offered.empty()||offered.front().owner_id!=sketch.id||offered.front().semantic_key!="corner_radius:"+id)continue;
+                    for(const auto type:{QEvent::MouseMove,QEvent::MouseButtonPress,QEvent::MouseButtonRelease}) {
+                        QMouseEvent event(type,point,QPointF(view->mapToGlobal(point.toPoint())),
+                            type==QEvent::MouseMove?Qt::NoButton:Qt::LeftButton,
+                            type==QEvent::MouseButtonPress?Qt::LeftButton:Qt::NoButton,Qt::NoModifier);
+                        QApplication::sendEvent(view,&event);flush();
+                    }
+                    return;
+                }
+                throw std::runtime_error("Common picker did not offer a rounded rectangle corner for equality");
+            };
+            for(std::size_t i=0;i<3;++i) {
+                window.findChild<QAction*>("sketchEqualAction")->trigger();flush();
+                pick_corner(sketch.corner_radii[i].id);pick_corner(sketch.corner_radii[i+1].id);
+            }
+            QKeyEvent escape(QEvent::KeyPress,Qt::Key_Escape,Qt::NoModifier);QApplication::sendEvent(view,&escape);flush();
+        }
         if(qEnvironmentVariableIsSet("ZIMA_VERIFY_CORNER_EQUAL_DIMENSION")) {
             const auto driver=std::ranges::find_if(sketch.corner_radii,[](const auto& r){return r.dimension_visible;});
             check(driver!=sketch.corner_radii.end(),"Driving corner dimension missing");
@@ -53,24 +86,36 @@ int verify_sketch_corner_chain_ui(QApplication& application,const std::filesyste
                 if(ref.owner_id==candidate.owner_id && ref.semantic_key==candidate.semantic_key)
                     candidate.geometry_index=i;
             }
-            window.edit_dimension_inline(candidate);flush();
-            auto* field=view->findChild<QLineEdit*>("inlineDimensionValueEdit");
-            check(field,"Corner dimension inline editor missing");
-            field->setText("5");QKeyEvent enter(QEvent::KeyPress,Qt::Key_Return,Qt::NoModifier);
-            QApplication::sendEvent(field,&enter);flush();
-            check(view->candidate_dimension_value(candidate).has_value() &&
-                std::abs(*view->candidate_dimension_value(candidate)-5)<1e-7,"Inline corner edit failed");
+            for(const double value:four?std::vector<double>{5,2,4}:std::vector<double>{5}) {
+                window.edit_dimension_inline(candidate);flush();
+                auto* field=view->findChild<QLineEdit*>("inlineDimensionValueEdit");
+                check(field,"Corner dimension inline editor missing");
+                field->setText(QString::number(value));QKeyEvent enter(QEvent::KeyPress,Qt::Key_Return,Qt::NoModifier);
+                QApplication::sendEvent(field,&enter);flush();
+                check(view->candidate_dimension_value(candidate).has_value() &&
+                    std::abs(*view->candidate_dimension_value(candidate)-value)<1e-7,"Inline corner edit failed");
+            }
             window.findChild<QAction*>("finishSketchAction")->trigger();flush();
             for(auto* dialog:window.findChildren<QDialog*>())if(dialog->isVisible())if(auto* buttons=dialog->findChild<QDialogButtonBox*>())if(auto* ok=buttons->button(QDialogButtonBox::Ok)){ok->click();flush();break;}
             check(window.execute_console_command("save").ok,"Equal corner Save failed");
             const auto after=document::PartDocument::load(path);
-            check(after.sketches.front().corner_radii.size()==2 &&
-                std::ranges::all_of(after.sketches.front().corner_radii,[](const auto& r){return std::abs(r.radius-5)<1e-7;}),"Saved equal radii differ from edited value");
+            check(after.sketches.front().corner_radii.size()==(four?4:2) &&
+                std::ranges::all_of(after.sketches.front().corner_radii,[&](const auto& r){return std::abs(r.radius-(four?4:5))<1e-7;}),"Saved equal radii differ from edited value");
             check(after.sketches.front().points==sketch.points && after.sketches.front().segments==sketch.segments &&
-                after.sketches.front().constraints==sketch.constraints,"Equal radius edit changed source geometry or constraints");
+                (four?std::ranges::count_if(after.sketches.front().constraints,[](const auto& c){return !c.suppressed&&c.kind==sketcher::ConstraintKind::EqualRadius;})==3:
+                    after.sketches.front().constraints==sketch.constraints),"Equal radius edit changed source geometry or constraints");
             check(window.execute_console_command("undo").ok && window.execute_console_command("save").ok,"Equal corner Undo failed");
-            check(document::PartDocument::load(path).sketches.front().corner_radii==sketch.corner_radii,"Equal corner Undo did not restore both radii");
-            check(window.execute_console_command("redo").ok && window.execute_console_command("save").ok,"Equal corner Redo failed");
+            if(four) {
+                check(std::ranges::all_of(document::PartDocument::load(path).sketches.front().corner_radii,
+                    [](const auto& corner){return std::abs(corner.radius-2)<1e-7;}),"Four-corner Undo did not restore the preceding radius for every member");
+                for(const double value:{5.,3.}) {
+                    check(window.execute_console_command("undo").ok&&window.execute_console_command("save").ok,"Four-corner successive Undo failed");
+                    check(std::ranges::all_of(document::PartDocument::load(path).sketches.front().corner_radii,
+                        [&](const auto& corner){return std::abs(corner.radius-value)<1e-7;}),"Four-corner Undo lost connected equality");
+                }
+            } else check(document::PartDocument::load(path).sketches.front().corner_radii==sketch.corner_radii,"Equal corner Undo did not restore both radii");
+            for(int i=0;i<(four?3:1);++i)
+                check(window.execute_console_command("redo").ok && window.execute_console_command("save").ok,"Equal corner Redo failed");
             check(document::PartDocument::load(path).sketches.front().serialized()==after.sketches.front().serialized(),"Equal corner Redo did not restore edited sketch");
             std::cout<<"Equal corner inline dimension, native save/reopen and Undo/Redo passed\n";return 0;
         }

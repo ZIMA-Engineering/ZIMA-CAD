@@ -1,11 +1,24 @@
 #pragma once
 
 #include <zima/viewer/picking.hpp>
+#include <zima/kernel/boolean_face_ancestry.hpp>
 
 #include <vector>
 #include <algorithm>
 
 namespace zima::app {
+
+// Keep the offered geometry untouched. Only the reference submitted to the
+// placement solver follows the explicitly persisted Boolean parent chain.
+[[nodiscard]] inline zima::viewer::ViewerCandidate placement_reference_source_candidate(
+    zima::viewer::ViewerCandidate candidate) {
+    if(candidate.kind==zima::viewer::CandidateKind::Face&&
+       candidate.geometry==zima::viewer::CandidateGeometry::Display)
+        while(const auto parent=zima::kernel::boolean_face_parent(candidate.semantic_key)) {
+            candidate.owner_id=parent->first;candidate.semantic_key=parent->second;
+        }
+    return candidate;
+}
 
 [[nodiscard]] inline bool placement_reference_exists(
     const zima::viewer::ViewerCandidate& candidate,

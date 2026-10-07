@@ -2,6 +2,7 @@
 #include <zima/kernel/state_display.hpp>
 #include <zima/viewer/picking.hpp>
 #include <zima/viewer/shading.hpp>
+#include "../app/construction_reference_candidate_policy.hpp"
 
 #include <cmath>
 #include <iostream>
@@ -221,6 +222,30 @@ int main() {
                 "Unselectable curved result mesh lost smooth shading within a face");
             std::swap(shading_mesh.triangles[1], shading_mesh.triangles[2]);
             require_planar(zima::viewer::shaded_triangle_vertices(shading_mesh));
+        }
+        {
+            zima::kernel::ViewerMesh fan;
+            fan.vertices={{0,0,0},{1,0,0},{0,1,0},{-1,0,.25},{.8,.2,0}};
+            fan.triangles={0,1,2,0,2,3};
+            fan.triangle_references={{"fillet","patch","occurrence"},{"fillet","patch","occurrence"}};
+            const auto coarse=zima::viewer::shaded_triangle_vertices(fan);
+            fan.triangles={0,1,4,0,4,2,0,2,3};
+            fan.triangle_references.push_back(fan.triangle_references[0]);
+            const auto refined=zima::viewer::shaded_triangle_vertices(fan);
+            for(const auto component:{3,4,5})require(std::abs(coarse[component]-refined[component])<1e-6,
+                "Unequal tessellation fan subdivision creates a false shading ridge");
+            require(coarse[3]>.05F&&coarse[5]>.9F,"Curved fan was flattened instead of smoothed");
+            fan.vertices={{0,0,0},{1,0,0},{0,1,0},{0,-.5,.8660254037844386}};
+            fan.triangles={0,1,2,0,3,1};
+            fan.triangle_references.resize(2);
+            const auto radius=zima::viewer::shaded_triangle_vertices(fan);
+            for(const auto component:{3,4,5})require(std::abs(radius[component]-radius[18+component])<1e-6,
+                "Coarse same-face radius fan has triangle-dependent normals at its shared vertex");
+            require(radius[4]>.4F&&radius[5]>.8F,"Small radius was left with flat triangle shading");
+            fan.triangle_references[1].semantic_key="different-face";
+            const auto sharp=zima::viewer::shaded_triangle_vertices(fan);
+            require(std::abs(sharp[4])<1e-6&&sharp[22]>.8F,
+                "Radius fan smoothing crossed an actual distinct CAD face boundary");
         }
         {
             zima::kernel::ViewerEdge line;line.reference={"sweep","centerline:from:source-segment",{}};
@@ -786,6 +811,81 @@ int main() {
             zima::viewer::ordered_viewer_candidates(trimmed,{0.6,-0.5,0},{0,0,1},0.01),
             {zima::viewer::CandidateKind::Face});
         require(removed_faces.empty(), "Assembly offered a removed part of an original face");
+        {
+            const auto encode=[](const std::string& owner,const std::string& key) {
+                return std::to_string(owner.size())+":"+owner+std::to_string(key.size())+":"+key+"0:";
+            };
+            const auto split=[](const std::string& parent) {
+                return "boolean:subtract:split-face:from:"+std::to_string(parent.size())+":"+parent+":boundary:test";
+            };
+            auto fragment=trimmed;
+            const auto ancestry=split(encode("older-cut",split(encode("original-box","z_max"))));
+            fragment.triangle_references[0]={"latest-cut",ancestry,"8:assembly4:part"};
+            const auto offered=zima::viewer::filter_candidates(
+                zima::viewer::ordered_viewer_candidates(fragment,{0,0,0},{0,0,1},.01),
+                {zima::viewer::CandidateKind::Face});
+            require(offered.size()==1&&offered[0].geometry==zima::viewer::CandidateGeometry::Display&&
+                offered[0].owner_id=="latest-cut"&&offered[0].semantic_key==ancestry,
+                "Placement did not offer the actual trimmed display fragment");
+            const auto source=zima::app::placement_reference_source_candidate(offered[0]);
+            const auto containers=zima::viewer::filter_candidates(
+                zima::viewer::ordered_viewer_candidates(fragment,{0,0,0},{0,0,1},.01),
+                {zima::viewer::CandidateKind::Container});
+            require(containers.size()==1&&containers[0].owner_id=="original-box"&&
+                zima::viewer::container_candidate(fragment,"original-box",source.instance_path)&&
+                !zima::viewer::container_candidate(fragment,"latest-cut",source.instance_path),
+                "Ordinary container picking attributed a cut face to the cutter instead of its source");
+            require(source.owner_id=="original-box"&&source.semantic_key=="z_max"&&
+                source.instance_path==offered[0].instance_path&&source.geometry_index==offered[0].geometry_index,
+                "Visible fragment reference did not follow its persisted original ancestry");
+            const std::set<zima::viewer::EdgeKey> inspected{{source.owner_id,source.semantic_key,source.instance_path}};
+            auto highlights=zima::viewer::inspected_face_candidates(fragment,inspected);
+            require(highlights.size()==1&&highlights[0].geometry==zima::viewer::CandidateGeometry::Display&&
+                highlights[0].semantic_key==ancestry,"Inspection fell back to an untrimmed intermediate face");
+            auto disconnected=fragment;
+            disconnected.triangles.insert(disconnected.triangles.end(),fragment.triangles.begin(),fragment.triangles.end());
+            disconnected.triangle_references.push_back({"latest-cut",ancestry+"-second",source.instance_path});
+            require(zima::viewer::inspected_face_candidates(disconnected,inspected).size()==2,
+                "Reopened original reference inspection lost a visible descendant");
+            highlights=zima::viewer::inspected_face_candidates(disconnected,inspected,{offered[0]});
+            require(highlights.size()==1&&highlights[0].semantic_key==ancestry,
+                "Confirmation inspection changed the clicked fragment");
+            disconnected.triangle_references[0].instance_path="8:assembly5:other";
+            highlights=zima::viewer::inspected_face_candidates(disconnected,inspected,{offered[0]});
+            require(highlights.size()==1&&highlights[0].semantic_key==ancestry+"-second",
+                "Stale inspection confirmation crossed occurrence identities");
+            require(zima::viewer::filter_candidates(
+                zima::viewer::ordered_viewer_candidates(fragment,{.6,-.5,0},{0,0,1},.01),
+                {zima::viewer::CandidateKind::Face}).empty(),
+                "Placement offered an intermediate/untrimmed source region");
+            const auto one=encode("one","face"),two=encode("two","face");
+            auto treatment_fragment=fragment;
+            treatment_fragment.triangle_references[0]={"latest-cut",split(encode("round","fillet:face:from:parent:test")),source.instance_path};
+            treatment_fragment.original_references.triangle_references[0]={"round","fillet:face:from:parent:test",source.instance_path};
+            const auto treatment_containers=zima::viewer::filter_candidates(
+                zima::viewer::ordered_viewer_candidates(treatment_fragment,{0,0,0},{0,0,1},.01),
+                {zima::viewer::CandidateKind::Container});
+            require(!treatment_containers.empty()&&treatment_containers[0].owner_id=="round",
+                "Cut Fillet hover highlighted the cutter instead of the Fillet");
+            zima::kernel::ViewerEdge boundary;
+            const zima::viewer::ViewerCandidate cutter{zima::viewer::CandidateKind::Container,0,0,"latest-cut",{},source.instance_path};
+            auto cutter_wire=boundary;cutter_wire.reference={"latest-cut","start:feature-side:circle",source.instance_path};
+            require(zima::viewer::candidate_uses_original_container_wire_edge(cutter,cutter_wire),
+                "Cutter highlight lost its own authored tool wire");
+            cutter_wire.reference.semantic_key="boolean:subtract:split-edge:from:original-prism:edge";
+            require(!zima::viewer::candidate_uses_original_container_wire_edge(cutter,cutter_wire),
+                "Cutter highlight includes operational fragments of the original prism");
+            boundary.edge_treatment_side_references={treatment_fragment.triangle_references[0],{"body","plane"}};
+            require(zima::viewer::edge_treatment_boundary_owners(boundary)==std::vector<std::string>{"round"},
+                "Cut Fillet inspection lost its actual visible boundary");
+            boundary.edge_treatment_side_references[1]={"round","fillet:face:another-patch"};
+            require(zima::viewer::edge_treatment_boundary_owners(boundary).empty(),
+                "Fillet inspection treated an internal patch join as its outer boundary");
+            require(!zima::kernel::boolean_face_parent("boolean:subtract:split-face:from:999:x:boundary:test")&&
+                !zima::kernel::boolean_face_parent("boolean:subtract:split-face:from:"+
+                    std::to_string(one.size())+":"+one+std::to_string(two.size())+":"+two+":boundary:test"),
+                "Malformed face ancestry was accepted");
+        }
         auto repeated = trimmed;
         repeated.vertices.insert(repeated.vertices.end(),trimmed.vertices.begin(),trimmed.vertices.end());
         repeated.triangles.insert(repeated.triangles.end(),{3,4,5});

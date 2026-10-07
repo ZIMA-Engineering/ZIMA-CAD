@@ -44,7 +44,7 @@ void verify_view_descriptions() {
     const auto export_text=[&](const auto& model,const char* file){static_cast<void>(drawing_render::export_dxf(model,sheet.id,dir/file,dir/"description.drwz",&live,true));return entities(read(dir/file));};
     const auto output=export_text(reopened,"description.dxf");std::vector<Entity> texts;
     for(const auto& e:output)if(e.at(0)=="TEXT")texts.push_back(e);
-    require(texts.size()==3&&texts[0].at(1)=="bracket.B"&&texts[1].at(1)=="1:2"&&texts[2].at(1)=="other.X","Description visibility, independent parameter source or row order lost in DXF");
+    require(texts.size()==3&&texts[0].at(1)=="bracket.B"&&texts[1].at(1)=="M1:2"&&texts[2].at(1)=="other.X","Description visibility, independent parameter source or row order lost in DXF");
     require(near(texts[0].at(40).toDouble(),2.5)&&near(texts[1].at(40).toDouble(),3.5)&&texts[0].at(20).toDouble()>texts[1].at(20).toDouble(),"Description paper heights or vertical stacking changed in DXF");
     auto parameters=workspace::user_parameters(live,part.document_id);parameters.flat["REV"]="C";
     parameters.values["REV"][""]="C";require(workspace::set_user_parameters(live,part.document_id,std::move(parameters)),"Source revision parameter did not change");

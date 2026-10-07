@@ -416,6 +416,41 @@ anchored. The shared properties-window implementation owns this layout policy.
   equivalent modeling intent. This is a binding user requirement reaffirmed
   on 2026-09-19, not an optional implementation preference.
 
+## Oldest coplanar face identity (mandatory, permanent modeling contract)
+
+- When later operations extend, merge, trim or split a face while retaining
+  its supporting plane, preserve the persisted original face reference of the
+  oldest contributing element. Determine age from document history, never
+  from UUID ordering, OCCT enumeration or whichever parent is visited last.
+- Coplanar merging must not replace that original reference with the identity
+  of a later operation or a newly invented merged face. Disconnected fragments
+  retain the same original planar reference for placement and other source
+  references. Distinct operational fragment identities may identify exact
+  pieces for body operations, but must preserve their explicit ancestry and
+  must not replace the oldest original reference offered to source-reference
+  consumers.
+- Resolve and persist this relationship during explicit geometry calculation.
+  Offer and highlight the actual currently visible face fragment, never its
+  untrimmed original or an intermediate history face. Translate its persisted
+  ancestry to the oldest original identity only for reference validation/storage.
+  Confirmation and inspection after a click must retain the exact visible
+  fragment offered on hover. Resolving its original identity must never switch
+  the highlight to untrimmed original or intermediate geometry.
+  Picking, placement and highlighting consume the persisted relationship;
+  they must not reconstruct it with OCCT or guess it from screen coordinates.
+- Preserve the geometry-side contract: coplanarity does not permit merging
+  opposite material/contact sides or changing a persisted side choice.
+- A connected coplanar Add result is displayed as one face without internal
+  join lines. This includes a 2D Sweep starting and/or ending on the original
+  face. Preserve real outer boundaries, holes and noncoplanar transitions in
+  both the model View and Drawing views.
+- Verify the original owner and reference through coplanar Add/Cut, splitting,
+  dimension changes, regeneration, save/reopen and Undo/Redo, including actual
+  GUI placement selection. Verify exact fragment selection for dependent body
+  operations separately. Do not report compliance from geometric equality alone.
+- This is the user's existing stability requirement, explicitly reaffirmed
+  on 2026-10-07 after the FORM investigation.
+
 ## OCCT boundary
 
 - Use OCCT only as the solid-modeling kernel for calculating body geometry.

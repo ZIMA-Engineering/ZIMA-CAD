@@ -2,7 +2,7 @@ int verify_polyline_snapped_tangent_ui(QApplication& application,const std::file
     using namespace zima;
     const auto check=[](bool ok,const char* message){if(!ok)throw std::runtime_error(message);};
     const auto flush=[&]{application.processEvents();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);application.processEvents();};
-    for(int kind:{0,1,2,3,4}) {
+    for(int kind:{0,1,2,3,4,5,6}) {
         auto part=document::PartDocument::create_default();auto feature=document::PartDocument::create_sketch_container();
         auto sketch=sketcher::Sketch::create_default();sketch.owner_container_id=feature.id;
         const double end_y=kind==0?0:-60;
@@ -13,7 +13,7 @@ int verify_polyline_snapped_tangent_ui(QApplication& application,const std::file
         std::string support;
         if(kind==1)support=sketch.add_segment(100,-90,100,-30);
         if(kind==2||kind==4)support=sketch.add_point(100,target_y);
-        if(kind==3)support=sketch.add_circle(100,-40,20);
+        if(kind==3||kind>=5)support=sketch.add_circle(100,-40,20);
         part.history={feature};part.sketches={sketch};document::BodyHistoryGraph graph;
         const auto body=graph.create_body("Polyline endpoint tangent");graph.insert({document::PartHistoryKind::Feature,feature.id});
         part.set_body_history(graph);part.resolve_constructions();
@@ -38,6 +38,56 @@ int verify_polyline_snapped_tangent_ui(QApplication& application,const std::file
             QApplication::sendEvent(view,&event);flush();};
         const auto click=[&](QPointF p,Qt::MouseButton button=Qt::LeftButton){mouse(p,QEvent::MouseMove,Qt::NoButton);
             mouse(p,QEvent::MouseButtonPress,button);mouse(p,QEvent::MouseButtonRelease,button);};
+        if(kind>=5) {
+            window.findChild<QAction*>("sketchSegmentAction")->trigger();flush();
+            click(screen(40,-40));
+            const double side=kind==5?1:-1;
+            const double angle=side*std::acos(-1.0/3.0);
+            const auto move_contact=[&](double delta) {
+                mouse(screen(100+20*std::cos(angle+delta),-40+20*std::sin(angle+delta)),QEvent::MouseMove,Qt::NoButton);
+                check(!view->transient_edges().empty()&&view->transient_edges().front().points.size()==2,
+                    "Segment circle contact preview missing");
+                const auto endpoint=view->transient_edges().front().points.back();
+                const auto before=view->grabFramebuffer();
+                view->set_sketch_cursor(endpoint,true,{});flush();
+                check(before==view->grabFramebuffer(),"Segment cursor differs from its resolved contact or duplicates its marker");
+                const auto local_endpoint=sketch.intersect_ray(endpoint,view->ray_at(screen(100,-40))->second);
+                check(local_endpoint.has_value(),"Segment contact endpoint not on Sketch");
+                check(std::abs(std::hypot((*local_endpoint)[0]-100,(*local_endpoint)[1]+40)-20)<1e-6,
+                    "Segment contact escaped circle equation");
+                return *local_endpoint;
+            };
+            const auto held=move_contact(0);
+            for(double delta:{0.002,-0.002,0.004,0.0}) {
+                const auto p=move_contact(delta);
+                check(std::hypot(p[0]-held[0],p[1]-held[1])<1e-6,"Tangent contact not held inside capture band");
+                const auto start=sketch.intersect_ray(view->transient_edges().front().points.front(),
+                    view->ray_at(screen(100,-40))->second);
+                check(start.has_value()&&std::abs((p[0]-(*start)[0])*(p[0]-100)+
+                    (p[1]-(*start)[1])*(p[1]+40))<1e-5,
+                    "Held segment violates tangent equation");
+            }
+            const auto released=move_contact(side*0.25);
+            check(std::hypot(released[0]-held[0],released[1]-held[1])>1,
+                "Circle-only contact remained held outside tangent band");
+            static_cast<void>(move_contact(0.002));
+            click(screen(100+20*std::cos(angle+0.002),-40+20*std::sin(angle+0.002)));
+            window.findChild<QAction*>("finishSketchAction")->trigger();flush();
+            app::SketchPropertiesDialog* properties{};
+            for(auto* dialog:window.findChildren<QDialog*>())if(auto* p=dynamic_cast<app::SketchPropertiesDialog*>(dialog);p&&p->isVisible())properties=p;
+            check(properties,"Segment contact did not return to Sketch Properties");
+            const auto result=properties->pending_value().first;
+            check(result.segments.size()==2,"Circle tangent segment was not committed");
+            const auto& segment=result.segments.back();
+            check(std::ranges::any_of(result.constraints,[&](const auto& constraint) {
+                return !constraint.suppressed&&constraint.kind==sketcher::ConstraintKind::Tangent&&
+                    (constraint.geometry_id==segment.id||constraint.second_geometry_id==segment.id);
+            }),"Circle tangent segment lost its committed tangent constraint");
+            auto reopened=sketcher::Sketch::from_serialized(result.serialized());
+            check(reopened.solve().status!=sketcher::SolveStatus::Conflicting,"Circle tangent segment failed reopen/solve");
+            properties->buttons()->button(QDialogButtonBox::Cancel)->click();flush();
+            continue;
+        }
         window.findChild<QAction*>("sketchPolylineAction")->trigger();flush();
         click(screen(20,end_y+80));click(screen(20,end_y+40));
         // Switch the Polyline mode away from candidates; RMB over a candidate

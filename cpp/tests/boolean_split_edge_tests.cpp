@@ -8,6 +8,18 @@
 #include <iostream>
 #include <map>
 #include <set>
+#include <BRepTools.hxx>
+#include <BRepCheck_Analyzer.hxx>
+#include <BRepGProp.hxx>
+#include <BRep_Builder.hxx>
+#include <GProp_GProps.hxx>
+#include <TopoDS_Shape.hxx>
+#include <TopExp.hxx>
+#include <TopTools_IndexedMapOfShape.hxx>
+#include <TopTools_IndexedDataMapOfShapeListOfShape.hxx>
+#include <TopoDS.hxx>
+#include <BRepAdaptor_Surface.hxx>
+#include <sstream>
 
 using namespace zima;
 using commands::Json;
@@ -234,12 +246,163 @@ void assembly_targets(const fs::path& directory) {
     std::cout << "Assembly: one through cut across two separated hollow occurrences, save/reload and source ownership passed\n";
 }
 }
-int main() { try {
+namespace {
+std::set<Key> form_edges(const kernel::BodyResult& result) {
+    std::set<Key> ids;
+    for (const auto& edge:result.mesh.edges) {
+        require(edge.reference.valid(),"FORM contains an anonymous body edge");
+        require(ids.insert(key(edge.reference)).second,"FORM body edges share identity");
+    }
+    return ids;
+}
+void form_case(const fs::path& directory) {
+    const auto original=document::PartDocument::load("cpp/tests/fixtures/boolean/form.prtz");
+    kernel::OcctKernel cold;
+    const auto operations=original.kernel_operations();
+    const auto calculated=cold.evaluate_history(operations);
+    require(calculated.size()==4,"FORM fixture history changed");
+    for (std::size_t index=0;index<calculated.size();++index) {
+        const auto& boundary=calculated[index];
+        require(boundary.calculation_errors.empty(),"FORM calculation reported an error");
+        require(std::ranges::all_of(boundary.mesh.triangle_references,[](const auto& face){return face.valid();}),
+            "FORM contains an anonymous body face");
+        // Intermediate packets deliberately retire their kernel snapshots.
+        // Explicitly calculate that prefix to inspect its actual B-Rep.
+        const auto prefix=boundary.kernel_shape.empty()
+            ? cold.evaluate_history(std::vector<kernel::HistoryOperation>(operations.begin(),operations.begin()+index+1))
+            : std::vector<kernel::BodyResult>{};
+        const auto& snapshot=prefix.empty()?boundary:prefix.back();
+        TopoDS_Shape shape;BRep_Builder builder;std::istringstream stream(snapshot.kernel_shape);
+        BRepTools::Read(shape,stream,builder);
+        require(!shape.IsNull()&&BRepCheck_Analyzer(shape).IsValid(),"FORM is not a valid B-Rep");
+        TopTools_IndexedMapOfShape actual_faces;TopExp::MapShapes(shape,TopAbs_FACE,actual_faces);
+        std::set<Key> face_ids;
+        for(const auto& face:boundary.mesh.triangle_references)face_ids.emplace(face.owner_id,face.semantic_key);
+        require(face_ids.size()==static_cast<std::size_t>(actual_faces.Extent()),"Distinct FORM body faces share an identity");
+        GProp_GProps volume,area;BRepGProp::VolumeProperties(shape,volume);BRepGProp::SurfaceProperties(shape,area);
+        // Re-reading rational OCCT trims changes the independent integral by
+        // up to 3e-5 mm3; this does not change the calculated/persisted result.
+        near(volume.Mass(),boundary.volume,1e-4);near(area.Mass(),boundary.surface_area,1e-4);
+        static_cast<void>(form_edges(boundary));
+    }
+    const auto& input=calculated.back();
+    const auto is_front=[](const auto& face) {
+        return face.surface&&face.surface->kind==kernel::SurfaceGeometry::Kind::Plane&&
+            std::abs(face.surface->origin.y)<1e-6&&std::abs(face.surface->axis.y)>.99;
+    };
+    const auto oldest=std::ranges::find_if(calculated.front().mesh.triangle_references,is_front);
+    const auto merged=std::ranges::find_if(calculated[2].mesh.triangle_references,is_front);
+    require(oldest!=calculated.front().mesh.triangle_references.end()&&
+        merged!=calculated[2].mesh.triangle_references.end()&&*merged==*oldest,
+        "FORM coplanar union replaced its oldest source face identity");
+    // Disconnected cap remnants are separate faces. Connected coplanar
+    // regions must have no internal Boolean join in the actual B-Rep.
+    const auto sweep=cold.evaluate_history({operations.begin(),operations.begin()+3}).back();
+    TopoDS_Shape sweep_shape;BRep_Builder sweep_builder;
+    std::istringstream sweep_stream(sweep.kernel_shape);BRepTools::Read(sweep_shape,sweep_stream,sweep_builder);
+    TopTools_IndexedDataMapOfShapeListOfShape adjacency;
+    TopExp::MapShapesAndAncestors(sweep_shape,TopAbs_EDGE,TopAbs_FACE,adjacency);
+    TopTools_IndexedDataMapOfShapeListOfShape solids;
+    TopExp::MapShapesAndAncestors(sweep_shape,TopAbs_FACE,TopAbs_SOLID,solids);
+    for(int i=1;i<=adjacency.Extent();++i) {
+        const auto& faces=adjacency.FindFromIndex(i);if(faces.Extent()!=2)continue;
+        TopTools_ListIteratorOfListOfShape it(faces);
+        const auto first_face=it.Value();it.Next();
+        if(first_face.IsSame(it.Value()))continue;
+        const auto& first_solids=solids.FindFromKey(first_face);
+        const auto& second_solids=solids.FindFromKey(it.Value());
+        if(first_solids.Extent()!=1||second_solids.Extent()!=1||!first_solids.First().IsSame(second_solids.First()))continue;
+        const BRepAdaptor_Surface a(TopoDS::Face(first_face));
+        const BRepAdaptor_Surface b(TopoDS::Face(it.Value()));
+        if(a.GetType()!=GeomAbs_Plane||b.GetType()!=GeomAbs_Plane)continue;
+        if(std::abs(a.Plane().Location().Y())>1e-6||std::abs(a.Plane().Axis().Direction().Y())<.99)continue;
+        auto normal_a=a.Plane().Axis().Direction(),normal_b=b.Plane().Axis().Direction();
+        if(!a.Plane().Position().Direct())normal_a.Reverse();
+        if(!b.Plane().Position().Direct())normal_b.Reverse();
+        if(first_face.Orientation()==TopAbs_REVERSED)normal_a.Reverse();
+        if(it.Value().Orientation()==TopAbs_REVERSED)normal_b.Reverse();
+        require(normal_a.Dot(normal_b)<1-1e-12||
+            a.Plane().Distance(b.Plane().Location())>1e-7,
+            "FORM Sweep retained an internal coplanar join edge");
+    }
+    for(const auto& edge:input.mesh.edges)if(!edge.parameter_seam&&!edge.overlay&&!edge.construction)for(const auto& point:edge.points) {
+        const bool on_mesh=std::ranges::any_of(input.mesh.vertices,[&](const auto& vertex) {
+            return std::hypot(point.x-vertex.x,point.y-vertex.y,point.z-vertex.z)<1e-9;
+        });
+        require(on_mesh,"FORM displayed edge sample does not match its supporting face mesh");
+    }
+    near(input.volume,18497.255433974693);near(input.surface_area,8563.080366200782);
+    const auto ids=form_edges(input);
+    const auto file=directory/"form.prtz";original.save(file,calculated);
+    Fixture f(directory);f.run("open",{{"path",file.generic_string()}});
+    require(form_edges(f.result())==ids,"FORM native reload replaced edge identities");
+    f.run("regenerate");require(form_edges(f.result())==ids,"FORM regeneration replaced edge identities");
+    const std::string cutter="01a1128b1f7a74f1b43389f983258e0d";
+    const std::array lengths{4.71456615785608,10.,7.83706245248815,6.43410760843518,23.4521390383139,18.7992868721026};
+    const auto edges=f.result().mesh.edges;
+    std::array<int,6> counts{};
+    for (const auto& edge:edges) {
+        if(edge.reference.owner_id!=cutter||!edge.measured_length)continue;
+        const auto length=std::ranges::find_if(lengths,[&](double value){return std::abs(value-*edge.measured_length)<1e-5;});
+        if(length==lengths.end())continue;
+        ++counts[static_cast<std::size_t>(length-lengths.begin())];
+        const auto route=f.run("edge_treatment.route",{{"seed",ref(edge.reference)}});
+        require(!route.at("edges").empty(),"FORM edge route is not selectable");
+        for(const double radius:{.05,.1}) {
+            const auto id=f.run("fillet.create",{{"radius_mm",radius},
+                {"routes",Json::array({Json{{"edges",Json::array({ref(edge.reference)})}}})}}).at("container").get<std::string>();
+            require(std::abs(f.result().volume-input.volume)>1e-6,"FORM Fillet did not alter geometry");
+            require(f.result().calculation_errors.empty(),"FORM Fillet calculation failed");
+            const auto treated_volume=f.result().volume;
+            f.run("undo");near(f.result().volume,input.volume);require(form_edges(f.result())==ids,"Fillet Undo lost input identity");
+            f.run("redo");near(f.result().volume,treated_volume);
+            f.run("save");std::vector<kernel::BodyResult> saved;
+            const auto reopened=document::PartDocument::load(file,&saved);
+            require(reopened.find_container(id)->edge_treatment.routes[0][0]==edge.reference,"Saved FORM Fillet lost its selected edge");
+            near(saved.back().volume,treated_volume);
+            const auto revision=f.state().session.revision();
+            f.run("regenerate");near(f.result().volume,treated_volume);
+            if(f.state().session.revision()!=revision)f.run("undo");
+            f.run("undo");near(f.result().volume,input.volume);
+        }
+    }
+    require(std::ranges::all_of(counts,[](int count){return count==2;}),"FORM no longer covers all twelve formerly ambiguous edges");
+    std::map<Key,kernel::FaceReference> faces;
+    for(const auto& face:input.mesh.triangle_references)
+        if(face.semantic_key.starts_with("boolean:subtract:split-face:from:")&&face.surface&&
+            face.surface->kind==kernel::SurfaceGeometry::Kind::Plane&&
+            std::abs(face.surface->origin.y)<1e-6&&std::abs(face.surface->axis.y)>.99)
+            faces.emplace(Key{face.owner_id,face.semantic_key},face);
+    require(faces.size()==2,"FORM does not expose both disconnected front faces");
+    for(const auto& [id,face]:faces) {
+        const auto shell=f.run("surface_shell.create",{{"faces",Json::array({Json{{"owner",face.owner_id},{"key",face.semantic_key}}})}}).at("container").get<std::string>();
+        near(f.result().volume,0);
+        require(f.result().surface_area<input.surface_area,"FORM surface extraction did not remove its selected front face");
+        f.run("save");std::vector<kernel::BodyResult> saved;
+        const auto reopened=document::PartDocument::load(file,&saved);
+        require(reopened.find_container(shell)->shell.removed_faces==std::vector<kernel::FaceReference>{face},"FORM saved the wrong front face");
+        const auto area=f.result().surface_area;f.run("undo");near(f.result().volume,input.volume);
+        f.run("redo");near(f.result().surface_area,area);f.run("undo");
+    }
+    auto changed=*f.state().session.document().find_container(cutter);
+    changed.feature.sides[1].length=51.;
+    workspace::commit_profile(f.live,f.kernel,f.live.active_document_id(),changed,workspace::ProfileEditMode::Replace);
+    near(f.result().volume,input.volume);require(form_edges(f.result())==ids,"Changing cutter length replaced surviving FORM edge identities");
+    f.run("undo");require(form_edges(f.result())==ids,"Length Undo changed FORM edge identities");
+    std::cout<<"FORM: valid B-Rep, all face/edge identities, twelve edges at two radii, front-face extraction, native reload, regeneration, Undo/Redo and feature length passed\n";
+}
+}
+int main(int argc, char** argv) { try {
     const auto root = fs::canonical(fs::temp_directory_path());
     const auto directory = root / ("zima-boolean-fragments-" + document::PartDocument::create_default().document_id);
     require(fs::create_directory(directory), "Cannot create test directory");
+    if(argc>1&&std::string(argv[1])=="--form-only") {
+        form_case(directory);
+        require(directory.parent_path()==root,"Invalid test cleanup path");fs::remove_all(directory);return 0;
+    }
     for (const auto* name : {"open", "closed", "offset", "shell", "three-solids", "solid"}) exercise(directory, name);
-    split_again(directory); assembly_targets(directory);
+    split_again(directory);
+    if(argc<2||std::string(argv[1])!="--part-only")assembly_targets(directory);
     require(directory.parent_path() == root, "Invalid test cleanup path"); fs::remove_all(directory);
     return 0;
 } catch (const std::exception& error) { std::cerr << error.what() << '\n'; return 1; } }

@@ -3495,6 +3495,10 @@ std::vector<OwnedEdge> complete_boolean_edges(const TopoDS_Shape&,
     const std::vector<OwnedFace>&,const std::vector<OwnedEdge>&,
     const std::string&,std::string_view,
     const std::vector<OwnedFace>& = {},const std::vector<OwnedVertex>& = {});
+std::vector<OwnedFace> complete_boolean_faces(const TopoDS_Shape&,
+    const std::vector<OwnedFace>&,const std::vector<OwnedEdge>&,
+    const std::vector<OwnedVertex>&,const std::string&,std::string_view,
+    const std::vector<HistoryOperation>&);
 std::vector<OwnedVertex> complete_boolean_vertices(const TopoDS_Shape&,
     const std::vector<OwnedFace>&,const std::vector<OwnedEdge>&,
     const std::vector<OwnedVertex>&,const std::string&,std::string_view);
@@ -3990,7 +3994,8 @@ std::vector<TopoDS_Shape> propagate_display_edges(
 }
 
 std::vector<TopoDS_Shape> cross_reference_face_edges(
-    const TopoDS_Shape& shape, const std::vector<OwnedFace>& owned_faces) {
+    const TopoDS_Shape& shape, const std::vector<OwnedFace>& owned_faces,
+    bool merge_coplanar=false,double tolerance=1e-7) {
     const TopologyReferenceIndex<FaceReference, OwnedFace> references(owned_faces);
     TopTools_IndexedDataMapOfShapeListOfShape edge_faces;
     TopExp::MapShapesAndAncestors(
@@ -4000,10 +4005,24 @@ std::vector<TopoDS_Shape> cross_reference_face_edges(
         const auto& adjacent = edge_faces.FindFromIndex(index);
         if (adjacent.Extent() != 2) continue;
         TopTools_ListIteratorOfListOfShape iterator(adjacent);
+        const auto first_face=TopoDS::Face(iterator.Value());
         const auto first = references.reference_for(iterator.Value());
         iterator.Next();
+        const auto second_face=TopoDS::Face(iterator.Value());
         const auto second = references.reference_for(iterator.Value());
         if (!first.valid() || !second.valid() || first == second) continue;
+        if(merge_coplanar&&first.surface_result==second.surface_result&&first.sheet_role==second.sheet_role) {
+            const BRepAdaptor_Surface a(first_face),b(second_face);
+            if(a.GetType()==GeomAbs_Plane&&b.GetType()==GeomAbs_Plane) {
+                auto normal_a=a.Plane().Axis().Direction();auto normal_b=b.Plane().Axis().Direction();
+                if(!a.Plane().Position().Direct())normal_a.Reverse();
+                if(!b.Plane().Position().Direct())normal_b.Reverse();
+                if(first_face.Orientation()==TopAbs_REVERSED)normal_a.Reverse();
+                if(second_face.Orientation()==TopAbs_REVERSED)normal_b.Reverse();
+                if(normal_a.Angle(normal_b)<=1e-9&&a.Plane().Distance(b.Plane().Location())<=tolerance)
+                    continue;
+            }
+        }
         result.push_back(edge_faces.FindKey(index));
     }
     return result;
@@ -4040,9 +4059,13 @@ ProvenanceUnifyResult unify_preserving_face_provenance(
     const std::vector<OwnedFace>& faces,
     const std::vector<OwnedEdge>& edges,
     const std::vector<OwnedVertex>& vertices,
-    double tolerance) {
+    double tolerance,bool merge_coplanar=false) {
     ShapeUpgrade_UnifySameDomain probe(shape, true, true, false);
     probe.SetLinearTolerance(tolerance);
+    // Sweep cap frames can differ by sub-nanoradian roundoff despite the
+    // same supporting plane. Keep this tolerance local to ordinary Add;
+    // cross-source nonplanar boundaries remain protected below.
+    if(merge_coplanar)probe.SetAngularTolerance(1e-9);
     probe.Build();
     if (probe.Shape().IsNull() ||
         !BRepCheck_Analyzer(probe.Shape()).IsValid()) {
@@ -4052,7 +4075,7 @@ ProvenanceUnifyResult unify_preserving_face_provenance(
     TopTools_IndexedMapOfShape probe_edges;
     TopExp::MapShapes(probe.Shape(), TopAbs_EDGE, probe_edges);
     std::vector<TopoDS_Shape> protected_edges;
-    for (const auto& edge : cross_reference_face_edges(shape, faces)) {
+    for (const auto& edge : cross_reference_face_edges(shape, faces,merge_coplanar,tolerance)) {
         if (!history_edge_survives(probe.History(), edge, probe_edges)) {
             protected_edges.push_back(edge);
         }
@@ -4067,6 +4090,7 @@ ProvenanceUnifyResult unify_preserving_face_provenance(
 
     ShapeUpgrade_UnifySameDomain protected_unifier(shape, true, true, false);
     protected_unifier.SetLinearTolerance(tolerance);
+    if(merge_coplanar)protected_unifier.SetAngularTolerance(1e-9);
     for (const auto& edge : protected_edges) {
         protected_unifier.KeepShape(edge);
     }
@@ -4715,6 +4739,99 @@ std::set<std::string> referenced_ancestor_tokens(
         if (reference.valid()) {
             result.insert(encoded_topology_reference(reference));
         }
+    }
+    return result;
+}
+
+std::vector<OwnedFace> complete_boolean_faces(
+    const TopoDS_Shape& shape, const std::vector<OwnedFace>& propagated,
+    const std::vector<OwnedEdge>& edges, const std::vector<OwnedVertex>& vertices,
+    const std::string& owner, std::string_view role,
+    const std::vector<HistoryOperation>& history) {
+    TopTools_IndexedMapOfShape actual;
+    TopExp::MapShapes(shape, TopAbs_FACE, actual);
+    std::map<std::string, TopTools_IndexedMapOfShape> descendants;
+    for (const auto& face : propagated)
+        if (face.reference.valid() && actual.Contains(face.shape))
+            descendants[encoded_topology_reference(face.reference)].Add(face.shape);
+    std::vector<OwnedFace> result;
+    const auto age=[&](const FaceReference& reference) {
+        const auto source=std::ranges::find(history,reference.owner_id,&HistoryOperation::owner_id);
+        return std::distance(history.begin(),source);
+    };
+    for (int i=1; i<=actual.Extent(); ++i) {
+        const auto& face=actual.FindKey(i);
+        std::set<std::string> parents;
+        FaceReference reference;
+        for (const auto& source : propagated) if (source.shape.IsSame(face) && source.reference.valid()) {
+            parents.insert(encoded_topology_reference(source.reference));
+            if(!reference.valid()||age(source.reference)<age(reference))reference=source.reference;
+        }
+        if (parents.empty()) continue;
+        // A coplanar union retains its oldest source reference. Operation
+        // ownership must not displace the original placement support.
+        if(parents.size()>1&&BRepAdaptor_Surface(TopoDS::Face(face)).GetType()==GeomAbs_Plane)
+            parents={encoded_topology_reference(reference)};
+        const bool split=parents.size()==1 && descendants.at(*parents.begin()).Extent()>1;
+        if (parents.size()>1 || split) {
+            TopTools_IndexedMapOfShape boundary;
+            TopExp::MapShapes(face, boundary);
+            std::set<std::string> context;
+            for (const auto& edge : edges) if (edge.reference.valid() && boundary.Contains(edge.shape))
+                context.insert("edge:"+encoded_topology_reference(edge.reference));
+            for (const auto& vertex : vertices) if (vertex.reference.valid() && boundary.Contains(vertex.shape))
+                context.insert("vertex:"+encoded_topology_reference(vertex.reference));
+            // A merged/split display face is a child of its persisted input
+            // faces. Boundary ancestry distinguishes disconnected descendants;
+            // neither shape enumeration nor measured coordinates define IDs.
+            reference.owner_id=owner;
+            reference.semantic_key="boolean:"+std::string(role)+(split?":split-face:from:":":merged-face:from:")+
+                encoded_topology_reference_set(parents)+":boundary:"+
+                compact_topology_token(encoded_topology_reference_set(context));
+        }
+        result.push_back({face,std::move(reference)});
+    }
+    // Some symmetric fragments have the same immediate boundary parents.
+    // Their neighboring, already named face fragments carry the missing
+    // ancestry (for example the two front walls around a circular cut).
+    // Refine only colliding IDs, keeping ordinary inherited faces unchanged.
+    std::set<std::string> identities;
+    for(const auto& face:result)identities.insert(encoded_topology_reference(face.reference));
+    if(identities.size()==result.size())return result;
+    TopTools_IndexedDataMapOfShapeListOfShape edge_faces;
+    TopExp::MapShapesAndAncestors(shape,TopAbs_EDGE,TopAbs_FACE,edge_faces);
+    std::vector<std::string> base_keys;
+    for(const auto& face:result)base_keys.push_back(face.reference.semantic_key);
+    for(std::size_t pass=0;pass<result.size();++pass) {
+        std::map<std::string,std::vector<std::size_t>> groups;
+        for(std::size_t i=0;i<result.size();++i)
+            groups[encoded_topology_reference(result[i].reference)].push_back(i);
+        const TopologyReferenceIndex<FaceReference,OwnedFace> references(result);
+        bool changed=false;
+        for(const auto& [identity,members]:groups) {
+            if(members.size()<2)continue;
+            std::map<std::string,std::vector<std::size_t>> contexts;
+            for(const auto i:members) {
+                std::set<std::string> adjacent;
+                for(TopExp_Explorer edge(result[i].shape,TopAbs_EDGE);edge.More();edge.Next()) {
+                    const int index=edge_faces.FindIndex(edge.Current());
+                    if(!index)continue;
+                    for(TopTools_ListIteratorOfListOfShape face(edge_faces.FindFromIndex(index));face.More();face.Next()) {
+                        if(face.Value().IsSame(result[i].shape))continue;
+                        const auto reference=references.reference_for(face.Value());
+                        if(reference.valid())adjacent.insert(encoded_topology_reference(reference));
+                    }
+                }
+                contexts[encoded_topology_reference_set(adjacent)].push_back(i);
+            }
+            // Identical ancestry remains ambiguous; never break ties with
+            // runtime enumeration, coordinates, dimensions or random IDs.
+            if(contexts.size()<2)continue;
+            for(const auto& [context,indices]:contexts)for(const auto i:indices)
+                result[i].reference.semantic_key=base_keys[i]+":adjacent-face-context:"+compact_topology_token(context);
+            changed=true;
+        }
+        if(!changed)break;
     }
     return result;
 }
@@ -5517,14 +5634,36 @@ BodyResult make_result(
             }
         }
         std::vector<double> sample_parameters;
-        sample_parameters.reserve(
-            static_cast<std::size_t>(samples.NbPoints()));
-        viewer_edge.points.reserve(static_cast<std::size_t>(samples.NbPoints()));
-        for (int index = 1; index <= samples.NbPoints(); ++index) {
-            const double parameter = samples.Parameter(index);
-            sample_parameters.push_back(parameter);
-            const gp_Pnt point = curve.Value(parameter);
-            viewer_edge.points.push_back({point.X(), point.Y(), point.Z()});
+        Handle(Poly_PolygonOnTriangulation) boundary_polygon;
+        Handle(Poly_Triangulation) boundary_mesh;
+        TopLoc_Location boundary_location;
+        if(edge_index!=0)for(TopTools_ListIteratorOfListOfShape face(edge_faces.FindFromIndex(edge_index));face.More();face.Next()) {
+            TopLoc_Location location;
+            const auto triangulation=BRep_Tool::Triangulation(TopoDS::Face(face.Value()),location);
+            if(triangulation.IsNull())continue;
+            const auto polygon=BRep_Tool::PolygonOnTriangulation(edge,triangulation,location);
+            if(polygon.IsNull()||!polygon->HasParameters()||polygon->NbNodes()<2)continue;
+            if(boundary_polygon.IsNull()||polygon->NbNodes()>boundary_polygon->NbNodes()) {
+                boundary_polygon=polygon;boundary_mesh=triangulation;boundary_location=location;
+            }
+        }
+        if(!boundary_polygon.IsNull()) {
+            // Draw the same boundary chords as the supporting face mesh.
+            // Independently sampled curve chords can lie inside that mesh
+            // and disappear in both 3D and depth-rendered Drawing views.
+            // Exact splines and measurements remain the source geometry;
+            // the existing meshing accuracy is not relaxed.
+            const bool reverse=boundary_polygon->Parameter(1)>boundary_polygon->Parameter(boundary_polygon->NbNodes());
+            for(int j=1;j<=boundary_polygon->NbNodes();++j) {
+                const int index=reverse?boundary_polygon->NbNodes()+1-j:j;
+                sample_parameters.push_back(boundary_polygon->Parameter(index));
+                const auto point=boundary_mesh->Node(boundary_polygon->Node(index)).Transformed(boundary_location.Transformation());
+                viewer_edge.points.push_back({point.X(),point.Y(),point.Z()});
+            }
+        } else for (int index = 1; index <= samples.NbPoints(); ++index) {
+            sample_parameters.push_back(samples.Parameter(index));
+            const auto point=curve.Value(samples.Parameter(index));
+            viewer_edge.points.push_back({point.X(),point.Y(),point.Z()});
         }
         if (vertex_references) {
             const TopoDS_Vertex first_vertex =
@@ -9140,8 +9279,10 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                     unify_preserving_face_provenance(result_shape,
                     fused_topology->faces, fused_topology->edges,
                     fused_topology->vertices,
-                    std::max(1.0e-7, operation.boolean_tolerance));
+                    std::max(1.0e-7, operation.boolean_tolerance),true);
                 result_shape = std::move(unified.shape);
+                unified.faces = complete_boolean_faces(result_shape, unified.faces,
+                    unified.edges, unified.vertices, operation.owner_id, "add", operations);
                 unified.edges = complete_boolean_edges(
                     result_shape, unified.faces, unified.edges,
                     operation.owner_id, "add");
@@ -9187,6 +9328,8 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                 };
                 if(solids&&surfaces){trim(solid_input);trim(surface_input);result_shape=combined;}
                 else result_shape=trim(result_shape);
+                cut_topology.faces = complete_boolean_faces(result_shape, cut_topology.faces,
+                    cut_topology.edges, cut_topology.vertices, operation.owner_id, "subtract", operations);
                 cut_topology.edges = complete_boolean_edges(
                     result_shape, cut_topology.faces, cut_topology.edges,
                     operation.owner_id, "subtract",sheet_intersection_supports,cut_topology.vertices);

@@ -240,13 +240,19 @@ All reference-entry controls share two independent states:
 - A short MMB click ends reference entry and clears temporary inspection.
   Stored references remain unchanged.
 
-Hover offers one exact orange candidate. RMB cycles the common ordered list,
+Hover offers one exact green candidate; confirmation uses azure. RMB cycles the common ordered list,
 including supported obscured geometry; LMB confirms the displayed candidate.
 Only the exact face boundary, edge, point, axis or plane is highlighted. A whole
 body is not tinted when selecting a topology reference. The Tree confirms the
 same types and identities as View. Geometry comes from original persisted
 objects, including STEP imports; result-body topology is not a general placement
-source. See [viewer selection](VIEWER_SELECTION.md).
+source. For a face reference, both hover and confirmation show the actual
+visible face fragment, including subsequent trimming and fillets. The stored
+reference resolves that fragment to its persisted original ancestor. Coplanar
+merged faces retain the identity of the oldest contributing feature; their
+internal joining lines disappear. Inspection retains the selected visible
+fragment during entry and resolves visible descendants when reopened.
+See [viewer selection](VIEWER_SELECTION.md).
 
 A new reference is checked before it changes the definition. Conflicting,
 redundant or invalid references are rejected. At zero remaining degrees of
@@ -574,7 +580,7 @@ rules.
 | --- | --- |
 | Coincident | Two native points merge into one stable point, without a separate `C` marker. A point and axis/segment/curve instead create a point-on-geometry `C` relation; X/Y may be selected first |
 | Horizontal / Vertical | Select a segment, or reference point then driven point. Horizontal shares Y, vertical shares X; a green H/V marks the relation |
-| Equal | First segment length or circular radius drives the second. Circular arcs/circles may be mixed; ellipses are not equal-radius candidates |
+| Equal | First segment length drives the second. Connected circular equalities share one radius across the complete component; circular arcs/circles may be mixed, while ellipses are excluded |
 | Midpoint | Select a separate point, then a segment/construction line. The point follows the average of both endpoints; an endpoint of that same segment is not a valid target |
 | Symmetric | Reference point, driven point, then construction-line axis. Points must differ; later source/axis changes update the reflected point |
 | Concentric | Two circles, circular arcs, ellipses or elliptic arcs. The second center and its dependent points move rigidly onto the first; B-splines are excluded |
@@ -583,7 +589,15 @@ rules.
 Moving a circle/arc center translates its dependent geometry without changing
 radius or arc interval. Fixed or externally anchored conflicts reject the entire
 change. Equal radius keeps the driven center and arc endpoint angles while moving
-points on the circumference consistently.
+points on the circumference consistently. A driving radius or diameter on any
+member updates all connected equal-radius members, including four rounded
+rectangle corners. Successive dimension edits retain the whole equality graph;
+conflicting driving dimensions or impossible corner radii reject the edit
+without changing the document. External sources remain read-only.
+
+When placing a straight segment, the cursor stays at the offered **C + T**
+contact while that contact is captured. Moving far enough to release tangency
+offers **C** alone; there is one preview endpoint and one contact state.
 
 A normal tangent contact uses **C + T**: point-on-curve and tangency. **K + T**
 means an explicitly selected characteristic point and tangency; circular geometry
@@ -866,7 +880,8 @@ The Drawing canvas is two-dimensional and does not orbit.
 
 Choose **Insert View** and click the sheet position. The first view is isometric;
 the shared **View Properties** opens for source, name/label, orientation,
-visible/hidden/shaded edge style, sheet or custom scale and position. It is also
+visible/hidden/shaded edge style, sheet or custom scale and position. Scale ratios
+use `M1:1`, `M1:2` or `M2:1` in Properties, view captions and vector output. It is also
 the later edit dialog. The preview is pending until OK; Cancel discards it.
 MMB double-click over the canvas invokes OK; a short MMB click does not.
 
@@ -1193,3 +1208,13 @@ The Colors and Appearance window initially opens at the right edge with compact
 palette spacing. Every color supports 0–100% transparency through a slider and
 numeric entry. Custom palette entries retain transparency; Cancel restores the
 previous appearance. The basic Skeleton preset is muted purple and 70% transparent.
+
+## Smooth fillet display
+
+Fillet shading uses consistent angle-weighted normals at each shared vertex
+within one persisted CAD face. Separate faces and occurrences retain their own
+normals. Feature highlighting follows semantic ancestry: a cutter shows its
+own contribution, and a fillet shows its treatment boundaries. Display edges
+and triangle shading consume already calculated viewer data. These rules apply
+to other Parts and interactive Drawing views as well as the FORM example;
+exact modeling and measurement geometry is unchanged.

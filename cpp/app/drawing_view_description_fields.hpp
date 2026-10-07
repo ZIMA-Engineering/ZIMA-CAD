@@ -21,7 +21,7 @@ public:
         for(int r=0;r<int(rows_.size());++r) {
             auto* text=qobject_cast<QLineEdit*>(table_->cellWidget(r,3));
             if(rows_[r].kind==drawing::ViewDescriptionKind::Name)text->setPlaceholderText(name);
-            if(rows_[r].kind==drawing::ViewDescriptionKind::Scale)text->setPlaceholderText(scale>=1?QStringLiteral("%1:1").arg(scale,0,'g',6):QStringLiteral("1:%1").arg(1/scale,0,'g',6));
+            if(rows_[r].kind==drawing::ViewDescriptionKind::Scale)text->setPlaceholderText(scale>=1?QStringLiteral("M%1:1").arg(scale,0,'g',6):QStringLiteral("M1:%1").arg(1/scale,0,'g',6));
         }
     }
     explicit ViewDescriptionFields(std::vector<drawing::ViewDescriptionRow> rows,QWidget* parent)

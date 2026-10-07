@@ -529,7 +529,8 @@ int verify_drawing_ui() {
         display_mode->setCurrentIndex(3);flush();
         require(count()==0,"Changing view display committed the pending preview");
         display_mode->setCurrentIndex(0);
-        require(properties->findChild<QLineEdit*>("drawingViewName")->text()==QString::fromUtf8("Pohled 1"),"First view has no numbered default name");
+        const auto view_name_prefix=QCoreApplication::translate("DrawingWindow","Pohled");
+        require(properties->findChild<QLineEdit*>("drawingViewName")->text()==view_name_prefix+" 1","First view has no numbered default name");
         properties->findChild<QLineEdit*>("drawingViewName")->setText("Front test");
         properties->findChild<QCheckBox*>("drawingViewCaption")->setChecked(true);
         auto* descriptions=properties->findChild<QTableWidget*>("drawingViewDescriptions");
@@ -679,7 +680,7 @@ int verify_drawing_ui() {
             child.show_caption==original.show_caption&&child.dimension_guide_count==original.dimension_guide_count&&
             child.dimension_guide_offset==original.dimension_guide_offset&&child.dimension_guide_spacing==original.dimension_guide_spacing,
             "Direct projection did not inherit parent display settings");
-        require(child.name=="Pohled 2","Projected view has no numbered default name");
+        require(child.name==(view_name_prefix+" 2").toStdString(),"Projected view has no numbered default name");
         require(child.parent_view_id==original.id && child.projection_direction==zima::drawing::ProjectionDirection::Right &&
             std::abs(child.y-original.y)<1e-6,"Projected view did not keep parent/ray placement");
         window.select_view_for_test(original.id); action("editDrawingViewAction")->trigger(); flush();

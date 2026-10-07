@@ -278,6 +278,7 @@ public:
     void set_sketch_relation_highlights(std::set<EdgeKey> references);
     void set_constraint_reference_highlights(
         std::set<std::string> owner_ids, std::set<EdgeKey> edges);
+    void remember_reference_face(const ViewerCandidate& candidate);
     void set_assembly_reference_edges(std::set<EdgeKey> edges);
     void set_selected_container_contents(std::set<std::string> owner_ids);
     void set_object_overlay_main_edges(std::set<EdgeKey> edges);
