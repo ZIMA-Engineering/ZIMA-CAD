@@ -2,6 +2,15 @@
 
 ## Scope and status
 
+Windows build **2026100702** is being prepared. It fixes FORM tangent-profile
+editing with external supports, externally anchored circle contacts, pending
+owned-Sketch reference reprojection after container frame changes, and automatic
+solid datums after Surfaces from solid. Native equations, actual mouse edits,
+reference retirement/transactions and all five catalogs have targeted coverage.
+Signed packaging and publication acceptance remain pending. See
+[the preparation record](releases/2026100702.md) and
+[the verification scope](FORM_SKETCH_EDITABILITY.md).
+
 Windows build **2026100701** is signed, published and verified. It fixes oldest
 coplanar face ancestry, visible-fragment reference entry, fillet shading and
 feature highlighting, connected equal-radius edits, straight-segment C+T capture

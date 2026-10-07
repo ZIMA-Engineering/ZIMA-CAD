@@ -1032,6 +1032,31 @@ All surface results have zero material volume. Grid editing and G3 continuity
 are deferred. See [Surface commands](NETWORK_SURFACE.md) for exact capabilities,
 identity limits and verification scope.
 
+## Tangent profile editing and external references
+
+Radius/diameter and line-angle dimensions can drive a tangent arc profile even
+when its lower support comes from an external face. Unlocked driving dimensions
+follow permitted grip movement. Locked dimensions and external source points
+retain their equations; a blocked gesture makes no document change.
+
+A new segment may start at an external reference point and finish on a native
+circle with C+T. The captured contact stays at one endpoint. Leaving the tangent
+capture area offers ordinary C; subsequent dimension edits preserve the
+confirmed reference and tangent equations.
+
+Changing an Extrusion/Revolution container's placement in Properties reprojects
+its owned Sketch references before returning to Sketcher. A reference that can
+no longer be used is removed with its dependent relations in the pending edit.
+Cancel restores the original references; OK commits them together with the
+placement. Removing a linked External Geometry dependency retains its native
+owned profile geometry under the ordinary removal rule. Source geometry remains
+read-only. Ordinary regeneration still keeps broken identities available for
+repair when the source is missing.
+
+After **Surfaces from solid**, automatic axes and path helpers of the preceding
+solid disappear from ordinary Part display. Their original references remain
+available, and editing the conversion shows the solid input with its axes.
+
 ## 2D Sweep and profile stations
 
 2D, 3D and Helical Sweep Properties offer **Custom precision**, followed by

@@ -833,9 +833,16 @@ std::optional<double> measured_dimension_value(
             const double scale = std::hypot(rv[0], rv[1]) *
                 std::hypot(dv[0], dv[1]);
             if (scale <= 1.0e-12) return std::nullopt;
-            return std::acos(std::clamp(
+            const double measured=std::acos(std::clamp(
                 (rv[0] * dv[0] + rv[1] * dv[1]) / scale, -1.0, 1.0)) *
                 180.0 / 3.14159265358979323846;
+            // Measuring a relaxed angular driver during a drag must keep its
+            // displayed ray sector, just as direct dimension solving does.
+            const double supplement=180.0-measured;
+            const double value=dimension.angle_sector==1 &&
+                std::abs(supplement-std::abs(dimension.value))<
+                    std::abs(measured-std::abs(dimension.value)) ? supplement : measured;
+            return dimension.value<0.0 ? -value : value;
         }
         const auto reference = sketch_axis_line(sketch, dimension.geometry_id)
             ? sketch_axis_line(sketch, dimension.geometry_id)
@@ -1698,6 +1705,10 @@ std::optional<double> segment_curve_endpoint_tangent_residual(
         offer_shared(arc->start_point_id);
         offer_shared(arc->end_point_id);
     }
+    const auto native_circle=std::ranges::find(sketch.circles,curve_id,&SketchCircle::id);
+    if(native_circle!=sketch.circles.end())for(const auto& support:sketch.constraints)
+        if(!support.suppressed&&support.kind==ConstraintKind::PointOnCircle&&support.geometry_id==curve_id)
+            offer_shared(support.first_point_id);
     if (shared_id.empty()) return std::nullopt;
     const auto* contact = sketch.find_point(shared_id);
     const auto* other = sketch.find_point(
@@ -1705,11 +1716,11 @@ std::optional<double> segment_curve_endpoint_tangent_residual(
             ? segment->second_point_id : segment->first_point_id);
     if (contact == nullptr || other == nullptr) return std::nullopt;
     auto tangent = sketch.curve_tangent_at_point(curve_id, contact->x, contact->y);
-    if (native_arc != sketch.arcs.end()) {
+    if (native_arc != sketch.arcs.end()||native_circle!=sketch.circles.end()) {
         // Differentiate the native junction, not a nearest domain-clamped
         // point. At an Arc end, one-sided numerical perturbations otherwise
         // freeze its angle and make an independent Tangent look redundant.
-        const auto* center=sketch.find_point(native_arc->center_point_id);
+        const auto* center=sketch.find_point(native_arc!=sketch.arcs.end()?native_arc->center_point_id:native_circle->center_point_id);
         const double dx=contact->x-center->x,dy=contact->y-center->y,radius=std::hypot(dx,dy);
         if(radius>1e-12)tangent=std::array{-dy/radius,dx/radius};
     }
@@ -3652,8 +3663,11 @@ bool Sketch::move_point(const std::string& point_id, double x, double y) {
                 const auto tangent = next.curve_tangent_at_point(
                     circle->id, point->x, point->y);
                 if (old_contact == nullptr || old_other == nullptr ||
-                    other == nullptr || !tangent || other->fixed ||
-                    externally_linked.contains(other_id)) return false;
+                    other == nullptr || !tangent) return false;
+                // An anchored opposite endpoint cannot follow this rigid
+                // tangent seed. Keep it fixed and let the simultaneous solve
+                // fit the contact/radius instead of rejecting a feasible drag.
+                if(other->fixed||externally_linked.contains(other_id))continue;
                 const double length = std::hypot(
                     old_other->x - old_contact->x,
                     old_other->y - old_contact->y);
@@ -4058,6 +4072,12 @@ bool Sketch::move_point(const std::string& point_id, double x, double y) {
     } catch (const std::exception&) {
         return false;
     }
+    // A constrained endpoint may project back to its original position. Reject
+    // that unsuccessful gesture atomically instead of committing numerical
+    // normalization of unrelated geometry as a drag transaction.
+    const auto* moved_point=next.find_point(point_id);
+    if (std::hypot(cursor_x-original_x,cursor_y-original_y)>1e-12 &&
+        std::hypot(moved_point->x-original_x,moved_point->y-original_y)<1e-9) return false;
     *this = std::move(next);
     return true;
 }
@@ -7869,7 +7889,8 @@ bool Sketch::refresh_external_references(
     const std::string& source_document_id,
     const zima::kernel::ViewerReferenceGeometry& source_geometry,
     bool axis_points_only,
-    const zima::kernel::ViewerReferenceGeometry* body_geometry) {
+    const zima::kernel::ViewerReferenceGeometry* body_geometry,
+    bool remove_unresolvable) {
     if (source_document_id.empty() && !axis_points_only) {
         throw std::invalid_argument(
             "Sketch external reference source document ID is required");
@@ -7993,7 +8014,8 @@ bool Sketch::refresh_external_references(
             changed = true;
         }
     }
-    if (!changed) return false;
+    if (!changed && !(remove_unresolvable && std::ranges::any_of(next.external_references,
+            [&](const auto& r){return r.broken && r.source_document_id==source_document_id;}))) return false;
     constexpr std::string_view external_profile_prefix{"external-reference:"};
     for (const auto& block : next.import_blocks) {
         if (!block.source_path.starts_with(external_profile_prefix) ||
@@ -8043,9 +8065,49 @@ bool Sketch::refresh_external_references(
             point->y = reference->cached_points[source_index][1];
         }
     }
+    if (remove_unresolvable) {
+        std::vector<std::string> unavailable;
+        for (const auto& reference : next.external_references)
+            if (reference.broken && reference.source_document_id == source_document_id)
+                unavailable.push_back(reference.id);
+        for (const auto& id : unavailable)
+            if (std::ranges::any_of(next.external_references, [&](const auto& r){return r.id == id;}))
+                next.remove_geometry(id);
+    }
     next.validate();
     const bool unavailable_axis_point=std::ranges::any_of(next.external_references,[](const auto& ref){return ref.kind==ExternalReferenceKind::AxisPoint&&ref.broken;});
-    const auto solved = unavailable_axis_point ? SolveResult{SolveStatus::UnderConstrained} : next.solve();
+    const auto projected = remove_unresolvable ? std::optional<Sketch>(next) : std::nullopt;
+    auto solved = unavailable_axis_point ? SolveResult{SolveStatus::UnderConstrained} : next.solve();
+    if (remove_unresolvable && (solved.status == SolveStatus::Invalid || solved.status == SolveStatus::Conflicting)) {
+        // A deliberate destination-frame edit may make a previously usable
+        // reference incompatible with driving equations. Retire only changed
+        // projections; unchanged sources and ordinary regeneration keep their
+        // existing broken-reference/rejection semantics.
+        next = *projected;
+        std::vector<std::string> moved;
+        for (const auto& reference : next.external_references) {
+            const auto old = std::ranges::find(external_references, reference.id, &SketchExternalReference::id);
+            if (reference.source_document_id == source_document_id && old != external_references.end() &&
+                (reference.cached_points != old->cached_points || reference.cached_paths != old->cached_paths ||
+                 reference.exact_spline != old->exact_spline)) moved.push_back(reference.id);
+        }
+        while (!moved.empty() && (solved.status == SolveStatus::Invalid || solved.status == SolveStatus::Conflicting)) {
+            bool single_removal = false;
+            for (const auto& id : moved) {
+                auto trial = next; trial.remove_geometry(id);
+                const auto result = trial.solve();
+                if (result.status != SolveStatus::Invalid && result.status != SolveStatus::Conflicting) {
+                    next = std::move(trial); solved = result; single_removal = true; break;
+                }
+            }
+            if (single_removal) break;
+            const auto id = moved.front(); moved.erase(moved.begin());
+            next.remove_geometry(id);
+            std::erase_if(moved,[&](const auto& child){return std::ranges::none_of(next.external_references,[&](const auto& r){return r.id==child;});});
+            auto trial = next; solved = trial.solve();
+            if (solved.status != SolveStatus::Invalid && solved.status != SolveStatus::Conflicting) next = std::move(trial);
+        }
+    }
     if (solved.status == SolveStatus::Invalid ||
         solved.status == SolveStatus::Conflicting) {
         throw std::runtime_error(

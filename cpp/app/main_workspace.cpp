@@ -1,4 +1,5 @@
 #include "../tests/preview_refresh_probe.hpp"
+#include "surface_wire_visibility.hpp"
 #include <QCryptographicHash>
 #include <QDirIterator>
 #include <zima/sketcher/sketch_trim.hpp>
@@ -5745,6 +5746,8 @@ int verify_rectangle_external_contact_ui(QApplication& application,const std::fi
 #include "sketch_slot_ui_verification.inc"
 #include "system_setup_ui_verification.inc"
 
+#include "form_sweep_sketch_ui_verification.inc"
+#include "placed_sketch_reference_ui_verification.inc"
 #include "sketch_corner_chain_ui_verification.inc"
 #include "sketch_external_constraints_ui_verification.inc"
 
@@ -9109,6 +9112,8 @@ int verify_startup_contract(
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_SKETCH_SLOT_ONLY")) return verify_sketch_slot_ui(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_SYSTEM_SETUP_ONLY")) return verify_system_setup_ui(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_SKETCH_COINCIDENT_ONLY")) return verify_sketch_coincident_ui(application,test_directory);
+    if (qEnvironmentVariableIsSet("ZIMA_VERIFY_PLACED_SKETCH_REFERENCE_ONLY")) return verify_placed_sketch_reference_ui(application,test_directory);
+    if (qEnvironmentVariableIsSet("ZIMA_VERIFY_FORM_SWEEP_SKETCH_ONLY")) return verify_form_sweep_sketch_ui(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_SKETCH_ENDPOINT_PRIORITY_ONLY")) return verify_sketch_endpoint_priority_ui(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_SKETCH_ARC_DIRECTION_ONLY")) return verify_sketch_arc_direction_ui(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_OFFSET_ONLY"))

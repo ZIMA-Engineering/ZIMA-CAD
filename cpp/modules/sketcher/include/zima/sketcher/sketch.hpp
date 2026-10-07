@@ -651,7 +651,8 @@ public:
         const std::string& source_document_id,
         const zima::kernel::ViewerReferenceGeometry& source_geometry,
         bool axis_points_only = false,
-        const zima::kernel::ViewerReferenceGeometry* body_geometry = nullptr);
+        const zima::kernel::ViewerReferenceGeometry* body_geometry = nullptr,
+        bool remove_unresolvable = false);
     [[nodiscard]] std::optional<std::vector<std::array<double, 2>>>
         project_external_axis(const zima::kernel::ViewerAxis& axis) const;
     [[nodiscard]] std::optional<std::vector<std::array<double, 2>>>

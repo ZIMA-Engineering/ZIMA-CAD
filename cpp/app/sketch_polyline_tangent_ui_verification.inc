@@ -2,7 +2,7 @@ int verify_polyline_snapped_tangent_ui(QApplication& application,const std::file
     using namespace zima;
     const auto check=[](bool ok,const char* message){if(!ok)throw std::runtime_error(message);};
     const auto flush=[&]{application.processEvents();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);application.processEvents();};
-    for(int kind:{0,1,2,3,4,5,6}) {
+    for(int kind:{0,1,2,3,4,5,6,7,8}) {
         auto part=document::PartDocument::create_default();auto feature=document::PartDocument::create_sketch_container();
         auto sketch=sketcher::Sketch::create_default();sketch.owner_container_id=feature.id;
         const double end_y=kind==0?0:-60;
@@ -14,9 +14,21 @@ int verify_polyline_snapped_tangent_ui(QApplication& application,const std::file
         if(kind==1)support=sketch.add_segment(100,-90,100,-30);
         if(kind==2||kind==4)support=sketch.add_point(100,target_y);
         if(kind==3||kind>=5)support=sketch.add_circle(100,-40,20);
+        if(kind>=7)sketch.apply_dimension(sketch.create_circle_radius_dimension(support));
         part.history={feature};part.sketches={sketch};document::BodyHistoryGraph graph;
         const auto body=graph.create_body("Polyline endpoint tangent");graph.insert({document::PartHistoryKind::Feature,feature.id});
-        part.set_body_history(graph);part.resolve_constructions();
+        part.set_body_history(graph);
+        std::string external_start;
+        if(kind>=7) {
+            auto source=document::PartDocument::create_construction(document::ConstructionKind::Point);
+            source.origin=kernel::Vec3{40,-40,0};part.constructions.push_back(source);
+            graph.insert({document::PartHistoryKind::Construction,source.id});
+            auto ordered=*graph.find(body);std::swap(ordered.entries[0],ordered.entries[1]);graph.update_body(ordered);part.set_body_history(graph);
+            auto ref=sketcher::Sketch::create_external_reference(sketcher::ExternalReferenceKind::Point);
+            ref.source_document_id=part.document_id;ref.source_owner_id=source.container_origin.id;ref.source_semantic_key="point";
+            ref.cached_points={{40,-40}};external_start=ref.id;sketch.add_external_reference(ref);part.sketches={sketch};
+        }
+        part.resolve_constructions();
         const auto path=directory/("polyline-endpoint-tangent-"+std::to_string(kind)+".prtz");part.save(path);
         app::AssemblyWorkspaceWindow window(QString::fromStdString(directory.string()));window.resize(1200,900);window.show();
         check(window.open_document_path(QString::fromStdString(path.string())),"Polyline tangent fixture failed to open");flush();
@@ -41,7 +53,7 @@ int verify_polyline_snapped_tangent_ui(QApplication& application,const std::file
         if(kind>=5) {
             window.findChild<QAction*>("sketchSegmentAction")->trigger();flush();
             click(screen(40,-40));
-            const double side=kind==5?1:-1;
+            const double side=kind==5||kind==7?1:-1;
             const double angle=side*std::acos(-1.0/3.0);
             const auto move_contact=[&](double delta) {
                 mouse(screen(100+20*std::cos(angle+delta),-40+20*std::sin(angle+delta)),QEvent::MouseMove,Qt::NoButton);
@@ -79,13 +91,54 @@ int verify_polyline_snapped_tangent_ui(QApplication& application,const std::file
             const auto result=properties->pending_value().first;
             check(result.segments.size()==2,"Circle tangent segment was not committed");
             const auto& segment=result.segments.back();
+            if(kind>=7)check(std::ranges::any_of(result.constraints,[&](const auto& constraint){
+                return constraint.kind==sketcher::ConstraintKind::PointReference&&constraint.first_point_id==segment.first_point_id&&
+                    constraint.second_point_id==external_start;
+            }),"Segment first endpoint lost its external point reference");
             check(std::ranges::any_of(result.constraints,[&](const auto& constraint) {
                 return !constraint.suppressed&&constraint.kind==sketcher::ConstraintKind::Tangent&&
                     (constraint.geometry_id==segment.id||constraint.second_geometry_id==segment.id);
             }),"Circle tangent segment lost its committed tangent constraint");
             auto reopened=sketcher::Sketch::from_serialized(result.serialized());
             check(reopened.solve().status!=sketcher::SolveStatus::Conflicting,"Circle tangent segment failed reopen/solve");
-            properties->buttons()->button(QDialogButtonBox::Cancel)->click();flush();
+            if(kind>=7) {
+                auto* reopen=window.findChild<QPushButton*>("sketchOpenButton");check(reopen,"External tangent Sketch reopen button missing");reopen->click();flush();
+                QEventLoop animation;QTimer::singleShot(950,&animation,&QEventLoop::quit);animation.exec();
+                viewer::ViewerCandidate radial;radial.kind=viewer::CandidateKind::Dimension;radial.owner_id=sketch.id;
+                radial.semantic_key="dimension:"+sketch.dimensions.front().id;
+                for(double radius:{22.,18.,20.}) {
+                    for(std::size_t i=0;i<view->mesh().dimensions.size();++i)
+                        if(view->mesh().dimensions[i].reference.owner_id==radial.owner_id&&view->mesh().dimensions[i].reference.semantic_key==radial.semantic_key)radial.geometry_index=i;
+                    window.edit_dimension_inline(radial);flush();
+                    auto* field=view->findChild<QLineEdit*>("inlineDimensionValueEdit");check(field,"Externally anchored circle R editor missing");
+                    field->setText(QString::number(radius));QKeyEvent enter(QEvent::KeyPress,Qt::Key_Return,Qt::NoModifier);QApplication::sendEvent(field,&enter);flush();
+                    check(view->candidate_dimension_value(radial).has_value()&&std::abs(*view->candidate_dimension_value(radial)-radius)<1e-7,"Externally anchored tangent radius edit rejected");
+                }
+                window.findChild<QAction*>("finishSketchAction")->trigger();flush();
+                properties=nullptr;
+                for(auto* candidate:window.findChildren<QDialog*>())if(auto* p=dynamic_cast<app::SketchPropertiesDialog*>(candidate);p&&p->isVisible())properties=p;
+                check(properties,"External tangent editing did not return to Properties");
+                const auto edited=properties->pending_value().first;
+                const auto& line=edited.segments.back();const auto* p=edited.find_point(line.first_point_id);const auto* q=edited.find_point(line.second_point_id);const auto* c=edited.find_point(edited.circles.front().center_point_id);
+                check(std::hypot(p->x-40,p->y+40)<1e-7&&edited.external_references==result.external_references,"GUI radius edit moved external point/source");
+                check(std::abs(std::hypot(q->x-c->x,q->y-c->y)-20)<1e-7&&std::abs(((q->x-p->x)*(q->x-c->x)+(q->y-p->y)*(q->y-c->y))/std::hypot(q->x-p->x,q->y-p->y))<1e-7,"GUI radius edit broke C+T");
+                properties->buttons()->button(QDialogButtonBox::Ok)->click();flush();
+                check(window.execute_console_command("save").ok,"External tangent GUI Save failed");
+                const auto saved=document::PartDocument::load(path);
+                check(saved.sketches.front().serialized()==edited.serialized(),"External tangent native reopen differs");
+                unsigned undo_count=0;
+                for(;undo_count<8;++undo_count) {
+                    check(window.execute_console_command("undo").ok&&window.execute_console_command("save").ok,"External tangent successive Undo failed");
+                    const auto restored=document::PartDocument::load(path).sketches.front();
+                    check(restored.external_references==edited.external_references,"External tangent Undo changed reference identity");
+                    if(restored.segments.size()==1){++undo_count;break;}
+                    const auto& line=restored.segments.back();const auto* p=restored.find_point(line.first_point_id);const auto* q=restored.find_point(line.second_point_id);const auto* c=restored.find_point(restored.circles.front().center_point_id);
+                    check(std::hypot(p->x-40,p->y+40)<1e-7&&std::abs(std::hypot(q->x-c->x,q->y-c->y)-restored.circles.front().radius)<1e-7&&std::abs(((q->x-p->x)*(q->x-c->x)+(q->y-p->y)*(q->y-c->y))/std::hypot(q->x-p->x,q->y-p->y))<1e-7,"External tangent Undo broke C+T");
+                }
+                check(undo_count<8,"External tangent creation was not undoable");
+                for(unsigned i=0;i<undo_count;++i)check(window.execute_console_command("redo").ok&&window.execute_console_command("save").ok,"External tangent successive Redo failed");
+                check(document::PartDocument::load(path).sketches.front().serialized()==edited.serialized(),"External tangent Redo differs");
+            } else {properties->buttons()->button(QDialogButtonBox::Cancel)->click();flush();}
             continue;
         }
         window.findChild<QAction*>("sketchPolylineAction")->trigger();flush();

@@ -244,12 +244,13 @@ void require_sketch_reference_context(const Workspace& live,const std::string& d
     if(!address||address->source_kind!=assembly::ComponentSourceKind::Part||address->source_document_id!=doc)
         throw SketchOperationError("context_reference","Activate the exact Part occurrence that owns this external reference.");
 }
-bool refresh_sketch_reference_snapshot(const Workspace& live,const std::string& doc,sketcher::Sketch& sketch) {
+bool refresh_sketch_reference_snapshot(const Workspace& live,const std::string& doc,sketcher::Sketch& sketch,
+    bool remove_unresolvable_after_frame_change,const std::string& draft_body_id) {
     std::set<std::string> documents;std::vector<Reference> wanted;
     using Context=std::tuple<std::string,std::string,std::string>;
     std::map<Context,std::vector<Reference>> contexts;
     std::optional<std::set<std::string>> allowed;
-    if(const auto* part=live.open_part(doc))allowed=sketch_external_reference_source_owners(part->session.document(),sketch.id);
+    if(const auto* part=live.open_part(doc))allowed=sketch_external_reference_source_owners(part->session.document(),sketch.id,draft_body_id);
     for(const auto& reference:sketch.external_references) {
         if(!reference.context_assembly_document_id.empty()) {
             require_sketch_reference_context(live,doc,reference);
@@ -257,16 +258,16 @@ bool refresh_sketch_reference_snapshot(const Workspace& live,const std::string& 
             continue;
         }
         documents.insert(reference.source_document_id);
-        const auto source=source_document(live,doc,sketch,reference,allowed?&*allowed:nullptr);
+        const auto source=source_document(live,doc,sketch,reference,allowed?&*allowed:nullptr,draft_body_id);
         if(source && *source==reference.source_document_id)wanted.push_back(reference);
     }
-    const auto geometry=collect(live,doc,sketch,wanted);bool changed=false;
+    const auto geometry=collect(live,doc,sketch,wanted,draft_body_id);bool changed=false;
     kernel::ViewerReferenceGeometry body_geometry;
     if(std::ranges::any_of(wanted,[](const auto& r){return r.body_edge;})) {
-        if(const auto* part=live.open_part(doc))body_geometry=part_sketch_body_reference_geometry(part->session,sketch);
+        if(const auto* part=live.open_part(doc))body_geometry=part_sketch_body_reference_geometry(part->session,sketch,draft_body_id);
         else if(const auto* assembly=live.open_assembly(doc))body_geometry=assembly_sketch_body_reference_geometry(assembly->session.document(),sketch);
     }
-    for(const auto& source:documents)changed=sketch.refresh_external_references(source,geometry,false,&body_geometry)||changed;
+    for(const auto& source:documents)changed=sketch.refresh_external_references(source,geometry,false,&body_geometry,remove_unresolvable_after_frame_change)||changed;
     for(const auto& [context,references]:contexts) {
         const auto& [top,dependent,source]=context;std::set<Key> keys;
         for(const auto& reference:references) {
@@ -294,7 +295,7 @@ bool refresh_sketch_reference_snapshot(const Workspace& live,const std::string& 
             body=context_sketch_body_reference_geometry(live,top,assembly::InstancePath::decode(dependent),source);
             body=live.open_part(doc)->session.document().sketch_reference_geometry_for(sketch,std::move(body));
         }
-        changed=sketch.refresh_external_references(source,current,false,&body)||changed;
+        changed=sketch.refresh_external_references(source,current,false,&body,remove_unresolvable_after_frame_change)||changed;
     }
     return changed;
 }

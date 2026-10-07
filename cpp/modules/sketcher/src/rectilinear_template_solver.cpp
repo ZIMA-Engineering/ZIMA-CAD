@@ -285,17 +285,15 @@ bool seed_equal_length_components(Sketch& sketch,const std::vector<std::string>&
 // This bounded seed covers native line/circle/arc graphs; unsupported equations
 // leave the transaction untouched and the ordinary solver verifies the result.
 bool seed_circular_equations(Sketch& sketch,const std::vector<std::string>& anchors,bool line_component) {
-    if((!line_component&&((sketch.arcs.empty()&&sketch.circles.empty())||!sketch.external_references.empty()))||sketch.points.size()>32||
+    if((!line_component&&(sketch.arcs.empty()&&sketch.circles.empty()))||sketch.points.size()>32||
        !sketch.ellipses.empty()||!sketch.elliptical_arcs.empty()||
        !sketch.bsplines.empty()||!sketch.corner_radii.empty()||!sketch.offsets.empty()||!sketch.curve_trims.empty())return false;
     auto next=sketch;
     const auto point=[&](const std::string& id)->std::optional<std::array<double,2>> {
         if(id=="sketch_origin")return std::array{0.,0.};
         const auto* p=next.find_point(id);if(p)return std::array{p->x,p->y};
-        if(line_component) {
-            const auto ref=std::ranges::find(next.external_references,id,&SketchExternalReference::id);
-            if(ref!=next.external_references.end()&&!ref->broken&&ref->cached_points.size()==1)return ref->cached_points.front();
-        }
+        const auto ref=std::ranges::find(next.external_references,id,&SketchExternalReference::id);
+        if(ref!=next.external_references.end()&&!ref->broken&&ref->cached_points.size()==1)return ref->cached_points.front();
         return {};
     };
     const auto line=[&](const std::string& id)->std::optional<std::array<double,4>> {
@@ -303,7 +301,6 @@ bool seed_circular_equations(Sketch& sketch,const std::vector<std::string>& anch
         if(id=="sketch_axis:y")return std::array{0.,0.,0.,1.};
         const auto s=std::ranges::find(next.segments,id,&SketchSegment::id);
         if(s==next.segments.end()) {
-            if(!line_component)return {};
             const auto ref=std::ranges::find(next.external_references,id,&SketchExternalReference::id);
             if(ref==next.external_references.end())return {};
             const auto value=external_reference_line(*ref);if(!value)return {};
@@ -323,6 +320,18 @@ bool seed_circular_equations(Sketch& sketch,const std::vector<std::string>& anch
         }
         return {};
     };
+    // External supports are immutable inputs. Only native point coordinates and
+    // radii below enter the simultaneous fit. Preserve the angular ray branch
+    // from its input geometry while fitting the requested dimension value.
+    std::unordered_map<std::string,double> angular_targets;
+    for(const auto& d:next.dimensions)if(!d.suppressed&&d.driving&&d.kind==DimensionKind::AngleBetween) {
+        const auto a=line(d.geometry_id),b=line(d.second_geometry_id);if(!a||!b)return false;
+        const double measured=std::acos(std::clamp((*a)[2]*(*b)[2]+(*a)[3]*(*b)[3],-1.,1.))*180./std::acos(-1.);
+        const double magnitude=std::abs(d.value),supplement=180.-magnitude;
+        const double target=d.angle_sector==1&&std::abs(measured-supplement)<std::abs(measured-magnitude)?supplement:magnitude;
+        const double cross=(*a)[2]*(*b)[3]-(*a)[3]*(*b)[2];
+        angular_targets.emplace(d.id,std::copysign(target,cross));
+    }
     std::set<std::string> derived_endpoints;
     for(const auto& arc:next.arcs)for(const auto& id:{arc.start_point_id,arc.end_point_id}) {
         const auto* p=next.find_point(id);
@@ -354,12 +363,15 @@ bool seed_circular_equations(Sketch& sketch,const std::vector<std::string>& anch
         }
         for(const auto& c:next.constraints) {
             if(c.suppressed)continue;
-            if(line_component&&(c.kind==ConstraintKind::PointReference||c.kind==ConstraintKind::Coincident)) {
+            if(c.kind==ConstraintKind::PointReference||c.kind==ConstraintKind::Coincident) {
                 const auto a=point(c.first_point_id),b=point(c.second_point_id);if(!a||!b)return {};
                 r.push_back((*a)[0]-(*b)[0]);r.push_back((*a)[1]-(*b)[1]);
             } else if(c.kind==ConstraintKind::PointOnLine) {
                 const auto p=point(c.first_point_id);const auto l=line(c.geometry_id);if(!p||!l)return {};
                 r.push_back(((*p)[0]-(*l)[0])*(*l)[3]-((*p)[1]-(*l)[1])*(*l)[2]);
+            } else if(c.kind==ConstraintKind::PointOnCircle) {
+                const auto p=point(c.first_point_id);const auto circle=circular(c.geometry_id);if(!p||!circle)return {};
+                r.push_back(std::hypot((*p)[0]-(*circle)[0],(*p)[1]-(*circle)[1])-(*circle)[2]);
             } else if(c.kind==ConstraintKind::Horizontal||c.kind==ConstraintKind::Vertical) {
                 const auto a=point(c.first_point_id),b=point(c.second_point_id);if(!a||!b)return {};
                 const int axis=c.kind==ConstraintKind::Horizontal?1:0;r.push_back((*b)[axis]-(*a)[axis]);
@@ -394,11 +406,27 @@ bool seed_circular_equations(Sketch& sketch,const std::vector<std::string>& anch
                     }
                     continue;
                 }
-                auto a=std::ranges::find(next.arcs,c.geometry_id,&SketchArc::id);auto l=line(c.second_geometry_id);
-                if(a==next.arcs.end()){a=std::ranges::find(next.arcs,c.second_geometry_id,&SketchArc::id);l=line(c.geometry_id);}
-                const auto p=point(c.first_point_id);if(a==next.arcs.end()||!l||!p)return {};
-                const auto center=point(a->center_point_id);
-                r.push_back(((*p)[0]-(*center)[0])*(*l)[2]+((*p)[1]-(*center)[1])*(*l)[3]);
+                const auto circle=first?first:second;
+                const auto& circle_id=first?c.geometry_id:c.second_geometry_id;
+                const auto& line_id=first?c.second_geometry_id:c.geometry_id;
+                const auto l=line(line_id);const auto p=point(c.first_point_id);
+                if(!circle||!l||!p)return {};
+                const std::array center{(*circle)[0],(*circle)[1]};
+                r.push_back(std::hypot((*p)[0]-center[0],(*p)[1]-center[1])-(*circle)[2]);
+                r.push_back(((*p)[0]-(*l)[0])*(*l)[3]-((*p)[1]-(*l)[1])*(*l)[2]);
+                r.push_back(((*p)[0]-center[0])*(*l)[2]+((*p)[1]-center[1])*(*l)[3]);
+                // An arc endpoint on its tangent line is the unique tangent
+                // contact, even when entry retained a separate contact point.
+                // The circle-distance equation alone is singular there and
+                // admits a tiny tangential drift outside the finite arc domain.
+                const auto a=std::ranges::find(next.arcs,circle_id,&SketchArc::id);
+                if(a!=next.arcs.end())for(const auto& id:{a->start_point_id,a->end_point_id})if(std::ranges::any_of(next.constraints,[&](const auto& support){
+                    return !support.suppressed&&support.kind==ConstraintKind::PointOnLine&&
+                        support.first_point_id==id&&support.geometry_id==line_id;
+                })) {
+                    const auto endpoint=point(id);
+                    r.push_back(((*endpoint)[0]-center[0])*(*l)[2]+((*endpoint)[1]-center[1])*(*l)[3]);
+                }
             } else if(c.kind==ConstraintKind::EqualRadius) {
                 const auto a=std::ranges::find(next.arcs,c.geometry_id,&SketchArc::id),b=std::ranges::find(next.arcs,c.second_geometry_id,&SketchArc::id);
                 if(a==next.arcs.end()||b==next.arcs.end())return {};r.push_back(a->radius-b->radius);
@@ -414,6 +442,16 @@ bool seed_circular_equations(Sketch& sketch,const std::vector<std::string>& anch
             if(d.kind==DimensionKind::Radius||d.kind==DimensionKind::Diameter) {
                 const auto c=circular(d.geometry_id);if(!c)return {};
                 r.push_back((*c)[2]-d.value*(d.kind==DimensionKind::Diameter?.5:1.));
+            } else if(d.kind==DimensionKind::AngleBetween) {
+                const auto a=line(d.geometry_id),b=line(d.second_geometry_id);if(!a||!b)return {};
+                const double dot=(*a)[2]*(*b)[2]+(*a)[3]*(*b)[3],cross=(*a)[2]*(*b)[3]-(*a)[3]*(*b)[2];
+                double residual=std::atan2(cross,dot)*180./std::acos(-1.)-angular_targets.at(d.id);
+                while(residual>180.)residual-=360.;while(residual<-180.)residual+=360.;
+                r.push_back(residual);
+            } else if(d.kind==DimensionKind::Angle) {
+                const auto a=point(d.first_point_id),b=point(d.second_point_id);if(!a||!b)return {};
+                double residual=std::atan2((*b)[1]-(*a)[1],(*b)[0]-(*a)[0])*180./std::acos(-1.)-d.value;
+                while(residual>180.)residual-=360.;while(residual<-180.)residual+=360.;r.push_back(residual);
             } else if(d.kind==DimensionKind::Distance||d.kind==DimensionKind::DistanceX||d.kind==DimensionKind::DistanceY) {
                 const auto a=point(d.first_point_id),b=point(d.second_point_id);if(!a||!b)return {};
                 const double x=(*b)[0]-(*a)[0],y=(*b)[1]-(*a)[1];

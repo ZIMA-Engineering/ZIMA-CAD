@@ -87,6 +87,71 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
             }
         }
     }
+    // Removing an unusable projection is opt-in for deliberate frame edits.
+    // Ordinary source refresh retains its broken identity for later repair.
+    for (const bool axis_point : {false,true}) {
+        auto sketch=sketcher::Sketch::create_default();
+        kernel::ViewerReferenceGeometry source;
+        source.edges.push_back({{{0,0,0},{0,0,10}},{"source","edge",{}}});
+        source.axes.push_back({{0,0,0},{1,0,0},100,{"source","axis",{}}});
+        auto ref=sketcher::Sketch::create_external_reference(axis_point?sketcher::ExternalReferenceKind::AxisPoint:sketcher::ExternalReferenceKind::Edge);
+        ref.source_document_id="source-document";ref.source_owner_id="source";
+        ref.source_semantic_key=axis_point?"axis":"edge";ref.cached_points={{0,0}};
+        if(!axis_point)ref.cached_points.push_back({10,0});
+        sketch.add_external_reference(ref);
+        const auto own=sketch.add_segment(0,0,10,10);
+        auto ordinary=sketch;
+        static_cast<void>(ordinary.refresh_external_references("source-document",source));
+        require(ordinary.external_references.size()==1&&ordinary.external_references.front().broken,"Ordinary refresh erased an unavailable identity");
+        static_cast<void>(sketch.refresh_external_references("source-document",source,false,nullptr,true));
+        require(sketch.external_references.empty()&&sketch.segments.front().id==own,"Frame edit retained a collapsed external projection or removed native geometry");
+    }
+    for (const bool fixed : {false,true}) {
+        auto sketch=sketcher::Sketch::create_default();sketch.owner_container_id="destination-container";
+        kernel::ViewerReferenceGeometry source;
+        source.points.push_back({{12,4,0},{"source","point",{}}});
+        source.points.push_back({{20,5,0},{"source","other",{}}});
+        auto ref=sketcher::Sketch::create_external_reference(sketcher::ExternalReferenceKind::Point);
+        ref.source_document_id="source-document";ref.source_owner_id="source";ref.source_semantic_key="point";ref.cached_points={{12,4}};
+        sketch.add_external_reference(ref);
+        auto other=ref;other.id=sketcher::Sketch::create_external_reference(ref.kind).id;other.source_semantic_key="other";other.cached_points={{20,5}};sketch.add_external_reference(other);
+        const auto line=sketch.add_segment(12,4,30,12);
+        const auto point=sketch.segments.front().first_point_id;
+        require(std::ranges::any_of(sketch.constraints,[&](const auto& c){return c.kind==sketcher::ConstraintKind::PointReference&&c.first_point_id==point&&c.second_point_id==ref.id;}),"Native frame fixture did not anchor its endpoint");
+        if(fixed)sketch.set_point_fixed(point,true);
+        sketch.resolved_origin={17,-3,0};
+        const auto sources=source.points;
+        static_cast<void>(sketch.refresh_external_references("source-document",source,false,nullptr,true));
+        const auto kept=std::ranges::find(sketch.external_references,other.id,&sketcher::SketchExternalReference::id);
+        require(kept!=sketch.external_references.end()&&kept->cached_points.front()==std::array{3.,8.},"Frame edit lost an unrelated valid projection");
+        if(fixed) {
+            require(std::ranges::none_of(sketch.external_references,[&](const auto& r){return r.id==ref.id;}),"Impossible fixed-point projection was retained");
+            require(std::ranges::none_of(sketch.constraints,[&](const auto& c){return c.first_point_id==ref.id||c.second_point_id==ref.id;}),"Removed projection left a dangling point relation");
+        }else require(std::hypot(sketch.find_point(point)->x+5,sketch.find_point(point)->y-7)<1e-8,"Frame reprojection did not move the dependent point");
+        require(source.points.size()==sources.size()&&std::ranges::equal(source.points,sources,[](const auto& a,const auto& b){return a.position==b.position&&a.reference==b.reference;}),"Frame edit modified its immutable source");
+        const auto stored=sketch.serialized();
+        auto reopened=sketcher::Sketch::from_serialized(stored);
+        require(!reopened.refresh_external_references("source-document",source,false,nullptr,true),"Reopened frame projection was stale");
+    }
+    {
+        auto sketch=sketcher::Sketch::create_default();sketch.owner_container_id="destination-container";
+        kernel::ViewerReferenceGeometry source;
+        std::vector<std::string> ids;
+        for(const auto& position:{std::array{12.,4.},std::array{20.,5.}}) {
+            auto ref=sketcher::Sketch::create_external_reference(sketcher::ExternalReferenceKind::Point);
+            ref.source_document_id="source-document";ref.source_owner_id="source";ref.source_semantic_key=std::to_string(ids.size());ref.cached_points={position};
+            source.points.push_back({{position[0],position[1],0},{"source",ref.source_semantic_key,{}}});
+            ids.push_back(ref.id);sketch.add_external_reference(ref);
+        }
+        const auto line=sketch.add_segment(12,4,20,5);
+        require(sketch.constraints.size()==2,"Multiple frame fixture did not bind both external endpoints");
+        sketch.set_point_fixed(sketch.segments.front().first_point_id,true);
+        sketch.set_point_fixed(sketch.segments.front().second_point_id,true);
+        sketch.resolved_origin={17,-3,0};
+        static_cast<void>(sketch.refresh_external_references("source-document",source,false,nullptr,true));
+        require(sketch.external_references.empty()&&sketch.segments.front().id==line,"Multiple incompatible projections were not retired without deleting native geometry");
+        require(sketch.solve().status!=sketcher::SolveStatus::Conflicting,"Reference retirement left conflicting equations");
+    }
     {
         workspace::Workspace live;command_host::Options options;
         options.settings=[] {return command_host::Settings{{fs::absolute("config/templates"),"START_PART.prtz","START_ASSEMBLY.asmz","Body"},{}};};

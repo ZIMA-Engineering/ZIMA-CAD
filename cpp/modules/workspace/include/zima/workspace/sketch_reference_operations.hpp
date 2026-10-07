@@ -26,7 +26,11 @@ void require_sketch_reference_context(const Workspace&,const std::string& docume
     const sketcher::SketchExternalReference&);
 // Explicitly refresh this Sketch from its selected original/body sources, including
 // the exact active Part context. Never regenerates a body or Assembly mate.
-// Missing identities remain broken; they are never guessed or rebound.
+// Missing identities normally remain broken. A deliberate destination-frame
+// edit may opt into removing unusable projections and their dependent relations.
+// Identities are never guessed or rebound.
 [[nodiscard]] bool refresh_sketch_reference_snapshot(
-    const Workspace&,const std::string& document,sketcher::Sketch&);
+    const Workspace&,const std::string& document,sketcher::Sketch&,
+    bool remove_unresolvable_after_frame_change = false,
+    const std::string& draft_body_id = {});
 }

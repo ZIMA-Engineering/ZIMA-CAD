@@ -46,3 +46,13 @@ refresh is undone.
 Context creation/detachment with a shared Part/Assembly-dependency commit remains
 unfinished. This stage also does not yet safely remove aggregate dependencies
 shared with closed source Parts.
+
+## Pending Extrusion/Revolution frame edits (2026-10-07)
+
+Changing a Properties destination frame now refreshes the complete owned Sketch
+reference snapshot before re-entering Sketcher. This includes immutable cached
+geometry and dependent native points, rather than changing only the frame.
+Unusable projections are retired only in this deliberate frame-edit path;
+ordinary source refresh retains its broken-reference repair behavior.
+Cancel, accepted persistence and Undo/Redo keep their existing transaction
+boundaries. See [FORM editing and verification](FORM_SKETCH_EDITABILITY.md).

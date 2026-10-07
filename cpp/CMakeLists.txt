@@ -1687,6 +1687,16 @@ if(ZIMA_BUILD_TESTS)
         ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_SKETCH_COINCIDENT_ONLY=1"
         TIMEOUT 120)
     add_test(NAME zima_cpp_sketch_offset_ui_contract COMMAND zima-cad-cpp --verify-startup)
+    add_test(NAME zima_cpp_placed_sketch_reference_ui_contract COMMAND zima-cad-cpp --verify-startup)
+    set_tests_properties(zima_cpp_placed_sketch_reference_ui_contract PROPERTIES
+        WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/.."
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_PLACED_SKETCH_REFERENCE_ONLY=1"
+        TIMEOUT 120 RUN_SERIAL TRUE)
+    add_test(NAME zima_cpp_form_sweep_sketch_ui_contract COMMAND zima-cad-cpp --verify-startup)
+    set_tests_properties(zima_cpp_form_sweep_sketch_ui_contract PROPERTIES
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.."
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_FORM_SWEEP_SKETCH_ONLY=1"
+        TIMEOUT 180 RUN_SERIAL TRUE)
     add_test(NAME zima_cpp_sketch_endpoint_priority_ui_contract COMMAND zima-cad-cpp --verify-startup)
     add_test(NAME zima_cpp_sketch_corner_chain_ui_contract COMMAND zima-cad-cpp --verify-startup)
     add_test(NAME zima_cpp_sketch_four_equal_corners_ui_contract COMMAND zima-cad-cpp --verify-startup)

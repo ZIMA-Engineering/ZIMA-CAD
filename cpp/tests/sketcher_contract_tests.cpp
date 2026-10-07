@@ -4,6 +4,7 @@
 #include <zima/viewer/picking.hpp>
 #include <zima/document/part_document.hpp>
 #include "sketch_tangent_reference_studies.hpp"
+#include "form_sweep_profile_study.hpp"
 
 #include <algorithm>
 #include <chrono>
@@ -25,6 +26,8 @@ void require(bool condition, const char* message) {
 
 int main() {
     try {
+        run_form_sweep_profile_study();
+        run_external_point_circle_segment_study();
         run_sketch_tangent_reference_studies();
         using zima::sketcher::DimensionKind;
         {

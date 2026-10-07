@@ -624,7 +624,6 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
                 return value.id == sketch_id;
             });
         if (sketch == preview_document.sketches.end()) return;
-        dialog->set_profile_sketch_status(*sketch);
         auto plane = zima::document::PartDocument::create_construction(
             zima::document::ConstructionKind::Plane);
         plane.id = preview.id;
@@ -658,18 +657,32 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
         if (sketch == preview_document.sketches.end()) return;
         if (property_owned_sketch_draft_ &&
             property_owned_sketch_draft_->id == sketch_id) {
-            // Properties annotations and embedded Sketcher consume the draft.
-            // Keep its frame in sync with the same resolved profile used by
-            // the wire preview, while preserving pending local 2D geometry.
+            // The preview document already contains the current local draft.
+            // Reproject its immutable sources when the destination frame changes,
+            // then return the whole resolved Sketch to the embedded editor.
             auto& draft = *property_owned_sketch_draft_;
-            if(preview.revolution.sheet_metal&&preview.revolution.sheet_attachment)draft=*sketch;
-            draft.plane = sketch->plane;
-            draft.plane_offset = sketch->plane_offset;
-            draft.resolved_origin = sketch->resolved_origin;
-            draft.resolved_x_axis = sketch->resolved_x_axis;
-            draft.resolved_y_axis = sketch->resolved_y_axis;
-            draft.resolved_normal = sketch->resolved_normal;
+            const bool frame_changed = draft.resolved_origin != sketch->resolved_origin ||
+                draft.resolved_x_axis != sketch->resolved_x_axis ||
+                draft.resolved_y_axis != sketch->resolved_y_axis ||
+                draft.resolved_normal != sketch->resolved_normal;
+            if (frame_changed && !sketch->external_references.empty()) {
+                const auto* profile_body=preview_document.body_owner_for_object(preview.id);
+                static_cast<void>(workspace::refresh_sketch_reference_snapshot(workspace_,
+                    preview_document.document_id,*sketch,true,profile_body?profile_body->scope.id:sketch_properties_body_id_));
+                draft = *sketch;
+            } else {
+                // Preserve the established local-draft ownership for profiles
+                // without a reference reprojection, including attached sheets.
+                if(preview.revolution.sheet_metal&&preview.revolution.sheet_attachment)draft=*sketch;
+                draft.plane = sketch->plane;
+                draft.plane_offset = sketch->plane_offset;
+                draft.resolved_origin = sketch->resolved_origin;
+                draft.resolved_x_axis = sketch->resolved_x_axis;
+                draft.resolved_y_axis = sketch->resolved_y_axis;
+                draft.resolved_normal = sketch->resolved_normal;
+            }
         }
+        dialog->set_profile_sketch_status(*sketch);
         // Extrusion/Revolution use the owned Sketch's resolved work plane,
         // which may differ from the generic container frame (notably for a
         // manually entered triad of built-in Origin planes).  The cyan

@@ -94,7 +94,36 @@ inline void filter_surface_wires(kernel::ViewerMesh& mesh,const std::set<std::st
     // Original reference packets remain available for explicit reference entry.
 }
 
+// Conversion of a solid into its retained faces retires automatic datums of
+// that solid from ordinary display. Their persisted reference packet remains
+// available to explicit inspection and rollback editing.
+inline void filter_surface_shell_datums(kernel::ViewerMesh& mesh,const document::PartDocument& part) {
+    std::set<std::string> active,retired;
+    for(std::size_t i=0;i<std::min(part.effective_history_cursor(),part.history_order.size());++i)
+        active.insert(part.history_order[i].id);
+    for(const auto& body:part.body_history.bodies()) {
+        std::set<std::string> preceding;
+        for(std::size_t i=0;i<std::min(body.cursor,body.entries.size());++i) {
+            const auto& entry=body.entries[i];
+            const auto* feature=part.find_container(entry.id);
+            if(!feature||feature->suppressed||(!part.history_order.empty()&&!active.contains(feature->id)))continue;
+            if(feature->feature_kind==document::FeatureKind::Shell&&feature->shell.thickness==0.)
+                retired.insert(preceding.begin(),preceding.end());
+            preceding.insert(feature->id);
+        }
+    }
+    const auto hidden=[&](const auto& value){
+        if(!retired.contains(value.reference.owner_id))return false;
+        const auto& key=value.reference.semantic_key;
+        return key=="axis:primary"||key.starts_with("axis:profile:")||key.starts_with("centerline:from:")||
+            key.starts_with("helical:rotation-axis:")||key.starts_with("sweep:path-point:")||
+            key.starts_with("profile:path-point:")||key.starts_with("helical:axis-point:");
+    };
+    std::erase_if(mesh.edges,hidden);std::erase_if(mesh.points,hidden);std::erase_if(mesh.axes,hidden);
+}
+
 inline void filter_hidden_body_geometry(kernel::ViewerMesh& mesh,const document::PartDocument& part) {
+    filter_surface_shell_datums(mesh,part);
     if(std::ranges::none_of(part.body_history.bodies(),[](const auto& body){return !body.visible;}))return;
     std::unordered_map<std::string,bool> hidden_owners;
     const auto hidden=[&](const auto& item) {
