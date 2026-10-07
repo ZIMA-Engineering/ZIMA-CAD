@@ -141,6 +141,7 @@ int verify_translations(QApplication& application, QWidget& parent) {
             auto feature=document::create_sheet_form();
             feature.sheet_form=document::copy_sheet_form_definition(document::read_sheet_form_definition(
                 std::filesystem::path(__FILE__).parent_path().parent_path().parent_path()/"config/lib/01-SHEETMETAL/01-FORM/VentilationWindow.prtz"));
+            feature.placement.references={{{},"sheet","face"},{{},"origin","origin:point"},{{},"origin","origin:plane:yz"}};
             app::PrimitivePropertiesDialog dialog(feature,false,false,[](auto){},&parent);
             check(dialog.windowTitle()==settings.qt_translations.value("Form Properties"),"Form title is not localized");
             check(dialog.findChild<QPushButton*>("sheetFormReplaceDefinition")->text()==settings.qt_translations.value("Replace definition…"),
@@ -150,6 +151,10 @@ int verify_translations(QApplication& application, QWidget& parent) {
                 check(std::ranges::any_of(labels,[&](auto* label){return label->text()==settings.qt_translations.value(key);}),"Form placement label is not localized");
             auto* references=dialog.findChild<QTableWidget*>("primitiveReferenceTable");
             check(references&&references->rowCount()==3,"Form placement rows missing");
+            check(references->item(0,1)->text()==settings.qt_translations.value("Plocha")&&
+                references->item(1,1)->text()==settings.qt_translations.value("Bod")&&
+                references->item(2,1)->text()==settings.qt_translations.value("Rovina %1").arg("YZ"),
+                "Reopened Form reference labels are not localized");
             int row=0;for(const auto* key:{"Sheet face","Position 1","Position 2"})
                 check(references->item(row++,2)->text()==settings.qt_translations.value(key),"Form reference role is not localized");
             check(dialog.findChild<QDoubleSpinBox*>("sheetFormOffset1")->toolTip()==settings.qt_translations.value(

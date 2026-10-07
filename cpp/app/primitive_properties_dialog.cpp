@@ -226,7 +226,8 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
         placement_->refresh_reference_table();
         placement_->refresh_orientation_table();
         if(is_sheet_form()) {
-            sheet_form_placement_=std::make_shared<SheetFormPlacementSection>(this,content_layout(),initial.placement.references);
+            sheet_form_placement_=std::make_shared<SheetFormPlacementSection>(this,content_layout(),initial.placement.references,
+                [](const auto& semantic){return readable_placement_reference_kind(semantic);});
             sheet_form_placement_->request=[this](std::size_t index){if(reference_request_)reference_request_(index);};
             sheet_form_placement_->changed=[this]{notify_preview();};
             sheet_form_placement_->highlights_changed=[this]{if(reference_highlights_changed_)reference_highlights_changed_();};

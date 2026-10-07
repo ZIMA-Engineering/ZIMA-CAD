@@ -19,7 +19,8 @@ public:
     using Reference=zima::document::ConstructionReference;
     std::function<void(std::size_t)> request;
     std::function<void()> changed,highlights_changed;
-    SheetFormPlacementSection(QWidget* parent,QVBoxLayout* layout,const std::vector<Reference>& initial) {
+    SheetFormPlacementSection(QWidget* parent,QVBoxLayout* layout,const std::vector<Reference>& initial,
+            std::function<QString(const std::string&)> readable_kind):readable_kind_(std::move(readable_kind)) {
         auto* heading=new QLabel(QObject::tr("Form placement"),parent);
         auto font=heading->font();font.setBold(true);heading->setFont(font);layout->addWidget(heading);
         table_=new QTableWidget(3,5,parent);table_->setObjectName("primitiveReferenceTable");
@@ -55,7 +56,9 @@ public:
         initialize(initial);
     }
     void initialize(const std::vector<Reference>& refs) {
-        rows_={};labels_={};std::size_t i=0;for(const auto& r:refs)if(!r.orientation_only&&i<3)rows_[i++]=r;
+        rows_={};labels_={};std::size_t i=0;for(const auto& r:refs)if(!r.orientation_only&&i<3) {
+            rows_[i]=r;labels_[i]=readable_kind_(r.semantic_key);++i;
+        }
         inspected_={};refresh();
     }
     void set_reference(std::size_t index,Reference reference,const QString& label) {
@@ -91,6 +94,7 @@ private:
         }
     }
     QTableWidget* table_{};
+    std::function<QString(const std::string&)> readable_kind_;
     std::array<Reference,3> rows_;
     std::array<QString,3> labels_;
     std::array<QWidget*,3> indicators_{};

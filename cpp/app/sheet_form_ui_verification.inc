@@ -187,6 +187,10 @@ Q_NEVER_INLINE static int verify_sheet_form_ui(QApplication& application,Assembl
         const auto original=saved.find_container(id)->sheet_form;const auto placed=saved.find_container(id)->placement;
         run("undo");check(!native().first.find_container(id),"FORM creation Undo failed");run("redo");check(native().first.find_container(id),"FORM creation Redo failed");
         window.show_tree_item_properties(row(id));flush();dialog=editor();check(dialog,"FORM edit Properties missing");
+        const auto* reopened_table=dialog->findChild<QTableWidget*>("primitiveReferenceTable");
+        check(reopened_table&&reopened_table->item(1,1)->text()==QObject::tr("Bod")&&
+            reopened_table->item(2,1)->text()==QObject::tr("Bod")&&reopened_table->item(0,1)->text().size()<40,
+            "Reopened Form exposes topology identifiers instead of readable reference labels");
         check(std::ranges::none_of(view->mesh().triangle_references,[&](const auto& face){return face.owner_id==id;})&&
             std::ranges::any_of(view->mesh().triangle_references,[&](const auto& face){return face.owner_id==stock.id;}),"FORM rollback failed");
         const auto unchanged_revision=run("documents").data;
