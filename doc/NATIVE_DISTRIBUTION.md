@@ -2,6 +2,17 @@
 
 ## Scope and status
 
+Windows build **2026100701** is signed, published and verified. It fixes oldest
+coplanar face ancestry, visible-fragment reference entry, fillet shading and
+feature highlighting, connected equal-radius edits, straight-segment C+T capture
+and M1:1 Drawing scale notation. Eleven targeted native/GUI suites and five
+packaged product GUI suites passed. Fresh committed-source packaging, native
+smoke, production signature/trust, public asset hashes and update discovery from
+2026100611 passed. All five localization catalogs were reviewed and validated;
+there is no native format change. The English manual and verification notes
+record the behavior and remaining baseline test gaps. Linux acceptance remains
+separate. See [the release record](releases/2026100701.md).
+
 Windows build **2026100611** is signed, published and verified.
 It repairs tangent Reference Profile Trim and dependency updates, extends native
 circular-network fitting, and uses corner-pair S for rectangle axis centring.
