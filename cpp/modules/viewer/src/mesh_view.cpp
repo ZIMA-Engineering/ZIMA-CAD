@@ -1253,8 +1253,17 @@ std::vector<ViewerCandidate> MeshView::selection_candidates_at(
     }
     if (!impl_->active_sketch_owner_id.empty()) {
         std::erase_if(candidates, [&](const auto& candidate) {
+            // An explicit reference-entry command may consume another Sketch's
+            // persisted geometry. Its command filter owns source eligibility;
+            // ordinary Sketch editing still offers only its own editable items.
+            const bool external_source = !sketch_only && impl_->candidate_filter &&
+                candidate.geometry == CandidateGeometry::OriginalReference &&
+                (candidate.kind == CandidateKind::SketchPoint ||
+                 candidate.kind == CandidateKind::SketchSegment ||
+                 candidate.kind == CandidateKind::SketchCurve);
             return sketch_owned_kind(candidate.kind) &&
-                candidate.owner_id != impl_->active_sketch_owner_id;
+                candidate.owner_id != impl_->active_sketch_owner_id &&
+                !external_source;
         });
     }
     std::erase_if(candidates, [&](const auto& candidate) {

@@ -137,7 +137,8 @@ bool sketch_visible_outside_sketcher(
     if(const auto* body=document.body_owner_for_object(sketch.owner_container_id)) {
         if(!body->visible||body->suppressed)return false;
         const auto entry=std::ranges::find(body->entries,sketch.owner_container_id,&zima::document::PartHistoryEntry::id);
-        if(entry==body->entries.end()||static_cast<std::size_t>(entry-body->entries.begin())>=body->cursor)return false;
+        const auto limit=body->scope.id==document.body_history.active_body_id()?body->cursor:body->entries.size();
+        if(entry==body->entries.end()||static_cast<std::size_t>(entry-body->entries.begin())>=limit)return false;
     }
     return owner != nullptr &&
         (owner->feature_kind == zima::document::FeatureKind::Sketch ||

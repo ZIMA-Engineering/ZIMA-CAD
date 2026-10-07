@@ -442,6 +442,11 @@ void AssemblyWorkspaceWindow::rebuild_application_toolbar() {
                     show_primitive_properties(zima::document::FeatureKind::TwistedSheet,{},true);});
             }
             twist->setEnabled(!properties_dialog_);add_command(twist);
+            auto* form=findChild<QAction*>("sheetFormAction");
+            if(!form){form=new QAction(resource_icon("sheet-form"),tr("FORM"),this);
+                form->setObjectName("sheetFormAction");
+                connect(form,&QAction::triggered,this,[this]{show_primitive_properties(zima::document::FeatureKind::SheetForm,{},true);});}
+            form->setEnabled(!properties_dialog_&&body&&!body->derived_copy&&!body->suppressed);add_command(form);
             auto* transition=findChild<QAction*>("sheetTransitionAction");
             if(!transition){transition=new QAction(resource_icon("sheet-transition"),tr("Přechod plechu"),this);transition->setObjectName("sheetTransitionAction");connect(transition,&QAction::triggered,this,[this]{show_sheet_transition_properties();});}
             const bool transition_available=!properties_dialog_ && !zima::document::has_sheet_transition(

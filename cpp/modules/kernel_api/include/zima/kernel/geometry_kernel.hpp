@@ -846,7 +846,7 @@ struct BodyHistoryScope {
 // Authored material coordinates of a sheet creator. They are independent of
 // OCCT face enumeration and survive cuts and later state operations.
 struct SheetMaterialDefinition {
-    enum class Kind { Plane, Cylinder, Cone, Twist };
+    enum class Kind { Plane, Cylinder, Cone, Twist, Form };
     Kind kind{Kind::Plane};
     std::string owner_id, parent_owner_id;
     // Optional owning history feature for an authored subregion of a compound sheet.
@@ -934,11 +934,28 @@ struct SurfaceTrimRequest {
     static constexpr bool surface_result=true;
 };
 
+struct HistoryOperation;
+// Ordinary native Body histories of an independently copied FORM definition.
+// This packet is prepared by the document; only explicit calculation evaluates
+// its geometry. Body/parent identities exist before OCCT is invoked.
+struct SheetFormRequest {
+    std::shared_ptr<const std::vector<HistoryOperation>> definition;
+    // Calculated local FORM skin, validated against its authored history.
+    // The explicit kernel calculation reads this immutable native snapshot;
+    // UI code continues to consume the viewer packet only.
+    std::shared_ptr<const BodyResult> surface_snapshot;
+    std::string definition_id, shape_body, cut_body, flat_body;
+    FaceReference support, surface;
+    Vec3 source_origin, source_normal{0,1,0}, source_x{1,0,0};
+    Vec3 position, normal{0,0,1}, x_direction{1,0,0};
+    double thickness{1};
+};
+
 using PrimitiveRequest = std::variant<
     ExtrusionRequest, RevolutionRequest, FeatureGroupRequest,
     Sweep3DRequest, StepRequest, FilletRequest, ChamferRequest, ShellRequest,
     ThreadSurfaceRequest, DrillPointRequest, SheetStateRequest, BoundarySurfaceRequest,
-    SolidStateRequest, SurfaceSewingRequest, SurfaceIntersectionRequest, SurfaceTrimRequest, SurfaceThickenRequest>;
+    SolidStateRequest, SurfaceSewingRequest, SurfaceIntersectionRequest, SurfaceTrimRequest, SurfaceThickenRequest, SheetFormRequest>;
 
 // Transient material-frame transfer for a source end-section attachment.
 // No container/reference definition or native document format changes.
@@ -1039,6 +1056,15 @@ struct BodyResult {
     // Opaque calculation snapshot. Only the solid kernel may consume it
     // during an explicit body calculation; viewer/reference code uses mesh.
     std::string kernel_shape;
+    // Opaque archive addresses bind already defined native identities to
+    // objects in this exact BRep. They never define topology identities.
+    template<class Reference> struct KernelBinding {
+        std::string locator;
+        Reference reference;
+    };
+    std::vector<KernelBinding<FaceReference>> kernel_faces;
+    std::vector<KernelBinding<EdgeReference>> kernel_edges;
+    std::vector<KernelBinding<VertexReference>> kernel_vertices;
     // Returned only by explicit STEP import so the owning Part container can
     // persist the source topology map with its parameters.
     std::vector<StepRequest::TopologyIdentity> imported_step_topology;

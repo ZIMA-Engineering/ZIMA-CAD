@@ -7,6 +7,7 @@
 #include <zima/workspace/sheet_state_operations.hpp>
 #include <zima/document/general_surface.hpp>
 #include "../tree_visibility.hpp"
+#include <zima/ui/operation_activity.hpp>
 
 namespace zima::app {
 using namespace workspace_detail;
@@ -130,6 +131,13 @@ void AssemblyWorkspaceWindow::create_layout() {
     viewer_ = new zima::viewer::MeshView;
     initialize_symbol_handles();
     viewer_->setObjectName("modelViewer");
+    operation_activity_ = new ui::OperationActivity(this, viewer_);
+    auto calculation_execution = std::make_shared<std::unique_ptr<workspace::CalculationExecutionScope>>();
+    operation_activity_->started = [calculation_execution] {
+        *calculation_execution = std::make_unique<workspace::CalculationExecutionScope>(
+            [](auto task) { run_background_task(std::move(task)); });
+    };
+    operation_activity_->finished = [calculation_execution] { calculation_execution->reset(); };
     viewer_->set_origin_visibility_filter([this](const auto& reference) {
         if (!workspace_.open_assembly(workspace_.displayed_document_id())) return true;
         if (component_placement_dialog_ &&

@@ -198,6 +198,7 @@ add_library(zima_document_core
     modules/document_core/src/holes.cpp
     modules/document_core/src/bend.cpp
     modules/document_core/src/sheet_state.cpp
+    modules/document_core/src/sheet_form_definition.cpp
     modules/document_core/src/profile_targets.cpp
     modules/document_core/src/appearance.cpp
     modules/document_core/src/body_history.cpp
@@ -252,6 +253,7 @@ add_library(zima_workspace modules/workspace/src/workspace.cpp
     modules/workspace/src/boundary_surface_operations.cpp
     modules/workspace/src/surface_sewing_operations.cpp
     modules/workspace/src/surface_thicken_operations.cpp
+    modules/workspace/src/sheet_form_operations.cpp
     modules/workspace/src/surface_intersection_operations.cpp
     modules/workspace/src/surface_trim_operations.cpp
     modules/workspace/src/general_surface_operations.cpp
@@ -433,6 +435,7 @@ target_link_libraries(zima_drawing_render PUBLIC zima_drawing zima_workspace Qt6
 target_link_libraries(zima_command_host PUBLIC zima_drawing_render)
 
 add_library(zima_ui modules/ui/src/properties_subwindow.cpp
+    modules/ui/src/operation_activity.cpp
     modules/ui/src/reference_cell.cpp
     modules/ui/src/container_placement_section.cpp)
 target_include_directories(zima_ui PUBLIC modules/ui/include)
@@ -815,6 +818,12 @@ if(ZIMA_BUILD_TESTS)
         Qt6::Widgets Qt6::Svg nlohmann_json::nlohmann_json)
     set_target_properties(zima_cpp_ui_contract_tests PROPERTIES AUTORCC ON)
     add_test(NAME zima_cpp_ui_contract_tests COMMAND zima_cpp_ui_contract_tests)
+    add_executable(zima_cpp_operation_activity_tests tests/operation_activity_tests.cpp)
+    target_link_libraries(zima_cpp_operation_activity_tests PRIVATE zima_ui zima_workspace)
+    add_test(NAME zima_cpp_operation_activity_tests COMMAND zima_cpp_operation_activity_tests)
+    set_tests_properties(zima_cpp_operation_activity_tests PROPERTIES
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.."
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT}" TIMEOUT 60 RUN_SERIAL TRUE)
     add_test(NAME zima_cpp_relations_editor_contract COMMAND zima_cpp_ui_contract_tests)
     set_tests_properties(zima_cpp_relations_editor_contract PROPERTIES
         ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_RELATIONS_ONLY=1"
@@ -875,6 +884,18 @@ if(ZIMA_BUILD_TESTS)
     target_link_libraries(zima_cpp_curve_placement_contract_tests PRIVATE zima_command_host)
     add_test(NAME zima_cpp_curve_placement_contract_tests COMMAND zima_cpp_curve_placement_contract_tests)
     add_test(NAME zima_cpp_whole_origin_ui_contract COMMAND zima-cad-cpp --verify-startup)
+    add_test(NAME zima_cpp_retained_feature_ui_contract COMMAND zima-cad-cpp --verify-startup)
+    add_test(NAME zima_cpp_form_library_path_ui_contract COMMAND zima-cad-cpp --verify-startup)
+    set_tests_properties(zima_cpp_form_library_path_ui_contract PROPERTIES
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_CONSOLE_ONLY=1;ZIMA_VERIFY_FORM_LIBRARY_PATH_ONLY=1"
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." RUN_SERIAL TRUE TIMEOUT 90)
+    set_tests_properties(zima_cpp_retained_feature_ui_contract PROPERTIES
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_CONSOLE_ONLY=1;ZIMA_VERIFY_RETAINED_FEATURE_ONLY=1"
+        WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/.." RUN_SERIAL TRUE TIMEOUT 120)
+    add_test(NAME zima_cpp_default_origin_nested_ui_contract COMMAND zima-cad-cpp --verify-startup)
+    set_tests_properties(zima_cpp_default_origin_nested_ui_contract PROPERTIES
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_PENDING_TREE_ONLY=1"
+        WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/.." RUN_SERIAL TRUE TIMEOUT 120)
     set_tests_properties(zima_cpp_whole_origin_ui_contract PROPERTIES
         ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_CONSOLE_ONLY=1;ZIMA_VERIFY_ORIGIN_PERF=synthetic"
         WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/.." RUN_SERIAL TRUE TIMEOUT 120)
@@ -1693,6 +1714,11 @@ if(ZIMA_BUILD_TESTS)
         ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_PLACED_SKETCH_REFERENCE_ONLY=1"
         TIMEOUT 120 RUN_SERIAL TRUE)
     add_test(NAME zima_cpp_form_sweep_sketch_ui_contract COMMAND zima-cad-cpp --verify-startup)
+    add_test(NAME zima_cpp_sheet_form_ui_contract COMMAND zima-cad-cpp --verify-startup)
+    set_tests_properties(zima_cpp_sheet_form_ui_contract PROPERTIES
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.."
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_CONSOLE_ONLY=1;ZIMA_VERIFY_SHEET_FORM_ONLY=1"
+        TIMEOUT 180 RUN_SERIAL TRUE)
     set_tests_properties(zima_cpp_form_sweep_sketch_ui_contract PROPERTIES
         WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.."
         ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_FORM_SWEEP_SKETCH_ONLY=1"
@@ -1782,6 +1808,18 @@ if(ZIMA_BUILD_TESTS)
     add_test(NAME zima_cpp_boundary_surface_dialog_tests COMMAND zima_cpp_boundary_surface_dialog_tests)
     set_tests_properties(zima_cpp_boundary_surface_dialog_tests PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
     add_executable(zima_cpp_surface_thicken_tests tests/surface_thicken_tests.cpp)
+    add_executable(zima_cpp_sheet_form_definition_tests tests/sheet_form_definition_tests.cpp)
+    target_link_libraries(zima_cpp_sheet_form_definition_tests PRIVATE zima_document_core zima_kernel_occt TKOffset TKTopAlgo)
+    add_test(NAME zima_cpp_sheet_form_definition_tests COMMAND zima_cpp_sheet_form_definition_tests)
+    set_tests_properties(zima_cpp_sheet_form_definition_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
+    add_executable(zima_cpp_sheet_form_geometry_tests tests/sheet_form_geometry_tests.cpp)
+    add_executable(zima_cpp_sheet_form_command_tests tests/sheet_form_command_tests.cpp)
+    target_link_libraries(zima_cpp_sheet_form_command_tests PRIVATE zima_workspace)
+    add_test(NAME zima_cpp_sheet_form_command_tests COMMAND zima_cpp_sheet_form_command_tests)
+    set_tests_properties(zima_cpp_sheet_form_command_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
+    target_link_libraries(zima_cpp_sheet_form_geometry_tests PRIVATE zima_document_core zima_kernel_occt TKOffset TKTopAlgo)
+    add_test(NAME zima_cpp_sheet_form_geometry_tests COMMAND zima_cpp_sheet_form_geometry_tests)
+    set_tests_properties(zima_cpp_sheet_form_geometry_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." ENVIRONMENT "ZIMA_CPP_FORM_PROFILE=1")
     target_link_libraries(zima_cpp_surface_thicken_tests PRIVATE zima_workspace zima_document_core zima_kernel_occt TKTopAlgo)
     add_test(NAME zima_cpp_surface_thicken_tests COMMAND zima_cpp_surface_thicken_tests)
     add_executable(zima_cpp_boundary_surface_tests tests/boundary_surface_tests.cpp)

@@ -46,6 +46,10 @@ class PrimitivePropertiesDialog final : public zima::ui::PropertiesSubWindow,
 public:
     void set_sheet_default_thickness(double value) { sheet_default_thickness_=value; }
     void set_sheet_reference_geometry(zima::kernel::ViewerReferenceGeometry value) { sheet_reference_geometry_=std::move(value); }
+    void set_sheet_form_body_origin(std::string value) { sheet_form_body_origin_=std::move(value); }
+    void set_sheet_form_definition_request(std::function<void()> value) { sheet_form_definition_request_=std::move(value); }
+    void replace_sheet_form_definition(zima::document::SheetFormParameters);
+    [[nodiscard]] const std::vector<zima::kernel::ViewerEdge>& sheet_form_preview() const { return sheet_form_preview_; }
     bool sheet_reference_allowed(std::size_t,const zima::document::ConstructionReference&) const;
     bool is_sheet_revolution() const { return initial_.revolution.sheet_metal; }
     bool is_sheet_edge_feature() const { return initial_.revolution.sheet_metal ||
@@ -183,6 +187,12 @@ protected:
     bool eventFilter(QObject* watched, QEvent* event) override;
 
 private:
+    std::string sheet_form_body_origin_;
+    bool sheet_form_face_entry_{};
+    QLabel* sheet_form_source_{};
+    std::vector<zima::kernel::ViewerEdge> sheet_form_preview_;
+    std::function<void()> sheet_form_definition_request_;
+    void lock_sheet_form_fields();
     FeatureParameterPanel* feature_panel_{};
     std::vector<zima::document::ExtrusionParameters::EndTarget>& profile_end_targets(bool reverse);
     const std::vector<zima::document::ExtrusionParameters::EndTarget>& profile_end_targets(bool reverse) const;

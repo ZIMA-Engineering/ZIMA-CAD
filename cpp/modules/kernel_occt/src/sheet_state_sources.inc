@@ -12,6 +12,10 @@ struct Contribution {
     std::string created_region;
     double boolean_tolerance{1e-7};
     double material_tolerance{std::numeric_limits<double>::max()};
+    // FORM has separate spatial and flat definitions, both authored in its
+    // copied native Part. A present empty flat operand means no precut.
+    std::string form_owner;
+    std::optional<PrimitiveData> flat_material;
 };
 using Sources=std::shared_ptr<const Contribution>;
 // Keep connectivity failure distinct from an invalid boundary or lost material.
@@ -39,7 +43,13 @@ std::vector<sheet_material::Transition> transitions_to(const Contribution& sourc
     std::vector<sheet_material::Transition> transitions;
     for(const auto& before:source.regions) {
         const auto after=std::ranges::find(target,before.owner_id,&SheetMaterialDefinition::owner_id);
-        if(after!=target.end()&&*after!=before)transitions.push_back({before,*after});
+        if(after!=target.end()) {
+            auto authored=before;
+            // FORM switches authored material variants. Its frame remains a
+            // rigid attachment; a state flag must not fit/deform its surfaces.
+            if(authored.kind==SheetMaterialDefinition::Kind::Form)authored.unfolded=after->unfolded;
+            if(*after!=authored)transitions.push_back({authored,*after});
+        }
     }
     return transitions;
 }
@@ -63,7 +73,12 @@ Sources capture(Sources sources,const PrimitiveData& before,const PrimitiveData&
                 face.reference.sheet_role=SheetFaceRole::ThicknessFace;
             face.reference.sheet_owner=region;
         }
-        sources=std::make_shared<Contribution>(Contribution{std::move(material),regions,mode,sources,std::move(region),operation.boolean_tolerance,material_tolerance});
+        Contribution contribution{std::move(material),regions,mode,sources,region,operation.boolean_tolerance,material_tolerance};
+        const auto domain=std::ranges::find(regions,region,&SheetMaterialDefinition::owner_id);
+        if(domain!=regions.end()&&domain->kind==SheetMaterialDefinition::Kind::Form) {
+            contribution.form_owner=region;contribution.flat_material.emplace();
+        }
+        sources=std::make_shared<Contribution>(std::move(contribution));
     };
     const bool treatment=std::holds_alternative<FilletRequest>(operation.primitive)||
         std::holds_alternative<ChamferRequest>(operation.primitive)||std::holds_alternative<ShellRequest>(operation.primitive);
@@ -95,6 +110,21 @@ Sources capture(Sources sources,const PrimitiveData& before,const PrimitiveData&
     return sources;
 }
 
+Sources capture_form(Sources sources,const PrimitiveData& before,
+        PrimitiveData cut,PrimitiveData flat,PrimitiveData formed,
+        const std::vector<SheetMaterialDefinition>& regions,const HistoryOperation& operation) {
+    if(!sources&&!before.shape.IsNull())
+        sources=std::make_shared<Contribution>(Contribution{before,{},BooleanOperation::Add,{}});
+    Contribution removed{std::move(cut),regions,BooleanOperation::Subtract,sources,
+        operation.owner_id,operation.boolean_tolerance};
+    removed.form_owner=operation.owner_id;removed.flat_material=std::move(flat);
+    sources=std::make_shared<Contribution>(std::move(removed));
+    Contribution added{std::move(formed),regions,BooleanOperation::Add,sources,
+        operation.owner_id,operation.boolean_tolerance};
+    added.form_owner=operation.owner_id;added.flat_material.emplace();
+    return std::make_shared<Contribution>(std::move(added));
+}
+
 PrimitiveData calculate(Sources sources,const std::vector<SheetMaterialDefinition>& target,
         double tolerance,const std::string& owner,std::size_t expected_solids) {
     std::vector<Sources> ordered;for(auto source=sources;source;source=source->previous)ordered.push_back(source);
@@ -104,8 +134,14 @@ PrimitiveData calculate(Sources sources,const std::vector<SheetMaterialDefinitio
         for(auto it=ordered.rbegin();it!=ordered.rend();++it) {
             const auto& source=**it;const auto transitions=transitions_to(source,target);
             const double effective_tolerance=std::min(requested_tolerance,source.material_tolerance);
-            auto material=sheet_state_geometry::transform(source.material,transitions,refine?effective_tolerance:requested_tolerance,owner,source.created_region);
-            if(result.shape.IsNull()){result=std::move(material);continue;}
+            const auto form=std::ranges::find(target,source.form_owner,&SheetMaterialDefinition::owner_id);
+            const auto& authored=form!=target.end()&&form->unfolded&&source.flat_material?*source.flat_material:source.material;
+            if(authored.shape.IsNull())continue;
+            auto material=sheet_state_geometry::transform(authored,transitions,refine?effective_tolerance:requested_tolerance,owner,source.created_region);
+            if(result.shape.IsNull()) {
+                if(source.operation==BooleanOperation::Subtract)continue;
+                result=std::move(material);continue;
+            }
             const auto combine=[&](auto& algorithm) {
                 // A valid single solid can still be an incomplete Boolean
                 // result at an approximated compound junction. Addition may
@@ -117,6 +153,7 @@ PrimitiveData calculate(Sources sources,const std::vector<SheetMaterialDefinitio
                 const bool check_addition=source.operation==BooleanOperation::Add&&source.material_tolerance<requested_tolerance;
                 const double minimum_volume=check_addition?std::max(volume(result.shape),volume(material.shape)):0;
                 set_boolean_inputs(algorithm,result.shape,material.shape);algorithm.SetToFillHistory(true);
+                if(!source.form_owner.empty())algorithm.SetNonDestructive(true);
                 algorithm.SetFuzzyValue(restoring_authored?source.boolean_tolerance:effective_tolerance/8);algorithm.Build();
                 if(!algorithm.IsDone())throw std::runtime_error("Cannot reconstruct sheet material in the requested state.");
                 if(check_addition&&volume(algorithm.Shape())<minimum_volume*(1-1e-5))

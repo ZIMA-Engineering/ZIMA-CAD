@@ -41,7 +41,7 @@ bool commit_opening(Workspace& workspace,const kernel::OcctKernel& kernel,const 
     validate(committed);
     const auto container_id=committed.id;
     const auto& before=state->session.document();const auto* existing=before.find_container(committed.id);
-    PartCalculationPolicy policy;policy.reject_errors=true;
+    auto policy=feature_definition_calculation_policy(before,state->session.calculated_boundaries(),committed.id);
     if(mode==OpeningEditMode::Replace) {
         if(!existing)throw OpeningOperationError("container_not_found","The requested container does not exist.");
         require_opening(*existing);

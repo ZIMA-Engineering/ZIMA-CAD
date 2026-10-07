@@ -22,8 +22,14 @@ kernel::FeatureGroupRequest holes_request(const HistoryContainer& feature,
         unsupported(sketch.bsplines) || !sketch.texts.empty())
         throw std::invalid_argument("Otvory podporují pouze úsečky; ostatní geometrii označte jako konstrukční.");
     kernel::FeatureGroupRequest group;
-    for (const auto& segment : sketch.segments) {
-        if (segment.construction) continue;
+    // Segment storage order is not a drilling sequence. Resolve the authored
+    // tools in persistent identity order before Boolean calculation so a
+    // Sketch list reorder cannot rename their intersections.
+    std::vector<const sketcher::SketchSegment*> segments;
+    for(const auto& segment:sketch.segments)if(!segment.construction)segments.push_back(&segment);
+    std::ranges::sort(segments,{},[](const auto* segment){return segment->id;});
+    for (const auto* segment_pointer : segments) {
+        const auto& segment=*segment_pointer;
         const auto* first = sketch.find_point(segment.first_point_id);
         const auto* last = sketch.find_point(segment.second_point_id);
         if (!first || !last) throw std::invalid_argument("Úsečce otvoru chybí koncový bod.");

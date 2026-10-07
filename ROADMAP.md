@@ -12,7 +12,53 @@ for module boundaries and [distribution rules](doc/DISTRIBUTION_CLEANUP_PLAN.md)
 for the agreed packaging direction. Dated entries below preserve planning context;
 newer completion notes and focused contracts supersede their earlier status.
 
-## Current work and queued requests (2026-10-06)
+## Current work and queued requests (2026-10-07)
+
+### Shared operation activity indicator (requested 2026-10-07)
+
+Status: local implementation and focused Windows checks completed; dependent
+command verification continues. See [operation activity](doc/OPERATION_ACTIVITY.md).
+
+- Provide one reusable visual activity indicator for explicit operations across
+  workspaces, including longer modeling calculations. Show the actual operation
+  name with a restrained animated indicator, using a consistent application style.
+  The primary panel belongs at the center of the visible View, above Properties;
+  shared confirmation also shows a compact indicator beside OK. This placement
+  was explicitly requested after the initial status-row proposal.
+- Delay its appearance for short operations to avoid flashing. End activity on
+  success, failure and supported cancellation, including exception paths.
+- Show percentages only when real measurable progress is available. Distinguish
+  indeterminate activity from measured progress; never invent completion values.
+- Reuse the existing status-operation presentation and lifecycle where suitable.
+  Verify that animation remains responsive during long kernel calls: processing
+  events before a synchronous calculation alone does not establish responsiveness.
+  Trace document ownership and thread safety before moving calculations off the
+  UI thread, and prevent conflicting document edits during a running operation.
+- Preserve calculated output, reference identity, transaction boundaries and
+  existing command behavior. Do not introduce calculations during passive display
+  or make a cancellation control available without a safe cancellation path.
+- Localize operation text in all five languages. Verify fast and long operations,
+  failures, nested lifecycle calls and retirement of the indicator in the GUI.
+
+### Container placement: Default Origin shortcut (agreed 2026-10-07)
+
+Status: local implementation; Body equivalence, five-language and immediate
+nested-owner GUI checks passed. See [Default Origin](doc/DEFAULT_ORIGIN.md).
+
+- Add a **Default** button immediately to the left of **Origin** in container
+  placement. One click performs the same action as clicking the applicable
+  complete Origin in the Tree, without requiring another selection.
+- A feature owned directly by a Body uses that Body's Origin. A nested feature
+  uses its immediate owning container's Origin. Resolve the actual owner at
+  each nesting level and retain its stable reference identity.
+- Reuse the existing complete-Origin selection and reference-assignment path,
+  including its position and orientation behavior. Preserve the existing
+  placement solver, numeric corrections, preview and transaction semantics.
+  The existing Origin button remains available for manual selection.
+- On implementation, localize the button and tooltip in all five supported
+  languages and verify equivalence to Tree selection, nested ownership,
+  inspection, OK/Cancel, Undo/Redo and native save/reopen. Follow the protected
+  shared-placement review requirements before changing that shared contract.
 
 ### Sketch circular tangency studies and rectangle symmetry
 
@@ -229,7 +275,7 @@ describes editable text and direction/angle fields, and its
 defines direction relative to the viewed side. These are workflow examples,
 not a claim of a mandatory drafting standard or authorization for automation.
 
-### Sheet forming library (design agreed 2026-10-06)
+### Sheet forming library (design clarified 2026-10-07)
 
 - Start with forming in one planar sheet Flat. Forming across a Flat/Bend corner
   is deferred until a concrete part establishes the required geometry and
@@ -237,25 +283,39 @@ not a claim of a mandatory drafting standard or authorization for automation.
 - Store library Parts in shared `config/lib/01-SHEETMETAL/01-FORM/`. Directory
   names and numeric prefixes determine category order; later mechanical-table
   categories and ZIMA-Parts integration are separate work.
-- Author two Bodies named `FORM` and `FORM_FLAT`, sharing origin/orientation.
-  `FORM` defines the tool/form geometry including radii; `FORM_FLAT` supplies
-  its simplified flat-pattern sketch. Review the user's actual FORM Part before
-  finalizing surface selection, thickness construction and connection boundaries.
+- Author Bodies named `FORM_CUT`, `FORM`, `FORM_FLAT` and `FORM_SYMBOL`, sharing
+  the established definition planes. `FORM_CUT` is the cutting Sketch and may
+  support the spatial `FORM` definition. `FORM` supplies the outer forming
+  surface. `FORM_FLAT` is the optional cutting Sketch for the flat pattern;
+  an empty Body explicitly means no precut is needed. `FORM_SYMBOL` is the
+  Drawing symbol Sketch. The user's current `Projects/FORM.prtz` has all four
+  Bodies, including an intentionally empty `FORM_FLAT`.
 - Place the tool's zero plane on the outer sheet surface, viewed from the tool
-  toward the sheet. Preserve the selected thickness side explicitly.
+  toward the sheet. Preserve the selected thickness side explicitly. Build
+  thickness inward from the outer forming surface. After fixing the insertion
+  point and normal alignment, allow rotation only around the sheet normal.
 - Reuse the existing file browser and insertion/placement paths where suitable.
   Copy the editable definition and required internal references into the target
   native Part with distinct stable identities; do not require an external link
   to the library file. Persist source roles and affected Flat references in the
   forming operation so Unbend does not depend on mutable Body names.
+- Properties must allow replacement by a different library definition, using
+  the common definition planes. Preserve feature identity, insertion position,
+  sheet attachment/side and angle; validate dependencies against the new
+  geometry. Include a semantic FORM command icon in the sheet tools and Tree.
 - Use the inserted feature name as its tool designation. Suppress spatial
   forming in the flat pattern and retain the simplified sketch for drawing and
   DXF, on a configurable layer initially named `FORMING`. Real holes remain
   independent sheet cuts. Optional designation text must stay distinct from
   cutting geometry. Automatic CAM recognition requires validation with the
   particular receiving system; a layer name is not a universal machine protocol.
-- These are agreed design requirements, not implemented capabilities. Resolve
-  the actual native insertion and Unbend contracts before editing working code.
+- Native insertion, independent replacement, sheet-side placement and rotation,
+  inward shell offset, optional flat precut, Unbend/Bend Back and Drawing
+  Show/Erase symbols are implemented with focused Windows verification.
+  The Ventilation Window GUI insertion measured 1.93–1.95 s. A dedicated
+  configurable FORMING layer/tool designation for sheet DXF, insertion across
+  bends and direct embedded-definition editing remain follow-up work.
+  See [Sheet FORM design](doc/SHEET_FORM_DESIGN.md) for measured scope and limits.
 
 ### Native ZIMA-CAD file manager
 

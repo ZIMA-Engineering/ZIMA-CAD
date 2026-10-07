@@ -32,7 +32,7 @@
 namespace zima::document {
 
 enum class CombineMode { Add, Subtract };
-enum class FeatureKind { Sketch, Extrusion, Revolution, Sweep3D, ImportedStep, Fillet, Chamfer, Shell, Hole, Thread, DrillPoint, ShaftThread, HelicalSweep, Sweep2D, Holes, Bend, Flat, TwistedSheet, Unbend, BendBack, DerivedCopy, SheetTransition, Feature, BoundarySurface, Straighten, RestoreShape, SurfaceSewing, GeneralSurface, SurfaceIntersection, SurfaceTrim, SurfaceThicken };
+enum class FeatureKind { Sketch, Extrusion, Revolution, Sweep3D, ImportedStep, Fillet, Chamfer, Shell, Hole, Thread, DrillPoint, ShaftThread, HelicalSweep, Sweep2D, Holes, Bend, Flat, TwistedSheet, Unbend, BendBack, DerivedCopy, SheetTransition, Feature, BoundarySurface, Straighten, RestoreShape, SurfaceSewing, GeneralSurface, SurfaceIntersection, SurfaceTrim, SurfaceThicken, SheetForm };
 [[nodiscard]] inline bool is_solid_state(FeatureKind kind) {
     return kind==FeatureKind::Straighten||kind==FeatureKind::RestoreShape;
 }
@@ -633,6 +633,21 @@ struct SurfaceThickenParameters {
     kernel::SurfaceThicknessSide side{kernel::SurfaceThicknessSide::First};
     bool operator==(const SurfaceThickenParameters&)const=default;
 };
+struct SheetFormParameters {
+    // Complete independent native Part, including calculated viewer packets.
+    // Shared immutable storage avoids copying its payload for dialog drafts.
+    std::shared_ptr<const std::string> definition;
+    std::array<std::string,4> bodies;
+    std::string cut_sketch,flat_sketch,symbol_sketch,source_name;
+    kernel::FaceReference surface,support;
+    double thickness{1};
+    bool operator==(const SheetFormParameters& other)const {
+        return (definition==other.definition||(definition&&other.definition&&*definition==*other.definition))&&
+            bodies==other.bodies&&cut_sketch==other.cut_sketch&&flat_sketch==other.flat_sketch&&
+            symbol_sketch==other.symbol_sketch&&source_name==other.source_name&&surface==other.surface&&
+            support==other.support&&thickness==other.thickness;
+    }
+};
 struct SurfaceSewingParameters {
     std::vector<kernel::FaceReference> faces;
     bool operator==(const SurfaceSewingParameters&)const=default;
@@ -687,6 +702,7 @@ struct HistoryContainer {
     BoundarySurfaceParameters boundary_surface;
     SurfaceSewingParameters surface_sewing;
     SurfaceThickenParameters surface_thicken;
+    SheetFormParameters sheet_form;
     SurfaceIntersectionParameters surface_intersection;
     SurfaceTrimParameters surface_trim;
     GeneralSurfaceParameters general_surface;

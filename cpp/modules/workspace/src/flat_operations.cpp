@@ -37,7 +37,7 @@ bool commit_flat(Workspace& live,const kernel::OcctKernel& kernel,const std::str
         next.insert_history_entry(document::PartHistoryKind::Feature,container);
         next.history.push_back(std::move(feature));next.sketches.push_back(std::move(sketch));
     }
-    PartCalculationPolicy policy;policy.reject_errors=true;
+    auto policy=feature_definition_calculation_policy(before,state->session.calculated_boundaries(),container);
     if(existing){policy.edited_document_id=id;policy.edited_history_limit=before.history_index(container);}
     auto references=construction_reference_source_geometry(state->session.calculated_boundaries());
     append_reference_geometry(references,next.origin_viewer_mesh().original_references);

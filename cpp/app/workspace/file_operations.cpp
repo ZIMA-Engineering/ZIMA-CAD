@@ -1,6 +1,7 @@
 #include <zima/workspace/family_operations.hpp>
 #include <zima/workspace/metadata_operations.hpp>
 #include "workspace_internal.hpp"
+#include <zima/ui/operation_activity.hpp>
 #include <zima/workspace/symbol_operations.hpp>
 #include "updateservice.h"
 #include <zima_build_info.hpp>
@@ -136,6 +137,8 @@ private:
 
 void AssemblyWorkspaceWindow::begin_status_operation(
     const QString& message) {
+    if (!operation_activity_->update_message(status_activity_token_, message))
+        status_activity_token_ = operation_activity_->begin(message);
     ++operation_progress_generation_;
     operation_progress_->setRange(0, 0);
     operation_progress_->setFormat(message);
@@ -146,6 +149,7 @@ void AssemblyWorkspaceWindow::begin_status_operation(
 
 void AssemblyWorkspaceWindow::update_status_operation(
     const QString& message, int value, int maximum) {
+    operation_activity_->update_message(status_activity_token_, message);
     if (!operation_progress_->isVisible()) {
         begin_status_operation(message);
     }
@@ -168,6 +172,8 @@ void AssemblyWorkspaceWindow::update_status_operation(
 
 void AssemblyWorkspaceWindow::finish_status_operation(
     const QString& message, bool success) {
+    operation_activity_->end(status_activity_token_);
+    status_activity_token_ = 0;
     synchronize_instance_files();
     operation_progress_->setRange(0, 100);
     operation_progress_->setValue(success ? 100 : 0);

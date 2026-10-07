@@ -1,6 +1,8 @@
 #include "standard_view_labels.hpp"
 #include "file_dialog.hpp"
 #include <QTimer>
+#include <zima/ui/operation_activity.hpp>
+#include <zima/document/sheet_form_definition.hpp>
 #include <QLineEdit>
 #include <QCheckBox>
 #include <QLabel>
@@ -131,6 +133,22 @@ int verify_translations(QApplication& application, QWidget& parent) {
             !settings.translations.contains("Zamknout hodnotu"), "INI sections were mixed");
         app::apply_application_translations(application, settings);
         application.processEvents();
+        auto* activity_indicator = ui::OperationActivity::create_confirmation_indicator(&parent);
+        check(activity_indicator->findChild<QLabel*>()->text() == settings.qt_translations.value("Pracuji…"),
+              "Operation confirmation indicator is not localized");
+        delete activity_indicator;
+        {
+            auto feature=document::create_sheet_form();
+            feature.sheet_form=document::copy_sheet_form_definition(document::read_sheet_form_definition(
+                std::filesystem::path(__FILE__).parent_path().parent_path().parent_path()/"config/lib/01-SHEETMETAL/01-FORM/VentilationWindow.prtz"));
+            app::PrimitivePropertiesDialog dialog(feature,false,false,[](auto){},&parent);
+            check(dialog.windowTitle()==settings.qt_translations.value("FORM Properties"),"FORM title is not localized");
+            check(dialog.findChild<QPushButton*>("sheetFormReplaceDefinition")->text()==settings.qt_translations.value("Replace definition…"),
+                "FORM definition replacement is not localized");
+            const auto labels=dialog.findChildren<QLabel*>();
+            check(std::ranges::any_of(labels,[&](auto* label){return label->text()==settings.qt_translations.value("FORM definition");}),
+                "FORM definition label is not localized");
+        }
         check(QObject::tr("Disconnected centerline source segments")==
                 settings.qt_translations.value("Disconnected centerline source segments"),
             "Axis continuity error did not follow the selected UI language");

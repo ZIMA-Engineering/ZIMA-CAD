@@ -617,6 +617,23 @@ nlohmann::json serialize_body_result(const zima::kernel::BodyResult& result, boo
         {"original_references", serialize_reference_geometry(
             result.mesh.original_references)},
     };
+    const auto bindings=[&](const auto& values) {
+        auto rows=nlohmann::json::array();
+        for(const auto& value:values) {
+            const auto& ref=value.reference;
+            nlohmann::json row={{"locator",value.locator},{"owner",ref.owner_id},
+                {"key",ref.semantic_key},{"instance_path",ref.instance_path}};
+            if constexpr(std::is_same_v<std::decay_t<decltype(ref)>,zima::kernel::FaceReference>) {
+                row["surface_result"]=ref.surface_result;row["sheet_role"]=static_cast<int>(ref.sheet_role);
+                row["sheet_thickness"]=ref.sheet_thickness;row["sheet_owner"]=ref.sheet_owner;
+                row["display_owner"]=ref.display_owner_id;
+            }
+            rows.push_back(std::move(row));
+        }
+        return rows;
+    };
+    packet["kernel_bindings"]={{"faces",bindings(result.kernel_faces)},
+        {"edges",bindings(result.kernel_edges)},{"vertices",bindings(result.kernel_vertices)}};
     if(!result.mesh.images.empty()) {
         packet["images"]=nlohmann::json::array();
         for(const auto& image:result.mesh.images) {
@@ -750,6 +767,21 @@ zima::kernel::BodyResult load_body_result(const nlohmann::json& source) {
     }
     result.source_fingerprint = source.at("source_fingerprint").get<std::string>();
     result.kernel_shape = source.at("kernel_shape").get<std::string>();
+    if(const auto bindings=source.find("kernel_bindings");bindings!=source.end()) {
+        const auto load=[&](const char* kind,auto& values) {
+            using Binding=typename std::decay_t<decltype(values)>::value_type;
+            for(const auto& row:bindings->at(kind)) {
+                Binding value;value.locator=row.at("locator");
+                auto& ref=value.reference;ref={row.at("owner"),row.at("key"),row.at("instance_path")};
+                if(!ref.valid()||value.locator.empty())throw std::runtime_error("Invalid native topology binding");
+                if constexpr(std::is_same_v<std::decay_t<decltype(ref)>,zima::kernel::FaceReference>) {
+                    ref.surface_result=row.at("surface_result");load_sheet_face(ref,row);
+                }
+                values.push_back(std::move(value));
+            }
+        };
+        load("faces",result.kernel_faces);load("edges",result.kernel_edges);load("vertices",result.kernel_vertices);
+    }
     result.mesh.original_references = load_reference_geometry(
         source.at("original_references"));
     require_finite(result.volume, "calculated volume");

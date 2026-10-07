@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" role="img" aria-labelledby="title">
+  <title id="title">Sheet Form</title>
+  <g fill="none" stroke="#39C5E8" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M3 15 9 19 21 12 15 8 3 15Z"/>
+    <path d="m7 13 4-6 6 4-4 6M11 7v5l6 4M7 13l6 4 4-1"/>
+  </g>
+</svg>

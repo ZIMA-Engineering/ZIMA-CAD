@@ -1,4 +1,5 @@
 #include "workspace_internal.hpp"
+#include <zima/ui/operation_activity.hpp>
 #include <zima/workspace/document_operations.hpp>
 #include <zima/document/relation_program.hpp>
 
@@ -193,6 +194,7 @@ void AssemblyWorkspaceWindow::regenerate_active_part() {
     auto* part = workspace_.open_part(workspace_.active_document_id());
     if (part == nullptr || properties_dialog_ != nullptr) return;
     try {
+        ui::OperationActivity::Scope activity(operation_activity_, tr("Regeneruji Part…"));
         const bool references_changed = workspace::regenerate_part(
             workspace_, kernel_, workspace_.active_document_id(),
             part_calculation_policy()).references_changed;

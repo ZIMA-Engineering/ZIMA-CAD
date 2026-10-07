@@ -21,7 +21,7 @@ bool commit_sheet_transition(Workspace& live,const kernel::OcctKernel& kernel,co
     append_reference_geometry(references,next.origin_viewer_mesh().original_references);
     append_reference_geometry(references,next.construction_viewer_mesh().original_references);
     next.resolve_constructions(references);document::reframe_sheet_transition(*next.find_container(owner));
-    PartCalculationPolicy policy;policy.reject_errors=true;if(existing){policy.edited_document_id=id;policy.edited_history_limit=before.history_index(owner);}
+    auto policy=feature_definition_calculation_policy(before,state->session.calculated_boundaries(),owner);if(existing){policy.edited_document_id=id;policy.edited_history_limit=before.history_index(owner);}
     auto calculated=calculate_part_with_resolved_references(kernel,next,&state->session.calculated_boundaries(),policy);
     if(next.serialized()==before.serialized()){state->session.update_calculated_boundaries(std::move(calculated));return false;}
     commit_part_document(live,id,std::move(next),std::move(calculated));return true;

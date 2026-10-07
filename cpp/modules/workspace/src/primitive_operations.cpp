@@ -69,8 +69,7 @@ bool commit_primitive(Workspace& workspace, const kernel::OcctKernel& kernel,
     validate_dimensions(committed);
     const auto& before = state->session.document();
     const auto* existing = before.find_container(committed.id);
-    PartCalculationPolicy policy;
-    policy.reject_errors = true;
+    auto policy = feature_definition_calculation_policy(before, state->session.calculated_boundaries(), committed.id);
     if(mode == PrimitiveEditMode::Replace) {
         if(!existing) throw PrimitiveOperationError("container_not_found", "The requested container does not exist.");
         if(existing->feature_kind != committed.feature_kind)

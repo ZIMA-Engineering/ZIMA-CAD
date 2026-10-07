@@ -3,8 +3,23 @@
 #include <zima/kernel/occt_kernel.hpp>
 #include <optional>
 #include <set>
+#include <functional>
 
 namespace zima::workspace {
+
+// Owner-thread scope for dispatching only calculation on private candidate data.
+// The runner waits for completion; Workspace commits stay on their caller thread.
+// Native/CLI callers retain synchronous execution without an installed runner.
+class CalculationExecutionScope final {
+public:
+    using Runner = std::function<void(std::function<void()>)>;
+    explicit CalculationExecutionScope(Runner runner);
+    ~CalculationExecutionScope();
+    CalculationExecutionScope(const CalculationExecutionScope&) = delete;
+    CalculationExecutionScope& operator=(const CalculationExecutionScope&) = delete;
+private:
+    Runner previous_;
+};
 
 // Runtime validation of an explicit calculation. Recovery is the default;
 // feature editing can reject errors only at its rollback boundary.
@@ -13,6 +28,14 @@ struct PartCalculationPolicy {
     std::string edited_document_id;
     std::optional<std::size_t> edited_history_limit;
 };
+
+// Validated new definitions and already failed features retain their native
+// history entry even when geometry cannot be calculated. Editing a working
+// feature retains its established atomic rejection contract.
+[[nodiscard]] PartCalculationPolicy feature_definition_calculation_policy(
+    const document::PartDocument& before,
+    const std::vector<kernel::BodyResult>& previous,
+    const std::string& container_id);
 
 [[nodiscard]] std::vector<kernel::BodyResult> calculate_part(
     const kernel::OcctKernel& kernel, const document::PartDocument& document,

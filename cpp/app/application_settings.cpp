@@ -50,7 +50,7 @@ private:
 
 const QStringList path_keys{
     QStringLiteral("Materials"), QStringLiteral("Templates"),
-    QStringLiteral("Formats"), QStringLiteral("Symbols"), QStringLiteral("Localization"),
+    QStringLiteral("Formats"), QStringLiteral("Symbols"), QStringLiteral("Forms"), QStringLiteral("Localization"),
     QStringLiteral("WorkingDirectory")};
 
 const QMap<QString, QString> path_defaults{
@@ -58,6 +58,7 @@ const QMap<QString, QString> path_defaults{
     {QStringLiteral("Templates"), QStringLiteral("templates")},
     {QStringLiteral("Formats"), QStringLiteral("formats")},
     {QStringLiteral("Symbols"), QStringLiteral("symbols")},
+    {QStringLiteral("Forms"), QStringLiteral("lib/01-SHEETMETAL/01-FORM")},
     {QStringLiteral("Localization"), QStringLiteral("localization")},
     {QStringLiteral("WorkingDirectory"), QStringLiteral("../Projects")}};
 

@@ -70,7 +70,7 @@ bool commit_solid_state(Workspace& live,const kernel::OcctKernel& kernel,
     else {next.insert_history_entry(document::PartHistoryKind::Feature,owner);next.history.push_back(std::move(feature));}
     // Serialization validates the complete native definition before calculation.
     static_cast<void>(next.serialized());
-    PartCalculationPolicy policy;policy.reject_errors=true;
+    auto policy=feature_definition_calculation_policy(before,state->session.calculated_boundaries(),owner);
     auto calculated=calculate_part_with_resolved_references(kernel,next,&state->session.calculated_boundaries(),policy);
     commit_part_document(live,id,std::move(next),std::move(calculated));
     return true;

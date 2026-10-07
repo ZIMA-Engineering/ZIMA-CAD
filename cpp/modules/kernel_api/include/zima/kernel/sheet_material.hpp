@@ -74,7 +74,7 @@ inline Coordinate coordinates(const SheetMaterialDefinition& frame,Vec3 point,
         return {value.along*c+radial*s,positive_angle(value.length,frame.radius+value.depth)*frame.neutral_radius,
             radial*c-value.along*s,false};
     }
-    if(frame.kind==SheetMaterialDefinition::Kind::Plane||frame.unfolded)return value;
+    if(frame.kind==SheetMaterialDefinition::Kind::Plane||frame.kind==SheetMaterialDefinition::Kind::Form||frame.unfolded)return value;
     if(continuation) {
         const double s=std::sin(frame.angle),c=std::cos(frame.angle);
         const double y=value.length-frame.radius*s,z=value.depth-frame.radius*(c-1);
@@ -185,7 +185,8 @@ struct Transition {
     }
 };
 inline bool eligible(const SheetMaterialDefinition& region,bool unfold) {
-    return region.kind!=SheetMaterialDefinition::Kind::Plane&&region.angle>1e-9&&region.unfolded!=unfold;
+    return (region.kind==SheetMaterialDefinition::Kind::Form||
+        (region.kind!=SheetMaterialDefinition::Kind::Plane&&region.angle>1e-9))&&region.unfolded!=unfold;
 }
 struct History {
     std::vector<SheetMaterialDefinition> regions;
@@ -211,6 +212,7 @@ inline std::vector<Transition> change(History& history,
         const auto found=std::ranges::find(regions,id,&SheetMaterialDefinition::owner_id);
         if(found==regions.end()||!eligible(*found,request.unfold))
             throw std::invalid_argument("Selected sheet region is missing or already in the requested state.");
+        if(found->kind==SheetMaterialDefinition::Kind::Form)continue;
         if(found->kind==SheetMaterialDefinition::Kind::Twist) {
             if(found->formed_length<=1e-7||found->developed_length<=1e-7)
                 throw std::invalid_argument("Twisted Sheet unfolding requires positive formed and developed lengths.");
@@ -268,7 +270,7 @@ inline std::vector<ViewerAxis> bend_lines(const std::vector<HistoryOperation>& o
         std::size_t limit,const History& history,const std::string& owner) {
     std::vector<ViewerAxis> result;
     for(const auto& region:history.regions) {
-        if(!region.unfolded||region.kind==SheetMaterialDefinition::Kind::Plane||
+        if(!region.unfolded||region.kind==SheetMaterialDefinition::Kind::Plane||region.kind==SheetMaterialDefinition::Kind::Form||
             region.kind==SheetMaterialDefinition::Kind::Twist)continue;
         const auto source=std::ranges::find_if(operations.begin(),operations.begin()+std::min(limit,operations.size()),
             [&](const auto& op){return (op.owner_id==region.owner_id&&op.sheet_material)||

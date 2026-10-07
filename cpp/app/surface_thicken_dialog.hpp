@@ -45,7 +45,9 @@ public:
         connect(table_,&QTableWidget::cellClicked,this,[this](int,int col){if(col==2){active_=true;refresh();notify();}});
         table_->setFixedHeight(table_->horizontalHeader()->sizeHint().height()+2*table_->frameWidth()+34);content_layout()->addWidget(table_);
         status_=new QLabel(this);status_->setWordWrap(true);content_layout()->addWidget(status_);
-        inspected_=pending.surface_thicken.face.valid();set_initial_size({620,340});refresh();
+        inspected_=pending.surface_thicken.face.valid();
+        // Use the shared natural-height layout rather than an oversized form.
+        set_initial_size({620,0});refresh();
     }
     int active_row()const{return active_?0:-1;}
     bool inspected()const{return inspected_&&pending.surface_thicken.face.valid();}

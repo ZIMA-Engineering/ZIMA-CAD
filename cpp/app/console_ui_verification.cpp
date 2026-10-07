@@ -18,8 +18,13 @@
 #include "general_surface_dialog.hpp"
 #include "surface_intersection_dialog.hpp"
 #include "surface_trim_dialog.hpp"
+#include "global_settings_dialog.hpp"
 #include "surface_wire_visibility.hpp"
 #include "confirmed_face_hit.hpp"
+#include <zima/document/sheet_form_definition.hpp>
+#include <zima/document/body_origin_attachment.hpp>
+#include <zima/document/placement_orientation.hpp>
+#include <zima/kernel/sheet_material.hpp>
 #include <zima/document/named_views.hpp>
 #include <zima/document/placement_json.hpp>
 #include "sketch_properties_dialog.hpp"
@@ -87,6 +92,7 @@
 #include "confirmed_face_hit.hpp"
 
 namespace zima::app {
+#include "sheet_form_ui_verification.inc"
 // Specialized GUI suites must not inherit the large general console suite's
 // local document snapshots on the Windows main-thread stack.
 Q_NEVER_INLINE static int verify_general_command_console(QApplication& application,
@@ -289,6 +295,7 @@ Q_NEVER_INLINE static int verify_feature_prototype(QApplication& application,Ass
 }
 #include "history_deletion_ui_verification.inc"
 int verify_command_console(QApplication& application,AssemblyWorkspaceWindow& window,const std::filesystem::path& directory) {
+    if(qEnvironmentVariableIsSet("ZIMA_VERIFY_SHEET_FORM_ONLY"))return verify_sheet_form_ui(application,window,directory);
     if(qEnvironmentVariableIsSet("ZIMA_VERIFY_FEATURE_AXES_ONLY")) {
         try {verify_feature_profile_axes(application,directory);std::cout<<"Feature profile/origin/centroid axes: five languages, Tree, View selection and native reopening passed\n";return 0;}
         catch(const std::exception& error){std::cerr<<error.what()<<'\n';return 1;}
@@ -313,6 +320,94 @@ static int verify_general_command_console(QApplication& application,AssemblyWork
     const auto flush=[&]{application.processEvents();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);application.processEvents();};
     const auto run=[&](const QString& command){auto result=window.execute_console_command(command);if(!result.ok)throw std::runtime_error(command.toStdString()+": "+result.code+": "+result.message);return result;};
     try {
+        if(qEnvironmentVariableIsSet("ZIMA_VERIFY_FORM_LIBRARY_PATH_ONLY")) {
+            window.showMaximized();flush();QTemporaryDir temporary;
+            check(temporary.isValid(),"Cannot isolate FORM library settings");
+            const auto library=QString::fromStdString(std::filesystem::absolute("config/lib/01-SHEETMETAL/01-FORM").generic_string());
+            for(const auto* language:{"cs","en","de","fr","ru"}) {
+                QSettings config(temporary.filePath("config.ini"),QSettings::IniFormat);
+                config.setValue("Application/Language",language);
+                config.setValue("Paths/Localization",QString::fromStdString(std::filesystem::absolute("config/localization").generic_string()));
+                config.setValue("Paths/Forms",library);config.sync();
+                const auto initial=ApplicationSettings::load(temporary.path());
+                check(initial.resolved_paths.value("Forms")==library,"FORM library path did not resolve");
+                apply_application_translations(application,initial);flush();
+                for(const bool commit:{false,true}) {
+                    auto* dialog=new GlobalSettingsDialog(initial,&window);dialog->show();flush();
+                    auto* field=dialog->findChild<QLineEdit*>("globalPathForms");
+                    check(field&&field->isVisible(),"Global settings FORM path field missing");
+                    const auto labels=dialog->findChildren<QLabel*>();
+                    check(std::ranges::any_of(labels,[&](auto* label){return label->text()==initial.translations.value("global.path.forms");}),"Global FORM path label is not localized");
+                    field->setText("custom-forms");
+                    dialog->buttons()->button(commit?QDialogButtonBox::Ok:QDialogButtonBox::Cancel)->click();flush();
+                    const auto saved=ApplicationSettings::load(temporary.path());
+                    check(saved.resolved_paths.value("Forms")== (commit?temporary.filePath("custom-forms"):library),"Global FORM path OK/Cancel changed the wrong settings");
+                    check(QDir::cleanPath(saved.resolved_paths.value("Symbols"))==QDir::cleanPath(initial.resolved_paths.value("Symbols")),"FORM path edit changed the symbol library");
+                }
+            }
+            std::cout<<"FORM library settings: five languages, native shared dialog and OK/Cancel passed\n";return 0;
+        }
+        if(qEnvironmentVariableIsSet("ZIMA_VERIFY_RETAINED_FEATURE_ONLY")) {
+            window.showMaximized();flush();
+            const auto fixture_name="retained-feature-ui-"+QUuid::createUuid().toString(QUuid::WithoutBraces).toStdString();
+            run(QString::fromStdString("new part "+fixture_name));
+            check(test::gui_rectangular_profile(window,10,10,10).ok,"Retained feature stock creation failed");flush();
+            auto* tree=window.findChild<QTreeWidget*>("documentTree");
+            auto* view=dynamic_cast<viewer::MeshView*>(window.findChild<QOpenGLWidget*>());
+            auto* action=window.findChild<QAction*>("filletAction");
+            check(tree&&view&&action&&action->isEnabled(),"Retained feature GUI context unavailable");
+            const auto input=view->mesh();
+            const auto edge=std::ranges::find_if(input.edges,[](const auto& edge){return !edge.parameter_seam&&edge.edge_treatment_side_references.size()==2;});
+            check(edge!=input.edges.end(),"Retained feature GUI input edge missing");
+            const auto editor=[&]() -> PrimitivePropertiesDialog* {
+                for(auto* dialog:window.findChildren<QDialog*>())
+                    if(auto* properties=dynamic_cast<PrimitivePropertiesDialog*>(dialog);properties&&properties->isVisible()&&properties->findChild<QDoubleSpinBox*>("edgeTreatmentPrimary"))return properties;
+                for(auto* dialog:window.findChildren<QDialog*>())if(dialog->isVisible())
+                    std::cerr<<"Visible editor: "<<dialog->objectName().toStdString()<<'\n';
+                throw std::runtime_error("Retained feature Properties missing");
+            };
+            const auto path=directory/(fixture_name+".prtz");
+            const auto native=[&]() {run("save");std::vector<kernel::BodyResult> cache;auto doc=document::PartDocument::load(path,&cache);return std::pair{std::move(doc),std::move(cache)};};
+            for(const bool commit:{false,true}) {
+                std::cout<<"Failed creation "<<(commit?"OK":"Cancel")<<std::endl;
+                action->trigger();flush();auto* dialog=editor();
+                dialog->set_edge_groups({{edge->reference}});
+                dialog->findChild<QDoubleSpinBox*>("edgeTreatmentPrimary")->setValue(100);flush();
+                const auto id=dialog->pending_value().id;
+                dialog->buttons()->button(commit?QDialogButtonBox::Ok:QDialogButtonBox::Cancel)->click();flush();
+                auto [saved,cache]=native();
+                if(!commit){check(!saved.find_container(id),"Failed creation Cancel retained its definition");continue;}
+                check(saved.find_container(id)&&saved.find_container(id)->edge_treatment.primary_size==100&&cache.back().calculation_errors.contains(id),"Failed OK lost definition, parameters or diagnostics");
+                check(std::abs(cache.back().volume-1000)<1e-8,"Failed OK replaced preceding valid geometry");
+                const auto row=[&]() -> QTreeWidgetItem* {
+                    for(QTreeWidgetItemIterator i(tree);*i;++i)if((*i)->data(0,Qt::UserRole).toString().toStdString()==id&&(*i)->data(0,Qt::UserRole+3)=="part-container")return *i;
+                    throw std::runtime_error("Failed feature Tree row missing");
+                };
+                check(row()->foreground(0).color()==QColor(210,75,65)&&row()->text(0).contains(QObject::tr(" [nevypočítáno]")),"Failed feature did not show its red localized state");
+                const auto revision=run("documents").data;
+                std::cout<<"Open retained feature Properties"<<std::endl;
+                window.show_tree_item_properties(row());flush();dialog=editor();
+                check(dialog->findChild<QDoubleSpinBox*>("edgeTreatmentPrimary")->value()==100,"Failed Properties lost radius");
+                dialog->buttons()->button(QDialogButtonBox::Ok)->click();flush();
+                const auto unchanged_revision=run("documents").data;
+                if(unchanged_revision!=revision)std::cerr<<"Before unchanged OK: "<<revision.dump()<<"\nAfter unchanged OK: "<<unchanged_revision.dump()<<'\n';
+                check(unchanged_revision==revision,"Unchanged failed OK created a transaction");
+                for(const bool repair:{false,true}) {
+                    window.show_tree_item_properties(row());flush();dialog=editor();
+                    dialog->findChild<QDoubleSpinBox*>("edgeTreatmentPrimary")->setValue(1);flush();
+                    dialog->buttons()->button(repair?QDialogButtonBox::Ok:QDialogButtonBox::Cancel)->click();flush();
+                    auto [state,bodies]=native();
+                    check(state.find_container(id)->edge_treatment.primary_size==(repair?1:100)&&bodies.back().calculation_errors.contains(id)!=repair,"Failed feature repair OK/Cancel lost state");
+                }
+                run("undo");auto [failed,before]=native();check(before.back().calculation_errors.contains(id)&&failed.find_container(id)->edge_treatment.primary_size==100,"Repair Undo lost failed definition");
+                run("redo");auto [repaired,after]=native();check(after.back().calculation_errors.empty()&&after.back().volume<1000,"Repair Redo lost geometry");
+                const auto working_revision=run("documents").data;
+                window.show_tree_item_properties(row());flush();dialog=editor();
+                dialog->buttons()->button(QDialogButtonBox::Ok)->click();flush();
+                check(run("documents").data==working_revision,"Unchanged working treatment OK created a transaction");
+            }
+            std::cout<<"Retained feature GUI: creation OK/Cancel, red Tree, Properties, repair, native persistence and Undo/Redo passed\n";return 0;
+        }
         if(qEnvironmentVariableIsSet("ZIMA_VERIFY_DESKTOP_SETTINGS")) {
             window.showMaximized();flush();
             auto* action=window.findChild<QAction*>("globalSettingsAction");
@@ -539,7 +634,8 @@ static int verify_general_command_console(QApplication& application,AssemblyWork
         if(qEnvironmentVariableIsSet("ZIMA_VERIFY_ORIGIN_PERF")) {
             window.showMaximized();flush();
             const auto source=qEnvironmentVariable("ZIMA_VERIFY_ORIGIN_PERF");
-            if(source=="synthetic") {run("new part origin-placement-contract");zima::test::gui_rectangular_profile(window,10,20,30);}
+            const auto fixture_name="origin-placement-contract-"+QUuid::createUuid().toString(QUuid::WithoutBraces).toStdString();
+            if(source=="synthetic") {run(QString::fromStdString("new part "+fixture_name));zima::test::gui_rectangular_profile(window,10,20,30);}
             else check(window.open_document_path(source),"Origin benchmark document did not open");
             flush();
             const auto original_constructions=run("construction.list").data;
@@ -548,7 +644,17 @@ static int verify_general_command_console(QApplication& application,AssemblyWork
             check(tree&&action&&action->isEnabled(),"Origin benchmark has no active Part context");
             int resets=0;
             const auto connection=QObject::connect(tree->model(),&QAbstractItemModel::modelReset,&window,[&]{++resets;});
-            for(int iteration=0;iteration<3;++iteration) {
+            QTemporaryDir translation_directory;
+            check(translation_directory.isValid(),"Cannot isolate Default Origin translations");
+            const QStringList languages{"cs","en","de","fr","ru"};
+            commands::Json tree_references;
+            for(int iteration=0;iteration<languages.size();++iteration) {
+                QSettings config(translation_directory.filePath("config.ini"),QSettings::IniFormat);
+                config.setValue("Application/Language",languages[iteration]);
+                config.setValue("Paths/Localization",QString::fromStdString(std::filesystem::absolute("config/localization").generic_string()));
+                config.sync();
+                const auto settings=ApplicationSettings::load(translation_directory.path());
+                apply_application_translations(application,settings);
                 action->trigger();flush();
                 ConstructionPropertiesDialog* dialog=nullptr;
                 for(auto* candidate:window.findChildren<QDialog*>())
@@ -556,6 +662,15 @@ static int verify_general_command_console(QApplication& application,AssemblyWork
                 check(dialog,"Origin benchmark curve dialog did not open");
                 auto* table=dialog->findChild<QTableWidget*>("constructionReferenceTable");
                 check(table,"Origin benchmark placement table missing");
+                auto* shortcut=dialog->findChild<QPushButton*>("containerDefaultOriginButton");
+                check(shortcut && shortcut->text()==settings.qt_translations.value("Default") &&
+                    shortcut->toolTip()==settings.qt_translations.value("Použít celý Počátek nadřazeného kontejneru nebo tělesa"),
+                    "Default Origin shortcut is missing or untranslated");
+                auto* origin_button=dialog->findChild<QPushButton*>("containerOriginSelectionButton");
+                check(origin_button && shortcut->isVisible() &&
+                    shortcut->mapTo(dialog,QPoint{}).x()+shortcut->width()<=origin_button->mapTo(dialog,QPoint{}).x() &&
+                    std::abs(shortcut->mapTo(dialog,QPoint{}).y()-origin_button->mapTo(dialog,QPoint{}).y())<=2,
+                    "Default Origin is not in the same row immediately left of Origin");
                 emit table->cellClicked(0,1);flush();
                 QTreeWidgetItem* origin=nullptr;
                 const auto origin_id=run("body.list").data.at("active_body").get<std::string>()+":origin";
@@ -563,16 +678,20 @@ static int verify_general_command_console(QApplication& application,AssemblyWork
                     if((*it)->data(0,Qt::UserRole).toString().toStdString()==origin_id){origin=*it;break;}
                 check(origin,"Origin benchmark active Body Origin missing");
                 resets=0;QElapsedTimer timer;timer.start();
-                tree->setCurrentItem(origin);flush();
+                if (iteration == 0) tree->setCurrentItem(origin);
+                else shortcut->click();
+                flush();
                 const auto elapsed=timer.nsecsElapsed()/1000000.0;
                 const auto pending=dialog->pending_value();
                 check(dialog->first_empty_position_index()==3,"Whole Origin did not fill three position rows");
                 check(resets==1,"Whole Origin rebuilt the scene more than once");
                 for(const auto& reference:pending.references)
                     check(reference.owner_id==origin_id,"Whole Origin changed the reference owner");
+                if(iteration==0)tree_references=commands::Json(pending.references);
+                else check(commands::Json(pending.references)==tree_references,"Default Origin differs from the complete Tree Origin");
                 std::cout<<"Origin benchmark "<<iteration<<": "<<elapsed<<" ms; scene resets="<<resets
                     <<"; references="<<pending.references.size()<<std::endl;
-                if(iteration<2) {
+                if(iteration+1<languages.size()) {
                     dialog->buttons()->button(QDialogButtonBox::Cancel)->click();flush();
                     check(run("construction.list").data==original_constructions,"Origin Cancel changed the document");
                 } else {
@@ -599,6 +718,14 @@ static int verify_general_command_console(QApplication& application,AssemblyWork
                     reopened->buttons()->button(QDialogButtonBox::Cancel)->click();flush();
                     run("undo");flush();
                     check(run("construction.list").data==original_constructions,"Origin creation Undo changed the original document");
+                    run("redo");flush();
+                    if(source=="synthetic") {
+                        run("save");
+                        const auto native=document::PartDocument::load(directory/(fixture_name+".prtz"));
+                        const auto* stored=native.find_construction(expected.id);
+                        check(stored && commands::Json(stored->references)==tree_references,"Default Origin Redo/save/reopen changed the reference identities");
+                    }
+                    run("undo");flush();
                 }
             }
             QObject::disconnect(connection);
@@ -1102,7 +1229,8 @@ static int verify_general_command_console(QApplication& application,AssemblyWork
                 auto* menu=window.findChild<QMenu*>("partHistoryMenu");if(!menu)return;
                 auto* action=menu->findChild<QAction*>(action_name);if(!action){menu->close();return;}
                 if(confirm)QTimer::singleShot(0,&window,[&]{
-                    if(auto* question=qobject_cast<QMessageBox*>(QApplication::activeModalWidget()))question->button(QMessageBox::Yes)->click();
+                    if(auto* confirmation=window.findChild<QDialog*>("deleteHistoryDialog");confirmation&&confirmation->isVisible())
+                        confirmation->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();
                 });
                 invoked=true;menu->setActiveAction(action);QKeyEvent enter(QEvent::KeyPress,Qt::Key_Return,Qt::NoModifier);QApplication::sendEvent(menu,&enter);
             });
@@ -1974,14 +2102,15 @@ static int verify_general_command_console(QApplication& application,AssemblyWork
         run("regenerate");check(run("document.relations.get").data.at("parameters").at("double_volume")=="18","Relations GUI source was not evaluated on Regenerate");
         json_run("document.relations.set",{{"relations",""}});relations_action->trigger();flush();relations_dialog=window.findChild<QDialog*>("relationsDialog");
         relations_dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
-        check(run("document.relations.get").data.at("relations").empty(),"Opening empty relations invented a mass relation");
+        check(run("document.relations.get").data.at("relations").get<std::string>().empty(),"Opening empty relations invented a mass relation");
         const commands::Json family_table={
             {"columns",{"LENGTH"}},
             {"bindings",{{"LENGTH",{{"kind","dimension"},{"owner",metadata_box},{"key","parameter:length_forward"}}}}},
             {"instances",commands::Json::array({{{"shared_name",true},{"labels",nlohmann::json::object()},{"name","Varianta 10"},{"id","console-length-variant"},{"values",{{"LENGTH","10"}}}}})}};
         json_run("document.family.set",{{"table",family_table}});auto* family_action=window.findChild<QAction*>("familyTableAction");check(family_action,"Family action missing");family_action->trigger();flush();
         auto* family_dialog=window.findChild<QDialog*>("familyTableDialog");auto* family_widget=family_dialog?family_dialog->findChild<QTableWidget*>("familyTableTable"):nullptr;
-        check(family_widget && family_widget->item(1,4)->text()=="10","GUI did not read native family table");family_widget->item(1,4)->setText("20");
+        check(family_widget && family_widget->item(1,4)->data(Qt::UserRole).toDouble()==10 &&
+            family_widget->item(1,4)->text().toDouble()==1,"GUI did not read native family table in document centimetres");family_widget->item(1,4)->setText("2");
         family_dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
         check(!window.findChild<QDialog*>("familyTableDialog") && run("document.family.get").data.at("table").at("instances")[0].at("values").at("LENGTH")=="20","Family GUI did not commit common data");
         family_action->trigger();flush();family_dialog=window.findChild<QDialog*>("familyTableDialog");family_dialog->findChild<QTableWidget*>("familyTableTable")->item(1,4)->setText("999");
@@ -2234,6 +2363,9 @@ static int verify_general_command_console(QApplication& application,AssemblyWork
                 }menu->close();
             });
             model_tree->customContextMenuRequested(model_tree->visualItemRect(item).center());messages.stop();flush();
+            if(auto* confirmation=window.findChild<QDialog*>("deleteHistoryDialog");confirmation&&confirmation->isVisible()) {
+                confirmation->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
+            }
             check(invoked&&issue.isEmpty(),"GUI construction removal failed");
         };
         remove_tree_construction(curve_id);check(json_run("construction.list",commands::Json::object()).data.at("total")==1,"GUI root curve removal left its owned Points");
@@ -2957,6 +3089,13 @@ static int verify_general_command_console(QApplication& application,AssemblyWork
                     }menu->close();
                 });
                 model_tree->customContextMenuRequested(model_tree->visualItemRect(item).center());messages.stop();timeout.stop();flush();
+                for(auto* confirmation:window.findChildren<QDialog*>())
+                    if(confirmation->isVisible()&&confirmation->objectName()=="deleteHistoryDialog") {
+                        auto* buttons=confirmation->findChild<QDialogButtonBox*>();
+                        check(buttons&&buttons->button(QDialogButtonBox::Ok),"Assembly cut deletion confirmation is missing");
+                        buttons->button(QDialogButtonBox::Ok)->click();flush();
+                        break;
+                    }
                 check(invoked&&issue.isEmpty(),"Assembly cut history menu failed");
             };
             const auto drag_cut=[&](const QString& before) {
@@ -3199,10 +3338,33 @@ static int verify_general_command_console(QApplication& application,AssemblyWork
         for(const bool title:{false,true}) {
             const std::string name=stem+(title?"-template-title":"-template-frame"),suffix=title?".tblz":".frmz";
             const auto created=json_run("template.new",{{"kind",title?"title_block":"drawing_format"},{"name",name}}).data;flush();
+            const auto enter_template_sketch=[&] {
+            // Native Part-based libraries enter their owned Sketch through
+            // the ordinary properties window before drawing tools are enabled.
+            QTreeWidgetItem* template_sketch_row=nullptr;
+            for(QTreeWidgetItemIterator it(model_tree);*it;++it)
+                if((*it)->data(0,Qt::UserRole+3)=="part-sketch"&&
+                    (*it)->data(0,Qt::UserRole).toString().toStdString()==created.at("sketch").get<std::string>())
+                    {template_sketch_row=*it;break;}
+            check(template_sketch_row,"Template owned Sketch is absent from Tree");
+            window.show_tree_item_properties(template_sketch_row);flush();
+            QDialog* sketch_editor=nullptr;
+            QPushButton* open_sketch=nullptr;
+            for(auto* candidate:window.findChildren<QDialog*>())
+                if(candidate->isVisible()) {
+                    auto* button=candidate->findChild<QPushButton*>("sketchOpenButton");
+                    if(!button)button=candidate->findChild<QPushButton*>("featureSketchButton");
+                    if(button){sketch_editor=candidate;open_sketch=button;break;}
+                }
+            check(sketch_editor&&sketch_editor->isVisible(),"Template owned Sketch Properties did not open");
+            check(open_sketch&&open_sketch->isEnabled(),"Template owned Sketch editor unavailable");
+            open_sketch->click();flush();
+            };
+            enter_template_sketch();
             const auto operations=commands::Json::array({{{"command","sketch.segment.create"},{"arguments",{{"first",{0,0}},{"second",{-20,0}}}}},
                 {{"command","sketch.text.create"},{"arguments",{{"value","Console template"},{"position",{-5,3}},{"height_mm",2.5}}}}});
             const commands::Json batch={{"command","template.sketch.edit"},{"arguments",{{"operations",operations}}}};
-            auto* line_action=window.findChild<QAction*>("sketchSegmentAction");check(line_action,"Missing template line action");line_action->trigger();flush();
+            auto* line_action=window.findChild<QAction*>("sketchSegmentAction");check(line_action&&line_action->isEnabled(),"Missing enabled template line action");line_action->trigger();flush();
             check(window.execute_console_command(QString::fromStdString(batch.dump())).code=="editing_in_progress","Template command overwrote active drawing tool");
             window.findChild<QAction*>("viewSelectionAction")->trigger();flush();
             const auto made=run(QString::fromStdString(batch.dump())).data;flush();const auto text_id=made.at("results")[1].at("text").get<std::string>();
@@ -3219,14 +3381,20 @@ static int verify_general_command_console(QApplication& application,AssemblyWork
             dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Cancel)->click();flush();
             dialog=edit_text();check(dialog->findChild<QDoubleSpinBox*>("sketchTextHeight")->value()==2.5,"Template Cancel changed text");
             dialog->findChild<QDoubleSpinBox*>("sketchTextHeight")->setValue(4);dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
-            run("template.save");const auto file=directory/(name+suffix);const auto load=[](auto& text){sketcher::rebuild_text_contours(text,true);};
-            check(drawing::load_template_sketch(file,load).texts.front().height==4,"GUI template edit did not persist through CLI Save");
-            run("undo");run("template.save");check(drawing::load_template_sketch(file,load).texts.front().height==2.5,"Template GUI edit did not Undo once");
+            run("template.save");const auto file=directory/(name+suffix);
+            const auto load=[&check](const std::filesystem::path& path) {
+                const auto native=document::PartDocument::load(path);
+                const auto found=std::ranges::find_if(native.sketches,[](const auto& sketch){return sketch.drawing_template.has_value();});
+                check(found!=native.sketches.end(),"Saved native template has no owned Sketch");return *found;
+            };
+            check(load(file).texts.front().height==4,"GUI template edit did not persist through CLI Save");
+            run("undo");run("template.save");check(load(file).texts.front().height==2.5,"Template GUI edit did not Undo once");
             run("redo");json_run("template.save",{{"path",name+"-copy"+suffix},{"copy",true}});flush();
-            check(drawing::load_template_sketch(directory/(name+"-copy"+suffix),load).texts.front().height==4,"Template Copy lost GUI changes");
+            check(load(directory/(name+"-copy"+suffix)).texts.front().height==4,"Template Copy lost GUI changes");
             json_run("close",{{"discard",true}});flush();json_run("template.open",{{"path",name+suffix}});flush();
             check(json_run("template.get",commands::Json::object()).data.at("sketch")==created.at("sketch"),"GUI template reopen lost Sketch identity");
             if(title) {
+                enter_template_sketch();
                 const auto logo=directory/(name+".svg");{std::ofstream out(logo);out<<R"(<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 4 2"><rect width="4" height="2" fill="red"/></svg>)";}
                 const auto image=json_run("template.image.create",{{"path",logo.filename().string()},{"x_mm",10},{"y_mm",20},{"width_mm",20}}).data;
                 const auto image_id=image.at("image").get<std::string>();flush();
@@ -3249,7 +3417,7 @@ static int verify_general_command_console(QApplication& application,AssemblyWork
                 check(json_run("template.region.get",{{"region",region_id}}).data.at("step_mm")==12,"Region GUI OK lost pitch");
                 component_menu_action(image_id,"template-image","","templateImageRemoveAction");check(json_run("template.image.list",commands::Json::object()).data.at("total")==0,"GUI image removal failed");run("undo");flush();
                 component_menu_action(region_id,"template-repeat-region","","templateRegionRemoveAction");check(json_run("template.region.list",commands::Json::object()).data.at("total")==0,"GUI region removal failed");run("undo");flush();run("template.save");
-                const auto saved=drawing::load_template_sketch(file,load);check(saved.drawing_template->images.front().id==image_id&&saved.drawing_template->images.front().value_locks.contains("height")&&saved.drawing_template->repeat_regions.front().id==region_id&&saved.drawing_template->repeat_regions.front().direction=="down","GUI object save lost identity or metadata");
+                const auto saved=load(file);check(saved.drawing_template->images.front().id==image_id&&saved.drawing_template->images.front().value_locks.contains("height")&&saved.drawing_template->repeat_regions.front().id==region_id&&saved.drawing_template->repeat_regions.front().direction=="down","GUI object save lost identity or metadata");
             }
 
             json_run("close",{{"discard",true}});flush();

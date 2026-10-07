@@ -47,7 +47,7 @@ class QTreeWidgetItem;
 class QStackedWidget;
 class QSplitter;
 
-namespace zima::ui { class ContainerPlacementSection; }
+namespace zima::ui { class ContainerPlacementSection; class OperationActivity; }
 
 namespace zima::viewer { class MeshView; struct ViewerCandidate; }
 
@@ -223,6 +223,8 @@ private:
     DrawingWindow* drawing_workspace_{};
     QLabel* state_{};
     QProgressBar* operation_progress_{};
+    zima::ui::OperationActivity* operation_activity_{};
+    std::uint64_t status_activity_token_{};
     int operation_progress_generation_{};
     QToolBar* main_toolbar_{};
     QToolBar* view_toolbar_{};

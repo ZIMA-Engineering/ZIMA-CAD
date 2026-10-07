@@ -1,4 +1,5 @@
 #include "workspace_internal.hpp"
+#include <zima/ui/operation_activity.hpp>
 #include "../document_numeric_display.hpp"
 #include "../body_properties_display.hpp"
 #include <zima/command_host/host.hpp>
@@ -51,6 +52,7 @@ void AssemblyWorkspaceWindow::report_operation_error(const QString& title,const 
 Result AssemblyWorkspaceWindow::execute_console_command(const QString& text) {
     if(console_executing_)return Result::failure("busy",tr("Jiný příkaz právě probíhá.").toStdString());
     const QScopedValueRollback running(console_executing_,true);
+    ui::OperationActivity::Scope activity(operation_activity_, tr("Pracuji…"));
     console_operation_error_.clear();console_status_operation_=false;
     auto result=Result::success();
     try {

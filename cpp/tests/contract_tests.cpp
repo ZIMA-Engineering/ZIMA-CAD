@@ -1024,10 +1024,12 @@ int main() {
                                 std::abs(point.z - 10.0) < 1.0e-7;
                         });
             });
+        // A merged coplanar face belongs to its oldest contributing feature.
+        // A unified outer edge still records its native parent ancestry below.
         require(adjacent_top_owners ==
-                    std::set<std::string>{"adjacent-a", "adjacent-b"} &&
+                    std::set<std::string>{"adjacent-a"} &&
                     !draws_provenance_seam,
-                "Same-domain fuse merged source-face identities or drew their logical seam");
+                "Coplanar fuse lost the oldest source-face identity or drew a join seam");
 
         std::vector<zima::kernel::EdgeReference> adjacent_top_front_route;
         std::set<std::string> adjacent_route_owners;
@@ -1041,10 +1043,16 @@ int main() {
             adjacent_top_front_route.push_back(edge.reference);
             adjacent_route_owners.insert(edge.reference.owner_id);
         }
-        require(adjacent_top_front_route.size() == 2 &&
+        require(adjacent_top_front_route.size() == 1 &&
                     adjacent_route_owners ==
-                        std::set<std::string>{"adjacent-a", "adjacent-b"},
-                "Fused Body did not retain both stable members of its tangent route");
+                        std::set<std::string>{"adjacent-b"} &&
+                    adjacent_top_front_route.front().semantic_key.starts_with(
+                        "boolean:add:intersection:between:") &&
+                    adjacent_top_front_route.front().semantic_key.find(
+                        "10:adjacent-a") != std::string::npos &&
+                    adjacent_top_front_route.front().semantic_key.find(
+                        "10:adjacent-b") != std::string::npos,
+                "Unified tangent route lost its native ancestry from either source");
         const auto tangent_route_fillet = kernel.evaluate_history({
             {"adjacent-a", zima::test::ProfilePrism{10.0, 10.0, 10.0},
              zima::kernel::BooleanOperation::Add},
@@ -1765,16 +1773,13 @@ int main() {
         }
         require(cut_edge_owners.contains("base") && cut_edge_owners.contains("cut"),
                 "Boolean history did not propagate both original edge owners");
-        bool rejected_first_subtract = false;
-        try {
-            static_cast<void>(zima::test::profile_history(kernel,{
-                {"cut", zima::test::ProfilePrism{10.0, 10.0, 10.0},
-                 zima::kernel::BooleanOperation::Subtract},
-            }));
-        } catch (const std::invalid_argument&) {
-            rejected_first_subtract = true;
-        }
-        require(rejected_first_subtract, "Kernel accepted subtract as first operation");
+        const auto empty_cut=zima::test::profile_history(kernel,{
+            {"cut", zima::test::ProfilePrism{10.0, 10.0, 10.0},
+             zima::kernel::BooleanOperation::Subtract},
+        });
+        require(empty_cut.volume==0 && empty_cut.mesh.triangles.empty() &&
+            !empty_cut.mesh.original_references.triangles.empty() && empty_cut.calculation_errors.empty(),
+            "First subtract did not retain a valid tool without adding material");
         zima::test::ProfilePrism first_placed{10.0, 10.0, 10.0};
         zima::test::ProfilePrism second_placed{10.0, 10.0, 10.0};
         second_placed.translation = {20.0, 0.0, 0.0};

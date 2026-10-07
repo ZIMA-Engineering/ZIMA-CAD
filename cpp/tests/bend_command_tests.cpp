@@ -795,10 +795,15 @@ void verify_sheet_cut(std::filesystem::path directory,bool rotated=false) {
     auto outside=sketcher::Sketch::create_default();static_cast<void>(outside.add_rectangle(100,100,110,110));
     auto missing=document::PartDocument::create_extrusion_container(outside.id);
     missing.combine_mode=document::CombineMode::Subtract;missing.extrusion=cut.extrusion;missing.extrusion.sketch_id=outside.id;
-    const auto history_size=state->session.document().history.size();bool rejected=false;
-    try{workspace::commit_profile(live,kernel,id,missing,workspace::ProfileEditMode::Create,outside);}catch(const std::exception&){rejected=true;}
-    check(rejected&&state->session.document().history.size()==history_size,"Nonintersecting Sheet Cut committed a history row");
+    const auto history_size=state->session.document().history.size();
+    workspace::commit_profile(live,kernel,id,missing,workspace::ProfileEditMode::Create,outside);
+    check(state->session.document().history.size()==history_size+1&&state->session.document().find_container(missing.id)&&
+        state->session.calculated_boundaries().back().calculation_errors.empty(),"Nonintersecting Sheet Cut did not retain a valid no-op definition");
     near(state->session.calculated_boundaries().back().volume,circle_result.volume);
+    check(document::serialize_body_result(state->session.calculated_boundaries().back(),false).value("sheet_cuts",Json::array())==
+        document::serialize_body_result(circle_result,false).value("sheet_cuts",Json::array()),"Nonintersecting Sheet Cut changed prior material cuts");
+    run(host,"undo");check(!state->session.document().find_container(missing.id),"Missed Sheet Cut Undo retained its definition");
+    run(host,"redo");check(state->session.calculated_boundaries().back().calculation_errors.empty(),"Missed Sheet Cut Redo failed");
     for(const std::string kind:{"flat","bend","cone"}) {
         run(host,"new",{{"type","part"},{"name","sheet-cut-"+kind}});
         const auto document_id=live.active_document_id();state=live.open_part(document_id);

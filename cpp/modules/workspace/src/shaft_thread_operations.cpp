@@ -65,9 +65,10 @@ bool commit_shaft_thread(Workspace& live,const kernel::OcctKernel& kernel,const 
     static_cast<void>(kernel::resolve_shaft_thread(document::PartDocument::shaft_thread_request(feature,&references)));
     if(stored&&*stored==feature)return false;
     auto next=before;
+    const auto feature_id=feature.id;
     if(stored)*next.find_container(feature.id)=std::move(feature);
     else {next.insert_history_entry(document::PartHistoryKind::Feature,feature.id);next.history.push_back(std::move(feature));}
-    PartCalculationPolicy policy;policy.reject_errors=true;
+    auto policy=feature_definition_calculation_policy(before,state->session.calculated_boundaries(),feature_id);
     if(stored){policy.edited_document_id=id;policy.edited_history_limit=before.history_index(stored->id);}
     auto calculated=calculate_part(kernel,next,&state->session.calculated_boundaries(),policy);
     state->session.commit(std::move(next),std::move(calculated));return true;

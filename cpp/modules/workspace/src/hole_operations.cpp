@@ -96,7 +96,7 @@ bool commit_hole(Workspace& live,const kernel::OcctKernel& kernel,const std::str
     append_reference_geometry(references,next.origin_viewer_mesh().original_references);
     append_reference_geometry(references,next.construction_viewer_mesh().original_references);
     next.resolve_constructions(references);
-    PartCalculationPolicy policy;policy.reject_errors=true;
+    auto policy=feature_definition_calculation_policy(before,previous,container_id);
     if(existing){policy.edited_document_id=id;policy.edited_history_limit=before.history_index(existing->id);}
     auto calculated=calculate_part_with_resolved_references(kernel,next,&previous,policy);
     static_cast<void>(refresh_sketch_external_references(next,calculated));

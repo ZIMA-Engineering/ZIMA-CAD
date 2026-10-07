@@ -23,7 +23,7 @@ bool commit_general_surface(Workspace& live,const kernel::OcctKernel& kernel,con
     auto next=before;const auto owner=feature.id;
     if(existing)*next.find_container(owner)=std::move(feature);
     else {next.insert_history_entry(document::PartHistoryKind::Feature,owner);next.history.push_back(std::move(feature));}
-    PartCalculationPolicy policy;policy.reject_errors=true;
+    auto policy=feature_definition_calculation_policy(before,state->session.calculated_boundaries(),owner);
     if(existing){policy.edited_document_id=id;policy.edited_history_limit=before.history_index(owner);}
     auto calculated=calculate_part_with_resolved_references(kernel,next,&state->session.calculated_boundaries(),policy);
     if(next.serialized()==before.serialized()){state->session.update_calculated_boundaries(std::move(calculated));return false;}

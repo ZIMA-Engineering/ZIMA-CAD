@@ -1,5 +1,6 @@
 #include "workspace_internal.hpp"
 #include "../surface_thicken_dialog.hpp"
+#include "../surface_thicken_selection.hpp"
 #include <zima/document/boundary_surface.hpp>
 #include <zima/workspace/surface_thicken_operations.hpp>
 namespace zima::app {
@@ -26,6 +27,7 @@ void AssemblyWorkspaceWindow::show_surface_thicken_properties(const std::string&
                 reference_display_label(reference,viewer_->mesh().original_references).value_or(tr("Plocha"));
         };
         auto offered=std::make_shared<std::set<std::pair<std::string,std::string>>>();
+        auto selection=std::make_shared<std::optional<SurfaceThickenSelection>>();
         const auto resolve=[this,dialog,document_id,offered,path=*occurrence](const viewer::ViewerCandidate& candidate)->std::optional<kernel::FaceReference> {
             if(candidate.instance_path!=path||candidate.kind!=viewer::CandidateKind::Face||candidate.geometry!=viewer::CandidateGeometry::OriginalReference)return {};
             kernel::FaceReference reference{candidate.owner_id,candidate.semantic_key,{}};
@@ -34,15 +36,17 @@ void AssemblyWorkspaceWindow::show_surface_thicken_properties(const std::string&
             if(!offered->contains({reference.owner_id,reference.semantic_key}))return {};
             return reference;
         };
-        const auto update=[this,dialog,resolve,path=*occurrence] {
+        const auto update=[this,dialog,resolve,selection,path=*occurrence] {
             viewer_->set_original_container_selection(true);viewer_->set_original_face_selection(true);
             viewer_->set_selection_contract({viewer::CandidateKind::Face});
             viewer_->set_candidate_filter([dialog,resolve](const auto& candidate){return dialog->active_row()>=0&&resolve(candidate).has_value();},false);
             std::vector<viewer::ViewerCandidate> faces;
             if(dialog->inspected()) {
-                const auto& reference=dialog->pending.surface_thicken.face;viewer::ViewerCandidate candidate;
-                candidate.kind=viewer::CandidateKind::Face;candidate.geometry=viewer::CandidateGeometry::OriginalReference;
-                candidate.owner_id=reference.owner_id;candidate.semantic_key=reference.semantic_key;candidate.instance_path=path;faces.push_back(std::move(candidate));
+                if(*selection)for(const auto& reference:(*selection)->faces(dialog->pending.surface_thicken.face)) {
+                    viewer::ViewerCandidate candidate;
+                    candidate.kind=viewer::CandidateKind::Face;candidate.geometry=viewer::CandidateGeometry::OriginalReference;
+                    candidate.owner_id=reference.owner_id;candidate.semantic_key=reference.semantic_key;candidate.instance_path=path;faces.push_back(std::move(candidate));
+                }
             }
             viewer_->set_inspected_faces(std::move(faces));
         };
@@ -57,6 +61,7 @@ void AssemblyWorkspaceWindow::show_surface_thicken_properties(const std::string&
         preserve_view_on_refresh_=true;refresh_scene();
         for(const auto& face:viewer_->mesh().triangle_references)if(face.instance_path==*occurrence&&face.surface_result)
             offered->emplace(face.owner_id,face.semantic_key);
+        selection->emplace(viewer_->mesh(),*occurrence);
         dialog->refresh();dialog->show();update();
     }catch(const std::exception& error){state_->setText(tr(error.what()));}
 }

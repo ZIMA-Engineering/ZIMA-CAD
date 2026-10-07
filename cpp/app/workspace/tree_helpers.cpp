@@ -75,6 +75,7 @@ QString feature_icon_name(zima::document::FeatureKind kind) {
         case FeatureKind::RestoreShape: return QStringLiteral("restore-shape");
         case FeatureKind::Flat: return QStringLiteral("flat");
         case FeatureKind::TwistedSheet: return QStringLiteral("sheet-twist");
+        case FeatureKind::SheetForm: return QStringLiteral("sheet-form");
         case FeatureKind::BoundarySurface: return QStringLiteral("boundary-surface");
         case FeatureKind::SurfaceThicken: return QStringLiteral("surface-thicken");
         case FeatureKind::SurfaceSewing: return QStringLiteral("surface-sewing");

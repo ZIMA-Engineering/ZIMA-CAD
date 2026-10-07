@@ -55,7 +55,7 @@ bool commit_shell(Workspace& live,const kernel::OcctKernel& kernel,const std::st
     append_reference_geometry(references,next.origin_viewer_mesh().original_references);
     append_reference_geometry(references,next.construction_viewer_mesh().original_references);
     next.resolve_constructions(references);
-    PartCalculationPolicy policy;policy.reject_errors=true;
+    auto policy=feature_definition_calculation_policy(before,state->session.calculated_boundaries(),feature_id);
     if(stored){policy.edited_document_id=id;policy.edited_history_limit=before.history_index(feature_id);}
     auto calculated=calculate_part(kernel,next,&previous,policy);
     static_cast<void>(refresh_sketch_external_references(next,calculated));

@@ -1,5 +1,6 @@
 #include <zima/document/feature_parameter_dimensions.hpp>
 #include <zima/document/holes.hpp>
+#include <zima/document/sheet_form_definition.hpp>
 #include <zima/workspace/family_operations.hpp>
 #include <zima/document/object_annotation_frames.hpp>
 #include <zima/workspace/drawing_sources.hpp>
@@ -16,6 +17,40 @@
 #include <zima/workspace/workspace.hpp>
 namespace zima::workspace {
 namespace {
+symbols::Placement form_symbol(const document::PartDocument& part,
+        const document::HistoryContainer& feature,const kernel::SheetMaterialDefinition& material) {
+  using namespace kernel::sheet_material;
+  const auto source=document::stored_sheet_form_definition(feature.sheet_form);
+  const auto original=std::ranges::find(source.part.sketches,source.symbol_sketch,&sketcher::Sketch::id);
+  if(original==source.part.sketches.end())throw std::invalid_argument("Invalid FORM definition.");
+  // Preserve the independent authored Sketch. The drawing adapter owns a
+  // standalone local XY copy of its evaluated curves; external supports and
+  // dimensions are editing context, rather than manufacturing symbol strokes.
+  auto sketch=original->evaluated_profile_sketch();
+  sketch.owner_container_id.clear();sketch.plane_reference_owner_id.clear();
+  sketch.external_references.clear();sketch.constraints.clear();sketch.dimensions.clear();
+  sketch.plane=sketcher::SketchPlane::XY;sketch.plane_offset=0;sketch.refresh_default_frame();
+  symbols::Definition definition;definition.id="form:symbol-definition:"+feature.id;
+  definition.name=feature.sheet_form.source_name;definition.default_variant="default";
+  definition.variants[definition.default_variant].sketches={sketch.id};definition.sketches={std::move(sketch)};
+  symbols::Placement result;result.symbol.id="form:symbol:"+feature.id;
+  result.symbol.definition=definition.serialized();result.symbol.variant=definition.default_variant;
+  const auto request=document::sheet_form_request(source,{}, {},{0,1,0},{1,0,0},feature.sheet_form.thickness);
+  kernel::ViewerMesh basis;const auto origin=original->world_point(0,0);
+  basis.vertices={origin,add(origin,original->x_axis()),add(origin,original->y_axis())};
+  basis=source.part.place_body_mesh(std::move(basis),source.bodies[3]);
+  const auto source_z=cross(request.source_x,request.source_normal);
+  const auto destination_z=cross(material.along,material.radial);
+  const auto vector=[&](kernel::Vec3 p) {return add(mul(material.along,dot(p,request.source_x)),
+      add(mul(material.radial,dot(p,request.source_normal)),mul(destination_z,dot(p,source_z))));};
+  result.frame.origin=add(material.origin,vector(sub(basis.vertices[0],request.source_origin)));
+  result.frame.x=vector(sub(basis.vertices[1],basis.vertices[0]));
+  result.frame.y=vector(sub(basis.vertices[2],basis.vertices[0]));
+  basis.vertices={result.frame.origin,add(result.frame.origin,result.frame.x),add(result.frame.origin,result.frame.y)};
+  if(const auto* body=part.body_owner_for_object(feature.id))basis=part.place_body_mesh(std::move(basis),body->scope.id);
+  result.frame={basis.vertices[0],sub(basis.vertices[1],basis.vertices[0]),sub(basis.vertices[2],basis.vertices[0])};
+  result.unresolved=!feature.placement.reference_valid;result.validate();return result;
+}
 struct AnnotationTransform {
   assembly::ComponentPlacement placement;
   std::optional<kernel::MirrorPlane> mirror;
@@ -90,12 +125,32 @@ drawing_annotation_sources(const Workspace *workspace,
     std::map<std::string,drawing::ThreadDesignation> threads;
     std::vector<symbols::Placement> native_symbols;
     const auto part_mesh = [&](const document::PartDocument &part,
-                               const kernel::ViewerMesh &calculated) {
+                               const kernel::ViewerMesh &calculated,
+                               const std::map<std::string,std::string>& calculation_errors) {
       if (part.document_id != id)
         throw std::runtime_error(
             "Annotation source document identity mismatch");
       envelope=kernel::model_envelope(calculated);frames=document::part_annotation_envelopes(part,calculated);layouts=part.dimension_layouts;
       native_symbols=part.symbol_annotations;
+      if(std::ranges::any_of(part.history,[](const auto& feature){return !feature.suppressed&&feature.feature_kind==document::FeatureKind::SheetForm;})) {
+        // Reuse native material-state mathematics. This reads authored data;
+        // it neither loads source files nor asks OCCT to reconstruct geometry.
+        std::map<std::string,std::vector<kernel::HistoryOperation>> bodies;
+        for(auto operation:part.kernel_operations())bodies[operation.body.id].push_back(std::move(operation));
+        for(const auto& [body_id,operations]:bodies) {
+          const auto* body=part.body_history.find(body_id);
+          if(body&&(body->suppressed||!body->visible))continue;
+          const auto state=kernel::sheet_material::regions_before(operations,operations.size());
+          for(const auto& region:state.regions)if(region.kind==kernel::SheetMaterialDefinition::Kind::Form) {
+            const auto* feature=part.find_container(region.owner_id);
+            if(feature&&!feature->suppressed) {
+              auto symbol=form_symbol(part,*feature,region);
+              symbol.unresolved=symbol.unresolved||calculation_errors.contains(feature->id);
+              native_symbols.push_back(std::move(symbol));
+            }
+          }
+        }
+      }
       append(mesh, part.construction_viewer_mesh());
       append(mesh, part.origin_viewer_mesh());
       frames[{part.document_id+":origin",{}}]=envelope;
@@ -287,7 +342,9 @@ drawing_annotation_sources(const Workspace *workspace,
     std::ranges::transform(extension,extension.begin(),[](unsigned char c){return static_cast<char>(std::tolower(c));});
     if (workspace && workspace->open_part(id))
       part_mesh(workspace->open_part(id)->session.document(),
-                workspace->authoritative_viewer_mesh(id));
+                workspace->authoritative_viewer_mesh(id),
+                workspace->open_part(id)->session.calculated_boundaries().empty()?std::map<std::string,std::string>{}:
+                    workspace->open_part(id)->session.calculated_boundaries().back().calculation_errors);
     else if (workspace && workspace->open_assembly(id))
       assembly_mesh(workspace->open_assembly(id)->session.document());
     else if (extension == ".prtz") {
@@ -296,7 +353,9 @@ drawing_annotation_sources(const Workspace *workspace,
       Workspace source;
       source.add_part(std::move(part),std::move(boundaries),path);
       if(!source.open_part(id))throw std::runtime_error("Annotation source document identity mismatch");
-      part_mesh(source.open_part(id)->session.document(),source.authoritative_viewer_mesh(id));
+      part_mesh(source.open_part(id)->session.document(),source.authoritative_viewer_mesh(id),
+                source.open_part(id)->session.calculated_boundaries().empty()?std::map<std::string,std::string>{}:
+                    source.open_part(id)->session.calculated_boundaries().back().calculation_errors);
     } else if (extension == ".asmz")
       assembly_mesh(read_family_assembly(workspace,path,id));
     else

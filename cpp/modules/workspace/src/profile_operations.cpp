@@ -212,7 +212,7 @@ void commit_profile(Workspace& live, const kernel::OcctKernel& kernel, const std
     next.resolve_constructions(geometry);
     if(!next.find_container(container_id)->placement.reference_valid)
         throw ProfileOperationError("invalid_reference", "The proposed feature placement references cannot be resolved.");
-    PartCalculationPolicy policy; policy.reject_errors = true;
+    auto policy = feature_definition_calculation_policy(before, previous, container_id);
     if (existing) {policy.edited_document_id = id; policy.edited_history_limit = before.history_index(container_id);}
     auto calculated = calculate_part_with_resolved_references(kernel, next, &previous, policy);
     static_cast<void>(refresh_sketch_external_references(next, calculated));

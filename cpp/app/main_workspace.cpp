@@ -2992,6 +2992,7 @@ int verify_pending_container_tree(QApplication& application,
             : parent_dialog->pending_sweep_value().id;
         const auto origin_id = assembly ? parent_dialog->pending_value().container_origin.id
             : parent_dialog->pending_sweep_value().container_origin.id;
+        const auto point_parent_origin_id = parent_dialog->pending_value().container_origin.id;
         auto* pending = find(assembly ? "assembly-construction" : "part-container", parent_id);
         if (!verify(pending && pending->background(0).color() == QColor("#4DD811") &&
                 !find(marker), "Pending container did not replace insertion marker in green")) return 1;
@@ -3023,14 +3024,19 @@ int verify_pending_container_tree(QApplication& application,
 
         click_row(find("construction-origin", point->pending_value().container_origin.id));
         if (!verify(point->populated_references().empty(), "Point accepted its own Origin")) return 1;
-        click_row(find("construction-origin", origin_id));
+        auto* default_origin = point->findChild<QPushButton*>("containerDefaultOriginButton");
+        if (!verify(default_origin && default_origin->isVisible() &&
+                default_origin->mapTo(point, QPoint{}).x() + default_origin->width() <= origin_mode->mapTo(point, QPoint{}).x() &&
+                std::abs(default_origin->mapTo(point, QPoint{}).y() - origin_mode->mapTo(point, QPoint{}).y()) <= 2,
+                "Default Origin shortcut is missing or not left of Origin")) return 1;
+        default_origin->click(); flush();
         if (!verify(point->populated_references().size() == 3,
                 "Whole pending local Origin did not populate all three Point references")) return 1;
         const auto local = point->pending_value().origin;
         if (!verify(std::abs(local.x) + std::abs(local.y) + std::abs(local.z) < 1e-8,
                 "Point on an offset parent Origin was not resolved in the parent frame")) return 1;
         for (const auto& reference : point->populated_references())
-            if (!verify(reference.owner_id == origin_id,
+            if (!verify(reference.owner_id == point_parent_origin_id,
                     "Point reference was redirected away from its parent Origin")) return 1;
         if (!verify(find("curve3d-point", point_id), "Pending Point is missing from its parent Tree")) return 1;
         point->buttons()->button(QDialogButtonBox::Ok)->click(); flush();
@@ -3059,13 +3065,9 @@ int verify_pending_container_tree(QApplication& application,
         if (!verify(find(marker) && find(assembly ? "assembly-construction" : "part-construction", created_id),
                 "Edit Cancel removed the committed container")) return 1;
         if (!assembly) {
-            window.findChild<QAction*>("featurePrototypeAction")->trigger(); flush();
-            zima::app::PrimitivePropertiesDialog* box_dialog{};
-            for (auto* child : window.findChildren<QDialog*>())
-                if (auto* value = dynamic_cast<zima::app::PrimitivePropertiesDialog*>(child);
-                    value && value->isVisible()) box_dialog = value;
-            if (!verify(box_dialog, "Missing box fixture for Origin action")) return 1;
-            box_dialog->buttons()->button(QDialogButtonBox::Ok)->click(); flush();
+            if (!verify(zima::test::gui_rectangular_profile(window,10,10,10).ok,
+                    "Missing calculated fixture for Shell Origin action")) return 1;
+            flush();
             window.findChild<QAction*>("shellAction")->trigger(); flush();
             zima::app::PrimitivePropertiesDialog* shell_dialog{};
             for (auto* child : window.findChildren<QDialog*>())
@@ -3073,14 +3075,8 @@ int verify_pending_container_tree(QApplication& application,
                     value && value->isVisible()) shell_dialog = value;
             if (!verify(shell_dialog, "Missing Shell properties for Origin action")) return 1;
             auto* shell_origin = shell_dialog->findChild<QPushButton*>("containerOriginSelectionButton");
-            if (!verify(shell_origin, "Shell properties have no Origin action")) return 1;
-            const auto face_contract = model_view->selection_contract();
-            shell_origin->click(); flush();
-            if (!verify(model_view->selection_contract() == std::vector{zima::viewer::CandidateKind::Container},
-                    "Shell Origin action did not suspend face picking")) return 1;
-            shell_origin->click(); flush();
-            if (!verify(model_view->selection_contract() == face_contract,
-                    "Shell Origin action failed to restore face picking")) return 1;
+            if (!verify(!shell_origin && !shell_dialog->findChild<QPushButton*>("containerDefaultOriginButton"),
+                    "Source-face-only Shell offers an unrelated Origin placement action")) return 1;
             shell_dialog->buttons()->button(QDialogButtonBox::Cancel)->click(); flush();
         }
         // Closing the application with a nested editor must retire its hidden parent too.
@@ -9456,10 +9452,12 @@ int verify_startup_contract(
                     global_dialog->findChild<QLineEdit*>(
                         "globalPathFormats") != nullptr &&
                     global_dialog->findChild<QLineEdit*>(
+                        "globalPathForms") != nullptr &&
+                    global_dialog->findChild<QLineEdit*>(
                         "globalPathLocalization") != nullptr &&
                     global_buttons != nullptr &&
                     global_buttons->buttons().size() == 2,
-                "Global Settings must expose the five configured paths and shared confirmation actions")) {
+                "Global Settings must expose configured library paths and shared confirmation actions")) {
         return 1;
     }
     global_buttons->button(QDialogButtonBox::Cancel)->click();

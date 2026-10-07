@@ -113,6 +113,8 @@ struct HistoryDependencyCollector {
             break;
         case FeatureKind::SurfaceThicken:
             reference(root,feature.surface_thicken.face);break;
+        case FeatureKind::SheetForm:
+            reference(root,feature.sheet_form.support);break;
         case FeatureKind::SurfaceSewing:
             for(const auto& face:feature.surface_sewing.faces)reference(root,face);
             break;

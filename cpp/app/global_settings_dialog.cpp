@@ -154,6 +154,7 @@ GlobalSettingsDialog::GlobalSettingsDialog(
         {"Templates", settings_.text("global.path.templates", tr("Šablony"))},
         {"Formats", settings_.text("global.path.formats", tr("Formáty výkresů"))},
         {"Symbols", settings_.text("global.path.symbols", tr("Symboly"))},
+        {"Forms", settings_.text("global.path.forms", tr("Knihovna FORM"))},
         {"Localization", settings_.text("global.path.localization", tr("Překlady"))}};
     for (auto it = path_labels.cbegin(); it != path_labels.cend(); ++it) {
         auto* row = new QWidget(this);

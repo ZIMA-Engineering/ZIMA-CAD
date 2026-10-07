@@ -9,6 +9,7 @@
 #include "primitive_properties_dialog.hpp"
 #include <zima/document/profile_status.hpp>
 #include <zima/document/bend.hpp>
+#include <zima/document/sheet_form_definition.hpp>
 #include "thread_catalog.hpp"
 
 #include <zima/ui/reference_cell.hpp>
@@ -56,7 +57,8 @@ bool uses_container_placement(zima::document::FeatureKind kind) {
     return kind == FeatureKind::Extrusion || kind == FeatureKind::Revolution || kind == FeatureKind::Feature ||
         kind == FeatureKind::TwistedSheet || kind == FeatureKind::DerivedCopy ||
         kind == FeatureKind::ImportedStep || kind == FeatureKind::Hole ||
-        kind == FeatureKind::Thread || kind == FeatureKind::SheetTransition || kind == FeatureKind::GeneralSurface;
+        kind == FeatureKind::Thread || kind == FeatureKind::SheetTransition || kind == FeatureKind::GeneralSurface ||
+        kind == FeatureKind::SheetForm;
 }
 
 namespace {
@@ -88,6 +90,7 @@ QString primitive_properties_title(zima::document::FeatureKind kind) {
 
 
         case FeatureKind::TwistedSheet: return QObject::tr("Vlastnosti krouceného plechu");
+        case FeatureKind::SheetForm: return QObject::tr("FORM Properties");
         case FeatureKind::Feature: return QObject::tr("Vlastnosti prvku");
         case FeatureKind::Extrusion: return QObject::tr("Vlastnosti vytažení");
         case FeatureKind::Revolution: return QObject::tr("Vlastnosti rotace");
@@ -157,7 +160,8 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
     // exposes a user-selectable operation even though both share this dialog.
     if (!treatment && initial.feature_kind !=
             zima::document::FeatureKind::Thread &&
-        initial.feature_kind != zima::document::FeatureKind::DrillPoint) {
+        initial.feature_kind != zima::document::FeatureKind::DrillPoint &&
+        initial.feature_kind != zima::document::FeatureKind::SheetForm) {
         operation_ = new QComboBox(this);
         if (!assembly_cut_mode) operation_->addItem(tr("Přičíst"), "add");
         if (allow_subtract || assembly_cut_mode) {
@@ -1243,6 +1247,19 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
         if(shell_thickness_)connect(shell_thickness_, qOverload<double>(&QDoubleSpinBox::valueChanged),
             this, [this] { notify_preview(); });
         set_shell_faces(initial.shell.removed_faces);
+    } else if (initial.feature_kind == zima::document::FeatureKind::SheetForm) {
+        rotation_[1]->setObjectName("sheetFormRotation");
+        sheet_form_preview_=zima::document::sheet_form_preview_edges(initial.sheet_form);
+        sheet_form_source_=new QLabel(QString::fromStdString(initial.sheet_form.source_name),this);
+        sheet_form_source_->setObjectName("sheetFormDefinition");
+        sheet_form_source_->setTextInteractionFlags(Qt::TextSelectableByMouse);
+        sheet_form_source_->setWordWrap(true);
+        form->addRow(tr("FORM definition"),sheet_form_source_);
+        auto* replace=new QPushButton(tr("Replace definition…"),this);
+        replace->setObjectName("sheetFormReplaceDefinition");
+        connect(replace,&QPushButton::clicked,this,[this]{
+            if(sheet_form_definition_request_)sheet_form_definition_request_();});
+        form->addRow(QString{},replace);
     } else if (initial.feature_kind == zima::document::FeatureKind::ImportedStep) {
         auto* source = new QLabel(
             QString::fromStdString(initial.imported_step.source_path), this);
@@ -1692,7 +1709,8 @@ zima::document::HistoryContainer PrimitivePropertiesDialog::values() const {
     } else if (result.feature_kind == zima::document::FeatureKind::Shell) {
         result.shell.removed_faces = shell_faces_;
         result.shell.thickness = shell_thickness_?shell_thickness_->value():0.;
-    } else if (result.feature_kind != zima::document::FeatureKind::ImportedStep) {
+    } else if (result.feature_kind != zima::document::FeatureKind::ImportedStep &&
+               result.feature_kind != zima::document::FeatureKind::SheetForm) {
         const auto mode = treatment_type_->currentData().toString();
         if (result.feature_kind == zima::document::FeatureKind::Fillet) {
             result.edge_treatment.fillet_mode = mode == "linear"
@@ -1717,6 +1735,22 @@ zima::document::HistoryContainer PrimitivePropertiesDialog::values() const {
             ? placement_->combined_references(3)
             : std::vector<zima::document::ConstructionReference>{};
         result.placement.references = placement_references;
+    }
+    if(result.feature_kind==zima::document::FeatureKind::SheetForm) {
+        result.sheet_form.support={};
+        if(!result.placement.references.empty()) {
+            const auto& reference=result.placement.references.front();
+            const auto face=std::ranges::find_if(sheet_reference_geometry_.triangle_references,[&](const auto& candidate){return
+                candidate.owner_id==reference.owner_id&&candidate.semantic_key==reference.semantic_key&&
+                candidate.instance_path==reference.instance_path;});
+            if(face!=sheet_reference_geometry_.triangle_references.end()&&face->sheet_thickness>0&&
+               (face->sheet_role==zima::kernel::SheetFaceRole::SideA||face->sheet_role==zima::kernel::SheetFaceRole::SideB)) {
+                result.sheet_form.support=*face;result.sheet_form.thickness=face->sheet_thickness;
+            }
+        }
+        // Loading precedes publication of the native reference universe.
+        // Keep the exact persisted value until that universe is installed.
+        if(sheet_reference_geometry_.triangle_references.empty())result.sheet_form.support=initial_.sheet_form.support;
     }
     if(result.feature_kind==zima::document::FeatureKind::Revolution&&result.revolution.sheet_metal) {
         result.combine_mode=zima::document::CombineMode::Add;
@@ -2188,6 +2222,30 @@ void PrimitivePropertiesDialog::notify_preview() {
     if (profile_plane_ && profile_plane_changed_)
         profile_plane_changed_(static_cast<zima::sketcher::SketchPlane>(selected_work_plane(profile_plane_).toInt()), automatic_work_plane(profile_plane_));
     if (preview_) preview_(values());
+    lock_sheet_form_fields();
+}
+
+void PrimitivePropertiesDialog::lock_sheet_form_fields() {
+    if(initial_.feature_kind!=zima::document::FeatureKind::SheetForm||!placement_)return;
+    // A placed FORM may rotate in its support plane, never tilt away from it.
+    for(auto i:{0,2}) {
+        rotation_[i]->setEnabled(false);
+        placement_->rotation_fields()[i]->setEnabled(false);
+    }
+    if(initial_.sheet_form.support.valid()) {
+        for(auto* field:placement_->rotation_fields())field->setEnabled(false);
+        rotation_[1]->setEnabled(true);
+    }
+    if(auto* flip=findChild<QPushButton*>("containerOrientationFlipButton"))flip->setEnabled(false);
+}
+
+void PrimitivePropertiesDialog::replace_sheet_form_definition(zima::document::SheetFormParameters value) {
+    // Prepare the entire new wire before touching the pending definition.
+    auto preview=zima::document::sheet_form_preview_edges(value);
+    value.support=initial_.sheet_form.support;value.thickness=initial_.sheet_form.thickness;
+    initial_.sheet_form=std::move(value);sheet_form_preview_=std::move(preview);
+    sheet_form_source_->setText(QString::fromStdString(initial_.sheet_form.source_name));
+    notify_preview();
 }
 
 void PrimitivePropertiesDialog::set_extrusion_target_cancel(
@@ -2491,6 +2549,14 @@ void PrimitivePropertiesDialog::lock_sheet_attachment_fields() {
     }
 }
 bool PrimitivePropertiesDialog::sheet_reference_allowed(std::size_t index,const zima::document::ConstructionReference& reference) const {
+    if(initial_.feature_kind==zima::document::FeatureKind::SheetForm&&index==0&&
+       !reference.semantic_key.starts_with("origin:")) {
+        return std::ranges::any_of(sheet_reference_geometry_.triangle_references,[&](const auto& face){return
+            face.owner_id==reference.owner_id&&face.semantic_key==reference.semantic_key&&
+            face.instance_path==reference.instance_path&&reference.instance_path.empty()&&face.surface&&
+            face.surface->kind==zima::kernel::SurfaceGeometry::Kind::Plane&&face.sheet_thickness>0&&
+            (face.sheet_role==zima::kernel::SheetFaceRole::SideA||face.sheet_role==zima::kernel::SheetFaceRole::SideB);});
+    }
     const bool sheet_feature=initial_.revolution.sheet_metal||
         initial_.feature_kind==zima::document::FeatureKind::TwistedSheet;
     if(!sheet_feature)return true;
@@ -2518,6 +2584,23 @@ bool PrimitivePropertiesDialog::set_reference(std::size_t index,
     zima::document::ConstructionReference reference, const QString& label) {
     if (!placement_) return false;
     if(!sheet_reference_allowed(index,reference))return false;
+    if(initial_.feature_kind==zima::document::FeatureKind::SheetForm&&index==0&&
+       !reference.semantic_key.starts_with("origin:")) {
+        const auto face=std::ranges::find_if(sheet_reference_geometry_.triangle_references,[&](const auto& candidate){return
+            candidate.owner_id==reference.owner_id&&candidate.semantic_key==reference.semantic_key&&
+            candidate.instance_path==reference.instance_path;});
+        if(face==sheet_reference_geometry_.triangle_references.end())return false;
+        auto seed=placement_->numeric_placement();
+        auto point=zima::kernel::Vec3{seed.x,seed.y,seed.z};
+        if(reference.picked_position)point={(*reference.picked_position)[0],(*reference.picked_position)[1],(*reference.picked_position)[2]};
+        try {
+            auto attached=zima::document::sheet_form_attachment(*face,sheet_form_body_origin_,sheet_reference_geometry_,seed,point);
+            initial_.sheet_form.support=*face;initial_.sheet_form.thickness=face->sheet_thickness;
+            sheet_form_face_entry_=false;
+            placement_->initialize_from_references(attached.references,[](const auto& semantic){return readable_placement_reference_kind(semantic);});
+            placement_->initialize_numeric_values(attached);error_->clear();notify_preview();return true;
+        } catch(const std::exception& failure){error_->setText(tr(failure.what()));return false;}
+    }
     if((initial_.revolution.sheet_metal||
         initial_.feature_kind==zima::document::FeatureKind::TwistedSheet)&&index==0) {
         const auto edge=std::ranges::find_if(sheet_reference_geometry_.edges,[&](const auto& e) {
@@ -2596,16 +2679,21 @@ bool PrimitivePropertiesDialog::owns_reference_owner(
 
 std::vector<zima::document::ConstructionReference>
 PrimitivePropertiesDialog::references_without(std::size_t index) const {
+    // Replacing FORM's support picks a new insertion point with the common
+    // face-hit seed, rather than retaining coordinates constrained to its old face.
+    if(initial_.feature_kind==zima::document::FeatureKind::SheetForm&&index==0&&sheet_form_face_entry_)return {};
     return placement_ ? placement_->references_without(index)
                        : std::vector<zima::document::ConstructionReference>{};
 }
 
 std::size_t PrimitivePropertiesDialog::first_empty_position_index() const {
+    if(initial_.feature_kind==zima::document::FeatureKind::SheetForm&&sheet_form_face_entry_)return 0;
     return placement_ ? placement_->first_empty_position_index() : 3;
 }
 
 void PrimitivePropertiesDialog::set_active_reference_index(
     std::optional<std::size_t> index) {
+    sheet_form_face_entry_=initial_.feature_kind==zima::document::FeatureKind::SheetForm&&index==0;
     if (placement_) placement_->set_active_reference_index(index);
 }
 
@@ -2661,6 +2749,7 @@ void PrimitivePropertiesDialog::set_resolved_rotation(
         const zima::kernel::Vec3& rotation, bool valid) {
     if (!placement_) return;
     placement_->set_resolved_rotation(rotation, valid);
+    lock_sheet_form_fields();
 }
 
 bool PrimitivePropertiesDialog::open_thread_catalog() {

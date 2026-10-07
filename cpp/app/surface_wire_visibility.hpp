@@ -97,16 +97,19 @@ inline void filter_surface_wires(kernel::ViewerMesh& mesh,const std::set<std::st
 // Conversion of a solid into its retained faces retires automatic datums of
 // that solid from ordinary display. Their persisted reference packet remains
 // available to explicit inspection and rollback editing.
-inline void filter_surface_shell_datums(kernel::ViewerMesh& mesh,const document::PartDocument& part) {
-    std::set<std::string> active,retired;
-    for(std::size_t i=0;i<std::min(part.effective_history_cursor(),part.history_order.size());++i)
-        active.insert(part.history_order[i].id);
-    for(const auto& body:part.body_history.bodies()) {
+inline void filter_surface_shell_datums(kernel::ViewerMesh& mesh,const document::PartDocument& part,
+        const document::BodyHistoryGraph* display_context=nullptr) {
+    const auto& context=display_context?*display_context:part.body_history;
+    std::set<std::string> retired;
+    for(const auto& body:context.bodies()) {
         std::set<std::string> preceding;
-        for(std::size_t i=0;i<std::min(body.cursor,body.entries.size());++i) {
+        // DocumentSession displays the active Body at its local boundary and
+        // every passive Body at its calculated final boundary, in any order.
+        const auto limit=body.scope.id==context.active_body_id()?body.cursor:body.entries.size();
+        for(std::size_t i=0;i<std::min(limit,body.entries.size());++i) {
             const auto& entry=body.entries[i];
             const auto* feature=part.find_container(entry.id);
-            if(!feature||feature->suppressed||(!part.history_order.empty()&&!active.contains(feature->id)))continue;
+            if(!feature||feature->suppressed)continue;
             if(feature->feature_kind==document::FeatureKind::Shell&&feature->shell.thickness==0.)
                 retired.insert(preceding.begin(),preceding.end());
             preceding.insert(feature->id);

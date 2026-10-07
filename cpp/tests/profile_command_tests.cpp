@@ -1,5 +1,6 @@
 #include <zima/command_host/host.hpp>
 #include <zima/workspace/profile_operations.hpp>
+#include <zima/workspace/edge_treatment_operations.hpp>
 #include <zima/document/file_path.hpp>
 #include <iostream>
 #include <numbers>
@@ -524,9 +525,64 @@ void revolution(const kernel::OcctKernel& kernel,fs::path directory){
     f.run("save");std::vector<kernel::BodyResult> cache;const auto reopened=document::PartDocument::load(directory/"profile-revolution.prtz",&cache);
     require(reopened.find_container(id)->revolution==f.doc().find_container(id)->revolution,"Revolution native persistence lost axis or parameters");near(cache.back().volume,30*std::numbers::pi);
 }
+void retained_definitions(const kernel::OcctKernel& kernel,fs::path directory) {
+    Fixture f(kernel,directory);f.run("new",{{"type","part"},{"name","retained-feature-definitions"}});
+    const auto empty_cut_sketch=f.rectangle(100,100,10,10);
+    const auto empty_cut=f.run("extrusion.create",{{"sketch",empty_cut_sketch},{"combine","subtract"},{"length_forward_mm",10}}).at("container").get<std::string>();
+    near(f.volume(),0);
+    require(f.part().session.calculated_boundaries().back().calculation_errors.empty(),"Valid first cut acquired a calculation error");
+    require(f.doc().find_container(empty_cut)->combine_mode==document::CombineMode::Subtract,"First cut changed operation");
+    require(!f.part().session.calculated_boundaries().back().mesh.original_references.triangle_references.empty(),"Empty cut lost its validated tool reference geometry");
+    f.run("save");std::vector<kernel::BodyResult> empty_cache;
+    auto empty_native=document::PartDocument::load(directory/"retained-feature-definitions.prtz",&empty_cache);
+    kernel::OcctKernel cold;const auto empty_rebuilt=workspace::calculate_part_with_resolved_references(cold,empty_native,&empty_cache);
+    require(empty_rebuilt.back().calculation_errors.empty()&&empty_rebuilt.back().mesh.triangles.empty(),"Native empty cut introduced material or failed on reopening");
+    f.stock(10,10,10);near(f.volume(),1000);
+    const auto miss_sketch=f.rectangle(150,150,10,10);
+    const auto miss=f.run("extrusion.create",{{"sketch",miss_sketch},{"combine","subtract"},{"length_forward_mm",10}}).at("container").get<std::string>();
+    near(f.volume(),1000);require(f.part().session.calculated_boundaries().back().calculation_errors.empty(),"Disjoint cut was rejected");
+    f.run("undo");near(f.volume(),1000);f.run("redo");require(f.doc().find_container(miss),"No-op cut Redo lost definition");
+    const auto input=f.part().session.calculated_boundaries().back();
+    const auto edge=std::ranges::find_if(input.mesh.edges,[](const auto& edge) {return !edge.parameter_seam&&edge.edge_treatment_side_references.size()==2;});
+    require(edge!=input.mesh.edges.end(),"Failure fixture has no real input edge");
+    auto fillet=document::PartDocument::create_fillet_container({edge->reference});
+    fillet.edge_treatment.routes={{edge->reference}};fillet.edge_treatment.primary_size=100;
+    const auto failed_id=fillet.id;
+    const auto previous_revision=f.part().session.revision();
+    require(workspace::commit_edge_treatment(f.live,kernel,f.doc().document_id,fillet,workspace::EdgeTreatmentEditMode::Create),"Failed feature definition was refused");
+    require(f.doc().find_container(failed_id)&&f.part().session.revision()==previous_revision+1,"Failure lost its history transaction");
+    require(f.part().session.calculated_boundaries().back().calculation_errors.contains(failed_id),"Failure was not attached to its feature");
+    near(f.volume(),1000);
+    require(f.part().session.calculated_boundaries().back().kernel_shape==input.kernel_shape,"Failure did not retain the exact real input");
+    const auto failed_fingerprint=f.part().session.calculated_boundaries().back().source_fingerprint;
+    fillet.edge_treatment.primary_size=200;
+    require(workspace::commit_edge_treatment(f.live,kernel,f.doc().document_id,fillet,workspace::EdgeTreatmentEditMode::Replace),"Already failed definition could not retain a successive correction");
+    require(f.doc().find_container(failed_id)->edge_treatment.primary_size==200&&f.part().session.calculated_boundaries().back().source_fingerprint!=failed_fingerprint,"Failed correction reused stale geometry input");
+    f.run("save");std::vector<kernel::BodyResult> failed_cache;
+    auto failed_native=document::PartDocument::load(directory/"retained-feature-definitions.prtz",&failed_cache);
+    require(failed_native.find_container(failed_id)->edge_treatment==fillet.edge_treatment&&failed_cache.back().calculation_errors.contains(failed_id),"Native reopen lost failed parameters or diagnostics");
+    auto failed_rebuilt=workspace::calculate_part_with_resolved_references(cold,failed_native,&failed_cache);
+    require(failed_rebuilt.back().calculation_errors.contains(failed_id)&&std::abs(failed_rebuilt.back().volume-1000)<1e-8,"Cold failed regeneration lost preceding geometry");
+    auto downstream=document::PartDocument::create_extrusion_container("unused");
+    auto sketch=sketcher::Sketch::create_default();sketch.plane_auto=false;
+    static_cast<void>(sketch.add_rectangle(20,20,25,25));
+    downstream.extrusion.sketch_id=sketch.id;downstream.extrusion.length_forward=5;sketch.owner_container_id=downstream.id;
+    workspace::commit_profile(f.live,kernel,f.doc().document_id,downstream,workspace::ProfileEditMode::Create,sketch);
+    require(f.doc().find_container(downstream.id)&&f.part().session.calculated_boundaries().back().calculation_errors.contains(downstream.id),"Dependent failure was lost or executed against invalid input");
+    near(f.volume(),1000);
+    fillet.edge_treatment.primary_size=1;
+    require(workspace::commit_edge_treatment(f.live,kernel,f.doc().document_id,fillet,workspace::EdgeTreatmentEditMode::Replace),"Failed definition could not be repaired");
+    require(f.part().session.calculated_boundaries().back().calculation_errors.empty()&&f.volume()>1000,"Repair did not restore dependent calculation");
+    f.run("undo");near(f.volume(),1000);require(f.part().session.calculated_boundaries().back().calculation_errors.contains(failed_id),"Repair Undo lost the failed state");
+    f.run("redo");require(f.part().session.calculated_boundaries().back().calculation_errors.empty(),"Repair Redo lost valid geometry");
+    const auto before=f.doc().serialized();fillet.edge_treatment.primary_size=100;
+    bool rejected=false;try {static_cast<void>(workspace::commit_edge_treatment(f.live,kernel,f.doc().document_id,fillet,workspace::EdgeTreatmentEditMode::Replace));}catch(const std::exception&){rejected=true;}
+    require(rejected&&f.doc().serialized()==before,"A failed edit of working geometry bypassed its established atomic rejection");
+}
 }
 int main(){try{const auto root=fs::canonical(fs::temp_directory_path());const auto directory=root/("zima-profile-commands-"+document::PartDocument::create_default().document_id);
     require(fs::create_directory(directory),"Cannot create fixture directory");kernel::OcctKernel kernel;front_reference();touching_features(kernel,directory);drafted_feature(kernel,directory);unified_feature(kernel,directory);surfaces(kernel,directory);sheet_cut_methods(kernel,directory);extrusion(kernel,directory);thin_and_cut(kernel,directory);end_targets(kernel,directory);original_body_target_commands(kernel,directory);revolution(kernel,directory);
     directed_rotation_targets(kernel,directory);
+    retained_definitions(kernel,directory);
     require(directory.parent_path()==root,"Unexpected cleanup path");fs::remove_all(directory);std::cout<<"Profile commands: native ownership, exact solid volumes, Thin walls, cuts, dimensions, locks, atomic errors and Undo/Redo passed\n";return 0;
 }catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}

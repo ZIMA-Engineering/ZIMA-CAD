@@ -1,4 +1,5 @@
 #include "workspace_internal.hpp"
+#include <zima/ui/operation_activity.hpp>
 #include <zima/workspace/component_operations.hpp>
 #include <zima/workspace/engineering_metadata_operations.hpp>
 #include <zima/document/relation_program.hpp>
@@ -154,6 +155,7 @@ void AssemblyWorkspaceWindow::insert_component(
 void AssemblyWorkspaceWindow::regenerate_assembly() {
     const std::string id = workspace_.active_document_id();
     try {
+        ui::OperationActivity::Scope activity(operation_activity_, tr("Regeneruji sestavu…"));
         workspace::regenerate_assembly(workspace_, kernel_, id, part_calculation_policy());
         refresh_tabs();
         preserve_view_on_refresh_ = true;

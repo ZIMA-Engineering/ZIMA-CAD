@@ -380,8 +380,9 @@ void verify_creation_profiles(const kernel::OcctKernel& kernel, const fs::path& 
     f.run("undo");
     require(f.state().session.document().history == sources.history && f.state().session.document().constructions == sources.constructions,
         "Multi-profile Undo lost standalone inputs");
-    // The same open source profile must survive a rejected Solid calculation
-    // and remain available for successful Thin creation.
+    // A structurally valid open Sketch cannot produce this Solid. Retain the
+    // failed definition and its adopted sources; Undo restores those sources
+    // for subsequent successful Thin creation.
     feature.sweep3d.profiles.resize(1);
     section = sketcher::Sketch::create_default(); section.owner_container_id = feature.id;
     static_cast<void>(section.add_segment(-2, 0, 2, 0));
@@ -391,10 +392,17 @@ void verify_creation_profiles(const kernel::OcctKernel& kernel, const fs::path& 
     f.state().session.commit(sources, {});
     Json open = {{"source_path", feature.sweep3d.path.id},
         {"profiles", Json::array({Json{{"sketch", section.id}, {"point", feature.sweep3d.profiles.front().point_id}}})}};
-    f.reject("sweep3d.create", open, "sweep_rejected");
+    const auto failed=f.run("sweep3d.create",open).at("container").get<std::string>();
+    const auto* failed_definition=f.state().session.document().find_container(failed);
+    require(failed_definition&&f.state().session.calculated_boundaries().back().calculation_errors.contains(failed),
+        "Failed Solid creation lost its definition or diagnostic");
+    const auto adopted=sketcher::Sketch::from_serialized(failed_definition->sweep3d.profiles.front().sketch_serialized);
+    require(adopted.id==section.id&&adopted.owner_container_id==failed&&adopted.points==section.points&&adopted.segments==section.segments,
+        "Failed Solid creation lost native source geometry or assigned the wrong owner");
+    f.run("undo");
     require(f.state().session.document().constructions == sources.constructions &&
         f.state().session.document().sketches.front().serialized() == sources.sketches.front().serialized(),
-        "Failed Solid creation consumed the open profile or path");
+        "Failed Solid Undo lost the open profile or path");
     open["result_type"] = "thin"; open["thin_mode"] = "symmetric"; open["thickness_mm"] = .5;
     f.run("sweep3d.create", open); near(f.volume(), 40);
 }

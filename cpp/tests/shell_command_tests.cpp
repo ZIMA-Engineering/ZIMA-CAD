@@ -204,8 +204,13 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
     for(const auto& feature:{first,second}){split.insert_history_entry(document::PartHistoryKind::Feature,feature.id);split.history.push_back(feature);}
     split.resolve_constructions();
     auto split_results=kernel.evaluate_history(split.kernel_operations());state->session.commit(std::move(split),std::move(split_results));
-    const auto split_revision=state->session.revision();const auto* split_cache=state->session.calculated_boundaries().data();
-    require(!host.execute_text("shell.create").ok&&state->session.revision()==split_revision&&split_cache==state->session.calculated_boundaries().data(),"Disconnected Shell partly committed");
+    const auto split_revision=state->session.revision();const auto split_shape=state->session.calculated_boundaries().back().kernel_shape;
+    const auto failed=run(host,"shell.create").data.at("container").get<std::string>();
+    require(state->session.revision()==split_revision+1&&state->session.document().find_container(failed)&&
+        state->session.calculated_boundaries().back().calculation_errors.contains(failed)&&
+        state->session.calculated_boundaries().back().kernel_shape==split_shape,"Disconnected Shell lost its definition or preceding geometry");
+    run(host,"undo");require(!state->session.document().find_container(failed),"Failed Shell Undo retained its definition");
+    run(host,"redo");require(state->session.calculated_boundaries().back().calculation_errors.contains(failed),"Failed Shell Redo lost its diagnostic");
 }
 }
 int main(){try {

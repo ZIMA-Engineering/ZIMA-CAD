@@ -125,7 +125,7 @@ bool commit_edge_treatment(Workspace& live,const kernel::OcctKernel& kernel,cons
     append_reference_geometry(references,next.origin_viewer_mesh().original_references);
     append_reference_geometry(references,next.construction_viewer_mesh().original_references);
     next.resolve_constructions(references);
-    PartCalculationPolicy policy;policy.reject_errors=true;
+    auto policy=feature_definition_calculation_policy(before,previous,feature_id);
     if(stored){policy.edited_document_id=id;policy.edited_history_limit=before.history_index(feature_id);}
     // Preserve the Tree route-edit contract: dependent placements and Sketch
     // projections must describe the same explicitly calculated result.

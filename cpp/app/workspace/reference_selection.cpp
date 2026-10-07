@@ -301,6 +301,85 @@ void AssemblyWorkspaceWindow::bind_local_origin_selection(QDialog* dialog) {
     if (!properties || dialog->property("originSelectionBound").toBool()) return;
     dialog->setProperty("originSelectionBound", true);
     auto* button = properties->ensure_origin_selection_button();
+    if (dynamic_cast<PlacementReferenceDialog*>(dialog)) {
+        auto* default_button = new QPushButton(tr("Default"), dialog);
+        default_button->setObjectName("containerDefaultOriginButton");
+        default_button->setAutoDefault(false);
+        default_button->setToolTip(tr("Použít celý Počátek nadřazeného kontejneru nebo tělesa"));
+        const auto insert = [&](const auto& self, QLayout* layout) -> bool {
+            if (auto* row = dynamic_cast<QHBoxLayout*>(layout)) {
+                const int index = row->indexOf(button);
+                if (index >= 0) { row->insertWidget(index, default_button); return true; }
+            }
+            for (int i = 0; i < layout->count(); ++i)
+                if (auto* child = layout->itemAt(i)->layout(); child && self(self, child)) return true;
+            return false;
+        };
+        insert(insert, properties->content_layout());
+        connect(default_button, &QPushButton::clicked, this, [this, dialog] {
+            auto* placement = dynamic_cast<PlacementReferenceDialog*>(dialog);
+            if (!placement) return;
+            std::string edited_id = primitive_parameter_owner_id_;
+            std::string parent_id;
+            if (auto* construction = dynamic_cast<ConstructionPropertiesDialog*>(dialog)) {
+                if (construction->is_sweep()) edited_id = construction->pending_sweep_value().id;
+                else {
+                    edited_id = construction->construction_id();
+                    parent_id = construction->pending_value().parent_construction_id;
+                }
+            } else if (auto* sketch = dynamic_cast<SketchPropertiesDialog*>(dialog)) {
+                edited_id = sketch->pending_value().first.id;
+            }
+            const auto path = workspace_.active_occurrence_path();
+            const auto origin_child = [&](QTreeWidgetItem* row) -> QTreeWidgetItem* {
+                for (int i = 0; i < row->childCount(); ++i) {
+                    auto* child = row->child(i);
+                    const auto kind = child->data(0, Qt::UserRole + 3).toString();
+                    if (kind == "document-origin" || kind == "construction-origin") return child;
+                }
+                return nullptr;
+            };
+            QTreeWidgetItem* origin = nullptr;
+            // The Tree already owns the actual nested editing hierarchy and
+            // complete Origin data, including pending parent containers.
+            for (QTreeWidgetItemIterator it(tree_); *it && !origin; ++it) {
+                auto* row = *it;
+                if (row->data(0, Qt::UserRole + 1).toString().toStdString() != path) continue;
+                const auto id = row->data(0, Qt::UserRole).toString().toStdString();
+                if (!parent_id.empty() && id == parent_id) origin = origin_child(row);
+                if (parent_id.empty() && id == edited_id)
+                    for (auto* parent = row->parent(); parent && !origin; parent = parent->parent())
+                        origin = origin_child(parent);
+            }
+            if (!origin && !parent_id.empty()) return;
+            if (!origin) {
+                std::string origin_id;
+                if (const auto* part = workspace_.open_part(workspace_.active_document_id())) {
+                    const auto& doc = part->session.document();
+                    const auto* body = doc.body_owner_for_object(edited_id);
+                    if (!body) body = doc.body_history.find(sketch_properties_body_id_.empty()
+                        ? doc.body_history.active_body_id() : sketch_properties_body_id_);
+                    origin_id = dynamic_cast<BodyPropertiesDialog*>(dialog) || !body
+                        ? doc.document_id + ":origin" : body->origin().id;
+                } else if (const auto* assembly = workspace_.open_assembly(workspace_.active_document_id()))
+                    origin_id = assembly->session.document().document_id + ":origin";
+                for (QTreeWidgetItemIterator it(tree_); *it; ++it)
+                    if ((*it)->data(0, Qt::UserRole).toString().toStdString() == origin_id &&
+                        (*it)->data(0, Qt::UserRole + 1).toString().toStdString() == path) { origin = *it; break; }
+            }
+            if (!origin || !placement_origin_allowed(origin->data(0, Qt::UserRole).toString().toStdString())) return;
+            set_local_origin_selection_mode(false);
+            const auto index = placement->first_empty_position_index();
+            if (index >= 3) return;
+            if (dialog == dynamic_cast<QDialog*>(construction_reference_dialog_)) {
+                start_construction_reference_selection(index);
+                static_cast<void>(accept_construction_tree_reference(origin));
+            } else if (dialog == dynamic_cast<QDialog*>(primitive_reference_dialog_)) {
+                start_primitive_reference_selection(index);
+                static_cast<void>(accept_primitive_tree_reference(origin));
+            }
+        });
+    }
     connect(button, &QPushButton::toggled, this, [this, dialog, button](bool active) {
         local_origin_selection_button_ = button;
         local_origin_selection_owner_ = dialog;

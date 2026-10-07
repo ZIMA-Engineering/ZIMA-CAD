@@ -13,6 +13,8 @@
 #include <zima/workspace/edge_treatment_operations.hpp>
 #include <zima/document/bend.hpp>
 #include <zima/document/sheet_state.hpp>
+#include <zima/document/sheet_form_definition.hpp>
+#include <zima/workspace/sheet_form_operations.hpp>
 
 namespace zima::app {
 using namespace workspace_detail;
@@ -215,6 +217,8 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
     auto initial = (resuming_profile || pending_profile_edit)
         ? *pending_profile_feature_
         : edit_mode ? *edited
+        : feature_kind == zima::document::FeatureKind::SheetForm
+            ? zima::document::create_sheet_form()
         : feature_kind == zima::document::FeatureKind::Hole
             ? zima::document::PartDocument::create_hole_container()
         : feature_kind == zima::document::FeatureKind::Thread
@@ -228,6 +232,18 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
         : feature_kind == zima::document::FeatureKind::Extrusion
             ? zima::document::PartDocument::create_extrusion_container(source_sketch_id)
         : zima::document::PartDocument::create_revolution_container(source_sketch_id);
+    if(feature_kind==zima::document::FeatureKind::SheetForm&&!edit_mode) {
+        const auto* body=part->session.document().body_history.find(part->session.document().body_history.active_body_id());
+        if(!body||body->derived_copy||body->suppressed)return;
+        const auto file=open_file(this,tr("Insert FORM"),application_settings_.resolved_paths.value("Forms"),
+            tr("ZIMA-CAD Part (*.prtz)"),application_settings_.translations);
+        if(file.isEmpty())return;
+        try {
+            initial.sheet_form=zima::document::copy_sheet_form_definition(
+                zima::document::read_sheet_form_definition(std::filesystem::u8path(file.toStdString())));
+            static_cast<void>(zima::document::sheet_form_preview_edges(initial.sheet_form));
+        }catch(const std::exception& failure){state_->setText(tr(failure.what()));return;}
+    }
     const bool sketch_type_shortcut = edit_mode && feature_preset == zima::document::FeatureType::Modeling &&
         initial.feature_kind == zima::document::FeatureKind::Feature &&
         initial.feature.type == zima::document::FeatureType::Sketch;
@@ -389,8 +405,9 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
         if (internal == zima::document::ProfileSource::Internal && source != sketches.end())
             property_owned_sketch_draft_ = *source;
     }
-    const bool allow_subtract = assembly_cut || (!part->session.document().history.empty() &&
-        !(edit_mode && part->session.document().history.front().id == initial.id));
+    // A valid cut tool may precede material or miss it. Calculation validates
+    // its Sketch and tool; absence of intersecting material is a valid no-op.
+    const bool allow_subtract = true;
     const std::string owner_id = assembly_cut
         ? assembly->session.document().document_id
         : part->session.document().document_id;
@@ -506,6 +523,11 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
                 } catch (const std::exception& error) { throw std::runtime_error(tr(error.what()).toStdString()); }
                 return;
             }
+            if(committed.feature_kind==zima::document::FeatureKind::SheetForm) {
+                try {static_cast<void>(zima::workspace::commit_sheet_form(workspace_,kernel_,owner_id,std::move(committed)));}
+                catch(const std::exception& failure){throw std::runtime_error(tr(failure.what()).toStdString());}
+                return;
+            }
             try {
                 static_cast<void>(zima::workspace::commit_imported_feature(
                     workspace_, kernel_, owner_id, std::move(committed)));
@@ -514,6 +536,20 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
             }
         }, this, std::move(assembly_targets), std::move(selected_targets),
         assembly_cut);
+    if(feature_kind==zima::document::FeatureKind::SheetForm) {
+        const auto& document=part->session.document();
+        const auto* body=document.body_owner_for_object(initial.id);
+        if(!body)body=document.body_history.find(document.body_history.active_body_id());
+        dialog->set_sheet_form_body_origin(body->origin().id);
+        dialog->set_sheet_form_definition_request([this,dialog]{
+            const auto file=open_file(this,tr("Replace FORM definition"),application_settings_.resolved_paths.value("Forms"),
+                tr("ZIMA-CAD Part (*.prtz)"),application_settings_.translations);
+            if(file.isEmpty())return;
+            try {dialog->replace_sheet_form_definition(zima::document::copy_sheet_form_definition(
+                zima::document::read_sheet_form_definition(std::filesystem::u8path(file.toStdString()))));}
+            catch(const std::exception& failure){state_->setText(tr(failure.what()));}
+        });
+    }
     if (profile_feature && property_owned_sketch_draft_) {
         dialog->set_profile_sketch_status(*property_owned_sketch_draft_);
         dialog->set_profile_plane_selection(*property_owned_sketch_draft_, [this](auto plane, bool automatic) {
@@ -1007,6 +1043,7 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
         // Opening edits (including View dimensions) keep the user's camera.
         const bool fit_new_basic_preview = !edit_mode &&
             feature_kind != zima::document::FeatureKind::TwistedSheet &&
+            feature_kind != zima::document::FeatureKind::SheetForm &&
             feature_kind != zima::document::FeatureKind::Thread &&
             feature_kind != zima::document::FeatureKind::Extrusion &&
             feature_kind != zima::document::FeatureKind::Revolution &&
@@ -1016,7 +1053,7 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
         const bool defer_profile_scene_refresh =
             (feature_kind == zima::document::FeatureKind::Extrusion ||
             feature_kind == zima::document::FeatureKind::Revolution || feature_kind == zima::document::FeatureKind::Feature);
-        placement_preview = [this, fit_new_basic_preview, edit_mode, imported_preview_edges,
+        placement_preview = [this, dialog, fit_new_basic_preview, edit_mode, imported_preview_edges,
                              defer_profile_scene_refresh](
                 const zima::document::HistoryContainer& preview)
                 -> zima::document::HistoryContainer {
@@ -1105,6 +1142,11 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
                 }
                 viewer_->set_transient_edges(
                     preview_geometry.thread_edges(resolved_preview, body, &opening_preview_axis));
+            } else if (resolved_preview.feature_kind == zima::document::FeatureKind::SheetForm) {
+                auto edges=dialog->sheet_form_preview();
+                const auto frame=container_dimension_frame(placement);
+                for(auto& edge:edges)for(auto& point:edge.points)point=frame.point(point);
+                viewer_->set_transient_edges(std::move(edges));
             } else if (resolved_preview.feature_kind == zima::document::FeatureKind::ImportedStep) {
                 auto edges = imported_preview_edges;
                 const auto frame = container_dimension_frame(placement);

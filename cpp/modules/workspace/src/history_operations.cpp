@@ -76,13 +76,6 @@ bool move_part_history(Workspace& live,const std::string& document_id,const kern
         auto graph=original.body_history;
         auto body=*owner;
         sort_history_records(body.entries,reordered,[](const auto& entry){return entry.id;});
-        for (const auto& entry : body.entries) {
-            const auto* feature=entry.kind==zima::document::PartHistoryKind::Feature ? original.find_container(entry.id) : nullptr;
-            if (!feature || feature->suppressed || feature->feature_kind==zima::document::FeatureKind::Sketch) continue;
-            if (feature->combine_mode==zima::document::CombineMode::Subtract)
-                throw HistoryOperationError("history_dependency", "The first feature of a Body cannot be subtractive.");
-            break;
-        }
         graph.update_body(std::move(body));changed_graph=std::move(graph);
     }
     if (order==reordered) return false;

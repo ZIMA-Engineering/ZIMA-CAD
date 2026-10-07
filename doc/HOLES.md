@@ -5,6 +5,11 @@ non-construction segment of its owned Sketch defines one cylinder's axis,
 start, and end. The shared **Hole diameter** parameter sets every cylinder's
 diameter. Ends are flat; the feature adds no drill tip, thread, or extension.
 
+The independent tools are calculated in persistent segment identity order.
+Sketch segment storage order does not describe a drilling sequence. Reordering
+that storage therefore retains the same original topology and intersection
+identities, as well as the same material result.
+
 ## Interaction
 
 - A selected standalone Sketch becomes Holes at the same history position.

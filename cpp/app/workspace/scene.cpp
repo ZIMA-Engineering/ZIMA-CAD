@@ -14,6 +14,8 @@
 #include <zima/document/general_surface.hpp>
 #include "../sketch_point_pick_priority.hpp"
 #include "../surface_wire_visibility.hpp"
+#include "../sketch_external_reference_kind.hpp"
+#include <zima/ui/operation_activity.hpp>
 #include "../surface_trim_dialog.hpp"
 
 namespace zima::app {
@@ -1050,6 +1052,7 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
     };
     if (workspace_.size() == 0) {
         workspace_stack_->setCurrentWidget(model_workspace_);
+        operation_activity_->set_view(viewer_);
         tree_->setHeaderLabels({QString{}});
         viewer_->set_mesh({});
         close_document_action_->setEnabled(false);
@@ -1070,6 +1073,7 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
     if (auto* drawing =
             workspace_.open_drawing(workspace_.displayed_document_id())) {
         workspace_stack_->setCurrentWidget(drawing_workspace_);
+        operation_activity_->set_view(drawing_workspace_->findChild<QWidget*>("drawingCanvas"));
         drawing_workspace_->edit_workspace_document(drawing->document().document_id);
         refresh_drawing_tree();
         active_application_ = ApplicationMode::Drawing;
@@ -1111,6 +1115,7 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
         return;
     }
     workspace_stack_->setCurrentWidget(model_workspace_);
+    operation_activity_->set_view(viewer_);
     const auto* assembly = workspace_.open_assembly(workspace_.displayed_document_id());
     if (assembly == nullptr) {
         const auto* part = workspace_.open_part(workspace_.displayed_document_id());
@@ -1189,6 +1194,9 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
                 ? sketch_external_profile_active_
                     ? std::vector{zima::viewer::CandidateKind::Edge}
                     : std::vector{zima::viewer::CandidateKind::Edge,
+                              zima::viewer::CandidateKind::SketchSegment,
+                              zima::viewer::CandidateKind::SketchCurve,
+                              zima::viewer::CandidateKind::SketchPoint,
                               zima::viewer::CandidateKind::Vertex,
                               zima::viewer::CandidateKind::Axis,
                               zima::viewer::CandidateKind::Face}
@@ -1359,10 +1367,7 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
                         (profile ? zima::viewer::CandidateGeometry::Display : zima::viewer::CandidateGeometry::OriginalReference);
                     return stable_geometry && candidate.instance_path.empty() &&
                         source_owners.contains(candidate.owner_id) &&
-                        (candidate.kind == zima::viewer::CandidateKind::Edge ||
-                         candidate.kind == zima::viewer::CandidateKind::Vertex ||
-                         candidate.kind == zima::viewer::CandidateKind::Axis ||
-                         candidate.kind == zima::viewer::CandidateKind::Face);
+                        sketch_external_reference_kind(candidate).has_value();
                 });
         } else if (sketch_coincident_active_) {
             const auto owner_id = active_sketch_id_;
@@ -1629,15 +1634,7 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
             part_rollback_->part_document_id == document.document_id) {
             auto display = part_rollback_->input_body
                 ? part_rollback_->input_body->mesh : zima::kernel::ViewerMesh{};
-            if (!document.body_history.bodies().empty() && part_rollback_->history_limit < document.history.size()) {
-                const auto& edited = document.history[part_rollback_->history_limit];
-                if (const auto* owner = document.body_history.owner(edited.id)) {
-                    auto context = document.body_history;
-                    context.activate(owner->scope.id);
-                    context.set_history_cursor(owner->scope.id, context.rollback_before(edited.id).entry_count);
-                    display = part->session.body_context_mesh(&context);
-                }
-            }
+            if (!document.body_history.bodies().empty())display=sketch_input_mesh(part->session);
             append_boundary_input_sketches(display, document);
             // Sketcher keeps the complete View context visible. Selection
             // tools narrow what can be confirmed through their candidate
@@ -1748,6 +1745,9 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
                     else if(calculated.back().body_outputs.empty()&&body_dialog_context_->size()==1)append_mesh(display,calculated.back().mesh);
                 }
             }
+            // Retire only the base scene's automatic datums. Explicit reference
+            // inspection and transient command previews are appended below.
+            filter_surface_shell_datums(display,document);
             display.edges.insert(display.edges.end(),
                 std::make_move_iterator(cosmetic_threads.begin()),
                 std::make_move_iterator(cosmetic_threads.end()));
@@ -2144,6 +2144,9 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
             ? sketch_external_profile_active_
                 ? std::vector{zima::viewer::CandidateKind::Edge}
                 : std::vector{zima::viewer::CandidateKind::Edge,
+                          zima::viewer::CandidateKind::SketchSegment,
+                          zima::viewer::CandidateKind::SketchCurve,
+                          zima::viewer::CandidateKind::SketchPoint,
                           zima::viewer::CandidateKind::Vertex,
                           zima::viewer::CandidateKind::Axis,
                           zima::viewer::CandidateKind::Face}

@@ -390,10 +390,6 @@ std::vector<zima::kernel::HistoryOperation> BodyHistoryGraph::compile(const Comp
                 result.push_back(std::move(*operation));
             }
         }
-        const auto first_active = std::find_if(result.begin() + static_cast<std::ptrdiff_t>(start), result.end(),
-            [](const auto& operation) { return !operation.suppressed; });
-        if (first_active != result.end() && first_active->operation == zima::kernel::BooleanOperation::Subtract)
-            throw std::invalid_argument("The first feature of a body cannot subtract");
         if (result.size() != start) calculated.insert(id);
     }
     return result;

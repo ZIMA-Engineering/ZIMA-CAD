@@ -114,7 +114,10 @@ void verify(const kernel::OcctKernel& kernel, fs::path directory) {
         return result;
     };
     check(!references.triangle_references.empty(),"Missing original topology");
-    check(keys(references)==keys(state->session.calculated_boundaries().back().mesh.original_references),"Segment reordering changed original topology identities");
+    const auto before_keys=keys(references),after_keys=keys(state->session.calculated_boundaries().back().mesh.original_references);
+    for(const auto& key:before_keys)if(!after_keys.contains(key))std::cerr<<"Removed reference: "<<key<<'\n';
+    for(const auto& key:after_keys)if(!before_keys.contains(key))std::cerr<<"Added reference: "<<key<<'\n';
+    check(before_keys==after_keys,"Segment reordering changed original topology identities");
     // An auxiliary construction segment never drills material.
     auto auxiliary=sketch;static_cast<void>(auxiliary.add_segment(-20,10,20,10));auxiliary.segments.back().construction=true;
     workspace::commit_holes(live,kernel,id,current,auxiliary);

@@ -13,6 +13,7 @@
 #include <zima/document/boundary_surface.hpp>
 #include <zima/document/surface_sewing.hpp>
 #include <zima/document/surface_thicken.hpp>
+#include <zima/document/sheet_form_definition.hpp>
 #include <zima/document/surface_intersection.hpp>
 #include <zima/document/surface_trim.hpp>
 #include <zima/document/general_surface.hpp>
@@ -6276,6 +6277,22 @@ void PartDocument::resolve_constructions(
             static_cast<void>(resolve_point_placement(container.placement, source_geometry));
         else static_cast<void>(resolve_placement(container.placement, source_geometry));
         if (!container.placement.reference_valid) return;
+        if(container.feature_kind==FeatureKind::SheetForm) {
+            // FORM consumes the current native support metadata at its input
+            // boundary. The copied library surface is independent; its inward
+            // offset follows the owning sheet's current thickness.
+            const auto& old=container.sheet_form.support;
+            const auto face=std::ranges::find_if(source_geometry.triangle_references,[&](const auto& candidate) {
+                return candidate.owner_id==old.owner_id&&candidate.semantic_key==old.semantic_key&&
+                    candidate.instance_path==old.instance_path&&candidate.surface&&
+                    candidate.surface->kind==kernel::SurfaceGeometry::Kind::Plane&&
+                    (candidate.sheet_role==kernel::SheetFaceRole::SideA||candidate.sheet_role==kernel::SheetFaceRole::SideB)&&
+                    candidate.sheet_thickness>0;
+            });
+            if(face==source_geometry.triangle_references.end())container.placement.reference_valid=false;
+            else {container.sheet_form.support=*face;container.sheet_form.thickness=face->sheet_thickness;}
+            if(!container.placement.reference_valid)return;
+        }
         if(container.feature_kind==FeatureKind::TwistedSheet&&
             container.twisted_sheet.sheet_attachment) {
             if(container.placement.references.size()!=3)
@@ -9277,6 +9294,11 @@ std::vector<zima::kernel::HistoryOperation> PartDocument::kernel_operations(
             operations.push_back({container.id,surface_intersection_request(*this,container),
                 kernel::BooleanOperation::Add,container.suppressed,boolean_tolerance,mesh_deflection});continue;
         }
+        if(container.feature_kind==FeatureKind::SheetForm) {
+            auto operation=sheet_form_operation(*this,container);
+            operation.boolean_tolerance=boolean_tolerance;operation.mesh_deflection=mesh_deflection;
+            operations.push_back(std::move(operation));continue;
+        }
         if(container.feature_kind==FeatureKind::SurfaceThicken) {
             require_default_sketch_feature_placement(container.placement);
             operations.push_back({container.id,surface_thicken_request(*this,container),
@@ -10784,7 +10806,7 @@ PartDocument PartDocument::from_serialized(const nlohmann::json& root,
             type != "fillet" && type != "chamfer" &&
             type != "derived_copy" && type != "shell" && type != "twisted_sheet" && type != "sheet_transition" && type != "boundary_surface" && type != "surface_sewing" && type != "surface_thicken" && type != "surface_intersection" && type != "surface_trim" && type != "general_surface" && type != "unbend" && type != "bend_back" && type != "straighten" && type != "restore_shape" &&
             type != "flat" && type != "bend" && type != "holes" && type != "hole" && type != "thread" && type != "shaft_thread" &&
-            type != "drill_point") {
+            type != "drill_point" && type != "sheet_form") {
             throw std::runtime_error("Unsupported history feature type");
         }
         HistoryContainer container;
@@ -10802,6 +10824,7 @@ PartDocument PartDocument::from_serialized(const nlohmann::json& root,
             : type == "twisted_sheet" ? FeatureKind::TwistedSheet
             : type == "sheet_transition" ? FeatureKind::SheetTransition
             : type == "boundary_surface" ? FeatureKind::BoundarySurface
+            : type == "sheet_form" ? FeatureKind::SheetForm
             : type == "surface_thicken" ? FeatureKind::SurfaceThicken
             : type == "surface_sewing" ? FeatureKind::SurfaceSewing
             : type == "surface_trim" ? FeatureKind::SurfaceTrim
@@ -11180,6 +11203,21 @@ PartDocument PartDocument::from_serialized(const nlohmann::json& root,
             const auto& data=source.at("surface_intersection");
             if(!data.is_array()||data.size()!=2)throw std::runtime_error("Intersection face reference is invalid.");
             for(unsigned i=0;i<2;++i)container.surface_intersection.faces[i]={data[i].at("owner_id"),data[i].at("semantic_key"),data[i].at("instance_path")};
+        } else if (container.feature_kind == FeatureKind::SheetForm) {
+            const auto& data=source.at("sheet_form");auto& p=container.sheet_form;
+            p.definition=std::make_shared<const std::string>(data.at("definition").get<std::string>());
+            p.bodies=data.at("bodies").get<std::array<std::string,4>>();
+            p.cut_sketch=data.at("cut_sketch");p.flat_sketch=data.at("flat_sketch");p.symbol_sketch=data.at("symbol_sketch");
+            p.source_name=data.at("source_name");p.thickness=data.at("thickness");
+            const auto read_face=[](const nlohmann::json& face) {
+                kernel::FaceReference result{face.at("owner_id"),face.at("semantic_key"),face.at("instance_path")};
+                result.sheet_owner=face.at("sheet_owner");result.sheet_thickness=face.at("sheet_thickness");
+                const auto role=face.at("sheet_role").get<unsigned>();
+                if(role>static_cast<unsigned>(kernel::SheetFaceRole::ThicknessFace))throw std::invalid_argument("Invalid FORM definition.");
+                result.sheet_role=static_cast<kernel::SheetFaceRole>(role);result.surface_result=face.at("surface_result");return result;
+            };
+            p.surface=read_face(data.at("surface"));p.support=read_face(data.at("support"));
+            validate_sheet_form_parameters(p);
         } else if (container.feature_kind == FeatureKind::SurfaceThicken) {
             const auto& data=source.at("surface_thicken");const auto& face=data.at("face");
             auto& value=container.surface_thicken;
@@ -11558,14 +11596,6 @@ PartDocument PartDocument::from_serialized(const nlohmann::json& root,
     if (document.history_cursor > document.history_order.size()) {
         throw std::runtime_error("Part history cursor is outside history");
     }
-    const auto first_active = std::find_if(document.history.begin(),
-        document.history.end(), [](const auto& container) {
-            return !container.suppressed;
-        });
-    if (document.body_history.bodies().empty() && first_active != document.history.end() &&
-        first_active->combine_mode == CombineMode::Subtract) {
-        throw std::runtime_error("The first history container cannot subtract");
-    }
     const auto expected_operations = document.kernel_operations(false, true);
     std::vector<zima::kernel::BodyResult> loaded_boundaries;
     std::size_t loaded_boundary_index{};
@@ -11731,6 +11761,9 @@ nlohmann::json PartDocument::serialized(
                 if(!face.valid()||!face.instance_path.empty())throw std::runtime_error("Intersection face reference is invalid.");
             if(container.surface_intersection.faces[0]==container.surface_intersection.faces[1])
                 throw std::runtime_error("Intersection requires two different original faces and a positive tolerance.");
+        } else if (container.feature_kind == FeatureKind::SheetForm) {
+            validate_sheet_form_parameters(container.sheet_form);
+            if(container.combine_mode!=CombineMode::Add)throw std::invalid_argument("Invalid FORM definition.");
         } else if (container.feature_kind == FeatureKind::SurfaceThicken) {
             require_default_sketch_feature_placement(container.placement);
             validate_surface_thicken_parameters(container.surface_thicken);
@@ -12044,6 +12077,7 @@ nlohmann::json PartDocument::serialized(
                 : container.feature_kind == FeatureKind::Feature ? "feature"
                 : container.feature_kind == FeatureKind::SheetTransition ? "sheet_transition"
                 : container.feature_kind == FeatureKind::BoundarySurface ? "boundary_surface"
+                : container.feature_kind == FeatureKind::SheetForm ? "sheet_form"
                 : container.feature_kind == FeatureKind::SurfaceThicken ? "surface_thicken"
                 : container.feature_kind == FeatureKind::SurfaceSewing ? "surface_sewing"
                 : container.feature_kind == FeatureKind::SurfaceTrim ? "surface_trim"
@@ -12359,6 +12393,15 @@ nlohmann::json PartDocument::serialized(
             }
             if(!removed_reference_states.contains(container.id)&&container.surface_intersection.faces[0]==container.surface_intersection.faces[1])throw std::runtime_error("Intersection requires two different original faces and a positive tolerance.");
             serialized["surface_intersection"]=std::move(data);
+        } else if (container.feature_kind == FeatureKind::SheetForm) {
+            const auto& p=container.sheet_form;validate_sheet_form_parameters(p);
+            const auto face=[](const kernel::FaceReference& r) {return nlohmann::json{
+                {"owner_id",r.owner_id},{"semantic_key",r.semantic_key},{"instance_path",r.instance_path},
+                {"sheet_owner",r.sheet_owner},{"sheet_thickness",r.sheet_thickness},{"sheet_role",static_cast<unsigned>(r.sheet_role)},
+                {"surface_result",r.surface_result}};};
+            serialized["sheet_form"]={{"definition",*p.definition},{"bodies",p.bodies},
+                {"cut_sketch",p.cut_sketch},{"flat_sketch",p.flat_sketch},{"symbol_sketch",p.symbol_sketch},
+                {"source_name",p.source_name},{"surface",face(p.surface)},{"support",face(p.support)},{"thickness",p.thickness}};
         } else if (container.feature_kind == FeatureKind::SurfaceThicken) {
             const auto& value=container.surface_thicken;const auto& face=value.face;
             if(!removed_reference_states.contains(container.id))validate_surface_thicken_parameters(value);
@@ -12495,12 +12538,6 @@ nlohmann::json PartDocument::serialized(
             }
         }
         serialized_history.push_back(std::move(serialized));
-    }
-    const auto first_active = std::find_if(history.begin(), history.end(),
-        [](const auto& container) { return !container.suppressed; });
-    if (body_history.bodies().empty() && first_active != history.end() &&
-        first_active->combine_mode == CombineMode::Subtract) {
-        throw std::runtime_error("The first history container cannot subtract");
     }
     const auto expected_operations = kernel_operations(false, true);
     if (!calculated_boundaries.empty() &&

@@ -1,6 +1,7 @@
 #include <zima/workspace/feature_reference_input.hpp>
 #include <zima/workspace/part_transactions.hpp>
 #include <zima/workspace/sweep_operations.hpp>
+#include <zima/document/helical_geometry.hpp>
 #include <zima/workspace/origin_display_operations.hpp>
 #include <zima/document/feature_sketches.hpp>
 #include <zima/document/sweep_inputs.hpp>
@@ -50,6 +51,9 @@ void validate_sweep(const document::HistoryContainer& feature) {
         if (sketch.owner_container_id != feature.id || !sketches.insert(sketch.id).second)
             throw SweepOperationError("invalid_sketch_owner", "Every embedded Sweep Sketch must have one owning feature.");
     });
+    // Check ownership before resolving guide points: duplicate Sketch inputs
+    // retain their existing input-error classification.
+    if (helical) static_cast<void>(document::helical_geometry::path(feature));
     const auto& profiles = feature.feature_kind == Kind::Sweep2D ? feature.sweep2d.profiles : feature.sweep3d.profiles;
     std::set<std::string> profile_ids;
     std::set<std::pair<std::string, bool>> stations;
@@ -237,8 +241,7 @@ void commit_sweep(Workspace& live, const kernel::OcctKernel& kernel, const std::
     const auto& before = state->session.document();
     const auto container_id = feature.id;
     const auto* existing = before.find_container(feature.id);
-    PartCalculationPolicy policy;
-    policy.reject_errors = true;
+    auto policy = feature_definition_calculation_policy(before, state->session.calculated_boundaries(), feature.id);
     if (mode == SweepEditMode::Replace || mode == SweepEditMode::ReplaceAdoptSources) {
         if (!existing) throw SweepOperationError("container_not_found", "The requested container does not exist.");
         if (existing->feature_kind != feature.feature_kind)

@@ -798,6 +798,18 @@ std::string encode_history_fingerprint(
                 for(const auto& face:primitive.faces)for(const auto* text:{&face.owner_id,&face.semantic_key,&face.instance_path}) {
                     u64(text->size());for(unsigned char c:*text)byte(c);
                 }
+            } else if constexpr (std::is_same_v<Request, SheetFormRequest>) {
+                u64(1);
+                const auto text=[&](const std::string& s){u64(s.size());for(unsigned char c:s)byte(c);};
+                for(const auto* value:{&primitive.definition_id,&primitive.shape_body,&primitive.cut_body,&primitive.flat_body,
+                        &primitive.support.owner_id,&primitive.support.semantic_key,&primitive.support.instance_path,
+                        &primitive.surface.owner_id,&primitive.surface.semantic_key,&primitive.surface.instance_path})text(*value);
+                for(const auto& vector:{primitive.source_origin,primitive.source_normal,primitive.source_x,
+                        primitive.position,primitive.normal,primitive.x_direction})
+                    for(double value:{vector.x,vector.y,vector.z})u64(std::bit_cast<std::uint64_t>(value));
+                u64(std::bit_cast<std::uint64_t>(primitive.thickness));
+                byte(static_cast<bool>(primitive.definition));
+                if(primitive.definition)text(history_fingerprint(*primitive.definition,primitive.definition->size()));
             } else if constexpr (std::is_same_v<Request, SurfaceThickenRequest>) {
                 u64(1);u64(std::bit_cast<std::uint64_t>(primitive.thickness));
                 u64(std::bit_cast<std::uint64_t>(primitive.tolerance));u64(static_cast<unsigned>(primitive.side));

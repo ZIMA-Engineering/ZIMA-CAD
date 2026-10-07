@@ -77,7 +77,7 @@ int verify_form_sweep_sketch_ui(QApplication& application,const std::filesystem:
         std::vector<kernel::BodyResult> skin_bodies;
         const auto skin=document::PartDocument::load("cpp/tests/fixtures/sweep2d/form-surface-shell.prtz",&skin_bodies);
         check(!skin_bodies.empty(),"FORM surface fixture lost persisted viewer packets");
-        for(int state=0;state<4;++state) {
+        for(int order=0;order<2;++order)for(int state=0;state<5;++state) {
             auto scoped=skin;auto sweep=*scoped.find_container(feature.id);
             auto shell=*std::ranges::find_if(scoped.history,[](const auto& f){return f.feature_kind==document::FeatureKind::Shell;});
             if(state==1)shell.shell.thickness=1;
@@ -86,15 +86,17 @@ int verify_form_sweep_sketch_ui(QApplication& application,const std::filesystem:
             scoped.history={sweep,shell,other};
             document::BodyHistoryGraph graph;const auto first=graph.create_body("Converted solid");
             graph.insert({document::PartHistoryKind::Feature,sweep.id});graph.insert({document::PartHistoryKind::Feature,shell.id});
-            if(state==3)graph.set_history_cursor(first,1);
-            static_cast<void>(graph.create_body("Independent solid"));graph.insert({document::PartHistoryKind::Feature,other.id});
+            if(state>=3)graph.set_history_cursor(first,1);
+            const auto independent=graph.create_body("Independent solid");graph.insert({document::PartHistoryKind::Feature,other.id});
+            if(order)graph.move_body(independent,0);
+            if(state==3)graph.activate(first);
             scoped.set_body_history(graph);
             kernel::ViewerMesh packet;
             for(const auto& owner:{sweep.id,other.id,std::string("authored-axis")})
                 packet.axes.push_back({{0,0,0},{0,0,1},100,{owner,"axis:primary",{}}});
             packet.original_references.axes=packet.axes;
             app::filter_surface_shell_datums(packet,scoped);
-            check(packet.axes.size()==(state==0?2:3)&&packet.original_references.axes.size()==3,"Surface datum filter crossed a Body, authoring, suppression, thickness or rollback boundary");
+            check(packet.axes.size()==(state==0||state==4?2:3)&&packet.original_references.axes.size()==3,"Surface datum filter crossed a Body, authoring, suppression, thickness or rollback boundary");
         }
         const auto skin_path=directory/"form-surface-shell.prtz";skin.save(skin_path,skin_bodies);
         window.findChild<QAction*>("closeDocumentAction")->trigger();flush();
@@ -111,6 +113,94 @@ int verify_form_sweep_sketch_ui(QApplication& application,const std::filesystem:
         check(std::ranges::any_of(view->mesh().edges,datum),"FORM surface rollback lost the original solid Sweep axis");
         for(auto* candidate:window.findChildren<QDialog*>())if(candidate->isVisible())if(auto* buttons=candidate->findChild<QDialogButtonBox*>())if(auto* cancel=buttons->button(QDialogButtonBox::Cancel)){cancel->click();flush();break;}
         check(std::ranges::none_of(view->mesh().edges,datum),"FORM surface Cancel left input Sweep axis visible");
+        // The user's reordered two-Body document: a Sketch-only FORM_CUT
+        // precedes FORM, whose final solid was converted to retained faces.
+        std::vector<kernel::BodyResult> multi_bodies;
+        auto multi=document::PartDocument::load("cpp/tests/fixtures/sweep2d/form-multibody-surface-shell.prtz",&multi_bodies);
+        const auto cut=multi.body_history.bodies().front().scope.id;
+        const auto form=multi.body_history.bodies().back().scope.id;
+        const auto cut_sketch=std::ranges::find_if(multi.sketches,[&](const auto& s){const auto* b=multi.body_owner_for_object(s.owner_container_id);return b&&b->scope.id==cut;});
+        check(cut_sketch!=multi.sketches.end(),"FORM_CUT standalone Sketch missing");
+        const auto cut_id=cut_sketch->id,cut_definition=cut_sketch->serialized();
+        const auto cut_owner=cut_sketch->owner_container_id;
+        const auto extrusion=multi.body_history.find(form)->entries.front().id;
+        const auto* first_feature=multi.find_container(extrusion);
+        const auto target_sketch=first_feature->feature_kind==document::FeatureKind::Feature?first_feature->feature.sketch_id:first_feature->extrusion.sketch_id;
+        const auto primitive_dialog=[&]()->QDialog* {
+            for(auto* d:window.findChildren<QDialog*>())if(d->isVisible()&&(d->findChild<QPushButton*>("primitiveOwnSketchButton")||d->findChild<QPushButton*>("featureSketchButton")))return d;
+            return nullptr;
+        };
+        const auto tree_row=[&](const std::string& id) {
+            auto* t=window.findChild<QTreeWidget*>("documentTree");
+            for(QTreeWidgetItemIterator i(t);*i;++i)if((*i)->data(0,Qt::UserRole).toString().toStdString()==id)return *i;
+            return static_cast<QTreeWidgetItem*>(nullptr);
+        };
+        const auto has_cut=[&]{return std::ranges::any_of(view->mesh().edges,[&](const auto& e){return e.reference.owner_id==cut_id&&e.reference.semantic_key.starts_with("segment:");});};
+        const auto no_datums=[&]{return std::ranges::none_of(view->mesh().edges,datum)&&std::ranges::none_of(view->mesh().points,datum)&&std::ranges::none_of(view->mesh().axes,datum);};
+        for(int order=0;order<2;++order) {
+            if(order){
+                auto graph=multi.body_history;graph.move_body(cut,1);multi.set_body_history(graph);
+                // A reordered test document needs calculated packets matching
+                // its new history; reuse of the preceding fingerprints is invalid.
+                multi_bodies=kernel.evaluate_history(multi.kernel_operations());
+            }
+            const auto multi_path=directory/(order?"form-cut-after.prtz":"form-cut-before.prtz");multi.save(multi_path,multi_bodies);
+            window.findChild<QAction*>("closeDocumentAction")->trigger();flush();
+            check(window.open_document_path(QString::fromStdString(multi_path.string())),"Multi-Body FORM failed to open");flush();
+            for(const auto& active:{cut,form,std::string{}}) {
+                check(activate_test_body(application,window,active),"Multi-Body activation failed");flush();
+                check(no_datums(),"Passive surface FORM displayed retired Sweep axes after Body activation/reorder");
+                check(has_cut(),"Body activation/reorder hid FORM_CUT profile");
+            }
+            check(activate_test_body(application,window,cut),"FORM_CUT activation failed");flush();
+            auto* cut_row=tree_row(cut_owner);check(cut_row,"FORM_CUT Tree row missing");
+            window.show_tree_item_properties(cut_row);flush();
+            const auto cut_properties=[&]()->QDialog* {
+                for(auto* d:window.findChildren<QDialog*>())if(d->isVisible()&&(d->findChild<QPushButton*>("featureSketchButton")||d->findChild<QPushButton*>("sketchOpenButton")))return d;
+                return nullptr;
+            };
+            auto* cp=cut_properties();check(cp,"FORM_CUT Sketch Properties missing");
+            auto* sketch_open=cp->findChild<QPushButton*>("featureSketchButton");if(!sketch_open)sketch_open=cp->findChild<QPushButton*>("sketchOpenButton");
+            check(no_datums(),"FORM_CUT Properties restored passive Sweep axes");sketch_open->click();flush();
+            check(no_datums(),"FORM_CUT Sketcher restored passive Sweep axes");
+            window.findChild<QAction*>("finishSketchAction")->trigger();flush();
+            check(cut_properties(),"FORM_CUT Properties did not resume");cut_properties()->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Cancel)->click();flush();
+            check(activate_test_body(application,window,form),"FORM activation failed");flush();
+            auto* first_row=tree_row(extrusion);check(first_row,"First FORM Extrusion missing");window.show_tree_item_properties(first_row);flush();
+            check(primitive_dialog()&&has_cut(),"First FORM Properties lost passive FORM_CUT Sketch");
+            auto* open_profile=primitive_dialog()->findChild<QPushButton*>("primitiveOwnSketchButton");
+            if(!open_profile)open_profile=primitive_dialog()->findChild<QPushButton*>("featureSketchButton");open_profile->click();flush();
+            QEventLoop alignment;QTimer::singleShot(950,&alignment,&QEventLoop::quit);alignment.exec();
+            check(has_cut(),"First FORM owned Sketch lost FORM_CUT context");
+            auto* external=window.findChild<QAction*>("sketchExternalReferenceAction");check(external&&external->isEnabled(),"FORM external reference command unavailable");external->trigger();flush();
+            viewer::ViewerCandidate source;source.kind=viewer::CandidateKind::SketchSegment;source.geometry=viewer::CandidateGeometry::OriginalReference;source.owner_id=cut_id;
+            check(view->candidate_filter()(source)==(order==0),"Reordered Body source eligibility did not preserve one-way history dependencies");
+            if(!order) {
+                view->fit_all();flush();std::optional<QPointF> hit;
+                const auto is_source=[&](const auto& candidate){return candidate.kind==viewer::CandidateKind::SketchSegment&&candidate.owner_id==cut_id;};
+                for(int y=20;y<view->height()-20&&!hit;y+=3)for(int x=20;x<view->width()-20&&!hit;x+=3) {
+                    const auto candidates=view->selection_candidates_at(QPointF(x,y));
+                    if(std::ranges::any_of(candidates,is_source))hit=QPointF(x,y);
+                }
+                check(hit.has_value(),"Visible FORM_CUT edge unavailable in common external-reference picker");
+                mouse(*hit,QEvent::MouseMove,Qt::NoButton,Qt::NoButton);
+                const auto candidate_count=view->selection_candidates_at(*hit).size();
+                for(std::size_t i=0;i<candidate_count&&(!view->offered_candidate()||!is_source(*view->offered_candidate()));++i) {
+                    mouse(*hit,QEvent::MouseButtonPress,Qt::RightButton,Qt::RightButton);
+                    mouse(*hit,QEvent::MouseButtonRelease,Qt::RightButton,Qt::NoButton);
+                }
+                check(view->offered_candidate()&&is_source(*view->offered_candidate()),"RMB could not offer the visible FORM_CUT edge");
+                mouse(*hit,QEvent::MouseButtonPress,Qt::LeftButton,Qt::LeftButton);mouse(*hit,QEvent::MouseButtonRelease,Qt::LeftButton,Qt::NoButton);
+                check(std::ranges::any_of(view->mesh().edges,[&](const auto& e){return e.reference.owner_id==target_sketch&&e.reference.semantic_key.starts_with("external_");}),"Clicking FORM_CUT did not create an external reference in FORM");
+            }
+            window.findChild<QAction*>("finishSketchAction")->trigger();flush();
+            check(primitive_dialog(),"FORM Properties did not resume");primitive_dialog()->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Cancel)->click();flush();
+            check(no_datums()&&has_cut(),"FORM Cancel lost surface filtering or passive Sketch context");
+            check(window.execute_console_command("save").ok,"Multi-Body save failed");
+            const auto saved=document::PartDocument::load(multi_path);
+            check(std::ranges::find(saved.sketches,cut_id,&sketcher::Sketch::id)->serialized()==cut_definition,"External reference entry modified its passive source Sketch");
+            check(*saved.find_container(extrusion)==*multi.find_container(extrusion),"Cancel committed an owned Sketch reference");
+        }
         std::cout<<"FORM owned Sweep profile mouse dimensions, center grip, references, OK/Cancel, Undo/Redo and native reopen passed\n";return 0;
     }catch(const std::exception& error){std::cerr<<error.what()<<'\n';return 1;}
 }

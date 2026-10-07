@@ -54,11 +54,11 @@ bool commit_drill_point(Workspace& live,const kernel::OcctKernel& kernel,const s
     append_reference_geometry(geometry,next.origin_viewer_mesh().original_references);
     append_reference_geometry(geometry,next.construction_viewer_mesh().original_references);
     next.resolve_constructions(geometry);
-    PartCalculationPolicy policy;policy.reject_errors=true;
+    auto policy=feature_definition_calculation_policy(before,state->session.calculated_boundaries(),feature_id);
     if(stored){policy.edited_document_id=id;policy.edited_history_limit=before.history_index(feature_id);}
     auto calculated=calculate_part(kernel,next,&previous,policy);
     // An explicit edit must not silently skip an invalid selected bottom.
-    if(!faces.empty()) {
+    if(!faces.empty() && !calculated.back().calculation_errors.contains(feature_id)) {
         // Original packets in the final boundary retain this feature's own
         // calculated faces even when a later operation trims the result.
         const auto& produced=calculated.back().mesh.original_references.triangle_references;

@@ -1,6 +1,8 @@
 #include <zima/workspace/assembly_scene.hpp>
 #include "workspace_internal.hpp"
 #include "../sketch_point_pick_priority.hpp"
+#include "../surface_wire_visibility.hpp"
+#include "../sketch_external_reference_kind.hpp"
 #include <zima/workspace/sketch_operations.hpp>
 
 namespace zima::app {
@@ -59,15 +61,13 @@ void AssemblyWorkspaceWindow::set_sketch_external_reference_mode(bool enabled) {
 
 void AssemblyWorkspaceWindow::accept_sketch_external_reference(
     const zima::viewer::ViewerCandidate& candidate) {
+    const auto kind=sketch_external_reference_kind(candidate);
     if (!sketch_external_reference_active_ ||
         (sketch_external_profile_active_ &&
          candidate.kind != zima::viewer::CandidateKind::Edge) ||
         candidate.geometry != (sketch_external_profile_active_ ? zima::viewer::CandidateGeometry::Display :
             zima::viewer::CandidateGeometry::OriginalReference) ||
-        (candidate.kind != zima::viewer::CandidateKind::Edge &&
-         candidate.kind != zima::viewer::CandidateKind::Vertex &&
-         candidate.kind != zima::viewer::CandidateKind::Axis &&
-         candidate.kind != zima::viewer::CandidateKind::Face)) return;
+        !kind) return;
     try {
         const auto* active=active_sketch();if(!active)return;
         const auto owner=workspace_.active_document_id();auto pending=*active;
@@ -78,10 +78,7 @@ void AssemblyWorkspaceWindow::accept_sketch_external_reference(
                 "External reference requires an exact component occurrence");
             path.erase(0,prefix.size());
         }
-        const auto kind=candidate.kind==zima::viewer::CandidateKind::Edge?zima::sketcher::ExternalReferenceKind::Edge:
-            candidate.kind==zima::viewer::CandidateKind::Axis?zima::sketcher::ExternalReferenceKind::Axis:
-            candidate.kind==zima::viewer::CandidateKind::Face?zima::sketcher::ExternalReferenceKind::Face:zima::sketcher::ExternalReferenceKind::Point;
-        auto reference=workspace::prepare_sketch_external_reference(workspace_,owner,pending,kind,
+        auto reference=workspace::prepare_sketch_external_reference(workspace_,owner,pending,*kind,
             candidate.owner_id,candidate.semantic_key,path,sketch_reference_draft_body_id(),section_dialog_!=nullptr,sketch_external_profile_active_);
         const auto reference_id=reference.id;pending.add_external_reference(std::move(reference));
         if(sketch_external_profile_active_)static_cast<void>(pending.add_external_profile_geometry(reference_id));
@@ -263,7 +260,26 @@ zima::kernel::ViewerMesh AssemblyWorkspaceWindow::sketch_input_mesh(
                 context.set_history_cursor(owner->scope.id, context.rollback_before(edited.id).entry_count);
             }
         }
-        return session.body_context_mesh(&context);
+        auto mesh=session.body_context_mesh(&context);
+        filter_surface_shell_datums(mesh,document,&context);
+        if(part_rollback_&&part_rollback_->part_document_id==document.document_id) {
+            // Sketch-only passive Bodies have no calculated solid packet.
+            // Retain their visible profiles while editing another Body,
+            // including grip previews. Reference entry still owns eligibility.
+            for(const auto& sketch:document.sketches) {
+                const auto* body=document.body_owner_for_object(sketch.owner_container_id);
+                if(!body||body->scope.id==context.active_body_id()||
+                    sketch.id==active_sketch_id_||!sketch_visible_outside_sketcher(document,sketch))continue;
+                auto profile=sketch_viewer_mesh(sketch);
+                auto references=profile.original_references;
+                remove_sketch_computation_points(profile);
+                sketch.filter_hidden_3d_geometry(profile);
+                keep_only_inactive_sketch_profile(profile,sketch.owner_container_id);
+                profile.original_references=std::move(references);
+                append_mesh(mesh,std::move(profile));
+            }
+        }
+        return mesh;
     }
     if (part_rollback_ && part_rollback_->part_document_id == document.document_id)
         return part_rollback_->input_body ? part_rollback_->input_body->mesh : zima::kernel::ViewerMesh{};

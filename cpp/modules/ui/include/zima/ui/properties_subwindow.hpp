@@ -45,6 +45,8 @@ private:
     QDialogButtonBox* buttons_{};
     QLabel* title_label_{};
     QLabel* submit_error_{};
+    QWidget* confirmation_activity_{};
+    bool submitting_{};
     QWidget* title_bar_{};
     QPointF title_drag_origin_;
     QPoint title_drag_window_origin_;

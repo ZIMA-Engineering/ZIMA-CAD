@@ -7,6 +7,7 @@
 #include <zima/workspace/family_operations.hpp>
 #include <zima/kernel/surface_results.hpp>
 #include <zima/kernel/occt_kernel.hpp>
+#include "../app/surface_thicken_selection.hpp"
 #include <BRepTools.hxx>
 #include <BRep_Builder.hxx>
 #include <BRepCheck_Analyzer.hxx>
@@ -120,7 +121,45 @@ int main(){try{
     const auto partial_skin=kernel.evaluate_history({{"box",box},{"skin",skin},{"thick",partial}}).back();valid(partial_skin);
     std::set<std::string> remaining_skin;
     for(const auto& value:partial_skin.mesh.triangle_references)if(value.owner_id=="skin"&&value.surface_result)remaining_skin.insert(value.semantic_key);
-    check(remaining_skin.size()==5,"Thickening one skin face consumed its siblings");
+    check(remaining_skin.empty(),"Thickening a connected skin left unthickened sibling faces");
+    // Selecting either patch of one sewn shell consumes the entire sheet.
+    // Independent sheets stay surfaces and native children do not depend on
+    // which patch was used as the selection anchor.
+    auto adjacent=rectangle();
+    for(auto& boundary:adjacent.boundaries) {
+        auto& line=std::get<kernel::ExtrusionRequest::LineCurve>(std::get<kernel::ExtrusionRequest::CurvedProfile>(boundary.outer_profile).curves.front());
+        line.start.x+=10.;line.end.x+=10.;
+    }
+    kernel::SurfaceSewingRequest sew;sew.faces={{"left","surface:from:region",{}},{"right","surface:from:region",{}}};
+    const std::vector<kernel::HistoryOperation> sewn_history{{"left",rectangle()},{"right",adjacent},{"sewn",sew}};
+    const auto sewn_input=kernel.evaluate_history(sewn_history);
+    std::map<std::string,kernel::FaceReference> anchors;
+    for(const auto& f:sewn_input.back().mesh.triangle_references)if(f.owner_id=="sewn")anchors.emplace(f.semantic_key,f);
+    check(anchors.size()==2,"Sewn thickening fixture did not preserve two patches");
+    app::SurfaceThickenSelection selected_shell(sewn_input.back().mesh,{});
+    for(const auto& [name,anchor]:anchors)check(selected_shell.faces(anchor).size()==2,"Persisted shell selection omitted an adjacent sewn patch");
+    std::set<std::string> sewn_keys;
+    for(unsigned mode=0;mode<3;++mode)for(const auto& [name,anchor]:anchors) {
+        auto history=sewn_history;auto whole=request;whole.face=anchor;whole.side=static_cast<kernel::SurfaceThicknessSide>(mode);
+        history.push_back({"thick",whole});const auto result=kernel.evaluate_history(history).back();valid(result);near(result.volume,800.);
+        check(std::ranges::none_of(result.mesh.triangle_references,[](const auto& f){return f.surface_result;}),"Sewn sibling remained a loose sheet after thickening");
+        const auto ids=identities(result);if(sewn_keys.empty())sewn_keys=ids;else check(ids==sewn_keys,"Changing the selected sewn patch or side renamed thickening children");
+        kernel::OcctKernel rebuilt_kernel;const auto rebuilt=rebuilt_kernel.evaluate_history_incremental(history,kernel.evaluate_history(history)).back();
+        valid(rebuilt);near(rebuilt.volume,800.);check(identities(rebuilt)==ids,"Cold sewn-shell calculation changed native children");
+    }
+    auto corner=rectangle();const std::array<kernel::Vec3,4> corner_points{{{10,0,0},{10,20,0},{10,20,10},{10,0,10}}};
+    for(unsigned i=0;i<4;++i)corner.boundaries[i].outer_profile=kernel::ExtrusionRequest::CurvedProfile{{kernel::ExtrusionRequest::LineCurve{corner_points[i],corner_points[(i+1)%4]}}};
+    auto bent_history=sewn_history;bent_history[1].primitive=corner;
+    const auto bent_input=kernel.evaluate_history(bent_history);
+    auto whole=request;whole.face=*std::ranges::find_if(bent_input.back().mesh.triangle_references,[](const auto& f){return f.owner_id=="sewn";});
+    std::array<double,3> bent_volumes{};
+    for(unsigned mode=0;mode<3;++mode) {
+        whole.side=static_cast<kernel::SurfaceThicknessSide>(mode);auto history=bent_history;history.push_back({"thick",whole});
+        const auto result=kernel.evaluate_history(history).back();valid(result);bent_volumes[mode]=result.volume;
+        check(result.volume>700&&result.volume<900,"Corner shell thickening did not cover both sheets");
+    }
+    near(bent_volumes[0]+bent_volumes[1],1600.);near(bent_volumes[2],800.);
+    std::cout<<"Connected skin and sewn-shell offsets passed"<<std::endl;
     const auto invalid=[&](auto bad){bool rejected=false;try{static_cast<void>(kernel.evaluate_history({{"surface",rectangle()},{"thick",bad}}));}catch(const std::exception&){rejected=true;}check(rejected,"Invalid thickening was accepted");};
     auto bad=request;bad.thickness=0.;invalid(bad);bad.thickness=-1.;invalid(bad);bad=request;bad.face.semantic_key="missing";invalid(bad);bad=request;bad.side=static_cast<kernel::SurfaceThicknessSide>(3);invalid(bad);
     // Native history, exact save/reopen, prerequisites, no-op and atomic Undo/Redo.

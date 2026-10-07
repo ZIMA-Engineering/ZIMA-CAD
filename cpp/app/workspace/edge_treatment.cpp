@@ -215,6 +215,7 @@ void AssemblyWorkspaceWindow::refresh_edge_treatment_preview() {
         : std::optional{zima::assembly::InstancePath::decode(instance_path)};
     std::vector<std::vector<zima::kernel::ViewerEdge>> display_groups;
     std::vector<zima::kernel::VertexReference> route_start_vertices;
+    const auto authored_start_count=edge_treatment_preview_parameters_.route_start_vertices.size();
     display_groups.reserve(pending_edge_treatment_groups_.size());
     route_start_vertices.reserve(pending_edge_treatment_groups_.size());
     for (std::size_t group_index=0;group_index<pending_edge_treatment_groups_.size();++group_index) {
@@ -260,6 +261,11 @@ void AssemblyWorkspaceWindow::refresh_edge_treatment_preview() {
         route_start_vertices.push_back(std::move(route_start));
         display_groups.push_back(std::move(display_group));
     }
+    // Empty optional endpoint slots are presentation data. Opening a constant
+    // treatment must not append them to its authored definition and turn an
+    // unchanged OK into a model edit. Keep every existing authored slot.
+    while(route_start_vertices.size()>authored_start_count&&!route_start_vertices.back().valid())
+        route_start_vertices.pop_back();
     edge_treatment_preview_parameters_.route_start_vertices =
         route_start_vertices;
     if (edge_treatment_dialog_ != nullptr) {

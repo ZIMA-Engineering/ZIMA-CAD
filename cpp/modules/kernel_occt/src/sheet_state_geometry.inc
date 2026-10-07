@@ -251,7 +251,7 @@ PrimitiveData transform(const PrimitiveData& original_input,const std::vector<Tr
         // Foreign bends must not introduce unrelated cuts into that domain.
         if(!applies(transition))continue;
         const auto& region=transition.before;
-        if(region.kind==SheetMaterialDefinition::Kind::Plane)continue;
+        if(region.kind==SheetMaterialDefinition::Kind::Plane||region.kind==SheetMaterialDefinition::Kind::Form)continue;
         for(const bool end:{false,true}) {
             const double material_length=region.kind==SheetMaterialDefinition::Kind::Twist?
                 region.developed_length:region.angle*region.neutral_radius;

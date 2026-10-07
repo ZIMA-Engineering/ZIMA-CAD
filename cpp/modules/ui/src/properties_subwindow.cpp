@@ -1,5 +1,6 @@
 #include <zima/ui/close_button.hpp>
 #include <zima/ui/properties_subwindow.hpp>
+#include <zima/ui/operation_activity.hpp>
 
 #include <QApplication>
 #include <QAbstractSpinBox>
@@ -21,6 +22,8 @@
 #include <QStyleOptionSpinBox>
 #include <QResizeEvent>
 #include <QTimer>
+#include <QScopedValueRollback>
+#include <QScopeGuard>
 #include <QVBoxLayout>
 #include <QFormLayout>
 #include <QHBoxLayout>
@@ -291,9 +294,20 @@ PropertiesSubWindow::PropertiesSubWindow(const QString& title, QWidget* parent)
         }
     }
     connect(buttons_, &QDialogButtonBox::accepted, this, [this] {
+        if (submitting_) return;
+        QScopedValueRollback<bool> submitting(submitting_, true);
         submit_error_->hide();
         try {
-            if (submit()) accept();
+            bool accepted{};
+            {
+                const bool enabled = buttons_->isEnabled();
+                buttons_->setEnabled(false);
+                const auto restore = qScopeGuard([this, enabled] { buttons_->setEnabled(enabled); });
+                OperationActivity::Scope activity(OperationActivity::find(this),
+                    tr("Pracuji: %1").arg(windowTitle()), confirmation_activity_);
+                accepted = submit();
+            }
+            if (accepted) accept();
         } catch (const std::exception& error) {
             submit_error_->setText(QObject::tr(error.what()));
             submit_error_->show();
@@ -303,7 +317,12 @@ PropertiesSubWindow::PropertiesSubWindow(const QString& title, QWidget* parent)
         }
     });
     connect(buttons_, &QDialogButtonBox::rejected, this, &QDialog::reject);
-    outer->addWidget(buttons_);
+    auto* confirmation_row = new QHBoxLayout;
+    confirmation_row->addStretch();
+    confirmation_activity_ = OperationActivity::create_confirmation_indicator(this);
+    confirmation_row->addWidget(confirmation_activity_);
+    confirmation_row->addWidget(buttons_);
+    outer->addLayout(confirmation_row);
     qApp->installEventFilter(this);
 }
 
@@ -338,6 +357,10 @@ void PropertiesSubWindow::showEvent(QShowEvent* event) {
     QDialog::showEvent(event);
     if (initial_size_.isValid()) {
         QSize target = initial_size_.expandedTo(minimumSizeHint());
+        // A requested natural height must include wrapped explanatory text
+        // at the requested width, rather than its one-line minimum hint.
+        if (initial_size_.height() == 0 && layout() && layout()->hasHeightForWidth())
+            target.setHeight(std::max(target.height(), layout()->totalHeightForWidth(target.width())));
         if (parentWidget() != nullptr) {
             target.setWidth(std::min(target.width(), parentWidget()->width()));
             target.setHeight(std::min(target.height(), parentWidget()->height()));

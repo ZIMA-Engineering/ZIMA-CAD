@@ -22,6 +22,24 @@
 
 namespace zima::workspace {
 
+namespace { thread_local CalculationExecutionScope::Runner calculation_runner; }
+CalculationExecutionScope::CalculationExecutionScope(Runner runner)
+    : previous_(std::move(calculation_runner)) { calculation_runner = std::move(runner); }
+CalculationExecutionScope::~CalculationExecutionScope() { calculation_runner = std::move(previous_); }
+
+PartCalculationPolicy feature_definition_calculation_policy(
+    const document::PartDocument& before, const std::vector<kernel::BodyResult>& previous,
+    const std::string& container_id) {
+    PartCalculationPolicy policy;
+    if (const auto* existing = before.find_container(container_id)) {
+        policy.edited_document_id = before.document_id;
+        policy.edited_history_limit = before.history_index(container_id);
+        policy.reject_errors = existing->feature_kind != document::FeatureKind::Sketch &&
+            (previous.empty() || !previous.back().calculation_errors.contains(container_id));
+    }
+    return policy;
+}
+
 static void validate_part_calculation(const document::PartDocument& document,
     const std::vector<kernel::BodyResult>& calculated,const PartCalculationPolicy& policy) {
     if (policy.reject_errors && !calculated.empty()) {
@@ -44,6 +62,15 @@ std::vector<zima::kernel::BodyResult> calculate_part(
     const zima::document::PartDocument& document,
     const std::vector<zima::kernel::BodyResult>* previous,
     const PartCalculationPolicy& policy) {
+    if (calculation_runner) {
+        std::vector<kernel::BodyResult> result;
+        const auto runner = calculation_runner;
+        runner([&] {
+            CalculationExecutionScope synchronous({});
+            result = calculate_part(kernel,document,previous,policy);
+        });
+        return result;
+    }
     if(!document.removed_reference_states.empty()) {
         auto repaired=document;
         if(refresh_removed_reference_states(repaired))return calculate_part(kernel,repaired,previous,policy);
@@ -171,12 +198,29 @@ calculate_part_reference_state(
 std::vector<kernel::BodyResult> calculate_part_with_resolved_references(
     const kernel::OcctKernel& kernel,document::PartDocument& document,
     const std::vector<kernel::BodyResult>* previous,const PartCalculationPolicy& policy) {
+    if (calculation_runner) {
+        std::vector<kernel::BodyResult> result;
+        const auto runner = calculation_runner;
+        runner([&] {
+            CalculationExecutionScope synchronous({});
+            result = calculate_part_reference_state(kernel,document,previous,policy);
+        });
+        return result;
+    }
     return calculate_part_reference_state(kernel,document,previous,policy);
 }
 
 void calculate_resolved_assembly_cuts(
     const zima::kernel::OcctKernel& kernel,
     zima::assembly::AssemblyDocument& document) {
+    if (calculation_runner) {
+        const auto runner = calculation_runner;
+        runner([&] {
+            CalculationExecutionScope synchronous({});
+            calculate_resolved_assembly_cuts(kernel,document);
+        });
+        return;
+    }
     // Assembly-owned cutters use the exact same persisted placement solver
     // as Part history containers.  The input universe is the Assembly's real
     // pre-cut component geometry plus its own Origin/constructions; no OCCT

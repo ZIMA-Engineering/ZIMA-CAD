@@ -23,6 +23,7 @@
     <file alias="icons/sheet-from-body.svg">../../resources/icons/sheet-from-body.svg</file>
     <file alias="icons/sheet-revolve.svg">../../resources/icons/sheet-revolve.svg</file>
     <file alias="icons/sheet-twist.svg">../../resources/icons/sheet-twist.svg</file>
+    <file alias="icons/sheet-form.svg">../../resources/icons/sheet-form.svg</file>
     <file alias="icons/sheet-transition.svg">../../resources/icons/sheet-transition.svg</file>
     <file alias="icons/sheet-transition-rectangular.svg">../../resources/icons/sheet-transition-rectangular.svg</file>
     <file alias="icons/sheet-cut.svg">../../resources/icons/sheet-cut.svg</file>
