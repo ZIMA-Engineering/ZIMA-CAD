@@ -2,6 +2,7 @@
 #include <zima/workspace/part_transactions.hpp>
 #include <zima/workspace/model_calculation.hpp>
 #include <zima/document/sheet_form_definition.hpp>
+#include <zima/document/solid_state_reference_views.hpp>
 #include <zima/document/metadata.hpp>
 namespace zima::workspace {
 bool commit_sheet_form(Workspace& live,const kernel::OcctKernel& kernel,
@@ -33,6 +34,16 @@ bool commit_sheet_form(Workspace& live,const kernel::OcctKernel& kernel,
     auto next=before;const auto owner=feature.id;
     if(existing)*next.find_container(owner)=std::move(feature);
     else {next.insert_history_entry(document::PartHistoryKind::Feature,owner);next.history.push_back(std::move(feature));}
+    // Resolve the pending FORM in its actual Body-local native input frame
+    // before calculating. Viewer/display Euler angles may describe the same
+    // frame with +180 rather than -180; settling them after calculation would
+    // unnecessarily rebuild the same offset, boolean and result packets.
+    // Consume the existing resolver and cached boundaries without kernel work.
+    const auto& input=state->session.calculated_boundaries();
+    auto references=construction_reference_source_geometry(input);
+    const auto views=input.empty()?document::HistoryReferenceViews{}:
+        document::solid_state_reference_views(next,input.back(),references);
+    next.resolve_constructions(std::move(references),views);
     auto policy=feature_definition_calculation_policy(before,state->session.calculated_boundaries(),owner);
     if(existing){policy.edited_document_id=id;policy.edited_history_limit=before.history_index(owner);}
     auto calculated=calculate_part_with_resolved_references(kernel,next,&state->session.calculated_boundaries(),policy);

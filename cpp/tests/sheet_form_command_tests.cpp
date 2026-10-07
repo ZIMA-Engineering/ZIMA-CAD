@@ -75,11 +75,16 @@ int main(){try {
     check(drawing::deserialize_model_annotations(drawing::serialize_model_annotations(view.model_annotations))==view.model_annotations,
         "Drawing FORM symbol persistence failed");
     for(double angle:{35.,-65.,0.}) {
-        auto edited=*saved().find_container(feature.id);edited.placement.rotation_offset_y=angle;
+        auto edited=*saved().find_container(feature.id);edited.placement.absolute_rotation_y=angle;
         check(workspace::commit_sheet_form(live,kernel,part.document_id,edited),"FORM rotation edit ignored");
         packets=workspace::drawing_annotation_sources(&live,part.document_id,{});const auto& rotated=symbol(packets);
         near(kernel::sheet_material::dot(rotated.frame.x,rotated.frame.y),0.);
         near(kernel::sheet_material::dot(rotated.frame.x,rotated.frame.x),1.);
+        const auto outward=kernel::sheet_material::mul(face->surface->axis,face->surface->reversed?-1.:1.);
+        const auto radians=angle*std::numbers::pi/180.;
+        const auto expected=kernel::sheet_material::add(kernel::sheet_material::mul(initial.frame.x,std::cos(radians)),
+            kernel::sheet_material::mul(kernel::sheet_material::cross(outward,initial.frame.x),std::sin(radians)));
+        near(kernel::sheet_material::dot(rotated.frame.x,expected),1.);
         near(rotated.frame.origin.z,initial.frame.origin.z);
         check(rotated.symbol.id==initial.symbol.id,"Rotation changed manufacturing symbol identity");
         drawing::refresh_model_annotations(view,packets);

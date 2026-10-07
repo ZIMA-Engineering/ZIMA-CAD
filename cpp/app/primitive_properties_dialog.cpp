@@ -1248,7 +1248,7 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
             this, [this] { notify_preview(); });
         set_shell_faces(initial.shell.removed_faces);
     } else if (initial.feature_kind == zima::document::FeatureKind::SheetForm) {
-        rotation_[1]->setObjectName("sheetFormRotation");
+        placement_->rotation_fields()[1]->setObjectName("sheetFormRotation");
         sheet_form_preview_=zima::document::sheet_form_preview_edges(initial.sheet_form);
         sheet_form_source_=new QLabel(QString::fromStdString(initial.sheet_form.source_name),this);
         sheet_form_source_->setObjectName("sheetFormDefinition");
@@ -2228,13 +2228,12 @@ void PrimitivePropertiesDialog::notify_preview() {
 void PrimitivePropertiesDialog::lock_sheet_form_fields() {
     if(initial_.feature_kind!=zima::document::FeatureKind::SheetForm||!placement_)return;
     // A placed FORM may rotate in its support plane, never tilt away from it.
-    for(auto i:{0,2}) {
-        rotation_[i]->setEnabled(false);
-        placement_->rotation_fields()[i]->setEnabled(false);
-    }
+    for(auto* field:placement_->rotation_offset_fields())field->setEnabled(false);
+    for(auto* field:placement_->rotation_fields())field->setEnabled(false);
     if(initial_.sheet_form.support.valid()) {
-        for(auto* field:placement_->rotation_fields())field->setEnabled(false);
-        rotation_[1]->setEnabled(true);
+        // A FRONT reference leaves the shared absolute local-Y angle free;
+        // its local-Y correction is not used by that reference solution.
+        placement_->rotation_fields()[1]->setEnabled(true);
     }
     if(auto* flip=findChild<QPushButton*>("containerOrientationFlipButton"))flip->setEnabled(false);
 }

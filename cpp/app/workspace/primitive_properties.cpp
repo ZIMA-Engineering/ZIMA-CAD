@@ -1053,7 +1053,7 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
         const bool defer_profile_scene_refresh =
             (feature_kind == zima::document::FeatureKind::Extrusion ||
             feature_kind == zima::document::FeatureKind::Revolution || feature_kind == zima::document::FeatureKind::Feature);
-        placement_preview = [this, dialog, fit_new_basic_preview, edit_mode, imported_preview_edges,
+        placement_preview = [this, dialog, owner_id, fit_new_basic_preview, edit_mode, imported_preview_edges,
                              defer_profile_scene_refresh](
                 const zima::document::HistoryContainer& preview)
                 -> zima::document::HistoryContainer {
@@ -1089,9 +1089,30 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
             bool orientation_from_reference = false;
             const bool point=resolved_preview.feature_kind==zima::document::FeatureKind::Feature &&
                 resolved_preview.feature.type==zima::document::FeatureType::Point;
-            const bool placement_valid = (point ? zima::document::resolve_point_placement : zima::document::resolve_placement)(
+            bool placement_valid = (point ? zima::document::resolve_point_placement : zima::document::resolve_placement)(
                 placement, primitive_reference_geometry_, &base_rotation,
                 &orientation_from_reference);
+            if(resolved_preview.feature_kind==zima::document::FeatureKind::SheetForm&&
+                resolved_preview.sheet_form.support.valid()) {
+                // Match FORM confirmation's native Body-local frame, including
+                // the reference normal's exact orientation at Euler singularities.
+                // This is transient reference solving from cached packets only.
+                const auto* owner=workspace_.open_part(owner_id);
+                if(owner) {
+                    auto candidate=owner->session.document();
+                    if(auto* existing=candidate.find_container(resolved_preview.id))*existing=resolved_preview;
+                    else {candidate.insert_history_entry(zima::document::PartHistoryKind::Feature,resolved_preview.id);
+                        candidate.history.push_back(resolved_preview);}
+                    const auto& input=owner->session.calculated_boundaries();
+                    auto references=construction_reference_source_geometry(input);
+                    const auto views=input.empty()?zima::document::HistoryReferenceViews{}:
+                        zima::document::solid_state_reference_views(candidate,input.back(),references);
+                    candidate.resolve_constructions(std::move(references),views);
+                    placement=candidate.find_container(resolved_preview.id)->placement;
+                    placement_valid=placement.reference_valid;
+                    base_rotation={placement.absolute_rotation_x,placement.absolute_rotation_y,placement.absolute_rotation_z};
+                }
+            }
             auto effective_references=placement.references;
             if(point) {
                 const auto derived=zima::document::point_circle_plane_offsets(effective_references,primitive_reference_geometry_);

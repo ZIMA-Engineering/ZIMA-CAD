@@ -98,17 +98,53 @@ Q_NEVER_INLINE static int verify_sheet_form_ui(QApplication& application,Assembl
         const auto outward=kernel::sheet_material::mul(pending.sheet_form.support.surface->axis,pending.sheet_form.support.surface->reversed?-1.:1.);
         const auto revision=run("documents").data;const auto camera=view->camera_state();
         auto* angle=dialog->findChild<QDoubleSpinBox*>("sheetFormRotation");check(angle&&angle->isEnabled(),"FORM in-plane rotation unavailable");
+        const auto zero_tangent=document::construction_direction_from_local_axis("x",
+            {pending.placement.rotation_x,pending.placement.rotation_y,pending.placement.rotation_z});
         for(double value:{30.,-40.,15.}) {angle->setValue(value);flush();pending=dialog->pending_value();
             check(std::abs(pending.placement.x-position.x)<1e-8&&std::abs(pending.placement.y-position.y)<1e-8&&std::abs(pending.placement.z-position.z)<1e-8,"FORM rotation moved its insertion point");
             const auto normal=document::construction_direction_from_local_axis("y",{pending.placement.rotation_x,pending.placement.rotation_y,pending.placement.rotation_z});
             check(kernel::sheet_material::dot(normal,outward)>1.-1e-8,"FORM rotation tilted away from the support");
+            const auto radians=value*std::numbers::pi/180.;
+            const auto expected=kernel::sheet_material::add(kernel::sheet_material::mul(zero_tangent,std::cos(radians)),
+                kernel::sheet_material::mul(kernel::sheet_material::cross(outward,zero_tangent),std::sin(radians)));
+            const auto tangent=document::construction_direction_from_local_axis("x",
+                {pending.placement.rotation_x,pending.placement.rotation_y,pending.placement.rotation_z});
+            check(std::abs(pending.placement.absolute_rotation_y-value)<1e-8&&
+                kernel::sheet_material::dot(tangent,expected)>1.-1e-8,"FORM angle did not rotate its native frame");
             check(!view->transient_edges().empty(),"FORM rotation lost its native wire preview");
         }
         check(run("documents").data==revision&&view->camera_state()==camera,"FORM preview changed a document revision or camera");
+        const std::array preview_axes{
+            document::construction_direction_from_local_axis("x",{pending.placement.rotation_x,pending.placement.rotation_y,pending.placement.rotation_z}),
+            document::construction_direction_from_local_axis("y",{pending.placement.rotation_x,pending.placement.rotation_y,pending.placement.rotation_z}),
+            document::construction_direction_from_local_axis("z",{pending.placement.rotation_x,pending.placement.rotation_y,pending.placement.rotation_z})};
+        const auto preview_wire=view->transient_edges();const auto local_wire=dialog->sheet_form_preview();
         const auto id=pending.id;QElapsedTimer elapsed;elapsed.start();dialog->buttons()->button(QDialogButtonBox::Ok)->click();wait_closed();
         std::cout<<"FORM GUI confirmed insertion="<<elapsed.elapsed()/1000.<<" s"<<std::endl;
         auto [saved,cache]=native();check(saved.find_container(id)&&cache.back().calculation_errors.empty(),"FORM GUI creation retained a calculation error");
         check(saved.find_container(id)->placement.references==pending.placement.references,"FORM OK lost its attachment references");
+        const auto& confirmed=saved.find_container(id)->placement;
+        check(std::abs(confirmed.x-pending.placement.x)<1e-8&&
+            std::abs(confirmed.y-pending.placement.y)<1e-8&&std::abs(confirmed.z-pending.placement.z)<1e-8,
+            "FORM confirmation moved its previewed insertion point");
+        const std::array confirmed_axes{
+            document::construction_direction_from_local_axis("x",{confirmed.rotation_x,confirmed.rotation_y,confirmed.rotation_z}),
+            document::construction_direction_from_local_axis("y",{confirmed.rotation_x,confirmed.rotation_y,confirmed.rotation_z}),
+            document::construction_direction_from_local_axis("z",{confirmed.rotation_x,confirmed.rotation_y,confirmed.rotation_z})};
+        for(std::size_t axis=0;axis<preview_axes.size();++axis)
+            check(kernel::sheet_material::dot(preview_axes[axis],confirmed_axes[axis])>1.-1e-8,
+                "FORM confirmation changed its previewed native frame");
+        check(preview_wire.size()==local_wire.size(),"FORM preview wire lost definition edges");
+        for(std::size_t edge=0;edge<local_wire.size();++edge) {
+            check(preview_wire[edge].points.size()==local_wire[edge].points.size(),"FORM preview changed curve samples");
+            for(std::size_t index=0;index<local_wire[edge].points.size();++index) {
+                const auto point=local_wire[edge].points[index];auto expected=kernel::Vec3{confirmed.x,confirmed.y,confirmed.z};
+                for(std::size_t axis=0;axis<3;++axis)expected=kernel::sheet_material::add(expected,
+                    kernel::sheet_material::mul(confirmed_axes[axis],axis==0?point.x:axis==1?point.y:point.z));
+                const auto delta=kernel::sheet_material::sub(preview_wire[edge].points[index],expected);
+                check(kernel::sheet_material::dot(delta,delta)<1e-12,"FORM preview curve disagrees with its confirmed native frame");
+            }
+        }
         const auto original=saved.find_container(id)->sheet_form;const auto placed=saved.find_container(id)->placement;
         run("undo");check(!native().first.find_container(id),"FORM creation Undo failed");run("redo");check(native().first.find_container(id),"FORM creation Redo failed");
         window.show_tree_item_properties(row(id));flush();dialog=editor();check(dialog,"FORM edit Properties missing");

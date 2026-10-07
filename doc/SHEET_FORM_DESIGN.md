@@ -124,6 +124,26 @@ scene publication, measured 1.95 s on this fixture. Repeated immutable embedded
 definition parsing previously made it 4.62 s. A bounded, weakly owned parsed-source
 cache now reuses that same native definition without retaining mutable Part
 instances. Changing the payload or role metadata invalidates/rejects reuse.
+The first packaged candidate exposed an additional unnecessary calculation:
+the native Body-local reference resolver expressed a displayed +180 degree Euler
+angle as -180 degrees only after preparing the first result. Cold GUI confirmation
+reached 2.112 s, so that candidate was not published. FORM now consumes that same
+resolver and its cached native input boundary before explicit kernel evaluation.
+This command-local preparation preserves reference sides and the shared placement
+contract; it does not normalize angles or signed zero globally. Initial local
+measurements fell to 1.159 and 1.176 s with one kernel/result preparation instead
+of two. Correctly rotated GUI insertion subsequently measured 1.183 s. Packaged
+GUI acceptance is recorded with the final release.
+
+The FORM rotation control uses the shared absolute local-Y angle that remains
+free with a FRONT face reference. The local-Y correction is ignored by that
+ordinary reference solution and must not be used as the FORM angle. The preview
+also resolves the pending definition through its actual native Body-local input
+frame, matching confirmation at Euler singularities. Native checks compare
+0, 30 and -70 degree rotations on both sheet sides against independent Rodrigues
+equations. GUI checks exercise 30, -40 and 15 degrees, fixed position and normal,
+and every preview curve sample against the confirmed native frame. These changes
+consume existing placement APIs without changing their shared implementation.
 The former 4.91 s restoration
 included repeated projection work for sheet-state-wrapped FORM references;
 the same FORM-specific UV guide path now recognizes their persisted ancestry.

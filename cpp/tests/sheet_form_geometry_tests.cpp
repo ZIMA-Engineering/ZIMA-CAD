@@ -80,8 +80,11 @@ int main(int argc,char** argv){try {
         const auto outward=kernel::sheet_material::mul(side.surface->axis,side.surface->reversed?-1.:1.);
         const auto seed_point=kernel::sheet_material::add(kernel::Vec3{4,7,0},
             kernel::sheet_material::mul(outward,kernel::sheet_material::dot(side.surface->origin,outward)));
+        const auto zero=document::sheet_form_attachment(side,origin,reference_geometry,{},seed_point);
+        const auto zero_tangent=document::construction_direction_from_local_axis("x",
+            {zero.rotation_x,zero.rotation_y,zero.rotation_z});
         for(double angle:{0.,30.,-70.}) {
-            document::Placement seed;seed.rotation_offset_y=angle;
+            document::Placement seed;seed.absolute_rotation_y=angle;
             auto attached=document::sheet_form_attachment(side,origin,reference_geometry,seed,seed_point);
             near(attached.x,seed_point.x);near(attached.y,seed_point.y);near(attached.z,seed_point.z);
             check(attached.references.size()==4,"FORM did not retain three position references and FRONT");
@@ -90,6 +93,12 @@ int main(int argc,char** argv){try {
             const auto direction=document::construction_direction_from_local_axis("y",
                 {attached.rotation_x,attached.rotation_y,attached.rotation_z});
             near(kernel::sheet_material::dot(direction,outward),1.);
+            const auto tangent=document::construction_direction_from_local_axis("x",
+                {attached.rotation_x,attached.rotation_y,attached.rotation_z});
+            const auto radians=angle*std::numbers::pi/180.;
+            const auto expected=kernel::sheet_material::add(kernel::sheet_material::mul(zero_tangent,std::cos(radians)),
+                kernel::sheet_material::mul(kernel::sheet_material::cross(outward,zero_tangent),std::sin(radians)));
+            near(kernel::sheet_material::dot(tangent,expected),1.);
             auto feature=document::create_sheet_form();feature.placement=attached;
             auto persisted=part;persisted.insert_history_entry(document::PartHistoryKind::Feature,feature.id);
             feature.sheet_form=document::copy_sheet_form_definition(source);feature.sheet_form.support=side;
