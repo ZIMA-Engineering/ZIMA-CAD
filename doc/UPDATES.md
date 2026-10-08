@@ -379,3 +379,14 @@ manifest and offers 2026100803 as installable, without installing anything.
 The user explicitly accepted the isolated Form confirmation range of
 2.241–2.344 seconds; the original strict two-second timing gate did not pass.
 See [the release record](releases/2026100803.md) for regression scope and Linux gaps.
+
+Windows release
+[2026100804](https://github.com/ZIMA-Engineering/ZIMA-CAD/releases/tag/ZIMA-CAD-2026100804)
+was published at 2026-10-08T14:40:17Z. Committed-source candidate/signed native
+smoke, production trust and eight packaged GUI scenarios pass. Draft upload
+digests and anonymous public downloads match all three accepted signed assets.
+The signed 2026100803 updater verifies the public manifest and offers 2026100804
+as installable, without installing an update. Actual packaged Form confirmation
+measured 1.67 seconds with one support validation and one result preparation.
+See [the release record](releases/2026100804.md) for the Sketcher/Up To matrix,
+cleanup and separate Linux acceptance.

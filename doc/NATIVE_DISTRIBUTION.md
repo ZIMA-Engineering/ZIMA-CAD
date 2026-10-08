@@ -2,6 +2,20 @@
 
 ## Scope and status
 
+Windows build **2026100804** is signed, published and independently verified.
+It repairs Sketch Mirror, persistent C+T contacts, circle tangent branch
+selection and dimension/drag editability in FORM-EDGE. Planar Up To accepts
+zero-distance contact, including a whole edge in the target plane; tilted cyan
+previews follow the same limits and open Thin profiles close both sides.
+Eight packaged GUI scenarios pass, including paired Save Copy and profile
+frames. Actual Form confirmation measured 1.67 seconds with one support
+validation and one result preparation. Committed-source candidate/signed smoke,
+production trust, all three public asset hashes and update discovery from
+2026100803 pass. Cleanup removed 4,436,377,249 bytes of temporary staging and
+duplicate archives, retaining accepted files, reports, SDK/build and personal
+data. Shared C++ and precision are unchanged; Linux acceptance remains separate.
+See [the release record](releases/2026100804.md).
+
 Windows build **2026100803** is signed, published and independently verified.
 It repairs Form reference presentation, flat symbols and native Pattern/Mirror
 copies; rectangle contact with the second Bend endpoint; analytic Sheet Cut on
