@@ -802,6 +802,14 @@ no required geometry sidecar or old-format migration step. See
 
 ## Import, export and appearance
 
+**File → Save Copy** creates an independent copy and keeps the original document
+open. Copying a Part or Assembly also copies its associated Drawings. Copying a
+Drawing also copies its primary source model: for example, `Bracket.drwz` creates
+`Bracket.prtz` or `Bracket.asmz` beside it. The copied Drawing references the new
+model. Open documents contribute unsaved changes; closed documents contribute
+their saved state. Other Assembly components and additional Drawing sources retain
+their existing references. Existing destination files prevent the whole operation.
+
 **File → Import** supports STEP, IGES and text DXF. IGES imports geometry into a
 Part body. DXF creates a Sketch with an imported block in the active body, or a
 new body when required; in active Sketcher it inserts into that Sketch. Assembly

@@ -1283,7 +1283,7 @@
   "Use the distribution launcher to install updates.": "Для установки обновлений используйте средство запуска дистрибутива.",
   "The installer could not be started.": "Не удалось запустить установщик.",
   "—": "—",
-  "Uložit kopii modelu včetně navázaného výkresu; původní dokument zůstane otevřený.": "Сохранить копию модели вместе со связанным чертежом; исходный документ останется открытым.",
+  "Uložit kopii dokumentu včetně navázaného modelu nebo výkresů; původní dokument zůstane otevřený.": "Сохранить копию документа со связанной моделью или чертежами; исходный документ останется открытым.",
   "Přepočítá aktivní dokument a jeho otevřené závislosti (F5)": "Пересчитать активный документ и его открытые зависимости (F5)",
   "Vyberte plochu ve 3D pohledu – natočí pohled kolmo k ní": "Выберите грань в 3D-виде для ориентации вида перпендикулярно ей",
   "Orto": "Орто",

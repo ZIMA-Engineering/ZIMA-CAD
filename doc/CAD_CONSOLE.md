@@ -38,7 +38,7 @@ shell nor a Python interpreter.
 | `new` | `type name` | New Part/Assembly/Drawing through shared factory and start templates |
 | `open` | `path` | Open `.prtz`, `.asmz`, or `.drwz`; activate if already open |
 | `save` | optional `document` | Save the active document to its existing path |
-| `save_as` | `path`, optional `document` | Independent copy with new IDs, including linked drawings; never overwrite an existing destination |
+| `save_as` | `path`, optional `document` | Independent copy with new IDs, including linked Drawings or the Drawing's primary model; never overwrite an existing destination |
 | `activate` | `document` | Display an open document as top-level without model calculation |
 | `close` | optional `document discard` | Close a document; unsaved changes require explicit boolean `discard: true` |
 | `pwd` | none | Current working directory |

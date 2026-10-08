@@ -49,7 +49,11 @@ void verify_commands(const kernel::OcctKernel& kernel,const fs::path& root){
         }).get();
     };
     Host host(live,kernel,directory,options);current=&host;
-    require(run(host,"help").data.size()==309,"Command catalog changed");
+    const auto catalog=run(host,"help").data;
+    require(catalog.size()==320,"Command catalog changed");
+    for(const auto* name:{"save_as","body.suppress","body.link","body.scale","document.relations.get","document.relations.set"})
+        require(std::count_if(catalog.begin(),catalog.end(),[&](const auto& command){return command.at("name")==name;})==1,
+            "Command catalog lost or duplicated a registered command");
     const auto metric=request(host,"thread.catalog",{{"standard","metric"},{"limit",2}}).data;
     require(metric.at("total")==392&&metric.at("more")==true&&metric.at("next_offset")==2&&!host.change(),"Catalog pagination or read-only state failed");
     require(request(host,"thread.catalog",{{"standard","metric"},{"designation","M10"}}).data.at("items")[0].at("pitch_mm")==1.5,"Catalog lookup lost M10 pitch");
@@ -168,6 +172,17 @@ void verify_document_lifecycle(const kernel::OcctKernel& kernel,const fs::path& 
     require(companion.source_path==folder/"copy.prtz" && companion.sheets.front().views.front().source_path==folder/"copy.prtz" &&
         companion.sheets.front().bom_rows.front().source_path==folder/"copy.prtz" &&
         companion.sheets.front().bom_rows.front().source_document_id==copy.document_id,"Drawing Unicode source paths did not roundtrip");
+    request(host,"activate",{{"document",drawing_id}});
+    const auto reverse=request(host,"save_as",{{"document",drawing_id},{"path","reverse.drwz"}});
+    const auto reverse_model=document::PartDocument::load(folder/"reverse.prtz",&copied_cache);
+    const auto reverse_drawing=drawing::DrawingDocument::load(folder/"reverse.drwz");
+    require(reverse.data.at("paths").size()==2&&reverse_model.document_id!=id&&
+        reverse_drawing.source_document_id==reverse_model.document_id&&
+        reverse_drawing.sheets.front().bom_rows.front().source_document_id==reverse_model.document_id&&
+        std::abs(copied_cache.back().volume-9000)<1e-6&&live.active_document_id()==drawing_id&&
+        live.open_part(id)->session.revision()==original_revision,
+        "CLI Drawing Save Copy lost its owner, unsaved geometry, BOM or original context");
+    request(host,"activate",{{"document",id}});
     auto group=live.open_assembly(owner)->session.document();
     group.components.push_back(assembly::AssemblyDocument::create_part_occurrence("Original",id,folder/"original.prtz",live.open_part(id)->session.calculated_boundaries().back()));
     live.open_assembly(owner)->session.commit(group);

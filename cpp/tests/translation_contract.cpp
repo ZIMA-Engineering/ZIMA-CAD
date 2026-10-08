@@ -133,6 +133,12 @@ int verify_translations(QApplication& application, QWidget& parent) {
             !settings.translations.contains("Zamknout hodnotu"), "INI sections were mixed");
         app::apply_application_translations(application, settings);
         application.processEvents();
+        for(const auto* key:{
+            "Uložit kopii dokumentu včetně navázaného modelu nebo výkresů; původní dokument zůstane otevřený.",
+            "Uložit nezávislou kopii včetně navázaného modelu nebo výkresů: save_as cesta.",
+            "Zdrojový dokument výkresu nelze otevřít.",
+            "The source file does not contain the requested model or evaluated family variant."})
+            check(QObject::tr(key)==settings.qt_translations.value(key),"Paired Save Copy text did not follow the selected language");
         auto* activity_indicator = ui::OperationActivity::create_confirmation_indicator(&parent);
         check(activity_indicator->findChild<QLabel*>()->text() == settings.qt_translations.value("Pracuji…"),
               "Operation confirmation indicator is not localized");

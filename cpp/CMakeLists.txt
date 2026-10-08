@@ -887,6 +887,10 @@ if(ZIMA_BUILD_TESTS)
     target_link_libraries(zima_cpp_curve_placement_contract_tests PRIVATE zima_command_host)
     add_test(NAME zima_cpp_curve_placement_contract_tests COMMAND zima_cpp_curve_placement_contract_tests)
     add_test(NAME zima_cpp_whole_origin_ui_contract COMMAND zima-cad-cpp --verify-startup)
+    add_test(NAME zima_cpp_save_copy_ui_contract COMMAND zima-cad-cpp --verify-startup)
+    set_tests_properties(zima_cpp_save_copy_ui_contract PROPERTIES
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_SAVE_COPY_ONLY=1"
+        WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/.." RUN_SERIAL TRUE TIMEOUT 180)
     add_test(NAME zima_cpp_retained_feature_ui_contract COMMAND zima-cad-cpp --verify-startup)
     add_test(NAME zima_cpp_form_library_path_ui_contract COMMAND zima-cad-cpp --verify-startup)
     set_tests_properties(zima_cpp_form_library_path_ui_contract PROPERTIES

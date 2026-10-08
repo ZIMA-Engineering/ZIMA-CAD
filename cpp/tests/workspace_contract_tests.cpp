@@ -194,11 +194,90 @@ int main() {
                     assembly_copy.components.front().placement_references.front().target_reference.owner_id==assembly_copy.document_id+":origin" &&
                     assembly_copy.components.front().placement_references.front().component_reference.owner_id==original.document_id+":origin",
                     "Assembly copy detached its mates or copied component identities");
-            static_cast<void>(copies.save_copy(drawing_copy.document_id,directory/"drawing-only.drwz",directory));
+            auto reverse_model=copies.open_part(model_copy.document_id)->session.document();
+            reverse_model.user_parameters["REVERSE_UNSAVED"]="kept";
+            copies.open_part(model_copy.document_id)->session.commit(reverse_model,copied_boundaries);
+            const auto reverse_revision=copies.open_part(model_copy.document_id)->session.revision();
+            auto reverse_drawing=copies.open_drawing(drawing_copy.document_id)->document();
+            reverse_drawing.sheets.front().name="Reverse unsaved sheet";
+            copies.open_drawing(drawing_copy.document_id)->commit(reverse_drawing);
+            copies.activate(drawing_copy.document_id);
+            const auto reverse_size=copies.size();
+            const auto reverse_files=copies.save_copy(drawing_copy.document_id,directory/"drawing-only.drwz",directory);
             const auto drawing_only=zima::drawing::DrawingDocument::load(directory/"drawing-only.drwz");
-            require(drawing_only.document_id!=drawing_copy.document_id &&
-                    drawing_only.source_document_id==model_copy.document_id,
-                    "Standalone Drawing copy changed the referenced model");
+            std::vector<zima::kernel::BodyResult> reverse_boundaries;
+            const auto reverse_copy=PartDocument::load(directory/"drawing-only.prtz",&reverse_boundaries);
+            require(reverse_files.size()==2&&drawing_only.document_id!=drawing_copy.document_id&&
+                    reverse_copy.document_id!=model_copy.document_id&&
+                    drawing_only.source_document_id==reverse_copy.document_id&&
+                    drawing_only.source_path==directory/"drawing-only.prtz"&&
+                    drawing_only.sheets.front().views.front().source_document_id==reverse_copy.document_id&&
+                    drawing_only.sheets.front().views.front().source_path==directory/"drawing-only.prtz"&&
+                    drawing_only.sheets.front().name=="Reverse unsaved sheet"&&
+                    reverse_copy.user_parameters.at("REVERSE_UNSAVED")=="kept"&&
+                    reverse_copy.body_history.find(body_id)->scope.placement.references.front().owner_id==reverse_copy.document_id+":origin"&&
+                    reverse_boundaries.back().kernel_shape==copied_boundaries.back().kernel_shape,
+                    "Drawing-originated copy lost its new owner, open edits, identity or native geometry");
+            require(copies.size()==reverse_size&&copies.active_document_id()==drawing_copy.document_id&&
+                    copies.open_part(model_copy.document_id)->session.revision()==reverse_revision&&
+                    copies.open_part(model_copy.document_id)->session.is_dirty()&&
+                    copies.open_drawing(drawing_copy.document_id)->document().document_id==drawing_copy.document_id,
+                    "Drawing-originated copy changed or opened original documents");
+            // The selected Drawing alone follows its primary owner. Extra
+            // registered sources and other drawings are independent dependencies.
+            reverse_drawing.sources.push_back({original.document_id,source_path,"Other source"});
+            copies.open_drawing(drawing_copy.document_id)->commit(reverse_drawing);
+            const auto multi_files=copies.save_copy(drawing_copy.document_id,directory/"multi-source.drwz",directory);
+            const auto multi=zima::drawing::DrawingDocument::load(directory/"multi-source.drwz");
+            require(multi_files.size()==2&&multi.sources.back().document_id==original.document_id&&
+                    multi.sources.back().source_path==source_path,
+                    "Drawing copy replaced an unrelated registered source");
+            require(copies.remove(model_copy.document_id),"Cannot close reverse owner fixture");
+            const auto closed_reverse_files=copies.save_copy(drawing_copy.document_id,directory/"closed-owner.drwz",directory);
+            const auto closed_owner=PartDocument::load(directory/"closed-owner.prtz");
+            require(closed_reverse_files.size()==2&&!closed_owner.user_parameters.contains("REVERSE_UNSAVED")&&
+                    copies.find(model_copy.document_id)==nullptr&&
+                    zima::drawing::DrawingDocument::load(directory/"closed-owner.drwz").source_document_id==closed_owner.document_id,
+                    "Closed Drawing owner was not copied from its native cache without opening it");
+            {std::ofstream collision(directory/"reverse-collision.prtz");collision<<"keep model";}
+            rejected=false;
+            try {static_cast<void>(copies.save_copy(drawing_copy.document_id,directory/"reverse-collision.drwz",directory));}
+            catch(const std::invalid_argument&) {rejected=true;}
+            require(rejected&&!fs::exists(directory/"reverse-collision.drwz")&&bytes(directory/"reverse-collision.prtz")=="keep model",
+                    "Reverse copy collision published a partial pair or overwrote the model");
+            auto orphan=zima::drawing::DrawingDocument::create_default();
+            orphan.source_document_id="missing-source";orphan.source_path=directory/"missing.prtz";
+            copies.add_drawing(orphan,directory/"orphan.drwz");
+            rejected=false;
+            try {static_cast<void>(copies.save_copy(orphan.document_id,directory/"missing-copy.drwz",directory));}
+            catch(const std::exception&) {rejected=true;}
+            require(rejected&&!fs::exists(directory/"missing-copy.drwz")&&!fs::exists(directory/"missing-copy.prtz"),
+                    "Unavailable owner silently produced a detached Drawing copy");
+            orphan.source_path=source_path;
+            copies.open_drawing(orphan.document_id)->commit(orphan);
+            rejected=false;
+            try {static_cast<void>(copies.save_copy(orphan.document_id,directory/"wrong-owner.drwz",directory));}
+            catch(const std::exception&) {rejected=true;}
+            require(rejected&&!fs::exists(directory/"wrong-owner.drwz")&&!fs::exists(directory/"wrong-owner.prtz"),
+                    "Mismatched source identity produced a copy");
+            orphan.source_document_id.clear();orphan.source_path.clear();
+            copies.open_drawing(orphan.document_id)->commit(orphan);
+            require(copies.save_copy(orphan.document_id,directory/"empty-drawing.drwz",directory).size()==1,
+                    "A Drawing without an owner cannot be copied independently");
+            assembly.save(directory/"original.asmz");
+            auto assembly_drawing=zima::drawing::DrawingDocument::create_default();
+            assembly_drawing.source_document_id=assembly.document_id;assembly_drawing.source_path=directory/"original.asmz";
+            copies.add_drawing(assembly_drawing,directory/"assembly.drwz");
+            const auto assembly_pair=copies.save_copy(assembly_drawing.document_id,directory/"assembly-pair.drwz",directory);
+            const auto assembly_pair_model=zima::assembly::AssemblyDocument::load(directory/"assembly-pair.asmz");
+            require(assembly_pair.size()==2&&assembly_pair_model.document_id!=assembly.document_id&&
+                    assembly_pair_model.components.front().source_document_id==original.document_id&&
+                    zima::drawing::DrawingDocument::load(directory/"assembly-pair.drwz").source_document_id==assembly_pair_model.document_id,
+                    "Assembly Drawing copy changed components or lost its owner");
+            require(copies.remove(assembly.document_id),"Cannot close Assembly owner fixture");
+            require(copies.save_copy(assembly_drawing.document_id,directory/"closed-assembly.drwz",directory).size()==2&&
+                    copies.find(assembly.document_id)==nullptr,
+                    "Closed Assembly owner copy did not preserve the editing context");
             const auto step_path=directory/"shape.step";
             copy_kernel.export_step({{boundaries.back(),{}, {}}},step_path.string());
             auto imported=PartDocument::create_default();

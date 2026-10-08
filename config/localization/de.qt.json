@@ -1283,7 +1283,7 @@
   "Use the distribution launcher to install updates.": "Verwenden Sie den Distributionsstarter zum Installieren von Updates.",
   "The installer could not be started.": "Das Installationsprogramm konnte nicht gestartet werden.",
   "—": "—",
-  "Uložit kopii modelu včetně navázaného výkresu; původní dokument zůstane otevřený.": "Modellkopie einschließlich verknüpfter Zeichnung speichern; das Originaldokument bleibt geöffnet.",
+  "Uložit kopii dokumentu včetně navázaného modelu nebo výkresů; původní dokument zůstane otevřený.": "Kopie des Dokuments einschließlich des verknüpften Modells oder der Zeichnungen speichern; das Originaldokument bleibt geöffnet.",
   "Přepočítá aktivní dokument a jeho otevřené závislosti (F5)": "Aktives Dokument und seine geöffneten Abhängigkeiten neu berechnen (F5)",
   "Vyberte plochu ve 3D pohledu – natočí pohled kolmo k ní": "Fläche in der 3D-Ansicht wählen, um die Ansicht senkrecht dazu auszurichten",
   "Orto": "Ortho",

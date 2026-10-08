@@ -58,7 +58,7 @@ void AssemblyWorkspaceWindow::create_actions() {
     save_as_action_ = make_action(
         t("menu.file.save_as", "Uložit jako..."), "save-as");
     save_as_action_->setObjectName("saveDocumentAsAction");
-    save_as_action_->setToolTip(tr("Uložit kopii modelu včetně navázaného výkresu; původní dokument zůstane otevřený."));
+    save_as_action_->setToolTip(tr("Uložit kopii dokumentu včetně navázaného modelu nebo výkresů; původní dokument zůstane otevřený."));
     save_as_action_->setShortcuts({QKeySequence(Qt::Key_F7), QKeySequence::SaveAs});
     save_as_action_->setEnabled(false);
     connect(save_as_action_, &QAction::triggered, this,

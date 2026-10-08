@@ -3261,7 +3261,8 @@ int verify_body_placement_offsets(QApplication& application, const std::filesyst
     std::cout<<"Body placement offset UI contracts passed\n";return 0;
 }
 
-int verify_save_copy_ui(QApplication& application, const std::filesystem::path& parent_directory) {
+int verify_save_copy_ui_case(QApplication& application, const std::filesystem::path& parent_directory,
+        const zima::DocumentNaming& naming) {
     namespace fs = std::filesystem;
     using zima::document::PartDocument;
     const auto qpath = [](const fs::path& path) {
@@ -3274,6 +3275,16 @@ int verify_save_copy_ui(QApplication& application, const std::filesystem::path& 
     if (!verify(temporary.isValid(),"Cannot create isolated Save As fixture directory")) return 1;
     const auto directory = fs::u8path(temporary.path().toStdString()) / fs::u8path("Český projekt žluťoučký");
     fs::create_directory(directory);
+    {
+        QSettings settings(qpath(directory/"config.ini"),QSettings::IniFormat);
+        settings.setValue("DocumentNames/Uppercase",naming.uppercase);
+        settings.setValue("DocumentNames/RemoveDiacritics",naming.remove_diacritics);
+        settings.setValue("DocumentNames/ReplaceSpaces",naming.replace_spaces);
+        settings.sync();
+    }
+    const auto named=[&](const fs::path& requested) {
+        return requested.parent_path()/fs::u8path(naming(zima::document::path_to_utf8(requested.filename())));
+    };
     zima::app::AssemblyWorkspaceWindow window(qpath(directory));
     const auto flush = [&] {
         application.processEvents();
@@ -3340,7 +3351,8 @@ int verify_save_copy_ui(QApplication& application, const std::filesystem::path& 
         zima::kernel::OcctKernel kernel;
         const auto boundaries = kernel.evaluate_history(part.kernel_operations());
         const auto source = directory / fs::u8path("zdroj-český.prtz");
-        const auto target = directory / fs::u8path("kopie-česká.prtz");
+        const auto requested_target = directory / fs::u8path("kopie česká.prtz");
+        const auto target = named(requested_target);
         auto source_drawing = source; source_drawing.replace_extension(".drwz");
         auto target_drawing = target; target_drawing.replace_extension(".drwz");
         part.save(source,boundaries);
@@ -3354,7 +3366,7 @@ int verify_save_copy_ui(QApplication& application, const std::filesystem::path& 
         auto* tabs = window.findChild<QTabBar*>("documentTabs");
         const auto tab_count = tabs->count();
         const auto tab_label = tabs->tabText(tabs->currentIndex());
-        choose("saveDocumentAsAction",target);
+        choose("saveDocumentAsAction",requested_target);
         check(fs::exists(target) && fs::exists(target_drawing),"Save As did not publish Unicode model and Drawing copies");
         const auto copy = PartDocument::load(target);
         const auto drawing_copy = zima::drawing::DrawingDocument::load(target_drawing);
@@ -3366,6 +3378,30 @@ int verify_save_copy_ui(QApplication& application, const std::filesystem::path& 
 
         check(window.open_document_path(qpath(source_drawing)),"Cannot open Unicode Drawing fixture");
         flush();
+        const auto reverse_requested=directory/fs::u8path("výkres kopie.drwz");
+        const auto reverse_target=named(reverse_requested);
+        auto reverse_model_target=reverse_target;reverse_model_target.replace_extension(".prtz");
+        const auto reverse_tab_count=tabs->count();const auto reverse_tab_label=tabs->tabText(tabs->currentIndex());
+        choose("saveDocumentAsAction",reverse_requested);
+        const auto reverse_model=PartDocument::load(reverse_model_target);
+        const auto reverse_drawing=zima::drawing::DrawingDocument::load(reverse_target);
+        check(reverse_model.document_id!=part.document_id&&reverse_drawing.document_id!=drawing.document_id&&
+              reverse_drawing.source_document_id==reverse_model.document_id&&reverse_drawing.source_path==reverse_model_target&&
+              reverse_drawing.sheets.front().views.front().source_document_id==reverse_model.document_id&&
+              run("context").at("active_document")==drawing.document_id&&
+              tabs->count()==reverse_tab_count&&tabs->tabText(tabs->currentIndex())==reverse_tab_label,
+              "Drawing Save Copy did not publish an independent pair or changed original tabs");
+        bool cancelled=false;
+        QTimer cancel_responder;cancel_responder.setInterval(10);
+        QObject::connect(&cancel_responder,&QTimer::timeout,[&] {
+            for(auto* widget:QApplication::allWidgets())
+                if(auto* picker=qobject_cast<QFileDialog*>(widget);picker&&picker->isVisible()) {
+                    cancelled=true;picker->reject();return;
+                }
+        });
+        cancel_responder.start();window.findChild<QAction*>("saveDocumentAsAction")->trigger();cancel_responder.stop();flush();
+        check(cancelled&&tabs->count()==reverse_tab_count&&run("context").at("active_document")==drawing.document_id,
+              "Cancelled Save Copy changed the active document or tabs");
         const auto jpg = directory / fs::u8path("výkres-pohled.jpg");
         const auto dxf = directory / fs::u8path("výkres-obrys.dxf");
         choose("exportDocumentAction",jpg);
@@ -3403,19 +3439,20 @@ int verify_save_copy_ui(QApplication& application, const std::filesystem::path& 
             QTimer drawing_source;
             QObject::connect(&drawing_source,&QTimer::timeout,&window,[&] {
                 if(auto* picker=qobject_cast<QFileDialog*>(QApplication::activeModalWidget())) {
-                    drawing_source.stop();picker->selectFile(qpath(selected_directory/fs::u8path("nový-žluťoučký-part.prtz")));
+                    drawing_source.stop();picker->selectFile(qpath(named(selected_directory/fs::u8path("nový-žluťoučký-part.prtz"))));
                     QMetaObject::invokeMethod(picker,"accept",Qt::QueuedConnection);
                 }
             });
             if(QString::fromLatin1(type)=="drawing")drawing_source.start(10);
             dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click(); flush();
             const auto original_id = run("context").at("active_document").get<std::string>();
-            const auto original = selected_directory / fs::u8path(name + suffix);
+            const auto original = named(selected_directory / fs::u8path(name + suffix));
             window.findChild<QAction*>("saveDocumentAction")->trigger(); flush();
             check(fs::exists(original) && zima::workspace::read_native_document(original).id() == original_id,
                 "GUI New/Save changed the Unicode filename or document identity");
-            const auto copied = selected_directory / fs::u8path(std::string("kopie-česká-") + type + suffix);
-            choose("saveDocumentAsAction",copied);
+            const auto requested_copy = selected_directory / fs::u8path(std::string("kopie česká ") + type + suffix);
+            const auto copied = named(requested_copy);
+            choose("saveDocumentAsAction",requested_copy);
             const auto copied_id = zima::workspace::read_native_document(copied).id();
             check(copied_id != original_id && run("context").at("active_document") == original_id &&
                   zima::workspace::read_native_document(original).id() == original_id,
@@ -3433,6 +3470,16 @@ int verify_save_copy_ui(QApplication& application, const std::filesystem::path& 
         std::cerr << "Save Copy UI contract failed: " << error.what() << std::endl;
         return 1;
     }
+}
+
+int verify_save_copy_ui(QApplication& application,const std::filesystem::path& parent_directory) {
+    for(unsigned policy=0;policy<8;++policy) {
+        zima::DocumentNaming naming;
+        naming.uppercase=(policy&1)!=0;naming.remove_diacritics=(policy&2)!=0;naming.replace_spaces=(policy&4)!=0;
+        if(verify_save_copy_ui_case(application,parent_directory,naming)!=0)return 1;
+        std::cout<<"Paired Save Copy naming policy "<<policy<<" passed\n";
+    }
+    return 0;
 }
 
 int verify_body_activation(QApplication& application, const std::filesystem::path& directory) {

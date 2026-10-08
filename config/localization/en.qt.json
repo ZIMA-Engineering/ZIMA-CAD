@@ -1283,7 +1283,7 @@
   "Use the distribution launcher to install updates.": "Use the distribution launcher to install updates.",
   "The installer could not be started.": "The installer could not be started.",
   "—": "—",
-  "Uložit kopii modelu včetně navázaného výkresu; původní dokument zůstane otevřený.": "Save a copy of the model including its linked drawing; the original document remains open.",
+  "Uložit kopii dokumentu včetně navázaného modelu nebo výkresů; původní dokument zůstane otevřený.": "Save a copy of the document including its linked model or drawings; the original document remains open.",
   "Přepočítá aktivní dokument a jeho otevřené závislosti (F5)": "Recalculate the active document and its open dependencies (F5)",
   "Vyberte plochu ve 3D pohledu – natočí pohled kolmo k ní": "Select a face in the 3D view to orient the view perpendicular to it",
   "Orto": "Ortho",

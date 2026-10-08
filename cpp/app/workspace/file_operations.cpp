@@ -409,7 +409,7 @@ void AssemblyWorkspaceWindow::save_active_document_as() {
             QString::fromStdString(zima::document::path_to_utf8(target.filename()))).arg(files.size()));
     } catch (const std::exception& error) {
         finish_status_operation(tr("Vytvoření kopie selhalo"), false);
-        QMessageBox::critical(this, tr("Uložení kopie se nezdařilo"), error.what());
+        QMessageBox::critical(this, tr("Uložení kopie se nezdařilo"), QObject::tr(error.what()));
     }
 }
 

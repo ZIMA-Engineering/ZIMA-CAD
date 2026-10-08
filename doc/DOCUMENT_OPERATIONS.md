@@ -240,6 +240,27 @@ use UTF-8 too. This is not a new format or migration branch.
 Copying a Drawing redirects a BOM row directly referencing the copied model to its
 new ID/path. Other components retain their sources.
 
+### Paired Save Copy (2026-10-08)
+
+**Save Copy** works in both directions. A Part or Assembly copy includes its
+associated Drawings. A Drawing copy includes its primary source Part or Assembly,
+using the same destination stem and the appropriate `.prtz` or `.asmz` extension.
+Both documents receive independent identities, and the copied Drawing references
+the copied model. Additional Drawing sources and Assembly components keep their
+existing dependencies. A Drawing without a source can still be copied alone.
+
+Open documents supply their current state, including unsaved changes. Closed
+sources are read from their native files and calculated caches without opening a
+tab or invoking OCCT. A Drawing whose primary source is a Family variant copies
+that evaluated variant as an independent model. Missing or mismatched sources
+reject the operation. Destination collisions reject the complete pair before
+publication; publication failure removes the newly published files.
+
+Original files, identities, activation and Undo history remain unchanged. GUI
+filename normalization follows the configured uppercase, diacritic and space
+policies. Native schemas and start templates are unchanged. Verification is
+recorded in [Unicode native file commands](UNICODE_NATIVE_FILE_COMMANDS.md).
+
 Windows Release full run **58/59** (376.32 s,
 `build/document-lifecycle-full-final.log`) exposed the missing BOM redirection.
 After correction, **9/9 affected regressions** passed (16.71 s,

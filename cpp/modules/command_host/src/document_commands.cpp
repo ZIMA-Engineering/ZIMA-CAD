@@ -189,7 +189,7 @@ void Host::register_document_commands() {
         change_=Change{ChangeKind::Close,workspace_.displayed_document_id()};
         return Result::success(documents(workspace_));
     });
-    dispatcher_.add({"save_as",tr("Uložit nezávislou kopii včetně navázaných výkresů: save_as cesta."),
+    dispatcher_.add({"save_as",tr("Uložit nezávislou kopii včetně navázaného modelu nebo výkresů: save_as cesta."),
         {{"path",true},{"document",false}},true},[this](const Json& args) {
         const auto checked=target(args);if(!checked.ok)return checked;
         if(interaction().template_document)return Result::failure("unsupported_document",tr("Tento příkaz není dostupný při úpravě šablony."));

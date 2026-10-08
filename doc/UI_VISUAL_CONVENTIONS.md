@@ -129,11 +129,14 @@ whole-Origin and selection-filter checks passed. The interaction fixture also
 passed with the Windows 11 style, checking native button backgrounds, unchanged
 green checkmarks and azure/green geometry. No user-visible strings were added or
 changed; existing localized labels/tooltips remain in all five languages.
-The console UI contract also passed. The broad workspace startup run stops at
-its Unicode Save As fixture under the user's `RemoveDiacritics=true` setting:
-the fixture expects the original accented filename. The isolated Save Copy
-contract passes with diacritic preservation. The saving implementation and user
-configuration were not changed; the remainder of that broad run is unverified.
+The console UI contract also passed. That broad workspace startup run stopped
+at its Unicode Save As fixture under the user's `RemoveDiacritics=true` setting:
+the fixture expected the original accented filename. The 2026-10-08 correction
+isolates filename settings and exercises all eight naming-policy combinations,
+including paired copying in both directions. See
+[Unicode native file commands](UNICODE_NATIVE_FILE_COMMANDS.md) for the reproduced
+failure and current verification. The remainder of the historical broad run
+remains unverified; the user's configuration is unchanged.
 
 The toolbar icons are native SVG assets under `resources/icons`, using a
 24 × 24 view box. Keep silhouettes simple enough to read at the application's

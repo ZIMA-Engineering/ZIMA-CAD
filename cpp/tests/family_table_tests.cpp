@@ -424,6 +424,33 @@ void family_test(const kernel::OcctKernel& kernel,const fs::path& directory) {
     require(cold_variant.family.parent_id==id&&std::abs(cold_cache.back().volume-944)<1e-8,"Single native file did not retain evaluated instance");
     const auto [source_id,source_mesh]=workspace::read_drawing_source(nullptr,directory/"base.prtz",variant);
     require(source_id==variant&&!source_mesh.triangles.empty(),"Cold Drawing source did not resolve parent plus row");
+    // Reverse Save Copy resolves a primary Family owner from the same native
+    // packet as Drawing source loading, without calculating or opening it.
+    auto member_drawing=drawing::DrawingDocument::create_default();
+    member_drawing.source_document_id=variant;member_drawing.source_path=directory/"base.prtz";
+    member_drawing.sheets.front().views.push_back(drawing::DrawingDocument::create_view(
+        variant,member_drawing.source_path,source_mesh));
+    const auto member_drawing_id=member_drawing.document_id;
+    live.add_drawing(member_drawing,directory/"member.drwz");
+    const auto verify_member_pair=[&](workspace::Workspace& owner,const fs::path& target) {
+        const auto count=owner.size();const auto active=owner.active_document_id();
+        require(owner.save_copy(member_drawing_id,target).size()==2,"Family Drawing did not produce a native pair");
+        auto model_path=target;model_path.replace_extension(".prtz");
+        std::vector<kernel::BodyResult> saved_cache;
+        const auto model=document::PartDocument::load(model_path,&saved_cache);
+        const auto copied=drawing::DrawingDocument::load(target);
+        require(model.family.parent_id.empty()&&model.document_id!=variant&&
+            !saved_cache.empty()&&std::abs(saved_cache.back().volume-944)<1e-8&&
+            copied.source_document_id==model.document_id&&copied.source_path==model_path&&
+            copied.sheets.front().views.front().source_document_id==model.document_id,
+            "Family Drawing copy lost its evaluated variant or retained family ownership");
+        require(owner.size()==count&&owner.active_document_id()==active,"Family Drawing copy changed the editing context");
+    };
+    verify_member_pair(live,directory/"open-member.drwz");
+    workspace::Workspace cold_member;
+    cold_member.add_drawing(member_drawing,directory/"member.drwz");
+    verify_member_pair(cold_member,directory/"closed-member.drwz");
+    require(live.remove(member_drawing_id),"Cannot retire the Family Drawing copy fixture");
     auto drawing=drawing::DrawingDocument::create_default();drawing.source_document_id=id;drawing.source_path=directory/"base.prtz";
     drawing.sheets.front().views.push_back(drawing::DrawingDocument::create_view(id,drawing.source_path,cache.back().mesh));
     const auto first_sheet=drawing.sheets.front().id;
@@ -484,6 +511,23 @@ void family_test(const kernel::OcctKernel& kernel,const fs::path& directory) {
     require(document::parse_family_table(assembly::AssemblyDocument::load(directory/"base.asmz").family_table).instances.front().labels==assembly_rows.instances.front().labels,
         "Assembly labels did not survive save/reopen");
     require(loaded_assembly.family.parent_id==aid&&loaded_assembly.find_occurrence(component)->suppressed,"Single Assembly file lost evaluated variant");
+    auto assembly_member_drawing=drawing::DrawingDocument::create_default();
+    assembly_member_drawing.source_document_id=av;assembly_member_drawing.source_path=directory/"base.asmz";
+    const auto assembly_member_drawing_id=assembly_member_drawing.document_id;
+    const auto verify_assembly_pair=[&](workspace::Workspace& owner,const fs::path& target) {
+        require(owner.save_copy(assembly_member_drawing_id,target).size()==2,"Assembly Family Drawing did not produce a pair");
+        auto model_path=target;model_path.replace_extension(".asmz");
+        const auto model=assembly::AssemblyDocument::load(model_path);
+        require(model.family.parent_id.empty()&&model.document_id!=av&&model.find_occurrence(component)->suppressed&&
+            drawing::DrawingDocument::load(target).source_document_id==model.document_id,
+            "Assembly Family Drawing copy lost its variant or retained family ownership");
+    };
+    live.add_drawing(assembly_member_drawing,directory/"assembly-member.drwz");
+    verify_assembly_pair(live,directory/"open-assembly-member.drwz");
+    workspace::Workspace cold_assembly_member;
+    cold_assembly_member.add_drawing(assembly_member_drawing,directory/"assembly-member.drwz");
+    verify_assembly_pair(cold_assembly_member,directory/"closed-assembly-member.drwz");
+    require(live.remove(assembly_member_drawing_id),"Cannot retire the Assembly Family Drawing fixture");
     auto empty_drawing=drawing::DrawingDocument::create_default();
     empty_drawing.add_data_source({aid,directory/"base.asmz","Assembly"});
     workspace::select_family_drawing_source(empty_drawing,live,empty_drawing.sheets.front().id,av);
