@@ -1061,8 +1061,11 @@ provides a separate Forms directory. Only native Parts are offered in its picker
 Insertion stores an independent complete copy in the destination Part. Form
 Properties can replace that definition while retaining the feature identity,
 attachment and rotation. Cancel preserves the prior definition. Unbend replaces
-the spatial shape by its optional flat cut; Bend Back restores it. Symbolic skins
-are excluded from Sheet Cut region calculations. Drawing Show/Erase offers
+the spatial shape by its optional flat cut and displays its manufacturing symbol
+in the flat Part view; Bend Back restores the spatial shape. Pattern and Mirror
+can copy Form features, including nested copies and copying after Unbend. Each
+copy follows its sheet material and retains its own symbol identity. Symbolic
+skins are excluded from Sheet Cut region calculations. Drawing Show/Erase offers
 `FORM_SYMBOL` through the existing manufacturing-symbol controls.
 See [Sheet Form](SHEET_FORM_DESIGN.md) for the definition contract and verified
 scope.

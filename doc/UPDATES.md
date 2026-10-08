@@ -368,3 +368,14 @@ public manifest and offered 2026100802 as installable; no update was installed
 by this check. Post-publication cleanup retained accepted archives, projects,
 backups and development dependencies. See
 [the release record](releases/2026100802.md) for verification scope and Linux gaps.
+
+Windows release
+[2026100803](https://github.com/ZIMA-Engineering/ZIMA-CAD/releases/tag/ZIMA-CAD-2026100803)
+was published at 2026-10-08T08:58:39Z. Committed-source candidate/signed native
+smoke, production trust and seventeen packaged functional GUI scenarios pass.
+Authenticated draft and anonymous public downloads match all three accepted
+asset sizes and digests. The signed 2026100802 updater verifies the public
+manifest and offers 2026100803 as installable, without installing anything.
+The user explicitly accepted the isolated Form confirmation range of
+2.241–2.344 seconds; the original strict two-second timing gate did not pass.
+See [the release record](releases/2026100803.md) for regression scope and Linux gaps.

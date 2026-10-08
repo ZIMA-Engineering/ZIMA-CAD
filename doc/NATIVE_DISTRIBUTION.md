@@ -2,6 +2,22 @@
 
 ## Scope and status
 
+Windows build **2026100803** is signed, published and independently verified.
+It repairs Form reference presentation, flat symbols and native Pattern/Mirror
+copies; rectangle contact with the second Bend endpoint; analytic Sheet Cut on
+converted Bend faces; sheet centroid/inertia; both T ends; and opening-sized
+Drawing axes. Seventeen packaged GUI scenarios pass their functional checks.
+Three isolated Form confirmations measured 2.241–2.344 seconds, explicitly
+accepted by the user after the original strict two-second gate failed.
+Committed-source packaging, candidate/signed native smoke, production trust,
+all three public asset hashes and update discovery from 2026100802 pass.
+The personal `11.prtz` and `01.drwz` are repaired with retained backups.
+Post-publication cleanup removed 6,378,093,616 bytes across 30 temporary targets
+and removed the empty `C:/zcb` root, retaining accepted assets, reports,
+screenshots, personal data and current native dependencies/build.
+Shared C++ and calculation precision are unchanged by packaging; Linux
+acceptance remains separate. See [the release record](releases/2026100803.md).
+
 Windows build **2026100802** is signed, published and independently verified.
 It aligns initial free Sketch/profile frames with Default Origin in XY,
 preserves manual planes and authored XZ orientations, and converts the factory
