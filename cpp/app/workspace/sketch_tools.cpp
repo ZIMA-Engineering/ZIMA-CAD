@@ -266,6 +266,13 @@ bool AssemblyWorkspaceWindow::finish_current_sketch_tool() {
 bool AssemblyWorkspaceWindow::cancel_current_sketch_step(
     bool right_click_behavior) {
     if (active_sketch_id_.empty()) return false;
+    if (sketch_mirror_active_) {
+        cancel_sketch_segment();
+        preserve_view_on_refresh_ = true;
+        refresh_scene();
+        state_->setText(tr("Nástroj vazby nebo kóty byl ukončen."));
+        return true;
+    }
     if (!right_click_behavior && sketch_external_reference_active_) {
         set_sketch_external_reference_mode(false);
         state_->setText(tr("Výběr externích referencí byl ukončen."));
@@ -890,7 +897,7 @@ void AssemblyWorkspaceWindow::cancel_sketch_mirror() {
 
 void AssemblyWorkspaceWindow::accept_sketch_mirror_source(
     const zima::viewer::ViewerCandidate& candidate) {
-    if (!sketch_offset_dialog_ || sketch_mirror_active_ || !sketch_mirror_selecting_sources_ ||
+    if (!sketch_mirror_active_ || !sketch_mirror_selecting_sources_ ||
         candidate.owner_id != active_sketch_id_) return;
     std::string source_id;
     if (candidate.kind == zima::viewer::CandidateKind::SketchSegment &&
@@ -927,7 +934,7 @@ void AssemblyWorkspaceWindow::accept_sketch_mirror_source(
 
 void AssemblyWorkspaceWindow::accept_sketch_mirror_axis(
     const zima::viewer::ViewerCandidate& candidate) {
-    if (!sketch_offset_dialog_ || sketch_mirror_active_ || pending_mirror_geometry_ids_.empty() ||
+    if (!sketch_mirror_active_ || sketch_mirror_selecting_sources_ || pending_mirror_geometry_ids_.empty() ||
         candidate.owner_id != active_sketch_id_) return;
     std::string axis_id;
     if (candidate.kind == zima::viewer::CandidateKind::SketchSegment &&

@@ -191,7 +191,7 @@ void curved_body_target(const kernel::OcctKernel& kernel) {
     auto body=kernel.evaluate_history({source,feature}).back();near(body.volume,sphere_volume+profile_volume);
     std::set<std::string> automatic_endpoints;
     for(const auto& point:body.mesh.original_references.points) {
-        if(point.reference.owner_id!=feature.owner_id)continue;
+        if(point.reference.owner_id!=feature.owner_id||point.reference.semantic_key.find("from:centerline:from:")==std::string::npos)continue;
         if(point.reference.semantic_key.starts_with("profile:path-point:end:")) {
             near(point.position.z,20);automatic_endpoints.insert(point.reference.semantic_key);
         }
@@ -217,5 +217,41 @@ void curved_body_target(const kernel::OcctKernel& kernel) {
     check(caps.size()==2,"Mirrored sphere limits lost a cap identity");
 }
 
+void zero_corner_limits(const kernel::OcctKernel& kernel) {
+    auto part=document::PartDocument::load("cpp/tests/fixtures/sketch/form-edge-limits.prtz");part.history.front().feature.type=document::FeatureType::Modeling;part.resolve_constructions();
+    for(int mode=0;mode<5;++mode) {
+        auto variant=part;
+        auto& definition=variant.history.front().feature;
+        if(mode>=1&&mode<=3){definition.result_type=document::ProfileResultType::Thin;definition.thin_thickness=.5;definition.thin_mode=static_cast<document::ThinMode>(mode-1);}
+        if(mode==4) {
+            // The user's open contour is valid for Surface/Thin. A Solid
+            // requires a closed region: this triangle has a whole top edge
+            // on both Origin limits, not only one zero-length contact.
+            auto closed=sketcher::Sketch::create_default();closed.id=variant.sketches.front().id;closed.owner_container_id=variant.history.front().id;
+            static_cast<void>(closed.add_segment(-5,0,5,0));static_cast<void>(closed.add_segment(5,0,0,-8));static_cast<void>(closed.add_segment(0,-8,-5,0));
+            variant.sketches={closed};definition.result_type=document::ProfileResultType::Solid;variant.resolve_constructions();
+        }
+        {
+
+            const auto unchanged=variant.serialized();
+            const auto preview=variant.feature_preview_edges(variant.history.front(),{});
+            check(!preview.empty(),"Zero-corner cyan preview is empty");
+            bool corner{};
+            for(const auto& edge:preview)for(const auto& p:edge.points){check(p.y<=1e-6&&p.z<=1e-6,"Zero-corner cyan preview crossed a target plane");corner|=std::abs(p.y)<1e-6&&std::abs(p.z)<1e-6;}
+            check(corner,"Zero-corner cyan preview lost the zero-length contact");
+            check(variant.serialized()==unchanged,"Cyan preview changed persisted document data");
+            const auto reopened=document::PartDocument::from_serialized(unchanged);
+            const auto repeated=reopened.feature_preview_edges(reopened.history.front(),{});
+            check(repeated.size()==preview.size(),"Native reopen changed cyan preview");
+            for(std::size_t i=0;i<preview.size();++i){check(repeated[i].reference==preview[i].reference&&repeated[i].points.size()==preview[i].points.size(),"Native reopen changed preview identities");for(std::size_t j=0;j<preview[i].points.size();++j){near(repeated[i].points[j].x,preview[i].points[j].x);near(repeated[i].points[j].y,preview[i].points[j].y);near(repeated[i].points[j].z,preview[i].points[j].z);}}
+        }
+        auto operations=variant.kernel_operations();
+        const auto body=kernel.evaluate_history(operations).back();
+        check(mode==0?body.volume==0&&body.surface_area>1:body.volume>1,"Zero-corner limit produced empty geometry");
+        for(const auto& p:body.mesh.vertices)check(p.y<=1e-6&&p.z<=1e-6,"Zero-corner extrusion crossed a target plane");
+    }
+    std::cout<<"FORM-EDGE zero-corner Surface, three Thin modes, closed Solid and native cyan previews passed\n";
 }
-int main(){try{kernel::OcctKernel kernel;limits(kernel);cuts(kernel);native_limits(kernel);coarse_target_classification();original_body_targets(kernel);curved_body_target(kernel);std::cout<<"Independent extrusion limits, inclined planes, Thin, identity and cache passed\n";return 0;}catch(const std::exception& error){std::cerr<<error.what()<<'\n';return 1;}}
+
+}
+int main(int argc,char**){try{kernel::OcctKernel kernel;if(argc>1){zero_corner_limits(kernel);return 0;}limits(kernel);cuts(kernel);native_limits(kernel);coarse_target_classification();original_body_targets(kernel);curved_body_target(kernel);zero_corner_limits(kernel);std::cout<<"Independent extrusion limits, inclined planes, Thin, identity and cache passed\n";return 0;}catch(const std::exception& error){std::cerr<<error.what()<<'\n';return 1;}}

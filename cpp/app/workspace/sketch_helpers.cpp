@@ -194,6 +194,12 @@ std::optional<std::pair<std::string,std::string>> common_tangent_supports(
     const auto a=sketch_keypoint_curve_id(first_support).value_or(first_support);
     const auto b=sketch_keypoint_curve_id(second_support).value_or(second_support);
     if(a.empty() || b.empty() || a==b)return std::nullopt;
+    if(const auto contacts=sketch.circle_common_tangent_contacts(a,first,b,second)) {
+        if(std::hypot(contacts->first[0]-first[0],contacts->first[1]-first[1])<=tolerance&&
+           std::hypot(contacts->second[0]-second[0],contacts->second[1]-second[1])<=tolerance)
+            return std::pair{a,b};
+        return std::nullopt;
+    }
     const auto ta=sketch.curve_tangent_at_point(a,first[0],first[1]);
     const auto tb=sketch.curve_tangent_at_point(b,second[0],second[1]);
     const double dx=second[0]-first[0],dy=second[1]-first[1];

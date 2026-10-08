@@ -34,7 +34,13 @@ inline void hide_surface_results(ViewerMesh& mesh) {
         }
         geometry.vertices=std::move(vertices);geometry.triangles=std::move(triangles);geometry.triangle_references=std::move(references);
         std::erase_if(geometry.edges,[](const auto& e){return e.surface_result;});
-        std::erase_if(geometry.points,[](const auto& p){return p.surface_result;});
+        std::erase_if(geometry.points,[&](const auto& p){
+            // Automatic axis endpoints belong to the hidden surface too.
+            // Their generic path-point role does not carry a surface marker.
+            return p.surface_result ||
+                (owners.contains({p.reference.owner_id,p.reference.instance_path}) &&
+                 p.reference.semantic_key.starts_with("profile:path-point:"));
+        });
         std::erase_if(geometry.axes,[&](const auto& a){return owners.contains({a.reference.owner_id,a.reference.instance_path});});
     };
     filter(mesh);filter(mesh.original_references);

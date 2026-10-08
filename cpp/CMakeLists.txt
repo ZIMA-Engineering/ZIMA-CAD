@@ -1181,6 +1181,10 @@ if(ZIMA_BUILD_TESTS)
     add_test(NAME zima_cpp_sketch_relation_command_tests COMMAND zima_cpp_sketch_relation_command_tests)
     set_tests_properties(zima_cpp_sketch_relation_command_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
     add_executable(zima_cpp_sketch_curve_command_tests tests/sketch_curve_command_tests.cpp)
+    add_executable(zima_cpp_sketch_mirror_tangent_tests tests/sketch_mirror_tangent_tests.cpp)
+    target_link_libraries(zima_cpp_sketch_mirror_tangent_tests PRIVATE zima_sketcher)
+    add_test(NAME zima_cpp_sketch_mirror_tangent_tests COMMAND zima_cpp_sketch_mirror_tangent_tests)
+    set_tests_properties(zima_cpp_sketch_mirror_tangent_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
     target_link_libraries(zima_cpp_sketch_curve_command_tests PRIVATE zima_command_host)
     add_test(NAME zima_cpp_sketch_curve_command_tests COMMAND zima_cpp_sketch_curve_command_tests)
     set_tests_properties(zima_cpp_sketch_curve_command_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
@@ -1720,6 +1724,15 @@ if(ZIMA_BUILD_TESTS)
         ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_SKETCH_COINCIDENT_ONLY=1"
         TIMEOUT 120)
     add_test(NAME zima_cpp_sketch_offset_ui_contract COMMAND zima-cad-cpp --verify-startup)
+    file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/sketch-interaction-fixtures")
+    add_test(NAME zima_cpp_sketch_mirror_ui_contract COMMAND zima-cad-cpp --working-directory=${CMAKE_BINARY_DIR}/sketch-interaction-fixtures --verify-startup)
+    add_test(NAME zima_cpp_sketch_common_tangent_ui_contract COMMAND zima-cad-cpp --working-directory=${CMAKE_BINARY_DIR}/sketch-interaction-fixtures --verify-startup)
+    set_tests_properties(zima_cpp_sketch_common_tangent_ui_contract PROPERTIES
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_SKETCH_COMMON_TANGENT_ONLY=1;ZIMA_FORM_EDGE_SKETCH_FIXTURE=${CMAKE_SOURCE_DIR}/tests/fixtures/sketch/form-edge-dimensioned-arcs.json;ZIMA_FORM_EDGE_LIMIT_FIXTURE=${CMAKE_SOURCE_DIR}/tests/fixtures/sketch/form-edge-limits.prtz"
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." RUN_SERIAL TRUE TIMEOUT 180)
+    set_tests_properties(zima_cpp_sketch_mirror_ui_contract PROPERTIES
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_SKETCH_MIRROR_ONLY=1"
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." RUN_SERIAL TRUE TIMEOUT 180)
     add_test(NAME zima_cpp_placed_sketch_reference_ui_contract COMMAND zima-cad-cpp --verify-startup)
     set_tests_properties(zima_cpp_placed_sketch_reference_ui_contract PROPERTIES
         WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/.."

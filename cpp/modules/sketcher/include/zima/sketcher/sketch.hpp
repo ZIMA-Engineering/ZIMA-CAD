@@ -544,6 +544,11 @@ public:
         const std::array<double, 2>& first_hint,
         const std::string& second_curve_id,
         const std::array<double, 2>& second_hint);
+    // Pure persisted-geometry query shared by inference and confirmation.
+    [[nodiscard]] std::optional<std::pair<std::array<double, 2>, std::array<double, 2>>>
+    circle_common_tangent_contacts(const std::string& first_curve_id,
+        const std::array<double, 2>& first_hint, const std::string& second_curve_id,
+        const std::array<double, 2>& second_hint) const;
     [[nodiscard]] std::vector<std::array<double, 2>> curve_line_intersections(
         const std::string& geometry_id,
         const std::array<double, 2>& line_origin,

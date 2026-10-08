@@ -88,7 +88,7 @@ void circle(const kernel::OcctKernel& kernel){
 void revolve(const kernel::OcctKernel& kernel){
     auto sketch=sketcher::Sketch::create_default();const auto line=sketch.add_segment(5,0,5,10);const auto axis=sketch.add_segment(0,0,0,10);sketch.segments.back().construction=true;sketch.segments.back().centerline=true;
     Fixture f(sketch,true);auto b=f.calculate(kernel);near(b.back().volume,0);near(b.back().surface_area,100*std::numbers::pi);check(faces(b.back()).contains("generated:"+line),"Revolve surface parent missing");
-    f.part.history[0].revolution.angle_degrees=90;b=f.calculate(kernel);near(b.back().volume,0);near(b.back().surface_area,25*std::numbers::pi);check(b.back().mesh.original_references.points.size()==4,"Partial revolution endpoint identities missing");
+    f.part.history[0].revolution.angle_degrees=90;b=f.calculate(kernel);near(b.back().volume,0);near(b.back().surface_area,25*std::numbers::pi);check(std::ranges::count_if(b.back().mesh.original_references.points,[](const auto& p){return p.surface_result;})==4,"Partial revolution endpoint identities missing");
     auto torus=sketcher::Sketch::create_default();static_cast<void>(torus.add_circle(5,0,1));const auto ax=torus.add_segment(0,0,0,10);torus.segments.back().construction=true;torus.segments.back().centerline=true;Fixture t(torus,true);b=t.calculate(kernel);near(b.back().volume,0);near(b.back().surface_area,20*std::numbers::pi*std::numbers::pi);
 }
 void mixed(const kernel::OcctKernel& kernel){

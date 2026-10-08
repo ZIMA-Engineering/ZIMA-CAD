@@ -1593,7 +1593,22 @@ ThinSweepWires make_thin_sweep_profiles(const Sweep3DRequest& request,
     if(a.IsNull()||b.IsNull()||c.IsNull()||d.IsNull())throw std::runtime_error("Thin profil nemá dva konce");
     if(BRep_Tool::Pnt(a).Distance(BRep_Tool::Pnt(c))>BRep_Tool::Pnt(a).Distance(BRep_Tool::Pnt(d)))std::swap(c,d);
     auto start=BRepBuilderAPI_MakeEdge(a,c).Edge(),end=BRepBuilderAPI_MakeEdge(b,d).Edge();
-    BRepBuilderAPI_MakeWire wire;wire.Add(first.wire);wire.Add(end);wire.Add(second.wire);wire.Add(start);
+    // The second side returns from the end closure to the start closure.
+    // Add(Wire) may visit stored edges before the edge at the closure.
+    // Use connected wire traversal so no disconnected intermediate Add
+    // can silently discard a complete offset side.
+    auto returning=second.wire;
+    BRepTools_WireExplorer first_edge(returning);
+    if(first_edge.More()) {
+        const auto p=BRep_Tool::Pnt(TopExp::FirstVertex(first_edge.Current(),true));
+        if(p.Distance(BRep_Tool::Pnt(c))<p.Distance(BRep_Tool::Pnt(d)))returning.Reverse();
+    }
+    BRepBuilderAPI_MakeWire wire;wire.Add(first.wire);wire.Add(end);
+    for(BRepTools_WireExplorer edge(returning);edge.More();edge.Next()) {
+        wire.Add(edge.Current());
+        if(!wire.IsDone())throw std::runtime_error("Nelze uzavřít Thin profil");
+    }
+    wire.Add(start);
     if(!wire.IsDone())throw std::runtime_error("Nelze uzavřít Thin profil");
     SweepProfileWire joined;joined.wire=wire.Wire();joined.edges=first.edges;joined.edges.insert(joined.edges.end(),second.edges.begin(),second.edges.end());joined.edges.push_back(start);joined.edges.push_back(end);
     joined.curve_ids=first.curve_ids;joined.curve_ids.insert(joined.curve_ids.end(),second.curve_ids.begin(),second.curve_ids.end());
@@ -2430,7 +2445,7 @@ std::vector<PrimitiveData> stationary_profile_data(const Request& request,
 }
 
 double extrusion_limit_span(const ExtrusionLimitView& limit,const Vec3& unit,
-    const TopoDS_Shape& face,const std::vector<TopoDS_Wire>& wires) {
+    const TopoDS_Shape& face,const std::vector<TopoDS_Wire>& wires,bool wall_overhang=false) {
     if(limit.planar) {
         // Bound the complete analytic profile along the plane normal. A circle's
         // seam vertex does not prove that the rest stays before an inclined plane.
@@ -2445,7 +2460,12 @@ double extrusion_limit_span(const ExtrusionLimitView& limit,const Vec3& unit,
         const double dot=unit.x*normal.X()+unit.y*normal.Y()+unit.z*normal.Z();
         const double a=-zmin/dot,b=-zmax/dot;
         const double minimum=std::min(a,b),maximum=std::max(a,b);
-        if(!std::isfinite(minimum)||!std::isfinite(maximum)||minimum<=1e-9)
+        // A valid profile can touch the end plane at a corner or edge. It
+        // must stay on the extrusion side and have a non-zero swept extent.
+        // A Thin wall may straddle that touching edge; its authored profile
+        // is checked separately before the wall itself is clipped.
+        if(!std::isfinite(minimum)||!std::isfinite(maximum)||
+                (!wall_overhang&&minimum < -1e-9)||maximum<=1e-9)
             throw std::runtime_error("Extrusion profile crosses or lies beyond target plane");
         return maximum+std::max(1.0,maximum*.01);
     }
@@ -2620,8 +2640,16 @@ PrimitiveData make_extrusion_data(
     if(request.extent==ExtrusionRequest::Extent::ThroughAll && request.through_all_forward)
         bounded_end=std::max(1.0,through_all_forward_span);
     if(request.through_all_reverse)bounded_start=-std::max(1.0,through_all_reverse_span);
-    if(forward_boundary)bounded_end=extrusion_limit_span(*forward_boundary,unit,face,wires);
-    if(reverse_boundary)bounded_start=-extrusion_limit_span(*reverse_boundary,{-unit.x,-unit.y,-unit.z},face,wires);
+    if(request.wall && ((forward_boundary&&forward_boundary->planar)||(reverse_boundary&&reverse_boundary->planar))) {
+        auto authored=request;authored.wall.reset();
+        const auto source_profiles=make_body_profiles(authored,normal,circle_radial_direction);
+        std::vector<TopoDS_Wire> source_wires;for(const auto& profile:source_profiles)source_wires.push_back(profile.wire);
+        const auto source=profile_base(source_wires,true);
+        if(forward_boundary&&forward_boundary->planar)static_cast<void>(extrusion_limit_span(*forward_boundary,unit,source,source_wires));
+        if(reverse_boundary&&reverse_boundary->planar)static_cast<void>(extrusion_limit_span(*reverse_boundary,{-unit.x,-unit.y,-unit.z},source,source_wires));
+    }
+    if(forward_boundary)bounded_end=extrusion_limit_span(*forward_boundary,unit,face,wires,request.wall.has_value());
+    if(reverse_boundary)bounded_start=-extrusion_limit_span(*reverse_boundary,{-unit.x,-unit.y,-unit.z},face,wires,request.wall.has_value());
     if(bounded_end<=bounded_start+1e-12)throw std::runtime_error("OCCT Extrusion interval is empty");
     if(std::abs(bounded_start)>1e-12) {
         gp_Trsf shift;shift.SetTranslation(gp_Vec(unit.x*bounded_start,unit.y*bounded_start,unit.z*bounded_start));

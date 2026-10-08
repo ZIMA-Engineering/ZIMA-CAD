@@ -1176,7 +1176,7 @@ std::set<std::string> circular_curve_radial_points(
 
 std::string bound_external_line_contact(const Sketch& sketch,
     const std::string& line_id, const std::string& curve_id) {
-    if (!external_reference_line(sketch, line_id) && !is_base_sketch_axis(line_id)) return {};
+    if (!segment_or_external_line(sketch, line_id)) return {};
     for (const auto& support : sketch.constraints)
         if (!support.suppressed && support.kind==ConstraintKind::PointOnLine &&
             support.geometry_id==line_id && geometry_owns_point(sketch,curve_id,support.first_point_id))
@@ -4054,6 +4054,36 @@ bool Sketch::move_point(const std::string& point_id, double x, double y) {
     // Point coordinates do not change the constraint graph or its rank.
     // Interactive dragging therefore needs equation convergence and final
     // residual verification, but not a fresh numerical DOF analysis.
+    // A read-only circle cannot move to accommodate an endpoint drag. Seed
+    // its actual C+T contact from the dragged endpoint instead of alternating
+    // between projecting C and translating the tangent line.
+    for(const auto& line:next.segments) {
+        if(line.first_point_id!=point_id&&line.second_point_id!=point_id)continue;
+        std::vector<const SketchConstraint*> tangents;
+        for(const auto& c:next.constraints)if(!c.suppressed&&c.kind==ConstraintKind::Tangent&&
+            (c.geometry_id==line.id||c.second_geometry_id==line.id))tangents.push_back(&c);
+        if(tangents.size()!=1)continue;
+        const auto& t=*tangents.front();const auto curve_id=t.geometry_id==line.id?t.second_geometry_id:t.geometry_id;
+        const auto curve=tangent_curve_data(next,curve_id);
+        if(!curve||!curve->external_center||!curve->circular_radius||curve->parameter_domain||
+            t.first_point_id.empty()||t.first_point_id==point_id)continue;
+        auto* contact=next.find_point(t.first_point_id);const auto* original=find_point(t.first_point_id);
+        if(!contact||!original||contact->fixed||externally_linked.contains(contact->id))continue;
+        const auto* anchor=next.find_point(point_id);const double dx=anchor->x-(*curve->external_center)[0],dy=anchor->y-(*curve->external_center)[1];
+        const double squared=dx*dx+dy*dy,radius=*curve->circular_radius;
+        if(squared<=radius*radius+1e-12)continue;
+        const double along=radius*radius/squared,across=radius*std::sqrt(squared-radius*radius)/squared;
+        const std::array a{(*curve->external_center)[0]+along*dx-across*dy,(*curve->external_center)[1]+along*dy+across*dx};
+        const std::array b{(*curve->external_center)[0]+along*dx+across*dy,(*curve->external_center)[1]+along*dy-across*dx};
+        const auto& chosen=std::hypot(a[0]-original->x,a[1]-original->y)<=std::hypot(b[0]-original->x,b[1]-original->y)?a:b;
+        contact->x=chosen[0];contact->y=chosen[1];
+        auto* other=next.find_point(line.first_point_id==point_id?line.second_point_id:line.first_point_id);
+        if(other->id!=contact->id&&!other->fixed&&!externally_linked.contains(other->id)) {
+            const double length=std::hypot(contact->x-anchor->x,contact->y-anchor->y),ux=(contact->x-anchor->x)/length,uy=(contact->y-anchor->y)/length;
+            const double extent=std::max(length+1e-6,(other->x-anchor->x)*ux+(other->y-anchor->y)*uy);
+            other->x=anchor->x+extent*ux;other->y=anchor->y+extent*uy;
+        }
+    }
     if(dragging_curve_center && !translated_drag_component)
         static_cast<void>(seed_circular_equations(next,{point_id}));
     auto solved = next.solve_impl(100, false, {point_id});
@@ -4128,6 +4158,9 @@ bool Sketch::translate_selection(
         selected_points.insert(
             spline.control_point_ids.begin(), spline.control_point_ids.end());
     }
+    for(const auto& relation:next.constraints)if(!relation.suppressed&&
+        relation.kind==ConstraintKind::Tangent&&selected_geometry.contains(relation.geometry_id)&&
+        selected_geometry.contains(relation.second_geometry_id))include(relation.first_point_id);
     // A circle has one native center point; the same solver transaction also
     // supports a single explicitly selected point.
     if (selected_points.empty()) return false;
@@ -4826,6 +4859,40 @@ std::optional<std::array<double, 2>> Sketch::curve_tangent_at_point(
     return std::array{tangent[0] / length, tangent[1] / length};
 }
 
+std::optional<std::pair<std::array<double, 2>, std::array<double, 2>>>
+Sketch::circle_common_tangent_contacts(const std::string& first_curve_id,
+    const std::array<double, 2>& first_hint, const std::string& second_curve_id,
+    const std::array<double, 2>& second_hint) const {
+    const auto first = tangent_curve_data(*this, first_curve_id);
+    const auto second = tangent_curve_data(*this, second_curve_id);
+    if (!first || !second || !first->circular_radius || !second->circular_radius ||
+        first->parameter_domain || second->parameter_domain || first_curve_id==second_curve_id ||
+        !std::isfinite(first_hint[0]) || !std::isfinite(first_hint[1]) ||
+        !std::isfinite(second_hint[0]) || !std::isfinite(second_hint[1])) return std::nullopt;
+    const auto a = tangent_curve_center(*this,*first), b = tangent_curve_center(*this,*second);
+    if (!a || !b) return std::nullopt;
+    const double dx=(*b)[0]-(*a)[0],dy=(*b)[1]-(*a)[1],length=std::hypot(dx,dy);
+    if (length<=1.0e-12) return std::nullopt;
+    std::optional<std::pair<std::array<double,2>,std::array<double,2>>> result;
+    double best=std::numeric_limits<double>::infinity();
+    for (const double side : {1.0,-1.0}) {
+        const double cosine=(*first->circular_radius-side * *second->circular_radius)/length;
+        if (std::abs(cosine)>1.0) continue;
+        const double sine=std::sqrt(std::max(0.0,1.0-cosine*cosine));
+        for (const double branch : {1.0,-1.0}) {
+            const double nx=(dx*cosine-branch*dy*sine)/length;
+            const double ny=(dy*cosine+branch*dx*sine)/length;
+            const std::array p{(*a)[0]+*first->circular_radius*nx,(*a)[1]+*first->circular_radius*ny};
+            const std::array q{(*b)[0]+side * *second->circular_radius*nx,(*b)[1]+side * *second->circular_radius*ny};
+            if(std::hypot(q[0]-p[0],q[1]-p[1])<=1.0e-8)continue;
+            const double score=std::hypot(p[0]-first_hint[0],p[1]-first_hint[1])+
+                std::hypot(q[0]-second_hint[0],q[1]-second_hint[1]);
+            if(score<best){best=score;result=std::pair{p,q};}
+        }
+    }
+    return result;
+}
+
 std::string Sketch::add_common_tangent_segment(
     const std::string& first_curve_id,
     const std::array<double, 2>& first_hint,
@@ -4841,39 +4908,18 @@ std::string Sketch::add_common_tangent_segment(
         first_curve_id, first_hint[0], first_hint[1]);
     auto second_contact = project_point_to_curve(
         second_curve_id, second_hint[0], second_hint[1]);
-    if (!first_contact || !second_contact ||
-        std::hypot((*second_contact)[0] - (*first_contact)[0],
-                   (*second_contact)[1] - (*first_contact)[1]) <= 1.0e-8) {
+    if (!first_contact || !second_contact) {
         throw std::invalid_argument(
             "Selected curve locations do not define a tangent segment");
     }
 
-    // Equal, horizontally aligned circles can give the iterative tangent
-    // solve a singular starting Jacobian (for example clicks on facing rims).
-    // Enumerate their exact common tangents and use the closest click branch.
-    const auto first_circle=std::ranges::find_if(circles,[&](const auto& c){return c.id==first_curve_id;});
-    const auto second_circle=std::ranges::find_if(circles,[&](const auto& c){return c.id==second_curve_id;});
-    if (first_circle!=circles.end() && second_circle!=circles.end()) {
-        const auto* a=find_point(first_circle->center_point_id);
-        const auto* b=find_point(second_circle->center_point_id);
-        const double dx=b->x-a->x,dy=b->y-a->y,length=std::hypot(dx,dy);
-        double best=std::numeric_limits<double>::infinity();
-        if (length>1e-12) for (const double side : {1.0,-1.0}) {
-            const double cosine=(first_circle->radius-side*second_circle->radius)/length;
-            if (std::abs(cosine)>1.0) continue;
-            const double sine=std::sqrt(std::max(0.0,1.0-cosine*cosine));
-            for (const double branch : {1.0,-1.0}) {
-                const double nx=(dx*cosine-branch*dy*sine)/length;
-                const double ny=(dy*cosine+branch*dx*sine)/length;
-                const std::array first{a->x+first_circle->radius*nx,a->y+first_circle->radius*ny};
-                const std::array second{b->x+side*second_circle->radius*nx,b->y+side*second_circle->radius*ny};
-                if(std::hypot(second[0]-first[0],second[1]-first[1])<=1e-8)continue;
-                const double score=std::hypot(first[0]-first_hint[0],first[1]-first_hint[1])+
-                    std::hypot(second[0]-second_hint[0],second[1]-second_hint[1]);
-                if(score<best){best=score;first_contact=first;second_contact=second;}
-            }
-        }
-        if (!std::isfinite(best)) throw std::invalid_argument("The circles have no nondegenerate common tangent");
+    const auto first_curve=tangent_curve_data(*this,first_curve_id);
+    const auto second_curve=tangent_curve_data(*this,second_curve_id);
+    if(first_curve&&second_curve&&first_curve->circular_radius&&second_curve->circular_radius&&
+            !first_curve->parameter_domain&&!second_curve->parameter_domain) {
+        const auto contacts=circle_common_tangent_contacts(first_curve_id,first_hint,second_curve_id,second_hint);
+        if(!contacts)throw std::invalid_argument("The circles have no nondegenerate common tangent");
+        first_contact=contacts->first;second_contact=contacts->second;
     }
 
     const auto residual = [&](const std::array<double, 2>& first,
@@ -4966,13 +5012,30 @@ std::string Sketch::add_common_tangent_segment(
     }
     const auto first_point_id = segment->first_point_id;
     const auto second_point_id = segment->second_point_id;
-    static_cast<void>(next.add_point_on_circle_constraint(
-        first_point_id, first_curve_id));
-    static_cast<void>(next.add_point_on_circle_constraint(
-        second_point_id, second_curve_id));
-    for (const auto& curve_id : {first_curve_id,second_curve_id}) {
-        try { static_cast<void>(next.add_tangent_constraint(curve_id,segment_id)); }
-        catch (const RedundantConstraint&) { /* Existing relations already enforce tangency. */ }
+    for (const auto& [point_id, curve_id] : {
+            std::pair{first_point_id, first_curve_id},
+            std::pair{second_point_id, second_curve_id}}) {
+        if (!std::ranges::any_of(next.constraints, [&](const auto& c) {
+                return !c.suppressed && c.kind == ConstraintKind::PointOnCircle &&
+                    c.first_point_id == point_id && c.geometry_id == curve_id;
+            })) {
+            SketchConstraint contact;
+            contact.id = make_id(); contact.kind = ConstraintKind::PointOnCircle;
+            contact.first_point_id = point_id; contact.geometry_id = curve_id;
+            next.constraints.push_back(std::move(contact));
+        }
+        SketchConstraint tangent;
+        tangent.id = make_id(); tangent.kind = ConstraintKind::Tangent;
+        tangent.first_point_id = point_id;
+        tangent.geometry_id = curve_id; tangent.second_geometry_id = segment_id;
+        next.constraints.push_back(std::move(tangent));
+    }
+    // This command creates both contacts together. Ranking an intermediate
+    // single-contact state can misclassify an independent relation at a
+    // singular tangent, and omitting a T loses the second contact on edits.
+    const auto solved = next.solve();
+    if (solved.status == SolveStatus::Conflicting || solved.status == SolveStatus::Invalid) {
+        throw std::runtime_error("Tangent constraint conflicts with existing geometry");
     }
     next.validate();
     *this = std::move(next);
@@ -5512,14 +5575,15 @@ std::string Sketch::add_tangent_constraint(
     if (result.status == SolveStatus::Conflicting || result.status == SolveStatus::Invalid) {
         throw std::runtime_error("Tangent constraint conflicts with existing geometry");
     }
-    // External/axis tangency of a circle has a real sketch contact, available
+    // Line/axis tangency of a circle has a real sketch contact, available
     // for connected geometry and trimming. Keep it in this one transaction.
     const auto circle_id=reference_is_line ? driven_geometry_id :
         driven_is_line ? reference_geometry_id : driven_geometry_id;
     const auto support_id=circle_id==reference_geometry_id ? driven_geometry_id : reference_geometry_id;
     if(resolved_contact_point_id.empty() &&
-        (is_base_sketch_axis(support_id) || is_external(support_id)) &&
-        std::ranges::any_of(next.circles,[&](const auto& circle){return circle.id==circle_id;})) {
+        (line_curve || is_external(support_id)) &&
+        (std::ranges::any_of(next.circles,[&](const auto& circle){return circle.id==circle_id;}) ||
+         std::ranges::any_of(next.external_references,[&](const auto& ref){return ref.id==circle_id&&external_reference_circle(ref).has_value();}))) {
         std::optional<std::array<double,2>> position;
         if(line_curve) {
             if(const auto state=segment_curve_tangent_state(next,support_id,circle_id))
@@ -5533,10 +5597,18 @@ std::string Sketch::add_tangent_constraint(
                 (*center)[1]+sign*(*curve->circular_radius)*state->direction_y};
         }
         if(position) {
-            auto point=create_point((*position)[0],(*position)[1]);
-            const auto contact=point.id;
-            next.points.push_back(std::move(point));
+            std::string contact;
+            if(const auto segment=std::ranges::find(next.segments,support_id,&SketchSegment::id);
+                    segment!=next.segments.end())for(const auto& endpoint:{segment->first_point_id,segment->second_point_id}) {
+                const auto* p=next.find_point(endpoint);
+                if(std::hypot(p->x-(*position)[0],p->y-(*position)[1])<=1.0e-6){contact=endpoint;break;}
+            }
+            if(contact.empty()) {
+                auto point=create_point((*position)[0],(*position)[1]);contact=point.id;
+                next.points.push_back(std::move(point));
+            }
             for(const auto& geometry:{circle_id,support_id}) {
+                if(geometry==support_id&&line_curve&&geometry_owns_point(next,support_id,contact))continue;
                 SketchConstraint incidence;
                 incidence.id=make_id();incidence.first_point_id=contact;incidence.geometry_id=geometry;
                 incidence.kind=line_curve && geometry==support_id ? ConstraintKind::PointOnLine : ConstraintKind::PointOnCircle;
@@ -9429,38 +9501,56 @@ SolveResult Sketch::solve_impl(
                 }
                 return std::nullopt;
             };
-            const auto first_id = endpoint_for(tangent_curves[0]);
-            const auto second_id = endpoint_for(tangent_curves[1]);
-            const auto first_center_id = center_curve_point_id(*this, tangent_curves[0]);
-            const auto second_center_id = center_curve_point_id(*this, tangent_curves[1]);
+            auto first_id = endpoint_for(tangent_curves[0]);
+            auto second_id = endpoint_for(tangent_curves[1]);
+            const bool first_contact = first_id.has_value();
+            const bool second_contact = second_id.has_value();
+            const auto first_center = curve_center_position(*this, tangent_curves[0]);
+            const auto second_center = curve_center_position(*this, tangent_curves[1]);
+            if (!first_center || !second_center) continue;
+            if (!first_id && !second_id) {
+                const auto* a = find_point(segment.first_point_id);
+                const auto* b = find_point(segment.second_point_id);
+                if (!a || !b) continue;
+                const auto distance = [](const auto* p, const auto& center) {
+                    return std::hypot(p->x-center[0],p->y-center[1]);
+                };
+                const bool forward = distance(a,*first_center)+distance(b,*second_center) <=
+                    distance(b,*first_center)+distance(a,*second_center);
+                first_id = forward ? segment.first_point_id : segment.second_point_id;
+                second_id = forward ? segment.second_point_id : segment.first_point_id;
+            }
+            // An unbound end remains free to slide along the common tangent.
+            // Do not invent a point-on-curve relation to make the two T
+            // equations converge.
+            if (!first_id && second_id) first_id = *second_id == segment.first_point_id
+                ? segment.second_point_id : segment.first_point_id;
+            if (!second_id && first_id) second_id = *first_id == segment.first_point_id
+                ? segment.second_point_id : segment.first_point_id;
             const auto first_radius = circular_curve_radius(*this, tangent_curves[0]);
             const auto second_radius = circular_curve_radius(*this, tangent_curves[1]);
             if (!first_id || !second_id || *first_id == *second_id ||
-                !first_center_id || !second_center_id ||
                 !first_radius || !second_radius) continue;
             auto* first = find_point(*first_id);
             auto* second = find_point(*second_id);
-            const auto* first_center = find_point(*first_center_id);
-            const auto* second_center = find_point(*second_center_id);
-            if (first == nullptr || second == nullptr || first_center == nullptr ||
-                second_center == nullptr || immutable(*first) || immutable(*second)) {
+            if (first == nullptr || second == nullptr || immutable(*first) || immutable(*second)) {
                 continue;
             }
             const double current_dx = second->x - first->x;
             const double current_dy = second->y - first->y;
             const double current_length = std::hypot(current_dx, current_dy);
-            const double center_dx = second_center->x - first_center->x;
-            const double center_dy = second_center->y - first_center->y;
+            const double center_dx = (*second_center)[0] - (*first_center)[0];
+            const double center_dy = (*second_center)[1] - (*first_center)[1];
             const double center_length = std::hypot(center_dx, center_dy);
             if (current_length <= 1.0e-12 || center_length <= 1.0e-12) continue;
             const double current_nx = -current_dy / current_length;
             const double current_ny = current_dx / current_length;
             const double first_side =
-                ((first_center->x - first->x) * current_nx +
-                 (first_center->y - first->y) * current_ny) >= 0.0 ? 1.0 : -1.0;
+                (((*first_center)[0] - first->x) * current_nx +
+                 ((*first_center)[1] - first->y) * current_ny) >= 0.0 ? 1.0 : -1.0;
             const double second_side =
-                ((second_center->x - second->x) * current_nx +
-                 (second_center->y - second->y) * current_ny) >= 0.0 ? 1.0 : -1.0;
+                (((*second_center)[0] - second->x) * current_nx +
+                 ((*second_center)[1] - second->y) * current_ny) >= 0.0 ? 1.0 : -1.0;
             const double normal_along_centers =
                 (second_side * *second_radius - first_side * *first_radius) /
                 center_length;
@@ -9477,10 +9567,26 @@ SolveResult Sketch::solve_impl(
                 const double ny = normal_along_centers * uy +
                     branch * perpendicular * ux;
                 Candidate candidate{nx, ny,
-                    first_center->x - first_side * *first_radius * nx,
-                    first_center->y - first_side * *first_radius * ny,
-                    second_center->x - second_side * *second_radius * nx,
-                    second_center->y - second_side * *second_radius * ny, 0.0};
+                    (*first_center)[0] - first_side * *first_radius * nx,
+                    (*first_center)[1] - first_side * *first_radius * ny,
+                    (*second_center)[0] - second_side * *second_radius * nx,
+                    (*second_center)[1] - second_side * *second_radius * ny, 0.0};
+                const double tx = candidate.second_x - candidate.first_x;
+                const double ty = candidate.second_y - candidate.first_y;
+                const double squared = tx*tx + ty*ty;
+                if (squared <= 1.0e-24) continue;
+                if (!first_contact) {
+                    const double along = std::min(0.0,
+                        ((first->x-candidate.first_x)*tx +
+                         (first->y-candidate.first_y)*ty)/squared);
+                    candidate.first_x += along*tx; candidate.first_y += along*ty;
+                }
+                if (!second_contact) {
+                    const double along = std::max(0.0,
+                        ((second->x-candidate.second_x)*tx +
+                         (second->y-candidate.second_y)*ty)/squared);
+                    candidate.second_x += along*tx; candidate.second_y += along*ty;
+                }
                 candidate.error = std::hypot(candidate.first_x - first->x,
                     candidate.first_y - first->y) +
                     std::hypot(candidate.second_x - second->x,
@@ -9490,6 +9596,16 @@ SolveResult Sketch::solve_impl(
             if (!best) continue;
             first->x = best->first_x; first->y = best->first_y;
             second->x = best->second_x; second->y = best->second_y;
+            for(const auto& relation:constraints) {
+                if(relation.suppressed||relation.kind!=ConstraintKind::Tangent||
+                   relation.first_point_id.empty()||
+                   (relation.geometry_id!=segment.id&&relation.second_geometry_id!=segment.id))continue;
+                auto* contact=find_point(relation.first_point_id);
+                if(!contact||contact==first||contact==second||immutable(*contact))continue;
+                const auto& curve=relation.geometry_id==segment.id?relation.second_geometry_id:relation.geometry_id;
+                if(curve==tangent_curves[0]){contact->x=(*first_center)[0]-first_side * *first_radius*best->nx;contact->y=(*first_center)[1]-first_side * *first_radius*best->ny;}
+                else if(curve==tangent_curves[1]){contact->x=(*second_center)[0]-second_side * *second_radius*best->nx;contact->y=(*second_center)[1]-second_side * *second_radius*best->ny;}
+            }
             for (auto& arc : arcs) {
                 const auto update_endpoint = [&](const std::string& endpoint_id,
                                                   bool start) {
@@ -9739,6 +9855,12 @@ SolveResult Sketch::solve_impl(
             if(c.suppressed||c.kind!=ConstraintKind::Tangent||!group.contains(c.first_point_id))continue;
             const auto arc=std::ranges::find_if(arcs,[&](const auto& a){return a.id==c.geometry_id||a.id==c.second_geometry_id;});
             if(arc==arcs.end())return false;
+            const auto line_id=c.geometry_id==arc->id?c.second_geometry_id:c.geometry_id;
+            if(is_base_sketch_axis(line_id)||external_reference_line(*this,line_id)) {
+                const auto line=segment_or_external_line(*this,line_id);
+                if(line&&std::abs(line->second[kind==DimensionKind::DistanceX?1:0])<=
+                        1e-10*std::hypot(line->second[0],line->second[1])){found=true;continue;}
+            }
             const auto support=parallel_endpoint_tangents(*arc);if(!support)return false;
             if(along_only&&std::abs(support->directions[0][kind==DimensionKind::DistanceX?1:0])>1e-10)return false;
             found=true;
@@ -10680,7 +10802,8 @@ SolveResult Sketch::solve_impl(
                 // translate the axis (which owns no movable points) and turn
                 // a valid radius edit into a conflict.
                 const bool translate_curve = reference_is_line ||
-                    is_base_sketch_axis(constraint.second_geometry_id);
+                    is_base_sketch_axis(constraint.second_geometry_id) ||
+                    external_reference_line(*this,constraint.second_geometry_id).has_value();
                 if (translate_curve) {
                     translated = center_curve_translation_points(*this, curve_id);
                     if (!state->first_point_id.empty())
@@ -13542,6 +13665,7 @@ zima::kernel::ViewerMesh Sketch::viewer_mesh() const {
         };
         for (const auto& point_id : {constraint.first_point_id,
                                      constraint.second_point_id}) {
+            if (constraint.kind == ConstraintKind::Tangent) continue;
             if (point_id.empty()) continue;
             if (point_id.starts_with("sketch_keypoint:")) {
                 const auto kind_separator = point_id.find(':', 16);

@@ -425,6 +425,19 @@ point must not move that marker to the new segment's end.
 
 ## Common tangent segment
 
+For two full circles, native inference and Common Tangent enumerate all available
+inner and outer branches. Both click locations choose the nearest valid contact
+pair; the same exact contacts appear in the double C+T preview and are persisted
+on confirmation. The two contacts and both tangent relations are committed
+together, including when a nearby quadrant snap would otherwise amplify angular
+error along a long segment.
+
+Adding Tangent between an existing native segment and a circle also retains C
+at the real contact. A coincident segment endpoint is reused; an interior contact
+has its own stable Sketch point with C on the circle and incidence on the segment.
+This contact is available for trimming and survives later edits and reopen.
+See [the verification matrix](AI/SKETCH_COMMON_TANGENT_MATRIX.md).
+
 **Common Tangent** creates geometry, not merely an additional constraint. It
 accepts circles, circular arcs, ellipses, elliptic arcs and B-splines. Segments,
 points, axes, external references and other Sketches' curves are not offered.
@@ -967,3 +980,10 @@ Auxiliary and construction geometry in Sketcher use the same brown as datum
 planes/axes (`#AD6E2E`). Dashed versus dash-dot lines distinguish their roles;
 hover and confirmed selection retain the shared interaction colors. Sketch entry
 buttons share a blue background, green hover and cyan active state.
+
+### Dimensioned tangent arc groups
+
+Radius/diameter, signed point-to-line height and projected width may jointly
+control a tangent arc group with symmetry. Subsequent edits and permitted point
+drags solve those equations together. Native and read-only external Axis contacts
+retain their source identity. See the [FORM-EDGE regression matrix](AI/SKETCH_COMMON_TANGENT_MATRIX.md).

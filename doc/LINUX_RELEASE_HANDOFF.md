@@ -1,5 +1,20 @@
 # Linux build and distribution handoff — 2026-09-15
 
+## Sketcher and planar-limit follow-up (2026-10-08)
+
+The shared source for Windows 2026100804 adds paired model/Drawing Save Copy,
+Sketch Mirror, common circle tangent branch selection, persistent C+T contacts,
+FORM-EDGE dimensioned-arc edits/drags, and planar Up To contacts at zero distance.
+Run the new `zima_cpp_sketch_mirror_tangent_tests`, extrusion-limit, Thin/Surface,
+centerline and 2D/3D/helical Sweep suites with OCCT 8.0.0. Run Mirror/Common
+Tangent GUI contracts, including the native fixture environment paths in CMake,
+external-reference/dimension-entry/endpoint/Offset/FORM Sweep GUI contracts,
+paired Save Copy and all five localization catalogs. Inspect the actual cyan wires
+on the tilted FORM-EDGE Sketch, all Thin sides and Cancel/save/reopen behavior.
+The Windows release matrix and finite coverage limits are in
+[2026100804](releases/2026100804.md). Linux acceptance remains unverified.
+No dependency pin or native schema changes are required.
+
 ## Development SDK alignment (2026-10-06)
 
 The next Linux acceptance must also cover shared source tag

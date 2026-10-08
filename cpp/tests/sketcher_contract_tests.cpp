@@ -4214,7 +4214,7 @@ int main() {
             tangent_circle, tangent_line));
         const auto* tangent_line_first = tangent.find_point(tangent_line_first_id);
         const auto* tangent_line_second = tangent.find_point(tangent_line_second_id);
-        require(tangent.constraints.size() == 1 &&
+        require(tangent.constraints.size() == 3 &&
                     tangent.constraints.front().kind ==
                         zima::sketcher::ConstraintKind::Tangent &&
                     std::abs(tangent_line_first->x + 5.0) < 1.0e-8 &&
@@ -4855,7 +4855,9 @@ int main() {
         }
         auto tangent_after_delete = loaded_tangent;
         tangent_after_delete.remove_geometry(tangent_circle);
-        require(tangent_after_delete.constraints.empty() &&
+        require(tangent_after_delete.constraints.size()==1 &&
+                    tangent_after_delete.constraints.front().kind==zima::sketcher::ConstraintKind::PointOnLine &&
+                    tangent_after_delete.constraints.front().geometry_id==tangent_line &&
                     tangent_after_delete.segments.size() == 1,
                 "Deleting tangent geometry retained its constraint");
         auto tangent_polygon = zima::sketcher::Sketch::create_default();

@@ -452,6 +452,10 @@ bool seed_circular_equations(Sketch& sketch,const std::vector<std::string>& anch
                 const auto a=point(d.first_point_id),b=point(d.second_point_id);if(!a||!b)return {};
                 double residual=std::atan2((*b)[1]-(*a)[1],(*b)[0]-(*a)[0])*180./std::acos(-1.)-d.value;
                 while(residual>180.)residual-=360.;while(residual<-180.)residual+=360.;r.push_back(residual);
+            } else if(d.kind==DimensionKind::DistancePointLine) {
+                const auto p=point(d.first_point_id);const auto support=line(d.geometry_id);if(!p||!support)return {};
+                const double signed_distance=(*support)[2]*((*p)[1]-(*support)[1])-(*support)[3]*((*p)[0]-(*support)[0]);
+                r.push_back(signed_distance-static_cast<double>(d.solution_side)*d.value);
             } else if(d.kind==DimensionKind::Distance||d.kind==DimensionKind::DistanceX||d.kind==DimensionKind::DistanceY) {
                 const auto a=point(d.first_point_id),b=point(d.second_point_id);if(!a||!b)return {};
                 const double x=(*b)[0]-(*a)[0],y=(*b)[1]-(*a)[1];

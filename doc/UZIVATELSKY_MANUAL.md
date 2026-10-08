@@ -423,7 +423,10 @@ target is rejected rather than replaced with a different extent.
 
 The cyan preview uses stored Sketch/reference geometry. OK or Regenerate performs
 the solid calculation against the exact target surface. A planar target uses its
-infinite supporting plane, not the finite boundary of the selected face.
+infinite supporting plane, not the finite boundary of the selected face. A profile
+may touch that plane at zero extrusion length, including a complete edge, provided
+the rest has a positive extent and does not cross the target. Cyan wires retain
+that contact and trim Thin thickness overhang at the actual limits.
 
 **Draft angle** also works with Up To a general surface. Feature **Revolution →
 Up To** accepts an original general surface or an inclined/offset plane. The
@@ -639,6 +642,12 @@ ellipses, elliptic arcs or B-splines. Click near the desired contact on each cur
 to choose the branch. The resulting ordinary segment keeps its endpoints on the
 curves and remains tangent through stored constraints. A nonexistent, degenerate
 or conflicting branch leaves no partial geometry.
+
+For two circles, both click locations choose among the available inner and outer
+tangent branches. Segment's double **C + T** preview uses the same exact contacts
+as confirmation. Adding **Tangent** to an existing segment/circle also retains
+the real contact with **C**, so it can be used by trimming and later source edits.
+An interior contact does not shorten the original segment to that point.
 
 A reversible shared-corner radius is created by selecting two connected segments
 in Select mode and dragging their common point. The radius is retained as a Sketch parameter; its actual arc trims

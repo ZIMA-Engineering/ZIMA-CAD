@@ -1,0 +1,362 @@
+{
+  "arcs": [],
+  "bsplines": [],
+  "circles": [
+    {
+      "center": "01a11b571c3a77749984aa865d0a89e3",
+      "centerline": false,
+      "construction": false,
+      "id": "01a11b571c3a77749984aa865d0a89e4",
+      "radius": 1.933303706333641,
+      "visible_in_3d": true
+    },
+    {
+      "center": "01a11b571c3a77749984aa865d0a89e6",
+      "centerline": false,
+      "construction": false,
+      "id": "01a11b571c3a77749984aa865d0a89e7",
+      "radius": 3.105157556813537,
+      "visible_in_3d": true
+    },
+    {
+      "center": "01a11b571c3a77749984aa865d0a89fa",
+      "centerline": false,
+      "construction": false,
+      "id": "01a11b571c3a77749984aa865d0a89fb",
+      "radius": 3.1051575568135372,
+      "visible_in_3d": true
+    }
+  ],
+  "constraints": [
+    {
+      "first": "01a11b571c3a77749984aa865d0a89e3",
+      "geometry": "sketch_axis:y",
+      "id": "01a11b571c3a77749984aa865d0a89e5",
+      "kind": "point_on_line",
+      "second": "",
+      "second_geometry": "",
+      "suppressed": false,
+      "tangent_internal": false
+    },
+    {
+      "first": "01a11b571c3a77749984aa865d0a89e8",
+      "geometry": "sketch_axis:x",
+      "id": "01a11b571c3a77749984aa865d0a89e9",
+      "kind": "tangent",
+      "second": "",
+      "second_geometry": "01a11b571c3a77749984aa865d0a89e7",
+      "suppressed": false,
+      "tangent_internal": false
+    },
+    {
+      "first": "01a11b571c3a77749984aa865d0a89e8",
+      "geometry": "01a11b571c3a77749984aa865d0a89e7",
+      "id": "01a11b571c3a77749984aa865d0a89ea",
+      "kind": "point_on_circle",
+      "second": "",
+      "second_geometry": "",
+      "suppressed": false,
+      "tangent_internal": false
+    },
+    {
+      "first": "01a11b571c3a77749984aa865d0a89e8",
+      "geometry": "sketch_axis:x",
+      "id": "01a11b571c3a77749984aa865d0a89eb",
+      "kind": "point_on_line",
+      "second": "",
+      "second_geometry": "",
+      "suppressed": false,
+      "tangent_internal": false
+    },
+    {
+      "first": "01a11b571c3a77749984aa865d0a89ec",
+      "geometry": "01a11b571c3a77749984aa865d0a89e4",
+      "id": "01a11b571c3a77749984aa865d0a89ef",
+      "kind": "point_on_circle",
+      "second": "",
+      "second_geometry": "",
+      "suppressed": false,
+      "tangent_internal": false
+    },
+    {
+      "first": "01a11b571c3a77749984aa865d0a89ed",
+      "geometry": "01a11b571c3a77749984aa865d0a89e7",
+      "id": "01a11b571c3a77749984aa865d0a89f0",
+      "kind": "point_on_circle",
+      "second": "",
+      "second_geometry": "",
+      "suppressed": false,
+      "tangent_internal": false
+    },
+    {
+      "first": "01a11b571c3a77749984aa865d0a89ec",
+      "geometry": "01a11b571c3a77749984aa865d0a89e4",
+      "id": "01a11b571c3a77749984aa865d0a89f1",
+      "kind": "tangent",
+      "second": "",
+      "second_geometry": "01a11b571c3a77749984aa865d0a89ee",
+      "suppressed": false,
+      "tangent_internal": false
+    },
+    {
+      "first": "01a11b571c3a77749984aa865d0a89ed",
+      "geometry": "01a11b571c3a77749984aa865d0a89e7",
+      "id": "01a11b571c3a77749984aa865d0a89f2",
+      "kind": "tangent",
+      "second": "",
+      "second_geometry": "01a11b571c3a77749984aa865d0a89ee",
+      "suppressed": false,
+      "tangent_internal": false
+    },
+    {
+      "first": "01a11b571c3a77749984aa865d0a89f3",
+      "geometry": "sketch_axis:x",
+      "id": "01a11b571c3a77749984aa865d0a89f5",
+      "kind": "point_on_line",
+      "second": "",
+      "second_geometry": "",
+      "suppressed": false,
+      "tangent_internal": false
+    },
+    {
+      "first": "01a11b571c3a77749984aa865d0a89f3",
+      "geometry": "sketch_axis:y",
+      "id": "01a11b571c3a77749984aa865d0a89f6",
+      "kind": "point_on_line",
+      "second": "",
+      "second_geometry": "",
+      "suppressed": false,
+      "tangent_internal": false
+    },
+    {
+      "first": "01a11b571c3a77749984aa865d0a89e6",
+      "geometry": "",
+      "id": "01a11b571c3a77749984aa865d0a89fc",
+      "kind": "horizontal",
+      "second": "01a11b571c3a77749984aa865d0a89fa",
+      "second_geometry": "",
+      "suppressed": false,
+      "tangent_internal": false
+    },
+    {
+      "first": "01a11b571c3a77749984aa865d0a89fd",
+      "geometry": "sketch_axis:x",
+      "id": "01a11b571c3a77749984aa865d0a89fe",
+      "kind": "tangent",
+      "second": "",
+      "second_geometry": "01a11b571c3a77749984aa865d0a89fb",
+      "suppressed": false,
+      "tangent_internal": false
+    },
+    {
+      "first": "01a11b571c3a77749984aa865d0a89fd",
+      "geometry": "01a11b571c3a77749984aa865d0a89fb",
+      "id": "01a11b571c3a77749984aa865d0a89ff",
+      "kind": "point_on_circle",
+      "second": "",
+      "second_geometry": "",
+      "suppressed": false,
+      "tangent_internal": false
+    },
+    {
+      "first": "01a11b571c3a77749984aa865d0a89fd",
+      "geometry": "sketch_axis:x",
+      "id": "01a11b571c3a77749984aa865d0a8a00",
+      "kind": "point_on_line",
+      "second": "",
+      "second_geometry": "",
+      "suppressed": false,
+      "tangent_internal": false
+    },
+    {
+      "first": "01a11b571c3a77749984aa865d0a89e6",
+      "geometry": "01a11b571c3a77749984aa865d0a89f4",
+      "id": "01a11b571c3a77749984aa865d0a8a03",
+      "kind": "symmetric",
+      "second": "01a11b571c3a77749984aa865d0a89fa",
+      "second_geometry": "",
+      "suppressed": false,
+      "tangent_internal": false
+    },
+    {
+      "first": "01a11b571c3a77749984aa865d0a8a22",
+      "geometry": "01a11b571c3a77749984aa865d0a89fb",
+      "id": "01a11b571c3a77749984aa865d0a8a25",
+      "kind": "point_on_circle",
+      "second": "",
+      "second_geometry": "",
+      "suppressed": false,
+      "tangent_internal": false
+    },
+    {
+      "first": "01a11b571c3a77749984aa865d0a8a22",
+      "geometry": "01a11b571c3a77749984aa865d0a8a23",
+      "id": "01a11b571c3a77749984aa865d0a8a26",
+      "kind": "tangent",
+      "second": "",
+      "second_geometry": "01a11b571c3a77749984aa865d0a89fb",
+      "suppressed": false,
+      "tangent_internal": false
+    }
+  ],
+  "corner_radii": [],
+  "curve_supports": [],
+  "curve_trims": [],
+  "dimension_layouts": [],
+  "dimensions": [],
+  "ellipses": [],
+  "elliptical_arcs": [],
+  "external_references": [],
+  "format": "zima-cad-cpp-sketch",
+  "id": "01a11b571c3a77749984aa865d0a898e",
+  "import_blocks": [],
+  "name": "Skica",
+  "offsets": [],
+  "owner_container_id": "01a11b571c3a77749984aa865d0a898f",
+  "plane": "xy",
+  "plane_auto": true,
+  "plane_offset": 0.0,
+  "plane_reference_owner_id": "",
+  "points": [
+    {
+      "centerline": false,
+      "construction": false,
+      "fixed": false,
+      "id": "01a11b571c3a77749984aa865d0a89e3",
+      "visible_in_3d": true,
+      "x": 0.0,
+      "y": -9.022193636100443
+    },
+    {
+      "centerline": false,
+      "construction": false,
+      "fixed": false,
+      "id": "01a11b571c3a77749984aa865d0a89e6",
+      "visible_in_3d": true,
+      "x": 7.738070871452692,
+      "y": -3.105157556813537
+    },
+    {
+      "centerline": false,
+      "construction": false,
+      "fixed": false,
+      "id": "01a11b571c3a77749984aa865d0a89e8",
+      "visible_in_3d": true,
+      "x": 7.738070871452692,
+      "y": 0.0
+    },
+    {
+      "centerline": false,
+      "construction": false,
+      "fixed": false,
+      "id": "01a11b571c3a77749984aa865d0a89ec",
+      "visible_in_3d": true,
+      "x": 1.7994099232209528,
+      "y": -9.729149892977313
+    },
+    {
+      "centerline": false,
+      "construction": false,
+      "fixed": false,
+      "id": "01a11b571c3a77749984aa865d0a89ed",
+      "visible_in_3d": true,
+      "x": 4.847965554533308,
+      "y": -1.9696864168233943
+    },
+    {
+      "centerline": false,
+      "construction": false,
+      "fixed": false,
+      "id": "01a11b571c3a77749984aa865d0a89f3",
+      "visible_in_3d": true,
+      "x": 0.0,
+      "y": 0.0
+    },
+    {
+      "centerline": false,
+      "construction": false,
+      "fixed": false,
+      "id": "01a11b571c3a77749984aa865d0a89fa",
+      "visible_in_3d": true,
+      "x": -7.738070871452692,
+      "y": -3.1051575568135372
+    },
+    {
+      "centerline": false,
+      "construction": false,
+      "fixed": false,
+      "id": "01a11b571c3a77749984aa865d0a89fd",
+      "visible_in_3d": true,
+      "x": -7.738070871452692,
+      "y": 0.0
+    },
+    {
+      "centerline": false,
+      "construction": false,
+      "fixed": false,
+      "id": "01a11b571c3a77749984aa865d0a8a21",
+      "visible_in_3d": true,
+      "x": -3.0166682767008193,
+      "y": -9.863727279850544
+    },
+    {
+      "centerline": false,
+      "construction": false,
+      "fixed": false,
+      "id": "01a11b571c3a77749984aa865d0a8a22",
+      "visible_in_3d": true,
+      "x": -4.710219449843396,
+      "y": -2.416594399728596
+    }
+  ],
+  "resolved_normal": [
+    0.0,
+    -0.7071067811865476,
+    0.7071067811865476
+  ],
+  "resolved_origin": [
+    0.0,
+    0.0,
+    0.0
+  ],
+  "resolved_x_axis": [
+    1.0,
+    0.0,
+    0.0
+  ],
+  "resolved_y_axis": [
+    0.0,
+    0.7071067811865476,
+    0.7071067811865476
+  ],
+  "segments": [
+    {
+      "centerline": false,
+      "construction": false,
+      "first": "01a11b571c3a77749984aa865d0a89ec",
+      "id": "01a11b571c3a77749984aa865d0a89ee",
+      "second": "01a11b571c3a77749984aa865d0a89ed",
+      "visible_in_3d": true
+    },
+    {
+      "centerline": true,
+      "construction": true,
+      "first": "01a11b571c3a77749984aa865d0a89f3",
+      "id": "01a11b571c3a77749984aa865d0a89f4",
+      "second": "01a11b571c3a77749984aa865d0a89e3",
+      "visible_in_3d": true
+    },
+    {
+      "centerline": false,
+      "construction": false,
+      "first": "01a11b571c3a77749984aa865d0a8a21",
+      "id": "01a11b571c3a77749984aa865d0a8a23",
+      "second": "01a11b571c3a77749984aa865d0a8a22",
+      "visible_in_3d": true
+    }
+  ],
+  "suppressed": false,
+  "symbols": [],
+  "texts": [],
+  "version": 35
+}

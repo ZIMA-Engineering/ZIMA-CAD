@@ -6712,9 +6712,9 @@ std::vector<zima::kernel::ViewerEdge> PartDocument::extrusion_preview_edges(
             if (v < -1e-9 || u + v > 1.0 + 1e-9) continue;
             const double distance = inverse *
                 (edge2.x * q.x + edge2.y * q.y + edge2.z * q.z);
-            if (distance <= 1e-9) continue;
+            if (distance < -1e-9) continue;
             if (distance < nearest - 1e-7) {
-                nearest = distance;
+                nearest = std::max(0.0, distance);
             }
         }
         if (!std::isfinite(nearest)) {
@@ -6725,7 +6725,7 @@ std::vector<zima::kernel::ViewerEdge> PartDocument::extrusion_preview_edges(
     std::optional<DraftPreview> draft_preview;
     if(draft_angle_degrees!=0)draft_preview.emplace(request);
     const double draft_slope=std::tan(draft_angle_degrees*std::numbers::pi/180.);
-    const auto endpoint=[&](const zima::kernel::Vec3& point,bool backwards) {
+    const auto endpoint=[&](const zima::kernel::Vec3& point,bool backwards,bool wall_overhang=false) {
         const auto condition=backwards?reverse_condition:forward_condition;
         const auto& target=backwards?reverse_target:forward_target;
         const zima::kernel::Vec3 ray=backwards?zima::kernel::Vec3{-unit.x,-unit.y,-unit.z}:unit;
@@ -6737,9 +6737,10 @@ std::vector<zima::kernel::ViewerEdge> PartDocument::extrusion_preview_edges(
                 if(std::abs(dot)<=1e-12)throw std::runtime_error("Extrusion direction is parallel to target plane");
                 distance=((o.x-point.x)*n.x+(o.y-point.y)*n.y+(o.z-point.z)*n.z)/dot;
             } else distance=surface_distance(point,ray,target->fallback_triangles);
-            if(!std::isfinite(distance)||distance<=1e-9)throw std::runtime_error("Extrusion profile crosses target plane");
+            if(!std::isfinite(distance)||(!wall_overhang && distance < -1e-9))throw std::runtime_error("Extrusion profile crosses target plane");
+            if(std::abs(distance)<=1e-9)distance=0.0;
         }
-        if(draft_preview&&condition==EndCondition::UpTo&&target) {
+        if(draft_preview&&condition==EndCondition::UpTo&&target&&distance!=0.0) {
             bool converged=false;
             for(int iteration=0;iteration<40;++iteration){
                 const auto shifted=draft_preview->offset(point,distance*draft_slope);
@@ -6751,7 +6752,7 @@ std::vector<zima::kernel::ViewerEdge> PartDocument::extrusion_preview_edges(
                     if(std::abs(divisor)<1e-12)throw std::runtime_error("Extrusion direction is parallel to target plane");
                     next=((o.x-point.x)*n.x+(o.y-point.y)*n.y+(o.z-point.z)*n.z)/divisor;
                 }else next=surface_distance(point,directed,target->fallback_triangles);
-                if(!std::isfinite(next)||next<=1e-9)throw std::runtime_error("Extrusion profile crosses target plane");
+                if(!std::isfinite(next)||(!wall_overhang && next < -1e-9))throw std::runtime_error("Extrusion profile crosses target plane");
                 converged=std::abs(next-distance)<1e-8;distance=next;if(converged)break;
             }
             if(!converged)throw std::runtime_error("Draft cannot preserve the profile; reduce the angle or length.");
@@ -6760,6 +6761,13 @@ std::vector<zima::kernel::ViewerEdge> PartDocument::extrusion_preview_edges(
         return zima::kernel::Vec3{shifted.x+ray.x*distance,shifted.y+ray.y*distance,shifted.z+ray.z*distance};
     };
     std::vector<zima::kernel::ViewerEdge> result;
+    const bool thin=parameters.result_type==ProfileResultType::Thin;
+    if(thin) {
+        // Validate the authored path, then trim thickness overhang at the
+        // limits. The kernel uses the same distinction at a zero-length end.
+        for(const auto& edge:profile_preview_source_edges(evaluated_profile))
+            for(const auto& point:edge.points){static_cast<void>(endpoint(point,true));static_cast<void>(endpoint(point,false));}
+    }
     const auto profile_edges = parameters.result_type == ProfileResultType::Thin
         ? thin_profile_preview_edges(evaluated_profile,
               parameters.thin_thickness,
@@ -6771,9 +6779,9 @@ std::vector<zima::kernel::ViewerEdge> PartDocument::extrusion_preview_edges(
         const auto profile_role = source.reference.semantic_key.starts_with("thin:")
             ? ":" + source.reference.semantic_key : std::string{};
         start.reference = {container.id, "preview:start" + profile_role, {}};
-        for(auto& point:start.points)point=endpoint(point,true);
+        for(auto& point:start.points)point=endpoint(point,true,thin);
         zima::kernel::ViewerEdge end;end.reference={container.id,"preview:end"+profile_role,{}};
-        end.points.reserve(source.points.size());for(const auto& point:source.points)end.points.push_back(endpoint(point,false));
+        end.points.reserve(source.points.size());for(const auto& point:source.points)end.points.push_back(endpoint(point,false,thin));
         if(reverse_condition==EndCondition::ThroughAll)start.preview_terminal_dashed=true;
         if(forward_condition==EndCondition::ThroughAll)end.preview_terminal_dashed=true;
         result.push_back(start);
@@ -6795,8 +6803,45 @@ std::vector<zima::kernel::ViewerEdge> PartDocument::extrusion_preview_edges(
             ? std::vector<std::size_t>{distinct_count / 4}
             : std::vector<std::size_t>{0, source.points.size() - 1};
         for (const auto index : samples) {
+            if(distance(start.points[index],end.points[index])<=1.0e-9)continue;
             result.push_back({{start.points[index], end.points[index]},
                               {container.id, "preview:side", {}}});
+        }
+    }
+    if(thin) {
+        using namespace zima::kernel;
+        std::vector<std::pair<Vec3,Vec3>> clipping_planes;
+        const auto add_limit=[&](EndCondition condition,const auto& target,Vec3 ray) {
+            if(condition!=EndCondition::UpTo||!target||target->kind!=EndTargetKind::Plane)return;
+            const auto normal=dimension_unit(target->fallback_normal);
+            clipping_planes.emplace_back(target->fallback_origin,
+                dimension_scale(normal,dimension_dot(normal,ray)>0?1.0:-1.0));
+        };
+        add_limit(forward_condition,forward_target,unit);
+        add_limit(reverse_condition,reverse_target,dimension_scale(unit,-1.0));
+        if(!clipping_planes.empty()&&parameters.extent_mode==ProfileExtentMode::OneSide)
+            clipping_planes.emplace_back(evaluated_profile.world_point(0,0),dimension_scale(unit,-1.0));
+        for(const auto& [origin,normal]:clipping_planes) {
+            std::vector<ViewerEdge> clipped;
+            for(const auto& edge:result) {
+                auto piece=edge;piece.points.clear();
+                const auto flush=[&]{if(piece.points.size()>1)clipped.push_back(piece);piece.points.clear();};
+                for(std::size_t i=1;i<edge.points.size();++i) {
+                    auto a=edge.points[i-1],b=edge.points[i];
+                    const double da=dimension_dot(dimension_sub(a,origin),normal),db=dimension_dot(dimension_sub(b,origin),normal);
+                    if(da>1e-9&&db>1e-9){flush();continue;}
+                    if((da>1e-9)!=(db>1e-9)) {
+                        const auto contact=dimension_add(a,dimension_scale(dimension_sub(b,a),da/(da-db)));
+                        if(da>1e-9)a=contact;else b=contact;
+                    }
+                    if(dimension_dot(dimension_sub(a,b),dimension_sub(a,b))<1e-20)continue;
+                    if(!piece.points.empty()&&dimension_dot(dimension_sub(piece.points.back(),a),dimension_sub(piece.points.back(),a))>1e-16)flush();
+                    if(piece.points.empty())piece.points.push_back(a);
+                    piece.points.push_back(b);
+                }
+                flush();
+            }
+            result=std::move(clipped);
         }
     }
     return result;

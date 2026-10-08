@@ -1,3 +1,4 @@
+#include "sketch_tangent_test_equations.hpp"
 #include "../tests/preview_refresh_probe.hpp"
 #include "surface_wire_visibility.hpp"
 #include <QCryptographicHash>
@@ -6167,6 +6168,7 @@ int verify_standalone_trim_preview(QApplication& application, const std::filesys
 }
 
 #include "refresh_scope_ui_verification.inc"
+#include "sketch_mirror_ui_verification.inc"
 
 int verify_assembly_refresh_view(QApplication& application,const std::filesystem::path& directory) {
     using namespace zima;
@@ -9310,6 +9312,10 @@ int verify_startup_contract(
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_FORM_SWEEP_SKETCH_ONLY")) return verify_form_sweep_sketch_ui(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_SKETCH_ENDPOINT_PRIORITY_ONLY")) return verify_sketch_endpoint_priority_ui(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_SKETCH_ARC_DIRECTION_ONLY")) return verify_sketch_arc_direction_ui(application,test_directory);
+    if (qEnvironmentVariableIsSet("ZIMA_VERIFY_SKETCH_COMMON_TANGENT_ONLY"))
+        return verify_sketch_common_tangent_ui(application,test_directory);
+    if (qEnvironmentVariableIsSet("ZIMA_VERIFY_SKETCH_MIRROR_ONLY"))
+        return verify_sketch_mirror_ui(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_OFFSET_ONLY"))
         return verify_sketch_offset_ui(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_TRIM_ONLY"))

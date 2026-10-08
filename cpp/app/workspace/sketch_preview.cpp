@@ -398,11 +398,20 @@ void AssemblyWorkspaceWindow::preview_sketch_segment_ray(
         inference.kind.reset();inference.perpendicular_reference_id.clear();endpoint_perpendicular=false;
     }
     sketch_segment_inference_variant_count_ = inference.variant_count;
+    const auto common_supports = endpoint_tangent ? common_tangent_supports(
+        *sketch,snapped_start_tangent ? offered_start_tangent : pending_segment_start_snap_geometry_id_,endpoint_snap_geometry,
+        *pending_segment_start_,inference.position,tangent_tolerance) : std::nullopt;
+    const bool common_contact = common_supports.has_value();
+    auto preview_start = *pending_segment_start_;
+    if(common_supports)if(const auto contacts=sketch->circle_common_tangent_contacts(
+            common_supports->first,*pending_segment_start_,common_supports->second,inference.position)) {
+        preview_start=contacts->first;inference.position=contacts->second;
+    }
     const auto& preview_position = inference.position;
     const auto active_point = sketch->world_point(
         preview_position[0], preview_position[1]);
     std::vector<zima::kernel::ViewerEdge> preview_edges{{{
-        sketch->world_point((*pending_segment_start_)[0], (*pending_segment_start_)[1]),
+        sketch->world_point(preview_start[0], preview_start[1]),
         active_point}, {}}};
     if (sketch_segment_construction_) {
         preview_edges.front().construction = true;
@@ -540,15 +549,11 @@ void AssemblyWorkspaceWindow::preview_sketch_segment_ray(
     // point marker on the accepted first endpoint instead; drawing another
     // marker at the cursor made a snapped endpoint look like two competing
     // points and left the actual first input visually unmarked.
-    viewer_->set_transient_points({sketch->world_point(
-        (*pending_segment_start_)[0], (*pending_segment_start_)[1])});
+    viewer_->set_transient_points({sketch->world_point(preview_start[0],preview_start[1])});
     std::string marker;
     const bool endpoint_on_keypoint = endpoint_keypoint_curve.has_value();
     if (endpoint_snap) marker = endpoint_on_keypoint ? "K" :
         endpoint_snap->support_geometry_id.find("||") != std::string::npos ? "CC" : "C";
-    const bool common_contact = endpoint_tangent && common_tangent_supports(
-        *sketch,snapped_start_tangent ? offered_start_tangent : pending_segment_start_snap_geometry_id_,endpoint_snap_geometry,
-        *pending_segment_start_,preview_position,tangent_tolerance).has_value();
     if (endpoint_tangent) marker = endpoint_on_keypoint && !common_contact ? "K  T" : "C  T";
     else if (endpoint_perpendicular) marker = "C  ⊥";
     if (marker == "C" && inference.kind ==
@@ -576,7 +581,7 @@ void AssemblyWorkspaceWindow::preview_sketch_segment_ray(
     if (!marker.empty()) markers.push_back({active_point, std::move(marker)});
     if (common_contact || snapped_start_tangent || (!inference.tangent_reference_id.empty() && !endpoint_tangent)) {
         markers.push_back({sketch->world_point(
-            (*pending_segment_start_)[0], (*pending_segment_start_)[1]), "C  T"});
+            preview_start[0],preview_start[1]), "C  T"});
     }
     if (!inference.perpendicular_reference_id.empty() &&
         !endpoint_perpendicular) {
