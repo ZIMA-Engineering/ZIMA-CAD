@@ -3,6 +3,10 @@
 This manual describes the native C++ application. UI labels follow the selected
 application language; documentation is maintained in English.
 
+With no document tabs open, the workspace shows a subdued ZC background.
+Opening a document fills this area with its normal workspace; closing the last
+tab returns to the same background.
+
 ## Initial setup
 
 A new portable installation offers **System Setup**. Choose a metric or inch
@@ -265,6 +269,11 @@ as selecting it in the Tree. A direct feature uses its Body Origin; a nested
 feature uses its nearest owning container. The shortcut fills an available
 position row and retains existing references. Source-face-only commands do not
 offer this action.
+
+New unbound Sketches use local **XY**. Entering a complete Origin with Default
+keeps that drawing plane and aligns the displayed axes with the owning frame.
+A manual XY/XZ/YZ choice remains unchanged. A single planar support still
+selects its actual plane. Existing authored profiles retain their saved plane.
 
 During longer explicit calculations, an animated activity indicator appears
 in the center of the View and beside OK. Fast confirmations do not flash it.
@@ -893,6 +902,11 @@ only with its explicit **Delete View** command.
 
 The Drawing canvas is two-dimensional and does not orbit.
 
+The lower-right sheet origin shows red X and green Y arrows. Positive X points
+left and positive Y up, matching the drawing coordinates. Their screen size
+stays constant while zooming. These orientation arrows are not printed or
+exported as sheet geometry.
+
 ### Inserting and editing views
 
 Choose **Insert View** and click the sheet position. The first view is isometric;
@@ -901,6 +915,10 @@ visible/hidden/shaded edge style, sheet or custom scale and position. Scale rati
 use `M1:1`, `M1:2` or `M2:1` in Properties, view captions and vector output. It is also
 the later edit dialog. The preview is pending until OK; Cancel discards it.
 MMB double-click over the canvas invokes OK; a short MMB click does not.
+
+View Properties keeps OK/Cancel outside its scrolling content. All fields
+remain reachable on smaller application windows, and resizing the application
+keeps the properties subwindow inside it.
 
 The whole rectangular view region is selectable. Its normally hidden border
 turns orange on hover and cyan on confirmation, synchronized with the Tree.

@@ -1,9 +1,11 @@
 #include <zima/document/sheet_form_definition.hpp>
 #include <zima/document/placement_orientation.hpp>
 #include <zima/document/body_origin_attachment.hpp>
+#include <zima/document/viewer_packet_json.hpp>
 #include <zima/kernel/occt_kernel.hpp>
 #include <zima/kernel/sheet_material.hpp>
 #include <zima/kernel/stable_id.hpp>
+#include <zima/workspace/model_calculation.hpp>
 #include <nlohmann/json.hpp>
 #include <BRepTools.hxx>
 #include <BRep_Builder.hxx>
@@ -12,12 +14,18 @@
 #include <BRepClass_FaceClassifier.hxx>
 #include <TopoDS.hxx>
 #include <BRepGProp.hxx>
+#include <BRepBuilderAPI_Transform.hxx>
+#include <BRepBuilderAPI_MakeVertex.hxx>
+#include <BRepExtrema_DistShapeShape.hxx>
+#include <gp_Ax1.hxx>
+#include <gp_Trsf.hxx>
 #include <GProp_GProps.hxx>
 #include <TopExp_Explorer.hxx>
 #include <sstream>
 #include <iostream>
 #include <chrono>
 #include <set>
+#include <numbers>
 using namespace zima;
 namespace {
 void check(bool value,const char* message){if(!value)throw std::runtime_error(message);}
@@ -36,6 +44,59 @@ void valid(const kernel::BodyResult& result) {
 }
 }
 int main(int argc,char** argv){try {
+    if(argc==3&&std::string_view(argv[1])=="--prepare-definition-xy") {
+        const auto path=std::filesystem::path(argv[2]);
+        const auto before=document::read_sheet_form_definition(path);auto part=before.part;
+        unsigned changed=0,rotated_manual=0;
+        for(auto& sketch:part.sketches) {
+            auto* owner=part.find_container(sketch.owner_container_id);
+            if(owner&&sketch.plane_auto&&sketch.plane==sketcher::SketchPlane::XZ&&
+               document::placement_references_use_whole_origin(owner->placement.references)) {
+                sketch.plane=sketcher::SketchPlane::XY;++changed;
+            } else if(owner&&!sketch.plane_auto&&sketch.plane==sketcher::SketchPlane::YZ&&
+                      document::placement_references_use_whole_origin(owner->placement.references)) {
+                near(owner->placement.rotation_x,0.);near(owner->placement.rotation_y,0.);near(owner->placement.rotation_z,0.);
+                owner->placement.rotation_offset_x=90.;owner->placement.absolute_rotation_x=90.;
+                owner->placement.rotation_x=90.;++rotated_manual;
+            }
+        }
+        check(changed==3,"FORM XY preparation expected three whole-Origin Sketches");
+        check(rotated_manual==1,"FORM XY preparation expected one manual cutting profile");
+        kernel::OcctKernel kernel;
+        const auto boundaries=workspace::calculate_part_with_resolved_references(kernel,part,before.calculated.get());
+        if(!boundaries.empty())for(const auto& [owner,error]:boundaries.back().calculation_errors)
+            std::cerr<<owner<<": "<<error<<'\n';
+        check(!boundaries.empty()&&boundaries.back().calculation_errors.empty(),"FORM XY source calculation failed");
+        const auto after=document::sheet_form_definition(part,boundaries);
+        check(before.bodies==after.bodies&&before.cut_sketch==after.cut_sketch&&before.surface==after.surface,
+            "FORM XY preparation changed source identities");
+        const auto old=document::sheet_form_request(before,{}, {},{0,1,0},{1,0,0},1.);
+        const auto next=document::sheet_form_request(after,{}, {},{0,1,0},{1,0,0},1.);
+        check(old.surface_snapshot&&next.surface_snapshot,"FORM XY preparation lost the source shell cache");
+        near(next.source_normal.z,1.);near(next.source_normal.x,0.);near(next.source_normal.y,0.);
+        near(old.surface_snapshot->surface_area,next.surface_snapshot->surface_area,1e-5);
+        const auto shape=[](const kernel::BodyResult& body) {
+            TopoDS_Shape result;BRep_Builder builder;std::istringstream input(body.kernel_shape);
+            BRepTools::Read(result,input,builder);check(!result.IsNull(),"FORM comparison lost its native shell");return result;
+        };
+        gp_Trsf rotation;rotation.SetRotation(gp_Ax1(gp_Pnt(0,0,0),gp_Dir(1,0,0)),std::numbers::pi/2.);
+        const auto rotated=BRepBuilderAPI_Transform(shape(*old.surface_snapshot),rotation,true).Shape();
+        const auto rebuilt=shape(*next.surface_snapshot);
+        const auto on_shell=[](kernel::Vec3 point,const TopoDS_Shape& shell) {
+            const auto vertex=BRepBuilderAPI_MakeVertex(gp_Pnt(point.x,point.y,point.z)).Shape();
+            BRepExtrema_DistShapeShape distance(vertex,shell);
+            check(distance.IsDone()&&distance.Value()<1e-5,"FORM XY preparation changed the authored native shell");
+        };
+        for(const auto point:old.surface_snapshot->mesh.vertices)on_shell({point.x,-point.z,point.y},rebuilt);
+        for(const auto point:next.surface_snapshot->mesh.vertices)on_shell(point,rotated);
+        part.save(path,boundaries);
+        const auto reopened=document::read_sheet_form_definition(path);
+        const auto cut=std::ranges::find(reopened.part.sketches,reopened.cut_sketch,&sketcher::Sketch::id);
+        check(cut!=reopened.part.sketches.end()&&cut->plane==sketcher::SketchPlane::XY&&cut->corner_radii.size()==2,
+            "FORM XY native reload lost the cutting plane or R15 corners");
+        std::cout<<"FORM XY: three Origin-bound Sketches, retained face-bound profile, unchanged IDs, independently compared rotated shell, save/reopen PASS\n";
+        return 0;
+    }
     if(argc==2&&std::string_view(argv[1])=="--prepare-definition") {
         const auto path=std::filesystem::path("config/lib/01-SHEETMETAL/01-FORM/VentilationWindow.prtz");
         auto part=document::PartDocument::load(path);kernel::OcctKernel kernel;
@@ -50,6 +111,10 @@ int main(int argc,char** argv){try {
     const auto begin=std::chrono::steady_clock::now();
     const auto elapsed=[](const auto start){return std::chrono::duration<double>(std::chrono::steady_clock::now()-start).count();};
     const auto source=document::read_sheet_form_definition("config/lib/01-SHEETMETAL/01-FORM/VentilationWindow.prtz");
+    auto cut_after_shape=source.part;auto role_graph=cut_after_shape.body_history;
+    role_graph.move_body(source.bodies[1],0);
+    cut_after_shape.set_body_history(std::move(role_graph));
+    const auto reordered_source=document::sheet_form_definition(cut_after_shape,*source.calculated);
     const auto authored=source.part.serialized();
     const auto cut=std::ranges::find(source.part.sketches,source.cut_sketch,&sketcher::Sketch::id);
     check(cut!=source.part.sketches.end()&&cut->corner_radii.size()==2,
@@ -209,6 +274,29 @@ int main(int argc,char** argv){try {
     start=std::chrono::steady_clock::now();const auto result=kernel.evaluate_history(history);
     std::cout<<"FORM cold insertion="<<elapsed(start)<<" s"<<std::endl;valid(result.back());
     check(result.back().volume!=baseline.back().volume,"FORM left the spatial sheet unchanged");
+    {
+        auto reordered_history=original;auto reordered_form=form;
+        reordered_form.primitive=document::sheet_form_request(reordered_source,*face,position,normal,face->surface->radial,1.);
+        reordered_history.push_back(reordered_form);
+        const auto reordered_result=kernel.evaluate_history_incremental(reordered_history,baseline);
+        valid(reordered_result.back());near(reordered_result.back().volume,result.back().volume);
+        auto before=document::serialize_viewer_reference_geometry(result.back().mesh.original_references);
+        auto after=document::serialize_viewer_reference_geometry(reordered_result.back().mesh.original_references);
+        // Restoring the input BRep may reorder its display triangulation.
+        // Compare actual sample positions independently of vertex indexing,
+        // and keep every identity, analytical surface and exact edge check.
+        const auto positions=[](const auto& geometry) {
+            std::set<std::array<double,3>> values;
+            for(const auto& p:geometry.vertices)values.insert({p.x,p.y,p.z});
+            return values;
+        };
+        check(positions(reordered_result.back().mesh.original_references)==positions(result.back().mesh.original_references),
+            "FORM_CUT after FORM changed original reference sample geometry");
+        for(const auto* key:{"vertices_binary","triangles_binary"}) {before.erase(key);after.erase(key);}
+        check(after==before,
+            "FORM_CUT after FORM changed native result reference geometry");
+        std::cout<<"FORM_CUT after FORM produced equivalent valid spatial geometry\n";
+    }
     check(std::ranges::any_of(result.back().mesh.triangle_references,[&](const auto& face){return face.owner_id==form.owner_id&&face.sheet_role==kernel::SheetFaceRole::SideA;}),"FORM lost its outside skin identity");
     std::cout<<"Spatial FORM volume="<<result.back().volume<<std::endl;
     kernel::HistoryOperation flat{"unbend-form",kernel::SheetStateRequest{true,false,{form.owner_id}}};flat.body=form.body;

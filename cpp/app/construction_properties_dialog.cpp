@@ -1,4 +1,5 @@
 #include "reference_table_style.hpp"
+#include <zima/document/placement_orientation.hpp>
 #include "sweep_station_label.hpp"
 #include "work_plane_selection.hpp"
 #include <zima/ui/numeric_value_lock.hpp>
@@ -1014,7 +1015,9 @@ bool ConstructionPropertiesDialog::set_reference(std::size_t index,
     if (index < 3) {
         definition_->setCurrentIndex(definition_->findData(static_cast<int>(definition)));
     }
-    if (first_plane_reference && base_plane_combo_ != nullptr) {
+    if (base_plane_combo_ && zima::document::placement_references_use_whole_origin(placement_->combined_references(3))) {
+        update_automatic_work_plane(base_plane_combo_, QStringLiteral("xy"));
+    } else if (first_plane_reference && base_plane_combo_ != nullptr) {
         // FRONT maps the picked plane normal onto the container's local Y
         // axis. The local XZ datum is therefore the plane that is parallel
         // to that first picked plane and is the correct source for offset.

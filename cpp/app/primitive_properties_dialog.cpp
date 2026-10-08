@@ -8,6 +8,7 @@
 #include "feature_operation_buttons.hpp"
 #include "primitive_properties_dialog.hpp"
 #include <zima/document/profile_status.hpp>
+#include <zima/document/sketch_placement.hpp>
 #include <zima/document/bend.hpp>
 #include <zima/document/sheet_form_definition.hpp>
 #include <zima/kernel/sheet_material.hpp>
@@ -2701,7 +2702,10 @@ bool PrimitivePropertiesDialog::set_reference(std::size_t index,
         if (!error.isEmpty()) error_->setText(error);
         return false;
     }
-    if (first_plane && profile_plane_) {
+    if (profile_plane_ && zima::document::placement_references_use_whole_origin(placement_->combined_references(3))) {
+        update_automatic_work_plane(profile_plane_, static_cast<int>(zima::sketcher::SketchPlane::XY));
+        notify_preview();
+    } else if (first_plane && profile_plane_) {
         update_automatic_work_plane(profile_plane_, static_cast<int>(zima::sketcher::SketchPlane::XZ), label);
         notify_preview();
     }

@@ -58,6 +58,42 @@ int main(){try {
     std::vector<zima::kernel::BodyResult> cached;
     auto part=zima::document::PartDocument::load(library,&cached);
     const auto definition=zima::document::sheet_form_definition(part,cached);
+    // Role names, never Body-list positions, select a library definition.
+    // Exercise the actual native file loader and embedded-copy path for every
+    // order, including FORM_CUT authored after the outer FORM surface.
+    const auto reordered_path=std::filesystem::absolute("build/form-diagnostic")/
+        ("FormRoleOrder-"+zima::kernel::make_stable_id()+".prtz");
+    std::filesystem::create_directories(reordered_path.parent_path());
+    std::array<unsigned,4> order{0,1,2,3};unsigned permutations=0;
+    zima::kernel::OcctKernel order_kernel;
+    do {
+        auto reordered=part;auto graph=reordered.body_history;
+        for(std::size_t index=0;index<order.size();++index)
+            graph.move_body(definition.bodies[order[index]],index);
+        reordered.set_body_history(std::move(graph));
+        for(std::size_t index=0;index<order.size();++index)
+            check(reordered.body_history.bodies()[index].scope.id==definition.bodies[order[index]],
+                "FORM order fixture did not reorder actual Bodies");
+        const auto reordered_calculated=order_kernel.evaluate_history_incremental(reordered.kernel_operations(),cached);
+        check(!reordered_calculated.empty()&&reordered_calculated.back().calculation_errors.empty(),
+            "Reordered FORM definition failed its explicit native calculation");
+        reordered.save(reordered_path,reordered_calculated);
+        const auto loaded=zima::document::read_sheet_form_definition(reordered_path);
+        check(loaded.bodies==definition.bodies&&loaded.cut_sketch==definition.cut_sketch&&
+            loaded.flat_sketch==definition.flat_sketch&&loaded.symbol_sketch==definition.symbol_sketch&&
+            loaded.surface==definition.surface,"Body order changed a loaded FORM role or shell anchor");
+        const auto parameters=zima::document::copy_sheet_form_definition(loaded);
+        const auto embedded=zima::document::stored_sheet_form_definition(parameters);
+        check(embedded.bodies==definition.bodies&&embedded.cut_sketch==definition.cut_sketch&&
+            embedded.surface==definition.surface,"Body order changed an independent FORM copy");
+        const auto request=zima::document::sheet_form_request(embedded,{}, {},{0,1,0},{1,0,0},1.);
+        check(request.cut_body==definition.bodies[0]&&request.shape_body==definition.bodies[1]&&
+            request.surface_snapshot,"Body order lost the copied FORM operands or calculated surface");
+        ++permutations;
+    }while(std::next_permutation(order.begin(),order.end()));
+    check(permutations==24,"FORM role-order matrix is incomplete");
+    std::filesystem::remove(reordered_path);
+    std::cout<<"FORM native file/copy role lookup passed all 24 Body orders\n";
     const auto copied=zima::document::PartDocument::from_serialized(part.serialized({},
         {zima::kernel::make_stable_id(),library,library.parent_path()/"InsertedCopy.prtz"}));
     check(copied.document_id!=part.document_id,"Independent FORM copy reused source document identity");

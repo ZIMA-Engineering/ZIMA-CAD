@@ -15,6 +15,7 @@
 #include "surface_thicken_dialog.hpp"
 #include "surface_intersection_dialog.hpp"
 #include "surface_trim_dialog.hpp"
+#include <zima/document/sheet_form_definition.hpp>
 #include <QApplication>
 #include <QSettings>
 #include <QTemporaryDir>
@@ -37,6 +38,7 @@ int verify_part_dialog_layout(QApplication& application, QWidget& parent) {
         config.setValue("Paths/Localization",QString::fromStdString((root/"config/localization").generic_string()));config.sync();
         auto settings=app::ApplicationSettings::load(temporary.path());
         app::apply_application_translations(application,settings);app::apply_application_font(application,settings);
+        app::apply_application_appearance(application,settings);
         for(const QSize available:{QSize(1366,768),QSize(1920,1080)}) {
             parent.resize(available);flush();
             const auto check=[&](ui::PropertiesSubWindow* raw,const QString& name) {
@@ -107,6 +109,10 @@ int verify_part_dialog_layout(QApplication& application, QWidget& parent) {
             check(new app::PrimitivePropertiesDialog(Part::create_shell_container(),false,true,[](auto){},&parent),"shell");
             auto skin=Part::create_shell_container();skin.shell.thickness=0.;skin.name="Surfaces from solid";
             check(new app::PrimitivePropertiesDialog(skin,false,true,[](auto){},&parent),"surface-from-solid");
+            auto form=document::create_sheet_form();
+            form.sheet_form=document::copy_sheet_form_definition(document::read_sheet_form_definition(
+                root/"config/lib/01-SHEETMETAL/01-FORM/VentilationWindow.prtz"));
+            check(new app::PrimitivePropertiesDialog(form,false,true,[](auto){},&parent),"form");
             check(new app::GeneralSurfaceDialog(document::create_general_surface(),[](auto){},&parent),"general-surface");
             check(new app::BoundarySurfaceDialog(document::create_boundary_surface(),[](auto){},&parent),"fill-surface");
             check(new app::SurfaceThickenDialog(document::create_surface_thicken(),[](auto){},&parent),"thicken-surface");

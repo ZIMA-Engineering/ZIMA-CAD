@@ -1275,7 +1275,7 @@
   "Otevřít instanci": "Otevřít instanci",
   "Prvek ztratil referenci. Zkontrolujte jeho Vlastnosti.": "Prvek ztratil referenci. Zkontrolujte jeho Vlastnosti.",
   "Automaticky — %1": "Automaticky — %1",
-  "Automaticky podle první rovinné reference. Výběr XY/XZ/YZ uloží ruční volbu v místních souřadnicích kontejneru.": "Automaticky podle první rovinné reference. Výběr XY/XZ/YZ uloží ruční volbu v místních souřadnicích kontejneru.",
+  "Automaticky: celý Počátek používá XY, jinak první rovinnou referenci. Výběr XY/XZ/YZ uloží ruční volbu v místních souřadnicích kontejneru.": "Automaticky: celý Počátek používá XY, jinak první rovinnou referenci. Výběr XY/XZ/YZ uloží ruční volbu v místních souřadnicích kontejneru.",
   "Těleso 1": "Těleso 1",
   "Update response is too large.": "Odpověď aktualizace je příliš velká.",
   "The update component could not be started.": "Komponentu aktualizace nelze spustit.",

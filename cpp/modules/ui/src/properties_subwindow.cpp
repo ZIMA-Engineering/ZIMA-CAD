@@ -416,6 +416,10 @@ void PropertiesSubWindow::resizeEvent(QResizeEvent* event) {
 }
 
 bool PropertiesSubWindow::eventFilter(QObject* watched, QEvent* event) {
+    if(watched==parentWidget()&&event->type()==QEvent::Resize&&isVisible()) {
+        resize(size().boundedTo(parentWidget()->size()));
+        keep_inside_parent();
+    }
     if(watched==this && event->type()==QEvent::LayoutRequest && isVisible()) {
         // Fields revealed after Show need the same room as initial fields.
         // A SubWindow does not automatically grow to the new layout minimum.

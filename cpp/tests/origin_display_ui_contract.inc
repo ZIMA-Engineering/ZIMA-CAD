@@ -1,8 +1,70 @@
 #include "origin_display_controls.hpp"
 #include "confirmed_face_hit.hpp"
 #include <zima/document/container_origin_display.hpp>
+#include "work_plane_selection.hpp"
+
+static void verify_default_work_plane_and_frame(QWidget& parent) {
+    using namespace zima;
+    const auto check=[](bool ok,const char* why){if(!ok)throw std::runtime_error(why);};
+    const auto doc=document::PartDocument::create_default();
+    const auto geometry=doc.origin_viewer_mesh().original_references;
+    const auto whole=[&](app::PlacementReferenceDialog& dialog) {
+        for(unsigned i=0;i<3;++i) {
+            document::ConstructionReference ref{{},doc.document_id+":origin",
+                std::string("origin:plane:")+std::array{"xz","xy","yz"}[i],0,true};
+            check(dialog.set_reference(i,ref,QString::fromStdString(ref.semantic_key)),"Whole Origin row rejected");
+        }
+        auto resolved=dialog.placement_seed();resolved.references=dialog.references_without(99);
+        check(document::resolve_placement(resolved,geometry),"Whole Origin frame did not resolve");
+        for(const auto& axis:std::array<std::string,3>{"x","y","z"}) {
+            const auto actual=document::construction_direction_from_local_axis(axis,
+                {resolved.rotation_x,resolved.rotation_y,resolved.rotation_z});
+            const auto expected=document::construction_direction_from_local_axis(axis,{});
+            check(std::hypot(actual.x-expected.x,actual.y-expected.y,actual.z-expected.z)<1e-9,
+                "Default changed the free container's axis directions");
+        }
+    };
+    for(int kind=0;kind<=static_cast<int>(document::FeatureKind::SheetForm);++kind) {
+        const auto k=static_cast<document::FeatureKind>(kind);
+        if(!app::uses_container_placement(k)||k==document::FeatureKind::SheetForm)continue;
+        auto value=document::PartDocument::create_sketch_container();value.feature_kind=k;
+        app::PrimitivePropertiesDialog dialog(value,false,true,[](auto){},&parent);
+        auto* plane=dialog.findChild<QComboBox*>("profilePlane");
+        if(plane)check(app::selected_work_plane(plane).toInt()==static_cast<int>(sketcher::SketchPlane::XY),
+            "A new profile did not start in XY");
+        whole(dialog);
+        if(plane) {
+            check(app::automatic_work_plane(plane)&&app::selected_work_plane(plane).toInt()==static_cast<int>(sketcher::SketchPlane::XY),
+                "Whole Origin changed the automatic profile to XZ");
+            plane->setCurrentIndex(plane->findData(static_cast<int>(sketcher::SketchPlane::YZ)));
+            document::ConstructionReference replacement{{},doc.document_id+":origin","origin:plane:xz",0,true};
+            check(dialog.set_reference(0,replacement,"XZ"),"Manual profile replacement rejected");
+            check(!app::automatic_work_plane(plane)&&app::selected_work_plane(plane).toInt()==static_cast<int>(sketcher::SketchPlane::YZ),
+                "Origin replacement changed the manual profile plane");
+        }
+    }
+    for(const auto kind:{document::ConstructionKind::Point,document::ConstructionKind::Axis,
+                        document::ConstructionKind::Plane,document::ConstructionKind::Curve3D}) {
+        auto initial=document::PartDocument::create_construction(kind);
+        app::ConstructionPropertiesDialog dialog(initial,false,[](auto){},&parent);
+        if(kind==document::ConstructionKind::Plane)
+            check(dialog.pending_value().base_plane==document::LocalDatumPlane::XY,"New Plane did not start in XY");
+        whole(dialog);
+        if(kind==document::ConstructionKind::Plane)
+            check(dialog.pending_value().base_plane==document::LocalDatumPlane::XY,"Whole Origin changed Plane to XZ");
+    }
+    for(const auto manual:{false,true}) {
+        auto initial=sketcher::Sketch::create_default();initial.plane_auto=!manual;
+        if(manual)initial.plane=sketcher::SketchPlane::YZ;
+        app::SketchPropertiesDialog dialog(initial,{},false,{},[](auto,auto,bool){},&parent);
+        dialog.set_reference_geometry(geometry);whole(dialog);
+        check(dialog.pending_value().first.plane==(manual?sketcher::SketchPlane::YZ:sketcher::SketchPlane::XY),
+            "Whole Origin lost the Sketch's default or manual plane");
+    }
+}
 
 static void verify_origin_display_and_pick_seed(QWidget& parent) {
+    verify_default_work_plane_and_frame(parent);
     using namespace zima;
     const auto check=[](bool ok,const char* why){if(!ok)throw std::runtime_error(why);};
     using Kind=document::FeatureKind;

@@ -1275,7 +1275,7 @@
   "Otevřít instanci": "Open instance",
   "Prvek ztratil referenci. Zkontrolujte jeho Vlastnosti.": "The feature lost a reference. Check its Properties.",
   "Automaticky — %1": "Automatic — %1",
-  "Automaticky podle první rovinné reference. Výběr XY/XZ/YZ uloží ruční volbu v místních souřadnicích kontejneru.": "Automatic from the first planar reference. Selecting XY/XZ/YZ saves a manual choice in the container’s local coordinates.",
+  "Automaticky: celý Počátek používá XY, jinak první rovinnou referenci. Výběr XY/XZ/YZ uloží ruční volbu v místních souřadnicích kontejneru.": "Automatic: a complete Origin uses XY; otherwise use the first planar reference. Selecting XY/XZ/YZ saves a manual choice in the container’s local coordinates.",
   "Těleso 1": "Body 1",
   "Update response is too large.": "Update response is too large.",
   "The update component could not be started.": "The update component could not be started.",

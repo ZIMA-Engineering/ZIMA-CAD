@@ -1275,7 +1275,7 @@
   "Otevřít instanci": "Instanz öffnen",
   "Prvek ztratil referenci. Zkontrolujte jeho Vlastnosti.": "Das Element hat eine Referenz verloren. Prüfen Sie seine Eigenschaften.",
   "Automaticky — %1": "Automatisch — %1",
-  "Automaticky podle první rovinné reference. Výběr XY/XZ/YZ uloží ruční volbu v místních souřadnicích kontejneru.": "Automatisch aus der ersten ebenen Referenz. XY/XZ/YZ speichert eine manuelle Wahl in lokalen Containerkoordinaten.",
+  "Automaticky: celý Počátek používá XY, jinak první rovinnou referenci. Výběr XY/XZ/YZ uloží ruční volbu v místních souřadnicích kontejneru.": "Automatisch: Ein vollständiger Ursprung verwendet XY, andernfalls die erste ebene Referenz. XY/XZ/YZ speichert eine manuelle Wahl in lokalen Containerkoordinaten.",
   "Těleso 1": "Körper 1",
   "Update response is too large.": "Die Aktualisierungsantwort ist zu groß.",
   "The update component could not be started.": "Die Aktualisierungskomponente konnte nicht gestartet werden.",

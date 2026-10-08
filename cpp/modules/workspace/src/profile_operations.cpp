@@ -169,8 +169,8 @@ void commit_profile(Workspace& live, const kernel::OcctKernel& kernel, const std
     const auto source = feature ? value.feature.profile_source : extrusion ? value.extrusion.profile_source : value.revolution.profile_source;
     if (source == document::ProfileSource::Internal) {
         profile->owner_container_id = value.id;
-        const auto first = std::ranges::find_if(value.placement.references, [](const auto& reference) { return !reference.owner_id.empty(); });
-        if (profile->plane_auto && first != value.placement.references.end() && first->supports_offset) profile->plane = sketcher::SketchPlane::XZ;
+        if (profile->plane_auto && document::sketch_placement_uses_front_plane(value.placement.references))
+            profile->plane = sketcher::SketchPlane::XZ;
         profile->plane_offset = feature ? value.feature.profile_plane_offset : extrusion ? value.extrusion.profile_plane_offset : value.revolution.profile_plane_offset;
     }
     // Confirming an unchanged definition must keep its current calculation and

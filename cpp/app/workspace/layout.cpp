@@ -14,6 +14,30 @@ using namespace workspace_detail;
 
 namespace {
 
+class EmptyWorkspaceBackground final : public QWidget {
+public:
+    EmptyWorkspaceBackground(QWidget* parent, std::function<bool()> empty)
+        : QWidget(parent), empty_(std::move(empty)) {}
+
+protected:
+    void paintEvent(QPaintEvent* event) override {
+        QWidget::paintEvent(event);
+        if (!empty_()) return;
+        QPainter painter(this);
+        painter.setRenderHint(QPainter::TextAntialiasing);
+        painter.setPen(palette().color(QPalette::WindowText));
+        painter.setOpacity(0.10);
+        auto brand_font = font();
+        brand_font.setBold(true);
+        brand_font.setPixelSize(std::clamp(std::min(width(), height()) / 3, 60, 260));
+        painter.setFont(brand_font);
+        painter.drawText(rect(), Qt::AlignCenter, QStringLiteral("ZC"));
+    }
+
+private:
+    std::function<bool()> empty_;
+};
+
 class DocumentTabBar final : public QTabBar {
 public:
     using QTabBar::QTabBar;
@@ -57,7 +81,7 @@ protected:
 
 
 void AssemblyWorkspaceWindow::create_layout() {
-    auto* central = new QWidget(this);
+    auto* central = new EmptyWorkspaceBackground(this, [this] { return workspace_.size() == 0; });
     auto* layout = new QVBoxLayout(central);
     layout->setContentsMargins(0, 0, 0, 0);
     layout->setSpacing(0);

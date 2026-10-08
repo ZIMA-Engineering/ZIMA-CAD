@@ -145,10 +145,10 @@ private:
     BreakEditorCanvas* canvas_;QTableWidget* table_;QLabel* error_;bool refreshing_{};
     drawing::ViewBreak draft_;std::optional<double> first_,second_;int active_row_{-1},active_end_{};
     std::function<void(std::vector<drawing::ViewBreak>)> accepted_;
-    void validate(){try{drawing::validate_view_breaks(canvas_->view());
+    bool validate(){try{drawing::validate_view_breaks(canvas_->view());
         if(first_||second_)throw std::invalid_argument(QT_TR_NOOP("Zadejte obě polohy přerušení."));
-        error_->clear();buttons()->button(QDialogButtonBox::Ok)->setEnabled(true);
-    }catch(const std::exception& e){error_->setText(tr(e.what()));buttons()->button(QDialogButtonBox::Ok)->setEnabled(false);}}
+        error_->clear();buttons()->button(QDialogButtonBox::Ok)->setEnabled(true);return true;
+    }catch(const std::exception& e){error_->setText(tr(e.what()));buttons()->button(QDialogButtonBox::Ok)->setEnabled(false);return false;}}
     void end_entry(){active_row_=-1;canvas_->end_pick();refresh();}
     void arm(int row,int end){active_row_=row;active_end_=end;canvas_->selected=row<int(canvas_->view().breaks.size())?row:-1;
         const auto& value=row<int(canvas_->view().breaks.size())?canvas_->view().breaks[row]:draft_;
@@ -200,6 +200,6 @@ private:
     void edit_dimension(int col){const int row=canvas_->selected;if(row<0)return;auto* field=new InlineDimensionEdit(canvas_);const auto& b=canvas_->view().breaks[row];field->setText(QString::number(col?b.length:b.start,'f',3));field->move(canvas_->width()/2-52,canvas_->height()/2-14);field->show();field->setFocus();field->selectAll();
         connect(field,&QLineEdit::returnPressed,this,[this,field,row,col]{try{double value=numeric_expression_value(field->text());auto candidate=canvas_->view();(col?candidate.breaks[row].length:candidate.breaks[row].start)=value;drawing::validate_view_breaks(candidate);canvas_->view().breaks=std::move(candidate.breaks);field->deleteLater();refresh();}catch(const std::exception& e){error_->setText(tr(e.what()));}});
     }
-    bool submit()override{validate();if(!buttons()->button(QDialogButtonBox::Ok)->isEnabled())return false;accepted_(canvas_->view().breaks);return true;}
+    bool submit()override{if(!validate())return false;accepted_(canvas_->view().breaks);return true;}
 };
 }

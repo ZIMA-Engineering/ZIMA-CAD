@@ -680,6 +680,27 @@ void SheetRenderer::paint_sheet(QPainter& painter,double zoom,QPointF origin,boo
                 (handle.key.kind==AnnotationKind::Model&&std::ranges::any_of(sheet_->views,[&](const auto& view){return view.id==handle.key.view&&std::ranges::any_of(view.model_annotations,[&](const auto& item){return (item.kind==drawing::ModelAnnotationKind::Dimension||item.kind==drawing::ModelAnnotationKind::Symbol)&&model_annotation_key(item.source)==handle.key.id;});}));
             if(movable&&(selected||hovered))draw_handle(handle.point,selected);
         }
+        if(!printing) {
+            // Drawing XY is anchored at the lower-right corner: positive X
+            // runs left and positive Y runs up. This screen-size orientation
+            // aid is neither selectable document geometry nor output ink.
+            painter.save();
+            painter.setRenderHint(QPainter::Antialiasing);
+            const auto zero=paper.bottomRight();
+            QFont font=painter.font();font.setPixelSize(12);painter.setFont(font);
+            const auto axis=[&](QPointF direction,const QColor& color,const QString& label) {
+                const auto end=zero+direction*40.;
+                const QPointF side{-direction.y(),direction.x()};
+                painter.setPen(QPen(color,1.8,Qt::SolidLine,Qt::RoundCap,Qt::RoundJoin));
+                painter.drawLine(zero,end);
+                painter.drawPolyline(QPolygonF{end-direction*7.+side*3.,end,end-direction*7.-side*3.});
+                painter.drawText(end+QPointF(-4,-7),label);
+            };
+            axis({-1,0},QColor(232,76,61),QStringLiteral("X"));
+            axis({0,-1},QColor(46,204,112),QStringLiteral("Y"));
+            painter.setPen(Qt::NoPen);painter.setBrush(ink);painter.drawEllipse(zero,2.,2.);
+            painter.restore();
+        }
     }
 
 }

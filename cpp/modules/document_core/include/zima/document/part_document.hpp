@@ -132,7 +132,7 @@ struct ConstructionObject {
     // Plane only: which plane of this container's already-resolved local
     // Container Origin is used as the un-offset construction plane. This is
     // a semantic local choice, never a self-reference to viewer geometry.
-    LocalDatumPlane base_plane{LocalDatumPlane::YZ};
+    LocalDatumPlane base_plane{LocalDatumPlane::XY};
     bool base_plane_auto{true};
     double display_size{100.0};
     AxisExtentMode axis_extent_mode{AxisExtentMode::OneSide};

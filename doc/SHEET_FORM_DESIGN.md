@@ -8,6 +8,20 @@ implementation and verification status must be recorded separately.
 A library definition is an ordinary native Part with ordinary editable Bodies.
 The four role names are resolved when inserting or replacing the definition:
 
+Role lookup is independent of Body creation order and Tree order. `FORM_CUT`
+may be authored after `FORM`, for example when its cutting Sketch references
+the already authored outer surface. Required names must remain distinct when
+loading a library Part. Insertion stores the matching native Body IDs; later
+renaming or reordering of the copied Bodies does not reassign their roles.
+Ordinary reference dependencies still follow the Part history rules.
+
+The factory Ventilation Window definition is authored with its cutting and
+symbol Sketches in XY. Its outer shell and the separately oriented cutting
+profile were rotated together, preserving source IDs, external supports,
+constraints and the two R15 cut corners. The insertion frame derives from
+the actual cutting Sketch; Body order and a global source-plane assumption
+must not define that frame.
+
 | Body | Definition |
 | --- | --- |
 | `FORM_CUT` | Cutting Sketch on the outer sheet surface; may support `FORM`. |

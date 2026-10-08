@@ -30,6 +30,8 @@ int verify_application_lifecycle_ui(QApplication& application) {
             auto opposite=app::ApplicationSettings::load(directory.path());opposite.use_iso_application_font=!iso;
             app::apply_application_font(application,opposite);
             app::AssemblyWorkspaceWindow cold(directory.path());cold.show();flush();
+            const auto empty_capture=qEnvironmentVariable("ZIMA_CAPTURE_EMPTY_WORKSPACE");
+            if (!empty_capture.isEmpty()) cold.grab().save(empty_capture);
             const auto startup_font=application.font();
             app::apply_application_font(application,app::ApplicationSettings::load(directory.path()));
             check(startup_font==application.font(),"Cold startup ignored the saved application font");

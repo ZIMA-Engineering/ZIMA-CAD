@@ -1,4 +1,5 @@
 #include "workspace_internal.hpp"
+#include <zima/document/sketch_placement.hpp>
 #include <zima/workspace/symbol_operations.hpp>
 #include <QJsonArray>
 #include <QJsonDocument>
@@ -91,7 +92,7 @@ void AssemblyWorkspaceWindow::show_sketch_properties(const std::string& sketch_i
             zima::document::prepare_bend_sketches(value,initial,defaults);
             initial.name=value.name;sketch_feature=std::make_shared<zima::document::HistoryContainer>(std::move(value));
         }
-        if(sketch_feature) {
+        if(sketch_feature || (edit_mode && owner)) {
             const auto occurrence = resolve_active_occurrence(part->session.document().document_id);
             if (!occurrence) {state_->setText(tr("Nejprve aktivujte přesný výskyt Partu."));return;}
             properties_dialog_instance_path_ = *occurrence;
@@ -424,14 +425,12 @@ void AssemblyWorkspaceWindow::show_sketch_properties(const std::string& sketch_i
             // Build this display-only Plane from the resolved Sketch frame so the rectangle,
             // offset point and the plane opened by SKETCH are identical.
             auto& resolved_plane = preview_document.constructions.front();
-            const zima::kernel::Vec3 local_z{
-                -resolved_sketch.resolved_y_axis.x,
-                -resolved_sketch.resolved_y_axis.y,
-                -resolved_sketch.resolved_y_axis.z};
+            const auto axes = zima::document::sketch_container_frame_axes(resolved_sketch);
             const auto resolved_rotation = euler_degrees_from_frame_columns(
-                resolved_sketch.resolved_x_axis,
-                resolved_sketch.resolved_normal, local_z);
-            resolved_plane.base_plane = zima::document::LocalDatumPlane::XZ;
+                axes[0], axes[1], axes[2]);
+            resolved_plane.base_plane = resolved_sketch.plane == zima::sketcher::SketchPlane::XY
+                ? zima::document::LocalDatumPlane::XY : resolved_sketch.plane == zima::sketcher::SketchPlane::XZ
+                ? zima::document::LocalDatumPlane::XZ : zima::document::LocalDatumPlane::YZ;
             resolved_plane.rotation = resolved_rotation;
             resolved_plane.absolute_rotation = resolved_rotation;
             resolved_plane.direction = resolved_sketch.resolved_normal;
@@ -565,9 +564,13 @@ void AssemblyWorkspaceWindow::show_sketch_properties(const std::string& sketch_i
     }
 
     connect(dialog, &QObject::destroyed, this, [this, sketch_feature] {
-        if (sketch_feature) {
+        // An ordinary Sketch keeps its input boundary during Sketcher entry.
+        // Cancel/OK without entry retires it just like other Properties edits.
+        if (sketch_feature || active_sketch_id_.empty()) {
             part_rollback_.reset();
             properties_dialog_instance_path_.clear();
+        }
+        if (sketch_feature) {
             sweep_profile_sketch_draft_.reset(); embedded_sketch_finished_ = {};
             // Retire this feature's editing dimensions before rebuilding the
             // normal scene, otherwise its saved auxiliary Sketches add them
@@ -603,7 +606,10 @@ void AssemblyWorkspaceWindow::show_sketch_properties(const std::string& sketch_i
             clear_selected_sketch_geometry();
             tree_->clearSelection();
             viewer_->clear_selection();
-            align_active_sketch_view();
+            // Entering a component Sketch keeps the Assembly's zoom and pan.
+            // Standalone Part entry still fits its editing subject; the
+            // explicit normal-view action remains available for a fresh fit.
+            align_active_sketch_view(workspace_.open_assembly(workspace_.displayed_document_id())==nullptr);
         }
     });
     dialog->show();

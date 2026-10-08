@@ -3,7 +3,10 @@
 Sketch, Holes, Bend, Flat, Protrusion (Extrusion), Revolve (Revolution), and
 construction Plane expose **Base plane** selection.
 
-- **Automatic** follows the first directional reference (FRONT) for feature
+- New unbound Sketches and construction Planes start in local **XY**. Their
+  displayed container axes agree with the complete Origin entered by **Default**.
+- **Automatic** uses local XY after explicitly entering a complete Origin;
+  otherwise it follows the first directional reference (FRONT) for feature
   containers. A planar reference contributes its normal; a curve contributes
   its tangent at the attachment. An anchoring point does not consume FRONT.
 - **XY / XZ / YZ** stores a manual selection in the container's local frame.
@@ -16,6 +19,16 @@ construction Plane expose **Base plane** selection.
 The automatic choice is local XZ when the first reference defines FRONT
 (the local Y axis). The source plane's world name therefore need not match
 its corresponding local plane in the already rotated container.
+Selecting the complete Origin is a frame attachment, not a request to draw
+on its first listed datum plane. Manual plane choices remain unchanged.
+Regeneration preserves the plane already stored in an authored document;
+it does not silently rotate existing XZ profiles. Their quarter turns keep
+their original normal axis. Specialized Bend and helical stage profiles retain
+the planes required by their geometric roles.
+
+Properties previews recover the container's three axes from the resolved XY,
+XZ or YZ Sketch frame. They must not display an XZ carrier as the container
+Origin for an XY profile. This is a viewer-data operation without OCCT work.
 
 Bend has a feature-local attachment profile: for a straight outer edge followed
 by its narrow containing face, Automatic selects local XY and aligns the profile

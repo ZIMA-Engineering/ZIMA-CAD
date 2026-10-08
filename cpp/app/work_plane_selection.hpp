@@ -22,6 +22,6 @@ inline void install_automatic_work_plane(QComboBox* combo, bool automatic) {
     combo->addItem(QObject::tr("Automaticky"), QStringLiteral("auto"));
     update_automatic_work_plane(combo, plane);
     if (automatic) combo->setCurrentIndex(combo->count() - 1);
-    combo->setToolTip(QObject::tr("Automaticky podle první rovinné reference. Výběr XY/XZ/YZ uloží ruční volbu v místních souřadnicích kontejneru."));
+    combo->setToolTip(QObject::tr("Automaticky: celý Počátek používá XY, jinak první rovinnou referenci. Výběr XY/XZ/YZ uloží ruční volbu v místních souřadnicích kontejneru."));
 }
 }

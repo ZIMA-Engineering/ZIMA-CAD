@@ -54,6 +54,8 @@
 #include <QTableWidget>
 #include <QToolButton>
 #include <QTemporaryDir>
+#include <QScrollArea>
+#include <QScrollBar>
 #include <filesystem>
 #include <iostream>
 #include <stdexcept>
@@ -70,6 +72,52 @@ void mouse(QWidget* widget, QEvent::Type type, QPointF point, Qt::MouseButton bu
 void click(QWidget* widget,QPointF point) {
     mouse(widget,QEvent::MouseButtonPress,point,Qt::LeftButton,Qt::LeftButton);
     mouse(widget,QEvent::MouseButtonRelease,point,Qt::LeftButton,Qt::NoButton);
+}
+void verify_drawing_origin() {
+    const auto sheet=zima::drawing::DrawingDocument::create_default().sheets.front();
+    zima::drawing_render::SheetRenderer renderer;renderer.set_render_sheet(&sheet);
+    for(const double zoom:{.7,1.2})for(const QPointF pan:{QPointF(10,20),QPointF(65,45)}) {
+        const QPoint zero(qRound(pan.x()+sheet.width_mm()*zoom),qRound(pan.y()+sheet.height_mm()*zoom));
+        for(const bool printing:{false,true}) {
+            QImage image(1000,1000,QImage::Format_ARGB32_Premultiplied);image.fill(printing?Qt::white:Qt::black);
+            {QPainter painter(&image);renderer.paint_sheet(painter,zoom,pan,printing);}
+            const auto colored=[&](QPoint p,bool x){int count=0;
+                for(int dy=-2;dy<=2;++dy)for(int dx=-2;dx<=2;++dx) {
+                    const auto color=image.pixelColor(p+QPoint(dx,dy));
+                    if(x?color.red()>150&&color.green()<120&&color.blue()<120:
+                         color.green()>140&&color.red()<120&&color.blue()<160)++count;
+                }return count;};
+            require((colored(zero+QPoint(-20,0),true)>0)==!printing,"Drawing X arrow has wrong origin/direction or leaked into printing");
+            require((colored(zero+QPoint(0,-20),false)>0)==!printing,"Drawing Y arrow has wrong origin/direction or leaked into printing");
+            require(colored(zero+QPoint(-60,0),true)==0&&colored(zero+QPoint(0,-60),false)==0,
+                "Drawing Origin changes screen size with zoom");
+            if(!printing)image.save("build/drawing-origin.png");
+        }
+    }
+}
+void verify_view_properties_layout(QDialog* dialog) {
+    for(int i=0;i<12;++i)flush();
+    auto* scroll=dialog->findChild<QScrollArea*>("drawingViewPropertiesScroll");
+    auto* buttons=dialog->findChild<QDialogButtonBox*>();
+    require(scroll&&buttons,"View Properties missing scrolling content or confirmation");
+    require(dialog->parentWidget()->rect().contains(dialog->geometry()),"View Properties exceeds its application window");
+    require(dialog->rect().contains(QRect(buttons->mapTo(dialog,QPoint{}),buttons->size())),"View confirmation buttons are clipped");
+    require(scroll->widget()->width()<=scroll->viewport()->width(),"View Properties silently clips horizontally");
+    for(auto* field:scroll->widget()->findChildren<QWidget*>()) {
+        if(!field->isVisible()||!field->parentWidget())continue;
+        const bool editor=qobject_cast<QAbstractSpinBox*>(field)||qobject_cast<QLineEdit*>(field)||
+            qobject_cast<QComboBox*>(field)||qobject_cast<QAbstractButton*>(field);
+        auto* parent=field->parentWidget();
+        const bool viewport=parent->parentWidget()&&qobject_cast<QAbstractScrollArea*>(parent->parentWidget());
+        if(editor&&!viewport&&!qobject_cast<QAbstractSpinBox*>(parent)) {
+            if(!parent->rect().contains(field->geometry())||field->height()<field->minimumSizeHint().height())
+                throw std::runtime_error("View Properties clips control: "+field->objectName().toStdString());
+            scroll->ensureWidgetVisible(field,0,0);flush();
+            require(scroll->viewport()->rect().intersects(QRect(field->mapTo(scroll->viewport(),QPoint{}),field->size())),
+                "View Properties control cannot be reached by scrolling");
+        }
+    }
+    scroll->verticalScrollBar()->setValue(0);flush();
 }
 }
 
@@ -98,6 +146,7 @@ void verify_drawing_depth_rendering() {
 
 int verify_drawing_source_picker() {
     try {
+        verify_drawing_origin();
         const auto original_palette=QApplication::palette();
         const auto tree_icon=zima::app::resource_tree_icon("drawing-sheet");
         for(const bool dark:{false,true}) {
@@ -567,6 +616,16 @@ int verify_drawing_ui() {
                 window.select_view(original.id);action("editDrawingViewAction")->trigger();flush();auto* editing=dialog();require(editing,"Localized view description properties missing");
                 auto* table=editing->findChild<QTableWidget*>("drawingViewDescriptions");
                 require(table&&table->horizontalHeaderItem(4)->text()==settings.qt_translations.value("Výška [mm]")&&editing->findChild<QCheckBox*>("drawingViewCaption")->text()==settings.qt_translations.value("Zobrazit popis pohledu"),"View descriptions did not follow language switch");
+                verify_view_properties_layout(editing);
+                const auto window_size=window.size();
+                for(const QSize available:{QSize(1366,768),QSize(1920,1080)}) {
+                    window.resize(available);flush();
+                    verify_view_properties_layout(editing);
+                    editing->grab().save(QString("build/drawing-view-fusion-%1-%2.png").arg(language).arg(available.width()));
+                }
+                window.resize(window_size);flush();
+                const auto original_size=editing->size();editing->resize(editing->width(),std::min(window.height(),editing->height()+100));
+                verify_view_properties_layout(editing);editing->resize(original_size);flush();
                 qobject_cast<QLineEdit*>(table->cellWidget(0,3))->setText("CANCELLED DESCRIPTION");editing->resize(1000,850);flush();
                 editing->grab().save(QString("build/drawing-view-description-%1.png").arg(language));editing->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Cancel)->click();flush();
                 require(state.sheets.front().views.front().description_rows==original.description_rows&&workspace.open_drawing(drawing.document_id)->revision()==tracked_revision,"Description Cancel changed native state or Undo history");
@@ -760,7 +819,14 @@ int verify_drawing_ui() {
             auto* break_table=break_editor->findChild<QTableWidget*>("drawingBreakTable");
             click(break_table->viewport(),break_table->visualItemRect(break_table->item(0,2)).center());click(break_canvas,{break_canvas->width()*.4,break_canvas->height()*.5});
             click(break_table->viewport(),break_table->visualItemRect(break_table->item(0,3)).center());click(break_canvas,{break_canvas->width()*.6,break_canvas->height()*.5});
-            break_editor->buttons()->button(QDialogButtonBox::Ok)->click();flush();require(properties->isVisible()&&state.find_view(original.id)->breaks.empty(),"Editor committed outer View Properties transaction");
+            break_editor->buttons()->button(QDialogButtonBox::Ok)->click();flush();
+            if(!properties->isVisible()||!state.find_view(original.id)->breaks.empty()) {
+                if(break_editor&&break_editor->isVisible()) {
+                    break_editor->grab().save("build/drawing-break-fusion-failure.png");
+                    for(const auto* label:break_editor->findChildren<QLabel*>())if(label->isVisible())std::cerr<<label->text().toStdString()<<'\n';
+                }
+                throw std::runtime_error("Break editor did not return an uncommitted View Properties draft");
+            }
             properties->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();require(state.find_view(original.id)->breaks.size()==1,"View Properties did not commit break");
             std::cout<<"Drawing rotation and guide inputs, isolated break editor integration, preview, Cancel, OK and projected children passed\n";return 0;
         }

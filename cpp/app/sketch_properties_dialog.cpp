@@ -690,7 +690,10 @@ bool SketchPropertiesDialog::set_reference(std::size_t index,
     const bool accepted = placement_->set_reference(
         index, std::move(reference), label, &error,
         /*derive_orientation=*/index == 0);
-    if (accepted && first_plane_reference) {
+    if (accepted && zima::document::placement_references_use_whole_origin(placement_->combined_references(3))) {
+        update_automatic_work_plane(plane_, static_cast<int>(zima::sketcher::SketchPlane::XY));
+        notify_preview();
+    } else if (accepted && first_plane_reference) {
         // The first planar placement reference is mirrored into FRONT, which
         // maps its normal onto the container's local Y axis. Therefore local
         // XZ — not the default XY — is the actual sketch plane parallel to

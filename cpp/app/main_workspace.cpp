@@ -6978,14 +6978,17 @@ int verify_owned_profile_frames(QApplication& application, const std::filesystem
                 const auto pending=dialog()->pending_value();
                 auto expected=part;expected.history={pending};
                 auto expected_sketch=existing?sketch:sketcher::Sketch::create_default();
+                expected_sketch.plane=sketcher::SketchPlane::XY;
                 expected_sketch.id=revolve?pending.revolution.sketch_id:pending.extrusion.sketch_id;
                 expected_sketch.owner_container_id=pending.id;expected_sketch.plane_offset=3;
                 expected.sketches={expected_sketch};expected.set_body_history({});
                 expected.resolve_constructions();
                 expected_sketch=expected.sketches.front();
                 const auto normal=expected_sketch.resolved_normal;
-                check(std::abs(first=="xz"?normal.y:first=="xy"?normal.z:normal.x)>1-1e-7,
-                    "Resolved profile does not use the FIRST position plane");
+                const auto& frame=expected.history.front().placement;
+                const auto xy_normal=document::construction_direction_from_local_axis("z",
+                    {frame.rotation_x,frame.rotation_y,frame.rotation_z});
+                check(near(normal,xy_normal),"Complete Origin profile does not use its local XY plane");
                 if(existing) {
                     const auto& dimensions=view->mesh().dimensions;
                     const auto dim=std::ranges::find_if(dimensions,[&](const auto& d) {
@@ -7175,7 +7178,14 @@ int verify_owned_profile_frames(QApplication& application, const std::filesystem
                 command=="sweep2dAction"?"sweep2dSketch0":"helicalSketch0";
             check(properties->findChild<QPushButton*>(button),"Plane audit Sketch button missing");
             std::optional<kernel::Vec3> owned_normal;
-            if(auto* sweep=dynamic_cast<app::Sweep2DDialog*>(properties))
+            if(auto* sketch_dialog=dynamic_cast<app::SketchPropertiesDialog*>(properties)) {
+                check(sketch_dialog->pending_value().first.plane==sketcher::SketchPlane::XY,
+                    "Complete Origin did not choose XY for a new Sketch");
+                auto frame=references->placement_seed();frame.references=references->references_without(99);
+                check(document::resolve_placement(frame,part.origin_viewer_mesh().original_references),
+                    "Complete Origin Sketch test frame did not resolve");
+                owned_normal=document::construction_direction_from_local_axis("z",{frame.rotation_x,frame.rotation_y,frame.rotation_z});
+            } else if(auto* sweep=dynamic_cast<app::Sweep2DDialog*>(properties))
                 owned_normal=sketcher::Sketch::from_serialized(sweep->pending.sweep2d.path_sketch).normal();
             else if(auto* sweep=dynamic_cast<app::HelicalSweepDialog*>(properties)) {
                 auto framed=sweep->pending;
@@ -7197,7 +7207,7 @@ int verify_owned_profile_frames(QApplication& application, const std::filesystem
             window.findChild<QAction*>("finishSketchAction")->trigger();flush();
             for(auto* d:window.findChildren<QDialog*>())if(d->isVisible()){d->reject();break;}flush();
         }
-        std::cout<<"Owned profile first-plane, eight orientations, offset, OK/Cancel and other Sketch hosts passed\n";return 0;
+        std::cout<<"Owned profile complete-Origin XY, eight orientations, offset, OK/Cancel and other Sketch hosts passed\n";return 0;
     } catch(const std::exception& error) {std::cerr<<error.what()<<'\n';return 1;}
 }
 
@@ -7566,15 +7576,18 @@ int verify_nested_body_sketch_ui(QApplication& application, const std::filesyste
     auto sketch=zima::sketcher::Sketch::create_default();sketch.owner_container_id=container.id;
     static_cast<void>(sketch.add_segment(0,0,20,0));
     static_cast<void>(sketch.add_segment(0,0,0,10));
-    part.history={first,middle,container,later};part.sketches={sketch};
+    part.history={first,middle,container,later};part.sketches.push_back(sketch);
     BodyHistoryGraph graph;
     static_cast<void>(graph.create_body("První těleso"));graph.insert({PartHistoryKind::Feature,first.id});
     const auto body_id=graph.create_body("Těleso skici");
     graph.insert({PartHistoryKind::Feature,middle.id});graph.insert({PartHistoryKind::Feature,container.id});
+    // Put the downstream solid in the edited Body: other Bodies intentionally
+    // remain visible context, while this container must roll back in just the
+    // active occurrence. The repeated passive occurrence retains its result.
+    graph.insert({PartHistoryKind::Feature,later.id});
     auto body=*graph.find(body_id);body.scope.placement={80,40,25};
     body.scope.placement.absolute_rotation_y=90;body.scope.placement.absolute_rotation_z=90;
     graph.update_body(body);
-    static_cast<void>(graph.create_body("Pozdější těleso"));graph.insert({PartHistoryKind::Feature,later.id});
     graph.activate(body_id);part.set_body_history(graph);part.resolve_constructions();
     zima::kernel::OcctKernel kernel;
     const auto calculated=kernel.evaluate_history(part.kernel_operations());
@@ -7645,7 +7658,11 @@ int verify_nested_body_sketch_ui(QApplication& application, const std::filesyste
     }
     QEventLoop animation;QTimer::singleShot(950,&animation,&QEventLoop::quit);animation.exec();
     auto* view=dynamic_cast<zima::viewer::MeshView*>(window.findChild<QOpenGLWidget*>());
-    for(const auto index:{4,5,6})if(!verify(view->camera_state()[index]==sketch_entry_camera[index],"Assembly Sketch alignment changed zoom or pan"))return 1;
+    for(const auto index:{4,5,6})if(view->camera_state()[index]!=sketch_entry_camera[index]) {
+        std::cerr<<"Assembly Sketch camera index="<<index<<" before="<<std::setprecision(17)<<sketch_entry_camera[index]
+                 <<" after="<<view->camera_state()[index]<<std::endl;
+        if(!verify(false,"Assembly Sketch alignment changed zoom or pan"))return 1;
+    }
     if(qEnvironmentVariableIsSet("ZIMA_VERIFY_SKETCH_RETURN_ONLY")) {
         const auto original_edges=view->mesh().edges;
         window.findChild<QAction*>("finishSketchAction")->trigger();flush();
@@ -7683,6 +7700,15 @@ int verify_nested_body_sketch_ui(QApplication& application, const std::filesyste
             return ref.owner_id==later.id && ref.instance_path==path;
         });
     };
+    if (has_later(active_path) || !has_later(passive_path)) {
+        std::cerr << "Nested history active later=" << has_later(active_path)
+                  << " passive later=" << has_later(passive_path) << '\n';
+        std::set<std::pair<std::string, std::string>> owners;
+        for (const auto& ref : view->mesh().triangle_references)
+            owners.emplace(ref.owner_id, ref.instance_path);
+        for (const auto& [owner, path] : owners)
+            std::cerr << "Nested triangle owner " << owner << " path " << path << '\n';
+    }
     if (!verify(view && !has_later(active_path) && has_later(passive_path),
             "Nested Body history did not isolate the active occurrence from passive context")) return 1;
     if (!verify(std::ranges::any_of(view->mesh().points,[&](const auto& point) {
@@ -7714,7 +7740,9 @@ int verify_nested_body_sketch_ui(QApplication& application, const std::filesyste
     window.findChild<QProgressBar*>("fileOperationProgress")->hide();flush();
     if(!verify(view->camera_state()==save_camera&&view->size()==save_size,"Save progress completion moved Assembly View"))return 1;
     const auto edited=PartDocument::load(part_path);
-    const auto* moved=edited.sketches.front().find_point(sketch.points[1].id);
+    const auto edited_sketch_it=std::ranges::find(edited.sketches,sketch.id,&zima::sketcher::Sketch::id);
+    const auto* edited_sketch=edited_sketch_it==edited.sketches.end()?nullptr:&*edited_sketch_it;
+    const auto* moved=edited_sketch ? edited_sketch->find_point(sketch.points[1].id) : nullptr;
     if (!verify(moved && std::hypot(moved->x-sketch.points[1].x,moved->y-sketch.points[1].y)>1e-4 &&
             window.active_occurrence_path_for_test()==active_path && has_later(passive_path),
             "Nested Sketch drag did not persist into its source Part or changed occurrence ownership")) return 1;
@@ -7751,7 +7779,9 @@ int verify_nested_body_sketch_ui(QApplication& application, const std::filesyste
     QApplication::sendEvent(&window,&cancel_trim);flush();
     window.findChild<QAction*>("saveDocumentAction")->trigger();flush();
     const auto canceled_trim=PartDocument::load(part_path);
-    if (!verify(canceled_trim.sketches.front().serialized()==edited.sketches.front().serialized(),
+    const auto canceled_sketch=std::ranges::find(canceled_trim.sketches,sketch.id,&zima::sketcher::Sketch::id);
+    if (!verify(canceled_sketch!=canceled_trim.sketches.end() && edited_sketch &&
+            canceled_sketch->serialized()==edited_sketch->serialized(),
             "Cancel committed the pending nested Sketch trim")) return 1;
     window.findChild<QAction*>("finishSketchAction")->trigger();flush();
     const auto close_returned_sketch_properties=[&] {

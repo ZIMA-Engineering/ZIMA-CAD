@@ -3,6 +3,7 @@
 #include <zima/workspace/hole_operations.hpp>
 #include "../feature_naming.hpp"
 #include "workspace_internal.hpp"
+#include <zima/document/sketch_placement.hpp>
 #include <zima/document/container_origin_display.hpp>
 #include "../feature_view_cues.hpp"
 #include "sheet_cut_wire_preview.hpp"
@@ -612,13 +613,7 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
             sketch = std::prev(preview_document.sketches.end());
         }
         sketch->owner_container_id = preview.id;
-        const auto first_reference = std::find_if(
-            preview.placement.references.begin(),
-            preview.placement.references.end(), [](const auto& reference) {
-                return !reference.owner_id.empty();
-            });
-        if (sketch->plane_auto && first_reference != preview.placement.references.end() &&
-            first_reference->supports_offset) {
+        if (sketch->plane_auto && zima::document::sketch_placement_uses_front_plane(preview.placement.references)) {
             sketch->plane = zima::sketcher::SketchPlane::XZ;
         }
         const double next_offset = preview.feature_kind == zima::document::FeatureKind::Feature ? preview.feature.profile_plane_offset : extrusion
@@ -727,13 +722,12 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
         // otherwise only the highlighted source FRONT plane is visible and
         // FRONT/BACK, quarter-turn and profile offset appear to do nothing.
         auto& resolved_plane = preview_document.constructions.back();
-        const zima::kernel::Vec3 local_z{
-            -sketch->resolved_y_axis.x,
-            -sketch->resolved_y_axis.y,
-            -sketch->resolved_y_axis.z};
+        const auto axes = zima::document::sketch_container_frame_axes(*sketch);
         const auto resolved_rotation = euler_degrees_from_frame_columns(
-            sketch->resolved_x_axis, sketch->resolved_normal, local_z);
-        resolved_plane.base_plane = zima::document::LocalDatumPlane::XZ;
+            axes[0], axes[1], axes[2]);
+        resolved_plane.base_plane = sketch->plane == zima::sketcher::SketchPlane::XY
+            ? zima::document::LocalDatumPlane::XY : sketch->plane == zima::sketcher::SketchPlane::XZ
+            ? zima::document::LocalDatumPlane::XZ : zima::document::LocalDatumPlane::YZ;
         resolved_plane.rotation = resolved_rotation;
         resolved_plane.absolute_rotation = resolved_rotation;
         resolved_plane.direction = sketch->resolved_normal;
@@ -1680,15 +1674,8 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
                     draft_container = pending_feature;
                 auto draft_sketch = *property_owned_sketch_draft_;
                 draft_sketch.owner_container_id = draft_container.id;
-                const auto first_reference = std::find_if(
-                    pending_feature.placement.references.begin(),
-                    pending_feature.placement.references.end(),
-                    [](const auto& reference) {
-                        return !reference.owner_id.empty();
-                    });
-                if (draft_sketch.plane_auto && first_reference !=
-                        pending_feature.placement.references.end() &&
-                    first_reference->supports_offset) {
+                if (draft_sketch.plane_auto && zima::document::sketch_placement_uses_front_plane(
+                        pending_feature.placement.references)) {
                     draft_sketch.plane = zima::sketcher::SketchPlane::XZ;
                 }
                 draft_sketch.plane_offset = pending_feature.feature_kind == zima::document::FeatureKind::Feature ? pending_feature.feature.profile_plane_offset : extrusion

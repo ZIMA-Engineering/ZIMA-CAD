@@ -26,6 +26,7 @@
 #include <zima/document/flat.hpp>
 #include <zima/document/bend.hpp>
 #include <zima/document/placement_orientation.hpp>
+#include <zima/document/sketch_placement.hpp>
 #include <zima/kernel/sheet_material.hpp>
 #include <zima/document/named_views.hpp>
 #include <zima/document/placement_json.hpp>
@@ -731,6 +732,45 @@ static int verify_general_command_console(QApplication& application,AssemblyWork
                 }
             }
             QObject::disconnect(connection);
+            // The actual View must paint the container Origin, including
+            // before its first reference, rather than an XZ display carrier.
+            auto* frame_view=dynamic_cast<viewer::MeshView*>(window.findChild<QWidget*>("modelWorkspace"));
+            check(frame_view,"Default XY viewport missing");
+            for(const auto& language:languages) {
+                QSettings config(translation_directory.filePath("config.ini"),QSettings::IniFormat);
+                config.setValue("Application/Language",language);config.sync();
+                apply_application_translations(application,ApplicationSettings::load(translation_directory.path()));
+                window.findChild<QAction*>("sketchAction")->trigger();flush();
+                SketchPropertiesDialog* dialog=nullptr;
+                for(auto* candidate:window.findChildren<QDialog*>())if(candidate->isVisible())
+                    if(auto* typed=dynamic_cast<SketchPropertiesDialog*>(candidate))dialog=typed;
+                check(dialog,"Default XY Sketch Properties did not open");
+                const auto initial=dialog->pending_value();
+                check(initial.first.plane_auto&&initial.first.plane==sketcher::SketchPlane::XY,"New Sketch is not XY");
+                const auto axes=[&] {
+                    std::array<kernel::Vec3,3> result;
+                    for(unsigned i=0;i<3;++i) {
+                        const auto key=std::string("origin:axis:")+std::array{"x","y","z"}[i];
+                        const auto found=std::ranges::find_if(frame_view->mesh().axes,[&](const auto& axis){return
+                            axis.reference.owner_id==initial.first.owner_container_id+":origin"&&axis.reference.semantic_key==key;});
+                        check(found!=frame_view->mesh().axes.end(),"Actual Sketch preview Origin axis missing");
+                        result[i]=found->direction;
+                        const auto expected=document::construction_direction_from_local_axis(std::array<std::string,3>{"x","y","z"}[i],{});
+                        check(std::hypot(found->direction.x-expected.x,found->direction.y-expected.y,found->direction.z-expected.z)<1e-6,
+                            "Free Sketch preview Origin is rotated relative to Default");
+                    }
+                    return result;
+                };
+                const auto before=axes();
+                dialog->findChild<QPushButton*>("containerDefaultOriginButton")->click();flush();
+                check(dialog->pending_value().first.plane==sketcher::SketchPlane::XY&&axes()==before,
+                    "Default changed the actual XY Sketch preview frame");
+                const auto key="Automaticky: celý Počátek používá XY, jinak první rovinnou referenci. Výběr XY/XZ/YZ uloží ruční volbu v místních souřadnicích kontejneru.";
+                check(dialog->findChild<QComboBox*>("sketchPlane")->toolTip()==ApplicationSettings::load(translation_directory.path()).qt_translations.value(key),
+                    "Default XY work-plane explanation is untranslated");
+                dialog->buttons()->button(QDialogButtonBox::Cancel)->click();flush();
+            }
+            std::cout<<"Default XY: actual preview axes before/after Default and five translated tooltips PASS"<<std::endl;
             auto flat_source=document::PartDocument::create_default();
             static_cast<void>(document::create_origin_bound_body(flat_source.body_history,flat_source.document_id,"Sheet"));
             auto stock=document::PartDocument::create_sketch_container();stock.feature_kind=document::FeatureKind::Bend;
@@ -757,6 +797,7 @@ static int verify_general_command_console(QApplication& application,AssemblyWork
                 window.findChild<QAction*>("flatAction")->trigger();flush();auto* dialog=flat_editor();check(dialog,"Flat creation did not open");
                 auto* shortcut=dialog->findChild<QPushButton*>("containerDefaultOriginButton");check(shortcut,"Flat Default shortcut missing");
                 shortcut->click();flush();const auto first=dialog->pending_value();
+                check(first.first.plane==sketcher::SketchPlane::XY,"Flat Default did not choose XY");
                 check(dialog->first_empty_position_index()==3&&first.second.references.size()>=3,"Flat Default did not fill the complete Origin");
                 for(const auto& ref:first.second.references)check(ref.owner_id==body_id+":origin","Flat Default chose another Origin");
                 shortcut->click();flush();check(commands::Json(dialog->pending_value().second.references)==commands::Json(first.second.references),"Repeated Flat Default changed references");

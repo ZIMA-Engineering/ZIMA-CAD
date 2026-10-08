@@ -3771,7 +3771,9 @@ bool resolve_construction(ConstructionObject& object,
         const auto first_plane = std::ranges::find_if(object.references, [](const auto& ref) {
             return !ref.orientation_only && ref.supports_offset && !ref.owner_id.empty();
         });
-        if (first_plane != object.references.end()) object.base_plane = LocalDatumPlane::XZ;
+        if (first_plane != object.references.end() &&
+            !placement_references_use_whole_origin(object.references))
+            object.base_plane = LocalDatumPlane::XZ;
     }
     // Resolution is transactional with respect to the object's last usable
     // geometric frame. Missing references change only the diagnostic state;
@@ -6122,7 +6124,9 @@ void PartDocument::resolve_constructions(
             const bool has_position_top = orientation_constraint_remaining_dof(
                 geometric_placement.references, source_geometry, true,
                 {geometric_placement.x, geometric_placement.y, geometric_placement.z}) == 0;
-            if (!bend_attachment && sketch_placement_uses_front_plane(owner->placement.references)) {
+            if (!bend_attachment && (sketch_placement_uses_front_plane(owner->placement.references) ||
+                (sketch.plane == zima::sketcher::SketchPlane::XZ &&
+                 placement_references_use_whole_origin(owner->placement.references)))) {
                 // Owned profiles use local XZ with local +Y as FRONT. Recompose
                 // the SAME generic reference-derived base used by Box and every
                 // other container, changing only ROTATE's local axis to the
@@ -7746,7 +7750,9 @@ void adopt_sweep_sketch_frame(HistoryContainer& c, zima::sketcher::Sketch& path)
     const auto first = std::ranges::find_if(placement.references, [](const auto& reference) {
         return !reference.orientation_only && !reference.owner_id.empty();
     });
-    if (first != placement.references.end() && first->supports_offset) {
+    if (first != placement.references.end() && first->supports_offset &&
+        (!placement_references_use_whole_origin(placement.references) ||
+         path.plane == zima::sketcher::SketchPlane::XZ)) {
         path.plane = zima::sketcher::SketchPlane::XZ;
         const bool top = std::ranges::any_of(placement.references, [](const auto& reference) {
             return !reference.orientation_only && reference.orientation_drives_rotation && reference.orientation_role == "top";

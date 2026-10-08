@@ -1275,7 +1275,7 @@
   "Otevřít instanci": "Ouvrir l’instance",
   "Prvek ztratil referenci. Zkontrolujte jeho Vlastnosti.": "La fonction a perdu une référence. Vérifiez ses propriétés.",
   "Automaticky — %1": "Automatique — %1",
-  "Automaticky podle první rovinné reference. Výběr XY/XZ/YZ uloží ruční volbu v místních souřadnicích kontejneru.": "Automatique selon la première référence plane. Le choix XY/XZ/YZ enregistre une sélection manuelle dans les coordonnées locales du conteneur.",
+  "Automaticky: celý Počátek používá XY, jinak první rovinnou referenci. Výběr XY/XZ/YZ uloží ruční volbu v místních souřadnicích kontejneru.": "Automatique : une origine complète utilise XY, sinon la première référence plane. Le choix XY/XZ/YZ enregistre une sélection manuelle dans les coordonnées locales du conteneur.",
   "Těleso 1": "Corps 1",
   "Update response is too large.": "La réponse de mise à jour est trop volumineuse.",
   "The update component could not be started.": "Le composant de mise à jour n’a pas pu démarrer.",

@@ -462,6 +462,12 @@ public:
         auto* scroll=new QScrollArea(this);scroll->setObjectName("drawingViewPropertiesScroll");scroll->setWidgetResizable(true);scroll->setWidget(content);scroll->setMinimumHeight(420);scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);content_layout()->addWidget(scroll,1);
         setMinimumWidth(760);set_initial_size({800,760});
         load_sections(value_.section_id);
+        // Use the content's natural height when the application has room.
+        // The shared subwindow bounds it to the owner; the scroll area keeps
+        // every field reachable on smaller screens or with longer tables.
+        form->activate();
+        const int chrome=std::max(0,minimumSizeHint().height()-scroll->minimumHeight());
+        set_initial_size({800,content->sizeHint().height()+chrome+2*scroll->frameWidth()});
         connect(source_,&QComboBox::currentIndexChanged,this,[this]{refresh_named_orientations();load_sections({});});
         connect(section_,&QComboBox::currentIndexChanged,this,[this]{set_section_components();preview_values();});
         components_->changed=[this]{preview_values();};

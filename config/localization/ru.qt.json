@@ -1275,7 +1275,7 @@
   "Otevřít instanci": "Открыть экземпляр",
   "Prvek ztratil referenci. Zkontrolujte jeho Vlastnosti.": "Элемент потерял ссылку. Проверьте его свойства.",
   "Automaticky — %1": "Автоматически — %1",
-  "Automaticky podle první rovinné reference. Výběr XY/XZ/YZ uloží ruční volbu v místních souřadnicích kontejneru.": "Автоматически по первой плоской ссылке. Выбор XY/XZ/YZ сохраняет ручное задание в локальных координатах контейнера.",
+  "Automaticky: celý Počátek používá XY, jinak první rovinnou referenci. Výběr XY/XZ/YZ uloží ruční volbu v místních souřadnicích kontejneru.": "Автоматически: полное начало координат использует XY, иначе — первую плоскую ссылку. Выбор XY/XZ/YZ сохраняет ручное задание в локальных координатах контейнера.",
   "Těleso 1": "Тело 1",
   "Update response is too large.": "Ответ обновления слишком велик.",
   "The update component could not be started.": "Не удалось запустить компонент обновления.",
