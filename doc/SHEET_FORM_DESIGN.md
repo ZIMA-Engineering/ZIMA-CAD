@@ -267,6 +267,21 @@ suppressed in the flat pattern. `FORM_SYMBOL` supplies the Drawing symbol and
 must remain distinct from cutting geometry. Add a FORM command and its semantic
 icon to sheet tools and the ordinary feature Tree.
 
+The Part viewer also displays the evaluated symbol curves on unfolded material.
+These are state-owned display overlays, not placement-reference owners or cuts.
+Returning to the spatial state removes the overlays. Drawing Show/Erase continues
+to own Drawing symbol visibility independently, without duplicate Part overlays.
+Changing the embedded symbol Sketch invalidates its native history fingerprint.
+
+Feature Pattern and Mirror copy the forming operands, material frame and native
+ancestry together. Unbend/Bend Back replay each instance's spatial and flat tools;
+nested copies resolve the original FORM definition without replacing source IDs.
+Reflection carries the symbol's handedness through the reflected material frame.
+Properties uses the shared reference controls in a compact four-column table.
+The populated required support remains replaceable and inspectable without a
+clear/entry indicator. Preview and confirmed axes use a 10 mm nominal length and
+do not introduce endpoint grips.
+
 Drawing Show/Erase offers the evaluated native `FORM_SYMBOL` Sketch as one
 manufacturing symbol, retaining a stable identity derived from the inserted FORM
 feature. The adapter preserves authored curves and text in a standalone annotation

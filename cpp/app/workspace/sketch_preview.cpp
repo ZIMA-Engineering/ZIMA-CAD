@@ -747,6 +747,9 @@ bool AssemblyWorkspaceWindow::accept_sketch_rectangle_ray(
                     first_segment->first_point_id;
                 const auto opposite_corner_point_id =
                     second_segment->second_point_id;
+                const std::array intermediate_corner_point_ids{
+                    first_segment->second_point_id,
+                    std::ranges::find(target.segments,rectangle_ids[2],&zima::sketcher::SketchSegment::id)->second_point_id};
                 const auto apply_snap = [&](const std::string& point_id,
                         const std::string& geometry_id,
                         const auto& kind) {
@@ -776,7 +779,10 @@ bool AssemblyWorkspaceWindow::accept_sketch_rectangle_ray(
                 if (midpoint_snap) {
                     for (const auto& constraint : midpoint_snap->constraints) {
                         try {
-                            if(constraint.external_point)static_cast<void>(target.add_external_point_segment_constraint(
+                            if(constraint.corner_contact) {
+                                apply_snap(intermediate_corner_point_ids[constraint.side_index==1?0:1],
+                                    constraint.axis_id,std::optional{zima::sketcher::ConstraintKind::Coincident});
+                            } else if(constraint.external_point)static_cast<void>(target.add_external_point_segment_constraint(
                                 constraint.axis_id,rectangle_ids[constraint.side_index],constraint.midpoint));
                             else {
                                 std::array<std::pair<std::string,std::string>,2> pairs;
@@ -879,6 +885,7 @@ void AssemblyWorkspaceWindow::preview_sketch_rectangle_ray(
         {{a, b}, {}}, {{b, c}, {}}, {{c, d}, {}}, {{d, a}, {}}};
     if (midpoint_snap) {
       for (const auto& constraint : midpoint_snap->constraints) {
+        if(constraint.corner_contact)continue;
         if (constraint.axis_id == "sketch_axis:x") {
             preview_edges.push_back({{
                 sketch->world_point(std::min(x0, x1) - std::abs(x1 - x0), 0.0),
@@ -910,6 +917,10 @@ void AssemblyWorkspaceWindow::preview_sketch_rectangle_ray(
         std::vector<std::pair<zima::kernel::Vec3, std::string>> labels;
         labels.reserve(midpoint_snap->constraints.size());
         for (const auto& constraint : midpoint_snap->constraints) {
+            if(constraint.corner_contact) {
+                const auto p=constraint.side_index==1?b:d;
+                labels.emplace_back(p,"C");continue;
+            }
             if(constraint.external_point) {
                 const auto ref=std::ranges::find(sketch->external_references,constraint.axis_id,&zima::sketcher::SketchExternalReference::id);
                 if(ref!=sketch->external_references.end()) {
@@ -942,13 +953,43 @@ AssemblyWorkspaceWindow::inferred_sketch_rectangle_midpoint_snap(
     const auto& first = *pending_rectangle_corner_;
     const double tolerance = viewer_->world_tolerance_for_pixels(
         10.0 * viewer_->devicePixelRatioF());
-    if(pending_sketch_snap_kind_)return std::nullopt;
+    const bool alignment_snap=pending_sketch_snap_kind_&&
+        (*pending_sketch_snap_kind_==zima::sketcher::ConstraintKind::Horizontal||
+         *pending_sketch_snap_kind_==zima::sketcher::ConstraintKind::Vertical);
+    if(pending_sketch_snap_kind_&&!alignment_snap)return std::nullopt;
     if (!sketch_skip_candidate_snap_) {
         if (const auto candidate = viewer_->hovered_candidate()) {
             const auto ray = sketch->normal_ray(opposite[0], opposite[1]);
-            if (sketch_candidate_snap_ray(*candidate, ray.first, ray.second)) return std::nullopt;
+            if (const auto snap=sketch_candidate_snap_ray(*candidate, ray.first, ray.second);
+                snap&&snap->relation!=zima::sketcher::ConstraintKind::Horizontal&&
+                snap->relation!=zima::sketcher::ConstraintKind::Vertical) return std::nullopt;
         }
     }
+    // Intermediate corners, rather than the pointer, meet a sheet endpoint.
+    // C outranks cursor H/V to the same endpoint; the first corner stays fixed.
+    if(contact_enabled&&!sketch_skip_candidate_snap_) {
+        std::optional<SketchRectangleMidpointSnap> chosen;double best_distance=tolerance;
+        const auto offer=[&](const std::string& id,const std::array<double,2>& p,bool external) {
+            for(const std::size_t side:{1u,3u}) {
+                auto proposed=opposite;
+                if(side==1) {if(std::abs(p[1]-first[1])>1e-7)continue;proposed[0]=p[0];}
+                else {if(std::abs(p[0]-first[0])>1e-7)continue;proposed[1]=p[1];}
+                const auto distance=std::hypot(proposed[0]-opposite[0],proposed[1]-opposite[1]);
+                if(distance>best_distance||std::abs(proposed[0]-first[0])<1e-9||std::abs(proposed[1]-first[1])<1e-9)continue;
+                best_distance=distance;chosen=SketchRectangleMidpointSnap{proposed,{{id,side,external,false,true}}};
+            }
+        };
+        if(zima::viewer::matches_selection_filter(
+            {zima::viewer::CandidateKind::SketchExternalReference,0,0,active_sketch_id_,"external_point:contact"},viewer_->selection_filter()))
+            for(const auto& ref:sketch->external_references)
+                if(zima::sketcher::is_external_point_kind(ref.kind)&&!ref.broken&&ref.cached_points.size()==1)
+                    offer(ref.id,ref.cached_points.front(),true);
+        if(zima::viewer::matches_selection_filter(
+            {zima::viewer::CandidateKind::SketchPoint,0,0,active_sketch_id_,"point"},viewer_->selection_filter()))
+            for(const auto& point:sketch->points)offer(point.id,{point.x,point.y},false);
+        if(chosen)return chosen;
+    }
+    if(pending_sketch_snap_kind_)return std::nullopt;
     if(zima::viewer::matches_selection_filter(
         {zima::viewer::CandidateKind::SketchExternalReference,0,0,active_sketch_id_,"external_point:contact"},viewer_->selection_filter())) {
         for(bool midpoint:{true,false}) {

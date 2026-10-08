@@ -949,6 +949,9 @@ struct SheetFormRequest {
     Vec3 source_origin, source_normal{0,1,0}, source_x{1,0,0};
     Vec3 position, normal{0,0,1}, x_direction{1,0,0};
     double thickness{1};
+    // Authored manufacturing strokes in the source attachment frame. These
+    // are display data, never Boolean operands or selectable solid topology.
+    std::vector<ViewerEdge> symbol_edges;
 };
 
 using PrimitiveRequest = std::variant<

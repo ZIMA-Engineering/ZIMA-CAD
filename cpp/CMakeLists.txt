@@ -418,6 +418,9 @@ target_link_libraries(zima_kernel_occt
             TKTopAlgo TKPrim TKBO TKBool TKMesh)
 target_link_libraries(zima_kernel_occt PRIVATE TKOffset)
 target_link_libraries(zima_kernel_occt PRIVATE TKFillet)
+target_link_libraries(zima_kernel_occt PRIVATE TKShHealing)
+set_source_files_properties(modules/kernel_occt/src/occt_kernel.cpp PROPERTIES
+    COMPILE_OPTIONS "$<$<CXX_COMPILER_ID:MSVC>:/bigobj>")
 target_link_libraries(zima_kernel_occt PRIVATE
     TKDESTEP TKDEIGES TKDESTL TKXSBase TKXCAF TKCAF TKLCAF TKCDF)
 
@@ -1312,7 +1315,7 @@ if(ZIMA_BUILD_TESTS)
     target_link_libraries(zima_cpp_drawing_balloon_tests PRIVATE zima_command_host)
     add_test(NAME zima_cpp_drawing_balloon_tests COMMAND zima_cpp_drawing_balloon_tests)
     set_tests_properties(zima_cpp_drawing_balloon_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
-    target_link_libraries(zima_cpp_body_properties_tests PRIVATE zima_command_host)
+    target_link_libraries(zima_cpp_body_properties_tests PRIVATE zima_command_host TKTopAlgo)
     add_test(NAME zima_cpp_body_properties_tests COMMAND zima_cpp_body_properties_tests)
     set_tests_properties(zima_cpp_body_properties_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
     target_link_libraries(zima_cpp_measurement_edit_command_tests PRIVATE zima_command_host)
@@ -1688,6 +1691,11 @@ if(ZIMA_BUILD_TESTS)
         ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_OWNED_PROFILE_REFERENCE_ONLY=1"
         TIMEOUT 120)
     add_test(NAME zima_cpp_application_tools_ui_contract COMMAND zima-cad-cpp --verify-startup)
+    add_test(NAME zima_cpp_rectangle_external_contact_ui_contract COMMAND zima-cad-cpp --verify-startup)
+    set_tests_properties(zima_cpp_rectangle_external_contact_ui_contract PROPERTIES
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.."
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_RECTANGLE_EXTERNAL_CONTACT_ONLY=1"
+        TIMEOUT 180 RUN_SERIAL TRUE)
     set_tests_properties(zima_cpp_application_tools_ui_contract PROPERTIES
         WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.."
         ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_APPLICATION_TOOLS_ONLY=1"
@@ -1814,11 +1822,14 @@ if(ZIMA_BUILD_TESTS)
     set_tests_properties(zima_cpp_sheet_form_definition_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
     add_executable(zima_cpp_sheet_form_geometry_tests tests/sheet_form_geometry_tests.cpp)
     add_executable(zima_cpp_sheet_form_command_tests tests/sheet_form_command_tests.cpp)
-    target_link_libraries(zima_cpp_sheet_form_command_tests PRIVATE zima_workspace)
+    target_link_libraries(zima_cpp_sheet_form_command_tests PRIVATE zima_command_host)
     add_test(NAME zima_cpp_sheet_form_command_tests COMMAND zima_cpp_sheet_form_command_tests)
     set_tests_properties(zima_cpp_sheet_form_command_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
     target_link_libraries(zima_cpp_sheet_form_geometry_tests PRIVATE zima_workspace TKOffset TKTopAlgo)
     add_test(NAME zima_cpp_sheet_form_geometry_tests COMMAND zima_cpp_sheet_form_geometry_tests)
+    add_test(NAME zima_cpp_sheet_form_copy_tests COMMAND zima_cpp_sheet_form_geometry_tests --copy-matrix)
+    add_test(NAME zima_cpp_sheet_form_copy_after_unbend_tests COMMAND zima_cpp_sheet_form_geometry_tests --copy-after-unbend)
+    set_tests_properties(zima_cpp_sheet_form_copy_tests zima_cpp_sheet_form_copy_after_unbend_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
     set_tests_properties(zima_cpp_sheet_form_geometry_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." ENVIRONMENT "ZIMA_CPP_FORM_PROFILE=1")
     target_link_libraries(zima_cpp_surface_thicken_tests PRIVATE zima_workspace zima_document_core zima_kernel_occt TKTopAlgo)
     add_test(NAME zima_cpp_surface_thicken_tests COMMAND zima_cpp_surface_thicken_tests)

@@ -7,6 +7,8 @@
 #include <limits>
 #include <zima/kernel/profile_centerlines.hpp>
 #include <zima/kernel/axis_display.hpp>
+#include <zima/workspace/drawing_sources.hpp>
+#include "profile_solid_fixture.hpp"
 using namespace zima;using commands::Json;namespace fs=std::filesystem;
 namespace {
 void require(bool value,const char* message){if(!value)throw std::runtime_error(message);}
@@ -15,6 +17,46 @@ commands::Result run(command_host::Host& host,const char* name,Json args=Json::o
     if(!result.ok)throw std::runtime_error(std::string(name)+": "+result.code+": "+result.message);return result;
 }
 Json ref(const drawing::ModelAnnotationReference& r){return {{"source_document",r.document_id},{"owner",r.owner_id},{"key",r.semantic_id},{"instance_path",r.instance_path}};}
+void verify_opening_axis_bounds(const kernel::OcctKernel& kernel,fs::path directory) {
+    auto part=document::PartDocument::create_default();
+    auto block=test::rectangular_feature(part,{100,100,40});
+    auto plain=document::PartDocument::create_thread_container();plain.placement={};plain.placement.x=-20;plain.placement.z=-20;
+    plain.thread.enabled=false;plain.thread.nominal_diameter=10;plain.thread.bore_length=10;
+    plain.thread.chamfer_enabled=false;plain.hole.drill_point_enabled=false;
+    auto threaded=document::PartDocument::create_thread_container();threaded.placement={};threaded.placement.x=20;threaded.placement.z=-20;
+    threaded.thread.nominal_diameter=10;threaded.thread.pitch=1.5;threaded.thread.length_forward=15;threaded.thread.bore_length=20;
+    threaded.thread.chamfer_enabled=false;threaded.hole.drill_point_enabled=false;
+    const auto first=plain.id,second=threaded.id,doc=part.document_id;
+    document::BodyHistoryGraph graph;static_cast<void>(graph.create_body("Opening bounds"));
+    for(const auto id:{block.id,plain.id,threaded.id})graph.insert({document::PartHistoryKind::Feature,id});
+    part.history={block,plain,threaded};part.set_body_history(graph);
+    const auto path=directory/"opening-axis-bounds.prtz";part.save(path,kernel.evaluate_history(part.kernel_operations()));
+    const auto sources=workspace::drawing_annotation_sources(nullptr,doc,path);
+    for(const double scale:{.5,1.,2.})for(bool head_on:{false,true}) {
+        drawing::DrawingView view;view.source_document_id=doc;view.scale=scale;
+        view.camera.vertical=head_on?kernel::Vec3{0,1,0}:kernel::Vec3{0,0,1};
+        view.camera.depth=head_on?kernel::Vec3{0,0,1}:kernel::Vec3{0,1,0};
+        drawing::refresh_model_annotations(view,sources);unsigned count{};
+        for(const auto& item:view.model_annotations)if(item.kind==drawing::ModelAnnotationKind::Axis&&
+                (item.source.owner_id==first||item.source.owner_id==second)) {
+            const bool a=item.source.owner_id==first;const auto geometry=drawing::axis_annotation_geometry(view,item);
+            require(item.model_envelope.valid,"Opening axis has no persisted native cylinder bounds");
+            require(geometry.curves.size()==(head_on?4:1),"Opening axis has the wrong projected topology");
+            for(const auto& curve:geometry.curves) {
+                const double length=std::hypot(curve.back().x-curve.front().x,curve.back().y-curve.front().y);
+                // Annotation curves retain model units; the renderer applies
+                // view scale. Only the 2 mm paper overhang is converted here.
+                const double expected=head_on?(a?5:4.1881)+2/scale:(a?10:20)+4/scale;
+                if(std::abs(length-expected)>=1e-6)throw std::runtime_error("Opening axis length="+std::to_string(length)+
+                    " expected="+std::to_string(expected)+" head_on="+std::to_string(head_on)+" plain="+std::to_string(a));
+            }
+            ++count;
+        }
+        require(count==2,"Opening axis fixture lost an independent hole axis");
+        const auto loaded=drawing::deserialize_model_annotations(drawing::serialize_model_annotations(view.model_annotations));
+        require(loaded==view.model_annotations,"Opening axis bounds changed during Drawing annotation roundtrip");
+    }
+}
 void verify(const kernel::OcctKernel& kernel,fs::path directory) {
     {
         drawing::DrawingView view;view.source_document_id="axis-part";
@@ -186,4 +228,25 @@ void verify_layouts(const kernel::OcctKernel& kernel,fs::path directory) {
 }
 
 }
-int main(){try{kernel::OcctKernel kernel;const auto root=fs::canonical(fs::temp_directory_path());const auto dir=root/("zima-annotations-"+document::PartDocument::create_default().document_id);fs::create_directory(dir);verify(kernel,dir);verify_layouts(kernel,dir);require(dir.parent_path()==root,"Unsafe cleanup");fs::remove_all(dir);std::cout<<"Drawing annotation queries, exact occurrences, atomic Show/Erase, Undo and persistence passed\n";return 0;}catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}
+int main(int argc,char** argv){try{
+    if(argc==3&&std::string_view(argv[1])=="--inspect-axes") {
+        const auto file=fs::absolute(argv[2]);auto doc=drawing::DrawingDocument::load(file);
+        for(const auto& sheet:doc.sheets)for(auto view:sheet.views) {
+            const auto print=[&](const char* state) {
+                for(const auto& item:view.model_annotations)if(item.kind==drawing::ModelAnnotationKind::Axis&&item.visible) {
+                    const auto geometry=drawing::axis_annotation_geometry(view,item);
+                    std::cout<<state<<" view="<<view.id<<" owner="<<item.source.owner_id<<" key="<<item.source.semantic_id
+                        <<" envelope="<<item.model_envelope.valid;
+                    for(const auto& curve:geometry.curves)if(curve.size()>1)
+                        std::cout<<" stroke="<<std::hypot(curve.back().x-curve.front().x,curve.back().y-curve.front().y);
+                    std::cout<<'\n';
+                }
+            };
+            std::cout<<"Source "<<view.source_document_id<<" path="<<view.source_path<<'\n';print("stored");
+            const auto path=view.source_path.is_absolute()?view.source_path:file.parent_path()/view.source_path;
+            const auto sources=workspace::drawing_annotation_sources(nullptr,view.source_document_id,path);
+            drawing::refresh_model_annotations(view,sources);print("current");
+        }
+        return 0;
+    }
+    kernel::OcctKernel kernel;const auto root=fs::canonical(fs::temp_directory_path());const auto dir=root/("zima-annotations-"+document::PartDocument::create_default().document_id);fs::create_directory(dir);verify(kernel,dir);verify_layouts(kernel,dir);verify_opening_axis_bounds(kernel,dir);require(dir.parent_path()==root,"Unsafe cleanup");fs::remove_all(dir);std::cout<<"Drawing annotation queries, opening bounds, exact occurrences, atomic Show/Erase, Undo and persistence passed\n";return 0;}catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}

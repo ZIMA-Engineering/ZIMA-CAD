@@ -159,7 +159,13 @@ void load_drawing_template(drawing::DrawingDocument& doc,const std::string& id,c
     validate_sheet_settings(sheet_settings(next));target=std::move(next);
 }
 std::pair<std::string,kernel::ViewerMesh> read_drawing_source(const Workspace* live,const std::filesystem::path& path,const std::string& expected){
-    const auto checked=[&](std::string id,kernel::ViewerMesh mesh){if(!expected.empty()&&id!=expected)throw DrawingOperationError("source_identity","The drawing source file belongs to a different document.");return std::pair{std::move(id),std::move(mesh)};};
+    const auto checked=[&](std::string id,kernel::ViewerMesh mesh){
+        if(!expected.empty()&&id!=expected)throw DrawingOperationError("source_identity","The drawing source file belongs to a different document.");
+        // Drawing symbols have their own Show/Erase annotation contract. The
+        // Part's flat-only presentation must not duplicate those strokes.
+        std::erase_if(mesh.edges,[](const auto& edge){return edge.overlay&&edge.reference.semantic_key.starts_with("form:symbol:");});
+        return std::pair{std::move(id),std::move(mesh)};
+    };
     if(live){
         auto open=!expected.empty()&&live->find(expected)?std::optional<std::string>(expected):live->document_id_for_path(path);
         if(open && !expected.empty() && *open!=expected) {

@@ -156,7 +156,7 @@ int verify_translations(QApplication& application, QWidget& parent) {
                 references->item(2,1)->text()==settings.qt_translations.value("Rovina %1").arg("YZ"),
                 "Reopened Form reference labels are not localized");
             int row=0;for(const auto* key:{"Sheet face","Position 1","Position 2"})
-                check(references->item(row++,2)->text()==settings.qt_translations.value(key),"Form reference role is not localized");
+                check(references->item(row++,1)->toolTip()==settings.qt_translations.value(key),"Form reference role tooltip is not localized");
             check(dialog.findChild<QDoubleSpinBox*>("sheetFormOffset1")->toolTip()==settings.qt_translations.value(
                 "Signed distance to a line or plane. A point sets sheet-plane X in row 2 or Z in row 3."),"Form offset tooltip is not localized");
             check(std::ranges::any_of(labels,[&](auto* label){return label->text()==settings.qt_translations.value("Form definition");}),

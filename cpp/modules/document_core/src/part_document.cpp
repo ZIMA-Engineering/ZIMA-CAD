@@ -5797,7 +5797,7 @@ zima::kernel::ViewerMesh PartDocument::construction_viewer_mesh(
         if(container.feature_kind==FeatureKind::SheetForm) {
             const auto& p=container.placement;
             const auto normal=construction_direction_from_local_axis("y",{p.rotation_x,p.rotation_y,p.rotation_z});
-            const zima::kernel::ViewerAxis axis{{p.x,p.y,p.z},normal,50.,{container.id,"axis",{}}};
+            const zima::kernel::ViewerAxis axis{{p.x,p.y,p.z},normal,10.,{container.id,"axis",{}}};
             mesh.axes.push_back(axis);mesh.original_references.axes.push_back(axis);
         }
         if(container.feature_kind==FeatureKind::SheetTransition)

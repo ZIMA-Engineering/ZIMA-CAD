@@ -77,6 +77,11 @@ Q_NEVER_INLINE static int verify_sheet_form_ui(QApplication& application,Assembl
         const auto first_position=kernel::Vec3{pending.placement.x,pending.placement.y,pending.placement.z};
         auto* placement_table=dialog->findChild<QTableWidget*>("primitiveReferenceTable");
         check(placement_table,"FORM shared reference table missing");
+        check(placement_table->columnCount()==4,"FORM retained its redundant geometry-description column");
+        check(!placement_table->cellWidget(0,0)->findChild<QLabel*>()->isVisible(),
+            "Completed required FORM support retained its entry arrow");
+        check(!placement_table->cellWidget(0,0)->findChild<QPushButton*>()->isVisible(),
+            "Required FORM support incorrectly exposes removal");
         const QPointF input_point(placement_table->visualItemRect(placement_table->item(0,1)).center());
         for(const auto type:{QEvent::MouseButtonPress,QEvent::MouseButtonRelease}) {
             QMouseEvent event(type,input_point,QPointF(placement_table->viewport()->mapToGlobal(input_point.toPoint())),Qt::LeftButton,
@@ -174,6 +179,7 @@ Q_NEVER_INLINE static int verify_sheet_form_ui(QApplication& application,Assembl
         const auto axis=std::ranges::find_if(axis_mesh.axes,[&](const auto& a){return a.reference.owner_id==id&&a.reference.semantic_key=="axis";});
         check(axis!=axis_mesh.axes.end()&&kernel::sheet_material::dot(axis->direction,outward)>1.-1e-8,
             "FORM result axis is not normal to the support");
+        check(std::abs(axis->display_length-10.)<1e-9,"FORM result axis is not the requested 10 mm");
         check(std::ranges::none_of(axis_mesh.points,[&](const auto& p){return p.reference.owner_id==id&&p.reference.semantic_key.starts_with("axis:point:");}),
             "FORM result axis exposes endpoint handles");
         check(std::abs(confirmed.x-pending.placement.x)<1e-8&&

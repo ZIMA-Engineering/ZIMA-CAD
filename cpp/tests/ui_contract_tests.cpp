@@ -911,6 +911,12 @@ void verify_feature_axis_highlight(QApplication& application,QWidget& parent) {
                 require(framebuffer_contains_color_near(frame,view.size(),project(x,-30+12*i),expected?QColor("#00D1FF"):QColor(173,110,46),3),
                     "Automatic/origin/centroid axis endpoint does not follow its axis color");
         }
+        // Labels sit beyond the endpoint-marker radius, so a marker or
+        // centerline stroke cannot satisfy this independent pixel check.
+        const QColor centroid_color=selected==1?QColor("#00D1FF"):QColor(173,110,46);
+        for(double x:{-19.,19.})
+            require(framebuffer_contains_color_near(frame,view.size(),project(x,6)+QPointF(11,-11),centroid_color,4),
+                "Centroid axis lost T at one of its actual endpoints");
     };
     check_lines(0);view.confirm_container("feature");application.processEvents();check_lines(1);
     view.grabFramebuffer().save("feature-axis-selected.png");
@@ -966,6 +972,9 @@ void verify_feature_axis_highlight(QApplication& application,QWidget& parent) {
                 for(const auto& point:packet.mesh.points)
                     require(framebuffer_contains_color_near(shown,view.size(),project(point.position.x,point.position.y),QColor(173,110,46),3),
                         "Rotation path endpoint lost its brown axis color after state changes or native reopen");
+                for(const auto p:{arc.points.front(),arc.points.back()})
+                    require(framebuffer_contains_color_near(shown,view.size(),project(p.x,p.y)+QPointF(11,-11),QColor(173,110,46),4),
+                        "Centroid rotation path lost T at one endpoint after state change or reopen");
                 view.set_reference_visibility(viewer::ReferenceVisibility::Axes,false);application.processEvents();
                 const auto hidden=view.grabFramebuffer();
                 require(shown!=hidden&&framebuffer_contains_color_near(shown,view.size(),{300,250},QColor(173,110,46),35),

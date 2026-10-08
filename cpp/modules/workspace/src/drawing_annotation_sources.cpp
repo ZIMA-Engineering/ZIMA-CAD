@@ -33,14 +33,16 @@ symbols::Placement form_symbol(const document::PartDocument& part,
   symbols::Definition definition;definition.id="form:symbol-definition:"+feature.id;
   definition.name=feature.sheet_form.source_name;definition.default_variant="default";
   definition.variants[definition.default_variant].sketches={sketch.id};definition.sketches={std::move(sketch)};
-  symbols::Placement result;result.symbol.id="form:symbol:"+feature.id;
+  symbols::Placement result;result.symbol.id="form:symbol:"+material.owner_id;
   result.symbol.definition=definition.serialized();result.symbol.variant=definition.default_variant;
   const auto request=document::sheet_form_request(source,{}, {},{0,1,0},{1,0,0},feature.sheet_form.thickness);
   kernel::ViewerMesh basis;const auto origin=original->world_point(0,0);
   basis.vertices={origin,add(origin,original->x_axis()),add(origin,original->y_axis())};
   basis=source.part.place_body_mesh(std::move(basis),source.bodies[3]);
   const auto source_z=cross(request.source_x,request.source_normal);
-  const auto destination_z=cross(material.along,material.radial);
+  // Reflection preserves the authored tangent and material side. Rebuilding
+  // it with a cross product here would mirror the copied symbol a second time.
+  const auto destination_z=mul(material.tangent,-1.);
   const auto vector=[&](kernel::Vec3 p) {return add(mul(material.along,dot(p,request.source_x)),
       add(mul(material.radial,dot(p,request.source_normal)),mul(destination_z,dot(p,source_z))));};
   result.frame.origin=add(material.origin,vector(sub(basis.vertices[0],request.source_origin)));
@@ -142,10 +144,13 @@ drawing_annotation_sources(const Workspace *workspace,
           if(body&&(body->suppressed||!body->visible))continue;
           const auto state=kernel::sheet_material::regions_before(operations,operations.size());
           for(const auto& region:state.regions)if(region.kind==kernel::SheetMaterialDefinition::Kind::Form) {
-            const auto* feature=part.find_container(region.owner_id);
+            const auto* source=kernel::sheet_material::form_source_operation(operations,
+                region.feature_owner_id.empty()?region.owner_id:region.feature_owner_id);
+            const auto* feature=source?part.find_container(source->owner_id):nullptr;
             if(feature&&!feature->suppressed) {
               auto symbol=form_symbol(part,*feature,region);
-              symbol.unresolved=symbol.unresolved||calculation_errors.contains(feature->id);
+              symbol.unresolved=symbol.unresolved||calculation_errors.contains(feature->id)||
+                  calculation_errors.contains(region.feature_owner_id);
               native_symbols.push_back(std::move(symbol));
             }
           }
@@ -189,6 +194,41 @@ drawing_annotation_sources(const Workspace *workspace,
         frame.axes={x,y,cross(x,y)};frame.minimum={-axis.display_length/2,0,0};frame.maximum={axis.display_length/2,0,0};frame.valid=true;
         axis_frames[{axis.reference.owner_id,axis.reference.semantic_key}]=frame;
       }
+      // An opening axis describes its own surviving cylindrical wall. Its
+      // container's accumulated solid bounds include unrelated stock geometry.
+      // Use exact analytic data already persisted by explicit calculation.
+      for(const auto& axis:mesh.axes) {
+        const auto* owner=part.find_container(axis.reference.owner_id);
+        if(!owner||owner->combine_mode!=document::CombineMode::Subtract||
+            (axis.reference.semantic_key!="axis:primary"&&!axis.reference.semantic_key.starts_with("axis:profile:")))continue;
+        const auto direction=kernel::dimension_unit(axis.direction);
+        const auto key=std::pair{axis.reference.owner_id,axis.reference.semantic_key};
+        for(const auto* faces:{&calculated.triangle_references,&calculated.original_references.triangle_references})
+        for(const auto& face:*faces) {
+          if(face.owner_id!=axis.reference.owner_id||!face.surface||
+             face.surface->kind!=kernel::SurfaceGeometry::Kind::Cylinder)continue;
+          const auto& surface=*face.surface;
+          if(!std::isfinite(surface.radius)||surface.radius<=0||!std::isfinite(surface.axial_min)||
+             !std::isfinite(surface.axial_max)||std::abs(kernel::dimension_dot(surface.axis,direction))<1-1e-7)continue;
+          const auto delta=kernel::dimension_sub(surface.origin,axis.point);
+          const auto off=kernel::dimension_sub(delta,kernel::dimension_scale(direction,kernel::dimension_dot(delta,direction)));
+          if(kernel::dimension_dot(off,off)>1e-12)continue;
+          const double first=kernel::dimension_dot(kernel::dimension_sub(kernel::dimension_add(surface.origin,
+              kernel::dimension_scale(surface.axis,surface.axial_min)),axis.point),direction);
+          const double last=kernel::dimension_dot(kernel::dimension_sub(kernel::dimension_add(surface.origin,
+              kernel::dimension_scale(surface.axis,surface.axial_max)),axis.point),direction);
+          kernel::ModelEnvelope frame;frame.valid=true;frame.origin=axis.point;
+          frame.axes={kernel::dimension_unit(surface.radial),kernel::dimension_unit(kernel::dimension_cross(direction,surface.radial)),direction};
+          frame.minimum={-surface.radius,-surface.radius,std::min(first,last)};
+          frame.maximum={surface.radius,surface.radius,std::max(first,last)};
+          if(auto found=axis_frames.find(key);found!=axis_frames.end()) {
+            const auto r=std::max(surface.radius,found->second.maximum.x);
+            frame.minimum={-r,-r,std::min(frame.minimum.z,found->second.minimum.z)};
+            frame.maximum={r,r,std::max(frame.maximum.z,found->second.maximum.z)};
+          }
+          axis_frames[key]=frame;
+        }
+      }
       mesh.dimensions.insert(mesh.dimensions.end(),
                              calculated.dimensions.begin(),
                              calculated.dimensions.end());
@@ -229,6 +269,7 @@ drawing_annotation_sources(const Workspace *workspace,
             if(kernel::dimension_dot(radial,radial)>1e-12)continue;
             const auto geometry=frames.find({axis.reference.owner_id,{}});
             if(geometry==frames.end() || !geometry->second.valid)continue;
+            if(axis_frames.contains({axis.reference.owner_id,axis.reference.semantic_key}))continue;
             kernel::ModelEnvelope frame;frame.origin=axis.point;
             frame.axes={kernel::dimension_unit(kernel::dimension_sub(basis.vertices[1],point)),
                 kernel::dimension_unit(kernel::dimension_sub(basis.vertices[2],point)),normal};

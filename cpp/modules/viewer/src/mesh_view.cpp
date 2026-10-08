@@ -2043,6 +2043,9 @@ void MeshView::set_transient_model_points(std::vector<kernel::ViewerPoint> point
 }
 const std::vector<kernel::ViewerPoint>& MeshView::transient_model_points() const {return impl_->transient_model_points;}
 
+const std::vector<std::pair<kernel::Vec3,std::string>>& MeshView::transient_labels() const {
+    return impl_->transient_labels;
+}
 void MeshView::set_transient_labels(
     std::vector<std::pair<zima::kernel::Vec3, std::string>> labels) {
     if (impl_->transient_point_transform) {
@@ -4194,6 +4197,8 @@ if (impl_->show_origins) {
                 if (datum_key.starts_with("centerline:from:centroid:")) {
                     painter.setPen(QPen(color));
                     painter.drawText(project(edge.points.front()) + QPointF(8.0, -6.0), QStringLiteral("T"));
+                    if(edge.points.back()!=edge.points.front())
+                        painter.drawText(project(edge.points.back()) + QPointF(8.0, -6.0), QStringLiteral("T"));
                 }
             }
         }
@@ -4614,12 +4619,14 @@ if (impl_->show_origins) {
                     }
                     if (axis.reference.semantic_key.starts_with("centerline:from:centroid:")) {
                         // Profile axes extend 1 mm beyond each actual endpoint.
-                        const double contact = first + 1.0;
-                        const auto anchor = project({axis.point.x + axis.direction.x * contact,
-                            axis.point.y + axis.direction.y * contact,
-                            axis.point.z + axis.direction.z * contact});
                         painter.setPen(QPen(presentation_color));
-                        painter.drawText(anchor + QPointF(8.0, -6.0), QStringLiteral("T"));
+                        for(const double contact:{first + kernel::axis_display_overhang,
+                                second - kernel::axis_display_overhang}) {
+                            const auto anchor = project({axis.point.x + axis.direction.x * contact,
+                                axis.point.y + axis.direction.y * contact,
+                                axis.point.z + axis.direction.z * contact});
+                            painter.drawText(anchor + QPointF(8.0, -6.0), QStringLiteral("T"));
+                        }
                     }
                     if (origin) {
                         const QLineF line(start, end);

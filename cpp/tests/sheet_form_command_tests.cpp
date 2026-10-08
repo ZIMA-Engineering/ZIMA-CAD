@@ -4,6 +4,8 @@
 #include <zima/workspace/flat_operations.hpp>
 #include <zima/workspace/sheet_state_operations.hpp>
 #include <zima/workspace/part_transactions.hpp>
+#include <zima/workspace/derived_copy_operations.hpp>
+#include <zima/command_host/host.hpp>
 #include <zima/workspace/drawing_sources.hpp>
 #include <zima/drawing/model_annotations.hpp>
 #include <zima/kernel/sheet_material.hpp>
@@ -43,6 +45,40 @@ int main(){try {
     const auto saved=[&]()->const document::PartDocument&{return live.open_part(part.document_id)->session.document();};
     const auto boundaries=[&]()->const std::vector<kernel::BodyResult>&{return live.open_part(part.document_id)->session.calculated_boundaries();};
     check(boundaries().back().calculation_errors.empty(),"FORM command failed");
+    {
+        auto larger=saved();
+        auto stock_sketch=std::ranges::find(larger.sketches,outline.id,&sketcher::Sketch::id);
+        for(auto& point:stock_sketch->points){point.x*=3;point.y*=3;}
+        auto calculated=workspace::calculate_part_with_resolved_references(kernel,larger);
+        workspace::Workspace copies;copies.add_part(larger,calculated);copies.activate(part.document_id);
+        check(std::ranges::any_of(workspace::derived_copy_sources(copies,part.document_id).items,
+            [&](const auto& item){return item.id==feature.id;}),"FORM is not offered as a native Pattern/Mirror source");
+        auto copy_directory=std::filesystem::temp_directory_path();
+        command_host::Host host(copies,kernel,copy_directory);
+        const auto copy=[&](const char* command,commands::Json arguments) {
+            const auto answer=host.execute({{"command",command},{"arguments",std::move(arguments)}});
+            if(!answer.ok)throw std::runtime_error(answer.code+": "+answer.message);
+            return answer.data.at("object").template get<std::string>();
+        };
+        const auto pattern=copy("pattern.create",{{"source",feature.id},{"linear",commands::Json::array({{{"axis","y"},{"count",2},{"spacing_mm",160}}})}});
+        const auto mirror=copy("mirror.create",{{"source",pattern},{"placement",{{"x",75}}},{"local_plane","yz"}});
+        const auto* current=copies.open_part(part.document_id);
+        check(current->session.calculated_boundaries().back().calculation_errors.empty(),"Native FORM copy command calculation failed");
+        const auto before=current->session.document().serialized(current->session.calculated_boundaries());
+        const auto packets=workspace::drawing_annotation_sources(&copies,part.document_id,{});
+        check(packets.size()==1&&packets[0].symbols.size()==3,"Drawing adapter lost copied FORM symbols");
+        std::set<std::string> symbol_ids;for(const auto& item:packets[0].symbols)symbol_ids.insert(item.symbol.id);
+        check(symbol_ids.size()==3,"Copied FORM symbols reused one manufacturing identity");
+        check(workspace::step_part_document_history(copies,part.document_id,false)&&
+            !copies.open_part(part.document_id)->session.document().find_container(mirror),"FORM Mirror Undo failed");
+        check(workspace::step_part_document_history(copies,part.document_id,true),"FORM Mirror Redo failed");
+        current=copies.open_part(part.document_id);
+        check(current->session.document().serialized(current->session.calculated_boundaries())==before,"FORM copy Redo changed persisted geometry or references");
+        std::vector<kernel::BodyResult> reopened;
+        const auto copy_document=document::PartDocument::from_serialized(before,&reopened);
+        check(copy_document.find_container(mirror)->derived_copy.source_id==pattern&&
+            reopened.back().calculation_errors.empty(),"FORM copy native reopen lost its source chain");
+    }
     auto bad=saved().find_container(feature.id)->sheet_form;
     static_cast<void>(document::stored_sheet_form_definition(bad));
     bad.cut_sketch="missing";bool rejected=false;

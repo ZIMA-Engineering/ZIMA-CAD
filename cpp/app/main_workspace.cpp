@@ -4479,9 +4479,11 @@ int verify_application_tools_ui(QApplication& application,const std::filesystem:
         auto* tabs=window.findChild<QTabBar*>("documentTabs");auto* menu=window.findChild<QMenu*>("insertMenu");
         auto* modeling=window.findChild<QAction*>("applicationModeAction0");auto* sheet=window.findChild<QAction*>("applicationModeAction2");
         auto* extrusion=window.findChild<QAction*>("extrusionAction");
+        auto* modeling_feature=window.findChild<QAction*>("featurePrototypeAction");
         const auto selector=[&]{return window.findChild<QComboBox*>("applicationModeSelector");};
         check(tabs&&menu&&modeling&&sheet&&extrusion&&selector()&&selector()->count()==2,"Application controls missing");
-        check(menu->actions().contains(extrusion)&&modeling->isChecked(),"Modeling Insert commands missing");
+        modeling->trigger();flush();
+        check(modeling_feature&&menu->actions().contains(modeling_feature)&&modeling->isChecked(),"Modeling Insert commands missing");
         auto* combo=selector();combo->setCurrentIndex(combo->findData(2));combo->activated(combo->currentIndex());flush();
         check(sheet->isChecked()&&selector()->currentData().toInt()==2&&!menu->actions().contains(extrusion),"Dropdown did not switch application and Insert commands");
         auto* sheet_properties=window.findChild<QAction*>("sheetMetalPropertiesAction");auto* toolbar=window.findChild<QToolBar*>("toolsToolbar");
@@ -4510,7 +4512,7 @@ int verify_application_tools_ui(QApplication& application,const std::filesystem:
         QApplication::sendEvent(model_view,&middle);flush();check(!settings_dialog(),"View middle-button double-click did not confirm sheet settings");
         check(selector()->isEnabled(),"Sheet settings left application selector disabled");
         combo=selector();combo->setCurrentIndex(combo->findData(0));combo->activated(combo->currentIndex());flush();
-        check(modeling->isChecked()&&menu->actions().contains(extrusion),"Cannot return to Modeling after confirming sheet settings");
+        check(modeling->isChecked()&&menu->actions().contains(modeling_feature),"Cannot return to Modeling after confirming sheet settings");
         sheet->trigger();flush();
         window.findChild<QAction*>("saveDocumentAction")->trigger();flush();
         check(document::sheet_metal_defaults(document::PartDocument::load(path))==document::SheetMetalDefaults{2.5,.42},"Sheet properties did not persist to the native Part");
@@ -4525,7 +4527,7 @@ int verify_application_tools_ui(QApplication& application,const std::filesystem:
         check(window.open_document_path(QString::fromStdString(other_path.string())),"Other Part failed to open");flush();
         check(modeling->isChecked()&&selector()->currentData().toInt()==0,"New Part inherited another Part application");
         tabs->setCurrentIndex(0);flush();check(sheet->isChecked(),"Tab switch lost per-document application");
-        modeling->trigger();flush();check(selector()->currentData().toInt()==0&&menu->actions().contains(extrusion),"Applications menu failed to sync selector");
+        modeling->trigger();flush();check(selector()->currentData().toInt()==0&&menu->actions().contains(modeling_feature),"Applications menu failed to sync selector");
         window.findChild<QAction*>("saveDocumentAction")->trigger();flush();
         const auto marker=[&]{return tabs->tabButton(tabs->currentIndex(),QTabBar::RightSide)->findChild<QLabel*>("documentTabDirtyMarker");};
         check(marker()&&marker()->text().isEmpty(),"Clean tab displays dirty marker");const auto clean_width=tabs->tabRect(tabs->currentIndex()).width();
@@ -4534,14 +4536,14 @@ int verify_application_tools_ui(QApplication& application,const std::filesystem:
         check(row,"Application fixture feature row missing");window.show_tree_item_properties(row);flush();
         app::PrimitivePropertiesDialog* dialog{};for(auto* d:window.findChildren<QDialog*>())if(auto* p=dynamic_cast<app::PrimitivePropertiesDialog*>(d);p&&p->isVisible())dialog=p;
         check(dialog,"Open Surface properties missing");auto* status=dialog->findChild<QLineEdit*>("profileStatus");
-        check(status&&status->text()=="Otevřený","Open Surface status is not Open");
+        check(status&&status->text()==QObject::tr("Otevřený"),"Open Surface status is not Open");
         auto* own_sketch=dialog->findChild<QPushButton*>("primitiveOwnSketchButton");check(own_sketch,"Owned Sketch action missing");own_sketch->click();flush();
         check(menu->actions().contains(window.findChild<QAction*>("sketchSegmentAction"))&&!menu->actions().contains(extrusion),"Sketcher Insert contains wrong commands");
         window.findChild<QAction*>("finishSketchAction")->trigger();flush();
         dialog=nullptr;for(auto* d:window.findChildren<QDialog*>())if(auto* p=dynamic_cast<app::PrimitivePropertiesDialog*>(d);p&&p->isVisible())dialog=p;
-        check(dialog&&dialog->findChild<QLineEdit*>("profileStatus")->text()=="Otevřený","Returning from Sketcher lost profile status");
+        check(dialog&&dialog->findChild<QLineEdit*>("profileStatus")->text()==QObject::tr("Otevřený"),"Returning from Sketcher lost profile status");
         auto* types=dialog->findChild<QComboBox*>("profileResultType");types->setCurrentIndex(types->findData("thin"));flush();
-        check(dialog->findChild<QLineEdit*>("profileStatus")->text()=="Otevřený","Result type changed actual profile status");
+        check(dialog->findChild<QLineEdit*>("profileStatus")->text()==QObject::tr("Otevřený"),"Result type changed actual profile status");
         dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
         check(marker()->text()=="*","Editing did not mark tab dirty");
         check(tabs->tabRect(tabs->currentIndex()).width()==clean_width,"Dirty marker resized tab");
@@ -5221,12 +5223,37 @@ int verify_application_tools_ui(QApplication& application,const std::filesystem:
         const auto attached=flat->pending_value();
         check(attached.second.references.size()==3&&attached.first.external_references.size()==2,
             "Sheet Profile edge did not auto-fill Flat references and external endpoints");
-        check(flat->mutate_sketch(attached.first.id,[](auto& s) {
-            const auto a=s.external_references[0].cached_points.front(),b=s.external_references[1].cached_points.front();
-            static_cast<void>(s.add_rectangle(std::min(a[0],b[0]),0,std::max(a[0],b[0]),12));
-        }),"Cannot draw attached Flat rectangle");
         flat->findChild<QPushButton*>("sketchOpenButton")->click();flush();
         check(!flat->isVisible(),"Attached Flat did not enter Sketcher");
+        {
+            QEventLoop animation;QTimer::singleShot(950,&animation,&QEventLoop::quit);animation.exec();
+            auto camera=flat_view->camera_state();camera[7]=100;flat_view->set_camera_state(camera);flush();
+            const auto local=[&](QPointF p) {
+                const auto ray=flat_view->ray_at(p);check(ray.has_value(),"Attached Flat ray missing");
+                const auto hit=attached.first.intersect_ray(ray->first,ray->second);
+                check(hit.has_value(),"Attached Flat camera not facing its Sketch");return *hit;
+            };
+            const auto a=local({0,0}),b=local({100,0}),c=local({0,100});
+            const auto ux=(b[0]-a[0])/100,uy=(b[1]-a[1])/100,vx=(c[0]-a[0])/100,vy=(c[1]-a[1])/100;
+            const auto determinant=ux*vy-uy*vx;
+            const auto screen=[&](std::array<double,2> p) {return QPointF(((p[0]-a[0])*vy-(p[1]-a[1])*vx)/determinant,
+                (ux*(p[1]-a[1])-uy*(p[0]-a[0]))/determinant);};
+            const auto mouse=[&](std::array<double,2> p,QEvent::Type type,Qt::MouseButton button) {
+                const auto at=screen(p);QMouseEvent event(type,at,QPointF(flat_view->mapToGlobal(at.toPoint())),button,
+                    type==QEvent::MouseButtonPress?button:Qt::NoButton,Qt::NoModifier);QApplication::sendEvent(flat_view,&event);flush();
+            };
+            auto endpoints=attached.first.external_references;
+            std::ranges::sort(endpoints,{},[](const auto& r){return r.cached_points.front()[0];});
+            const auto first=endpoints.front().cached_points.front(),last=endpoints.back().cached_points.front();
+            window.findChild<QAction*>("sketchRectangleAction")->trigger();flush();
+            mouse(first,QEvent::MouseMove,Qt::NoButton);mouse(first,QEvent::MouseButtonPress,Qt::LeftButton);mouse(first,QEvent::MouseButtonRelease,Qt::LeftButton);
+            const std::array opposite{last[0]+.1,first[1]+12.};mouse(opposite,QEvent::MouseMove,Qt::NoButton);
+            const auto contact=attached.first.world_point(last[0],last[1]);
+            check(std::ranges::any_of(flat_view->transient_labels(),[&](const auto& label){return label.second=="C"&&
+                std::hypot(label.first.x-contact.x,label.first.y-contact.y,label.first.z-contact.z)<1e-7;}),
+                "Attached Flat lower rectangle corner did not offer C at the second Bend endpoint");
+            mouse(opposite,QEvent::MouseButtonPress,Qt::LeftButton);mouse(opposite,QEvent::MouseButtonRelease,Qt::LeftButton);
+        }
         for(const auto& ref:attached.first.external_references) {
             check(app::workspace_detail::sketch_external_reference_id_from_key("external_point:"+ref.id)==ref.id,
                 "External Flat endpoint key was truncated during snapping");
@@ -5235,6 +5262,13 @@ int verify_application_tools_ui(QApplication& application,const std::filesystem:
         }
         window.findChild<QAction*>("finishSketchAction")->trigger();flush();
         check(flat->isVisible()&&flat->pending_value().first.external_references.size()==2,"Attached Flat Sketcher return lost endpoints");
+        {
+            const auto profile=flat->pending_value().first;
+            check(profile.segments.size()==4,"Attached Flat mouse rectangle missing");
+            for(const auto& source:profile.external_references)check(std::ranges::any_of(profile.constraints,[&](const auto& constraint) {
+                return constraint.kind==sketcher::ConstraintKind::PointReference&&constraint.second_point_id==source.id;
+            }),"Attached Flat rectangle did not retain both Bend endpoint contacts");
+        }
         check(window.grab().save("build/flat-bend-attachment.png"),"Attached Flat screenshot failed");
         flat->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
         check(!flat_dialog(),"Attached Flat did not commit");
@@ -5668,7 +5702,8 @@ int verify_rectangle_external_contact_ui(QApplication& application,const std::fi
     const auto check=[](bool ok,const char* message){if(!ok)throw std::runtime_error(message);};
     const auto flush=[&]{application.processEvents();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);application.processEvents();};
     try {
-        for(bool axis_symmetry:{false,true})for(bool vertical:{false,true})for(bool midpoint:{false,true}) {
+        for(bool corner_contact:{false,true})for(bool axis_symmetry:{false,true})for(bool vertical:{false,true})for(bool midpoint:{false,true}) {
+            if(corner_contact&&axis_symmetry)continue;
             auto part=document::PartDocument::create_default();
             auto feature=document::PartDocument::create_sketch_container();
             auto sketch=sketcher::Sketch::create_default();sketch.owner_container_id=feature.id;
@@ -5703,9 +5738,16 @@ int verify_rectangle_external_contact_ui(QApplication& application,const std::fi
             const auto click=[&](std::array<double,2> p){const auto at=screen(p);mouse(at,QEvent::MouseMove,Qt::NoButton);mouse(at,QEvent::MouseButtonPress,Qt::LeftButton);mouse(at,QEvent::MouseButtonRelease,Qt::LeftButton);};
             const double sign=midpoint?1.:-1.;
             click(axis_symmetry?(vertical?std::array{-4*sign,-8.}:std::array{-8.,-4*sign}):std::array{0.,0.});
-            const double length=midpoint?10.1:18.;
-            const auto opposite=axis_symmetry?(vertical?std::array{4.1*sign,13.}:std::array{13.,4.1*sign}):(vertical?std::array{13.,length}:std::array{length,13.});
+            const double length=corner_contact?5.1:midpoint?10.1:18.;
+            const auto opposite=axis_symmetry?(vertical?std::array{4.1*sign,13.}:std::array{13.,4.1*sign}):(vertical?std::array{corner_contact?13.*sign:13.,length}:std::array{length,corner_contact?13.*sign:13.});
             mouse(screen(opposite),QEvent::MouseMove,Qt::NoButton);
+            if(corner_contact) {
+                const auto anchored=vertical?std::array{0.,5.}:std::array{5.,0.};
+                check(std::ranges::any_of(view->transient_labels(),[&](const auto& label){
+                    return label.second=="C"&&std::hypot(label.first.x-sketch.world_point(anchored[0],anchored[1]).x,
+                        label.first.y-sketch.world_point(anchored[0],anchored[1]).y,label.first.z-sketch.world_point(anchored[0],anchored[1]).z)<1e-7;}),
+                    "Rectangle intermediate corner did not offer C at the external endpoint");
+            }
             view->grab().save(QString("build/rectangle-external-%1-%2.png").arg(vertical?"y":"x",midpoint?"M":"C"));
             click(opposite);
             window.findChild<QAction*>("finishSketchAction")->trigger();flush();
@@ -5732,9 +5774,88 @@ int verify_rectangle_external_contact_ui(QApplication& application,const std::fi
             }
             const auto binding=std::ranges::find_if(result.constraints,[&](const auto& value){return value.kind==sketcher::ConstraintKind::PointReference && value.second_point_id==reference.id;});
             check(binding!=result.constraints.end(),"Rectangle lost the external source point");
+            if(corner_contact) {
+                const auto* anchored=result.find_point(binding->first_point_id);
+                check(anchored&&std::hypot(anchored->x-reference.cached_points[0][0],anchored->y-reference.cached_points[0][1])<1e-8,
+                    "Rectangle intermediate corner did not retain exact endpoint coincidence");
+                auto edited=result;const auto serialized_source=edited.external_references;
+                const auto other=std::ranges::find_if(edited.points,[&](const auto& p){return vertical?std::abs(p.x)>1:std::abs(p.y)>1;});
+                check(other!=edited.points.end(),"Rectangle free height point missing");const auto movable=other->id;
+                for(const double shift:{2.,-3.,1.}) {
+                    const auto* p=edited.find_point(movable);const auto before=std::array{p->x,p->y};
+                    check(edited.move_point(movable,vertical?p->x+shift:p->x,vertical?p->y:p->y+shift),
+                        "Rectangle free height drag was rejected");
+                    const auto* moved=edited.find_point(movable);check(moved&&std::hypot(moved->x-before[0],moved->y-before[1])>1e-4,
+                        "Rectangle endpoint contact prevented its free height drag");
+                    const auto* bound=edited.find_point(binding->first_point_id);
+                    check(bound&&std::hypot(bound->x-reference.cached_points[0][0],bound->y-reference.cached_points[0][1])<1e-8&&
+                        edited.external_references==serialized_source,"Rectangle drag moved its read-only external endpoint");
+                }
+                // Verify editing the free side, including signed point-pair
+                // dimensions in both selection orders. The external endpoint
+                // and the rectangular equations must survive every action.
+                const auto equations=[&](const auto& candidate) {
+                    const auto* fixed=candidate.find_point(binding->first_point_id);
+                    check(fixed&&std::hypot(fixed->x-reference.cached_points[0][0],fixed->y-reference.cached_points[0][1])<1e-7&&
+                        candidate.external_references==result.external_references,"Dimension edit moved the external endpoint");
+                    for(const auto& side:candidate.segments) {
+                        const auto* a=candidate.find_point(side.first_point_id);const auto* b=candidate.find_point(side.second_point_id);
+                        check(a&&b&&(std::abs(a->x-b->x)<1e-7||std::abs(a->y-b->y)<1e-7),"Dimension edit broke rectangle orthogonality");
+                    }
+                    for(const auto& dimension:candidate.dimensions) {
+                        const auto* a=candidate.find_point(dimension.first_point_id);const auto* b=candidate.find_point(dimension.second_point_id);
+                        check(a&&b,"Rectangle dimension lost its exact endpoint identities");
+                        const auto dx=b->x-a->x,dy=b->y-a->y;
+                        const auto measured=dimension.kind==sketcher::DimensionKind::DistanceX?dx:
+                            dimension.kind==sketcher::DimensionKind::DistanceY?dy:std::hypot(dx,dy);
+                        check(std::abs(measured-dimension.value)<1e-7,"Rectangle dimension does not match its independent geometric equation");
+                    }
+                };
+                const auto free_side=std::ranges::find_if(result.segments,[&](const auto& side) {
+                    const auto* a=result.find_point(side.first_point_id);const auto* b=result.find_point(side.second_point_id);
+                    return vertical?std::abs(a->x-b->x)>1:std::abs(a->y-b->y)>1;
+                });
+                check(free_side!=result.segments.end(),"Rectangle free side missing");
+                for(bool pair:{false,true})for(bool reverse:{false,true})for(bool directional:{false,true})
+                    for(bool driving:{false,true})for(bool locked:{false,true}) {
+                        auto candidate=result;
+                        const auto kind=directional?(vertical?sketcher::DimensionKind::DistanceX:sketcher::DimensionKind::DistanceY):sketcher::DimensionKind::Distance;
+                        auto dimension=pair?candidate.create_point_dimension(reverse?free_side->second_point_id:free_side->first_point_id,
+                            reverse?free_side->first_point_id:free_side->second_point_id,kind):candidate.create_segment_dimension(free_side->id,kind);
+                        dimension.driving=driving;dimension.locked=locked;
+                        if(!driving&&locked) {
+                            const auto before=candidate.serialized();bool rejected=false;
+                            try{candidate.apply_dimension(dimension);}catch(const std::runtime_error& error){
+                                if(std::string_view(error.what())!="A reference Sketch dimension cannot lock its measured value")throw;
+                                rejected=true;
+                            }
+                            check(rejected&&candidate.serialized()==before,"Locked reference dimension was accepted or changed its Sketch");
+                            equations(candidate);continue;
+                        }
+                        candidate.apply_dimension(dimension);equations(candidate);
+                        if(driving)for(double factor:{1.2,.8,1.1}) {
+                            check(candidate.set_dimension_value(dimension.id,dimension.value*factor),"Rectangle free-side dimension edit failed");equations(candidate);
+                        }
+                        const auto* p=candidate.find_point(movable);const auto before=candidate.serialized();
+                        const auto initial=std::array{p->x,p->y};
+                        const bool moved=candidate.move_point(movable,vertical?p->x+2:p->x,vertical?p->y:p->y+2);
+                        if(driving&&locked)check(!moved&&candidate.serialized()==before,"Locked rectangle dimension escaped during dragging");
+                        else {
+                            const auto* after=candidate.find_point(movable);
+                            check(moved&&std::hypot(after->x-initial[0],after->y-initial[1])>1e-4,"Editable rectangle free side did not move");
+                        }
+                        equations(candidate);
+                        auto reopened=sketcher::Sketch::from_serialized(candidate.serialized());equations(reopened);
+                    }
+                check(window.execute_console_command("undo").ok&&window.execute_console_command("save").ok,"Rectangle corner contact Undo failed");
+                check(document::PartDocument::load(path).sketches.front().segments.empty(),"Rectangle corner contact Undo retained geometry");
+                check(window.execute_console_command("redo").ok&&window.execute_console_command("save").ok,"Rectangle corner contact Redo failed");
+                check(document::PartDocument::load(path).sketches.front().serialized()==result.serialized(),"Rectangle corner contact Redo changed its binding");
+                continue;
+            }
             check(std::ranges::any_of(result.constraints,[&](const auto& value){return value.first_point_id==binding->first_point_id && value.kind==(midpoint?sketcher::ConstraintKind::Midpoint:sketcher::ConstraintKind::PointOnLine);}),"Offered rectangle C/M was not committed");
         }
-        std::cout<<"Eight rectangle external C/M and axis S variants passed through preview, mouse confirmation and save/reopen\n";return 0;
+        std::cout<<"Twelve rectangle external corner C, edge C/M and axis S variants passed through preview, mouse confirmation, dragging and save/reopen\n";return 0;
     }catch(const std::exception& error){std::cerr<<error.what()<<'\n';return 1;}
 }
 

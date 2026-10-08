@@ -2,6 +2,29 @@
 // this implementation, and no OCCT enumeration defines a persistent identity.
 namespace sheet_form_geometry {
 struct Operands {PrimitiveData cut,flat,formed;};
+struct Instance {SheetMaterialDefinition material;Operands operands;};
+
+PrimitiveData copy(const PrimitiveData& source,const gp_Trsf& transform,const HistoryOperation& operation,
+        const std::string& region,unsigned index) {
+    if(source.shape.IsNull())return {};
+    BRepBuilderAPI_Transform moved(source.shape,transform,true);moved.Build();
+    if(!moved.IsDone())throw std::runtime_error("Feature copy transformation failed.");
+    PrimitiveData result;result.shape=moved.Shape();
+    const auto& request=*operation.feature_copy;
+    const bool pattern=request.combination==BodyCombination::Pattern;
+    const auto reference=[&](auto ref) {
+        ref.semantic_key=(pattern?"pattern:"+pattern_copy_id(validated_pattern(request.pattern),index)+":" : std::string{})+
+            mirror_source_key(ref.owner_id,ref.semantic_key);
+        ref.owner_id=operation.owner_id;ref.instance_path.clear();return ref;
+    };
+    for(const auto& face:source.faces) {
+        auto ref=reference(face.reference);ref.surface.reset();ref.display_owner_id.clear();ref.sheet_owner=region;
+        result.faces.push_back({moved.ModifiedShape(face.shape),std::move(ref)});
+    }
+    for(const auto& edge:source.edges)result.edges.push_back({moved.ModifiedShape(edge.shape),reference(edge.reference)});
+    for(const auto& vertex:source.vertices)result.vertices.push_back({moved.ModifiedShape(vertex.shape),reference(vertex.reference)});
+    return result;
+}
 
 PrimitiveData read_surface(const BodyResult& snapshot) {
     if(snapshot.kernel_shape.empty()||snapshot.kernel_faces.empty()||snapshot.volume!=0.||

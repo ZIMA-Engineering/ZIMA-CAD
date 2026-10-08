@@ -366,6 +366,24 @@ kernel::SheetFormRequest sheet_form_request(const SheetFormDefinition& definitio
         kernel::sheet_material::mul(y,v.y),kernel::sheet_material::mul(z,v.z)));};
     result.source_origin=kernel::sheet_material::add(rotate(cut->resolved_origin),{placement.x,placement.y,placement.z});
     result.source_normal=rotate(cut->resolved_normal);result.source_x=rotate(cut->resolved_x_axis);
+    const auto symbol=std::ranges::find(part.sketches,definition.symbol_sketch,&sketcher::Sketch::id);
+    if(symbol==part.sketches.end())throw std::invalid_argument("Invalid FORM definition.");
+    auto symbol_mesh=part.place_body_mesh(symbol->evaluated_profile_sketch().viewer_mesh(),definition.bodies[3]);
+    const auto source_z=kernel::sheet_material::cross(result.source_x,result.source_normal);
+    for(auto edge:symbol_mesh.edges) {
+        if(edge.construction)continue;
+        const auto local_point=[&](kernel::Vec3 point) {
+            const auto delta=kernel::sheet_material::sub(point,result.source_origin);
+            return kernel::Vec3{kernel::sheet_material::dot(delta,result.source_x),
+                kernel::sheet_material::dot(delta,result.source_normal),kernel::sheet_material::dot(delta,source_z)};
+        };
+        for(auto& point:edge.points)point=local_point(point);
+        if(edge.exact_spline)for(auto& point:edge.exact_spline->poles)point=local_point(point);
+        edge.reference.semantic_key="form:symbol:from:"+std::to_string(result.definition_id.size())+":"+
+            result.definition_id+":"+std::to_string(edge.reference.owner_id.size())+":"+
+            edge.reference.owner_id+":"+edge.reference.semantic_key;
+        edge.overlay=true;result.symbol_edges.push_back(std::move(edge));
+    }
     if(definition.calculated&&!definition.calculated->empty()) {
         const auto& histories=definition.calculated->back().body_boundaries;
         if(const auto body=histories.find(result.shape_body);body!=histories.end()&&!body->second.empty()) {

@@ -1203,6 +1203,9 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
             if(resolved_preview.feature_kind==zima::document::FeatureKind::SheetForm) {
                 primitive_origin_preview_mesh_->points.clear();
                 primitive_origin_preview_mesh_->original_references.points.clear();
+                for(auto* axes:{&primitive_origin_preview_mesh_->axes,
+                               &primitive_origin_preview_mesh_->original_references.axes})
+                    for(auto& axis:*axes)axis.display_length=10.;
             }
             if(zima::document::has_origin_display_controls(resolved_preview.feature_kind))
                 primitive_origin_preview_mesh_->points.push_back(zima::document::container_origin_marker(resolved_preview,true));

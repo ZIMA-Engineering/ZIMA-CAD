@@ -248,6 +248,7 @@ public:
         const kernel::Vec3&,const kernel::Vec3&)> provider);
     void set_transient_labels(std::vector<std::pair<zima::kernel::Vec3,
         std::string>> labels);
+    [[nodiscard]] const std::vector<std::pair<kernel::Vec3,std::string>>& transient_labels() const;
     // Sketch placement cursor: white in free space, orange when a persisted
     // candidate or inference will create a relation on confirmation.
     void set_sketch_cursor(std::optional<zima::kernel::Vec3> point,

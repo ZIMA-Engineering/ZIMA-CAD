@@ -7,6 +7,11 @@
 #include <zima/document/viewer_packet_json.hpp>
 #include <zima/kernel/stable_id.hpp>
 #include <iostream>
+#include <BRepTools.hxx>
+#include <BRep_Builder.hxx>
+#include <BRepGProp.hxx>
+#include <GProp_GProps.hxx>
+#include <sstream>
 using namespace zima;
 using commands::Json;
 namespace {
@@ -35,6 +40,52 @@ void geometry(const kernel::OcctKernel& kernel) {
     zima::test::ProfilePrism cutter{2,8,6};cutter.translation={8,0,0};
     const auto cut=kernel.evaluate_history({{"block",box},{"cut",cutter,kernel::BooleanOperation::Subtract}}).back();
     near(cut.volume,384,"cut volume");near(cut.volume_integrals->centroid.x,4,"cut centroid");near(cut.volume_integrals->inertia[8],384*(64+64)/12.,"cut inertia");
+}
+void sheet_integrals(const kernel::OcctKernel& kernel) {
+    auto doc=document::PartDocument::create_default();
+    auto bend=document::PartDocument::create_sketch_container();bend.feature_kind=document::FeatureKind::Bend;
+    auto sketch=sketcher::Sketch::create_default();sketch.owner_container_id=bend.id;
+    static_cast<void>(sketch.add_segment(0,0,40,0));bend.bend.sketch_id=sketch.id;
+    bend.bend.thickness_override=true;bend.bend.thickness=2;
+    bend.bend.radius_follows_thickness=false;bend.bend.radius=8;
+    for(double angle:{30.,90.,180.}) {
+        bend.bend.angle_degrees=angle;doc.history={bend};doc.sketches={sketch};doc.resolve_constructions();
+        auto operations=doc.kernel_operations();
+        operations.push_back({"unfold-inertia",kernel::SheetStateRequest{true,true,{}}});
+        operations.push_back({"restore-inertia",kernel::SheetStateRequest{false,true,{}}});
+        const auto results=kernel.evaluate_history(operations);
+        for(const auto& result:results) {
+            check(result.calculation_errors.empty()&&result.volume_integrals.has_value(),"Sheet inertia unavailable");
+            TopoDS_Shape shape;BRep_Builder builder;std::istringstream input(result.kernel_shape);
+            // Only the final boundary stores BRep; calculate each input prefix
+            // independently below to compare the two integration algorithms.
+            const auto index=&result-results.data();
+            auto prefix=operations;prefix.resize(index+1);const auto actual=kernel.evaluate_history(prefix).back();
+            std::istringstream native(actual.kernel_shape);BRepTools::Read(shape,native,builder);
+            GProp_GProps expected;const auto error=BRepGProp::VolumePropertiesGK(shape,expected,1e-12,false,true,true,true);
+            check(std::isfinite(error)&&error>=0,"Independent sheet inertia integration failed");
+            const auto center=expected.CentreOfMass();const auto tensor=expected.MatrixOfInertia();
+            near(result.volume,std::abs(expected.Mass()),"Sheet volume");
+            near(result.volume_integrals->centroid.x,center.X(),"Sheet centroid X");
+            near(result.volume_integrals->centroid.y,center.Y(),"Sheet centroid Y");
+            near(result.volume_integrals->centroid.z,center.Z(),"Sheet centroid Z");
+            for(int i=0;i<3;++i)for(int j=0;j<3;++j)
+                near(result.volume_integrals->inertia[3*i+j],tensor.Value(i+1,j+1),"Sheet central tensor");
+            const auto saved=document::load_body_result(document::serialize_body_result(result));
+            check(saved.volume_integrals==result.volume_integrals,"Sheet native cache lost inertia");
+        }
+    }
+    // A polynomial extrusion surface uses the same adaptive path as a rational
+    // sheet face, while its exact box tensor supplies an analytical oracle.
+    using E=kernel::ExtrusionRequest;auto request=zima::test::rectangular_request(10,8,6);
+    E::BSplineCurve bottom;bottom.start={0,0,0};bottom.end={10,0,0};bottom.control_points={{0,0,0},{5,0,0},{10,0,0}};bottom.degree=2;
+    request.outer_profile=E::CurvedProfile{{bottom,E::LineCurve{{10,0,0},{10,8,0}},E::LineCurve{{10,8,0},{0,8,0}},E::LineCurve{{0,8,0},{0,0,0}}}};
+    const auto spline=kernel.evaluate_history({{"spline-box",request}}).back();
+    check(spline.volume_integrals.has_value(),"Adaptive box inertia missing");
+    near(spline.volume_integrals->centroid.x,5,"Adaptive box centroid");
+    near(spline.volume_integrals->inertia[0],4000,"Adaptive box Ixx");
+    near(spline.volume_integrals->inertia[4],5440,"Adaptive box Iyy");
+    near(spline.volume_integrals->inertia[8],6560,"Adaptive box Izz");
 }
 void workflow(const kernel::OcctKernel& kernel,std::filesystem::path dir) {
     workspace::Workspace live;command_host::Options options;
@@ -254,7 +305,7 @@ void surfaces(const kernel::OcctKernel& kernel) {
 }
 }
 int main(){try {
-    kernel::OcctKernel kernel;geometry(kernel);placed_bodies(kernel);surfaces(kernel);
+    kernel::OcctKernel kernel;geometry(kernel);sheet_integrals(kernel);placed_bodies(kernel);surfaces(kernel);
     const auto parent=std::filesystem::canonical(std::filesystem::temp_directory_path());const auto dir=parent/("zima-body-properties-"+kernel::make_stable_id());
     std::filesystem::create_directory(dir);workflow(kernel,dir);centroid_placement(kernel,dir);
     check(std::filesystem::canonical(dir).parent_path()==parent,"Invalid test cleanup path");std::filesystem::remove_all(dir);

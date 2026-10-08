@@ -1369,6 +1369,13 @@ void AssemblyWorkspaceWindow::create_layout() {
                 relation_support_ids.insert(equal->second);
             }
         }
+        if(cursor&&sketch_rectangle_active_&&pending_rectangle_corner_&&pending_rectangle_axis_id_.empty()) {
+            if(const auto snap=inferred_sketch_rectangle_midpoint_snap(*cursor);
+                snap&&std::ranges::any_of(snap->constraints,[](const auto& c){return c.corner_contact;})) {
+                *cursor=snap->opposite;label.clear();related=true;
+                for(const auto& c:snap->constraints)if(c.corner_contact)relation_support_ids.insert(c.axis_id);
+            }
+        }
         if(cursor&&sketch_segment_active_&&pending_segment_start_&&
            !(sketch_polyline_active_&&sketch_polyline_arc_mode_)) {
             const auto& preview=viewer_->transient_edges();

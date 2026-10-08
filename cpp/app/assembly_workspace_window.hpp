@@ -1006,6 +1006,7 @@ private:
             std::size_t side_index{};
             bool external_point{};
             bool midpoint{true};
+            bool corner_contact{};
         };
         std::array<double, 2> opposite;
         std::vector<Constraint> constraints;

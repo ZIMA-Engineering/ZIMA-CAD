@@ -44,6 +44,23 @@ void valid(const kernel::BodyResult& result) {
 }
 }
 int main(int argc,char** argv){try {
+    if(argc==3&&std::string_view(argv[1])=="--verify-actual-part") {
+        std::vector<kernel::BodyResult> saved;auto actual=document::PartDocument::load(argv[2],&saved);
+        for(const auto& feature:actual.history)std::cout<<"Feature "<<feature.id<<" "<<feature.name<<" kind="<<int(feature.feature_kind)<<'\n';
+        kernel::OcctKernel actual_kernel;
+        const auto calculated=workspace::calculate_part_with_resolved_references(actual_kernel,actual,&saved);
+        valid(calculated.back());
+        const auto& last=actual.history.back();
+        if(last.extrusion.sheet_cut)check(std::ranges::any_of(calculated.back().sheet_cuts,[&](const auto& cut){return cut.cut_owner==last.id;}),
+            "Actual Sheet Cut lost its native material-space ancestry");
+        std::vector<kernel::BodyResult> reopened;
+        const auto roundtrip=document::PartDocument::from_serialized(actual.serialized(calculated),&reopened);
+        check(roundtrip.history==actual.history&&roundtrip.sketches.size()==actual.sketches.size(),"Actual Part roundtrip changed authored feature definitions");
+        valid(reopened.back());near(reopened.back().volume,calculated.back().volume);
+        check(document::serialize_body_result(reopened.back()).at("sheet_cuts")==document::serialize_body_result(calculated.back()).at("sheet_cuts"),
+            "Actual Part roundtrip changed native cut region identities");
+        std::cout<<"Actual Part calculated without errors and passed native roundtrip, volume="<<calculated.back().volume<<'\n';return 0;
+    }
     if(argc==3&&std::string_view(argv[1])=="--prepare-definition-xy") {
         const auto path=std::filesystem::path(argv[2]);
         const auto before=document::read_sheet_form_definition(path);auto part=before.part;
@@ -257,6 +274,17 @@ int main(int argc,char** argv){try {
         "Changing FORM geometry reused a stale calculated shell");
     std::cout<<"FORM definition preparation="<<elapsed(start)<<" s"<<std::endl;
     kernel::HistoryOperation form{"inserted-form",request};form.body=original.front().body;
+    {
+        auto changed_symbol=source;
+        auto symbol=std::ranges::find(changed_symbol.part.sketches,changed_symbol.symbol_sketch,&sketcher::Sketch::id);
+        check(symbol!=changed_symbol.part.sketches.end(),"FORM fixture lost its manufacturing symbol");
+        static_cast<void>(symbol->add_segment(1,2,3,4));
+        auto changed=form;changed.primitive=document::sheet_form_request(changed_symbol,*face,position,normal,face->surface->radial,1);
+        check(std::get<kernel::SheetFormRequest>(changed.primitive).symbol_edges.size()==request.symbol_edges.size()+1,
+            "FORM symbol change reused stale display geometry");
+        check(kernel::history_fingerprint({form},1)!=kernel::history_fingerprint({changed},1),
+            "FORM symbol change did not invalidate the cached calculation");
+    }
     kernel::SheetMaterialDefinition material;material.kind=kernel::SheetMaterialDefinition::Kind::Form;
     material.owner_id=form.owner_id;material.parent_owner_id=face->sheet_owner;material.thickness=1;
     material.origin=request.position;material.along=request.x_direction;material.radial=request.normal;
@@ -274,6 +302,69 @@ int main(int argc,char** argv){try {
     start=std::chrono::steady_clock::now();const auto result=kernel.evaluate_history(history);
     std::cout<<"FORM cold insertion="<<elapsed(start)<<" s"<<std::endl;valid(result.back());
     check(result.back().volume!=baseline.back().volume,"FORM left the spatial sheet unchanged");
+    if(argc==2&&(std::string_view(argv[1])=="--copy-matrix"||std::string_view(argv[1])=="--copy-after-unbend")) {
+        const bool after_unbend=std::string_view(argv[1])=="--copy-after-unbend";
+        auto large=part;for(auto& p:large.sketches.front().points){p.x*=3;p.y*=3;}
+        const auto stock_ops=large.kernel_operations();const auto stock_result=kernel.evaluate_history(stock_ops);
+        auto source_form=form;auto source_request=request;source_request.position.y=-80;
+        source_form.primitive=source_request;source_form.sheet_material->origin=source_request.position;
+        for(int scenario=after_unbend?6:0;scenario<(after_unbend?7:6);++scenario) {
+            auto chain=stock_ops;chain.push_back(source_form);
+            const auto single=kernel.evaluate_history(chain);valid(single.back());
+            const auto single_volume=single.back().volume-stock_result.back().volume;
+            if(after_unbend) {
+                kernel::HistoryOperation flatten{"flatten-before-copy",kernel::SheetStateRequest{true,true,{}}};
+                flatten.body=form.body;chain.push_back(flatten);
+            }
+            kernel::HistoryOperation copied;copied.owner_id="form-copy-"+std::to_string(scenario);copied.body=form.body;
+            kernel::BodyHistoryScope copy;copy.source_feature_id=form.owner_id;
+            copy.combination=scenario<2?kernel::BodyCombination::Mirror:kernel::BodyCombination::Pattern;
+            copy.mirror_plane={{0,0,0},{0,scenario==1?-1.:1.,0}};
+            auto& p=copy.pattern;p.axis={0,0,1};p.origin={};
+            if(scenario==2) {p.circular=true;p.count=2;p.angle_degrees=180;p.full_circle=false;}
+            else if(scenario>=3) {p.circular=false;p.linear[0].local_axis=1;p.linear[0].direction={0,1,0};p.linear[0].count=2;p.linear[0].spacing=160;
+                if(scenario==4){p.linear[1].local_axis=0;p.linear[1].direction={1,0,0};p.linear[1].count=2;p.linear[1].spacing=150;}}
+            copied.feature_copy=copy;chain.push_back(copied);
+            if(scenario==5) {auto nested=copied;nested.owner_id="nested-form-mirror";nested.feature_copy->source_feature_id=copied.owner_id;
+                nested.feature_copy->combination=kernel::BodyCombination::Mirror;nested.feature_copy->mirror_plane={{75,0,0},{1,0,0}};chain.push_back(nested);}
+            const auto spatial=kernel.evaluate_history(chain);valid(spatial.back());
+            const auto state=kernel::sheet_material::regions_before(chain,chain.size());
+            const auto count=std::ranges::count_if(state.regions,[](const auto& r){return r.kind==kernel::SheetMaterialDefinition::Kind::Form;});
+            check(count==(scenario==4?4:scenario==5?3:2),"FORM copies lost material instances");
+            // Boolean trimming changes the rational integration domains. Bound
+            // the independent additive-volume comparison by the actual BRep
+            // surface area and shape tolerance, not an arbitrary absolute mass.
+            // valid() separately checks the persisted volume against GK.
+            TopoDS_Shape copy_shape;BRep_Builder builder;std::istringstream copy_data(spatial.back().kernel_shape);
+            BRepTools::Read(copy_shape,copy_data,builder);GProp_GProps area;
+            BRepGProp::SurfaceProperties(copy_shape,area);double tolerance=1e-7;
+            for(TopExp_Explorer edge(copy_shape,TopAbs_EDGE);edge.More();edge.Next())
+                tolerance=std::max(tolerance,BRep_Tool::Tolerance(TopoDS::Edge(edge.Current())));
+            near(spatial.back().volume-stock_result.back().volume,after_unbend?0:single_volume*count,area.Mass()*tolerance);
+            kernel::HistoryOperation unfold{"flat-copies",kernel::SheetStateRequest{true,true,{}}};unfold.body=form.body;
+            if(!after_unbend)chain.push_back(unfold);
+            const auto developed=kernel.evaluate_history_incremental(chain,spatial);valid(developed.back());near(developed.back().volume,stock_result.back().volume);
+            const auto symbols=kernel::sheet_material::form_symbol_edges(chain,kernel::sheet_material::regions_before(chain,chain.size()));
+            check(symbols.size()==request.symbol_edges.size()*count,"FORM copied flat symbols lost strokes");
+            check(std::ranges::count_if(developed.back().mesh.edges,[](const auto& e){return e.reference.semantic_key.starts_with("form:symbol:");})==symbols.size(),
+                "FORM flat viewer dropped manufacturing symbol strokes");
+            check(std::ranges::none_of(developed.back().mesh.original_references.edges,[](const auto& e){return e.reference.semantic_key.starts_with("form:symbol:");}),
+                "FORM symbol became a placement-reference owner");
+            const auto reopened=document::load_body_result(document::serialize_body_result(developed.back()));
+            kernel::ViewerReferenceGeometry before_edges,after_edges;
+            before_edges.edges=developed.back().mesh.edges;after_edges.edges=reopened.mesh.edges;
+            check(document::serialize_viewer_reference_geometry(before_edges)==document::serialize_viewer_reference_geometry(after_edges),
+                "Native reopen changed FORM symbol identities or geometry");
+            auto back=unfold;back.owner_id="restore-copies";back.primitive=kernel::SheetStateRequest{false,true,{}};chain.push_back(back);
+            const auto restored_copies=kernel.evaluate_history_incremental(chain,developed);valid(restored_copies.back());
+            near(restored_copies.back().volume,after_unbend?stock_result.back().volume+single_volume*count:spatial.back().volume,
+                after_unbend?area.Mass()*tolerance:1e-3);
+            check(std::ranges::none_of(restored_copies.back().mesh.edges,[](const auto& e){return e.reference.semantic_key.starts_with("form:symbol:");}),
+                "Restored FORM retained flat-only symbol strokes");
+            std::cout<<"FORM copy scenario "<<scenario<<": "<<count<<" spatial/flat/restored instances passed\n";
+        }
+        return 0;
+    }
     {
         auto reordered_history=original;auto reordered_form=form;
         reordered_form.primitive=document::sheet_form_request(reordered_source,*face,position,normal,face->surface->radial,1.);

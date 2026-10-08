@@ -1,5 +1,6 @@
 #pragma once
 #include <zima/kernel/geometry_kernel.hpp>
+#include <zima/kernel/pattern_geometry.hpp>
 #include <numbers>
 #include <ranges>
 #include <set>
@@ -241,6 +242,11 @@ inline std::vector<Transition> change(History& history,
     }
     return transitions;
 }
+inline std::string form_copy_region_id(const HistoryOperation& operation,const std::string& source,unsigned index) {
+    const auto& copy=*operation.feature_copy;
+    return (copy.combination==BodyCombination::Pattern?"pattern:"+pattern_copy_id(validated_pattern(copy.pattern),index)+":" : std::string{})+
+        mirror_source_key(operation.owner_id,source);
+}
 inline History regions_before(const std::vector<HistoryOperation>& operations,std::size_t limit) {
     History history;
     for(std::size_t i=0;i<std::min(limit,operations.size());++i) {
@@ -257,9 +263,63 @@ inline History regions_before(const std::vector<HistoryOperation>& operations,st
             history.attachment_sources.push_back(parent==history.regions.end()?std::nullopt:std::optional{*parent});
             history.sources.push_back(material);history.regions.push_back(material);
         }
+        if(operation.feature_copy) {
+            const auto& copy=*operation.feature_copy;
+            const auto source_regions=history.regions;
+            const bool patterned=copy.combination==BodyCombination::Pattern;
+            const auto pattern=patterned?validated_pattern(copy.pattern):PatternRequest{};
+            const auto plane=patterned?MirrorPlane{}:normalized_mirror_plane(copy.mirror_plane);
+            for(const auto& source:source_regions)if(source.kind==SheetMaterialDefinition::Kind::Form&&
+                (source.owner_id==copy.source_feature_id||source.feature_owner_id==copy.source_feature_id)) {
+                for(unsigned index=1;index<(patterned?pattern.count:2);++index) {
+                    auto material=source;
+                    material.owner_id=form_copy_region_id(operation,source.owner_id,index);
+                    material.feature_owner_id=operation.owner_id;
+                    material.origin=patterned?pattern_point(source.origin,pattern,index):mirrored_point(source.origin,plane);
+                    const auto vector=[&](Vec3 p){return patterned?pattern_vector(p,pattern,index):mirrored_vector(p,plane);};
+                    material.along=vector(source.along);material.tangent=vector(source.tangent);material.radial=vector(source.radial);
+                    const auto parent=std::ranges::find(history.regions,material.parent_owner_id,&SheetMaterialDefinition::owner_id);
+                    history.attachment_sources.push_back(parent==history.regions.end()?std::nullopt:std::optional{*parent});
+                    history.sources.push_back(material);history.regions.push_back(std::move(material));
+                }
+            }
+        }
         if(const auto* state=std::get_if<SheetStateRequest>(&operation.primitive))static_cast<void>(change(history,*state));
     }
     return history;
+}
+// Resolve the authored FORM through an arbitrary native feature-copy chain.
+// Instances keep their own region identity; their manufacturing strokes share
+// only the independently copied definition, never a live library file.
+inline const HistoryOperation* form_source_operation(const std::vector<HistoryOperation>& operations,std::string owner) {
+    std::set<std::string> visited;
+    while(visited.insert(owner).second) {
+        const auto source=std::ranges::find(operations,owner,&HistoryOperation::owner_id);
+        if(source==operations.end())return nullptr;
+        if(std::holds_alternative<SheetFormRequest>(source->primitive))return &*source;
+        if(!source->feature_copy)return nullptr;
+        owner=source->feature_copy->source_feature_id;
+    }
+    return nullptr;
+}
+inline std::vector<ViewerEdge> form_symbol_edges(const std::vector<HistoryOperation>& operations,const History& state) {
+    std::vector<ViewerEdge> result;
+    for(const auto& region:state.regions)if(region.kind==SheetMaterialDefinition::Kind::Form&&region.unfolded) {
+        const auto* source=form_source_operation(operations,region.feature_owner_id.empty()?region.owner_id:region.feature_owner_id);
+        if(!source)continue;
+        const auto& form=std::get<SheetFormRequest>(source->primitive);
+        const auto point=[&](Vec3 p){return add(region.origin,add(mul(region.along,p.x),
+            add(mul(region.radial,p.y),mul(region.tangent,-p.z))));};
+        for(auto edge:form.symbol_edges) {
+            for(auto& p:edge.points)p=point(p);
+            if(edge.exact_spline)for(auto& p:edge.exact_spline->poles)p=point(p);
+            edge.reference.owner_id=region.feature_owner_id.empty()?region.owner_id:region.feature_owner_id;
+            if(region.owner_id!=source->owner_id)edge.reference.semantic_key="form:symbol:instance:"+
+                std::to_string(region.owner_id.size())+":"+region.owner_id+":"+edge.reference.semantic_key;
+            edge.reference.instance_path.clear();result.push_back(std::move(edge));
+        }
+    }
+    return result;
 }
 inline bool is_bend_line(const AxisReference& reference) {
     return reference.semantic_key.starts_with("sheet-bend-line:from:");
