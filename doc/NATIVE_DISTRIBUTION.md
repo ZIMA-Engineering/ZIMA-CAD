@@ -2,6 +2,21 @@
 
 ## Scope and status
 
+Windows build **2026100802** is signed, published and independently verified.
+It aligns initial free Sketch/profile frames with Default Origin in XY,
+preserves manual planes and authored XZ orientations, and converts the factory
+Ventilation Window through native geometry calculation. It repairs ordinary
+Sketch rollback and nested Assembly entry, bounds Fusion properties inside
+their owner, improves Drawing View Properties sizing, adds display-only Drawing
+Origin arrows and paints subdued ZC when no tabs are open. Fifteen packaged GUI
+cases, production trust, native smoke, all three public asset hashes and update
+discovery from 2026100704 passed. Complete packaged FORM confirmation measured
+1.585 seconds. Cleanup removed 5,237,921,566 bytes of temporary staging and
+fixture data, retaining projects, backups, the current SDK/build and accepted
+releases. The future internal startup HTML tab is recorded separately; this
+build contains the background. Linux acceptance remains separate. See
+[the release record](releases/2026100802.md).
+
 Windows build **2026100704** is signed, published and independently verified.
 It adds focused Form placement with a zero-offset sheet face, two positioning
 references, signed offsets and an in-plane angle; repairs Flat Default Origin;

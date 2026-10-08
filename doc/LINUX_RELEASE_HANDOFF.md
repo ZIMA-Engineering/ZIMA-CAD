@@ -2,6 +2,18 @@
 
 ## Development SDK alignment (2026-10-06)
 
+The next Linux acceptance must also cover shared source tag
+`ZIMA-CAD-2026100802`: initial XY/Default Origin frames, preserved manual/XZ
+frames, Sketch-to-Sweep conversion, ordinary Sketch rollback and nested
+Part/Assembly drag/Trim, Fusion properties sizing after owner resize, Drawing
+Origin display and the empty-workspace ZC background. Run the work-plane and
+Sweep native suites, profile-frame/Sketch-return/external-reference GUI suites,
+the five-language dialog layout matrix, Drawing view/source-picker suites and
+actual new-document template checks on the Linux host. The factory Ventilation
+Window is now authored in XY; verify native FORM role order, geometry, insertion
+and persistence too. Windows acceptance does not establish KDE/Wayland or GNOME
+acceptance for these changes. No dependency pin or native schema changes.
+
 Linux development now uses OCCT 8.0.0, matching the pinned Windows dependency.
 The 7.x surface-intersection branch was removed; both platforms share the same
 modeling implementation. SDK/application builds, focused contracts, actual GUI
