@@ -197,6 +197,15 @@ int main(int argc,char** argv){try {
     material.origin=request.position;material.along=request.x_direction;material.radial=request.normal;
     material.tangent=kernel::sheet_material::cross(material.radial,material.along);form.sheet_material=material;
     auto history=original;history.push_back(form);
+    if(argc==3&&std::string_view(argv[1])=="--angle") {
+        const auto degrees=std::stod(argv[2]);const auto radians=degrees*std::numbers::pi/180.;
+        request.x_direction=kernel::sheet_material::add(kernel::sheet_material::mul(request.x_direction,std::cos(radians)),
+            kernel::sheet_material::mul(kernel::sheet_material::cross(normal,request.x_direction),std::sin(radians)));
+        history.back().primitive=request;start=std::chrono::steady_clock::now();
+        const auto rotated=kernel.evaluate_history_incremental(history,baseline);
+        std::cout<<"FORM angle="<<degrees<<" insertion="<<elapsed(start)<<" s"<<std::endl;
+        valid(rotated.back());return 0;
+    }
     start=std::chrono::steady_clock::now();const auto result=kernel.evaluate_history(history);
     std::cout<<"FORM cold insertion="<<elapsed(start)<<" s"<<std::endl;valid(result.back());
     check(result.back().volume!=baseline.back().volume,"FORM left the spatial sheet unchanged");

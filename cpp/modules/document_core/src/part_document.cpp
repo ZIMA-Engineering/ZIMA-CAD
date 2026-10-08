@@ -5792,6 +5792,12 @@ zima::kernel::ViewerMesh PartDocument::construction_viewer_mesh(
         if ((!basic_solid && !profile_feature) || container.suppressed || excluded_features.contains(container.id)) continue;
         const bool established_marker=container.feature_kind==FeatureKind::TwistedSheet ||
             container.feature_kind==FeatureKind::Extrusion || container.feature_kind==FeatureKind::Revolution;
+        if(container.feature_kind==FeatureKind::SheetForm) {
+            const auto& p=container.placement;
+            const auto normal=construction_direction_from_local_axis("y",{p.rotation_x,p.rotation_y,p.rotation_z});
+            const zima::kernel::ViewerAxis axis{{p.x,p.y,p.z},normal,50.,{container.id,"axis",{}}};
+            mesh.axes.push_back(axis);mesh.original_references.axes.push_back(axis);
+        }
         if(container.feature_kind==FeatureKind::SheetTransition)
             append_reference_geometry(mesh.original_references,sheet_transition_profile_plane(container));
         if(!established_marker && !container.origin_point_visible && !container.origin_text_visible &&

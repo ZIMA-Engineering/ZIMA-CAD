@@ -1200,9 +1200,16 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
             origin_preview.rotation = {placement.rotation_x,
                 placement.rotation_y, placement.rotation_z};
             origin_preview.reference_valid = false;
+            if(resolved_preview.feature_kind==zima::document::FeatureKind::SheetForm)
+                origin_preview.direction=zima::document::construction_direction_from_local_axis("y",
+                    {placement.rotation_x,placement.rotation_y,placement.rotation_z});
             preview_geometry.constructions.push_back(std::move(origin_preview));
             primitive_origin_preview_mesh_ =
                 preview_geometry.construction_viewer_mesh(resolved_preview.id);
+            if(resolved_preview.feature_kind==zima::document::FeatureKind::SheetForm) {
+                primitive_origin_preview_mesh_->points.clear();
+                primitive_origin_preview_mesh_->original_references.points.clear();
+            }
             if(zima::document::has_origin_display_controls(resolved_preview.feature_kind))
                 primitive_origin_preview_mesh_->points.push_back(zima::document::container_origin_marker(resolved_preview,true));
             if (resolved_preview.feature_kind == zima::document::FeatureKind::TwistedSheet) {

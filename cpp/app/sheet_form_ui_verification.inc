@@ -68,7 +68,9 @@ Q_NEVER_INLINE static int verify_sheet_form_ui(QApplication& application,Assembl
         mouse(click,QEvent::MouseButtonPress,Qt::LeftButton,Qt::LeftButton);mouse(click,QEvent::MouseButtonRelease,Qt::LeftButton,Qt::NoButton);
         auto pending=dialog->pending_value();check(pending.sheet_form.support.owner_id==hovered->owner_id&&
             pending.sheet_form.support.semantic_key==hovered->semantic_key,"FORM click did not preserve the hovered face identity");
-        check(pending.placement.references.size()==4,"FORM click did not fix its point and FRONT");
+        check(pending.placement.references.size()==4&&pending.placement.references[1].owner_id.empty()&&
+            pending.placement.references[2].owner_id.empty(),"FORM face selection prefilled positioning references");
+        check(!dialog->buttons()->button(QDialogButtonBox::Ok)->isEnabled(),"Incomplete Form support enabled confirmation");
         dialog->set_reference_inspected(0,true);flush();
         check(dialog->highlighted_reference_entries().size()==1,"FORM face inspection did not remain independent");
         dialog->set_reference_inspected(0,false);flush();
@@ -96,13 +98,20 @@ Q_NEVER_INLINE static int verify_sheet_form_ui(QApplication& application,Assembl
             replaced_face=kernel::sheet_material::dot(delta,delta)>1e-8;break;
         }
         check(replaced_face,"FORM face replacement retained the old click position");
+        check(pending.placement.references[1].owner_id.empty()&&pending.placement.references[2].owner_id.empty(),
+            "FORM face replacement generated unwanted datum planes");
+        const auto point_owner=part.body_owner_for_object(stock.id)->origin().id;
+        const document::ConstructionReference point_reference{{},point_owner,"origin:point"};
+        check(dialog->set_reference(1,point_reference,"Sheet datum point")&&
+            dialog->set_reference(2,point_reference,"Sheet datum point"),"FORM manual coordinates failed");flush();
+        pending=dialog->pending_value();
         const auto position=kernel::Vec3{pending.placement.x,pending.placement.y,pending.placement.z};
         const auto outward=kernel::sheet_material::mul(pending.sheet_form.support.surface->axis,pending.sheet_form.support.surface->reversed?-1.:1.);
         const auto revision=run("documents").data;const auto camera=view->camera_state();
         auto* angle=dialog->findChild<QDoubleSpinBox*>("sheetFormRotation");check(angle&&angle->isEnabled(),"FORM in-plane rotation unavailable");
         const auto zero_tangent=document::construction_direction_from_local_axis("x",
             {pending.placement.rotation_x,pending.placement.rotation_y,pending.placement.rotation_z});
-        for(double value:{30.,-40.,15.}) {angle->setValue(value);flush();pending=dialog->pending_value();
+        for(double value:{30.,-40.,-370.,-10.,15.}) {angle->setValue(value);flush();pending=dialog->pending_value();
             check(std::abs(pending.placement.x-position.x)<1e-8&&std::abs(pending.placement.y-position.y)<1e-8&&std::abs(pending.placement.z-position.z)<1e-8,"FORM rotation moved its insertion point");
             const auto normal=document::construction_direction_from_local_axis("y",{pending.placement.rotation_x,pending.placement.rotation_y,pending.placement.rotation_z});
             check(kernel::sheet_material::dot(normal,outward)>1.-1e-8,"FORM rotation tilted away from the support");
@@ -116,8 +125,6 @@ Q_NEVER_INLINE static int verify_sheet_form_ui(QApplication& application,Assembl
             check(!view->transient_edges().empty(),"FORM rotation lost its native wire preview");
         }
         check(run("documents").data==revision&&view->camera_state()==camera,"FORM preview changed a document revision or camera");
-        const auto point_owner=part.body_owner_for_object(stock.id)->origin().id;
-        const document::ConstructionReference point_reference{{},point_owner,"origin:point"};
         dialog->set_reference_inspected(1,true);flush();
         for(int index:{1,2}) {
             auto* clear=placement_table->cellWidget(index,0)->findChild<QPushButton*>();
@@ -137,7 +144,7 @@ Q_NEVER_INLINE static int verify_sheet_form_ui(QApplication& application,Assembl
         angle->setValue(0);flush();const auto zero_point=dialog->pending_value().placement;
         const auto coordinate_x=document::construction_direction_from_local_axis("x",{zero_point.rotation_x,zero_point.rotation_y,zero_point.rotation_z});
         const auto coordinate_z=document::construction_direction_from_local_axis("z",{zero_point.rotation_x,zero_point.rotation_y,zero_point.rotation_z});
-        angle->setValue(15);flush();
+        angle->setValue(-370);flush();
         for(const auto values:{std::array{12.,-8.},std::array{-15.,7.},std::array{0.,0.},std::array{12.,-8.}}) {
             offset1->setValue(values[0]);offset2->setValue(values[1]);flush();pending=dialog->pending_value();
             const kernel::Vec3 origin{pending.placement.x,pending.placement.y,pending.placement.z};
@@ -163,6 +170,12 @@ Q_NEVER_INLINE static int verify_sheet_form_ui(QApplication& application,Assembl
         auto [saved,cache]=native();check(saved.find_container(id)&&cache.back().calculation_errors.empty(),"FORM GUI creation retained a calculation error");
         check(saved.find_container(id)->placement.references==pending.placement.references,"FORM OK lost its attachment references");
         const auto& confirmed=saved.find_container(id)->placement;
+        const auto axis_mesh=saved.construction_viewer_mesh();
+        const auto axis=std::ranges::find_if(axis_mesh.axes,[&](const auto& a){return a.reference.owner_id==id&&a.reference.semantic_key=="axis";});
+        check(axis!=axis_mesh.axes.end()&&kernel::sheet_material::dot(axis->direction,outward)>1.-1e-8,
+            "FORM result axis is not normal to the support");
+        check(std::ranges::none_of(axis_mesh.points,[&](const auto& p){return p.reference.owner_id==id&&p.reference.semantic_key.starts_with("axis:point:");}),
+            "FORM result axis exposes endpoint handles");
         check(std::abs(confirmed.x-pending.placement.x)<1e-8&&
             std::abs(confirmed.y-pending.placement.y)<1e-8&&std::abs(confirmed.z-pending.placement.z)<1e-8,
             "FORM confirmation moved its previewed insertion point");

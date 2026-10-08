@@ -156,7 +156,7 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
         zima::document::has_origin_display_controls(initial.feature_kind)) {
         origin_display_=new OriginDisplayControls(initial.origin_point_visible,initial.origin_text_visible,
             this,[this]{notify_preview();});
-        header_form->addRow(QString{},origin_display_);
+        if(!is_sheet_form())header_form->addRow(QString{},origin_display_);
     }
     // Opening and Drill Point are always subtractive; neither
     // exposes a user-selectable operation even though both share this dialog.
@@ -1271,12 +1271,16 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
         sheet_form_source_->setObjectName("sheetFormDefinition");
         sheet_form_source_->setTextInteractionFlags(Qt::TextSelectableByMouse);
         sheet_form_source_->setWordWrap(true);
-        form->addRow(tr("Form definition"),sheet_form_source_);
         auto* replace=new QPushButton(tr("Replace definition…"),this);
         replace->setObjectName("sheetFormReplaceDefinition");
         connect(replace,&QPushButton::clicked,this,[this]{
             if(sheet_form_definition_request_)sheet_form_definition_request_();});
-        form->addRow(QString{},replace);
+        auto* definition_row=new QWidget(this);
+        auto* definition_layout=new QHBoxLayout(definition_row);
+        definition_layout->setContentsMargins(0,0,0,0);
+        definition_layout->addWidget(sheet_form_source_,1);
+        definition_layout->addWidget(replace);
+        form->addRow(tr("Form definition"),definition_row);
     } else if (initial.feature_kind == zima::document::FeatureKind::ImportedStep) {
         auto* source = new QLabel(
             QString::fromStdString(initial.imported_step.source_path), this);
@@ -1369,6 +1373,7 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
     }
 
     content_layout()->addLayout(form);
+    if(is_sheet_form()&&origin_display_)content_layout()->addWidget(origin_display_,0,Qt::AlignLeft);
     for(auto* table:{shell_face_list_,drill_point_face_list_})if(table) {
         content_layout()->addWidget(table,1);setProperty("expandBottomTable",true);
     }
@@ -2626,6 +2631,12 @@ bool PrimitivePropertiesDialog::set_reference(std::size_t index,
         if(reference.picked_position)point={(*reference.picked_position)[0],(*reference.picked_position)[1],(*reference.picked_position)[2]};
         try {
             auto attached=zima::document::sheet_form_attachment(*face,sheet_form_body_origin_,sheet_reference_geometry_,seed,point);
+            // Face selection sets only the support and its normal. Coordinate
+            // references belong to the user; retain entered rows on replacement.
+            const auto entered=sheet_form_placement_->references();
+            attached.references[1]=entered.size()>2?entered[1]:zima::document::ConstructionReference{};
+            attached.references[2]=entered.size()>2?entered[2]:zima::document::ConstructionReference{};
+            attached.reference_valid=false;
             initial_.sheet_form.support=*face;initial_.sheet_form.thickness=face->sheet_thickness;
             sheet_form_face_entry_=false;
             placement_->initialize_from_references(attached.references,[](const auto& semantic){return readable_placement_reference_kind(semantic);});

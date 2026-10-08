@@ -72,8 +72,9 @@ eyes. The generic Origin, FRONT/TOP, flip and numeric XYZ controls are not shown
 Creation and later editing use the same internal Properties dialog.
 
 Face entry consumes the common confirmed face-hit point and fixes the sheet
-side with zero offset. Two independent owning-Body datum planes initially retain
-the clicked position. Either positioning row may be replaced with a straight
+side with zero offset. New positioning rows remain empty until explicitly
+selected by the user; replacing the support retains already entered references.
+Either positioning row accepts a straight
 segment, point, plane or planar face. A plane contributes its ordinary signed
 distance; a segment contributes the signed distance to its projection in the
 sheet plane, with the distance normal defined by sheet normal cross segment
@@ -83,6 +84,23 @@ drive both independent coordinates. Parallel/dependent constraints, curved
 segments and missing sources are rejected without replacing the calculated frame.
 Each position edit preserves the support side and normal. The angle rotates the
 definition about that normal without changing its insertion point.
+
+The preview axis and the ordinary result axis follow the local-Y support normal.
+The result axis has no endpoint grip points. Point/text visibility controls sit
+at the left edge below the definition and angle fields; the replacement action
+shares the definition row. Existing translation keys cover all five languages.
+
+Local Windows build 2026100801 passed the Form GUI, native geometry and
+five-language translation suites (106.77 s total). Actual GUI confirmation at
+-370 degrees measured 1.401 s, including result publication. The GUI matrix
+checks manual coordinates, support selection/replacement, incomplete-entry OK
+rejection, successive angles, offsets, result-axis direction, absence of axis
+endpoint grips, resizing, Cancel, unchanged OK, replacement, Undo/Redo and native
+save/reopen. Separate native probes at -370 and -10 degrees completed with valid
+connected solids. The user's unusually long calculation was not reproduced on
+this synthetic sheet; its original unsaved input is unavailable. These results
+do not establish timings for arbitrary sheets or definitions. Linux verification
+and portable-release acceptance for this build remain separate.
 
 The placement equations belong only to Form. Persisted references retain their
 original source identities, offsets and side flags in the existing native schema;
