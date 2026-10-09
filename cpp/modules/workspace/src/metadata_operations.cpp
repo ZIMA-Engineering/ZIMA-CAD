@@ -120,7 +120,15 @@ SettingsChange set_file_settings(Workspace& live,const kernel::OcctKernel& kerne
             calculate=calculate||kernel::history_fingerprint(original,original.size())!=kernel::history_fingerprint(requested,requested.size());
         }
         auto calculated=part->session.calculated_boundaries();
-        if(calculate)calculated=calculate_part_with_resolved_references(kernel,next,&calculated,PartCalculationPolicy{true});
+        if(calculate) {
+            PartCalculationPolicy policy{true};
+            // A valid sheet-default edit must remain possible while a failed
+            // downstream feature is being repaired. Keep healthy documents'
+            // atomic rejection and unrelated precision edits unchanged.
+            if(before.sheet_metal!=values.sheet_metal&&!calculated.empty()&&
+               !calculated.back().calculation_errors.empty())policy.reject_errors=false;
+            calculated=calculate_part_with_resolved_references(kernel,next,&calculated,policy);
+        }
         commit_part_document(live,id,std::move(next),std::move(calculated));return {true,calculate};
     }
     if(auto* assembly=live.open_assembly(id)) {

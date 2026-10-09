@@ -9,11 +9,12 @@ implementation and verification status must be recorded separately.
 
 #### Closed-solid implementation checkpoint (2026-10-09)
 
-The current library candidate is
+The current library definition is
 [CornerGusset90.prtz](../config/lib/01-SHEETMETAL/01-FORM/CornerGusset90.prtz).
 It contains a native sloped-wall solid in `FORM`, empty `FORM_CUT` and `FORM_FLAT`
 Bodies, and an independent `FORM_SYMBOL` Sketch copied from the exact XY closing
-outline. Its editable profile has a 20 mm width, R8 cap and 10 mm centre offset.
+outline. Its editable profile now has a 24 mm width, R8 cap and 10 mm centre
+offset. The initial 20 mm checkpoint below is retained as measured evidence.
 The user's original FORM-EDGE document is retained separately. The earlier
 surface/two-cut prototypes below remain experimental evidence, not this asset's
 construction recipe.
@@ -38,8 +39,9 @@ rules; the supplied manufacturing symbol has no such dependency.
 Explicit confirmation reuses the complete calculated source solid, removes its
 two closing faces with native Shell, trims the wall against the real outer Bend
 radius, subtracts the complete closed cutter and joins the formed material.
-Only the actual inner and outer transition routes are rounded: inner `t`, outer
-`2t`. These internal Fillets use exact rational circular parameterization and
+Only the actual inner and outer transition routes are rounded: the projecting
+gusset on the inner sheet side uses `t`, and the forming cavity on the outer
+sheet side uses `2t`. These internal Fillets use exact rational circular parameterization and
 `1e-7` mm spatial approximation tolerance. Ordinary Fillet retains its existing
 parameters. Intermediate results do not publish meshes, properties or Undo
 transactions. Bounded preparation reuse depends on the immutable source and
@@ -73,7 +75,7 @@ setup and is not part of the insertion timing. The earlier small-source native
 confirmation measured 1.179 and 1.423 s. These are fixture observations, not a
 universal performance promise.
 
-The fixed-radius construction fails for the tested `Ri = t` combinations at
+The initial 20 mm fixed-radius construction failed for the tested `Ri = t` combinations at
 `t = 0.5, 1, 3` mm. The inner Fillet builder reports a faulty contour, rather than
 an otherwise completed shape failing display validation. No smaller radius is
 silently accepted. The feature reports a localized transition-fit error; its
@@ -98,6 +100,81 @@ solved or that arbitrary definitions always fit. Windows signed build
 [2026100901](releases/2026100901.md) passed six packaged GUI scenarios,
 production trust, public asset hashes and update discovery. Complete packaged
 corner confirmation measured 1.529 s. Linux execution remains unverified.
+
+#### Working tight-bend library definition (2026-10-09)
+
+The user requested an inspectable working variant for `12.prtz`, retaining
+exact transition radii. The original definition's 20 mm profile fails at
+`Ri = t`; exchanging the two radii also fails and misinterprets the cavity.
+The cavity is on the outer side of the Bend, so its transition remains `2t`;
+the projecting gusset on the inner side remains `t`.
+
+An independent candidate changes only the authored profile width to 24 mm,
+retaining its R8 cap and 10 mm centre offset. The existing dimension command
+resolves the tangent side walls. Its independent manufacturing symbol is rebuilt
+from the exact closing outline. Production retains the established OCCT
+quasi-angular rational circular Fillet parameterization and `1e-7` mm tolerance
+for all bends. An experimental classic-parameterization branch passed individual
+insertions but failed Pattern; it was removed. The authored width correction
+alone works with the existing algorithm. There is no reduced-radius fallback
+or increased approximation tolerance.
+
+The candidate passed both admissible orientations and rejected the other 14
+choices for each `Ri = t` case at `t = 0.5, 1, 2, 3, 4` mm. These native checks
+validate connectivity, strict BRep consistency, volume and centroid/inertia
+against independent integration. This is evidence for this definition, not a
+claim that every authored corner profile can accommodate those radii.
+The same candidate also passed the previous supported `(t, Ri)` pairs:
+`(0.5, 2), (1, 2), (2, 4), (3, 6)` mm, again with two accepted and fourteen
+rejected orientation/side choices per pair.
+
+`Projects/test/12-corner-R2-final.prtz` is a separate copy of the user's actual
+Part with 2 mm sheet thickness, Bend R2, and the 24 mm definition embedded into
+the existing FORM while preserving its outer-face placement references and
+40 mm YZ-plane station. Explicit replacement, strict BRep/property checks and
+native save/reopen passed with the production algorithm. This file is local
+review data, not a required dependency of the resulting Part. The tracked
+`CornerGusset90.prtz` library now contains this definition; already inserted
+copies require explicit definition replacement. The published 2026100901
+release remains the previous checkpoint.
+
+The nine native orientation/radius cases passed in 37.63 s. The complete
+`(t, Ri) = (1, 1)` mm suite also passed embedded-copy roundtrip, regeneration,
+Pattern and Mirror with flat symbols, Unbend and Bend Back. Each insertion
+retains the exact `t`/`2t` transition radii.
+
+The first placement reference now uses the shared removable-reference control.
+Its offset field displays a disabled zero. Removing this support disables OK
+and inspection of the removed reference, preserving the other two pending
+placement references for replacement. Existing failed calculations no longer
+block a sheet-default thickness change: the valid prefix is recalculated and
+failed feature definitions remain available. A previously healthy model still
+rejects an invalid settings change atomically. Native tests cover successive
+thickness edits, no-op behavior, invalid input, Undo/Redo and save/reopen;
+the same recovery path also passed against an independent copy of `12.prtz`.
+No new user-visible strings were introduced; existing shared translation keys
+are used for all five supported languages. Linux execution remains unverified.
+
+Inline placement-dimension editing in an open FORM Properties window now updates
+the authoritative command-local reference table rather than the unused generic
+placement adapter. Fixed support offsets, value locks and invalid values remain
+protected; preview edits do not calculate or create an Undo transaction. GUI
+checks use an actual YZ station plane, as in the user's Part, and exercise signed
+successive changes, Cancel, committed edits, no-op, Undo/Redo and native reopening.
+Source-shape dimension editing remains deferred by the user.
+
+The final Windows Release application linked successfully. Ordinary FORM, corner
+FORM and the five-language GUI/catalog contract passed all three suites in
+273.88 s. Corner creation, actual hover/click face selection, independent
+inspection, definition replacement, signed View offsets, fixed-plane/value-lock
+rejection, rollback, Cancel, unchanged OK, Undo/Redo and native reopening are
+covered. The native metadata and source-definition suites passed in 70.02 s;
+the latter includes all 24 Body orders.
+
+The broader standalone dialog suite still stops with an empty-input JSON parse
+error after its treatment-Origin checks, both from the repository and CTest
+working directories. Its precise failing subcase is not yet isolated. This does
+not constitute full dialog-suite acceptance or a new release qualification.
 
 #### Revised solid-based direction (2026-10-08, evening)
 
@@ -661,8 +738,13 @@ ancestry together. Unbend/Bend Back replay each instance's spatial and flat tool
 nested copies resolve the original FORM definition without replacing source IDs.
 Reflection carries the symbol's handedness through the reflected material frame.
 Properties uses the shared reference controls in a compact four-column table.
-The populated required support remains replaceable and inspectable without a
-clear/entry indicator. Preview and confirmed axes use a 10 mm nominal length and
+Each populated placement row, including the first sheet support, exposes the
+shared red clear control. Clearing the support retires its inspection, reactivates
+first-row entry and disables confirmation and in-plane rotation until a valid
+sheet face is supplied again. It preserves the other rows and their signed
+offsets; restoring or replacing the support retains those pending inputs.
+Cancel restores the unchanged native feature. No reference clearing commits an
+Undo transaction or calculates geometry. Preview and confirmed axes use a 10 mm nominal length and
 do not introduce endpoint grips.
 
 Drawing Show/Erase offers the evaluated native `FORM_SYMBOL` Sketch as one

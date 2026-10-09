@@ -9,6 +9,7 @@
 #include <QToolButton>
 #include <QVBoxLayout>
 #include <array>
+#include <cmath>
 #include <optional>
 
 namespace zima::app {
@@ -33,19 +34,20 @@ public:
         table_->setFixedHeight(table_->horizontalHeader()->sizeHint().height()+102+2*table_->frameWidth());
         layout->addWidget(table_);
         for(std::size_t i=0;i<3;++i) {
-            indicators_[i]=zima::ui::build_reference_row_indicator(i==0?std::function<void()>{}:[this,i] {
-                rows_[i]={};inspected_[i]=false;active_=i;refresh();
+            indicators_[i]=zima::ui::build_reference_row_indicator([this,i] {
+                rows_[i]={};labels_[i]={};inspected_[i]=false;active_=i;refresh();
                 if(highlights_changed)highlights_changed();if(changed)changed();if(request)request(i);
             });
             table_->setCellWidget(int(i),0,zima::ui::centered_cell_widget(indicators_[i]));
             items_[i]=new zima::ui::ReferenceCellItem;table_->setItem(int(i),1,items_[i]);
             const auto role=i==0?QObject::tr("Sheet face"):i==1?QObject::tr("Position 1"):QObject::tr("Position 2");
             items_[i]->setToolTip(role);
-            if(i>0) {
+            {
                 offsets_[i]=new zima::ui::UnitDoubleSpinBox(zima::ui::InputQuantity::Length,parent);
-                offsets_[i]->setObjectName(i==1?"sheetFormOffset1":"sheetFormOffset2");
-                offsets_[i]->setRange(-1e6,1e6);offsets_[i]->set_display_decimals(zima::ui::numeric_decimal_places(parent,3));
-                offsets_[i]->setToolTip(QObject::tr("Signed distance to a line or plane. A point sets sheet-plane X in row 2 or Z in row 3."));
+                offsets_[i]->setObjectName(i==0?"sheetFormOffset0":i==1?"sheetFormOffset1":"sheetFormOffset2");
+                offsets_[i]->setRange(i==0?0.:-1e6,i==0?0.:1e6);
+                offsets_[i]->set_display_decimals(zima::ui::numeric_decimal_places(parent,3));
+                if(i>0)offsets_[i]->setToolTip(QObject::tr("Signed distance to a line or plane. A point sets sheet-plane X in row 2 or Z in row 3."));
                 table_->setCellWidget(int(i),2,offsets_[i]);
                 QObject::connect(offsets_[i],&QDoubleSpinBox::valueChanged,parent,[this,i](double v){rows_[i].offset=v;if(changed)changed();});
             }
@@ -74,6 +76,19 @@ public:
         front.offset=0;front.orientation_only=true;front.orientation_drives_rotation=true;front.orientation_role="front";
         result.push_back(std::move(front));return result;
     }
+    [[nodiscard]] const Reference& position_reference(std::size_t index) const {return rows_.at(index);}
+    bool set_reference_offset(std::size_t populated_index,double value) {
+        if(!std::isfinite(value))return false;
+        for(std::size_t i=0;i<rows_.size();++i) {
+            if(rows_[i].owner_id.empty()&&rows_[i].semantic_key.empty())continue;
+            if(populated_index--!=0)continue;
+            auto* field=offsets_[i];
+            if(!field||!field->isEnabled()||field->isReadOnly()||rows_[i].offset_locked||
+               !rows_[i].supports_offset||value<field->minimum()||value>field->maximum())return false;
+            field->setValue(value);return true;
+        }
+        return false;
+    }
     [[nodiscard]] std::size_t first_empty() const {for(std::size_t i=0;i<3;++i)if(rows_[i].owner_id.empty())return i;return 3;}
     void set_active(std::optional<std::size_t> index) {active_=index;refresh();}
     void set_corner(bool corner) {corner_=corner;if(corner_)rows_[1].offset=0.;refresh();}
@@ -90,12 +105,9 @@ private:
             if(populated)items_[i]->set_reference(QString::fromStdString(rows_[i].semantic_key));
             else items_[i]->clear_reference();
             items_[i]->set_active_input(active_&&*active_==i);items_[i]->set_inspected(inspected_[i]);
-            zima::ui::set_reference_row_populated(indicators_[i],populated&&i!=0);
-            // The support is replaceable through its field, never removable.
-            // Retain the aligned control slot without a completed-entry arrow.
-            indicators_[i]->setVisible(i!=0||!populated);
+            zima::ui::set_reference_row_populated(indicators_[i],populated);
             eyes_[i]->setEnabled(populated);{const QSignalBlocker guard(eyes_[i]);eyes_[i]->setChecked(inspected_[i]);}
-            if(offsets_[i]){const QSignalBlocker guard(offsets_[i]);offsets_[i]->setValue(rows_[i].offset);offsets_[i]->setEnabled(populated&&(!corner_||i!=1));}
+            if(offsets_[i]){const QSignalBlocker guard(offsets_[i]);offsets_[i]->setValue(i==0?0.:rows_[i].offset);offsets_[i]->setEnabled(i!=0&&populated&&(!corner_||i!=1));}
             if(i==0)items_[i]->setToolTip(corner_?QObject::tr("First outer sheet face"):QObject::tr("Sheet face"));
             if(i==1)items_[i]->setToolTip(corner_?QObject::tr("Second outer sheet face"):QObject::tr("Position 1"));
             if(i==2)items_[i]->setToolTip(corner_?QObject::tr("Position along bend"):QObject::tr("Position 2"));

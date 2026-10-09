@@ -8,6 +8,7 @@
 #include <zima/kernel/sheet_material.hpp>
 #include <zima/kernel/stable_id.hpp>
 #include <zima/workspace/model_calculation.hpp>
+#include <zima/workspace/sheet_form_operations.hpp>
 #include <nlohmann/json.hpp>
 #include <BRepTools.hxx>
 #include <BRep_Builder.hxx>
@@ -114,6 +115,23 @@ void valid(const kernel::BodyResult& result) {
 }
 }
 int main(int argc,char** argv){try {
+    if(argc==5&&std::string_view(argv[1])=="--replace-corner-definition") {
+        std::vector<kernel::BodyResult> previous;auto part=document::PartDocument::load(argv[2],&previous);
+        const auto source=document::read_sheet_form_definition(argv[3]);
+        auto found=std::ranges::find_if(part.history.rbegin(),part.history.rend(),[](const auto& f){return f.feature_kind==document::FeatureKind::SheetForm;});
+        check(found!=part.history.rend()&&source.corner(),"Missing native corner definition or feature");
+        const auto original=*found;auto replacement=original;
+        replacement.sheet_form=document::copy_sheet_form_definition(source);
+        replacement.sheet_form.support=original.sheet_form.support;replacement.sheet_form.thickness=original.sheet_form.thickness;
+        workspace::Workspace live;live.add_part(part,previous);kernel::OcctKernel kernel;
+        check(workspace::commit_sheet_form(live,kernel,part.document_id,replacement),"Corner definition replacement did not commit");
+        const auto* state=live.open_part(part.document_id);valid(state->session.calculated_boundaries().back());
+        check(state->session.document().find_container(original.id)->placement.references==original.placement.references,"Definition replacement changed native placement references");
+        state->session.document().save(argv[4],state->session.calculated_boundaries());
+        std::vector<kernel::BodyResult> reopened;const auto native=document::PartDocument::load(argv[4],&reopened);valid(reopened.back());
+        check(native.find_container(original.id)->sheet_form.source_name==source.part.name,"Replacement did not persist independent definition");
+        std::cout<<"Native corner definition replacement and exact BRep/save/reopen verified\n";return 0;
+    }
     if(argc==4&&std::string_view(argv[1])=="--finalize-solid-definition") {
         const auto source=document::read_sheet_form_definition(argv[2]);auto part=source.part;
         auto symbol=sketcher::Sketch::create_default();

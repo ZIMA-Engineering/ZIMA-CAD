@@ -1086,11 +1086,21 @@ outer radius is `2t`. Body names identify roles independently of their order.
 The supplied independent symbol is the exact XY footprint; editing the source
 solid does not automatically edit that symbol Sketch.
 
-The verified thickness/radius pairs are `(t, Ri) = (0.5, 2), (1, 2), (2, 4)` and
-`(3, 6)` mm on sufficiently large attached sheets. Tested tight bends with
-`Ri = t` cannot fit this fixed-radius construction and report an error. A failed
-feature keeps its parameters for correction; smaller radii are not substituted.
+The supplied 24 mm-wide definition retains its R8 cap and 10 mm centre offset.
+Verified thickness/radius pairs are `(t, Ri) = (0.5, 2), (1, 2), (2, 4)` and
+`(3, 6)` mm, plus tight bends `Ri = t` at `t = 0.5, 1, 2, 3, 4` mm on
+sufficiently large attached sheets. The forming cavity on the outer sheet side
+has radius `2t`; the projecting gusset on the opposite side has radius `t`.
+Already inserted copies of the earlier 20 mm definition require explicit
+**Replace definition** to receive the revised library profile. A failed feature
+keeps its parameters for correction; smaller radii are not substituted.
 These cases do not establish support for every definition or Bend dimension.
+
+The first placement reference can be cleared and replaced; its offset is a
+disabled zero. Edit a displayed placement offset directly in the View or in
+Properties. Changes made while Properties is open remain pending until OK;
+Cancel restores the original placement. A failed downstream feature does not
+block changing the sheet-default thickness while repairing the model.
 
 Insertion stores an independent complete copy in the destination Part. Form
 Properties can replace that definition while retaining the feature identity,

@@ -6,7 +6,8 @@ The shared implementation adds the native `CornerGusset90.prtz` definition,
 two outer-face placement at a 90-degree Bend, automatic closed-solid cutting
 and Shell, and fixed inner `t` / outer `2t` transitions. Run the corner native
 roundtrip/copy fixture, its GUI fixture dependency, four supported thickness
-pairs and three tight-bend rejection cases. Verify both side/orientation
+pairs and five tight-bend acceptance cases (`Ri = t`, `t = 0.5, 1, 2, 3, 4` mm).
+The supplied source profile is now 24 mm wide. Verify both side/orientation
 choices, embedded definition replacement, Unbend symbols, Bend Back, Pattern,
 Mirror, exact BRep validity and independently calculated volume/tensor data.
 Run the ordinary Form/Shell/Fillet/Thicken Surface suites too. There is no kernel
@@ -16,8 +17,12 @@ Also run the connected equal-length edit/drag matrix, FORM-EDGE hover/draft
 Undo/Redo GUI regression and exact external spline/native endpoint tests.
 English documentation and all five catalogs include the corner placement/error
 labels. Windows observations do not establish Linux native or GUI acceptance.
-The `Ri = t` cases currently reject fixed-radius construction on Windows; do
-not turn that documented limitation into a claim of supported tight bends.
+The revised library passes those finite `Ri = t` cases on Windows using the
+existing quasi-angular circular Fillets and exact `t`/`2t` radii. This does not
+establish arbitrary-profile support. Verify View offset editing in open and
+closed Properties, clearing/restoring the first support, disabled zero offset,
+Cancel, Undo/Redo and save/reopen. Also run the metadata suite covering sheet
+thickness changes while a downstream feature is already failed.
 
 ## Sketcher and planar-limit follow-up (2026-10-08)
 

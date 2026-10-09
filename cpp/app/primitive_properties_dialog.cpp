@@ -1775,7 +1775,8 @@ zima::document::HistoryContainer PrimitivePropertiesDialog::values() const {
         }
         // Loading precedes publication of the native reference universe.
         // Keep the exact persisted value until that universe is installed.
-        if(sheet_reference_geometry_.triangle_references.empty())result.sheet_form.support=initial_.sheet_form.support;
+        if(sheet_reference_geometry_.triangle_references.empty()&&!result.placement.references.empty())
+            result.sheet_form.support=initial_.sheet_form.support;
     }
     if(result.feature_kind==zima::document::FeatureKind::Revolution&&result.revolution.sheet_metal) {
         result.combine_mode=zima::document::CombineMode::Add;
@@ -2258,7 +2259,8 @@ void PrimitivePropertiesDialog::lock_sheet_form_fields() {
     const bool corner=zima::document::stored_sheet_form_definition(initial_.sheet_form).corner();
     if(sheet_form_placement_)sheet_form_placement_->set_corner(corner);
     placement_->rotation_fields()[1]->setToolTip(corner?tr("Corner FORM orientation follows the two sheet faces."):QString{});
-    if(initial_.sheet_form.support.valid()&&!corner) {
+    if(initial_.sheet_form.support.valid()&&sheet_form_placement_&&
+       !sheet_form_placement_->position_reference(0).owner_id.empty()&&!corner) {
         // A FRONT reference leaves the shared absolute local-Y angle free;
         // its local-Y correction is not used by that reference solution.
         placement_->rotation_fields()[1]->setEnabled(true);
@@ -2648,9 +2650,8 @@ bool PrimitivePropertiesDialog::set_reference(std::size_t index,
             auto attached=zima::document::sheet_form_attachment(*face,sheet_form_body_origin_,sheet_reference_geometry_,seed,point);
             // Face selection sets only the support and its normal. Coordinate
             // references belong to the user; retain entered rows on replacement.
-            const auto entered=sheet_form_placement_->references();
-            attached.references[1]=entered.size()>2?entered[1]:zima::document::ConstructionReference{};
-            attached.references[2]=entered.size()>2?entered[2]:zima::document::ConstructionReference{};
+            attached.references[1]=sheet_form_placement_->position_reference(1);
+            attached.references[2]=sheet_form_placement_->position_reference(2);
             attached.reference_valid=false;
             initial_.sheet_form.support=*face;initial_.sheet_form.thickness=face->sheet_thickness;
             sheet_form_face_entry_=false;
@@ -2899,6 +2900,7 @@ bool PrimitivePropertiesDialog::set_inline_parameter_value(
             if (digit < '0' || digit > '9') return false;
             index = index * 10 + static_cast<std::size_t>(digit - '0');
         }
+        if(sheet_form_placement_)return sheet_form_placement_->set_reference_offset(index,value);
         return placement_->set_reference_offset(index, value);
     }
     if (feature_panel_) {

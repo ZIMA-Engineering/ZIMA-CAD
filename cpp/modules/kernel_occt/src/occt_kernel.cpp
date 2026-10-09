@@ -8188,6 +8188,9 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                                 throw std::runtime_error("Corner FORM cannot fit the prescribed transition radii. Change the bend radius or the definition.");
                             throw;
                         }
+                        catch(const Standard_Failure&) {
+                            throw std::runtime_error("Corner FORM cannot fit the prescribed transition radii. Change the bend radius or the definition.");
+                        }
                         auto tagged=std::make_shared<LiveCache::Topology>(*owned_topology);
                         for(auto& face:tagged->faces)if(face.reference.owner_id==operation.owner_id&&
                             face.reference.semantic_key.starts_with("fillet:face:")&&face.reference.sheet_owner.empty()) {
@@ -8195,7 +8198,7 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                             face.reference.sheet_role=side==0?SheetFaceRole::SideB:SheetFaceRole::SideA;
                         }
                         owned_topology=std::move(tagged);
-                        profile(side==0?"inner transition Fillet t":"outer transition Fillet 2t");
+                        profile(side==0?"opposite transition Fillet t":"cavity transition Fillet 2t");
                     }
                 }
                 if(!form->solid_opening_faces.empty()) {

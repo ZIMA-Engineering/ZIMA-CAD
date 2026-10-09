@@ -2,6 +2,7 @@
 #include <zima/command_host/host.hpp>
 #include <zima/workspace/metadata_operations.hpp>
 #include <zima/workspace/relation_operations.hpp>
+#include <zima/document/flat.hpp>
 #include <zima/document/physical_properties.hpp>
 #include <zima/document/pattern_dimensions.hpp>
 #include <zima/assembly/physical_properties.hpp>
@@ -14,6 +15,38 @@ void require(bool yes,const char* message){if(!yes)throw std::runtime_error(mess
 commands::Result run(command_host::Host& host,const char* name,Json args=Json::object()) {
     auto result=host.execute({{"command",name},{"arguments",std::move(args)}});
     if(!result.ok)throw std::runtime_error(std::string(name)+": "+result.code+": "+result.message);return result;
+}
+void verify_failed_sheet_settings(const kernel::OcctKernel& kernel,fs::path directory) {
+    workspace::Workspace live;command_host::Options options;
+    options.settings=[] {return command_host::Settings{{fs::absolute("config/templates"),"START_PART.prtz","START_ASSEMBLY.asmz","Body"},{}};};
+    command_host::Host host(live,kernel,directory,options);
+    run(host,"new",{{"type","part"},{"name","failed-sheet-settings"}});
+    const auto id=live.active_document_id();auto* state=live.open_part(id);
+    const auto flat=run(host,"flat.create",{{"width_mm",40},{"height_mm",30}}).data.at("container").get<std::string>();
+    const auto& edges=state->session.calculated_boundaries().back().mesh.edges;
+    const auto edge=std::ranges::find_if(edges,[](const auto& e){return !e.parameter_seam&&e.edge_treatment_side_references.size()==2;});
+    require(edge!=edges.end(),"Failed sheet fixture has no input edge");
+    static_cast<void>(host.execute({{"command","fillet.create"},{"arguments",{{"radius_mm",100},
+        {"routes",Json::array({Json{{"edges",Json::array({Json{{"owner",edge->reference.owner_id},{"key",edge->reference.semantic_key}}})}}})}}}}));
+    const auto failed=state->session.document().history.back();
+    require(failed.feature_kind==document::FeatureKind::Fillet&&state->session.calculated_boundaries().back().calculation_errors.contains(failed.id),"Fixture did not retain a failed feature");
+    for(double thickness:{2.,3.,4.}) {
+        const auto before=workspace::file_settings(live,id);auto requested=before;requested.sheet_metal->thickness_mm=thickness;
+        const auto change=workspace::set_file_settings(live,kernel,id,requested);
+        require(change.changed&&change.calculated&&workspace::file_settings(live,id)==requested,"Failed feature blocked sheet thickness edit");
+        require(*state->session.document().find_container(failed.id)==failed&&state->session.calculated_boundaries().back().calculation_errors.contains(failed.id),"Thickness edit lost failed feature definition or error");
+        require(std::abs(state->session.calculated_boundaries().back().volume-1200.*thickness)<1e-7,"Thickness edit kept stale input geometry");
+        require(document::flat_thickness(*state->session.document().find_container(flat),*requested.sheet_metal)==thickness,"Flat ignored new default thickness");
+        const auto revision=state->session.revision();const auto* cache=state->session.calculated_boundaries().data();
+        require(!workspace::set_file_settings(live,kernel,id,requested).changed&&state->session.revision()==revision&&state->session.calculated_boundaries().data()==cache,"Unchanged failed-sheet settings calculated or created Undo");
+        run(host,"undo");require(workspace::file_settings(live,id)==before,"Failed-sheet thickness Undo lost settings");
+        run(host,"redo");require(workspace::file_settings(live,id)==requested&&state->session.calculated_boundaries().back().calculation_errors.contains(failed.id),"Failed-sheet thickness Redo lost error state");
+    }
+    auto invalid=workspace::file_settings(live,id);invalid.sheet_metal->thickness_mm=0.;const auto revision=state->session.revision();bool rejected=false;
+    try{static_cast<void>(workspace::set_file_settings(live,kernel,id,invalid));}catch(const std::invalid_argument&){rejected=true;}
+    require(rejected&&state->session.revision()==revision,"Failed feature bypassed invalid thickness validation");
+    run(host,"save");std::vector<kernel::BodyResult> cache;const auto reopened=document::PartDocument::load(directory/"failed-sheet-settings.prtz",&cache);
+    require(document::sheet_metal_defaults(reopened).thickness_mm==4.&&*reopened.find_container(failed.id)==failed&&cache.back().calculation_errors.contains(failed.id)&&std::abs(cache.back().volume-4800.)<1e-7,"Native reopen lost changed thickness or failed feature");
 }
 template<class Doc> void binding_unit_matrix(Doc source) {
     using Quantity=document::DimensionQuantity;
@@ -375,4 +408,4 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
     run(host,"document.parameters.set",{{"parameters",Json::array()}});require(workspace::user_parameters(live,owner).order.empty(),"Empty table evaluated a physical relation outside Regenerate");run(host,"undo");require(workspace::user_parameters(live,owner).order.size()==2,"Table removal Undo failed");
 }
 }
-int main(){try{kernel::OcctKernel kernel;const auto parent=fs::canonical(fs::temp_directory_path());const auto dir=parent/("zima-metadata-"+document::PartDocument::create_default().document_id);fs::create_directory(dir);verify_binding_units();verify_relation_conversion(kernel,dir);verify_angular_relations(kernel,dir);verify(kernel,dir);require(dir.parent_path()==parent,"Unsafe cleanup");fs::remove_all(dir);std::cout<<"Parameters, localized values, units, geometry preservation, relation errors, Undo and native metadata persistence passed\n";return 0;}catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}
+int main(){try{kernel::OcctKernel kernel;const auto parent=fs::canonical(fs::temp_directory_path());const auto dir=parent/("zima-metadata-"+document::PartDocument::create_default().document_id);fs::create_directory(dir);verify_binding_units();verify_relation_conversion(kernel,dir);verify_angular_relations(kernel,dir);verify_failed_sheet_settings(kernel,dir);verify(kernel,dir);require(dir.parent_path()==parent,"Unsafe cleanup");fs::remove_all(dir);std::cout<<"Parameters, localized values, units, geometry preservation, relation errors, Undo and native metadata persistence passed\n";return 0;}catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}

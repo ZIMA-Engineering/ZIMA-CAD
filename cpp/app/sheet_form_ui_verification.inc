@@ -6,6 +6,7 @@ Q_NEVER_INLINE static int verify_corner_sheet_form_ui(QApplication& application,
         const auto flush=[&]{application.processEvents();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);application.processEvents();};
         const auto run=[&](const QString& command){const auto result=window.execute_console_command(command);check(result.ok,result.message.c_str());return result;};
         const auto preview_only=qEnvironmentVariableIsSet("ZIMA_CORNER_FORM_PREVIEW_ONLY");
+        const auto dimensions_only=qEnvironmentVariableIsSet("ZIMA_CORNER_FORM_DIMENSIONS_ONLY");
         const auto input=std::filesystem::absolute(preview_only?"build/form-diagnostic/CornerBodyCutPreview.prtz":"build/form-diagnostic/CornerGusset90Placed.prtz");
         std::vector<kernel::BodyResult> cache;const auto original=document::PartDocument::load(input,&cache);
         const auto path=directory/"corner-form-ui.prtz";original.save(path,cache);
@@ -39,25 +40,112 @@ Q_NEVER_INLINE static int verify_corner_sheet_form_ui(QApplication& application,
         const auto open=[&]{window.show_tree_item_properties(row());flush();check(editor(),"Corner FORM Properties missing");return editor();};
         const auto closed=[&]{QElapsedTimer timer;timer.start();while(editor()&&timer.elapsed()<12000){application.processEvents();QThread::msleep(5);}flush();check(!editor(),"Corner FORM OK failed");};
         const auto saved=[&]{run("save");return document::PartDocument::load(path);};
+        const auto inline_candidate=[&] {
+            view->set_reference_visibility(viewer::ReferenceVisibility::Dimensions,true);
+            window.show_parameter_dimensions(id);flush();
+            const std::string key="parameter:placement:reference_offset:2";
+            viewer::ViewerCandidate candidate;candidate.kind=viewer::CandidateKind::Dimension;
+            candidate.owner_id=id;candidate.semantic_key=key;
+            bool found=false;
+            for(std::size_t index=0;index<200;++index) {
+                candidate.geometry_index=index;
+                if(view->candidate_dimension_value(candidate)) {found=true;break;}
+            }
+            if(!found) {
+                std::string offered;
+                for(const auto& d:view->mesh().dimensions)offered+=" "+d.reference.owner_id+"/"+d.reference.semantic_key;
+                throw std::runtime_error("Corner station dimension is absent from View; offered:"+offered);
+            }
+            return candidate;
+        };
+        const auto inline_number=[&](double number) {
+            window.edit_dimension_inline(inline_candidate());flush();
+            auto* edit=window.findChild<QLineEdit*>("inlineDimensionValueEdit");
+            check(edit&&edit->isVisible(),"Corner station has no inline View editor");
+            edit->setText(QString::number(number,'g',12));
+            QKeyEvent enter(QEvent::KeyPress,Qt::Key_Return,Qt::NoModifier);
+            QApplication::sendEvent(edit,&enter);flush();
+        };
         auto* dialog=open();const auto placed=dialog->pending_value();
         if(placed.placement!=original.history.back().placement)std::cerr<<nlohmann::json(placed.placement).dump()<<'\n'<<nlohmann::json(original.history.back().placement).dump()<<'\n';
         check(placed.placement==original.history.back().placement,"Corner Properties changed stored placement");
         auto* offset1=dialog->findChild<QDoubleSpinBox*>("sheetFormOffset1");
         auto* offset2=dialog->findChild<QDoubleSpinBox*>("sheetFormOffset2");
+        auto* support_offset=dialog->findChild<QDoubleSpinBox*>("sheetFormOffset0");
+        check(support_offset&&!support_offset->isEnabled()&&support_offset->value()==0.,"Corner support offset must display disabled zero");
         check(offset1&&!offset1->isEnabled()&&offset1->value()==0.&&offset2&&offset2->isEnabled(),"Corner plane offsets are not constrained correctly");
         check(std::ranges::none_of(view->mesh().triangle_references,[&](const auto& face){return face.owner_id==id;}),"Corner Properties failed rollback");
         dialog->set_reference_inspected(0,true);dialog->set_reference_inspected(1,true);flush();
         check(dialog->highlighted_reference_entries().size()==2,"Corner inner-plane inspection failed");
         check(window.grab().save(QString::fromStdString((directory/"corner-form-properties.png").string())),"Corner Properties capture failed");
+        auto* references=dialog->findChild<QTableWidget*>("primitiveReferenceTable");
+        auto* clear_support=references?references->cellWidget(0,0)->findChild<QPushButton*>():nullptr;
+        check(clear_support&&clear_support->isVisible(),"Corner support has no shared clear control");
+        clear_support->click();flush();
+        check(!dialog->pending_value().sheet_form.support.valid()&&dialog->pending_value().placement.references.empty()&&
+            !dialog->buttons()->button(QDialogButtonBox::Ok)->isEnabled(),"Cleared corner support remains confirmable");
+        check(dynamic_cast<ui::ReferenceCellItem*>(references->item(0,1))->is_active_input()&&
+            dialog->highlighted_reference_entries().size()==1,"Corner support clear failed entry or inspection retirement");
+        check(dialog->set_reference(0,placed.placement.references[0],"Restored outer sheet face"),"Corner support cannot be restored");flush();
+        check(dialog->pending_value().placement.references==placed.placement.references&&
+            dialog->buttons()->button(QDialogButtonBox::Ok)->isEnabled(),"Corner support restoration lost positioning references");
         dialog->buttons()->button(QDialogButtonBox::Cancel)->click();flush();check(saved().history.back()==original.history.back(),"Corner Cancel changed native history");
         dialog=open();const auto before=run("documents").data;dialog->buttons()->button(QDialogButtonBox::Ok)->click();closed();
         check(run("documents").data==before,"Unchanged corner OK created an Undo revision");
-        dialog=open();offset2=dialog->findChild<QDoubleSpinBox*>("sheetFormOffset2");offset2->setValue(3.);flush();
+        auto station_plane=placed.placement.references[2];station_plane.semantic_key="origin:plane:yz";
+        station_plane.supports_offset=true;station_plane.offset=0.;
+        dialog=open();check(dialog->set_reference(2,station_plane,"YZ station plane"),"Corner station plane entry failed");
+        offset2=dialog->findChild<QDoubleSpinBox*>("sheetFormOffset2");offset2->setValue(2.);flush();
+        const auto draft_revision=run("documents").data;
+        for(double value:{3.,-4.,5.}) {
+            inline_number(value);
+            check(offset2->value()==value&&dialog->pending_value().placement.references[2].offset==value&&
+                std::abs(dialog->pending_value().placement.x-value)<1e-8,
+                "Corner View edit did not update the authoritative FORM offset");
+            check(run("documents").data==draft_revision,"Corner draft View edit committed an Undo transaction");
+        }
+        check(!dialog->set_inline_parameter_value("placement:reference_offset:0",1.)&&
+            !dialog->set_inline_parameter_value("placement:reference_offset:1",1.)&&
+            !dialog->set_inline_parameter_value("placement:reference_offset:2",1e7),
+            "Corner inline entry changed a fixed plane or clamped an invalid value");
+        dialog->buttons()->button(QDialogButtonBox::Cancel)->click();flush();
+        check(saved().history.back()==original.history.back(),"Corner inline draft Cancel changed native history");
+        dialog=open();check(dialog->set_reference(2,station_plane,"YZ station plane"),"Corner station plane re-entry failed");
+        offset2=dialog->findChild<QDoubleSpinBox*>("sheetFormOffset2");offset2->setValue(3.);flush();
         const auto pending=dialog->pending_value();check(std::abs(pending.placement.x-3.)<1e-8,"Corner longitudinal offset did not move placement");
         dialog->buttons()->button(QDialogButtonBox::Ok)->click();closed();
         check(std::abs(saved().history.back().placement.x-3.)<1e-8,"Corner OK lost longitudinal placement");
         run("undo");check(saved().history.back()==original.history.back(),"Corner placement Undo failed");
         run("redo");check(std::abs(saved().history.back().placement.x-3.)<1e-8,"Corner placement Redo failed");
+        window.show_parameter_dimensions(id);flush();
+        for(double value:{4.,-3.,5.}) {
+            inline_number(value);const auto current=saved().history.back();
+            check(current.placement.references[2].offset==value&&std::abs(current.placement.x-value)<1e-8&&
+                current.sheet_form==original.history.back().sheet_form,
+                "Finished corner View dimension failed placement or changed its independent definition");
+        }
+        const auto unchanged_revision=run("documents").data;inline_number(5.);
+        check(run("documents").data==unchanged_revision,"Unchanged corner View dimension created an Undo transaction");
+        for(double value:{-3.,4.,3.}) {run("undo");check(std::abs(saved().history.back().placement.x-value)<1e-8,"Corner View dimension Undo failed");}
+        for(double value:{4.,-3.,5.}) {run("redo");check(std::abs(saved().history.back().placement.x-value)<1e-8,"Corner View dimension Redo failed");}
+        for(int i=0;i<3;++i)run("undo");flush();
+        const std::string station_key="parameter:placement:reference_offset:2";
+        window.toggle_parameter_value_lock(id,station_key);flush();
+        check(window.parameter_value_locked(id,station_key).value_or(false),"Corner station value lock is unavailable");
+        const auto locked_revision=run("documents").data;
+        window.edit_dimension_inline(inline_candidate());flush();
+        check(!window.findChild<QLineEdit*>("inlineDimensionValueEdit")&&run("documents").data==locked_revision,
+            "Locked corner station opened an editor or changed the document");
+        window.toggle_parameter_value_lock(id,station_key);flush();
+        check(!window.parameter_value_locked(id,station_key).value_or(true),"Corner station did not unlock");
+        run("save");
+        if(dimensions_only) {
+            std::vector<kernel::BodyResult> reopened;const auto native=document::PartDocument::load(path,&reopened);
+            check(std::abs(native.history.back().placement.x-3.)<1e-8&&!reopened.empty()&&
+                reopened.back().calculation_errors.empty(),"Corner View edit lost its calculated native state");
+            std::cout<<"Corner View dimensions: successive signed drafts and committed edits, fixed-plane rejection, Cancel, no-op, Undo/Redo and save/reopen passed\n";
+            return 0;
+        }
         run(QString::fromStdString(commands::Json{{"command","close"},{"arguments",{{"discard",true}}}}.dump()));
         check(window.open_document_path(QString::fromStdString(path.string())),"Corner FORM save/reopen failed");flush();
         check(std::abs(saved().history.back().placement.x-3.)<1e-8,"Corner reopen lost native placement");
@@ -194,6 +282,8 @@ Q_NEVER_INLINE static int verify_sheet_form_ui(QApplication& application,Assembl
         const auto* adapter=dialog->findChild<QWidget*>("sheetFormNativePlacementAdapter");
         check(adapter&&!adapter->isVisible(),"Form exposes its generic placement adapter");
         check(dialog->findChild<QDoubleSpinBox*>("sheetFormOffset1")&&dialog->findChild<QDoubleSpinBox*>("sheetFormOffset2"),"Form positioning offsets are missing");
+        auto* support_offset=dialog->findChild<QDoubleSpinBox*>("sheetFormOffset0");
+        check(support_offset&&!support_offset->isEnabled()&&support_offset->value()==0.,"FORM support offset must display disabled zero");
         dialog->buttons()->button(QDialogButtonBox::Cancel)->click();flush();
         check(!native().first.find_container(canceled),"FORM creation Cancel inserted history");
         dialog=open();check(dialog->windowFlags().testFlag(Qt::SubWindow),"FORM Properties are not an internal SubWindow");
@@ -218,8 +308,8 @@ Q_NEVER_INLINE static int verify_sheet_form_ui(QApplication& application,Assembl
         check(placement_table->columnCount()==4,"FORM retained its redundant geometry-description column");
         check(!placement_table->cellWidget(0,0)->findChild<QLabel*>()->isVisible(),
             "Completed required FORM support retained its entry arrow");
-        check(!placement_table->cellWidget(0,0)->findChild<QPushButton*>()->isVisible(),
-            "Required FORM support incorrectly exposes removal");
+        check(placement_table->cellWidget(0,0)->findChild<QPushButton*>()->isVisible(),
+            "Completed FORM support has no shared clear control");
         const QPointF input_point(placement_table->visualItemRect(placement_table->item(0,1)).center());
         for(const auto type:{QEvent::MouseButtonPress,QEvent::MouseButtonRelease}) {
             QMouseEvent event(type,input_point,QPointF(placement_table->viewport()->mapToGlobal(input_point.toPoint())),Qt::LeftButton,
@@ -298,6 +388,18 @@ Q_NEVER_INLINE static int verify_sheet_form_ui(QApplication& application,Assembl
                 "Form offset edit tilted its sheet normal");
         }
         check(run("documents").data==revision,"Form reference/offset drafts committed a revision");
+        const auto complete_references=dialog->pending_value().placement.references;
+        dialog->set_reference_inspected(0,true);flush();
+        placement_table->cellWidget(0,0)->findChild<QPushButton*>()->click();flush();
+        check(!dialog->pending_value().sheet_form.support.valid()&&dialog->pending_value().placement.references.empty()&&
+            !dialog->buttons()->button(QDialogButtonBox::Ok)->isEnabled()&&!angle->isEnabled(),"Cleared FORM support retained confirmation or rotation");
+        check(dialog->highlighted_reference_entries().empty()&&
+            dynamic_cast<ui::ReferenceCellItem*>(placement_table->item(0,1))->is_active_input(),"FORM clear failed inspection retirement or entry");
+        check(dialog->set_reference(0,complete_references[0],"Restored sheet face"),"FORM support cannot be restored");flush();
+        check(dialog->pending_value().placement.references==complete_references&&
+            dialog->buttons()->button(QDialogButtonBox::Ok)->isEnabled()&&angle->isEnabled(),"FORM support restoration lost references or offsets");
+        check(run("documents").data==revision,"FORM support clearing created a document revision");
+        pending=dialog->pending_value();
         const auto before_resize=placement_table->geometry();
         dialog->resize(dialog->width()+80,dialog->height()+80);flush();
         check(placement_table->geometry().y()==before_resize.y()&&placement_table->height()==before_resize.height(),
