@@ -2,6 +2,15 @@
 
 ## Scope and status
 
+Windows build **2026100905** is signed, published and independently verified.
+It adds exact IGES export and the retained planar Form pocket authoring guide.
+Six focused local suites, packaging/publisher tests, candidate/signed native
+smoke and seven isolated signed-package GUI scenarios pass. Public asset digests
+and update discovery from 2026100903 pass. The rejected reused candidate was
+superseded by a clean product rebuild. Existing Form algorithms, native formats
+and protected placement remain unchanged. Linux verification remains separate.
+See [the release record](releases/2026100905.md).
+
 Windows build **2026100901** is signed, published and independently verified.
 It adds the native closed-solid Corner Gusset 90 definition, two outer-face Bend
 placement, automatic cut/Shell and fixed `t` / `2t` transitions, including copied

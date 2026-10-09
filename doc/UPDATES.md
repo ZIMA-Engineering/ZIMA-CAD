@@ -1,5 +1,12 @@
 # Application updates
 
+Signed Windows [2026100905](releases/2026100905.md) was published at
+2026-10-09T12:22:49Z. Candidate/signed native smoke, production trust, seven
+packaged GUI scenarios and anonymous public asset hashes pass. The trusted
+2026100903 updater offers 2026100905 as installable without installing it during
+verification. Source tag and release assets remain immutable; Linux acceptance
+is separate.
+
 ## User workflow
 
 Settings contains **General**, **Updates** and **AI** sections in the existing internal
