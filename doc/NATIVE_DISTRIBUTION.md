@@ -941,3 +941,20 @@ packaged GUI scenarios. Production trust, all three public asset digests and
 update discovery from signed 2026100401 passed. The stable development BAT
 still launches the current local C++ build. User configuration and projects
 were preserved; Linux was not verified by this Windows acceptance.
+
+Signed Windows release [2026100903](releases/2026100903.md) was accepted and
+published on 2026-10-09 from immutable source tag `ZIMA-CAD-2026100903`
+(commit `9282e9a914d5c771f03e9e0a32c5f606c77fe5e3`). A clean committed-source
+build, dependency/archive gates, production trust and six isolated packaged GUI
+scenarios passed. Anonymous downloads match all three accepted asset digests;
+the signed 2026100901 updater offers 2026100903 as installable without installing
+it during this check. Corner Form confirmation measured 1.694 s and ordinary
+Form 2.230 s. Pattern/Mirror support, current-state centroid axes, unfolded
+corner suppression and clean copy previews are included. Disjoint ordinary
+Pattern batching passed exact geometry, property and reference comparisons.
+
+Cleanup removed 5,306,566,416 bytes of owned staging and unsigned duplicates.
+Accepted signed assets, reports, SDK/build, personal configuration and projects
+remain. The stable local development launcher is `zima-cad.bat`. This Windows
+acceptance does not verify Linux. No new UI strings or catalog keys were added;
+the focused five-language catalog validation passed.

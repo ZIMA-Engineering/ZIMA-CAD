@@ -401,3 +401,20 @@ verification installs nothing. Complete packaged corner Form confirmation
 measured 1.529 seconds and ordinary Form 1.536 with one result preparation.
 See [the release record](releases/2026100901.md) for supported Bend dimensions,
 the documented tight-bend limit, Sketcher scope, cleanup and Linux acceptance.
+
+Signed Windows release [2026100903](releases/2026100903.md) was accepted and
+published on 2026-10-09 from immutable source tag `ZIMA-CAD-2026100903`
+(commit `9282e9a914d5c771f03e9e0a32c5f606c77fe5e3`). A clean committed-source
+build, dependency/archive gates, production trust and six isolated packaged GUI
+scenarios passed. Anonymous downloads match all three accepted asset digests;
+the signed 2026100901 updater offers 2026100903 as installable without installing
+it during this check. Corner Form confirmation measured 1.694 s and ordinary
+Form 2.230 s. Pattern/Mirror support, current-state centroid axes, unfolded
+corner suppression and clean copy previews are included. Disjoint ordinary
+Pattern batching passed exact geometry, property and reference comparisons.
+
+Cleanup removed 5,306,566,416 bytes of owned staging and unsigned duplicates.
+Accepted signed assets, reports, SDK/build, personal configuration and projects
+remain. The stable local development launcher is `zima-cad.bat`. This Windows
+acceptance does not verify Linux. No new UI strings or catalog keys were added;
+the focused five-language catalog validation passed.
