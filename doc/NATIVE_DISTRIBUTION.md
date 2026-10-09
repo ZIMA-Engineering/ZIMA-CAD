@@ -2,6 +2,16 @@
 
 ## Scope and status
 
+Windows build **2026100906** is signed and published. It repairs failed-feature
+Save/reopen, supports connected closed planar 2D Sweep paths and includes the
+KAPSA driving-dimension repair. Fourteen focused native/GUI/localization suites,
+packaging/publisher regressions, candidate/signed native smoke and six isolated
+signed-package GUI scenarios pass. All three anonymous public asset digests,
+production trust and update discovery from 2026100905 pass. Existing native
+schema, protected placement and pinned OCCT
+remain unchanged; Linux acceptance is separate. See
+[the release record](releases/2026100906.md).
+
 Windows build **2026100905** is signed, published and independently verified.
 It adds exact IGES export and the retained planar Form pocket authoring guide.
 Six focused local suites, packaging/publisher tests, candidate/signed native
