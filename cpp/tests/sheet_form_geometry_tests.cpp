@@ -9,6 +9,9 @@
 #include <zima/kernel/stable_id.hpp>
 #include <zima/workspace/model_calculation.hpp>
 #include <zima/workspace/sheet_form_operations.hpp>
+#include <zima/workspace/derived_copy_operations.hpp>
+#include <zima/workspace/drawing_sources.hpp>
+#include <zima/workspace/sheet_state_operations.hpp>
 #include <nlohmann/json.hpp>
 #include <BRepTools.hxx>
 #include <BRep_Builder.hxx>
@@ -50,6 +53,7 @@
 #include <limits>
 #include <BRepBndLib.hxx>
 #include <Bnd_Box.hxx>
+#include "profile_solid_fixture.hpp"
 using namespace zima;
 namespace {
 class ProbeShellThickener:public BRepOffsetAPI_MakeThickSolid {
@@ -161,8 +165,215 @@ void verify_corner_transition_radii(const kernel::BodyResult& result,const std::
     check(cavity>0&&opposite>0,"Missing independently verified cavity/opposite circular transitions");
 }
 
+void verify_corner_axis(const document::PartDocument& part,const document::HistoryContainer& feature,
+        const kernel::BodyResult& result) {
+    using namespace kernel::sheet_material;
+    std::vector<kernel::ViewerAxis> axes;
+    for(const auto& axis:result.mesh.axes)if(axis.reference.owner_id==feature.id&&
+        axis.reference.semantic_key.starts_with("centerline:from:centroid:form:"))axes.push_back(axis);
+    check(axes.size()==1,"Corner requires one whole-profile centroid axis");
+    const auto& axis=axes.front();const auto operation=document::sheet_form_operation(part,feature);
+    const auto& request=std::get<kernel::SheetFormRequest>(operation.primitive);
+    const auto source_z=cross(request.source_x,request.source_normal),world_z=cross(request.x_direction,request.normal);
+    const auto source=[&](kernel::Vec3 point) {
+        const auto relative=sub(point,request.position);
+        return add(request.source_origin,add(mul(request.source_x,dot(relative,request.x_direction)),
+            add(mul(request.source_normal,dot(relative,request.normal)),mul(source_z,dot(relative,world_z)))));
+    };
+    const auto a=source(add(axis.point,mul(axis.direction,(axis.display_length-2.)*.5)));
+    const auto b=source(sub(axis.point,mul(axis.direction,(axis.display_length-2.)*.5)));
+    for(const auto& face:request.solid_opening_faces) {
+        const auto& plane=*face.surface;
+        near(std::min(std::abs(dot(sub(a,plane.origin),plane.axis)),std::abs(dot(sub(b,plane.origin),plane.axis))),0.);
+    }
+    near(dot(sub(source(axis.point),request.source_origin),request.source_x),0.);
+    check(std::ranges::none_of(result.mesh.points,[&](const auto& point) {
+        return point.reference.owner_id==feature.id&&point.reference.semantic_key.starts_with("profile:path-point:");
+    }),"Corner centroid axis added picking endpoints");
+}
+
 }
 int main(int argc,char** argv){try {
+    if(argc==3&&(std::string_view(argv[1])=="--compare-copy-batch"||
+        std::string_view(argv[1])=="--compare-ordinary-copy-batch")) {
+        auto part=document::PartDocument::create_default();
+        if(std::string_view(argv[1])=="--compare-ordinary-copy-batch") {
+            const auto mode=std::string_view(argv[2]);
+            const bool large=mode.starts_with("large");
+            auto stock=test::rectangular_feature(part,{large?1000.:100.,40,4});
+            auto source=test::rectangular_feature(part,{6,6,8});source.placement.x=large?-300.:-30.;
+            source.combine_mode=mode.ends_with("cut")?document::CombineMode::Subtract:document::CombineMode::Add;
+            part.history={stock,source};document::BodyHistoryGraph bodies;
+            static_cast<void>(bodies.create_body("Batch fixture"));
+            bodies.insert({document::PartHistoryKind::Feature,stock.id});bodies.insert({document::PartHistoryKind::Feature,source.id});part.set_body_history(bodies);
+            kernel::OcctKernel kernel;auto previous=workspace::calculate_part_with_resolved_references(kernel,part);
+            workspace::Workspace live;live.add_part(part,previous);
+            auto edit=workspace::prepare_derived_copy_edit(live,part.document_id,{},true);auto value=edit.initial;
+            value.parameters.source_id=source.id;value.parameters.pattern->linear[0].count=large?50:6;
+            value.parameters.pattern->linear[0].spacing=mode.starts_with("overlap")?2.:mode.starts_with("touch")?6.:12.;
+            check(workspace::commit_derived_copy(live,kernel,edit,value),"Ordinary batch fixture failed");
+            part=live.open_part(part.document_id)->session.document();
+        }else part=document::PartDocument::load(argv[2]);
+        const auto environment=[](const char* value) {
+#ifdef _WIN32
+            _putenv_s("ZIMA_CPP_COPY_SEQUENTIAL",value);
+#else
+            if(*value)setenv("ZIMA_CPP_COPY_SEQUENTIAL",value,1);else unsetenv("ZIMA_CPP_COPY_SEQUENTIAL");
+#endif
+        };
+        std::vector<kernel::BodyResult> results(2);
+        const bool batch_first=std::getenv("ZIMA_CPP_BATCH_FIRST")!=nullptr;
+        for(const bool sequential:{!batch_first,batch_first}) {
+            environment(sequential?"1":"");kernel::OcctKernel kernel;
+            const auto started=std::chrono::steady_clock::now();
+            auto candidate=part;auto calculated=workspace::calculate_part_with_resolved_references(kernel,candidate);
+            std::cout<<(sequential?"Sequential":"Batch")<<" cold calculation milliseconds="<<
+                std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now()-started).count()<<std::endl;
+            valid(calculated.back());results[sequential?0:1]=std::move(calculated.back());
+        }
+        environment("");const auto& a=results[0];const auto& b=results[1];
+        near(a.volume,b.volume);near(a.surface_area,b.surface_area);
+        check(a.volume_integrals.has_value()==b.volume_integrals.has_value(),"Batch lost volume integrals");
+        if(a.volume_integrals) {
+            near(a.volume_integrals->centroid.x,b.volume_integrals->centroid.x);
+            near(a.volume_integrals->centroid.y,b.volume_integrals->centroid.y);
+            near(a.volume_integrals->centroid.z,b.volume_integrals->centroid.z);
+            for(unsigned i=0;i<9;++i)near(a.volume_integrals->inertia[i],b.volume_integrals->inertia[i],1e-6+std::abs(a.volume_integrals->inertia[i])*1e-10);
+        }
+        const auto references=[](const kernel::BodyResult& result) {
+            const auto packet=document::serialize_body_result(result);
+            std::set<std::string> refs;
+            for(const auto& kind:{"faces","edges","vertices"})for(auto reference:packet.at("kernel_bindings").at(kind)) {
+                reference.erase("locator");refs.insert(std::string(kind)+reference.dump());
+            }
+            return refs;
+        };
+        check(references(a)==references(b),"Batch changed topology reference identities or sheet sides");
+        check(document::serialize_body_result(a).at("axes")==document::serialize_body_result(b).at("axes"),"Batch changed centroid axis identities or geometry");
+        TopoDS_Shape shapes[2];BRep_Builder builder;
+        for(unsigned i=0;i<2;++i){std::istringstream stream(results[i].kernel_shape);BRepTools::Read(shapes[i],stream,builder);}
+        for(unsigned i=0;i<2;++i) {
+            BRepAlgoAPI_Cut difference(shapes[i],shapes[1-i]);difference.Build();
+            check(difference.IsDone(),"Batch geometric equivalence comparison failed");
+            GProp_GProps properties;BRepGProp::VolumePropertiesGK(difference.Shape(),properties,1e-12,false,true);
+            near(properties.Mass(),0.);
+        }
+        std::cout<<"Sequential/batch exact topology identity, side, centroid axis, mass properties and two-way geometric difference passed\n";
+        return 0;
+    }
+    if((argc==3||argc==4)&&(std::string_view(argv[1])=="--verify-workspace-corner-copies"||
+        std::string_view(argv[1])=="--verify-workspace-corner-copy-matrix")) {
+        const bool matrix=std::string_view(argv[1])=="--verify-workspace-corner-copy-matrix";
+        std::vector<kernel::BodyResult> previous;auto part=document::PartDocument::load(argv[2],&previous);
+        const auto form=std::ranges::find_if(part.history.rbegin(),part.history.rend(),[&](const auto& f){return f.feature_kind==document::FeatureKind::SheetForm&&(argc==3||f.id==argv[3]);});
+        check(form!=part.history.rend(),"Missing corner Form");
+        const auto source=form->id;part.body_history.activate(part.body_owner_for_object(source)->scope.id);
+        const auto unchanged_input=document::serialize_body_result(previous.back());
+        for(unsigned scenario=0;scenario<(matrix?6u:2u);++scenario) {
+            const bool pattern=matrix?scenario<5:scenario==0;
+            if(std::getenv("ZIMA_CPP_CORNER_MIRROR_ONLY")&&pattern)continue;
+            workspace::Workspace live;live.add_part(part,previous);kernel::OcctKernel kernel;
+            const auto edit=workspace::prepare_derived_copy_edit(live,part.document_id,{},pattern);
+            auto value=edit.initial;value.parameters.source_id=source;
+            if(pattern) {value.parameters.pattern->linear[0].count=2;
+                value.parameters.pattern->linear[0].spacing=30.;
+                auto& direction=value.parameters.pattern->linear[0];
+                if(matrix&&scenario==1){direction.count=4;direction.spacing=20.;}
+                if(matrix&&scenario==2)direction.distribution=kernel::PatternDistribution::Reverse;
+                if(matrix&&scenario==3)direction.distribution=kernel::PatternDistribution::Both;
+                if(matrix&&scenario==4){direction.distribution=kernel::PatternDistribution::Symmetric;direction.count=3;}
+            }
+            else {value.parameters.reference={{},value.id+":origin","origin:plane:yz"};value.placement.x=15.;}
+            if(!pattern)std::cout<<"Mirror pending source="<<source<<" x="<<value.placement.x<<" reference="<<value.parameters.reference.semantic_key<<std::endl;
+            const auto started=std::chrono::steady_clock::now();
+            check(workspace::commit_derived_copy(live,kernel,edit,value),"Copy did not commit");
+            std::cout<<(pattern?"Pattern":"Mirror")<<" workspace milliseconds="<<std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now()-started).count()<<std::endl;
+            auto* state=live.open_part(part.document_id);const auto& result=state->session.calculated_boundaries().back();valid(result);
+            verify_corner_axis(state->session.document(),*state->session.document().find_container(source),result);
+            check(std::ranges::any_of(result.mesh.axes,[&](const auto& axis){return axis.reference.owner_id==value.id&&axis.reference.semantic_key.starts_with("centerline:from:centroid:copy:");}),"Copied Form centroid axis missing");
+            const auto annotations=workspace::drawing_annotation_sources(&live,part.document_id,{});
+            drawing::DrawingView view;view.id="corner-axis-view";view.source_document_id=part.document_id;
+            drawing::refresh_model_annotations(view,annotations);
+            check(std::ranges::any_of(view.model_annotations,[&](const auto& item) {
+                return item.kind==drawing::ModelAnnotationKind::Axis&&item.source.owner_id==value.id&&
+                    item.source.semantic_id.starts_with("centerline:from:centroid:copy:");
+            }),"Drawing did not offer copied Form centroid axis");
+            for(const auto& item:view.model_annotations)if(item.kind==drawing::ModelAnnotationKind::Axis&&item.source.owner_id==value.id) {
+                const auto axis=std::ranges::find_if(result.mesh.axes,[&](const auto& value){return value.reference.owner_id==item.source.owner_id&&value.reference.semantic_key==item.source.semantic_id;});
+                check(axis!=result.mesh.axes.end()&&item.model_axis.has_value(),"Drawing axis lost its exact model geometry");
+                const auto delta=kernel::sheet_material::sub((*item.model_axis)[1],(*item.model_axis)[0]);
+                near(std::sqrt(kernel::sheet_material::dot(delta,delta)),axis->display_length);
+            }
+            const auto reuse_started=std::chrono::steady_clock::now();
+            const auto reused=kernel.evaluate_history_incremental(state->session.document().kernel_operations(),state->session.calculated_boundaries());
+            check(document::serialize_body_result(reused.back())==document::serialize_body_result(result),
+                "Unchanged corner-copy reuse changed geometry, properties or references");
+            std::cout<<"Unchanged corner-copy reuse milliseconds="<<std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now()-reuse_started).count()<<std::endl;
+            const auto revision=state->session.revision();
+            const auto unchanged=workspace::prepare_derived_copy_edit(live,part.document_id,value.id,pattern);
+            check(!workspace::commit_derived_copy(live,kernel,unchanged,unchanged.initial)&&state->session.revision()==revision,"Unchanged copy changed geometry or history");
+            const auto path=std::filesystem::path("build/form-diagnostic")/(pattern?"workspace-corner-pattern.prtz":"workspace-corner-mirror.prtz");
+            state->session.document().save(path,state->session.calculated_boundaries());
+            std::vector<kernel::BodyResult> reopened;auto saved=document::PartDocument::load(path,&reopened);valid(reopened.back());near(reopened.back().volume,result.volume);
+            if(matrix)state->session.document().save(std::filesystem::path("build/form-diagnostic")/("corner-copy-case-"+std::to_string(scenario)+".prtz"),state->session.calculated_boundaries());
+            auto calculated=workspace::calculate_part_with_resolved_references(kernel,saved,&reopened);valid(calculated.back());near(calculated.back().volume,result.volume);
+            check(state->session.undo()&&!state->session.document().find_container(value.id),"Corner copy Undo failed");
+            check(state->session.redo()&&state->session.document().find_container(value.id),"Corner copy Redo failed");
+            if(scenario==0) {
+                auto changed=workspace::prepare_derived_copy_edit(live,part.document_id,value.id,true);auto increased=changed.initial;
+                increased.parameters.pattern->linear[0].count=3;
+                const auto old_volume=state->session.calculated_boundaries().back().volume;
+                const auto input_document=state->session.document().serialized();const auto input_revision=state->session.revision();
+                bool edited=false;
+                try {edited=workspace::commit_derived_copy(live,kernel,changed,increased);}
+                catch(const std::exception&) {
+                    check(state->session.document().serialized()==input_document&&state->session.revision()==input_revision,
+                        "Rejected overlapping copy edit changed the document");
+                    std::cout<<"Increasing count intersected another Form; atomic rejection verified, retrying reverse direction\n";
+                    increased.parameters.pattern->linear[0].distribution=kernel::PatternDistribution::Reverse;
+                    edited=workspace::commit_derived_copy(live,kernel,changed,increased);
+                }
+                check(edited,"Changed copy incorrectly reused previous result");
+                valid(state->session.calculated_boundaries().back());
+                check(std::abs(state->session.calculated_boundaries().back().volume-old_volume)>1e-5,"Changed copy count did not change geometry");
+                check(state->session.undo(),"Changed copy Undo failed");
+                auto unfold=document::PartDocument::create_sketch_container();unfold.feature_kind=document::FeatureKind::Unbend;unfold.sheet_state.all=true;
+                check(workspace::commit_sheet_state(live,kernel,part.document_id,unfold),"Corner-copy Unbend did not commit");
+                const auto& flat=state->session.calculated_boundaries().back();valid(flat);
+                check(std::ranges::none_of(state->session.body_context_mesh().axes,[](const auto& axis){return kernel::sheet_material::is_form_centroid_axis(axis.reference);}),"Flat Body context resurrected a persisted corner centroid axis");
+                check(std::ranges::none_of(flat.mesh.axes,[](const auto& axis){return kernel::sheet_material::is_form_centroid_axis(axis.reference);}),"Flat View retained a corner centroid axis");
+                check(std::ranges::none_of(flat.mesh.edges,[](const auto& edge){return edge.reference.semantic_key.starts_with("form:symbol:");}),"Flat View retained a corner manufacturing symbol");
+                const auto flat_path=std::filesystem::path("build/form-diagnostic/workspace-corner-flat.prtz");
+                state->session.document().save(flat_path,state->session.calculated_boundaries());
+                std::vector<kernel::BodyResult> flat_cache;auto flat_part=document::PartDocument::load(flat_path,&flat_cache);
+                workspace::Workspace flat_live;flat_live.add_part(flat_part,flat_cache);
+                const auto flat_annotations=workspace::drawing_annotation_sources(&flat_live,part.document_id,{});
+                for(const auto& annotations:flat_annotations) {
+                    check(std::ranges::none_of(annotations.axes,[](const auto& axis){return kernel::sheet_material::is_form_centroid_axis(axis.reference);}),"Flat Drawing offered a corner centroid axis");
+                    check(std::ranges::none_of(annotations.symbols,[](const auto& symbol){return symbol.symbol.id.starts_with("form:symbol:");}),"Flat Drawing offered a corner manufacturing symbol");
+                }
+                drawing::refresh_model_annotations(view,flat_annotations);
+                check(std::ranges::all_of(view.model_annotations,[](const auto& item) {
+                    return !item.source.semantic_id.starts_with("centerline:from:centroid:")||item.unresolved;
+                }),"Flat Drawing retained a resolved spatial corner axis");
+                auto restore=document::PartDocument::create_sketch_container();restore.feature_kind=document::FeatureKind::BendBack;restore.sheet_state.all=true;
+                check(workspace::commit_sheet_state(live,kernel,part.document_id,restore),"Corner-copy Bend Back did not commit");
+                verify_corner_axis(state->session.document(),*state->session.document().find_container(source),state->session.calculated_boundaries().back());
+                drawing::refresh_model_annotations(view,workspace::drawing_annotation_sources(&live,part.document_id,{}));
+                check(std::ranges::any_of(view.model_annotations,[&](const auto& item) {
+                    return item.source.owner_id==value.id&&item.source.semantic_id.starts_with("centerline:from:centroid:copy:")&&!item.unresolved;
+                }),"Bend Back did not restore the copied Drawing axis");
+                check(state->session.undo()&&state->session.undo(),"Corner-copy material state Undo failed");
+                auto bad=workspace::prepare_derived_copy_edit(live,part.document_id,{},true);auto invalid=bad.initial;
+                invalid.parameters.source_id=source;invalid.parameters.pattern->linear[0].spacing=10000.;
+                const auto before=state->session.document().serialized();const auto revision_before=state->session.revision();bool rejected=false;
+                try {static_cast<void>(workspace::commit_derived_copy(live,kernel,bad,invalid));}catch(const std::exception&){rejected=true;}
+                check(rejected&&before==state->session.document().serialized()&&revision_before==state->session.revision(),"Disconnected copy changed the document");
+            }
+            check(document::serialize_body_result(previous.back())==unchanged_input,"Copy workflow mutated shared source boundary cache");
+        }
+        return 0;
+    }
     if(argc==5&&std::string_view(argv[1])=="--replace-corner-definition") {
         std::vector<kernel::BodyResult> previous;auto part=document::PartDocument::load(argv[2],&previous);
         const auto source=document::read_sheet_form_definition(argv[3]);
@@ -714,14 +925,41 @@ int main(int argc,char** argv){try {
                                 2.*(single.back().volume-stock_result.back().volume),tolerance);
                             kernel::HistoryOperation unfold{"corner-unfold",kernel::SheetStateRequest{true,true,{}}};unfold.body=operation.body;
                             chain.push_back(unfold);const auto flat=kernel.evaluate_history_incremental(chain,copies);valid(flat.back());
+                            check(std::ranges::none_of(flat.back().mesh.axes,[](const auto& axis) {
+                                return axis.reference.semantic_key.starts_with("centerline:from:centroid:form:")||
+                                    axis.reference.semantic_key.starts_with("centerline:from:centroid:copy:");
+                            }),"Unbend retained a spatial Form centroid axis");
                             std::cout<<"Corner Unbend validated\n";
                             near(flat.back().volume,flat_stock.back().volume,tolerance);
                             const auto symbols=kernel::sheet_material::form_symbol_edges(chain,kernel::sheet_material::regions_before(chain,chain.size()));
-                            check(symbols.size()==2*request.symbol_edges.size(),"Corner copied flat symbols lost curves");
+                            check(symbols.empty(),"Corner formed during bending retained a flat manufacturing symbol");
                             auto restore=unfold;restore.owner_id="corner-bend-back";restore.primitive=kernel::SheetStateRequest{false,true,{}};
                             chain.push_back(restore);const auto restored=kernel.evaluate_history_incremental(chain,flat);valid(restored.back());
                             near(restored.back().volume,copies.back().volume,tolerance);
+                            for(const auto& axis:copies.back().mesh.axes)if(axis.reference.semantic_key.starts_with("centerline:from:centroid:"))
+                                check(std::ranges::any_of(restored.back().mesh.axes,[&](const auto& value) {
+                                    return value.reference==axis.reference&&value.point==axis.point&&
+                                        value.direction==axis.direction&&value.display_length==axis.display_length;
+                                }),
+                                    "Bend Back changed Form centroid axis geometry or identity");
                             std::cout<<"Rounded corner "<<(mirror?"Mirror":"Pattern")<<", flat symbols, Unbend and Bend Back passed\n";
+                            auto flat_chain=stock_ops;flat_chain.push_back(placed);flat_chain.push_back(unfold);
+                            const auto single_flat=kernel.evaluate_history_incremental(flat_chain,single);
+                            flat_chain.push_back(copy);const auto flat_copies=kernel.evaluate_history_incremental(flat_chain,single_flat);valid(flat_copies.back());
+                            check(std::ranges::none_of(flat_copies.back().mesh.axes,[](const auto& axis) {
+                                return axis.reference.semantic_key.starts_with("centerline:from:centroid:form:")||
+                                    axis.reference.semantic_key.starts_with("centerline:from:centroid:copy:");
+                            }),"Copy created after Unbend published a spatial axis");
+                            flat_chain.push_back(restore);const auto folded_copies=kernel.evaluate_history_incremental(flat_chain,flat_copies);valid(folded_copies.back());
+                            near(folded_copies.back().volume,copies.back().volume,tolerance);
+                            for(const auto& axis:copies.back().mesh.axes)if(axis.reference.semantic_key.starts_with("centerline:from:centroid:")) {
+                                const auto found=std::ranges::find(folded_copies.back().mesh.axes,axis.reference,&kernel::ViewerAxis::reference);
+                                check(found!=folded_copies.back().mesh.axes.end(),"Copy created after Unbend lost its centroid-axis ancestry");
+                                near(found->point.x,axis.point.x);near(found->point.y,axis.point.y);near(found->point.z,axis.point.z);
+                                near(found->direction.x,axis.direction.x);near(found->direction.y,axis.direction.y);near(found->direction.z,axis.direction.z);
+                                near(found->display_length,axis.display_length);
+                            }
+                            std::cout<<"Rounded corner copy after Unbend: geometry and folded centroid axes passed\n";
                         }
                     }
                 }

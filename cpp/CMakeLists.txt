@@ -1859,6 +1859,14 @@ if(ZIMA_BUILD_TESTS)
     set(corner_form_library "config/lib/01-SHEETMETAL/01-FORM/CornerGusset90.prtz")
     add_test(NAME zima_cpp_corner_form_roundtrip_copy_tests COMMAND zima_cpp_sheet_form_geometry_tests --verify-solid-corner "${corner_form_library}" 1 1)
     set_tests_properties(zima_cpp_corner_form_roundtrip_copy_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." RUN_SERIAL TRUE TIMEOUT 600 FIXTURES_SETUP corner_form_native)
+    add_test(NAME zima_cpp_corner_form_workspace_copy_tests COMMAND zima_cpp_sheet_form_geometry_tests
+        --verify-workspace-corner-copy-matrix "build/form-diagnostic/CornerGusset90Placed.prtz")
+    set_tests_properties(zima_cpp_corner_form_workspace_copy_tests PROPERTIES
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." RUN_SERIAL TRUE TIMEOUT 600 FIXTURES_REQUIRED corner_form_native)
+    foreach(copy_case IN ITEMS add cut overlap-add overlap-cut touch-add touch-cut large-add large-cut)
+        add_test(NAME "zima_cpp_ordinary_copy_batch_${copy_case}" COMMAND zima_cpp_sheet_form_geometry_tests --compare-ordinary-copy-batch "${copy_case}")
+        set_tests_properties("zima_cpp_ordinary_copy_batch_${copy_case}" PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." RUN_SERIAL TRUE TIMEOUT 60)
+    endforeach()
     add_test(NAME zima_cpp_corner_form_ui_contract COMMAND zima-cad-cpp --verify-startup)
     set_tests_properties(zima_cpp_corner_form_ui_contract PROPERTIES
         WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." RUN_SERIAL TRUE TIMEOUT 360

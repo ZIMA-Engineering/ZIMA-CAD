@@ -1099,6 +1099,18 @@ Already inserted copies of the earlier definitions require explicit
 keeps its parameters for correction; smaller radii are not substituted.
 These cases do not establish support for every definition or Bend dimension.
 
+Select a corner Form and use the ordinary Pattern or Mirror command. Linear
+Pattern starts with its own X direction; choose spacing and count that keep
+the copies connected to the sheet. Corner copies retain their forming geometry
+in the formed state. The visible corner axis follows the extrusion
+through the source Sketch centroid, covers the physical path with a small end
+overhang and is carried into model annotations. It adds no endpoint picking
+markers. The corner gusset is formed during bending: Unbend shows only the
+original stock, without its shape, axis or manufacturing symbol. This also
+applies to Drawing views; Bend Back restores the formed geometry and axis.
+Planar Form retains its flat manufacturing symbol. Pattern/Mirror previews hide
+the same surface seams and smooth transition joints as the ordinary View.
+
 The first placement reference can be cleared and replaced; its offset is a
 disabled zero. Edit a displayed placement offset directly in the View or in
 Properties. Changes made while Properties is open remain pending until OK;

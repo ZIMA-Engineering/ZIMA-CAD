@@ -12,6 +12,20 @@ pairs and five tight-bend acceptance cases (`Ri = t`, `t = 0.5, 1, 2, 3, 4` mm).
 The compact source profile is 16 mm wide and 12 mm deep. Verify both side/orientation
 choices, embedded definition replacement, Unbend symbols, Bend Back, Pattern,
 Mirror, exact BRep validity and independently calculated volume/tensor data.
+Run `zima_cpp_corner_form_workspace_copy_tests` and the extended corner GUI
+contract, including default X, reverse/both/symmetric distributions, Mirror,
+unchanged OK, failed-copy atomicity and save/reopen. Check the source-centroid
+axis and copied axis identities, short physical extents, Drawing annotations
+and suppression of corner geometry, axes and symbols during Unbend in View and
+Drawing. Check copies created after Unbend, restored axes on Bend Back, and
+parameter seams/smooth joints hidden in the Pattern/Mirror preview.
+Run the eight `zima_cpp_ordinary_copy_batch_*` checks and both ordinary derived
+copy GUI contracts. Disjoint operands use a compound; overlapping or touching
+bounds retain sequential handling. Compare complete topology identities,
+material-side metadata, axes, properties and two-way geometric differences.
+Corner Form batching was measured and rejected on Windows; it is not enabled.
+The copy preparation uses
+the exact removed/added material delta; no tolerance has been relaxed.
 Run the ordinary Form/Shell/Fillet/Thicken Surface suites too. There is no kernel
 pin, native schema or protected shared placement change.
 

@@ -1205,7 +1205,9 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
                 primitive_origin_preview_mesh_->original_references.points.clear();
                 for(auto* axes:{&primitive_origin_preview_mesh_->axes,
                                &primitive_origin_preview_mesh_->original_references.axes})
-                    for(auto& axis:*axes)axis.display_length=10.;
+                    if(zima::document::stored_sheet_form_definition(resolved_preview.sheet_form).corner())
+                        std::erase_if(*axes,[&](const auto& axis){return axis.reference.owner_id==resolved_preview.id&&axis.reference.semantic_key=="axis";});
+                    else for(auto& axis:*axes)axis.display_length=10.;
             }
             if(zima::document::has_origin_display_controls(resolved_preview.feature_kind))
                 primitive_origin_preview_mesh_->points.push_back(zima::document::container_origin_marker(resolved_preview,true));

@@ -4,18 +4,29 @@ Q_NEVER_INLINE static int verify_corner_sheet_form_ui(QApplication& application,
     try {
         const auto check=[](bool ok,const char* message){if(!ok)throw std::runtime_error(message);};
         const auto flush=[&]{application.processEvents();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);application.processEvents();};
+        struct CursorRestore {QPoint position=QCursor::pos();~CursorRestore(){QCursor::setPos(position);}} restore_cursor;
         const auto run=[&](const QString& command){const auto result=window.execute_console_command(command);check(result.ok,result.message.c_str());return result;};
         const auto preview_only=qEnvironmentVariableIsSet("ZIMA_CORNER_FORM_PREVIEW_ONLY");
         const auto dimensions_only=qEnvironmentVariableIsSet("ZIMA_CORNER_FORM_DIMENSIONS_ONLY");
-        const auto input=std::filesystem::absolute(preview_only?"build/form-diagnostic/CornerBodyCutPreview.prtz":"build/form-diagnostic/CornerGusset90Placed.prtz");
+        const auto custom_input=qEnvironmentVariable("ZIMA_CORNER_FORM_INPUT");
+        const auto input=std::filesystem::absolute(custom_input.isEmpty()?
+            (preview_only?"build/form-diagnostic/CornerBodyCutPreview.prtz":"build/form-diagnostic/CornerGusset90Placed.prtz"):custom_input.toStdString());
         std::vector<kernel::BodyResult> cache;const auto original=document::PartDocument::load(input,&cache);
         const auto path=directory/"corner-form-ui.prtz";original.save(path,cache);
         const auto id=original.history.back().id;
         check(preview_only||original.history.back().feature_kind==document::FeatureKind::SheetForm,"Missing corner FORM fixture");
         window.showMaximized();check(window.open_document_path(QString::fromStdString(path.string())),"Corner FORM could not open");flush();
+        // Native hover events must not replace a synthetic View probe. Finish
+        // camera transitions before fixing the probe's frame, as in other GUI
+        // contracts; a moving camera changes the face underneath a test click.
+        QCursor::setPos(window.mapToGlobal(QPoint(5,5)));flush();
         run(QString::fromStdString("body.activate "+original.body_history.bodies().front().scope.id));flush();
         auto* mode=window.findChild<QAction*>("applicationModeAction2");check(mode,"Sheet workspace missing");mode->trigger();flush();
         auto* view=dynamic_cast<viewer::MeshView*>(window.findChild<QOpenGLWidget*>());check(view,"Corner View missing");
+        const auto finish_camera=[&] {
+            for(auto* animation:view->findChildren<QVariantAnimation*>())animation->setCurrentTime(animation->duration());
+            flush();
+        };
         if(preview_only) {
             std::ifstream packet("build/form-diagnostic/CornerBodyCutPreview.json");nlohmann::json value;packet>>value;
             const auto result=document::load_body_result(value);view->set_mesh(result.mesh);flush();
@@ -23,6 +34,7 @@ Q_NEVER_INLINE static int verify_corner_sheet_form_ui(QApplication& application,
         for(const auto kind:{viewer::ReferenceVisibility::Origins,viewer::ReferenceVisibility::Planes,
             viewer::ReferenceVisibility::Sketches,viewer::ReferenceVisibility::Dimensions})view->set_reference_visibility(kind,false);
         const auto render=[&](const char* suffix,float rx,float ry,float rz) {
+            finish_camera();
             view->fit_all();auto camera=view->camera_state();const auto rotation=QQuaternion::fromEulerAngles(rx,ry,rz);
             camera[0]=rotation.scalar();camera[1]=rotation.x();camera[2]=rotation.y();camera[3]=rotation.z();view->set_camera_state(camera);
             view->set_display_mode(viewer::DisplayMode::ShadedWithEdges);flush();
@@ -191,12 +203,22 @@ Q_NEVER_INLINE static int verify_corner_sheet_form_ui(QApplication& application,
         for(unsigned reference=0;reference<2;++reference) {
             const auto& wanted=original.history.back().placement.references[reference];bool found=false;
             for(float rx:{135.f,-45.f,45.f,-135.f}) {
+                finish_camera();
                 view->fit_all();auto camera=view->camera_state();const auto rotation=QQuaternion::fromEulerAngles(rx,0,25);
                 camera[0]=rotation.scalar();camera[1]=rotation.x();camera[2]=rotation.y();camera[3]=rotation.z();view->set_camera_state(camera);flush();
                 for(int y=15;y<view->height()&&!found;y+=25)for(int x=15;x<view->width()&&!found;x+=25) {
-                    const QPointF point{double(x),double(y)};mouse(point,QEvent::MouseMove,Qt::NoButton,Qt::NoButton);
-                    const auto candidate=view->hovered_candidate();
-                    if(!candidate||candidate->kind!=viewer::CandidateKind::Face||candidate->owner_id!=wanted.owner_id||candidate->semantic_key!=wanted.semantic_key)continue;
+                    const QPointF point{double(x),double(y)};
+                    const auto matches=[&](const auto& candidate){return candidate.kind==viewer::CandidateKind::Face&&candidate.owner_id==wanted.owner_id&&candidate.semantic_key==wanted.semantic_key;};
+                    const auto offered=view->selection_candidates_at(point);
+                    if(std::ranges::none_of(offered,matches))continue;
+                    mouse(point,QEvent::MouseMove,Qt::NoButton,Qt::NoButton);
+                    auto candidate=view->hovered_candidate();
+                    for(std::size_t cycle=0;candidate&&!matches(*candidate)&&cycle<offered.size();++cycle) {
+                        mouse(point,QEvent::MouseButtonPress,Qt::RightButton,Qt::RightButton);
+                        mouse(point,QEvent::MouseButtonRelease,Qt::RightButton,Qt::NoButton);
+                        candidate=view->hovered_candidate();
+                    }
+                    check(candidate&&matches(*candidate),"Corner RMB did not offer the expected outer plane");
                     mouse(point,QEvent::MouseButtonPress,Qt::LeftButton,Qt::LeftButton);mouse(point,QEvent::MouseButtonRelease,Qt::LeftButton,Qt::NoButton);
                     const auto pending=dialog->pending_value();
                     check(pending.placement.references.at(reference).owner_id==candidate->owner_id&&pending.placement.references.at(reference).semantic_key==candidate->semantic_key,
@@ -209,18 +231,86 @@ Q_NEVER_INLINE static int verify_corner_sheet_form_ui(QApplication& application,
         const auto point=original.history.back().placement.references[2];
         check(dialog->set_reference(2,point,"Bend station datum"),"Corner station entry failed");flush();
         check(dialog->buttons()->button(QDialogButtonBox::Ok)->isEnabled(),"Complete corner creation cannot confirm");
+        check(std::ranges::none_of(view->mesh().axes,[&](const auto& axis){return axis.reference.owner_id==created_id&&axis.reference.semantic_key=="axis";}),
+            "Corner preview retained arbitrary placement axis");
         QElapsedTimer confirmation;confirmation.start();dialog->buttons()->button(QDialogButtonBox::Ok)->click();closed();
         std::cout<<"Corner GUI confirmation milliseconds="<<confirmation.elapsed()<<'\n';run("save");
         std::vector<kernel::BodyResult> created_cache;auto created=document::PartDocument::load(stock_path,&created_cache);
         check(created.find_container(created_id),"Corner GUI creation did not persist");
         check(!created_cache.empty()&&created_cache.back().calculation_errors.empty()&&
             std::abs(created_cache.back().volume-stock_result.back().volume)>1.,"Corner GUI creation retained an error or unchanged stock");
+        check(std::ranges::count_if(created_cache.back().mesh.axes,[&](const auto& axis) {
+            return axis.reference.owner_id==created_id&&axis.reference.semantic_key.starts_with("centerline:from:centroid:form:");
+        })==1,"Corner GUI creation did not publish one whole-profile centroid axis");
+        view->set_reference_visibility(viewer::ReferenceVisibility::Axes,true);flush();
         render("created-inside",-45,0,25);render("created-outside",135,0,25);
         run("undo");run("save");check(!document::PartDocument::load(stock_path).find_container(created_id),"Corner creation Undo failed");
         run("redo");run("save");check(document::PartDocument::load(stock_path).find_container(created_id),"Corner creation Redo failed");
         run(QString::fromStdString(commands::Json{{"command","close"},{"arguments",{{"discard",true}}}}.dump()));
         check(window.open_document_path(QString::fromStdString(stock_path.string())),"Created corner could not reopen");flush();
-        std::cout<<"Corner FORM GUI: creation, exact hover/click planes, definition replacement, rollback/inspection, Cancel, unchanged OK, longitudinal placement, Undo/Redo and save/reopen passed\n";return 0;
+        const auto copy_row=[&](const std::string& wanted){for(QTreeWidgetItemIterator it(tree);*it;++it)
+            if((*it)->data(0,Qt::UserRole).toString().toStdString()==wanted&&(*it)->data(0,Qt::UserRole+3)=="part-container")return *it;
+            return static_cast<QTreeWidgetItem*>(nullptr);};
+        for(bool pattern:{true,false}) {
+            check(copy_row(created_id),"Corner copy source missing from Tree");tree->setCurrentItem(copy_row(created_id));flush();
+            auto* action=window.findChild<QAction*>(pattern?"patternAction":"mirrorAction");
+            check(action&&action->isEnabled(),"Corner copy command disabled");action->trigger();flush();
+            auto* copy=dynamic_cast<DerivedCopyDialog*>(window.findChild<QDialog*>(pattern?"patternDialog":"mirrorDialog"));
+            check(copy&&copy->derived_copy.source_id==created_id,"Corner copy did not prefill selected feature");
+            if(pattern) {
+                check(copy->derived_copy.pattern->linear[0].local_axis==0,"Default Pattern direction is not X");
+                copy->findChild<QSpinBox*>("patternCount0")->setValue(2);
+                copy->findChild<QDoubleSpinBox*>("patternSpacing0")->setValue(30.);
+            }else {
+                copy->findChild<QDoubleSpinBox*>("sweepTranslation0")->setValue(15.);
+                copy->findChild<QPushButton*>("mirrorPlane_yz")->click();
+            }
+            flush();const auto copy_id=copy->pending.id;
+            check(!view->transient_edges().empty(),"Corner copy preview is empty");
+            for(auto edge:view->transient_edges()) {
+                constexpr std::string_view split="boolean:form:split-edge:from:";
+                check(!edge.reference.semantic_key.starts_with(split)||
+                    edge.reference.semantic_key.starts_with(std::string(split)+std::to_string(created_id.size())+":"+created_id),
+                    "Corner copy preview translated a supporting stock-edge fragment");
+                edge.overlay=false;
+                check(!edge.parameter_seam&&!kernel::smooth_transition_junction(edge),"Corner copy preview exposed a hidden surface seam or smooth joint");
+            }
+            render(pattern?"pattern-preview":"mirror-preview",135,0,25);
+            check(copy->buttons()->button(QDialogButtonBox::Ok)->isEnabled(),"Corner copy cannot confirm");
+            QElapsedTimer copied;copied.start();copy->buttons()->button(QDialogButtonBox::Ok)->click();flush();
+            check(!window.findChild<QDialog*>(pattern?"patternDialog":"mirrorDialog"),"Corner copy failed to close after OK");
+            std::cout<<(pattern?"Corner GUI Pattern":"Corner GUI Mirror")<<" milliseconds="<<copied.elapsed()<<'\n';
+            check(copy_row(copy_id),"Corner copy did not commit to Tree");run("save");
+            std::vector<kernel::BodyResult> copied_cache;const auto copied_part=document::PartDocument::load(stock_path,&copied_cache);
+            check(copied_part.find_container(copy_id)&&copied_cache.back().calculation_errors.empty(),"Corner copy persisted an error");
+            window.show_tree_item_properties(copy_row(copy_id));flush();
+            copy=dynamic_cast<DerivedCopyDialog*>(window.findChild<QDialog*>(pattern?"patternDialog":"mirrorDialog"));
+            check(copy,"Corner copy Properties cannot reopen");
+            const auto unchanged=run("documents").data;copy->buttons()->button(QDialogButtonBox::Ok)->click();flush();
+            check(run("documents").data==unchanged,"Unchanged corner copy OK created an Undo revision");
+            run("undo");check(!copy_row(copy_id),"Corner copy Undo failed");run("redo");check(copy_row(copy_id),"Corner copy Redo failed");
+            run("undo");
+        }
+        for(bool unfold:{true,false}) {
+            auto* action=window.findChild<QAction*>(unfold?"unbendAction":"bendBackAction");
+            check(action&&action->isEnabled(),"Corner material-state command unavailable");action->trigger();flush();
+            auto* state=window.findChild<QDialog*>("sheetStateDialog");check(state,"Corner material-state Properties missing");
+            state->findChild<QCheckBox*>("sheetStateAll")->setChecked(true);flush();
+            state->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
+            check(!window.findChild<QDialog*>("sheetStateDialog"),"Corner material state did not commit");
+            const auto axes=std::ranges::count_if(view->mesh().axes,[&](const auto& axis) {
+                return axis.reference.owner_id==created_id&&kernel::sheet_material::is_form_centroid_axis(axis.reference);
+            });
+            std::cout<<"Corner GUI "<<(unfold?"Unbend":"Bend Back")<<" centroid axes="<<axes<<'\n';
+            if(axes!=(unfold?0:1)) {run("save");std::cout<<"Corner material-state diagnostic="<<stock_path.string()<<'\n';}
+            check(axes==(unfold?0:1),"Corner material state displayed the wrong centroid axis");
+            if(unfold) {
+                check(std::ranges::none_of(view->mesh().edges,[](const auto& edge){return edge.reference.semantic_key.starts_with("form:symbol:");}),
+                    "Corner formed during bending displayed a flat symbol");
+                render("created-flat",-45,0,25);
+            }
+        }
+        std::cout<<"Corner FORM GUI: creation, centroid axis, exact hover/click planes, definition replacement, rollback/inspection, Cancel, unchanged OK, longitudinal placement, Pattern/Mirror, Unbend/Bend Back display, Undo/Redo and save/reopen passed\n";return 0;
     }catch(const std::exception& error){window.grab().save(QString::fromStdString((directory/"corner-form-failure.png").string()));std::cerr<<"Corner FORM GUI: "<<error.what()<<'\n';return 1;}
 }
 

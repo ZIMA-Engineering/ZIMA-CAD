@@ -32,6 +32,7 @@
 #include <BRepBndLib.hxx>
 #include <gp_Ax3.hxx>
 #include <chrono>
+#include <charconv>
 #include <cstdio>
 #include <cstdlib>
 #include <BRepLib.hxx>
@@ -7244,6 +7245,13 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
             }
         };
         std::map<std::string,PrimitiveData> copy_operands;
+        // A settling pass after an in-Body Form copy needs only its completed
+        // result. Reuse the whole unchanged history when no caller requests
+        // a separate operand. Changed or extended histories still rebuild the
+        // operands at their real operation boundaries.
+        const bool reuse_complete_form_copy=has_forms&&context.requested_solids.empty()&&
+            operations.size()==previous_boundaries.size()&&!previous_boundaries.empty()&&
+            previous_boundaries.back().source_fingerprint==fingerprint(operations,operations.size());
         for(const auto& operation:operations)if(operation.feature_copy)
             context.requested_solids.insert(operation.feature_copy->source_feature_id);
         std::size_t matching_prefix = 0;
@@ -7251,10 +7259,26 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
             operations.size(), previous_boundaries.size());
         // Requested operands must be calculated with their real preceding
         // geometry (Through All / Up To included), not reconstructed in UI.
-        while (context.requested_solids.empty() && matching_prefix < available &&
+        while ((context.requested_solids.empty()||reuse_complete_form_copy) && matching_prefix < available &&
                previous_boundaries[matching_prefix].calculation_errors.empty() &&
                previous_boundaries[matching_prefix].source_fingerprint ==
                    fingerprint(operations, matching_prefix + 1)) {
+            // Native fingerprints describe authored inputs. Keep saved Parts
+            // readable without a calculation, but require the new centroid
+            // datum before explicitly reusing a calculated corner packet.
+            if(!operations[matching_prefix].suppressed)if(const auto* form=std::get_if<SheetFormRequest>(&operations[matching_prefix].primitive);
+                form&&!form->solid_opening_faces.empty()&&form->definition) {
+                const bool has_profile=std::ranges::any_of(*form->definition,[&](const auto& source) {
+                    if(source.body.id!=form->shape_body)return false;
+                    if(std::holds_alternative<ExtrusionRequest>(source.primitive))return true;
+                    const auto* group=std::get_if<FeatureGroupRequest>(&source.primitive);
+                    return group&&std::ranges::any_of(group->children,[](const auto& child){return std::holds_alternative<ExtrusionRequest>(child);});
+                });
+                if(has_profile&&!std::ranges::any_of(previous_boundaries.back().mesh.original_references.axes,[&](const auto& axis) {
+                    return axis.reference.owner_id==operations[matching_prefix].owner_id&&
+                        axis.reference.semantic_key.starts_with("centerline:from:centroid:form:");
+                }))break;
+            }
             // Capturing a calculated region guard must not recalculate the
             // same split. Check validation-only intent on cached packets too.
             if(!operations[matching_prefix].suppressed)if(const auto* trim=std::get_if<SurfaceTrimRequest>(&operations[matching_prefix].primitive))
@@ -7285,6 +7309,7 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
             compact_history_reference_geometry(reused);
             return reused;
         }
+        if(!context.requested_solids.empty())matching_prefix=0;
         std::size_t reusable_prefix = matching_prefix;
         if (std::any_of(operations.begin(), operations.end(), [](const auto& operation) {
                 return std::holds_alternative<ThreadSurfaceRequest>(
@@ -7921,6 +7946,14 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                             sheet_form_geometry::copy(source.operands.flat,transform,operation,region,index),
                             sheet_form_geometry::copy(source.operands.formed,transform,operation,region,index),
                             source.operands.rounded_corner};
+                        tools.axes=sheet_form_geometry::moved_axes(source.operands.axes,transform);
+                        for(auto& axis:tools.axes) {
+                            axis.reference.semantic_key="centerline:from:centroid:copy:region:"+
+                                std::to_string(region.size())+":"+region+":"+
+                                (patterned?"pattern:"+pattern_copy_id(pattern,index)+":" : std::string{})+
+                                mirror_source_key(axis.reference.owner_id,axis.reference.semantic_key);
+                            axis.reference.owner_id=operation.owner_id;axis.reference.instance_path.clear();
+                        }
                         changed=sheet_form_geometry::combine(changed,material->unfolded?tools.flat:tools.cut,true,operation,operations);
                         if(!material->unfolded)changed=sheet_form_geometry::combine(changed,tools.formed,false,operation,operations);
                         if(!tools.rounded_corner)
@@ -7936,7 +7969,16 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                     retain_originals(authored(changed.faces),authored(changed.edges),authored(changed.vertices));
                 }
                 TopTools_IndexedMapOfShape copied_solids;TopExp::MapShapes(changed.shape,TopAbs_SOLID,copied_solids);
-                if(copied_solids.Extent()!=1)throw std::runtime_error("FORM must remain connected to its supporting sheet.");
+                if(copied_solids.Extent()!=1) {
+                    if(std::getenv("ZIMA_CPP_FORM_PROFILE"))for(int index=1;index<=copied_solids.Extent();++index) {
+                        GProp_GProps properties;BRepGProp::VolumeProperties(copied_solids(index),properties);
+                        Bnd_Box box;BRepBndLib::AddOptimal(copied_solids(index),box,false,true);
+                        double x0,y0,z0,x1,y1,z1;box.Get(x0,y0,z0,x1,y1,z1);
+                        std::fprintf(stderr,"FORM disconnected solid volume=%.9g bounds=(%.9g,%.9g,%.9g)-(%.9g,%.9g,%.9g)\n",
+                            properties.Mass(),x0,y0,z0,x1,y1,z1);
+                    }
+                    throw std::runtime_error("FORM must remain connected to its supporting sheet.");
+                }
                 if(context.requested_solids.contains(operation.owner_id)) {
                     PrimitiveData copied;TopoDS_Compound compound;BRep_Builder builder;builder.MakeCompound(compound);
                     for(const auto& instance:copied_form_operands) {
@@ -7951,6 +7993,8 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                 owned_topology=std::make_shared<LiveCache::Topology>(LiveCache::Topology{
                     std::move(changed.faces),std::move(changed.edges),std::move(changed.vertices),{}});
                 auto boundary=make_operation_result(result_shape,owned_topology->faces,owned_topology->edges,owned_topology->vertices,true,persist_boundary_shape,true);
+                for(const auto& instance:copied_form_operands)
+                    original_references.axes.insert(original_references.axes.end(),instance.operands.axes.begin(),instance.operands.axes.end());
                 append_reference_geometry(original_references,reference_geometry_for_owners(boundary.mesh.original_references,{operation.owner_id}));
                 boundary.mesh.original_references=original_references;
                 if(!boundaries.empty())boundary.sheet_cuts=boundaries.back().sheet_cuts;
@@ -7980,6 +8024,7 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                 if((definitions.empty()&&!form->surface_snapshot&&!form->solid_cut_snapshot)||
                     (!definitions.empty()&&!definitions.back().calculation_errors.empty()))
                     throw std::runtime_error("FORM definition calculation failed.");
+                std::vector<ViewerAxis> shape_axes;PrimitiveData closed_corner;
                 const auto body=[&](const std::string& id,std::string_view role) {
                     if(id.empty())return PrimitiveData{};
                     PrimitiveData source;
@@ -7992,10 +8037,25 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                             if(history_fingerprint(shell_history,shell_history.size())==form->solid_cut_snapshot->source_fingerprint) {matched=true;break;}
                         }
                         if(!matched)throw std::runtime_error("FORM definition calculation failed.");
+                        // Reuse ordinary profile-centroid calculation and its
+                        // exact Up To endpoints. These transient display flags
+                        // do not modify the independently stored definition.
+                        for(auto& local:shell_history) {
+                            const auto centroid=[](auto& request) {
+                                request.centerlines.centroid_enabled=true;
+                                request.centerlines.origin_enabled=false;
+                            };
+                            if(auto* request=std::get_if<ExtrusionRequest>(&local.primitive))centroid(*request);
+                            if(auto* group=std::get_if<FeatureGroupRequest>(&local.primitive))
+                                for(auto& child:group->children)if(auto* request=std::get_if<ExtrusionRequest>(&child))centroid(*request);
+                        }
                         const auto closed=evaluate_history_incremental(shell_history,{});
                         const auto original_solid=live_cache_->boundaries.find(closed.back().source_fingerprint);
                         if(original_solid==live_cache_->boundaries.end())throw std::runtime_error("FORM definition calculation failed.");
                         const auto original_faces=original_solid->second.topology->faces;
+                        closed_corner={original_solid->second.shape,original_faces,
+                            original_solid->second.topology->edges,original_solid->second.topology->vertices};
+                        shape_axes=sheet_form_geometry::profile_axes(closed.back().mesh.axes);
                         HistoryOperation hollow;hollow.owner_id="FORM_SHELL";
                         // The symbolic corner skin may be thinner than stock.
                         hollow.primitive=ShellRequest{form->solid_opening_faces,.5*form->thickness};
@@ -8047,18 +8107,23 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                 const auto shape_scope=std::ranges::find_if(*form->definition,[&](const auto& value){return value.body.id==form->shape_body;});
                 if(shape_scope==form->definition->end())throw std::runtime_error("FORM definition calculation failed.");
                 auto formed=body(form->shape_body,"shape");
+                shape_axes=sheet_form_geometry::moved_axes(std::move(shape_axes),
+                    primitive_transform(shape_scope->body.translation,shape_scope->body.rotation_degrees));
                 PrimitiveData cut;
                 if(form->solid_cut_snapshot) {
-                    PrimitiveData source;
-                    if(!form->solid_cut_snapshot->kernel_faces.empty())source=sheet_form_geometry::read_surface(*form->solid_cut_snapshot,true);
-                    else {
-                        const auto native=live_cache_->boundaries.find(form->solid_cut_snapshot->source_fingerprint);
-                        if(native==live_cache_->boundaries.end())throw std::runtime_error("FORM definition calculation failed.");
-                        source={native->second.shape,native->second.topology->faces,native->second.topology->edges,native->second.topology->vertices};
+                    PrimitiveData source=closed_corner;
+                    if(source.shape.IsNull()) {
+                        if(!form->solid_cut_snapshot->kernel_faces.empty())source=sheet_form_geometry::read_surface(*form->solid_cut_snapshot,true);
+                        else {
+                            const auto native=live_cache_->boundaries.find(form->solid_cut_snapshot->source_fingerprint);
+                            if(native==live_cache_->boundaries.end())throw std::runtime_error("FORM definition calculation failed.");
+                            source={native->second.shape,native->second.topology->faces,native->second.topology->edges,native->second.topology->vertices};
+                        }
                     }
                     cut=sheet_form_geometry::move(source,primitive_transform(shape_scope->body.translation,shape_scope->body.rotation_degrees));
                 }else cut=body(form->cut_body,"cut");
                 sheet_form_geometry::Operands operands{std::move(cut),body(form->flat_body,"flat"),std::move(formed)};
+                operands.axes=std::move(shape_axes);
                 prepared=live_cache_->prepared_forms.emplace(preparation_key,std::move(operands)).first;
                 live_cache_->prepared_form_order.push_back(preparation_key);
                 while(live_cache_->prepared_form_order.size()>16) {
@@ -8074,6 +8139,13 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                     sheet_form_geometry::place(prepared->second.flat,placement,*form,operation.owner_id,"flat"),
                     sheet_form_geometry::place(prepared->second.formed,placement,*form,operation.owner_id,"shape"),
                     !form->solid_opening_faces.empty()};
+                form_operands->axes=sheet_form_geometry::moved_axes(prepared->second.axes,placement);
+                for(auto& axis:form_operands->axes) {
+                    axis.reference.semantic_key="centerline:from:centroid:form:"+
+                        sheet_form_geometry::parent_key("shape",form->definition_id,axis.reference);
+                    axis.reference.owner_id=operation.owner_id;axis.reference.instance_path.clear();
+                    axis.label.clear();
+                }
                 if(!form->solid_opening_faces.empty()) {
                     PrimitiveData input;input.shape=result_shape;input.faces=owned_topology->faces;
                     input.edges=owned_topology->edges;input.vertices=owned_topology->vertices;
@@ -8212,10 +8284,17 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                     const PrimitiveData final{result_shape,owned_topology->faces,
                         owned_topology->edges,owned_topology->vertices};
                     if(retain_sheet_sources||context.requested_solids.contains(operation.owner_id)) {
-                        const auto removed=sheet_form_geometry::combine(input,final,true,operation,operations);
-                        form_operands->cut=sheet_form_geometry::combine(form_operands->cut,removed,false,operation,operations);
-                        const auto remaining=sheet_form_geometry::combine(input,form_operands->cut,true,operation,operations);
-                        form_operands->formed=sheet_form_geometry::combine(final,remaining,true,operation,operations);
+                        // The exact delta is sufficient: (S - (S - F)) union
+                        // (F - S) reproduces F, without the original cutter's
+                        // redundant coincident trims in the rounded copy.
+                        form_operands->cut=sheet_form_geometry::combine(input,final,true,operation,operations);
+                        form_operands->formed=sheet_form_geometry::combine(final,input,true,operation,operations);
+                        if(std::getenv("ZIMA_CPP_FORM_PROFILE"))for(const auto* value:{&form_operands->cut,&form_operands->formed})if(!value->shape.IsNull()) {
+                            Bnd_Box box;BRepBndLib::AddOptimal(value->shape,box,false,true);
+                            double x0,y0,z0,x1,y1,z1;box.Get(x0,y0,z0,x1,y1,z1);
+                            std::fprintf(stderr,"FORM delta %s bounds=(%.9g,%.9g,%.9g)-(%.9g,%.9g,%.9g)\n",
+                                value==&form_operands->cut?"removed":"added",x0,y0,z0,x1,y1,z1);
+                        }
                         form_operands->cut=sheet_form_geometry::repair_parameterization(form_operands->cut,operation.boolean_tolerance);
                         form_operands->formed=sheet_form_geometry::repair_parameterization(form_operands->formed,operation.boolean_tolerance);
                     }
@@ -8230,6 +8309,7 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                 retain_copy_solid(form_operands->formed);
                 auto boundary=make_operation_result(result_shape,owned_topology->faces,owned_topology->edges,
                     owned_topology->vertices,true,persist_boundary_shape,true);
+                original_references.axes.insert(original_references.axes.end(),form_operands->axes.begin(),form_operands->axes.end());
                 profile("result display and properties");
                 append_reference_geometry(original_references,reference_geometry_for_owners(boundary.mesh.original_references,
                     std::unordered_set<std::string>{operation.owner_id}));
@@ -9466,6 +9546,7 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                 const auto p=pattern?validated_pattern(request.pattern):PatternRequest{};
                 const auto plane=pattern?MirrorPlane{}:normalized_mirror_plane(request.mirror_plane);
                 PrimitiveData result;
+                std::vector<PrimitiveData> copies;
                 for(unsigned index=1;index<(pattern?p.count:2);++index) {
                     gp_Trsf transform;
                     if(!pattern)transform.SetMirror(gp_Ax2(gp_Pnt(plane.point.x,plane.point.y,plane.point.z),gp_Dir(plane.normal.x,plane.normal.y,plane.normal.z)));
@@ -9486,6 +9567,12 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                         copy.edges.push_back({TopoDS::Edge(moved.ModifiedShape(edge.shape)),reference(edge.reference)});
                     for(const auto& vertex:source->second.vertices)
                         copy.vertices.push_back({TopoDS::Vertex(moved.ModifiedShape(vertex.shape)),reference(vertex.reference)});
+                    copies.push_back(std::move(copy));
+                }
+                if(copies.size()>1&&!std::getenv("ZIMA_CPP_COPY_SEQUENTIAL")&&
+                    sheet_form_geometry::disjoint(copies,operation.boolean_tolerance))
+                    return sheet_form_geometry::compound(copies);
+                for(auto& copy:copies) {
                     if(result.shape.IsNull()) {result=std::move(copy);continue;}
                     BRepAlgoAPI_Fuse fuse;
                     set_boolean_inputs(fuse,result.shape,copy.shape);
@@ -10242,6 +10329,23 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                     return edge.overlay&&edge.reference.semantic_key.starts_with("form:symbol:");
                 });
                 const auto state=sheet_material::regions_before(calculated_form_history,calculated_form_history.size());
+                const auto form_axis=[](const auto& axis) {
+                    return sheet_material::is_form_centroid_axis(axis.reference);
+                };
+                std::erase_if(boundary.mesh.axes,form_axis);
+                // Authored axes remain in their creation frame. Publish them
+                // only in the current formed frame, including copies created
+                // while unfolded; never transform the persisted source axis.
+                for(auto axis:boundary.mesh.original_references.axes)if(form_axis(axis)) {
+                    const auto region=std::ranges::find(state.regions,sheet_form_geometry::axis_region(axis.reference),&SheetMaterialDefinition::owner_id);
+                    if(region==state.regions.end()||region->unfolded)continue;
+                    const auto index=static_cast<std::size_t>(region-state.regions.begin());
+                    if(state.sources[index]!=*region) {
+                        const sheet_material::Transition transition{state.sources[index],*region};
+                        axis.point=transition.map(axis.point);axis.direction=transition.rigid_vector(axis.direction);
+                    }
+                    boundary.mesh.axes.push_back(std::move(axis));
+                }
                 auto symbols=sheet_material::form_symbol_edges(calculated_form_history,state);
                 boundary.mesh.edges.insert(boundary.mesh.edges.end(),std::make_move_iterator(symbols.begin()),std::make_move_iterator(symbols.end()));
             }

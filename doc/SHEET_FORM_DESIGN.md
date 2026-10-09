@@ -62,10 +62,70 @@ benchmark. No approximation tolerance or circular accuracy was reduced.
 Complete corner GUI confirmation, including calculation, commit and scene
 publication, measured 1.205 seconds in the final local Release run.
 
+#### Workspace copies and centroid axes (2026-10-09)
+
+The user's `12.prtz` exposed a failure that the earlier direct HistoryOperation
+copy fixtures did not cover. Preparing a rounded corner copy now extracts the
+exact removed material as `input - final` and the exact added material as
+`final - input`. It no longer unions the original cutter with a second removed
+volume or subtracts a reconstructed remaining sheet. This removes two Boolean
+operations and avoids the invalid rational transition trims produced by the
+former preparation on the real document. Copying preserves reference ancestry,
+material regions and the independently embedded definition. A rejected copy
+leaves the document unchanged; its actual existing localized calculation error
+is reported instead of a generic copy failure.
+
+The reference-settling pass can reuse a complete unchanged Form-copy history
+when no caller requests a separate operand. Every prefix fingerprint and
+existing retained-region guard is checked; original-face/edge cache requirements
+remain in force. Changed or extended histories still calculate source operands
+at their actual boundaries. Explicit calculation requires the profile-centroid
+datum before reusing a corner packet. Authored-input fingerprints remain stable;
+opening continues to consume saved native data without an implicit OCCT calculation.
+
+The corner no longer displays the arbitrary local-Y placement axis. Explicit
+calculation uses the ordinary source profile centroid and exact extrusion
+endpoints, including planar Up To references, to publish a short geometric
+axis. Collinear forward/reverse paths of the same Sketch form one whole-profile
+axis; cap and face side identities remain separate. This newly generated Form
+axis retains its Sketch parent, has a 1 mm overhang at each physical end and
+adds no picking points. Pattern/Mirror transform its geometry and derive their
+own source ancestry. The formed axis is hidden in Unbend, where no forming
+symbol is drawn. Pending corner placement shows its wire
+without the former arbitrary axis; ordinary planar Form retains its 10 mm axis.
+
+The regression entry points now exercise actual workspace commits and GUI
+selection/confirmation, in addition to direct kernel operations. The workspace
+matrix includes default X, reverse, both-direction and symmetric linear
+distributions, Mirror, unchanged OK, disconnected-copy rejection, Undo/Redo,
+native save/reopen and regeneration. Axes of copies created after Unbend return
+to their formed material frames on Bend Back, without moving original references.
+The command preview hides parameter seams and smooth transition joints using
+the ordinary View predicate, before marking the remaining wires as overlays.
+Form-owned split edges whose persisted parent belongs to supporting stock are
+excluded from the forming-tool preview; they remain present in native references.
+Split edges descended from the tool itself remain eligible. This prevents the
+preview from translating long fragments of the original Bend with the gusset.
+Verification results and measured complete
+GUI timings are recorded in the release acceptance after these checks finish.
+
+Ordinary disjoint Pattern operands are aggregated before their Body Boolean.
+Overlapping and touching operands preserve sequential processing. The analogous
+corner Form batching experiment was removed because complete calculation did
+not become faster; corner copies preserve sequential cut/add ordering. See
+[measured batching](performance/20261009-form-copy-batching.md) for the finite
+fixture comparison, exact identity/property checks and timing limits.
+
 This change introduces no user-visible text; existing shared labels and errors
 remain translated in `cs`, `en`, `de`, `fr` and `ru`. It changes no native schema,
 kernel pin or shared container placement contract. Linux execution remains
 unverified and requires the corresponding native and GUI matrix.
+
+The user clarified on 2026-10-09 that the corner gusset is created during
+bending. Its unfolded stock therefore shows no Form geometry, centroid axis or
+`FORM_SYMBOL`, in either View or Drawing. The history definition and references
+remain available; Bend Back restores the formed shape and axis. Planar Form,
+including the Ventilation Window, retains its authored flat manufacturing symbol.
 
 The checkpoints below describe earlier geometry rules and measured results;
 they do not override this current agreement.
@@ -273,6 +333,27 @@ then blend the two real transition routes. The agreed automatic blend sizes are
 changes; smaller diagnostic radii below are experiments, not the product rule.
 The existing Ventilation Window remains unchanged unless a solid-based definition
 proves simpler while preserving its explicit opening and all existing behavior.
+
+#### Agreed next investigation: solid-based pocket (2026-10-09)
+
+After the current corner Pattern/Mirror work, investigate one simplified native
+solid attached to the outer sheet side, with the wall and transition radii
+calculated automatically at insertion. The user's proposed opening boundary is
+a sharp crease in the surface; smoothly continuous regions describe deformation.
+An authored example will be used to check that the opening can be identified
+unambiguously without confusing other sharp solid edges with a cut. Removing
+the separate `FORM_CUT` role is an objective of this experiment, not implemented
+behavior. Compare repeatability, preserved opening intent and insertion cost
+before replacing the working surface-based Ventilation Window definition.
+
+The supplied `Projects/20-FORM.prtz` has one `FORM` Body with two additive solid
+profile features and one subtractive solid feature. Its saved calculated packet
+has no error (SHA-256
+`f300f6553b6a29ba57343efd9986ac6ff706b3c4b704cff295fc02b4f00aec65`).
+The user also permits automatic rounding of the two upper edges if useful.
+This is an authored experiment, not yet an accepted library definition: native
+opening-boundary classification, single-plane Shell construction, automatic
+transition routes, thin-sheet ranges and timings still need verification.
 
 The experimental native test `--compare-body-corner` uses the same simplified,
 sloped-wall solid from FORM-EDGE for both attachment sides. The source solid and

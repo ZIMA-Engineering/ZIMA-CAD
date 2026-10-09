@@ -94,6 +94,8 @@ kernel::ViewerMesh derived_copy_source_mesh(const document::DocumentSession& ses
         return found==result.body_outputs.end()?kernel::ViewerMesh{}:found->second->mesh;
     }
     kernel::ViewerMesh mesh;
+    const auto* feature=session.document().find_container(source.id);
+    const bool form=feature&&feature->feature_kind==document::FeatureKind::SheetForm;
     const auto& geometry=result.mesh.original_references;
     for(std::size_t i=0;i<geometry.triangle_references.size();++i) {
         const auto& ref=geometry.triangle_references[i];if(ref.owner_id!=source.id)continue;
@@ -103,7 +105,16 @@ kernel::ViewerMesh derived_copy_source_mesh(const document::DocumentSession& ses
         }
         mesh.triangle_references.push_back(ref);
     }
-    for(const auto& edge:geometry.edges)if(edge.reference.owner_id==source.id)mesh.edges.push_back(edge);
+    for(const auto& edge:geometry.edges)if(edge.reference.owner_id==source.id) {
+        // Form can own newly split fragments of the supporting stock. Their
+        // persisted parent remains the stock edge; they are not forming-tool
+        // geometry to translate or inspect as part of a copy preview.
+        constexpr std::string_view split="boolean:form:split-edge:from:";
+        if(form&&edge.reference.semantic_key.starts_with(split)&&
+            !edge.reference.semantic_key.starts_with(std::string(split)+
+                std::to_string(source.id.size())+":"+source.id))continue;
+        mesh.edges.push_back(edge);
+    }
     for(const auto& point:geometry.points)if(point.reference.owner_id==source.id)mesh.points.push_back(point);
     for(const auto& axis:geometry.axes)if(axis.reference.owner_id==source.id)mesh.axes.push_back(axis);
     mesh.original_references={mesh.vertices,mesh.triangles,mesh.triangle_references,mesh.edges,mesh.points,mesh.axes};

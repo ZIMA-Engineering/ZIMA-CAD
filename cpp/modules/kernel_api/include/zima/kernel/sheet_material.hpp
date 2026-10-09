@@ -302,12 +302,22 @@ inline const HistoryOperation* form_source_operation(const std::vector<HistoryOp
     }
     return nullptr;
 }
+inline bool form_symbol_visible(const SheetFormRequest& form,const SheetMaterialDefinition& region) {
+    // A closed corner gusset is formed during bending, without flat-stock
+    // preparation. Planar forms retain their authored manufacturing symbols.
+    return !region.unfolded||form.solid_opening_faces.empty();
+}
+inline bool is_form_centroid_axis(const AxisReference& reference) {
+    return reference.semantic_key.starts_with("centerline:from:centroid:form:")||
+        reference.semantic_key.starts_with("centerline:from:centroid:copy:");
+}
 inline std::vector<ViewerEdge> form_symbol_edges(const std::vector<HistoryOperation>& operations,const History& state) {
     std::vector<ViewerEdge> result;
     for(const auto& region:state.regions)if(region.kind==SheetMaterialDefinition::Kind::Form&&region.unfolded) {
         const auto* source=form_source_operation(operations,region.feature_owner_id.empty()?region.owner_id:region.feature_owner_id);
         if(!source)continue;
         const auto& form=std::get<SheetFormRequest>(source->primitive);
+        if(!form_symbol_visible(form,region))continue;
         const auto point=[&](Vec3 p){return add(region.origin,add(mul(region.along,p.x),
             add(mul(region.radial,p.y),mul(region.tangent,-p.z))));};
         for(auto edge:form.symbol_edges) {

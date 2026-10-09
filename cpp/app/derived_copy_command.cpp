@@ -4,6 +4,7 @@
 #include <zima/workspace/assembly_scene.hpp>
 #include <zima/viewer/mesh_view.hpp>
 #include <zima/kernel/stable_id.hpp>
+#include <zima/kernel/transition_edge_display.hpp>
 #include <QTreeWidget>
 #include <QLabel>
 #include <QPushButton>
@@ -253,6 +254,10 @@ void AssemblyWorkspaceWindow::show_derived_copy_properties(const std::string& id
             auto mesh=viewer_->mesh();append_derived_copy_references(mesh,origin);
             append_derived_copy_references(mesh.original_references,origin.original_references);viewer_->set_mesh(std::move(mesh));
         }
+        // Preview the same visible edges as the ordinary View. Turning the
+        // source into an overlay must not expose surface parameter seams or
+        // smooth transition joints that set_mesh deliberately hides.
+        std::erase_if(edges,[](const auto& edge){return edge.parameter_seam||kernel::smooth_transition_junction(edge);});
         for(auto& edge:edges){edge.overlay=true;if(!prefix.empty())for(auto& p:edge.points)p=workspace_.occurrence_point_to_scene(workspace_.displayed_document_id(),assembly::InstancePath::decode(prefix),p);}
         viewer_->set_transient_edges(std::move(edges));
         if(id.empty()&&workspace_.open_assembly(document_id)) {

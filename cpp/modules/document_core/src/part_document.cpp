@@ -5794,7 +5794,8 @@ zima::kernel::ViewerMesh PartDocument::construction_viewer_mesh(
         if ((!basic_solid && !profile_feature) || container.suppressed || excluded_features.contains(container.id)) continue;
         const bool established_marker=container.feature_kind==FeatureKind::TwistedSheet ||
             container.feature_kind==FeatureKind::Extrusion || container.feature_kind==FeatureKind::Revolution;
-        if(container.feature_kind==FeatureKind::SheetForm) {
+        if(container.feature_kind==FeatureKind::SheetForm &&
+           !stored_sheet_form_definition(container.sheet_form).corner()) {
             const auto& p=container.placement;
             const auto normal=construction_direction_from_local_axis("y",{p.rotation_x,p.rotation_y,p.rotation_z});
             const zima::kernel::ViewerAxis axis{{p.x,p.y,p.z},normal,10.,{container.id,"axis",{}}};

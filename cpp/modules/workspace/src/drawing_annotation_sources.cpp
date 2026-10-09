@@ -148,6 +148,7 @@ drawing_annotation_sources(const Workspace *workspace,
                 region.feature_owner_id.empty()?region.owner_id:region.feature_owner_id);
             const auto* feature=source?part.find_container(source->owner_id):nullptr;
             if(feature&&!feature->suppressed) {
+              if(!kernel::sheet_material::form_symbol_visible(std::get<kernel::SheetFormRequest>(source->primitive),region))continue;
               auto symbol=form_symbol(part,*feature,region);
               symbol.unresolved=symbol.unresolved||calculation_errors.contains(feature->id)||
                   calculation_errors.contains(region.feature_owner_id);
@@ -168,6 +169,9 @@ drawing_annotation_sources(const Workspace *workspace,
             frames[{body.origin().id,{}}]=found->second;
       }
       for(const auto& axis:calculated.original_references.axes) {
+        // Form centroid axes describe the current formed state. Historical
+        // originals remain valid references, but are not Drawing strokes.
+        if(kernel::sheet_material::is_form_centroid_axis(axis.reference))continue;
         const auto* owner=part.find_container(axis.reference.owner_id);
         if(axis.reference.semantic_key=="axis:primary"&&owner&&owner->revolution.sheet_metal)continue;
         mesh.axes.push_back(axis);

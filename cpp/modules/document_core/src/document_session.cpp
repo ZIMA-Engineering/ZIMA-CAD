@@ -1,6 +1,7 @@
 #include <zima/document/document_session.hpp>
 #include <zima/document/physical_properties.hpp>
 #include <zima/kernel/solid_state_ancestry.hpp>
+#include <zima/kernel/sheet_material.hpp>
 
 #include <algorithm>
 #include <iterator>
@@ -21,6 +22,9 @@ void publish_profile_axes(zima::kernel::ViewerMesh& mesh) {
         });
     };
     for (const auto& axis : mesh.original_references.axes) {
+        // Form axes follow the calculated material state. Their persisted
+        // creation frame must not resurrect a hidden unfolded datum.
+        if (zima::kernel::sheet_material::is_form_centroid_axis(axis.reference)) continue;
         if (axis.reference.semantic_key != "axis:primary" &&
             !axis.reference.semantic_key.starts_with("axis:profile:") &&
             !axis.reference.semantic_key.starts_with("centerline:from:")) continue;

@@ -28,6 +28,8 @@
 #include <zima/document/placement_orientation.hpp>
 #include <zima/document/sketch_placement.hpp>
 #include <zima/kernel/sheet_material.hpp>
+#include <zima/kernel/transition_edge_display.hpp>
+#include <QVariantAnimation>
 #include <zima/document/named_views.hpp>
 #include <zima/document/placement_json.hpp>
 #include "sketch_properties_dialog.hpp"

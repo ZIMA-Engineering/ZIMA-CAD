@@ -1,8 +1,87 @@
 // Explicit calculation of copied native FORM histories. No UI or picker calls
 // this implementation, and no OCCT enumeration defines a persistent identity.
 namespace sheet_form_geometry {
-struct Operands {PrimitiveData cut,flat,formed;bool rounded_corner{};};
+struct Operands {PrimitiveData cut,flat,formed;bool rounded_corner{};std::vector<ViewerAxis> axes;};
 struct Instance {SheetMaterialDefinition material;Operands operands;};
+
+PrimitiveData compound(const std::vector<PrimitiveData>& inputs) {
+    PrimitiveData result;TopoDS_Compound shape;BRep_Builder builder;builder.MakeCompound(shape);
+    bool populated=false;
+    for(const auto& input:inputs)if(!input.shape.IsNull()) {
+        populated=true;
+        builder.Add(shape,input.shape);
+        result.faces.insert(result.faces.end(),input.faces.begin(),input.faces.end());
+        result.edges.insert(result.edges.end(),input.edges.begin(),input.edges.end());
+        result.vertices.insert(result.vertices.end(),input.vertices.begin(),input.vertices.end());
+    }
+    if(populated)result.shape=shape;
+    return result;
+}
+
+bool disjoint(const std::vector<PrimitiveData>& inputs,double tolerance) {
+    // Keep sequential cut/fuse semantics when footprints overlap or touch.
+    // Exact surface bounds (including shape tolerances) conservatively gate
+    // batching; neither tessellation nor a weaker modeling precision is used.
+    std::vector<Bnd_Box> boxes;boxes.reserve(inputs.size());
+    for(const auto& input:inputs) {
+        Bnd_Box box;
+        if(!input.shape.IsNull())BRepBndLib::AddOptimal(input.shape,box,false,true);
+        if(!box.IsVoid())box.Enlarge(std::max(1e-7,tolerance));
+        for(const auto& previous:boxes)
+            if(!box.IsVoid()&&!previous.IsVoid()&&!box.IsOut(previous))return false;
+        boxes.push_back(box);
+    }
+    return true;
+}
+
+std::string_view axis_region(const AxisReference& reference) {
+    constexpr std::string_view prefix="centerline:from:centroid:copy:region:";
+    if(!reference.semantic_key.starts_with(prefix))return reference.owner_id;
+    const auto text=std::string_view(reference.semantic_key).substr(prefix.size());
+    const auto colon=text.find(':');std::size_t length{};
+    if(colon==std::string_view::npos)return {};
+    const auto parsed=std::from_chars(text.data(),text.data()+colon,length);
+    if(parsed.ec!=std::errc{}||parsed.ptr!=text.data()+colon||length>text.size()-colon-1)return {};
+    return text.substr(colon+1,length);
+}
+
+std::vector<ViewerAxis> moved_axes(std::vector<ViewerAxis> axes,const gp_Trsf& transform) {
+    for(auto& axis:axes) {
+        gp_Pnt point(axis.point.x,axis.point.y,axis.point.z);point.Transform(transform);
+        gp_Vec direction(axis.direction.x,axis.direction.y,axis.direction.z);direction.Transform(transform);
+        axis.point={point.X(),point.Y(),point.Z()};axis.direction={direction.X(),direction.Y(),direction.Z()};
+    }
+    return axes;
+}
+
+std::vector<ViewerAxis> profile_axes(const std::vector<ViewerAxis>& source) {
+    using namespace sheet_material;
+    constexpr std::string_view prefix="centerline:from:centroid:";
+    std::vector<ViewerAxis> result;
+    for(auto axis:source) {
+        if(!axis.reference.semantic_key.starts_with(prefix))continue;
+        const auto parent=feature_side_parent(std::string_view(axis.reference.semantic_key).substr(prefix.size()));
+        if(parent)axis.reference.semantic_key=std::string(prefix)+"profile:"+
+            std::to_string(parent->feature_id.size())+":"+parent->feature_id+":"+
+            std::to_string(parent->source_id.size())+":"+parent->source_id;
+        const auto joined=std::ranges::find_if(result,[&](const auto& item) {
+            return item.reference==axis.reference&&std::abs(dot(item.direction,axis.direction))>1.-1e-10&&
+                dot(cross(sub(item.point,axis.point),item.direction),cross(sub(item.point,axis.point),item.direction))<1e-14;
+        });
+        if(joined==result.end())result.push_back(std::move(axis));
+        else {
+            // One Form axis describes the whole source-profile path, including
+            // both authored extrusion sides. Their cap/face side identities
+            // remain separate; the new axis has the Sketch as its parent.
+            const auto shift=dot(sub(axis.point,joined->point),joined->direction);
+            const auto low=std::min(1.-joined->display_length*.5,shift+1.-axis.display_length*.5);
+            const auto high=std::max(joined->display_length*.5-1.,shift+axis.display_length*.5-1.);
+            joined->point=add(joined->point,mul(joined->direction,(low+high)*.5));
+            joined->display_length=high-low+2.;
+        }
+    }
+    return result;
+}
 
 PrimitiveData repair_parameterization(const PrimitiveData& source,double tolerance) {
     if(source.shape.IsNull()||BRepCheck_Analyzer(source.shape,true,false,true).IsValid())return source;
@@ -55,7 +134,11 @@ PrimitiveData repair_parameterization(const PrimitiveData& source,double toleran
 PrimitiveData copy(const PrimitiveData& source,const gp_Trsf& transform,const HistoryOperation& operation,
         const std::string& region,unsigned index) {
     if(source.shape.IsNull())return {};
-    BRepBuilderAPI_Transform moved(source.shape,transform,true);moved.Build();
+    // Keep rigid direct copies located on their exact source geometry. Baking
+    // a translation into rational blend surfaces changes their numerical
+    // parameterization before the subsequent sheet Boolean. Reflections are
+    // still copied by OCCT because they cannot be represented by a location.
+    BRepBuilderAPI_Transform moved(source.shape,transform,false);moved.Build();
     if(!moved.IsDone())throw std::runtime_error("Feature copy transformation failed.");
     PrimitiveData result;result.shape=moved.Shape();
     const auto& request=*operation.feature_copy;

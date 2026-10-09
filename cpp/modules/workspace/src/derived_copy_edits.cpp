@@ -131,7 +131,9 @@ bool commit_derived_copy(Workspace& live,const kernel::OcctKernel& kernel,const 
             }else *next.find_container(value.id)=std::move(feature);
             next.set_body_history(std::move(graph));
             auto calculated=calculate_part_with_resolved_references(kernel,next,&part->session.calculated_boundaries());
-            if(calculated.empty()||calculated.back().calculation_errors.contains(value.id))
+            if(!calculated.empty())if(const auto error=calculated.back().calculation_errors.find(value.id);
+                error!=calculated.back().calculation_errors.end())throw std::runtime_error(error->second);
+            if(calculated.empty())
                 throw DerivedCopyError("calculation_failed","The in-Body copy could not be calculated.");
             part->session.commit(std::move(next),std::move(calculated));return true;
         }
