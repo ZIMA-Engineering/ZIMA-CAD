@@ -94,8 +94,10 @@ orientations and rejected the other 14 choices per pair: `(0.5, 2), (1, 2),
 choices. Final individual insertion observations were 1.170–1.713 s. These
 suite timings include independent equations and persistence/copy checks; they
 are not insertion timings. This checkpoint does not claim that tight bends are
-solved or that arbitrary definitions always fit. Linux execution and packaged
-release acceptance remain separate verification gates.
+solved or that arbitrary definitions always fit. Windows signed build
+[2026100901](releases/2026100901.md) passed six packaged GUI scenarios,
+production trust, public asset hashes and update discovery. Complete packaged
+corner confirmation measured 1.529 s. Linux execution remains unverified.
 
 #### Revised solid-based direction (2026-10-08, evening)
 

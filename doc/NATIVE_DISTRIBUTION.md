@@ -2,6 +2,18 @@
 
 ## Scope and status
 
+Windows build **2026100901** is signed, published and independently verified.
+It adds the native closed-solid Corner Gusset 90 definition, two outer-face Bend
+placement, automatic cut/Shell and fixed `t` / `2t` transitions, including copied
+features, flat symbols and native persistence. FORM-EDGE edit/drag, hover and
+transient Sketch history fixes are included. Six packaged GUI scenarios pass;
+complete corner confirmation measured 1.529 seconds and ordinary Form 1.536.
+Committed-source candidate/signed smoke, production trust, all three public
+asset hashes and update discovery from 2026100804 pass. Tested `Ri = t` bends
+remain a documented fixed-radius construction limitation. Shared C++ and
+precision are retained; Linux acceptance remains separate. See
+[the release record](releases/2026100901.md).
+
 Windows build **2026100804** is signed, published and independently verified.
 It repairs Sketch Mirror, persistent C+T contacts, circle tangent branch
 selection and dimension/drag editability in FORM-EDGE. Planar Up To accepts

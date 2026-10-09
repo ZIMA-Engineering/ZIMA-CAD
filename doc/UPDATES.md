@@ -390,3 +390,14 @@ as installable, without installing an update. Actual packaged Form confirmation
 measured 1.67 seconds with one support validation and one result preparation.
 See [the release record](releases/2026100804.md) for the Sketcher/Up To matrix,
 cleanup and separate Linux acceptance.
+
+Windows release
+[2026100901](https://github.com/ZIMA-Engineering/ZIMA-CAD/releases/tag/ZIMA-CAD-2026100901)
+was published at 2026-10-09T01:05:51Z. Fresh committed-source candidate/signed
+native smoke, production trust and six packaged GUI scenarios pass. All three
+draft upload digests and anonymous public downloads match the accepted signed
+assets. The trusted 2026100804 updater offers 2026100901 as installable; the
+verification installs nothing. Complete packaged corner Form confirmation
+measured 1.529 seconds and ordinary Form 1.536 with one result preparation.
+See [the release record](releases/2026100901.md) for supported Bend dimensions,
+the documented tight-bend limit, Sketcher scope, cleanup and Linux acceptance.
