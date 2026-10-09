@@ -55,7 +55,10 @@ version does not split IGES into a STEP-like product hierarchy.
 
 In an Assembly, import creates one source Part containing this Body and inserts
 it as a component. Existing target Part/Assembly contents remain intact. IGES
-cannot be imported inside an active sketch. IGES export is not implemented.
+cannot be imported inside an active sketch. IGES export is available through
+File > Export and `export.iges`, using `.igs` or `.iges`. It writes exact visible
+Part/current Assembly geometry without regeneration and flattens product
+structure. See [Export commands](EXPORT_COMMANDS.md).
 
 Import explicitly calculates frozen B-Rep, the display mesh and the reference map.
 Identity derives from the original IGES directory entry and semantic role; split

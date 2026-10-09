@@ -92,7 +92,7 @@ parameters, detailed limits and the verification evidence for each stage.
 | Sections | List/get/components/create/set/activate/delete, full open section line, owned Sketch batches, placement references, exact occurrences and hatching | [Sections](SECTION_COMMANDS.md), [section references](SECTION_REFERENCE_COMMANDS.md) |
 | Measurement | List/get/evaluate/create/set/delete with original references and saved results | [Measurement](MEASUREMENT.md) |
 | Engineering metadata | Shared parameters, units, precision, text relations with conditions, supported driving dimensions and whole-Part colour, material library, reference-bound Family Table columns and generated Part/Assembly variants | [Relations](RELATIONS.md), [Metadata](METADATA_COMMANDS.md), [engineering metadata](ENGINEERING_METADATA_COMMANDS.md), [Family Table](FAMILY_TABLE.md) |
-| Import/export | Part/Assembly STEP/IGES/DXF and imported-feature properties; nested STEP and STL, exact Sketch DXF including trims/offsets/text/corner radii and unclamped/periodic splines | [Import](IMPORT_COMMANDS.md), [export](EXPORT_COMMANDS.md), [imported features](IMPORTED_FEATURE_COMMANDS.md) |
+| Import/export | Part/Assembly STEP/IGES/DXF and imported-feature properties; nested STEP/STL and exact flattened IGES export, exact Sketch DXF including trims/offsets/text/corner radii and unclamped/periodic splines | [Import](IMPORT_COMMANDS.md), [export](EXPORT_COMMANDS.md), [imported features](IMPORTED_FEATURE_COMMANDS.md) |
 | Interactive View image | `export.view` uses the real GUI View adapter; a batch host without a View returns `view_unavailable` | [View export](VIEW_EXPORT_COMMAND.md) |
 
 ## Verification record
