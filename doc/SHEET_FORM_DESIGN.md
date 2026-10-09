@@ -5,6 +5,387 @@ implementation and verification status must be recorded separately.
 
 ## Native library definition
 
+### Corner variant agreement (2026-10-08)
+
+#### Closed-solid implementation checkpoint (2026-10-09)
+
+The current library candidate is
+[CornerGusset90.prtz](../config/lib/01-SHEETMETAL/01-FORM/CornerGusset90.prtz).
+It contains a native sloped-wall solid in `FORM`, empty `FORM_CUT` and `FORM_FLAT`
+Bodies, and an independent `FORM_SYMBOL` Sketch copied from the exact XY closing
+outline. Its editable profile has a 20 mm width, R8 cap and 10 mm centre offset.
+The user's original FORM-EDGE document is retained separately. The earlier
+surface/two-cut prototypes below remain experimental evidence, not this asset's
+construction recipe.
+
+The reader derives two unique closing faces on the source XY and XZ planes from
+persisted visible-face identities and their matching analytic reference packet.
+Reopened display triangle tags intentionally do not carry analytic surfaces;
+the reader consumes the matching persisted original reference instead of
+traversing OCCT. The complete solid archive is copied into the inserted native
+definition. Recognition, preview, Properties and picking do not calculate a
+body. There is no new native schema field or required sidecar.
+
+Placement selects two perpendicular outer flat sheet faces adjacent to the same
+90-degree Bend. Both offsets are zero. A third point, transverse straight edge
+or plane establishes the signed station along the Bend. In-plane rotation is
+disabled. The command-local resolver verifies the actual persisted Bend cylinder
+and selected oriented sides; it consumes the shared placement implementation
+without changing its contract. Source-body order is not role identity. An
+author-created cross-Body dependency still follows the ordinary Body ordering
+rules; the supplied manufacturing symbol has no such dependency.
+
+Explicit confirmation reuses the complete calculated source solid, removes its
+two closing faces with native Shell, trims the wall against the real outer Bend
+radius, subtracts the complete closed cutter and joins the formed material.
+Only the actual inner and outer transition routes are rounded: inner `t`, outer
+`2t`. These internal Fillets use exact rational circular parameterization and
+`1e-7` mm spatial approximation tolerance. Ordinary Fillet retains its existing
+parameters. Intermediate results do not publish meshes, properties or Undo
+transactions. Bounded preparation reuse depends on the immutable source and
+actual thickness; changed inputs invalidate reuse.
+
+The `(t, Ri) = (1, 2)` mm implementation passed native connectivity, strict BRep
+curve-on-surface checks, independent GK volume and centroid/tensor calculations,
+embedded-copy save/reopen and regeneration. The fixture uses two genuine Flats
+attached to the Bend, 120 mm axial width and 50 mm extension. A short earlier
+20 mm fixture did not contain the larger source footprint; its larger-source
+failures must not be interpreted as supported-thickness limits. A separate
+unattached-flat fixture also could not verify ordinary Unbend attachment.
+
+Native Pattern and Mirror consume connected cutter and formed-material operands
+derived from the completed rounded change when a downstream copy or sheet-state
+operation actually needs them. Retaining only tiny Boolean differences produced
+invalid p-curves in copied blends and was rejected. A private geometry copy can
+reproject an inconsistent p-curve and recalculate SameParameter; it preserves the
+3D curve, owning surface and native identity and rejects tolerance growth beyond
+the document's existing budget. Cached source/stock is not repaired in place.
+Original references belong to the completed rounded feature/copy, not its
+pre-rounding Shell. Ordinary planar Form operands are unchanged.
+
+GUI verification passed creation from the library, exact hover/click identity on
+both outer planes, independent inspection, rollback, Cancel, unchanged OK,
+longitudinal placement, definition replacement, Undo/Redo and native reopening.
+Complete GUI creation measured **1.583 s** in the final Windows Release run
+(the preceding run measured 1.636 s), including explicit
+calculation, commit and scene publication. Grid scanning in the GUI test is test
+setup and is not part of the insertion timing. The earlier small-source native
+confirmation measured 1.179 and 1.423 s. These are fixture observations, not a
+universal performance promise.
+
+The fixed-radius construction fails for the tested `Ri = t` combinations at
+`t = 0.5, 1, 3` mm. The inner Fillet builder reports a faulty contour, rather than
+an otherwise completed shape failing display validation. No smaller radius is
+silently accepted. The feature reports a localized transition-fit error; its
+definition remains available under the ordinary failed-feature contract.
+Two adaptive-radius experiments were rejected: a variation confined to the Bend
+failed both orientations; a taper extending onto the flats passed only one of
+two equivalent orientations and took 4.878 s. Their production code was removed.
+The final asset also passed all 24 actual native Body orders, independent copy
+role lookup, stale-source calculation rejection and oriented source-frame
+equations. The supplied symbol's discarded projection dependencies were removed
+during asset authoring and actual references were resolved again before saving.
+The production dependency resolver was not changed for this asset correction.
+
+The final native roundtrip/copy suite passed in 119.78 s and the complete GUI
+sequence in 128.86 s. Four supported `(t, Ri)` pairs passed both admissible
+orientations and rejected the other 14 choices per pair: `(0.5, 2), (1, 2),
+(2, 4), (3, 6)` mm. Each of the three `Ri = t` rejection cases rejects all 16
+choices. Final individual insertion observations were 1.170–1.713 s. These
+suite timings include independent equations and persistence/copy checks; they
+are not insertion timings. This checkpoint does not claim that tight bends are
+solved or that arbitrary definitions always fit. Linux execution and packaged
+release acceptance remain separate verification gates.
+
+#### Revised solid-based direction (2026-10-08, evening)
+
+The user subsequently authorized finding the simplest repeatable construction,
+and proposed using a closed FORM solid as the complete Boolean cutter instead
+of two cutting Sketches. For this 90-degree variant, compare attachment to the
+two adjacent inner and outer planar sheet faces on equivalent physical geometry.
+Choose the final attachment side from measured performance and stability;
+do not assume that an outer attachment is faster. Derive the cut from the authored solid, create its
+thin wall through the native Shell/offset mechanisms, and evaluate inner and
+outer transition fillets at the actual destination Bend. The two perpendicular
+closing faces of the source solid establish its attachment planes. An empty
+FORM_CUT role is intended for this solid-based variant; manually authored cut
+Sketches should not be required. Preserve the selected side references.
+
+This supersedes the earlier inner-plane/two-cut prototype as the preferred
+direction. The earlier prototype measurements below are evidence about that
+prototype only, not verification of the new complete-solid cut or automatic
+fillets. The solid-based route must be compared for valid geometry, native
+ancestry, repeated insertion, placement, destination thickness/radius changes,
+performance, persistence and GUI behavior before it is released. Ordinary
+single-cut planar Form behavior remains unchanged.
+
+#### Closed-cutter comparison evidence (2026-10-08)
+
+The subsequent user correction requires direct Shell construction for the corner
+variant. The surface-thickening prototype adds unwanted rim/transition geometry
+and its lower isolated offset time is not sufficient grounds for choosing it.
+Finish the Shell, trim its material against the destination Bend's outer radius,
+then blend the two real transition routes. The agreed automatic blend sizes are
+**outer radius = 2 x destination sheet thickness** and
+**inner radius = destination sheet thickness**. Both values must follow thickness
+changes; smaller diagnostic radii below are experiments, not the product rule.
+The existing Ventilation Window remains unchanged unless a solid-based definition
+proves simpler while preserving its explicit opening and all existing behavior.
+
+The experimental native test `--compare-body-corner` uses the same simplified,
+sloped-wall solid from FORM-EDGE for both attachment sides. The source solid and
+the destination stock are prepared before timing. Each measured insertion
+includes support validation, a rigid placement, the complete-body Boolean cut,
+surface thickening when the preparation is cold, the union, viewer geometry,
+mass properties and native BRep serialization. It does not measure library
+loading, dialog confirmation, automatic source-cap recognition or transition
+Fillets. This is Windows Release with the pinned OCCT 8.0.0 implementation.
+The working changes are based on commit
+`b066b1a554e87f7e5468fe6fd1c4ceaf58b9b790`. The generated comparison definition is
+`build/form-diagnostic/CornerGusset90SimpleInnerLip.prtz`, SHA-256
+`063d1eb130bdbf50cc0eebafc4953384680f66a9e662c56c0de1f20435b62ece`.
+Its cutter consumes the complete first solid; the prototype's two inset cutting
+Sketches do not participate in this branch's Boolean subtraction.
+
+The nine `(thickness, inner Bend radius)` pairs are `(0.5, 0.5)`, `(0.5, 2)`,
+`(1, 1)`, `(1, 3)`, `(2, 1)`, `(2, 4)`, `(3, 1)`, `(3, 3)` and `(3, 6)` mm.
+All 36 supported insertions passed exact BRep validity, one connected solid,
+independent GK volume integration and unchanged Sheet Cut manufacturing records.
+The 108 incompatible side/intersection/direction combinations were rejected.
+For each equivalent inner/outer attachment pair, surface area and volume agree,
+and Boolean differences in both directions have zero volume. The selected side
+identities remain distinct despite the equivalent physical results.
+
+Insertion observations range from 0.118 to 0.239 s. Each pair's first insertion
+on each side prepares its offset; its second insertion reuses the bounded source
+preparation. The measurements show no convincing attachment-side speed advantage.
+Outer-face attachment is preferred because it directly fixes the visible outer
+shape and avoids deriving a thickness-dependent frame translation. This choice
+is based on simpler placement semantics, not a claimed geometric speedup.
+Local evidence is in `build/form-diagnostic/corner-body-cut-range-*.log`.
+
+The existing native Shell operation was also tested on the same closed source,
+removing its two actual perpendicular closing faces. Positive thicknesses 0.5,
+1, 2 and 3 mm passed BRep, connectivity and independent volume checks; the measured
+Shell step took 0.0247 to 0.0286 s. The prepared open-surface thickening step took
+approximately 0.0065 s at 1 mm. These are different wall construction paths;
+their isolated stage timings do not prove equivalent complete end-to-end results.
+
+The earlier diagnostic transition Fillets were not yet a reliable construction rule. Selecting
+all joins includes coplanar and sheet-boundary edges, which cannot be Filleted.
+After excluding those and separating the two sheet sides, inner transitions pass
+at radii 0.1, 0.25 and 0.5 mm, but the outer transition fails validation. An earlier
+overbroad 1 mm experiment terminated the diagnostic process in OCCT. That case
+must not enter the interactive command. The unrounded closed-cutter results are
+valid; complete automatic smoothing, solid-only definition reading, empty
+FORM_CUT insertion, GUI placement and persistence remain unverified for this
+experimental route. No release is claimed from these benchmarks.
+
+#### Prescribed blends and property calculation experiment
+
+The subsequent direct-Shell experiment removes the two source closing faces,
+trims the wall against the actual outer Bend cylinder, and reuses the ordinary
+native Fillet implementation for inner `t` and outer `2t`. At `(t, Ri) = (1, 2)`
+mm, all four supported placements passed strict BRep validity, one-solid
+connectivity, independent serial GK volume integration and Boolean equivalence
+between the two physical attachment sides. Twelve incompatible placements were
+rejected. Both prescribed blends rendered in the native viewer. This remains an
+experimental kernel request; the solid-only library reader and complete GUI
+insertion/persistence contract are not yet verified.
+
+Internal blends do not publish intermediate meshes, mass properties or history
+transactions. The complete insertion then measured 2.934–3.391 s in Windows
+Release, including the final viewer packet and properties. Its geometry stages
+consume approximately 0.25 s; rational-face integration dominates the remainder.
+
+The corner-only property experiment runs OCCT's independent face-volume
+integrations concurrently with the original common reference point, `1e-12`
+tolerance and span handling. It reduces contributions in the original face
+order; it does not change geometry, integration equations, precision or the
+ordinary feature path. A standalone comparison with one, two and four workers
+matched the serial result within `2.1e-12` mm³. The complete `(1, 2)` insertion
+then measured 2.037–2.151 s. Running the unchanged full-tensor integration
+concurrently with the face-volume work reduced the four insertion observations
+to 1.667, 1.674, 1.807 and 1.724 s. Independent serial calculations verified
+volume and all centroid coordinates within `1e-6`. All nine inertia matrix
+entries use an absolute `1e-6` floor plus eight machine-epsilon units relative
+to the largest absolute tensor entry. Off-diagonal products can cancel large
+terms, so their own small output value is not a valid rounding scale. This
+accounts for floating-point rounding of the independent
+full-BRep integration versus native Body tensor aggregation. Strict BRep
+validity, connectivity and physical-side equivalence also passed.
+Source-file loading, stock preparation, independent
+verification and GUI confirmation are outside these insertion observations.
+Evidence: `build/form-diagnostic/corner-shell-single-result.log`,
+`corner-volume-parallel.log`, `corner-shell-fast-1-2.log` and
+`corner-tensor-overlap-1-2.log`.
+
+A second serial run measured 1.698, 1.710, 1.737 and 1.689 s with the same
+four supported and twelve rejected placements; the same independent checks
+passed. Evidence: `build/form-diagnostic/corner-speed-final-1-2.log`.
+
+Related Windows native regressions passed for ordinary Form geometry, the
+six-scenario Pattern/Mirror spatial/flat/restoration matrix, copies after Unbend,
+ordinary Fillet document transactions, Shell and Surface Thicken. The new
+independent tensor checks initially rejected Body aggregates at large moments
+because their absolute comparison was below floating-point rounding. The
+comparison now uses the complete tensor scale described above; product
+integration and document results were not changed to satisfy the test.
+Evidence: `corner-speed-regressions.log`, `corner-speed-copy-regressions.log`
+and the final six-scenario pass in `corner-speed-copy-final.log`.
+The optimized corner guide resolver also passed the independent original-guide
+and tangent-visibility comparison on all four `(1, 2)` placements in
+`corner-speed-guide-verification.log`. That diagnostic ran concurrently with
+regression checks and is not performance evidence. The latest native GUI
+diagnostic rendered both sides successfully, and the translation GUI verified
+all five languages (`corner-speed-preview.*.log` and
+`corner-speed-translations.*.log`). This rendering-only diagnostic does not
+verify solid-only library insertion or its persistence contract.
+
+The extended prescribed-radius matrix exposed seven failing pairs among the
+nine thickness/Bend-radius pairs listed above. Only `(0.5, 2)` and `(1, 3)` passed
+that matrix; `(1, 2)` also passed separately. The failing pairs are not accepted
+with reduced radii. Extending the transition selection across the actual curved
+Bend skin yields ten native edges per side but does not resolve these failures.
+Reversing the order of the two blends also fails at `(0.5, 0.5)`, `(1, 1)` and
+`(2, 4)`. A joint calculation of both radii fails at the same three pairs and
+provides no material speed improvement at `(1, 2)`; that experiment was removed.
+The remaining geometry issue requires a different transition construction,
+rather than reduced radii. These results are not release gates.
+Changing the GK projection plane was also rejected: its first volume differed
+from the retained serial result by approximately `2.5e-5` mm³, exceeding the
+independent comparison tolerance.
+
+Localization review for this experiment: no product UI strings were introduced;
+existing validation keys are reused. Windows was measured; Linux verification
+remains outstanding.
+
+The native GUI diagnostic rendered the exact closed-cutter result from both
+sides. The original Bend strip no longer bridges the formed recess; the sloped
+source walls are retained. The diagnostic publishes the calculated viewer packet
+into a stock-document View, rather than saving a fabricated Form history/cache
+match. Its JSON packet is disposable test output, not a document dependency.
+Captures are `Projects/test/corner-form-inside.png` (exterior) and
+`Projects/test/corner-form-outside.png` (interior); those camera suffixes predate
+the current geometry and are not material-side identifiers.
+
+The ordinary planar Form geometry regression passed after this experiment,
+including spatial/flat states and native save/reopen. The Surface Thicken
+regression passed exact planes, curved and periodic surfaces, spatial B-splines,
+connected sewn skins, all offset sides, native ancestry, persistence, no-op and
+Undo/Redo. The translation contract passed `cs`, `en`, `de`, `fr` and `ru`.
+Linux verification and complete solid-only Form GUI insertion remain pending.
+
+Localization review: this comparison adds diagnostic output and English design
+documentation only; it introduces no new product UI strings. Existing corner
+validation strings still require the normal five-catalog validation before release.
+
+One standalone Sketch in `FORM_CUT` selects ordinary planar Form behavior.
+Two perpendicular cutting Sketches select the corner variant, initially limited
+to a 90-degree Bend. This classification comes from the native role's Sketches,
+not the library filename, UUID, Body order or a special FORM-EDGE case.
+The native XY cutting plane determines the primary attachment frame regardless
+of the two Sketches' history order. Their common longitudinal direction and
+plane intersection must agree. Unsupported definitions are rejected explicitly.
+
+Both cut profiles reuse ordinary solid Extrusion tools and the existing Boolean
+cut. From each selected inner plane, the corner cut runs outward through its
+plate; it must not unnecessarily cut away the Bend remnant between the planes.
+They do not become Sheet Cut manufacturing records. The definition remains
+an independent native copy; no format field or required sidecar is added.
+An empty `FORM_FLAT` still means no precut. `FORM_SYMBOL` remains a Sketch.
+
+The Bend is a command-local exception to the planar trimmed-face insertion
+boundary. The user selects the two adjacent inner planar sheet faces; these
+references establish the container placement and orientation. Its virtual sharp
+corner must be established from those actual adjacent sheet sides, the persisted
+native Bend material frame and its real axial span. Preserve both selected side
+identities. This exception does not authorize changing general container
+placement.
+
+The library author need not know the destination Bend radius. Read the actual
+radius and sheet thickness from the destination Bend and adapt only the local
+joining geometry of the inserted independent definition. The cuts should retain
+the relevant curved Bend remnant, which joins the formed material. Following the
+user's refined approach, first offset the authored surface by the sheet thickness
+and place that formed volume using the two inner planar references. Then identify
+and fill the local exterior gaps between that volume and the remaining Bend.
+Do not require additional smoothing of the inner transition. Exterior additions
+must define closed material joined to the sheet, not isolated display patches;
+a successful solid union alone does not prove an acceptable outer transition.
+Rounded patches at both ends of the cut may be spherical where the boundary
+geometry supports that construction; a spherical patch is not a mandatory
+surface type for every radius and authored boundary.
+
+This is an explicitly symbolic representation rather than a manufacturing
+simulation. The user accepts approximate local transition shape and prioritizes
+fast insertion and a visually coherent result over submillimetre agreement.
+The primary design and verification range is 0.5 to 3 mm sheet thickness. This
+range does not certify tool capability, material strain or resistance to cracking,
+and is not itself an instruction to reject other thicknesses in the UI.
+This does not permit holes, invalid solids, stale references or changes to
+ordinary modeling accuracy. Avoid recalculating the entire library definition
+merely to adapt its local transitions. Placement interaction, local adaptation,
+the residual Bend radius, connected geometry, performance, save/reopen and later
+dependent operations require verification before release. This paragraph records
+the intended design, not a completed or verified implementation.
+
+The prepared example is named **Corner gusset 90 degrees**. Its cutting profiles
+retain the exact filleted boundary curves. Coincident endpoints must share native
+graph identity, not merely appear closed at the display resolution.
+
+### Industry references reviewed (2026-10-08)
+
+- [Wilson Tool: One Hit Gusset Press Brake Application](https://wilsontool.com/en-us/resources/one-hit-gusset-press-brake-application)
+  demonstrates a formed gusset produced with a dedicated punch and die. Use
+  "formed gusset" or "sheet metal gusset" to distinguish this feature from a
+  separate welded reinforcement plate.
+- [SOLIDWORKS: Adding Sheet Metal Gussets](https://help.solidworks.com/2023/english/solidworks/sldworks/t_adding_sheet_metal_gussets.htm)
+  accepts either a Bend face or two adjacent planar faces, with alignment and
+  positioning references. It supports rounded or flat profiles and independent
+  inner/outer corner fillets. This supports our placement choice; it does not
+  specify our surface construction algorithm.
+- [Protolabs: Standard Forming and Manufacturing Guidelines](https://www.protolabs.com/media/roognect/sheet-metal-tolerances-one-pager-2.pdf),
+  page 5, ties the Bend radius of formed gussets to the available tooling. Its
+  listed tooling radii are supplier-specific, not universal limits for ZIMA-CAD.
+
+These sources do not establish a universal spherical transition or guarantee
+intersection of an arbitrary authored offset with every Bend remnant. Native
+geometry tests must verify that intersection. The user authorizes adjusting the
+example FORM geometry to obtain a practical visual result; preserve the ordinary
+native authoring and independent library-copy mechanisms.
+Keep the sloped side walls in the example's surface-extrusion Sketch where they
+work. The user accepts editing that authored profile to use straight side walls
+if the slopes prevent a practical result. This is an example-definition fallback,
+not permission to silently rewrite every inserted library profile.
+
+### Initial corner calculation evidence (Windows, 2026-10-08)
+
+A working copy retains the first source Extrusion and its Surface conversion,
+rotates only the FORM Body into the inner-corner quadrant, and keeps the two CUT
+attachment planes in native XY/XZ. Its independently authored cut contours have
+a 3% inset to establish a joining lip. Projected external sources remain read-only
+construction context; the inset contour is deliberately independent of the import
+mapping. This is a prototype asset, not yet the released library definition.
+
+Nine native 90-degree Bend cases cover thicknesses 0.5, 1, 2 and 3 mm and inner
+radii 0.5, 1, 2, 3, 4 and 6 mm in the recorded combinations. Each case exercises
+16 side/orientation combinations: the two consistent inner-face placements pass
+and the other 14 are rejected. The 18 accepted calculations pass independent
+exact B-Rep validity, one-solid connectivity and volume integration checks, and
+do not introduce Sheet Cut manufacturing records. Measured incremental insertion
+calculations take 0.332 to 0.658 seconds; source loading, stock preparation and the
+complete GUI confirmation are outside this measurement.
+
+Thickening now retains the complete parent set for a longitudinal edge when a
+zero-extent sweep vertex has coincident start/end identities. Only identical
+source and offset vertices qualify; numerical proximity is insufficient. Existing
+single-parent keys remain unchanged. Standard Surface Thicken and ordinary planar
+FORM geometry regressions also pass on Windows. Exterior joining surfaces,
+appearance, actual corner GUI interaction, native document regeneration and
+Undo/Redo, definition replacement, unfolding and Linux execution still require
+verification. The initial matrix must not be presented as complete corner support.
+
 A library definition is an ordinary native Part with ordinary editable Bodies.
 The four role names are resolved when inserting or replacing the definition:
 

@@ -6286,7 +6286,7 @@ void PartDocument::resolve_constructions(
         if(container.feature_kind==FeatureKind::Feature && container.feature.type==FeatureType::Point)
             static_cast<void>(resolve_point_placement(container.placement, source_geometry));
         else if(container.feature_kind==FeatureKind::SheetForm)
-            static_cast<void>(resolve_sheet_form_placement(container.placement,source_geometry));
+            static_cast<void>(resolve_sheet_form_feature_placement(container.sheet_form,container.placement,source_geometry));
         else static_cast<void>(resolve_placement(container.placement, source_geometry));
         if (!container.placement.reference_valid) return;
         if(container.feature_kind==FeatureKind::SheetForm) {

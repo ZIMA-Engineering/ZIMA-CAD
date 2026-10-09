@@ -146,7 +146,7 @@ void AssemblyWorkspaceWindow::begin_section_sketch(){
     state_->setText(tr("Nakreslete otevřenou čáru nebo lomenou čáru. Dokončit skicu vrátí vlastnosti řezu."));
 }
 bool AssemblyWorkspaceWindow::section_sketch_history(bool redo){
-    if(!section_dialog_||!sweep_profile_sketch_draft_)return false;
+    if(!sweep_profile_sketch_draft_||active_sketch_id_!=sweep_profile_sketch_draft_->id)return false;
     auto& from=redo?section_sketch_redo_:section_sketch_undo_;auto& to=redo?section_sketch_undo_:section_sketch_redo_;
     cancel_sketch_segment();if(!from.empty()){to.push_back(*sweep_profile_sketch_draft_);sweep_profile_sketch_draft_=std::move(from.back());from.pop_back();clear_selected_sketch_geometry();viewer_->clear_selection();preserve_view_on_refresh_=true;refresh_scene();}return true;
 }
@@ -181,7 +181,7 @@ bool AssemblyWorkspaceWindow::section_confirmation(const zima::viewer::ViewerCan
     section_dialog_->select_component(key);section_component_picking_=false;viewer_->set_selection_contract({});preview_section();return true;
 }
 void AssemblyWorkspaceWindow::update_section_ui(){
-    const auto id=workspace_.displayed_document_id();const bool model=workspace_.open_part(id)||workspace_.open_assembly(id);const bool sketch=section_dialog_&&sweep_profile_sketch_draft_&&!active_sketch_id_.empty();
+    const auto id=workspace_.displayed_document_id();const bool model=workspace_.open_part(id)||workspace_.open_assembly(id);const bool sketch=sweep_profile_sketch_draft_&&active_sketch_id_==sweep_profile_sketch_draft_->id;
     section_action_->setEnabled(model&&workspace_.active_document_id()==id&&!properties_dialog_&&active_sketch_id_.empty()&&!template_sketch());
     if(sketch){undo_action_->setEnabled(!section_sketch_undo_.empty());redo_action_->setEnabled(!section_sketch_redo_.empty());return;}
     if(!model||template_sketch()||!active_sketch_id_.empty())return;

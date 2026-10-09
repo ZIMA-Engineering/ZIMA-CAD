@@ -31,6 +31,9 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
         if (assembly_preview) viewer_->set_mesh(assembly_preview());
         return;
     }
+    if (!sweep_profile_sketch_draft_ || active_sketch_id_!=sweep_profile_sketch_draft_->id) {
+        section_sketch_undo_.clear();section_sketch_redo_.clear();
+    }
     appearance_preview_paths_.reset();
     std::map<std::pair<std::string,std::string>,std::string> relation_marks;
     const auto add_marks=[&](const auto& doc){

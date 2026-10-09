@@ -1,5 +1,53 @@
 # FORM Sketch editing and reference reprojection
 
+## FORM-EDGE edit, hover and draft history regression
+
+The second FORM-EDGE profile contains a connected equal-length line component
+with native axis contacts and horizontal/vertical constraints. Dimension edits
+and point dragging reuse the existing bounded component seed when the ordinary
+solve fails, then verify the complete native equations. A coupled drag whose
+mouse coordinates miss its free path can project onto that path; this does not
+relax geometric tolerances or make external references editable.
+
+`zima_cpp_equal_length_component_tests` checks 576 successive dimension edits
+and 2,016 drags across four coordinate reflections, reversed selection order,
+Distance/X/Y, driving/reference, locked/unlocked and native/external axis support.
+Independent equations, actual permitted movement, atomic rejection, stable IDs,
+read-only sources, native persistence and document Undo/Redo are checked. A
+combined dimension-edit/drag sequence also exercises off-path mouse coordinates.
+The line-component fixture has no circles, so circle contact-side variants belong
+to the separate tangent regressions rather than this count.
+
+Active Sketch picking excludes that exact owner's committed original-reference
+packet while retaining its current displayed curves and other occurrences. This
+prevents hovering the old position of an edited arc from highlighting both the
+old and new curve. No persisted source packet is removed or recalculated.
+
+Embedded profile Sketches share the existing transient Section draft history.
+Geometry and dimension mutations remain undoable before their owning feature's
+OK. Leaving the draft retires its private history; the parent feature still owns
+the single document commit, and Cancel retains the original document.
+
+The Windows FORM-EDGE GUI regression exercises mouse dimension editing, repeated
+drags, old-position hover, Segment/Circle creation, selection and Delete,
+Circle Trim, draft Undo/Redo for these actions and native reopening for both
+owned profiles. The latest combined run passed in 19.24 seconds. This covers
+these two embedded profile editors, not every Sketch command, other draft hosts
+or cross-platform GUI behavior. Section-specific Cancel restoration remains a
+separate verification requirement.
+
+Exact external spline display now uses its persisted rational curve, with the
+same 128 intervals as imported spline display. Coarse projection-cache chords
+no longer overlay a visibly different outline. Native tests compare samples
+with exact evaluations before and after source refresh, preserve source data,
+and exercise both import orders and both curve directions in a closed
+quarter-cylinder profile with independently checked volume. Shared endpoints
+retain native identity; external import pole mappings keep their order through
+endpoint merging so refresh remains active.
+
+No new Sketch UI strings were introduced. Windows native and GUI verification
+is recorded separately from Linux execution, which has not been performed here.
+
 ## Editable tangent profile
 
 The FORM 2D Sweep profile combines a tangent arc, two axis contacts, a sloping

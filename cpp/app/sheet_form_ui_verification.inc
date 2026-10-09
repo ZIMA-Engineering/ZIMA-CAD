@@ -1,3 +1,141 @@
+Q_NEVER_INLINE static int verify_corner_sheet_form_ui(QApplication& application,AssemblyWorkspaceWindow& window,
+        const std::filesystem::path& directory) {
+    using namespace zima;
+    try {
+        const auto check=[](bool ok,const char* message){if(!ok)throw std::runtime_error(message);};
+        const auto flush=[&]{application.processEvents();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);application.processEvents();};
+        const auto run=[&](const QString& command){const auto result=window.execute_console_command(command);check(result.ok,result.message.c_str());return result;};
+        const auto preview_only=qEnvironmentVariableIsSet("ZIMA_CORNER_FORM_PREVIEW_ONLY");
+        const auto input=std::filesystem::absolute(preview_only?"build/form-diagnostic/CornerBodyCutPreview.prtz":"build/form-diagnostic/CornerGusset90Placed.prtz");
+        std::vector<kernel::BodyResult> cache;const auto original=document::PartDocument::load(input,&cache);
+        const auto path=directory/"corner-form-ui.prtz";original.save(path,cache);
+        const auto id=original.history.back().id;
+        check(preview_only||original.history.back().feature_kind==document::FeatureKind::SheetForm,"Missing corner FORM fixture");
+        window.showMaximized();check(window.open_document_path(QString::fromStdString(path.string())),"Corner FORM could not open");flush();
+        run(QString::fromStdString("body.activate "+original.body_history.bodies().front().scope.id));flush();
+        auto* mode=window.findChild<QAction*>("applicationModeAction2");check(mode,"Sheet workspace missing");mode->trigger();flush();
+        auto* view=dynamic_cast<viewer::MeshView*>(window.findChild<QOpenGLWidget*>());check(view,"Corner View missing");
+        if(preview_only) {
+            std::ifstream packet("build/form-diagnostic/CornerBodyCutPreview.json");nlohmann::json value;packet>>value;
+            const auto result=document::load_body_result(value);view->set_mesh(result.mesh);flush();
+        }
+        for(const auto kind:{viewer::ReferenceVisibility::Origins,viewer::ReferenceVisibility::Planes,
+            viewer::ReferenceVisibility::Sketches,viewer::ReferenceVisibility::Dimensions})view->set_reference_visibility(kind,false);
+        const auto render=[&](const char* suffix,float rx,float ry,float rz) {
+            view->fit_all();auto camera=view->camera_state();const auto rotation=QQuaternion::fromEulerAngles(rx,ry,rz);
+            camera[0]=rotation.scalar();camera[1]=rotation.x();camera[2]=rotation.y();camera[3]=rotation.z();view->set_camera_state(camera);
+            view->set_display_mode(viewer::DisplayMode::ShadedWithEdges);flush();
+            check(view->grabFramebuffer().save(QString::fromStdString((directory/(std::string("corner-form-")+suffix+".png")).string())),"Corner rendering capture failed");
+        };
+        render("inside",-45,0,25);render("outside",135,0,25);
+        if(preview_only){std::cout<<"Corner body-cut diagnostic rendering captured; editing and persistence not verified\n";return 0;}
+        auto* tree=window.findChild<QTreeWidget*>("documentTree");check(tree,"Corner Tree missing");
+        const auto row=[&]{for(QTreeWidgetItemIterator i(tree);*i;++i)if((*i)->data(0,Qt::UserRole).toString().toStdString()==id&&
+            (*i)->data(0,Qt::UserRole+3)=="part-container")return *i;throw std::runtime_error("Corner FORM Tree row missing");};
+        const auto editor=[&]() -> PrimitivePropertiesDialog* {
+            for(auto* dialog:window.findChildren<QDialog*>())if(auto* candidate=dynamic_cast<PrimitivePropertiesDialog*>(dialog);
+                candidate&&candidate->isVisible()&&candidate->feature_kind()==document::FeatureKind::SheetForm)return candidate;return nullptr;
+        };
+        const auto open=[&]{window.show_tree_item_properties(row());flush();check(editor(),"Corner FORM Properties missing");return editor();};
+        const auto closed=[&]{QElapsedTimer timer;timer.start();while(editor()&&timer.elapsed()<12000){application.processEvents();QThread::msleep(5);}flush();check(!editor(),"Corner FORM OK failed");};
+        const auto saved=[&]{run("save");return document::PartDocument::load(path);};
+        auto* dialog=open();const auto placed=dialog->pending_value();
+        if(placed.placement!=original.history.back().placement)std::cerr<<nlohmann::json(placed.placement).dump()<<'\n'<<nlohmann::json(original.history.back().placement).dump()<<'\n';
+        check(placed.placement==original.history.back().placement,"Corner Properties changed stored placement");
+        auto* offset1=dialog->findChild<QDoubleSpinBox*>("sheetFormOffset1");
+        auto* offset2=dialog->findChild<QDoubleSpinBox*>("sheetFormOffset2");
+        check(offset1&&!offset1->isEnabled()&&offset1->value()==0.&&offset2&&offset2->isEnabled(),"Corner plane offsets are not constrained correctly");
+        check(std::ranges::none_of(view->mesh().triangle_references,[&](const auto& face){return face.owner_id==id;}),"Corner Properties failed rollback");
+        dialog->set_reference_inspected(0,true);dialog->set_reference_inspected(1,true);flush();
+        check(dialog->highlighted_reference_entries().size()==2,"Corner inner-plane inspection failed");
+        check(window.grab().save(QString::fromStdString((directory/"corner-form-properties.png").string())),"Corner Properties capture failed");
+        dialog->buttons()->button(QDialogButtonBox::Cancel)->click();flush();check(saved().history.back()==original.history.back(),"Corner Cancel changed native history");
+        dialog=open();const auto before=run("documents").data;dialog->buttons()->button(QDialogButtonBox::Ok)->click();closed();
+        check(run("documents").data==before,"Unchanged corner OK created an Undo revision");
+        dialog=open();offset2=dialog->findChild<QDoubleSpinBox*>("sheetFormOffset2");offset2->setValue(3.);flush();
+        const auto pending=dialog->pending_value();check(std::abs(pending.placement.x-3.)<1e-8,"Corner longitudinal offset did not move placement");
+        dialog->buttons()->button(QDialogButtonBox::Ok)->click();closed();
+        check(std::abs(saved().history.back().placement.x-3.)<1e-8,"Corner OK lost longitudinal placement");
+        run("undo");check(saved().history.back()==original.history.back(),"Corner placement Undo failed");
+        run("redo");check(std::abs(saved().history.back().placement.x-3.)<1e-8,"Corner placement Redo failed");
+        run(QString::fromStdString(commands::Json{{"command","close"},{"arguments",{{"discard",true}}}}.dump()));
+        check(window.open_document_path(QString::fromStdString(path.string())),"Corner FORM save/reopen failed");flush();
+        check(std::abs(saved().history.back().placement.x-3.)<1e-8,"Corner reopen lost native placement");
+        const auto choose=[&](const std::filesystem::path& file,const std::function<void()>& trigger) {
+            bool selected=false;QTimer timer;timer.setInterval(30);
+            QObject::connect(&timer,&QTimer::timeout,&window,[&] {
+                for(auto* widget:QApplication::topLevelWidgets())if(auto* picker=qobject_cast<QFileDialog*>(widget);picker&&picker->isVisible()) {
+                    check(picker->nameFilters().size()==1&&picker->nameFilters().front().contains("*.prtz"),"Corner picker offered non-Part files");
+                    picker->selectFile(QString::fromStdString(file.string()));
+                    if(auto* field=picker->findChild<QLineEdit*>("fileNameEdit"))field->setText(QString::fromStdString(file.string()));
+                    selected=true;timer.stop();QMetaObject::invokeMethod(picker,"accept",Qt::DirectConnection);return;
+                }
+            });timer.start();trigger();timer.stop();check(selected,"Corner file picker missing");flush();
+        };
+        const auto definition=document::stored_sheet_form_definition(original.history.back().sheet_form);
+        auto replacement=definition.part;replacement.name="Replacement corner gusset";
+        const auto replacement_path=directory/"corner-form-replacement.prtz";replacement.save(replacement_path,*definition.calculated);
+        const auto existing=saved().history.back().sheet_form;dialog=open();
+        choose(replacement_path,[&]{dialog->findChild<QPushButton*>("sheetFormReplaceDefinition")->click();});
+        check(dialog->pending_value().sheet_form.source_name==replacement.name,"Corner replacement was not loaded");
+        dialog->buttons()->button(QDialogButtonBox::Cancel)->click();flush();check(saved().history.back().sheet_form==existing,"Corner replacement Cancel changed definition");
+        dialog=open();choose(replacement_path,[&]{dialog->findChild<QPushButton*>("sheetFormReplaceDefinition")->click();});
+        dialog->buttons()->button(QDialogButtonBox::Ok)->click();closed();
+        check(saved().history.back().sheet_form.source_name==replacement.name,"Corner replacement OK lost definition");
+        run("undo");check(saved().history.back().sheet_form==existing,"Corner replacement Undo failed");
+        run("redo");check(saved().history.back().sheet_form.source_name==replacement.name,"Corner replacement Redo failed");
+        auto stock=original;stock.erase_history_object(id);kernel::OcctKernel kernel;
+        const auto stock_result=workspace::calculate_part_with_resolved_references(kernel,stock);
+        const auto stock_path=directory/"corner-form-create-ui.prtz";stock.save(stock_path,stock_result);
+        run(QString::fromStdString(commands::Json{{"command","close"},{"arguments",{{"discard",true}}}}.dump()));
+        check(window.open_document_path(QString::fromStdString(stock_path.string())),"Corner creation stock did not open");flush();
+        run(QString::fromStdString("body.activate "+stock.body_history.bodies().front().scope.id));mode->trigger();flush();
+        const auto source=std::filesystem::absolute("config/lib/01-SHEETMETAL/01-FORM/CornerGusset90.prtz");
+        auto* action=window.findChild<QAction*>("sheetFormAction");check(action&&action->isEnabled(),"Corner Form action unavailable");
+        choose(source,[&]{action->trigger();});dialog=editor();check(dialog,"Corner creation Properties missing");
+        const auto canceled=dialog->container_id();dialog->buttons()->button(QDialogButtonBox::Cancel)->click();flush();
+        run("save");check(!document::PartDocument::load(stock_path).find_container(canceled),"Corner creation Cancel inserted history");
+        choose(source,[&]{action->trigger();});dialog=editor();check(dialog,"Corner creation Properties missing");
+        const auto created_id=dialog->container_id();const auto mouse=[&](QPointF point,QEvent::Type type,Qt::MouseButton button,Qt::MouseButtons held) {
+            QMouseEvent event(type,point,QPointF(view->mapToGlobal(point.toPoint())),button,held,Qt::NoModifier);
+            QApplication::sendEvent(view,&event);flush();
+        };
+        for(unsigned reference=0;reference<2;++reference) {
+            const auto& wanted=original.history.back().placement.references[reference];bool found=false;
+            for(float rx:{135.f,-45.f,45.f,-135.f}) {
+                view->fit_all();auto camera=view->camera_state();const auto rotation=QQuaternion::fromEulerAngles(rx,0,25);
+                camera[0]=rotation.scalar();camera[1]=rotation.x();camera[2]=rotation.y();camera[3]=rotation.z();view->set_camera_state(camera);flush();
+                for(int y=15;y<view->height()&&!found;y+=25)for(int x=15;x<view->width()&&!found;x+=25) {
+                    const QPointF point{double(x),double(y)};mouse(point,QEvent::MouseMove,Qt::NoButton,Qt::NoButton);
+                    const auto candidate=view->hovered_candidate();
+                    if(!candidate||candidate->kind!=viewer::CandidateKind::Face||candidate->owner_id!=wanted.owner_id||candidate->semantic_key!=wanted.semantic_key)continue;
+                    mouse(point,QEvent::MouseButtonPress,Qt::LeftButton,Qt::LeftButton);mouse(point,QEvent::MouseButtonRelease,Qt::LeftButton,Qt::NoButton);
+                    const auto pending=dialog->pending_value();
+                    check(pending.placement.references.at(reference).owner_id==candidate->owner_id&&pending.placement.references.at(reference).semantic_key==candidate->semantic_key,
+                        "Corner click differs from hovered plane");found=true;
+                }
+                if(found)break;
+            }
+            check(found,"Corner picker did not offer the expected outer plane");
+        }
+        const auto point=original.history.back().placement.references[2];
+        check(dialog->set_reference(2,point,"Bend station datum"),"Corner station entry failed");flush();
+        check(dialog->buttons()->button(QDialogButtonBox::Ok)->isEnabled(),"Complete corner creation cannot confirm");
+        QElapsedTimer confirmation;confirmation.start();dialog->buttons()->button(QDialogButtonBox::Ok)->click();closed();
+        std::cout<<"Corner GUI confirmation milliseconds="<<confirmation.elapsed()<<'\n';run("save");
+        std::vector<kernel::BodyResult> created_cache;auto created=document::PartDocument::load(stock_path,&created_cache);
+        check(created.find_container(created_id),"Corner GUI creation did not persist");
+        check(!created_cache.empty()&&created_cache.back().calculation_errors.empty()&&
+            std::abs(created_cache.back().volume-stock_result.back().volume)>1.,"Corner GUI creation retained an error or unchanged stock");
+        render("created-inside",-45,0,25);render("created-outside",135,0,25);
+        run("undo");run("save");check(!document::PartDocument::load(stock_path).find_container(created_id),"Corner creation Undo failed");
+        run("redo");run("save");check(document::PartDocument::load(stock_path).find_container(created_id),"Corner creation Redo failed");
+        run(QString::fromStdString(commands::Json{{"command","close"},{"arguments",{{"discard",true}}}}.dump()));
+        check(window.open_document_path(QString::fromStdString(stock_path.string())),"Created corner could not reopen");flush();
+        std::cout<<"Corner FORM GUI: creation, exact hover/click planes, definition replacement, rollback/inspection, Cancel, unchanged OK, longitudinal placement, Undo/Redo and save/reopen passed\n";return 0;
+    }catch(const std::exception& error){window.grab().save(QString::fromStdString((directory/"corner-form-failure.png").string()));std::cerr<<"Corner FORM GUI: "<<error.what()<<'\n';return 1;}
+}
+
 Q_NEVER_INLINE static int verify_sheet_form_ui(QApplication& application,AssemblyWorkspaceWindow& window,
         const std::filesystem::path& directory) {
     using namespace zima;

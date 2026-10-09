@@ -1,4 +1,9 @@
 {
+  "First outer sheet face": "First outer sheet face",
+  "Second outer sheet face": "Second outer sheet face",
+  "Position along bend": "Position along bend",
+  "Signed distance along the bend axis. Select a point or a transverse line or plane.": "Signed distance along the bend axis. Select a point or a transverse line or plane.",
+  "Corner FORM orientation follows the two sheet faces.": "Corner FORM orientation follows the two sheet faces.",
   "Zobrazit popis pohledu": "Show view description",
   "Parametry používají stejný zápis jako razítko, například &document.file_stem nebo &drawing.revision.": "Parameters use the same syntax as the title block, for example &document.file_stem or &drawing.revision.",
   "Zobrazit": "Show",
@@ -2206,6 +2211,7 @@
   "Knihovna FORM": "Form library",
   "FORM requires self-contained native references.": "Form requires self-contained native references.",
   "A FORM sketch role requires one active standalone Sketch.": "A Form sketch role requires one active standalone Sketch.",
+  "FORM_CUT requires one Sketch or two perpendicular corner Sketches.": "FORM_CUT requires one Sketch or two perpendicular corner Sketches.",
   "FORM requires four distinct named Body roles.": "Form requires four distinct named Body roles.",
   "FORM requires independent native Body roles.": "Form requires independent native Body roles.",
   "FORM requires a calculated outer surface.": "Form requires a calculated outer surface.",
@@ -2237,5 +2243,6 @@
   "Position 1": "Position 1",
   "Position 2": "Position 2",
   "In-plane angle": "In-plane angle",
-  "Signed distance to a line or plane. A point sets sheet-plane X in row 2 or Z in row 3.": "Signed distance to a line or plane. A point sets sheet-plane X in row 2 or Z in row 3."
+  "Signed distance to a line or plane. A point sets sheet-plane X in row 2 or Z in row 3.": "Signed distance to a line or plane. A point sets sheet-plane X in row 2 or Z in row 3.",
+  "Corner FORM cannot fit the prescribed transition radii. Change the bend radius or the definition.": "Corner FORM cannot fit the prescribed transition radii. Change the bend radius or the definition."
 }

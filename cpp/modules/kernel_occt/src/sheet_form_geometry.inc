@@ -1,8 +1,56 @@
 // Explicit calculation of copied native FORM histories. No UI or picker calls
 // this implementation, and no OCCT enumeration defines a persistent identity.
 namespace sheet_form_geometry {
-struct Operands {PrimitiveData cut,flat,formed;};
+struct Operands {PrimitiveData cut,flat,formed;bool rounded_corner{};};
 struct Instance {SheetMaterialDefinition material;Operands operands;};
+
+PrimitiveData repair_parameterization(const PrimitiveData& source,double tolerance) {
+    if(source.shape.IsNull()||BRepCheck_Analyzer(source.shape,true,false,true).IsValid())return source;
+    // Boolean copies of rational blend patches can retain stale SameParameter
+    // flags. Repair a private copy, never the cached source or supporting Body.
+    BRepBuilderAPI_Copy copied(source.shape,true,false);
+    if(!copied.IsDone())throw std::runtime_error("FORM could not create a valid sheet.");
+    BRepCheck_Analyzer diagnosis(copied.Shape(),true,false,true);
+    BRep_Builder builder;ShapeFix_Edge projector;
+    for(TopExp_Explorer it(copied.Shape(),TopAbs_EDGE);it.More();it.Next()) {
+        const auto edge=TopoDS::Edge(it.Current());const auto checked=diagnosis.Result(edge);
+        if(checked.IsNull())continue;
+        for(checked->InitContextIterator();checked->MoreShapeInContext();checked->NextShapeInContext()) {
+            if(checked->ContextualShape().ShapeType()!=TopAbs_FACE||
+                !std::ranges::any_of(checked->StatusOnShape(),[](auto status) {
+                    return status==BRepCheck_InvalidCurveOnSurface||status==BRepCheck_InvalidSameParameterFlag;
+                }))continue;
+            const auto face=TopoDS::Face(checked->ContextualShape());const auto seam=BRep_Tool::IsClosed(edge,face);
+            builder.UpdateEdge(edge,Handle(Geom2d_Curve){},face,BRep_Tool::Tolerance(edge));
+            static_cast<void>(projector.FixAddPCurve(edge,face,seam,1e-7));
+        }
+    }
+    BRepLib::SameParameter(copied.Shape(),1e-7,true);
+    if(!BRepCheck_Analyzer(copied.Shape(),true,false,true).IsValid()) {
+        if(std::getenv("ZIMA_CPP_FORM_PROFILE"))std::fprintf(stderr,"FORM copy parameterization repair failed validation\n");
+        throw std::runtime_error("FORM could not create a valid sheet.");
+    }
+    PrimitiveData result;result.shape=copied.Shape();
+    for(const auto& face:source.faces)result.faces.push_back({copied.ModifiedShape(face.shape),face.reference});
+    for(const auto& edge:source.edges) {
+        const auto changed=copied.ModifiedShape(edge.shape);
+        if(BRep_Tool::Tolerance(TopoDS::Edge(changed))>
+            std::max(BRep_Tool::Tolerance(TopoDS::Edge(edge.shape)),tolerance)*1.01+1e-12)
+        {
+            if(std::getenv("ZIMA_CPP_FORM_PROFILE"))std::fprintf(stderr,"FORM copy parameterization tolerance %.9g exceeds %.9g\n",BRep_Tool::Tolerance(TopoDS::Edge(changed)),std::max(BRep_Tool::Tolerance(TopoDS::Edge(edge.shape)),tolerance));
+            throw std::runtime_error("FORM could not create a valid sheet.");
+        }
+        result.edges.push_back({changed,edge.reference});
+    }
+    for(const auto& vertex:source.vertices) {
+        const auto changed=copied.ModifiedShape(vertex.shape);
+        if(BRep_Tool::Tolerance(TopoDS::Vertex(changed))>
+            std::max(BRep_Tool::Tolerance(TopoDS::Vertex(vertex.shape)),tolerance)*1.01+1e-12)
+            throw std::runtime_error("FORM could not create a valid sheet.");
+        result.vertices.push_back({changed,vertex.reference});
+    }
+    return result;
+}
 
 PrimitiveData copy(const PrimitiveData& source,const gp_Trsf& transform,const HistoryOperation& operation,
         const std::string& region,unsigned index) {
@@ -26,8 +74,8 @@ PrimitiveData copy(const PrimitiveData& source,const gp_Trsf& transform,const Hi
     return result;
 }
 
-PrimitiveData read_surface(const BodyResult& snapshot) {
-    if(snapshot.kernel_shape.empty()||snapshot.kernel_faces.empty()||snapshot.volume!=0.||
+PrimitiveData read_surface(const BodyResult& snapshot,bool solid=false) {
+    if(snapshot.kernel_shape.empty()||snapshot.kernel_faces.empty()||(solid?snapshot.volume<=0.:snapshot.volume!=0.)||
         !snapshot.calculation_errors.empty())throw std::runtime_error("FORM definition calculation failed.");
     PrimitiveData result;
     BRep_Builder builder;BRepTools_ShapeSet archive(builder);
@@ -113,6 +161,7 @@ PrimitiveData place(const PrimitiveData& source,const gp_Trsf& transform,
         ref.sheet_owner=owner;ref.sheet_thickness=request.thickness;
         ref.sheet_role=SheetFaceRole::ThicknessFace;
         if(role=="shape") {
+            if(!request.solid_opening_faces.empty())ref.sheet_role=face.reference.sheet_role;
             if(face.reference.semantic_key.starts_with("thicken:cap:start:from:"))ref.sheet_role=SheetFaceRole::SideA;
             if(face.reference.semantic_key.starts_with("thicken:cap:end:from:"))ref.sheet_role=SheetFaceRole::SideB;
         }
@@ -123,8 +172,69 @@ PrimitiveData place(const PrimitiveData& source,const gp_Trsf& transform,
     return result;
 }
 
+bool corner_definition(const SheetFormRequest& request) {
+    return !request.solid_opening_faces.empty()||(request.definition&&std::ranges::count_if(*request.definition,[&](const auto& operation) {
+        return operation.body.id==request.cut_body&&!operation.suppressed;
+    })==2);
+}
+
+bool on_bend_corner(const SheetFormRequest& request,const TopoDS_Face& support,
+        const std::vector<OwnedFace>& faces,const std::vector<HistoryOperation>& history,std::size_t index) {
+    using namespace sheet_material;
+    const auto regions=regions_before(history,index);
+    for(const auto& bend:regions.regions) {
+        if(bend.kind!=SheetMaterialDefinition::Kind::Cylinder||bend.curved_source_id.empty()||bend.unfolded||
+           std::abs(bend.angle-std::numbers::pi/2)>1e-10||std::abs(bend.thickness-request.thickness)>1e-10)continue;
+        const auto displacement=sub(request.position,bend.origin);const auto station=dot(displacement,bend.along);
+        const auto radial=dot(displacement,bend.radial),tangent=dot(displacement,bend.tangent);
+        const bool first_side=std::abs(dot(request.normal,bend.radial))>1.-1e-10;
+        if(!first_side&&std::abs(dot(request.normal,bend.tangent))<1.-1e-10)continue;
+        const bool inner=dot(request.normal,first_side?bend.radial:bend.tangent)<0.;
+        if((!inner&&!request.solid_cut_snapshot)||
+           std::abs(radial-(inner?-bend.thickness:0.))>1e-7||
+           std::abs(tangent-(inner?bend.radius-bend.thickness:bend.radius))>1e-7||
+           std::abs(dot(request.x_direction,bend.along))<1.-1e-10)continue;
+        const auto first_contact=add(add(bend.origin,mul(bend.along,station)),mul(bend.radial,radial));
+        const auto second_contact=add(add(bend.origin,mul(bend.along,station)),
+            add(mul(bend.radial,-bend.radius),mul(bend.tangent,tangent)));
+        const auto contact=first_side?first_contact:second_contact;
+        // The selected planar face must actually meet this Bend tangency.
+        // Matching an infinite plane alone does not establish adjacency.
+        BRepClass_FaceClassifier adjacent(support,gp_Pnt(contact.x,contact.y,contact.z),1e-7);
+        if(adjacent.State()!=TopAbs_IN&&adjacent.State()!=TopAbs_ON)continue;
+        bool has_other_side=false;
+        const auto other_normal=cross(request.normal,request.x_direction);
+        const auto other_contact=first_side?second_contact:first_contact;
+        for(const auto& face:faces) {
+            if(face.reference.sheet_owner.empty()||std::abs(face.reference.sheet_thickness-request.thickness)>1e-10||
+               (face.reference.sheet_role!=SheetFaceRole::SideA&&face.reference.sheet_role!=SheetFaceRole::SideB))continue;
+            const auto actual=TopoDS::Face(face.shape);BRepAdaptor_Surface surface(actual);
+            if(surface.GetType()!=GeomAbs_Plane)continue;
+            const auto plane=surface.Plane();auto outward=plane.Axis().Direction();
+            if(!plane.Position().Direct())outward.Reverse();if(actual.Orientation()==TopAbs_REVERSED)outward.Reverse();
+            if(plane.Distance(gp_Pnt(request.position.x,request.position.y,request.position.z))>1e-7||
+               outward.Dot(gp_Dir(other_normal.x,other_normal.y,other_normal.z))<1.-1e-10)continue;
+            BRepClass_FaceClassifier joining(actual,gp_Pnt(other_contact.x,other_contact.y,other_contact.z),1e-7);
+            if(joining.State()==TopAbs_IN||joining.State()==TopAbs_ON){has_other_side=true;break;}
+        }
+        if(!has_other_side)continue;
+        for(const auto& face:faces)if(face.reference.sheet_owner==bend.owner_id) {
+            BRepAdaptor_Surface cylinder(TopoDS::Face(face.shape));
+            if(cylinder.GetType()!=GeomAbs_Cylinder||std::abs(cylinder.Cylinder().Radius()-bend.radius)>1e-7)continue;
+            double low=std::numeric_limits<double>::infinity(),high=-low;
+            for(TopExp_Explorer vertex(face.shape,TopAbs_VERTEX);vertex.More();vertex.Next()) {
+                const auto p=BRep_Tool::Pnt(TopoDS::Vertex(vertex.Current()));
+                const auto coordinate=dot(sub({p.X(),p.Y(),p.Z()},bend.origin),bend.along);
+                low=std::min(low,coordinate);high=std::max(high,coordinate);
+            }
+            if(station>=low-1e-7&&station<=high+1e-7)return true;
+        }
+    }
+    return false;
+}
+
 void validate_support(const SheetFormRequest& request,const TopoDS_Shape& input,
-        const std::vector<OwnedFace>& faces) {
+        const std::vector<OwnedFace>& faces,const std::vector<HistoryOperation>& history,std::size_t index) {
     if(!request.definition||request.definition->empty()||request.definition_id.empty()||
         request.shape_body.empty()||request.cut_body.empty()||!request.surface.valid()||!request.support.valid()||
         !request.support.instance_path.empty()||input.IsNull()||!std::isfinite(request.thickness)||request.thickness<=0)
@@ -149,7 +259,9 @@ void validate_support(const SheetFormRequest& request,const TopoDS_Shape& input,
         if(actual.Orientation()==TopAbs_REVERSED)outward.Reverse();
         if(plane.Distance(position)>1e-7||outward.Dot(normal)<1.-1e-10)continue;
         BRepClass_FaceClassifier classifier(actual,position,1e-7);
-        if(classifier.State()==TopAbs_IN||classifier.State()==TopAbs_ON)return;
+        if(corner_definition(request)) {
+            if(on_bend_corner(request,actual,faces,history,index))return;
+        }else if(classifier.State()==TopAbs_IN||classifier.State()==TopAbs_ON)return;
     }
     throw std::invalid_argument(has_planar_support?
         "FORM position and direction must follow the selected sheet side.":"Select a planar outer sheet face for FORM.");
@@ -163,6 +275,11 @@ PrimitiveData combine(const PrimitiveData& input,const PrimitiveData& tool,bool 
         set_boolean_inputs(algorithm,input.shape,tool.shape);algorithm.SetToFillHistory(true);
         algorithm.SetNonDestructive(true);
         algorithm.SetFuzzyValue(std::max(1e-7,operation.boolean_tolerance));algorithm.Build();
+        if(std::getenv("ZIMA_CPP_FORM_DUMP")) {
+            BRepTools::Write(input.shape,"build/form-diagnostic/form-input.brep");
+            BRepTools::Write(tool.shape,"build/form-diagnostic/form-tool.brep");
+            if(algorithm.IsDone())BRepTools::Write(algorithm.Shape(),"build/form-diagnostic/form-result.brep");
+        }
         if(!algorithm.IsDone()||algorithm.Shape().IsNull()||!BRepCheck_Analyzer(algorithm.Shape()).IsValid())
             throw std::runtime_error("FORM could not create a valid sheet.");
         PrimitiveData result;result.shape=algorithm.Shape();
@@ -176,5 +293,132 @@ PrimitiveData combine(const PrimitiveData& input,const PrimitiveData& tool,bool 
     };
     if(subtract){BRepAlgoAPI_Cut algorithm;return apply(algorithm);}
     BRepAlgoAPI_Fuse algorithm;return apply(algorithm);
+}
+
+// Remove only the material outside the real outer Bend cylinder in its
+// quarter-domain. The source Shell may close at the two virtual sharp planes;
+// those closing walls must not protrude through the destination's rounded side.
+PrimitiveData trim_corner_shell(const PrimitiveData& input,const PrimitiveData& formed,
+        const SheetFormRequest& request,const HistoryOperation& operation,
+        const std::vector<HistoryOperation>& history,std::size_t index) {
+    using namespace sheet_material;
+    const auto regions=regions_before(history,index);
+    const auto bend=std::ranges::find_if(regions.regions,[&](const auto& region) {
+        if(region.kind!=SheetMaterialDefinition::Kind::Cylinder||region.curved_source_id.empty()||region.unfolded||
+            std::abs(region.angle-std::numbers::pi/2)>1e-10||std::abs(region.thickness-request.thickness)>1e-10)return false;
+        const auto displacement=sub(request.position,region.origin);
+        const auto r=dot(displacement,region.radial),t=dot(displacement,region.tangent);
+        return (std::abs(r)<1e-7&&std::abs(t-region.radius)<1e-7)||
+            (std::abs(r+region.thickness)<1e-7&&std::abs(t-region.radius+region.thickness)<1e-7);
+    });
+    if(bend==regions.regions.end())throw std::invalid_argument("FORM position and direction must follow the selected sheet side.");
+    std::map<std::string,FaceReference> parents;
+    for(const auto& face:input.faces)if(face.reference.sheet_owner==bend->owner_id) {
+        BRepAdaptor_Surface surface(TopoDS::Face(face.shape));
+        if(surface.GetType()==GeomAbs_Cylinder&&std::abs(surface.Cylinder().Radius()-bend->radius)<1e-7)
+            parents.emplace(encoded_topology_reference(face.reference),face.reference);
+    }
+    if(parents.empty())throw std::runtime_error("FORM definition calculation failed.");
+    const auto parent="form:corner-radius-trim:from:"+encoded_topology_reference(parents.begin()->second);
+    double low=std::numeric_limits<double>::infinity(),high=-low;
+    for(TopExp_Explorer vertex(formed.shape,TopAbs_VERTEX);vertex.More();vertex.Next()) {
+        const auto p=BRep_Tool::Pnt(TopoDS::Vertex(vertex.Current()));
+        const auto x=dot(sub({p.X(),p.Y(),p.Z()},bend->origin),bend->along);
+        low=std::min(low,x);high=std::max(high,x);
+    }
+    if(!std::isfinite(low)||!std::isfinite(high)||high-low<1e-7)
+        throw std::runtime_error("FORM definition calculation failed.");
+    const auto center=sub(bend->origin,mul(bend->radial,bend->radius));
+    const auto point=[&](double r,double t,double x){return add(center,add(mul(bend->radial,r),add(mul(bend->tangent,t),mul(bend->along,x))));};
+    ExtrusionRequest box;box.outer_profile=ExtrusionRequest::PolygonProfile{{point(0,0,low),point(bend->radius,0,low),point(bend->radius,bend->radius,low),point(0,bend->radius,low)}};
+    box.direction=mul(bend->along,high-low);box.profile_region_id=parent+":quarter-region";box.outer_boundary_id=parent+":quarter-boundary";
+    for(const auto* role:{"radial-low-tangent-low","radial-high-tangent-low","radial-high-tangent-high","radial-low-tangent-high"})box.outer_vertex_source_ids.push_back(parent+":point:"+role);
+    for(const auto* role:{"tangent-low","radial-high","tangent-high","radial-low"})box.outer_edge_source_ids.push_back(parent+":edge:"+role);
+    const auto quarter=make_extrusion_data(box,operation.owner_id,{},2'000'000.,2'000'000.,{},1e-7);
+    RevolutionRequest round;round.outer_profile=ExtrusionRequest::PolygonProfile{{point(0,0,low),point(bend->radius,0,low),point(bend->radius,0,high),point(0,0,high)}};
+    round.axis_point=center;round.axis_direction=bend->along;round.profile_normal=cross(bend->radial,bend->along);
+    round.profile_region_id=parent+":cylinder-region";round.outer_boundary_id=parent+":cylinder-boundary";
+    for(const auto* role:{"axis-low","outer-low","outer-high","axis-high"})round.outer_vertex_source_ids.push_back(parent+":point:"+role);
+    for(const auto* role:{"axial-low","outer-radius","axial-high","axis"})round.outer_edge_source_ids.push_back(parent+":edge:"+role);
+    const auto cylinder=make_revolution_data(round,operation.owner_id,{},1e-7);
+    const auto exterior=combine(quarter,cylinder,true,operation,history);
+    return combine(formed,exterior,true,operation,history);
+}
+
+// Continue the authored planar side walls through the destination Bend.
+// The bounded slabs restore only actual input material in the Bend domain;
+// their planes and thickness are those of the already calculated FORM skin.
+PrimitiveData corner_joining_material(const PrimitiveData& input,const PrimitiveData& formed,
+        const SheetFormRequest& request,const HistoryOperation& operation,
+        const std::vector<HistoryOperation>& history,std::size_t index) {
+    using namespace sheet_material;
+    if(!corner_definition(request))return formed;
+    const auto regions=regions_before(history,index);
+    const auto bend=std::ranges::find_if(regions.regions,[&](const auto& region) {
+        const auto displacement=sub(request.position,region.origin);
+        return region.kind==SheetMaterialDefinition::Kind::Cylinder&&!region.curved_source_id.empty()&&!region.unfolded&&
+            std::abs(region.angle-std::numbers::pi/2)<1e-10&&std::abs(region.thickness-request.thickness)<1e-10&&
+            std::abs(dot(displacement,region.radial)+region.thickness)<1e-7&&
+            std::abs(dot(displacement,region.tangent)-(region.radius-region.thickness))<1e-7;
+    });
+    if(bend==regions.regions.end())throw std::invalid_argument("FORM position and direction must follow the selected sheet side.");
+    const auto prism=[&](std::vector<Vec3> points,Vec3 direction,double length,const std::string& parent) {
+        ExtrusionRequest slab;slab.outer_profile=ExtrusionRequest::PolygonProfile{std::move(points)};
+        slab.direction=mul(direction,length);slab.profile_region_id=parent+":region";slab.outer_boundary_id=parent+":boundary";
+        for(const auto* role:{"low-u-low-v","high-u-low-v","high-u-high-v","low-u-high-v"})
+            slab.outer_vertex_source_ids.push_back(parent+":point:"+role);
+        for(const auto* role:{"low-v","high-u","high-v","low-u"})slab.outer_edge_source_ids.push_back(parent+":edge:"+role);
+        return make_extrusion_data(slab,operation.owner_id,{},2'000'000.,2'000'000.,{},1e-7);
+    };
+    const auto intersect=[&](const PrimitiveData& a,const PrimitiveData& b) {
+        BRepAlgoAPI_Common common;set_boolean_inputs(common,a.shape,b.shape);common.SetNonDestructive(true);
+        common.SetToFillHistory(true);common.SetFuzzyValue(std::max(1e-7,operation.boolean_tolerance));common.Build();
+        if(!common.IsDone()||common.Shape().IsNull()||!BRepCheck_Analyzer(common.Shape(),true,false,true).IsValid())
+            throw std::runtime_error("FORM could not create a valid sheet.");
+        PrimitiveData piece;piece.shape=common.Shape();
+        piece.faces=propagate_topology(common,a.faces,b.faces);piece.edges=propagate_topology(common,a.edges,b.edges);
+        piece.vertices=propagate_topology(common,a.vertices,b.vertices);
+        piece.faces=complete_boolean_faces(piece.shape,piece.faces,piece.edges,piece.vertices,operation.owner_id,"form-corner",history);
+        piece.edges=complete_boolean_edges(piece.shape,piece.faces,piece.edges,operation.owner_id,"form-corner");
+        piece.vertices=complete_boolean_vertices(piece.shape,piece.faces,piece.edges,piece.vertices,operation.owner_id,"form-corner");return piece;
+    };
+    double low=std::numeric_limits<double>::infinity(),high=-low;
+    for(TopExp_Explorer vertex(formed.shape,TopAbs_VERTEX);vertex.More();vertex.Next()) {
+        const auto p=BRep_Tool::Pnt(TopoDS::Vertex(vertex.Current()));const auto x=dot(sub({p.X(),p.Y(),p.Z()},bend->origin),bend->along);
+        low=std::min(low,x);high=std::max(high,x);
+    }
+    const auto point=[&](double x,double r,double t){return add(bend->origin,add(mul(bend->along,x),add(mul(bend->radial,r),mul(bend->tangent,t))));};
+    const auto domain_key=parent_key("corner-domain",request.definition_id,request.support)+":bend:"+bend->owner_id;
+    const auto domain=prism({point(low,0,0),point(high,0,0),point(high,-bend->radius,0),point(low,-bend->radius,0)},
+        bend->tangent,bend->radius,domain_key);
+    const auto curved_input=intersect(input,domain);
+    PrimitiveData result=formed;
+    for(const auto& face:formed.faces) {
+        if(!face.reference.semantic_key.starts_with("form:shape:cap:start:from:"))continue;
+        const auto actual=TopoDS::Face(face.shape);BRepAdaptor_Surface surface(actual);if(surface.GetType()!=GeomAbs_Plane)continue;
+        const auto plane=surface.Plane();auto outward=plane.Axis().Direction();
+        if(!plane.Position().Direct())outward.Reverse();if(actual.Orientation()==TopAbs_REVERSED)outward.Reverse();
+        const Vec3 normal{outward.X(),outward.Y(),outward.Z()};if(std::abs(dot(normal,bend->along))<.5)continue;
+        const auto origin=plane.Location();const Vec3 anchor{origin.X(),origin.Y(),origin.Z()};
+        const auto u=unit(sub(bend->radial,mul(normal,dot(bend->radial,normal)))),v=cross(normal,u);
+        double u0=std::numeric_limits<double>::infinity(),u1=-u0,v0=u0,v1=-u0;
+        for(double x:{low,high})for(double r:{-bend->radius,0.})for(double t:{0.,bend->radius}) {
+            const auto delta=sub(point(x,r,t),anchor);const auto pu=dot(delta,u),pv=dot(delta,v);
+            u0=std::min(u0,pu);u1=std::max(u1,pu);v0=std::min(v0,pv);v1=std::max(v1,pv);
+        }
+        const auto p=[&](double a,double b){return add(anchor,add(mul(u,a),mul(v,b)));};
+        const auto wall=prism({p(u0,v0),p(u1,v0),p(u1,v1),p(u0,v1)},mul(normal,-1.),request.thickness,
+            parent_key("corner-wall",request.definition_id,face.reference)+":bend:"+bend->owner_id);
+        auto piece=intersect(curved_input,wall);if(!TopExp_Explorer(piece.shape,TopAbs_SOLID).More())continue;
+        for(auto& owned:piece.faces) {
+            owned.reference.semantic_key=parent_key("corner-join",request.definition_id,owned.reference);
+            owned.reference.owner_id=operation.owner_id;owned.reference.sheet_owner=operation.owner_id;
+            owned.reference.sheet_thickness=request.thickness;owned.reference.surface.reset();owned.reference.display_owner_id.clear();
+        }
+        for(auto& owned:piece.edges) {owned.reference.semantic_key=parent_key("corner-join",request.definition_id,owned.reference);owned.reference.owner_id=operation.owner_id;}
+        for(auto& owned:piece.vertices) {owned.reference.semantic_key=parent_key("corner-join",request.definition_id,owned.reference);owned.reference.owner_id=operation.owner_id;}
+        result=combine(result,piece,false,operation,history);
+    }
+    return result;
 }
 } // namespace sheet_form_geometry

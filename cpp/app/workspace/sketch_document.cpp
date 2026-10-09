@@ -463,7 +463,9 @@ bool AssemblyWorkspaceWindow::mutate_active_sketch(
         sweep_profile_sketch_draft_->id == active_sketch_id_) {
         auto next = *sweep_profile_sketch_draft_;
         workspace::apply_sketch_geometry(next,apply);
-        if(section_dialog_){section_sketch_undo_.push_back(*sweep_profile_sketch_draft_);section_sketch_redo_.clear();}
+        // All embedded profiles remain transient until their owner's OK, and
+        // share the existing draft-only Sketch history with section profiles.
+        section_sketch_undo_.push_back(*sweep_profile_sketch_draft_);section_sketch_redo_.clear();
         sweep_profile_sketch_draft_ = std::move(next);
         return true;
     }

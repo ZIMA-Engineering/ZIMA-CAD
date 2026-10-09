@@ -810,6 +810,12 @@ std::string encode_history_fingerprint(
                 u64(std::bit_cast<std::uint64_t>(primitive.thickness));
                 byte(static_cast<bool>(primitive.definition));
                 if(primitive.definition)text(history_fingerprint(*primitive.definition,primitive.definition->size()));
+                byte(static_cast<bool>(primitive.solid_cut_snapshot));
+                if(primitive.solid_cut_snapshot)text(primitive.solid_cut_snapshot->source_fingerprint);
+                u64(primitive.solid_opening_faces.size());
+                for(const auto& face:primitive.solid_opening_faces) {
+                    text(face.owner_id);text(face.semantic_key);text(face.instance_path);
+                }
             } else if constexpr (std::is_same_v<Request, SurfaceThickenRequest>) {
                 u64(1);u64(std::bit_cast<std::uint64_t>(primitive.thickness));
                 u64(std::bit_cast<std::uint64_t>(primitive.tolerance));u64(static_cast<unsigned>(primitive.side));

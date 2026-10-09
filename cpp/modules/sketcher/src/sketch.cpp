@@ -4087,6 +4087,13 @@ bool Sketch::move_point(const std::string& point_id, double x, double y) {
     if(dragging_curve_center && !translated_drag_component)
         static_cast<void>(seed_circular_equations(next,{point_id}));
     auto solved = next.solve_impl(100, false, {point_id});
+    if (solved.status == SolveStatus::Conflicting && seed_equal_length_components(next, {point_id}))
+        solved = next.solve_impl(100, false, {point_id});
+    if (solved.status == SolveStatus::Conflicting && seed_equal_length_components(next, {}))
+        // A mouse ray need not lie exactly on a coupled point's free path.
+        // Project the equal-length component, then verify its real equations
+        // without making the cursor's two coordinates extra hard constraints.
+        solved = next.solve_impl(100, false, {});
     if (solved.status == SolveStatus::Conflicting && seed_circular_equations(next, {point_id}))
         solved = next.solve_impl(100, false, {point_id});
     if (solved.status == SolveStatus::Conflicting || solved.status == SolveStatus::Invalid) {
@@ -4526,6 +4533,9 @@ std::string Sketch::merge_points(
     }
     for (auto& block : next.import_blocks) {
         for (auto& point_id : block.point_ids) replace(point_id);
+        // Exact external profiles map this ordered list to their spline poles.
+        // Reordering it would silently disable refresh after endpoint merging.
+        if(block.source_path.starts_with("external-reference:"))continue;
         std::ranges::sort(block.point_ids);
         block.point_ids.erase(
             std::unique(block.point_ids.begin(), block.point_ids.end()),
@@ -7378,7 +7388,16 @@ std::string Sketch::add_external_profile_geometry(
         spline.knots=reference->exact_spline->knots; spline.weights=reference->exact_spline->weights;
         const auto& a=reference->exact_spline->poles.front();const auto& b=reference->exact_spline->poles.back();
         spline.closed=std::hypot(a.x-b.x,a.y-b.y)<1e-12;
-        for (const auto& p : reference->exact_spline->poles) {
+        for (std::size_t index=0;index<reference->exact_spline->poles.size();++index) {
+            const auto& p=reference->exact_spline->poles[index];
+            if(index==0||index+1==reference->exact_spline->poles.size()) {
+                const auto shared=std::ranges::find_if(next.points,[&](const auto& point) {
+                    return std::hypot(point.x-p.x,point.y-p.y)<=1e-9;
+                });
+                if(shared!=next.points.end()) {
+                    spline.control_point_ids.push_back(shared->id);continue;
+                }
+            }
             auto point=create_point(p.x,p.y);
             spline.control_point_ids.push_back(point.id);
             next.points.push_back(std::move(point));
@@ -9119,6 +9138,8 @@ void Sketch::apply_dimension(SketchDimension dimension) {
     // point-distance seed, then verify it using the common solver again.
     if(result.status==SolveStatus::Conflicting &&
        seed_rectilinear_equations(next,{},true))
+        result=next.solve_impl(100,needs_rank_for_redundancy);
+    if(result.status==SolveStatus::Conflicting && seed_equal_length_components(next,{}))
         result=next.solve_impl(100,needs_rank_for_redundancy);
     if(result.status==SolveStatus::Conflicting && seed_circular_equations(next,{}))
         result=next.solve_impl(100,needs_rank_for_redundancy);
@@ -13446,9 +13467,21 @@ zima::kernel::ViewerMesh Sketch::viewer_mesh() const {
         edge.construction = true;
         edge.overlay = true;
         edge.infinite = reference.infinite;
-        edge.points.reserve(reference.cached_points.size());
-        for (const auto& point : reference.cached_points) {
-            edge.points.push_back(world_point(point[0], point[1]));
+        if (reference.exact_spline) {
+            // Display the persisted exact projection with the same sampling
+            // as its imported native spline, rather than coarse cache chords.
+            edge.exact_spline = reference.exact_spline;
+            for (auto& pole : edge.exact_spline->poles)
+                pole = world_point(pole.x, pole.y);
+            const unsigned samples = edge.exact_spline->degree == 1 ? 1 : 128;
+            edge.points.reserve(samples + 1);
+            for (unsigned sample = 0; sample <= samples; ++sample)
+                edge.points.push_back(zima::kernel::bspline_value(
+                    *edge.exact_spline, double(sample) / samples));
+        } else {
+            edge.points.reserve(reference.cached_points.size());
+            for (const auto& point : reference.cached_points)
+                edge.points.push_back(world_point(point[0], point[1]));
         }
         result.edges.push_back(std::move(edge));
     }

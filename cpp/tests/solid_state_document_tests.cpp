@@ -4,6 +4,7 @@
 #include <zima/workspace/edge_treatment_operations.hpp>
 #include <zima/workspace/feature_reference_input.hpp>
 #include <zima/workspace/part_transactions.hpp>
+#include <zima/workspace/operation_input.hpp>
 #include <zima/kernel/solid_state_ancestry.hpp>
 #include <zima/command_host/host.hpp>
 #include <zima/workspace/family_operations.hpp>
@@ -128,22 +129,63 @@ void invalid_fillet_state() {
         const auto revision=state->session.revision(),generation=state->session.data_generation();
         const auto* calculated=state->session.calculated_boundaries().data();
         const auto can_undo=state->session.can_undo(),can_redo=state->session.can_redo();
+        const auto* input=workspace::calculated_operation_input(state->session,editing?straight.id:std::string{});
+        require(input,"Invalid Fillet state lacks calculated input");const auto input_volume=input->volume;
         // Developed stock becomes 0.173 mm long: opposing R2 end fillets cannot fit.
+        // A valid definition with a failed calculation is retained with its
+        // native error under the general feature-definition contract.
         straight.solid_state.coefficient=.001;
-        std::string failure;
-        try {static_cast<void>(workspace::commit_solid_state(live,kernel,id,straight));}
-        catch(const std::exception& error){failure=error.what();}
-        require(!failure.empty(),"Impossible end-rim Fillet was silently accepted");
-        require(state->session.document().serialized()==before&&state->session.revision()==revision&&
-            state->session.data_generation()==generation&&state->session.calculated_boundaries().data()==calculated&&
-            state->session.can_undo()==can_undo&&state->session.can_redo()==can_redo,
-            "Rejected Fillet state changed the document, geometry or Undo state");
-        std::cerr<<"Rejected "<<(editing?"edited":"new")<<" state with impossible end fillets: "<<failure<<'\n';
-        require(workspace::step_part_document_history(live,id,false)&&
-            !state->session.document().find_container(editing?straight.id:fillet.id),
-            "Rejected Fillet state inserted an extra Undo step");
-        require(workspace::step_part_document_history(live,id,true)&&state->session.document().serialized()==before,
-            "Rejected Fillet state damaged the previous Redo operation");
+        if(editing) {
+            // An existing successfully calculated feature keeps the established
+            // atomic rejection policy when a proposed edit would fail.
+            std::string failure;
+            try {static_cast<void>(workspace::commit_solid_state(live,kernel,id,straight));}
+            catch(const std::exception& error){failure=error.what();}
+            require(!failure.empty(),"Impossible edit of a valid state was silently accepted");
+            require(state->session.document().serialized()==before&&state->session.revision()==revision&&
+                state->session.data_generation()==generation&&state->session.calculated_boundaries().data()==calculated&&
+                state->session.can_undo()==can_undo&&state->session.can_redo()==can_redo,
+                "Rejected state edit changed the document, geometry or Undo state");
+            require(workspace::step_part_document_history(live,id,false)&&!state->session.document().find_container(straight.id),
+                "Rejected state edit inserted an extra Undo step");
+            require(workspace::step_part_document_history(live,id,true)&&state->session.document().serialized()==before,
+                "Rejected state edit damaged the previous Redo operation");
+            continue;
+        }
+        require(workspace::commit_solid_state(live,kernel,id,straight),"Failed state definition was not retained");
+        const auto& failed=state->session.calculated_boundaries().back();
+        require(failed.calculation_errors.contains(straight.id)&&!failed.calculation_errors.at(straight.id).empty(),
+            "Impossible end-rim Fillet lacks its native calculation error");
+        require(*state->session.document().find_container(straight.id)==straight&&
+            state->session.revision()==revision+1&&state->session.data_generation()>generation,
+            "Failed state lost its authored definition or transaction");
+        near(failed.volume,input_volume);
+        const auto retained=state->session.document().serialized();
+        const auto retained_error=failed.calculation_errors.at(straight.id);
+        require(workspace::step_part_document_history(live,id,false),"Failed state Undo was unavailable");
+        auto undone=state->session.document().serialized();
+        // DocumentSession intentionally retains assigned dimension numbers
+        // across Undo. Check that registry independently from authored content.
+        const auto& registry=undone.at("dimension_identifiers");
+        for(const auto& entry:before.at("dimension_identifiers").at("entries"))
+            require(std::find(registry.at("entries").begin(),registry.at("entries").end(),entry)!=registry.at("entries").end(),
+                "Failed state Undo changed an existing dimension identity");
+        for(const auto& entry:registry.at("entries"))if(std::find(before.at("dimension_identifiers").at("entries").begin(),
+                before.at("dimension_identifiers").at("entries").end(),entry)==before.at("dimension_identifiers").at("entries").end())
+            require(entry.at("owner")==straight.id,"Failed state Undo allocated unrelated dimension identities");
+        require(registry.at("next")>=before.at("dimension_identifiers").at("next"),"Undo reused retired dimension numbers");
+        undone["dimension_identifiers"]=before.at("dimension_identifiers");
+        require(undone==before,
+            "Failed state Undo did not restore the complete previous document");
+        require(workspace::step_part_document_history(live,id,true)&&state->session.document().serialized()==retained&&
+            state->session.calculated_boundaries().back().calculation_errors.at(straight.id)==retained_error,
+            "Failed state Redo lost the definition or error");
+        const auto path=std::filesystem::temp_directory_path()/("zima-failed-state-"+id+".prtz");
+        state->session.document().save(path,state->session.calculated_boundaries());
+        std::vector<kernel::BodyResult> saved;const auto reopened=document::PartDocument::load(path,&saved);
+        require(*reopened.find_container(straight.id)==straight&&saved.back().calculation_errors.at(straight.id)==retained_error,
+            "Failed state save/reopen lost its parameters or native error");
+        near(saved.back().volume,input_volume);std::filesystem::remove(path);
     }
 }
 void native_holes() {

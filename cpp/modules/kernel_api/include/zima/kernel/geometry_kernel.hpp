@@ -944,6 +944,12 @@ struct SheetFormRequest {
     // The explicit kernel calculation reads this immutable native snapshot;
     // UI code continues to consume the viewer packet only.
     std::shared_ptr<const BodyResult> surface_snapshot;
+    // Optional closed native corner cutter, validated against the same source
+    // history. Disposable calculation input; all geometry remains in the Part.
+    std::shared_ptr<const BodyResult> solid_cut_snapshot;
+    // Native closing faces removed by the corner solid's ordinary Shell.
+    // Derived from the independent authored Part, never from viewer traversal.
+    std::vector<FaceReference> solid_opening_faces;
     std::string definition_id, shape_body, cut_body, flat_body;
     FaceReference support, surface;
     Vec3 source_origin, source_normal{0,1,0}, source_x{1,0,0};

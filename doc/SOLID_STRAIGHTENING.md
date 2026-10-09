@@ -819,6 +819,26 @@ generalized from the confirmed hole and fillet behavior.
 
 ## Native treatment regression checkpoint (2026-10-02)
 
+### Failed-definition policy verification (2026-10-08)
+
+The later general feature-definition agreement distinguishes creation from editing
+an already successful calculation. A new, valid Straighten definition whose
+coefficient makes the retained end-rim Fillets impossible is saved with its native
+calculation error and the preceding valid geometry. The user can inspect and repair
+the complete definition. An invalid edit of an existing successfully calculated
+Straighten remains an atomic rejection; it changes neither the document nor its
+calculated geometry, revision or Undo/Redo state. Neither path silently reduces a
+Fillet radius or reports a failed calculation as successful.
+
+The native Fillet-state regression verifies both paths, including retained
+parameters/error, input volume, Undo/Redo and save/reopen for a failed new feature.
+Undo deliberately retains allocated dimension numbers under DocumentSession's
+existing identity policy. The test compares authored document content separately
+and verifies that all previously assigned numbers remain unchanged and that any
+new retained allocations belong to the failed feature. This updates the earlier
+test expectation that every failed creation must throw. The Windows regression
+passed; no product transaction implementation was changed for this correction.
+
 `zima_cpp_solid_state_fillet_document_tests` creates native constant and linear
 Fillets both before Straighten and after Straighten. The linear case retains
 its authored R1/R2 endpoint and reversed direction. Restore is compared with a

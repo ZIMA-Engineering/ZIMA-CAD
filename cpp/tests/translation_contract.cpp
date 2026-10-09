@@ -167,6 +167,18 @@ int verify_translations(QApplication& application, QWidget& parent) {
                 "Signed distance to a line or plane. A point sets sheet-plane X in row 2 or Z in row 3."),"Form offset tooltip is not localized");
             check(std::ranges::any_of(labels,[&](auto* label){return label->text()==settings.qt_translations.value("Form definition");}),
                 "FORM definition label is not localized");
+            const auto corner_source=document::read_sheet_form_definition(
+                std::filesystem::path(__FILE__).parent_path().parent_path().parent_path()/"config/lib/01-SHEETMETAL/01-FORM/CornerGusset90.prtz");
+            auto corner=document::create_sheet_form();corner.sheet_form=document::copy_sheet_form_definition(corner_source);
+            app::PrimitivePropertiesDialog corner_dialog(corner,false,true,[](auto){},&parent);
+            corner_dialog.setAttribute(Qt::WA_DeleteOnClose,false);corner_dialog.show();application.processEvents();
+            const auto* corner_rows=corner_dialog.findChild<QTableWidget*>("primitiveReferenceTable");
+            int corner_row=0;for(const auto* key:{"First outer sheet face","Second outer sheet face","Position along bend"})
+                check(corner_rows->item(corner_row++,1)->toolTip()==settings.qt_translations.value(key),"Corner reference tooltip is untranslated");
+            check(corner_dialog.findChild<QDoubleSpinBox*>("sheetFormOffset2")->toolTip()==settings.qt_translations.value(
+                "Signed distance along the bend axis. Select a point or a transverse line or plane."),"Corner station tooltip is untranslated");
+            const auto error="Corner FORM cannot fit the prescribed transition radii. Change the bend radius or the definition.";
+            check(QObject::tr(error)==settings.qt_translations.value(error),"Corner transition error is untranslated");corner_dialog.hide();
         }
         check(QObject::tr("Disconnected centerline source segments")==
                 settings.qt_translations.value("Disconnected centerline source segments"),

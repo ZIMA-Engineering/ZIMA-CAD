@@ -17,6 +17,35 @@ commands::Result run(command_host::Host& host,const std::string& name,Json args=
     if(!result.ok)throw std::runtime_error(name+": "+result.code+": "+result.message+" "+args.dump());return result;
 }
 void verify(const kernel::OcctKernel& kernel,fs::path directory) {
+    for(bool import_first:{false,true})for(bool reverse:{false,true}) {
+        auto outline=sketcher::Sketch::create_default();
+        auto reference=sketcher::Sketch::create_external_reference(sketcher::ExternalReferenceKind::Edge);
+        reference.source_document_id="read-only-source";reference.source_owner_id="quarter-circle";reference.source_semantic_key="curve";
+        reference.cached_points={{1,0},{0,1}};
+        reference.exact_spline=kernel::BSplineGeometry{2,{{1,0,0},{1,1,0},{0,1,0}},{0,0,0,1,1,1},{1,std::sqrt(.5),1}};
+        if(reverse) {
+            std::ranges::reverse(reference.cached_points);std::ranges::reverse(reference.exact_spline->poles);
+            kernel::reverse_bspline_parameters(reference.exact_spline->knots,reference.exact_spline->weights);
+        }
+        outline.add_external_reference(reference);
+        if(import_first)static_cast<void>(outline.add_external_profile_geometry(reference.id));
+        static_cast<void>(outline.add_segment(1,0,0,0,1e-9));static_cast<void>(outline.add_segment(0,0,0,1,1e-9));
+        if(!import_first)static_cast<void>(outline.add_external_profile_geometry(reference.id));
+        require(outline.points.size()==4,"Exact import duplicated a shared boundary endpoint");
+        const auto profile=outline.bsplines.front();const auto linked=outline.serialized();
+        require(!outline.move_point(profile.control_point_ids.front(),2,2)&&outline.serialized()==linked,
+            "Shared exact endpoint escaped its read-only source");
+        auto part=document::PartDocument::create_default();auto feature=document::PartDocument::create_extrusion_container(outline.id);
+        outline.owner_container_id=feature.id;feature.extrusion.sketch_id=outline.id;feature.extrusion.length_forward=2;feature.extrusion.height=2;
+        part.history={feature};part.sketches={outline};document::BodyHistoryGraph graph;
+        static_cast<void>(graph.create_body("Exact closed boundary"));graph.insert({document::PartHistoryKind::Feature,feature.id});part.set_body_history(graph);
+        const auto result=kernel.evaluate_history(part.kernel_operations());
+        require(!result.empty()&&result.back().calculation_errors.empty()&&std::abs(result.back().volume-std::acos(-1.)/2)<1e-7,
+            "Exact imported boundary cannot create its independently checked quarter-cylinder volume");
+        const auto roundtrip=sketcher::Sketch::from_serialized(outline.serialized());
+        require(roundtrip.bsplines.front().control_point_ids==profile.control_point_ids&&roundtrip.import_blocks.front().point_ids==profile.control_point_ids,
+            "Native reopen changed exact endpoint identity or ordered pole mapping");
+    }
     // Independent world-to-local check: moving the destination frame must
     // reproject the fixed source, including geometry linked to its endpoints.
     for(const double angle:{0.0,30.0,90.0,180.0,-90.0,270.0})
@@ -345,11 +374,27 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
     const auto curve=command("sketch.reference.project",{{"reference",spline_ref}}).at("geometry").get<std::string>();
     require(current().bsplines.size()==1,"Exact source was fitted to display samples");
     for(int i=0;i<=256;++i){const auto p=kernel::bspline_value(current().supporting_curve(curve),i/256.);require(std::abs(p.x*p.x+p.y*p.y-1)<1e-12,"Rational source lost exact weights");}
+    const auto verify_display=[&] {
+        const auto& sketch=current();const auto before=sketch.serialized();const auto mesh=sketch.viewer_mesh();
+        const auto edge=std::ranges::find(mesh.edges,"external_edge:"+spline_ref,[](const auto& e){return e.reference.semantic_key;});
+        require(edge!=mesh.edges.end()&&edge->exact_spline&&edge->points.size()==129,
+            "Exact external curve was displayed as coarse cache chords");
+        const auto& reference=*std::ranges::find(sketch.external_references,spline_ref,&sketcher::SketchExternalReference::id);
+        for(unsigned i=0;i<edge->points.size();++i) {
+            const auto p=kernel::bspline_value(*reference.exact_spline,double(i)/128);
+            const auto expected=sketch.world_point(p.x,p.y),actual=edge->points[i];
+            require(std::hypot(std::hypot(actual.x-expected.x,actual.y-expected.y),actual.z-expected.z)<1e-10,
+                "External display lost the exact curve or Sketch frame");
+        }
+        require(sketch.serialized()==before,"External display modified the read-only source");
+    };
+    verify_display();
     const auto offset=command("sketch.offset.create",{{"source",curve},{"distance_mm",.1},{"flipped",true}}).at("geometry").get<std::string>();
     command("sketch.curve.retain",{{"geometry",curve},{"intervals",{{.1,.9}}}});
     cached=state->session.calculated_boundaries();auto& moved=cached.back().mesh.original_references.edges.back();for(auto& p:moved.points)p.x+=.01;for(auto& p:moved.exact_spline->poles)p.x+=.01;
     const auto expected=sketcher::offset_curve_geometry(*moved.exact_spline,-.1);state->session.commit(state->session.document(),std::move(cached));
     command("sketch.reference.refresh");require(!current().external_references.back().broken,"Trimmed source became broken after a small change");
+    verify_display();
     for(int i=0;i<=256;++i){const auto a=kernel::bspline_value(current().supporting_curve(offset),i/256.),b=kernel::bspline_value(expected,i/256.);require(std::hypot(a.x-b.x,a.y-b.y)<1e-8,"Offset did not follow trimmed exact projection");}
     const auto retained=current().points;cached=state->session.calculated_boundaries();cached.back().mesh.original_references.edges.pop_back();state->session.commit(state->session.document(),std::move(cached));
     require(command("sketch.reference.refresh").at("broken_references").size()==1 && current().points==retained,"Missing source destroyed its last valid geometry");

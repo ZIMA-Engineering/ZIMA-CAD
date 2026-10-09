@@ -1072,8 +1072,25 @@ The library Part uses four ordinary Bodies named `FORM_CUT`, `FORM`, `FORM_FLAT`
 and `FORM_SYMBOL`. CUT contains the spatial cutting Sketch; FORM contains the
 calculated connected outside shell; FLAT contains an optional precut Sketch
 (an empty Body means no precut); SYMBOL contains the manufacturing annotation
-Sketch. The default library includes `VentilationWindow.prtz`. Global Settings
+Sketch. The default library includes `VentilationWindow.prtz` and
+`CornerGusset90.prtz`. Global Settings
 provides a separate Forms directory. Only native Parts are offered in its picker.
+
+The 90-degree corner gusset uses a closed native `FORM` solid with two closing
+faces on the definition's XY and XZ planes. Its `FORM_CUT` Body is empty: the
+complete solid supplies the cutter, and native Shell creates the formed wall.
+Select the two outer flat faces adjoining the same Bend, then a longitudinal
+position reference. Both face offsets are zero and rotation is fixed by these
+faces. The final inner transition radius is the destination thickness `t`; the
+outer radius is `2t`. Body names identify roles independently of their order.
+The supplied independent symbol is the exact XY footprint; editing the source
+solid does not automatically edit that symbol Sketch.
+
+The verified thickness/radius pairs are `(t, Ri) = (0.5, 2), (1, 2), (2, 4)` and
+`(3, 6)` mm on sufficiently large attached sheets. Tested tight bends with
+`Ri = t` cannot fit this fixed-radius construction and report an error. A failed
+feature keeps its parameters for correction; smaller radii are not substituted.
+These cases do not establish support for every definition or Bend dimension.
 
 Insertion stores an independent complete copy in the destination Part. Form
 Properties can replace that definition while retaining the feature identity,

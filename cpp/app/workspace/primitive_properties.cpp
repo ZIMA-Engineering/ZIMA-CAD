@@ -1084,9 +1084,9 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
             bool orientation_from_reference = false;
             const bool point=resolved_preview.feature_kind==zima::document::FeatureKind::Feature &&
                 resolved_preview.feature.type==zima::document::FeatureType::Point;
-            bool placement_valid = (resolved_preview.feature_kind==zima::document::FeatureKind::SheetForm
-                ? zima::document::resolve_sheet_form_placement
-                : point ? zima::document::resolve_point_placement : zima::document::resolve_placement)(
+            bool placement_valid = resolved_preview.feature_kind==zima::document::FeatureKind::SheetForm
+                ? zima::document::resolve_sheet_form_feature_placement(resolved_preview.sheet_form,placement,primitive_reference_geometry_,&base_rotation,&orientation_from_reference)
+                : (point ? zima::document::resolve_point_placement : zima::document::resolve_placement)(
                 placement, primitive_reference_geometry_, &base_rotation,
                 &orientation_from_reference);
             if(resolved_preview.feature_kind==zima::document::FeatureKind::SheetForm&&

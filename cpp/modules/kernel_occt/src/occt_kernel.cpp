@@ -1,6 +1,7 @@
 #include <IntCurvesFace_ShapeIntersector.hxx>
 #include <BRepOffsetAPI_MakeFilling.hxx>
 #include <BRepLib_CheckCurveOnSurface.hxx>
+#include <BRepCheck_Result.hxx>
 #include <BRepAlgoAPI_Check.hxx>
 #include <zima/kernel/profile_centerlines.hpp>
 #include <zima/kernel/feature_side_identity.hpp>
@@ -21,6 +22,12 @@
 #include <zima/kernel/surface_shell_identity.hpp>
 
 #include <BRepGProp.hxx>
+#include <BRepGProp_Face.hxx>
+#include <BRepGProp_Domain.hxx>
+#include <BRepGProp_VinertGK.hxx>
+#include <future>
+#include <atomic>
+#include <thread>
 #include <GCPnts_AbscissaPoint.hxx>
 #include <BRepBndLib.hxx>
 #include <gp_Ax3.hxx>
@@ -3687,7 +3694,9 @@ bool symbolic_form_face(const FaceReference& reference) {
         if(!parent)break;
         copied_key=parent->semantic_key;key=copied_key;
     }
-    return key.starts_with("form:shape:");
+    return key.starts_with("form:shape:")||
+        (reference.sheet_owner==reference.owner_id&&reference.sheet_thickness>0.&&
+         key.starts_with("fillet:face:")&&key.find("form:shape:")!=std::string_view::npos);
 }
 
 PrimitiveData make_sheet_cut_data(const PrimitiveData& projection,
@@ -5572,6 +5581,43 @@ void store_volume_integrals(BodyResult& result,const GProp_GProps& properties) {
     result.volume_integrals=p;
 }
 
+// Corner FORM creates several independent trimmed blend patches. Integrate
+// their volumes with the same OCCT 8.0.0 face integrator, common reference point,
+// span handling and tolerance as VolumePropertiesGK. Only the independent
+// calculations run concurrently; reduction retains the original face order.
+double corner_form_volume(const TopoDS_Shape& shape,GProp_GProps& properties) {
+    gp_XYZ sum(0,0,0);unsigned count=0;
+    for(TopExp_Explorer it(shape,TopAbs_VERTEX);it.More();it.Next(),++count)
+        sum+=BRep_Tool::Pnt(TopoDS::Vertex(it.Current())).XYZ();
+    if(!count)throw std::runtime_error("FORM could not create a valid sheet.");
+    sum/=count;const gp_Pnt location(sum);
+    std::vector<TopoDS_Face> faces;
+    for(TopExp_Explorer it(shape,TopAbs_FACE);it.More();it.Next()) {
+        const auto face=TopoDS::Face(it.Current());
+        if(face.Orientation()==TopAbs_FORWARD||face.Orientation()==TopAbs_REVERSED)faces.push_back(face);
+    }
+    const auto workers=std::min<std::size_t>({4,std::max(1u,std::thread::hardware_concurrency()),faces.size()});
+    if(workers<2)return BRepGProp::VolumePropertiesGK(shape,properties,1e-12,false,true);
+    std::vector<GProp_GProps> pieces(faces.size());std::vector<double> errors(faces.size());
+    std::atomic_size_t cursor{0};std::vector<std::future<void>> jobs;
+    for(std::size_t worker=0;worker<workers;++worker)jobs.push_back(std::async(std::launch::async,[&] {
+        for(auto index=cursor.fetch_add(1);index<faces.size();index=cursor.fetch_add(1)) {
+            BRepGProp_Face face(faces[index],true);BRepGProp_Domain domain(faces[index]);
+            BRepGProp_VinertGK contribution;contribution.SetLocation(location);
+            errors[index]=faces[index].NbChildren()==0?contribution.Perform(face,1e-12,false,false):
+                contribution.Perform(face,domain,1e-12,false,false);
+            pieces[index]=contribution;
+        }
+    }));
+    for(auto& job:jobs)job.get();
+    properties=GProp_GProps{};double error=0.;
+    for(std::size_t index=0;index<pieces.size();++index) {
+        if(!std::isfinite(errors[index])||errors[index]<0.)throw std::runtime_error("FORM could not create a valid sheet.");
+        properties.Add(pieces[index]);error+=errors[index];
+    }
+    return error;
+}
+
 BodyResult make_result(
     const TopoDS_Shape& shape,
     const std::vector<OwnedFace>& owned_faces,
@@ -5582,7 +5628,8 @@ BodyResult make_result(
     bool collect_original_references = false,
     const std::vector<TopoDS_Shape>& hidden_display_edges = {},
     double mesh_deflection = 0.0,
-    bool calculate_body_properties = true) {
+    bool calculate_body_properties = true,
+    bool parallel_corner_volume = false) {
     const bool profile_form=std::getenv("ZIMA_CPP_FORM_PROFILE")&&std::ranges::any_of(owned_faces,
         [](const auto& face){return face.reference.semantic_key.starts_with("form:");});
     auto profile_start=std::chrono::steady_clock::now();
@@ -5634,14 +5681,28 @@ BodyResult make_result(
             // The adaptive Gauss overload includes all physical properties.
             // GK defaults to volume only; enabling its centroid/inertia flags
             // is substantially slower on trimmed FORM skins at this precision.
-            const double error=BRepGProp::VolumeProperties(volume_shape,volume_properties,1e-12);
-            if(!std::isfinite(error)||error<0)throw std::runtime_error("OCCT rational volume integration failed");
+            std::future<std::pair<GProp_GProps,double>> tensor;
+            if(parallel_corner_volume)tensor=std::async(std::launch::async,[volume_shape] {
+                GProp_GProps properties;
+                const auto error=BRepGProp::VolumeProperties(volume_shape,properties,1e-12);
+                return std::pair{properties,error};
+            });
+            else {
+                const double error=BRepGProp::VolumeProperties(volume_shape,volume_properties,1e-12);
+                if(!std::isfinite(error)||error<0)throw std::runtime_error("OCCT rational volume integration failed");
+            }
             // Preserve the established span-aware volume calculation. The
             // fast full tensor integration is independently checked against GK.
             GProp_GProps volume_only;
-            const auto volume_error=BRepGProp::VolumePropertiesGK(volume_shape,volume_only,1e-12,false,true);
+            const auto volume_error=parallel_corner_volume?corner_form_volume(volume_shape,volume_only):
+                BRepGProp::VolumePropertiesGK(volume_shape,volume_only,1e-12,false,true);
             if(!std::isfinite(volume_error)||volume_error<0)throw std::runtime_error("OCCT rational volume integration failed");
             rational_volume=volume_only.Mass();
+            if(tensor.valid()) {
+                auto [properties,error]=tensor.get();
+                if(!std::isfinite(error)||error<0)throw std::runtime_error("FORM could not create a valid sheet.");
+                volume_properties=std::move(properties);
+            }
         }
         else BRepGProp::VolumeProperties(volume_shape, volume_properties);
         profile("volume and inertia");
@@ -7341,11 +7402,362 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                 bool persist = true, bool collect = false,
                 const std::vector<TopoDS_Shape>& hidden = {}, bool calculate_body_properties = true) {
                 auto result=make_result(shape, faces, edges, vertices, original, persist,
-                    collect, hidden, operation.mesh_deflection, calculate_body_properties);
+                    collect, hidden, operation.mesh_deflection, calculate_body_properties,
+                    std::holds_alternative<SheetFormRequest>(operation.primitive)&&
+                        !std::get<SheetFormRequest>(operation.primitive).solid_opening_faces.empty());
                 return result;
             };
             const bool persist_boundary_shape =
                 operation_index + 1 == operations.size();
+            const auto apply_edge_treatment = [&](const auto& treatment,bool publish=true) {
+                const TopoDS_Shape input_shape=result_shape;
+                if (result_shape.IsNull()) {
+                    throw std::invalid_argument(
+                        "Fillet/Chamfer requires an input body");
+                }
+                if (treatment.edges.empty() ||
+                    std::any_of(treatment.edges.begin(), treatment.edges.end(),
+                        [](const auto& edge) {
+                            return !edge.valid() || !edge.instance_path.empty();
+                        })) {
+                    throw std::invalid_argument(
+                        "Fillet/Chamfer original edge reference is invalid");
+                }
+                using Treatment = std::decay_t<decltype(treatment)>;
+                if constexpr (std::is_same_v<Treatment, FilletRequest>) {
+                    if (!std::isfinite(treatment.radius_start) ||
+                        treatment.radius_start <= 0.0 ||
+                        (treatment.mode == FilletRequest::Mode::Linear &&
+                         (!std::isfinite(treatment.radius_end) ||
+                          treatment.radius_end <= 0.0 ||
+                          treatment.contour_start_vertices.size() !=
+                              treatment.edges.size() ||
+                          std::ranges::any_of(
+                              treatment.contour_start_vertices,
+                              [](const auto& vertex) {
+                                  return !vertex.valid() ||
+                                      !vertex.instance_path.empty();
+                              })))) {
+                        throw std::invalid_argument(
+                            "Fillet radii must be finite and positive");
+                    }
+                } else {
+                    if (!std::isfinite(treatment.distance_a) ||
+                        treatment.distance_a <= 0.0 ||
+                        (treatment.mode == ChamferRequest::Mode::TwoDistances &&
+                         (!std::isfinite(treatment.distance_b) ||
+                          treatment.distance_b <= 0.0)) ||
+                        (treatment.mode == ChamferRequest::Mode::DistanceAngle &&
+                         (!std::isfinite(treatment.angle_radians) ||
+                          treatment.angle_radians <= 0.0 ||
+                          treatment.angle_radians >= std::numbers::pi))) {
+                        throw std::invalid_argument(
+                            "Chamfer parameters are outside their valid range");
+                    }
+                }
+                std::vector<std::pair<TopoDS_Edge, EdgeReference>> selected;
+                std::vector<VertexReference> selected_starts;
+                for (std::size_t requested_index=0;requested_index<treatment.edges.size();++requested_index) {
+                    const auto& requested=treatment.edges[requested_index];
+                    bool found = false;
+                    for (const auto& owned : owned_topology->edges) {
+                        if (owned.reference.owner_id == requested.owner_id &&
+                            owned.reference.semantic_key == requested.semantic_key) {
+                            selected.emplace_back(
+                                TopoDS::Edge(owned.shape), owned.reference);
+                            // One persisted edge can resolve to several shape
+                            // uses (or split shapes). Carry its explicit ZIMA R1
+                            // with every match; runtime expansion must not shift
+                            // the following route's endpoint or read past it.
+                            if constexpr (std::is_same_v<Treatment, FilletRequest>) {
+                                if(treatment.mode==FilletRequest::Mode::Linear)
+                                    selected_starts.push_back(treatment.contour_start_vertices.at(requested_index));
+                            }
+                            found = true;
+                        }
+                    }
+                    if (!found) {
+                        throw std::runtime_error(
+                            "Fillet/Chamfer original edge is missing at this history boundary");
+                    }
+                }
+                if constexpr (std::is_same_v<Treatment, FilletRequest>) {
+                    BRepFilletAPI_MakeFillet algorithm(result_shape);
+                    // FORM's internal transitions use exact rational circular
+                    // parameterization; ordinary Fillet keeps its established
+                    // default. No radius or approximation tolerance changes.
+                    if(!publish)algorithm.SetFilletShape(ChFi3d_QuasiAngular);
+                    // Preserve OCCT's angular, UV and marching parameters;
+                    // only spatial and 3D approximation tolerances are mm.
+                    const double fillet_tolerance = publish?std::max(1.0e-7, operation.boolean_tolerance):1.0e-7;
+                    algorithm.SetParams(1.0e-2, fillet_tolerance, 1.0e-5,
+                        fillet_tolerance, 1.0e-5, 1.0e-3);
+                    const TopologyReferenceIndex<VertexReference, OwnedVertex>
+                        vertex_references(owned_topology->vertices);
+                    for (std::size_t selected_index = 0;
+                         selected_index < selected.size(); ++selected_index) {
+                        const auto& [edge, reference] = selected[selected_index];
+                        static_cast<void>(reference);
+                        // OCCT expands one seed to its tangent contour. The
+                        // document nevertheless persists every stable ZIMA
+                        // edge in that route so generated topology can retain
+                        // all parents. Do not add the same OCCT contour twice.
+                        if (algorithm.Contour(edge) == 0) {
+                            if (treatment.mode == FilletRequest::Mode::Constant) {
+                                algorithm.Add(treatment.radius_start, edge);
+                            } else {
+                                // OCCT defines R1/R2 on its internally built
+                                // spine, not on TopoDS_Edge orientation. Add
+                                // the contour first, query its actual ends,
+                                // then map the persisted ZIMA R1 endpoint to
+                                // that order before assigning the law.
+                                algorithm.Add(edge);
+                                const int contour = algorithm.Contour(edge);
+                                if (contour <= 0) {
+                                    throw std::runtime_error(
+                                        "OCCT did not create a Fillet contour");
+                                }
+                                const auto first_reference =
+                                    vertex_references.reference_for(
+                                        algorithm.FirstVertex(contour));
+                                const auto last_reference =
+                                    vertex_references.reference_for(
+                                        algorithm.LastVertex(contour));
+                                if (!first_reference.valid() ||
+                                    !last_reference.valid() ||
+                                    first_reference == last_reference) {
+                                    throw std::runtime_error(
+                                        "Variable Fillet edge endpoints have no stable ZIMA identity");
+                                }
+                                const auto& semantic_start =
+                                    selected_starts.at(selected_index);
+                                const bool semantic_start_is_first =
+                                    semantic_start == first_reference;
+                                if (!semantic_start_is_first &&
+                                    semantic_start != last_reference) {
+                                    throw std::runtime_error(
+                                        "Variable Fillet R1 endpoint is not on the OCCT contour");
+                                }
+                                const bool r1_is_occt_first =
+                                    semantic_start_is_first != treatment.reverse;
+                                algorithm.SetRadius(
+                                    r1_is_occt_first
+                                        ? treatment.radius_start
+                                        : treatment.radius_end,
+                                    r1_is_occt_first
+                                        ? treatment.radius_end
+                                        : treatment.radius_start,
+                                    contour, 1);
+                            }
+                        }
+                    }
+                    selected = resolve_edge_treatment_contours(
+                        algorithm, selected, owned_topology->edges,
+                        "Fillet", operation.owner_id);
+                    algorithm.Build();
+                    if(!publish&&std::getenv("ZIMA_CPP_FORM_PROFILE")&&
+                       (!algorithm.IsDone()||algorithm.Shape().IsNull()||!BRepCheck_Analyzer(algorithm.Shape()).IsValid()))
+                        std::fprintf(stderr,"FORM transition failure: done=%d contours=%d faulty=%d vertices=%d\n",
+                            int(algorithm.IsDone()),algorithm.NbContours(),algorithm.NbFaultyContours(),algorithm.NbFaultyVertices());
+                    if (!algorithm.IsDone() || algorithm.Shape().IsNull() ||
+                        !BRepCheck_Analyzer(algorithm.Shape()).IsValid()) {
+                        throw std::runtime_error(
+                            "OCCT Fillet failed or produced an invalid body");
+                    }
+                    auto treatment_faces = propagate_topology(
+                        algorithm, owned_topology->faces,
+                        std::vector<OwnedFace>{});
+                    auto generated_faces = generated_edge_treatment_faces(
+                        algorithm, selected, operation.owner_id, "fillet:face");
+                    treatment_faces.insert(treatment_faces.end(),
+                        std::make_move_iterator(generated_faces.begin()),
+                        std::make_move_iterator(generated_faces.end()));
+                    append_unmapped_edge_treatment_faces(
+                        algorithm.Shape(), selected, owned_topology->faces,
+                        operation.owner_id, "fillet:face",
+                        std::max(1.0e-7, operation.boolean_tolerance),
+                        treatment_faces);
+                    classify_edge_treatment_surfaces(algorithm.Shape(),operation.owner_id,treatment_faces);
+                    auto treatment_topology = std::make_shared<LiveCache::Topology>(
+                        LiveCache::Topology{
+                            std::move(treatment_faces),
+                            propagate_edge_treatment_topology(
+                                algorithm, algorithm.Shape(),
+                                owned_topology->edges),
+                            propagate_edge_treatment_topology(
+                                algorithm, algorithm.Shape(),
+                                owned_topology->vertices),
+                            propagate_display_edges(
+                                algorithm, owned_topology->hidden_display_edges)});
+                    result_shape = algorithm.Shape();
+                    auto unified = unify_preserving_face_provenance(result_shape,
+                        treatment_topology->faces, treatment_topology->edges,
+                        treatment_topology->vertices,
+                        std::max(1.0e-7, operation.boolean_tolerance));
+                    result_shape = std::move(unified.shape);
+                    auto completed_edges = complete_edge_treatment_edges(
+                        result_shape, unified.faces, unified.edges,
+                        owned_topology->edges, selected, operation.owner_id,
+                        "fillet:edge");
+                    auto completed_vertices = complete_edge_treatment_vertices(
+                        result_shape, completed_edges, unified.vertices, selected,
+                        operation.owner_id, "fillet:vertex");
+                    owned_topology = std::make_shared<LiveCache::Topology>(
+                        LiveCache::Topology{std::move(unified.faces),
+                            std::move(completed_edges),
+                            std::move(completed_vertices),
+                            std::move(unified.hidden_display_edges)});
+                } else {
+                    BRepFilletAPI_MakeChamfer algorithm(result_shape);
+                    TopTools_IndexedDataMapOfShapeListOfShape edge_faces;
+                    TopExp::MapShapesAndAncestors(
+                        result_shape, TopAbs_EDGE, TopAbs_FACE, edge_faces);
+                    const TopologyReferenceIndex<FaceReference, OwnedFace>
+                        face_references(owned_topology->faces);
+                    const auto support_face = [&](const TopoDS_Edge& edge) {
+                        const int edge_index = edge_faces.FindIndex(edge);
+                        if (edge_index == 0) {
+                            throw std::runtime_error(
+                                "Chamfer edge has no adjacent faces");
+                        }
+                        std::vector<std::pair<FaceReference, TopoDS_Face>> faces;
+                        for (TopTools_ListIteratorOfListOfShape iterator(
+                                 edge_faces.FindFromIndex(edge_index));
+                             iterator.More(); iterator.Next()) {
+                            const auto reference =
+                                face_references.reference_for(iterator.Value());
+                            if (reference.valid()) {
+                                faces.emplace_back(reference,
+                                    TopoDS::Face(iterator.Value()));
+                            }
+                        }
+                        std::ranges::sort(faces,
+                            [](const auto& first, const auto& second) {
+                                return std::tie(first.first.owner_id,
+                                           first.first.semantic_key,
+                                           first.first.instance_path) <
+                                    std::tie(second.first.owner_id,
+                                           second.first.semantic_key,
+                                           second.first.instance_path);
+                            });
+                        faces.erase(std::ranges::unique(faces,
+                            [](const auto& first, const auto& second) {
+                                return first.first == second.first;
+                            }).begin(), faces.end());
+                        if (faces.size() != 2) {
+                            throw std::runtime_error(
+                                "Chamfer A x B / A + angle requires exactly two stably named adjacent faces");
+                        }
+                        return treatment.flip
+                            ? faces.back().second : faces.front().second;
+                    };
+                    for (const auto& [edge, reference] : selected) {
+                        static_cast<void>(reference);
+                        if (algorithm.Contour(edge) == 0) {
+                            if (treatment.mode ==
+                                ChamferRequest::Mode::EqualDistance) {
+                                algorithm.Add(treatment.distance_a, edge);
+                            } else if (treatment.mode ==
+                                ChamferRequest::Mode::TwoDistances) {
+                                algorithm.Add(treatment.distance_a,
+                                    treatment.distance_b, edge,
+                                    support_face(edge));
+                            } else {
+                                algorithm.AddDA(treatment.distance_a,
+                                    treatment.angle_radians, edge,
+                                    support_face(edge));
+                            }
+                        }
+                    }
+                    selected = resolve_edge_treatment_contours(
+                        algorithm, selected, owned_topology->edges,
+                        "Chamfer", operation.owner_id);
+                    algorithm.Build();
+                    if (!algorithm.IsDone() || algorithm.Shape().IsNull() ||
+                        !BRepCheck_Analyzer(algorithm.Shape()).IsValid()) {
+                        throw std::runtime_error(
+                            "OCCT Chamfer failed or produced an invalid body");
+                    }
+                    auto treatment_faces = propagate_topology(
+                        algorithm, owned_topology->faces,
+                        std::vector<OwnedFace>{});
+                    auto generated_faces = generated_edge_treatment_faces(
+                        algorithm, selected, operation.owner_id, "chamfer:face");
+                    treatment_faces.insert(treatment_faces.end(),
+                        std::make_move_iterator(generated_faces.begin()),
+                        std::make_move_iterator(generated_faces.end()));
+                    append_unmapped_edge_treatment_faces(
+                        algorithm.Shape(), selected, owned_topology->faces,
+                        operation.owner_id, "chamfer:face",
+                        std::max(1.0e-7, operation.boolean_tolerance),
+                        treatment_faces);
+                    classify_edge_treatment_surfaces(algorithm.Shape(),operation.owner_id,treatment_faces);
+                    auto treatment_topology = std::make_shared<LiveCache::Topology>(
+                        LiveCache::Topology{
+                            std::move(treatment_faces),
+                            propagate_edge_treatment_topology(
+                                algorithm, algorithm.Shape(),
+                                owned_topology->edges),
+                            propagate_edge_treatment_topology(
+                                algorithm, algorithm.Shape(),
+                                owned_topology->vertices),
+                            propagate_display_edges(
+                                algorithm, owned_topology->hidden_display_edges)});
+                    result_shape = algorithm.Shape();
+                    auto unified = unify_preserving_face_provenance(result_shape,
+                        treatment_topology->faces, treatment_topology->edges,
+                        treatment_topology->vertices,
+                        std::max(1.0e-7, operation.boolean_tolerance));
+                    result_shape = std::move(unified.shape);
+                    auto completed_edges = complete_edge_treatment_edges(
+                        result_shape, unified.faces, unified.edges,
+                        owned_topology->edges, selected, operation.owner_id,
+                        "chamfer:edge");
+                    auto completed_vertices = complete_edge_treatment_vertices(
+                        result_shape, completed_edges, unified.vertices, selected,
+                        operation.owner_id, "chamfer:vertex");
+                    owned_topology = std::make_shared<LiveCache::Topology>(
+                        LiveCache::Topology{std::move(unified.faces),
+                            std::move(completed_edges),
+                            std::move(completed_vertices),
+                            std::move(unified.hidden_display_edges)});
+                }
+                if (!technological_surfaces.empty()) {
+                    // Thread sheets are separate from the solid B-Rep. Remove
+                    // only material taken by this treatment, preserving their
+                    // original semantic owner and the unaffected sheet area.
+                    BRepAlgoAPI_Cut removed;
+                    set_boolean_inputs(removed, input_shape, result_shape);
+                    removed.SetFuzzyValue(std::max(1.0e-7,operation.boolean_tolerance));
+                    removed.Build();
+                    if (!removed.IsDone())
+                        throw std::runtime_error("OCCT edge treatment removed volume failed");
+                    for (auto& surface : technological_surfaces) {
+                        if (surface.shape.IsNull()) continue;
+                        BRepAlgoAPI_Cut trim;
+                        set_boolean_inputs(trim, surface.shape, removed.Shape());
+                        trim.SetFuzzyValue(std::max(1.0e-7,operation.boolean_tolerance));
+                        trim.Build();
+                        if (!trim.IsDone())
+                            throw std::runtime_error("OCCT edge treatment thread trim failed");
+                        surface.shape=trim.Shape();
+                    }
+                }
+                if(!publish)return;
+                boundaries.push_back(
+                    make_operation_result(result_shape, owned_topology->faces,
+                        owned_topology->edges, owned_topology->vertices,
+                        true, persist_boundary_shape, true,
+                        owned_topology->hidden_display_edges));
+                append_technological_surfaces(boundaries.back(), operation.mesh_deflection);
+                append_reference_geometry(original_references,
+                    reference_geometry_for_owners(boundaries.back().mesh.original_references,
+                        std::unordered_set<std::string>{operation.owner_id}));
+                boundaries.back().source_fingerprint =
+                    fingerprint(operations, boundaries.size());
+                remember_live_boundary(boundaries.back().source_fingerprint,
+                    result_shape, owned_topology);
+            };
             const auto retain_copy_solid=[&](const PrimitiveData& operand,const std::vector<ViewerAxis>& additional_axes=std::vector<ViewerAxis>{}) {
                 if(!context.requested_solids.contains(operation.owner_id))return;
                 copy_operands.insert_or_assign(operation.owner_id,operand);
@@ -7507,13 +7919,22 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                         sheet_form_geometry::Operands tools{
                             sheet_form_geometry::copy(source.operands.cut,transform,operation,region,index),
                             sheet_form_geometry::copy(source.operands.flat,transform,operation,region,index),
-                            sheet_form_geometry::copy(source.operands.formed,transform,operation,region,index)};
+                            sheet_form_geometry::copy(source.operands.formed,transform,operation,region,index),
+                            source.operands.rounded_corner};
                         changed=sheet_form_geometry::combine(changed,material->unfolded?tools.flat:tools.cut,true,operation,operations);
                         if(!material->unfolded)changed=sheet_form_geometry::combine(changed,tools.formed,false,operation,operations);
-                        retain_originals(tools.formed.faces,tools.formed.edges,tools.formed.vertices);
+                        if(!tools.rounded_corner)
+                            retain_originals(tools.formed.faces,tools.formed.edges,tools.formed.vertices);
                         copied_form_operands.push_back({*material,std::move(tools)});
                     }
                 form_copy_operands.insert_or_assign(operation.owner_id,copied_form_operands);
+                if(std::ranges::any_of(copied_form_operands,[](const auto& value){return value.operands.rounded_corner;})) {
+                    changed=sheet_form_geometry::repair_parameterization(changed,operation.boolean_tolerance);
+                    const auto authored=[&](const auto& values) {
+                        auto result=values;std::erase_if(result,[&](const auto& value){return value.reference.owner_id!=operation.owner_id;});return result;
+                    };
+                    retain_originals(authored(changed.faces),authored(changed.edges),authored(changed.vertices));
+                }
                 TopTools_IndexedMapOfShape copied_solids;TopExp::MapShapes(changed.shape,TopAbs_SOLID,copied_solids);
                 if(copied_solids.Extent()!=1)throw std::runtime_error("FORM must remain connected to its supporting sheet.");
                 if(context.requested_solids.contains(operation.owner_id)) {
@@ -7545,23 +7966,62 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                         std::fprintf(stderr,"FORM %s: %.6f s\n",phase,std::chrono::duration<double>(now-phase_start).count());
                     phase_start=now;
                 };
-                sheet_form_geometry::validate_support(*form,result_shape,owned_topology->faces);
+                sheet_form_geometry::validate_support(*form,result_shape,owned_topology->faces,operations,operation_index);
                 profile("support validation");
                 const auto preparation_key=sheet_form_geometry::preparation_key(*form,operation.boolean_tolerance);
                 auto prepared=live_cache_->prepared_forms.find(preparation_key);
                 if(prepared==live_cache_->prepared_forms.end()) {
                 auto tools=*form->definition;
-                if(form->surface_snapshot)std::erase_if(tools,[&](const auto& value){
-                    return value.body.id!=form->cut_body&&value.body.id!=form->flat_body;
+                if(form->surface_snapshot||!form->solid_opening_faces.empty())std::erase_if(tools,[&](const auto& value){
+                    return (value.body.id!=form->cut_body||form->solid_cut_snapshot)&&value.body.id!=form->flat_body;
                 });
                 const auto definitions=evaluate_history_incremental(tools,{});
                 profile(form->surface_snapshot?"cut sketches only":"source histories");
-                if(definitions.empty()||!definitions.back().calculation_errors.empty())
+                if((definitions.empty()&&!form->surface_snapshot&&!form->solid_cut_snapshot)||
+                    (!definitions.empty()&&!definitions.back().calculation_errors.empty()))
                     throw std::runtime_error("FORM definition calculation failed.");
                 const auto body=[&](const std::string& id,std::string_view role) {
                     if(id.empty())return PrimitiveData{};
                     PrimitiveData source;
-                    if(role=="shape"&&form->surface_snapshot)source=sheet_form_geometry::read_surface(*form->surface_snapshot);
+                    if(role=="shape"&&!form->solid_opening_faces.empty()) {
+                        if(!form->solid_cut_snapshot||form->solid_opening_faces.size()!=2)
+                            throw std::runtime_error("FORM definition calculation failed.");
+                        std::vector<HistoryOperation> shell_history;bool matched=false;
+                        for(auto local:*form->definition)if(local.body.id==form->shape_body) {
+                            local.body={};shell_history.push_back(std::move(local));
+                            if(history_fingerprint(shell_history,shell_history.size())==form->solid_cut_snapshot->source_fingerprint) {matched=true;break;}
+                        }
+                        if(!matched)throw std::runtime_error("FORM definition calculation failed.");
+                        const auto closed=evaluate_history_incremental(shell_history,{});
+                        const auto original_solid=live_cache_->boundaries.find(closed.back().source_fingerprint);
+                        if(original_solid==live_cache_->boundaries.end())throw std::runtime_error("FORM definition calculation failed.");
+                        const auto original_faces=original_solid->second.topology->faces;
+                        HistoryOperation hollow;hollow.owner_id="FORM_SHELL";
+                        hollow.primitive=ShellRequest{form->solid_opening_faces,form->thickness};
+                        hollow.boolean_tolerance=operation.boolean_tolerance;shell_history.push_back(std::move(hollow));
+                        const auto walls=evaluate_history_incremental(shell_history,closed);
+                        if(walls.empty()||!walls.back().calculation_errors.empty()||walls.back().volume<=0.)
+                            throw std::runtime_error("FORM definition calculation failed.");
+                        const auto native=live_cache_->boundaries.find(walls.back().source_fingerprint);
+                        if(native==live_cache_->boundaries.end())throw std::runtime_error("FORM definition calculation failed.");
+                        source={native->second.shape,native->second.topology->faces,native->second.topology->edges,native->second.topology->vertices};
+                        for(auto& face:source.faces) {
+                            if(std::ranges::any_of(original_faces,[&](const auto& original){return original.shape.IsSame(face.shape);}))
+                                face.reference.sheet_role=SheetFaceRole::SideA;
+                            else {
+                                const auto actual=TopoDS::Face(face.shape);BRepAdaptor_Surface surface(actual);
+                                const bool rim=surface.GetType()==GeomAbs_Plane&&std::ranges::any_of(form->solid_opening_faces,[&](const auto& opening) {
+                                    const auto original=std::ranges::find_if(original_faces,[&](const auto& value){return same_face_identity(value.reference,opening);});
+                                    if(original==original_faces.end())return false;
+                                    const auto plane=BRepAdaptor_Surface(TopoDS::Face(original->shape)).Plane();
+                                    return plane.Axis().Direction().IsParallel(surface.Plane().Axis().Direction(),1e-10)&&
+                                        plane.Distance(surface.Plane().Location())<1e-7;
+                                });
+                                face.reference.sheet_role=rim?SheetFaceRole::ThicknessFace:SheetFaceRole::SideB;
+                            }
+                        }
+                        profile("native solid Shell");
+                    }else if(role=="shape"&&form->surface_snapshot)source=sheet_form_geometry::read_surface(*form->surface_snapshot);
                     else {
                         const auto boundaries=definitions.back().body_boundaries.find(id);
                         if(boundaries==definitions.back().body_boundaries.end()||boundaries->second.empty())
@@ -7571,7 +8031,7 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                         source.shape=local->second.shape;source.faces=local->second.topology->faces;
                         source.edges=local->second.topology->edges;source.vertices=local->second.topology->vertices;
                     }
-                    if(role=="shape") {
+                    if(role=="shape"&&form->solid_opening_faces.empty()) {
                         profile("tools and source extraction");
                         const auto thickened=make_thickened_surface_data(
                             {form->surface,form->thickness,SurfaceThicknessSide::Second,operation.boolean_tolerance},
@@ -7583,7 +8043,21 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                     if(scope==form->definition->end())throw std::runtime_error("FORM definition calculation failed.");
                     return sheet_form_geometry::move(source,primitive_transform(scope->body.translation,scope->body.rotation_degrees));
                 };
-                sheet_form_geometry::Operands operands{body(form->cut_body,"cut"),body(form->flat_body,"flat"),body(form->shape_body,"shape")};
+                const auto shape_scope=std::ranges::find_if(*form->definition,[&](const auto& value){return value.body.id==form->shape_body;});
+                if(shape_scope==form->definition->end())throw std::runtime_error("FORM definition calculation failed.");
+                auto formed=body(form->shape_body,"shape");
+                PrimitiveData cut;
+                if(form->solid_cut_snapshot) {
+                    PrimitiveData source;
+                    if(!form->solid_cut_snapshot->kernel_faces.empty())source=sheet_form_geometry::read_surface(*form->solid_cut_snapshot,true);
+                    else {
+                        const auto native=live_cache_->boundaries.find(form->solid_cut_snapshot->source_fingerprint);
+                        if(native==live_cache_->boundaries.end())throw std::runtime_error("FORM definition calculation failed.");
+                        source={native->second.shape,native->second.topology->faces,native->second.topology->edges,native->second.topology->vertices};
+                    }
+                    cut=sheet_form_geometry::move(source,primitive_transform(shape_scope->body.translation,shape_scope->body.rotation_degrees));
+                }else cut=body(form->cut_body,"cut");
+                sheet_form_geometry::Operands operands{std::move(cut),body(form->flat_body,"flat"),std::move(formed)};
                 prepared=live_cache_->prepared_forms.emplace(preparation_key,std::move(operands)).first;
                 live_cache_->prepared_form_order.push_back(preparation_key);
                 while(live_cache_->prepared_form_order.size()>16) {
@@ -7597,9 +8071,20 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                 form_operands=sheet_form_geometry::Operands{
                     sheet_form_geometry::place(prepared->second.cut,placement,*form,operation.owner_id,"cut"),
                     sheet_form_geometry::place(prepared->second.flat,placement,*form,operation.owner_id,"flat"),
-                    sheet_form_geometry::place(prepared->second.formed,placement,*form,operation.owner_id,"shape")};
-                form_copy_operands.insert_or_assign(operation.owner_id,std::vector<sheet_form_geometry::Instance>{{*operation.sheet_material,*form_operands}});
-                retain_copy_solid(form_operands->formed);
+                    sheet_form_geometry::place(prepared->second.formed,placement,*form,operation.owner_id,"shape"),
+                    !form->solid_opening_faces.empty()};
+                if(!form->solid_opening_faces.empty()) {
+                    PrimitiveData input;input.shape=result_shape;input.faces=owned_topology->faces;
+                    input.edges=owned_topology->edges;input.vertices=owned_topology->vertices;
+                    form_operands->formed=sheet_form_geometry::trim_corner_shell(input,form_operands->formed,*form,operation,operations,operation_index);
+                    profile("outer Bend radius trim");
+                }
+                if(sheet_form_geometry::corner_definition(*form)&&!form->solid_cut_snapshot) {
+                    PrimitiveData corner_input;corner_input.shape=result_shape;corner_input.faces=owned_topology->faces;
+                    corner_input.edges=owned_topology->edges;corner_input.vertices=owned_topology->vertices;
+                    form_operands->formed=sheet_form_geometry::corner_joining_material(corner_input,form_operands->formed,*form,operation,operations,operation_index);
+                    profile("corner joining material");
+                }
                 profile("rigid transform and ancestry");
                 if(form_operands->cut.shape.IsNull()||form_operands->formed.shape.IsNull())
                     throw std::runtime_error("FORM definition calculation failed.");
@@ -7609,12 +8094,134 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                 profile("sheet cut");
                 changed=sheet_form_geometry::combine(changed,form_operands->formed,false,operation,operations);
                 profile("sheet fuse");
+                if(!form->solid_opening_faces.empty()) {
+                    auto unified=unify_preserving_face_provenance(changed.shape,changed.faces,
+                        changed.edges,changed.vertices,std::max(1e-7,operation.boolean_tolerance));
+                    changed={std::move(unified.shape),std::move(unified.faces),
+                        std::move(unified.edges),std::move(unified.vertices)};
+                    profile("corner domain unification");
+                }
                 TopTools_IndexedMapOfShape solids;TopExp::MapShapes(changed.shape,TopAbs_SOLID,solids);
                 if(solids.Extent()!=1)throw std::runtime_error("FORM must remain connected to its supporting sheet.");
-                retain_originals(form_operands->formed.faces,form_operands->formed.edges,form_operands->formed.vertices);
+                if(form->solid_opening_faces.empty())
+                    retain_originals(form_operands->formed.faces,form_operands->formed.edges,form_operands->formed.vertices);
                 result_shape=changed.shape;
                 owned_topology=std::make_shared<LiveCache::Topology>(LiveCache::Topology{
                     std::move(changed.faces),std::move(changed.edges),std::move(changed.vertices),{}});
+                if(!form->solid_opening_faces.empty()) {
+                    // Resolve both real transition routes once at the Boolean
+                    // boundary. Rounding reuses the ordinary native Fillet
+                    // implementation without publishing unused intermediate
+                    // meshes, mass properties or history transactions.
+                    std::array<std::vector<EdgeReference>,2> routes;
+                    TopTools_IndexedDataMapOfShapeListOfShape adjacency;
+                    TopExp::MapShapesAndAncestors(result_shape,TopAbs_EDGE,TopAbs_FACE,adjacency);
+                    const TopologyReferenceIndex<FaceReference,OwnedFace> face_index(owned_topology->faces);
+                    using namespace sheet_material;
+                    const auto regions=regions_before(operations,operation_index);
+                    const auto bend=std::ranges::find_if(regions.regions,[&](const auto& region) {
+                        if(region.kind!=SheetMaterialDefinition::Kind::Cylinder||region.curved_source_id.empty()||region.unfolded||
+                            std::abs(region.angle-std::numbers::pi/2)>1e-10||std::abs(region.thickness-form->thickness)>1e-10)return false;
+                        const auto displacement=sub(form->position,region.origin);
+                        const auto r=dot(displacement,region.radial),t=dot(displacement,region.tangent);
+                        return (std::abs(r)<1e-7&&std::abs(t-region.radius)<1e-7)||
+                            (std::abs(r+region.thickness)<1e-7&&std::abs(t-region.radius+region.thickness)<1e-7);
+                    });
+                    if(bend==regions.regions.end())throw std::runtime_error("FORM could not create a valid sheet.");
+                    const auto support_side=[&](const TopoDS_Face& face)->std::optional<unsigned> {
+                        BRepAdaptor_Surface surface(face);
+                        if(surface.GetType()==GeomAbs_Plane) {
+                            const auto plane=surface.Plane();const auto direction=plane.Axis().Direction();
+                            const Vec3 normal{direction.X(),direction.Y(),direction.Z()};
+                            const auto point=plane.Location();const auto delta=sub({point.X(),point.Y(),point.Z()},bend->origin);
+                            if(std::abs(dot(normal,bend->radial))>1.-1e-10) {
+                                const auto level=dot(delta,bend->radial);
+                                if(std::abs(level+bend->thickness)<1e-7)return 0;
+                                if(std::abs(level)<1e-7)return 1;
+                            }
+                            if(std::abs(dot(normal,bend->tangent))>1.-1e-10) {
+                                const auto level=dot(delta,bend->tangent);
+                                if(std::abs(level-bend->radius+bend->thickness)<1e-7)return 0;
+                                if(std::abs(level-bend->radius)<1e-7)return 1;
+                            }
+                        }else if(surface.GetType()==GeomAbs_Cylinder) {
+                            const auto cylinder=surface.Cylinder();const auto axis=cylinder.Axis().Direction();
+                            const Vec3 direction{axis.X(),axis.Y(),axis.Z()};
+                            const auto point=cylinder.Location();const auto center=sub(bend->origin,mul(bend->radial,bend->radius));
+                            const auto gap=cross(sub({point.X(),point.Y(),point.Z()},center),bend->along);
+                            if(std::abs(dot(direction,bend->along))>1.-1e-10&&
+                                std::hypot(std::hypot(gap.x,gap.y),gap.z)<1e-7) {
+                                if(std::abs(cylinder.Radius()-bend->radius+bend->thickness)<1e-7)return 0;
+                                if(std::abs(cylinder.Radius()-bend->radius)<1e-7)return 1;
+                            }
+                        }
+                        return {};
+                    };
+                    for(const auto& owned:owned_topology->edges) {
+                        const auto edge=TopoDS::Edge(owned.shape);const auto entry=adjacency.FindIndex(edge);
+                        if(entry==0||!owned.reference.valid())continue;
+                        std::vector<std::pair<FaceReference,TopoDS_Face>> sides;
+                        for(TopTools_ListIteratorOfListOfShape it(adjacency.FindFromIndex(entry));it.More();it.Next()) {
+                            const auto ref=face_index.reference_for(it.Value());
+                            if(ref.valid()&&std::ranges::none_of(sides,[&](const auto& side){return side.first==ref;}))
+                                sides.emplace_back(ref,TopoDS::Face(it.Value()));
+                        }
+                        if(sides.size()!=2||std::ranges::none_of(sides,[&](const auto& side){return side.first.owner_id==operation.owner_id;}))continue;
+                        BRepAdaptor_Curve curve(edge);const std::vector<double> parameter{(curve.FirstParameter()+curve.LastParameter())*.5};
+                        const auto a=sampled_inward_face_directions(edge,sides[0].second,parameter),
+                            b=sampled_inward_face_directions(edge,sides[1].second,parameter);
+                        if(a.empty()||b.empty()||std::abs(dot(unit(a.front()),unit(b.front())))>1.-1e-6)continue;
+                        const auto first_support=support_side(sides[0].second),second_support=support_side(sides[1].second);
+                        if(first_support.has_value()==second_support.has_value())continue;
+                        const auto support=first_support?*first_support:*second_support;
+                        const auto& wall=sides[first_support?1:0].first;
+                        if(wall.owner_id!=operation.owner_id||wall.sheet_owner!=operation.owner_id)continue;
+                        routes[support].push_back(owned.reference);
+                    }
+                    if(std::getenv("ZIMA_CPP_FORM_PROFILE"))std::fprintf(stderr,"FORM transition routes: inner=%zu outer=%zu\n",routes[0].size(),routes[1].size());
+                    if(routes[0].empty()||routes[1].empty())throw std::runtime_error("FORM could not create a valid sheet.");
+                    for(unsigned side:{1u,0u}) {
+                        const auto nominal=form->thickness*(side==0?1.:2.);
+                        try {apply_edge_treatment(FilletRequest{routes[side],nominal},false);}
+                        catch(const std::runtime_error& error) {
+                            if(std::string_view(error.what())=="OCCT Fillet failed or produced an invalid body")
+                                throw std::runtime_error("Corner FORM cannot fit the prescribed transition radii. Change the bend radius or the definition.");
+                            throw;
+                        }
+                        auto tagged=std::make_shared<LiveCache::Topology>(*owned_topology);
+                        for(auto& face:tagged->faces)if(face.reference.owner_id==operation.owner_id&&
+                            face.reference.semantic_key.starts_with("fillet:face:")&&face.reference.sheet_owner.empty()) {
+                            face.reference.sheet_owner=operation.owner_id;face.reference.sheet_thickness=form->thickness;
+                            face.reference.sheet_role=side==0?SheetFaceRole::SideB:SheetFaceRole::SideA;
+                        }
+                        owned_topology=std::move(tagged);
+                        profile(side==0?"inner transition Fillet t":"outer transition Fillet 2t");
+                    }
+                }
+                if(!form->solid_opening_faces.empty()) {
+                    // Copies and sheet-state replay need the complete rounded
+                    // change, including material removed from the stock by a
+                    // transition. Derive it only when a downstream consumer
+                    // requests it; an ordinary insertion needs no extra Cut.
+                    const PrimitiveData final{result_shape,owned_topology->faces,
+                        owned_topology->edges,owned_topology->vertices};
+                    if(retain_sheet_sources||context.requested_solids.contains(operation.owner_id)) {
+                        const auto removed=sheet_form_geometry::combine(input,final,true,operation,operations);
+                        form_operands->cut=sheet_form_geometry::combine(form_operands->cut,removed,false,operation,operations);
+                        const auto remaining=sheet_form_geometry::combine(input,form_operands->cut,true,operation,operations);
+                        form_operands->formed=sheet_form_geometry::combine(final,remaining,true,operation,operations);
+                        form_operands->cut=sheet_form_geometry::repair_parameterization(form_operands->cut,operation.boolean_tolerance);
+                        form_operands->formed=sheet_form_geometry::repair_parameterization(form_operands->formed,operation.boolean_tolerance);
+                    }
+                    const auto authored=[&](const auto& members) {
+                        auto selected=members;std::erase_if(selected,[&](const auto& member) {
+                            return member.reference.owner_id!=operation.owner_id;
+                        });return selected;
+                    };
+                    retain_originals(authored(final.faces),authored(final.edges),authored(final.vertices));
+                }
+                form_copy_operands.insert_or_assign(operation.owner_id,std::vector<sheet_form_geometry::Instance>{{*operation.sheet_material,*form_operands}});
+                retain_copy_solid(form_operands->formed);
                 auto boundary=make_operation_result(result_shape,owned_topology->faces,owned_topology->edges,
                     owned_topology->vertices,true,persist_boundary_shape,true);
                 profile("result display and properties");
@@ -8069,346 +8676,6 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                     result_shape, owned_topology);
                 continue;
             }
-            const auto apply_edge_treatment = [&](const auto& treatment) {
-                const TopoDS_Shape input_shape=result_shape;
-                if (result_shape.IsNull()) {
-                    throw std::invalid_argument(
-                        "Fillet/Chamfer requires an input body");
-                }
-                if (treatment.edges.empty() ||
-                    std::any_of(treatment.edges.begin(), treatment.edges.end(),
-                        [](const auto& edge) {
-                            return !edge.valid() || !edge.instance_path.empty();
-                        })) {
-                    throw std::invalid_argument(
-                        "Fillet/Chamfer original edge reference is invalid");
-                }
-                using Treatment = std::decay_t<decltype(treatment)>;
-                if constexpr (std::is_same_v<Treatment, FilletRequest>) {
-                    if (!std::isfinite(treatment.radius_start) ||
-                        treatment.radius_start <= 0.0 ||
-                        (treatment.mode == FilletRequest::Mode::Linear &&
-                         (!std::isfinite(treatment.radius_end) ||
-                          treatment.radius_end <= 0.0 ||
-                          treatment.contour_start_vertices.size() !=
-                              treatment.edges.size() ||
-                          std::ranges::any_of(
-                              treatment.contour_start_vertices,
-                              [](const auto& vertex) {
-                                  return !vertex.valid() ||
-                                      !vertex.instance_path.empty();
-                              })))) {
-                        throw std::invalid_argument(
-                            "Fillet radii must be finite and positive");
-                    }
-                } else {
-                    if (!std::isfinite(treatment.distance_a) ||
-                        treatment.distance_a <= 0.0 ||
-                        (treatment.mode == ChamferRequest::Mode::TwoDistances &&
-                         (!std::isfinite(treatment.distance_b) ||
-                          treatment.distance_b <= 0.0)) ||
-                        (treatment.mode == ChamferRequest::Mode::DistanceAngle &&
-                         (!std::isfinite(treatment.angle_radians) ||
-                          treatment.angle_radians <= 0.0 ||
-                          treatment.angle_radians >= std::numbers::pi))) {
-                        throw std::invalid_argument(
-                            "Chamfer parameters are outside their valid range");
-                    }
-                }
-                std::vector<std::pair<TopoDS_Edge, EdgeReference>> selected;
-                std::vector<VertexReference> selected_starts;
-                for (std::size_t requested_index=0;requested_index<treatment.edges.size();++requested_index) {
-                    const auto& requested=treatment.edges[requested_index];
-                    bool found = false;
-                    for (const auto& owned : owned_topology->edges) {
-                        if (owned.reference.owner_id == requested.owner_id &&
-                            owned.reference.semantic_key == requested.semantic_key) {
-                            selected.emplace_back(
-                                TopoDS::Edge(owned.shape), owned.reference);
-                            // One persisted edge can resolve to several shape
-                            // uses (or split shapes). Carry its explicit ZIMA R1
-                            // with every match; runtime expansion must not shift
-                            // the following route's endpoint or read past it.
-                            if constexpr (std::is_same_v<Treatment, FilletRequest>) {
-                                if(treatment.mode==FilletRequest::Mode::Linear)
-                                    selected_starts.push_back(treatment.contour_start_vertices.at(requested_index));
-                            }
-                            found = true;
-                        }
-                    }
-                    if (!found) {
-                        throw std::runtime_error(
-                            "Fillet/Chamfer original edge is missing at this history boundary");
-                    }
-                }
-                if constexpr (std::is_same_v<Treatment, FilletRequest>) {
-                    BRepFilletAPI_MakeFillet algorithm(result_shape);
-                    // Preserve OCCT's angular, UV and marching parameters;
-                    // only spatial and 3D approximation tolerances are mm.
-                    const double fillet_tolerance = std::max(1.0e-7, operation.boolean_tolerance);
-                    algorithm.SetParams(1.0e-2, fillet_tolerance, 1.0e-5,
-                        fillet_tolerance, 1.0e-5, 1.0e-3);
-                    const TopologyReferenceIndex<VertexReference, OwnedVertex>
-                        vertex_references(owned_topology->vertices);
-                    for (std::size_t selected_index = 0;
-                         selected_index < selected.size(); ++selected_index) {
-                        const auto& [edge, reference] = selected[selected_index];
-                        static_cast<void>(reference);
-                        // OCCT expands one seed to its tangent contour. The
-                        // document nevertheless persists every stable ZIMA
-                        // edge in that route so generated topology can retain
-                        // all parents. Do not add the same OCCT contour twice.
-                        if (algorithm.Contour(edge) == 0) {
-                            if (treatment.mode == FilletRequest::Mode::Constant) {
-                                algorithm.Add(treatment.radius_start, edge);
-                            } else {
-                                // OCCT defines R1/R2 on its internally built
-                                // spine, not on TopoDS_Edge orientation. Add
-                                // the contour first, query its actual ends,
-                                // then map the persisted ZIMA R1 endpoint to
-                                // that order before assigning the law.
-                                algorithm.Add(edge);
-                                const int contour = algorithm.Contour(edge);
-                                if (contour <= 0) {
-                                    throw std::runtime_error(
-                                        "OCCT did not create a Fillet contour");
-                                }
-                                const auto first_reference =
-                                    vertex_references.reference_for(
-                                        algorithm.FirstVertex(contour));
-                                const auto last_reference =
-                                    vertex_references.reference_for(
-                                        algorithm.LastVertex(contour));
-                                if (!first_reference.valid() ||
-                                    !last_reference.valid() ||
-                                    first_reference == last_reference) {
-                                    throw std::runtime_error(
-                                        "Variable Fillet edge endpoints have no stable ZIMA identity");
-                                }
-                                const auto& semantic_start =
-                                    selected_starts.at(selected_index);
-                                const bool semantic_start_is_first =
-                                    semantic_start == first_reference;
-                                if (!semantic_start_is_first &&
-                                    semantic_start != last_reference) {
-                                    throw std::runtime_error(
-                                        "Variable Fillet R1 endpoint is not on the OCCT contour");
-                                }
-                                const bool r1_is_occt_first =
-                                    semantic_start_is_first != treatment.reverse;
-                                algorithm.SetRadius(
-                                    r1_is_occt_first
-                                        ? treatment.radius_start
-                                        : treatment.radius_end,
-                                    r1_is_occt_first
-                                        ? treatment.radius_end
-                                        : treatment.radius_start,
-                                    contour, 1);
-                            }
-                        }
-                    }
-                    selected = resolve_edge_treatment_contours(
-                        algorithm, selected, owned_topology->edges,
-                        "Fillet", operation.owner_id);
-                    algorithm.Build();
-                    if (!algorithm.IsDone() || algorithm.Shape().IsNull() ||
-                        !BRepCheck_Analyzer(algorithm.Shape()).IsValid()) {
-                        throw std::runtime_error(
-                            "OCCT Fillet failed or produced an invalid body");
-                    }
-                    auto treatment_faces = propagate_topology(
-                        algorithm, owned_topology->faces,
-                        std::vector<OwnedFace>{});
-                    auto generated_faces = generated_edge_treatment_faces(
-                        algorithm, selected, operation.owner_id, "fillet:face");
-                    treatment_faces.insert(treatment_faces.end(),
-                        std::make_move_iterator(generated_faces.begin()),
-                        std::make_move_iterator(generated_faces.end()));
-                    append_unmapped_edge_treatment_faces(
-                        algorithm.Shape(), selected, owned_topology->faces,
-                        operation.owner_id, "fillet:face",
-                        std::max(1.0e-7, operation.boolean_tolerance),
-                        treatment_faces);
-                    classify_edge_treatment_surfaces(algorithm.Shape(),operation.owner_id,treatment_faces);
-                    auto treatment_topology = std::make_shared<LiveCache::Topology>(
-                        LiveCache::Topology{
-                            std::move(treatment_faces),
-                            propagate_edge_treatment_topology(
-                                algorithm, algorithm.Shape(),
-                                owned_topology->edges),
-                            propagate_edge_treatment_topology(
-                                algorithm, algorithm.Shape(),
-                                owned_topology->vertices),
-                            propagate_display_edges(
-                                algorithm, owned_topology->hidden_display_edges)});
-                    result_shape = algorithm.Shape();
-                    auto unified = unify_preserving_face_provenance(result_shape,
-                        treatment_topology->faces, treatment_topology->edges,
-                        treatment_topology->vertices,
-                        std::max(1.0e-7, operation.boolean_tolerance));
-                    result_shape = std::move(unified.shape);
-                    auto completed_edges = complete_edge_treatment_edges(
-                        result_shape, unified.faces, unified.edges,
-                        owned_topology->edges, selected, operation.owner_id,
-                        "fillet:edge");
-                    auto completed_vertices = complete_edge_treatment_vertices(
-                        result_shape, completed_edges, unified.vertices, selected,
-                        operation.owner_id, "fillet:vertex");
-                    owned_topology = std::make_shared<LiveCache::Topology>(
-                        LiveCache::Topology{std::move(unified.faces),
-                            std::move(completed_edges),
-                            std::move(completed_vertices),
-                            std::move(unified.hidden_display_edges)});
-                } else {
-                    BRepFilletAPI_MakeChamfer algorithm(result_shape);
-                    TopTools_IndexedDataMapOfShapeListOfShape edge_faces;
-                    TopExp::MapShapesAndAncestors(
-                        result_shape, TopAbs_EDGE, TopAbs_FACE, edge_faces);
-                    const TopologyReferenceIndex<FaceReference, OwnedFace>
-                        face_references(owned_topology->faces);
-                    const auto support_face = [&](const TopoDS_Edge& edge) {
-                        const int edge_index = edge_faces.FindIndex(edge);
-                        if (edge_index == 0) {
-                            throw std::runtime_error(
-                                "Chamfer edge has no adjacent faces");
-                        }
-                        std::vector<std::pair<FaceReference, TopoDS_Face>> faces;
-                        for (TopTools_ListIteratorOfListOfShape iterator(
-                                 edge_faces.FindFromIndex(edge_index));
-                             iterator.More(); iterator.Next()) {
-                            const auto reference =
-                                face_references.reference_for(iterator.Value());
-                            if (reference.valid()) {
-                                faces.emplace_back(reference,
-                                    TopoDS::Face(iterator.Value()));
-                            }
-                        }
-                        std::ranges::sort(faces,
-                            [](const auto& first, const auto& second) {
-                                return std::tie(first.first.owner_id,
-                                           first.first.semantic_key,
-                                           first.first.instance_path) <
-                                    std::tie(second.first.owner_id,
-                                           second.first.semantic_key,
-                                           second.first.instance_path);
-                            });
-                        faces.erase(std::ranges::unique(faces,
-                            [](const auto& first, const auto& second) {
-                                return first.first == second.first;
-                            }).begin(), faces.end());
-                        if (faces.size() != 2) {
-                            throw std::runtime_error(
-                                "Chamfer A x B / A + angle requires exactly two stably named adjacent faces");
-                        }
-                        return treatment.flip
-                            ? faces.back().second : faces.front().second;
-                    };
-                    for (const auto& [edge, reference] : selected) {
-                        static_cast<void>(reference);
-                        if (algorithm.Contour(edge) == 0) {
-                            if (treatment.mode ==
-                                ChamferRequest::Mode::EqualDistance) {
-                                algorithm.Add(treatment.distance_a, edge);
-                            } else if (treatment.mode ==
-                                ChamferRequest::Mode::TwoDistances) {
-                                algorithm.Add(treatment.distance_a,
-                                    treatment.distance_b, edge,
-                                    support_face(edge));
-                            } else {
-                                algorithm.AddDA(treatment.distance_a,
-                                    treatment.angle_radians, edge,
-                                    support_face(edge));
-                            }
-                        }
-                    }
-                    selected = resolve_edge_treatment_contours(
-                        algorithm, selected, owned_topology->edges,
-                        "Chamfer", operation.owner_id);
-                    algorithm.Build();
-                    if (!algorithm.IsDone() || algorithm.Shape().IsNull() ||
-                        !BRepCheck_Analyzer(algorithm.Shape()).IsValid()) {
-                        throw std::runtime_error(
-                            "OCCT Chamfer failed or produced an invalid body");
-                    }
-                    auto treatment_faces = propagate_topology(
-                        algorithm, owned_topology->faces,
-                        std::vector<OwnedFace>{});
-                    auto generated_faces = generated_edge_treatment_faces(
-                        algorithm, selected, operation.owner_id, "chamfer:face");
-                    treatment_faces.insert(treatment_faces.end(),
-                        std::make_move_iterator(generated_faces.begin()),
-                        std::make_move_iterator(generated_faces.end()));
-                    append_unmapped_edge_treatment_faces(
-                        algorithm.Shape(), selected, owned_topology->faces,
-                        operation.owner_id, "chamfer:face",
-                        std::max(1.0e-7, operation.boolean_tolerance),
-                        treatment_faces);
-                    classify_edge_treatment_surfaces(algorithm.Shape(),operation.owner_id,treatment_faces);
-                    auto treatment_topology = std::make_shared<LiveCache::Topology>(
-                        LiveCache::Topology{
-                            std::move(treatment_faces),
-                            propagate_edge_treatment_topology(
-                                algorithm, algorithm.Shape(),
-                                owned_topology->edges),
-                            propagate_edge_treatment_topology(
-                                algorithm, algorithm.Shape(),
-                                owned_topology->vertices),
-                            propagate_display_edges(
-                                algorithm, owned_topology->hidden_display_edges)});
-                    result_shape = algorithm.Shape();
-                    auto unified = unify_preserving_face_provenance(result_shape,
-                        treatment_topology->faces, treatment_topology->edges,
-                        treatment_topology->vertices,
-                        std::max(1.0e-7, operation.boolean_tolerance));
-                    result_shape = std::move(unified.shape);
-                    auto completed_edges = complete_edge_treatment_edges(
-                        result_shape, unified.faces, unified.edges,
-                        owned_topology->edges, selected, operation.owner_id,
-                        "chamfer:edge");
-                    auto completed_vertices = complete_edge_treatment_vertices(
-                        result_shape, completed_edges, unified.vertices, selected,
-                        operation.owner_id, "chamfer:vertex");
-                    owned_topology = std::make_shared<LiveCache::Topology>(
-                        LiveCache::Topology{std::move(unified.faces),
-                            std::move(completed_edges),
-                            std::move(completed_vertices),
-                            std::move(unified.hidden_display_edges)});
-                }
-                if (!technological_surfaces.empty()) {
-                    // Thread sheets are separate from the solid B-Rep. Remove
-                    // only material taken by this treatment, preserving their
-                    // original semantic owner and the unaffected sheet area.
-                    BRepAlgoAPI_Cut removed;
-                    set_boolean_inputs(removed, input_shape, result_shape);
-                    removed.SetFuzzyValue(std::max(1.0e-7,operation.boolean_tolerance));
-                    removed.Build();
-                    if (!removed.IsDone())
-                        throw std::runtime_error("OCCT edge treatment removed volume failed");
-                    for (auto& surface : technological_surfaces) {
-                        if (surface.shape.IsNull()) continue;
-                        BRepAlgoAPI_Cut trim;
-                        set_boolean_inputs(trim, surface.shape, removed.Shape());
-                        trim.SetFuzzyValue(std::max(1.0e-7,operation.boolean_tolerance));
-                        trim.Build();
-                        if (!trim.IsDone())
-                            throw std::runtime_error("OCCT edge treatment thread trim failed");
-                        surface.shape=trim.Shape();
-                    }
-                }
-                boundaries.push_back(
-                    make_operation_result(result_shape, owned_topology->faces,
-                        owned_topology->edges, owned_topology->vertices,
-                        true, persist_boundary_shape, true,
-                        owned_topology->hidden_display_edges));
-                append_technological_surfaces(boundaries.back(), operation.mesh_deflection);
-                append_reference_geometry(original_references,
-                    reference_geometry_for_owners(boundaries.back().mesh.original_references,
-                        std::unordered_set<std::string>{operation.owner_id}));
-                boundaries.back().source_fingerprint =
-                    fingerprint(operations, boundaries.size());
-                remember_live_boundary(boundaries.back().source_fingerprint,
-                    result_shape, owned_topology);
-            };
             if (const auto* fillet = std::get_if<FilletRequest>(&operation.primitive)) {
                 apply_edge_treatment(*fillet);
                 continue;

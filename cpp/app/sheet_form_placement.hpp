@@ -76,6 +76,7 @@ public:
     }
     [[nodiscard]] std::size_t first_empty() const {for(std::size_t i=0;i<3;++i)if(rows_[i].owner_id.empty())return i;return 3;}
     void set_active(std::optional<std::size_t> index) {active_=index;refresh();}
+    void set_corner(bool corner) {corner_=corner;if(corner_)rows_[1].offset=0.;refresh();}
     void set_inspected(std::size_t index,bool value) {if(index<3){inspected_[index]=value;refresh();}}
     void clear_highlights() {inspected_={};refresh();}
     [[nodiscard]] std::vector<Reference> highlighted() const {
@@ -94,7 +95,13 @@ private:
             // Retain the aligned control slot without a completed-entry arrow.
             indicators_[i]->setVisible(i!=0||!populated);
             eyes_[i]->setEnabled(populated);{const QSignalBlocker guard(eyes_[i]);eyes_[i]->setChecked(inspected_[i]);}
-            if(offsets_[i]){const QSignalBlocker guard(offsets_[i]);offsets_[i]->setValue(rows_[i].offset);offsets_[i]->setEnabled(populated);}
+            if(offsets_[i]){const QSignalBlocker guard(offsets_[i]);offsets_[i]->setValue(rows_[i].offset);offsets_[i]->setEnabled(populated&&(!corner_||i!=1));}
+            if(i==0)items_[i]->setToolTip(corner_?QObject::tr("First outer sheet face"):QObject::tr("Sheet face"));
+            if(i==1)items_[i]->setToolTip(corner_?QObject::tr("Second outer sheet face"):QObject::tr("Position 1"));
+            if(i==2)items_[i]->setToolTip(corner_?QObject::tr("Position along bend"):QObject::tr("Position 2"));
+            if(i==2&&offsets_[i])offsets_[i]->setToolTip(corner_?
+                QObject::tr("Signed distance along the bend axis. Select a point or a transverse line or plane."):
+                QObject::tr("Signed distance to a line or plane. A point sets sheet-plane X in row 2 or Z in row 3."));
         }
     }
     QTableWidget* table_{};
@@ -107,5 +114,6 @@ private:
     std::array<QToolButton*,3> eyes_{};
     std::array<bool,3> inspected_{};
     std::optional<std::size_t> active_;
+    bool corner_{};
 };
 }

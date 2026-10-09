@@ -3,6 +3,7 @@
 #include <zima/document/surface_thicken.hpp>
 #include <zima/kernel/occt_kernel.hpp>
 #include <zima/kernel/stable_id.hpp>
+#include <zima/kernel/sheet_material.hpp>
 #include <nlohmann/json.hpp>
 #include <iostream>
 #include <BRepTools.hxx>
@@ -94,6 +95,46 @@ int main(){try {
     check(permutations==24,"FORM role-order matrix is incomplete");
     std::filesystem::remove(reordered_path);
     std::cout<<"FORM native file/copy role lookup passed all 24 Body orders\n";
+    {
+        const auto corner=zima::document::read_sheet_form_definition("config/lib/01-SHEETMETAL/01-FORM/CornerGusset90.prtz");
+        check(corner.corner()&&corner.cut_sketch.empty()&&corner.flat_sketch.empty()&&
+            corner.solid_opening_faces.size()==2&&!corner.surface.surface_result,"Closed corner role classification failed");
+        const auto source=corner.part.serialized(*corner.calculated);
+        order={0,1,2,3};unsigned corner_orders=0;
+        do {
+            auto reordered=corner.part;auto graph=reordered.body_history;
+            for(std::size_t index=0;index<order.size();++index)graph.move_body(corner.bodies[order[index]],index);
+            reordered.set_body_history(std::move(graph));
+            const auto geometry=order_kernel.evaluate_history_incremental(reordered.kernel_operations(),*corner.calculated);
+            check(!geometry.empty()&&geometry.back().calculation_errors.empty(),"Reordered closed corner failed calculation");
+            reordered.save(reordered_path,geometry);const auto loaded=zima::document::read_sheet_form_definition(reordered_path);
+            check(loaded.bodies==corner.bodies&&loaded.solid_opening_faces==corner.solid_opening_faces,
+                "Body order changed closed corner planes");
+            const auto independent=zima::document::stored_sheet_form_definition(zima::document::copy_sheet_form_definition(loaded));
+            const auto request=zima::document::sheet_form_request(independent,{}, {},{0,1,0},{1,0,0},1.);
+            check(request.solid_cut_snapshot&&!request.surface_snapshot&&request.solid_opening_faces.size()==2&&
+                !request.symbol_edges.empty(),"Closed corner lost embedded solid or symbol");++corner_orders;
+        }while(std::next_permutation(order.begin(),order.end()));
+        check(corner_orders==24&&corner.part.serialized(*corner.calculated)==source,"Closed corner role matrix changed source");
+        auto stale=corner.part;
+        const auto owner=stale.body_history.find(corner.bodies[1])->entries.front().id;
+        const auto sketch=std::ranges::find(stale.sketches,owner,&zima::sketcher::Sketch::owner_container_id);
+        check(sketch!=stale.sketches.end(),"Closed source has no editable profile");
+        // Translate all points, including the Arc centre/endpoints, so this
+        // tests stale calculation rejection rather than invalid Arc syntax.
+        for(auto& point:sketch->points)point.x+=.25;
+        sketch->validate();
+        bool rejected=false;try{static_cast<void>(zima::document::sheet_form_definition(stale,*corner.calculated));}
+        catch(const std::invalid_argument&){rejected=true;}
+        check(rejected,"Closed corner reused stale source geometry");
+        const auto request=zima::document::sheet_form_request(corner,{}, {},{0,1,0},{1,0,0},1.);
+        const auto secondary=zima::kernel::sheet_material::cross(request.source_normal,request.source_x);
+        const auto& plane=*corner.solid_opening_faces[1].surface;
+        check(zima::kernel::sheet_material::dot(secondary,zima::kernel::sheet_material::mul(plane.axis,plane.reversed?-1.:1.))>1.-1e-10,
+            "Closed corner source frame does not preserve the second oriented plane");
+        std::filesystem::remove(reordered_path);
+        std::cout<<"Closed corner native file/copy role lookup passed all 24 Body orders\n";
+    }
     const auto copied=zima::document::PartDocument::from_serialized(part.serialized({},
         {zima::kernel::make_stable_id(),library,library.parent_path()/"InsertedCopy.prtz"}));
     check(copied.document_id!=part.document_id,"Independent FORM copy reused source document identity");

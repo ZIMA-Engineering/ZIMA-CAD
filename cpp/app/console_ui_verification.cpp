@@ -59,6 +59,7 @@
 #include <zima/interchange/dxf.hpp>
 #include <zima/document/file_path.hpp>
 #include <QTimer>
+#include <QQuaternion>
 #include <QMessageBox>
 #include "assembly_workspace_window.hpp"
 #include <zima/document/part_document.hpp>
@@ -298,6 +299,7 @@ Q_NEVER_INLINE static int verify_feature_prototype(QApplication& application,Ass
 }
 #include "history_deletion_ui_verification.inc"
 int verify_command_console(QApplication& application,AssemblyWorkspaceWindow& window,const std::filesystem::path& directory) {
+    if(qEnvironmentVariableIsSet("ZIMA_VERIFY_CORNER_FORM_ONLY"))return verify_corner_sheet_form_ui(application,window,directory);
     if(qEnvironmentVariableIsSet("ZIMA_VERIFY_SHEET_FORM_ONLY"))return verify_sheet_form_ui(application,window,directory);
     if(qEnvironmentVariableIsSet("ZIMA_VERIFY_FEATURE_AXES_ONLY")) {
         try {verify_feature_profile_axes(application,directory);std::cout<<"Feature profile/origin/centroid axes: five languages, Tree, View selection and native reopening passed\n";return 0;}

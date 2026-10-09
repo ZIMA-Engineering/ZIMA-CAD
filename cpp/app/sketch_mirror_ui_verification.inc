@@ -77,6 +77,109 @@ int verify_sketch_mirror_ui(QApplication& application,const std::filesystem::pat
     }catch(const std::exception& error){std::cerr<<"Sketch Mirror GUI: "<<error.what()<<'\n';return 1;}
 }
 
+int verify_form_edge_display_ui(QApplication& application,const std::filesystem::path& directory) {
+    using namespace zima;
+    try {
+        const auto check=[](bool ok,const char* message){if(!ok)throw std::runtime_error(message);};
+        const auto flush=[&]{application.processEvents();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);application.processEvents();};
+        for(std::size_t index:{0u,1u}) {
+            auto part=document::PartDocument::load(std::filesystem::u8path(qgetenv("ZIMA_FORM_EDGE_EDIT_FIXTURE").toStdString()));
+            const auto sketch=part.sketches.at(index);const auto body=part.body_history.active_body_id();
+            const auto path=directory/("form-edge-edit-"+std::to_string(index)+".prtz");part.save(path);
+            app::AssemblyWorkspaceWindow window(QString::fromStdString(directory.string()));window.resize(1200,900);window.show();
+            check(window.open_document_path(QString::fromStdString(path.string())),"Edit fixture cannot open");flush();check(activate_test_body(application,window,body),"Edit Body cannot activate");flush();
+            auto* tree=window.findChild<QTreeWidget*>("documentTree");QTreeWidgetItem* row{};
+            for(QTreeWidgetItemIterator i(tree);*i;++i)if((*i)->data(0,Qt::UserRole).toString().toStdString()==sketch.id&&(*i)->data(0,Qt::UserRole+3)=="part-sketch"){row=*i;break;}
+            check(row,"Edit Sketch missing");window.show_tree_item_properties(row);flush();
+            QEventLoop animation;QTimer::singleShot(950,&animation,&QEventLoop::quit);animation.exec();
+            auto* view=dynamic_cast<viewer::MeshView*>(window.findChild<QOpenGLWidget*>());check(view,"Edit View missing");
+            const auto local=[&](QPointF pixel){const auto ray=view->ray_at(pixel);check(ray.has_value(),"Edit ray missing");const auto p=sketch.intersect_ray(ray->first,ray->second);check(p.has_value(),"Edit plane missing");return *p;};
+            const auto o=local({0,0}),u=local({100,0}),v=local({0,100});const double ux=(u[0]-o[0])/100,uy=(u[1]-o[1])/100,vx=(v[0]-o[0])/100,vy=(v[1]-o[1])/100,det=ux*vy-uy*vx;
+            const auto screen=[&](double x,double y){return QPointF(((x-o[0])*vy-(y-o[1])*vx)/det,(ux*(y-o[1])-uy*(x-o[0]))/det);};
+            const auto mouse=[&](QPointF p,QEvent::Type type,Qt::MouseButton button,Qt::MouseButtons buttons=Qt::NoButton){QMouseEvent e(type,p,QPointF(view->mapToGlobal(p.toPoint())),button,buttons,Qt::NoModifier);QApplication::sendEvent(view,&e);flush();};
+            const auto value=[&](const std::string& id){const auto d=std::ranges::find(view->mesh().dimensions,"dimension:"+id,[](const auto& x){return x.reference.semantic_key;});check(d!=view->mesh().dimensions.end(),"Current dimension missing");return d->value;};
+            const auto point=[&](const std::string& id){const auto p=std::ranges::find(view->mesh().points,"point:"+id,[](const auto& x){return x.reference.semantic_key;});check(p!=view->mesh().points.end(),"Current point missing");const auto q=sketch.intersect_ray(p->position,sketch.normal());check(q.has_value(),"Point plane missing");return *q;};
+            const auto hover_current_only=[&](const kernel::ViewerMesh& old){
+                view->clear_selection();
+                for(const auto& edge:old.edges)if(edge.reference.owner_id==sketch.id&&!edge.construction&&edge.points.size()>1){
+                    const auto p=sketch.intersect_ray(edge.points[edge.points.size()/3],sketch.normal());check(p.has_value(),"Old curve plane missing");const auto pixel=screen((*p)[0],(*p)[1]);mouse(pixel,QEvent::MouseMove,Qt::NoButton);
+                    for(const auto& c:view->selection_candidates_at(pixel))check(c.owner_id!=sketch.id||c.geometry!=viewer::CandidateGeometry::OriginalReference,"Stale active Sketch reference offered after edit");
+                    if(const auto c=view->hovered_candidate();c&&c->owner_id==sketch.id&&(c->kind==viewer::CandidateKind::SketchCurve||c->kind==viewer::CandidateKind::SketchSegment)){
+                        const auto exact=view->candidate_edge(*c);check(exact.has_value(),"Hovered curve missing");check(exact->reference.semantic_key==c->semantic_key,"Hover identity disagrees with exact curve");
+                    }
+                }
+            };
+            const auto geometry_count=[&]{return std::ranges::count_if(view->mesh().edges,[&](const auto& e){return e.reference.owner_id==sketch.id&&(e.reference.semantic_key.starts_with("segment:")||e.reference.semantic_key.starts_with("circle:")||e.reference.semantic_key.starts_with("arc:"));});};
+            const auto click=[&](double x,double y){const auto p=screen(x,y);mouse(p,QEvent::MouseMove,Qt::NoButton);mouse(p,QEvent::MouseButtonPress,Qt::LeftButton,Qt::LeftButton);mouse(p,QEvent::MouseButtonRelease,Qt::LeftButton);};
+            for(const auto tool:{"sketchSegmentAction","sketchCircleAction"}) {
+                std::set<std::string> existing;for(const auto& e:view->mesh().edges)if(e.reference.owner_id==sketch.id)existing.insert(e.reference.semantic_key);
+                const auto before=geometry_count();auto* action=window.findChild<QAction*>(tool);check(action&&action->isEnabled(),"Draft geometry command unavailable");action->trigger();flush();click(-1,-3);click(1,-3);
+                QKeyEvent escape(QEvent::KeyPress,Qt::Key_Escape,Qt::NoModifier);QApplication::sendEvent(view,&escape);flush();check(geometry_count()==before+1,"Draft geometry creation failed");
+                const auto created=std::ranges::find_if(view->mesh().edges,[&](const auto& e){return e.reference.owner_id==sketch.id&&!existing.contains(e.reference.semantic_key);});check(created!=view->mesh().edges.end(),"Created curve identity missing");const auto created_key=created->reference.semantic_key;
+                std::optional<QPointF> offered_pixel;
+                for(double fraction:{.37,.63,.19,.81}) {
+                    const auto position=fraction*(created->points.size()-1);const auto n=std::size_t(position);const auto t=position-n;
+                    const auto a=created->points[n],b=created->points[std::min(n+1,created->points.size()-1)];
+                    const auto p=sketch.intersect_ray({a.x+(b.x-a.x)*t,a.y+(b.y-a.y)*t,a.z+(b.z-a.z)*t},sketch.normal());check(p.has_value(),"Created curve plane missing");const auto pixel=screen((*p)[0],(*p)[1]);
+                    const auto choices=view->selection_candidates_at(pixel);if(std::ranges::any_of(choices,[&](const auto& c){return c.owner_id==sketch.id&&c.semantic_key==created_key;})){offered_pixel=pixel;break;}
+                }
+                check(offered_pixel.has_value(),"Created curve has no offered pixel");view->clear_selection();const auto pick=*offered_pixel;
+                mouse(pick,QEvent::MouseMove,Qt::NoButton);
+                const auto offered=view->selection_candidates_at(pick);bool found=false;
+                for(std::size_t attempt=0;attempt<offered.size();++attempt) {
+                    if(const auto c=view->hovered_candidate();c&&c->owner_id==sketch.id&&c->semantic_key==created_key){found=true;break;}
+                    mouse(pick,QEvent::MouseButtonPress,Qt::RightButton,Qt::RightButton);mouse(pick,QEvent::MouseButtonRelease,Qt::RightButton);
+                }
+                check(found,"Created curve not offered for deletion");mouse(pick,QEvent::MouseButtonPress,Qt::LeftButton,Qt::LeftButton);mouse(pick,QEvent::MouseButtonRelease,Qt::LeftButton);
+                QKeyEvent remove(QEvent::KeyPress,Qt::Key_Delete,Qt::NoModifier);QApplication::sendEvent(&window,&remove);flush();
+                check(geometry_count()==before,"Draft geometry deletion failed");window.findChild<QAction*>("undoAction")->trigger();flush();check(geometry_count()==before+1,"Draft deletion Undo failed");window.findChild<QAction*>("redoAction")->trigger();flush();check(geometry_count()==before,"Draft deletion Redo failed");window.findChild<QAction*>("undoAction")->trigger();flush();check(geometry_count()==before+1,"Draft deletion restoration failed");
+                if(std::string_view(tool)=="sketchCircleAction") {
+                    const auto circle=std::ranges::find_if(view->mesh().edges,[&](const auto& e){return e.reference.owner_id==sketch.id&&e.reference.semantic_key.starts_with("circle:");});check(circle!=view->mesh().edges.end(),"Draft Circle missing before Trim");const auto circle_key=circle->reference.semantic_key;
+                    auto* trim=window.findChild<QAction*>("sketchTrimAction");check(trim&&trim->isEnabled(),"Draft Trim unavailable");trim->trigger();flush();mouse(pick,QEvent::MouseMove,Qt::NoButton);mouse(pick,QEvent::MouseButtonPress,Qt::LeftButton,Qt::LeftButton);mouse(pick,QEvent::MouseButtonRelease,Qt::LeftButton);mouse(pick,QEvent::MouseButtonPress,Qt::MiddleButton,Qt::MiddleButton);mouse(pick,QEvent::MouseButtonRelease,Qt::MiddleButton);flush();
+                    const auto has_circle=[&]{return std::ranges::any_of(view->mesh().edges,[&](const auto& e){return e.reference.owner_id==sketch.id&&e.reference.semantic_key==circle_key;});};
+                    check(!has_circle(),"Draft Trim did not change Circle");window.findChild<QAction*>("undoAction")->trigger();flush();check(has_circle(),"Draft Trim Undo failed");window.findChild<QAction*>("redoAction")->trigger();flush();check(!has_circle(),"Draft Trim Redo failed");window.findChild<QAction*>("undoAction")->trigger();flush();check(has_circle(),"Draft Trim restoration failed");
+                }
+                window.findChild<QAction*>("undoAction")->trigger();flush();check(geometry_count()==before,"Draft creation Undo failed");window.findChild<QAction*>("redoAction")->trigger();flush();check(geometry_count()==before+1,"Draft creation Redo failed");window.findChild<QAction*>("undoAction")->trigger();flush();check(geometry_count()==before,"Draft geometry cleanup failed");
+            }
+            for(const auto& d:sketch.dimensions)for(double factor:{1.1,.95,1.05}){
+                const auto old=view->mesh();const auto previous=value(d.id);viewer::ViewerCandidate candidate;candidate.kind=viewer::CandidateKind::Dimension;candidate.owner_id=sketch.id;candidate.semantic_key="dimension:"+d.id;
+                for(std::size_t i=0;i<view->mesh().dimensions.size();++i)if(view->mesh().dimensions[i].reference.semantic_key==candidate.semantic_key)candidate.geometry_index=i;
+                const auto label=view->candidate_dimension_label_position(candidate);check(label.has_value(),"Edit dimension label missing");
+                mouse(*label,QEvent::MouseMove,Qt::NoButton);mouse(*label,QEvent::MouseButtonPress,Qt::LeftButton,Qt::LeftButton);mouse(*label,QEvent::MouseButtonRelease,Qt::LeftButton);mouse(*label,QEvent::MouseButtonDblClick,Qt::LeftButton,Qt::LeftButton);mouse(*label,QEvent::MouseButtonRelease,Qt::LeftButton);
+                auto* editor=view->findChild<QLineEdit*>("inlineDimensionValueEdit");check(editor&&editor->isVisible(),"Mouse double-click did not open dimension editor");editor->setText(QString::number(sketcher::dimension_display_value(d)*factor,'g',15));QKeyEvent enter(QEvent::KeyPress,Qt::Key_Return,Qt::NoModifier);QApplication::sendEvent(editor,&enter);flush();const auto expected=sketcher::dimension_display_value(d)*factor;if(std::abs(value(d.id)-expected)>=1e-6)std::cerr<<"Sketch "<<index<<" dimension "<<d.id<<" requested "<<expected<<" actual "<<value(d.id)<<'\n';check(std::abs(value(d.id)-expected)<1e-6,"GUI dimension edit rejected");hover_current_only(old);
+                auto* undo=window.findChild<QAction*>("undoAction");auto* redo=window.findChild<QAction*>("redoAction");check(undo&&undo->isEnabled(),"Edited Sketch has no Undo");undo->trigger();flush();check(std::abs(value(d.id)-previous)<1e-6,"Dimension Undo failed");check(redo&&redo->isEnabled(),"Edited Sketch has no Redo");redo->trigger();flush();check(std::abs(value(d.id)-expected)<1e-6,"Dimension Redo failed");hover_current_only(old);
+            }
+            const auto handle=index==0?sketch.arcs.front().center_point_id:sketch.points[3].id;
+            for(double delta:{.8,-.5,.6}){
+                view->clear_selection();const auto old=view->mesh();const auto from=point(handle);const auto target=std::array{from[0]+(index?delta:0),from[1]+delta};
+                mouse(screen(from[0],from[1]),QEvent::MouseMove,Qt::NoButton);mouse(screen(from[0],from[1]),QEvent::MouseButtonPress,Qt::LeftButton,Qt::LeftButton);mouse(screen(target[0],target[1]),QEvent::MouseMove,Qt::NoButton,Qt::LeftButton);mouse(screen(target[0],target[1]),QEvent::MouseButtonRelease,Qt::LeftButton);
+                const auto moved=point(handle);
+                if(std::hypot(moved[0]-from[0],moved[1]-from[1])<=.03) {
+                    std::cerr<<"Sketch "<<index<<" drag "<<handle<<" from "<<from[0]<<','<<from[1]<<" target "<<target[0]<<','<<target[1]<<" actual "<<moved[0]<<','<<moved[1]<<'\n';
+                    for(const auto& c:view->selection_candidates_at(screen(from[0],from[1])))std::cerr<<"Candidate "<<int(c.kind)<<" "<<c.semantic_key<<'\n';
+                    for(auto* label:window.findChildren<QLabel*>())if(label->isVisible()&&!label->text().isEmpty())std::cerr<<label->objectName().toStdString()<<": "<<label->text().toStdString()<<'\n';
+                }
+                check(std::hypot(moved[0]-from[0],moved[1]-from[1])>.03,"Allowed GUI point drag did not move");hover_current_only(old);
+                window.findChild<QAction*>("undoAction")->trigger();flush();check(std::hypot(point(handle)[0]-from[0],point(handle)[1]-from[1])<1e-6,"Point drag Undo failed");window.findChild<QAction*>("redoAction")->trigger();flush();check(std::hypot(point(handle)[0]-moved[0],point(handle)[1]-moved[1])<1e-6,"Point drag Redo failed");hover_current_only(old);
+            }
+            view->grabFramebuffer().save(QString::fromStdString((directory/("form-edge-edit-"+std::to_string(index)+".png")).string()));
+            const auto final_point=point(handle);
+            window.findChild<QAction*>("finishSketchAction")->trigger();flush();
+            QPointer<app::PrimitivePropertiesDialog> parent;
+            for(auto* dialog:window.findChildren<QDialog*>())if(auto* properties=dynamic_cast<app::PrimitivePropertiesDialog*>(dialog);properties&&properties->isVisible())parent=properties;
+            check(parent,"Edited profile did not return to Properties");parent->buttons()->button(QDialogButtonBox::Ok)->click();flush();
+            if(parent&&parent->isVisible())for(auto* label:parent->findChildren<QLabel*>())if(label->isVisible())std::cerr<<label->text().toStdString()<<'\n';
+            check(!parent||!parent->isVisible(),"Edited profile OK did not close Properties");
+            window.findChild<QAction*>("saveDocumentAction")->trigger();flush();const auto reopened=document::PartDocument::load(path);const auto& result=reopened.sketches.at(index);verification::tangency::arc_equations(result);
+            const auto* saved=result.find_point(handle);check(saved,"Native reopen lost point identity");
+            if(std::hypot(saved->x-final_point[0],saved->y-final_point[1])>=1e-6)std::cerr<<"Final point "<<final_point[0]<<','<<final_point[1]<<" saved "<<saved->x<<','<<saved->y<<'\n';
+            check(std::hypot(saved->x-final_point[0],saved->y-final_point[1])<1e-6,"Native reopen lost Sketch edits");
+            std::cout<<"FORM-EDGE Sketch "<<index<<": every dimension edited three times by mouse, three real point drags, hover of old curves, Undo/Redo, native reopen and independent equations passed\n";
+        }
+        return 0;
+    }catch(const std::exception& error){std::cerr<<"FORM-EDGE edit/hover: "<<error.what()<<'\n';return 1;}
+}
+
 void verify_form_edge_dimension_ui(QApplication& application,const std::filesystem::path& directory) {
     using namespace zima;
     const auto check=[](bool ok,const char* message){if(!ok)throw std::runtime_error(message);};

@@ -229,6 +229,7 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
         if(is_sheet_form()) {
             sheet_form_placement_=std::make_shared<SheetFormPlacementSection>(this,content_layout(),initial.placement.references,
                 [](const auto& semantic){return readable_placement_reference_kind(semantic);});
+            sheet_form_placement_->set_corner(zima::document::stored_sheet_form_definition(initial.sheet_form).corner());
             sheet_form_placement_->request=[this](std::size_t index){if(reference_request_)reference_request_(index);};
             sheet_form_placement_->changed=[this]{notify_preview();};
             sheet_form_placement_->highlights_changed=[this]{if(reference_highlights_changed_)reference_highlights_changed_();};
@@ -2254,7 +2255,10 @@ void PrimitivePropertiesDialog::lock_sheet_form_fields() {
     // A placed FORM may rotate in its support plane, never tilt away from it.
     for(auto* field:placement_->rotation_offset_fields())field->setEnabled(false);
     for(auto* field:placement_->rotation_fields())field->setEnabled(false);
-    if(initial_.sheet_form.support.valid()) {
+    const bool corner=zima::document::stored_sheet_form_definition(initial_.sheet_form).corner();
+    if(sheet_form_placement_)sheet_form_placement_->set_corner(corner);
+    placement_->rotation_fields()[1]->setToolTip(corner?tr("Corner FORM orientation follows the two sheet faces."):QString{});
+    if(initial_.sheet_form.support.valid()&&!corner) {
         // A FRONT reference leaves the shared absolute local-Y angle free;
         // its local-Y correction is not used by that reference solution.
         placement_->rotation_fields()[1]->setEnabled(true);
@@ -2587,13 +2591,23 @@ bool PrimitivePropertiesDialog::sheet_reference_allowed(std::size_t index,const 
         const auto support=values().sheet_form.support;
         if(!support.surface)return false;
         const auto normal=zima::kernel::sheet_material::mul(support.surface->axis,support.surface->reversed?-1.:1.);
+        if(index==1&&zima::document::stored_sheet_form_definition(initial_.sheet_form).corner()) {
+            const auto source=zima::document::stored_sheet_form_definition(initial_.sheet_form);
+            return std::ranges::any_of(sheet_reference_geometry_.triangle_references,[&](const auto& face){return
+                face.owner_id==reference.owner_id&&face.semantic_key==reference.semantic_key&&face.instance_path==reference.instance_path&&
+                face.surface&&face.surface->kind==zima::kernel::SurfaceGeometry::Kind::Plane&&
+                std::abs(face.sheet_thickness-support.sheet_thickness)<1e-10&&
+                (face.sheet_role==zima::kernel::SheetFaceRole::SideA||face.sheet_role==zima::kernel::SheetFaceRole::SideB)&&
+                std::abs(zima::kernel::sheet_material::dot(normal,face.surface->axis))<1e-10&&
+                (source.solid_opening_faces.empty()||zima::document::sheet_form_corner_faces_available(support,face,sheet_reference_geometry_));});
+        }
         if(!zima::document::sheet_form_position_reference_available(reference,sheet_reference_geometry_,normal))return false;
         const auto other=index==1?2:1;
         if(!zima::document::sheet_form_position_reference_available(value.references[other],sheet_reference_geometry_,normal))return true;
         auto proposed=reference;proposed.orientation_only=false;proposed.orientation_drives_rotation=false;
         proposed.orientation_role="none";proposed.supports_offset=true;
         proposed.offset=value.references[index].offset;value.references[index]=std::move(proposed);
-        return zima::document::resolve_sheet_form_placement(value,sheet_reference_geometry_);
+        return zima::document::resolve_sheet_form_feature_placement(initial_.sheet_form,value,sheet_reference_geometry_);
     }
     const bool sheet_feature=initial_.revolution.sheet_metal||
         initial_.feature_kind==zima::document::FeatureKind::TwistedSheet;

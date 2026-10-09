@@ -179,13 +179,21 @@ ThickenedSurfaceData make_thickened_surface_data(const SurfaceThickenRequest& re
         const auto& edge=result_edges.FindKey(i);
         if(result_artifacts.Contains(edge)||std::ranges::any_of(result.edges,[&](const auto& item){return item.shape.IsSame(edge);}))continue;
         TopTools_IndexedMapOfShape vertices;TopExp::MapShapes(edge,TopAbs_VERTEX,vertices);
-        std::optional<VertexReference> parent;
+        std::optional<Endpoint> endpoint;
+        std::set<std::string> parents;
         for(const auto& point:endpoints)if(vertices.Contains(point.start)&&vertices.Contains(point.end)) {
-            if(parent&&*parent!=point.parent)throw std::runtime_error("Surface thickening could not resolve native topology ancestry.");
-            parent=point.parent;
+            // A zero-length sweep endpoint can carry both cap identities.
+            // They are aliases only when OCCT history locates exactly the
+            // same source and offset vertices; proximity is not sufficient.
+            if(endpoint&&(!endpoint->start.IsSame(point.start)||!endpoint->end.IsSame(point.end)))
+                throw std::runtime_error("Surface thickening could not resolve native topology ancestry.");
+            endpoint=point;parents.insert(encoded_topology_reference(point.parent));
         }
-        if(!parent)throw std::runtime_error("Surface thickening could not resolve native topology ancestry.");
-        result.edges.push_back({edge,{owner,key("longitudinal",*parent),{}}});
+        if(!endpoint)throw std::runtime_error("Surface thickening could not resolve native topology ancestry.");
+        auto identity=key("longitudinal",endpoint->parent);
+        if(parents.size()>1)identity="thicken:longitudinal:from:"+encoded_topology_ancestry(parents)+
+            ":parents:"+encoded_topology_reference_set(parents);
+        result.edges.push_back({edge,{owner,std::move(identity),{}}});
     }
     require_complete_unique_shell_topology(solid,TopAbs_FACE,result.faces,"faces");
     require_complete_unique_shell_topology(solid,TopAbs_EDGE,result.edges,"edges");

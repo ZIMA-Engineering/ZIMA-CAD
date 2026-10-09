@@ -1,4 +1,9 @@
 {
+  "First outer sheet face": "Первая наружная грань листа",
+  "Second outer sheet face": "Вторая наружная грань листа",
+  "Position along bend": "Положение вдоль сгиба",
+  "Signed distance along the bend axis. Select a point or a transverse line or plane.": "Знаковое расстояние вдоль оси сгиба. Выберите точку, поперечный отрезок или плоскость.",
+  "Corner FORM orientation follows the two sheet faces.": "Ориентация угловой формовки определяется двумя гранями листа.",
   "Zobrazit popis pohledu": "Показать описание вида",
   "Parametry používají stejný zápis jako razítko, například &document.file_stem nebo &drawing.revision.": "Параметры используют тот же синтаксис, что и основная надпись, например &document.file_stem или &drawing.revision.",
   "Zobrazit": "Показать",
@@ -2206,6 +2211,7 @@
   "Knihovna FORM": "Библиотека формовка",
   "FORM requires self-contained native references.": "Формовка требует автономных собственных ссылок.",
   "A FORM sketch role requires one active standalone Sketch.": "Роль эскиза формовка требует одного активного самостоятельного эскиза.",
+  "FORM_CUT requires one Sketch or two perpendicular corner Sketches.": "FORM_CUT требует один эскиз или два перпендикулярных угловых эскиза.",
   "FORM requires four distinct named Body roles.": "Формовка требует четырёх различных именованных ролей тел.",
   "FORM requires independent native Body roles.": "Формовка требует независимых ролей собственных тел.",
   "FORM requires a calculated outer surface.": "Формовка требует рассчитанной наружной поверхности.",
@@ -2237,5 +2243,6 @@
   "Position 1": "Положение 1",
   "Position 2": "Положение 2",
   "In-plane angle": "Угол в плоскости",
-  "Signed distance to a line or plane. A point sets sheet-plane X in row 2 or Z in row 3.": "Расстояние со знаком до линии или плоскости. Точка задаёт X в плоскости листа в строке 2 или Z в строке 3."
+  "Signed distance to a line or plane. A point sets sheet-plane X in row 2 or Z in row 3.": "Расстояние со знаком до линии или плоскости. Точка задаёт X в плоскости листа в строке 2 или Z в строке 3.",
+  "Corner FORM cannot fit the prescribed transition radii. Change the bend radius or the definition.": "Угловую формовку невозможно создать с заданными радиусами переходов. Измените радиус сгиба или определение."
 }

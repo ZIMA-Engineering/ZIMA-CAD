@@ -1253,6 +1253,13 @@ std::vector<ViewerCandidate> MeshView::selection_candidates_at(
     }
     if (!impl_->active_sketch_owner_id.empty()) {
         std::erase_if(candidates, [&](const auto& candidate) {
+            // The active Sketch's editable display packet is current. Its
+            // original reference packet still describes the committed profile
+            // and must not offer a second, stale curve or point during edits.
+            // Keep other occurrences and explicit external sources available.
+            if (candidate.geometry == CandidateGeometry::OriginalReference &&
+                candidate.owner_id == impl_->active_sketch_owner_id &&
+                candidate.instance_path == impl_->editing_curve_path) return true;
             // An explicit reference-entry command may consume another Sketch's
             // persisted geometry. Its command filter owns source eligibility;
             // ordinary Sketch editing still offers only its own editable items.

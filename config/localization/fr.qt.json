@@ -1,4 +1,9 @@
 {
+  "First outer sheet face": "Première face extérieure de la tôle",
+  "Second outer sheet face": "Deuxième face extérieure de la tôle",
+  "Position along bend": "Position le long du pli",
+  "Signed distance along the bend axis. Select a point or a transverse line or plane.": "Distance signée le long de l’axe du pli. Sélectionnez un point, une ligne transversale ou un plan.",
+  "Corner FORM orientation follows the two sheet faces.": "L’orientation du formage d’angle est déterminée par les deux faces de la tôle.",
   "Zobrazit popis pohledu": "Afficher la description de la vue",
   "Parametry používají stejný zápis jako razítko, například &document.file_stem nebo &drawing.revision.": "Les paramètres utilisent la même syntaxe que le cartouche, par exemple &document.file_stem ou &drawing.revision.",
   "Zobrazit": "Afficher",
@@ -2206,6 +2211,7 @@
   "Knihovna FORM": "Bibliothèque formage",
   "FORM requires self-contained native references.": "Formage exige des références natives autonomes.",
   "A FORM sketch role requires one active standalone Sketch.": "Un rôle de croquis formage exige un seul croquis autonome actif.",
+  "FORM_CUT requires one Sketch or two perpendicular corner Sketches.": "FORM_CUT nécessite un croquis ou deux croquis de coin perpendiculaires.",
   "FORM requires four distinct named Body roles.": "Formage exige quatre rôles de corps nommés distincts.",
   "FORM requires independent native Body roles.": "Formage exige des rôles de corps natifs indépendants.",
   "FORM requires a calculated outer surface.": "Formage exige une surface extérieure calculée.",
@@ -2237,5 +2243,6 @@
   "Position 1": "Position 1",
   "Position 2": "Position 2",
   "In-plane angle": "Angle dans le plan",
-  "Signed distance to a line or plane. A point sets sheet-plane X in row 2 or Z in row 3.": "Distance signée à une ligne ou un plan. Un point définit X dans le plan de la tôle à la ligne 2 ou Z à la ligne 3."
+  "Signed distance to a line or plane. A point sets sheet-plane X in row 2 or Z in row 3.": "Distance signée à une ligne ou un plan. Un point définit X dans le plan de la tôle à la ligne 2 ou Z à la ligne 3.",
+  "Corner FORM cannot fit the prescribed transition radii. Change the bend radius or the definition.": "Le formage d’angle ne peut pas être créé avec les rayons de raccordement prescrits. Modifiez le rayon du pli ou la définition."
 }

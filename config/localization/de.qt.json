@@ -1,4 +1,9 @@
 {
+  "First outer sheet face": "Erste äußere Blechfläche",
+  "Second outer sheet face": "Zweite äußere Blechfläche",
+  "Position along bend": "Position entlang der Biegung",
+  "Signed distance along the bend axis. Select a point or a transverse line or plane.": "Vorzeichenbehafteter Abstand entlang der Biegeachse. Wählen Sie einen Punkt oder eine quer verlaufende Linie oder Ebene.",
+  "Corner FORM orientation follows the two sheet faces.": "Die Ausrichtung der Eckformung wird durch die beiden Blechflächen bestimmt.",
   "Zobrazit popis pohledu": "Ansichtsbeschreibung anzeigen",
   "Parametry používají stejný zápis jako razítko, například &document.file_stem nebo &drawing.revision.": "Parameter verwenden dieselbe Syntax wie das Schriftfeld, beispielsweise &document.file_stem oder &drawing.revision.",
   "Zobrazit": "Anzeigen",
@@ -2206,6 +2211,7 @@
   "Knihovna FORM": "Umformung-Bibliothek",
   "FORM requires self-contained native references.": "Umformung erfordert eigenständige native Referenzen.",
   "A FORM sketch role requires one active standalone Sketch.": "Eine Umformung-Skizzenrolle erfordert eine aktive eigenständige Skizze.",
+  "FORM_CUT requires one Sketch or two perpendicular corner Sketches.": "FORM_CUT erfordert eine Skizze oder zwei senkrechte Eckskizzen.",
   "FORM requires four distinct named Body roles.": "Umformung erfordert vier unterschiedliche benannte Körperrollen.",
   "FORM requires independent native Body roles.": "Umformung erfordert unabhängige native Körperrollen.",
   "FORM requires a calculated outer surface.": "Umformung erfordert eine berechnete Außenfläche.",
@@ -2237,5 +2243,6 @@
   "Position 1": "Position 1",
   "Position 2": "Position 2",
   "In-plane angle": "Winkel in der Ebene",
-  "Signed distance to a line or plane. A point sets sheet-plane X in row 2 or Z in row 3.": "Vorzeichenbehafteter Abstand zu einer Linie oder Ebene. Ein Punkt bestimmt X in der Blechebene in Zeile 2 oder Z in Zeile 3."
+  "Signed distance to a line or plane. A point sets sheet-plane X in row 2 or Z in row 3.": "Vorzeichenbehafteter Abstand zu einer Linie oder Ebene. Ein Punkt bestimmt X in der Blechebene in Zeile 2 oder Z in Zeile 3.",
+  "Corner FORM cannot fit the prescribed transition radii. Change the bend radius or the definition.": "Die Eckformung kann mit den vorgeschriebenen Übergangsradien nicht erstellt werden. Ändern Sie den Biegeradius oder die Definition."
 }
