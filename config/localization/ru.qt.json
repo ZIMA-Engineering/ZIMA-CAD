@@ -1,4 +1,7 @@
 {
+  "Model export supports STEP, IGES, STL and DXF.": "Экспорт модели поддерживает STEP, IGES, STL и DXF.",
+  "IGES export failed": "Не удалось экспортировать IGES",
+  "DXF (*.dxf);;STEP (*.step *.stp);;IGES (*.igs *.iges);;STL (*.stl);;PNG (*.png);;JPEG (*.jpg *.jpeg)": "DXF (*.dxf);;STEP (*.step *.stp);;IGES (*.igs *.iges);;STL (*.stl);;PNG (*.png);;JPEG (*.jpg *.jpeg)",
   "First outer sheet face": "Первая наружная грань листа",
   "Second outer sheet face": "Вторая наружная грань листа",
   "Position along bend": "Положение вдоль сгиба",

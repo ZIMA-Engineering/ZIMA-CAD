@@ -1,5 +1,10 @@
 # Sheet Form design
 
+The retained planar pocket/window workflow is documented in
+[Form authoring guide](FORM_AUTHORING_GUIDE.md). The 2026-10-09 solid/surface
+investigation is [recorded separately](performance/20261009-planar-solid-form-experiment.md);
+it does not replace the production FORM paths.
+
 User agreement: 2026-10-07. This document records the intended behavior;
 implementation and verification status must be recorded separately.
 

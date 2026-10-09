@@ -13,6 +13,12 @@
 #include <cmath>
 #include <iostream>
 #include <stdexcept>
+#include <BRepTools.hxx>
+#include <BRep_Builder.hxx>
+#include <BRepAdaptor_Surface.hxx>
+#include <TopExp_Explorer.hxx>
+#include <TopoDS.hxx>
+#include <sstream>
 using namespace zima;using commands::Json;namespace fs=std::filesystem;
 namespace {
 void require(bool yes,const char* message){if(!yes)throw std::runtime_error(message);}
@@ -42,12 +48,24 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
     const auto report=run(host,"export.step",{{"path",document::path_to_utf8(step)}}).data;
     require(report.at("bytes")==fs::file_size(step) && report.at("source_revision")==revision && report.at("model_changed")==false && std::abs(step_volume(step)-6000)<1e-5,"STEP export changed volume or returned an invalid receipt");
     run(host,"export.stl",{{"path",document::path_to_utf8(stl)}});require(std::abs(stl_volume(stl)-6000)<1e-5,"STL triangulation changed the closed volume");
+    const auto iges=dir/fs::path(u8"kvádr export.iges");
+    const auto iges_report=run(host,"export.iges",{{"path",document::path_to_utf8(iges)}}).data;
+    const auto iges_volume=[&](const fs::path& path){return kernel.import_iges(document::path_to_utf8(path),"iges-export-roundtrip",.1).volume;};
+    require(iges_report.at("bytes")==fs::file_size(iges)&&iges_report.at("source_revision")==revision&&
+        iges_report.at("model_changed")==false&&std::abs(iges_volume(iges)-6000)<1e-5,"IGES export changed volume or receipt");
+    const auto iges_before=bytes(iges);
+    require(host.execute({{"command","export.iges"},{"arguments",{{"path",document::path_to_utf8(iges)}}}}).code=="file_exists"&&
+        bytes(iges)==iges_before,"Unrequested IGES export overwrote a file");
     require(part->session.revision()==revision && part->session.data_generation()==generation && part->session.calculated_boundaries().back().kernel_shape==shape,"Export changed document or calculated state");
     const auto original=bytes(step);
     require(host.execute({{"command","export.step"},{"arguments",{{"path",document::path_to_utf8(step)}}}}).code=="file_exists" && bytes(step)==original,"Unrequested export overwrote a file");
     auto stale=part->session.document();zima::test::profile_dimension(stale,*stale.find_container(box),0)=20;part->session.commit(std::move(stale),part->session.calculated_boundaries());const auto stale_revision=part->session.revision();
     run(host,"export.step",{{"path",document::path_to_utf8(step)},{"overwrite",true}});require(std::abs(step_volume(step)-6000)<1e-5 && part->session.revision()==stale_revision,"Export implicitly regenerated pending model data");
+    run(host,"export.iges",{{"path",document::path_to_utf8(iges)},{"overwrite",true}});
+    require(std::abs(iges_volume(iges)-6000)<1e-5&&part->session.revision()==stale_revision,"IGES implicitly regenerated pending geometry");
     run(host,"regenerate");run(host,"export.step",{{"path",document::path_to_utf8(step)},{"overwrite",true}});require(std::abs(step_volume(step)-12000)<1e-5,"Explicitly regenerated geometry did not reach export");
+    run(host,"export.iges",{{"path",document::path_to_utf8(iges)},{"overwrite",true}});
+    require(std::abs(iges_volume(iges)-12000)<1e-5,"Explicitly regenerated geometry did not reach IGES");
     const auto conflict=dir/"concurrent.step";bool rejected=false;
     try{static_cast<void>(workspace::export_file(live,part_id,conflict,{},[&](auto task){std::ofstream(conflict)<<"concurrent owner";task();}));}catch(const std::exception&){rejected=true;}
     require(rejected && bytes(conflict)=="concurrent owner","Concurrent target creation was overwritten");
@@ -69,6 +87,7 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
     const auto corner_entities=test::read_dxf_entities(dxf);
     require(std::ranges::count_if(corner_entities,[](const auto& e){return e.type=="ARC";})==2&&part->session.revision()==corner_revision&&bytes(dxf)!=dxf_before,"DXF command lost corner geometry or changed the document");
     require(!host.execute({{"command","export.step"},{"arguments",{{"path","wrong.igs"}}}}).ok && !fs::exists(dir/"wrong.igs"),"Mismatched export extension wrote a file");
+    require(!host.execute({{"command","export.iges"},{"arguments",{{"path","wrong.step"}}}}).ok&&!fs::exists(dir/"wrong.step"),"Mismatched IGES export extension wrote a file");
     // The nested source is intentionally never saved. Export must consume its
     // persisted occurrence snapshot, not reopen dependencies or refresh them.
     auto flat=assembly::AssemblyDocument::create_default();const auto flat_id=flat.document_id;live.add_assembly(std::move(flat),dir/"missing-flat.asmz");static_cast<void>(live.insert_open_part(flat_id,part_id,"Inserted"));
@@ -77,6 +96,9 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
     run(host,"activate",{{"document",part_id}});zima::test::resize_rectangular_commands([&](const char* n,commands::Json a){return run(host,n,std::move(a));},{{"container",box},{"length_mm","30"}});
     run(host,"activate",{{"document",top_id}});const auto nested_path=dir/"nested.step";run(host,"export.step",{{"path",document::path_to_utf8(nested_path)}});
     require(std::abs(step_volume(nested_path)-12000)<1e-5 && live.open_assembly(top_id)->session.revision()==parent_revision,"Nested export refreshed dependencies or lost stored geometry");
+    run(host,"export.iges",{{"path","nested.igs"}});
+    require(std::abs(iges_volume(dir/"nested.igs")-12000)<1e-5&&live.open_assembly(top_id)->session.revision()==parent_revision,
+        "Nested IGES refreshed dependencies or lost stored geometry");
     run(host,"export.stl",{{"path","nested.stl"}});require(std::abs(stl_volume(dir/"nested.stl")-12000)<1e-5,"Nested STL changed stored geometry");
     run(host,"activate",{{"document",flat_id}});run(host,"export.stl",{{"path","flat.stl"}});require(std::abs(stl_volume(dir/"flat.stl")-12000)<1e-5,"Flat Assembly STL did not use calculated occurrence state");
 }
@@ -110,6 +132,12 @@ void unit_exports(const kernel::OcctKernel& kernel,fs::path dir) {
         require(restored.document.document_units==target.document_units,"STEP replaced destination authoring units");
         require(part->session.revision()==revision&&part->session.data_generation()==generation&&
             part->session.calculated_boundaries().back().kernel_shape==shape,"STEP unit export changed history or cached calculation");
+        const auto iges=dir/(std::string("units-")+length+"-"+angle+".igs");run(host,"export.iges",{{"path",document::path_to_utf8(iges)}});
+        const auto iges_body=kernel.import_iges(document::path_to_utf8(iges),"iges-units",.1);
+        require(std::abs(iges_body.volume-volume)<1e-6&&std::abs(iges_body.surface_area-area)<1e-6,
+            "IGES document-unit roundtrip changed physical area or volume");
+        require(part->session.revision()==revision&&part->session.data_generation()==generation&&
+            part->session.calculated_boundaries().back().kernel_shape==shape,"IGES export changed cached calculation");
     }
     run(host,"new",{{"type","assembly"},{"name","unit-export-sub"}});const auto sub=live.active_document_id();
     run(host,"component.insert",{{"source",id}});
@@ -138,6 +166,18 @@ void unit_exports(const kernel::OcctKernel& kernel,fs::path dir) {
             "Nested STEP document units changed translation, rotation or physical size");
         require(assembly->session.revision()==revision&&assembly->session.data_generation()==generation&&live.size()==3,
             "Nested STEP export mutated history or opened source tabs");
+        const auto iges=dir/(std::string("nested-units-")+length+"-"+angle+".iges");run(host,"export.iges",{{"path",document::path_to_utf8(iges)}});
+        const auto iges_body=kernel.import_iges(document::path_to_utf8(iges),"iges-nested-units",.1);
+        kernel::Vec3 iges_lo{1e100,1e100,1e100},iges_hi{-1e100,-1e100,-1e100};
+        for(const auto& p:iges_body.mesh.vertices) {
+            iges_lo={std::min(iges_lo.x,p.x),std::min(iges_lo.y,p.y),std::min(iges_lo.z,p.z)};
+            iges_hi={std::max(iges_hi.x,p.x),std::max(iges_hi.y,p.y),std::max(iges_hi.z,p.z)};
+        }
+        require(std::abs(iges_lo.x+12.7)<1e-7&&std::abs(iges_hi.x-127)<1e-7&&std::abs(iges_lo.y+25.4)<1e-7&&
+            std::abs(iges_hi.y-25.4)<1e-7&&std::abs(iges_hi.z-iges_lo.z-76.2)<1e-7&&std::abs(iges_body.volume-2*volume)<1e-6,
+            "Nested IGES changed composed transforms, size or repeated geometry");
+        require(assembly->session.revision()==revision&&assembly->session.data_generation()==generation&&live.size()==3,
+            "Nested IGES mutated history or opened sources");
     }
 }
 void exact_dxf(const kernel::OcctKernel& kernel,fs::path dir) {
@@ -169,6 +209,33 @@ void exact_dxf(const kernel::OcctKernel& kernel,fs::path dir) {
     require(live.open_part(id)->session.revision()==detailed_revision&&workspace::document_sketch(live,id,sketch.id).serialized()==detailed.serialized(),"Detail export modified its source transaction");
 
 }
+void iges_curved_and_surface(const kernel::OcctKernel& kernel,const fs::path& dir) {
+    auto part=document::PartDocument::create_default();part.history.push_back(test::circular_feature(part,7.,13.));
+    const auto source=kernel.evaluate_history(part.kernel_operations());
+    const auto path=dir/fs::path(u8"válcová plocha.igs");
+    kernel.export_iges(std::vector<kernel::PlacedBody>{{source.back(),{11,23,37},{0,0,0}}},document::path_to_utf8(path));
+    const auto cylinder=kernel.import_iges(document::path_to_utf8(path),"iges-cylinder",.1);
+    require(std::abs(cylinder.volume-source.back().volume)<1e-6&&std::abs(cylinder.surface_area-source.back().surface_area)<1e-6,
+        "IGES curved solid changed volume or area");
+    require(std::ranges::any_of(cylinder.mesh.original_references.triangle_references,[](const auto& face){
+        return face.surface&&face.surface->kind==kernel::SurfaceGeometry::Kind::Cylinder;
+    }),"IGES replaced an exact cylinder with display triangles");
+    // Isolate the exact cylindrical face for an export-only open-surface fixture.
+    // This deliberately does not exercise the unrelated Shell identity contract.
+    TopoDS_Shape shape;BRep_Builder builder;std::istringstream input(source.back().kernel_shape);
+    BRepTools::Read(shape,input,builder);kernel::BodyResult surface;
+    for(TopExp_Explorer faces(shape,TopAbs_FACE);faces.More();faces.Next()) {
+        const auto face=TopoDS::Face(faces.Current());
+        if(BRepAdaptor_Surface(face).GetType()!=GeomAbs_Cylinder)continue;
+        std::ostringstream output;BRepTools::Write(face,output);surface.kernel_shape=output.str();break;
+    }
+    require(!surface.kernel_shape.empty(),"Missing cylindrical fixture face");
+    const auto surface_path=dir/"open-surface.iges";
+    kernel.export_iges(std::vector<kernel::PlacedBody>{{surface,{}, {}}},document::path_to_utf8(surface_path));
+    const auto restored=kernel.import_iges(document::path_to_utf8(surface_path),"iges-open-surface",.1);
+    require(restored.volume==0.&&std::abs(restored.surface_area-2.*std::acos(-1.)*7.*13.)<1e-6,
+        "IGES capped an open surface or changed its area");
+}
 void nested_stl(const kernel::OcctKernel& kernel,fs::path dir) {
     workspace::Workspace live;auto doc=test::nested_stl_fixture(kernel,dir);const auto id=doc.document_id;
     const auto native=dir/"nested-native.asmz";doc.save(native);
@@ -176,6 +243,16 @@ void nested_stl(const kernel::OcctKernel& kernel,fs::path dir) {
     command_host::Host host(live,kernel,dir);
     const auto revision=live.open_assembly(id)->session.revision(),generation=live.open_assembly(id)->session.data_generation();
     run(host,"export.stl",{{"path","transformed.stl"}});test::check_nested_stl(dir/"transformed.stl");
+    run(host,"export.iges",{{"path","transformed.iges"}});
+    const auto transformed=kernel.import_iges(document::path_to_utf8(dir/"transformed.iges"),"iges-three-levels",.1);
+    require(std::abs(transformed.volume-12000)<1e-5,"IGES lost visible repeated nested solids");
+    std::vector<kernel::Vec3> expected;
+    for(double x:{0.,10.})for(double y:{0.,20.})for(double z:{0.,30.}) {
+        expected.push_back({789+z,2113+y,3293-x});expected.push_back({-887+y,-1789-z,-2707-x});
+    }
+    for(const auto& corner:expected)require(std::ranges::any_of(transformed.mesh.vertices,[&](const auto& p){
+        return std::hypot(std::hypot(p.x-corner.x,p.y-corner.y),p.z-corner.z)<1e-6;
+    }),"IGES lost an independently calculated nested corner");
     require(live.size()==1&&live.open_assembly(id)->session.revision()==revision&&live.open_assembly(id)->session.data_generation()==generation&&live.open_assembly(id)->session.document().components[0].calculated_source->kernel_shape.empty(),"STL materialization modified the native Assembly or opened sources");
     // Worker owns a snapshot even if the source tab closes after dispatch.
     static_cast<void>(workspace::export_file(live,id,dir/"captured.stl",{},[&](auto task){require(live.remove(id),"Cannot close captured source");task();}));
@@ -188,11 +265,13 @@ void nested_stl(const kernel::OcctKernel& kernel,fs::path dir) {
     hidden=doc;for(auto& item:hidden.components)for(auto& child:item.nested_snapshot)child.visible=false;
     live.open_assembly(id)->session.commit(hidden);
     require(host.execute({{"command","export.stl"},{"arguments",{{"path","all-hidden.stl"}}}}).code=="empty_geometry"&&!fs::exists(dir/"all-hidden.stl"),"Hidden nested hierarchy was exported");
+    require(host.execute({{"command","export.iges"},{"arguments",{{"path","all-hidden.igs"}}}}).code=="empty_geometry"&&!fs::exists(dir/"all-hidden.igs"),"Hidden nested IGES hierarchy was exported");
     auto missing=doc;kernel::BodyResult empty;missing.components[0].calculated_source=empty;live.open_assembly(id)->session.commit(missing);
     const auto missing_revision=live.open_assembly(id)->session.revision();
     require(host.execute({{"command","export.stl"},{"arguments",{{"path","transformed.stl"},{"overwrite",true}}}}).code=="calculation_required"&&bytes(dir/"transformed.stl")==original&&live.open_assembly(id)->session.revision()==missing_revision,"Missing child geometry was silently exported or modified history");
     missing=doc;missing.components[0].nested_snapshot.clear();missing.components[0].calculated_source=empty;live.open_assembly(id)->session.commit(missing);
     require(host.execute({{"command","export.stl"},{"arguments",{{"path","missing-leaf.stl"}}}}).code=="calculation_required","Uncalculated leaf was silently skipped");
+    require(host.execute({{"command","export.iges"},{"arguments",{{"path","missing-leaf.igs"}}}}).code=="calculation_required"&&!fs::exists(dir/"missing-leaf.igs"),"IGES silently skipped an uncalculated leaf");
     // A parent-owned cut is the final result even though uncut children remain.
     auto cut=doc;cut.components.resize(1);cut.components[0].placement={};
     const auto box=zima::test::profile_body(kernel,{10,20,30});zima::test::ProfilePrism tool{5,20,30};
@@ -202,9 +281,12 @@ void nested_stl(const kernel::OcctKernel& kernel,fs::path dir) {
     cut.components[0].calculated_source=result;live.open_assembly(id)->session.commit(cut);
     run(host,"export.stl",{{"path","cut.stl"}});
     require(std::abs(test::read_stl(dir/"cut.stl").signed_volume-3000)<1e-5,"STL resurrected uncut nested components");
+    run(host,"export.iges",{{"path","cut.iges"}});
+    require(std::abs(kernel.import_iges(document::path_to_utf8(dir/"cut.iges"),"iges-cut",.1).volume-3000)<1e-5,
+        "IGES resurrected uncut nested components");
     cut.components[0].source_kind=assembly::ComponentSourceKind::Pattern;live.open_assembly(id)->session.commit(cut);
     run(host,"export.stl",{{"path","pattern.stl"}});require(std::abs(stl_volume(dir/"pattern.stl")-3000)<1e-5,"Calculated Pattern result was rejected or replaced");
     for(const auto& entry:fs::directory_iterator(dir))require(!entry.path().filename().string().starts_with(".zima-export-"),"STL export left its staging directory");
 }
 }
-int main(){try{kernel::OcctKernel kernel;const auto parent=fs::canonical(fs::temp_directory_path());const auto dir=parent/("zima-export-command-"+document::PartDocument::create_default().document_id);fs::create_directory(dir);const auto unicode_dir=dir/fs::path(u8"český projekt");fs::create_directory(unicode_dir);verify(kernel,unicode_dir);unit_exports(kernel,unicode_dir);nested_stl(kernel,unicode_dir);exact_dxf(kernel,unicode_dir);require(dir.parent_path()==parent,"Unsafe cleanup");fs::remove_all(dir);std::cout<<"STEP/STL volumes, DXF geometry, snapshot export, nested ownership, UTF-8, overwrite and atomic publication passed\n";return 0;}catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}
+int main(){try{kernel::OcctKernel kernel;const auto parent=fs::canonical(fs::temp_directory_path());const auto dir=parent/("zima-export-command-"+document::PartDocument::create_default().document_id);fs::create_directory(dir);const auto unicode_dir=dir/fs::path(u8"český projekt");fs::create_directory(unicode_dir);verify(kernel,unicode_dir);unit_exports(kernel,unicode_dir);nested_stl(kernel,unicode_dir);iges_curved_and_surface(kernel,unicode_dir);exact_dxf(kernel,unicode_dir);require(dir.parent_path()==parent,"Unsafe cleanup");fs::remove_all(dir);std::cout<<"STEP/IGES/STL volumes, exact IGES surfaces, DXF geometry, snapshot export, nested ownership, UTF-8, overwrite and atomic publication passed\n";return 0;}catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}

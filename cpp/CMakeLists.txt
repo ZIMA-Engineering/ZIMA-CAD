@@ -1141,7 +1141,10 @@ if(ZIMA_BUILD_TESTS)
     set_tests_properties(zima_cpp_view_export_command_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
 
     add_executable(zima_cpp_export_command_tests tests/export_command_tests.cpp)
-    target_link_libraries(zima_cpp_export_command_tests PRIVATE zima_command_host)
+    target_link_libraries(zima_cpp_export_command_tests PRIVATE zima_command_host TKTopAlgo)
+    add_test(NAME zima_cpp_iges_export_ui_contract COMMAND zima-cad-cpp --verify-startup)
+    set_tests_properties(zima_cpp_iges_export_ui_contract PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.."
+        ENVIRONMENT "QT_QPA_PLATFORM=windows;QT_STYLE_OVERRIDE=Fusion;ZIMA_VERIFY_CONSOLE_ONLY=1;ZIMA_VERIFY_IGES_EXPORT_ONLY=1" TIMEOUT 90)
     add_test(NAME zima_cpp_export_command_tests COMMAND zima_cpp_export_command_tests)
     set_tests_properties(zima_cpp_export_command_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
 

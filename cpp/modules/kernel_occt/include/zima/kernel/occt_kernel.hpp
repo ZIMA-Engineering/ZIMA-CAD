@@ -50,6 +50,8 @@ public:
     void export_step(
         const std::vector<PlacedBody>& bodies, const std::string& path) const;
     void export_step(const StepProduct& root, const std::string& path) const;
+    void export_iges(const StepProduct& root, const std::string& path) const;
+    void export_iges(const std::vector<PlacedBody>& bodies, const std::string& path) const;
     void export_stl(
         const std::vector<PlacedBody>& bodies, const std::string& path) const;
 

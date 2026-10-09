@@ -327,6 +327,28 @@ static int verify_general_command_console(QApplication& application,AssemblyWork
     const auto flush=[&]{application.processEvents();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);application.processEvents();};
     const auto run=[&](const QString& command){auto result=window.execute_console_command(command);if(!result.ok)throw std::runtime_error(command.toStdString()+": "+result.code+": "+result.message);return result;};
     try {
+        if(qEnvironmentVariableIsSet("ZIMA_VERIFY_IGES_EXPORT_ONLY")) {
+            window.showMaximized();flush();run("new part iges-ui-verification");
+            check(test::gui_rectangular_profile(window,10,20,30).ok,"IGES stock creation failed");flush();
+            auto* action=window.findChild<QAction*>("exportDocumentAction");check(action&&action->isEnabled(),"IGES export menu unavailable");
+            const auto target=std::filesystem::absolute(directory/"iges-ui-verification.iges");
+            std::filesystem::remove(target);bool chosen=false,timed_out=false;
+            QTimer chooser;chooser.setInterval(50);
+            QObject::connect(&chooser,&QTimer::timeout,[&]{
+                if(auto* dialog=qobject_cast<QFileDialog*>(QApplication::activeModalWidget())) {
+                    if(!chosen){dialog->setDirectory(QString::fromStdString(document::path_to_utf8(target.parent_path())));dialog->selectNameFilter("IGES (*.igs *.iges)");chosen=true;return;}
+                    if(auto* filename=dialog->findChild<QLineEdit*>("fileNameEdit"))filename->setText(QString::fromStdString(document::path_to_utf8(target)));
+                    QMetaObject::invokeMethod(dialog,"accept",Qt::DirectConnection);
+                }else if(auto* message=qobject_cast<QMessageBox*>(QApplication::activeModalWidget())){std::cerr<<message->text().toStdString()<<'\n';message->accept();}
+            });
+            QTimer timeout;timeout.setSingleShot(true);
+            QObject::connect(&timeout,&QTimer::timeout,[&]{timed_out=true;if(auto* dialog=qobject_cast<QDialog*>(QApplication::activeModalWidget()))dialog->reject();});
+            chooser.start();timeout.start(10000);action->trigger();chooser.stop();timeout.stop();flush();
+            check(chosen&&!timed_out&&std::filesystem::is_regular_file(target),"IGES menu did not publish its file");
+            kernel::OcctKernel engine;const auto imported=engine.import_iges(document::path_to_utf8(target),"iges-ui",.1);
+            check(imported.calculation_errors.empty()&&std::abs(imported.volume-6000.)<1e-6,"IGES menu changed geometry");
+            std::cout<<"IGES menu filter, file publication and exact solid roundtrip passed\n";return 0;
+        }
         if(qEnvironmentVariableIsSet("ZIMA_VERIFY_FORM_LIBRARY_PATH_ONLY")) {
             window.showMaximized();flush();QTemporaryDir temporary;
             check(temporary.isValid(),"Cannot isolate FORM library settings");
@@ -1426,7 +1448,7 @@ static int verify_general_command_console(QApplication& application,AssemblyWork
         commands::Json export_dxf={{"command","export.dxf"},{"arguments",{{"path",document::path_to_utf8(exported_profile)},{"sketch",dxf_result.at("sketch")}}}};
         check(run(QString::fromStdString(export_dxf.dump())).data.at("model_changed")==false && std::filesystem::file_size(exported_profile)>0,"Console export did not write its model snapshot");
         const auto exported_model=std::filesystem::absolute(directory/(stem+"-menu.step"));
-        auto menu_export_target=exported_model;QString menu_export_filter="STEP (*.step)";
+        auto menu_export_target=exported_model;QString menu_export_filter="STEP (*.step *.stp)";
         auto* menu_export_action=window.findChild<QAction*>("exportDocumentAction");check(menu_export_action,"Export menu action missing");
         bool export_chosen=false,export_timed_out=false;QTimer choose_export;choose_export.setInterval(50);
         QObject::connect(&choose_export,&QTimer::timeout,[&]{
@@ -1442,6 +1464,14 @@ static int verify_general_command_console(QApplication& application,AssemblyWork
         QObject::connect(&export_timeout,&QTimer::timeout,[&]{export_timed_out=true;if(auto* dialog=qobject_cast<QDialog*>(QApplication::activeModalWidget()))dialog->reject();});
         choose_export.start();export_timeout.start(10000);menu_export_action->trigger();choose_export.stop();export_timeout.stop();flush();
         check(export_chosen && !export_timed_out && std::filesystem::is_regular_file(exported_model) && std::filesystem::file_size(exported_model)>0,"Menu export did not publish a STEP model");
+        menu_export_target=std::filesystem::absolute(directory/(stem+"-menu.iges"));menu_export_filter="IGES (*.igs *.iges)";
+        export_chosen=false;export_timed_out=false;
+        choose_export.start();export_timeout.start(10000);menu_export_action->trigger();choose_export.stop();export_timeout.stop();flush();
+        check(export_chosen&&!export_timed_out&&std::filesystem::is_regular_file(menu_export_target)&&
+            std::filesystem::file_size(menu_export_target)>0,"Menu export did not publish an IGES model");
+        kernel::OcctKernel iges_export_kernel;
+        const auto iges_exported=iges_export_kernel.import_iges(document::path_to_utf8(menu_export_target),"ui-iges-export",.1);
+        check(iges_exported.volume>0&&iges_exported.calculation_errors.empty(),"GUI IGES export did not retain a solid");
         run("save");
         const auto nested_native=std::filesystem::absolute(directory/(stem+"-nested-stl.asmz"));
         const kernel::OcctKernel stl_kernel;test::nested_stl_fixture(stl_kernel,directory).save(nested_native);

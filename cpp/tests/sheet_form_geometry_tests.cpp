@@ -33,8 +33,11 @@
 #include <BRepLib.hxx>
 #include <TopExp.hxx>
 #include <TopTools_IndexedMapOfShape.hxx>
+#include <TopTools_ListOfShape.hxx>
 #include <BRepAlgoAPI_Check.hxx>
 #include <BRepAlgoAPI_Cut.hxx>
+#include <BRepAlgoAPI_Fuse.hxx>
+#include <BRepAlgoAPI_Common.hxx>
 #include <BRepCheck_Result.hxx>
 #include <ShapeFix_Shape.hxx>
 #include <gp_Ax1.hxx>
@@ -193,7 +196,12 @@ void verify_corner_axis(const document::PartDocument& part,const document::Histo
 }
 
 }
+#include "planar_solid_form_experiment.inc"
 int main(int argc,char** argv){try {
+    if(argc==3&&std::string_view(argv[1])=="--probe-corner-surface-form")
+        return corner_surface_form_experiment(argv[2]);
+    if(argc==3&&std::string_view(argv[1])=="--probe-planar-solid-form")
+        return planar_solid_form_experiment(argv[2]);
     if(argc==3&&(std::string_view(argv[1])=="--compare-copy-batch"||
         std::string_view(argv[1])=="--compare-ordinary-copy-batch")) {
         auto part=document::PartDocument::create_default();

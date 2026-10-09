@@ -1,4 +1,7 @@
 {
+  "Model export supports STEP, IGES, STL and DXF.": "L’export du modèle prend en charge STEP, IGES, STL et DXF.",
+  "IGES export failed": "Échec de l’export IGES",
+  "DXF (*.dxf);;STEP (*.step *.stp);;IGES (*.igs *.iges);;STL (*.stl);;PNG (*.png);;JPEG (*.jpg *.jpeg)": "DXF (*.dxf);;STEP (*.step *.stp);;IGES (*.igs *.iges);;STL (*.stl);;PNG (*.png);;JPEG (*.jpg *.jpeg)",
   "First outer sheet face": "Première face extérieure de la tôle",
   "Second outer sheet face": "Deuxième face extérieure de la tôle",
   "Position along bend": "Position le long du pli",

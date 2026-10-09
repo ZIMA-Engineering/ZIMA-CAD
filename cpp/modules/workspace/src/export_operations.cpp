@@ -72,8 +72,8 @@ ExportReport export_file(const Workspace& live,const std::string& document_id,
     const std::function<void(std::function<void()>)>& runner) {
     const auto target=std::filesystem::absolute(destination).lexically_normal();
     const auto format=interchange::format_from_path(target);
-    if(format!=interchange::Format::Step && format!=interchange::Format::Stl && format!=interchange::Format::Dxf)
-        throw ExportOperationError("unsupported_format", "Model export supports STEP, STL and DXF.");
+    if(format!=interchange::Format::Step && format!=interchange::Format::Iges && format!=interchange::Format::Stl && format!=interchange::Format::Dxf)
+        throw ExportOperationError("unsupported_format", "Model export supports STEP, IGES, STL and DXF.");
     if(!std::filesystem::is_directory(target.parent_path()))
         throw ExportOperationError("invalid_directory", "The export destination directory does not exist.");
     if(path_exists(target) && (!options.overwrite || !std::filesystem::is_regular_file(target)))
@@ -91,7 +91,7 @@ ExportReport export_file(const Workspace& live,const std::string& document_id,
         try{interchange::validate_dxf_export(sketch);}
         catch(const interchange::DxfExportError& error){throw ExportOperationError("unsupported_geometry",error.what());}
         data=std::move(sketch);
-    } else if(format==interchange::Format::Step) {
+    } else if(format==interchange::Format::Step||(format==interchange::Format::Iges&&part)) {
         data=part?interchange::step_product(part->session.document(),part->session.calculated_boundaries())
                  :interchange::step_product(assembly->session.document());
     } else {
@@ -110,12 +110,15 @@ ExportReport export_file(const Workspace& live,const std::string& document_id,
         }
     }
     bool completed=false;
-    std::function<void()> task=[data=std::move(data),target,overwrite=options.overwrite,&report,&completed] {
+    std::function<void()> task=[data=std::move(data),target,format,overwrite=options.overwrite,&report,&completed] {
         report.bytes=write_export_file(target,overwrite,[&](const auto& file) {
         if(const auto* sketch=std::get_if<sketcher::Sketch>(&data))interchange::export_dxf(file,*sketch);
         else {
             kernel::OcctKernel kernel;
-            if(const auto* product=std::get_if<kernel::StepProduct>(&data))kernel.export_step(*product,document::path_to_utf8(file));
+            if(const auto* product=std::get_if<kernel::StepProduct>(&data)) {
+                if(format==interchange::Format::Iges)kernel.export_iges(*product,document::path_to_utf8(file));
+                else kernel.export_step(*product,document::path_to_utf8(file));
+            }
             else if(const auto* part_bodies=std::get_if<std::vector<kernel::PlacedBody>>(&data))kernel.export_stl(*part_bodies,document::path_to_utf8(file));
             else {
                 std::vector<kernel::PlacedBody> bodies;
@@ -126,7 +129,8 @@ ExportReport export_file(const Workspace& live,const std::string& document_id,
                     bodies.push_back({assembly::calculate_component_body(component,kernel),
                         {p.x,p.y,p.z},{p.rotation_x,p.rotation_y,p.rotation_z}});
                 }
-                kernel.export_stl(bodies,document::path_to_utf8(file));
+                if(format==interchange::Format::Iges)kernel.export_iges(bodies,document::path_to_utf8(file));
+                else kernel.export_stl(bodies,document::path_to_utf8(file));
             }
         }
         });completed=true;

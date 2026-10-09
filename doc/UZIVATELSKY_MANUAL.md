@@ -833,6 +833,13 @@ Assembly operations are required. A Drawing exports model geometry through its
 source Part/Assembly. Supported entity details are in
 [STEP import/export](STEP_IMPORT_EXPORT.md) and [IGES/DXF import](IGES_DXF_IMPORT.md).
 
+**File → Export → IGES** writes visible calculated Part bodies or current
+calculated Assembly geometry as exact surfaces/BRep in millimetres. Select
+`.igs` or `.iges`. Placements and final Assembly cuts are retained; product
+structure is flattened and native history, constraints and mates are omitted.
+Console/CLI use `export.iges path [overwrite]`. Export does not regenerate or
+create an Undo step. See [Export commands](EXPORT_COMMANDS.md).
+
 **Colors and Appearance** above View provides palette classes, named appearances,
 gloss/metallic settings, base body appearance and named face groups. An occurrence
 override belongs only to that exact Assembly occurrence. See [Appearance](APPEARANCE.md).
@@ -1075,6 +1082,13 @@ calculated connected outside shell; FLAT contains an optional precut Sketch
 Sketch. The default library includes `VentilationWindow.prtz` and
 `CornerGusset90.prtz`. Global Settings
 provides a separate Forms directory. Only native Parts are offered in its picker.
+
+An unpierced planar pocket uses this same surface workflow: retain a closed
+`FORM_CUT` replacement outline and include connected walls/bottom in `FORM`
+without an opening. Leave `FORM_FLAT` empty when no physical precut is needed.
+`FORM_CUT` replaces a region and does not require a hole in the final sheet.
+Keep the current window orientation and verify rim contact and thickness.
+See [Form authoring guide](FORM_AUTHORING_GUIDE.md).
 
 The 90-degree corner gusset uses a closed native `FORM` solid with two closing
 faces on the definition's XY and XZ planes. Its `FORM_CUT` Body is empty: the

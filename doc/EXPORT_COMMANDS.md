@@ -9,6 +9,7 @@ or Undo steps. Source-geometry ownership is described in
 ## Commands
 
 - `export.step path [overwrite] [document]`
+- `export.iges path [overwrite] [document]`
 - `export.stl path [overwrite] [document]`
 - `export.dxf path [sketch] [overwrite] [document] [sheet]`
 - `export.pdf path [overwrite] [document]`
@@ -17,11 +18,12 @@ or Undo steps. Source-geometry ownership is described in
 
 Optional `document` verifies the active document. Boolean `overwrite` defaults to
 `false`. Relative paths use the console working directory. Extensions must match;
-STEP accepts `.step`/`.stp`. Parent directories must exist. GUI uses its file dialog's
+STEP accepts `.step`/`.stp`; IGES accepts `.igs`/`.iges`. Parent directories must exist. GUI uses its file dialog's
 overwrite confirmation.
 
 ```json
 {"command":"export.step","arguments":{"path":"results/assembly.step"}}
+{"command":"export.iges","arguments":{"path":"results/part.iges"}}
 {"command":"export.stl","arguments":{"path":"results/part.stl","overwrite":true}}
 {"command":"export.dxf","arguments":{"path":"results/outline.dxf","sketch":"SKETCH_ID"}}
 ```
@@ -40,6 +42,29 @@ Part units. See the verified matrix in [the unit audit](DOCUMENT_UNITS_AUDIT.md)
 
 ## Scope and limits
 
+IGES export was added and verified on Windows on 2026-10-09. The shared C++
+implementation writes exact OCCT geometry in millimetres. Part and Assembly
+tests cover visible bodies, current unsaved snapshots, final Assembly cuts,
+three-level repeated rotated occurrences, mm/cm/m/in and degree/radian units,
+Unicode paths, overwrite rejection and source revision/cache preservation.
+An analytic cylinder and an uncapped cylindrical surface roundtrip without
+replacing their geometry with display triangles. All five localization catalogs
+and the standalone real GUI export dialog pass.
+
+The actual CLI export of `Projects/20-FORM.prtz` creates
+`Projects/test/20-FORM.iges` (78,408 bytes). Reimport reports one body, volume
+9347.024 mm³ and area 5102.507 mm², matching the source at the reported precision.
+Logs are under `build/form-diagnostic/iges-*`. The long general console GUI
+suite first failed a preceding DXF-import timer; its repeat passed the IGES
+menu section but reached its overall 180 s timeout later. The separate IGES
+GUI suite passes; no claim is made that the whole general GUI suite passed.
+Linux execution remains unverified.
+The final serial focused run passes 6/6 in 106.14 s, including the existing
+planar and corner FORM regressions; see
+`build/form-diagnostic/form-iges-final-tests.log`. The user settings are restored
+after GUI verification. The native schema, templates, dependencies and normal
+`zima-cad.bat` development entry point are unchanged.
+
 STEP preserves Part and nested-Assembly product structure and consumes calculated
 occurrence results in the open document. The initial implementation required parent
 regeneration to obtain source changes. Current shared-source display follows
@@ -53,6 +78,13 @@ saved offsets/trims and owned profiles. Corner rounds export as exact circular a
 with tangent-trimmed segments. Text exports saved closed outlines as `LWPOLYLINE`,
 preserving holes, rotation and flipping. These are letter outlines, not editable
 DXF TEXT. Invalid shapes are rejected before writing.
+
+IGES exports exact BRep geometry for visible Part result Bodies and calculated
+Assembly occurrences, including nested rigid placements and final Assembly cuts.
+It uses canonical millimetres and preserves open surfaces. Output is flattened
+geometry; the STEP product hierarchy and ZIMA feature history are not serialized
+into IGES. File and console export share the existing snapshot/atomic publication
+path. The stream writer supports Unicode destination directories on both platforms.
 
 Drawing `export.pdf` exports all sheets; `export.dxf` requires `sheet` for one sheet
 and rejects `sketch`. Model DXF instead requires `sketch` and rejects `sheet`.

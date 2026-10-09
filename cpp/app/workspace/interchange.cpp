@@ -160,7 +160,7 @@ void AssemblyWorkspaceWindow::export_file() {
     }
     const QString path = save_file(this, tr("Exportovat"),
         QString::fromStdString(working_directory_.string()),
-        tr("DXF (*.dxf);;STEP (*.step);;STL (*.stl);;PNG (*.png);;JPEG (*.jpg *.jpeg)"));
+        tr("DXF (*.dxf);;STEP (*.step *.stp);;IGES (*.igs *.iges);;STL (*.stl);;PNG (*.png);;JPEG (*.jpg *.jpeg)"));
     if (path.isEmpty()) return;
     const auto context = !active_sketch_id_.empty()
         ? zima::interchange::Context::Sketch

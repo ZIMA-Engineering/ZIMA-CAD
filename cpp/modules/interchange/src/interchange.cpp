@@ -25,7 +25,7 @@ bool supports(Format format, Direction direction, Context context) {
         return false;
     }
     if (format == Format::Dxf) return context == Context::Sketch;
-    if (format == Format::Step || format == Format::Stl) {
+    if (format == Format::Step || format == Format::Iges || format == Format::Stl) {
         return context != Context::Sketch;
     }
     return format == Format::Png || format == Format::Jpeg;

@@ -1,4 +1,7 @@
 {
+  "Model export supports STEP, IGES, STL and DXF.": "Export modelu podporuje STEP, IGES, STL a DXF.",
+  "IGES export failed": "Export IGES selhal",
+  "DXF (*.dxf);;STEP (*.step *.stp);;IGES (*.igs *.iges);;STL (*.stl);;PNG (*.png);;JPEG (*.jpg *.jpeg)": "DXF (*.dxf);;STEP (*.step *.stp);;IGES (*.igs *.iges);;STL (*.stl);;PNG (*.png);;JPEG (*.jpg *.jpeg)",
   "First outer sheet face": "První vnější plocha plechu",
   "Second outer sheet face": "Druhá vnější plocha plechu",
   "Position along bend": "Poloha podél ohybu",

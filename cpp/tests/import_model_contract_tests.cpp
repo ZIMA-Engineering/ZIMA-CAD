@@ -66,7 +66,9 @@ int main(int argc,char** argv) {
     require(interchange::format_from_path("part.IGES")==interchange::Format::Iges,"IGES extension");
     require(interchange::supports(interchange::Format::Iges,interchange::Direction::Import,interchange::Context::Assembly),"IGES assembly support");
     require(!interchange::supports(interchange::Format::Iges,interchange::Direction::Import,interchange::Context::Sketch),"IGES inside sketch");
-    require(!interchange::supports(interchange::Format::Iges,interchange::Direction::Export,interchange::Context::Part),"IGES export accidentally enabled");
+    require(interchange::supports(interchange::Format::Iges,interchange::Direction::Export,interchange::Context::Part),"IGES Part export unavailable");
+    require(interchange::supports(interchange::Format::Iges,interchange::Direction::Export,interchange::Context::Assembly),"IGES Assembly export unavailable");
+    require(!interchange::supports(interchange::Format::Iges,interchange::Direction::Export,interchange::Context::Sketch),"IGES Sketch export incorrectly enabled");
     auto source=sketcher::Sketch::create_default();
     source.add_segment(0,0,20,0);source.add_segment(20,0,20,10);source.add_segment(20,10,0,10);source.add_segment(0,10,0,0);
     interchange::export_dxf(temp/"rectangle.dxf",source);

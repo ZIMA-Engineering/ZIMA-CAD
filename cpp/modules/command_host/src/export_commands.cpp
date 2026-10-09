@@ -74,13 +74,13 @@ void Host::register_export_commands() {
          catch(const std::exception& e){return Result::failure("export_failed",tr(e.what()));}
     });
 
-    for(const auto format:{interchange::Format::Step,interchange::Format::Stl,interchange::Format::Dxf}) {
+    for(const auto format:{interchange::Format::Step,interchange::Format::Iges,interchange::Format::Stl,interchange::Format::Dxf}) {
         const bool dxf=format==interchange::Format::Dxf;
         std::vector<commands::Argument> args={{"path",true}};
         if(dxf)args.push_back({"sketch",false});
         args.push_back({"overwrite",false,commands::ArgumentType::Boolean});args.push_back({"document",false});
         if(dxf)args.push_back({"sheet",false});
-        dispatcher_.add({dxf?"export.dxf":format==interchange::Format::Step?"export.step":"export.stl",
+        dispatcher_.add({dxf?"export.dxf":format==interchange::Format::Step?"export.step":format==interchange::Format::Iges?"export.iges":"export.stl",
             tr("Export the persisted model snapshot without regenerating or modifying the document."),args,true},
             [this,format](const Json& args) {
                 const auto check=target(args);if(!check.ok)return check;

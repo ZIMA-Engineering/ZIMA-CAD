@@ -92,6 +92,7 @@
 #include <NCollection_HSequence.hxx>
 #include <STEPControl_Reader.hxx>
 #include <IGESControl_Reader.hxx>
+#include <IGESControl_Writer.hxx>
 #include <IGESData_IGESModel.hxx>
 #include <STEPControl_Writer.hxx>
 #include <XSControl_TransferReader.hxx>
@@ -6558,6 +6559,43 @@ void OcctKernel::export_step(const StepProduct& root, const std::string& path) c
     } catch(const Standard_Failure& failure) {
         application->Close(document);throw std::runtime_error(failure.GetMessageString());
     } catch(...) { application->Close(document);throw; }
+}
+
+namespace {
+void write_iges_shape(const TopoDS_Shape& shape,const std::string& path) {
+    IGESControl_Writer writer("MM",1);
+    if(shape.IsNull()||!writer.AddShape(shape))throw std::runtime_error("IGES export failed");
+    std::ofstream output(std::filesystem::u8path(path),std::ios::binary);
+    if(!output||!writer.Write(output))throw std::runtime_error("IGES export failed");
+    output.close();if(!output)throw std::runtime_error("IGES export failed");
+}
+}
+void OcctKernel::export_iges(const std::vector<PlacedBody>& bodies,const std::string& path) const {
+    write_iges_shape(placed_compound(bodies),path);
+}
+void OcctKernel::export_iges(const StepProduct& root, const std::string& path) const {
+    // Consume the same captured visible products as STEP. Compose full rigid
+    // transforms before flattening IGES geometry; never reopen dependencies.
+    TopoDS_Compound compound;BRep_Builder builder;builder.MakeCompound(compound);
+    std::set<std::string> visiting;bool populated=false;
+    const auto add=[&](auto&& self,const StepProduct& product,const gp_Trsf& parent,std::size_t depth)->void {
+        if(depth>256||!visiting.insert(product.definition_id).second)
+            throw std::runtime_error("The component dependency graph is too large or too deep.");
+        const auto world=parent*primitive_transform(product.translation,product.rotation_degrees);
+        if(product.children.empty()) {
+            if(product.body.kernel_shape.empty())
+                throw std::runtime_error("An exported component has no calculated body; invoke Regenerate first.");
+            BRepBuilderAPI_Transform placed(read_kernel_shape(product.body),world,false);
+            placed.Build();if(!placed.IsDone()||placed.Shape().IsNull())throw std::runtime_error("IGES export failed");
+            builder.Add(compound,placed.Shape());populated=true;
+        }else for(const auto& child:product.children)self(self,child,world,depth+1);
+        visiting.erase(product.definition_id);
+    };
+    add(add,root,gp_Trsf{},0);
+    if(!populated)throw std::runtime_error("There are no visible calculated bodies to export.");
+    // The stream overload supports native Unicode filesystem paths on Windows
+    // and Linux without changing document geometry or process-wide units.
+    write_iges_shape(compound,path);
 }
 
 void OcctKernel::export_stl(

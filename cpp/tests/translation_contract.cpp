@@ -134,6 +134,9 @@ int verify_translations(QApplication& application, QWidget& parent) {
         app::apply_application_translations(application, settings);
         application.processEvents();
         for(const auto* key:{
+            "IGES export failed",
+            "Model export supports STEP, IGES, STL and DXF.",
+            "DXF (*.dxf);;STEP (*.step *.stp);;IGES (*.igs *.iges);;STL (*.stl);;PNG (*.png);;JPEG (*.jpg *.jpeg)",
             "Uložit kopii dokumentu včetně navázaného modelu nebo výkresů; původní dokument zůstane otevřený.",
             "Uložit nezávislou kopii včetně navázaného modelu nebo výkresů: save_as cesta.",
             "Zdrojový dokument výkresu nelze otevřít.",
