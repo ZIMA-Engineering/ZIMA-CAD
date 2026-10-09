@@ -1962,6 +1962,36 @@ int verify_sweep2d_command(QApplication& application,zima::app::AssemblyWorkspac
 
 
     dialog->buttons()->button(QDialogButtonBox::Cancel)->click();application.processEvents();
+    QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
+    auto closed_document=zima::document::PartDocument::create_default();
+    const auto closed_path=directory/"closed-sweep2d-ui.prtz";closed_document.save(closed_path);
+    if(!verify(window.open_document_path(QString::fromStdString(closed_path.string())),"Cannot open closed Sweep fixture"))return 1;
+    action->trigger();application.processEvents();
+    dialog=dynamic_cast<zima::app::Sweep2DDialog*>(window.findChild<QDialog*>("sweep2dDialog"));
+    auto closed_guide=zima::sketcher::Sketch::from_serialized(dialog->pending.sweep2d.path_sketch);
+    static_cast<void>(closed_guide.add_segment(7,11,7,31));
+    static_cast<void>(closed_guide.add_arc(17,31,7,31,27,31,false,1e-6,true));
+    static_cast<void>(closed_guide.add_segment(27,31,27,11));
+    static_cast<void>(closed_guide.add_arc(17,11,27,11,7,11,false,1e-6,true));
+    dialog->set_sketch(0,closed_guide);application.processEvents();
+    if(!verify(dialog->findChild<QTableWidget*>("sweep2dProfiles")->rowCount()==8 &&
+        dialog->pending.sweep2d.profiles.size()==1,"Closed path was rejected by Properties"))return 1;
+    auto closed_section=zima::sketcher::Sketch::from_serialized(dialog->pending.sweep2d.sketch_data(1));
+    static_cast<void>(closed_section.add_circle(0,0,1));dialog->set_sketch(1,closed_section);
+    const auto closed_id=dialog->pending.id;
+    dialog->buttons()->button(QDialogButtonBox::Ok)->click();application.processEvents();
+    if(!verify(!dialog->isVisible(),"Closed Sweep did not commit"))return 1;
+    save->trigger();application.processEvents();
+    std::vector<zima::kernel::BodyResult> closed_cache;
+    const auto closed_stored=zima::document::PartDocument::load(closed_path,&closed_cache);
+    if(!verify(closed_stored.history.size()==1 && closed_stored.history.front().id==closed_id &&
+        !closed_cache.empty() && closed_cache.back().calculation_errors.empty() && closed_cache.back().volume>300,
+        "Closed Sweep did not save/reopen its calculated body"))return 1;
+    window.findChild<QAction*>("undoAction")->trigger();application.processEvents();
+    window.findChild<QAction*>("redoAction")->trigger();application.processEvents();
+    save->trigger();application.processEvents();
+    if(!verify(zima::document::PartDocument::load(closed_path).history==closed_stored.history,
+        "Closed Sweep Undo/Redo changed its definition"))return 1;
     std::cout<<"2D Sweep UI contracts passed\n";return 0;
 }
 
@@ -7516,7 +7546,18 @@ int verify_assembly_owned_profiles(QApplication& application,const std::filesyst
 
 int verify_property_sketch_dimensions(QApplication& application, const std::filesystem::path& directory) {
     using namespace zima::document;
-    const auto fixture=qEnvironmentVariable("ZIMA_VERIFY_PROFILE_DIMENSION_FILE");
+    auto fixture=qEnvironmentVariable("ZIMA_VERIFY_PROFILE_DIMENSION_FILE");
+    const bool capsule_only=qEnvironmentVariableIsSet("ZIMA_VERIFY_CAPSULE_DIMENSION_ONLY");
+    if(capsule_only) {
+        std::ifstream input(std::filesystem::path(__FILE__).parent_path()/"../tests/fixtures/sketch/capsule-line-distance.json");
+        auto profile=zima::sketcher::Sketch::from_serialized(std::string(std::istreambuf_iterator<char>(input),{}));
+        auto part=PartDocument::create_default();auto feature=PartDocument::create_feature_container(profile.id);
+        profile.owner_container_id=feature.id;feature.feature.sides[0].length=10;
+        part.history={feature};part.sketches={profile};BodyHistoryGraph graph;static_cast<void>(graph.create_body("Capsule regression"));
+        graph.insert({PartHistoryKind::Feature,feature.id});part.set_body_history(graph);part.resolve_constructions();
+        const auto path=directory/"capsule-source.prtz";zima::kernel::OcctKernel kernel;
+        part.save(path,kernel.evaluate_history(part.kernel_operations()));fixture=QString::fromStdString(path.string());
+    }
     for (const auto kind : {FeatureKind::Sketch, FeatureKind::Extrusion, FeatureKind::Revolution}) {
         if(!fixture.isEmpty()&&kind!=FeatureKind::Extrusion)continue;
         std::cout << "Checking property dimensions for feature " << static_cast<int>(kind) << std::endl;
@@ -7539,10 +7580,11 @@ int verify_property_sketch_dimensions(QApplication& application, const std::file
         auto calculated=kernel.evaluate_history(document.kernel_operations());
         if(!fixture.isEmpty()) {
             document=PartDocument::load(std::filesystem::path(fixture.toStdWString()),&calculated);
-            const auto found=std::find_if(document.history.rbegin(),document.history.rend(),[](const auto& item){return item.feature_kind==FeatureKind::Extrusion;});
+            const auto found=std::find_if(document.history.rbegin(),document.history.rend(),[](const auto& item){return item.feature_kind==FeatureKind::Extrusion ||
+                (item.feature_kind==FeatureKind::Feature&&item.feature.type==FeatureType::Modeling&&item.feature.effective_side(0).operation==FeatureSideOperation::Extrusion);});
             if(!verify(found!=document.history.rend(),"Saved fixture has no Extrusion"))return 1;
             feature=*found;
-            const auto profile=std::ranges::find(document.sketches,feature.extrusion.sketch_id,&zima::sketcher::Sketch::id);
+            const auto profile=std::ranges::find(document.sketches,feature.feature_kind==FeatureKind::Feature?feature.feature.sketch_id:feature.extrusion.sketch_id,&zima::sketcher::Sketch::id);
             if(!verify(profile!=document.sketches.end()&&!profile->dimensions.empty(),"Saved Extrusion has no dimensioned Sketch"))return 1;
             sketch=*profile;
             const auto* body=document.body_owner_for_object(feature.id);
@@ -7663,6 +7705,12 @@ int verify_property_sketch_dimensions(QApplication& application, const std::file
             window.findChild<QAction*>("saveDocumentAction")->trigger();flush();
             if(!verify(std::abs(stored_value(PartDocument::load(path))-initial_value)<1e-6,
                 "View-only dimension Undo did not restore the exact original value"))return 1;
+            if(capsule_only) {
+                window.findChild<QAction*>("redoAction")->trigger();flush();
+                window.findChild<QAction*>("saveDocumentAction")->trigger();flush();
+                if(!verify(std::abs(stored_value(PartDocument::load(path))-accepted_value)<1e-6,"Capsule dimension Redo failed"))return 1;
+                undo->trigger();flush();
+            }
         }
         for(bool accept:{false,true}) {
             auto* dialog=open();
@@ -7673,9 +7721,24 @@ int verify_property_sketch_dimensions(QApplication& application, const std::file
                 "Inline property dimension committed before OK"))return 1;
             if(accept && kind!=FeatureKind::Sketch) {
                 auto* button=dialog->findChild<QPushButton*>("primitiveOwnSketchButton");
+                if(!button)button=dialog->findChild<QPushButton*>("featureSketchButton");
                 if(!verify(button,"Profile has no Sketch button"))return 1;
                 button->click();flush();
                 if(!edit(sketch_edit))return 1;
+                if(capsule_only) {
+                    const auto local=[&](QPointF pixel){const auto ray=view->ray_at(pixel);if(!ray)throw std::runtime_error("Capsule drag ray missing");const auto p=sketch.intersect_ray(ray->first,ray->second);if(!p)throw std::runtime_error("Capsule drag plane missing");return *p;};
+                    const auto a=local({0,0}),b=local({100,0}),c=local({0,100});
+                    const double ux=(b[0]-a[0])/100,uy=(b[1]-a[1])/100,vx=(c[0]-a[0])/100,vy=(c[1]-a[1])/100,det=ux*vy-uy*vx;
+                    const auto* center=sketch.find_point(sketch.arcs[0].center_point_id);
+                    const QPointF start(((center->x-a[0])*vy-(center->y-a[1])*vx)/det,(ux*(center->y-a[1])-uy*(center->x-a[0]))/det);
+                    const auto mouse=[&](QEvent::Type type,QPointF at,Qt::MouseButton button,Qt::MouseButtons buttons){QMouseEvent event(type,at,QPointF(view->mapToGlobal(at.toPoint())),button,buttons,Qt::NoModifier);QApplication::sendEvent(view,&event);flush();};
+                    mouse(QEvent::MouseMove,start,Qt::NoButton,Qt::NoButton);
+                    const auto offered=view->offered_candidate();
+                    if(!verify(offered&&offered->semantic_key=="point:"+center->id,"Capsule centre is not offered for mouse drag"))return 1;
+                    mouse(QEvent::MouseButtonPress,start,Qt::LeftButton,Qt::LeftButton);
+                    mouse(QEvent::MouseMove,start+QPointF(24,0),Qt::NoButton,Qt::LeftButton);
+                    mouse(QEvent::MouseButtonRelease,start+QPointF(24,0),Qt::LeftButton,Qt::NoButton);
+                }
                 window.findChild<QAction*>("finishSketchAction")->trigger();flush();
                 dialog=nullptr;
                 for(auto* current:window.findChildren<QDialog*>())
@@ -7688,6 +7751,25 @@ int verify_property_sketch_dimensions(QApplication& application, const std::file
             const auto result=PartDocument::load(path);
             if(!verify(std::abs(stored_value(result)-(accept?accepted_value:initial_value))<1e-6,
                 "Property Sketch dimension violated OK/Cancel persistence"))return 1;
+            if(capsule_only&&accept) {
+                const auto& edited=result.sketches.front();
+                const auto* moved=edited.find_point(sketch.arcs[0].center_point_id);
+                const auto* old=sketch.find_point(sketch.arcs[0].center_point_id);
+                if(!verify(moved&&std::hypot(moved->x-old->x,moved->y-old->y)>1e-3,"Capsule mouse drag did not move its centre"))return 1;
+                for(const auto& arc:edited.arcs) {
+                    const auto* center=edited.find_point(arc.center_point_id);
+                    if(!verify(std::abs(arc.radius-accepted_value/2)<1e-7&&std::abs(center->y)<1e-7,"GUI capsule lost its radius or centre support equation"))return 1;
+                    for(const auto& id:{arc.start_point_id,arc.end_point_id}) {
+                        const auto* p=edited.find_point(id);
+                        if(!verify(std::abs(std::hypot(p->x-center->x,p->y-center->y)-arc.radius)<1e-7,"GUI capsule endpoint left its arc"))return 1;
+                        for(const auto& line:edited.segments)if(line.first_point_id==id||line.second_point_id==id) {
+                            const auto* q=edited.find_point(line.first_point_id==id?line.second_point_id:line.first_point_id);
+                            const double dot=((p->x-center->x)*(q->x-p->x)+(p->y-center->y)*(q->y-p->y))/std::hypot(q->x-p->x,q->y-p->y);
+                            if(!verify(std::abs(dot)<1e-7,"GUI capsule lost tangency after mouse drag and edits"))return 1;
+                        }
+                    }
+                }
+            }
         }
     }
     if(fixture.isEmpty()&&verify_assembly_owned_profiles(application,directory)!=0)return 1;

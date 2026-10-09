@@ -8841,6 +8841,39 @@ void Sketch::apply_dimension(SketchDimension dimension) {
     if (dimension.solution_side != -1 && dimension.solution_side != 1) {
         throw std::invalid_argument("Sketch dimension solution side is invalid");
     }
+    if (dimension.driving && !dimension.suppressed && dimension.kind == DimensionKind::DistanceLine &&
+        dimension.value == 0.0) {
+        // Opposite endpoint contacts of a circular arc cannot share one
+        // supporting tangent line at a positive radius. Reject that singular
+        // collapse before numerical corrections can fold the finite arc onto
+        // a different contact branch. Ordinary zero line distances remain valid.
+        const auto reference = sketch_axis_line(next, dimension.geometry_id)
+            ? sketch_axis_line(next, dimension.geometry_id)
+            : segment_or_external_line(next, dimension.geometry_id);
+        const auto driven = segment_or_external_line(next, dimension.second_geometry_id);
+        if (reference && driven && std::abs(
+                reference->second[0]*driven->second[1]-reference->second[1]*driven->second[0]) <=
+                1e-7*std::hypot(reference->second[0],reference->second[1])*std::hypot(driven->second[0],driven->second[1])) {
+            for (const auto& arc : next.arcs) {
+                const auto contact = [&](const std::string& point, const std::string& line) {
+                    return std::ranges::any_of(next.constraints, [&](const auto& c) {
+                        return !c.suppressed && c.kind == ConstraintKind::Tangent &&
+                            c.first_point_id == point &&
+                            ((c.geometry_id == arc.id && c.second_geometry_id == line) ||
+                             (c.second_geometry_id == arc.id && c.geometry_id == line));
+                    });
+                };
+                if (!((contact(arc.start_point_id,dimension.geometry_id) && contact(arc.end_point_id,dimension.second_geometry_id)) ||
+                      (contact(arc.end_point_id,dimension.geometry_id) && contact(arc.start_point_id,dimension.second_geometry_id)))) continue;
+                const auto* center=next.find_point(arc.center_point_id);
+                const auto* start=next.find_point(arc.start_point_id);
+                const auto* end=next.find_point(arc.end_point_id);
+                if (!center || !start || !end) continue;
+                if ((start->x-center->x)*(end->x-center->x)+(start->y-center->y)*(end->y-center->y) < 0.0)
+                    throw std::runtime_error("Sketch dimension conflicts with existing geometry");
+            }
+        }
+    }
     const auto dimension_id = dimension.id;
     const auto dimension_kind = dimension.kind;
     const auto dimension_geometry_id = dimension.geometry_id;

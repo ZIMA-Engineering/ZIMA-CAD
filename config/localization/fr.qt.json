@@ -288,7 +288,7 @@
   "Vodicí křivka musí být otevřená": "La courbe guide doit être ouverte",
   "Vodicí skica musí obsahovat jedinou otevřenou dráhu": "L’esquisse guide doit contenir un seul chemin ouvert",
   "Vodicí křivka musí začínat v počátku skici": "La courbe guide doit commencer à l’origine de l’esquisse",
-  "Vodicí dráha se větví nebo je uzavřená": "Le chemin guide comporte une branche ou est fermé",
+  "Vodicí dráha se větví nebo má neplatné spojení": "Le chemin guide se ramifie ou comporte une connexion invalide",
   "Vodicí dráha není souvislá": "Le chemin guide n’est pas continu",
   "Chybí otevřená vodicí dráha": "Il manque un chemin guide ouvert",
   "Vyberte vlastní rovinu XY, YZ nebo XZ kontejneru pro skicu dráhy.": "Sélectionnez le plan XY, YZ ou XZ propre au conteneur pour dessiner le chemin.",

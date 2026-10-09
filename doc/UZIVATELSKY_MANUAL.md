@@ -1216,7 +1216,15 @@ option inside 2D/3D Sweep.
 For 2D Sweep, place the container, choose its own **XY / XZ / YZ** path plane
 (default XY) and open **Path Sketch**. This dropdown does not select another
 Body face or move the container. The adjacent eye inspects the selected plane.
-Draw an open path starting at the Sketch Origin, with any initial direction.
+Draw an open path starting at the Sketch Origin, or a closed connected chain.
+A closed chain can surround the Origin; its first authored endpoint then supplies
+the seam. For a pocket's rounded lead-in, use a closed chain of lines/arcs and
+define the radius profile at its first station. Periodic circles/ellipses/closed
+splines need a path made from connected curves instead.
+
+A red failed feature does not prevent native Save. Its definition, owned Sketches,
+last calculated body and error remain available after reopening. Correct the
+definition and explicitly Regenerate; saving alone does not calculate geometry.
 
 After returning, define the first station's profile. Profiles lie perpendicular
 to the local path tangent. An empty later station inherits the preceding profile;

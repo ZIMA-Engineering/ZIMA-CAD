@@ -133,7 +133,23 @@ int verify_translations(QApplication& application, QWidget& parent) {
             !settings.translations.contains("Zamknout hodnotu"), "INI sections were mixed");
         app::apply_application_translations(application, settings);
         application.processEvents();
+        {
+            auto pending=document::PartDocument::create_sweep2d_container();
+            auto path=sketcher::Sketch::from_serialized(pending.sweep2d.path_sketch);
+            static_cast<void>(path.add_segment(0,0,10,0));
+            static_cast<void>(path.add_segment(0,0,0,10));
+            static_cast<void>(path.add_segment(0,0,-10,0));pending.sweep2d.path_sketch=path.serialized();
+            app::Sweep2DDialog dialog(pending,[](auto){},&parent);
+            dialog.setAttribute(Qt::WA_DeleteOnClose,false);dialog.show();application.processEvents();
+            const auto expected=QObject::tr("Dráha není platná: %1").arg(
+                QObject::tr("Vodicí dráha se větví nebo má neplatné spojení"));
+            const auto labels=dialog.findChildren<QLabel*>();
+            check(std::ranges::any_of(labels,[&](const auto* label){return label->text()==expected;}),
+                "Invalid path explanation did not follow the selected language");
+            dialog.reject();
+        }
         for(const auto* key:{
+            "Vodicí dráha se větví nebo má neplatné spojení",
             "IGES export failed",
             "Model export supports STEP, IGES, STL and DXF.",
             "DXF (*.dxf);;STEP (*.step *.stp);;IGES (*.igs *.iges);;STL (*.stl);;PNG (*.png);;JPEG (*.jpg *.jpeg)",

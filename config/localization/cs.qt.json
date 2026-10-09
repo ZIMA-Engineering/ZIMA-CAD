@@ -288,7 +288,7 @@
   "Vodicí křivka musí být otevřená": "Vodicí křivka musí být otevřená",
   "Vodicí skica musí obsahovat jedinou otevřenou dráhu": "Vodicí skica musí obsahovat jedinou otevřenou dráhu",
   "Vodicí křivka musí začínat v počátku skici": "Vodicí křivka musí začínat v počátku skici",
-  "Vodicí dráha se větví nebo je uzavřená": "Vodicí dráha se větví nebo je uzavřená",
+  "Vodicí dráha se větví nebo má neplatné spojení": "Vodicí dráha se větví nebo má neplatné spojení",
   "Vodicí dráha není souvislá": "Vodicí dráha není souvislá",
   "Chybí otevřená vodicí dráha": "Chybí otevřená vodicí dráha",
   "Vyberte vlastní rovinu XY, YZ nebo XZ kontejneru pro skicu dráhy.": "Vyberte vlastní rovinu XY, YZ nebo XZ kontejneru pro skicu dráhy.",

@@ -117,7 +117,9 @@ public:
             set_status(path_error_);return;
         }
         status_->clear();
-        QString inherited;
+        const auto& start=route.stations.front().origin;const auto& end=route.stations.back().origin;
+        const bool closed=std::hypot(start.x-end.x,start.y-end.y,start.z-end.z)<1e-7;
+        QString inherited,first_profile;
         for(const auto& station:route.stations) {
             const int row=profiles_->rowCount();profiles_->insertRow(row);
             const auto found=std::ranges::find_if(pending.sweep2d.profiles,[&](const auto& p){return p.point_id==station.point_id&&p.incoming==station.incoming;});
@@ -131,8 +133,10 @@ public:
             qobject_cast<QWidget*>(indicator->property("_removeWidget").value<QObject*>())->setToolTip(tr("Odstranit vlastní profil (stanice zůstane)"));
             qobject_cast<QWidget*>(indicator->property("_arrowWidget").value<QObject*>())->setToolTip(tr("Skica"));
             profiles_->setItem(row,0,new ui::ReferenceCellItem(sweep_station_label(station.label)));
+            if(closed && static_cast<std::size_t>(row)+1==route.stations.size())inherited=first_profile;
             const auto status=populated?tr("Vlastní"):inherited.isEmpty()?tr("Vyplňte první profil"):tr("Z %1").arg(inherited);
             if(populated)inherited=sweep_station_label(station.label);
+            if(row==0)first_profile=inherited;
             profiles_->setItem(row,3,new ui::ReferenceCellItem(status));
             auto* button=new QPushButton(tr("Skica"),profiles_);style_sketch_button(button);
             button->setObjectName(QString("sweep2dStationSketch%1").arg(row));

@@ -45,10 +45,28 @@ This internal Sketch reference follows parent placement; changing it changes no 
 rotation, or references. Existing saved path references are not silently rewritten
 when opening a document; new selection follows the own-plane restriction.
 
-The path is one open, continuous planar curve starting at Sketch Origin, with any
-initial direction. It accepts segments, arcs, elliptical arcs, and open splines,
+The path is one continuous planar chain, either open or closed. An open chain
+starts at Sketch Origin, with any initial direction. A closed chain may surround
+the Origin: when the Origin is not a chain vertex, the first authored curve's
+endpoint supplies the seam. It accepts segments, arcs, elliptical arcs, and open splines,
 including evaluated Sketch fillets. It may change planar direction, not necessarily
-follow one axis. Sweep ends at the actual path endpoint.
+follow one axis. An open Sweep ends at the actual path endpoint. A closed Sweep
+returns to its seam and has no terminal attachment points. Branches and separate
+loops are rejected. A standalone periodic circle, ellipse or closed spline is
+not supported as the path; construct a circular chain from connected arcs.
+
+For a rounded lead-in around a pocket, draw a closed capsule chain in the path
+Sketch and place the radius profile at the first station. Constant profiles use
+exact circular revolution on rigid circular spans, including semicircles. An
+empty closing station returns to the first profile; an explicit closing profile
+overrides this. Later profile correspondence and self-intersection checks still
+apply, and a failed calculation remains an editable history feature.
+
+Native Save preserves failed/unfinished features, their owned Sketches and the
+last calculated body with its error state. Repair the definition and explicitly
+Regenerate to calculate it again. Save does not calculate geometry or discard
+the failed feature. Structural identity/ownership and actual I/O errors still
+prevent writing an invalid native document.
 
 An invalid path leaves the profile table empty and displays a localized explanation.
 Preview status must not overwrite this error. Correcting the path repopulates the

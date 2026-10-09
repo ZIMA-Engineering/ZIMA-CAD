@@ -288,7 +288,7 @@
   "Vodicí křivka musí být otevřená": "Die Führungskurve muss offen sein",
   "Vodicí skica musí obsahovat jedinou otevřenou dráhu": "Die Führungsskizze muss einen einzigen offenen Pfad enthalten",
   "Vodicí křivka musí začínat v počátku skici": "Die Führungskurve muss am Skizzenursprung beginnen",
-  "Vodicí dráha se větví nebo je uzavřená": "Der Führungspfad verzweigt sich oder ist geschlossen",
+  "Vodicí dráha se větví nebo má neplatné spojení": "Der Führungspfad verzweigt sich oder hat eine ungültige Verbindung",
   "Vodicí dráha není souvislá": "Der Führungspfad ist nicht zusammenhängend",
   "Chybí otevřená vodicí dráha": "Ein offener Führungspfad fehlt",
   "Vyberte vlastní rovinu XY, YZ nebo XZ kontejneru pro skicu dráhy.": "Wählen Sie die eigene XY-, YZ- oder XZ-Ebene des Containers für die Pfadskizze.",

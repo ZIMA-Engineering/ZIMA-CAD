@@ -7740,7 +7740,7 @@ struct PlanarSweepPath {
 PlanarSweepPath planar_sweep_path(const HistoryContainer& c) {
     using namespace helical_geometry;
     PlanarSweepPath path;path.sketch=zima::sketcher::Sketch::from_serialized(c.sweep2d.path_sketch);
-    path.curves=guide_curves(path.sketch,P{0,0});
+    path.curves=guide_curves(path.sketch,P{0,0},true,true);
     for(std::size_t i=0;i<path.curves.size();++i)
         for(unsigned j=0;j<=128;++j)static_cast<void>(unit(path.derivative(i,double(j)/128)));
     return path;
@@ -8297,7 +8297,9 @@ zima::kernel::Sweep3DRequest PartDocument::sweep2d_request(const HistoryContaine
     const double tolerance=override_tolerance.value_or(input.sweep_precision.effective());
     auto c=input;reframe_sweep2d_sketches(c);const auto route=sweep2d_route(c,tolerance);
     kernel::Sweep3DRequest request;request.linear_tolerance=tolerance;request.separate_segments=true;
-    request.attachment_endpoints=true;
+    const bool closed=helical_geometry::norm(helical_geometry::sub(
+        route.stations.front().origin,route.stations.back().origin))<1e-7;
+    request.attachment_endpoints=!closed;
     for(const auto& station:route.stations){request.path_points.push_back(station.origin);
         request.path_point_ids.push_back(station.point_id+(station.incoming?":in":":out"));}
     request.path_segments=route.segments;
@@ -8308,7 +8310,14 @@ zima::kernel::Sweep3DRequest PartDocument::sweep2d_request(const HistoryContaine
         request.thin_first=p.thin_mode==ThinMode::OneSide?0:p.thin_mode==ThinMode::OtherSide?-p.thickness:-p.thickness/2;
         request.thin_second=p.thin_mode==ThinMode::OtherSide?0:p.thin_mode==ThinMode::OneSide?p.thickness:p.thickness/2;
     }
-    fill_sweep_sections(request,p.profiles,true);return request;
+    fill_sweep_sections(request,p.profiles,true);
+    if(closed && request.sections.back().point_index+1!=request.path_points.size()) {
+        auto closing=request.sections.front();
+        closing.point_index=request.path_points.size()-1;
+        closing.point_id=request.path_point_ids.back();
+        request.sections.push_back(std::move(closing));
+    }
+    return request;
 }
 std::vector<zima::kernel::ViewerEdge> PartDocument::sweep2d_sketch_edges(const HistoryContainer& input) {
     std::vector<kernel::ViewerEdge> result;
@@ -10814,6 +10823,10 @@ PartDocument PartDocument::load(
 PartDocument PartDocument::from_serialized(const nlohmann::json& root,
     std::vector<zima::kernel::BodyResult>* calculated_boundaries) {
     PartDocument document;
+    std::set<std::string> failed_containers;
+    for(const auto& boundary:root.at("calculated_boundaries"))
+        for(const auto& [owner,error]:boundary.value("calculation_errors",std::map<std::string,std::string>{}))
+            failed_containers.insert(owner);
     document.document_id = root.at("document_id").get<std::string>();
     document.name = root.at("name").get<std::string>();
     document.reference_errors=root.at("reference_errors").get<decltype(document.reference_errors)>();
@@ -11258,7 +11271,7 @@ PartDocument PartDocument::from_serialized(const nlohmann::json& root,
             if(!seed.is_array()||seed.size()!=3)throw std::runtime_error("Specify a surface, cutting tools and a retained region.");
             p.seed={seed.at(0),seed.at(1),seed.at(2)};p.seed_valid=data.at("seed_valid");
             p.retained_region_key=data.at("retained_region_key");
-            if(!document.removed_reference_states.contains(container.id))validate_surface_trim(container);
+            if(!document.removed_reference_states.contains(container.id)&&!failed_containers.contains(container.id))validate_surface_trim(container);
         } else if (container.feature_kind == FeatureKind::SurfaceIntersection) {
             const auto& data=source.at("surface_intersection");
             if(!data.is_array()||data.size()!=2)throw std::runtime_error("Intersection face reference is invalid.");
@@ -11277,7 +11290,7 @@ PartDocument PartDocument::from_serialized(const nlohmann::json& root,
                 result.sheet_role=static_cast<kernel::SheetFaceRole>(role);result.surface_result=face.at("surface_result");return result;
             };
             p.surface=read_face(data.at("surface"));p.support=read_face(data.at("support"));
-            validate_sheet_form_parameters(p);
+            if(!failed_containers.contains(container.id))validate_sheet_form_parameters(p);
         } else if (container.feature_kind == FeatureKind::SurfaceThicken) {
             const auto& data=source.at("surface_thicken");const auto& face=data.at("face");
             auto& value=container.surface_thicken;
@@ -11413,7 +11426,7 @@ PartDocument PartDocument::from_serialized(const nlohmann::json& root,
                 path.curve_points.push_back(deserialize_curve_point(
                     serialized_point, path.id, construction_ids));
             }
-            if (path.curve_points.size() < 2) {
+            if (path.curve_points.size() < 2 && !failed_containers.contains(container.id)) {
                 throw std::runtime_error(
                     "Sweep/Loft path requires at least two Points");
             }
@@ -11447,7 +11460,7 @@ PartDocument PartDocument::from_serialized(const nlohmann::json& root,
                 }
                 container.sweep3d.profiles.push_back(std::move(profile));
             }
-            if (container.sweep3d.profiles.empty()) {
+            if (container.sweep3d.profiles.empty() && !failed_containers.contains(container.id)) {
                 throw std::runtime_error(
                     "Sweep/Loft requires at least one profile Sketch");
             }
@@ -11590,7 +11603,7 @@ PartDocument PartDocument::from_serialized(const nlohmann::json& root,
         if(container.feature_kind==FeatureKind::SheetTransition)reframe_sheet_transition(container);
         if(container.feature_kind==FeatureKind::GeneralSurface)reframe_general_surface(container);
         if (container.feature_kind == FeatureKind::HelicalSweep) {
-            reframe_helical_sketches(container);
+            if(!failed_containers.contains(container.id))reframe_helical_sketches(container);
         }
         if (container.feature_kind == FeatureKind::Sweep3D) {
             for (std::size_t index = 0;
@@ -11772,6 +11785,15 @@ nlohmann::json PartDocument::serialized(
     const std::vector<zima::kernel::BodyResult>& calculated_boundaries,
     const zima::document::DocumentCopyIdentity& copy) const {
     validate_general_surface_document_ownership(*this);
+    // Recoverable model errors must not prevent saving the authored document.
+    // Structural ownership is checked independently below, including failed
+    // containers; only calculation-dependent validation may be skipped.
+    const auto expected_operations = kernel_operations(false, true);
+    std::set<std::string> failed_containers;
+    for(const auto& operation:expected_operations)
+        if(!operation.input_error.empty())failed_containers.insert(operation.owner_id);
+    for(const auto& boundary:calculated_boundaries)
+        for(const auto& [owner,error]:boundary.calculation_errors)failed_containers.insert(owner);
     nlohmann::json serialized_history = nlohmann::json::array();
     std::unordered_set<std::string> container_ids;
     for (const auto& container : history) {
@@ -11786,11 +11808,24 @@ nlohmann::json PartDocument::serialized(
             container.container_origin != create_container_origin(container.id)) {
             throw std::runtime_error("History container hierarchy is invalid");
         }
+        if(container.feature_kind==FeatureKind::Sweep2D || container.feature_kind==FeatureKind::HelicalSweep) {
+            std::set<std::string> sketch_ids;
+            const auto validate_sketch=[&](const auto& data) {
+                const auto sketch=zima::sketcher::Sketch::from_serialized(data);
+                if(sketch.owner_container_id!=container.id || !sketch_ids.insert(sketch.id).second)
+                    throw std::runtime_error(container.feature_kind==FeatureKind::Sweep2D
+                        ?"Neplatné vlastnictví skic 2D tažení":"Neplatné vlastnictví skic šroubovicového tažení");
+            };
+            if(container.feature_kind==FeatureKind::Sweep2D)
+                for(const auto& data:container.sweep2d.sketches())validate_sketch(data);
+            else for(const auto& data:container.helical.sketches)validate_sketch(data);
+        }
         if ((container.feature_kind == FeatureKind::Fillet || container.feature_kind == FeatureKind::Chamfer) &&
+            !failed_containers.contains(container.id) &&
             (!valid_edge_treatment_values(container.feature_kind, container.edge_treatment) ||
              container.combine_mode != CombineMode::Add))
             throw std::runtime_error("Invalid Fillet/Chamfer parameters");
-        if(!removed_reference_states.contains(container.id)) {
+        if(!removed_reference_states.contains(container.id) && !failed_containers.contains(container.id)) {
         if(container.feature_kind==FeatureKind::DerivedCopy) {
             auto parameters=container.derived_copy;
             if(parameters.source_id.empty())throw std::runtime_error("Copy source is missing.");
@@ -12037,7 +12072,9 @@ nlohmann::json PartDocument::serialized(
             std::set<std::string> ids;
             for(const auto& data:container.sweep2d.sketches()){const auto sketch=zima::sketcher::Sketch::from_serialized(data);
                 if(sketch.owner_container_id!=container.id||!ids.insert(sketch.id).second)throw std::runtime_error("Neplatné vlastnictví skic 2D tažení");}
-            static_cast<void>(sweep2d_request(container));
+            // Persistence validates ownership and Sketch data, not whether an
+            // unfinished/failed feature can calculate a body. The recovered
+            // history operations below retain its calculation error and inputs.
         } else if (container.feature_kind == FeatureKind::HelicalSweep) {
             std::set<std::string> ids;
             for(const auto& data:container.helical.sketches){const auto s=zima::sketcher::Sketch::from_serialized(data);
@@ -12440,7 +12477,7 @@ nlohmann::json PartDocument::serialized(
             }
             serialized["general_surface"]=std::move(rows);
         } else if (container.feature_kind == FeatureKind::SurfaceTrim) {
-            if(!removed_reference_states.contains(container.id))validate_surface_trim(container);
+            if(!removed_reference_states.contains(container.id)&&!failed_containers.contains(container.id))validate_surface_trim(container);
             const auto& p=container.surface_trim;auto tools=nlohmann::json::array();
             for(const auto& tool:p.tools)tools.push_back({{"owner_id",tool.reference.owner_id},{"semantic_key",tool.reference.semantic_key},{"instance_path",tool.reference.instance_path},{"face",tool.face}});
             serialized["surface_trim"]={{"target",{{"owner_id",p.target.owner_id},{"semantic_key",p.target.semantic_key},{"instance_path",p.target.instance_path}}},
@@ -12448,13 +12485,13 @@ nlohmann::json PartDocument::serialized(
         } else if (container.feature_kind == FeatureKind::SurfaceIntersection) {
             auto data=nlohmann::json::array();
             for(const auto& face:container.surface_intersection.faces) {
-                if(!removed_reference_states.contains(container.id)&&(!face.valid()||!face.instance_path.empty()))throw std::runtime_error("Intersection face reference is invalid.");
+                if(!removed_reference_states.contains(container.id)&&!failed_containers.contains(container.id)&&(!face.valid()||!face.instance_path.empty()))throw std::runtime_error("Intersection face reference is invalid.");
                 data.push_back({{"owner_id",face.owner_id},{"semantic_key",face.semantic_key},{"instance_path",face.instance_path}});
             }
-            if(!removed_reference_states.contains(container.id)&&container.surface_intersection.faces[0]==container.surface_intersection.faces[1])throw std::runtime_error("Intersection requires two different original faces and a positive tolerance.");
+            if(!removed_reference_states.contains(container.id)&&!failed_containers.contains(container.id)&&container.surface_intersection.faces[0]==container.surface_intersection.faces[1])throw std::runtime_error("Intersection requires two different original faces and a positive tolerance.");
             serialized["surface_intersection"]=std::move(data);
         } else if (container.feature_kind == FeatureKind::SheetForm) {
-            const auto& p=container.sheet_form;validate_sheet_form_parameters(p);
+            const auto& p=container.sheet_form;if(!failed_containers.contains(container.id))validate_sheet_form_parameters(p);
             const auto face=[](const kernel::FaceReference& r) {return nlohmann::json{
                 {"owner_id",r.owner_id},{"semantic_key",r.semantic_key},{"instance_path",r.instance_path},
                 {"sheet_owner",r.sheet_owner},{"sheet_thickness",r.sheet_thickness},{"sheet_role",static_cast<unsigned>(r.sheet_role)},
@@ -12464,7 +12501,7 @@ nlohmann::json PartDocument::serialized(
                 {"source_name",p.source_name},{"surface",face(p.surface)},{"support",face(p.support)},{"thickness",p.thickness}};
         } else if (container.feature_kind == FeatureKind::SurfaceThicken) {
             const auto& value=container.surface_thicken;const auto& face=value.face;
-            if(!removed_reference_states.contains(container.id))validate_surface_thicken_parameters(value);
+            if(!removed_reference_states.contains(container.id)&&!failed_containers.contains(container.id))validate_surface_thicken_parameters(value);
             serialized["surface_thicken"]={{"face",{{"owner_id",face.owner_id},{"semantic_key",face.semantic_key},{"instance_path",face.instance_path}}},
                 {"thickness",value.thickness},{"side",static_cast<unsigned>(value.side)}};
         } else if (container.feature_kind == FeatureKind::SurfaceSewing) {
@@ -12599,7 +12636,6 @@ nlohmann::json PartDocument::serialized(
         }
         serialized_history.push_back(std::move(serialized));
     }
-    const auto expected_operations = kernel_operations(false, true);
     if (!calculated_boundaries.empty() &&
         calculated_boundaries.size() != expected_operations.size()) {
         throw std::runtime_error(

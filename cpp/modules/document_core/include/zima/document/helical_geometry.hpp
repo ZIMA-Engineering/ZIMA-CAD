@@ -47,7 +47,7 @@ inline P spline_at(const std::vector<P>& p,unsigned degree,bool interpolating,do
     }
     return d[degree];
 }
-inline std::vector<Curve> guide_curves(const sketcher::Sketch& source,P start,bool require_origin=true) {
+inline std::vector<Curve> guide_curves(const sketcher::Sketch& source,P start,bool require_origin=true,bool allow_closed=false) {
     auto s=source.evaluated_profile_sketch(); std::vector<Curve> unordered;
     for(const auto& l:s.segments) if(!l.construction) {
         auto a=point(s,l.first_point_id),b=point(s,l.second_point_id);
@@ -83,21 +83,42 @@ inline std::vector<Curve> guide_curves(const sketcher::Sketch& source,P start,bo
     if(std::ranges::any_of(s.circles,[](auto& c){return !c.construction;})||
        std::ranges::any_of(s.ellipses,[](auto& c){return !c.construction;})||!s.texts.empty())
         throw std::runtime_error("Vodicí skica musí obsahovat jedinou otevřenou dráhu");
+    bool closed=false;
+    if(allow_closed && !unordered.empty()) {
+        closed=true;
+        for(const auto& curve:unordered) for(const auto endpoint:{curve.start,curve.end}) {
+            unsigned degree=0;
+            for(const auto& other:unordered) {
+                degree+=distance(endpoint,other.start)<1e-7;
+                degree+=distance(endpoint,other.end)<1e-7;
+            }
+            if(degree!=2)closed=false;
+        }
+        // Closed paths have no distinguished endpoint. Keep the authored first
+        // curve as the seam when the Sketch Origin is not a path vertex.
+        if(closed && std::ranges::none_of(unordered,[&](const Curve& curve){
+            return distance(start,curve.start)<1e-7 || distance(start,curve.end)<1e-7;
+        }))start=unordered.front().start;
+    }
     P cursor=start;
-    if(require_origin&&distance(cursor,{0,0})>1e-7)throw std::runtime_error("Vodicí křivka musí začínat v počátku skici");
+    if(require_origin&&!closed&&distance(cursor,{0,0})>1e-7)throw std::runtime_error("Vodicí křivka musí začínat v počátku skici");
     std::vector<Curve> ordered;
     while(!unordered.empty()) {
         std::size_t found=unordered.size();bool reverse=false;
         for(std::size_t i=0;i<unordered.size();++i) {
             bool a=distance(cursor,unordered[i].start)<1e-7,b=distance(cursor,unordered[i].end)<1e-7;
-            if(a||b){if(found!=unordered.size()||a==b)throw std::runtime_error("Vodicí dráha se větví nebo je uzavřená");found=i;reverse=b;}
+            if(a||b){
+                if(a==b || (found!=unordered.size() && !(closed&&ordered.empty())))
+                    throw std::runtime_error("Vodicí dráha se větví nebo má neplatné spojení");
+                if(found==unordered.size()){found=i;reverse=b;}
+            }
         }
         if(found==unordered.size())throw std::runtime_error("Vodicí dráha není souvislá");
         auto c=unordered[found];unordered.erase(unordered.begin()+found);
         if(reverse){std::swap(c.start,c.end);std::swap(c.start_point_id,c.end_point_id);c.at=[at=c.at](double u){return at(1-u);};}
         ordered.push_back(c);cursor=c.end;
     }
-    if(ordered.empty()||distance(cursor,start)<1e-7)throw std::runtime_error("Chybí otevřená vodicí dráha");
+    if(ordered.empty()||(!closed&&distance(cursor,start)<1e-7))throw std::runtime_error("Chybí otevřená vodicí dráha");
     return ordered;
 }
 inline std::vector<Curve> guide_curves(const sketcher::Sketch& source,const std::string& start_id,bool require_origin=true) {

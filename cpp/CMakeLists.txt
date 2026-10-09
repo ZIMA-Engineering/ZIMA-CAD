@@ -1772,6 +1772,11 @@ if(ZIMA_BUILD_TESTS)
         TIMEOUT 120)
     add_test(NAME zima_cpp_sketch_arc_direction_ui_contract COMMAND zima-cad-cpp --verify-startup)
     add_test(NAME zima_cpp_sketch_slot_ui_contract COMMAND zima-cad-cpp --verify-startup)
+    add_test(NAME zima_cpp_capsule_dimension_ui_contract COMMAND zima-cad-cpp --verify-startup)
+    set_tests_properties(zima_cpp_capsule_dimension_ui_contract PROPERTIES
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.."
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_PROPERTY_SKETCH_ONLY=1;ZIMA_VERIFY_CAPSULE_DIMENSION_ONLY=1"
+        TIMEOUT 90)
     add_test(NAME zima_cpp_system_setup_ui_contract COMMAND zima-cad-cpp --verify-startup)
     set_tests_properties(zima_cpp_system_setup_ui_contract PROPERTIES
         WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.."

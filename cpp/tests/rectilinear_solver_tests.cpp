@@ -1,7 +1,10 @@
 #include <zima/sketcher/sketch.hpp>
+#include <zima/sketcher/sketch_trim.hpp>
 #include "../modules/sketcher/src/rectilinear_template_solver.hpp"
 #include <cmath>
 #include <iostream>
+#include <fstream>
+#include <filesystem>
 #include <stdexcept>
 
 namespace {
@@ -28,9 +31,11 @@ void check_branches(const Sketch& sketch,std::size_t changed,double value) {
         require(near(b.x-a.x,i==changed?value:5.)&&near(b.y,a.y),"Edited or independent branch changed incorrectly");
     }
 }
+#include "capsule_dimension_matrix.inc"
 }
 int main() {
     try {
+        verify_capsule_dimensions();
         // Large disconnected input, both already solved and initially unsolved.
         // No wall-clock pass threshold: correctness remains machine-independent.
         for(const bool solved:{true,false}) {

@@ -10,6 +10,7 @@
 #include <QTemporaryDir>
 #include <QGroupBox>
 #include "primitive_properties_dialog.hpp"
+#include "sweep2d_dialog.hpp"
 #include "feature_view_cues.hpp"
 #include "orientation_dialog.hpp"
 #include "boundary_surface_dialog.hpp"
@@ -435,6 +436,42 @@ static int verify_general_command_console(QApplication& application,AssemblyWork
                 dialog->buttons()->button(QDialogButtonBox::Ok)->click();flush();
                 check(run("documents").data==working_revision,"Unchanged working treatment OK created a transaction");
             }
+            const auto sweep_name=fixture_name+"-sweep";
+            run(QString::fromStdString("new part "+sweep_name));flush();
+            window.findChild<QAction*>("sweep2dAction")->trigger();flush();
+            auto* sweep=dynamic_cast<Sweep2DDialog*>(window.findChild<QDialog*>("sweep2dDialog"));
+            check(sweep,"Failed Sweep Properties missing");
+            auto guide=sketcher::Sketch::from_serialized(sweep->pending.sweep2d.path_sketch);
+            static_cast<void>(guide.add_segment(0,0,0,20));sweep->set_sketch(0,guide);
+            const auto sweep_id=sweep->pending.id;
+            sweep->buttons()->button(QDialogButtonBox::Ok)->click();flush();
+            run("save");
+            const auto sweep_path=directory/(sweep_name+".prtz");
+            std::vector<kernel::BodyResult> failed_cache;
+            const auto failed_sweep=document::PartDocument::load(sweep_path,&failed_cache);
+            check(failed_sweep.find_container(sweep_id) && failed_cache.back().calculation_errors.contains(sweep_id),
+                "Save lost the red unfinished Sweep");
+            const auto sweep_row=[&]() -> QTreeWidgetItem* {
+                for(QTreeWidgetItemIterator i(tree);*i;++i)if((*i)->data(0,Qt::UserRole).toString().toStdString()==sweep_id&&
+                    (*i)->data(0,Qt::UserRole+3)=="part-container")return *i;
+                throw std::runtime_error("Failed Sweep Tree row missing");
+            };
+            check(sweep_row()->foreground(0).color()==QColor(210,75,65),"Failed Sweep is not red");
+            window.show_tree_item_properties(sweep_row());flush();
+            sweep=dynamic_cast<Sweep2DDialog*>(window.findChild<QDialog*>("sweep2dDialog"));
+            auto profile=sketcher::Sketch::from_serialized(sweep->pending.sweep2d.sketch_data(1));
+            static_cast<void>(profile.add_circle(0,0,1));sweep->set_sketch(1,profile);
+            sweep->buttons()->button(QDialogButtonBox::Ok)->click();flush();run("save");
+            std::vector<kernel::BodyResult> repaired_cache;
+            static_cast<void>(document::PartDocument::load(sweep_path,&repaired_cache));
+            check(repaired_cache.back().calculation_errors.empty() && repaired_cache.back().volume>60,
+                "Saved red Sweep could not be repaired");
+            run("undo");run("save");failed_cache.clear();
+            static_cast<void>(document::PartDocument::load(sweep_path,&failed_cache));
+            check(failed_cache.back().calculation_errors.contains(sweep_id),"Sweep repair Undo lost the saved error state");
+            run("redo");run("save");repaired_cache.clear();
+            static_cast<void>(document::PartDocument::load(sweep_path,&repaired_cache));
+            check(repaired_cache.back().calculation_errors.empty(),"Sweep repair Redo lost calculated geometry");
             std::cout<<"Retained feature GUI: creation OK/Cancel, red Tree, Properties, repair, native persistence and Undo/Redo passed\n";return 0;
         }
         if(qEnvironmentVariableIsSet("ZIMA_VERIFY_DESKTOP_SETTINGS")) {

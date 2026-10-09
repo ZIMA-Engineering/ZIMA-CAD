@@ -288,7 +288,7 @@
   "Vodicí křivka musí být otevřená": "The guide curve must be open",
   "Vodicí skica musí obsahovat jedinou otevřenou dráhu": "The guide sketch must contain a single open path",
   "Vodicí křivka musí začínat v počátku skici": "The guide curve must start at the sketch origin",
-  "Vodicí dráha se větví nebo je uzavřená": "The guide path branches or is closed",
+  "Vodicí dráha se větví nebo má neplatné spojení": "The guide path branches or has an invalid connection",
   "Vodicí dráha není souvislá": "The guide path is not continuous",
   "Chybí otevřená vodicí dráha": "An open guide path is missing",
   "Vyberte vlastní rovinu XY, YZ nebo XZ kontejneru pro skicu dráhy.": "Select an XY, YZ or XZ plane of this container for the path sketch.",

@@ -1,6 +1,10 @@
 #include "profile_solid_fixture.hpp"
 #include <zima/workspace/document_operations.hpp>
 #include <zima/kernel/occt_kernel.hpp>
+#include <zima/document/general_surface.hpp>
+#include <zima/document/sheet_form_definition.hpp>
+#include <zima/document/bend.hpp>
+#include <zima/document/sheet_transition.hpp>
 #include <filesystem>
 #include <fstream>
 #include <future>
@@ -29,6 +33,87 @@ int main() {
         const auto part_path=directory/fs::path(u8"díl s mezerou.prtz");
         auto box=zima::test::rectangular_feature(part);part.history.push_back(box);
         kernel::OcctKernel kernel;
+        // Failed calculations are editable document state, not a write error.
+        for(const auto kind:{document::FeatureKind::Extrusion,document::FeatureKind::Revolution,
+                document::FeatureKind::Feature,document::FeatureKind::Sweep2D,document::FeatureKind::HelicalSweep,
+                document::FeatureKind::Sweep3D,document::FeatureKind::Fillet,
+                document::FeatureKind::Chamfer,document::FeatureKind::Shell,
+                document::FeatureKind::Hole,document::FeatureKind::ShaftThread,
+                document::FeatureKind::Flat,document::FeatureKind::Bend,
+                document::FeatureKind::SheetForm,document::FeatureKind::SurfaceThicken,
+                document::FeatureKind::BoundarySurface,document::FeatureKind::SurfaceSewing,
+                document::FeatureKind::GeneralSurface,document::FeatureKind::SurfaceIntersection,
+                document::FeatureKind::SurfaceTrim,document::FeatureKind::Holes,
+                document::FeatureKind::TwistedSheet,document::FeatureKind::Unbend,
+                document::FeatureKind::BendBack,document::FeatureKind::DerivedCopy,
+                document::FeatureKind::SheetTransition,document::FeatureKind::Straighten,
+                document::FeatureKind::RestoreShape}) {
+            auto failed_part=document::PartDocument::create_default();
+            const auto stock=zima::test::rectangular_feature(failed_part);
+            auto feature=document::PartDocument::create_sweep2d_container();
+            if(kind==document::FeatureKind::HelicalSweep)feature=document::PartDocument::create_helical_sweep_container();
+            else if(kind==document::FeatureKind::Sweep3D)feature=document::PartDocument::create_sweep3d_container();
+            else if(kind==document::FeatureKind::Fillet)feature=document::PartDocument::create_fillet_container({{"missing-owner","missing-edge",{}}});
+            else if(kind==document::FeatureKind::Chamfer)feature=document::PartDocument::create_chamfer_container({{"missing-owner","missing-edge",{}}});
+            else if(kind==document::FeatureKind::Shell)feature=document::PartDocument::create_shell_container({{"missing-owner","missing-face",{}}});
+            else if(kind==document::FeatureKind::Hole)feature=document::PartDocument::create_hole_container();
+            else if(kind==document::FeatureKind::ShaftThread)feature=document::PartDocument::create_shaft_thread_container();
+            else if(kind==document::FeatureKind::TwistedSheet)feature=document::PartDocument::create_twisted_sheet_container();
+            else if(kind==document::FeatureKind::SheetTransition)feature=document::create_sheet_transition();
+            else if(kind==document::FeatureKind::Straighten || kind==document::FeatureKind::RestoreShape)
+                feature=document::PartDocument::create_solid_state_container(kind==document::FeatureKind::RestoreShape);
+            else if(kind==document::FeatureKind::GeneralSurface)feature=document::create_general_surface();
+            else if(kind==document::FeatureKind::SheetForm) {
+                feature=document::create_sheet_form();
+                feature.sheet_form=document::copy_sheet_form_definition(document::read_sheet_form_definition(
+                    std::filesystem::path(__FILE__).parent_path().parent_path().parent_path()/
+                    "config/lib/01-SHEETMETAL/01-FORM/VentilationWindow.prtz"));
+            }
+            else feature.feature_kind=kind;
+            if(kind==document::FeatureKind::Extrusion || kind==document::FeatureKind::Revolution ||
+                kind==document::FeatureKind::Feature) {
+                auto sketch=sketcher::Sketch::create_default();
+                feature=kind==document::FeatureKind::Extrusion?document::PartDocument::create_extrusion_container(sketch.id):
+                    kind==document::FeatureKind::Revolution?document::PartDocument::create_revolution_container(sketch.id):
+                    document::PartDocument::create_feature_container(sketch.id);
+                if(kind==document::FeatureKind::Feature)feature.feature.type=document::FeatureType::Modeling;
+                sketch.owner_container_id=feature.id;failed_part.sketches.push_back(std::move(sketch));
+            }
+            if(kind==document::FeatureKind::DerivedCopy) {
+                feature.derived_copy.source_id=stock.id;
+                feature.derived_copy.reference={{},feature.container_origin.id,"origin:plane:yz"};
+            }
+            if(kind==document::FeatureKind::Bend) {
+                auto sketch=sketcher::Sketch::create_default();sketch.owner_container_id=feature.id;
+                document::initialize_bend_start_profile(sketch,20);feature.bend.sketch_id=sketch.id;
+                feature.bend.thickness_override=true;feature.bend.thickness=1;feature.bend.radius=2;
+                document::prepare_bend_sketches(feature,sketch,{1,.5});
+                failed_part.sketches.push_back(std::move(sketch));
+            }
+            failed_part.history={stock,feature};
+            document::BodyHistoryGraph graph;static_cast<void>(graph.create_body("Body"));
+            graph.insert({document::PartHistoryKind::Feature,stock.id});
+            graph.insert({document::PartHistoryKind::Feature,feature.id});failed_part.set_body_history(graph);
+            auto recovered=kernel.evaluate_history_recovering(failed_part.kernel_operations(false,true));
+            if(!recovered.back().calculation_errors.contains(feature.id)) {
+                failed_part.reference_errors[feature.id]="Unresolved test support";
+                recovered=kernel.evaluate_history_recovering(failed_part.kernel_operations(false,true));
+            }
+            std::cerr<<"Failed save case "<<static_cast<int>(kind)<<"\n";
+            require(recovered.size()==2 && recovered.back().calculation_errors.contains(feature.id),
+                "Unfinished feature did not retain a calculation error");
+            const auto failed_path=directory/("failed-"+std::to_string(static_cast<int>(kind))+".prtz");
+            failed_part.save(failed_path,recovered);
+            std::vector<kernel::BodyResult> restored;
+            const auto reopened=document::PartDocument::load(failed_path,&restored);
+            require(reopened.serialized(restored).at("history")==failed_part.serialized(recovered).at("history") && restored.size()==recovered.size() &&
+                restored.back().calculation_errors==recovered.back().calculation_errors &&
+                restored.back().volume==recovered.front().volume,
+                "Saving a failed feature lost its definition, error or last valid body");
+            auto malformed=failed_part;malformed.history.back().feature_parent_id="wrong-parent";
+            fails([&]{malformed.save(directory/"malformed.prtz",recovered);},
+                "Failed-feature saving bypassed hierarchy integrity");
+        }
         const auto boundaries=kernel.evaluate_history(part.kernel_operations());
         Workspace workspace;workspace.add_part(part,boundaries,part_path);
         workspace.activate(id);workspace.display_top_level(id);

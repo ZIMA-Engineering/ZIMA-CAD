@@ -1849,8 +1849,13 @@ PrimitiveData make_sweep3d_data(
         const auto first=tangent(0,false);
         std::optional<gp_Vec> normal;
         for(std::size_t i=0;i<spine_edges.size()&&!normal;++i)
-            for(bool end:{false,true}) {
-                const auto candidate=first.Crossed(tangent(i,end));
+            for(double fraction:{0.,.5,1.}) {
+                // Semicircle chains can have parallel tangents at every
+                // endpoint. Their exact midpoint tangent still defines the
+                // route plane and the authored profile side at the half-turn.
+                BRepAdaptor_Curve curve(spine_edges[i]);gp_Pnt point;gp_Vec direction;
+                curve.D1(curve.FirstParameter()+fraction*(curve.LastParameter()-curve.FirstParameter()),point,direction);
+                const auto candidate=first.Crossed(direction.Normalized());
                 if(candidate.Magnitude()>1e-8){normal=candidate.Normalized();break;}
             }
         if(!normal)return std::nullopt;
@@ -1869,8 +1874,25 @@ PrimitiveData make_sweep3d_data(
         }
         return normal;
     }();
+    // Keep the established straight/sharp 3D Sweep path. Native circular
+    // sections are needed only for a rigid profile on planar circular spans;
+    // their semicircle pipe approximation can otherwise collapse.
+    const bool rigid_segmented_profile=planar_binormal.has_value() &&
+        std::ranges::any_of(request.path_segments,[](const auto& segment){return segment.arc_midpoint.has_value();}) &&
+        std::ranges::all_of(request.sections,[&](const auto& section){
+            return section.profile_id==request.sections.front().profile_id;
+        });
     std::optional<gp_Vec> previous_direction;
     std::optional<gp_Vec> transported_radial;
+    const auto section_rotation=[&](const gp_Vec& from,const gp_Vec& to) {
+        gp_Trsf rotation;
+        if(planar_binormal && std::abs(planar_binormal->Dot(from.Normalized()))<1e-8 &&
+            std::abs(planar_binormal->Dot(to.Normalized()))<1e-8) {
+            const double angle=std::atan2(planar_binormal->Dot(from.Crossed(to)),from.Dot(to));
+            rotation.SetRotation(gp_Ax1(gp_Pnt(0,0,0),gp_Dir(*planar_binormal)),angle);
+        } else rotation.SetRotation(gp_Quaternion(from,to));
+        return rotation;
+    };
     for(std::size_t i=0;i<request.path_points.size();++i) {
         // Empty stations inherit the preceding defined profile. The document
         // requires the first station to define a profile.
@@ -1882,16 +1904,15 @@ PrimitiveData make_sweep3d_data(
         const auto direction = request.separate_segments ? tangent(i / 2, i % 2 != 0)
             : i<spine_edges.size()?tangent(i,false):tangent(i-1,true);
         if(previous_direction) {
-            gp_Trsf rotation;rotation.SetRotation(gp_Quaternion(*previous_direction,direction));
+            const auto rotation=section_rotation(*previous_direction,direction);
             transported_radial=transported_radial->Transformed(rotation);
         } else transported_radial=gp_Vec(gp_Ax2(gp_Pnt(0,0,0),gp_Dir(direction)).XDirection());
         previous_direction=direction;
         auto radial=section->circle_radial_direction;
         if(std::holds_alternative<ExtrusionRequest::CircleProfile>(section->profile.outer_profile) &&
            section->profile.outer_vertex_source_ids.empty()) {
-            gp_Trsf back;
-            back.SetRotation(gp_Quaternion(direction,gp_Vec(section->profile_normal.x,
-                section->profile_normal.y,section->profile_normal.z)));
+            const auto back=section_rotation(direction,gp_Vec(section->profile_normal.x,
+                section->profile_normal.y,section->profile_normal.z));
             const auto v=transported_radial->Transformed(back);
             radial=Vec3{v.X(),v.Y(),v.Z()};
         }
@@ -1914,7 +1935,7 @@ PrimitiveData make_sweep3d_data(
             station.wire=make_profile_wire(section->profile.outer_profile,
                 section->profile_normal,radial,&station.edges);
         }
-        if(!exact_revolution) {
+        if(!exact_revolution && !rigid_segmented_profile) {
             BRepBuilderAPI_NurbsConvert nurbs(station.wire,true);
             station.wire=TopoDS::Wire(nurbs.Shape());
             for(auto& edge:station.edges)edge=TopoDS::Edge(nurbs.ModifiedShape(edge));
@@ -2268,7 +2289,7 @@ PrimitiveData make_sweep3d_data(
             // inner collapse of a hem) instead of approximating it by a pipe.
             // The same authored Sweep identities are collected in either case.
             BRepAdaptor_Curve spine(spine_edges[i]);
-            if(exact_revolution) {
+            if(exact_revolution || (rigid_segmented_profile && spine.GetType()==GeomAbs_Circle)) {
                 TopoDS_Shape base=request.make_solid?TopoDS_Shape(BRepBuilderAPI_MakeFace(stations[first_station(i)].wire).Face())
                     :TopoDS_Shape(stations[first_station(i)].wire);
                 BRepPrimAPI_MakeRevol builder(base,spine.Circle().Axis(),spine.LastParameter()-spine.FirstParameter(),true);

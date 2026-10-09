@@ -4,6 +4,7 @@
 #include <zima/document/helical_geometry.hpp>
 #include <cmath>
 #include <filesystem>
+#include <fstream>
 #include <iostream>
 #include <numbers>
 #include <set>
@@ -31,7 +32,92 @@ static document::HistoryContainer fixture(bool arc=false,bool open=false){
 }
 int main(int argc,char** argv){try{
     kernel::OcctKernel kernel;
+    for(bool at_origin:{false,true})for(bool rotated:{false,true}) {
+        auto c=document::PartDocument::create_sweep2d_container();
+        auto guide=sketcher::Sketch::from_serialized(c.sweep2d.path_sketch);
+        const double x=at_origin?0:7,y=at_origin?0:11;
+        static_cast<void>(guide.add_segment(x,y,x,y+20));
+        static_cast<void>(guide.add_arc(x+10,y+20,x,y+20,x+20,y+20,false,1e-6,true));
+        static_cast<void>(guide.add_segment(x+20,y+20,x+20,y));
+        static_cast<void>(guide.add_arc(x+10,y,x+20,y,x,y,false,1e-6,true));
+        c.sweep2d.path_sketch=guide.serialized();
+        if(rotated){c.placement.rotation_x=25;c.placement.rotation_y=35;c.placement.rotation_z=15;}
+        c.sweep2d.path_plane=document::ConstructionReference{{},c.container_origin.id,"origin:plane:xy"};
+        document::PartDocument::resolve_sweep2d_planes(c,{});
+        const auto route=document::PartDocument::sweep2d_route(c);
+        require(route.segments.size()==4 && route.stations.front().point_id==route.stations.back().point_id,
+            "Closed capsule did not retain its native seam point");
+        profile_at(c,route.stations.front(),1);
+        auto native=document::PartDocument::create_default();native.history={c};
+        const auto body=kernel.evaluate_history(native.kernel_operations()).back();
+        close(body.volume,(40+20*std::numbers::pi)*std::numbers::pi,"Closed capsule sweep volume");
+        require(body.calculation_errors.empty(),"Closed capsule sweep has a calculation error");
+        for(const auto mode:{document::ThinMode::OneSide,document::ThinMode::OtherSide,document::ThinMode::Symmetric}) {
+            auto thin=c;thin.sweep2d.result_type=document::ProfileResultType::Thin;
+            thin.sweep2d.thickness=.2;thin.sweep2d.thin_mode=mode;native.history={thin};
+            const double area=std::numbers::pi*(mode==document::ThinMode::OneSide?.36:
+                mode==document::ThinMode::OtherSide?.44:.4);
+            close(kernel.evaluate_history(native.kernel_operations()).back().volume,
+                (40+20*std::numbers::pi)*area,"Closed Thin Sweep volume");
+        }
+        for(bool open:{false,true}) {
+            auto surface=c;surface.sweep2d.result_type=document::ProfileResultType::Surface;
+            if(open) {
+                auto sketch=sketcher::Sketch::from_serialized(surface.sweep2d.profiles.front().sketch_serialized);
+                sketch.circles.clear();sketch.points.clear();
+                static_cast<void>(sketch.add_segment(-1,0,1,0));
+                surface.sweep2d.profiles.front().sketch_serialized=sketch.serialized();
+            }
+            native.history={surface};const auto sheet=kernel.evaluate_history(native.kernel_operations()).back();
+            close(sheet.volume,0,"Closed Surface Sweep acquired volume");
+            close(sheet.surface_area,(40+20*std::numbers::pi)*(open?2:2*std::numbers::pi),
+                "Closed Surface Sweep area");
+            require(std::ranges::none_of(sheet.mesh.original_references.triangle_references,
+                [](const auto& face){return face.semantic_key.starts_with("sweep:cap:");}),
+                "Closed Surface Sweep exposed a cap");
+        }
+        native.history={c};
+        const auto file=std::filesystem::temp_directory_path()/("zima-closed-sweep-"+c.id+".prtz");
+        native.save(file,{body});std::vector<kernel::BodyResult> saved;
+        const auto loaded=document::PartDocument::load(file,&saved);std::filesystem::remove(file);
+        require(loaded.history==native.history && saved.back().volume==body.volume &&
+            saved.back().mesh.original_references.triangle_references==body.mesh.original_references.triangle_references,
+            "Closed Sweep lost its definition or ancestry on reopening");
+    }
     // A U-shaped route reaches a tangent opposite to its first tangent.
+    // The actual KAPSA Sketch supplies a closed lower-face radius lead-in.
+    for(bool into_stock:{false,true}) {
+        std::ifstream input(std::filesystem::path(__FILE__).parent_path()/"fixtures/sketch/capsule-line-distance.json");
+        auto outline=sketcher::Sketch::from_serialized(std::string(std::istreambuf_iterator<char>(input),{}));
+        auto native=document::PartDocument::create_default();
+        auto stock=document::PartDocument::create_extrusion_container(outline.id);
+        stock.extrusion.length_forward=10;outline.owner_container_id=stock.id;
+        native.sketches.push_back(outline);
+        auto cut=document::PartDocument::create_sweep2d_container();
+        auto guide=outline;guide.owner_container_id=cut.id;guide.id+="-closed-path";
+        cut.sweep2d.path_sketch=guide.serialized();
+        document::PartDocument::reframe_sweep2d_sketches(cut);
+        const auto curves=document::helical_geometry::guide_curves(guide,{0.,0.},true,true);
+        double signed_area=0;
+        for(const auto& curve:curves)for(unsigned i=0;i<128;++i) {
+            const auto a=curve.at(double(i)/128),b=curve.at(double(i+1)/128);
+            signed_area+=a[0]*b[1]-a[1]*b[0];
+        }
+        const double x=signed_area>0?3:-3,y=into_stock?3:-3;
+        const auto station=document::PartDocument::sweep2d_route(cut).stations.front();
+        const auto index=document::PartDocument::ensure_sweep2d_profile(cut,station.point_id,station.incoming);
+        auto profile=sketcher::Sketch::from_serialized(cut.sweep2d.profiles[index].sketch_serialized);
+        static_cast<void>(profile.add_segment(0,0,x,0));
+        static_cast<void>(profile.add_arc(0,0,x,0,0,y,false,1e-6,x*y<0));
+        static_cast<void>(profile.add_segment(0,y,0,0));
+        cut.sweep2d.profiles[index].sketch_serialized=profile.serialized();cut.combine_mode=document::CombineMode::Subtract;
+        native.history={stock,cut};
+        const auto bodies=kernel.evaluate_history(native.kernel_operations());
+        const double length=200+2*std::numbers::pi*outline.arcs.front().radius;
+        const double removed=9*std::numbers::pi*length/4-18*std::numbers::pi;
+        close(bodies.back().volume,bodies.front().volume-(into_stock?removed:0),
+            "Closed KAPSA radius lead-in cut volume or authored side");
+    }
     // An offset quarter-circle must retain its planar side at that half-turn.
     for(bool outside:{false,true})for(bool rotated:{false,true}) {
         auto native=document::PartDocument::create_default();
