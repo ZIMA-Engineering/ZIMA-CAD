@@ -7997,7 +7997,8 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                         if(original_solid==live_cache_->boundaries.end())throw std::runtime_error("FORM definition calculation failed.");
                         const auto original_faces=original_solid->second.topology->faces;
                         HistoryOperation hollow;hollow.owner_id="FORM_SHELL";
-                        hollow.primitive=ShellRequest{form->solid_opening_faces,form->thickness};
+                        // The symbolic corner skin may be thinner than stock.
+                        hollow.primitive=ShellRequest{form->solid_opening_faces,.5*form->thickness};
                         hollow.boolean_tolerance=operation.boolean_tolerance;shell_history.push_back(std::move(hollow));
                         const auto walls=evaluate_history_incremental(shell_history,closed);
                         if(walls.empty()||!walls.back().calculation_errors.empty()||walls.back().volume<=0.)
@@ -8181,7 +8182,9 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                     if(std::getenv("ZIMA_CPP_FORM_PROFILE"))std::fprintf(stderr,"FORM transition routes: inner=%zu outer=%zu\n",routes[0].size(),routes[1].size());
                     if(routes[0].empty()||routes[1].empty())throw std::runtime_error("FORM could not create a valid sheet.");
                     for(unsigned side:{1u,0u}) {
-                        const auto nominal=form->thickness*(side==0?1.:2.);
+                        // Symbolic forming permits local thickness variation:
+                        // the cavity uses t and the opposite transition t/4.
+                        const auto nominal=form->thickness*(side==0?.25:1.);
                         try {apply_edge_treatment(FilletRequest{routes[side],nominal},false);}
                         catch(const std::runtime_error& error) {
                             if(std::string_view(error.what())=="OCCT Fillet failed or produced an invalid body")
@@ -8198,7 +8201,7 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                             face.reference.sheet_role=side==0?SheetFaceRole::SideB:SheetFaceRole::SideA;
                         }
                         owned_topology=std::move(tagged);
-                        profile(side==0?"opposite transition Fillet t":"cavity transition Fillet 2t");
+                        profile(side==0?"opposite transition Fillet 0.25t":"cavity transition Fillet t");
                     }
                 }
                 if(!form->solid_opening_faces.empty()) {

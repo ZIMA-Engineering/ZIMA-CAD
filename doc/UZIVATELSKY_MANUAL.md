@@ -1081,17 +1081,20 @@ faces on the definition's XY and XZ planes. Its `FORM_CUT` Body is empty: the
 complete solid supplies the cutter, and native Shell creates the formed wall.
 Select the two outer flat faces adjoining the same Bend, then a longitudinal
 position reference. Both face offsets are zero and rotation is fixed by these
-faces. The final inner transition radius is the destination thickness `t`; the
-outer radius is `2t`. Body names identify roles independently of their order.
+faces. The cavity transition radius is the destination thickness `t`; the
+opposite projecting transition is `t/4`. The symbolic formed wall uses `t/2`
+and may vary locally in thickness; the stock thickness is unchanged. Body names
+identify roles independently of their order.
 The supplied independent symbol is the exact XY footprint; editing the source
 solid does not automatically edit that symbol Sketch.
 
-The supplied 24 mm-wide definition retains its R8 cap and 10 mm centre offset.
+The compact definition is 16 mm wide and 12 mm deep, with a `16/3` mm cap radius
+and `20/3` mm centre offset.
 Verified thickness/radius pairs are `(t, Ri) = (0.5, 2), (1, 2), (2, 4)` and
 `(3, 6)` mm, plus tight bends `Ri = t` at `t = 0.5, 1, 2, 3, 4` mm on
 sufficiently large attached sheets. The forming cavity on the outer sheet side
-has radius `2t`; the projecting gusset on the opposite side has radius `t`.
-Already inserted copies of the earlier 20 mm definition require explicit
+has radius `t`; the projecting gusset on the opposite side has radius `t/4`.
+Already inserted copies of the earlier definitions require explicit
 **Replace definition** to receive the revised library profile. A failed feature
 keeps its parameters for correction; smaller radii are not substituted.
 These cases do not establish support for every definition or Bend dimension.

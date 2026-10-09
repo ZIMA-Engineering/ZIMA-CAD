@@ -14,6 +14,7 @@
 #include <BRep_Builder.hxx>
 #include <BRepCheck_Analyzer.hxx>
 #include <BRepAdaptor_Surface.hxx>
+#include <BRepLProp_SLProps.hxx>
 #include <BRepClass_FaceClassifier.hxx>
 #include <TopoDS.hxx>
 #include <BRepGProp.hxx>
@@ -113,6 +114,53 @@ void valid(const kernel::BodyResult& result) {
         }
     }
 }
+void verify_corner_transition_radii(const kernel::BodyResult& result,const std::string& owner,double thickness) {
+    struct Sample {std::array<gp_Pnt,3> points;kernel::SheetFaceRole side;};
+    std::vector<Sample> samples;std::set<std::string> seen;
+    for(std::size_t i=0;i<result.mesh.triangle_references.size();++i) {
+        const auto& ref=result.mesh.triangle_references[i];
+        if(ref.owner_id!=owner||!ref.semantic_key.starts_with("fillet:face:")||
+            !seen.insert(ref.semantic_key).second)continue;
+        Sample sample;sample.side=ref.sheet_role;
+        for(unsigned j=0;j<3;++j) {
+            const auto& p=result.mesh.vertices.at(result.mesh.triangles.at(3*i+j));
+            sample.points[j]=gp_Pnt(p.x,p.y,p.z);
+        }
+        samples.push_back(sample);
+    }
+    TopoDS_Shape body;BRep_Builder builder;std::istringstream data(result.kernel_shape);
+    BRepTools::Read(body,data,builder);unsigned cavity=0,opposite=0;
+    // Test-only exact geometry inspection: match three published face vertices
+    // to the real trimmed surface, then measure curvature independently of
+    // the requested Fillet values. No topology identities are created here.
+    for(TopExp_Explorer it(body,TopAbs_FACE);it.More();it.Next()) {
+        BRepAdaptor_Surface surface(TopoDS::Face(it.Current()));
+        const auto u=(surface.FirstUParameter()+surface.LastUParameter())*.5;
+        const auto v=(surface.FirstVParameter()+surface.LastVParameter())*.5;
+        BRepLProp_SLProps properties(surface,u,v,2,1e-9);
+        if(!properties.IsCurvatureDefined())continue;
+        const auto a=std::abs(properties.MinCurvature()),b=std::abs(properties.MaxCurvature());
+        if(std::max(a,b)<1e-8)continue;
+        for(const auto& sample:samples) {
+            if(!std::ranges::all_of(sample.points,[&](const auto& point) {
+                BRepExtrema_DistShapeShape distance(it.Current(),BRepBuilderAPI_MakeVertex(point).Shape());
+                return distance.IsDone()&&distance.Value()<1e-6;
+            }))continue;
+            // Rolling-ball canal patches have one principal radius equal to
+            // the circle radius, also along a curved spine. Multi-edge corner
+            // fill patches need not have constant principal curvature.
+            const auto expected=sample.side==kernel::SheetFaceRole::SideA?thickness:.25*thickness;
+            if(std::min(a>1e-8?std::abs(1./a-expected):1e30,
+                        b>1e-8?std::abs(1./b-expected):1e30)<1e-6) {
+                if(sample.side==kernel::SheetFaceRole::SideA)++cavity;
+                else if(sample.side==kernel::SheetFaceRole::SideB)++opposite;
+            }
+            break;
+        }
+    }
+    check(cavity>0&&opposite>0,"Missing independently verified cavity/opposite circular transitions");
+}
+
 }
 int main(int argc,char** argv){try {
     if(argc==5&&std::string_view(argv[1])=="--replace-corner-definition") {
@@ -126,9 +174,11 @@ int main(int argc,char** argv){try {
         workspace::Workspace live;live.add_part(part,previous);kernel::OcctKernel kernel;
         check(workspace::commit_sheet_form(live,kernel,part.document_id,replacement),"Corner definition replacement did not commit");
         const auto* state=live.open_part(part.document_id);valid(state->session.calculated_boundaries().back());
+        verify_corner_transition_radii(state->session.calculated_boundaries().back(),original.id,original.sheet_form.thickness);
         check(state->session.document().find_container(original.id)->placement.references==original.placement.references,"Definition replacement changed native placement references");
         state->session.document().save(argv[4],state->session.calculated_boundaries());
         std::vector<kernel::BodyResult> reopened;const auto native=document::PartDocument::load(argv[4],&reopened);valid(reopened.back());
+        verify_corner_transition_radii(reopened.back(),original.id,original.sheet_form.thickness);
         check(native.find_container(original.id)->sheet_form.source_name==source.part.name,"Replacement did not persist independent definition");
         std::cout<<"Native corner definition replacement and exact BRep/save/reopen verified\n";return 0;
     }
@@ -533,6 +583,7 @@ int main(int argc,char** argv){try {
                 std::cout<<"Corner side "<<normal.x<<','<<normal.y<<','<<normal.z<<" other="<<other<<" along="<<direction<<" seconds="<<seconds<<std::endl;
                 if(!result.back().calculation_errors.empty()) {for(const auto& [owner,error]:result.back().calculation_errors)std::cout<<error<<std::endl;++rejected;continue;}
                 valid(result.back());check(document::serialize_body_result(result.back()).value("sheet_cuts",nlohmann::json::array())==document::serialize_body_result(baseline.back()).value("sheet_cuts",nlohmann::json::array()),"Corner FORM entered Sheet Cut manufacturing records");++accepted;
+                if(solid_definition)verify_corner_transition_radii(result.back(),operation.owner_id,thickness);
                 if(body_cut) {
                     const auto previous=paired_results.find(first);
                     if(previous==paired_results.end())paired_results.emplace(first,result.back());
@@ -628,12 +679,15 @@ int main(int argc,char** argv){try {
                     const auto persisted=workspace::calculate_part_with_resolved_references(kernel,native);
                     std::cout<<"Persisted placement volume "<<persisted.back().volume<<" vs "<<result.back().volume<<std::endl;
                     valid(persisted.back());near(persisted.back().volume,result.back().volume);
+                    if(solid_definition)verify_corner_transition_radii(persisted.back(),feature.id,thickness);
                     const auto path=std::filesystem::absolute("build/form-diagnostic/CornerGusset90Placed.prtz");native.save(path,persisted);
                     std::vector<kernel::BodyResult> reopened_result;auto reopened=document::PartDocument::load(path,&reopened_result);
                     check(reopened.history.back()==native.history.back(),"Corner native reopen changed placement or definition");
                     valid(reopened_result.back());near(reopened_result.back().volume,persisted.back().volume);
+                    if(solid_definition)verify_corner_transition_radii(reopened_result.back(),feature.id,thickness);
                     const auto regenerated=workspace::calculate_part_with_resolved_references(kernel,reopened,&reopened_result);
                     valid(regenerated.back());near(regenerated.back().volume,persisted.back().volume);
+                    if(solid_definition)verify_corner_transition_radii(regenerated.back(),feature.id,thickness);
                     std::cout<<"Corner native two-face placement, independent definition, save/reopen and regeneration passed\n";
                     if(solid_definition) {
                         auto wide=part;

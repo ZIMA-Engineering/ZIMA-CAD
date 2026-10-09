@@ -4,10 +4,12 @@
 
 The shared implementation adds the native `CornerGusset90.prtz` definition,
 two outer-face placement at a 90-degree Bend, automatic closed-solid cutting
-and Shell, and fixed inner `t` / outer `2t` transitions. Run the corner native
+and Shell. The current symbolic wall is `t/2`, the cavity transition is `t`,
+and the opposite projecting transition is `t/4`; uniform thickness was explicitly
+relaxed by the user. Stock thickness is unchanged. Run the corner native
 roundtrip/copy fixture, its GUI fixture dependency, four supported thickness
 pairs and five tight-bend acceptance cases (`Ri = t`, `t = 0.5, 1, 2, 3, 4` mm).
-The supplied source profile is now 24 mm wide. Verify both side/orientation
+The compact source profile is 16 mm wide and 12 mm deep. Verify both side/orientation
 choices, embedded definition replacement, Unbend symbols, Bend Back, Pattern,
 Mirror, exact BRep validity and independently calculated volume/tensor data.
 Run the ordinary Form/Shell/Fillet/Thicken Surface suites too. There is no kernel
@@ -18,7 +20,9 @@ Undo/Redo GUI regression and exact external spline/native endpoint tests.
 English documentation and all five catalogs include the corner placement/error
 labels. Windows observations do not establish Linux native or GUI acceptance.
 The revised library passes those finite `Ri = t` cases on Windows using the
-existing quasi-angular circular Fillets and exact `t`/`2t` radii. This does not
+existing quasi-angular circular Fillets. Independently measure the exact
+transition surface curvatures, including after save/reopen and regeneration.
+This does not
 establish arbitrary-profile support. Verify View offset editing in open and
 closed Properties, clearing/restoring the first support, disabled zero offset,
 Cancel, Undo/Redo and save/reopen. Also run the metadata suite covering sheet

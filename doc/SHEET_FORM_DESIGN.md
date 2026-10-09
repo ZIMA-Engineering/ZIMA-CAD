@@ -7,13 +7,76 @@ implementation and verification status must be recorded separately.
 
 ### Corner variant agreement (2026-10-08)
 
-#### Closed-solid implementation checkpoint (2026-10-09)
+#### Compact symbolic corner agreement (2026-10-09)
 
-The current library definition is
+The user explicitly relaxed the uniform-thickness and original `t` / `2t`
+transition requirements for this visual forming feature. The closed-solid corner
+path now constructs a symbolic wall of `0.5t`, rounds the cavity transition at
+`t`, and rounds the opposite projecting transition at `0.25t`. Here `t` is the
+destination stock thickness; the stock and its Bend are unchanged. This is an
+approximate formed shape with locally variable thickness, not a forming-process
+simulation. The smaller opposite transition is a deliberate fixed rule, not an
+automatic radius-reduction retry. Ordinary planar Form, Shell and Fillet paths
+retain their established parameters, precision and behavior.
+
+The compact candidate scales the previously accepted source profile by `2/3`:
+width 16 mm, cap radius `16/3` mm, centre offset `20/3` mm and depth 12 mm
+instead of 18 mm. Authoring preserves the source constraints and rebuilds the
+independent manufacturing symbol from the exact closing outline. Placement
+still uses two outer flat faces adjoining the same 90-degree Bend and a signed
+longitudinal station. Existing inserted definitions remain independent copies;
+explicit replacement is required to receive the smaller profile.
+
+The compact library passed both admissible orientations and rejected the other
+14 choices for each `(t, Ri)` pair: `(0.5, 0.5)`, `(1, 1)`, `(2, 2)`, `(3, 3)`,
+`(4, 4)`, `(0.5, 2)`, `(1, 2)`, `(2, 4)` and `(3, 6)` mm. Tests independently
+validate exact BRep connectivity and consistency, GK volume and centroid/inertia,
+and principal curvature of actual cavity/opposite circular transition patches.
+They match published face identities to the exact trimmed surfaces rather than
+checking only the requested Fillet values. Multi-edge corner filling patches
+are not claimed to have constant principal radius.
+
+The full `(1, 1)` mm native suite passed two-face placement, embedded-copy
+save/reopen, regeneration, Pattern and Mirror, both flat symbols, Unbend and
+Bend Back. A separate `Projects/test/12-corner-compact.prtz` replaces the copied
+definition in the user's corrected `12.prtz`, preserving its placement. Strict
+BRep/property checks, actual radii and save/reopen passed. The original user
+Part is retained. Evidence is in `build/form-diagnostic/compact-final-*.log`
+and `compact-12-replacement.log`; these diagnostic files are not dependencies.
+
+The eight focused Windows suites passed in 358.29 seconds: ordinary Form GUI,
+corner GUI, all five translations, both definitions' 24 native Body orders,
+ordinary Form geometry, Shell, solid-state Fillet and Thicken Surface. Corner
+GUI checks cover creation, exact hover/click identity, reference inspection,
+rollback, Cancel, unchanged OK, signed station editing, independent definition
+replacement, Undo/Redo and native reopening. The previously recorded broader
+dialog-suite JSON failure is outside this focused acceptance.
+
+The 18 independent native insertions measured 0.986–1.335 seconds. In the user's
+actual `12.prtz`, the non-overlapping explicit calculation stages totalled
+1.254 seconds (support/source, Shell, trim, transform, cut/fuse, transition
+rounding, and final display/property preparation). This excludes file loading,
+independent validation and saving; it is not complete GUI confirmation timing.
+The profile observation overlapped the GUI regression, and is not an isolated
+benchmark. No approximation tolerance or circular accuracy was reduced.
+Complete corner GUI confirmation, including calculation, commit and scene
+publication, measured 1.205 seconds in the final local Release run.
+
+This change introduces no user-visible text; existing shared labels and errors
+remain translated in `cs`, `en`, `de`, `fr` and `ru`. It changes no native schema,
+kernel pin or shared container placement contract. Linux execution remains
+unverified and requires the corresponding native and GUI matrix.
+
+The checkpoints below describe earlier geometry rules and measured results;
+they do not override this current agreement.
+
+#### Closed-solid implementation checkpoint (2026-10-09, superseded profile/radii)
+
+At this earlier checkpoint the library definition was
 [CornerGusset90.prtz](../config/lib/01-SHEETMETAL/01-FORM/CornerGusset90.prtz).
 It contains a native sloped-wall solid in `FORM`, empty `FORM_CUT` and `FORM_FLAT`
 Bodies, and an independent `FORM_SYMBOL` Sketch copied from the exact XY closing
-outline. Its editable profile now has a 24 mm width, R8 cap and 10 mm centre
+outline. Its editable profile had a 24 mm width, R8 cap and 10 mm centre
 offset. The initial 20 mm checkpoint below is retained as measured evidence.
 The user's original FORM-EDGE document is retained separately. The earlier
 surface/two-cut prototypes below remain experimental evidence, not this asset's
