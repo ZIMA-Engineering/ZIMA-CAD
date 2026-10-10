@@ -1,0 +1,4 @@
+tools/dependencies/*.patch text eol=lf whitespace=-blank-at-eol
+tools/dependencies/vcpkg-ports/opencascade/*.patch text eol=lf whitespace=-blank-at-eol
+# Retain the upstream port's verbatim comment formatting.
+tools/dependencies/vcpkg-ports/opencascade/portfile.cmake whitespace=-blank-at-eol

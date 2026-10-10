@@ -7,6 +7,7 @@
 namespace zima::kernel {
 
 struct SolidStraighteningPlan;
+class StepSourceDocument;
 
 struct FrozenStepComponent {
     std::shared_ptr<const std::string> brep;
@@ -44,7 +45,8 @@ public:
     // Capture native source geometry and identity bindings for the ordinary
     // history evaluation, which prepares the final viewer and properties once.
     [[nodiscard]] std::vector<FrozenStepComponent> freeze_step_components(
-        const std::vector<StepRequest>& requests) const;
+        const std::vector<StepRequest>& requests,
+        const StepSourceDocument* source = nullptr) const;
     [[nodiscard]] BodyResult subtract_bodies(
         const BodyResult& target,
         const BodyResult& cutter,

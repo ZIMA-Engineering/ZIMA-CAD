@@ -27,9 +27,21 @@ find_package(OpenSSL 3 REQUIRED COMPONENTS Crypto)
 find_package(OpenCASCADE REQUIRED)
 set(ZIMA_OCCT_VERSION
     "${OpenCASCADE_MAJOR_VERSION}.${OpenCASCADE_MINOR_VERSION}.${OpenCASCADE_MAINTENANCE_VERSION}")
-if(ZIMA_OCCT_VERSION VERSION_LESS 8.0)
+if(NOT ZIMA_OCCT_VERSION VERSION_EQUAL 8.0.0)
     message(FATAL_ERROR
-        "ZIMA-CAD requires OpenCASCADE 8.0 or newer; found ${ZIMA_OCCT_VERSION}")
+        "ZIMA-CAD requires the shared OpenCASCADE 8.0.0 SDK; found ${ZIMA_OCCT_VERSION}")
+endif()
+set(ZIMA_OCCT_PATCH "${CMAKE_SOURCE_DIR}/../tools/dependencies/occt-gauss-large-spans.patch")
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${ZIMA_OCCT_PATCH}")
+file(SHA256 "${ZIMA_OCCT_PATCH}" ZIMA_OCCT_PATCH_SHA256)
+set(ZIMA_OCCT_PROVENANCE "${OpenCASCADE_INSTALL_PREFIX}/share/opencascade/zima-sdk.json")
+if(NOT EXISTS "${ZIMA_OCCT_PROVENANCE}")
+    message(FATAL_ERROR "Rebuild the native OCCT SDK with the shared Gauss interval patch; see tools/dependencies/README.md")
+endif()
+file(READ "${ZIMA_OCCT_PROVENANCE}" ZIMA_OCCT_SDK_JSON)
+string(JSON ZIMA_OCCT_INSTALLED_PATCH_SHA256 GET "${ZIMA_OCCT_SDK_JSON}" gauss_large_spans_patch_sha256)
+if(NOT ZIMA_OCCT_INSTALLED_PATCH_SHA256 STREQUAL ZIMA_OCCT_PATCH_SHA256)
+    message(FATAL_ERROR "The native OCCT SDK patch differs from this source checkout; rebuild the SDK")
 endif()
 find_package(nlohmann_json 3.11 REQUIRED)
 find_package(Freetype REQUIRED)
@@ -225,7 +237,8 @@ set_property(SOURCE modules/document_core/src/part_document.cpp APPEND PROPERTY
 target_include_directories(zima_document_core PUBLIC
     modules/document_core/include)
 target_link_libraries(zima_document_core
-    PUBLIC zima_kernel_api zima_sketcher zima_transition_core nlohmann_json::nlohmann_json)
+    PUBLIC zima_kernel_api zima_sketcher zima_transition_core nlohmann_json::nlohmann_json
+    PRIVATE OpenSSL::Crypto)
 
 add_library(zima_assembly
     modules/assembly/src/assembly_document.cpp
@@ -409,6 +422,7 @@ target_compile_options(zima_command_host PUBLIC $<$<CXX_COMPILER_ID:MSVC>:/utf-8
 
 add_library(zima_kernel_occt
     modules/kernel_occt/src/sheet_exchange.cpp
+    modules/kernel_occt/src/step_source_document.cpp
     modules/kernel_occt/src/occt_kernel.cpp)
 target_include_directories(zima_kernel_occt PUBLIC
     modules/kernel_occt/include)
@@ -663,6 +677,13 @@ if(ZIMA_BUILD_TESTS)
     add_executable(zima_cpp_step_model_contract_tests tests/step_model_contract_tests.cpp)
     target_link_libraries(zima_cpp_step_model_contract_tests PRIVATE zima_interchange zima_kernel_occt TKPrim TKDESTEP TKXCAF TKCAF TKLCAF TKCDF Qt6::Core)
     add_test(NAME zima_cpp_step_model_contract_tests COMMAND zima_cpp_step_model_contract_tests)
+    add_executable(zima_cpp_occt_gauss_interval_contract_tests tests/occt_gauss_interval_contract_tests.cpp)
+    target_link_libraries(zima_cpp_occt_gauss_interval_contract_tests PRIVATE zima_kernel_occt TKPrim)
+    add_test(NAME zima_cpp_occt_gauss_interval_contract_tests COMMAND zima_cpp_occt_gauss_interval_contract_tests)
+    set_tests_properties(zima_cpp_occt_gauss_interval_contract_tests PROPERTIES TIMEOUT 90)
+    add_executable(zima_cpp_step_parallel_properties_tests tests/step_parallel_properties_tests.cpp)
+    target_link_libraries(zima_cpp_step_parallel_properties_tests PRIVATE zima_interchange zima_kernel_occt TKPrim TKDESTEP)
+    add_test(NAME zima_cpp_step_parallel_properties_tests COMMAND zima_cpp_step_parallel_properties_tests)
     add_executable(zima_cpp_section_contract_tests tests/section_contract_tests.cpp)
     target_link_libraries(zima_cpp_section_contract_tests PRIVATE zima_document_core zima_assembly zima_drawing zima_kernel_occt)
     add_test(NAME zima_cpp_section_contract_tests COMMAND zima_cpp_section_contract_tests)

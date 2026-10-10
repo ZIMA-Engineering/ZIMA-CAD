@@ -151,6 +151,9 @@ int verify_translations(QApplication& application, QWidget& parent) {
         for(const auto* key:{
             "Vodicí dráha se větví nebo má neplatné spojení",
             "IGES export failed",
+            "Cannot initialize document fingerprint",
+            "Cannot finish document fingerprint",
+            "Calculated history boundary does not match its parameters",
             "Model export supports STEP, IGES, STL and DXF.",
             "DXF (*.dxf);;STEP (*.step *.stp);;IGES (*.igs *.iges);;STL (*.stl);;PNG (*.png);;JPEG (*.jpg *.jpeg)",
             "Uložit kopii dokumentu včetně navázaného modelu nebo výkresů; původní dokument zůstane otevřený.",

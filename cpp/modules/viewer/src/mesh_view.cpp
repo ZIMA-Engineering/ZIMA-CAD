@@ -3580,6 +3580,26 @@ if (impl_->show_origins) {
         // ownership; do that once, rather than once for every rendered edge.
         const bool separate_candidate_wire = exact_edge_treatment_wire(highlighted) != nullptr ||
             original_container_wire(highlighted) != nullptr;
+        const bool has_highlight_state = (highlighted && !separate_candidate_wire) ||
+            !impl_->edge_treatment_selection_edges.empty() || !impl_->feature_selected_edges.empty() ||
+            !impl_->feature_hover_edges.empty() || !impl_->feature_selected_edge_indices.empty() ||
+            !component_edges.empty() || !impl_->feature_hover_edge_indices.empty() ||
+            !impl_->constraint_reference_edges.empty() || !impl_->assembly_reference_edges.empty() ||
+            !impl_->object_overlay_main_edge_keys.empty() || !impl_->constraint_reference_owner_ids.empty() ||
+            !impl_->selected_container_content_ids.empty() || !impl_->feature_preview_owner_ids.empty();
+        // Ordinary navigation has no per-edge highlight to resolve. Keep the
+        // same whole-buffer draw without constructing reference keys for it.
+        if(!force_black_if_not_highlighted && !has_highlight_state) {
+            if(!highlighted_only) {
+                const QVector4D color=impl_->edge_color_override
+                    ? QVector4D(impl_->edge_color_override->redF(),impl_->edge_color_override->greenF(),
+                        impl_->edge_color_override->blueF(),1.0F)
+                    : interaction::rgba(theme.foreground);
+                impl_->program.setUniformValue("color",color);
+                glDrawArrays(GL_LINES,0,impl_->line_vertex_count);
+            }
+            return;
+        }
         const auto draw_ranges = [&](const std::vector<GLint>& first,
                                      const std::vector<GLsizei>& count) {
             for (std::size_t index = 0; index < first.size(); ++index) {
@@ -4975,6 +4995,7 @@ if (impl_->show_origins) {
         }
         painter.save();
         painter.setPen(QPen(relation_color,2.4));painter.setBrush(relation_color);
+        if(!relation_keys.empty()) {
         for (const auto& edge : impl_->mesh.edges) if (relation_keys.contains(edge_key(edge.reference)))
             for (std::size_t i=1;i<edge.points.size();++i)
                 draw_reference_segment(project(edge.points[i-1]),project(edge.points[i]),relation_color,2.4);
@@ -4986,6 +5007,7 @@ if (impl_->show_origins) {
         for (const auto& point : impl_->mesh.points) if (relation_keys.contains(EdgeKey{
                 point.reference.owner_id,point.reference.semantic_key,point.reference.instance_path}))
             painter.drawEllipse(project(point.position),4.5,4.5);
+        }
         painter.restore();
         // Confirmed wires and dimension inspection use one screen-space
         // presentation, including portions inside the solid. Picking still
@@ -4999,6 +5021,8 @@ if (impl_->show_origins) {
         for (const auto& edge : impl_->container_inspection_wire) draw_selected_wire(edge);
         const auto* treatment_wire = exact_edge_treatment_wire(impl_->confirmed_candidate);
         const auto* original_wire = original_container_wire(impl_->confirmed_candidate);
+        if(impl_->confirmed_candidate || !component_edges.empty() || !impl_->feature_selected_edge_indices.empty() ||
+                !impl_->feature_selected_edges.empty() || !impl_->edge_treatment_selection_edges.empty() || treatment_wire) {
         for (std::size_t index = 0; index < impl_->mesh.edges.size(); ++index) {
             const auto& edge = impl_->mesh.edges[index];
             // The Sketch pass already paints confirmed wires with their
@@ -5017,6 +5041,7 @@ if (impl_->show_origins) {
                     treatment_wire->end(), index) != treatment_wire->end());
             if (candidate_match || reference_selected)
                 draw_selected_wire(edge);
+        }
         }
         for (const auto& edge : confirmed_component_wire())
             for (std::size_t i=1;i<edge.points.size();++i)

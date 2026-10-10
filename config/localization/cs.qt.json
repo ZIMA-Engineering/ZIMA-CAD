@@ -2247,5 +2247,8 @@
   "Position 2": "Poloha 2",
   "In-plane angle": "Úhel v rovině",
   "Signed distance to a line or plane. A point sets sheet-plane X in row 2 or Z in row 3.": "Podepsaná vzdálenost od úsečky nebo roviny. Bod určuje X v rovině plechu na řádku 2 nebo Z na řádku 3.",
-  "Corner FORM cannot fit the prescribed transition radii. Change the bend radius or the definition.": "Rohové tváření nelze vytvořit s předepsanými poloměry přechodů. Změňte poloměr ohybu nebo definici."
+  "Corner FORM cannot fit the prescribed transition radii. Change the bend radius or the definition.": "Rohové tváření nelze vytvořit s předepsanými poloměry přechodů. Změňte poloměr ohybu nebo definici.",
+  "Cannot initialize document fingerprint": "Nelze inicializovat otisk dokumentu",
+  "Cannot finish document fingerprint": "Nelze dokončit otisk dokumentu",
+  "Calculated history boundary does not match its parameters": "Uložený výsledek výpočtu neodpovídá parametrům dokumentu"
 }

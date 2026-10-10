@@ -49,6 +49,7 @@
 #include <zima/sketcher/curve_geometry.hpp>
 
 #include <nlohmann/json.hpp>
+#include <openssl/evp.h>
 
 #include <algorithm>
 #include <array>
@@ -71,6 +72,68 @@
 
 namespace zima::document {
 namespace {
+
+// A persisted calculation belongs to the exact authored document, not to the
+// last bits of temporary coordinates reconstructed by a platform math library.
+// Stream the definition so a large frozen STEP is not duplicated for hashing.
+std::string calculation_definition_fingerprint(const nlohmann::json& root) {
+    struct DigestBuffer : std::streambuf {
+        EVP_MD_CTX* context{EVP_MD_CTX_new()};
+        DigestBuffer() {
+            if (!context) throw std::bad_alloc();
+            if (EVP_DigestInit_ex(context, EVP_sha256(), nullptr) != 1) {
+                EVP_MD_CTX_free(context);
+                throw std::runtime_error("Cannot initialize document fingerprint");
+            }
+        }
+        ~DigestBuffer() override { EVP_MD_CTX_free(context); }
+        std::streamsize xsputn(const char* data, std::streamsize size) override {
+            return EVP_DigestUpdate(context, data, static_cast<std::size_t>(size)) == 1 ? size : 0;
+        }
+        int_type overflow(int_type value) override {
+            if (traits_type::eq_int_type(value, traits_type::eof())) return traits_type::not_eof(value);
+            const char byte = traits_type::to_char_type(value);
+            return xsputn(&byte, 1) == 1 ? value : traits_type::eof();
+        }
+    } buffer;
+    std::ostream output(&buffer);
+    output.exceptions(std::ios::badbit | std::ios::failbit);
+    output << "zima-part-definition-v1{";
+    for (const auto& [key, value] : root.items()) {
+        // A copied FORM retains its source name after identity remapping.
+        // Renaming a document does not change calculated geometry or owners.
+        if (key == "name" || key == "calculated_boundaries" || key == "calculation_definition_fingerprint") continue;
+        output << nlohmann::json(key) << ':';
+        if (key == "history") {
+            // This array is an entity table, not the modeling order. The INI
+            // reader collects it in history_order; Body/history order is
+            // persisted separately and remains part of the exact proof.
+            std::vector<const nlohmann::json*> entities;
+            for (const auto& entity : value) entities.push_back(&entity);
+            std::sort(entities.begin(), entities.end(), [](const auto* a, const auto* b) {
+                return a->at("id").template get<std::string>() < b->at("id").template get<std::string>();
+            });
+            output << '[';
+            bool first = true;
+            for (const auto* entity : entities) {
+                if (!first) output << ',';
+                output << *entity;
+                first = false;
+            }
+            output << ']';
+        } else output << value;
+        output << ',';
+    }
+    output << '}';
+    unsigned char digest[EVP_MAX_MD_SIZE];
+    unsigned int size{};
+    if (EVP_DigestFinal_ex(buffer.context, digest, &size) != 1)
+        throw std::runtime_error("Cannot finish document fingerprint");
+    std::ostringstream result;
+    result << std::hex << std::setfill('0');
+    for (unsigned int i = 0; i < size; ++i) result << std::setw(2) << static_cast<unsigned>(digest[i]);
+    return result.str();
+}
 
 ExtrusionParameters::EndTarget resolved_extrusion_end_target(const PartDocument&,
     const HistoryContainer&,const ExtrusionParameters::EndTarget&,bool external_snapshot);
@@ -716,6 +779,7 @@ nlohmann::json read_part_ini(const std::filesystem::path& path) {
             "zima-shared-body-results-v1") {
         const auto data = ini_value(ini, "CachedBodies", "data");
         if (!data.empty()) root["calculated_boundaries"] = unpack_cache_storage(nlohmann::json::parse(data));
+        root["calculation_definition_fingerprint"] = ini_required(ini, "CachedBodies", "definition_fingerprint");
     }
     return root;
 }
@@ -725,6 +789,7 @@ void write_part_ini(
     IniSections ini;
     ini["Document"] = {
         {"format_version", "46"},
+        {"calculated_definition", "zima-part-definition-sha256-v1"},
         {"type", "part"},
         {"document_id", root.at("document_id").get<std::string>()},
         {"name", root.at("name").get<std::string>()},
@@ -925,6 +990,7 @@ void write_part_ini(
     if (!root.at("calculated_boundaries").empty()) {
         ini["CachedBodies"] = {
             {"encoding", "zima-shared-body-results-v1"},
+            {"definition_fingerprint", root.at("calculation_definition_fingerprint").get<std::string>()},
             {"data", pack_cache_storage(root.at("calculated_boundaries")).dump()},
         };
     }
@@ -10822,6 +10888,10 @@ PartDocument PartDocument::load(
 }
 PartDocument PartDocument::from_serialized(const nlohmann::json& root,
     std::vector<zima::kernel::BodyResult>* calculated_boundaries) {
+    if (!root.at("calculated_boundaries").empty() && root.at("calculation_definition_fingerprint") !=
+            calculation_definition_fingerprint(root)) {
+        throw std::runtime_error("Calculated history boundary does not match its parameters");
+    }
     PartDocument document;
     std::set<std::string> failed_containers;
     for(const auto& boundary:root.at("calculated_boundaries"))
@@ -11717,11 +11787,9 @@ PartDocument PartDocument::from_serialized(const nlohmann::json& root,
     for (std::size_t boundary_index = 0;
          boundary_index < loaded_boundaries.size(); ++boundary_index) {
         available_owners.insert(expected_operations[boundary_index].owner_id);
-        if (loaded_boundaries[boundary_index].source_fingerprint !=
-            loaded_fingerprints.at(boundary_index+1)) {
-            throw std::runtime_error(
-                "Calculated history boundary does not match its parameters");
-        }
+        // Runtime reuse keys may differ between math libraries. Rebind only
+        // after the exact persisted definition has been independently verified.
+        loaded_boundaries[boundary_index].source_fingerprint = loaded_fingerprints.at(boundary_index+1);
         const auto validate_reference = [&](const auto& reference, bool may_be_invalid) {
             const bool owner_empty = reference.owner_id.empty();
             const bool key_empty = reference.semantic_key.empty();
@@ -12772,6 +12840,7 @@ nlohmann::json PartDocument::serialized(
         {"calculated_boundaries", std::move(serialized_boundaries)},
     };
     apply_document_copy_identity(root, copy);
+    root["calculation_definition_fingerprint"] = calculation_definition_fingerprint(root);
     return root;
 }
 void PartDocument::save(const std::filesystem::path& path,

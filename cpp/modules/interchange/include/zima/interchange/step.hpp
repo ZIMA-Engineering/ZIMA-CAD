@@ -7,6 +7,8 @@
 #include <optional>
 #include <vector>
 
+namespace zima::kernel { class StepSourceDocument; }
+
 namespace zima::interchange {
 
 struct StepPlanarFace {
@@ -37,6 +39,8 @@ struct StepPart {
 
 [[nodiscard]] std::vector<StepPart> inspect_step_parts(
     const std::filesystem::path& path, std::size_t maximum_parts = 1000);
+[[nodiscard]] std::vector<StepPart> inspect_step_parts(
+    const kernel::StepSourceDocument& source, std::size_t maximum_parts = 1000);
 
 [[nodiscard]] std::vector<StepPlanarFace> extract_step_planar_faces(
     const std::filesystem::path& path, std::size_t maximum_faces = 1000);

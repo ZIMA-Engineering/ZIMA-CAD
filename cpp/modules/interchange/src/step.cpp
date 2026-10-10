@@ -1,5 +1,6 @@
 #include <zima/document/file_path.hpp>
 #include <zima/interchange/step.hpp>
+#include <zima/kernel/step_source_document.hpp>
 
 #include <BRepAdaptor_Curve.hxx>
 #include <BRepAdaptor_Surface.hxx>
@@ -92,14 +93,15 @@ PlanarCurve extract_curve(const TopoDS_Edge& edge, const gp_Ax3& frame) {
 std::vector<StepPart> inspect_step_parts(
     const std::filesystem::path& path, std::size_t maximum_parts) {
     if (maximum_parts == 0) throw std::invalid_argument("Limit STEP dílů musí být kladný");
-    Handle(TDocStd_Document) document;
-    XCAFApp_Application::GetApplication()->NewDocument("BinXCAF", document);
-    struct CloseDocument { Handle(TDocStd_Document)& value; ~CloseDocument(){XCAFApp_Application::GetApplication()->Close(value);} } close{document};
-    STEPCAFControl_Reader reader;
-    if(reader.ReadFile(document::path_to_utf8(path).c_str())!=IFSelect_RetDone)
-        throw std::runtime_error("STEP produktovou strukturu nelze načíst");
-    reader.ChangeReader().SetSystemLengthUnit(1.0);
-    if(!reader.Transfer(document))throw std::runtime_error("STEP produktovou strukturu nelze načíst");
+    kernel::StepSourceDocument source(document::path_to_utf8(path),"STEP produktovou strukturu nelze načíst");
+    return inspect_step_parts(source,maximum_parts);
+}
+
+std::vector<StepPart> inspect_step_parts(
+    const kernel::StepSourceDocument& source,std::size_t maximum_parts) {
+    if (maximum_parts == 0) throw std::invalid_argument("Limit STEP dílů musí být kladný");
+    const Handle(TDocStd_Document) document=source.document();
+    const auto& reader=source.reader();
     // XCAF may expand a single product's compound representation into an
     // artificial assembly (e.g. a screw solid plus its thread sheet). Only
     // STEP product-usage relationships establish real assembly ownership.

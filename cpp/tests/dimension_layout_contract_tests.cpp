@@ -44,6 +44,53 @@ template <class F> void rejects(F f) {
     require(rejected, "Invalid presentation accepted");
 }
 void flush() { QApplication::processEvents(); }
+void verify_drawing_angular_clearance() {
+    QImage proof(1000,800,QImage::Format_RGB32);proof.fill(Qt::white);
+    QPainter painter(&proof);painter.setRenderHint(QPainter::Antialiasing);
+    int shown{};
+    for(double zoom:{1.,3.})for(int pixels:{12,24})for(double sweep:{60.,-120.,270.})
+    for(double bearing:{0.,45.,90.,135.,180.,225.,270.,315.})
+    for(bool outside:{false,true})for(bool basic:{false,true}) {
+        const double start=bearing*std::numbers::pi/180.;
+        const double text_bearing=start+(outside?sweep+20.:sweep*.5)*std::numbers::pi/180.;
+        const auto point=[](double a){return kernel::Vec3{80*std::cos(a),80*std::sin(a),0};};
+        kernel::ViewerDimension source;source.kind=kernel::ViewerDimensionKind::Angular;
+        source.line_first=point(start);source.line_second=point(start+sweep*std::numbers::pi/180.);
+        source.sweep_degrees=sweep;source.value=std::abs(sweep);source.label_position=point(text_bearing);
+        kernel::DimensionTextStyle style;style.tolerance_mode=basic?"basic":"";source.source_text_style=style;
+        QFont font=zima::technical_font();font.setPixelSize(qRound(pixels*zoom));
+        const QString text=QString::fromUtf8("60° g +0,5 /-0,2");
+        const auto project=[&](kernel::Vec3 p){return QPointF(p.x*zoom,-p.y*zoom);};
+        const auto layout=viewer::dimension_text_presentation(source,project,font,text,.5*zoom,.25*zoom,2.5*zoom,.75*zoom,false,1.5*zoom,false);
+        require(layout.valid,"Drawing angular clearance fixture disappeared");
+        const double angle=layout.text_angle*std::numbers::pi/180.;
+        const QPointF along(std::cos(angle),std::sin(angle)),up(along.y(),-along.x());
+        require(along.x()>=-1e-6,"Drawing angular text cannot be read from the bottom/right");
+        QTransform transform;transform.translate(layout.text_baseline.x(),layout.text_baseline.y());transform.rotate(layout.text_angle);
+        const auto box=viewer::dimension_text_box(font,text,.5*zoom,basic);
+        for(const auto corner:{box.topLeft(),box.topRight(),box.bottomLeft(),box.bottomRight()})
+            require(viewer::dimension_screen_dot(transform.map(corner)-layout.handles[0],up)>0,
+                "Drawing angular text crosses its dimension tangent");
+        QPainterPath label;label.addRect(box);label=transform.map(label);
+        for(const auto& curve:layout.curves)if(curve.size()>2) {
+            QPainterPath arc;arc.moveTo(curve.front());for(qsizetype i=1;i<curve.size();++i)arc.lineTo(curve[i]);
+            QPainterPathStroker stroke;stroke.setWidth(.25*zoom);
+            if(stroke.createStroke(arc).intersects(label))
+                throw std::runtime_error("Drawing angular text mask intersects the dimension arc: zoom="+
+                    std::to_string(zoom)+" font="+std::to_string(pixels)+" sweep="+std::to_string(sweep)+
+                    " bearing="+std::to_string(bearing)+" outside="+std::to_string(outside)+" basic="+std::to_string(basic));
+        }
+        require(source.value==std::abs(sweep)&&source.label_position==point(text_bearing),"Text clearance changed authored dimension geometry");
+        if(zoom==1&&pixels==12&&sweep==60&&!basic&&shown<12) {
+            painter.save();painter.translate(165+(shown%4)*245,135+(shown/4)*260);painter.setFont(font);
+            painter.setPen(QPen(Qt::black,.5));for(const auto& curve:layout.curves)painter.drawPolyline(curve);
+            const std::array labels{viewer::DimensionTextLabel{text,layout.text_baseline,layout.text_angle,font,Qt::black}};
+            viewer::paint_dimension_text_layer(painter,labels,.5,[](QPainter& p,const QPainterPath& path){p.fillPath(path,Qt::white);});
+            painter.restore();++shown;
+        }
+    }
+    painter.end();require(proof.save("build/drawing-angular-text-clearance.png"),"Cannot save angular clearance proof");
+}
 void verify_occurrence_bounds() {
     kernel::ViewerMesh mesh;
     auto frame = kernel::annotation_frame({10,20,30}, {0,0,90});
@@ -385,6 +432,7 @@ int main(int argc, char **argv) {
         verify_annotation_units();
         verify_converted_tolerance_layout();
         verify_occurrence_bounds();
+        verify_drawing_angular_clearance();
         verify_model_dimension_units();
         {
             kernel::ViewerDimension count;count.label_only=true;count.unit_suffix.clear();count.value=4;
@@ -884,7 +932,11 @@ int main(int argc, char **argv) {
                 near(QLineF(planar.handles[0],arc_center).length(),QLineF(project(d.line_first),arc_center).length());
                 const double text_angle=planar.text_angle*std::numbers::pi/180;
                 const auto baseline_middle=planar.text_baseline+QPointF(std::cos(text_angle),std::sin(text_angle))*20;
-                near(QLineF(baseline_middle,planar.handles[0]).length(),3);
+                require(QLineF(baseline_middle,planar.handles[0]).length()>=3,
+                    "Angular text lost its above-line clearance");
+                require(viewer::dimension_screen_dot(baseline_middle-planar.handles[0],
+                    QPointF(std::sin(text_angle),-std::cos(text_angle)))>=3-1e-6,
+                    "Angular text clearance is on the wrong side of the readable tangent");
                 if(position.y<0) {
                     const auto& extension=planar.curves[2];
                     require(extension.size()>2,"Outside angular text has a straight extension");

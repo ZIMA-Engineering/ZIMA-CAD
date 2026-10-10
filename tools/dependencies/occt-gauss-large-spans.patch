@@ -1,0 +1,66 @@
+diff --git a/src/ModelingAlgorithms/TKTopAlgo/BRepGProp/BRepGProp_Gauss.cxx b/src/ModelingAlgorithms/TKTopAlgo/BRepGProp/BRepGProp_Gauss.cxx
+--- a/src/ModelingAlgorithms/TKTopAlgo/BRepGProp/BRepGProp_Gauss.cxx
++++ b/src/ModelingAlgorithms/TKTopAlgo/BRepGProp/BRepGProp_Gauss.cxx
+@@ -253,9 +253,24 @@
+                                         NCollection_Handle<math_Vector>&  theError,
+                                         NCollection_Handle<math_Vector>&  theCommonError)
+ {
+-  const int aSize = std::max(theKnots.Upper(), MaxSubs(theKnots.Upper() - 1, theNumSubs));
+-
+-  if (aSize - 1 > theParam1->Upper())
++  // Bounds may lie outside the knot range. Count the intervals that will
++  // actually be emitted, including the leading and trailing bound intervals.
++  int aNbIntervals = 1;
++  for (int i = theKnots.Lower(); i <= theKnots.Upper(); ++i)
++  {
++    const double aKnot = theKnots(i);
++    if (aKnot >= theB)
++    {
++      break;
++    }
++    if (theA < aKnot)
++    {
++      ++aNbIntervals;
++    }
++  }
++  const int aSize = std::max(theKnots.Upper(), MaxSubs(aNbIntervals, theNumSubs));
++
++  if (aSize > theParam1->Upper())
+   {
+     theInerts = new NCollection_Array1<Inertia>(1, aSize);
+     theParam1 = new math_Vector(1, aSize);
+@@ -664,13 +679,12 @@
+       iLSubEnd = FillIntervalBounds(l1, l2, LKnots, NumSubs, anInertiaL, L1, L2, ErrL, ErrUL);
+       LMaxSubs = BRepGProp_Gauss::MaxSubs(iLSubEnd);
+ 
+-      if (LMaxSubs > SM)
+-      {
+-        LMaxSubs = SM;
+-      }
++      // Use the adaptive budget allocated for the actual initial intervals.
++      // A fixed global cap may precede them and make the stop unreachable.
+ 
+       BRepGProp_Gauss::InitMass(0.0, 1, LMaxSubs, anInertiaL);
+-      BRepGProp_Gauss::Init(ErrL, 0.0, 1, LMaxSubs);
++      // Max() searches the entire reusable vector, including its old tail.
++      ErrL->Init(0.0);
+       BRepGProp_Gauss::Init(ErrUL, 0.0, 1, LMaxSubs);
+ 
+       do // while: L
+@@ -773,13 +787,11 @@
+                   FillIntervalBounds(u1, u2, UKnots, NumSubs, anInertiaU, U1, U2, ErrU, aDummy);
+                 UMaxSubs = BRepGProp_Gauss::MaxSubs(iUSubEnd);
+ 
+-                if (UMaxSubs > SM)
+-                {
+-                  UMaxSubs = SM;
+-                }
++                // Keep the dynamically allocated U subdivision budget.
+ 
+                 BRepGProp_Gauss::InitMass(0.0, 1, UMaxSubs, anInertiaU);
+-                BRepGProp_Gauss::Init(ErrU, 0.0, 1, UMaxSubs);
++                // Retire errors outside this range's current subdivision budget.
++                ErrU->Init(0.0);
+                 ErrorU = 0.0;
+ 
+                 do

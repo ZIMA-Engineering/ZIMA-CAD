@@ -38,7 +38,72 @@ After the reboot:
 Keep one shared modeling implementation. Do not solve a fingerprint mismatch
 by ignoring validation, reducing precision, globally normalizing numeric data,
 or introducing Windows/Linux variants of modeling algorithms. The exact final
-source commit, fixture paths and commands will accompany the completed work.
+source commit, fixture paths and commands are recorded below.
+
+### Receiving build 2026101003
+
+Use the immutable source tag `ZIMA-CAD-2026101003` and record its resolved commit
+with `git rev-parse ZIMA-CAD-2026101003^{commit}` after fetching tags. Read the
+[Windows investigation](performance/20261010-step-gauss-shared-source.md),
+[calculated-model protocol](CALCULATED_MODEL_PARITY.md),
+[angular-text repair](DRAWING_ANGULAR_TEXT.md) and
+[release acceptance](releases/2026101003.md). The same OCCT 8.0.0 patch SHA-256
+is `2f500bc8e2e0346be3c6770351c3ac043d8b1a9da4a904aa4e829f3af45e6863`.
+CMake rejects an unpatched or differently patched SDK. Preserve local settings
+and Projects; the large user STEP files are not committed Git assets.
+
+From the repository root, using the existing native prerequisites described
+later in this handoff:
+
+```sh
+bash tools/distribution/build-linux-sdk.sh
+(cd cpp && cmake --preset linux-runtime-release)
+cmake --build build/cpp-release --parallel 8 --target \
+  zima-cad-cpp zima-cad-cli zima-cad-drawing-harness \
+  zima_cpp_native_documents_tests zima_cpp_step_model_contract_tests \
+  zima_cpp_occt_gauss_interval_contract_tests zima_cpp_step_parallel_properties_tests \
+  zima_cpp_import_model_contract_tests zima_cpp_dimension_layout_contract_tests \
+  zima_cpp_sheet_form_definition_tests zima_cpp_sheet_form_command_tests \
+  zima_cpp_sheet_form_geometry_tests zima_cpp_ui_contract_tests
+ctest --test-dir build/cpp-release --output-on-failure -R \
+  '^zima_cpp_(native_documents_tests|step_model_contract_tests|occt_gauss_interval_contract_tests|step_parallel_properties_tests|import_model_contract_tests|dimension_layout_contract_tests|sheet_form_definition_tests|sheet_form_command_tests|sheet_form_geometry_tests|sheet_form_copy_tests|sheet_form_copy_after_unbend_tests|translations_contract)$'
+```
+
+The tracked `cpp/tests/fixtures/parity/ventilation-linux.prtz` retains actual
+Linux-calculated geometry and tests loading, exact definition validation and
+save/reopen. Factory `config/lib/01-SHEETMETAL/01-FORM/VentilationWindow.prtz`
+contains the refreshed Windows calculation. Open both without regeneration,
+then explicitly regenerate and compare geometry, stored physical properties,
+owner/reference identities and side choices. The current proof is required;
+old cached files without it are intentionally unsupported. Do not patch around
+this with a legacy adapter or an automatic calculation on open.
+
+When the user STEP data are accessible under Projects/import, compare the
+complete prepared packets:
+
+```sh
+mkdir -p build/import-followup
+build/cpp-release/zima_cpp_step_model_contract_tests --import-preparation-file \
+  Projects/import/G92H1-T.step 0 shared build/import-followup/g92h-linux.json
+build/cpp-release/zima_cpp_step_model_contract_tests --import-preparation-file \
+  Projects/import/G92K1.stp 0 shared build/import-followup/g92k-linux.json
+sha256sum build/import-followup/g92h-linux.json build/import-followup/g92k-linux.json
+```
+
+Windows accepted packet hashes are documented in the investigation. Cross-OS
+floating-point differences must be examined as geometry/properties and identity
+contracts; a different packet hash alone is not proof of changed modeling intent.
+G92K1 still has a documented Gauss/Gauss-Kronrod physical-property discrepancy;
+do not silently reduce integration precision or claim that reported convergence
+proves physical accuracy.
+
+On the native desktop, verify new-template activation, complete imported Body
+placement and Cancel, Extrusion open/Cancel, all five rotation modes with
+selection/inspection, and Drawing angular text above its arc inside/outside the
+angle and below the vertex. Include native save/reopen, Undo/Redo and PDF/DXF.
+The offscreen test platform alone does not establish native OpenGL or mouse
+interaction acceptance. Record actual Linux GUI evidence before publishing a
+Linux build; allocate its own new build identity.
 
 ## Imported-model performance and factory cache follow-up (2026-10-10)
 

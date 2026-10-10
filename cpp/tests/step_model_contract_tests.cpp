@@ -4,6 +4,7 @@
 #include <zima/interchange/step_model.hpp>
 #include <zima/interchange/step.hpp>
 #include <zima/kernel/occt_kernel.hpp>
+#include <zima/kernel/step_source_document.hpp>
 #include <BRepPrimAPI_MakeBox.hxx>
 #include <BRepPrimAPI_MakeCylinder.hxx>
 #include <BRepPrimAPI_MakeTorus.hxx>
@@ -86,11 +87,13 @@ void same_bounds(const std::vector<V>& a,const std::vector<V>& b) {
     require(std::max({std::abs(al.x-bl.x),std::abs(al.y-bl.y),std::abs(al.z-bl.z),std::abs(ah.x-bh.x),std::abs(ah.y-bh.y),std::abs(ah.z-bh.z)})<1e-6,
         "STEP changed a rotation, translation or unit scale");
 }
-kernel::BodyResult preparation_result(kernel::OcctKernel& kernel,const kernel::StepRequest& source,bool freeze) {
+kernel::BodyResult preparation_result(kernel::OcctKernel& kernel,const kernel::StepRequest& source,bool freeze,
+        std::unique_ptr<kernel::StepSourceDocument> prepared={}) {
     auto request=source;
     if(freeze) {
-        auto captured=kernel.freeze_step_components({source}).front();
+        auto captured=kernel.freeze_step_components({source},prepared.get()).front();
         request.frozen_brep=std::move(captured.brep);request.topology=std::move(captured.topology);
+        prepared.reset();
     } else {
         auto captured=kernel.import_step_components({source},.1).front();
         request.frozen_brep=std::make_shared<const std::string>(std::move(captured.kernel_shape));
@@ -106,6 +109,54 @@ void check_freeze_preparation(kernel::OcctKernel& kernel,const kernel::StepReque
     require(document::serialize_body_result(baseline)==document::serialize_body_result(frozen),
         "Freeze-only preparation changed final history geometry, properties or reference identity");
 }
+void check_shared_source(kernel::OcctKernel& kernel,const std::filesystem::path& path) {
+    auto prepared=std::make_unique<kernel::StepSourceDocument>(document::path_to_utf8(path));
+    const auto nodes=interchange::inspect_step_parts(*prepared);
+    const auto leaf=std::find_if(nodes.begin(),nodes.end(),[](const auto& node){return !node.assembly;});
+    require(leaf!=nodes.end(),"Shared STEP fixture has no leaf");
+    kernel::StepRequest request{document::path_to_utf8(path),leaf->definition_id,{},{},"shared-source-proof"};
+    const auto baseline=preparation_result(kernel,request,true);
+    auto foreign=request;foreign.source_path+=".other";
+    bool rejected=false;
+    try {static_cast<void>(kernel.freeze_step_components({foreign},prepared.get()));}
+    catch(const std::invalid_argument&) {rejected=true;}
+    require(rejected,"Prepared STEP document accepted a different source");
+    auto missing=request;missing.component_path="0:999999";rejected=false;
+    try {static_cast<void>(kernel.freeze_step_components({missing},prepared.get()));}
+    catch(const std::runtime_error&) {rejected=true;}
+    require(rejected,"Prepared STEP document accepted a missing definition");
+    // This is an owned generated fixture, never a user's STEP file. Capturing
+    // while its path is absent proves that the operation reuses the transfer.
+    const auto held=path.string()+".held";
+    std::filesystem::rename(path,held);
+    kernel::BodyResult shared;
+    try {shared=preparation_result(kernel,request,true,std::move(prepared));}
+    catch(...) {std::filesystem::rename(held,path);throw;}
+    std::filesystem::rename(held,path);
+    require(document::serialize_body_result(baseline)==document::serialize_body_result(shared),
+        "Shared STEP transfer changed geometry, properties or persisted references");
+}
+void check_changed_source(kernel::OcctKernel& kernel,const std::filesystem::path& directory) {
+    const auto path=directory/"changed-source.step";
+    const auto write=[&](double width) {
+        STEPControl_Writer writer;
+        require(writer.Transfer(BRepPrimAPI_MakeBox(width,3,4).Shape(),STEPControl_AsIs)==IFSelect_RetDone,
+            "Changed source transfer failed");
+        require(writer.Write(path.string().c_str())==IFSelect_RetDone,"Changed source write failed");
+    };
+    const auto capture=[&]() {
+        auto prepared=std::make_unique<kernel::StepSourceDocument>(document::path_to_utf8(path));
+        const auto nodes=interchange::inspect_step_parts(*prepared);
+        const auto leaf=std::find_if(nodes.begin(),nodes.end(),[](const auto& node){return !node.assembly;});
+        require(leaf!=nodes.end(),"Changed source has no leaf");
+        return preparation_result(kernel,{document::path_to_utf8(path),leaf->definition_id,{},{},"changed-source-proof"},
+            true,std::move(prepared));
+    };
+    write(2);const auto first=capture();
+    write(5);const auto second=capture();
+    require(std::abs(first.volume-24)<1e-8&&std::abs(second.volume-60)<1e-8,
+        "A later import reused stale geometry for the same filename");
+}
 }
 int main(int argc,char** argv) {
     try {
@@ -113,17 +164,19 @@ int main(int argc,char** argv) {
         if(argc==6&&std::string_view(argv[1])=="--import-preparation-file") {
             const auto start=std::chrono::steady_clock::now();
             const auto path=std::filesystem::absolute(std::filesystem::u8path(argv[2]));
-            const auto nodes=interchange::inspect_step_parts(path);
+            const bool shared=std::string_view(argv[4])=="shared";
+            auto prepared=shared?std::make_unique<kernel::StepSourceDocument>(document::path_to_utf8(path)):nullptr;
+            const auto nodes=shared?interchange::inspect_step_parts(*prepared):interchange::inspect_step_parts(path);
             const auto inspected=std::chrono::steady_clock::now();
             std::vector<kernel::StepRequest> requests;
             for(const auto& node:nodes)if(!node.assembly)
                 requests.push_back({document::path_to_utf8(path),node.definition_id,{},{},"probe-"+std::to_string(requests.size())});
             const auto index=std::stoull(argv[3]);require(index<requests.size(),"STEP component index out of range");
-            const bool freeze=std::string_view(argv[4])=="frozen";
+            const bool freeze=shared||std::string_view(argv[4])=="frozen";
             require(freeze||std::string_view(argv[4])=="baseline","Unknown STEP preparation variant");
             std::cout<<"STEP preparation variant="<<argv[4]<<" leaves="<<requests.size()<<" definition="<<requests[index].component_path
                 <<" inspection ms="<<std::chrono::duration<double,std::milli>(inspected-start).count()<<std::endl;
-            const auto body=preparation_result(kernel,requests[index],freeze);
+            const auto body=preparation_result(kernel,requests[index],freeze,std::move(prepared));
             std::cout<<"STEP preparation total ms="<<std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-start).count()<<std::endl;
             const auto bytes=QByteArray::fromStdString(document::serialize_body_result(body).dump());
             std::cout<<"Prepared history sha256="<<QCryptographicHash::hash(bytes,QCryptographicHash::Sha256).toHex().constData()<<std::endl;
@@ -168,6 +221,8 @@ int main(int argc,char** argv) {
         kernel::StepProduct b;b.definition_id="part-b";b.name="Deska";b.body=zima::test::profile_body(kernel,{8,5,3});b.translation={15,-35,5};
         kernel::StepProduct root;root.definition_id="root";root.name="STEP sestava";root.children={sub,sub2,b};
         const auto source=directory/"assembly.step";kernel.export_step(root,source.string());
+        check_shared_source(kernel,source);
+        check_changed_source(kernel,directory);
         const auto nodes=interchange::inspect_step_parts(source);
         std::set<std::string> definitions;std::size_t leaves{};
         for(const auto& node:nodes)if(!node.assembly){++leaves;definitions.insert(node.definition_id);}

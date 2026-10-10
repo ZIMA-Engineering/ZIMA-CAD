@@ -2247,5 +2247,8 @@
   "Position 2": "Position 2",
   "In-plane angle": "Winkel in der Ebene",
   "Signed distance to a line or plane. A point sets sheet-plane X in row 2 or Z in row 3.": "Vorzeichenbehafteter Abstand zu einer Linie oder Ebene. Ein Punkt bestimmt X in der Blechebene in Zeile 2 oder Z in Zeile 3.",
-  "Corner FORM cannot fit the prescribed transition radii. Change the bend radius or the definition.": "Die Eckformung kann mit den vorgeschriebenen Übergangsradien nicht erstellt werden. Ändern Sie den Biegeradius oder die Definition."
+  "Corner FORM cannot fit the prescribed transition radii. Change the bend radius or the definition.": "Die Eckformung kann mit den vorgeschriebenen Übergangsradien nicht erstellt werden. Ändern Sie den Biegeradius oder die Definition.",
+  "Cannot initialize document fingerprint": "Dokumentprüfsumme kann nicht initialisiert werden",
+  "Cannot finish document fingerprint": "Dokumentprüfsumme kann nicht abgeschlossen werden",
+  "Calculated history boundary does not match its parameters": "Das gespeicherte Berechnungsergebnis stimmt nicht mit den Dokumentparametern überein"
 }

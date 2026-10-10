@@ -2247,5 +2247,8 @@
   "Position 2": "Положение 2",
   "In-plane angle": "Угол в плоскости",
   "Signed distance to a line or plane. A point sets sheet-plane X in row 2 or Z in row 3.": "Расстояние со знаком до линии или плоскости. Точка задаёт X в плоскости листа в строке 2 или Z в строке 3.",
-  "Corner FORM cannot fit the prescribed transition radii. Change the bend radius or the definition.": "Угловую формовку невозможно создать с заданными радиусами переходов. Измените радиус сгиба или определение."
+  "Corner FORM cannot fit the prescribed transition radii. Change the bend radius or the definition.": "Угловую формовку невозможно создать с заданными радиусами переходов. Измените радиус сгиба или определение.",
+  "Cannot initialize document fingerprint": "Не удалось инициализировать контрольную сумму документа",
+  "Cannot finish document fingerprint": "Не удалось завершить вычисление контрольной суммы документа",
+  "Calculated history boundary does not match its parameters": "Сохранённый результат расчёта не соответствует параметрам документа"
 }

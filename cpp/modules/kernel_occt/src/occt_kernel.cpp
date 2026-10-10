@@ -16,6 +16,7 @@
 #include <BRepOffsetAPI_DraftAngle.hxx>
 #include <zima/kernel/shaft_thread_geometry.hpp>
 #include <zima/kernel/occt_kernel.hpp>
+#include <zima/kernel/step_source_document.hpp>
 #include <zima/kernel/solid_straightening.hpp>
 #include <zima/kernel/solid_state_history.hpp>
 #include <zima/kernel/solid_state_ancestry.hpp>
@@ -3228,17 +3229,12 @@ void restore_step_topology(const StepRequest& request,
         Kind::Vertex, request.topology, owner_id, result.vertices);
 }
 
-struct StepDocumentCache {
-    Handle(TDocStd_Document) document;
-    std::unique_ptr<STEPCAFControl_Reader> reader;
-    ~StepDocumentCache() {
-        if(!document.IsNull())XCAFApp_Application::GetApplication()->Close(document);
-    }
-};
+using StepDocumentCache = std::unique_ptr<StepSourceDocument>;
 
 PrimitiveData make_step_data(
     const StepRequest& request, const std::string& owner_id,
-    std::unordered_map<std::string, StepDocumentCache>& documents) {
+    std::unordered_map<std::string, StepDocumentCache>& documents,
+    const StepSourceDocument* source = nullptr) {
     PrimitiveData result;
     if (request.frozen_brep && !request.frozen_brep->empty()) {
         std::istringstream stream(*request.frozen_brep);
@@ -3254,6 +3250,7 @@ PrimitiveData make_step_data(
     } else if (request.source_path.empty()) {
         throw std::invalid_argument("STEP source path is empty");
     } else if (request.component_path.empty()) {
+        if(source)throw std::invalid_argument("STEP component is missing");
         STEPControl_Reader reader;
         if (reader.ReadFile(request.source_path.c_str()) != IFSelect_RetDone ||
             reader.TransferRoots() == 0) {
@@ -3262,25 +3259,21 @@ PrimitiveData make_step_data(
         result.shape = reader.OneShape();
         capture_step_topology(reader, result.shape, owner_id, result);
     } else {
-        auto& cached = documents[request.source_path];
-        if (cached.document.IsNull()) {
-            XCAFApp_Application::GetApplication()->NewDocument(
-                "BinXCAF", cached.document);
-            cached.reader = std::make_unique<STEPCAFControl_Reader>();
-            if(cached.reader->ReadFile(request.source_path.c_str())!=IFSelect_RetDone)
-                throw std::runtime_error("OCCT STEP product structure import failed");
-            cached.reader->ChangeReader().SetSystemLengthUnit(1.0);
-            if(!cached.reader->Transfer(cached.document))
-                throw std::runtime_error("OCCT STEP product structure import failed");
+        if(source&&source->source_path()!=request.source_path)
+            throw std::invalid_argument("STEP component is missing");
+        if(!source) {
+            auto& cached=documents[request.source_path];
+            if(!cached)cached=std::make_unique<StepSourceDocument>(request.source_path);
+            source=cached.get();
         }
         TDF_Label definition;
         TDF_Tool::Label(
-            cached.document->GetData(), request.component_path.c_str(), definition, false);
+            source->document()->GetData(), request.component_path.c_str(), definition, false);
         result.shape = definition.IsNull() ? TopoDS_Shape{}
-            : XCAFDoc_DocumentTool::ShapeTool(cached.document->Main())->GetShape(definition);
+            : XCAFDoc_DocumentTool::ShapeTool(source->document()->Main())->GetShape(definition);
         if (result.shape.IsNull()) throw std::runtime_error("STEP component is missing");
         capture_step_topology(
-            cached.reader->Reader(), result.shape, owner_id, result);
+            source->reader().Reader(), result.shape, owner_id, result);
     }
     if (result.shape.IsNull() || !BRepCheck_Analyzer(result.shape).IsValid()) {
         throw std::runtime_error("STEP did not produce a valid shape");
@@ -5604,15 +5597,16 @@ void store_volume_integrals(BodyResult& result,const GProp_GProps& properties) {
     result.volume_integrals=p;
 }
 
-// Corner FORM creates several independent trimmed blend patches. Integrate
-// their volumes with the same OCCT 8.0.0 face integrator, common reference point,
+// Corner FORM and STEP have independent trimmed patches. Integrate their
+// volumes with the same OCCT 8.0.0 face integrator, common reference point,
 // span handling and tolerance as VolumePropertiesGK. Only the independent
 // calculations run concurrently; reduction retains the original face order.
-double corner_form_volume(const TopoDS_Shape& shape,GProp_GProps& properties) {
+double corner_form_volume(const TopoDS_Shape& shape,GProp_GProps& properties,
+        const char* failure="FORM could not create a valid sheet.") {
     gp_XYZ sum(0,0,0);unsigned count=0;
     for(TopExp_Explorer it(shape,TopAbs_VERTEX);it.More();it.Next(),++count)
         sum+=BRep_Tool::Pnt(TopoDS::Vertex(it.Current())).XYZ();
-    if(!count)throw std::runtime_error("FORM could not create a valid sheet.");
+    if(!count)throw std::runtime_error(failure);
     sum/=count;const gp_Pnt location(sum);
     std::vector<TopoDS_Face> faces;
     for(TopExp_Explorer it(shape,TopAbs_FACE);it.More();it.Next()) {
@@ -5635,7 +5629,7 @@ double corner_form_volume(const TopoDS_Shape& shape,GProp_GProps& properties) {
     for(auto& job:jobs)job.get();
     properties=GProp_GProps{};double error=0.;
     for(std::size_t index=0;index<pieces.size();++index) {
-        if(!std::isfinite(errors[index])||errors[index]<0.)throw std::runtime_error("FORM could not create a valid sheet.");
+        if(!std::isfinite(errors[index])||errors[index]<0.)throw std::runtime_error(failure);
         properties.Add(pieces[index]);error+=errors[index];
     }
     return error;
@@ -5722,6 +5716,8 @@ BodyResult make_result(
             // fast full tensor integration is independently checked against GK.
             GProp_GProps volume_only;
             const auto volume_error=parallel_corner_volume?corner_form_volume(volume_shape,volume_only):
+                imported_step&&volume_shape.NbChildren()>0?corner_form_volume(volume_shape,volume_only,
+                    "OCCT rational volume integration failed"):
                 BRepGProp::VolumePropertiesGK(volume_shape,volume_only,1e-12,false,true);
             if(!std::isfinite(volume_error)||volume_error<0)throw std::runtime_error("OCCT rational volume integration failed");
             rational_volume=volume_only.Mass();
@@ -6474,7 +6470,7 @@ std::vector<BodyResult> OcctKernel::import_step_components(
 }
 
 std::vector<FrozenStepComponent> OcctKernel::freeze_step_components(
-    const std::vector<StepRequest>& requests) const {
+    const std::vector<StepRequest>& requests,const StepSourceDocument* source) const {
     std::unordered_map<std::string, StepDocumentCache> documents;
     std::vector<FrozenStepComponent> results;
     results.reserve(requests.size());
@@ -6482,7 +6478,7 @@ std::vector<FrozenStepComponent> OcctKernel::freeze_step_components(
         const auto& request=requests[index];
         const std::string owner=request.reference_owner_id.empty()
             ? "step-import:"+std::to_string(index):request.reference_owner_id;
-        const auto data=make_step_data(request,owner,documents);
+        const auto data=make_step_data(request,owner,documents,source);
         BodyResult archive;
         persist_imported_topology(data,archive);
         results.push_back({std::make_shared<const std::string>(std::move(archive.kernel_shape)),

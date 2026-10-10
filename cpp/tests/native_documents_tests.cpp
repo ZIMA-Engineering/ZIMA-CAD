@@ -31,6 +31,21 @@ int main(){
         check_labels(template_part);check_labels(template_assembly);
         const auto directory=fs::canonical(fs::temp_directory_path())/("zima-native-documents-"+document::PartDocument::create_default().document_id);
         fs::create_directory(directory);
+        {
+            const auto fixture=fs::absolute("cpp/tests/fixtures/parity/ventilation-linux.prtz");
+            const auto before=bytes(fixture);
+            require(before.find("9c5e8e780b30accd")!=std::string::npos,"Linux fixture lost its original runtime fingerprint");
+            std::vector<kernel::BodyResult> calculated;
+            const auto portable=document::PartDocument::load(fixture,&calculated);
+            require(bytes(fixture)==before&&calculated.size()==7,"Opening the Linux calculation changed the source or lost history");
+            require(calculated.back().surface_area==2242.5998362849596&&calculated.back().volume==0,
+                "Opening the Linux calculation changed stored physical properties");
+            const auto snapshot=portable.serialized(calculated);
+            portable.save(directory/"linux-roundtrip.prtz",calculated);
+            std::vector<kernel::BodyResult> reopened;
+            const auto restored=document::PartDocument::load(directory/"linux-roundtrip.prtz",&reopened);
+            require(restored.serialized(reopened)==snapshot,"Linux save/reopen changed exact geometry, references or authored parameters");
+        }
         Workspace workspace;
         {
             const auto blank=drawing_from_template(settings);
@@ -126,6 +141,32 @@ int main(){
         auto model=document::PartDocument::create_default();model.name="stored model";
         model.history.push_back(zima::test::rectangular_feature(model));
         kernel::OcctKernel kernel;const auto boundaries=kernel.evaluate_history(model.kernel_operations());
+        {
+            auto stored=model.serialized(boundaries);
+            // A different platform may reconstruct temporary arc points with
+            // different last bits. Its runtime reuse keys are not persistence
+            // authority; the exact native definition is.
+            for(auto& boundary:stored["calculated_boundaries"])
+                boundary["source_fingerprint"]="other-platform-runtime-key";
+            std::vector<kernel::BodyResult> rebound;
+            const auto portable=document::PartDocument::from_serialized(stored,&rebound);
+            require(portable.serialized(rebound)==model.serialized(boundaries),
+                "Portable calculation changed its definition, geometry, properties or references");
+            auto renamed=stored;renamed["name"]="Renamed without calculation";
+            require(document::PartDocument::from_serialized(renamed).name=="Renamed without calculation",
+                "A document rename invalidated unchanged geometry");
+            auto altered=stored;altered["document_precision"]["linear_tolerance"]="0.0005";
+            fails([&]{document::PartDocument::from_serialized(altered);},"Stale calculation accepted changed precision");
+            altered=stored;altered["sketches"][0]["points"][0]["x"]=123.0;
+            fails([&]{document::PartDocument::from_serialized(altered);},"Stale calculation accepted changed Sketch geometry");
+            altered=stored;altered["sketches"][0]["points"][0]["x"]=std::nextafter(
+                stored["sketches"][0]["points"][0]["x"].get<double>(),std::numeric_limits<double>::infinity());
+            fails([&]{document::PartDocument::from_serialized(altered);},"Stale calculation accepted a one-bit authored change");
+            altered=stored;altered.erase("calculation_definition_fingerprint");
+            fails([&]{document::PartDocument::from_serialized(altered);},"Calculation without an authored-definition proof accepted");
+            auto changed=model;zima::test::resize_rectangular_feature(changed,changed.history.front(),{21,10,6});
+            fails([&]{changed.serialized(boundaries);},"Save accepted stale geometry after a parameter change");
+        }
         const auto model_path=directory/fs::path(u8"uložený model.PRTZ");model.save(model_path,boundaries);
         auto loaded=std::async(std::launch::async,[model_path]{return read_native_document(model_path);}).get();
         const auto model_id=loaded.id();require(model_id==model.document_id,"Read changed document identity");

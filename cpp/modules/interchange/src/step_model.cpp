@@ -4,11 +4,13 @@
 #include <zima/interchange/step.hpp>
 #include <zima/document/precision.hpp>
 #include <zima/kernel/occt_kernel.hpp>
+#include <zima/kernel/step_source_document.hpp>
 #include <algorithm>
 #include <functional>
 #include <set>
 #include <sstream>
 #include <iomanip>
+#include <memory>
 #include <stdexcept>
 namespace zima::interchange {
 namespace {
@@ -74,7 +76,8 @@ StepImportedPart import_step_part(document::PartDocument doc,
     if (mesh_deflection && (!std::isfinite(*mesh_deflection) || *mesh_deflection<=0))
         throw std::invalid_argument("Import mesh deflection must be positive");
     const auto absolute=std::filesystem::absolute(source);
-    const auto nodes=inspect_step_parts(absolute);
+    auto prepared=std::make_unique<kernel::StepSourceDocument>(document::path_to_utf8(absolute),"STEP produktovou strukturu nelze načíst");
+    const auto nodes=inspect_step_parts(*prepared);
     std::vector<document::HistoryContainer> containers;
     std::vector<kernel::StepRequest> requests;
     for(const auto& node:nodes)if(!node.assembly) {
@@ -85,7 +88,8 @@ StepImportedPart import_step_part(document::PartDocument doc,
     }
     if(requests.empty())throw std::runtime_error("STEP neobsahuje žádné díly");
     kernel::OcctKernel kernel;
-    auto frozen=kernel.freeze_step_components(requests);
+    auto frozen=kernel.freeze_step_components(requests,prepared.get());
+    prepared.reset();
     std::size_t index=0;
     for(const auto& node:nodes)if(!node.assembly) {
         auto container=std::move(containers.at(index));
@@ -101,7 +105,8 @@ StepAssemblyImport import_step_assembly(const std::filesystem::path& source,
     if (mesh_deflection && (!std::isfinite(*mesh_deflection) || *mesh_deflection<=0))
         throw std::invalid_argument("Import mesh deflection must be positive");
     const auto absolute=std::filesystem::absolute(source);
-    const auto nodes=inspect_step_parts(absolute);
+    auto prepared=std::make_unique<kernel::StepSourceDocument>(document::path_to_utf8(absolute),"STEP produktovou strukturu nelze načíst");
+    const auto nodes=inspect_step_parts(*prepared);
     if(nodes.empty())throw std::runtime_error("STEP neobsahuje produktovou strukturu");
     StepAssemblyImport result;
     std::map<std::string,std::size_t> parts,assemblies;
@@ -115,7 +120,8 @@ StepAssemblyImport import_step_assembly(const std::filesystem::path& source,
         requests.push_back({document::path_to_utf8(absolute),node.definition_id,{},{},container.id});containers.push_back(std::move(container));
     }
     kernel::OcctKernel kernel;
-    auto frozen=kernel.freeze_step_components(requests);
+    auto frozen=kernel.freeze_step_components(requests,prepared.get());
+    prepared.reset();
     for(std::size_t i=0;i<unique_parts.size();++i) {
         auto doc=document::PartDocument::create_default();doc.name=unique_parts[i]->definition_name;doc.document_precision=precision;
         auto container=std::move(containers[i]);

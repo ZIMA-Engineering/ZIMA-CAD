@@ -285,8 +285,46 @@ DimensionPresentation dimension_presentation(const kernel::ViewerDimension &d, P
     out.handles = {center, a, b};
     if (d.kind == kernel::ViewerDimensionKind::Radius)
         out.handles = {center, b, b};
-    const QPointF up=planar_angular_text?dimension_screen_unit(center-w1):QPointF(text_direction.y(), -text_direction.x());
-    out.text_baseline = start + up * gap;
+    // "Above" follows the readable text orientation (ISO 129-1, 5.7.2),
+    // including on the lower half of a Drawing arc. A radial offset can point
+    // into the glyphs after the tangent has been reversed for readability.
+    const QPointF up(text_direction.y(), -text_direction.x());
+    double text_gap = gap;
+    if (planar_angular_text && dimension_screen_dot(up, center-w1) < 0) {
+        // On the inward side, the arc curves above its tangent under the label
+        // ends. Include that sagitta so the entire label clears the stroke.
+        const double radius = QLineF(center,w1).length();
+        const double half_width = std::max(text_width/2,
+            std::max(std::abs(text_bounds.left()),std::abs(text_bounds.right()))-text_width/2);
+        text_gap += radius-std::sqrt(std::max(0.0,radius*radius-half_width*half_width));
+    }
+    if (planar_angular_text && !text_bounds.isNull()) {
+        // Wide/toleranced labels can also meet another part of the arc or its
+        // continuation. Find the nearest clear baseline using the very same
+        // curved strokes that painting and picking consume.
+        std::vector<std::pair<double,double>> blocked;
+        const double left=-text_width/2+text_bounds.left(),right=-text_width/2+text_bounds.right();
+        for(const auto& curve:out.curves)if(curve.size()>2)
+            for(qsizetype i=1;i<curve.size();++i) {
+                const auto a=curve[i-1]-center,b=curve[i]-center;
+                const double ax=dimension_screen_dot(a,text_direction),bx=dimension_screen_dot(b,text_direction);
+                double first=0,last=1;
+                if(std::abs(bx-ax)<1e-12) {if(ax<left||ax>right)continue;}
+                else {
+                    const double t1=(left-ax)/(bx-ax),t2=(right-ax)/(bx-ax);
+                    first=std::max(0.,std::min(t1,t2));last=std::min(1.,std::max(t1,t2));
+                    if(first>last)continue;
+                }
+                const double ay=dimension_screen_dot(a,up),by=dimension_screen_dot(b,up);
+                const double y1=ay+(by-ay)*first,y2=ay+(by-ay)*last;
+                blocked.emplace_back(std::min(y1,y2)+text_bounds.top()-gap,
+                    std::max(y1,y2)+text_bounds.bottom()+gap);
+            }
+        std::sort(blocked.begin(),blocked.end());
+        for(const auto& [first,last]:blocked)
+            if(text_gap>=first&&text_gap<=last)text_gap=last;
+    }
+    out.text_baseline = start + up * text_gap;
     out.text_angle = std::atan2(text_direction.y(), text_direction.x()) * 180 / std::numbers::pi;
     out.valid = true;
     return out;

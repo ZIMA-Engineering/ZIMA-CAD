@@ -6,6 +6,7 @@ appearance={"bodies":{},"body":{"color":"#B9C2CC","metallic":0.0,"roughness":0.5
 body_color=#B9C2CC
 body_history={"active":"","bodies":[],"booleans":[],"cursor":0,"order":[]}
 body_properties=[]
+calculated_definition=zima-part-definition-sha256-v1
 dimension_identifiers={"entries":[],"next":1}
 dimension_layouts=[]
 document_id=template-start-part

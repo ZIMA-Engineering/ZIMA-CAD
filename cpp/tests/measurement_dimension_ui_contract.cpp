@@ -549,6 +549,26 @@ int verify_measurement_dimension_ui() {
                 require(std::abs(kernel::dimension_dot(a,b)-1)<1e-8,"Angular drawing arrow grip changed text bearing");
             }
         }
+        // Exercise readable tangents both inside and outside the angle, above
+        // and below its vertex, through the actual text-grip mouse interaction.
+        int angular_position{};
+        for(const auto label:{point(20,10),point(20,-10),point(40,-10),point(40,10)}) {
+            const auto before=window.document_for_test().sheets.front().dimensions.front();
+            const auto from=*window.annotation_handle_for_test(angular.id,0,true);
+            pick(canvas,from);mouse(canvas,QEvent::MouseButtonPress,from,Qt::LeftButton,Qt::LeftButton);
+            mouse(canvas,QEvent::MouseMove,label,Qt::NoButton,Qt::LeftButton);
+            mouse(canvas,QEvent::MouseButtonRelease,label,Qt::LeftButton,Qt::NoButton);
+            const auto after=window.document_for_test().sheets.front().dimensions.front();
+            const auto value=evaluate_drawing_dimension(*window.document_for_test().find_view(view.id),after);
+            require(after.attachments==before.attachments&&value.state==MeasurementState::Resolved&&
+                std::abs(value.presentations.front().value-90)<1e-8,"Angular text placement changed the measured angle");
+            const auto path="build/drawing-angle-position-"+std::to_string(angular_position++);
+            require(canvas->grab().save(QString::fromStdString(path+".png")),"Cannot save angular placement proof");
+            window.document_for_test().save(path+".drwz");
+            require(DrawingDocument::load(path+".drwz").sheets.front().dimensions.front()==after,
+                "Inside/outside angular text placement did not survive reopening");
+        }
+        window.export_pdf("build/drawing-angle-clearance.pdf");window.export_dxf("build/drawing-angle-clearance.dxf");
         const auto pixels=[&](QColor color){
             const auto image=canvas->grab().toImage();std::size_t found=0;
             for(int y=0;y<image.height();++y)for(int x=0;x<image.width();++x) {

@@ -2247,5 +2247,8 @@
   "Position 2": "Position 2",
   "In-plane angle": "Angle dans le plan",
   "Signed distance to a line or plane. A point sets sheet-plane X in row 2 or Z in row 3.": "Distance signée à une ligne ou un plan. Un point définit X dans le plan de la tôle à la ligne 2 ou Z à la ligne 3.",
-  "Corner FORM cannot fit the prescribed transition radii. Change the bend radius or the definition.": "Le formage d’angle ne peut pas être créé avec les rayons de raccordement prescrits. Modifiez le rayon du pli ou la définition."
+  "Corner FORM cannot fit the prescribed transition radii. Change the bend radius or the definition.": "Le formage d’angle ne peut pas être créé avec les rayons de raccordement prescrits. Modifiez le rayon du pli ou la définition.",
+  "Cannot initialize document fingerprint": "Impossible d’initialiser l’empreinte du document",
+  "Cannot finish document fingerprint": "Impossible de terminer l’empreinte du document",
+  "Calculated history boundary does not match its parameters": "Le résultat de calcul enregistré ne correspond pas aux paramètres du document"
 }

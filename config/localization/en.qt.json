@@ -2247,5 +2247,8 @@
   "Position 2": "Position 2",
   "In-plane angle": "In-plane angle",
   "Signed distance to a line or plane. A point sets sheet-plane X in row 2 or Z in row 3.": "Signed distance to a line or plane. A point sets sheet-plane X in row 2 or Z in row 3.",
-  "Corner FORM cannot fit the prescribed transition radii. Change the bend radius or the definition.": "Corner FORM cannot fit the prescribed transition radii. Change the bend radius or the definition."
+  "Corner FORM cannot fit the prescribed transition radii. Change the bend radius or the definition.": "Corner FORM cannot fit the prescribed transition radii. Change the bend radius or the definition.",
+  "Cannot initialize document fingerprint": "Cannot initialize document fingerprint",
+  "Cannot finish document fingerprint": "Cannot finish document fingerprint",
+  "Calculated history boundary does not match its parameters": "Calculated history boundary does not match its parameters"
 }
