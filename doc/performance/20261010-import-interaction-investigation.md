@@ -257,4 +257,6 @@ integration remains on the established path.
 Linux execution, complete multi-component STEP import, every native feature
 dialog, every general-surface GUI placement variant, assembly nesting and
 quantified rotation FPS remain unverified in this change. Existing user changes
-in configuration and unrelated untracked files were left intact.
+in configuration and unrelated untracked files are excluded from committed
+source and release assets. The translation diagnostic refreshes its existing
+working-directory `unsaved-document-cs.png` screenshot; this is not a product asset.

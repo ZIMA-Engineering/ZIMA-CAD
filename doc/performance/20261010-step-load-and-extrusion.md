@@ -153,3 +153,11 @@ cache portability require verification on the Linux host.
 
 Repository archive validation tests pass (10 checks, two platform-specific
 skips); publisher tests pass (16 checks). No product-visible text was changed.
+
+After native factory regeneration, the five-language translation/catalog/UI
+contract passes (8.46 s) and the ordinary Form GUI contract passes (77.64 s).
+Together with the 13 checks above, this accepts 15 distinct focused native/GUI
+checks. The section GUI failure remains reproduced (12.33 s); it is not counted
+as passing. The translation diagnostic refreshes its working-directory
+`unsaved-document-cs.png` screenshot; that diagnostic image, personal settings
+and unrelated working files are excluded from the commit and release.
