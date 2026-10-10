@@ -168,7 +168,11 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
         mesh.dimensions.insert(mesh.dimensions.end(), radii.begin(), radii.end());
     };
     const auto construction_mesh = [this, &append_curve_radii, &hidden_surface_packet_owners](const auto& document, double scene_size,
-            const zima::kernel::ViewerReferenceGeometry& reference_geometry) {
+            const auto& reference_source) {
+        const auto reference_geometry=[&]() -> const zima::kernel::ViewerReferenceGeometry& {
+            if constexpr(requires {reference_source();})return reference_source();
+            else return reference_source;
+        };
         const auto hidden_wires=[&] {
             if constexpr(requires {document.surface_wire_visibility;})return hidden_surface_packet_owners(document);
             else return std::set<std::string>{};
@@ -209,7 +213,7 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
                 if (const auto* body=document.body_history.find(construction_dimension_object_id_))
                     append_nonzero_parameter_dimensions(mesh.dimensions,
                         zima::document::container_placement_dimensions(body->scope.id,
-                            body->scope.placement, reference_geometry));
+                            body->scope.placement, reference_geometry()));
             }
             std::unordered_set<std::string> visible_ids;
             for (std::size_t i = 0; i < std::min(document.effective_history_cursor(), document.history_order.size()); ++i)
@@ -222,11 +226,11 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
                     if(feature.suppressed||(!document.history_order.empty()&&!visible_ids.contains(feature.id)))continue;
                     // The derived curves are native calculated reference data.
                     // Later body operations do not consume their display wires.
-                    for(const auto& edge:reference_geometry.edges)if(edge.reference.owner_id==feature.id&&
+                    for(const auto& edge:reference_geometry().edges)if(edge.reference.owner_id==feature.id&&
                         std::ranges::none_of(mesh.edges,[&](const auto& shown){return shown.reference==edge.reference;})) {
                         auto shown=edge;shown.display_owner_id=feature.id;mesh.edges.push_back(std::move(shown));
                     }
-                    for(const auto& point:reference_geometry.points)if(point.reference.owner_id==feature.id&&
+                    for(const auto& point:reference_geometry().points)if(point.reference.owner_id==feature.id&&
                         std::ranges::none_of(mesh.points,[&](const auto& shown){return shown.reference==point.reference;})) {
                         auto shown=point;shown.display_owner_id=feature.id;mesh.points.push_back(std::move(shown));
                     }
@@ -259,7 +263,7 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
                 zima::document::PartDocument path_display;
                 path_display.constructions.push_back(sweep_display_path(feature));
                 auto path_mesh = path_display.construction_viewer_mesh();
-                const bool has_solid_centerline = std::ranges::any_of(reference_geometry.edges,
+                const bool has_solid_centerline = std::ranges::any_of(reference_geometry().edges,
                     [&](const auto& edge) {
                         return edge.reference.owner_id == feature.id &&
                             edge.reference.semantic_key.starts_with("centerline:from:");
@@ -381,7 +385,7 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
             auto dimensions =
                 zima::document::container_placement_dimensions(
                     object->id, placement, construction_properties_preview
-                        ? construction_reference_geometry_ : reference_geometry);
+                        ? construction_reference_geometry_ : reference_geometry());
             if(construction_properties_preview&&general_surface_curve_annotation_placement_) {
                 zima::kernel::ViewerMesh annotations;annotations.dimensions=std::move(dimensions);
                 annotations=zima::document::general_surface_place_definition_mesh(*general_surface_curve_annotation_placement_,std::move(annotations));
@@ -442,7 +446,7 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
                             parameter_dimension_preview_->id == container->id
                         ? primitive_reference_geometry_
                         : document.construction_reference_geometry_for(
-                              container->id, reference_geometry);
+                              container->id, reference_geometry());
                 auto placement_dimensions =
                     zima::document::container_placement_dimensions(
                         container->id, container->placement,
@@ -1143,9 +1147,21 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
                 QTimer::singleShot(0,this,[this]{if(template_sketch())align_active_sketch_view(true);});
             }
         }
-        const auto construction_dimension_geometry =
-            part_construction_dimension_geometry(
-                document, part->session.calculated_boundaries());
+        // Keep the complete established source, but only prepare it when a
+        // displayed construction/parameter dimension actually consumes it.
+        // Ordinary imports and Body drafts use no such source (Body drafts
+        // already own their fixed reference-entry packet).
+        std::optional<zima::kernel::ViewerReferenceGeometry> construction_dimension_source;
+        const auto construction_dimension_geometry=[&]() -> const zima::kernel::ViewerReferenceGeometry& {
+            if(!construction_dimension_source) {
+                QElapsedTimer source_timer;source_timer.start();
+                construction_dimension_source.emplace(
+                    part_construction_dimension_geometry(document,part->session.calculated_boundaries()));
+                if(qEnvironmentVariableIsSet("ZIMA_CPP_PROFILE_COMMAND"))std::fprintf(stderr,
+                    "Workspace scene requested construction references: %.3f ms\n",source_timer.nsecsElapsed()/1e6);
+            }
+            return *construction_dimension_source;
+        };
         phase("construction references");
         tree_->setHeaderLabels({QString{}});
         const bool active_sweep_profile_sketch = sweep_profile_sketch_draft_ &&

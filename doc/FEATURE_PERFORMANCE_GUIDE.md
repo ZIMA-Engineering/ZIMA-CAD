@@ -83,6 +83,24 @@ Document the measured scope and remaining uncertainty. Review localization in al
 five supported languages; no-text changes still require that review. Follow the
 Windows runtime rules for builds and releases; Linux verification belongs on Linux.
 
+## Reuse derived structure separately from actual geometry
+
+Prepare an operation-local reference source lazily when a known dimension or
+construction consumer requests it. Retain the complete established builder and
+all its consumers; avoid replacing a needed source with a filtered approximation.
+
+Connectivity reuse requires exact checks of every classification input, including
+current coordinate equivalence, topology and ordered identities. Recompute actual
+positions and normals, and restore the established publication order after a
+rotation. A cache hit is useful only if its validation, cold construction and
+invalidated cases do not impose disproportionate work elsewhere. Measure those
+cases separately on real data; do not relax precision to improve hit rates.
+
+Forced-fresh GPU comparisons are correctness oracles. Their extra uploads and
+repaints do not represent ordinary command timing. Run ordinary A/B interactions
+separately from those checks. The finite large-import evidence is in the
+[STEP and viewer investigation](performance/20261010-step-gauss-shared-source.md).
+
 ## Measured examples to reuse
 
 - [Properties refresh audit](performance/20261001-command-properties-audit.md):

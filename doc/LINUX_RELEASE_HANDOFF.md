@@ -88,14 +88,14 @@ by ignoring validation, reducing precision, globally normalizing numeric data,
 or introducing Windows/Linux variants of modeling algorithms. The exact final
 source commit, fixture paths and commands are recorded below.
 
-### Receiving build 2026101003
+### Receiving build 2026101101
 
-Use the immutable source tag `ZIMA-CAD-2026101003` and record its resolved commit
-with `git rev-parse ZIMA-CAD-2026101003^{commit}` after fetching tags. Read the
+Use the immutable source tag `ZIMA-CAD-2026101101` and record its resolved commit
+with `git rev-parse ZIMA-CAD-2026101101^{commit}` after fetching tags. Read the
 [Windows investigation](performance/20261010-step-gauss-shared-source.md),
 [calculated-model protocol](CALCULATED_MODEL_PARITY.md),
 [angular-text repair](DRAWING_ANGULAR_TEXT.md) and
-[release acceptance](releases/2026101003.md). The same OCCT 8.0.0 patch SHA-256
+[release acceptance](releases/2026101101.md). The same OCCT 8.0.0 patch SHA-256
 is `2f500bc8e2e0346be3c6770351c3ac043d8b1a9da4a904aa4e829f3af45e6863`.
 CMake rejects an unpatched or differently patched SDK. Preserve local settings
 and Projects; the large user STEP files are not committed Git assets.
@@ -156,6 +156,16 @@ angle and below the vertex. Include native save/reopen, Undo/Redo and PDF/DXF.
 The offscreen test platform alone does not establish native OpenGL or mouse
 interaction acceptance. Record actual Linux GUI evidence before publishing a
 Linux build; allocate its own new build identity.
+
+Also build `zima_cpp_silhouette_view_benchmark` and run the permanent
+`zima_cpp_silhouette_connectivity_contract` on the actual desktop. Compare cached
+and forced-fresh complete GPU data across all seventeen reuse/invalidation cases,
+then exercise the large import's six Body poses. Verify the lazy complete
+reference path with SurfaceIntersection, both Sweeps, surface editing and feature,
+Body and Pattern dimensions. Record operation counts, cold-build costs and actual
+command timings separately from forced-fresh diagnostics. Windows's eighteen
+selected dependent contracts and 200 synthetic/thirteen product frame comparisons
+have passed; these do not substitute for native Linux execution.
 
 ## Rigid Body archive and display follow-up (2026-10-10, pending verification)
 

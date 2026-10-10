@@ -219,6 +219,19 @@ struct MeshView::Impl {
         QVector3D normal_b;
     };
     std::vector<SilhouetteCandidate> silhouette_candidates;
+    struct SilhouetteSource {
+        std::size_t first_triangle{},second_triangle{},first_side{};
+        std::size_t first_address{},second_address{},face_key{};
+    };
+    struct SilhouetteConnectivity {
+        std::vector<std::size_t> vertex_addresses;
+        std::vector<std::uint32_t> triangles;
+        std::vector<std::pair<std::size_t,std::string>> face_runs;
+        std::map<std::string,std::vector<std::pair<std::size_t,std::size_t>>,std::less<>> topology;
+        std::vector<std::string> face_keys;
+        std::vector<SilhouetteSource> sources;
+    };
+    std::optional<SilhouetteConnectivity> silhouette_connectivity;
     std::optional<std::array<float, 3>> silhouette_view_direction;
     GLsizei silhouette_vertex_count{};
     std::vector<CandidateKind> allowed_kinds{CandidateKind::Container};
@@ -572,15 +585,28 @@ struct MeshView::Impl {
         // Keep persisted solid faces unchanged. Origin planes are screen-size
         // overlays; rebuild their pick triangles from the exact scaled border
         // which paintGL displays, so hover and click cannot be spatially offset.
+        const auto include_triangle=[&](std::size_t triangle) {
+            const auto& reference=mesh.original_references.triangle_references[triangle];
+            return !(has_local_display_faces && reference.instance_path.empty() && !offer_original_containers && !offer_original_faces) &&
+                !reference.semantic_key.starts_with("origin:plane:") &&
+                reference.semantic_key!="plane" && reference.semantic_key!="plane:end" &&
+                triangle*3+2<mesh.original_references.triangles.size();
+        };
+        std::size_t reference_triangle_count=0;
+        for(std::size_t triangle=0;triangle<mesh.original_references.triangle_references.size();++triangle)
+            reference_triangle_count+=include_triangle(triangle);
+        // Reserve the exact accepted face count before copying identities.
+        // Repeated vector growth otherwise copies large string-bearing face
+        // records several times; selection and vertex publication stay ordered.
+        target.vertices.reserve(reference_triangle_count*3);
+        target.triangles.reserve(reference_triangle_count*3);
+        target.triangle_references.reserve(reference_triangle_count);
         for (std::size_t triangle = 0;
              triangle < mesh.original_references.triangle_references.size();
              ++triangle) {
             const auto& reference =
                 mesh.original_references.triangle_references[triangle];
-            if (has_local_display_faces && reference.instance_path.empty() && !offer_original_containers && !offer_original_faces) continue;
-            if (reference.semantic_key.starts_with("origin:plane:") ||
-                (reference.semantic_key == "plane" || reference.semantic_key == "plane:end")) continue;
-            if (triangle * 3 + 2 >= mesh.original_references.triangles.size()) continue;
+            if (!include_triangle(triangle)) continue;
             const auto base = static_cast<std::uint32_t>(target.vertices.size());
             for (std::size_t corner = 0; corner < 3; ++corner) {
                 target.vertices.push_back(mesh.original_references.vertices[
@@ -3046,10 +3072,10 @@ void MeshView::upload_mesh() {
     upload_phase("edges");
     // Candidate silhouette edges: internal triangulation edges shared by
     // exactly two triangles of the same owning face (owner_id + semantic_key)
-    // that are not already a persisted topological edge. Mirrors Python's
-    // build_silhouette_edges() in zima_cad/viewer_data.py. Rebuilt only when
-    // the mesh changes (gpu_dirty); the visible subset is re-selected every
-    // frame from the current camera direction in paintGL.
+    // that are not already a persisted topological edge. Exact connectivity
+    // may be retained across uploads; positions and normals always come from
+    // the actual mesh. The visible subset is re-selected every frame from
+    // the current camera direction in paintGL.
     {
         using RoundedPoint=std::array<double,3>;
         struct PointHash {
@@ -3109,17 +3135,91 @@ void MeshView::upload_mesh() {
                         point_address(edge.points[index+1]))});
             }
         }
+        // Verify the actual combinatorial inputs before reusing adjacency.
+        // Rounded coordinate classes are recomputed for every upload: a real
+        // class merge/split, topology edit, triangle edit or face-key change
+        // takes the full path. Coordinate values themselves are never reused.
+        decltype(Impl::SilhouetteConnectivity::topology) topology_signature;
+        for(const auto& entry:topology_segments) {
+            auto addresses=entry.second;
+            if(addresses.second<addresses.first)std::swap(addresses.first,addresses.second);
+            auto owner=topology_signature.find(entry.first);
+            if(owner==topology_signature.end())
+                owner=topology_signature.emplace(std::string(entry.first),std::vector<std::pair<std::size_t,std::size_t>>{}).first;
+            owner->second.push_back(addresses);
+        }
+        for(auto& [owner,segments]:topology_signature)std::ranges::sort(segments);
+        const auto triangle_count=impl_->mesh.triangles.size()/3;
+        std::vector<std::pair<std::size_t,std::string>> face_runs;
+        std::string_view run_owner,run_semantic;
+        bool have_run=false;
+        for(std::size_t triangle=0;triangle<std::min(triangle_count,impl_->mesh.triangle_references.size());++triangle) {
+            const auto& ref=impl_->mesh.triangle_references[triangle];
+            const std::string_view owner=ref.valid()?std::string_view(ref.owner_id):std::string_view{};
+            if(!have_run||run_owner!=owner||run_semantic!=ref.semantic_key) {
+                face_runs.emplace_back(1,std::string(owner)+"|"+ref.semantic_key);
+                run_owner=owner;run_semantic=ref.semantic_key;have_run=true;
+            } else ++face_runs.back().first;
+        }
+        const bool reuse_connectivity=impl_->silhouette_connectivity && !property("forceAdjacencyBuild").toBool() &&
+            impl_->silhouette_connectivity->vertex_addresses==vertex_addresses &&
+            impl_->silhouette_connectivity->triangles==impl_->mesh.triangles &&
+            impl_->silhouette_connectivity->face_runs==face_runs &&
+            impl_->silhouette_connectivity->topology==topology_signature;
+        if(qEnvironmentVariableIsSet("ZIMA_CPP_PROFILE_COMMAND")&&impl_->silhouette_connectivity) {
+            const auto& previous=*impl_->silhouette_connectivity;
+            std::fprintf(stderr,"Viewer adjacency reuse=%d forced=%d vertices=%d triangles=%d faces=%d topology=%d\n",
+                int(reuse_connectivity),int(property("forceAdjacencyBuild").toBool()),
+                int(previous.vertex_addresses==vertex_addresses),int(previous.triangles==impl_->mesh.triangles),
+                int(previous.face_runs==face_runs),int(previous.topology==topology_signature));
+        }
+        impl_->silhouette_candidates.clear();
+        impl_->silhouette_view_direction.reset();
+        impl_->silhouette_vertex_count=0;
+        if(reuse_connectivity) {
+            const auto& connectivity=*impl_->silhouette_connectivity;
+            std::vector<const Impl::SilhouetteSource*> ordered;
+            ordered.reserve(connectivity.sources.size());
+            for(const auto& source:connectivity.sources)ordered.push_back(&source);
+            const auto less=[&](const auto* first,const auto* second) {
+                const auto a=ordered_segment(first->first_address,first->second_address);
+                const auto b=ordered_segment(second->first_address,second->second_address);
+                return std::tie(connectivity.face_keys[first->face_key],rounded_points[a.first],rounded_points[a.second])<
+                    std::tie(connectivity.face_keys[second->face_key],rounded_points[b.first],rounded_points[b.second]);
+            };
+            if(!std::ranges::is_sorted(ordered,less))std::ranges::sort(ordered,less);
+            const auto triangle_points=[&](std::size_t triangle) {
+                std::array<QVector3D,3> points;
+                for(std::size_t corner=0;corner<3;++corner) {
+                    const auto& point=impl_->mesh.vertices[impl_->mesh.triangles[triangle*3+corner]];
+                    points[corner]=QVector3D(static_cast<float>(point.x),static_cast<float>(point.y),static_cast<float>(point.z));
+                }
+                return points;
+            };
+            const auto triangle_normal=[](const auto& points) {
+                auto normal=QVector3D::crossProduct(points[1]-points[0],points[2]-points[0]);
+                if(normal.lengthSquared()>1.0e-12F)normal.normalize();
+                return normal;
+            };
+            for(const auto* source:ordered) {
+                const auto first=triangle_points(source->first_triangle);
+                const auto second=triangle_points(source->second_triangle);
+                impl_->silhouette_candidates.push_back({first[source->first_side],first[(source->first_side+1)%3],
+                    triangle_normal(first),triangle_normal(second)});
+            }
+            setProperty("gpuAdjacencyReuseCount",property("gpuAdjacencyReuseCount").toULongLong()+1);
+        } else {
         struct SharedRecord { QVector3D first, second, normal; };
         struct SharedRecords {
             SharedRecord first;
             QVector3D second_normal;
             unsigned count{};
+            std::size_t first_triangle{},second_triangle{},first_side{};
         };
         // Intern each exact face key once for this upload. Set nodes keep
         // their strings stable until the adjacency map has been destroyed.
         std::set<std::string> face_keys;
         std::unordered_map<SharedKey,SharedRecords,SharedHash> shared;
-        const auto triangle_count = impl_->mesh.triangles.size() / 3;
         shared.reserve(triangle_count);
         std::string_view previous_owner,previous_semantic,face_key;
         bool have_previous_face=false;
@@ -3159,16 +3259,16 @@ void MeshView::upload_mesh() {
                 auto& records = shared[{face_key, segment}];
                 // Only an exact pair can become a silhouette candidate.
                 // Retain its original order; three means permanently ineligible.
-                if (records.count == 0)
+                if (records.count == 0) {
                     records.first = {triangle_edges[side].first,
                         triangle_edges[side].second, normal};
-                else if (records.count == 1) records.second_normal = normal;
+                    records.first_triangle=triangle;records.first_side=side;
+                } else if (records.count == 1) {
+                    records.second_normal = normal;records.second_triangle=triangle;
+                }
                 if (records.count < 3) ++records.count;
             }
         }
-        impl_->silhouette_candidates.clear();
-        impl_->silhouette_view_direction.reset();
-        impl_->silhouette_vertex_count = 0;
         // Preserve the original ordered-map publication order exactly. Hash
         // lookup avoids a tree search and allocation per incident triangle;
         // sorting is needed only once for the eligible candidate records.
@@ -3186,10 +3286,27 @@ void MeshView::upload_mesh() {
             return std::tie(a.first,rounded_points[a.second.first],rounded_points[a.second.second])<
                 std::tie(b.first,rounded_points[b.second.first],rounded_points[b.second.second]);
         });
+        Impl::SilhouetteConnectivity connectivity;
+        connectivity.vertex_addresses=std::move(vertex_addresses);
+        connectivity.triangles=impl_->mesh.triangles;
+        connectivity.face_runs=std::move(face_runs);
+        connectivity.topology=std::move(topology_signature);
+        connectivity.face_keys.assign(face_keys.begin(),face_keys.end());
+        std::unordered_map<std::string_view,std::size_t> face_addresses;
+        face_addresses.reserve(connectivity.face_keys.size());
+        for(std::size_t index=0;index<connectivity.face_keys.size();++index)
+            face_addresses.emplace(connectivity.face_keys[index],index);
+        connectivity.sources.reserve(ordered.size());
         for(const auto* entry:ordered) {
             const auto& records=entry->second;
             impl_->silhouette_candidates.push_back({records.first.first,
                 records.first.second,records.first.normal,records.second_normal});
+            connectivity.sources.push_back({records.first_triangle,records.second_triangle,records.first_side,
+                entry->first.second.first,entry->first.second.second,
+                face_addresses.at(entry->first.first)});
+        }
+        impl_->silhouette_connectivity=std::move(connectivity);
+        setProperty("gpuAdjacencyBuildCount",property("gpuAdjacencyBuildCount").toULongLong()+1);
         }
     }
     upload_phase("adjacency");

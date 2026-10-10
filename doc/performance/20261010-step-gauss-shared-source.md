@@ -455,7 +455,7 @@ synthetic frame/hash records and thirteen actual G92H1-T images match the
 committed baseline exactly. Evidence is in `product-point-index-preview-profile.log`,
 `adjacency-point-rendering-comparison.json` and `adjacency-point-acceptance-run.log`.
 
-### Serial native cache comparison and final GUI checks (in progress)
+### Serial native cache comparison and final 1003 GUI checks
 
 The frozen original and optimized cache executables were run serially, with no
 concurrent build or GUI workload, against the same proper product-native file.
@@ -491,5 +491,124 @@ Published/signed archives, source directories, projects, configuration, current
 SDK and development build were retained. Free space reached 33,237,024,768 bytes.
 The broader whole-stage deletion was rejected by automatic approval review;
 only the independently verified build subdirectories were removed instead.
-The complete large-model Body/Extrusion/hover checks are repeated with sufficient
-space; record their final result separately from the focused checks.
+With sufficient free space, all three repeated large-model scenarios passed:
+complete Body editing in 1,096.125 seconds, Extrusion in 106.594 seconds and
+fresh placement in 271.359 seconds. The Body scenario independently checked every
+world vertex, triangle and face identity, offsets 3/7/-2/0, a 15-degree rotation,
+Cancel, unchanged OK without an Undo transaction, changed OK, native saved
+placement, Undo/Redo and reopening. The final changed OK measured 2,272.09 ms.
+The moved native document contains 595,444,669 bytes; the original remains intact.
+Save samples varied from 76.6 to 279.8 seconds, with some overlapping the
+committed-source release build. They establish persistence, not a controlled
+save-speed comparison.
+
+Three Extrusion repetitions opened in 2,500.30/3,442.52/2,728.11 ms and cancelled
+in 1,966.28/1,890.80/1,882.16 ms. Each transition published one scene and uploaded
+zero unchanged base GPU meshes. The complete retained/fresh GPU digest matched
+`45c75e96296e1c70ada15ff06d37731b461b4b3d75c3dea09b7f032cacc6f84c`;
+document, Undo state, camera and imported context were unchanged.
+
+Fresh placement retained 308,270 triangles and confirmed exactly the offered
+persisted face `step:face:#1496349`. One warm-hover sample was 1,433.36 ms and
+confirmation 5,354.89 ms. After the moved document was reopened, another warm
+sample was 578.519 ms with confirmation 4,286.12 ms. These are different scene
+states, not an A/B speed ratio, and still miss the requested interaction target.
+The established desktop-frame tolerance was at most one channel value; full
+GPU geometry digests were exact. Evidence is in `rigid-save-retry-run.log` and
+`product-rigid-save-retry-{body-complete,extrusion,placement}.log`.
+
+### Viewer follow-up: exact connectivity reuse
+
+The next candidate retains one scene's silhouette connectivity only. Every
+upload recomputes the established rounded coordinate classes, actual triangle
+indices, ordered face-key runs and topological segment membership. Complete
+equality of those inputs permits reuse of the incident triangle identities;
+positions and both incident normals are recalculated from the current mesh.
+Candidate publication is checked and sorted by the existing face/coordinate
+order after rotations. A class merge/split or changed triangles, face keys or
+topological segments rebuilds the complete adjacency. No coordinate, precision,
+shading equation, persisted identity or signed-side choice is changed.
+
+The signature groups exact numeric segment pairs by owner, avoiding one repeated
+owner-string allocation and string sort per segment. The initial ungrouped
+candidate increased cold adjacency cost on the product fixture and is not the
+final performance evidence. Forced-fresh diagnostic uploads are kept separate
+from ordinary interaction timing: their additional work must not be mistaken
+for an A/B command-speed comparison.
+
+Part scene preparation now creates its complete construction/parameter
+reference packet lazily, at most once within the same refresh, only when an
+existing consumer requests it. SurfaceIntersection, spatial Sweep centerlines,
+Body dimensions and feature/construction dimensions keep their established
+complete source. A pure import has no such consumer. Viewer reference-copy
+arrays reserve the exact accepted triangle count before retaining every face
+identity in the existing order. These changes add no user-visible text or
+native-format fields; all five localization catalogs are reviewed and tested.
+
+The permanent `zima_cpp_silhouette_connectivity_contract` compares cached and
+forced-complete GPU bytes and actual frames. Its seventeen cases cover rigid
+movement, changed normals, shared/distinct occurrences, rounded class merge and
+split, topological exclusion/owner/overlay changes, face identity, invalid
+references, nonmanifold and invalid/degenerate triangles, missing references,
+clear and restore. The grouped candidate passed this contract in 2.45 seconds.
+The initial candidate also matched all 200 controlled synthetic frame/hash
+records and thirteen complete product-fixture images against clean `1676d62b`.
+These establish rendering equivalence, not a universal speed ratio.
+
+The dependent GUI run initially passed 17 of 18 suites. The Section test expected
+the obsolete caption-above-label order, contrary to the existing
+[view-description contract](../DRAWING_VIEW_DESCRIPTIONS.md). Identical isolated
+runs of committed 1003 and the new candidate both failed that assertion in
+11.625 and 11.734 seconds. The renderer is unchanged. The corrected check
+requires the Section designation above the actual view center and its description
+below it, retaining the subsequent independent dragging and persistence checks.
+The subsequent crash was another stale test: its final New Part check looked
+up the removed `boxAction` and called `QAction::isEnabled` on a null pointer.
+The local fault address and linker map identified `verify_sections` as its
+caller. The check now uses the current `featurePrototypeAction`, consistent
+with the established template tests, and verifies the action exists before
+reading its state. Properties/offset/action checks also reject missing test
+controls explicitly instead of dereferencing them. Drawing behavior is unchanged.
+
+The complete corrected Section lifecycle passed in 20.58 seconds, including
+independent labels, native/PDF output, quarter turns, source/local hatch edits,
+CLI/GUI precision, Cancel, Sketch context, repeated Assembly components and
+factory Part/Assembly command availability. The connectivity contract passed
+again in 2.46 seconds. Together with the earlier seventeen passing dependent
+suites, all eighteen selected contracts have passed. Evidence is in
+`connectivity-grouped-section-current-command.log` and `section-fast-stack.log`.
+The final grouped candidate matches all 200 synthetic frame/hash records and
+thirteen complete G92H1-T images against the clean preceding renderer. Six Body
+poses pass independent vertex/triangle, complete cached-versus-forced-fresh GPU
+and camera checks. The AA comparison permits at most one channel level; complete
+GPU bytes match exactly. Evidence: `connectivity-grouped-rendering-comparison.json`
+and `product-connectivity-grouped-candidate-preview-exact.log`.
+
+Ordinary offset previews (3/7/-2/0) measured 3,604.78/2,590.85/2,630.74/2,007.72 ms
+versus 2,635.55/2,640.13/2,908.43/4,299.69 ms on committed 1003. Cancel measured
+2,694.45 versus 2,709.87 ms. These serial samples remain noisy and mixed; the
+complete GUI target of 0.5 seconds is not met. Valid connectivity reuse took
+137.830 and 145.594 ms; required full rebuilds took 712.380-834.212 ms. Changed
+rounded coordinate classes and actual topological membership correctly invalidate
+reuse. Cold validation/cache construction adds work and is not a universal speedup.
+
+Extrusion opening measured 2,291.07/2,288.82/2,234.40 ms; Cancel measured
+1,427.08/1,754.05/1,450.42 ms. Preceding-build samples were
+2,444.31/2,389.25/2,452.24 ms and 1,522.99/1,526.40/1,549.37 ms. Each transition
+published one scene with zero unchanged GPU uploads, retaining the complete native
+packet, camera, document and Undo state. Five serial process totals were
+80.343/76.266/92.328/100.891/101.625 seconds (baseline preview, candidate preview,
+separate exact preview, baseline Extrusion, candidate Extrusion); these include
+fixture copying, loading and independent checks and are not command or STEP-load
+times. Evidence: `connectivity-grouped-product-results.json` and
+`product-connectivity-grouped-{baseline,candidate}-{preview,extrusion}.log`.
+
+An isolated repeated-string ownership experiment copied all 308,270 complete
+product face references and checked every retained field. Ordinary copies took
+33.2–57.4 ms, while the proposed smaller shared-string records took 18.8–26.2 ms.
+This exploratory result does not justify changing the public reference-string
+API in this fix; no shared-string wrapper is shipped. Existing deserialization
+already shares exact surface definitions through the reference table and runs.
+Evidence is in `reference-copy-probe-exploratory.log`,
+`connectivity-rendering-comparison.json`, `connectivity-grouped-dependent-gui.log`
+and `section-connectivity-controlled-{1003,current}.log`.

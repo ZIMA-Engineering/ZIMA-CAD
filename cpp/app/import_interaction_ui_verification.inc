@@ -5,6 +5,7 @@ static int verify_imported_body_interaction(QApplication& application,zima::app:
         const auto check=[](bool value,const char* message){if(!value)throw std::runtime_error(message);};
         const auto flush=[&]{application.processEvents();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);application.processEvents();};
         window.resize(1100,850);window.show();flush();
+        if(qEnvironmentVariableIsSet("ZIMA_VERIFY_ADJACENCY_REUSE"))qputenv("ZIMA_CPP_VERIFY_GPU_UPLOAD","1");
         QTimer modal_errors;
         QObject::connect(&modal_errors,&QTimer::timeout,[&] {
             if(auto* box=qobject_cast<QMessageBox*>(QApplication::activeModalWidget())) {
@@ -98,8 +99,9 @@ static int verify_imported_body_interaction(QApplication& application,zima::app:
             QEventLoop settled;QTimer::singleShot(700,&settled,&QEventLoop::quit);settled.exec();flush();
             view->repaint();flush();const auto retained=view->grabFramebuffer();
             const auto retained_digest=view->property("gpuMeshUploadDigest").toByteArray();
-            qputenv("ZIMA_CPP_VERIFY_GPU_UPLOAD","1");view->setProperty("forceMeshUpload",true);
+            qputenv("ZIMA_CPP_VERIFY_GPU_UPLOAD","1");view->setProperty("forceAdjacencyBuild",true);view->setProperty("forceMeshUpload",true);
             view->repaint();flush();const auto fresh=view->grabFramebuffer();
+            view->setProperty("forceAdjacencyBuild",false);
             const auto fresh_digest=view->property("gpuMeshUploadDigest").toByteArray();
             std::cout<<"GPU upload digest retained="<<retained_digest.constData()<<" fresh="<<fresh_digest.constData()<<std::endl;
             check(!retained_digest.isEmpty()&&retained_digest==fresh_digest,"Reused GPU buffers differ from a fresh preparation");
@@ -135,6 +137,29 @@ static int verify_imported_body_interaction(QApplication& application,zima::app:
             check(view->mesh().vertices.size()>=expected.vertices.size()&&view->mesh().triangles.size()>=expected.triangles.size(),"Imported Body disappeared or was reduced during placement");
             check(std::equal(expected.vertices.begin(),expected.vertices.end(),view->mesh().vertices.begin()),"Pending Body geometry does not follow the resolved placement");
             check(std::equal(expected.triangles.begin(),expected.triangles.end(),view->mesh().triangles.begin()),"Pending Body lost topology/triangle order");
+            if(qEnvironmentVariableIsSet("ZIMA_VERIFY_ADJACENCY_REUSE")) {
+                view->repaint();flush();const auto retained=view->grabFramebuffer();
+                const auto digest=view->property("gpuMeshUploadDigest").toByteArray();
+                check(!digest.isEmpty(),"Body adjacency digest is missing");
+                const auto camera=view->camera_state();
+                view->setProperty("forceAdjacencyBuild",true);view->setProperty("forceMeshUpload",true);
+                view->repaint();flush();const auto fresh=view->grabFramebuffer();
+                check(view->property("gpuMeshUploadDigest").toByteArray()==digest,"Body reused adjacency differs from complete GPU preparation");
+                view->setProperty("forceAdjacencyBuild",false);
+                const auto before_reuse=view->property("gpuAdjacencyReuseCount").toULongLong();
+                view->setProperty("forceMeshUpload",true);view->repaint();flush();
+                check(view->property("gpuAdjacencyReuseCount").toULongLong()>before_reuse,"Verified adjacency did not reuse its identical actual inputs");
+                check(view->property("gpuMeshUploadDigest").toByteArray()==digest&&view->camera_state()==camera,
+                    "Body adjacency reuse changed exact GPU data or camera");
+                const auto a=retained.convertToFormat(QImage::Format_RGBA8888),b=fresh.convertToFormat(QImage::Format_RGBA8888);
+                check(a.size()==b.size(),"Body adjacency comparison dimensions differ");
+                int maximum=0;
+                for(int y=0;y<a.height();++y)for(int x=0;x<a.width()*4;++x)
+                    maximum=std::max(maximum,std::abs(int(a.constScanLine(y)[x])-int(b.constScanLine(y)[x])));
+                check(maximum<=1,"Body adjacency reuse changed the rendered geometry");
+                std::cout<<"Body adjacency verified full GPU bytes; reuse="<<view->property("gpuAdjacencyReuseCount").toULongLong()
+                    <<" build="<<view->property("gpuAdjacencyBuildCount").toULongLong()<<" maximum_channel_difference="<<maximum<<std::endl;
+            }
         };
         const auto check_committed_geometry=[&](const document::Placement& placement) {
             auto expected_document=original;auto graph=expected_document.body_history;

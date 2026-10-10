@@ -606,6 +606,10 @@ target_link_libraries(zima_cpp_silhouette_view_benchmark PRIVATE
 if(ZIMA_BUILD_TESTS)
     add_test(NAME zima_cpp_end_plane_scene_contract
         COMMAND zima_cpp_silhouette_view_benchmark --end-planes)
+    add_test(NAME zima_cpp_silhouette_connectivity_contract
+        COMMAND zima_cpp_silhouette_view_benchmark --connectivity)
+    set_tests_properties(zima_cpp_silhouette_connectivity_contract PROPERTIES
+        ENVIRONMENT "QT_STYLE_OVERRIDE=Fusion" TIMEOUT 60 RUN_SERIAL TRUE)
     add_executable(zima_cpp_origin_camera_tests tests/origin_camera_tests.cpp)
     target_link_libraries(zima_cpp_origin_camera_tests PRIVATE zima_document_core zima_viewer)
     add_test(NAME zima_cpp_origin_camera_tests COMMAND zima_cpp_origin_camera_tests)

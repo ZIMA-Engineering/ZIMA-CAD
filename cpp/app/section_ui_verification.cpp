@@ -289,7 +289,12 @@ int verify_sections(QApplication& application,AssemblyWorkspaceWindow& window,co
         auto* section_label=props->findChild<QCheckBox*>("drawingSectionLabel");check(section_label&&section_label->isChecked(),"Missing independent Section label toggle");section_label->setChecked(false);section_label->setChecked(true);flush();
         window.grab().save(QString::fromStdString((dir/"section-drawing-properties.png").string()));props->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();check(!window.findChild<QDialog*>("drawingViewProperties"),"Drawing Section failed to commit");
         const auto* result=dw->document_for_test().find_view(cut.id);check(result&&result->section_id==section_id&&result->section_parent_id==parent.id,"Drawing lost section source or marker link");check(result->camera.horizontal==cut.camera.horizontal&&result->camera.vertical==cut.camera.vertical&&result->camera.depth==cut.camera.depth,"Selecting a Section changed view orientation");check(std::ranges::any_of(result->projected_edges,[](const auto& e){return e.hatch;}),"Drawing has no hatch");
-        auto caption=dw->view_label_center_for_test(cut.id),label=dw->view_label_center_for_test(cut.id,true);check(caption&&label&&caption->y()<label->y(),"Section label and caption do not have independent default positions");
+        auto caption=dw->view_label_center_for_test(cut.id),label=dw->view_label_center_for_test(cut.id,true);
+        const auto view_center=dw->view_rectangle_center_for_test(cut.id);
+        // View descriptions belong below the view; the independent Section
+        // designation remains above it. Check both against the geometry.
+        check(caption&&label&&view_center&&caption->y()>view_center->y()&&label->y()<view_center->y(),
+            "Section designation must be above the view and its description below");
         auto* drawing_canvas=dw->findChild<QWidget*>("drawingCanvas");const auto drag_label=[&](QPointF from,QPointF to){
             QMouseEvent press(QEvent::MouseButtonPress,from,QPointF(drawing_canvas->mapToGlobal(from.toPoint())),Qt::LeftButton,Qt::LeftButton,Qt::NoModifier);QApplication::sendEvent(drawing_canvas,&press);
             QMouseEvent move(QEvent::MouseMove,to,QPointF(drawing_canvas->mapToGlobal(to.toPoint())),Qt::NoButton,Qt::LeftButton,Qt::NoModifier);QApplication::sendEvent(drawing_canvas,&move);
@@ -297,21 +302,29 @@ int verify_sections(QApplication& application,AssemblyWorkspaceWindow& window,co
         };
         drag_label(*label,*label+QPointF(35,20));check(dw->document_for_test().find_view(cut.id)->section_label_position.has_value()&&!dw->document_for_test().find_view(cut.id)->caption_position,"Moving A-A moved the caption or failed to store its position");
         check(dw->view_label_center_for_test(cut.id)==caption,"A-A drag moved the caption");
+        std::cerr<<"Section UI: independent label drag passed"<<std::endl;
         dw->select_view_for_test({});flush();dw->export_pdf(dir/"section.pdf");window.grab().save(QString::fromStdString((dir/"section-drawing.png").string()));dw->document_for_test().save(drawing_path);
+        std::cerr<<"Section UI: label PDF/native save passed"<<std::endl;
         const auto reopened=drawing::DrawingDocument::load(drawing_path);check(reopened.find_view(cut.id)->section_label_position==dw->document_for_test().find_view(cut.id)->section_label_position,"A-A placement did not survive reopening");
         const auto handle=dw->annotation_handle_for_test(section_id);check(handle.has_value(),"Section arrow has no manipulation point");
         // Relative quarter turns keep the cut visible without changing the Part.
         const auto has_hatch=[&]{return std::ranges::any_of(dw->document_for_test().find_view(cut.id)->projected_edges,[](const auto& e){return e.hatch&&!e.hidden;});};
         const auto source_before=document::serialize_sections({*dw->document_for_test().find_view(cut.id)->section_snapshot});
         dw->select_view_for_test(cut.id);window.findChild<QAction*>("editDrawingViewAction")->trigger();flush();props=window.findChild<QDialog*>("drawingViewProperties");
+        check(props&&props->isVisible(),"Section rotation Properties did not open");
         props->findChild<QPushButton*>("drawingRotateRight")->click();props->findChild<QPushButton*>("drawingRotateRight")->click();props->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
         check(drawing::same_view_orientation(dw->document_for_test().find_view(cut.id)->camera,drawing::standard_camera(drawing::ViewOrientation::Back))&&has_hatch(),"Rotating the cut view concealed its hatch");
+        std::cerr<<"Section UI: relative quarter turns passed"<<std::endl;
         window.findChild<QAction*>("editDrawingViewAction")->trigger();flush();props=window.findChild<QDialog*>("drawingViewProperties");
+        check(props&&props->isVisible(),"Section hatch Properties did not open");
         check(!props->findChild<QCheckBox*>("drawingSectionReverse"),"Redundant section side override remains");
         check(!props->findChild<QCheckBox*>("drawingHatching")&&!props->findChild<QDoubleSpinBox*>("drawingHatchAngle")&&!props->findChild<QDoubleSpinBox*>("drawingHatchSpacing"),"Duplicate hatch controls remain above the component table");
         auto* hatch_table=props->findChild<QTableWidget*>("sectionComponents");check(hatch_table&&hatch_table->columnCount()==7,"Component hatch table has no offset column");
-        static_cast<QDoubleSpinBox*>(hatch_table->cellWidget(0,4))->setValue(.35);
+        auto* hatch_offset=qobject_cast<QDoubleSpinBox*>(hatch_table->cellWidget(0,4));
+        check(hatch_table->rowCount()>0&&hatch_offset,"Section hatch offset field is missing");
+        hatch_offset->setValue(.35);
         props->findChild<QComboBox*>("drawingViewOrientation")->setCurrentIndex(0);props->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();check(has_hatch()&&std::abs(dw->document_for_test().find_view(cut.id)->section_snapshot->components.begin()->second.hatch.offset_mm-.35)<1e-9,"Component hatch offset did not persist");
+        std::cerr<<"Section UI: hatch offset GUI commit passed"<<std::endl;
         {
             const auto component=dw->document_for_test().find_view(cut.id)->section_snapshot->components.begin()->first;
             const auto execute_hatch=[&](const char* command,zima::commands::Json arguments) {
@@ -320,9 +333,16 @@ int verify_sections(QApplication& application,AssemblyWorkspaceWindow& window,co
                 check(result.ok,(std::string(command)+": "+result.code+": "+result.message).c_str());flush();return result.data;
             };
             const auto before=execute_hatch("drawing.view.hatch.get",{{"view",cut.id}});
+            std::cerr<<"Section UI: hatch CLI query passed"<<std::endl;
             check(before["items"][0]["hatch"]["offset_mm"]==.35,"CLI cannot read GUI hatch edit");
             execute_hatch("drawing.view.hatch.set",{{"view",cut.id},{"components",zima::commands::Json::array({{{"component",component},{"hatch",{{"offset_mm",.375}}}}})}});
-            dw->select_view_for_test(cut.id);window.findChild<QAction*>("editDrawingViewAction")->trigger();flush();props=window.findChild<QDialog*>("drawingViewProperties");
+            std::cerr<<"Section UI: hatch CLI update passed"<<std::endl;
+            dw->select_view_for_test(cut.id);
+            std::cerr<<"Section UI: hatch view reselected after CLI update"<<std::endl;
+            auto* hatch_edit_action=window.findChild<QAction*>("editDrawingViewAction");
+            check(hatch_edit_action&&hatch_edit_action->isEnabled(),"Section hatch Properties action is unavailable after CLI update");
+            hatch_edit_action->trigger();flush();props=window.findChild<QDialog*>("drawingViewProperties");
+            check(props&&props->isVisible(),"Section hatch Properties after CLI update did not open");
             auto* table=props->findChild<QTableWidget*>("sectionComponents");
             auto* settings=dynamic_cast<SectionComponentsWidget*>(table);
             check(settings&&settings->values().at(component).hatch.offset_mm==.375&&std::abs(static_cast<QDoubleSpinBox*>(table->cellWidget(0,4))->value()-.375)<=.0051,"GUI properties did not preserve CLI hatch precision");
@@ -517,7 +537,8 @@ int verify_sections(QApplication& application,AssemblyWorkspaceWindow& window,co
                 for(auto* radio:create->findChildren<QRadioButton*>())radio->setChecked(radio->property("documentType").toString()==type);
                 create->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
                 check(!window.findChild<QDialog*>("newDocumentDialog"),"New template creation failed");
-                check(window.findChild<QAction*>(std::string(type)=="part"?"boxAction":"insertComponentAction")->isEnabled(),"Start template lost its active Body/component context");
+                auto* command=window.findChild<QAction*>(std::string(type)=="part"?"featurePrototypeAction":"insertComponentAction");
+                check(command&&command->isEnabled(),"Start template lost its active Body/component context");
             }
         }
         std::cout<<"Section UI: container placement, own plane, full Sketcher, local undo/redo, nested cancel, MMB, tree, Drawing hatch/PDF, thread axis point and repeated Assembly components passed\n";return 0;

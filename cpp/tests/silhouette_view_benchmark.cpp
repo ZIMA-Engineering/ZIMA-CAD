@@ -92,6 +92,75 @@ QByteArray frame_hash(zima::viewer::MeshView& view) {
     return QCryptographicHash::hash(QByteArrayView(reinterpret_cast<const char*>(pixels.constBits()),
         pixels.sizeInBytes()),QCryptographicHash::Sha256).toHex();
 }
+void connectivity_probe(QApplication& app) {
+    using namespace zima;
+    qputenv("ZIMA_CPP_VERIFY_GPU_UPLOAD","1");
+    viewer::MeshView view;view.resize(800,600);view.show();app.processEvents();
+    require(view.isValid(),"Connectivity verification requires desktop OpenGL");
+    kernel::ViewerMesh base;
+    base.vertices={{-5,-5,0},{5,-5,0},{5,5,0},{-5,5,1},{-5,-5,0}};
+    base.triangles={0,1,2,4,2,3};
+    base.triangle_references.insert(base.triangle_references.end(),2,{"body","face"});
+    const auto upload=[&] {
+        view.setProperty("forceMeshUpload",true);view.repaint();app.processEvents();
+        return view.grabFramebuffer().convertToFormat(QImage::Format_RGBA8888);
+    };
+    const auto check=[&](const char* name,const kernel::ViewerMesh& mesh,int expected_reuse) {
+        const auto reused=view.property("gpuAdjacencyReuseCount").toULongLong();
+        const auto built=view.property("gpuAdjacencyBuildCount").toULongLong();
+        view.set_mesh(mesh,false);const auto cached=upload();
+        if(expected_reuse>0)require(view.property("gpuAdjacencyReuseCount").toULongLong()>reused,
+            "Unchanged connectivity was not reused");
+        if(expected_reuse==0)require(view.property("gpuAdjacencyBuildCount").toULongLong()>built,
+            "Changed connectivity retained stale adjacency");
+        const auto digest=view.property("gpuMeshUploadDigest").toByteArray();
+        require(!digest.isEmpty(),"Connectivity verification has no GPU digest");
+        const auto camera=view.camera_state();
+        view.setProperty("forceAdjacencyBuild",true);const auto fresh=upload();
+        require(view.property("gpuMeshUploadDigest").toByteArray()==digest,
+            "Cached adjacency differs from complete GPU calculation");
+        require(cached.size()==fresh.size(),"Adjacency changed frame dimensions");
+        int difference=0;
+        for(qsizetype i=0;i<cached.sizeInBytes();++i)
+            difference=std::max(difference,std::abs(int(cached.constBits()[i])-int(fresh.constBits()[i])));
+        require(difference<=1,"Cached adjacency changed rendering");
+        view.setProperty("forceAdjacencyBuild",false);
+        const auto next=view.property("gpuAdjacencyReuseCount").toULongLong();upload();
+        require(view.property("gpuAdjacencyReuseCount").toULongLong()>next,
+            "Forced fresh upload could not subsequently reuse adjacency");
+        require(view.property("gpuMeshUploadDigest").toByteArray()==digest&&view.camera_state()==camera,
+            "Repeated adjacency changed GPU data or camera");
+        std::cout<<"connectivity case="<<name<<" exact_gpu=1 maximum_channel_difference="<<difference<<std::endl;
+    };
+    check("initial",base,0);
+    auto changed=base;
+    for(auto& p:changed.vertices){const auto x=p.x;p.x=-p.y+2;p.y=x+3;p.z+=4;}
+    check("rigid-rotation-translation",changed,1);
+    changed.vertices[3].z+=3;check("changed-normal",changed,1);
+    for(auto& reference:changed.triangle_references)reference.instance_path="assembly/first";
+    check("changed-occurrence",changed,1);
+    changed.triangle_references[1].instance_path="assembly/second";
+    check("distinct-occurrences",changed,1);
+    changed.vertices[4].x+=.6e-7;check("rounded-class-split",changed,0);
+    changed.vertices[4]=changed.vertices[0];check("rounded-class-merge",changed,0);
+    kernel::ViewerEdge edge;edge.reference={"body","edge"};
+    edge.points={changed.vertices[0],changed.vertices[2]};changed.edges.push_back(edge);
+    check("topological-exclusion",changed,0);
+    changed.edges.front().reference.owner_id="other";check("topological-owner",changed,0);
+    changed.edges.front().overlay=true;check("topological-overlay",changed,0);
+    changed.triangle_references[1].semantic_key="other-face";check("face-identity",changed,0);
+    changed.triangle_references[1].owner_id.clear();check("invalid-face-reference",changed,0);
+    changed.triangle_references=base.triangle_references;
+    changed.triangles.insert(changed.triangles.end(),{0,1,2,0,1,2});
+    changed.triangle_references.insert(changed.triangle_references.end(),2,base.triangle_references.front());
+    check("nonmanifold",changed,0);
+    changed.triangles.insert(changed.triangles.end(),{999,0,1,0,0,0});
+    changed.triangle_references.insert(changed.triangle_references.end(),2,base.triangle_references.front());
+    check("invalid-degenerate-triangles",changed,0);
+    changed.triangle_references.resize(1);check("missing-face-references",changed,0);
+    check("cleared",{},0);check("restored",base,0);
+    qunsetenv("ZIMA_CPP_VERIFY_GPU_UPLOAD");
+}
 void exercise(QApplication& app,const std::string& name,const zima::kernel::ViewerMesh& mesh) {
     using namespace zima;
     QByteArray first_shading;
@@ -185,6 +254,8 @@ int main(int argc,char** argv) {
     try {
         std::cout<<std::fixed<<std::setprecision(3);
         if(argc==2&&std::string_view(argv[1])=="--end-planes") {end_plane_probe();return 0;}
+        connectivity_probe(app);
+        if(argc==2&&std::string_view(argv[1])=="--connectivity")return 0;
         zima::kernel::OcctKernel kernel;
         for(bool sphere:{false,true}) {
             const auto body=kernel.evaluate_history({{"curved",sphere?
