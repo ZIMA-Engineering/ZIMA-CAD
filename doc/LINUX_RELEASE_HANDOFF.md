@@ -1,5 +1,15 @@
 # Linux build and distribution handoff — 2026-09-15
 
+## Linux preview publication (2026-10-10)
+
+[Linux preview 2026100908](releases/2026100908.md) is compiled, signed and publicly
+available as a GitHub prerelease. The record lists the accepted packaging,
+native, localization and KDE/Wayland checks, the refreshed native Form library
+cache, and the remaining native and GUI failures. It is not full Linux feature
+acceptance. GNOME and Windows verification of the refreshed library remain
+outstanding. The latest stable release remains Windows 2026100906; do not promote
+the Linux preview into stable updates without resolving its acceptance limits.
+
 ## Closed-solid corner Form follow-up (2026-10-09)
 
 The shared implementation adds the native `CornerGusset90.prtz` definition,
