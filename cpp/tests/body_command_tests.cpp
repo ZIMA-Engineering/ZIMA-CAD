@@ -1,7 +1,12 @@
 #include "profile_command_fixture.hpp"
+#include "profile_request_fixture.hpp"
 #include <zima/command_host/host.hpp>
 #include <zima/workspace/body_operations.hpp>
 #include <zima/workspace/document_operations.hpp>
+#include <zima/workspace/model_calculation.hpp>
+#include <zima/interchange/step_model.hpp>
+#include <zima/document/viewer_packet_json.hpp>
+#include <zima/document/placement_json.hpp>
 #include <cmath>
 #include <iostream>
 #include <stdexcept>
@@ -18,6 +23,73 @@ commands::Result run(command_host::Host& host,const std::string& command,Json ar
 void volume(const workspace::PartState& state,double expected) {
     const auto actual=state.session.calculated_boundaries().back().volume;
     if(std::abs(actual-expected)>1e-6)throw std::runtime_error("Expected volume "+std::to_string(expected)+", got "+std::to_string(actual));
+}
+void verify_import_resolution(const kernel::OcctKernel& kernel,const fs::path& directory) {
+    const auto path=directory/"reference-preparation.step";
+    kernel.export_step({{test::profile_body(kernel,{10,10,10}),{},{}}},path.string());
+    auto imported=interchange::import_step_part(document::PartDocument::create_default(),{},path);
+    auto source=imported.document;
+    auto no_sketch=source;no_sketch.reference_errors.emplace("retired-profile","Old reference error");
+    require(workspace::refresh_sketch_external_references(no_sketch,imported.calculated)&&no_sketch.reference_errors.empty(),
+        "A Part without Sketch consumers retained stale reference errors");
+    require(!workspace::refresh_sketch_external_references(no_sketch,imported.calculated),
+        "An unchanged Part without Sketch consumers reported a reference change");
+    const auto first=source.body_history.bodies().front().scope.id;
+    auto second_feature=document::PartDocument::create_imported_step_container(
+        path,source.history.front().imported_step.component_path,"Second import");
+    second_feature.imported_step=source.history.front().imported_step;
+    source.history.push_back(second_feature);
+    auto graph=source.body_history;
+    const auto second=graph.create_body("Second import");
+    graph.insert({document::PartHistoryKind::Feature,second_feature.id});source.set_body_history(graph);
+    for(const bool rotated:{false,true}) {
+        auto positioned=source;graph=positioned.body_history;auto first_body=*graph.find(first);
+        first_body.scope.placement.references.clear();
+        first_body.scope.placement.x=17;first_body.scope.placement.y=-9;first_body.scope.placement.z=4;
+        if(rotated){
+            first_body.scope.placement.rotation_x=first_body.scope.placement.absolute_rotation_x=23;
+            first_body.scope.placement.rotation_z=first_body.scope.placement.absolute_rotation_z=41;
+        }
+        graph.update_body(first_body);positioned.set_body_history(graph);
+        const auto previous=workspace::calculate_part(kernel,positioned);
+        const auto& geometry=previous.back().mesh.original_references;
+        const auto face=std::ranges::find_if(geometry.triangle_references,[&](const auto& ref) {
+            return ref.owner_id==positioned.history.front().id&&ref.surface&&ref.surface->kind==kernel::SurfaceGeometry::Kind::Plane;
+        });
+        require(face!=geometry.triangle_references.end(),"Import reference fixture has no source plane");
+        for(const bool flip:{false,true})for(const double offset:{0.,-0.,2.,-2.}) {
+            auto bounded=positioned;graph=bounded.body_history;auto target=*graph.find(second);
+            document::ConstructionReference ref;ref.owner_id=face->owner_id;ref.semantic_key=face->semantic_key;
+            ref.supports_offset=true;ref.offset=offset;ref.flip=flip;
+            ref.orientation_role="front";ref.orientation_drives_rotation=true;
+            target.scope.placement.references={ref};graph.update_body(target);bounded.set_body_history(graph);
+            auto complete=bounded;
+            auto expected=previous;
+            bool settled=false;
+            for(unsigned pass=0;pass<7;++pass) {
+                expected=workspace::calculate_part(kernel,complete,&expected);
+                const auto before_graph=complete.body_history;const auto before_history=complete.history;
+                complete.resolve_constructions(expected.back().mesh.original_references);
+                if(complete.body_history==before_graph&&complete.history==before_history){settled=true;break;}
+            }
+            require(settled,"Complete reference comparison did not converge");
+            const auto actual=workspace::calculate_part_with_resolved_references(kernel,bounded,&previous);
+            if(bounded.body_history!=complete.body_history||bounded.history!=complete.history) {
+                std::cerr<<"Reference comparison rotated="<<rotated<<" flip="<<flip<<" offset="<<offset
+                    <<" bounded="<<bounded.body_history.serialized()<<" complete="<<complete.body_history.serialized()<<'\n';
+                for(std::size_t i=0;i<bounded.history.size();++i)
+                    std::cerr<<"Feature placement "<<i<<" bounded="<<Json(bounded.history[i].placement).dump()
+                        <<" complete="<<Json(complete.history[i].placement).dump()<<'\n';
+            }
+            require(bounded.body_history==complete.body_history&&bounded.history==complete.history,
+                "Bounded import reference preparation changed resolved definitions");
+            const auto& stored=bounded.body_history.find(second)->scope.placement.references.front();
+            require(stored.flip==flip&&std::signbit(stored.offset)==std::signbit(offset),
+                "Bounded import reference preparation changed a zero/contact side");
+            require(document::serialize_body_result(actual.back())==document::serialize_body_result(expected.back()),
+                "Bounded import reference preparation changed complete geometry, identity or properties");
+        }
+    }
 }
 void verify(const kernel::OcctKernel& kernel,fs::path directory) {
     workspace::Workspace live;command_host::Options options;
@@ -215,7 +287,7 @@ int main() {
     try {
         kernel::OcctKernel kernel;
         const auto directory=fs::canonical(fs::temp_directory_path())/("zima-body-commands-"+document::PartDocument::create_default().document_id);
-        fs::create_directory(directory);verify(kernel,directory);
+        fs::create_directory(directory);verify(kernel,directory);verify_import_resolution(kernel,directory);
         {
             workspace::Workspace live;command_host::Options options;
             options.settings=[] {return command_host::Settings{{fs::absolute("config/templates"),"START_PART.prtz","START_ASSEMBLY.asmz","Body"},{}};};

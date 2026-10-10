@@ -2104,9 +2104,10 @@ AssemblyDocument AssemblyDocument::from_serialized(const nlohmann::json& root) {
         if(loading_geometries.size()>=256||!loading_geometries.insert(id).second)
             throw std::runtime_error("Cyclic Assembly source geometry");
         const auto& packet=root.at("operation_geometries").at(id);
-        auto body=zima::document::load_body_result(packet);
+        std::map<std::string,zima::kernel::BodySnapshot> outputs;
         for(const auto& [child,reference]:packet.at("source_outputs").items())
-            body.body_outputs.emplace(child,self(self,reference.get<std::string>()));
+            outputs.emplace(child,self(self,reference.get<std::string>()));
+        auto body=zima::document::load_body_result(packet,std::move(outputs));
         zima::kernel::BodySnapshot result(std::move(body));
         operation_geometries.emplace(id,result);
         loading_geometries.erase(id);
@@ -2337,7 +2338,7 @@ nlohmann::json AssemblyDocument::serialized(
         if(const auto found=geometry_ids.find(&snapshot.get());found!=geometry_ids.end())return found->second;
         const auto id=std::to_string(geometry_ids.size());
         geometry_ids.emplace(&snapshot.get(),id);
-        auto packet=zima::document::serialize_body_result(snapshot,false);
+        auto packet=zima::document::serialize_body_result(snapshot,false,false);
         packet["source_outputs"]=nlohmann::json::object();
         for(const auto& [child,body]:snapshot->body_outputs)
             packet["source_outputs"][child]=self(self,body);

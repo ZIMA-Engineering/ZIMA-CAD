@@ -11,7 +11,7 @@ class StepSourceDocument;
 
 struct FrozenStepComponent {
     std::shared_ptr<const std::string> brep;
-    std::vector<StepRequest::TopologyIdentity> topology;
+    ImmutableVector<StepRequest::TopologyIdentity> topology;
 };
 
 class OcctKernel final : public GeometryKernel {

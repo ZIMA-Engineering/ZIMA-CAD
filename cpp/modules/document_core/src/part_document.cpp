@@ -3,6 +3,7 @@
 #include "draft_preview.hpp"
 #include <zima/document/placement_surface.hpp>
 #include <zima/document/placement_mesh_surface.hpp>
+#include <zima/document/placement_reference_geometry.hpp>
 #include <zima/document/feature_rotation_span.hpp>
 #include <zima/document/native_read_capture.hpp>
 #include <zima/document/holes.hpp>
@@ -2795,13 +2796,23 @@ zima::kernel::ViewerReferenceGeometry transform_reference_geometry(
         return to_local ? placement_inverse_transform_direction(rotation, value)
             : placement_transform_direction(rotation, value);
     };
+    // Each invocation has one exact transform. Keep original surfaces alive
+    // while sharing their transformed analytic data across repeated triangles.
+    std::unordered_map<const zima::kernel::SurfaceGeometry*,std::pair<
+        std::shared_ptr<const zima::kernel::SurfaceGeometry>,
+        std::shared_ptr<const zima::kernel::SurfaceGeometry>>> placed_surfaces;
     const auto face = [&](auto& reference) {
         if (!reference.surface) return;
+        const auto original=reference.surface;
+        if(const auto cached=placed_surfaces.find(original.get());cached!=placed_surfaces.end()) {
+            reference.surface=cached->second.second;return;
+        }
         auto surface = std::make_shared<zima::kernel::SurfaceGeometry>(*reference.surface);
         surface->origin = point(surface->origin);
         surface->axis = direction(surface->axis);
         surface->radial = direction(surface->radial);
-        reference.surface = std::move(surface);
+        reference.surface = surface;
+        placed_surfaces.emplace(original.get(),std::make_pair(original,std::move(surface)));
     };
     for (auto& reference : geometry.triangle_references) face(reference);
     for (auto& value : geometry.vertices) value = point(value);
@@ -5961,7 +5972,13 @@ void PartDocument::resolve_constructions(
                     throw std::invalid_argument("Těleso nemůže odkazovat na vlastní geometrii.");
                 dependency(reference);
             }
-            if (!resolve_placement(body.scope.placement, source_geometry))
+            // Body placement uses the same reference lookup as its dialog.
+            // The source is fixed for this solve; later branches rebuild the
+            // lookup after their own source packet has been published.
+            const auto placement_geometry=body.scope.placement.references.empty()
+                ? kernel::ViewerReferenceGeometry{}
+                : PlacementReferenceGeometryIndex(source_geometry).select(body.scope.placement.references);
+            if (!resolve_placement(body.scope.placement, placement_geometry))
                 throw std::invalid_argument("Reference umístění tělesa není dostupná.");
             if(body.derived_copy) {
                 dependency(body.derived_copy->reference);
@@ -6006,13 +6023,24 @@ void PartDocument::resolve_constructions(
                         sketch_dependencies(zima::sketcher::Sketch::from_serialized(data));
                 }
             next.body_history.update_body(body);
-            auto local_geometry = transform_reference_geometry(source_geometry,
-                body.scope.translation(), body.scope.rotation_degrees());
             auto local_origin=carrier.origin_viewer_mesh().original_references;
-            append_reference_geometry(local_origin,local_geometry);
-            auto local_views=boundary_views;
-            for(auto& [entry,view]:local_views)view.geometry=transform_reference_geometry(
-                std::move(view.geometry),body.scope.translation(),body.scope.rotation_degrees());
+            HistoryReferenceViews local_views;
+            const bool independent_imports = carrier.constructions.empty() && carrier.sketches.empty() &&
+                carrier.sections.empty() && !carrier.history.empty() &&
+                std::ranges::all_of(carrier.history,[](const auto& feature) {
+                    return feature.feature_kind==FeatureKind::ImportedStep && feature.placement.references.empty();
+                });
+            // These imports consume only their numeric local placement. Keep
+            // the full source packet for Body placement and later branches,
+            // but do not transform/copy it into a carrier with no consumers.
+            if (!independent_imports) {
+                auto local_geometry = transform_reference_geometry(source_geometry,
+                    body.scope.translation(), body.scope.rotation_degrees());
+                append_reference_geometry(local_origin,local_geometry);
+                local_views=boundary_views;
+                for(auto& [entry,view]:local_views)view.geometry=transform_reference_geometry(
+                    std::move(view.geometry),body.scope.translation(),body.scope.rotation_degrees());
+            }
             carrier.resolve_constructions(std::move(local_origin),local_views);
             for (auto& feature : carrier.history) *next.find_container(feature.id) = std::move(feature);
             for (auto& construction : carrier.constructions)
@@ -6031,6 +6059,10 @@ void PartDocument::resolve_constructions(
                 const auto target = std::ranges::find_if(next.sketches, [&](const auto& value) { return value.id == sketch.id; });
                 *target = std::move(sketch);
             }
+            // The final branch has no subsequent reference consumer. Its
+            // resolved definitions are already stored in next; do not assemble
+            // an unused full reference packet solely to discard it on return.
+            if(original_body.scope.id==body_history.bodies().back().scope.id)continue;
             // Publish freshly resolved datum frames for the next branch.
             // They precede older snapshots of the same frame during lookup.
             auto resolved = next.body_document(body.scope.id);
@@ -11545,12 +11577,15 @@ PartDocument PartDocument::from_serialized(const nlohmann::json& root,
                 source.at("component_path").get<std::string>();
             container.imported_step.frozen_brep = std::make_shared<const std::string>(
                 source.at("frozen_brep").get<std::string>());
+            std::vector<kernel::StepRequest::TopologyIdentity> topology;
+            topology.reserve(source.at("topology").size());
             for (const auto& identity : source.at("topology")) {
-                container.imported_step.topology.push_back({
+                topology.push_back({
                     step_topology_kind(identity.at("kind").get<std::string>()),
                     identity.at("semantic_key").get<std::string>(),
                     identity.at("shape_locator").get<std::string>()});
             }
+            container.imported_step.topology=std::move(topology);
             std::set<std::pair<int, std::string>> topology_ids;
             if (container.imported_step.source_path.empty() ||
                 container.imported_step.frozen_brep->empty() ||
@@ -11764,7 +11799,7 @@ PartDocument PartDocument::from_serialized(const nlohmann::json& root,
                 throw std::runtime_error(
                     "Calculated STEP boundary has no frozen kernel source");
             }
-            loaded.kernel_shape = *step->frozen_brep;
+            loaded.kernel_shape = step->frozen_brep;
         }
         if (boundary.value("original_references_mode", "full") == "append") {
             auto references = loaded_boundaries.empty()
@@ -12729,7 +12764,9 @@ nlohmann::json PartDocument::serialized(
             expected_operations[boundary_index].suppressed &&
             expected_operations[boundary_index].body.id == expected_operations[boundary_index - 1].body.id &&
             boundary.body_boundaries.empty() &&
-            boundary.kernel_shape == calculated_boundaries[boundary_index - 1].kernel_shape;
+            boundary.kernel_shape == calculated_boundaries[boundary_index - 1].kernel_shape &&
+            boundary.kernel_placements.empty() && calculated_boundaries[boundary_index - 1].kernel_placements.empty() &&
+            boundary.kernel_compound_bodies.empty() && calculated_boundaries[boundary_index - 1].kernel_compound_bodies.empty();
         auto serialized = reuses_previous_body
             ? nlohmann::json{{"body_source", "previous_boundary"},
                   {"source_fingerprint", boundary.source_fingerprint}}
@@ -12743,6 +12780,7 @@ nlohmann::json PartDocument::serialized(
             const auto* step = std::get_if<zima::kernel::StepRequest>(
                 &expected_operations[boundary_index].primitive);
             if (step != nullptr && step->frozen_brep &&
+                boundary.kernel_placements.empty() && boundary.kernel_compound_bodies.empty() &&
                 boundary.kernel_shape == *step->frozen_brep) {
                 serialized["kernel_shape"] = "";
                 serialized["kernel_shape_source"] = "step_parameter";

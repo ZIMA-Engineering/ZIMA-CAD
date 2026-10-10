@@ -1,6 +1,9 @@
 #include <zima/workspace/body_operations.hpp>
 #include <zima/document/body_origin_attachment.hpp>
 #include <algorithm>
+#include <chrono>
+#include <cstdio>
+#include <cstdlib>
 
 namespace zima::workspace {
 namespace {
@@ -20,11 +23,32 @@ bool calculate_and_commit(PartState& state,const kernel::OcctKernel& kernel,
     if(graph==state.session.document().body_history)return false;
     auto next=state.session.document();next.set_body_history(std::move(graph));
     PartCalculationPolicy policy;policy.reject_errors=true;
+    auto phase_start=std::chrono::steady_clock::now();
+    const auto phase=[&](const char* name) {
+        const auto now=std::chrono::steady_clock::now();
+        if(std::getenv("ZIMA_CPP_PROFILE_COMMAND"))std::fprintf(stderr,"Body commit %s: %.3f ms\n",name,
+            std::chrono::duration<double,std::milli>(now-phase_start).count());
+        phase_start=now;
+    };
     auto calculated=calculate_part_with_resolved_references(kernel,next,&state.session.calculated_boundaries(),policy);
+    phase("resolved calculation");
     // Matches Body Properties: preserve exact resolved inputs (including signed
     // zero) so the next Save can reuse the calculation's fingerprints.
-    if(exact_final_pass)calculated=calculate_part(kernel,next,&calculated,policy);
-    state.session.commit(std::move(next),std::move(calculated));return true;
+    if(exact_final_pass) {
+        const auto operations=next.kernel_operations();
+        // Reference settling already proves the final calculated fingerprint.
+        // Avoid copying the complete cached packet through another kernel call
+        // when the exact resolved inputs match. Group solid-state calculations
+        // retain their established explicit final preparation path.
+        const bool prepare_group=std::ranges::any_of(operations,[](const auto& operation) {
+            return std::holds_alternative<kernel::FeatureGroupRequest>(operation.primitive);
+        });
+        if(prepare_group||calculated.empty()||calculated.back().source_fingerprint!=
+                kernel::history_fingerprint(operations,operations.size()))
+            calculated=calculate_part(kernel,next,&calculated,policy);
+    }
+    phase("exact fingerprint calculation");
+    state.session.commit(std::move(next),std::move(calculated));phase("transaction");return true;
 }
 }
 BodyGraphEdit prepare_body_edit(const document::PartDocument& document,const std::string& id,std::string name) {

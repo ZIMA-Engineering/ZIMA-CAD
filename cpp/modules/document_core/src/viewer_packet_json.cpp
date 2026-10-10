@@ -12,6 +12,7 @@
 #include <cmath>
 #include <limits>
 #include <map>
+#include <set>
 #include <stdexcept>
 #include <string_view>
 #include <tuple>
@@ -492,7 +493,8 @@ zima::kernel::SurfaceGeometry load_surface_geometry(const nlohmann::json& value)
     return load_surface(value);
 }
 
-nlohmann::json serialize_body_result(const zima::kernel::BodyResult& result, bool include_histories) {
+nlohmann::json serialize_body_result(const zima::kernel::BodyResult& result, bool include_histories,
+        bool include_compound_operands) {
     nlohmann::json faces = nlohmann::json::array();
     const bool has_triangle_tags = std::ranges::any_of(
         result.mesh.triangle_references,
@@ -607,7 +609,7 @@ nlohmann::json serialize_body_result(const zima::kernel::BodyResult& result, boo
             {"centroid",serialize_vec3(result.volume_integrals->centroid)},
             {"inertia",result.volume_integrals->inertia}}:nlohmann::json(nullptr)},
         {"source_fingerprint", result.source_fingerprint},
-        {"kernel_shape", result.kernel_shape},
+        {"kernel_shape", result.kernel_shape.get()},
         {"viewer_binary_encoding", "f64le-u32le-base64-v1"},
         {"vertices_binary", pack_vertices(result.mesh.vertices)},
         {"triangles_binary", pack_indices(result.mesh.triangles)},
@@ -617,6 +619,15 @@ nlohmann::json serialize_body_result(const zima::kernel::BodyResult& result, boo
         {"original_references", serialize_reference_geometry(
             result.mesh.original_references)},
     };
+    if (!result.kernel_placements.empty()) {
+        packet["kernel_placements"] = nlohmann::json::array();
+        for (const auto& placement : result.kernel_placements)
+            packet["kernel_placements"].push_back({
+                {"translation", serialize_vec3(placement.translation)},
+                {"rotation_degrees", serialize_vec3(placement.rotation_degrees)}});
+    }
+    if (result.kernel_shape == zima::kernel::kernel_body_compound)
+        packet["kernel_compound_bodies"] = result.kernel_compound_bodies;
     const auto bindings=[&](const auto& values) {
         auto rows=nlohmann::json::array();
         for(const auto& value:values) {
@@ -688,6 +699,12 @@ nlohmann::json serialize_body_result(const zima::kernel::BodyResult& result, boo
         for (const auto& [id, body] : result.body_outputs) outputs[id] = serialize_body_result(body);
         packet["body_histories"] = {{"boundaries", std::move(histories)},
             {"inputs", std::move(inputs)}, {"outputs", std::move(outputs)}};
+    } else if (include_compound_operands && result.kernel_shape == zima::kernel::kernel_body_compound) {
+        auto outputs = nlohmann::json::object();
+        for (const auto& id : result.kernel_compound_bodies)
+            outputs[id] = serialize_body_result(result.body_outputs.at(id), false);
+        packet["body_histories"] = {{"boundaries", nlohmann::json::object()},
+            {"inputs", nlohmann::json::object()}, {"outputs", std::move(outputs)}};
     }
     return packet;
 }
@@ -702,8 +719,10 @@ zima::kernel::ViewerReferenceGeometry load_viewer_reference_geometry(
     return load_reference_geometry(source);
 }
 
-zima::kernel::BodyResult load_body_result(const nlohmann::json& source) {
+zima::kernel::BodyResult load_body_result(const nlohmann::json& source,
+        std::map<std::string,zima::kernel::BodySnapshot> compound_operands) {
     zima::kernel::BodyResult result;
+    result.body_outputs=std::move(compound_operands);
     if(const auto views=source.find("solid_state_reference_views");views!=source.end())
         for(const auto& [owner,geometry]:views->items()) {
             if(owner.empty())throw std::invalid_argument("History reference view is invalid.");
@@ -740,8 +759,11 @@ zima::kernel::BodyResult load_body_result(const nlohmann::json& source) {
     }
     result.calculation_errors = source.value("calculation_errors", std::map<std::string, std::string>{});
     if (const auto caches = source.find("body_histories"); caches != source.end()) {
-        for (const auto& [id, rows] : caches->at("boundaries").items())
-            for (const auto& row : rows) result.body_boundaries[id].push_back(load_body_result(row));
+        for (const auto& [id, rows] : caches->at("boundaries").items()) {
+            std::vector<zima::kernel::BodyResult> loaded;loaded.reserve(rows.size());
+            for (const auto& row : rows) loaded.push_back(load_body_result(row));
+            result.body_boundaries[id]=std::move(loaded);
+        }
         for (const auto& [id, body] : caches->at("inputs").items())
             result.body_inputs.emplace(id, load_body_result(body));
         for (const auto& [id, body] : caches->at("outputs").items())
@@ -767,9 +789,25 @@ zima::kernel::BodyResult load_body_result(const nlohmann::json& source) {
     }
     result.source_fingerprint = source.at("source_fingerprint").get<std::string>();
     result.kernel_shape = source.at("kernel_shape").get<std::string>();
+    for (const auto& placement : source.value("kernel_placements", nlohmann::json::array()))
+        result.kernel_placements.push_back({load_vec3(placement.at("translation")),
+            load_vec3(placement.at("rotation_degrees"))});
+    result.kernel_compound_bodies = source.value("kernel_compound_bodies", std::vector<std::string>{});
+    if (result.kernel_shape == zima::kernel::kernel_body_compound) {
+        if (!source.contains("kernel_compound_bodies"))
+            throw std::runtime_error("Calculated solid snapshot is invalid");
+        std::set<std::string> seen;
+        for (const auto& id : result.kernel_compound_bodies)
+            if (id.empty() || !seen.insert(id).second || !result.body_outputs.contains(id))
+                throw std::runtime_error("Calculated solid snapshot is invalid");
+    } else if (!result.kernel_compound_bodies.empty() ||
+            (result.kernel_shape.empty() && !result.kernel_placements.empty())) {
+        throw std::runtime_error("Calculated solid snapshot is invalid");
+    }
     if(const auto bindings=source.find("kernel_bindings");bindings!=source.end()) {
         const auto load=[&](const char* kind,auto& values) {
             using Binding=typename std::decay_t<decltype(values)>::value_type;
+            std::vector<Binding> captured;captured.reserve(bindings->at(kind).size());
             for(const auto& row:bindings->at(kind)) {
                 Binding value;value.locator=row.at("locator");
                 auto& ref=value.reference;ref={row.at("owner"),row.at("key"),row.at("instance_path")};
@@ -777,8 +815,9 @@ zima::kernel::BodyResult load_body_result(const nlohmann::json& source) {
                 if constexpr(std::is_same_v<std::decay_t<decltype(ref)>,zima::kernel::FaceReference>) {
                     ref.surface_result=row.at("surface_result");load_sheet_face(ref,row);
                 }
-                values.push_back(std::move(value));
+                captured.push_back(std::move(value));
             }
+            values=std::move(captured);
         };
         load("faces",result.kernel_faces);load("edges",result.kernel_edges);load("vertices",result.kernel_vertices);
     }

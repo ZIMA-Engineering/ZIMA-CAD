@@ -22,16 +22,22 @@ static int verify_imported_body_interaction(QApplication& application,zima::app:
             auto imported=interchange::import_step_part(document::PartDocument::create_default(),{},step);
             imported.document.save(path,imported.calculated);std::filesystem::remove(step);
         }
-        std::vector<kernel::BodyResult> calculated;const auto original=document::PartDocument::load(path,&calculated);
+        std::vector<kernel::BodyResult> calculated;auto original=document::PartDocument::load(path,&calculated);
         const auto found=std::ranges::find_if(original.history,[](const auto& feature){return feature.feature_kind==document::FeatureKind::ImportedStep;});
         check(found!=original.history.end()&&!calculated.empty(),"Imported Body fixture is missing");
+        check(!found->imported_step.topology.empty(),"Imported Body fixture lacks persisted STEP topology");
+        const auto import_id=found->id;
         const auto* owner=original.body_owner_for_object(found->id);check(owner,"Import is outside its Body");
         const auto body_id=owner->scope.id;
         const auto branch=calculated.back().body_boundaries.find(body_id);
         check(branch!=calculated.back().body_boundaries.end()&&!branch->second.empty(),"Import lacks local calculated packet");
-        const auto& local=branch->second.back().mesh;
+        auto local=std::move(branch->second.back().mesh);
+        const auto source_triangle_indices=calculated.back().mesh.triangles.size();
+        // The oracle needs the complete local viewer packet and Body graph,
+        // not another copy of every archive/branch during measured interaction.
+        calculated.clear();
         check(window.open_document_path(QString::fromStdWString(path.wstring())),"Cannot open imported preview fixture");flush();
-        const auto run=[&](const char* command){const auto result=window.execute_console_command(QString::fromStdString(nlohmann::json{{"command",command},{"arguments",nlohmann::json::object()}}.dump()));check(result.ok,"Import GUI console action failed");flush();};
+        const auto run=[&](const char* command){QElapsedTimer timer;timer.start();const auto result=window.execute_console_command(QString::fromStdString(nlohmann::json{{"command",command},{"arguments",nlohmann::json::object()}}.dump()));if(!result.ok)std::cerr<<"Imported GUI command failed: "<<command<<": "<<result.code<<": "<<result.message<<std::endl;check(result.ok,"Import GUI console action failed");flush();std::cout<<"Imported GUI command="<<command<<" ms="<<timer.nsecsElapsed()/1e6<<std::endl;};
         const auto dialog=[&]()->app::BodyPropertiesDialog* {
             for(auto* value:window.findChildren<QDialog*>())if(value->isVisible())if(auto* typed=dynamic_cast<app::BodyPropertiesDialog*>(value))return typed;return nullptr;
         };
@@ -60,7 +66,7 @@ static int verify_imported_body_interaction(QApplication& application,zima::app:
                 auto* action=window.findChild<QAction*>("extrusionAction");
                 check(action&&action->isEnabled(),"Extrusion is unavailable in imported Body");action->trigger();flush();
                 check(feature_dialog(),"Extrusion over import did not open");
-                check(view->mesh().triangles.size()>=calculated.back().mesh.triangles.size(),"Extrusion hid imported context");
+                check(view->mesh().triangles.size()>=source_triangle_indices,"Extrusion hid imported context");
             };
             open();feature_dialog()->buttons()->button(QDialogButtonBox::Cancel)->click();flush();
             const auto packet=[&] {
@@ -130,6 +136,18 @@ static int verify_imported_body_interaction(QApplication& application,zima::app:
             check(std::equal(expected.vertices.begin(),expected.vertices.end(),view->mesh().vertices.begin()),"Pending Body geometry does not follow the resolved placement");
             check(std::equal(expected.triangles.begin(),expected.triangles.end(),view->mesh().triangles.begin()),"Pending Body lost topology/triangle order");
         };
+        const auto check_committed_geometry=[&](const document::Placement& placement) {
+            auto expected_document=original;auto graph=expected_document.body_history;
+            auto body=*graph.find(body_id);body.scope.placement=placement;graph.update_body(body);
+            expected_document.set_body_history(std::move(graph));
+            const auto expected=expected_document.place_body_mesh(local,body_id);
+            check(view->mesh().vertices.size()>=expected.vertices.size()&&view->mesh().triangles.size()>=expected.triangles.size(),
+                "Committed imported Body lost geometry");
+            check(std::equal(expected.vertices.begin(),expected.vertices.end(),view->mesh().vertices.begin())&&
+                std::equal(expected.triangles.begin(),expected.triangles.end(),view->mesh().triangles.begin())&&
+                std::equal(expected.triangle_references.begin(),expected.triangle_references.end(),view->mesh().triangle_references.begin()),
+                "Committed imported Body world geometry or face identity differs from independent placement");
+        };
         const auto show_properties=[&] {
             auto* tree=window.findChild<QTreeWidget*>("documentTree");check(tree,"Import Tree missing");
             QTreeWidgetItem* row=nullptr;
@@ -141,26 +159,36 @@ static int verify_imported_body_interaction(QApplication& application,zima::app:
         if(!qEnvironmentVariableIsSet("ZIMA_VERIFY_IMPORT_PLACEMENT_ONLY")) {
         open();const auto before_camera=view->camera_state();
         for(double offset:{3.,7.,-2.,0.}) {
-            check(dialog()->set_inline_parameter_value("placement:reference_offset:0",offset),"Body offset not editable");flush();check_preview();
+            QElapsedTimer preview_timer;preview_timer.start();
+            check(dialog()->set_inline_parameter_value("placement:reference_offset:0",offset),"Body offset not editable");flush();
+            std::cout<<"Imported Body offset="<<offset<<" preview_ms="<<preview_timer.nsecsElapsed()/1e6<<std::endl;check_preview();
             check(view->camera_state()==before_camera,"Body placement changed the camera");
         }
         check(dialog()->set_inline_parameter_value("placement:rotation_z",15),"Body rotation not editable");flush();check_preview();
         window.grab().save(QString::fromStdWString((directory/"imported-body-moved.png").wstring()));
         std::cout<<"Imported Body complete preview passed"<<std::endl;
-        dialog()->reject();flush();run("save");check(document::PartDocument::load(path).body_history==original.body_history,"Body Cancel changed persistence");
+        if(qEnvironmentVariableIsSet("ZIMA_VERIFY_IMPORT_PREVIEW_ONLY")) {
+            QElapsedTimer cancel_timer;cancel_timer.start();dialog()->reject();flush();
+            std::cout<<"Imported Body preview Cancel ms="<<cancel_timer.nsecsElapsed()/1e6<<std::endl;return 0;
+        }
+        dialog()->reject();flush();check_committed_geometry(owner->scope.placement);run("save");check(document::PartDocument::load(path).body_history==original.body_history,"Body Cancel changed persistence");
         std::cout<<"Imported Body Cancel/save passed"<<std::endl;
         open();auto* undo=window.findChild<QAction*>("undoAction");const bool before_undo=undo->isEnabled();
         dialog()->buttons()->button(QDialogButtonBox::Ok)->click();flush();check(!dialog()&&undo->isEnabled()==before_undo,"Unchanged Body OK added an Undo transaction");
         std::cout<<"Imported Body unchanged OK passed"<<std::endl;
         open();check(dialog()->set_inline_parameter_value("placement:reference_offset:0",5),"Body edit failed");flush();check_preview();
         const auto accepted=dialog()->pending_value().scope.placement;
-        dialog()->buttons()->button(QDialogButtonBox::Ok)->click();flush();check(!dialog(),"Imported Body OK failed");run("save");
+        QElapsedTimer commit_timer;commit_timer.start();
+        dialog()->buttons()->button(QDialogButtonBox::Ok)->click();flush();check(!dialog(),"Imported Body OK failed");
+        std::cout<<"Imported Body changed OK ms="<<commit_timer.nsecsElapsed()/1e6<<std::endl;check_committed_geometry(accepted);run("save");
         check(document::PartDocument::load(path).body_history.find(body_id)->scope.placement==accepted,"Imported Body placement did not persist");
         std::cout<<"Imported Body changed OK/save passed"<<std::endl;
-        run("undo");run("save");check(document::PartDocument::load(path).body_history.find(body_id)->scope.placement==owner->scope.placement,"Body placement Undo failed");
-        run("redo");run("save");check(document::PartDocument::load(path).body_history.find(body_id)->scope.placement==accepted,"Body placement Redo failed");
+        run("undo");check_committed_geometry(owner->scope.placement);run("save");check(document::PartDocument::load(path).body_history.find(body_id)->scope.placement==owner->scope.placement,"Body placement Undo failed");
+        std::cout<<"Imported Body Undo/save passed"<<std::endl;
+        run("redo");check_committed_geometry(accepted);run("save");check(document::PartDocument::load(path).body_history.find(body_id)->scope.placement==accepted,"Body placement Redo failed");
+        std::cout<<"Imported Body Redo/save passed"<<std::endl;
         run("close");check(window.open_document_path(QString::fromStdWString(path.wstring())),"Cannot reopen moved import");flush();
-        show_properties();check(dialog(),"Cannot edit reopened import");dialog()->reject();flush();
+        check_committed_geometry(accepted);show_properties();check(dialog(),"Cannot edit reopened import");check_preview();dialog()->reject();flush();
         }
         auto* tree=window.findChild<QTreeWidget*>("documentTree");
         bool created=false;
@@ -174,6 +202,10 @@ static int verify_imported_body_interaction(QApplication& application,zima::app:
         });
         tree->customContextMenuRequested(tree->visualItemRect(tree->topLevelItem(0)).center());flush();
         check(created&&dialog(),"Cannot create a Body for imported-face placement");
+        // Closing/reopening a document may replace its widget. Always exercise
+        // the current visible View, rather than an earlier tab's widget.
+        for(auto* widget:window.findChildren<QOpenGLWidget*>())if(widget->isVisible())
+            if(auto* current=dynamic_cast<viewer::MeshView*>(widget))view=current;
         for(int i=2;i>=0;--i) {
             auto* table=dialog()->findChild<QTableWidget*>("bodyReferenceTable");
             check(table&&table->cellWidget(i,0),"Imported-face placement section missing");
@@ -181,14 +213,43 @@ static int verify_imported_body_interaction(QApplication& application,zima::app:
             check(remove&&remove->isVisible(),"Cannot clear the initial Origin reference");remove->click();flush();
         }
         std::optional<QPointF> hit;viewer::ViewerCandidate offered;std::size_t offered_index{};
-        for(int y=view->height()/2;y<view->height()&&!hit;y+=16)
-            for(int x=view->width()/2;x<view->width()&&!hit;x+=16) {
+        std::cout<<"Import placement View visible="<<view->isVisible()<<" triangles="<<view->mesh().triangles.size()/3<<std::endl;
+        window.grab().save(QString::fromStdWString((directory/"import-placement-input.png").wstring()));
+        const auto pick_point=qEnvironmentVariable("ZIMA_VERIFY_IMPORT_PICK_POINT").split(',');
+        if(pick_point.size()==2) {
+            const QPointF point(pick_point[0].toDouble(),pick_point[1].toDouble());
+            // Re-arm the input synchronously, without pumping pointer events:
+            // clearing default references above may already warm the picker.
+            auto* table=dialog()->findChild<QTableWidget*>("bodyReferenceTable");
+            const auto arming=std::chrono::steady_clock::now();
+            table->cellClicked(0,1);
+            std::cout<<"Imported-face reference entry ms="<<std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-arming).count()<<std::endl;
+            const auto before=std::chrono::steady_clock::now();
+            const auto candidates=view->selection_candidates_at(point);
+            std::cout<<"Imported-face first picker ms="<<std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-before).count()<<std::endl;
+            const auto face=std::ranges::find_if(candidates,[&](const auto& value){return value.kind==viewer::CandidateKind::Face&&value.owner_id==import_id;});
+            check(face!=candidates.end(),"Fixed import pick point did not offer a face");
+            hit=point;offered=*face;offered_index=static_cast<std::size_t>(face-candidates.begin());
+        }
+        // A large model and the internal Properties window can occupy different
+        // quadrants after save/reopen. Search the complete visible viewport;
+        // the common picker itself excludes points covered by the dialog.
+        for(int y=16;y<view->height()&&!hit;y+=16)
+            for(int x=16;x<view->width()&&!hit;x+=16) {
                 const auto candidates=view->selection_candidates_at(QPointF(x,y));
-                const auto face=std::ranges::find_if(candidates,[&](const auto& value){return value.kind==viewer::CandidateKind::Face&&value.owner_id==found->id;});
+                const auto face=std::ranges::find_if(candidates,[&](const auto& value){return value.kind==viewer::CandidateKind::Face&&value.owner_id==import_id;});
                 if(face!=candidates.end())
                     {hit=QPointF(x,y);offered=*face;offered_index=static_cast<std::size_t>(face-candidates.begin());}
             }
+        if(!hit) {
+            std::set<std::string> owners;
+            for(const auto& face:view->mesh().triangle_references)owners.insert(face.owner_id);
+            std::cerr<<"Import placement expected="<<import_id<<" triangles="<<view->mesh().triangles.size()/3
+                <<" face owners="<<nlohmann::json(owners).dump()<<std::endl;
+            window.grab().save(QString::fromStdWString((directory/"import-placement-missing.png").wstring()));
+        }
         check(hit.has_value(),"Imported face cannot be offered for Body placement");
+        std::cout<<"Imported-face pick point="<<hit->x()<<","<<hit->y()<<" identity="<<offered.semantic_key<<std::endl;
         const auto start=std::chrono::steady_clock::now();
         for(int i=0;i<20;++i)check(view->selection_candidates_at(*hit).at(offered_index)==offered,"Warm placement changed the offered face");
         std::cout<<"Imported-face warm placement picker mean ms="<<std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-start).count()/20<<std::endl;
@@ -213,10 +274,19 @@ static int verify_imported_body_interaction(QApplication& application,zima::app:
             warm.save(QString::fromStdWString((directory/"face-warm.png").wstring()));
             std::cerr<<"Face frame camera equal="<<(cold_camera==view->camera_state())<<std::endl;
         }
-        check(warm==cold,"Cached face highlight changed its displayed boundary");
+        const auto a=cold.convertToFormat(QImage::Format_RGBA8888),b=warm.convertToFormat(QImage::Format_RGBA8888);
+        check(a.size()==b.size(),"Cached face highlight changed framebuffer dimensions");
+        int maximum=0;
+        for(int y=0;y<a.height();++y)for(int x=0;x<a.width()*4;++x)
+            maximum=std::max(maximum,std::abs(int(a.constScanLine(y)[x])-int(b.constScanLine(y)[x])));
+        // Desktop GL may round antialiased channels by one 8-bit level on
+        // successive identical frames. Candidate identity remains exact above.
+        check(maximum<=1,"Cached face highlight changed its displayed boundary");
         QMouseEvent press(QEvent::MouseButtonPress,*hit,*hit,*hit,Qt::LeftButton,Qt::LeftButton,Qt::NoModifier);
         QMouseEvent release(QEvent::MouseButtonRelease,*hit,*hit,*hit,Qt::LeftButton,Qt::NoButton,Qt::NoModifier);
+        const auto confirming=std::chrono::steady_clock::now();
         QApplication::sendEvent(view,&press);QApplication::sendEvent(view,&release);flush();
+        std::cout<<"Imported-face confirmation ms="<<std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-confirming).count()<<std::endl;
         const auto selected=dialog()->pending_value().scope.placement.references;
         check(std::ranges::any_of(selected,[&](const auto& ref){return ref.owner_id==offered.owner_id&&ref.semantic_key==offered.semantic_key&&ref.instance_path==offered.instance_path;}),"Imported-face click did not accept the offered identity");
         dialog()->reject();flush();

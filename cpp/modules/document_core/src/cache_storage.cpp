@@ -18,11 +18,18 @@ public:
         if (depth > maximum_depth) throw std::runtime_error("Cache nesting is too deep");
         if (source.is_object() && source.contains(reference_key))
             throw std::runtime_error("Reserved cache reference key in source data");
-        Json encoded = source;
-        if (source.is_structured()) {
-            for (auto it = encoded.begin(); it != encoded.end(); ++it)
-                *it = encode(*it, depth + 1);
-        }
+        // Build children directly: copying a whole subtree here would copy it
+        // again at every nested level before replacing each copied child.
+        Json encoded;
+        if (source.is_object()) {
+            encoded = Json::object();
+            for (auto it = source.begin(); it != source.end(); ++it)
+                encoded[it.key()] = encode(it.value(), depth + 1);
+        } else if (source.is_array()) {
+            encoded = Json::array();
+            encoded.get_ref<Json::array_t&>().reserve(source.size());
+            for (const auto& child : source) encoded.push_back(encode(child, depth + 1));
+        } else encoded = source;
         // Pool large leaves and repeated compound blocks after their children.
         // Full serialized equality resolves hash collisions; a hash alone never
         // decides that two geometries or occurrence records are identical.
@@ -53,9 +60,16 @@ Json decode(const Json& source, const Json& values, std::size_t limit,
         if (index >= limit) throw std::runtime_error("Invalid cache reference order");
         return decode(values.at(index), values, index, depth + 1);
     }
-    Json result = source;
-    if (result.is_structured()) for (auto& child : result)
-        child = decode(child, values, limit, depth + 1);
+    Json result;
+    if (source.is_object()) {
+        result = Json::object();
+        for (auto it = source.begin(); it != source.end(); ++it)
+            result[it.key()] = decode(it.value(), values, limit, depth + 1);
+    } else if (source.is_array()) {
+        result = Json::array();
+        result.get_ref<Json::array_t&>().reserve(source.size());
+        for (const auto& child : source) result.push_back(decode(child, values, limit, depth + 1));
+    } else result = source;
     return result;
 }
 }

@@ -6,6 +6,7 @@
 #include <zima/workspace/part_transactions.hpp>
 #include <zima/workspace/operation_input.hpp>
 #include <zima/kernel/solid_state_ancestry.hpp>
+#include <zima/kernel/calculated_body_shape.hpp>
 #include <zima/command_host/host.hpp>
 #include <zima/workspace/family_operations.hpp>
 #include <zima/workspace/engineering_metadata_operations.hpp>
@@ -125,7 +126,8 @@ void invalid_fillet_state() {
             "Initial end-rim Fillet failed");
         auto straight=document::PartDocument::create_solid_state_container();straight.solid_state.coefficient=.9;
         if(editing)require(workspace::commit_solid_state(live,kernel,id,straight),"Initial end-rim Straighten failed");
-        const auto before=state->session.document().serialized();
+        const auto before_document=state->session.document();
+        const auto before=before_document.serialized();
         const auto revision=state->session.revision(),generation=state->session.data_generation();
         const auto* calculated=state->session.calculated_boundaries().data();
         const auto can_undo=state->session.can_undo(),can_redo=state->session.can_redo();
@@ -174,8 +176,9 @@ void invalid_fillet_state() {
                 before.at("dimension_identifiers").at("entries").end(),entry)==before.at("dimension_identifiers").at("entries").end())
             require(entry.at("owner")==straight.id,"Failed state Undo allocated unrelated dimension identities");
         require(registry.at("next")>=before.at("dimension_identifiers").at("next"),"Undo reused retired dimension numbers");
-        undone["dimension_identifiers"]=before.at("dimension_identifiers");
-        require(undone==before,
+        auto expected_undo=before_document;
+        expected_undo.dimension_identifiers=state->session.document().dimension_identifiers;
+        require(undone==expected_undo.serialized(),
             "Failed state Undo did not restore the complete previous document");
         require(workspace::step_part_document_history(live,id,true)&&state->session.document().serialized()==retained&&
             state->session.calculated_boundaries().back().calculation_errors.at(straight.id)==retained_error,
@@ -256,15 +259,29 @@ void native_holes() {
         crossing.placement.y=-3;crossing.placement.z=14.9;
         crossing.placement.rotation_x=-90;crossing.placement.absolute_rotation_x=-90;
         workspace::commit_profile(live,kernel,id,crossing,workspace::ProfileEditMode::Create,crossing_sketch);
-        const auto before=state->session.document().serialized();
-        const auto revision=state->session.revision(),generation=state->session.data_generation();
-        const auto* calculated=state->session.calculated_boundaries().data();
-        bool rejected=false;try {
-            static_cast<void>(workspace::commit_solid_state(live,kernel,id,document::PartDocument::create_solid_state_container()));
-        }catch(const std::invalid_argument&){rejected=true;}catch(const std::runtime_error&){rejected=true;}
-        require(rejected&&state->session.document().serialized()==before&&state->session.revision()==revision&&
-            state->session.data_generation()==generation&&state->session.calculated_boundaries().data()==calculated,
-            "Crossing-hole state was accepted or partially committed");
+        const auto before=state->session.document();
+        const auto input=state->session.calculated_boundaries().back();
+        const auto invalid=document::PartDocument::create_solid_state_container();
+        require(workspace::commit_solid_state(live,kernel,id,invalid),"Failed crossing-hole definition was not retained");
+        const auto& failed=state->session.calculated_boundaries().back();
+        require(failed.calculation_errors.contains(invalid.id)&&!failed.calculation_errors.at(invalid.id).empty(),
+            "Unsupported crossing-hole state lacks its native calculation error");
+        require(failed.mesh.vertices==input.mesh.vertices&&failed.mesh.triangles==input.mesh.triangles&&
+            failed.mesh.triangle_references==input.mesh.triangle_references&&
+            failed.volume==input.volume&&failed.surface_area==input.surface_area,
+            "Failed crossing-hole state changed retained input geometry");
+        const auto retained=state->session.document().serialized();const auto error=failed.calculation_errors.at(invalid.id);
+        require(workspace::step_part_document_history(live,id,false),"Failed crossing-hole Undo unavailable");
+        auto expected_undo=before;expected_undo.dimension_identifiers=state->session.document().dimension_identifiers;
+        require(state->session.document().serialized()==expected_undo.serialized(),"Failed crossing-hole Undo changed authored input");
+        require(workspace::step_part_document_history(live,id,true)&&state->session.document().serialized()==retained&&
+            state->session.calculated_boundaries().back().calculation_errors.at(invalid.id)==error,
+            "Failed crossing-hole Redo lost its definition or error");
+        state->session.document().save(path,state->session.calculated_boundaries());
+        saved.clear();const auto failed_reopened=document::PartDocument::load(path,&saved);
+        require(*failed_reopened.find_container(invalid.id)==*state->session.document().find_container(invalid.id)&&
+            saved.back().calculation_errors.at(invalid.id)==error&&saved.back().mesh.vertices==input.mesh.vertices&&
+            saved.back().mesh.triangles==input.mesh.triangles,"Failed crossing-hole persistence lost input or error");
         std::filesystem::remove(path);
     }
 }
@@ -279,9 +296,8 @@ void native_sweep_lifecycle(document::HistoryContainer source,double expected,do
     if(std::abs(formed-expected)>=tolerance)throw std::runtime_error(
         "Native sweep source volume differs from independent length: expected "+std::to_string(expected)+", got "+std::to_string(formed));
     if(probe_rectangle) {
-        TopoDS_Shape shape;BRep_Builder builder;
-        std::istringstream stored(state->session.calculated_boundaries().back().kernel_shape);
-        BRepTools::Read(shape,stored,builder);require(!shape.IsNull(),"Spatial rectangle has no exact body");
+        const auto shape=kernel::read_calculated_body_shape(state->session.calculated_boundaries().back());
+        require(!shape.IsNull(),"Spatial rectangle has no exact body");
         const auto operations=state->session.document().kernel_operations();
         const auto& sweep=std::get<kernel::Sweep3DRequest>(operations.front().primitive);
         double largest_perimeter_error=0,largest_side_error=0,largest_angle_cosine=0,largest_edge_bow=0;std::size_t probes=0;

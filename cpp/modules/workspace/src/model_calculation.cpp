@@ -10,6 +10,7 @@
 #include <zima/workspace/sketch_operations.hpp>
 #include <zima/workspace/sketch_reference_operations.hpp>
 #include <zima/document/viewer_packet_json.hpp>
+#include <zima/document/placement_reference_geometry.hpp>
 #include <zima/document/solid_state_reference_views.hpp>
 #include <zima/document/solid_state_calculation.hpp>
 #include "group_solid_state_calculation.hpp"
@@ -17,6 +18,9 @@
 #include <algorithm>
 #include <array>
 #include <bit>
+#include <chrono>
+#include <cstdio>
+#include <cstdlib>
 #include <functional>
 #include <stdexcept>
 
@@ -90,10 +94,32 @@ std::vector<zima::kernel::BodyResult> calculate_part(
             source_prefix.assign(previous->begin(),previous->begin()+count);calculation_input=&source_prefix;
         }
     }
+    const std::vector<kernel::BodyResult> empty_previous;
     auto calculated = kernel.evaluate_history_recovering(operations,
-        calculation_input == nullptr ? std::vector<zima::kernel::BodyResult>{} : *calculation_input);
+        calculation_input == nullptr ? empty_previous : *calculation_input);
     validate_part_calculation(document,calculated,policy);
     return calculated;
+}
+
+static kernel::ViewerReferenceGeometry construction_resolution_geometry(
+    const document::PartDocument& document,const std::vector<kernel::BodyResult>& calculated) {
+    // Independent imports consume only numeric local placement. Body placement
+    // still needs every referenced face/edge/point/axis, selected from the exact
+    // current source by the same approved lookup used in the dialog. All other
+    // histories retain the complete established reference preparation path.
+    const bool independent_imports=!document.body_history.bodies().empty()&&
+        document.body_history.booleans().empty()&&document.constructions.empty()&&
+        document.sketches.empty()&&document.sections.empty()&&!document.history.empty()&&
+        std::ranges::all_of(document.history,[](const auto& feature) {
+            return feature.feature_kind==document::FeatureKind::ImportedStep&&feature.placement.references.empty();
+        })&&std::ranges::all_of(document.body_history.bodies(),[](const auto& body) {
+            return !body.derived_copy&&!body.scale&&!body.link;
+        })&&!calculated.empty()&&calculated.back().solid_state_reference_views.empty();
+    if(!independent_imports)return construction_reference_source_geometry(calculated);
+    std::vector<document::ConstructionReference> references;
+    for(const auto& body:document.body_history.bodies())
+        references.insert(references.end(),body.scope.placement.references.begin(),body.scope.placement.references.end());
+    return document::PlacementReferenceGeometryIndex(calculated.back().mesh.original_references,references).select(references);
 }
 
 static std::vector<zima::kernel::BodyResult>
@@ -134,7 +160,15 @@ calculate_part_reference_state(
         return frames;
     };
     for (std::size_t pass = 0; pass < pass_limit; ++pass) {
+        auto phase_start=std::chrono::steady_clock::now();
+        const auto phase=[&](const char* name) {
+            const auto now=std::chrono::steady_clock::now();
+            if(std::getenv("ZIMA_CPP_PROFILE_COMMAND"))std::fprintf(stderr,"Part settling pass=%zu %s: %.3f ms\n",pass,name,
+                std::chrono::duration<double,std::milli>(now-phase_start).count());
+            phase_start=now;
+        };
         calculated = calculate_part(kernel, document, incremental_source, {});
+        phase("calculation");
         const auto history_before = document.history;
         const auto constructions_before = document.constructions;
         const auto bodies_before = document.body_history.bodies();
@@ -154,10 +188,12 @@ calculate_part_reference_state(
                 if(keys.size()==1)feature.surface_trim.retained_region_key=*keys.begin();
             }
         document::refresh_body_properties(document,calculated);
-        auto reference_geometry=construction_reference_source_geometry(calculated);
+        auto reference_geometry=construction_resolution_geometry(document,calculated);
         const auto state_views=calculated.empty()?document::HistoryReferenceViews{}:
             document::solid_state_reference_views(document,calculated.back(),reference_geometry);
+        phase("reference preparation");
         document.resolve_constructions(std::move(reference_geometry),state_views);
+        phase("reference resolution");
         // A changed placement describes the next geometry pass. Projecting
         // this pass's old source mesh into that new Sketch frame can create
         // a false constraint conflict while the dependency chain is settling.

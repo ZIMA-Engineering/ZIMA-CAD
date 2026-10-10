@@ -47,7 +47,7 @@ inline std::vector<kernel::ViewerEdge> authored_feature_wire(
     bool local_body=false;
     if(body)if(const auto found=calculated.back().body_boundaries.find(body->scope.id);
             found!=calculated.back().body_boundaries.end()) {
-        boundaries=&found->second;local_body=true;
+        boundaries=&found->second.get();local_body=true;
     }
     for(const auto& boundary:*boundaries) {
         for(const auto& edge:boundary.mesh.original_references.edges)

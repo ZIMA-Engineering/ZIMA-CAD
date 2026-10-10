@@ -1,5 +1,6 @@
 #include <zima/kernel/sheet_exchange.hpp>
 #include <zima/kernel/occt_curve_data.hpp>
+#include <zima/kernel/calculated_body_shape.hpp>
 #include <zima/kernel/sheet_material.hpp>
 #include <BRepTools.hxx>
 #include <BRep_Builder.hxx>
@@ -21,7 +22,7 @@ FlatContour sheet_flat_contour(const BodyResult& body,double thickness,double to
     using namespace sheet_material;
     if(body.kernel_shape.empty()||!(thickness>0)||!(tolerance>0))
         throw std::invalid_argument("Sheet DXF requires a calculated sheet body.");
-    BRep_Builder builder;TopoDS_Shape shape;std::istringstream input(body.kernel_shape);BRepTools::Read(shape,input,builder);
+    const auto shape=read_calculated_body_shape(body);
     if(shape.IsNull())throw std::invalid_argument("Sheet DXF requires a calculated sheet body.");
     double largest=0;gp_Pln plane;bool reversed=false;
     for(TopExp_Explorer it(shape,TopAbs_FACE);it.More();it.Next()) {

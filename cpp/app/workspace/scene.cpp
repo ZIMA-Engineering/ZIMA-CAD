@@ -1770,8 +1770,11 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
                 if (body_dialog_preview_ && !calculated.empty()) {
                     const auto* edited = body_dialog_preview_->body_history.find(body_dialog_step_id_);
                     const auto local = calculated.back().body_boundaries.find(body_dialog_step_id_);
-                    if (edited && !edited->link && local != calculated.back().body_boundaries.end() && !local->second.empty())
-                        append_mesh(display, body_dialog_preview_->place_body_mesh(local->second.back().mesh, body_dialog_step_id_));
+                    if (edited && !edited->link && local != calculated.back().body_boundaries.end() && !local->second.empty()) {
+                        auto placed=body_dialog_preview_->place_body_mesh(local->second.back().mesh, body_dialog_step_id_);
+                        if(body_dialog_context_->empty())display=std::move(placed);
+                        else append_mesh(display,std::move(placed));
+                    }
                 }
             }
             // Retire only the base scene's automatic datums. Explicit reference

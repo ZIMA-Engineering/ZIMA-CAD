@@ -5,6 +5,7 @@
 #include <zima/document/body_origin_attachment.hpp>
 #include <zima/document/viewer_packet_json.hpp>
 #include <zima/kernel/occt_kernel.hpp>
+#include <zima/kernel/calculated_body_shape.hpp>
 #include <zima/kernel/sheet_material.hpp>
 #include <zima/kernel/stable_id.hpp>
 #include <zima/workspace/model_calculation.hpp>
@@ -76,7 +77,7 @@ void near(double a,double b,double tolerance=1e-6) {
 void valid(const kernel::BodyResult& result) {
     for(const auto& [owner,error]:result.calculation_errors)std::cerr<<owner<<": "<<error<<std::endl;
     check(result.calculation_errors.empty(),"FORM calculation failed");
-    TopoDS_Shape shape;BRep_Builder builder;std::istringstream data(result.kernel_shape);BRepTools::Read(shape,data,builder);
+    const auto shape=kernel::read_calculated_body_shape(result);
     if(!shape.IsNull()&&!BRepCheck_Analyzer(shape,true,false,true).IsValid())
     {
         BRepTools::Write(shape,"build/form-diagnostic/form-native-invalid.brep");
@@ -135,8 +136,7 @@ void verify_corner_transition_radii(const kernel::BodyResult& result,const std::
         }
         samples.push_back(sample);
     }
-    TopoDS_Shape body;BRep_Builder builder;std::istringstream data(result.kernel_shape);
-    BRepTools::Read(body,data,builder);unsigned cavity=0,opposite=0;
+    const auto body=kernel::read_calculated_body_shape(result);unsigned cavity=0,opposite=0;
     // Test-only exact geometry inspection: match three published face vertices
     // to the real trimmed surface, then measure curvature independently of
     // the requested Fillet values. No topology identities are created here.
@@ -258,8 +258,8 @@ int main(int argc,char** argv){try {
         };
         check(references(a)==references(b),"Batch changed topology reference identities or sheet sides");
         check(document::serialize_body_result(a).at("axes")==document::serialize_body_result(b).at("axes"),"Batch changed centroid axis identities or geometry");
-        TopoDS_Shape shapes[2];BRep_Builder builder;
-        for(unsigned i=0;i<2;++i){std::istringstream stream(results[i].kernel_shape);BRepTools::Read(shapes[i],stream,builder);}
+        TopoDS_Shape shapes[2];
+        for(unsigned i=0;i<2;++i)shapes[i]=kernel::read_calculated_body_shape(results[i]);
         for(unsigned i=0;i<2;++i) {
             BRepAlgoAPI_Cut difference(shapes[i],shapes[1-i]);difference.Build();
             check(difference.IsDone(),"Batch geometric equivalence comparison failed");
@@ -1247,7 +1247,7 @@ int main(int argc,char** argv){try {
     }
     check(tested_sides.size()==2,"FORM attachment test did not cover both sheet sides");
     {
-        TopoDS_Shape solid;BRep_Builder builder;std::istringstream data(baseline.back().kernel_shape);BRepTools::Read(solid,data,builder);
+        const auto solid=kernel::read_calculated_body_shape(baseline.back());
         for(TopExp_Explorer it(solid,TopAbs_FACE);it.More();it.Next()) {
             const auto actual=TopoDS::Face(it.Current());BRepAdaptor_Surface surface(actual);
             if(surface.GetType()!=GeomAbs_Plane)continue;
@@ -1330,8 +1330,7 @@ int main(int argc,char** argv){try {
             // the independent additive-volume comparison by the actual BRep
             // surface area and shape tolerance, not an arbitrary absolute mass.
             // valid() separately checks the persisted volume against GK.
-            TopoDS_Shape copy_shape;BRep_Builder builder;std::istringstream copy_data(spatial.back().kernel_shape);
-            BRepTools::Read(copy_shape,copy_data,builder);GProp_GProps area;
+            const auto copy_shape=kernel::read_calculated_body_shape(spatial.back());GProp_GProps area;
             BRepGProp::SurfaceProperties(copy_shape,area);double tolerance=1e-7;
             for(TopExp_Explorer edge(copy_shape,TopAbs_EDGE);edge.More();edge.Next())
                 tolerance=std::max(tolerance,BRep_Tool::Tolerance(TopoDS::Edge(edge.Current())));

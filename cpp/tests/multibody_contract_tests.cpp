@@ -1,12 +1,20 @@
 #include "profile_solid_fixture.hpp"
 #include <zima/document/body_origin_attachment.hpp>
 #include <zima/kernel/occt_kernel.hpp>
+#include <zima/kernel/calculated_body_shape.hpp>
+#include <BRepGProp.hxx>
+#include <BRepBuilderAPI_Transform.hxx>
+#include <BRep_Builder.hxx>
+#include <BRepTools.hxx>
+#include <GProp_GProps.hxx>
+#include <gp_Ax1.hxx>
 #include <zima/document/body_history.hpp>
 #include <zima/document/document_session.hpp>
 #include <zima/kernel/stable_id.hpp>
 #include <zima/document/viewer_packet_json.hpp>
 #include <nlohmann/json.hpp>
 
+#include <bit>
 #include <chrono>
 #include <cstdlib>
 #include <cmath>
@@ -14,6 +22,7 @@
 #include <filesystem>
 #include <limits>
 #include <stdexcept>
+#include <sstream>
 
 using namespace zima;
 
@@ -152,6 +161,72 @@ int main() {
             return kernel::HistoryOperation{entry.id, zima::test::ProfilePrism{10,10,10}};
         };
         kernel::OcctKernel kernel;
+        {
+            const auto original=kernel.evaluate_history({box("rigid-box","rigid-body")});
+            const auto& local=original.back().body_boundaries.at("rigid-body").back();
+            const auto local_packet=document::serialize_body_result(local);
+            auto previous=original;
+            for (const auto pose : std::vector<kernel::KernelRigidPlacement>{
+                    {{3,-7,11},{}},{{-2,4,8},{15,20,-30}},{{0,0,0},{0,0,90}},{{-0.,0,0},{}}}) {
+                auto operation=box("rigid-box","rigid-body");
+                operation.body.translation=pose.translation;operation.body.rotation_degrees=pose.rotation_degrees;
+                const auto moved=kernel.evaluate_history_incremental({operation},previous);
+                const auto& result=moved.back();
+                require(result.kernel_shape==kernel::kernel_body_compound &&
+                    result.kernel_compound_bodies==std::vector<std::string>{"rigid-body"},
+                    "Body aggregate unnecessarily rewrote its opaque local solid");
+                const auto& output=result.body_outputs.at("rigid-body").get();
+                const auto copied_result=result;
+                require(copied_result.body_boundaries.at("rigid-body").shares_with(result.body_boundaries.at("rigid-body")),
+                    "Calculated document copy duplicated immutable local history");
+                require(local.kernel_shape.shares_with(output.kernel_shape),
+                    "Rigid Body copied or replaced its immutable local archive");
+                require(result.body_inputs.at("rigid-body").shares_with(result.body_outputs.at("rigid-body")),
+                    "Separate Body duplicated its immutable input/output");
+                require(output.kernel_shape==local.kernel_shape &&
+                    document::serialize_body_result(result.body_boundaries.at("rigid-body").back())==local_packet,
+                    "Rigid Body movement changed its calculated local geometry or identities");
+                const auto packet=document::serialize_body_result(result);
+                const auto restored=document::load_body_result(nlohmann::json::parse(packet.dump()));
+                require(document::serialize_body_result(restored)==packet,
+                    "Native opaque placement recipe did not round-trip exactly");
+                // Independent eager reference, using the established Rz*Ry*Rx
+                // convention and original archive, never the recipe materializer.
+                gp_Trsf expected_pose;expected_pose.SetTranslation(gp_Vec(pose.translation.x,pose.translation.y,pose.translation.z));
+                const double radians=std::acos(-1.)/180.;
+                for(const auto axis:std::vector<std::pair<gp_Dir,double>>{
+                        {gp_Dir(0,0,1),pose.rotation_degrees.z},{gp_Dir(0,1,0),pose.rotation_degrees.y},
+                        {gp_Dir(1,0,0),pose.rotation_degrees.x}}) {
+                    gp_Trsf rotation;rotation.SetRotation(gp_Ax1(gp_Pnt(0,0,0),axis.first),axis.second*radians);
+                    expected_pose.Multiply(rotation);
+                }
+                TopoDS_Shape original_shape;BRep_Builder builder;std::istringstream archive(local.kernel_shape);
+                BRepTools::Read(original_shape,archive,builder);
+                BRepBuilderAPI_Transform eager(original_shape,expected_pose,true);eager.Build();
+                GProp_GProps expected_volume,actual_volume,expected_area,actual_area;
+                const auto actual=kernel::read_calculated_body_shape(restored);
+                BRepGProp::VolumeProperties(eager.Shape(),expected_volume);
+                BRepGProp::VolumeProperties(actual,actual_volume);
+                BRepGProp::SurfaceProperties(eager.Shape(),expected_area);
+                BRepGProp::SurfaceProperties(actual,actual_area);
+                require(std::abs(actual_volume.Mass()-expected_volume.Mass())<1e-9 &&
+                    std::abs(actual_area.Mass()-expected_area.Mass())<1e-9 &&
+                    actual_volume.CentreOfMass().Distance(expected_volume.CentreOfMass())<1e-9,
+                    "Materialized rigid Body differs from eager geometry");
+                for (std::size_t i=0;i<local.mesh.vertices.size();++i) {
+                    const auto p=local.mesh.vertices[i];const auto q=gp_Pnt(p.x,p.y,p.z).Transformed(expected_pose);
+                    const auto v=output.mesh.vertices[i];
+                    require(q.Distance(gp_Pnt(v.x,v.y,v.z))<1e-10,"Rigid Body viewer vertex changed incorrectly");
+                }
+                require(output.mesh.triangles==local.mesh.triangles && output.volume==local.volume &&
+                    output.surface_area==local.surface_area,"Rigid movement changed topology order or physical properties");
+                previous=moved;
+            }
+            auto invalid=document::serialize_body_result(previous.back());
+            invalid["kernel_compound_bodies"]={"missing"};
+            bool rejected=false;try{static_cast<void>(document::load_body_result(invalid));}catch(const std::exception&){rejected=true;}
+            require(rejected,"Native compound accepted a missing calculated operand");
+        }
         {
             document::BodyHistoryGraph source_graph;
             const auto source=source_graph.create_body("Source");
@@ -674,6 +749,49 @@ int main() {
         std::vector<kernel::HistoryOperation> independent{imported, box("changed-box", "changed-body", {20,0,0})};
         auto imported_boundaries = kernel.evaluate_history(independent);
         std::filesystem::remove(path);
+        {
+            auto moved=independent;
+            moved.front().body.translation={3,7,-2};
+            moved.front().body.rotation_degrees={15,-25,35};
+            kernel::OcctKernel cold;
+            const auto placed=cold.evaluate_history_incremental(moved,imported_boundaries);
+            require(placed.back().body_boundaries.at("import-body").shares_with(
+                imported_boundaries.back().body_boundaries.at("import-body")),
+                "Rigid import placement copied or rebuilt its unchanged local history");
+            const auto& local=placed.back().body_boundaries.at("import-body").back();
+            require(document::serialize_body_result(local)==document::serialize_body_result(
+                imported_boundaries.back().body_boundaries.at("import-body").back()),
+                "Rigid import placement changed its local geometry or topology");
+            volume(placed.back(),2000);
+            moved.front().body.translation={-4,2,9};
+            const auto second=cold.evaluate_history_incremental(moved,placed);
+            require(second.back().body_boundaries.at("import-body").shares_with(
+                placed.back().body_boundaries.at("import-body")),
+                "Successive rigid import placement lost its immutable local history");
+        }
+        // Resolving an independent import can produce negative zero Euler
+        // angles. A cold kernel must reuse the unchanged native geometry, even
+        // when the source STEP is unavailable. Stored inputs keep their bits.
+        for (std::size_t component=0;component<6;++component) {
+            auto signed_inputs=independent;
+            auto& step=std::get<kernel::StepRequest>(signed_inputs.front().primitive);
+            double* fields[]{&step.translation.x,&step.translation.y,&step.translation.z,
+                &step.rotation_degrees.x,&step.rotation_degrees.y,&step.rotation_degrees.z};
+            *fields[component]=-0.0;
+            require(kernel::history_fingerprint(signed_inputs,signed_inputs.size())==
+                kernel::history_fingerprint(independent,independent.size()),
+                "Equivalent STEP rigid zero invalidated its calculation");
+            kernel::OcctKernel cold;
+            const auto reused=cold.evaluate_history_incremental(signed_inputs,imported_boundaries);
+            require(document::serialize_body_result(reused.back()).dump()==
+                document::serialize_body_result(imported_boundaries.back()).dump(),
+                "STEP rigid zero changed the exact calculated packet");
+            require(std::signbit(*fields[component]),"STEP fingerprint rewrote a stored signed zero");
+            *fields[component]=1.0;
+            require(kernel::history_fingerprint(signed_inputs,signed_inputs.size())!=
+                kernel::history_fingerprint(independent,independent.size()),
+                "Changed STEP rigid transform reused its old calculation key");
+        }
         for (auto& boundary : imported_boundaries)
             boundary = document::load_body_result(document::serialize_body_result(boundary));
         std::get<kernel::ExtrusionRequest>(independent.back().primitive).direction.z = 20;

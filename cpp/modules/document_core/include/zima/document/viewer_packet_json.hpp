@@ -15,8 +15,12 @@ namespace zima::document {
 load_viewer_reference_geometry(const nlohmann::json& source);
 
 [[nodiscard]] nlohmann::json serialize_body_result(
-    const zima::kernel::BodyResult& result, bool include_histories = true);
+    const zima::kernel::BodyResult& result, bool include_histories = true,
+    bool include_compound_operands = true);
+// Assemblies already store operands in their native, shared geometry table.
+// Resolve those entries before loading/validating the compound recipe.
 [[nodiscard]] zima::kernel::BodyResult load_body_result(
-    const nlohmann::json& source);
+    const nlohmann::json& source,
+    std::map<std::string,zima::kernel::BodySnapshot> compound_operands = {});
 
 }  // namespace zima::document

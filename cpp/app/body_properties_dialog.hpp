@@ -15,8 +15,10 @@
 #include <array>
 #include <charconv>
 #include <functional>
+#include <memory>
 #include <stdexcept>
 
+namespace zima::document { class PlacementReferenceGeometryIndex; }
 namespace zima::app {
 
 class BodyPropertiesDialog final : public zima::ui::PropertiesSubWindow, public PlacementReferenceDialog {
@@ -51,6 +53,8 @@ public:
         set_initial_size({360, 360});
     }
     void set_preview_callback(std::function<void(zima::document::BodyHistory)> callback) { preview_=std::move(callback); }
+    void set_reference_geometry_index(std::shared_ptr<zima::document::PlacementReferenceGeometryIndex> index) { reference_index_=std::move(index); }
+    const auto& reference_geometry_index() const { return reference_index_; }
     void set_link_source(zima::document::BodyLink value) {
         initial_.link=std::move(value);if(preview_)preview_(pending_value());
     }
@@ -123,6 +127,7 @@ protected:
         commit_(std::move(value),active_->isChecked());return true;
     }
 private:
+    std::shared_ptr<zima::document::PlacementReferenceGeometryIndex> reference_index_;
     zima::document::BodyHistory initial_;
     Commit commit_;
     QLineEdit* name_{};

@@ -39,7 +39,16 @@ void insert_body(document::PartDocument& doc, document::HistoryContainer contain
     doc.history.push_back(std::move(container));doc.set_body_history(std::move(graph));
 }
 std::string shape_key(const kernel::BodyResult& body) {
-    return std::to_string(std::hash<std::string>{}(body.kernel_shape));
+    std::ostringstream key;
+    key << std::hash<std::string>{}(body.kernel_shape) << std::setprecision(17);
+    for (const auto& placement : body.kernel_placements)
+        key << '|' << placement.translation.x << ',' << placement.translation.y << ',' << placement.translation.z
+            << ',' << placement.rotation_degrees.x << ',' << placement.rotation_degrees.y << ',' << placement.rotation_degrees.z;
+    for (const auto& id : body.kernel_compound_bodies) {
+        const auto child = shape_key(body.body_outputs.at(id));
+        key << '|' << child.size() << ':' << child;
+    }
+    return key.str();
 }
 void identify_assembly(kernel::StepProduct& product) {
     std::ostringstream identity;identity<<product.definition_id<<std::setprecision(17);

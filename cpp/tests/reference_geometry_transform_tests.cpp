@@ -2,11 +2,67 @@
 #include <zima/workspace/placement_edit.hpp>
 #include <iostream>
 #include <cmath>
+#include <bit>
+#include <array>
+#include <cstdint>
 using namespace zima;
 namespace {
 void require(bool value,const char* message){if(!value)throw std::runtime_error(message);}
 void near(double actual,double expected){if(std::abs(actual-expected)>1e-10)throw std::runtime_error("Incorrect original reference coordinate");}
 void near(kernel::Vec3 actual,kernel::Vec3 expected){near(actual.x,expected.x);near(actual.y,expected.y);near(actual.z,expected.z);}
+void verify_body_surface_reuse() {
+    auto part=document::PartDocument::create_default();
+    document::BodyHistoryGraph initial_graph;
+    const auto body_id=initial_graph.create_body("Analytic transform test");
+    part.set_body_history(std::move(initial_graph));
+    for(const auto kind:{kernel::SurfaceGeometry::Kind::Plane,kernel::SurfaceGeometry::Kind::Cylinder,
+            kernel::SurfaceGeometry::Kind::Cone})for(const bool reversed:{false,true}) {
+        auto surface=std::make_shared<kernel::SurfaceGeometry>();
+        surface->kind=kind;surface->origin={2,-3,4};surface->axis={0,0,1};surface->radial={1,0,0};
+        surface->radius=7;surface->semi_angle=.25;surface->axial_min=-5;surface->axial_max=12;
+        surface->reversed=reversed;const auto unchanged=*surface;
+        kernel::ViewerMesh source;source.vertices={{0,0,0},{1,0,0},{0,1,0}};source.triangles={0,1,2,0,2,1};
+        source.triangle_references={{"source","face","",surface},{"source","face","",surface}};
+        kernel::ViewerEdge edge;edge.reference={"source","rim",""};edge.points={{0,0,0},{1,0,0}};
+        edge.edge_treatment_side_references={{"source","face","",surface},{"source","opposite","",surface}};
+        edge.edge_treatment_side_references[0].sheet_role=kernel::SheetFaceRole::SideA;
+        edge.edge_treatment_side_references[1].sheet_role=kernel::SheetFaceRole::SideB;
+        source.edges={edge};source.original_references.triangle_references=source.triangle_references;
+        for(const kernel::Vec3 rotation:std::array<kernel::Vec3,5>{{{0,0,0},{15,-25,35},{0,90,0},{-90,0,90},{-0.,0.,-0.}}}) {
+            auto graph=part.body_history;auto body=*graph.find(body_id);
+            body.scope.placement.x=3;body.scope.placement.y=-7;body.scope.placement.z=2;
+            body.scope.placement.rotation_x=rotation.x;body.scope.placement.rotation_y=rotation.y;
+            body.scope.placement.rotation_z=rotation.z;graph.update_body(body);part.set_body_history(std::move(graph));
+            const auto placed=part.place_body_mesh(source,body_id);
+            auto distinct=source;
+            for(auto& ref:distinct.triangle_references)ref.surface=std::make_shared<kernel::SurfaceGeometry>(*surface);
+            for(auto& ref:distinct.edges.front().edge_treatment_side_references)ref.surface=std::make_shared<kernel::SurfaceGeometry>(*surface);
+            const auto independent=part.place_body_mesh(std::move(distinct),body_id);
+            const auto first=placed.triangle_references.front().surface;
+            require(first!=surface&&first==placed.triangle_references.back().surface&&
+                first==placed.edges.front().edge_treatment_side_references.front().surface,
+                "Body placement did not share the exact repeated analytic input");
+            require(*first==*independent.triangle_references.front().surface&&*surface==unchanged,
+                "Body analytic reuse changed geometry or mutated the source");
+            for(std::size_t i=0;i<2;++i) {
+                require(placed.edges.front().edge_treatment_side_references[i].sheet_role==
+                    source.edges.front().edge_treatment_side_references[i].sheet_role,
+                    "Body analytic reuse changed the retained geometry side");
+                require(*placed.triangle_references[i].surface==*independent.triangle_references[i].surface,
+                    "Body shared analytic input differs from independent transformation");
+            }
+            const auto exact=[](kernel::Vec3 a,kernel::Vec3 b) {
+                return std::bit_cast<std::uint64_t>(a.x)==std::bit_cast<std::uint64_t>(b.x)&&
+                    std::bit_cast<std::uint64_t>(a.y)==std::bit_cast<std::uint64_t>(b.y)&&
+                    std::bit_cast<std::uint64_t>(a.z)==std::bit_cast<std::uint64_t>(b.z);
+            };
+            require(exact(first->origin,independent.triangle_references.front().surface->origin)&&
+                exact(first->axis,independent.triangle_references.front().surface->axis)&&
+                exact(first->radial,independent.triangle_references.front().surface->radial),
+                "Body analytic reuse changed exact transformed coordinates or signed zero");
+        }
+    }
+}
 void verify_assembly_placement_frame() {
     kernel::BodyResult body;
     auto surface=std::make_shared<kernel::SurfaceGeometry>();
@@ -102,4 +158,4 @@ void verify() {
     require(rejected,"Malformed persisted triangle index was accepted");
 }
 }
-int main(){try{verify();verify_assembly_placement_frame();std::cout<<"Original identity, sparse geometry, rational poles, source face frames and invalid packets passed\n";return 0;}catch(const std::exception& error){std::cerr<<error.what()<<'\n';return 1;}}
+int main(){try{verify();verify_assembly_placement_frame();verify_body_surface_reuse();std::cout<<"Original identity, sparse geometry, rational poles, source face frames and invalid packets passed\n";return 0;}catch(const std::exception& error){std::cerr<<error.what()<<'\n';return 1;}}

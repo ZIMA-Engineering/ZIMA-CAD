@@ -120,8 +120,15 @@ struct PickingIndex::Impl {
 PickingIndex::PickingIndex(const kernel::ViewerMesh& mesh) {
     auto data=std::make_shared<Impl>();
     std::set<std::tuple<std::string,std::string,std::string>> identities;
-    for(const auto& face:mesh.triangle_references)
-        if(identities.emplace(face.owner_id,face.semantic_key,face.instance_path).second)data->faces.push_back(face);
+    const kernel::FaceReference* previous{};
+    for(const auto& face:mesh.triangle_references) {
+        if(!previous||previous->owner_id!=face.owner_id||previous->semantic_key!=face.semantic_key||
+                previous->instance_path!=face.instance_path)
+            if(identities.emplace(face.owner_id,face.semantic_key,face.instance_path).second)data->faces.push_back(face);
+        previous=&face;
+    }
+    data->triangles.items.reserve(mesh.triangles.size()/3);
+    data->edges.items.reserve(mesh.edges.size());
     for(std::size_t i=0;i*3+2<mesh.triangles.size();++i) {
         Impl::Box box;bool valid=true;
         for(int j=0;j<3;++j){const auto v=mesh.triangles[i*3+j];if(v>=mesh.vertices.size()){valid=false;break;}box.add(mesh.vertices[v]);}
@@ -131,8 +138,14 @@ PickingIndex::PickingIndex(const kernel::ViewerMesh& mesh) {
         Impl::Box box;for(const auto& p:mesh.edges[i].points)box.add(p);
         if(!mesh.edges[i].infinite&&box.finite())data->edges.items.push_back({box,i});else data->edges.uncullable.push_back(i);
     }
-    if(!data->triangles.items.empty())data->triangles.build(0,data->triangles.items.size());
-    if(!data->edges.items.empty())data->edges.build(0,data->edges.items.size());
+    if(!data->triangles.items.empty()) {
+        data->triangles.nodes.reserve(data->triangles.items.size()/4+1);
+        data->triangles.build(0,data->triangles.items.size());
+    }
+    if(!data->edges.items.empty()) {
+        data->edges.nodes.reserve(data->edges.items.size()/4+1);
+        data->edges.build(0,data->edges.items.size());
+    }
     impl_=std::move(data);
 }
 std::vector<std::size_t> PickingIndex::triangles(const Vec3& o,const Vec3& d) const {return impl_->triangles.query(o,d,0);}

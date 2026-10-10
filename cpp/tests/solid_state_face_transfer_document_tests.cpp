@@ -436,15 +436,35 @@ void verify(bool circle,bool flip,int attachment=0,int invalid=0,int sweep_kind=
         std::cout<<"Independent source leaves an off-centre attachment unchanged, including cold calculation\n";return;
     }
     if(invalid) {
-        const auto snapshot=state->session.document().serialized();
-        const auto fingerprint=state->session.calculated_boundaries().back().source_fingerprint;
-        bool rejected=false;
-        try{static_cast<void>(workspace::commit_solid_state(live,kernel,id,restore));}
-        catch(const std::exception& error){rejected=std::string(error.what()).find("coincident profile centroids")!=std::string::npos;}
-        check(rejected,"Disconnected or reversed continuation was not rejected explicitly");
-        check(state->session.document().serialized()==snapshot&&state->session.calculated_boundaries().back().source_fingerprint==fingerprint,
-            "Rejected continuity changed the document or calculated geometry");
-        std::cout<<"Invalid continuation "<<invalid<<" rejected atomically\n";return;
+        const auto before=state->session.document();
+        const auto input=state->session.calculated_boundaries().back();
+        // New valid definitions retain a native calculation error. Editing an
+        // already successful definition has a separate atomic rejection policy.
+        check(workspace::commit_solid_state(live,kernel,id,restore),"Failed continuation definition was not retained");
+        const auto& failed=state->session.calculated_boundaries().back();
+        check(failed.calculation_errors.contains(restore.id)&&
+            failed.calculation_errors.at(restore.id).find("coincident profile centroids")!=std::string::npos,
+            "Disconnected or reversed continuation lacks its explicit native error");
+        check(failed.mesh.vertices==input.mesh.vertices&&failed.mesh.triangles==input.mesh.triangles&&
+            failed.mesh.triangle_references==input.mesh.triangle_references&&
+            failed.volume==input.volume&&failed.surface_area==input.surface_area,
+            "Failed continuity changed the retained input body");
+        const auto retained=state->session.document().serialized();
+        const auto error=failed.calculation_errors.at(restore.id);
+        check(workspace::step_part_document_history(live,id,false),"Failed continuation Undo unavailable");
+        auto expected=before;expected.dimension_identifiers=state->session.document().dimension_identifiers;
+        check(state->session.document().serialized()==expected.serialized(),"Failed continuation Undo changed authored input");
+        check(workspace::step_part_document_history(live,id,true)&&state->session.document().serialized()==retained&&
+            state->session.calculated_boundaries().back().calculation_errors.at(restore.id)==error,
+            "Failed continuation Redo lost its definition or error");
+        const auto path=std::filesystem::temp_directory_path()/(id+"-failed-continuation.prtz");
+        state->session.document().save(path,state->session.calculated_boundaries());
+        std::vector<kernel::BodyResult> saved;const auto reopened=document::PartDocument::load(path,&saved);
+        check(*reopened.find_container(restore.id)==*state->session.document().find_container(restore.id)&&
+            saved.back().calculation_errors.at(restore.id)==error&&saved.back().mesh.vertices==input.mesh.vertices&&
+            saved.back().mesh.triangles==input.mesh.triangles,"Failed continuation persistence lost its definition, error or input");
+        std::filesystem::remove(path);
+        std::cout<<"Invalid continuation "<<invalid<<" retains explicit error and input; Undo/Redo and native reopen passed\n";return;
     }
     const auto started=std::chrono::steady_clock::now();
     check(workspace::commit_solid_state(live,kernel,id,restore),"Restore failed");

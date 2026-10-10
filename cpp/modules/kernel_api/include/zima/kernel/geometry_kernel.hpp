@@ -1,5 +1,8 @@
 #pragma once
 
+#include <zima/kernel/kernel_shape_archive.hpp>
+#include <zima/kernel/immutable_vector.hpp>
+
 #include <cstdint>
 #include <cmath>
 #include <bit>
@@ -649,7 +652,7 @@ struct StepRequest {
         std::string shape_locator;
         bool operator==(const TopologyIdentity&) const = default;
     };
-    std::vector<TopologyIdentity> topology;
+    ImmutableVector<TopologyIdentity> topology;
     // Already resolved feature placement in the owning Body's coordinates.
     // The immutable source B-Rep and its identity locators stay unplaced.
     Vec3 translation{};
@@ -1044,6 +1047,15 @@ struct VolumeIntegrals {
     bool operator==(const VolumeIntegrals&) const = default;
 };
 
+// Lossless placement of an opaque local solid. Ordered applications retain
+// the exact same transformation convention as explicit kernel calculation.
+struct KernelRigidPlacement {
+    Vec3 translation;
+    Vec3 rotation_degrees;
+    bool operator==(const KernelRigidPlacement&) const = default;
+};
+inline constexpr const char* kernel_body_compound = "ZIMA-BODY-COMPOUND-V1";
+
 struct BodyResult {
     // Original-source evaluation geometry at each solid-state boundary. These
     // immutable packets are not selectable topology and never enter mesh.
@@ -1064,23 +1076,27 @@ struct BodyResult {
     std::string source_fingerprint;
     // Opaque calculation snapshot. Only the solid kernel may consume it
     // during an explicit body calculation; viewer/reference code uses mesh.
-    std::string kernel_shape;
+    KernelShapeArchive kernel_shape;
+    std::vector<KernelRigidPlacement> kernel_placements;
+    // The compound marker refers to these ordered, self-contained body_outputs.
+    // No geometry is reconstructed during native loading, UI or placement.
+    std::vector<std::string> kernel_compound_bodies;
     // Opaque archive addresses bind already defined native identities to
     // objects in this exact BRep. They never define topology identities.
     template<class Reference> struct KernelBinding {
         std::string locator;
         Reference reference;
     };
-    std::vector<KernelBinding<FaceReference>> kernel_faces;
-    std::vector<KernelBinding<EdgeReference>> kernel_edges;
-    std::vector<KernelBinding<VertexReference>> kernel_vertices;
+    ImmutableVector<KernelBinding<FaceReference>> kernel_faces;
+    ImmutableVector<KernelBinding<EdgeReference>> kernel_edges;
+    ImmutableVector<KernelBinding<VertexReference>> kernel_vertices;
     // Returned only by explicit STEP import so the owning Part container can
     // persist the source topology map with its parameters.
-    std::vector<StepRequest::TopologyIdentity> imported_step_topology;
+    ImmutableVector<StepRequest::TopologyIdentity> imported_step_topology;
     std::vector<SheetCutRegion> sheet_cuts;
     // Present on a document result only. Branch snapshots retain their own
     // fingerprints, so changing another body does not invalidate this cache.
-    std::map<std::string, std::vector<BodyResult>> body_boundaries;
+    std::map<std::string, ImmutableVector<BodyResult>> body_boundaries;
     std::map<std::string, BodySnapshot> body_inputs;
     std::map<std::string, BodySnapshot> body_outputs;
 };

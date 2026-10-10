@@ -8,6 +8,7 @@
 #include <zima/kernel/feature_rotation_direction.hpp>
 #include <zima/kernel/drill_point_identity.hpp>
 #include <zima/kernel/inertia.hpp>
+#include <zima/kernel/calculated_body_shape.hpp>
 #include <zima/kernel/occt_curve_data.hpp>
 #include <zima/kernel/pattern_geometry.hpp>
 #include <zima/kernel/mirror_geometry.hpp>
@@ -210,17 +211,7 @@ constexpr std::size_t kLiveShapeCacheLimit = 256;
 gp_Trsf primitive_transform(const Vec3& translation, const Vec3& rotation_degrees);
 
 TopoDS_Shape read_kernel_shape(const BodyResult& body) {
-    if (body.kernel_shape.empty()) {
-        throw std::invalid_argument("Calculated solid snapshot is missing");
-    }
-    BRep_Builder builder;
-    TopoDS_Shape shape;
-    std::istringstream stream(body.kernel_shape);
-    BRepTools::Read(shape, stream, builder);
-    if (shape.IsNull()) {
-        throw std::runtime_error("Calculated solid snapshot is invalid");
-    }
-    return shape;
+    return read_calculated_body_shape(body);
 }
 
 TopoDS_Compound placed_compound(const std::vector<PlacedBody>& bodies) {
@@ -3149,13 +3140,13 @@ void persist_imported_topology(const PrimitiveData& data, BodyResult& result) {
         for (const auto& item : owned) archive.Add(item.shape);
     };
     add(data.faces); add(data.edges); add(data.vertices);
-    result.imported_step_topology = data.imported_step_topology;
+    auto topology=data.imported_step_topology;
     const auto bind = [&](const auto& owned, StepRequest::TopologyIdentity::Kind kind) {
         // Index once: scanning all identities for every owned shape becomes
         // quadratic on whole-model imports with hundreds of thousands of IDs.
         std::unordered_map<std::string_view, StepRequest::TopologyIdentity*> identities;
         identities.reserve(owned.size());
-        for (auto& identity : result.imported_step_topology) {
+        for (auto& identity : topology) {
             if (identity.kind == kind &&
                 !identities.emplace(identity.semantic_key, &identity).second)
                 throw std::runtime_error("Imported topology identity is duplicated");
@@ -3171,6 +3162,7 @@ void persist_imported_topology(const PrimitiveData& data, BodyResult& result) {
     };
     using Kind = StepRequest::TopologyIdentity::Kind;
     bind(data.faces, Kind::Face); bind(data.edges, Kind::Edge); bind(data.vertices, Kind::Vertex);
+    result.imported_step_topology=std::move(topology);
     std::ostringstream stream;
     archive.Write(stream);
     archive.Write(data.shape, stream);
@@ -5379,11 +5371,14 @@ void persist_surface_topology(const TopoDS_Shape& shape,const std::vector<OwnedF
     BRepTools_ShapeSet archive(false,false);
     archive.SetFormatNb(TopTools_FormatVersion_CURRENT);archive.Add(shape);
     const auto bind=[&](const auto& owned,TopAbs_ShapeEnum kind,auto& bindings) {
+        std::vector<typename std::decay_t<decltype(bindings)>::value_type> captured;
+        captured.reserve(owned.size());
         TopTools_IndexedMapOfShape members;TopExp::MapShapes(shape,kind,members);
         for(const auto& item:owned)if(item.reference.valid()&&members.Contains(item.shape)) {
             std::ostringstream address;archive.Write(item.shape,address);
-            bindings.push_back({address.str(),item.reference});
+            captured.push_back({address.str(),item.reference});
         }
+        bindings=std::move(captured);
     };
     bind(faces,TopAbs_FACE,result.kernel_faces);bind(edges,TopAbs_EDGE,result.kernel_edges);
     bind(vertices,TopAbs_VERTEX,result.kernel_vertices);
@@ -6481,7 +6476,7 @@ std::vector<FrozenStepComponent> OcctKernel::freeze_step_components(
         const auto data=make_step_data(request,owner,documents,source);
         BodyResult archive;
         persist_imported_topology(data,archive);
-        results.push_back({std::make_shared<const std::string>(std::move(archive.kernel_shape)),
+        results.push_back({archive.kernel_shape.shared_data(),
             std::move(archive.imported_step_topology)});
     }
     return results;
@@ -6509,16 +6504,8 @@ BodyResult OcctKernel::subtract_bodies(
         throw std::invalid_argument(
             "Assembly cut requires calculated solid snapshots");
     }
-    BRep_Builder builder;
-    TopoDS_Shape target_shape;
-    TopoDS_Shape cutter_shape;
-    std::istringstream target_stream(target.kernel_shape);
-    std::istringstream cutter_stream(cutter.kernel_shape);
-    BRepTools::Read(target_shape, target_stream, builder);
-    BRepTools::Read(cutter_shape, cutter_stream, builder);
-    if (target_shape.IsNull() || cutter_shape.IsNull()) {
-        throw std::runtime_error("Calculated solid snapshot is invalid");
-    }
+    const auto target_shape = read_kernel_shape(target);
+    const auto cutter_shape = read_kernel_shape(cutter);
     const gp_Trsf placement = primitive_transform(
         target_translation, target_rotation_degrees);
     BRepBuilderAPI_Transform placed_target(target_shape, placement, true);
@@ -6693,13 +6680,22 @@ void place_body_result(BodyResult& result, const gp_Trsf& placement) {
         const auto v = gp_Vec(value.x, value.y, value.z).Transformed(placement);
         value = {v.X(), v.Y(), v.Z()};
     };
+    // Triangles/side records share exact analytic surface inputs. Transform
+    // each once for this rigid placement and retain the original key's lifetime.
+    std::unordered_map<const SurfaceGeometry*,std::pair<
+        std::shared_ptr<const SurfaceGeometry>,std::shared_ptr<const SurfaceGeometry>>> placed_surfaces;
     const auto face = [&](FaceReference& reference) {
         if (!reference.surface) return;
+        const auto original=reference.surface;
+        if(const auto cached=placed_surfaces.find(original.get());cached!=placed_surfaces.end()) {
+            reference.surface=cached->second.second;return;
+        }
         auto surface = std::make_shared<SurfaceGeometry>(*reference.surface);
         point(surface->origin);
         direction(surface->axis);
         direction(surface->radial);
-        reference.surface = std::move(surface);
+        reference.surface = surface;
+        placed_surfaces.emplace(original.get(),std::make_pair(original,std::move(surface)));
     };
     const auto geometry = [&](auto& value) {
         for (auto& vertex : value.vertices) point(vertex);
@@ -6739,7 +6735,9 @@ void place_body_result(BodyResult& result, const gp_Trsf& placement) {
 void append_body_viewer(ViewerMesh& destination, const ViewerMesh& source) {
     const auto offset = static_cast<std::uint32_t>(destination.vertices.size());
     destination.vertices.insert(destination.vertices.end(), source.vertices.begin(), source.vertices.end());
-    for (const auto index : source.triangles) destination.triangles.push_back(offset + index);
+    destination.triangles.reserve(destination.triangles.size()+source.triangles.size());
+    if(offset==0)destination.triangles.insert(destination.triangles.end(),source.triangles.begin(),source.triangles.end());
+    else for (const auto index : source.triangles) destination.triangles.push_back(offset + index);
     destination.triangle_references.insert(destination.triangle_references.end(), source.triangle_references.begin(), source.triangle_references.end());
     destination.edges.insert(destination.edges.end(), source.edges.begin(), source.edges.end());
     destination.points.insert(destination.points.end(), source.points.begin(), source.points.end());
@@ -6784,6 +6782,7 @@ BodyResult OcctKernel::mirror_body(const BodyResult& source,MirrorPlane plane,co
     BRepBuilderAPI_Transform transform(read_kernel_shape(source),reflection*placement,true);transform.Build();
     if(!transform.IsDone()||!BRepCheck_Analyzer(transform.Shape()).IsValid())throw std::runtime_error("Zrcadlo nevytvořilo platné těleso.");
     result.kernel_shape=serialize_kernel_shape(transform.Shape());
+    result.kernel_placements.clear();result.kernel_compound_bodies.clear();
     result.mesh=mirrored_viewer_mesh(std::move(result.mesh),plane,owner_id);
     if(result.surface_centroid) {
         const auto c=*result.surface_centroid;
@@ -6906,6 +6905,13 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history_recovering(
 std::vector<BodyResult> OcctKernel::evaluate_body_histories(
     const std::vector<HistoryOperation>& operations,
     const std::vector<BodyResult>& previous_boundaries, bool recover_errors) const {
+    auto profile_start=std::chrono::steady_clock::now();
+    const auto profile=[&](const char* phase) {
+        const auto now=std::chrono::steady_clock::now();
+        if(std::getenv("ZIMA_CPP_PROFILE_COMMAND"))std::fprintf(stderr,"Body kernel %s: %.3f ms\n",phase,
+            std::chrono::duration<double,std::milli>(now-profile_start).count());
+        profile_start=now;
+    };
     struct Branch {
         BodyHistoryScope scope;
         std::vector<HistoryOperation> operations;
@@ -6984,6 +6990,7 @@ std::vector<BodyResult> OcctKernel::evaluate_body_histories(
     std::vector<OwnedFace> preceding_faces;
     std::unordered_map<std::string,std::string> source_keys;
     std::map<std::string,BodyResult> source_solids;
+    profile("graph preparation");
     for (const auto& branch : branches) {
         const auto cached = previous.body_boundaries.find(branch.scope.id);
         const auto placement=primitive_transform(branch.scope.translation,branch.scope.rotation_degrees);
@@ -7009,17 +7016,40 @@ std::vector<BodyResult> OcctKernel::evaluate_body_histories(
         context.require_original_faces=std::ranges::any_of(requested_faces,[&](const auto& reference) {
             return std::ranges::any_of(branch.operations,[&](const auto& operation){return operation.owner_id==reference.owner_id;});
         });
-        auto local = branch.scope.linked_body?std::vector<BodyResult>{*branch.scope.linked_body}:branch.scope.source_id.empty()
-            ? (recover_errors ? evaluate_flat_history_recovering(branch.operations,
-                    cached == previous.body_boundaries.end() ? std::vector<BodyResult>{} : cached->second,context)
-                : evaluate_flat_history(branch.operations,
-                    cached == previous.body_boundaries.end() ? std::vector<BodyResult>{} : cached->second,context))
-            : std::vector<BodyResult>{document.body_outputs.at(branch.scope.source_id)};
+        const std::vector<BodyResult> empty_local;
+        const auto& cached_local=cached==previous.body_boundaries.end()?empty_local:cached->second.get();
+        // Pure import histories have no requested live kernel operands. Their
+        // complete unchanged local calculation can stay immutable during a
+        // Body move; consumers that need original faces/solids still use the
+        // established evaluator and its live-operand validation.
+        bool reuse_import_history=!branch.scope.linked_body&&branch.scope.source_id.empty()&&
+            !context.require_original_faces&&context.requested_solids.empty()&&context.dependency_key.empty()&&
+            cached_local.size()==branch.operations.size()&&
+            std::ranges::all_of(branch.operations,[](const auto& operation) {
+                return std::holds_alternative<StepRequest>(operation.primitive)&&!operation.feature_copy;
+            });
+        if(reuse_import_history) {
+            const auto keys=history_fingerprints(branch.operations);
+            for(std::size_t i=0;i<cached_local.size();++i)
+                if(!cached_local[i].calculation_errors.empty()||cached_local[i].source_fingerprint!=keys[i+1]) {
+                    reuse_import_history=false;break;
+                }
+        }
+        ImmutableVector<BodyResult> local;
+        if(reuse_import_history) local=cached->second;
+        else if(branch.scope.linked_body) local={*branch.scope.linked_body};
+        else if(branch.scope.source_id.empty())
+            local=recover_errors ? evaluate_flat_history_recovering(branch.operations,cached_local,context)
+                : evaluate_flat_history(branch.operations,cached_local,context);
+        else local={document.body_outputs.at(branch.scope.source_id)};
+        profile("local history");
         for(auto& [id,solid]:context.source_solids) {
             if(!(branch.scope.translation==Vec3{})||!(branch.scope.rotation_degrees==Vec3{})) {
                 BRepBuilderAPI_Transform transform(read_kernel_shape(solid),placement,true);transform.Build();
                 if(!transform.IsDone())throw std::runtime_error("Source solid placement failed");
-                solid.kernel_shape=serialize_kernel_shape(transform.Shape());place_body_result(solid,placement);
+                solid.kernel_shape=serialize_kernel_shape(transform.Shape());
+                solid.kernel_placements.clear();solid.kernel_compound_bodies.clear();
+                place_body_result(solid,placement);
             }
             solid.calculation_errors=local.back().calculation_errors;
             source_solids.emplace(id,std::move(solid));
@@ -7042,29 +7072,31 @@ std::vector<BodyResult> OcctKernel::evaluate_body_histories(
         const auto input_key = branch.scope.source_id.empty()
             ? local.back().source_fingerprint + ":placed:" + history_fingerprint({placement_key}, 1)
             : local.back().source_fingerprint;
-        BodyResult input;
+        BodySnapshot input_snapshot;
         const auto old_input = previous.body_inputs.find(branch.scope.id);
         if (old_input != previous.body_inputs.end() && old_input->second->calculation_errors.empty() &&
             local.back().calculation_errors.empty() && old_input->second->source_fingerprint == input_key) {
-            input = old_input->second;
+            input_snapshot = old_input->second;
         } else {
-            input = local.back();
+            auto placed = local.back();
             if (!(branch.scope.translation == Vec3{}) || !(branch.scope.rotation_degrees == Vec3{})) {
                 const auto placement = primitive_transform(branch.scope.translation, branch.scope.rotation_degrees);
-                if (!input.kernel_shape.empty()) {
-                    BRepBuilderAPI_Transform transform(read_kernel_shape(input), placement, true);
-                    transform.Build();
-                    if (!transform.IsDone()) throw std::runtime_error("Body placement failed");
-                    input.kernel_shape = serialize_kernel_shape(transform.Shape());
+                if (!placed.kernel_shape.empty()) {
+                    placed.kernel_placements.push_back({branch.scope.translation, branch.scope.rotation_degrees});
                 }
-                place_body_result(input, placement);
+                place_body_result(placed, placement);
             }
-            input.source_fingerprint = input_key;
+            placed.source_fingerprint = input_key;
+            input_snapshot = BodySnapshot(std::move(placed));
         }
-        if (branch.scope.source_id.empty()) document.body_inputs.emplace(branch.scope.id, input);
+        const auto& input = input_snapshot.get();
+        profile("placed input");
+        if (branch.scope.source_id.empty()) document.body_inputs.emplace(branch.scope.id, input_snapshot);
         if (branch.scope.source_id.empty())
             document.solid_state_reference_views.insert(input.solid_state_reference_views.begin(),input.solid_state_reference_views.end());
-        auto output = input;
+        // A Separate Body's placed input is its output. Both maps retain the
+        // same immutable packet; Boolean/copy results replace only the output.
+        auto output = input_snapshot;
         const auto preserve_failed_inputs = [&](const std::string& message) {
             auto retained = input;
             if(!branch.scope.source_feature_id.empty()&&!branch.scope.target_id.empty())
@@ -7099,16 +7131,17 @@ std::vector<BodyResult> OcctKernel::evaluate_body_histories(
             const auto& feature=branch.scope.source_feature_id;
             if(!feature.empty()&&!source_solids.contains(feature))throw std::runtime_error("Copy source has no calculated solid operand.");
             const auto& source=feature.empty()?document.body_outputs.at(branch.scope.source_id).get():source_solids.at(feature);
-            output=branch.scope.combination==BodyCombination::Mirror
+            auto copied=branch.scope.combination==BodyCombination::Mirror
                 ? mirror_body(source,branch.scope.mirror_plane,branch.scope.id)
                 : pattern_body(source,branch.scope.pattern,branch.scope.id);
             if(!branch.scope.target_id.empty()) {
-                const auto references=output.mesh.original_references;
-                output=subtract_bodies(document.body_outputs.at(branch.scope.target_id),output,{},{},
+                const auto references=copied.mesh.original_references;
+                copied=subtract_bodies(document.body_outputs.at(branch.scope.target_id),copied,{},{},
                     branch.operations.front().boolean_tolerance,branch.operations.front().mesh_deflection);
-                append_reference_geometry(output.mesh.original_references,references);
-                mark_copy_display(output.mesh,branch.scope.id);
+                append_reference_geometry(copied.mesh.original_references,references);
+                mark_copy_display(copied.mesh,branch.scope.id);
             }
+            output=BodySnapshot(std::move(copied));
             document.body_inputs.emplace(branch.scope.id,output);
         } else if (branch.scope.combination != BodyCombination::Separate) {
             const auto& target = document.body_outputs.at(branch.scope.target_id).get();
@@ -7152,17 +7185,21 @@ std::vector<BodyResult> OcctKernel::evaluate_body_histories(
             if (!recover_errors) throw;
             output = preserve_failed_inputs(error.what());
         }
-        document.calculation_errors.insert(output.calculation_errors.begin(), output.calculation_errors.end());
-        if (!branch.scope.source_id.empty()) local = {output};
+        document.calculation_errors.insert(output->calculation_errors.begin(), output->calculation_errors.end());
+        if (!branch.scope.source_id.empty()) local = {output.get()};
         document.body_outputs.emplace(branch.scope.id, std::move(output));
-        for (auto& boundary : local) {
-            boundary.source_fingerprint = history_fingerprint(operations, boundaries.size() + 1);
-            boundaries.push_back(std::move(boundary));
+        profile("branch output");
+        for (const auto& boundary : local) {
+            // The final slot is replaced by the complete document packet below.
+            // Do not copy an unused complete import into that temporary slot.
+            if(boundaries.size()+1==operations.size())boundaries.emplace_back();
+            else {
+                auto published=boundary;
+                published.source_fingerprint=history_fingerprint(operations,boundaries.size()+1);
+                boundaries.push_back(std::move(published));
+            }
         }
     }
-    BRep_Builder builder;
-    TopoDS_Compound compound;
-    builder.MakeCompound(compound);
     // Keep intermediate packets for dependent operations; only final assembly,
     // export and physical properties omit suppressed Body results.
     for(const auto& branch:branches)if(branch.scope.result_suppressed&&available.erase(branch.scope.id))
@@ -7170,13 +7207,14 @@ std::vector<BodyResult> OcctKernel::evaluate_body_histories(
             document.body_outputs.at(branch.scope.id)->mesh.original_references);
     for (const auto& id : available) {
         const auto& output = document.body_outputs.at(id).get();
-        if (!output.kernel_shape.empty()) builder.Add(compound, read_kernel_shape(output));
+        if (!output.kernel_shape.empty()) document.kernel_compound_bodies.push_back(id);
         document.volume += output.volume;
         document.surface_area += output.surface_area;
         append_body_viewer(document.mesh, output.mesh);
         document.sheet_cuts.insert(document.sheet_cuts.end(),output.sheet_cuts.begin(),output.sheet_cuts.end());
     }
-    document.kernel_shape = serialize_kernel_shape(compound);
+    document.kernel_shape = kernel_body_compound;
+    profile("viewer aggregate");
     if(document.volume>0) {
         VolumeIntegrals total;bool valid=true;
         for(const auto& id:available) {
@@ -7885,8 +7923,10 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                 auto boundary = boundaries.empty() ? BodyResult{} : boundaries.back();
                 if (persist_boundary_shape && !result_shape.IsNull()) {
                     boundary.kernel_shape = serialize_kernel_shape(result_shape);
+                    boundary.kernel_placements.clear();boundary.kernel_compound_bodies.clear();
                 } else if (!persist_boundary_shape) {
                     boundary.kernel_shape.clear();
+                    boundary.kernel_placements.clear();boundary.kernel_compound_bodies.clear();
                 }
                 boundary.source_fingerprint = fingerprint(
                     operations, boundaries.size() + 1);
@@ -10433,6 +10473,36 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
     } catch (const Standard_Failure& failure) {
         throw std::runtime_error(failure.GetMessageString());
     }
+}
+
+TopoDS_Shape read_calculated_body_shape(const BodyResult& body) {
+    if (body.kernel_shape.empty())
+        throw std::invalid_argument("Calculated solid snapshot is missing");
+    BRep_Builder builder;
+    TopoDS_Shape shape;
+    if (body.kernel_shape == kernel_body_compound) {
+        TopoDS_Compound compound;
+        builder.MakeCompound(compound);
+        for (const auto& id : body.kernel_compound_bodies) {
+            const auto child = body.body_outputs.find(id);
+            if (child == body.body_outputs.end())
+                throw std::runtime_error("Calculated solid snapshot is invalid");
+            builder.Add(compound, read_calculated_body_shape(child->second));
+        }
+        shape = compound;
+    } else {
+        std::istringstream stream(body.kernel_shape);
+        BRepTools::Read(shape, stream, builder);
+    }
+    if (shape.IsNull()) throw std::runtime_error("Calculated solid snapshot is invalid");
+    for (const auto& placement : body.kernel_placements) {
+        BRepBuilderAPI_Transform transform(shape,
+            primitive_transform(placement.translation, placement.rotation_degrees), true);
+        transform.Build();
+        if (!transform.IsDone()) throw std::runtime_error("Body placement failed");
+        shape = transform.Shape();
+    }
+    return shape;
 }
 
 }  // namespace zima::kernel

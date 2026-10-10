@@ -1,4 +1,5 @@
 #include <zima/document/part_document.hpp>
+#include <zima/document/placement_reference_geometry.hpp>
 #include <zima/document/placement_json.hpp>
 #include <zima/document/placement_mesh_surface.hpp>
 #include <zima/document/viewer_packet_json.hpp>
@@ -11,6 +12,31 @@ using namespace zima;
 namespace {
 void check(bool ok,const char* message){if(!ok)throw std::runtime_error(message);}
 void near(double a,double b,double tolerance=1e-6){check(std::isfinite(a)&&std::abs(a-b)<tolerance,"Unexpected mesh contact coordinate");}
+bool indexed_resolve(document::Placement& p,const kernel::ViewerReferenceGeometry& g) {
+    auto full=p;
+    const bool expected=document::resolve_placement(full,g);
+    document::PlacementReferenceGeometryIndex index(g);
+    const auto selected=index.select(p.references);
+    const auto bounded=document::PlacementReferenceGeometryIndex(g,p.references).select(p.references);
+    check(document::serialize_viewer_reference_geometry(selected).dump()==
+        document::serialize_viewer_reference_geometry(bounded).dump(),
+        "Requested-reference index changed exact mesh geometry or retained side");
+    const bool actual=document::resolve_placement(p,selected);
+    check(actual==expected && nlohmann::json(p).dump()==nlohmann::json(full).dump(),"Indexed solver changed placement or signed side");
+    const kernel::Vec3 origin{p.x,p.y,p.z};
+    check(document::point_constraint_remaining_dof(p.references,g,origin)==
+          document::point_constraint_remaining_dof(p.references,selected,origin),"Indexed position degrees of freedom differ");
+    check(document::orientation_constraint_remaining_dof(p.references,g,true,origin)==
+          document::orientation_constraint_remaining_dof(p.references,selected,true,origin),"Indexed orientation degrees of freedom differ");
+    check(nlohmann::json(document::placement_solution_branches(p,g)).dump()==
+          nlohmann::json(document::placement_solution_branches(p,selected)).dump(),"Indexed solution branches differ");
+    for(const auto& ref:p.references) {
+        const auto a=document::measure_placement_reference_offset(ref,g,origin);
+        const auto b=document::measure_placement_reference_offset(ref,selected,origin);
+        check(a==b && (!a || std::signbit(*a)==std::signbit(*b)),"Indexed measurement or signed zero differs");
+    }
+    return actual;
+}
 document::ConstructionReference surface(){return {{},"patch","face",0,true,"front",true};}
 void plane(kernel::ViewerReferenceGeometry& g,const char* id,kernel::Vec3 normal) {
     auto s=std::make_shared<kernel::SurfaceGeometry>();s->axis=normal;
@@ -31,44 +57,44 @@ kernel::ViewerReferenceGeometry bowl(int count=20) {
 void constraints() {
     auto g=bowl();plane(g,"y",{0,1,0});plane(g,"z",{0,0,1});
     document::Placement p;p.x=2.4;p.y=1;p.z=6;p.references={surface()};
-    check(document::resolve_placement(p,g),"Mesh first contact failed");near(p.x,2.4);near(p.y,1);near(p.z,6);
+    check(indexed_resolve(p,g),"Mesh first contact failed");near(p.x,2.4);near(p.y,1);near(p.z,6);
     check(document::point_constraint_remaining_dof(p.references,g,{p.x,p.y,p.z})==2,"Mesh first contact must leave two translations");
     p.references.push_back({{},"y","face",1,true});
-    check(document::resolve_placement(p,g),"Mesh and plane failed");
+    check(indexed_resolve(p,g),"Mesh and plane failed");
     p.references.push_back({{},"z","face",6,true});
-    check(document::resolve_placement(p,g),"Mesh and two planes failed");near(p.x,2.4);
+    check(indexed_resolve(p,g),"Mesh and two planes failed");near(p.x,2.4);
     check(document::point_constraint_remaining_dof(p.references,g,{p.x,p.y,p.z})==0,"Fully defined mesh contact left a translation");
     const auto choices=document::placement_solution_branches(p,g);check(choices.size()==2,"Expected two distinct mesh solutions");
     near(choices[0].x,-2.4);near(choices[1].x,2.4);
     for(auto chosen:choices) {
         chosen=nlohmann::json(chosen).get<document::Placement>();
         auto stored=document::load_viewer_reference_geometry(document::serialize_viewer_reference_geometry(g));
-        check(document::resolve_placement(chosen,stored),"Saved mesh solution failed");
+        check(indexed_resolve(chosen,stored),"Saved mesh solution failed");
         near(chosen.x,chosen.x<0?-2.4:2.4);
         // Reorder complete triangles: topology identity and selected root must survive.
         for(std::size_t i=0;i<20;++i)for(int c=0;c<3;++c)std::swap(stored.triangles[i*3+c],stored.triangles[(39-i)*3+c]);
-        const auto x=chosen.x;check(document::resolve_placement(chosen,stored),"Reordered mesh failed");near(chosen.x,x);
+        const auto x=chosen.x;check(indexed_resolve(chosen,stored),"Reordered mesh failed");near(chosen.x,x);
     }
     const auto before=p;p.references.back().offset=-1;
-    check(!document::resolve_placement(p,g)&&!p.reference_valid,"Impossible mesh equations accepted");near(p.x,before.x);near(p.z,before.z);
+    check(!indexed_resolve(p,g)&&!p.reference_valid,"Impossible mesh equations accepted");near(p.x,before.x);near(p.z,before.z);
     p=before;p.references[1].offset=6;
-    check(!document::resolve_placement(p,g),"Mesh extrapolated outside trimmed boundary");
+    check(!indexed_resolve(p,g),"Mesh extrapolated outside trimmed boundary");
     p=before;p.references.push_back({{},"y","face",2,true});
-    check(!document::resolve_placement(p,g),"Contradictory reference accepted");
+    check(!indexed_resolve(p,g),"Contradictory reference accepted");
     p=before;p.references.front().instance_path="other-occurrence";
-    check(!document::resolve_placement(p,g),"Reference resolved another occurrence's surface");
+    check(!indexed_resolve(p,g),"Reference resolved another occurrence's surface");
     auto changed=bowl();for(auto& vertex:changed.vertices)vertex.z+=2;
     plane(changed,"y",{0,1,0});plane(changed,"z",{0,0,1});p=before;
-    check(document::resolve_placement(p,changed),"Changed source did not resolve");near(p.x,2);near(p.z,6);
+    check(indexed_resolve(p,changed),"Changed source did not resolve");near(p.x,2);near(p.z,6);
     kernel::ViewerAxis axis;axis.point={2.4,1,100};axis.direction={0,0,1};axis.reference={"vertical","axis",{}};g.axes.push_back(axis);
     p=before;p.references={surface(),{{},"vertical","axis"}};
-    check(document::resolve_placement(p,g),"General surface and straight axis failed");near(p.x,2.4);near(p.y,1);near(p.z,6);
+    check(indexed_resolve(p,g),"General surface and straight axis failed");near(p.x,2.4);near(p.y,1);near(p.z,6);
     g.points.push_back({{2.4,1,6},{"anchor","point",{}}});
     p.references={surface(),{{},"anchor","point"}};
-    check(document::resolve_placement(p,g),"General surface and point failed");near(p.x,2.4);near(p.z,6);
+    check(indexed_resolve(p,g),"General surface and point failed");near(p.x,2.4);near(p.z,6);
     // A datum plane remains unbounded and exact, independent of displayed triangles.
     p={};p.x=100;p.y=99;p.references={{{},"z","face",7,true}};
-    check(document::resolve_placement(p,g),"Analytic plane regressed");near(p.x,100);near(p.y,99);near(p.z,7);
+    check(indexed_resolve(p,g),"Analytic plane regressed");near(p.x,100);near(p.y,99);near(p.z,7);
 }
 void transformed() {
     auto g=bowl();for(auto& v:g.vertices)v={20-v.y,v.x-10,v.z+7};
@@ -77,7 +103,7 @@ void transformed() {
     auto ref=surface();ref.instance_path="nested/instance";
     document::Placement p;p.x=19;p.y=-7.6;p.z=13;
     p.references={ref,{{},"x","face",19,true},{{},"z","face",13,true}};
-    check(document::resolve_placement(p,g),"Transformed occurrence failed");near(p.x,19);near(p.y,-7.6);near(p.z,13);
+    check(indexed_resolve(p,g),"Transformed occurrence failed");near(p.x,19);near(p.y,-7.6);near(p.z,13);
     check(document::placement_solution_branches(p,g).size()==2,"Transformed occurrence lost alternatives");
 }
 void sides() {
@@ -88,7 +114,7 @@ void sides() {
         const auto anchor=document::placement_mesh::add({2.4,1,6},document::placement_mesh::mul(normal,offset));
         document::Placement p;p.x=anchor.x;p.y=anchor.y;p.z=anchor.z;p.references={ref};
         // Large offsets may have a closer patch; the exact seeded patch still has zero residual.
-        check(document::resolve_placement(p,g),"Offset mesh contact failed");near(p.x,anchor.x);near(p.y,anchor.y);near(p.z,anchor.z);
+        check(indexed_resolve(p,g),"Offset mesh contact failed");near(p.x,anchor.x);near(p.y,anchor.y);near(p.z,anchor.z);
         const double r=std::numbers::pi/180,cx=std::cos(p.rotation_x*r),sx=std::sin(p.rotation_x*r),
             cy=std::cos(p.rotation_y*r),sy=std::sin(p.rotation_y*r),cz=std::cos(p.rotation_z*r),sz=std::sin(p.rotation_z*r);
         const kernel::Vec3 front{cz*sy*sx-sz*cx,sz*sy*sx+cz*cx,cy*sx};
@@ -105,13 +131,38 @@ void benchmark(const kernel::ViewerReferenceGeometry& g,const document::Construc
     std::cout<<"Mesh contact: "<<g.triangle_references.size()<<" reference triangles, mean "<<ms<<" ms\n";
     check(ms<500,"Mesh contact exceeded interactive time budget");
 }
+void indexed_benchmark(const kernel::ViewerReferenceGeometry& g,const document::ConstructionReference& ref) {
+    auto start=std::chrono::steady_clock::now();
+    document::PlacementReferenceGeometryIndex index(g);
+    const double indexing=std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-start).count();
+    document::Placement seed;seed.x=2;seed.y=1;seed.z=4;seed.references={ref};
+    start=std::chrono::steady_clock::now();const auto selected=index.select(seed.references);
+    const double selecting=std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-start).count();
+    auto full=seed,compact=seed;
+    check(document::resolve_placement(full,g)==document::resolve_placement(compact,selected) &&
+          nlohmann::json(full).dump()==nlohmann::json(compact).dump(),"Measured indexed solve differs");
+    const auto timing=[&](const auto& geometry) {
+        const auto begin=std::chrono::steady_clock::now();
+        for(int i=0;i<10;++i){auto p=seed;static_cast<void>(document::resolve_placement(p,geometry));}
+        return std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-begin).count()/10;
+    };
+    std::cout<<"Index benchmark source_triangles="<<g.triangle_references.size()<<" selected_triangles="<<selected.triangle_references.size()
+        <<" build_ms="<<indexing<<" select_ms="<<selecting<<" full_solve_ms="<<timing(g)<<" indexed_solve_ms="<<timing(selected)<<std::endl;
+}
 }
 int main(){try {
     constraints();sides();transformed();benchmark(bowl(10000),surface());
+    indexed_benchmark(bowl(),surface());
     if(const char* path=std::getenv("ZIMA_VERIFY_MESH_SOURCE")) {
         std::vector<kernel::BodyResult> results;auto part=document::PartDocument::load(path,&results);
         check(!results.empty(),"Representative Part has no saved reference geometry");
         const auto& g=results.back().mesh.original_references;
+        if(const char* key=std::getenv("ZIMA_VERIFY_MESH_FACE")) {
+            const auto face=std::ranges::find(g.triangle_references,std::string(key),&kernel::FaceReference::semantic_key);
+            check(face!=g.triangle_references.end(),"Measured face is missing");
+            indexed_benchmark(g,{face->instance_path,face->owner_id,face->semantic_key,0,true,"front",true});
+            std::cout<<"Representative indexed placement passed\n";return 0;
+        }
         bool found=false;
         for(const auto& face:g.triangle_references) {
             document::ConstructionReference ref{face.instance_path,face.owner_id,face.semantic_key,0,true,"front",true};

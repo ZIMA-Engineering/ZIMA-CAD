@@ -2,6 +2,7 @@
 #include <zima/workspace/body_operations.hpp>
 #include <zima/workspace/body_link_operations.hpp>
 #include <zima/document/body_origin_attachment.hpp>
+#include <zima/document/placement_reference_geometry.hpp>
 #include <zima/document/file_path.hpp>
 #include <zima/kernel/stable_id.hpp>
 
@@ -128,18 +129,23 @@ void AssemblyWorkspaceWindow::show_body_properties(const std::string& id,std::op
     dialog->set_reference_highlights_changed_callback([this,dialog] {
         viewer_->set_constraint_reference_highlights({},highlighted_reference_edge_keys(*dialog));
     });
-    const auto preview=[this,dialog,edited](zima::document::BodyHistory value) {
+    // Reference inputs remain fixed throughout this Body edit session. Pending
+    // placement changes only the previewed Body, never its source references.
+    const auto reference_index=std::make_shared<document::PlacementReferenceGeometryIndex>(primitive_reference_geometry_);
+    dialog->set_reference_geometry_index(reference_index);
+    const auto preview=[this,dialog,edited,reference_index](zima::document::BodyHistory value) {
         if (!body_dialog_preview_) return;
         auto& placement=value.scope.placement;
+        const auto placement_geometry=reference_index->select(placement.references);
         zima::kernel::Vec3 base;
         bool oriented=false;
-        const bool valid=zima::document::resolve_placement(placement,primitive_reference_geometry_,&base,&oriented);
-        const auto constraint=zima::document::point_constraint_state(placement.references,primitive_reference_geometry_,
+        const bool valid=zima::document::resolve_placement(placement,placement_geometry,&base,&oriented);
+        const auto constraint=zima::document::point_constraint_state(placement.references,placement_geometry,
             {placement.x,placement.y,placement.z});
         primitive_translation_dof_=constraint.remaining_dof;
         dialog->set_translation_constraint_state(constraint,{placement.x,placement.y,placement.z});
         dialog->set_rotation_constraint_state(zima::document::orientation_constraint_state(
-            placement.references,primitive_reference_geometry_,true,{placement.x,placement.y,placement.z}));
+            placement.references,placement_geometry,true,{placement.x,placement.y,placement.z}));
         dialog->set_orientation_base_rotation(base,oriented);
         dialog->set_resolved_rotation({placement.rotation_x,placement.rotation_y,placement.rotation_z},valid);
         auto graph=body_dialog_preview_->body_history;

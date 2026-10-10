@@ -718,7 +718,11 @@ std::string encode_history_fingerprint(
                 for (const unsigned char value : primitive.component_path) byte(value);
                 for (const double value : {primitive.translation.x, primitive.translation.y, primitive.translation.z,
                         primitive.rotation_degrees.x, primitive.rotation_degrees.y, primitive.rotation_degrees.z})
-                    u64(std::bit_cast<std::uint64_t>(value));
+                    // These six resolved values describe only a rigid
+                    // transform, never an authored offset or contact side.
+                    // +0 and -0 produce the same transform. Hash them alike
+                    // without rewriting the persisted placement parameters.
+                    u64(std::bit_cast<std::uint64_t>(value == 0.0 ? 0.0 : value));
             } else if constexpr (std::is_same_v<Request, ThreadSurfaceRequest>) {
                 if (primitive.shaft_face) {
                     byte(255); // Standalone external thread reference contract.

@@ -9,6 +9,54 @@ will reboot this computer into Linux, fetch the committed changes from GitHub,
 and continue Linux verification in that session. Do not install WSL or treat
 Windows checks as Linux acceptance. Native Linux execution is explicitly pending.
 
+The expanded Windows rigid-Body acceptance also found an existing failing
+`zima_cpp_solid_state_spatial_sweep_document_tests` regeneration variant, reproduced
+from clean `1676d62b` with the same SDK. Its independent nine-section geometry
+check passes, but placement references do not converge during the lifecycle.
+Retain and report this case in Linux verification; do not relax tolerances or
+skip convergence validation. The measured record distinguishes this existing
+gap from corrected test readers and the verified import movement contracts.
+
+The user also approved the shared placement-reference geometry index on
+2026-10-10. Build and run `zima_cpp_mesh_surface_placement_tests` and
+`zima_cpp_curve_placement_contract_tests`: they compare the complete and indexed
+solver inputs, alternative branches, measurements, signed zero and independent
+geometry equations. Run `zima_cpp_import_interaction_ui_contract` and
+`zima_cpp_surface_placement_ui_contract` on the actual Linux desktop, then repeat
+large G92H1 hover, Body movement, reference edits, Cancel, Undo/Redo and reopening.
+Compare exact offered/persisted identities and record cold and repeated timings
+separately. The Windows cold-hover measurement is one face/model, not a Linux
+performance promise. See the linked measured investigation.
+
+Cache packing/unpacking now constructs recursive results directly instead of
+copying each complete subtree before replacing its children. Run
+`zima_cpp_cache_storage_contract_tests`, including the byte-identical previous
+traversal oracle, then measure large native load/save on Linux. The shared
+encoding, topology, coordinates, signed zero and document proof are unchanged.
+
+The rigid-Body follow-up also retains immutable local archives/topology/history
+and ordered placement/compound operands. Explicit kernel operations and STEP
+export must materialize these through `read_calculated_body_shape`; readers
+must not assume every root `kernel_shape` is a raw BRep. All operands remain
+self-contained in the native document. Include the additional native contracts:
+
+```sh
+cmake --build build/cpp-release --parallel 8 --target \
+  zima_cpp_body_command_tests zima_cpp_multibody_contract_tests \
+  zima_cpp_reference_geometry_transform_tests zima_cpp_body_link_tests \
+  zima_cpp_body_scale_tests zima_cpp_assembly_contract_tests
+ctest --test-dir build/cpp-release --output-on-failure -R \
+  '^zima_cpp_(body_command_tests|multibody_contract_tests|reference_geometry_transform_tests|body_link_tests|body_scale_tests|assembly_contract_tests)$'
+```
+
+Repeat complete large-import move/save/Undo/save/Redo/save/reopen, plus dependent
+solid operations and STEP export. Check all local and displayed geometry,
+properties, side flags and reference identities independently. The measured
+Windows native confirmation excludes GUI publication and saving; its roughly
+0.52–0.69 seconds is not proof of the user's 0.5-second interaction target.
+Leave adequate free space for the source, temporary replacement and numbered
+native-document archives when running repeated large-file persistence checks.
+
 After the reboot:
 
 1. Fetch the completed work from `ZIMA-Engineering/ZIMA-CAD`, record the exact
@@ -64,9 +112,13 @@ cmake --build build/cpp-release --parallel 8 --target \
   zima_cpp_occt_gauss_interval_contract_tests zima_cpp_step_parallel_properties_tests \
   zima_cpp_import_model_contract_tests zima_cpp_dimension_layout_contract_tests \
   zima_cpp_sheet_form_definition_tests zima_cpp_sheet_form_command_tests \
-  zima_cpp_sheet_form_geometry_tests zima_cpp_ui_contract_tests
+  zima_cpp_sheet_form_geometry_tests zima_cpp_sheet_form_copy_tests \
+  zima_cpp_sheet_form_copy_after_unbend_tests zima_cpp_ui_contract_tests \
+  zima_cpp_cache_storage_contract_tests zima_cpp_mesh_surface_placement_tests \
+  zima_cpp_curve_placement_contract_tests zima_cpp_placement_command_tests \
+  zima_cpp_placement_reference_removal_tests zima_cpp_placement_reference_assignment_tests
 ctest --test-dir build/cpp-release --output-on-failure -R \
-  '^zima_cpp_(native_documents_tests|step_model_contract_tests|occt_gauss_interval_contract_tests|step_parallel_properties_tests|import_model_contract_tests|dimension_layout_contract_tests|sheet_form_definition_tests|sheet_form_command_tests|sheet_form_geometry_tests|sheet_form_copy_tests|sheet_form_copy_after_unbend_tests|translations_contract)$'
+  '^zima_cpp_(native_documents_tests|step_model_contract_tests|occt_gauss_interval_contract_tests|step_parallel_properties_tests|import_model_contract_tests|dimension_layout_contract_tests|sheet_form_definition_tests|sheet_form_command_tests|sheet_form_geometry_tests|sheet_form_copy_tests|sheet_form_copy_after_unbend_tests|translations_contract|cache_storage_contract_tests|mesh_surface_placement_tests|curve_placement_contract_tests|placement_command_tests|placement_reference_removal_tests|placement_reference_assignment_tests|import_interaction_ui_contract|surface_placement_ui_contract)$'
 ```
 
 The tracked `cpp/tests/fixtures/parity/ventilation-linux.prtz` retains actual
@@ -104,6 +156,46 @@ angle and below the vertex. Include native save/reopen, Undo/Redo and PDF/DXF.
 The offscreen test platform alone does not establish native OpenGL or mouse
 interaction acceptance. Record actual Linux GUI evidence before publishing a
 Linux build; allocate its own new build identity.
+
+## Rigid Body archive and display follow-up (2026-10-10, pending verification)
+
+The current Windows follow-up keeps a Body's calculated local geometry immutable
+and records rigid placements separately from its opaque BRep archive. A final
+Part compound retains ordered, self-contained Body operands. Only explicit
+solid calculation/export materializes those operands in OCCT; native loading,
+property entry and numeric preview must not reconstruct them with the kernel.
+The native files continue to contain every required archive and reference.
+
+`KernelShapeArchive` shares immutable archive bytes in memory through history
+and Undo; native JSON still serializes their complete string value. Separate
+Body inputs/outputs share one immutable packet. Assembly serialization keeps
+its established shared geometry table, including compound operand identities.
+A STEP rigid-transform fingerprint treats `+0.0` and `-0.0` as equal only in the
+six resolved pose coordinates. It does not rewrite stored placement values,
+reference offsets, side choices or directed dimensions.
+
+Imported topology, opaque archive bindings and calculated local Body histories
+also use immutable shared arrays. The scoped analytic-surface transform cache
+retains its original inputs and reuses only an identical transform invocation.
+The Body-command regression compares complete and requested-reference
+preparation through full convergence for two imported Bodies, rotated source
+geometry, both Flip states and both signs of zero. Curve and mesh-surface tests
+compare the exact serialized packets of both index variants. Parts without
+native, embedded or Section Sketch consumers skip preparing an unused external
+Sketch source while preserving retirement of stale reference errors.
+
+On Linux, rebuild all affected C++ modules and run the multibody, Body command,
+STEP import/export, native document, cache storage, Assembly, Body reference,
+Body link, Scale, Mirror/Pattern and sheet export contracts. Regenerate factory
+templates and run the actual new-Part/new-Assembly GUI acceptance. Verify
+complete world geometry after Body OK, Cancel, Undo/Redo and reopening, plus
+both zero-offset sides and cylindrical/conical placement alternatives.
+Compare the renderer's GPU data and frame output across all five display modes,
+hover/confirmation, transparency and changed meshes. Report cold and repeated
+Body numeric-preview and confirmation timings on the complete G92H1-T import;
+the requested 0.5-second response remains an acceptance target, not an achieved
+or cross-platform guarantee. Windows work and final release acceptance are
+still in progress; Linux results must be recorded after the user's reboot.
 
 ## Imported-model performance and factory cache follow-up (2026-10-10)
 

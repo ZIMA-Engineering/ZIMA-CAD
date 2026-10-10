@@ -5,6 +5,7 @@
 #include <zima/interchange/step.hpp>
 #include <zima/kernel/occt_kernel.hpp>
 #include <zima/kernel/step_source_document.hpp>
+#include <zima/kernel/calculated_body_shape.hpp>
 #include <BRepPrimAPI_MakeBox.hxx>
 #include <BRepPrimAPI_MakeCylinder.hxx>
 #include <BRepPrimAPI_MakeTorus.hxx>
@@ -24,6 +25,7 @@
 #include <XCAFDoc_DocumentTool.hxx>
 #include <XCAFDoc_ShapeTool.hxx>
 #include <TDataStd_Name.hxx>
+#include <bit>
 #include <algorithm>
 #include <cmath>
 #include <iostream>
@@ -76,7 +78,9 @@ void check_frozen_topology(kernel::OcctKernel& kernel, kernel::BodyResult body) 
     corrupt.reference_owner_id = "archive-contract";
     corrupt.frozen_brep = std::make_shared<const std::string>(body.kernel_shape);
     corrupt.topology = body.imported_step_topology;
-    corrupt.topology.front().shape_locator = "brep-ref-v1:+2147483647 0 ";
+    auto corrupted_topology=corrupt.topology.get();
+    corrupted_topology.front().shape_locator = "brep-ref-v1:+2147483647 0 ";
+    corrupt.topology=std::move(corrupted_topology);
     bool rejected = false;
     try { static_cast<void>(kernel.import_step_components({corrupt})); }
     catch (const std::exception&) { rejected = true; }
@@ -260,6 +264,50 @@ int main(int argc,char** argv) {
         require(cylinder_writer.Write(cylinder_path.string().c_str())==IFSelect_RetDone,"Cylinder STEP write failed");
         check_freeze_preparation(kernel,{document::path_to_utf8(cylinder_path),{},{},{},"freeze-cylinder-proof"});
         auto fine=interchange::import_step_part(document::PartDocument::create_default(),{},cylinder_path,0.1);
+        // Compare the import-only carrier optimization against an independent
+        // ordinary carrier supplied with the complete transformed source mesh.
+        for (bool referenced:{false,true}) for (const auto pose:{document::Placement{},
+                document::Placement{12,-7,3,15,20,-30},document::Placement{-0.,0.,-0.,0.,-0.,0.}}) {
+            auto candidate=fine.document;
+            require(candidate.history.front().imported_step.topology.shares_with(fine.document.history.front().imported_step.topology),
+                "Document copy duplicated immutable imported topology");
+            auto graph=candidate.body_history;
+            auto body=graph.bodies().front();body.scope.placement=pose;
+            body.scope.placement.absolute_rotation_x=pose.rotation_x;
+            body.scope.placement.absolute_rotation_y=pose.rotation_y;
+            body.scope.placement.absolute_rotation_z=pose.rotation_z;
+            graph.update_body(body);candidate.set_body_history(graph);
+            auto& feature=candidate.history.front();feature.placement=pose;
+            feature.placement.absolute_rotation_x=pose.rotation_x;
+            feature.placement.absolute_rotation_y=pose.rotation_y;
+            feature.placement.absolute_rotation_z=pose.rotation_z;
+            if(referenced)feature.placement.references={{{},candidate.document_id+":origin","origin:point"}};
+            const auto append=[](auto& target,const auto& source) {
+                const auto base=static_cast<std::uint32_t>(target.vertices.size());
+                target.vertices.insert(target.vertices.end(),source.vertices.begin(),source.vertices.end());
+                for(const auto index:source.triangles)target.triangles.push_back(base+index);
+                target.triangle_references.insert(target.triangle_references.end(),source.triangle_references.begin(),source.triangle_references.end());
+                target.edges.insert(target.edges.end(),source.edges.begin(),source.edges.end());
+                target.points.insert(target.points.end(),source.points.begin(),source.points.end());
+                target.axes.insert(target.axes.end(),source.axes.begin(),source.axes.end());
+            };
+            auto source_geometry=fine.calculated.back().mesh.original_references;
+            append(source_geometry,candidate.origin_viewer_mesh().original_references);
+            append(source_geometry,candidate.body_origin_reference_geometry());
+            auto carrier=candidate.body_document(body.scope.id);
+            auto local=carrier.origin_viewer_mesh().original_references;
+            append(local,candidate.construction_reference_geometry_for(feature.id,source_geometry));
+            carrier.resolve_constructions(std::move(local));
+            candidate.resolve_constructions(source_geometry);
+            const auto& actual=candidate.history.front().placement;
+            const auto& expected=carrier.history.front().placement;
+            require(actual==expected,"Import carrier changed resolved placement or reference state");
+            for(const auto pair:{std::pair{actual.x,expected.x},std::pair{actual.y,expected.y},std::pair{actual.z,expected.z},
+                    std::pair{actual.rotation_x,expected.rotation_x},std::pair{actual.rotation_y,expected.rotation_y},
+                    std::pair{actual.rotation_z,expected.rotation_z}})
+                require(std::bit_cast<std::uint64_t>(pair.first)==std::bit_cast<std::uint64_t>(pair.second),
+                    "Import carrier changed resolved placement bits");
+        }
         auto coarse=interchange::import_step_part(document::PartDocument::create_default(),{},cylinder_path,1.0);
         auto rough=interchange::import_step_part(document::PartDocument::create_default(),{},cylinder_path,5.0);
         require(coarse.calculated.back().mesh.triangles.size()<fine.calculated.back().mesh.triangles.size(),"Coarser import did not reduce cylinder triangles");
@@ -341,9 +389,7 @@ int main(int argc,char** argv) {
         const auto mixed=interchange::import_step_assembly(mixed_path,directory,{});
         require(mixed.parts.size()==1&&mixed.assemblies.size()==1,"Solid and sheet became separate Parts or a fake subassembly");
         require(mixed.assemblies.front().document.components.size()==2,"Repeated mixed product occurrences were lost");
-        TopoDS_Shape restored_mixed;
-        std::istringstream mixed_brep(mixed.parts.front().calculated.back().kernel_shape);
-        BRepTools::Read(restored_mixed,mixed_brep,mixed_builder);
+        const auto restored_mixed=kernel::read_calculated_body_shape(mixed.parts.front().calculated.back());
         int solid_count=0,face_count=0;
         for(TopExp_Explorer e(restored_mixed,TopAbs_SOLID);e.More();e.Next())++solid_count;
         for(TopExp_Explorer e(restored_mixed,TopAbs_FACE);e.More();e.Next())++face_count;

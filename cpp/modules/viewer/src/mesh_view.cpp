@@ -55,6 +55,8 @@
 #include <stdexcept>
 #include <string_view>
 #include <utility>
+#include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 namespace zima::viewer {
@@ -889,8 +891,13 @@ void MeshView::set_mesh(zima::kernel::ViewerMesh mesh, bool fit_view) {
     impl_->face_boundaries.clear();
     const auto index_faces=[](const auto& faces,auto& target) {
         target.clear();
+        const kernel::FaceReference* previous{};std::vector<std::size_t>* group{};
         for(std::size_t i=0;i<faces.size();++i) {
-            const auto& f=faces[i];target[{f.owner_id,f.semantic_key,f.instance_path}].push_back(i);
+            const auto& f=faces[i];
+            if(!previous||previous->owner_id!=f.owner_id||previous->semantic_key!=f.semantic_key||
+                    previous->instance_path!=f.instance_path)
+                group=&target[{f.owner_id,f.semantic_key,f.instance_path}];
+            group->push_back(i);previous=&f;
         }
     };
     index_faces(impl_->mesh.triangle_references,impl_->display_face_triangles);
@@ -2986,12 +2993,18 @@ void MeshView::resizeGL(int, int height) {
 
 void MeshView::upload_mesh() {
     if (!isValid() || !impl_->gpu_dirty) return;
+    QElapsedTimer upload_timer;upload_timer.start();
+    const auto upload_phase=[&](const char* name) {
+        if(qEnvironmentVariableIsSet("ZIMA_CPP_PROFILE_COMMAND"))std::fprintf(stderr,"Viewer upload %s: %.3f ms\n",name,upload_timer.nsecsElapsed()/1e6);
+        upload_timer.restart();
+    };
     setProperty("gpuMeshUploadCount",property("gpuMeshUploadCount").toULongLong()+1);
     const auto vertex_data = shaded_triangle_vertices(impl_->mesh);
     impl_->vertices.bind();
     impl_->vertices.allocate(vertex_data.data(),
         static_cast<int>(vertex_data.size() * sizeof(float)));
 
+    upload_phase("triangles");
     std::vector<float> line_data;
     impl_->line_ranges.clear();
     impl_->line_edges.clear();
@@ -3030,6 +3043,7 @@ void MeshView::upload_mesh() {
     impl_->lines.allocate(line_data.data(),
         static_cast<int>(line_data.size() * sizeof(float)));
 
+    upload_phase("edges");
     // Candidate silhouette edges: internal triangulation edges shared by
     // exactly two triangles of the same owning face (owner_id + semantic_key)
     // that are not already a persisted topological edge. Mirrors Python's
@@ -3037,8 +3051,29 @@ void MeshView::upload_mesh() {
     // the mesh changes (gpu_dirty); the visible subset is re-selected every
     // frame from the current camera direction in paintGL.
     {
-        std::set<std::pair<std::string, std::pair<std::array<double, 3>,
-            std::array<double, 3>>>> topology_segments;
+        using RoundedPoint=std::array<double,3>;
+        struct PointHash {
+            std::size_t operator()(const RoundedPoint& point) const {
+                std::size_t hash=0;
+                for(const auto value:point)
+                    hash^=std::hash<double>{}(value)+0x9e3779b9+(hash<<6)+(hash>>2);
+                return hash;
+            }
+        };
+        using SharedKey=std::pair<std::string_view,std::pair<std::size_t,std::size_t>>;
+        struct SharedHash {
+            std::size_t operator()(const SharedKey& key) const {
+                auto hash=std::hash<std::string_view>{}(key.first);
+                for(const auto value:{key.second.first,key.second.second})
+                    hash^=std::hash<std::size_t>{}(value)+0x9e3779b9+(hash<<6)+(hash>>2);
+                return hash;
+            }
+        };
+        std::unordered_set<SharedKey,SharedHash> topology_segments;
+        std::size_t segment_count=0;
+        for(const auto& edge:impl_->mesh.edges)if(!edge.overlay&&edge.points.size()>1)
+            segment_count+=edge.points.size()-1;
+        topology_segments.reserve(segment_count);
         const auto rounded = [](const zima::kernel::Vec3& point) {
             constexpr double scale = 1.0e7;
             return std::array<double, 3>{
@@ -3046,14 +3081,32 @@ void MeshView::upload_mesh() {
                 std::round(point.y * scale) / scale,
                 std::round(point.z * scale) / scale};
         };
+        // Identical rounded coordinates get one operation-local address.
+        // Retain the exact established rounding and coordinate ordering; the
+        // addresses only avoid copying/hashing six doubles per incident edge.
+        std::vector<RoundedPoint> rounded_points;
+        std::unordered_map<RoundedPoint,std::size_t,PointHash> point_addresses;
+        rounded_points.reserve(impl_->mesh.vertices.size());
+        point_addresses.reserve(impl_->mesh.vertices.size());
+        const auto point_address=[&](const zima::kernel::Vec3& point) {
+            const auto coordinates=rounded(point);
+            const auto [found,inserted]=point_addresses.emplace(coordinates,rounded_points.size());
+            if(inserted)rounded_points.push_back(coordinates);
+            return found->second;
+        };
+        std::vector<std::size_t> vertex_addresses;
+        vertex_addresses.reserve(impl_->mesh.vertices.size());
+        for(const auto& vertex:impl_->mesh.vertices)vertex_addresses.push_back(point_address(vertex));
+        const auto ordered_segment=[&](std::size_t first,std::size_t second) {
+            if(rounded_points[second]<rounded_points[first])std::swap(first,second);
+            return std::pair{first,second};
+        };
         for (const auto& edge : impl_->mesh.edges) {
             if (edge.overlay) continue;
             for (std::size_t index = 0; index + 1 < edge.points.size(); ++index) {
-                auto first = rounded(edge.points[index]);
-                auto second = rounded(edge.points[index + 1]);
-                if (second < first) std::swap(first, second);
                 topology_segments.insert(
-                    {edge.reference.owner_id, {first, second}});
+                    {edge.reference.owner_id, ordered_segment(point_address(edge.points[index]),
+                        point_address(edge.points[index+1]))});
             }
         }
         struct SharedRecord { QVector3D first, second, normal; };
@@ -3065,9 +3118,11 @@ void MeshView::upload_mesh() {
         // Intern each exact face key once for this upload. Set nodes keep
         // their strings stable until the adjacency map has been destroyed.
         std::set<std::string> face_keys;
-        std::map<std::pair<std::string_view, std::pair<std::array<double, 3>,
-            std::array<double, 3>>>, SharedRecords> shared;
+        std::unordered_map<SharedKey,SharedRecords,SharedHash> shared;
         const auto triangle_count = impl_->mesh.triangles.size() / 3;
+        shared.reserve(triangle_count);
+        std::string_view previous_owner,previous_semantic,face_key;
+        bool have_previous_face=false;
         for (std::size_t triangle = 0; triangle < triangle_count; ++triangle) {
             if (triangle >= impl_->mesh.triangle_references.size()) continue;
             const auto& face_reference = impl_->mesh.triangle_references[triangle];
@@ -3092,15 +3147,16 @@ void MeshView::upload_mesh() {
             if (normal.lengthSquared() > 1.0e-12F) normal.normalize();
             const std::pair<QVector3D, QVector3D> triangle_edges[3]{
                 {pa, pb}, {pb, pc}, {pc, pa}};
-            const std::string owner = face_reference.valid()
-                ? face_reference.owner_id : std::string();
-            const std::string_view face_key = *face_keys.insert(
-                owner + "|" + face_reference.semantic_key).first;
+            const std::string_view owner=face_reference.valid()
+                ? std::string_view(face_reference.owner_id) : std::string_view{};
+            if(!have_previous_face||previous_owner!=owner||previous_semantic!=face_reference.semantic_key) {
+                face_key=*face_keys.insert(std::string(owner)+"|"+face_reference.semantic_key).first;
+                previous_owner=owner;previous_semantic=face_reference.semantic_key;have_previous_face=true;
+            }
             for (std::size_t side = 0; side < 3; ++side) {
-                auto first = rounded(points[side]);
-                auto second = rounded(points[(side + 1) % 3]);
-                if (second < first) std::swap(first, second);
-                auto& records = shared[{face_key, {first, second}}];
+                const auto segment=ordered_segment(vertex_addresses[indices[side]],
+                    vertex_addresses[indices[(side+1)%3]]);
+                auto& records = shared[{face_key, segment}];
                 // Only an exact pair can become a silhouette candidate.
                 // Retain its original order; three means permanently ineligible.
                 if (records.count == 0)
@@ -3113,16 +3169,30 @@ void MeshView::upload_mesh() {
         impl_->silhouette_candidates.clear();
         impl_->silhouette_view_direction.reset();
         impl_->silhouette_vertex_count = 0;
-        for (const auto& [key, records] : shared) {
-            if (records.count != 2) continue;
-            const auto separator = key.first.find('|');
-            const std::string owner(separator == std::string_view::npos
-                ? key.first : key.first.substr(0, separator));
-            if (topology_segments.contains({owner, key.second})) continue;
+        // Preserve the original ordered-map publication order exactly. Hash
+        // lookup avoids a tree search and allocation per incident triangle;
+        // sorting is needed only once for the eligible candidate records.
+        std::vector<const decltype(shared)::value_type*> ordered;
+        ordered.reserve(shared.size());
+        for(const auto& entry:shared) {
+            const auto& [key,records]=entry;
+            if(records.count!=2)continue;
+            const auto separator=key.first.find('|');
+            const std::string_view owner=separator==std::string_view::npos?key.first:key.first.substr(0,separator);
+            if(!topology_segments.contains({owner,key.second}))ordered.push_back(&entry);
+        }
+        std::ranges::sort(ordered,[&](const auto* first,const auto* second){
+            const auto& a=first->first;const auto& b=second->first;
+            return std::tie(a.first,rounded_points[a.second.first],rounded_points[a.second.second])<
+                std::tie(b.first,rounded_points[b.second.first],rounded_points[b.second.second]);
+        });
+        for(const auto* entry:ordered) {
+            const auto& records=entry->second;
             impl_->silhouette_candidates.push_back({records.first.first,
-                records.first.second, records.first.normal, records.second_normal});
+                records.first.second,records.first.normal,records.second_normal});
         }
     }
+    upload_phase("adjacency");
     if(qEnvironmentVariableIsSet("ZIMA_CPP_VERIFY_GPU_UPLOAD")||qEnvironmentVariableIsSet("ZIMA_CPP_PROFILE_COMMAND")) {
         QCryptographicHash hash(QCryptographicHash::Sha256);
         hash.addData(QByteArrayView(reinterpret_cast<const char*>(vertex_data.data()),vertex_data.size()*sizeof(float)));

@@ -151,6 +151,15 @@ zima::kernel::ViewerReferenceGeometry part_construction_dimension_geometry(
 bool refresh_sketch_external_references(
     zima::document::PartDocument& document,
     const std::vector<zima::kernel::BodyResult>& calculated_boundaries) {
+    bool has_sketches=!document.sketches.empty()||!document.sections.empty();
+    if(!has_sketches)for(const auto& feature:document.history)
+        document::visit_feature_sketches(feature,[&](const auto&,std::size_t){has_sketches=true;});
+    if(!has_sketches) {
+        // Preserve retirement of stale errors, but do not copy a complete body
+        // reference packet when no native or embedded Sketch can consume it.
+        const bool changed=!document.reference_errors.empty();
+        document.reference_errors.clear();return changed;
+    }
     const auto source = sketch_external_reference_source_geometry(
         document, calculated_boundaries);
     const auto refresh=[&](zima::sketcher::Sketch& sketch) {

@@ -1,6 +1,7 @@
 #include "workspace_internal.hpp"
 #include "../confirmed_face_hit.hpp"
 #include <zima/document/placement_surface.hpp>
+#include <zima/document/placement_reference_geometry.hpp>
 
 namespace zima::app {
 using namespace workspace_detail;
@@ -968,18 +969,23 @@ void AssemblyWorkspaceWindow::start_primitive_reference_selection(
     const bool orientation_reference = index >= 3;
     const auto baseline_references =
         primitive_reference_dialog_->references_without(index);
+    const auto* body_dialog=dynamic_cast<const BodyPropertiesDialog*>(primitive_reference_dialog_);
+    const bool fixed_body_source=body_dialog&&body_dialog->reference_geometry_index();
+    const auto geometry_index=fixed_body_source?body_dialog->reference_geometry_index():
+        std::make_shared<document::PlacementReferenceGeometryIndex>(primitive_reference_geometry_);
+    const auto baseline_geometry=geometry_index->select(baseline_references);
     auto baseline_placement = primitive_reference_dialog_->placement_seed();
     baseline_placement.references = baseline_references;
     static_cast<void>(zima::document::resolve_placement(
-        baseline_placement, primitive_reference_geometry_));
+        baseline_placement, baseline_geometry));
     const zima::kernel::Vec3 orientation_origin{baseline_placement.x,
         baseline_placement.y, baseline_placement.z};
     const int baseline_translation_dof =
         zima::document::point_constraint_remaining_dof(
-            baseline_references, primitive_reference_geometry_, orientation_origin);
+            baseline_references, baseline_geometry, orientation_origin);
     const int baseline_rotation_dof =
         zima::document::orientation_constraint_remaining_dof(
-            baseline_references, primitive_reference_geometry_, true,
+            baseline_references, baseline_geometry, true,
             orientation_origin);
     const bool direction_reference = !orientation_reference && index < 3 &&
         baseline_translation_dof == 0 && baseline_rotation_dof > 0;
@@ -1017,7 +1023,7 @@ void AssemblyWorkspaceWindow::start_primitive_reference_selection(
     viewer_->set_candidate_filter([this, prefix, active_part, index,
             orientation_reference, direction_reference, orientation_origin,
             baseline_references, baseline_placement, baseline_dof, auto_advance,
-            validation_cache,validation_revision](
+            validation_cache,validation_revision,geometry_index,fixed_body_source](
                 const auto& offered) {
         const auto candidate=placement_reference_source_candidate(offered);
         if (candidate.kind == zima::viewer::CandidateKind::Dimension &&
@@ -1046,7 +1052,11 @@ void AssemblyWorkspaceWindow::start_primitive_reference_selection(
         } catch (const std::invalid_argument&) {
             return false;
         }
-        if (!placement_reference_exists(candidate,primitive_reference_geometry_,local_path)) return false;
+        if(*validation_revision!=viewer_->base_mesh_revision()) {
+            validation_cache->clear();*validation_revision=viewer_->base_mesh_revision();
+            if(!fixed_body_source)*geometry_index=document::PlacementReferenceGeometryIndex(primitive_reference_geometry_);
+        }
+        if (!geometry_index->contains(document::ConstructionReference{local_path,candidate.owner_id,candidate.semantic_key})) return false;
         auto candidate_reference = zima::document::ConstructionReference{
             std::move(local_path), candidate.owner_id, candidate.semantic_key, 0.0,
             candidate_supports_offset(candidate)};
@@ -1090,9 +1100,6 @@ void AssemblyWorkspaceWindow::start_primitive_reference_selection(
             assign_automatic_orientation_role(
                 candidate_reference, baseline_references);
         }
-        if(*validation_revision!=viewer_->base_mesh_revision()) {
-            validation_cache->clear();*validation_revision=viewer_->base_mesh_revision();
-        }
         const ValidationKey validation_key{candidate.kind,candidate.owner_id,candidate.semantic_key,candidate.instance_path};
         const auto cached=validation_cache->find(validation_key);
         const auto source_reference=candidate_reference;
@@ -1100,8 +1107,12 @@ void AssemblyWorkspaceWindow::start_primitive_reference_selection(
         // and this scene revision. Row preparation still consumes current UI state.
         const auto* measured=cached!=validation_cache->end()&&cached->second.source==source_reference
             ? &cached->second.prepared.measured_offset:nullptr;
+        auto proposed = baseline_references;
+        proposed.push_back(candidate_reference);
+        std::optional<kernel::ViewerReferenceGeometry> proposed_geometry;
+        if(!measured)proposed_geometry=geometry_index->select(proposed);
         candidate_reference=prepare_placement_pick(primitive_reference_dialog_,index,
-            std::move(candidate_reference),primitive_reference_geometry_,orientation_origin,measured);
+            std::move(candidate_reference),proposed_geometry?*proposed_geometry:primitive_reference_geometry_,orientation_origin,measured);
         // Prepared values include current row locks/side and measured offset.
         // Keep signed zero distinct even though ordinary numeric equality does not.
         if(cached!=validation_cache->end() && cached->second.prepared==candidate_reference &&
@@ -1112,21 +1123,21 @@ void AssemblyWorkspaceWindow::start_primitive_reference_selection(
             if(validation_cache->size()>=64)validation_cache->clear();
             validation_cache->insert_or_assign(validation_key,PlacementPickValidation{source_reference,candidate_reference,allowed});return allowed;
         };
-        auto proposed = baseline_references;
-        proposed.push_back(candidate_reference);
+        proposed.back()=candidate_reference;
+        if(!proposed_geometry)proposed_geometry=geometry_index->select(proposed);
         auto proposed_placement = baseline_placement;
         proposed_placement.references = proposed;
-        if (!zima::document::resolve_placement(proposed_placement, primitive_reference_geometry_)) return remember(false);
+        if (!zima::document::resolve_placement(proposed_placement, *proposed_geometry)) return remember(false);
         const zima::kernel::Vec3 proposed_origin{proposed_placement.x, proposed_placement.y, proposed_placement.z};
         const int proposed_rotation =
             zima::document::orientation_constraint_remaining_dof(
-                proposed, primitive_reference_geometry_, true,
+                proposed, *proposed_geometry, true,
                 proposed_origin);
         const int proposed_dof = orientation_reference || direction_reference
             ? proposed_rotation
             : proposed_rotation +
                 zima::document::point_constraint_remaining_dof(
-                    proposed, primitive_reference_geometry_, proposed_origin);
+                    proposed, *proposed_geometry, proposed_origin);
         return remember(proposed_dof < baseline_dof ||
             (!auto_advance && proposed_dof == baseline_dof));
     });

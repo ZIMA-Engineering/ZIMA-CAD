@@ -2,6 +2,8 @@
 #include <zima/workspace/profile_operations.hpp>
 #include "profile_solid_fixture.hpp"
 #include <zima/document/part_document.hpp>
+#include <zima/document/placement_reference_geometry.hpp>
+#include <zima/document/viewer_packet_json.hpp>
 #include <zima/kernel/curve_evaluation.hpp>
 #include <zima/kernel/curve_constraints.hpp>
 #include <zima/sketcher/sketch.hpp>
@@ -33,6 +35,31 @@ kernel::Vec3 top(const document::Placement& p) {
         cy=std::cos(p.rotation_y*r),sy=std::sin(p.rotation_y*r),cz=std::cos(p.rotation_z*r),sz=std::sin(p.rotation_z*r);
     return {cz*sy*cx+sz*sx,sz*sy*cx-cz*sx,cy*cx};
 }
+bool indexed_resolve(document::Placement& p,const kernel::ViewerReferenceGeometry& g) {
+    auto full=p;
+    const bool expected=document::resolve_placement(full,g);
+    document::PlacementReferenceGeometryIndex index(g);
+    const auto selected=index.select(p.references);
+    const auto bounded=document::PlacementReferenceGeometryIndex(g,p.references).select(p.references);
+    check(document::serialize_viewer_reference_geometry(selected).dump()==
+        document::serialize_viewer_reference_geometry(bounded).dump(),
+        "Requested-reference index changed exact geometry, order or signed metadata");
+    const bool actual=document::resolve_placement(p,selected);
+    check(actual==expected && nlohmann::json(p).dump()==nlohmann::json(full).dump(),"Indexed solver changed placement or signed side");
+    const kernel::Vec3 origin{p.x,p.y,p.z};
+    check(document::point_constraint_remaining_dof(p.references,g,origin)==
+          document::point_constraint_remaining_dof(p.references,selected,origin),"Indexed position degrees of freedom differ");
+    check(document::orientation_constraint_remaining_dof(p.references,g,true,origin)==
+          document::orientation_constraint_remaining_dof(p.references,selected,true,origin),"Indexed orientation degrees of freedom differ");
+    check(nlohmann::json(document::placement_solution_branches(p,g)).dump()==
+          nlohmann::json(document::placement_solution_branches(p,selected)).dump(),"Indexed solution branches differ");
+    for(const auto& ref:p.references) {
+        const auto a=document::measure_placement_reference_offset(ref,g,origin);
+        const auto b=document::measure_placement_reference_offset(ref,selected,origin);
+        check(a==b && (!a || std::signbit(*a)==std::signbit(*b)),"Indexed measurement or signed zero differs");
+    }
+    return actual;
+}
 void point_circle_parallel_plane() {
     for(bool rotated:{false,true})for(bool reversed:{false,true})for(bool flip:{false,true}) {
         auto sketch=sketcher::Sketch::create_default();static_cast<void>(sketch.add_circle(0,0,10));
@@ -52,7 +79,7 @@ void point_circle_parallel_plane() {
         document::Placement p;p.x=rotated?4:10;p.y=rotated?18:0;p.z=rotated?12:0;
         p.references={{{},edge.owner_id,edge.semantic_key},{"instance","plane","face",6,true,"top",true,false,flip}};
         const auto original=p.references;
-        auto strict=p;check(!document::resolve_placement(strict,geometry),"Ordinary placement lost strict plane distance");
+        auto strict=p;check(!indexed_resolve(strict,geometry),"Ordinary placement lost strict plane distance");
         const auto derived=document::point_circle_plane_offsets(p.references,geometry);
         check(derived[1].has_value(),"Parallel circle plane not recognized");near(*derived[1],reversed?-3:3);
         check(document::resolve_point_placement(p,geometry),"Derived circle plane rejected Point");
@@ -108,7 +135,7 @@ void curve_matrix() {
             g.points.push_back({p,{"anchor","point",{}}});
             document::Placement placed;placed.absolute_rotation_y=37;
             placed.references={{{},"anchor","point"},{{},s.id,edge.reference.semantic_key,0,false,"direction",true,true,flip}};
-            check(document::resolve_placement(placed,g),"Curve/tangent matrix failed");
+            check(indexed_resolve(placed,g),"Curve/tangent matrix failed");
             near(placed.x,p.x);near(placed.y,p.y);near(placed.z,p.z);
             const auto normal=front(placed);
             near((normal.x*d.x+normal.y*d.y+normal.z*d.z)/length(d),flip?-1:1);
@@ -133,13 +160,13 @@ void surface_placement() {
     for(bool reversed:{false,true})for(bool flip:{false,true})for(double offset:{0.0,-0.0,2.0,-2.0}) {
         surface->reversed=reversed;ref.flip=flip;ref.offset=offset;
         document::Placement p;p.x=3;p.y=8;p.z=50;p.references={ref};
-        check(document::resolve_placement(p,g),"Cylinder placement failed");
+        check(indexed_resolve(p,g),"Cylinder placement failed");
         near(p.x,3);near(p.y,-2+5+(reversed?-offset:offset));near(p.z,50);
         near(front(p).y,reversed!=flip?-1:1);
         check(document::point_constraint_remaining_dof(p.references,g,{p.x,p.y,p.z})==2,"Surface must leave two translations");
         check(document::orientation_constraint_remaining_dof(p.references,g,true,{p.x,p.y,p.z})==1,"Surface must leave one rotation");
         p.x=13;p.y=-2;
-        check(document::resolve_placement(p,g),"Cylinder movement failed");
+        check(indexed_resolve(p,g),"Cylinder movement failed");
         near(front(p).x,reversed!=flip?-1:1);
         auto encoded=nlohmann::json(p);auto restored=encoded.get<document::Placement>();
         check(restored.references==p.references,"Surface side or mode lost in JSON");
@@ -147,7 +174,7 @@ void surface_placement() {
     }
     surface->reversed=false;ref.flip=false;ref.offset=0;ref.use_axis=true;ref.supports_offset=false;
     document::Placement p;p.x=100;p.y=40;p.z=50;p.references={ref};
-    check(document::resolve_placement(p,g),"Cylinder axis placement failed");
+    check(indexed_resolve(p,g),"Cylinder axis placement failed");
     near(p.x,3);near(p.y,-2);near(p.z,50);near(front(p).z,1);
     check(document::point_constraint_remaining_dof(p.references,g,{p.x,p.y,p.z})==1,"Axis must leave one translation");
     check(nlohmann::json(p).get<document::Placement>().references[0].use_axis,"Axis mode lost");
@@ -155,21 +182,21 @@ void surface_placement() {
     g.triangle_references.push_back({"plane","face",{},plane});g.triangles.insert(g.triangles.end(),{0,1,2});
     ref.use_axis=false;ref.supports_offset=true;p.references={ref,{{},"plane","face",0,true}};
     p.x=8;p.y=-2;
-    check(document::resolve_placement(p,g),"Cylinder/plane intersection failed at singular initial tangent");
+    check(indexed_resolve(p,g),"Cylinder/plane intersection failed at singular initial tangent");
     near(p.x,3);near(std::hypot(p.x-3,p.y+2),5);near(p.z,50);
     const auto valid=p;plane->origin.x=30;
-    check(!document::resolve_placement(p,g),"Contradictory surface references were accepted");
+    check(!indexed_resolve(p,g),"Contradictory surface references were accepted");
     near(p.x,valid.x);near(p.y,valid.y);near(p.z,valid.z);
     g.triangle_references.pop_back();g.triangles.resize(3);
     surface->kind=kernel::SurfaceGeometry::Kind::Cone;surface->semi_angle=std::atan(.5);
     ref.use_axis=false;ref.supports_offset=true;p.references={ref};p.x=13;p.y=-2;p.z=17;
-    check(document::resolve_placement(p,g),"Cone placement failed");
+    check(indexed_resolve(p,g),"Cone placement failed");
     near(std::hypot(p.x-3,p.y+2),5+.5*(p.z-7));
     const auto cone_normal=front(p);near(cone_normal.x,1/std::sqrt(1.25));near(cone_normal.z,-.5/std::sqrt(1.25));
     g.triangle_references[0].surface.reset();
     g.vertices.insert(g.vertices.end(),{{0,0,0},{1,0,0},{0,1,0}});
     g.triangles.insert(g.triangles.end(),{3,4,5});g.triangle_references.push_back({"source","face",{}});
-    check(document::resolve_placement(p,g),"General source triangles cannot resolve");
+    check(indexed_resolve(p,g),"General source triangles cannot resolve");
     check(p.x>=0&&p.y>=0&&p.x+p.y<=1+1e-7&&std::abs(p.z)<1e-7,
         "General surface extrapolated the plane of its first triangle");
 }
@@ -188,7 +215,7 @@ void solution_branches() {
             document::Placement p;p.x=rotated?4:6;p.y=rotated?14:side*(ellipse?4:8);p.z=rotated?12+side*(ellipse?4:8):0;
             p.references={{{},edge.reference.owner_id,edge.reference.semantic_key},{{},"plane","face",6,true}};
             if(reverse)std::reverse(p.references.begin(),p.references.end());
-            if(!document::resolve_placement(p,geometry))throw std::runtime_error("Conic branch did not resolve: ellipse="+std::to_string(ellipse)+" rotated="+std::to_string(rotated)+" reverse="+std::to_string(reverse)+" side="+std::to_string(side)+" refs="+nlohmann::json(p.references).dump());
+            if(!indexed_resolve(p,geometry))throw std::runtime_error("Conic branch did not resolve: ellipse="+std::to_string(ellipse)+" rotated="+std::to_string(rotated)+" reverse="+std::to_string(reverse)+" side="+std::to_string(side)+" refs="+nlohmann::json(p.references).dump());
             near(rotated?p.z-12:p.y,side*(ellipse?4:8));
             auto& planar=p.references[reverse?0:1];auto& curved=p.references[reverse?1:0];
             check(curved.solution_branch!=0,"Conic branch was not persisted");
@@ -204,16 +231,16 @@ void solution_branches() {
             auto restored=document::PartDocument::from_serialized(document.serialized());
             check(restored.history.front().placement.references==p.references &&
                 restored.constructions.front().references==p.references,"Native document lost placement branches");
-            planar.offset=10;check(document::resolve_placement(p,geometry),"Conic tangency rejected");
+            planar.offset=10;check(indexed_resolve(p,geometry),"Conic tangency rejected");
             near(rotated?p.z-12:p.y,0);check(curved.solution_branch==branch,"Tangency erased branch");
             p=nlohmann::json(p).get<document::Placement>();
             p.references[reverse?0:1].offset=6;
-            check(document::resolve_placement(p,geometry),"Conic branch did not leave tangency");
+            check(indexed_resolve(p,geometry),"Conic branch did not leave tangency");
             near(rotated?p.z-12:p.y,side*(ellipse?4:8));
             auto choices=document::placement_solution_branches(p,geometry);
             check(choices.size()==2,"Conic did not offer both branches");
             const auto before=p;p.references[reverse?0:1].offset=11;
-            check(!document::resolve_placement(p,geometry),"Unreachable conic offset accepted");
+            check(!indexed_resolve(p,geometry),"Unreachable conic offset accepted");
             near(p.x,before.x);near(p.y,before.y);near(p.z,before.z);
         }
     }
@@ -226,23 +253,23 @@ void solution_branches() {
         auto geometry=g;geometry.triangle_references[1].owner_id="a:origin";
         document::Placement p;p.x=30;p.y=-40;p.z=7;
         p.references={{{},"cylinder","face",0,true},{{},"a:origin","face",30,true},{{},"z","face",7,true}};
-        check(document::resolve_placement(p,geometry),"Copy branch fixture failed");
+        check(indexed_resolve(p,geometry),"Copy branch fixture failed");
         auto json=nlohmann::json(p);document::remap_document_identity(json,"a","zz");
         p=json.get<document::Placement>();geometry.triangle_references[1].owner_id="zz:origin";
-        check(document::resolve_placement(p,geometry),"Save As lost branch source identities");
+        check(indexed_resolve(p,geometry),"Save As lost branch source identities");
         near(p.x,30);near(p.y,-40);near(p.z,7);
     }
     do {for(int side:{-1,1}) {
         document::Placement p;p.x=30;p.y=40*side;p.z=7;
         const std::vector<document::ConstructionReference> refs={{{},"cylinder","face",0,true},{{},"x","face",30,true},{{},"z","face",7,true}};
         for(int index:order)p.references.push_back(refs[index]);
-        check(document::resolve_placement(p,g),"Cylinder branch order failed");near(p.y,40*side);
+        check(indexed_resolve(p,g),"Cylinder branch order failed");near(p.y,40*side);
         const auto set_x=[&](double value){for(auto& ref:p.references)if(ref.owner_id=="x")ref.offset=value;};
-        set_x(50);check(document::resolve_placement(p,g),"Cylinder tangency failed");near(p.y,0);
+        set_x(50);check(indexed_resolve(p,g),"Cylinder tangency failed");near(p.y,0);
         p=nlohmann::json(p).get<document::Placement>();set_x(30);
-        check(document::resolve_placement(p,g),"Cylinder branch lost after tangency/reopen");near(p.y,40*side);
+        check(indexed_resolve(p,g),"Cylinder branch lost after tangency/reopen");near(p.y,40*side);
         const auto choices=document::placement_solution_branches(p,g);check(choices.size()==2,"Cylinder branches missing");
-        set_x(60);const auto before=p;check(!document::resolve_placement(p,g),"Impossible cylinder branch accepted");near(p.x,before.x);near(p.y,before.y);
+        set_x(60);const auto before=p;check(!indexed_resolve(p,g),"Impossible cylinder branch accepted");near(p.x,before.x);near(p.y,before.y);
     }}while(std::next_permutation(order.begin(),order.end()));
 }
 void history() {
@@ -276,7 +303,7 @@ void third_direction() {
     const auto point=source.arcs.front().end_point_id;
     document::Placement two;
     two.references={{{},source.id,"point:"+point},{{},source.id,"arc:"+arc,0,false,"direction",true,true}};
-    check(document::resolve_placement(two,geometry),"Third-reference baseline failed");
+    check(indexed_resolve(two,geometry),"Third-reference baseline failed");
     const auto n=front(two);const kernel::Vec3 anchor{two.x,two.y,two.z};
     // An orientation-only straight reference supplies its direction, wherever
     // it lies. Its offset and length must not relocate the existing anchor.
@@ -288,12 +315,12 @@ void third_direction() {
         auto g=geometry;g.edges.push_back(line);
         auto placed=two;placed.references.push_back({{},"remote","line",0,false,"direction",true,true});
         check(document::orientation_constraint_remaining_dof(placed.references,g,true,anchor)==0,"Third remote straight reference did not close roll DOF");
-        check(document::resolve_placement(placed,g),"Third remote straight reference failed");
+        check(indexed_resolve(placed,g),"Third remote straight reference failed");
         near(placed.x,anchor.x);near(placed.y,anchor.y);near(placed.z,anchor.z);
         near(front(placed).x,n.x);near(front(placed).y,n.y);near(front(placed).z,n.z);
         near(top(placed).x,0);near(top(placed).y,0);near(top(placed).z,reverse?-1:1);
         const auto saved=placed;
-        for(int i=0;i<10;++i){check(document::resolve_placement(placed,g),"Third-reference repeated solve failed");near(placed.rotation_x,saved.rotation_x);near(placed.rotation_y,saved.rotation_y);near(placed.rotation_z,saved.rotation_z);}
+        for(int i=0;i<10;++i){check(indexed_resolve(placed,g),"Third-reference repeated solve failed");near(placed.rotation_x,saved.rotation_x);near(placed.rotation_y,saved.rotation_y);near(placed.rotation_z,saved.rotation_z);}
         // Constructions and ordinary feature containers share this contract.
         auto datum=document::PartDocument::create_construction(document::ConstructionKind::Plane);
         datum.references=placed.references;
@@ -309,10 +336,10 @@ void third_direction() {
         line.exact_spline=kernel::BSplineGeometry{1,line.points,invalid==2?std::vector<double>{0,0,.5,1,1}:std::vector<double>{0,0,1,1},std::vector<double>(line.points.size(),1)};
         g.edges.push_back(line);auto placed=two;placed.references.push_back({{},"bad","line",0,false,"direction",true,true});
         if (invalid == 0) {
-            check(document::resolve_placement(placed,g),"A redundant parallel direction invalidated the anchor");
+            check(indexed_resolve(placed,g),"A redundant parallel direction invalidated the anchor");
             check(document::orientation_constraint_remaining_dof(placed.references,g,true,anchor)==1,
                 "A parallel direction consumed roll");
-        } else check(!document::resolve_placement(placed,g),"Invalid third direction accepted");
+        } else check(!indexed_resolve(placed,g),"Invalid third direction accepted");
         near(placed.x,two.x);near(placed.y,two.y);near(placed.z,two.z);
         near(placed.rotation_x,two.rotation_x);near(placed.rotation_y,two.rotation_y);near(placed.rotation_z,two.rotation_z);
     }
@@ -331,7 +358,7 @@ void ordered_frames() {
     for(const auto origin:std::vector<kernel::Vec3>{{0,0,0},{0,25,0},{20,30,0},{30,50,0}}) {
         document::Placement placed;placed.x=origin.x;placed.y=origin.y;placed.z=origin.z;
         placed.references={{{},remote.id,"segment:"+remote_id,0,false,"front",true}};
-        check(document::resolve_placement(placed,remote.placement_reference_geometry()),"Remote trimmed segment rejected initial attachment");
+        check(indexed_resolve(placed,remote.placement_reference_geometry()),"Remote trimmed segment rejected initial attachment");
         near(placed.x,20);near(placed.y,std::clamp(origin.y,20.,40.));near(placed.z,0);
     }
     const document::ConstructionReference edge{{},sketch.id,"segment:"+segment,0,false,"front",true};
@@ -348,7 +375,7 @@ void ordered_frames() {
         document::Placement p;
         p.references = plane_first ? std::vector{face,edge,point} : std::vector{edge,face,point};
         document::normalize_container_front_references(p.references);
-        check(document::resolve_placement(p,g),"FRONT/TOP sequence rejected");
+        check(indexed_resolve(p,g),"FRONT/TOP sequence rejected");
         const kernel::Vec3 n = plane_first ? kernel::Vec3{0,0,1} : kernel::Vec3{1,0,0};
         verify_frame(p,n);
         // The real owned Sketch must use the identical frame during history
@@ -376,14 +403,14 @@ void ordered_frames() {
         auto p=document::Placement{};p.absolute_rotation_y=37;
         p.references={edge,{{},"test","second",0,false,"top",true,true}};
         const bool independent=degrees>=0.01 && degrees<=179.99;
-        check(document::resolve_placement(p,geometry),"Near-parallel reference rejected placement");
+        check(indexed_resolve(p,geometry),"Near-parallel reference rejected placement");
         near(front(p).x,1);near(front(p).y,0);near(front(p).z,0);
         check(document::orientation_constraint_remaining_dof(p.references,geometry,true)==(independent?0:1),
             "Frame and DOF disagree at angular limit");
         if(!independent)near(p.absolute_rotation_y,37);
-        for(int i=0;i<20;++i){const auto before=p;check(document::resolve_placement(p,geometry),"Repeated frame failed");near(p.rotation_x,before.rotation_x);near(p.rotation_y,before.rotation_y);near(p.rotation_z,before.rotation_z);}
+        for(int i=0;i<20;++i){const auto before=p;check(indexed_resolve(p,geometry),"Repeated frame failed");near(p.rotation_x,before.rotation_x);near(p.rotation_y,before.rotation_y);near(p.rotation_z,before.rotation_z);}
         p.references.push_back({{},"test","third",0,false,"top",true,true});
-        check(document::resolve_placement(p,geometry)&&document::orientation_constraint_remaining_dof(p.references,geometry,true)==0,
+        check(indexed_resolve(p,geometry)&&document::orientation_constraint_remaining_dof(p.references,geometry,true)==0,
             "Parallel second direction prevented a useful third direction");
     }
 }
@@ -402,9 +429,9 @@ void verify() {
     for(const auto initial:std::vector<kernel::Vec3>{{14,0,3},{-8,9,-2},{0,-6,0},{0,0,0}}) {
         document::Placement p;p.x=initial.x;p.y=initial.y;p.z=initial.z;
         p.references={{{},sketch.id,"circle:"+circle,0,false,"front",true}};
-        check(document::resolve_placement(p,geometry),"Circle placement failed");
+        check(indexed_resolve(p,geometry),"Circle placement failed");
         near(std::hypot(p.x,p.y),10);near(p.z,0);
-        const auto before=p;check(document::resolve_placement(p,geometry),"Repeated circle placement failed");
+        const auto before=p;check(indexed_resolve(p,geometry),"Repeated circle placement failed");
         near(p.x,before.x);near(p.y,before.y);
     }
     kernel::Vec3 p{10,0,0};
@@ -416,10 +443,10 @@ void verify() {
     auto support=geometry;support.points.push_back({{10,0,0},{"anchor","point",{}}});
     document::Placement attached;
     attached.references={{{},"anchor","point"},{{},sketch.id,"circle:"+circle,0,false,"direction",true,true}};
-    check(document::resolve_placement(attached,support),"Point plus circular tangent failed");
+    check(indexed_resolve(attached,support),"Point plus circular tangent failed");
     near(attached.x,10);near(attached.y,0);near(attached.rotation_x,0);near(attached.rotation_z,0);
     support.points.back().position={11,0,0};const auto saved=attached;
-    check(!document::resolve_placement(attached,support),"Off-curve anchor accepted for tangent placement");
+    check(!indexed_resolve(attached,support),"Off-curve anchor accepted for tangent placement");
     near(attached.x,saved.x);near(attached.rotation_z,saved.rotation_z);
 }
 void boundaries() {
@@ -440,22 +467,22 @@ void boundaries() {
     auto sketch=sketcher::Sketch::create_default();const auto id=sketch.add_segment(5,0,15,0);
     auto g=sketch.placement_reference_geometry();
     document::Placement p;p.x=10;p.references={{{},sketch.id,"segment:"+id}};
-    check(document::resolve_placement(p,g),"Finite segment attachment failed");near(p.x,10);
+    check(indexed_resolve(p,g),"Finite segment attachment failed");near(p.x,10);
     g.points.push_back({{20,0,0},{"anchor","point",{}}});
     p.references.push_back({{},"anchor","point"});
-    check(!document::resolve_placement(p,g),"Trimmed segment extended past its endpoint");near(p.x,10);
+    check(!indexed_resolve(p,g),"Trimmed segment extended past its endpoint");near(p.x,10);
     g.axes.push_back({{5,0,0},{1,0,0},10,{"axis","axis",{}}});p.references.front()={{},"axis","axis"};
-    check(document::resolve_placement(p,g),"Explicit infinite Axis lost its meaning");near(p.x,20);
+    check(indexed_resolve(p,g),"Explicit infinite Axis lost its meaning");near(p.x,20);
     auto circle=sketcher::Sketch::create_default();const auto cid=circle.add_circle(0,0,10);
     g=circle.placement_reference_geometry();p={};p.x=10;p.references={{{},circle.id,"circle:"+cid,0,false,"front",true}};
-    check(document::resolve_placement(p,g),"Circular initial position failed");
+    check(indexed_resolve(p,g),"Circular initial position failed");
     check(workspace::assign_placement_dimension(p,g,"y",6),"Free curve coordinate is not editable");
-    check(document::resolve_placement(p,g),"Circular coordinate edit failed");near(p.x,8);near(p.y,6);
+    check(indexed_resolve(p,g),"Circular coordinate edit failed");near(p.x,8);near(p.y,6);
     check(!workspace::assign_placement_dimension(p,g,"z",2),"Constrained coordinate became editable");
     const auto before=p;
     check(!workspace::assign_placement_dimension(p,g,"y",21) && p==before,"Out-of-range coordinate changed the curve attachment");
     check(workspace::assign_placement_dimension(p,g,"rotation_y",35),"Remaining rotation became uneditable");
-    check(document::resolve_placement(p,g),"Free rotation invalidated circular placement");
+    check(indexed_resolve(p,g),"Free rotation invalidated circular placement");
     near(p.y,6);near(std::hypot(p.x,p.y),10);
     // Reject ambiguous tangents at a polyline corner and a self crossing.
     for(const auto& curve:std::vector<kernel::BSplineGeometry>{
@@ -464,7 +491,7 @@ void boundaries() {
         g={};kernel::ViewerEdge edge;edge.reference={"curve","edge",{}};edge.points=curve.poles;edge.exact_spline=curve;g.edges.push_back(edge);
         g.points.push_back({{0,0,0},{"anchor","point",{}}});
         p={};p.x=42;p.references={{{},"anchor","point"},{{},"curve","edge",0,false,"direction",true,true}};
-        check(!document::resolve_placement(p,g),"Ambiguous curve tangent accepted");near(p.x,42);
+        check(!indexed_resolve(p,g),"Ambiguous curve tangent accepted");near(p.x,42);
     }
 }
 void native_transactions(const std::filesystem::path& file) {
@@ -526,7 +553,7 @@ void solid_edges(const std::filesystem::path& file) {
             const auto point=kernel::bspline_value(*edge.exact_spline,t);auto references=geometry;
             references.points.push_back({point,{"anchor","point",{}}});
             document::Placement p;p.references={{{},"anchor","point"},{{},edge.reference.owner_id,edge.reference.semantic_key,0,false,"direction",true,true}};
-            check(document::resolve_placement(p,references),"Located solid circular edge failed tangent placement");
+            check(indexed_resolve(p,references),"Located solid circular edge failed tangent placement");
             near(p.x,point.x);near(p.y,point.y);near(p.z,point.z);
         }
     }
@@ -728,7 +755,7 @@ int main(int argc,char** argv){try{
         auto draft=*found;
         auto geometry=part.construction_reference_geometry_for(draft.id,workspace::construction_reference_source_geometry(cache));
         auto resolved=draft.placement;
-        check(!document::resolve_placement(resolved,geometry),"Saved contradictory point unexpectedly resolved");
+        check(!indexed_resolve(resolved,geometry),"Saved contradictory point unexpectedly resolved");
         const auto measured=document::measure_placement_reference_offset(draft.placement.references[1],geometry,
             {draft.placement.x,draft.placement.y,draft.placement.z});
         check(measured.has_value(),"Saved plane distance cannot be measured");

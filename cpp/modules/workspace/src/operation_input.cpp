@@ -17,7 +17,7 @@ const kernel::BodyResult* calculated_operation_input(const document::DocumentSes
         }
         const auto found=calculated.back().body_boundaries.find(body->scope.id);
         if(found==calculated.back().body_boundaries.end())return nullptr;
-        boundaries=&found->second;
+        boundaries=&found->second.get();
     }else if(id.empty())count=doc.body_operation_count_at_history_cursor();
     else if(doc.history_order.empty()) {
         for(const auto& feature:doc.history) {
