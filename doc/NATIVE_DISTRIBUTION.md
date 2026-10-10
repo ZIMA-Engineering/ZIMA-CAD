@@ -2,6 +2,16 @@
 
 ## Scope and status
 
+Windows build **2026101002** is signed, published and independently verified.
+It adds localized parent Origin icons and Windows Codex executable recovery;
+the import/Extrusion improvements from 2026101001 are retained. Thirteen focused
+native/GUI/localization contracts, committed-source candidate/signed smoke and
+five isolated signed-package GUI scenarios pass. All three public asset digests,
+production trust and installable update discovery from 2026100906 pass. Native
+formats and the OCCT 8.0.0 pin are unchanged; Linux acceptance is separate.
+See [the release record](releases/2026101002.md) for finite coverage and remaining
+kernel/cache limitations.
+
 Windows build **2026100906** is signed and published. It repairs failed-feature
 Save/reopen, supports connected closed planar 2D Sweep paths and includes the
 KAPSA driving-dimension repair. Fourteen focused native/GUI/localization suites,
