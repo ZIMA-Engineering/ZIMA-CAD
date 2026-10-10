@@ -2209,7 +2209,7 @@
   "Pracuji: %1": "Traitement en cours : %1",
   "Regeneruji Part…": "Régénération de la pièce…",
   "Regeneruji sestavu…": "Régénération de l’assemblage…",
-  "Default": "Par défaut",
+  "Default Origin": "Origine par défaut",
   "Použít celý Počátek nadřazeného kontejneru nebo tělesa": "Utiliser l’origine complète du conteneur parent ou du corps",
   "Knihovna FORM": "Bibliothèque formage",
   "FORM requires self-contained native references.": "Formage exige des références natives autonomes.",

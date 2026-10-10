@@ -7,6 +7,7 @@
 #include <QRadioButton>
 #include <QUuid>
 #include <QSettings>
+#include <QScopeGuard>
 #include <QTemporaryDir>
 #include <QGroupBox>
 #include "primitive_properties_dialog.hpp"
@@ -708,6 +709,28 @@ static int verify_general_command_console(QApplication& application,AssemblyWork
             auto* tree=window.findChild<QTreeWidget*>("documentTree");
             auto* action=window.findChild<QAction*>("curve3DAction");
             check(tree&&action&&action->isEnabled(),"Origin benchmark has no active Part context");
+            const auto verify_origin_icons=[&](QDialog* dialog,const QIcon& expected) {
+                auto* shortcut=dialog->findChild<QPushButton*>("containerDefaultOriginButton");
+                auto* general=dialog->findChild<QPushButton*>("containerOriginSelectionButton");
+                check(shortcut&&general&&!shortcut->icon().isNull()&&!general->icon().isNull(),"Origin button artwork missing");
+                const auto saved=application.palette();
+                const auto restore=qScopeGuard([&]{application.setPalette(saved);flush();});
+                for(bool dark:{false,true,false}) {
+                    auto palette=saved;
+                    palette.setColor(QPalette::WindowText,dark?QColor("#EEEEEE"):QColor("#202020"));
+                    palette.setColor(QPalette::Text,palette.color(QPalette::WindowText));
+                    palette.setColor(QPalette::ButtonText,palette.color(QPalette::WindowText));
+                    palette.setColor(QPalette::Window,dark?QColor("#202020"):QColor("#FFFFFF"));
+                    palette.setColor(QPalette::Button,palette.color(QPalette::Window));
+                    application.setPalette(palette);flush();
+                    for(auto mode:{QIcon::Normal,QIcon::Active,QIcon::Selected,QIcon::Disabled}) {
+                        check(shortcut->icon().pixmap(18,18,mode).toImage()==expected.pixmap(18,18,mode).toImage(),
+                            "Default Origin does not show its actual parent icon in the current theme/state");
+                        check(general->icon().pixmap(18,18,mode).toImage()==resource_icon("origin-document").pixmap(18,18,mode).toImage(),
+                            "General Origin icon does not follow the theme palette");
+                    }
+                }
+            };
             int resets=0;
             const auto connection=QObject::connect(tree->model(),&QAbstractItemModel::modelReset,&window,[&]{++resets;});
             QTemporaryDir translation_directory;
@@ -729,7 +752,7 @@ static int verify_general_command_console(QApplication& application,AssemblyWork
                 auto* table=dialog->findChild<QTableWidget*>("constructionReferenceTable");
                 check(table,"Origin benchmark placement table missing");
                 auto* shortcut=dialog->findChild<QPushButton*>("containerDefaultOriginButton");
-                check(shortcut && shortcut->text()==settings.qt_translations.value("Default") &&
+                check(shortcut && shortcut->text()==settings.qt_translations.value("Default Origin") &&
                     shortcut->toolTip()==settings.qt_translations.value("Použít celý Počátek nadřazeného kontejneru nebo tělesa"),
                     "Default Origin shortcut is missing or untranslated");
                 auto* origin_button=dialog->findChild<QPushButton*>("containerOriginSelectionButton");
@@ -743,6 +766,7 @@ static int verify_general_command_console(QApplication& application,AssemblyWork
                 for(QTreeWidgetItemIterator it(tree);*it;++it)
                     if((*it)->data(0,Qt::UserRole).toString().toStdString()==origin_id){origin=*it;break;}
                 check(origin,"Origin benchmark active Body Origin missing");
+                verify_origin_icons(dialog,origin->icon(0));
                 resets=0;QElapsedTimer timer;timer.start();
                 if (iteration == 0) tree->setCurrentItem(origin);
                 else shortcut->click();
@@ -795,6 +819,19 @@ static int verify_general_command_console(QApplication& application,AssemblyWork
                 }
             }
             QObject::disconnect(connection);
+            QTreeWidgetItem* body_row{};
+            const auto active_body=run("body.list").data.at("active_body").get<std::string>();
+            for(QTreeWidgetItemIterator it(tree);*it;++it)
+                if((*it)->data(0,Qt::UserRole).toString().toStdString()==active_body&&
+                    (*it)->data(0,Qt::UserRole+3).toString()=="part-body"){body_row=*it;break;}
+            check(body_row,"Default document-Origin test Body missing");
+            window.show_tree_item_properties(body_row);flush();
+            QDialog* body_dialog{};
+            for(auto* candidate:window.findChildren<QDialog*>())
+                if(candidate->isVisible()&&candidate->findChild<QTableWidget*>("bodyReferenceTable")){body_dialog=candidate;break;}
+            check(body_dialog,"Default document-Origin properties missing");
+            verify_origin_icons(body_dialog,resource_icon("origin-document"));
+            body_dialog->reject();flush();
             // The actual View must paint the container Origin, including
             // before its first reference, rather than an XZ display carrier.
             auto* frame_view=dynamic_cast<viewer::MeshView*>(window.findChild<QWidget*>("modelWorkspace"));
@@ -825,6 +862,7 @@ static int verify_general_command_console(QApplication& application,AssemblyWork
                     return result;
                 };
                 const auto before=axes();
+                verify_origin_icons(dialog,resource_icon("origin-feature"));
                 dialog->findChild<QPushButton*>("containerDefaultOriginButton")->click();flush();
                 check(dialog->pending_value().first.plane==sketcher::SketchPlane::XY&&axes()==before,
                     "Default changed the actual XY Sketch preview frame");
@@ -859,6 +897,7 @@ static int verify_general_command_console(QApplication& application,AssemblyWork
                 apply_application_translations(application,ApplicationSettings::load(translation_directory.path()));
                 window.findChild<QAction*>("flatAction")->trigger();flush();auto* dialog=flat_editor();check(dialog,"Flat creation did not open");
                 auto* shortcut=dialog->findChild<QPushButton*>("containerDefaultOriginButton");check(shortcut,"Flat Default shortcut missing");
+                verify_origin_icons(dialog,resource_icon("origin"));
                 shortcut->click();flush();const auto first=dialog->pending_value();
                 check(first.first.plane==sketcher::SketchPlane::XY,"Flat Default did not choose XY");
                 check(dialog->first_empty_position_index()==3&&first.second.references.size()>=3,"Flat Default did not fill the complete Origin");

@@ -242,11 +242,114 @@ static void verify_feature_surface_placement(QApplication& application, Assembly
             type==QEvent::MouseButtonPress?Qt::LeftButton:Qt::NoButton,Qt::NoModifier);
         QApplication::sendEvent(pick_view,&event);flush();
     }
-    const auto branch_value=dialog()->pending_value();const auto branch_id=branch_value.id;
-    check(branch_value.placement.references.front().solution_branch!=0,"View choice did not persist the branch");
+    check(dialog()->pending_value().placement.references.front().solution_branch!=0,"View choice did not persist the branch");
     check(!dynamic_cast<ui::ReferenceCellItem*>(branches->item(0,1))->is_active_input(),"Branch click did not end entry");
     auto* eye=branches->cellWidget(0,2)->findChild<QToolButton*>();eye->click();flush();
     check(dynamic_cast<ui::ReferenceCellItem*>(branches->item(0,1))->is_inspected(),"Branch eye did not inspect independently");
+    ui::ContainerPlacementSection* placement_section{};
+    for(auto* object:dialog()->findChildren<QObject*>())
+        if(auto* section=dynamic_cast<ui::ContainerPlacementSection*>(object)){placement_section=section;break;}
+    check(placement_section,"Cylinder placement section missing");
+    auto placement_geometry=calculated.back().mesh.original_references;
+    workspace::append_reference_geometry(placement_geometry,part.history_origin_reference_geometry_before({}));
+    const auto edit_offset=[&](int row,double value) {
+        // Reacquire the widget after each preview; callbacks may rebuild controls.
+        auto* field=qobject_cast<QDoubleSpinBox*>(branch_references->cellWidget(row,3));
+        check(field&&field->isEnabled()&&!field->isReadOnly(),"Cylinder offset is not editable");
+        if(row==2) {
+            auto* editor=field->findChild<QLineEdit*>();check(editor,"Cylinder offset text editor missing");
+            field->setFocus();editor->selectAll();
+            const auto text=QString::number(value);
+            QKeyEvent typed(QEvent::KeyPress,0,Qt::NoModifier,text);
+            QApplication::sendEvent(editor,&typed);field->interpretText();
+        } else field->setValue(value);
+        flush();
+        check(std::abs(dialog()->pending_value().placement.references[row].offset-value)<1e-7,
+            "Edited cylinder offset was not retained");
+    };
+    const auto verify_contact=[&](double x,double z,int side) {
+        const auto pending=dialog()->pending_value().placement;
+        auto resolved=pending;
+        if(!document::resolve_placement(resolved,placement_geometry))
+            throw std::runtime_error("Edited cylinder contact cannot resolve x="+std::to_string(x)+" z="+std::to_string(z)+
+                " side="+std::to_string(side)+" placement="+nlohmann::json(pending).dump());
+        if(std::abs(resolved.x-x)>=1e-7||std::abs(resolved.z-z)>=1e-7||
+            std::abs(resolved.y-side*std::sqrt(std::max(0.,25-x*x)))>=1e-7)
+            throw std::runtime_error("Edited cylinder contact violates equations x="+std::to_string(x)+" z="+std::to_string(z)+
+                " side="+std::to_string(side)+" resolved="+std::to_string(resolved.x)+","+
+                std::to_string(resolved.y)+","+std::to_string(resolved.z));
+        // At tangency the local Jacobian leaves Y free; numeric fields retain
+        // a seed. Verify the actually published preview point instead.
+        const auto& points=pick_view->mesh().points;
+        const auto point=std::ranges::find_if(points,[&](const auto& p) {
+            return p.reference.owner_id==dialog()->pending_value().container_origin.id&&p.reference.semantic_key=="point";
+        });
+        check(point!=points.end(),"Cylinder contact preview point missing");
+        check(std::hypot(point->position.x-resolved.x,point->position.y-resolved.y,point->position.z-resolved.z)<1e-6,
+            "Published cylinder preview violates the resolved contact");
+        check(dialog()->buttons()->button(QDialogButtonBox::Ok)->isEnabled(),"Valid edited cylinder contact disabled OK");
+    };
+    for(int feature_type:{0,2,4}) {
+    dialog()->findChild<QComboBox*>("featureType")->setCurrentIndex(feature_type);flush();
+    for(int choice:{0,1}) {
+        const auto solutions=placement_section->solution_branches();
+        check(solutions.size()==2,"Cylinder must offer both solutions");
+        const int side=solutions[choice].y<0?-1:1;
+        branches->cellClicked(0,1);flush();
+        std::optional<QPointF> position;
+        for(int y=0;y<pick_view->height()&&!position;y+=3)
+            for(int x=0;x<pick_view->width()&&!position;x+=3) {
+                const auto candidates=pick_view->selection_candidates_at({double(x),double(y)});
+                if(!candidates.empty()&&candidates.front().owner_id=="placement-solution-branch"&&
+                    candidates.front().semantic_key==std::to_string(choice))position=QPointF(x,y);
+            }
+        check(position.has_value(),"One cylinder solution is absent from the common picker");
+        for(const auto type:{QEvent::MouseMove,QEvent::MouseButtonPress,QEvent::MouseButtonRelease}) {
+            QMouseEvent event(type,*position,QPointF(pick_view->mapToGlobal(position->toPoint())),
+                type==QEvent::MouseMove?Qt::NoButton:Qt::LeftButton,
+                type==QEvent::MouseButtonPress?Qt::LeftButton:Qt::NoButton,Qt::NoModifier);
+            QApplication::sendEvent(pick_view,&event);flush();
+        }
+        verify_contact(3,7,side);
+        const auto selected=dialog()->pending_value().placement.references.front();
+        // Edit while inspection and then branch entry are active, as well as idle.
+        eye->click();flush();
+        for(double x:{4.,0.,-3.,5.,3.}) {edit_offset(1,x);verify_contact(x,7,side);}
+        branches->cellClicked(0,1);flush();
+        for(double z:{12.,0.,-4.,25.,7.}) {edit_offset(2,z);verify_contact(3,z,side);}
+        check(dialog()->pending_value().placement.references.front().solution_branch==selected.solution_branch&&
+            dialog()->pending_value().placement.references.front().branch_sources==selected.branch_sources,
+            "Offset edits changed the selected cylinder branch identity");
+        const auto valid=dialog()->pending_value().placement;
+        edit_offset(1,6);
+        check(!dialog()->buttons()->button(QDialogButtonBox::Ok)->isEnabled(),"Impossible cylinder offset allowed OK");
+        const auto invalid=dialog()->pending_value().placement;
+        check(std::abs(invalid.x-valid.x)<1e-7&&std::abs(invalid.y-valid.y)<1e-7&&std::abs(invalid.z-valid.z)<1e-7,
+            "Impossible cylinder offset moved the last valid preview");
+        edit_offset(2,11);edit_offset(1,3);verify_contact(3,11,side);
+        edit_offset(2,7);verify_contact(3,7,side);
+    }
+    }
+    dialog()->findChild<QComboBox*>("featureType")->setCurrentIndex(0);flush();
+    // Replace the third datum plane with the actual cylinder end face.
+    const auto cap=std::ranges::find_if(calculated.back().mesh.original_references.triangle_references,[](const auto& f) {
+        return f.surface&&f.surface->kind==kernel::SurfaceGeometry::Kind::Plane&&
+            std::abs(f.surface->origin.z-20)<1e-7;
+    });
+    check(cap!=calculated.back().mesh.original_references.triangle_references.end(),"Cylinder end face missing");
+    document::ConstructionReference cap_ref{{},cap->owner_id,cap->semantic_key,0,true};
+    const double cap_sign=cap->surface->axis.z*(cap->surface->reversed?-1:1);
+    cap_ref.measured_offset=(7-20)*cap_sign;
+    check(dialog()->set_reference(2,cap_ref,"End face"),"Cylinder end-face reference rejected");flush();
+    branch_references=dialog()->findChild<QTableWidget*>("primitiveReferenceTable");
+    const int cap_side=dialog()->pending_value().placement.y<0?-1:1;
+    for(double z:{9.,15.,0.,7.}) {edit_offset(2,(z-20)*cap_sign);verify_contact(3,z,cap_side);}
+    zref.offset=7;
+    check(dialog()->set_reference(2,zref,"Z"),"Cylinder datum-plane restoration rejected");flush();
+    branch_references=dialog()->findChild<QTableWidget*>("primitiveReferenceTable");
+    verify_contact(3,7,cap_side);
+    const auto branch_value=dialog()->pending_value();const auto branch_id=branch_value.id;
+    std::cout<<"Cylinder placement: both View branches, repeated second/third offsets, tangency and invalid recovery passed\n";
     const auto check_branch_layout=[&] {
         check(branch_references->rowViewportPosition(2)+branch_references->rowHeight(2)<=branch_references->viewport()->height() &&
             branches->geometry().top()>branch_references->geometry().bottom(),
@@ -276,6 +379,16 @@ static void verify_feature_surface_placement(QApplication& application, Assembly
         if((*row)->data(0,Qt::UserRole).toString().toStdString()==branch_id){branch_row=*row;break;}
     check(branch_row,"Branch tree row missing");window.show_tree_item_properties(branch_row);flush();
     check(dialog()&&same_branch(dialog()->pending_value().placement.references),"Reopened branch changed");
+    placement_section=nullptr;
+    for(auto* object:dialog()->findChildren<QObject*>())
+        if(auto* section=dynamic_cast<ui::ContainerPlacementSection*>(object)){placement_section=section;break;}
+    check(placement_section,"Reopened cylinder placement section missing");
+    branch_references=dialog()->findChild<QTableWidget*>("primitiveReferenceTable");
+    const int reopened_side=dialog()->pending_value().placement.y<0?-1:1;
+    edit_offset(1,4);verify_contact(4,7,reopened_side);
+    edit_offset(2,12);verify_contact(4,12,reopened_side);
+    edit_offset(1,6);check(!dialog()->buttons()->button(QDialogButtonBox::Ok)->isEnabled(),"Invalid reopened offset allowed OK");
+    edit_offset(1,3);verify_contact(3,12,reopened_side);
     branches=dialog()->findChild<QTableWidget*>("placementSolutionBranchTable");branches->cellClicked(0,1);flush();
     dialog()->reject();flush();run("save");
     check(document::PartDocument::load(path).find_container(branch_id)->placement.references==committed_branch,"Cancel changed saved branch");

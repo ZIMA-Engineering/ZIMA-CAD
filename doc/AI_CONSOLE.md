@@ -12,6 +12,11 @@ CAD work uses ZIMA-CAD's existing shared GUI/CLI command host.
    installed with the Codex desktop application. The installation help button
    opens the official CLI instructions. Shell wrappers such as `.cmd` and `.bat`
    are not accepted.
+   When a Windows desktop update removes the previously selected version's
+   `codex.exe`, Settings and Connect rediscover the installed native executable.
+   An existing selected executable is retained; a missing custom path outside
+   the managed desktop installation still requires correction. Opening Settings
+   does not connect or save the recovered preference; OK saves it normally.
 3. Click **Connect**, then **Sign in with ChatGPT** if requested. Complete sign-in
    in the browser. Each user uses their own account and its usage limits.
 4. Select an available model, or keep **Codex default**. Click **OK** to save the
@@ -102,8 +107,8 @@ The existing Updates GUI contract also checks the real internal AI Settings tab,
 no automatic connection, Cancel and OK persistence. Native Codex
 `0.154.0-alpha.6.2` accepted initialization, a signed-out account query and the exact
 experimental `thread/start` payload in an isolated profile. This verifies the
-installed protocol, not a live authenticated model response. Live ChatGPT
-inference remains an account-connected user acceptance step.
+installed protocol, not a live authenticated model response. The later live
+verification below extends that initial acceptance.
 
 Acceptance logs: `build/ai-contract.log`, `build/ai-final-contracts.log`,
 `build/ai-windows-ui.log` and `build/ai-regression.log`. The Windows console review,
@@ -111,4 +116,50 @@ real AI Settings and document-switch hover/pressed captures were visually checke
 The related UI contract also verifies both wheel directions in every combination
 of orthographic/perspective projection and ordinary/fly navigation.
 The final console state/target-label follow-up passed `zima_ai_contract` again
-(`build/ai-console-final.log`). GUI, CLI and updater binaries use build `2026091505`.
+(`build/ai-console-final.log`). Those initial GUI, CLI and updater checks used
+build `2026091505`.
+
+### Executable recovery and live verification — 2026-10-10
+
+The user's saved Windows executable pointed into a retired Codex desktop version
+directory and no longer existed. The installed runtime was Codex
+`0.162.0-alpha.2`. The provider had rejected the saved path before initializing
+the server. Configuration recovery is now limited to a missing native
+`codex.exe` directly below a version directory in `%LOCALAPPDATA%/OpenAI/Codex/bin`.
+The existing discovery path is reused; valid custom executables and missing
+unmanaged custom paths retain their established behavior.
+
+The current native provider connects successfully using the CAD's existing
+dedicated ChatGPT profile. A live read-only request over a temporary Part named
+`AI-Integration-Diagnostic` calls `cad_context` and `cad_help`, then completes
+with a Czech model response naming that Part and confirming catalog access.
+Both the explicit current executable and the formerly broken saved path pass
+the live roundtrip. Each run records one successful context call, one successful
+catalog call, zero proposed mutations, an unchanged complete Part serialization,
+and no provider failure or timeout. Credentials are not copied from the desktop
+profile, and the diagnostic does not sign in, sign out or edit user documents.
+
+`zima_ai_contract` passes after extending its coverage with desktop discovery
+without PATH, retired-version recovery, existing/custom-path preservation,
+unmanaged path rejection, preserved model selection, no automatic connection,
+Connect's actual selected path and no preference write on Settings close.
+The original protocol, review, denial, single execution, Undo and context-binding
+checks also pass. The actual internal Settings GUI contract passes Cancel/OK
+and silent opening; source localization coverage, placeholder/catalog validation
+and all five language checks pass. No product-visible strings were changed.
+
+Developer diagnostics can use `zima_ai_contract_tests --probe-codex <executable>`
+to report connection/account state without inference. Adding `--live` performs
+the temporary read-only CAD roundtrip; it requires an already signed-in CAD
+profile and uses that account's inference allowance. An optional profile path
+may follow the executable. The live diagnostic is opt-in, not part of CTest;
+ordinary regression tests still require no account or network.
+
+Evidence: `build/ai-investigation-contract.log`, `build/ai-investigation-account.log`,
+`build/ai-investigation-live.log`, `build/ai-recovery-contract.log`,
+`build/ai-recovery-live.log`, `build/ai-recovery-ui.log` and
+`build/ai-recovery-locales.log`. The local native application is rebuilt.
+Live model mutation/review and Linux execution remain unverified by this
+investigation; mutation/review behavior is covered by the local protocol fixture
+and real CAD command host. The fix is included in the new Windows build
+`2026101002`; previously released archives remain immutable.

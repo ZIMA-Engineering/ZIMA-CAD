@@ -9,13 +9,13 @@
 #include <cstdio>
 class FakeCadAi final : public AiProvider {
 public:
-    bool running=false; int asks=0, connections=0; QJsonObject context,result; QString prompt;
+    bool running=false; int asks=0, connections=0; QJsonObject context,result; QString prompt, executable;
     bool ready() const override{return true;}
     bool connected() const override{return true;}
     bool busy() const override{return running;}
     QString status() const override{return "Fixture";}
     QJsonArray models() const override{return {QJsonObject{{"model","fixture"},{"displayName","Fixture"}}};}
-    void connectAccount(const QString&) override{++connections;}
+    void connectAccount(const QString& value) override{executable=value;++connections;}
     void login() override{}
     void logout() override{}
     void ask(const QString& text,const QJsonObject& value,const QString&) override{prompt=text;context=value;running=true;++asks;emit changed();}

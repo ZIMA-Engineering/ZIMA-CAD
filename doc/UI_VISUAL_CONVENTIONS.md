@@ -489,6 +489,27 @@ and confirms technical ISO fonts remain unchanged. Missing working-directory
 theme overrides inherit the global setting; the factory default is Light.
 No user-visible text was added by this correction.
 
+## Origin actions
+
+The general Origin selection button uses the palette-neutral document Origin
+icon. The Default Origin shortcut copies the icon of the actual parent Origin
+resolved by the existing selection path: red for a Body, green for an owned
+container, and palette-neutral for a document. Both buttons use 18-pixel icons.
+New container Tree rows may appear later during dialog setup; the shortcut
+refreshes its icon once after that setup. Reference selection, solving and
+persistence retain their existing implementation.
+
+The shortcut label is localized in every supported language: `Výchozí počátek`
+(cs), `Default Origin` (en), `Standardursprung` (de), `Origine par défaut` (fr),
+and `Начало по умолчанию` (ru). Its existing tooltip explains the whole-parent
+Origin action. The general selection action retains its existing localized label.
+
+The native whole-Origin GUI fixture verifies the actual Body, document and
+owned-container targets, icon rendering after Light/Dark/Light changes, and
+normal, active, selected and disabled icon states. Existing whole-Origin entry,
+Cancel, persistence, Undo/Redo and nested-origin checks remain applicable.
+All project artwork must follow the mandatory Light/Dark rule in `AGENTS.md`.
+
 ## Tree visibility
 
 Use a gray name for hidden geometry and inherited hidden descendants. Do not add

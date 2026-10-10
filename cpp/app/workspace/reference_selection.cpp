@@ -305,7 +305,7 @@ void AssemblyWorkspaceWindow::bind_local_origin_selection(QDialog* dialog) {
     dialog->setProperty("originSelectionBound", true);
     auto* button = properties->ensure_origin_selection_button();
     if (dynamic_cast<PlacementReferenceDialog*>(dialog)) {
-        auto* default_button = new QPushButton(tr("Default"), dialog);
+        auto* default_button = new QPushButton(tr("Default Origin"), dialog);
         default_button->setObjectName("containerDefaultOriginButton");
         default_button->setAutoDefault(false);
         default_button->setToolTip(tr("Použít celý Počátek nadřazeného kontejneru nebo tělesa"));
@@ -319,9 +319,8 @@ void AssemblyWorkspaceWindow::bind_local_origin_selection(QDialog* dialog) {
             return false;
         };
         insert(insert, properties->content_layout());
-        connect(default_button, &QPushButton::clicked, this, [this, dialog] {
-            auto* placement = dynamic_cast<PlacementReferenceDialog*>(dialog);
-            if (!placement) return;
+        // Presentation and activation consume the same existing parent lookup.
+        const auto default_origin = [this, dialog]() -> QTreeWidgetItem* {
             std::string edited_id = primitive_parameter_owner_id_;
             std::string parent_id;
             if (auto* construction = dynamic_cast<ConstructionPropertiesDialog*>(dialog)) {
@@ -359,7 +358,7 @@ void AssemblyWorkspaceWindow::bind_local_origin_selection(QDialog* dialog) {
                     for (auto* parent = row->parent(); parent && !origin; parent = parent->parent())
                         origin = origin_child(parent);
             }
-            if (!origin && !parent_id.empty()) return;
+            if (!origin && !parent_id.empty()) return nullptr;
             if (!origin) {
                 std::string origin_id;
                 if (const auto* part = workspace_.open_part(workspace_.active_document_id())) {
@@ -375,6 +374,20 @@ void AssemblyWorkspaceWindow::bind_local_origin_selection(QDialog* dialog) {
                     if ((*it)->data(0, Qt::UserRole).toString().toStdString() == origin_id &&
                         (*it)->data(0, Qt::UserRole + 1).toString().toStdString() == path) { origin = *it; break; }
             }
+            return origin;
+        };
+        default_button->setIcon(resource_icon("origin-document"));
+        default_button->setIconSize(QSize(18,18));
+        const auto update_default_icon=[default_button,default_origin] {
+            if(const auto* origin=default_origin())default_button->setIcon(origin->icon(0));
+        };
+        update_default_icon();
+        // New/owned containers publish their pending Tree rows later in setup.
+        QTimer::singleShot(0,dialog,update_default_icon);
+        connect(default_button, &QPushButton::clicked, this, [this, dialog, default_origin] {
+            auto* placement = dynamic_cast<PlacementReferenceDialog*>(dialog);
+            if (!placement) return;
+            auto* origin=default_origin();
             if (!origin || !placement_origin_allowed(origin->data(0, Qt::UserRole).toString().toStdString())) return;
             set_local_origin_selection_mode(false);
             if(auto* sketch=dynamic_cast<SketchPropertiesDialog*>(dialog))sketch->prepare_flat_default_origin();

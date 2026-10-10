@@ -13,6 +13,7 @@
 #include <QComboBox>
 #include <QKeyEvent>
 #include <QSettings>
+#include <QScopeGuard>
 #include <iostream>
 #include <stdexcept>
 using namespace zima;
@@ -20,6 +21,39 @@ namespace {
 void check(bool condition,const char* message){if(!condition)throw std::runtime_error(message);}
 void waitFor(const std::function<bool()>& predicate){QElapsedTimer timer;timer.start();while(!predicate() && timer.elapsed()<10000){QCoreApplication::processEvents();QThread::msleep(5);}check(predicate(),"AI protocol fixture timed out");}
 QJsonObject request(const char* command,QJsonObject args={}){return {{"command",command},{"arguments",args},{"reason","Test requested operation"}};}
+void verifyExecutableRecovery(const QString& directory) {
+    const auto current=QCoreApplication::applicationFilePath();
+    check(findCodexExecutable(current)==current,"Existing selected executable was replaced");
+    const auto custom=directory+"/custom-codex-missing.exe";
+    check(findCodexExecutable(custom)==custom,"Missing custom selection was silently replaced");
+#ifdef Q_OS_WIN
+    const auto local=directory+"/local";
+    const auto bins=local+"/OpenAI/Codex/bin/";
+    check(QDir().mkpath(bins+"current"),"Executable fixture directory failed");
+    const auto installed=bins+"current/codex.exe";
+    QFile executable(installed);check(executable.open(QIODevice::WriteOnly),"Executable fixture failed");executable.close();
+    const auto old_path=qgetenv("PATH"),old_local=qgetenv("LOCALAPPDATA");
+    const auto restore=qScopeGuard([&]{qputenv("PATH",old_path);qputenv("LOCALAPPDATA",old_local);});
+    qputenv("PATH",{});qputenv("LOCALAPPDATA",local.toUtf8());
+    check(findCodexExecutable()==installed,"Desktop executable discovery failed without PATH");
+    const auto stale=bins+"retired/codex.exe";
+    check(findCodexExecutable(stale)==installed,"Retired desktop executable did not recover");
+    check(findCodexExecutable(installed)==installed,"Existing managed selection was replaced");
+    check(findCodexExecutable(bins+"retired/other.exe")==bins+"retired/other.exe","Non-Codex filename was replaced");
+    check(findCodexExecutable(bins+"retired/nested/codex.exe")==bins+"retired/nested/codex.exe","Unmanaged nested location was replaced");
+    const auto config=directory+"/recovery-config.ini";
+    check(CadAi::savePreferences({stale,"saved-model"},config,nullptr),"Recovery preferences failed");
+    FakeCadAi provider;
+    {
+        app::AiSettingsPage page(config,nullptr,&provider);
+        check(page.values().executable==installed&&page.values().model=="saved-model","Settings did not offer recovered executable or preserve model");
+        check(provider.connections==0,"Executable discovery started Codex automatically");
+        page.findChild<QPushButton*>("aiConnect")->click();
+        check(provider.connections==1&&provider.executable==installed,"Connect did not use recovered executable");
+    }
+    check(CadAi::preferences(config).executable==stale,"Opening/closing Settings saved recovered preference before OK");
+#endif
+}
 void verifyProvider(const QString& directory) {
     CodexProvider provider(nullptr,directory+"/profile");int answers=0,failures=0,tools=0,logins=0;QString thread;
     QObject::connect(&provider,&AiProvider::answer,[&](const QString& text){++answers;thread=text;});
@@ -123,10 +157,62 @@ void verifyHostAndConsole(const QString& directory) {
 }
 int main(int argc,char** argv) {
     if(argc>1&&QString::fromLocal8Bit(argv[1])=="app-server"){QCoreApplication app(argc,argv);return runCadAiFixture();}
+    if(argc>=3&&QString::fromLocal8Bit(argv[1])=="--probe-codex") {
+        QApplication app(argc,argv);app.setApplicationName("ZIMA-CAD");
+        const bool live=QStringList(app.arguments()).contains("--live");
+        const auto profile=argc>=4&&QString::fromLocal8Bit(argv[3])!="--live"?QString::fromLocal8Bit(argv[3]):QString{};
+        CodexProvider provider(nullptr,profile);
+        QString failure;
+        QObject::connect(&provider,&AiProvider::failed,[&](const QString& text){failure=text;});
+        provider.connectAccount(QString::fromLocal8Bit(argv[2]));
+        QElapsedTimer timer;timer.start();
+        while(provider.busy()&&timer.elapsed()<35000){QCoreApplication::processEvents();QThread::msleep(5);}
+        if(provider.ready()) {
+            timer.restart();
+            while(provider.models().isEmpty()&&failure.isEmpty()&&timer.elapsed()<5000){QCoreApplication::processEvents();QThread::msleep(5);}
+        }
+        std::cout<<QJsonDocument(QJsonObject{{"connected",provider.connected()},{"signedIn",provider.ready()},
+            {"modelCount",provider.models().size()},{"status",provider.status()},{"failure",failure},
+            {"timedOut",provider.busy()}}).toJson(QJsonDocument::Compact).constData()<<'\n';
+        if(!failure.isEmpty()||provider.busy())return 1;
+        if(!live)return 0;
+        if(!provider.ready()){std::cerr<<"CAD account is signed out; live inference was not attempted.\n";return 2;}
+        QTemporaryDir temporary;
+        workspace::Workspace workspace;kernel::OcctKernel kernel;std::filesystem::path working=temporary.path().toStdString();
+        command_host::Options options;
+        options.settings=[]{return command_host::Settings{{std::filesystem::absolute("config/templates"),"START_PART.prtz","START_ASSEMBLY.asmz","Body 1"},{}};};
+        command_host::Host host(workspace,kernel,working,options);
+        const auto execute=[&](const QString& text){return host.execute_text(text.toStdString());};
+        const auto created=execute("new part AI-Integration-Diagnostic");
+        if(!created.ok){std::cerr<<created.code<<'\n';return 1;}
+        const auto snapshot=[&] {
+            const auto cad=QJsonDocument::fromJson(QByteArray::fromStdString(execute("context").data.dump())).object();
+            return QJsonObject{{"cad",cad},{"documents",QJsonDocument::fromJson(QByteArray::fromStdString(execute("documents").data.dump())).array()},
+                {"currentDirectory",cad["working_directory"]},{"language","cs"}};
+        };
+        CadAi::CommandSession session(execute,snapshot);
+        int contexts=0,catalogs=0,denied=0;bool answered=false;
+        QObject::connect(&provider,&AiProvider::toolRequested,[&](const QString& id,const QString& name,const QJsonObject& args) {
+            auto reply=session.call(name,args);
+            if(reply.approval){++denied;reply=session.decide(false);}
+            if(name=="cad_context"&&reply.success)++contexts;
+            if(name=="cad_help"&&reply.success)++catalogs;
+            provider.toolResult(id,reply.data,reply.success);
+        });
+        QObject::connect(&provider,&AiProvider::answer,[&](const QString& answer){answered=true;std::cout<<"AI diagnostic answer: "<<answer.toStdString()<<'\n';});
+        const auto before=workspace.open_part(workspace.active_document_id())->session.document().serialized();
+        provider.ask("Read-only integration diagnostic: call cad_context once and cad_help with search documents and offset 0. Then reply briefly in Czech naming the active diagnostic Part and whether the command catalog worked. Do not propose any model or file changes.",session.begin(),{});
+        timer.restart();
+        while(provider.busy()&&failure.isEmpty()&&timer.elapsed()<180000){QCoreApplication::processEvents();QThread::msleep(5);}
+        const bool unchanged=before==workspace.open_part(workspace.active_document_id())->session.document().serialized();
+        std::cout<<QJsonDocument(QJsonObject{{"answered",answered},{"contextCalls",contexts},{"catalogCalls",catalogs},
+            {"deniedChanges",denied},{"documentUnchanged",unchanged},{"failure",failure},{"timedOut",provider.busy()}}).toJson(QJsonDocument::Compact).constData()<<'\n';
+        return answered&&contexts>0&&catalogs>0&&unchanged&&failure.isEmpty()&&!provider.busy()?0:1;
+    }
     QApplication app(argc,argv);QTemporaryDir temporary;
     try{
         check(temporary.isValid(),"Temporary directory failed");
-        verifyProvider(temporary.path());verifyHostAndConsole(temporary.path());
+        verifyExecutableRecovery(temporary.path());verifyProvider(temporary.path());verifyHostAndConsole(temporary.path());
         if(qEnvironmentVariableIsSet("ZIMA_AI_SCREENSHOT"))QFile::copy(temporary.filePath("ai-console-review.png"),qEnvironmentVariable("ZIMA_AI_SCREENSHOT"));
         std::cout<<"AI protocol, context binding, command approval, real CAD history, console and settings contracts passed.\n";return 0;
     }catch(const std::exception& error){std::cerr<<error.what()<<'\n';return 1;}

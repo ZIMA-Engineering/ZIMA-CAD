@@ -23,14 +23,29 @@ AiProvider *cadAiProvider()
     return provider;
 }
 
-QString findCodexExecutable()
+QString findCodexExecutable(const QString& preferred)
 {
+#ifdef Q_OS_WIN
+    const QDir bins(QDir(qEnvironmentVariable("LOCALAPPDATA")).filePath("OpenAI/Codex/bin"));
+#endif
+    if (!preferred.isEmpty()) {
+        const QFileInfo file(preferred);
+        if (file.exists()) return preferred;
+#ifdef Q_OS_WIN
+        // Desktop updates retire version directories. Recover only a missing
+        // executable from that managed location; retain custom selections.
+        if (!file.isAbsolute() || file.fileName().compare("codex.exe", Qt::CaseInsensitive) != 0
+            || QDir::cleanPath(file.absolutePath() + "/..").compare(bins.absolutePath(), Qt::CaseInsensitive) != 0)
+            return preferred;
+#else
+        return preferred;
+#endif
+    }
     auto executable = QStandardPaths::findExecutable("codex");
     // QProcess uses a native executable, never an npm .cmd shell wrapper.
     if (!executable.isEmpty() && !executable.endsWith(".cmd", Qt::CaseInsensitive)
         && !executable.endsWith(".bat", Qt::CaseInsensitive)) return executable;
 #ifdef Q_OS_WIN
-    QDir bins(QDir(qEnvironmentVariable("LOCALAPPDATA")).filePath("OpenAI/Codex/bin"));
     const auto directories = bins.entryInfoList(QDir::Dirs | QDir::NoDotAndDotDot, QDir::Time);
     for (const auto &directory : directories) {
         const auto path = QDir(directory.absoluteFilePath()).filePath("codex.exe");
@@ -84,7 +99,7 @@ void CodexProvider::connectAccount(const QString &executable)
 {
     if (m_busy) return;
     stop();
-    m_executable = executable.isEmpty() ? findCodexExecutable() : executable;
+    m_executable = findCodexExecutable(executable);
     const QFileInfo file(m_executable);
     if (!file.isAbsolute() || !file.isFile() || !file.isExecutable()
         || file.suffix().compare("cmd", Qt::CaseInsensitive) == 0 || file.suffix().compare("bat", Qt::CaseInsensitive) == 0) {

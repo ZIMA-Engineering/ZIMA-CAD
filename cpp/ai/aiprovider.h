@@ -34,5 +34,5 @@ signals:
     void cancelled();
 };
 AiProvider *cadAiProvider();
-QString findCodexExecutable();
+QString findCodexExecutable(const QString& preferred = {});
 #endif

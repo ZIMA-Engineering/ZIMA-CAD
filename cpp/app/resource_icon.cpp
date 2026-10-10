@@ -86,6 +86,11 @@ void install_dialog_button_icons() {
                 return false;
             auto* button = qobject_cast<QAbstractButton*>(object);
             if (!button) return false;
+            if(button->objectName()=="containerOriginSelectionButton") {
+                button->setIcon(resource_icon("origin-document"));
+                button->setIconSize(QSize(18,18));
+                return false;
+            }
             bool ok = false, cancel = false;
             if (auto* box = qobject_cast<QDialogButtonBox*>(button->parentWidget())) {
                 ok = box->standardButton(button) == QDialogButtonBox::Ok;

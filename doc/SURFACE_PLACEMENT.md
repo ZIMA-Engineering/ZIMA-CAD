@@ -171,3 +171,42 @@ table resizing. The previous properties-window implementation reproduces the
 same failures; see [the release verification](releases/2026092701.md).
 A prior family-table UI run stopped at its family-row/source-order assertion;
 that separate issue has not been diagnosed by this change.
+
+### Cylinder offset editing investigation — 2026-10-10
+
+A reported crash while changing the second and third placement references was
+investigated with the actual Windows/Fusion Feature Properties dialog and common
+View picker. The synthetic source is a calculated radius-5 cylinder, length 20.
+Its supporting cylinder and X=3/Z=7 datum references give two positions,
+Y=-4 and Y=+4. The expanded `zima_cpp_surface_placement_ui_contract` passed
+in 21.77 seconds without reproducing the crash.
+Eight related contracts also passed: curve/surface solving, mesh placement,
+reference assignment/removal, placement commands, both numeric-lock UI variants,
+and translation/catalog validation for all five languages. Local evidence is in
+`build/cylinder-placement-expanded.log` and `build/cylinder-placement-related.log`.
+
+| Case | Verified behavior |
+| --- | --- |
+| Point, Plane, and empty Extrusion/Profile container drafts | Both alternatives offered and confirmed through actual pointer events in the common picker |
+| Second reference X distance | Repeated edits through 4, 0, -3, tangency at 5, and return to 3 preserve the selected branch |
+| Third reference Z distance | Keyboard entry through 12, 0, -4, 25, and return to 7; analytical supporting-surface placement remains unbounded along the cylinder axis |
+| Active branch inspection and branch entry | Editing retires temporary selection/inspection; subsequent reference edits continue to work |
+| Impossible X=6 and correction | OK is disabled, the last valid position is retained, and editing Z before restoring X recovers the selected branch |
+| Third reference replaced by the actual end face | Repeated signed normal offsets reach Z=9, 15, 0, and 7; replacing it with a datum plane also succeeds |
+| Creation and native persistence | Edited draft commits, native save/load preserves the selected branch, and creation Undo/Redo succeeds |
+| Existing Point Properties | Reopening retains branch identity; successive X/Z edits, invalid input and correction work; Cancel preserves the stored references |
+
+Contact coordinates are checked independently against X, Z and
+`X*X + Y*Y = 25`, including the chosen Y sign. The actual published preview point
+is compared with the resolved position after every valid edit. At tangency,
+the local constraint Jacobian leaves the numeric Y seed free; that seed is not
+used as evidence of the displayed position. Source reference identities and the
+selected branch's plane-source identities are checked across offset edits.
+
+Only regression coverage changed; shared placement, reference solving, branch
+selection and persistence implementations were not modified. No user-visible
+strings were added. This is synthetic Windows evidence, not confirmation that
+the user's reported crash is fixed. The original failing document/action sequence,
+fillet-specific placement, Linux execution, and an existing-container changed-OK
+transaction are not covered by this new GUI matrix. The Extrusion/Profile case
+tests placement of an empty container, not a calculated solid extrusion.

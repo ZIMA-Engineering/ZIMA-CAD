@@ -2209,7 +2209,7 @@
   "Pracuji: %1": "Working: %1",
   "Regeneruji Part…": "Regenerating Part…",
   "Regeneruji sestavu…": "Regenerating Assembly…",
-  "Default": "Default",
+  "Default Origin": "Default Origin",
   "Použít celý Počátek nadřazeného kontejneru nebo tělesa": "Use the complete Origin of the parent container or Body",
   "Knihovna FORM": "Form library",
   "FORM requires self-contained native references.": "Form requires self-contained native references.",

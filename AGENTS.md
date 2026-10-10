@@ -814,3 +814,20 @@ See `doc/UI_VISUAL_CONVENTIONS.md` for the current presentation contract.
 Neutral UI icons and ordinary reference labels follow the current Qt text
 palette in both light and dark themes, including existing icons after a theme
 change. Tree Insert here markers use red. Semantic icon colors remain explicit.
+
+## Light and dark graphics (mandatory)
+
+- Design and maintain all icons and graphics for both Light and Dark application
+  themes. This includes toolbars, menus, Tree items, dialog controls, overlays,
+  illustrations and generated artwork; checking only one theme is incomplete.
+- Use shared palette-aware icon/rendering paths for neutral artwork. Preserve
+  established semantic colors and provide readable contrast in both themes and
+  applicable normal, hovered, pressed, selected, checked and disabled states.
+- Existing controls and graphics must follow a live theme change. Verify Light
+  -> Dark -> Light where applicable, without reopening the document or invoking
+  geometry calculations. Avoid fixed foreground/background colors that make
+  artwork disappear in either mode.
+- The Default Origin action displays the icon of the actual parent Origin it
+  uses: red for a Body, green for a container, and palette-neutral for a document.
+  The general Origin selection action uses the neutral theme foreground.
+- This requirement was requested by the user on 2026-10-10.

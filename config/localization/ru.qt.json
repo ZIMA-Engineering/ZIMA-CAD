@@ -2209,7 +2209,7 @@
   "Pracuji: %1": "Выполняется: %1",
   "Regeneruji Part…": "Перестроение детали…",
   "Regeneruji sestavu…": "Перестроение сборки…",
-  "Default": "По умолчанию",
+  "Default Origin": "Начало по умолчанию",
   "Použít celý Počátek nadřazeného kontejneru nebo tělesa": "Использовать полный исходный элемент родительского контейнера или тела",
   "Knihovna FORM": "Библиотека формовка",
   "FORM requires self-contained native references.": "Формовка требует автономных собственных ссылок.",

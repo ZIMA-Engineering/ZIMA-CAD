@@ -19,7 +19,7 @@ AiSettingsPage::AiSettingsPage(const QString& path, QWidget* parent, AiProvider*
     intro->setWordWrap(true); intro->setTextFormat(Qt::PlainText); layout->addWidget(intro);
     auto* form = new QFormLayout;
     const auto preferences = CadAi::preferences(path);
-    executable_ = new QLineEdit(preferences.executable.isEmpty() ? findCodexExecutable() : preferences.executable, this);
+    executable_ = new QLineEdit(findCodexExecutable(preferences.executable), this);
     executable_->setObjectName("aiExecutable");
     auto* row = new QHBoxLayout; row->addWidget(executable_);
     browse_ = new QPushButton(tr("Browse..."), this); row->addWidget(browse_);
