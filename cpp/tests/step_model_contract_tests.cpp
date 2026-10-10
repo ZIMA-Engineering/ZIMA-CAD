@@ -32,6 +32,7 @@
 #include <zima/document/viewer_packet_json.hpp>
 #include <nlohmann/json.hpp>
 #include <QCryptographicHash>
+#include <fstream>
 namespace {
 using namespace zima;
 void require(bool test,const char* message){if(!test)throw std::runtime_error(message);}
@@ -85,17 +86,58 @@ void same_bounds(const std::vector<V>& a,const std::vector<V>& b) {
     require(std::max({std::abs(al.x-bl.x),std::abs(al.y-bl.y),std::abs(al.z-bl.z),std::abs(ah.x-bh.x),std::abs(ah.y-bh.y),std::abs(ah.z-bh.z)})<1e-6,
         "STEP changed a rotation, translation or unit scale");
 }
+kernel::BodyResult preparation_result(kernel::OcctKernel& kernel,const kernel::StepRequest& source,bool freeze) {
+    auto request=source;
+    if(freeze) {
+        auto captured=kernel.freeze_step_components({source}).front();
+        request.frozen_brep=std::move(captured.brep);request.topology=std::move(captured.topology);
+    } else {
+        auto captured=kernel.import_step_components({source},.1).front();
+        request.frozen_brep=std::make_shared<const std::string>(std::move(captured.kernel_shape));
+        request.topology=std::move(captured.imported_step_topology);
+    }
+    kernel::HistoryOperation operation;operation.owner_id=source.reference_owner_id;
+    operation.primitive=std::move(request);operation.mesh_deflection=.1;
+    return kernel.evaluate_history({operation}).back();
+}
+void check_freeze_preparation(kernel::OcctKernel& kernel,const kernel::StepRequest& source) {
+    const auto baseline=preparation_result(kernel,source,false);
+    const auto frozen=preparation_result(kernel,source,true);
+    require(document::serialize_body_result(baseline)==document::serialize_body_result(frozen),
+        "Freeze-only preparation changed final history geometry, properties or reference identity");
+}
 }
 int main(int argc,char** argv) {
     try {
         kernel::OcctKernel kernel;
-        if((argc==3||argc==4)&&std::string_view(argv[1])=="--capture-file") {
+        if(argc==6&&std::string_view(argv[1])=="--import-preparation-file") {
+            const auto start=std::chrono::steady_clock::now();
+            const auto path=std::filesystem::absolute(std::filesystem::u8path(argv[2]));
+            const auto nodes=interchange::inspect_step_parts(path);
+            const auto inspected=std::chrono::steady_clock::now();
+            std::vector<kernel::StepRequest> requests;
+            for(const auto& node:nodes)if(!node.assembly)
+                requests.push_back({document::path_to_utf8(path),node.definition_id,{},{},"probe-"+std::to_string(requests.size())});
+            const auto index=std::stoull(argv[3]);require(index<requests.size(),"STEP component index out of range");
+            const bool freeze=std::string_view(argv[4])=="frozen";
+            require(freeze||std::string_view(argv[4])=="baseline","Unknown STEP preparation variant");
+            std::cout<<"STEP preparation variant="<<argv[4]<<" leaves="<<requests.size()<<" definition="<<requests[index].component_path
+                <<" inspection ms="<<std::chrono::duration<double,std::milli>(inspected-start).count()<<std::endl;
+            const auto body=preparation_result(kernel,requests[index],freeze);
+            std::cout<<"STEP preparation total ms="<<std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-start).count()<<std::endl;
+            const auto bytes=QByteArray::fromStdString(document::serialize_body_result(body).dump());
+            std::cout<<"Prepared history sha256="<<QCryptographicHash::hash(bytes,QCryptographicHash::Sha256).toHex().constData()<<std::endl;
+            std::ofstream output(std::filesystem::u8path(argv[5]),std::ios::binary);
+            output.write(bytes.constData(),bytes.size());require(output.good(),"Cannot write diagnostic packet");
+            return 0;
+        }
+        if((argc==3||argc==4||argc==5)&&std::string_view(argv[1])=="--capture-file") {
             const auto path=std::filesystem::absolute(std::filesystem::u8path(argv[2]));
             const auto nodes=interchange::inspect_step_parts(path);
             std::vector<kernel::StepRequest> requests;
             for(const auto& node:nodes)if(!node.assembly)
                 requests.push_back({document::path_to_utf8(path),node.definition_id,{},{},"probe-"+std::to_string(requests.size())});
-            if(argc==4) {
+            if(argc>=4) {
                 const auto index=std::stoull(argv[3]);
                 require(index<requests.size(),"STEP component index out of range");
                 const auto selected=requests[index];requests={selected};
@@ -107,6 +149,13 @@ int main(int argc,char** argv) {
             for(std::size_t i=0;i<bodies.size();++i) {
                 const auto bytes=QByteArray::fromStdString(document::serialize_body_result(bodies[i]).dump());
                 std::cout<<"Body "<<i<<" sha256="<<QCryptographicHash::hash(bytes,QCryptographicHash::Sha256).toHex().constData()<<std::endl;
+                std::cout<<"vertices="<<bodies[i].mesh.vertices.size()<<" triangles="<<bodies[i].mesh.triangles.size()/3
+                    <<" reference_triangles="<<bodies[i].mesh.original_references.triangle_references.size()
+                    <<" edges="<<bodies[i].mesh.original_references.edges.size()<<std::endl;
+                if(argc==5) {
+                    std::ofstream output(std::filesystem::u8path(argv[4]),std::ios::binary);
+                    output.write(bytes.constData(),bytes.size());require(output.good(),"Cannot write diagnostic packet");
+                }
             }
             return 0;
         }
@@ -123,6 +172,10 @@ int main(int argc,char** argv) {
         std::set<std::string> definitions;std::size_t leaves{};
         for(const auto& node:nodes)if(!node.assembly){++leaves;definitions.insert(node.definition_id);}
         require(leaves==5&&definitions.size()==2,"STEP lost repeated products or the hierarchy");
+        for(const auto& node:nodes)if(!node.assembly) {
+            check_freeze_preparation(kernel,{document::path_to_utf8(source),node.definition_id,{},{},"freeze-proof"});
+            break;
+        }
         std::vector<V> expected;
         for(const auto& group:{sub,sub2})for(const auto& leaf:group.children)for(auto p:leaf.body.mesh.vertices)expected.push_back(placed(placed(p,leaf),group));
         for(auto p:b.body.mesh.vertices)expected.push_back(placed(p,b));
@@ -150,6 +203,7 @@ int main(int argc,char** argv) {
         STEPControl_Writer cylinder_writer;
         cylinder_writer.Transfer(BRepPrimAPI_MakeCylinder(100,200).Shape(),STEPControl_AsIs);
         require(cylinder_writer.Write(cylinder_path.string().c_str())==IFSelect_RetDone,"Cylinder STEP write failed");
+        check_freeze_preparation(kernel,{document::path_to_utf8(cylinder_path),{},{},{},"freeze-cylinder-proof"});
         auto fine=interchange::import_step_part(document::PartDocument::create_default(),{},cylinder_path,0.1);
         auto coarse=interchange::import_step_part(document::PartDocument::create_default(),{},cylinder_path,1.0);
         auto rough=interchange::import_step_part(document::PartDocument::create_default(),{},cylinder_path,5.0);

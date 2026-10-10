@@ -8,9 +8,11 @@ using namespace workspace_detail;
 namespace {
 document::ConstructionReference prepare_placement_pick(PlacementReferenceDialog* dialog,
         std::size_t index,document::ConstructionReference ref,
-        const kernel::ViewerReferenceGeometry& geometry,const kernel::Vec3& origin) {
+        const kernel::ViewerReferenceGeometry& geometry,const kernel::Vec3& origin,
+        const std::optional<double>* cached_measurement=nullptr) {
     if(const auto* form=dynamic_cast<const PrimitivePropertiesDialog*>(dialog);form&&form->is_sheet_form())return ref;
-    const auto measured=document::measure_placement_reference_offset(ref,geometry,origin);
+    const auto measured=cached_measurement?*cached_measurement:
+        document::measure_placement_reference_offset(ref,geometry,origin);
     ref.measured_offset=measured;
     if(auto* widget=dynamic_cast<QWidget*>(dialog))
         for(auto* object:widget->findChildren<QObject*>())
@@ -991,9 +993,18 @@ void AssemblyWorkspaceWindow::start_primitive_reference_selection(
         : zima::assembly::InstancePath::decode(workspace_.active_occurrence_path());
     const bool active_part =
         workspace_.open_part(workspace_.active_document_id()) != nullptr;
+    struct PlacementPickValidation {
+        document::ConstructionReference source;
+        document::ConstructionReference prepared;
+        bool allowed{};
+    };
+    using ValidationKey=std::tuple<viewer::CandidateKind,std::string,std::string,std::string>;
+    const auto validation_cache=std::make_shared<std::map<ValidationKey,PlacementPickValidation>>();
+    const auto validation_revision=std::make_shared<std::size_t>(viewer_->base_mesh_revision());
     viewer_->set_candidate_filter([this, prefix, active_part, index,
             orientation_reference, direction_reference, orientation_origin,
-            baseline_references, baseline_placement, baseline_dof, auto_advance](
+            baseline_references, baseline_placement, baseline_dof, auto_advance,
+            validation_cache,validation_revision](
                 const auto& offered) {
         const auto candidate=placement_reference_source_candidate(offered);
         if (candidate.kind == zima::viewer::CandidateKind::Dimension &&
@@ -1066,13 +1077,33 @@ void AssemblyWorkspaceWindow::start_primitive_reference_selection(
             assign_automatic_orientation_role(
                 candidate_reference, baseline_references);
         }
+        if(*validation_revision!=viewer_->base_mesh_revision()) {
+            validation_cache->clear();*validation_revision=viewer_->base_mesh_revision();
+        }
+        const ValidationKey validation_key{candidate.kind,candidate.owner_id,candidate.semantic_key,candidate.instance_path};
+        const auto cached=validation_cache->find(validation_key);
+        const auto source_reference=candidate_reference;
+        // Measurement inputs are the source reference, the fixed entry origin,
+        // and this scene revision. Row preparation still consumes current UI state.
+        const auto* measured=cached!=validation_cache->end()&&cached->second.source==source_reference
+            ? &cached->second.prepared.measured_offset:nullptr;
         candidate_reference=prepare_placement_pick(primitive_reference_dialog_,index,
-            std::move(candidate_reference),primitive_reference_geometry_,orientation_origin);
+            std::move(candidate_reference),primitive_reference_geometry_,orientation_origin,measured);
+        // Prepared values include current row locks/side and measured offset.
+        // Keep signed zero distinct even though ordinary numeric equality does not.
+        if(cached!=validation_cache->end() && cached->second.prepared==candidate_reference &&
+            std::signbit(cached->second.prepared.offset)==std::signbit(candidate_reference.offset) &&
+            (!candidate_reference.measured_offset || std::signbit(*cached->second.prepared.measured_offset)==
+                std::signbit(*candidate_reference.measured_offset)))return cached->second.allowed;
+        const auto remember=[&](bool allowed) {
+            if(validation_cache->size()>=64)validation_cache->clear();
+            validation_cache->insert_or_assign(validation_key,PlacementPickValidation{source_reference,candidate_reference,allowed});return allowed;
+        };
         auto proposed = baseline_references;
-        proposed.push_back(std::move(candidate_reference));
+        proposed.push_back(candidate_reference);
         auto proposed_placement = baseline_placement;
         proposed_placement.references = proposed;
-        if (!zima::document::resolve_placement(proposed_placement, primitive_reference_geometry_)) return false;
+        if (!zima::document::resolve_placement(proposed_placement, primitive_reference_geometry_)) return remember(false);
         const zima::kernel::Vec3 proposed_origin{proposed_placement.x, proposed_placement.y, proposed_placement.z};
         const int proposed_rotation =
             zima::document::orientation_constraint_remaining_dof(
@@ -1083,8 +1114,8 @@ void AssemblyWorkspaceWindow::start_primitive_reference_selection(
             : proposed_rotation +
                 zima::document::point_constraint_remaining_dof(
                     proposed, primitive_reference_geometry_, proposed_origin);
-        return proposed_dof < baseline_dof ||
-            (!auto_advance && proposed_dof == baseline_dof);
+        return remember(proposed_dof < baseline_dof ||
+            (!auto_advance && proposed_dof == baseline_dof));
     });
     state_->setText(tr("Vyberte stabilní geometrii pro umístění kontejneru."));
 }

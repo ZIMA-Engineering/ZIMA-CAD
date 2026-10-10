@@ -4,6 +4,7 @@
 
 #include <cstddef>
 #include <functional>
+#include <memory>
 #include <optional>
 #include <set>
 #include <string>
@@ -27,6 +28,21 @@ struct PickCandidate {
     zima::kernel::FaceReference reference;
 
     bool operator==(const PickCandidate&) const = default;
+};
+
+// Disposable acceleration of one immutable packet; indices never define
+// reference identity. Rebuild whenever packet geometry changes.
+class PickingIndex {
+public:
+    explicit PickingIndex(const kernel::ViewerMesh& mesh);
+    [[nodiscard]] std::vector<std::size_t> triangles(const kernel::Vec3& origin,
+        const kernel::Vec3& direction) const;
+    [[nodiscard]] std::vector<std::size_t> edges(const kernel::Vec3& origin,
+        const kernel::Vec3& direction, double tolerance) const;
+    [[nodiscard]] const std::vector<kernel::FaceReference>& faces() const;
+private:
+    struct Impl;
+    std::shared_ptr<const Impl> impl_;
 };
 
 struct EdgePickCandidate {
@@ -132,7 +148,7 @@ struct EdgeKey {
     const zima::kernel::ViewerMesh& mesh,
     const zima::kernel::Vec3& ray_origin,
     const zima::kernel::Vec3& ray_direction,
-    bool include_occurrence_surfaces = false);
+    bool include_occurrence_surfaces = false, const PickingIndex* index = nullptr);
 
 [[nodiscard]] std::vector<ViewerCandidate> inspected_face_candidates(
     const zima::kernel::ViewerMesh& mesh, const std::set<EdgeKey>& references,
@@ -145,7 +161,7 @@ struct EdgeKey {
     const zima::kernel::ViewerMesh& mesh,
     const zima::kernel::Vec3& ray_origin,
     const zima::kernel::Vec3& ray_direction,
-    double world_tolerance);
+    double world_tolerance, const PickingIndex* index = nullptr);
 
 [[nodiscard]] std::vector<VertexPickCandidate> ordered_vertex_candidates(
     const zima::kernel::ViewerMesh& mesh,
@@ -174,7 +190,8 @@ struct EdgeKey {
     const zima::kernel::Vec3& ray_origin,
     const zima::kernel::Vec3& ray_direction,
     double world_tolerance, bool offer_result_faces = false,
-    bool offer_original_containers = false, bool offer_original_faces = false);
+    bool offer_original_containers = false, bool offer_original_faces = false,
+    const PickingIndex* display_index = nullptr, const PickingIndex* reference_index = nullptr);
 
 [[nodiscard]] std::vector<ViewerCandidate> filter_candidates(
     const std::vector<ViewerCandidate>& candidates,

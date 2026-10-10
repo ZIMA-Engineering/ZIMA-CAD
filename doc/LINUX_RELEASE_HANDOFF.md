@@ -1,13 +1,34 @@
 # Linux build and distribution handoff — 2026-09-15
 
+## Imported-model performance and factory cache follow-up (2026-10-10)
+
+The shared Windows 2026101001 changes preserve the full imported Body during
+placement, index the existing viewer candidate geometry, freeze STEP source
+geometry before one final history preparation, and remove unused Extrusion
+lifecycle work. Run the focused import, viewer, profile-frame, measurement and
+section contracts on the Linux host; the Windows measurements are recorded in
+[STEP and Extrusion performance](performance/20261010-step-load-and-extrusion.md).
+
+Windows rejected the Linux 2026100908 VentilationWindow calculation fingerprint.
+Explicit Windows regeneration restores a loadable factory asset. Its definition
+matches the preceding Windows definition, all persisted owner/key/occurrence
+identity sets match at every boundary, and independent two-way OCCT cuts against
+both previous Windows and Linux final shapes have zero area and volume. Linux
+versus Windows cached coordinates differ by at most 1.43e-13 mm in this fixture;
+the external source-point differences are about 7.11e-15 mm. Fingerprint checks
+remain strict. Cross-platform native cache portability is still unresolved:
+verify loading this Windows-calculated asset on Linux before claiming acceptance.
+No platform-specific modeling algorithm, schema or kernel pin was introduced.
+
 ## Linux preview publication (2026-10-10)
 
 [Linux preview 2026100908](releases/2026100908.md) is compiled, signed and publicly
 available as a GitHub prerelease. The record lists the accepted packaging,
 native, localization and KDE/Wayland checks, the refreshed native Form library
 cache, and the remaining native and GUI failures. It is not full Linux feature
-acceptance. GNOME and Windows verification of the refreshed library remain
-outstanding. The latest stable release remains Windows 2026100906; do not promote
+acceptance. GNOME verification remains outstanding; the Windows follow-up above
+records rejection of the Linux-calculated fingerprint. At preview publication,
+the latest stable release was Windows 2026100906; do not promote
 the Linux preview into stable updates without resolving its acceptance limits.
 
 ## Closed-solid corner Form follow-up (2026-10-09)

@@ -205,6 +205,13 @@ void AssemblyWorkspaceWindow::update_section_ui(){
         return item;
     };
     row(tr("Bez řezu"),{},"document-section-normal",std::ranges::none_of(sections,[](const auto& s){return s.show_cut;}));
+    // An empty section list has no persisted reference or display to validate.
+    // Keep its Tree entry and a new dialog's draft, without copying/indexing
+    // the whole model only to discard the result below.
+    if(sections.empty()) {
+        if(section_dialog_)preview_section();
+        return;
+    }
     zima::workspace::ReferenceIndex references;
     if (const auto* part=workspace_.open_part(id)) {
         // An unfinished Part can have history but no calculated body yet.

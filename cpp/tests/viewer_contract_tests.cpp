@@ -15,8 +15,47 @@ void require(bool condition, const char* message) {
 }
 }
 
+static void verify_picking_acceleration() {
+    using namespace zima;
+    kernel::ViewerMesh mesh,references;
+    for(int y=0;y<50;++y)for(int x=0;x<50;++x) {
+        const auto first=static_cast<std::uint32_t>(mesh.vertices.size());
+        mesh.vertices.insert(mesh.vertices.end(),{{double(x),double(y),5},{x+.9,double(y),5},{double(x),y+.9,5}});
+        mesh.triangles.insert(mesh.triangles.end(),{first,first+1,first+2});
+        mesh.triangle_references.push_back({"source","face:"+std::to_string(x+y*50),x%2?"a/b":""});
+        mesh.edges.push_back({{{double(x),double(y),5},{x+.9,y+.9,5}},
+            {"source","edge:"+std::to_string(x+y*50),x%2?"a/b":""}});
+    }
+    mesh.triangles.insert(mesh.triangles.end(),{0,1,2,999999,0,1});
+    mesh.triangle_references.push_back({"other","coincident","a/c"});
+    mesh.triangle_references.push_back({{}, {},"unreferenced"});
+    auto infinite=mesh.edges.front();infinite.reference={"infinite","axis-edge",{}};infinite.infinite=true;
+    mesh.edges.push_back(infinite);references=mesh;
+    const viewer::PickingIndex display(mesh),source(references);
+    std::size_t tested{};
+    for(bool result_faces:{false,true})for(bool original_containers:{false,true})for(bool original_faces:{false,true})
+        for(int i=0;i<18;++i) {
+            const kernel::Vec3 o{i%3==0?-.01:double(i*3),i%4==0?.0:double(i*2),i%2?10.0:0.0};
+            const kernel::Vec3 d{i%5==0?.03:0.,i%7==0?.02:0.,i%2?-2.:1.};
+            const double tolerance=i%3==0?.2:.001;
+            const auto expected=viewer::ordered_viewer_candidates(mesh,references,o,d,tolerance,result_faces,original_containers,original_faces);
+            const auto actual=viewer::ordered_viewer_candidates(mesh,references,o,d,tolerance,result_faces,original_containers,original_faces,&display,&source);
+            require(actual==expected,"Spatial acceleration changed exact ordered candidates or equal-depth ties");++tested;
+        }
+    require(display.triangles({.1,.1,0},{0,0,1}).size()<mesh.triangles.size()/30,
+        "Spatial index did not reduce exact triangle tests");
+    for(auto& p:mesh.vertices)p.z+=7;
+    for(auto& edge:mesh.edges)for(auto& p:edge.points)p.z+=7;
+    const viewer::PickingIndex changed(mesh);
+    require(viewer::ordered_viewer_candidates(mesh,references,{.1,.1,0},{0,0,1},.1,true,true,true,&changed,&source)==
+        viewer::ordered_viewer_candidates(mesh,references,{.1,.1,0},{0,0,1},.1,true,true,true),
+        "Rebuilt spatial index retained old source geometry");
+    std::cout<<"Picking acceleration: "<<tested<<" complete candidate lists equal; changed-source rebuild passed\n";
+}
+
 int main() {
     try {
+        verify_picking_acceleration();
         {
             using namespace zima::kernel;
             using namespace zima::viewer;

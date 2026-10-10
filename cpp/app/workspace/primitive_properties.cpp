@@ -16,6 +16,8 @@
 #include <zima/document/sheet_state.hpp>
 #include <zima/document/sheet_form_definition.hpp>
 #include <zima/workspace/sheet_form_operations.hpp>
+#include <QElapsedTimer>
+#include <cstdio>
 
 namespace zima::app {
 using namespace workspace_detail;
@@ -25,6 +27,12 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
     zima::document::FeatureKind feature_kind,
     const std::string& container_id, bool sheet_metal,
     std::optional<zima::document::FeatureType> feature_preset, bool rotation_preset, bool twist_preset) {
+    QElapsedTimer profile_timer;profile_timer.start();
+    const bool profile_command=qEnvironmentVariableIsSet("ZIMA_CPP_PROFILE_COMMAND");
+    const auto profile_phase=[&](const char* phase) {
+        if(profile_command)std::fprintf(stderr,"Profile command %s: %.3f ms\n",phase,profile_timer.nsecsElapsed()/1e6);
+        profile_timer.restart();
+    };
     if(feature_kind==zima::document::FeatureKind::BoundarySurface){show_boundary_surface_properties(container_id);return;}
     if(feature_kind==zima::document::FeatureKind::SurfaceThicken){show_surface_thicken_properties(container_id);return;}
     if(feature_kind==zima::document::FeatureKind::SurfaceSewing){show_surface_sewing_properties(container_id);return;}
@@ -569,6 +577,7 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
         });
     }
     primitive_parameter_owner_id_ = initial.id;
+    profile_phase("dialog setup");
     // Extrusion/Revolution OK always means validate + calculate. Their owned
     // Sketch is stored separately from the parameter object, so numeric
     // equality cannot prove that the operation is a no-op.
@@ -577,7 +586,7 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
         const zima::document::HistoryContainer&)> placement_preview;
     const auto prepare_owned_profile_preview = [this](
             zima::document::PartDocument& preview_document,
-            const zima::document::HistoryContainer& preview) {
+            const zima::document::HistoryContainer& preview, bool resolve_now = true) {
         const bool extrusion = preview.feature_kind ==
             zima::document::FeatureKind::Extrusion;
         const auto profile_source = preview.feature_kind == zima::document::FeatureKind::Feature ? preview.feature.profile_source : extrusion ? preview.extrusion.profile_source
@@ -637,7 +646,7 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
         } else {
             *owner = preview;
         }
-        preview_document.resolve_constructions(primitive_reference_geometry_);
+        if(resolve_now)preview_document.resolve_constructions(primitive_reference_geometry_);
         // The document resolver is the sole authority for the owned work
         // plane. Reconstructing this frame again from the container's Euler
         // fields made referenced/quarter-rotated profiles consume a second,
@@ -1025,8 +1034,11 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
             append_reference_geometry(reference_geometry,
                 document.construction_viewer_mesh().original_references);
         }
-        primitive_reference_geometry_ = reference_geometry;
-        dialog->set_sheet_reference_geometry(reference_geometry);
+        // Ordinary Extrusion never consumes the sheet attachment packet.
+        // Retain its common placement inputs once, without a second full STEP copy.
+        if (feature_kind != zima::document::FeatureKind::Extrusion)
+            dialog->set_sheet_reference_geometry(reference_geometry);
+        primitive_reference_geometry_ = std::move(reference_geometry);
         if(part)dialog->set_sheet_default_thickness(zima::document::sheet_metal_defaults(part->session.document()).thickness_mm.value_or(1));
         dialog->set_reference_request_callback(
             [this](std::size_t index) { start_primitive_reference_selection(index); });
@@ -1035,6 +1047,7 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
                 {}, highlighted_reference_edge_keys(*dialog));
         });
         primitive_reference_dialog_ = dialog;
+        profile_phase("reference setup");
         // Opening edits (including View dimensions) keep the user's camera.
         const bool fit_new_basic_preview = !edit_mode &&
             feature_kind != zima::document::FeatureKind::TwistedSheet &&
@@ -1533,8 +1546,11 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
                         if (found == preview_document.sketches.end()) preview_document.sketches.push_back(*property_owned_sketch_draft_);
                         else *found = *property_owned_sketch_draft_;
                     }
+                    // The work-plane context immediately below resolves the
+                    // whole transient document, including this owned Sketch.
+                    // Register both first and resolve their common inputs once.
                     prepare_owned_profile_preview(
-                        preview_document, resolved_preview);
+                        preview_document, resolved_preview, false);
                     update_owned_profile_context_preview(
                         preview_document, resolved_preview);
                     publish_extrusion_extent(
@@ -1980,8 +1996,10 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
     }
     if (deferred_profile_preview)
         dialog->set_preview_callback(std::move(deferred_profile_preview));
-    connect(dialog, &QObject::destroyed, this, [this, dialog_container_id,
+    profile_phase("preview setup");
+    connect(dialog, &QObject::destroyed, this, [this, dialog_container_id,profile_command,
             sheet_cut_context=feature_kind==zima::document::FeatureKind::Extrusion&&initial.extrusion.sheet_cut] {
+        QElapsedTimer closing_timer;closing_timer.start();
         // SKETCH is a transition into the profile sub-editor, not the end of
         // the container edit session. Keep the rollback input alive while
         // that exact owned Sketch is active; otherwise the teardown refresh
@@ -2060,11 +2078,14 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
             assembly_cut_rollback_.reset();
         }
         refresh_tabs();
+        if(profile_command)std::fprintf(stderr,"Profile command close cleanup: %.3f ms\n",closing_timer.nsecsElapsed()/1e6);
+        closing_timer.restart();
         // See the identical guard in show_construction_properties()'s
         // destroyed handler: closing this dialog must not re-fit/zoom the
         // camera to the just-committed (or reverted) feature geometry.
         preserve_view_on_refresh_ = true;
         refresh_scene();
+        if(profile_command)std::fprintf(stderr,"Profile command close scene: %.3f ms\n",closing_timer.nsecsElapsed()/1e6);
         if (entering_owned_profile_sketch) {
             clear_selected_sketch_geometry();
             tree_->clearSelection();
@@ -2090,6 +2111,7 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
     } else {
         set_primitive_properties_dimension_selection();
     }
+    profile_phase("selection setup");
 }
 
 } // namespace zima::app

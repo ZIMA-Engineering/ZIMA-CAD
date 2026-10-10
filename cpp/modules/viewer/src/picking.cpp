@@ -12,6 +12,7 @@
 #include <tuple>
 #include <string_view>
 #include <unordered_set>
+#include <numeric>
 
 namespace zima::viewer {
 namespace {
@@ -54,6 +55,90 @@ std::string source_face_owner(const kernel::FaceReference& face) {
 
 }  // namespace
 
+struct PickingIndex::Impl {
+    struct Box {
+        std::array<double,3> low{INFINITY,INFINITY,INFINITY}, high{-INFINITY,-INFINITY,-INFINITY};
+        void add(const Vec3& p) {
+            const std::array value{p.x,p.y,p.z};
+            for(int i=0;i<3;++i){low[i]=std::min(low[i],value[i]);high[i]=std::max(high[i],value[i]);}
+        }
+        void add(const Box& b) {for(int i=0;i<3;++i){low[i]=std::min(low[i],b.low[i]);high[i]=std::max(high[i],b.high[i]);}}
+        bool finite() const {for(int i=0;i<3;++i)if(!std::isfinite(low[i])||!std::isfinite(high[i])||low[i]>high[i])return false;return true;}
+        bool hit(const Vec3& origin,const Vec3& direction,double tolerance) const {
+            const std::array o{origin.x,origin.y,origin.z},d{direction.x,direction.y,direction.z};
+            double first=0,last=INFINITY;
+            for(int i=0;i<3;++i) {
+                // Broad phase is conservative; exact existing tests own tolerance.
+                const double pad=std::max(0.,tolerance)+1e-7+64*std::numeric_limits<double>::epsilon()*
+                    std::max({1.,std::abs(low[i]),std::abs(high[i]),std::abs(o[i])});
+                if(d[i]==0){if(o[i]<low[i]-pad||o[i]>high[i]+pad)return false;continue;}
+                auto a=(low[i]-pad-o[i])/d[i],b=(high[i]+pad-o[i])/d[i];
+                if(a>b)std::swap(a,b);first=std::max(first,a);last=std::min(last,b);
+                if(first>last)return false;
+            }
+            return true;
+        }
+    };
+    struct Item {Box box;std::size_t index;};
+    struct Tree {
+        struct Node {Box box;std::size_t begin,end,left{},right{};};
+        std::vector<Item> items;std::vector<Node> nodes;std::vector<std::size_t> uncullable;
+        std::size_t build(std::size_t begin,std::size_t end) {
+            const auto slot=nodes.size();nodes.push_back({{},begin,end});
+            for(auto i=begin;i<end;++i)nodes[slot].box.add(items[i].box);
+            if(end-begin<=16)return slot;
+            int axis=0;for(int i=1;i<3;++i)if(nodes[slot].box.high[i]-nodes[slot].box.low[i]>
+                nodes[slot].box.high[axis]-nodes[slot].box.low[axis])axis=i;
+            const auto middle=begin+(end-begin)/2;
+            std::nth_element(items.begin()+begin,items.begin()+middle,items.begin()+end,[axis](const auto& a,const auto& b){
+                return a.box.low[axis]*.5+a.box.high[axis]*.5<b.box.low[axis]*.5+b.box.high[axis]*.5;});
+            const auto left=build(begin,middle),right=build(middle,end);
+            nodes[slot].left=left;nodes[slot].right=right;return slot;
+        }
+        std::vector<std::size_t> query(const Vec3& o,const Vec3& d,double tolerance) const {
+            auto result=uncullable;
+            if(!std::isfinite(o.x)||!std::isfinite(o.y)||!std::isfinite(o.z)||
+               !std::isfinite(d.x)||!std::isfinite(d.y)||!std::isfinite(d.z)||!std::isfinite(tolerance)) {
+                for(const auto& item:items)result.push_back(item.index);
+            } else if(!nodes.empty()) {
+                std::vector<std::size_t> stack{0};
+                while(!stack.empty()) {
+                    const auto slot=stack.back();stack.pop_back();const auto& node=nodes[slot];
+                    if(!node.box.hit(o,d,tolerance))continue;
+                    if(node.left){stack.push_back(node.right);stack.push_back(node.left);}
+                    else for(auto i=node.begin;i<node.end;++i)if(items[i].box.hit(o,d,tolerance))result.push_back(items[i].index);
+                }
+            }
+            // Existing scan order breaks equal-depth ties. Tree order is private.
+            std::sort(result.begin(),result.end());return result;
+        }
+    };
+    Tree triangles,edges;
+    std::vector<kernel::FaceReference> faces;
+};
+
+PickingIndex::PickingIndex(const kernel::ViewerMesh& mesh) {
+    auto data=std::make_shared<Impl>();
+    std::set<std::tuple<std::string,std::string,std::string>> identities;
+    for(const auto& face:mesh.triangle_references)
+        if(identities.emplace(face.owner_id,face.semantic_key,face.instance_path).second)data->faces.push_back(face);
+    for(std::size_t i=0;i*3+2<mesh.triangles.size();++i) {
+        Impl::Box box;bool valid=true;
+        for(int j=0;j<3;++j){const auto v=mesh.triangles[i*3+j];if(v>=mesh.vertices.size()){valid=false;break;}box.add(mesh.vertices[v]);}
+        if(valid&&box.finite())data->triangles.items.push_back({box,i});else data->triangles.uncullable.push_back(i);
+    }
+    for(std::size_t i=0;i<mesh.edges.size();++i) {
+        Impl::Box box;for(const auto& p:mesh.edges[i].points)box.add(p);
+        if(!mesh.edges[i].infinite&&box.finite())data->edges.items.push_back({box,i});else data->edges.uncullable.push_back(i);
+    }
+    if(!data->triangles.items.empty())data->triangles.build(0,data->triangles.items.size());
+    if(!data->edges.items.empty())data->edges.build(0,data->edges.items.size());
+    impl_=std::move(data);
+}
+std::vector<std::size_t> PickingIndex::triangles(const Vec3& o,const Vec3& d) const {return impl_->triangles.query(o,d,0);}
+std::vector<std::size_t> PickingIndex::edges(const Vec3& o,const Vec3& d,double tolerance) const {return impl_->edges.query(o,d,tolerance);}
+const std::vector<kernel::FaceReference>& PickingIndex::faces() const {return impl_->faces;}
+
 std::vector<std::string> edge_treatment_boundary_owners(const kernel::ViewerEdge& edge) {
     std::set<std::string> owners(edge.edge_treatment_owner_ids.begin(),edge.edge_treatment_owner_ids.end());
     std::map<std::string,std::size_t> side_counts;
@@ -72,10 +157,14 @@ std::vector<PickCandidate> ordered_ray_candidates(
     const zima::kernel::ViewerMesh& mesh,
     const Vec3& ray_origin,
     const Vec3& ray_direction,
-    bool include_occurrence_surfaces) {
+    bool include_occurrence_surfaces, const PickingIndex* index) {
     constexpr double epsilon = 1.0e-9;
     std::vector<PickCandidate> candidates;
-    for (std::size_t triangle = 0; triangle * 3 + 2 < mesh.triangles.size(); ++triangle) {
+    std::vector<std::size_t> slots;
+    if(index)slots=index->triangles(ray_origin,ray_direction);
+    const auto count=index?slots.size():mesh.triangles.size()/3;
+    for (std::size_t slot = 0; slot < count; ++slot) {
+        const auto triangle=index?slots[slot]:slot;
         if (triangle >= mesh.triangle_references.size() ||
             (!mesh.triangle_references[triangle].valid() &&
              !(include_occurrence_surfaces &&
@@ -270,11 +359,15 @@ std::vector<EdgePickCandidate> ordered_edge_candidates(
     const zima::kernel::ViewerMesh& mesh,
     const Vec3& ray_origin,
     const Vec3& ray_direction,
-    double world_tolerance) {
+    double world_tolerance, const PickingIndex* index) {
     std::vector<EdgePickCandidate> candidates;
     const double ray_length_squared = dot(ray_direction, ray_direction);
     if (ray_length_squared <= 1.0e-18 || world_tolerance < 0.0) return candidates;
-    for (std::size_t edge_index = 0; edge_index < mesh.edges.size(); ++edge_index) {
+    std::vector<std::size_t> slots;
+    if(index)slots=index->edges(ray_origin,ray_direction,world_tolerance);
+    const auto count=index?slots.size():mesh.edges.size();
+    for (std::size_t slot = 0; slot < count; ++slot) {
+        const auto edge_index=index?slots[slot]:slot;
         const auto& edge = mesh.edges[edge_index];
         const bool cosmetic_thread = !edge.display_owner_id.empty() &&
             (edge.reference.semantic_key.starts_with("thread:wire:") ||
@@ -490,7 +583,8 @@ std::vector<ViewerCandidate> ordered_viewer_candidates(
     const zima::kernel::ViewerMesh& references,
     const Vec3& ray_origin,
     const Vec3& ray_direction,
-    double world_tolerance, bool offer_result_faces, bool offer_original_containers, bool offer_original_faces) {
+    double world_tolerance, bool offer_result_faces, bool offer_original_containers, bool offer_original_faces,
+    const PickingIndex* display_index, const PickingIndex* reference_index) {
     std::vector<ViewerCandidate> result;
     using FaceIdentity = std::tuple<std::string_view,std::string_view,std::string_view>;
     const auto identity = [](const auto& ref) -> FaceIdentity { return {ref.owner_id,ref.semantic_key,ref.instance_path}; };
@@ -501,7 +595,9 @@ std::vector<ViewerCandidate> ordered_viewer_candidates(
         while(const auto parent=kernel::solid_state_parent(key)){owner=parent->first;key=parent->second;}
         return StateOccurrence{std::move(owner),ref.instance_path};
     };
-    for(const auto& ref:mesh.triangle_references)if(kernel::solid_state_parent(ref.semantic_key))
+    const auto& display_faces=display_index?display_index->faces():mesh.triangle_references;
+    const auto& reference_faces=reference_index?reference_index->faces():references.triangle_references;
+    for(const auto& ref:display_faces)if(kernel::solid_state_parent(ref.semantic_key))
         current_state_owners[state_source(ref)].insert(ref.owner_id);
     const auto obsolete_state_reference=[&](const auto& ref) {
         const auto current=current_state_owners.find(state_source(ref));
@@ -518,7 +614,7 @@ std::vector<ViewerCandidate> ordered_viewer_candidates(
         return seed;
     };
     std::unordered_set<FaceIdentity, decltype(identity_hash)> persisted_identities(0, identity_hash);
-    for (const auto& ref : references.triangle_references)
+    for (const auto& ref : reference_faces)
         if (ref.valid()) persisted_identities.insert(identity(ref));
     const auto has_persisted_source=[&](const auto& ref) {
         if(persisted_identities.contains(identity(ref)))return true;
@@ -530,16 +626,16 @@ std::vector<ViewerCandidate> ordered_viewer_candidates(
         return persisted_identities.contains(identity(source));
     };
     std::unordered_set<std::string_view> displayed_source_paths;
-    for (const auto& ref : mesh.triangle_references)
+    for (const auto& ref : display_faces)
         if (!ref.instance_path.empty() && ref.valid() && has_persisted_source(ref))
             displayed_source_paths.insert(ref.instance_path);
     const bool has_local_display_faces = std::any_of(
-        mesh.triangle_references.begin(), mesh.triangle_references.end(),
+        display_faces.begin(), display_faces.end(),
         [](const auto& reference) {
             return reference.valid() && reference.instance_path.empty();
         });
     const auto persisted_face_hits = ordered_ray_candidates(
-        references, ray_origin, ray_direction);
+        references, ray_origin, ray_direction, false, reference_index);
     const auto append_geometry = [&](const zima::kernel::ViewerMesh& source,
                                      CandidateGeometry geometry) {
         // Standalone Thread owns a visual cylindrical envelope but no B-Rep
@@ -605,7 +701,7 @@ std::vector<ViewerCandidate> ordered_viewer_candidates(
             }
         }
         const auto display_face_hits = geometry == CandidateGeometry::Display
-            ? ordered_ray_candidates(source, ray_origin, ray_direction, true)
+            ? ordered_ray_candidates(source, ray_origin, ray_direction, true, display_index)
             : std::vector<PickCandidate>{};
         const auto& faces = geometry == CandidateGeometry::Display
             ? display_face_hits : persisted_face_hits;
@@ -690,7 +786,8 @@ std::vector<ViewerCandidate> ordered_viewer_candidates(
             }
         }
         for (const auto& edge : ordered_edge_candidates(
-                source, ray_origin, ray_direction, world_tolerance)) {
+                source, ray_origin, ray_direction, world_tolerance,
+                geometry==CandidateGeometry::Display?display_index:reference_index)) {
             if(geometry==CandidateGeometry::OriginalReference&&obsolete_state_reference(edge.reference))continue;
             if (edge.edge < source.edges.size() &&
                 source.edges[edge.edge].parameter_seam) continue;

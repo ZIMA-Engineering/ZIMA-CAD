@@ -26,6 +26,7 @@
 #include <zima/document/flat.hpp>
 #include <zima/workspace/native_documents.hpp>
 #include <zima/interchange/dxf.hpp>
+#include <zima/interchange/step_model.hpp>
 #include "console_ui_verification.hpp"
 #include "sketch_offset_dialog.hpp"
 #include "sheet_state_dialog.hpp"
@@ -3653,6 +3654,14 @@ int verify_body_history_ui(QApplication& application, const std::filesystem::pat
     auto first = zima::test::rectangular_feature(part,{10,10,10});
     auto second = zima::test::rectangular_feature(part,{10,10,10});
     auto extra = zima::test::rectangular_feature(part,{2,2,2});  extra.placement.x = 20;
+    if(qEnvironmentVariableIsSet("ZIMA_VERIFY_BODY_PREVIEW_ONLY")) {
+        // Locate the extra native profile away from the first tool solid. The
+        // profile's authored coordinates, rather than an unused feature offset,
+        // define this independent fixture's disconnected second solid.
+        for(auto& sketch:part.sketches)if(sketch.owner_container_id==extra.id)
+            for(auto& point:sketch.points)point.x+=20;
+        extra.placement.x=0;
+    }
     part.history = {first,second,extra};
     BodyHistoryGraph graph;
     const auto a = graph.create_body("Polotovar"); graph.insert({PartHistoryKind::Feature, first.id});
@@ -3724,6 +3733,29 @@ int verify_body_history_ui(QApplication& application, const std::filesystem::pat
     for (auto* widget : window.findChildren<QWidget*>())
         if (auto* view = dynamic_cast<zima::viewer::MeshView*>(widget)) { viewer = view; break; }
     if (!verify(viewer && !viewer->confirmed_component_wire().empty(), "Document root did not highlight the stored result")) return 1;
+    if(qEnvironmentVariableIsSet("ZIMA_VERIFY_BODY_PREVIEW_ONLY")) {
+        window.show_tree_item_properties(row("part-body",b));flush();
+        if(!verify(body_dialog()!=nullptr,"Native Body preview did not open"))return 1;
+        const auto before=viewer->mesh();
+        std::vector<zima::kernel::BodyResult> packets;static_cast<void>(PartDocument::load(path,&packets));
+        const auto preceding=packets.back().body_outputs.at(a)->mesh.vertices.size();
+        const auto own=packets.back().body_boundaries.at(b).back().mesh.vertices.size();
+        if(!verify(before.vertices.size()>=preceding+own&&own>0&&
+                std::ranges::any_of(before.vertices,[](const auto& p){return p.x>24&&p.x<26.01;}),
+                "Native Body preview omitted its contents or preceding context"))return 1;
+        if(!verify(body_dialog()->set_inline_parameter_value("placement:x",12),"Native Body position is not editable"))return 1;
+        flush();
+        for(auto i=preceding;i<preceding+own;++i) {
+            const auto& a=before.vertices[i];const auto& p=viewer->mesh().vertices[i];
+            if(!verify(std::abs(p.x-a.x-7)<1e-9&&p.y==a.y&&p.z==a.z,
+                    "Native Body contents did not move together"))return 1;
+        }
+        body_dialog()->reject();flush();window.findChild<QAction*>("saveDocumentAction")->trigger();flush();
+        if(!verify(PartDocument::load(path).body_history==part.body_history,
+                "Native Body preview Cancel changed history"))return 1;
+        std::cout<<"Native Body complete preview, preceding context, independent translation equations and Cancel passed\n";
+        return 0;
+    }
     zima::kernel::ViewerDimension clipped_dimension;
     clipped_dimension.reference={"projection-check","parameter:placement:x",{}};
     clipped_dimension.value=1;
@@ -9098,12 +9130,14 @@ int verify_selection_filter(QApplication& application,
 #include "symbol_ui_verification.inc"
 
 #include "derived_copy_save_ui_verification.inc"
+#include "import_interaction_ui_verification.inc"
 
 int verify_startup_contract(
     QApplication& application, zima::app::AssemblyWorkspaceWindow& window,
     const std::filesystem::path& initial_test_directory,
     const QString& part_capture_path = {}, const QString& drawing_capture_path = {}) {
     auto test_directory = initial_test_directory;
+    if(qEnvironmentVariableIsSet("ZIMA_VERIFY_IMPORTED_BODY_ONLY"))return verify_imported_body_interaction(application,window,test_directory);
     if(qEnvironmentVariableIsSet("ZIMA_VERIFY_COPY_SAVE_ONLY"))return verify_derived_copy_save(application,window,test_directory);
     if(qEnvironmentVariableIsSet("ZIMA_VERIFY_COMPACT_WINDOW_ONLY")) {
         window.show();

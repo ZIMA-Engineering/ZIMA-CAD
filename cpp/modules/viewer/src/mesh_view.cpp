@@ -38,9 +38,13 @@
 #include <QVector3D>
 #include <QVector4D>
 #include <QWheelEvent>
+#include <QElapsedTimer>
+#include <QCryptographicHash>
+#include <cstdio>
 
 #include <algorithm>
 #include <array>
+#include <bit>
 #include <cmath>
 #include <iterator>
 #include <limits>
@@ -158,6 +162,16 @@ struct MeshView::Impl {
     // when the scene changes instead of copying all persisted geometry for
     // every hover sample.
     zima::kernel::ViewerMesh persisted_reference_mesh;
+    std::optional<PickingIndex> display_picking_index;
+    std::optional<PickingIndex> reference_picking_index;
+    struct FaceBoundarySegment {
+        kernel::Vec3 first,second;
+        std::size_t uses{};
+        std::array<QVector3D,2> normals{};
+    };
+    std::size_t picker_overlay_revision{};
+    std::map<EdgeKey,std::vector<std::size_t>> display_face_triangles,original_face_triangles;
+    std::map<std::tuple<CandidateGeometry,CandidateKind,EdgeKey>,std::vector<FaceBoundarySegment>> face_boundaries;
     std::map<std::pair<std::string, std::string>, std::vector<std::size_t>>
         original_container_edge_indices;
     std::map<std::pair<std::string, std::string>, std::vector<std::size_t>>
@@ -603,6 +617,7 @@ struct MeshView::Impl {
             target.triangle_references.push_back(reference);
             target.triangle_references.push_back(reference);
         }
+        reference_picking_index.emplace(target);
     }
 
     [[nodiscard]] float orbit_distance() const {
@@ -738,6 +753,11 @@ void MeshView::update_annotation_presentation() const {
 }
 
 void MeshView::set_mesh(zima::kernel::ViewerMesh mesh, bool fit_view) {
+    QElapsedTimer timer;timer.start();
+    const auto phase=[&](const char* name) {
+        if(qEnvironmentVariableIsSet("ZIMA_CPP_PROFILE_COMMAND"))std::fprintf(stderr,"Viewer mesh %s: %.3f ms\n",name,timer.nsecsElapsed()/1e6);
+        timer.restart();
+    };
     zima::kernel::associate_solid_state_display(mesh);
     if(zima::kernel::has_surface_results(mesh))
         impl_->surface_source_mesh=mesh;
@@ -747,6 +767,7 @@ void MeshView::set_mesh(zima::kernel::ViewerMesh mesh, bool fit_view) {
     const auto previous_confirmation = impl_->confirmed_candidate;
     impl_->dimension_bounds=kernel::model_envelope(mesh);
     impl_->object_bounds=kernel::object_envelopes(mesh,impl_->object_frame_provider?impl_->object_frame_provider(mesh):std::map<kernel::ObjectEnvelopeKey,kernel::ModelEnvelope>{});
+    phase("envelopes");
     impl_->layout_drag.reset();
     impl_->source_dimensions=mesh.dimensions;
     if(impl_->dimension_layout_resolver)for(auto& d:mesh.dimensions)
@@ -787,6 +808,33 @@ void MeshView::set_mesh(zima::kernel::ViewerMesh mesh, bool fit_view) {
         for(auto& p:edge.points)p={center.x+(p.x-center.x)*factor,center.y+(p.y-center.y)*factor,center.z+(p.z-center.z)*factor};
         edge.points.push_back(edge.points.front());mesh.edges.push_back(std::move(edge));
     }
+    std::erase_if(mesh.edges, [](const auto& edge) {
+        return edge.parameter_seam || zima::kernel::smooth_transition_junction(edge);
+    });
+    // Work planes, points and reference packets can change while the shaded
+    // solid and depth-tested wire stay identical. Compare the actual upload
+    // inputs before replacing the scene; keep their normals/adjacency/buffers.
+    const auto same_upload = [&] {
+        const auto& previous=impl_->mesh;
+        const auto same_points=[](const auto& a,const auto& b) {
+            return a.size()==b.size()&&std::equal(a.begin(),a.end(),b.begin(),[](const auto& p,const auto& q) {
+                return std::bit_cast<std::uint64_t>(p.x)==std::bit_cast<std::uint64_t>(q.x)&&
+                    std::bit_cast<std::uint64_t>(p.y)==std::bit_cast<std::uint64_t>(q.y)&&
+                    std::bit_cast<std::uint64_t>(p.z)==std::bit_cast<std::uint64_t>(q.z);
+            });
+        };
+        if(!same_points(previous.vertices,mesh.vertices) || previous.triangles!=mesh.triangles ||
+                previous.triangle_references!=mesh.triangle_references)return false;
+        auto old=previous.edges.begin();auto next=mesh.edges.cbegin();
+        for(;;) {
+            while(old!=previous.edges.end()&&old->overlay)++old;
+            while(next!=mesh.edges.end()&&next->overlay)++next;
+            if(old==previous.edges.end()||next==mesh.edges.end())
+                return old==previous.edges.end()&&next==mesh.edges.end();
+            if(!same_points(old->points,next->points) || old->reference!=next->reference)return false;
+            ++old;++next;
+        }
+    }();
     impl_->mesh = std::move(mesh);
     // Datum display size must be initialized even when a document refresh
     // deliberately preserves the camera (and therefore does not call fit_all).
@@ -816,9 +864,6 @@ void MeshView::set_mesh(zima::kernel::ViewerMesh mesh, bool fit_view) {
     impl_->face_fill_ranges.clear();
     impl_->surface_batches_dirty = true;
     impl_->reference_faces_dirty = true;
-    std::erase_if(impl_->mesh.edges, [](const auto& edge) {
-        return edge.parameter_seam || zima::kernel::smooth_transition_junction(edge);
-    });
     impl_->candidates.clear();
     impl_->confirmed_candidate.reset();
     impl_->feature_hover_edges.clear();
@@ -826,11 +871,34 @@ void MeshView::set_mesh(zima::kernel::ViewerMesh mesh, bool fit_view) {
     impl_->feature_hover_edge_indices.clear();
     impl_->feature_selected_edge_indices.clear();
     impl_->selected_container_origin_id.clear();
-    impl_->gpu_dirty = true;
+    impl_->gpu_dirty = impl_->gpu_dirty || !same_upload;
+    if(!impl_->gpu_dirty) {
+        // These draw identities and styles belong to the new scene even when
+        // its buffer coordinates match. Overlay insertion can shift edge slots.
+        impl_->line_edges.clear();impl_->line_mesh_edge_indices.clear();
+        for(std::size_t i=0;i<impl_->mesh.edges.size();++i) {
+            const auto& edge=impl_->mesh.edges[i];
+            if(edge.overlay||is_screen_constant_plane(edge.reference.semantic_key)||edge.points.size()<2)continue;
+            impl_->line_edges.push_back(edge);impl_->line_mesh_edge_indices.push_back(i);
+        }
+    }
     ++impl_->base_mesh_revision;
+    phase("presentation");
+    impl_->display_picking_index.emplace(impl_->mesh);
+    phase("picking index");
+    impl_->face_boundaries.clear();
+    const auto index_faces=[](const auto& faces,auto& target) {
+        target.clear();
+        for(std::size_t i=0;i<faces.size();++i) {
+            const auto& f=faces[i];target[{f.owner_id,f.semantic_key,f.instance_path}].push_back(i);
+        }
+    };
+    index_faces(impl_->mesh.triangle_references,impl_->display_face_triangles);
+    index_faces(impl_->mesh.original_references.triangle_references,impl_->original_face_triangles);
     impl_->rebuild_sketch_interaction_mesh();
     if (fit_view) fit_all();
     impl_->rebuild_persisted_reference_mesh();
+    phase("reference mesh");
     if (previous_confirmation &&
         (previous_confirmation->kind == CandidateKind::Dimension ||
          previous_confirmation->kind == CandidateKind::SketchConstraint ||
@@ -1103,7 +1171,9 @@ std::vector<ViewerCandidate> MeshView::selection_candidates_at(
             ray_origin, ray_direction, world_tolerance)
         : ordered_viewer_candidates(
             impl_->mesh, impl_->persisted_reference_mesh,
-            ray_origin, ray_direction, world_tolerance, impl_->offer_result_faces,impl_->offer_original_containers,impl_->offer_original_faces);
+            ray_origin, ray_direction, world_tolerance, impl_->offer_result_faces,impl_->offer_original_containers,impl_->offer_original_faces,
+            impl_->display_picking_index?&*impl_->display_picking_index:nullptr,
+            impl_->reference_picking_index?&*impl_->reference_picking_index:nullptr);
     if (sketch_only) {
         for (auto& candidate : candidates) {
             const std::vector<std::size_t>* indices = nullptr;
@@ -1972,6 +2042,7 @@ const std::vector<zima::kernel::ViewerEdge>& MeshView::transient_edges() const {
 
 void MeshView::set_transient_dimensions(
     std::vector<zima::kernel::ViewerDimension> dimensions) {
+    ++impl_->picker_overlay_revision;
     if (impl_->transient_point_transform) {
         const auto origin = impl_->transient_point_transform({});
         for (auto& dimension : dimensions) {
@@ -2021,6 +2092,7 @@ std::size_t MeshView::base_mesh_revision() const {
 }
 
 void MeshView::set_command_snap_points(std::vector<zima::kernel::ViewerPoint> points,bool visible) {
+    ++impl_->picker_overlay_revision;
     impl_->command_snap_point_provider={};
     impl_->command_snap_points_visible=visible;
     impl_->command_snap_points=std::move(points);
@@ -2914,6 +2986,7 @@ void MeshView::resizeGL(int, int height) {
 
 void MeshView::upload_mesh() {
     if (!isValid() || !impl_->gpu_dirty) return;
+    setProperty("gpuMeshUploadCount",property("gpuMeshUploadCount").toULongLong()+1);
     const auto vertex_data = shaded_triangle_vertices(impl_->mesh);
     impl_->vertices.bind();
     impl_->vertices.allocate(vertex_data.data(),
@@ -3050,6 +3123,18 @@ void MeshView::upload_mesh() {
                 records.first.second, records.first.normal, records.second_normal});
         }
     }
+    if(qEnvironmentVariableIsSet("ZIMA_CPP_VERIFY_GPU_UPLOAD")||qEnvironmentVariableIsSet("ZIMA_CPP_PROFILE_COMMAND")) {
+        QCryptographicHash hash(QCryptographicHash::Sha256);
+        hash.addData(QByteArrayView(reinterpret_cast<const char*>(vertex_data.data()),vertex_data.size()*sizeof(float)));
+        hash.addData(QByteArrayView(reinterpret_cast<const char*>(line_data.data()),line_data.size()*sizeof(float)));
+        for(const auto& edge:impl_->silhouette_candidates) {
+            for(const auto& value:{edge.first,edge.second,edge.normal_a,edge.normal_b}) {
+                const std::array<float,3> coordinates{value.x(),value.y(),value.z()};
+                hash.addData(QByteArrayView(reinterpret_cast<const char*>(coordinates.data()),sizeof(coordinates)));
+            }
+        }
+        setProperty("gpuMeshUploadDigest",hash.result().toHex());
+    }
     impl_->gpu_dirty = false;
 }
 
@@ -3115,6 +3200,9 @@ void MeshView::paintGL() {
     }
     glDisable(GL_SCISSOR_TEST);
     impl_->vertex_array.bind();
+    if(qEnvironmentVariableIsSet("ZIMA_CPP_VERIFY_GPU_UPLOAD")&&property("forceMeshUpload").toBool()) {
+        setProperty("forceMeshUpload",false);impl_->gpu_dirty=true;
+    }
     if (impl_->gpu_dirty) upload_mesh();
     if (!impl_->program.isLinked()) {
         impl_->vertex_array.release();
@@ -5083,13 +5171,14 @@ if (impl_->show_origins) {
                     : impl_->mesh.triangle_references;
                 using RoundedPoint = std::array<long long, 3>;
                 using BoundaryKey = std::tuple<std::string, RoundedPoint, RoundedPoint>;
-                struct BoundarySegment {
-                    zima::kernel::Vec3 first;
-                    zima::kernel::Vec3 second;
-                    std::size_t uses{};
-                    std::array<QVector3D, 2> normals{};
-                };
-                std::map<BoundaryKey, BoundarySegment> boundary;
+                const auto cache_key=std::tuple{highlighted->geometry,highlighted->kind,
+                    EdgeKey{highlighted->owner_id,highlighted->semantic_key,highlighted->instance_path}};
+                auto cached=impl_->face_boundaries.find(cache_key);
+                if(cached==impl_->face_boundaries.end()) {
+                // Adjacency is model data; only silhouette visibility changes
+                // with the camera. Bound retained hover packets to 32 faces.
+                if(impl_->face_boundaries.size()>=32)impl_->face_boundaries.clear();
+                std::map<BoundaryKey, Impl::FaceBoundarySegment> boundary;
                 const auto rounded = [](const zima::kernel::Vec3& point) {
                     constexpr double scale = 1.0e7;
                     return RoundedPoint{
@@ -5097,8 +5186,13 @@ if (impl_->show_origins) {
                         std::llround(point.y * scale),
                         std::llround(point.z * scale)};
                 };
-                for (std::size_t triangle = 0;
-                     triangle < triangle_references.size(); ++triangle) {
+                const auto& face_triangles=original?impl_->original_face_triangles:impl_->display_face_triangles;
+                const auto selected=face_triangles.find(std::get<2>(cache_key));
+                const std::vector<std::size_t>* triangle_slots=highlighted->kind==CandidateKind::Face
+                    ? (selected==face_triangles.end()?nullptr:&selected->second):nullptr;
+                const auto count=highlighted->kind==CandidateKind::Face?(triangle_slots?triangle_slots->size():0):triangle_references.size();
+                for (std::size_t slot=0;slot<count;++slot) {
+                    const auto triangle=triangle_slots?(*triangle_slots)[slot]:slot;
                     const auto& reference = triangle_references[triangle];
                     // Datum and work planes have their own screen-constant
                     // rectangular highlight above. Feeding their persisted
@@ -5162,6 +5256,10 @@ if (impl_->show_origins) {
                         ++segment.uses;
                     }
                 }
+                std::vector<Impl::FaceBoundarySegment> segments;segments.reserve(boundary.size());
+                for(const auto& [key,segment]:boundary)segments.push_back(segment);
+                cached=impl_->face_boundaries.emplace(cache_key,std::move(segments)).first;
+                }
                 // Highlight the semantic face boundary and its current-view
                 // silhouette, never the complete OCCT triangulation. A
                 // closed curved face such as a Sphere has no boundary at
@@ -5169,8 +5267,7 @@ if (impl_->show_origins) {
                 // Container but produced no visible green feedback.
                 const QVector3D view_direction = impl_->orientation.inverted()
                     .rotatedVector(QVector3D(0.0F, 0.0F, 1.0F));
-                for (const auto& [key, segment] : boundary) {
-                    static_cast<void>(key);
+                for (const auto& segment : cached->second) {
                     QVector3D second_normal = segment.normals[1];
                     if (QVector3D::dotProduct(
                             segment.normals[0], second_normal) < 0.0F) {
@@ -6015,7 +6112,10 @@ void MeshView::mouseMoveEvent(QMouseEvent* event) {
             update();
         }
         update_candidates(event->position());
-        if (impl_->world_pointer_callback) {
+        const auto picked_revision=impl_->base_mesh_revision;
+        const auto picked_overlay_revision=impl_->picker_overlay_revision;
+        const bool has_pointer_callback=static_cast<bool>(impl_->world_pointer_callback);
+        if (has_pointer_callback) {
             const auto ray = ray_at(event->position());
             if (ray) impl_->world_pointer_callback(ray->first, ray->second);
         }
@@ -6025,7 +6125,9 @@ void MeshView::mouseMoveEvent(QMouseEvent* event) {
         // before the frame was painted. Re-evaluate against the final mesh at
         // the same pointer position so the next line/axis remains visibly
         // green while an interactive dimension follows the cursor.
-        if (command_wants_next_candidate) {
+        if (command_wants_next_candidate && has_pointer_callback &&
+            (!impl_->active_sketch_owner_id.empty() || picked_revision!=impl_->base_mesh_revision ||
+             picked_overlay_revision!=impl_->picker_overlay_revision || impl_->candidates.empty())) {
             update_candidates(event->position());
         }
     }

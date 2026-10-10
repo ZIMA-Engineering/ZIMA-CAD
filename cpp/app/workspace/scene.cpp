@@ -17,12 +17,19 @@
 #include "../sketch_external_reference_kind.hpp"
 #include <zima/ui/operation_activity.hpp>
 #include "../surface_trim_dialog.hpp"
+#include <QElapsedTimer>
+#include <cstdio>
 
 namespace zima::app {
 using namespace workspace_detail;
 
 
 void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMesh()> assembly_preview) {
+    QElapsedTimer timer;timer.start();
+    const auto phase=[&](const char* name) {
+        if(qEnvironmentVariableIsSet("ZIMA_CPP_PROFILE_COMMAND"))std::fprintf(stderr,"Workspace scene %s: %.3f ms\n",name,timer.nsecsElapsed()/1e6);
+        timer.restart();
+    };
     // Whole-Origin entry still resolves each reference synchronously, but
     // publishes the resulting tree/mesh only after the complete selection.
     if (defer_reference_scene_refresh_) {
@@ -1128,7 +1135,7 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
             rebuild_application_toolbar();
             return;
         }
-        const auto& document = part->session.document();
+        const auto& document = body_dialog_preview_ ? *body_dialog_preview_ : part->session.document();
         if(!part->native_drawing_template&&!document.sketches.empty() && document.sketches.front().drawing_template) {
             const auto& sketch=document.sketches.front();
             if(active_sketch_id_!=sketch.id) {
@@ -1139,6 +1146,7 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
         const auto construction_dimension_geometry =
             part_construction_dimension_geometry(
                 document, part->session.calculated_boundaries());
+        phase("construction references");
         tree_->setHeaderLabels({QString{}});
         const bool active_sweep_profile_sketch = sweep_profile_sketch_draft_ &&
             sweep_profile_sketch_draft_->id == active_sketch_id_;
@@ -1689,8 +1697,10 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
             }
             if (!part->native_drawing_template)if (const auto* selected=template_sketch()) display = sketch_viewer_mesh(*selected);
             if(!properties_dialog_&&active_sketch_id_.empty())filter_hidden_body_geometry(display,document);
+            phase("display preparation");
             viewer_->set_mesh(std::move(display),
                 !preserve_view_on_refresh_ && active_sketch_id_.empty());
+            phase("viewer publication");
             preserve_view_on_refresh_ = false;
         } else {
             const auto& calculated = part->session.calculated_boundaries();
@@ -1704,7 +1714,13 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
             // refresh pay both copies.
             std::optional<zima::kernel::BodyResult> filtered_cursor_body;
             const zima::kernel::BodyResult* cursor_body = nullptr;
-            if (!document.body_history.bodies().empty()) {
+            const bool needs_cursor_mesh = !body_dialog_context_ || std::ranges::any_of(document.history,
+                [](const auto& feature){return feature.feature_kind==zima::document::FeatureKind::Hole;});
+            // Body previews assemble their own scene below. Only legacy Hole
+            // thread overlays consume this otherwise discarded cursor mesh.
+            if (!needs_cursor_mesh) {
+                cursor_body = nullptr;
+            } else if (!document.body_history.bodies().empty()) {
                 filtered_cursor_body.emplace();
                 filtered_cursor_body->mesh = part->session.body_context_mesh();
                 cursor_body = &*filtered_cursor_body;
@@ -1738,14 +1754,24 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
             // The filtered context belongs to this refresh; its source
             // consumers above have finished. Transfer it into the display.
             zima::kernel::ViewerMesh display;
-            if (filtered_cursor_body) display = std::move(filtered_cursor_body->mesh);
-            else if (cursor_body) display = cursor_body->mesh;
+            if (!body_dialog_context_) {
+                if (filtered_cursor_body) display = std::move(filtered_cursor_body->mesh);
+                else if (cursor_body) display = cursor_body->mesh;
+            }
             if (body_dialog_context_) {
-                display = {};
                 if (!calculated.empty()) for (const auto& id : *body_dialog_context_) {
                     const auto found = calculated.back().body_outputs.find(id);
                     if (found != calculated.back().body_outputs.end()) append_mesh(display, found->second->mesh);
                     else if(calculated.back().body_outputs.empty()&&body_dialog_context_->size()==1)append_mesh(display,calculated.back().mesh);
+                }
+                // Body placement edits move its complete calculated local packet.
+                // Reading the branch cache keeps import, topology and tessellation
+                // out of the preview path, including after source STEP deletion.
+                if (body_dialog_preview_ && !calculated.empty()) {
+                    const auto* edited = body_dialog_preview_->body_history.find(body_dialog_step_id_);
+                    const auto local = calculated.back().body_boundaries.find(body_dialog_step_id_);
+                    if (edited && !edited->link && local != calculated.back().body_boundaries.end() && !local->second.empty())
+                        append_mesh(display, body_dialog_preview_->place_body_mesh(local->second.back().mesh, body_dialog_step_id_));
                 }
             }
             // Retire only the base scene's automatic datums. Explicit reference
@@ -1827,8 +1853,10 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
             }
             if (!part->native_drawing_template)if (const auto* selected=template_sketch()) display = sketch_viewer_mesh(*selected);
             if(!properties_dialog_&&active_sketch_id_.empty())filter_hidden_body_geometry(display,document);
+            phase("display preparation");
             viewer_->set_mesh(std::move(display),
                 !preserve_view_on_refresh_ && active_sketch_id_.empty());
+            phase("viewer publication");
             preserve_view_on_refresh_ = false;
         }
         if (!document.body_history.bodies().empty() && properties_dialog_ == nullptr && active_sketch_id_.empty()) {
@@ -1977,8 +2005,10 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
         undo_action_->setEnabled(workspace::can_step_document_history(workspace_,workspace_.active_document_id(),workspace::HistoryDirection::Undo));
         redo_action_->setEnabled(workspace::can_step_document_history(workspace_,workspace_.active_document_id(),workspace::HistoryDirection::Redo));
         configure_sketch_box_selection(!active_sketch_id_.empty());
+        phase("Part actions");
         update_application_actions();
         rebuild_application_toolbar();
+        phase("Part toolbar");
         // The Part branch returns before the common Assembly tail below.
         // Re-assert the command-local Up-to contract after every Part scene
         // and toolbar refresh as well; otherwise a preview refresh leaves the
@@ -1988,7 +2018,9 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
         }
         publish_parameter_inspection(part,{});
         update_section_ui();
+        phase("Part sections");
         update_measurement_ui();
+        phase("Part completion");
         return;
     }
     const auto& document = assembly->session.document();

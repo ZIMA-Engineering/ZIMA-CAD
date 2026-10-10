@@ -8,6 +8,11 @@ namespace zima::kernel {
 
 struct SolidStraighteningPlan;
 
+struct FrozenStepComponent {
+    std::shared_ptr<const std::string> brep;
+    std::vector<StepRequest::TopologyIdentity> topology;
+};
+
 class OcctKernel final : public GeometryKernel {
 public:
     OcctKernel();
@@ -36,6 +41,10 @@ public:
         const std::string& owner_id, double mesh_deflection = 0.1) const;
     [[nodiscard]] std::vector<BodyResult> import_step_components(
         const std::vector<StepRequest>& requests, double mesh_deflection = 0.1) const;
+    // Capture native source geometry and identity bindings for the ordinary
+    // history evaluation, which prepares the final viewer and properties once.
+    [[nodiscard]] std::vector<FrozenStepComponent> freeze_step_components(
+        const std::vector<StepRequest>& requests) const;
     [[nodiscard]] BodyResult subtract_bodies(
         const BodyResult& target,
         const BodyResult& cutter,

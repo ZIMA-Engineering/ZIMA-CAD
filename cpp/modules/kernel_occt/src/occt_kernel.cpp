@@ -5655,10 +5655,14 @@ BodyResult make_result(
     bool parallel_corner_volume = false) {
     const bool profile_form=std::getenv("ZIMA_CPP_FORM_PROFILE")&&std::ranges::any_of(owned_faces,
         [](const auto& face){return face.reference.semantic_key.starts_with("form:");});
+    const bool imported_step=std::ranges::any_of(owned_faces,[](const auto& face){
+        return face.reference.semantic_key.starts_with("step:face:#");});
+    const bool profile_import=imported_step&&std::getenv("ZIMA_CPP_IMPORT_PROFILE");
     auto profile_start=std::chrono::steady_clock::now();
     const auto profile=[&](const char* phase) {
         const auto now=std::chrono::steady_clock::now();
         if(profile_form)std::fprintf(stderr,"FORM result %s: %.6f s\n",phase,std::chrono::duration<double>(now-profile_start).count());
+        if(profile_import)std::fprintf(stderr,"STEP result %s: %.6f s\n",phase,std::chrono::duration<double>(now-profile_start).count());
         profile_start=now;
     };
     Bnd_Box mesh_bounds;
@@ -5989,7 +5993,8 @@ BodyResult make_result(
                     face_references->reference_for(iterator.Value());
                 if (!face_reference.valid()) continue;
                 const bool form_side=symbolic_form_face(face_reference);
-                auto directions=form_side?form_inward_face_directions(edge,TopoDS::Face(iterator.Value()),sample_parameters):std::vector<Vec3>{};
+                const bool step_side=face_reference.semantic_key.starts_with("step:face:#");
+                auto directions=(form_side||step_side)?form_inward_face_directions(edge,TopoDS::Face(iterator.Value()),sample_parameters):std::vector<Vec3>{};
                 if(directions.empty())directions=sampled_inward_face_directions(
                     edge, TopoDS::Face(iterator.Value()), sample_parameters);
                 else if(verify_guides) {
@@ -6464,6 +6469,24 @@ std::vector<BodyResult> OcctKernel::import_step_components(
             }
         }
         results.push_back(std::move(result));
+    }
+    return results;
+}
+
+std::vector<FrozenStepComponent> OcctKernel::freeze_step_components(
+    const std::vector<StepRequest>& requests) const {
+    std::unordered_map<std::string, StepDocumentCache> documents;
+    std::vector<FrozenStepComponent> results;
+    results.reserve(requests.size());
+    for(std::size_t index=0;index<requests.size();++index) {
+        const auto& request=requests[index];
+        const std::string owner=request.reference_owner_id.empty()
+            ? "step-import:"+std::to_string(index):request.reference_owner_id;
+        const auto data=make_step_data(request,owner,documents);
+        BodyResult archive;
+        persist_imported_topology(data,archive);
+        results.push_back({std::make_shared<const std::string>(std::move(archive.kernel_shape)),
+            std::move(archive.imported_step_topology)});
     }
     return results;
 }

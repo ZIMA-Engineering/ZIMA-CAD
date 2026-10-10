@@ -144,6 +144,9 @@ void AssemblyWorkspaceWindow::update_measurement_ui(){
     // Sketcher owns its tree. Document analysis belongs to the model history.
     if(!active_sketch_id_.empty()||(!part&&!assembly))return;
     const auto& rows=part?part->session.document().measurements:assembly->session.document().measurements;
+    // Reference availability is consumed only by saved measurement rows.
+    // Avoid indexing an entire imported model when no such row exists.
+    if(rows.empty())return;
     auto* root=tree_->topLevelItem(0);if(!root)return;
     using Key=std::tuple<std::string,std::string,std::string>;std::set<Key> available;
     const auto add=[&](const auto& source){

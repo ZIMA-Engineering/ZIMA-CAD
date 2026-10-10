@@ -6,6 +6,9 @@
 #include <zima/sketcher/sketch.hpp>
 #include <zima/viewer/picking.hpp>
 #include <zima/workspace/workspace.hpp>
+#include <zima/document/viewer_packet_json.hpp>
+#include <zima/document/body_origin_attachment.hpp>
+#include <fstream>
 
 #include <algorithm>
 #include <chrono>
@@ -330,6 +333,71 @@ std::size_t mobility_component_count(const zima::sketcher::Sketch& sketch) {
 }  // namespace
 
 int main(int argc, char** argv) {
+    if(argc==4&&std::string_view(argv[1])=="--packet-part") {
+        try {
+            std::ifstream input(std::filesystem::u8path(argv[2]),std::ios::binary);nlohmann::json packet;input>>packet;
+            auto local=zima::document::load_body_result(packet);
+            auto document=zima::document::PartDocument::create_default();document.history.clear();document.history_order.clear();
+            auto feature=zima::document::PartDocument::create_imported_step_container("captured-diagnostic.step");
+            feature.id=local.mesh.original_references.triangle_references.at(0).owner_id;
+            feature.feature_parent_id=feature.id;
+            feature.container_origin=zima::document::create_container_origin(feature.id);
+            feature.imported_step.frozen_brep=std::make_shared<const std::string>(local.kernel_shape);
+            feature.imported_step.topology=local.imported_step_topology;
+            document.history.push_back(feature);
+            zima::document::BodyHistoryGraph graph;
+            const auto body_id=zima::document::create_origin_bound_body(graph,document.document_id,"Imported stress Body");
+            graph.insert({zima::document::PartHistoryKind::Feature,feature.id});document.set_body_history(graph);
+            const auto branch=document.body_document(body_id).kernel_operations();
+            local.source_fingerprint=zima::kernel::history_fingerprint(branch,branch.size());
+            auto result=local;result.body_boundaries[body_id]={local};result.body_outputs[body_id]=local;
+            const auto operations=document.kernel_operations();
+            result.source_fingerprint=zima::kernel::history_fingerprint(operations,operations.size());
+            document.save(std::filesystem::u8path(argv[3]),{result});
+            std::cout<<"Saved diagnostic Part from the captured native packet; Body="<<body_id<<" feature="<<feature.id<<'\n';return 0;
+        }catch(const std::exception& error){std::cerr<<error.what()<<'\n';return 1;}
+    }
+    if(argc==3&&std::string_view(argv[1])=="--packet-picking") {
+        try {
+            std::ifstream input(std::filesystem::u8path(argv[2]),std::ios::binary);
+            nlohmann::json packet;input>>packet;
+            const auto body=zima::document::load_body_result(packet);
+            const auto& mesh=body.mesh;
+            zima::kernel::ViewerMesh references;
+            references.vertices=mesh.original_references.vertices;references.triangles=mesh.original_references.triangles;
+            references.triangle_references=mesh.original_references.triangle_references;references.edges=mesh.original_references.edges;
+            references.points=mesh.original_references.points;references.axes=mesh.original_references.axes;
+            const auto build_start=Clock::now();
+            const zima::viewer::PickingIndex display_index(mesh),reference_index(references);
+            const double build_ms=std::chrono::duration<double,std::milli>(Clock::now()-build_start).count();
+            auto lo=mesh.vertices.at(0),hi=lo;
+            for(auto v:mesh.vertices){lo={std::min(lo.x,v.x),std::min(lo.y,v.y),std::min(lo.z,v.z)};hi={std::max(hi.x,v.x),std::max(hi.y,v.y),std::max(hi.z,v.z)};}
+            double old_ms=0,new_ms=0;std::size_t tested=0,culled=0,hits=0;
+            for(int axis=0;axis<3;++axis)for(int a=0;a<5;++a)for(int b=0;b<5;++b) {
+                const std::array low{lo.x,lo.y,lo.z},high{hi.x,hi.y,hi.z};
+                std::array<double,3> origin{},direction{};direction[axis]=1;
+                origin[axis]=low[axis]-std::max(1.,high[axis]-low[axis]);
+                origin[(axis+1)%3]=low[(axis+1)%3]+(high[(axis+1)%3]-low[(axis+1)%3])*(a+.5)/5;
+                origin[(axis+2)%3]=low[(axis+2)%3]+(high[(axis+2)%3]-low[(axis+2)%3])*(b+.5)/5;
+                const zima::kernel::Vec3 o{origin[0],origin[1],origin[2]},d{direction[0],direction[1],direction[2]};
+                const double tolerance=std::max(1e-6,std::hypot(hi.x-lo.x,hi.y-lo.y,hi.z-lo.z)*1e-4);
+                const auto start=Clock::now();
+                const auto expected=zima::viewer::ordered_viewer_candidates(mesh,references,o,d,tolerance,false,false,false);
+                const auto middle=Clock::now();
+                const auto actual=zima::viewer::ordered_viewer_candidates(mesh,references,o,d,tolerance,false,false,false,&display_index,&reference_index);
+                const auto end=Clock::now();
+                if(expected!=actual)throw std::runtime_error("Accelerated picker changed complete ordered candidates");
+                old_ms+=std::chrono::duration<double,std::milli>(middle-start).count();new_ms+=std::chrono::duration<double,std::milli>(end-middle).count();
+                tested+=mesh.triangles.size()/3+references.triangles.size()/3;
+                culled+=display_index.triangles(o,d).size()+reference_index.triangles(o,d).size();hits+=actual.size();
+            }
+            std::cout<<"Packet picking: 75 rays, candidates="<<hits<<" triangles="<<mesh.triangles.size()/3
+                <<" reference_triangles="<<references.triangles.size()/3<<" build_ms="<<build_ms
+                <<" exhaustive_mean_ms="<<old_ms/75<<" indexed_mean_ms="<<new_ms/75
+                <<" exact_triangle_slots="<<culled<<" exhaustive_triangle_slots="<<tested<<"; complete ordered candidates equal\n";
+            return 0;
+        }catch(const std::exception& error){std::cerr<<error.what()<<'\n';return 1;}
+    }
     if (argc == 3 && std::string_view(argv[1]) == "--step") {
         try {
             return step_benchmark(argv[2]);

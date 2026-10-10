@@ -85,12 +85,12 @@ StepImportedPart import_step_part(document::PartDocument doc,
     }
     if(requests.empty())throw std::runtime_error("STEP neobsahuje žádné díly");
     kernel::OcctKernel kernel;
-    auto frozen=kernel.import_step_components(requests,mesh_deflection.value_or(document::precision_value(doc.document_precision,"mesh_deflection",0.1)));
+    auto frozen=kernel.freeze_step_components(requests);
     std::size_t index=0;
     for(const auto& node:nodes)if(!node.assembly) {
         auto container=std::move(containers.at(index));
-        container.imported_step.frozen_brep=std::make_shared<const std::string>(frozen.at(index).kernel_shape);
-        container.imported_step.topology=std::move(frozen.at(index).imported_step_topology);
+        container.imported_step.frozen_brep=std::move(frozen.at(index).brep);
+        container.imported_step.topology=std::move(frozen.at(index).topology);
         insert_body(doc,std::move(container),node,true,index);++index;
     }
     auto calculated=kernel.evaluate_history_incremental(doc.kernel_operations(),previous);
@@ -115,12 +115,12 @@ StepAssemblyImport import_step_assembly(const std::filesystem::path& source,
         requests.push_back({document::path_to_utf8(absolute),node.definition_id,{},{},container.id});containers.push_back(std::move(container));
     }
     kernel::OcctKernel kernel;
-    auto frozen=kernel.import_step_components(requests,mesh_deflection.value_or(document::precision_value(precision,"mesh_deflection",0.1)));
+    auto frozen=kernel.freeze_step_components(requests);
     for(std::size_t i=0;i<unique_parts.size();++i) {
         auto doc=document::PartDocument::create_default();doc.name=unique_parts[i]->definition_name;doc.document_precision=precision;
         auto container=std::move(containers[i]);
-        container.imported_step.frozen_brep=std::make_shared<const std::string>(frozen[i].kernel_shape);
-        container.imported_step.topology=std::move(frozen[i].imported_step_topology);
+        container.imported_step.frozen_brep=std::move(frozen[i].brep);
+        container.imported_step.topology=std::move(frozen[i].topology);
         insert_body(doc,std::move(container),*unique_parts[i],false);
         auto calculated=kernel.evaluate_history(doc.kernel_operations());
         result.parts.push_back({std::move(doc),std::move(calculated),directory/("part-"+std::to_string(i+1)+".prtz")});

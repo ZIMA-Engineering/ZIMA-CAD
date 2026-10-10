@@ -701,6 +701,20 @@ if(ZIMA_BUILD_TESTS)
         ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_HELICAL_SWEEP_ONLY=1"
         WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 120)
     add_test(NAME zima_cpp_owned_point_ui_contract COMMAND zima-cad-cpp --verify-startup)
+    add_test(NAME zima_cpp_import_interaction_ui_contract COMMAND zima-cad-cpp --verify-startup
+        --working-directory=Projects/test/import-interaction)
+    set_tests_properties(zima_cpp_import_interaction_ui_contract PROPERTIES
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_IMPORTED_BODY_ONLY=1"
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 180 RUN_SERIAL TRUE)
+    add_test(NAME zima_cpp_import_extrusion_ui_contract COMMAND zima-cad-cpp --verify-startup
+        --working-directory=Projects/test/import-extrusion)
+    set_tests_properties(zima_cpp_import_extrusion_ui_contract PROPERTIES
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_IMPORTED_BODY_ONLY=1;ZIMA_VERIFY_IMPORT_EXTRUSION_ONLY=1"
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 180 RUN_SERIAL TRUE)
+    add_test(NAME zima_cpp_body_preview_ui_contract COMMAND zima-cad-cpp --verify-startup)
+    set_tests_properties(zima_cpp_body_preview_ui_contract PROPERTIES
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_BODY_UI_ONLY=1;ZIMA_VERIFY_BODY_PREVIEW_ONLY=1"
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 180 RUN_SERIAL TRUE)
     set_tests_properties(zima_cpp_owned_point_ui_contract PROPERTIES
         ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_BODY_CURVE_REFERENCE_ONLY=1"
         WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 120 RUN_SERIAL TRUE)

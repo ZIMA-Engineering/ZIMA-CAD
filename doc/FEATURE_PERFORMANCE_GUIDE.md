@@ -107,5 +107,14 @@ Windows runtime rules for builds and releases; Linux verification belongs on Lin
   memoize exact locators within one immutable operation; compare complete large
   packets, and discard promising experiments when controlled timings show no gain.
 
+- [Imported-model interaction](performance/20261010-import-interaction-investigation.md):
+  index the common picker while preserving the complete ordered candidate list,
+  retain complete Body geometry in placement previews, and invalidate bounded
+  reference/face caches from their actual inputs.
+- [STEP loading and Extrusion](performance/20261010-step-load-and-extrusion.md):
+  archive imported source geometry before one final history preparation, avoid
+  unused measurement/section reference indexes, and retain GPU preparation only
+  when its exact geometric inputs remain unchanged.
+
 These are patterns to evaluate, not feature lists to copy blindly. Their reported
 percentages apply only to the recorded operations and fixtures.
