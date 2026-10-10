@@ -1,5 +1,45 @@
 # Linux build and distribution handoff — 2026-09-15
 
+## Approved Windows/Linux parity follow-up (2026-10-10)
+
+The user approved sequential investigation of the G92K1 crash, repeated STEP
+reading, large-model rotation performance, and cross-platform calculated-model
+behavior. Windows investigation and shared C++ changes come first. The user
+will reboot this computer into Linux, fetch the committed changes from GitHub,
+and continue Linux verification in that session. Do not install WSL or treat
+Windows checks as Linux acceptance. Native Linux execution is explicitly pending.
+
+After the reboot:
+
+1. Fetch the completed work from `ZIMA-Engineering/ZIMA-CAD`, record the exact
+   source commit, and read this handoff plus the linked Windows investigation
+   records. Preserve local configuration and projects when updating the checkout.
+2. Build with the native Linux SDK and the same pinned OCCT 8.0.0 source. Record
+   compiler, Qt and kernel versions; run the affected native and GUI contracts
+   described by the completed Windows changes.
+3. Open Windows-calculated native Parts and Assemblies without regeneration.
+   Start with the factory `VentilationWindow.prtz` asset whose Linux/Windows
+   fingerprint mismatch is documented below, then include imported geometry and
+   dependent/external references. Opening or switching tabs must not calculate
+   bodies, change authored data, or create an Undo transaction.
+4. Verify native save/reopen and explicit regeneration in both directions.
+   Compare the geometry, physical properties, persistent owners/semantic keys,
+   occurrence paths, original-face ancestry and geometry-side choices at the
+   affected history boundaries. Test both sides and zero offsets where relevant;
+   preserve meaningful signed zero. Verify cache invalidation after real source
+   changes and rejection of genuinely stale or corrupt calculated data.
+5. Run representative STEP loading and rotation measurements on Linux using
+   the same inputs and defined operation scopes. Record platform-specific
+   timings separately. Do not infer speed or rendering correctness from Windows.
+6. Record actual Linux results and any remaining gaps in English. Publication
+   of a Linux version requires its own build identity and native packaging gates;
+   an existing published Windows archive must remain immutable.
+
+Keep one shared modeling implementation. Do not solve a fingerprint mismatch
+by ignoring validation, reducing precision, globally normalizing numeric data,
+or introducing Windows/Linux variants of modeling algorithms. The exact final
+source commit, fixture paths and commands will accompany the completed work.
+
 ## Imported-model performance and factory cache follow-up (2026-10-10)
 
 The shared Windows 2026101001 changes preserve the full imported Body during
