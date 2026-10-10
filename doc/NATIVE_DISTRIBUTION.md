@@ -2,6 +2,18 @@
 
 ## Scope and status
 
+Windows build **2026101101** is signed, published and independently verified.
+It includes the STEP/kernel, rigid Body placement, calculated-model parity and
+angular-dimension repairs from the unpublished 1003 source candidate, plus lazy
+complete references and exact validated viewer connectivity reuse. Eighteen
+selected dependent contracts, the seventeen-case cache contract, 200 synthetic
+and thirteen product renderer comparisons and eight signed-package GUI scenarios
+pass. Candidate/signed native smoke, production trust, three public asset digests
+and installable update discovery from 2026101002 pass. The full GUI 0.5-second
+movement target remains unmet; existing spatial-Sweep nonconvergence and G92K1
+physical-integration discrepancy remain explicit gaps. Shared native Linux
+execution is pending the user's reboot. See [the release record](releases/2026101101.md).
+
 Windows build **2026101002** is signed, published and independently verified.
 It adds localized parent Origin icons and Windows Codex executable recovery;
 the import/Extrusion improvements from 2026101001 are retained. Thirteen focused

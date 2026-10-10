@@ -1,5 +1,12 @@
 # Application updates
 
+Signed Windows [2026101101](releases/2026101101.md) was published at
+`2026-10-10T23:11:52Z`. Clean committed-source and signed native smoke,
+production trust, eight packaged GUI scenarios and all three anonymous public
+asset hashes pass. The trusted 2026101002 updater offers 1101 as installable
+without installing it during verification. Tags and published assets are
+immutable; Linux acceptance remains separate.
+
 Signed Windows [2026100905](releases/2026100905.md) was published at
 2026-10-09T12:22:49Z. Candidate/signed native smoke, production trust, seven
 packaged GUI scenarios and anonymous public asset hashes pass. The trusted

@@ -262,7 +262,7 @@ calculation-proof tests are rerun, and the complete large Body matrix is repeate
 with a 3,600-second limit and separate confirmation/save/Undo/Redo timings.
 Actual product-file before/after measurements and final acceptance follow below.
 
-### Rigid Body movement (work in progress)
+### Rigid Body movement: initial investigation
 
 The user's target is at most 0.5 seconds for ordinary position changes. A Body
 owns already calculated local geometry relative to its Origin. The traced
@@ -270,7 +270,7 @@ confirmation path nevertheless read its opaque BRep, transformed/copied it,
 serialized the placed solid, read that solid again and serialized the final
 Part compound. Local STEP geometry did not need recalculation for that motion.
 
-The pending fix stores lossless ordered rigid placements alongside the opaque
+The implemented fix stores lossless ordered rigid placements alongside the opaque
 local solid. A Part aggregate names its ordered, self-contained calculated
 Body outputs rather than rewriting a compound archive during every move.
 Kernel operations and exports materialize this recipe using the existing
@@ -282,9 +282,10 @@ reuses its existing geometry table instead of duplicating compound operands.
 
 Finite native tests compare the materialized result against an independent
 eager transform, local archive and reference retention, actual viewer vertices,
-physical properties and recipe save/reopen. GUI latency, dependency tests,
-factory-template regeneration and final acceptance are pending. No claim that
-the 0.5-second target has been achieved follows from the current implementation.
+physical properties and recipe save/reopen. At this initial stage GUI latency,
+dependency tests, factory-template regeneration and final acceptance remained
+pending; their subsequent results are recorded below. The complete GUI target
+of 0.5 seconds remains unmet.
 
 The cross-platform calculation proof is described in
 [calculated-model parity](../CALCULATED_MODEL_PARITY.md); Drawing angular text is
@@ -301,7 +302,7 @@ Windows publication requires the committed-source, dependency, archive,
 signature and extracted-runtime checks recorded in the release notes.
 
 
-### Rigid Body follow-up: cold reuse and immutable data (in progress)
+### Rigid Body follow-up: cold reuse and immutable data
 
 On the complete product-native G92H1-T fixture, an independent preflight
 resolution changed the imported feature's resolved pitch from `+0.0` to `-0.0`.
@@ -347,13 +348,14 @@ matching prefix packet; requests for live original faces or solid operands
 still use the established evaluator. Four focused native suites passed,
 including repeated translated/rotated import movement after deleting the source
 STEP and exact unchanged local geometry. A scoped analytic-surface transform
-cache is also being verified: it reuses only the same retained surface pointer
+cache was also verified: it reuses only the same retained surface pointer
 within one invocation with identical transform inputs. It preserves all scalar
 equations, orientation and side metadata. Full dependent rebuilds, GUI timings,
-Undo/Redo, native round-trip, factory templates and renderer comparisons remain
-pending for this stage. The requested 0.5-second target is not yet achieved.
+Undo/Redo, native round-trip, factory templates and renderer comparisons were
+pending at this intermediate stage; subsequent acceptance is recorded below.
+The requested 0.5-second GUI target remains unmet.
 
-### Bounded reference preparation during rigid confirmation (in progress)
+### Bounded reference preparation during rigid confirmation
 
 For documents containing only independent numeric STEP features, the explicit
 reference-settling pass now selects every referenced Body face/edge/point/axis
