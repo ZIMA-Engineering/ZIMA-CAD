@@ -2,6 +2,19 @@
 
 ## Scope and status
 
+Signed Linux [2026101107](releases/2026101107.md) was published at
+`2026-10-11T18:13:03Z` for Debian 13 x86_64 / KDE. It receives the shared Windows
+1106 handoff with patched OCCT 8.0.0 and exact verified FORM surface reuse across
+platforms. The focused native and finite FORM/contact/desktop matrices, both
+G92 imports, large-model Body/Extrusion/rotation checks, seven packaged GUI
+contracts across Wayland/XWayland, candidate/signed native smoke, all 21 factory
+assets, production trust and installable discovery from signed Linux 0908 pass.
+Packaged arc Wayland runs retain inline-editor/hover failures; all 48 pass
+XWayland. Remaining geometry, hidden-Body, dimension/general-GUI, G92K1 accuracy
+and complete 0.5-second interaction gaps remain explicit. Windows execution of
+the receiving Linux fix is unverified. See
+[finite verification](verification/2026101107-linux.json).
+
 Signed Windows [2026101106](releases/2026101106.md) was published at
 `2026-10-11T16:12:53Z`. The ordinary FORM library offers only the completed
 outward corner and Window, preserving original inward controls outside the

@@ -1,0 +1,621 @@
+{
+  "build": "2026101107",
+  "source_commit": "dc64545574a899214ca534c61c6b474a9318790e",
+  "host": {
+    "distribution": "Debian 13.6 x86_64",
+    "qt": "6.8.2",
+    "compiler": "GCC 14.2.0",
+    "occt": "8.0.0",
+    "desktop": "KDE Wayland"
+  },
+  "finite_batches": {
+    "native-final": [
+      {
+        "name": "zima_cpp_import_model_contract_tests",
+        "exit_code": 0,
+        "elapsed_seconds": 0.416
+      },
+      {
+        "name": "zima_cpp_step_model_contract_tests",
+        "exit_code": 0,
+        "elapsed_seconds": 0.971
+      },
+      {
+        "name": "zima_cpp_occt_gauss_interval_contract_tests",
+        "exit_code": 0,
+        "elapsed_seconds": 0.72
+      },
+      {
+        "name": "zima_cpp_step_parallel_properties_tests",
+        "exit_code": 0,
+        "elapsed_seconds": 1.675
+      },
+      {
+        "name": "zima_cpp_cache_storage_contract_tests",
+        "exit_code": 0,
+        "elapsed_seconds": 0.018
+      },
+      {
+        "name": "zima_cpp_history_deletion_tests",
+        "exit_code": 0,
+        "elapsed_seconds": 0.869
+      },
+      {
+        "name": "zima_cpp_multibody_contract_tests",
+        "exit_code": 0,
+        "elapsed_seconds": 0.77
+      },
+      {
+        "name": "zima_cpp_translations_contract",
+        "exit_code": 0,
+        "elapsed_seconds": 6.15
+      },
+      {
+        "name": "zima_cpp_mesh_surface_placement_tests",
+        "exit_code": 0,
+        "elapsed_seconds": 0.217
+      },
+      {
+        "name": "zima_cpp_curve_placement_contract_tests",
+        "exit_code": 0,
+        "elapsed_seconds": 0.719
+      },
+      {
+        "name": "zima_cpp_assembly_contract_tests",
+        "exit_code": 0,
+        "elapsed_seconds": 0.418
+      },
+      {
+        "name": "zima_cpp_sketch_serialization_tests",
+        "exit_code": 0,
+        "elapsed_seconds": 0.167
+      },
+      {
+        "name": "zima_cpp_sketcher_contract_tests",
+        "exit_code": 0,
+        "elapsed_seconds": 5.758
+      },
+      {
+        "name": "zima_cpp_native_tangent_contact_tests",
+        "exit_code": 0,
+        "elapsed_seconds": 0.116
+      },
+      {
+        "name": "zima_cpp_native_arc_axis_tests",
+        "exit_code": 0,
+        "elapsed_seconds": 1.778
+      },
+      {
+        "name": "zima_cpp_sketch_keypoint_contact_tests",
+        "exit_code": 0,
+        "elapsed_seconds": 0.872
+      },
+      {
+        "name": "zima_cpp_native_documents_tests",
+        "exit_code": 0,
+        "elapsed_seconds": 0.669
+      },
+      {
+        "name": "zima_cpp_reference_geometry_transform_tests",
+        "exit_code": 0,
+        "elapsed_seconds": 0.034
+      },
+      {
+        "name": "zima_cpp_body_link_tests",
+        "exit_code": 0,
+        "elapsed_seconds": 0.216
+      },
+      {
+        "name": "zima_cpp_body_scale_tests",
+        "exit_code": 0,
+        "elapsed_seconds": 0.367
+      },
+      {
+        "name": "zima_cpp_sketch_reference_command_tests",
+        "exit_code": 0,
+        "elapsed_seconds": 0.517
+      },
+      {
+        "name": "zima_cpp_sketch_dimension_command_tests",
+        "exit_code": 0,
+        "elapsed_seconds": 0.469
+      },
+      {
+        "name": "zima_cpp_sketch_relation_command_tests",
+        "exit_code": 0,
+        "elapsed_seconds": 0.117
+      },
+      {
+        "name": "zima_cpp_sketch_mirror_tangent_tests",
+        "exit_code": 0,
+        "elapsed_seconds": 1.676
+      },
+      {
+        "name": "zima_cpp_sketch_curve_command_tests",
+        "exit_code": 0,
+        "elapsed_seconds": 0.116
+      },
+      {
+        "name": "zima_cpp_body_command_tests",
+        "exit_code": 0,
+        "elapsed_seconds": 0.618
+      },
+      {
+        "name": "zima_cpp_placement_reference_removal_tests",
+        "exit_code": 0,
+        "elapsed_seconds": 1.325
+      },
+      {
+        "name": "zima_cpp_placement_reference_assignment_tests",
+        "exit_code": 0,
+        "elapsed_seconds": 0.116
+      },
+      {
+        "name": "zima_cpp_placement_command_tests",
+        "exit_code": 0,
+        "elapsed_seconds": 0.87
+      },
+      {
+        "name": "zima_cpp_shell_command_tests",
+        "exit_code": 0,
+        "elapsed_seconds": 1.021
+      },
+      {
+        "name": "zima_cpp_sheet_form_definition_tests",
+        "exit_code": 0,
+        "elapsed_seconds": 104.627
+      },
+      {
+        "name": "zima_cpp_sheet_form_command_tests",
+        "exit_code": 0,
+        "elapsed_seconds": 32.187
+      },
+      {
+        "name": "zima_cpp_factory_finished_corner_tests",
+        "exit_code": 0,
+        "elapsed_seconds": 2.785
+      },
+      {
+        "name": "zima_cpp_factory_outward_window_tests",
+        "exit_code": 0,
+        "elapsed_seconds": 12.856
+      },
+      {
+        "name": "zima_cpp_surface_thicken_tests",
+        "exit_code": 0,
+        "elapsed_seconds": 13.265
+      }
+    ],
+    "native-corner": [
+      {
+        "name": "zima_cpp_corner_form_roundtrip_copy_tests",
+        "exit_code": 0,
+        "elapsed_seconds": 80.689
+      },
+      {
+        "name": "zima_cpp_corner_form_workspace_copy_tests",
+        "exit_code": 0,
+        "elapsed_seconds": 122.841
+      },
+      {
+        "name": "zima_cpp_corner_form_range_0.5_2",
+        "exit_code": 0,
+        "elapsed_seconds": 3.892
+      },
+      {
+        "name": "zima_cpp_corner_form_range_1_2",
+        "exit_code": 0,
+        "elapsed_seconds": 4.544
+      },
+      {
+        "name": "zima_cpp_corner_form_range_2_4",
+        "exit_code": 0,
+        "elapsed_seconds": 4.402
+      },
+      {
+        "name": "zima_cpp_corner_form_range_3_6",
+        "exit_code": 0,
+        "elapsed_seconds": 4.548
+      },
+      {
+        "name": "zima_cpp_corner_form_tight_0.5",
+        "exit_code": 0,
+        "elapsed_seconds": 4.09
+      },
+      {
+        "name": "zima_cpp_corner_form_tight_1",
+        "exit_code": 0,
+        "elapsed_seconds": 3.94
+      },
+      {
+        "name": "zima_cpp_corner_form_tight_2",
+        "exit_code": 0,
+        "elapsed_seconds": 4.193
+      },
+      {
+        "name": "zima_cpp_corner_form_tight_3",
+        "exit_code": 0,
+        "elapsed_seconds": 4.287
+      },
+      {
+        "name": "zima_cpp_corner_form_tight_4",
+        "exit_code": 0,
+        "elapsed_seconds": 4.396
+      }
+    ],
+    "native-more": [
+      {
+        "name": "zima_cpp_sweep2d_contract_tests",
+        "exit_code": 0,
+        "elapsed_seconds": 28.238
+      },
+      {
+        "name": "zima_cpp_curve3d_sweep_contract_tests",
+        "exit_code": 0,
+        "elapsed_seconds": 19.679
+      },
+      {
+        "name": "zima_cpp_viewer_contract_tests",
+        "exit_code": 0,
+        "elapsed_seconds": 0.116
+      },
+      {
+        "name": "zima_cpp_dimension_layout_contract_tests",
+        "exit_code": 1,
+        "elapsed_seconds": 0.217
+      },
+      {
+        "name": "zima_cpp_boundary_surface_tests",
+        "exit_code": 0,
+        "elapsed_seconds": 86.344
+      }
+    ],
+    "desktop": [
+      {
+        "name": "zima_cpp_silhouette_connectivity_contract",
+        "exit_code": 1,
+        "elapsed_seconds": 0.267
+      },
+      {
+        "name": "zima_cpp_import_interaction_ui_contract",
+        "exit_code": 0,
+        "elapsed_seconds": 3.433
+      },
+      {
+        "name": "zima_cpp_ui_contract_tests",
+        "exit_code": 1,
+        "elapsed_seconds": 0.417
+      },
+      {
+        "name": "zima_cpp_file_dialog_contract_tests",
+        "exit_code": 0,
+        "elapsed_seconds": 12.523
+      },
+      {
+        "name": "zima_cpp_tree_branches_ui_contract",
+        "exit_code": 0,
+        "elapsed_seconds": 0.265
+      },
+      {
+        "name": "zima_cpp_curve_presentation_ui_contract",
+        "exit_code": 0,
+        "elapsed_seconds": 1.271
+      },
+      {
+        "name": "zima_cpp_point_marker_colors_contract",
+        "exit_code": 0,
+        "elapsed_seconds": 2.073
+      },
+      {
+        "name": "zima_cpp_feature_axis_highlight_contract",
+        "exit_code": 0,
+        "elapsed_seconds": 1.47
+      },
+      {
+        "name": "zima_cpp_native_tangent_contact_ui_contract",
+        "exit_code": 0,
+        "elapsed_seconds": 68.294
+      },
+      {
+        "name": "zima_cpp_native_arc_axis_ui_contract",
+        "exit_code": 0,
+        "elapsed_seconds": 504.842
+      },
+      {
+        "name": "zima_cpp_sketch_keypoint_contact_ui_contract",
+        "exit_code": 0,
+        "elapsed_seconds": 43.017
+      },
+      {
+        "name": "zima_cpp_surface_placement_ui_contract",
+        "exit_code": 0,
+        "elapsed_seconds": 21.317
+      },
+      {
+        "name": "zima_cpp_edge_treatment_ui_contract",
+        "exit_code": 0,
+        "elapsed_seconds": 70.889
+      },
+      {
+        "name": "zima_cpp_treatment_selection_ui_contract",
+        "exit_code": 0,
+        "elapsed_seconds": 1.978
+      },
+      {
+        "name": "zima_cpp_new_document_options_ui_contract",
+        "exit_code": 0,
+        "elapsed_seconds": 32.376
+      },
+      {
+        "name": "zima_cpp_history_deletion_ui_contract",
+        "exit_code": 0,
+        "elapsed_seconds": 7.77
+      },
+      {
+        "name": "zima_cpp_application_tools_ui_contract",
+        "exit_code": 0,
+        "elapsed_seconds": 33.696
+      },
+      {
+        "name": "zima_cpp_sketch_dimension_entry_ui_contract",
+        "exit_code": 0,
+        "elapsed_seconds": 24.079
+      },
+      {
+        "name": "zima_cpp_sketch_common_tangent_ui_contract",
+        "exit_code": 0,
+        "elapsed_seconds": 76.107
+      },
+      {
+        "name": "zima_cpp_sheet_form_ui_contract",
+        "exit_code": 0,
+        "elapsed_seconds": 89.804
+      },
+      {
+        "name": "zima_cpp_boundary_surface_ui_contract",
+        "exit_code": 1,
+        "elapsed_seconds": 10.534
+      },
+      {
+        "name": "zima_cpp_corner_form_ui_contract",
+        "exit_code": 0,
+        "elapsed_seconds": 46.916
+      }
+    ],
+    "desktop-followup": [
+      {
+        "name": "zima_cpp_section_ui_contract",
+        "exit_code": 0,
+        "elapsed_seconds": 23.147
+      },
+      {
+        "name": "zima_cpp_measurement_dimension_ui_contract",
+        "exit_code": 0,
+        "elapsed_seconds": 7.303
+      },
+      {
+        "name": "zima_cpp_dimension_layout_contract_tests",
+        "exit_code": 1,
+        "elapsed_seconds": 0.77
+      },
+      {
+        "name": "zima_cpp_boundary_surface_ui_contract",
+        "exit_code": 0,
+        "elapsed_seconds": 12.379
+      }
+    ],
+    "desktop-large": [
+      {
+        "name": "zima_cpp_import_interaction_ui_contract",
+        "exit_code": 1,
+        "elapsed_seconds": 495.395
+      },
+      {
+        "name": "zima_cpp_import_extrusion_ui_contract",
+        "exit_code": 0,
+        "elapsed_seconds": 58.391
+      }
+    ],
+    "desktop-large-placement": [
+      {
+        "name": "zima_cpp_import_interaction_ui_contract",
+        "exit_code": 0,
+        "elapsed_seconds": 183.02
+      }
+    ]
+  },
+  "rotation": {
+    "exit_code": 0,
+    "real_model": "G92H1-T",
+    "configurations": 30,
+    "configuration_median_ms_range": [
+      31.111,
+      608.345
+    ],
+    "interactive_changes": [
+      "pan",
+      "zoom",
+      "tiny rotation",
+      "perspective",
+      "changed mesh",
+      "empty mesh",
+      "restored mesh"
+    ]
+  },
+  "packaging_unit_tests": {
+    "passed": 10,
+    "platform_skipped": 1
+  },
+  "publisher_unit_tests": {
+    "passed": 16
+  },
+  "isolated_updater_tests": {
+    "passed": 23
+  },
+  "notes": [
+    "Batch prefixes identify the received 1106 build; product changes and release identity are 1107.",
+    "These are finite matrices, not exhaustive Sketcher acceptance.",
+    "The initial large-body suite failed its final fixed-pixel pick after moving/reopening; a fresh dynamic placement-only fixture passed.",
+    "Hidden Body activation remains failing.",
+    "Shared Windows execution of the Linux receiving fix was not performed."
+  ],
+  "fresh_form_observations": {
+    "repetitions_per_variant": 5,
+    "thickness_mm": 1,
+    "radius_mm": 2,
+    "kernel_median_seconds": {
+      "corner_current": 0.689946,
+      "corner_inward_control": 0.921702,
+      "window_current": 1.26674,
+      "window_inward_control": 1.17831
+    },
+    "limits": "Fresh processes, shared library/page caches can remain warm. Desktop acceptance overlapped. Styles intentionally differ; these are observations, not equivalent-output speedup ratios. Kernel timing excludes fixture preparation and independent validation; not whole GUI timing."
+  },
+  "packaged-gui": [
+    {
+      "name": "zima_cpp_native_tangent_contact_ui_contract",
+      "code": 0,
+      "seconds": 64.9423193700004
+    },
+    {
+      "name": "zima_cpp_native_arc_axis_ui_contract",
+      "code": 1,
+      "seconds": 281.40234556199994
+    },
+    {
+      "name": "zima_cpp_sketch_keypoint_contact_ui_contract",
+      "code": 1,
+      "seconds": 32.93496255900027
+    },
+    {
+      "name": "zima_cpp_template_ui_contract",
+      "code": 2,
+      "seconds": 0.4161467100002483
+    },
+    {
+      "name": "zima_cpp_sheet_form_ui_contract",
+      "code": 0,
+      "seconds": 82.68578007699944
+    },
+    {
+      "name": "zima_cpp_boundary_surface_ui_contract",
+      "code": 0,
+      "seconds": 12.727822406000087
+    },
+    {
+      "name": "zima_cpp_corner_form_ui_contract",
+      "code": 1,
+      "seconds": 58.17351358399992
+    }
+  ],
+  "packaged-gui-followup": [
+    {
+      "name": "zima_cpp_native_arc_axis_ui_contract",
+      "code": 1,
+      "seconds": 40.42540074499993
+    },
+    {
+      "name": "zima_cpp_sketch_keypoint_contact_ui_contract",
+      "code": 0,
+      "seconds": 41.26882980500068
+    },
+    {
+      "name": "zima_cpp_template_ui_contract",
+      "code": 0,
+      "seconds": 11.29009959599989
+    },
+    {
+      "name": "zima_cpp_corner_form_ui_contract",
+      "code": 0,
+      "seconds": 43.851755773999685
+    }
+  ],
+  "packaged_fixture_notes": [
+    "Initial runtime cwd omitted source-only template fixtures; corrected cwd is bundled source.",
+    "Both initial and corrected Wayland original packaged inventories were unchanged.",
+    "Tangent, C+K, templates in five languages, Window, Boundary and corner passed packaged GUI checks.",
+    "All 48 packaged arc scenarios pass XWayland in 497.532 s; Wayland packaged attempts remain recorded as failures, despite the earlier development Wayland 48-case pass."
+  ],
+  "packaged-gui-xcb": [
+    {
+      "name": "zima_cpp_native_arc_axis_ui_contract",
+      "code": 0,
+      "seconds": 497.53170137600046
+    },
+    {
+      "name": "zima_cpp_corner_form_ui_contract",
+      "code": 0,
+      "seconds": 42.93522111599941
+    }
+  ],
+  "candidate": {
+    "commit": "dc64545574a899214ca534c61c6b474a9318790e",
+    "linux_smoke": "passed",
+    "sha256": "41353a8ab8a32471657b1b187d20a577d5641c7ab650c3ff4009367a30c176b6",
+    "signed": false,
+    "version": "2026101107",
+    "windows_smoke": "not-run"
+  },
+  "signed": {
+    "signature_key": "zcp-8fa1f825cbde5d81",
+    "version": "2026101107",
+    "commit": "dc64545574a899214ca534c61c6b474a9318790e",
+    "sha256": "8cc1f45cb71ae96f15e3e2c5a6d5e400c03101af7aa8d89d4f4ee3bd94eeadcd",
+    "size": 146394419,
+    "bootstrap_status": {
+      "event": "result",
+      "installedVersion": "2026101107",
+      "schemaVersion": 1,
+      "status": "idle",
+      "trusted": true
+    }
+  },
+  "signed_archive_smoke": {
+    "archive": "ZIMA-CAD-2026101107.zip",
+    "commit": "dc64545574a899214ca534c61c6b474a9318790e",
+    "linux_smoke": "passed",
+    "sha256": "8cc1f45cb71ae96f15e3e2c5a6d5e400c03101af7aa8d89d4f4ee3bd94eeadcd",
+    "signed": true,
+    "version": "2026101107",
+    "windows_smoke": "not-run"
+  },
+  "publication": {
+    "url": "https://github.com/ZIMA-Engineering/ZIMA-CAD/releases/tag/ZIMA-CAD-2026101107",
+    "published_at": "2026-10-11T18:13:03Z",
+    "asset_count": 4
+  },
+  "previous_updater_discovery": {
+    "status": "available",
+    "installedVersion": "2026100908",
+    "availableVersion": "2026101107",
+    "installable": true,
+    "reason": "",
+    "installed_during_verification": false
+  },
+  "public_assets": [
+    {
+      "name": "ZIMA-CAD-2026101107.zip",
+      "size": 146394419,
+      "sha256": "8cc1f45cb71ae96f15e3e2c5a6d5e400c03101af7aa8d89d4f4ee3bd94eeadcd",
+      "matches_accepted_asset": true
+    },
+    {
+      "name": "update-manifest.json",
+      "size": 700,
+      "sha256": "c08bbb1aaf6ed76447161cf22eb204ca392703adb2baceb5175adfb801a097cb",
+      "matches_accepted_asset": true
+    },
+    {
+      "name": "update-manifest.sig",
+      "size": 176,
+      "sha256": "51d496f0eda3921bfcf337a1bd41bdce203e9f14dc6d997c3eba6305ec49c1fd",
+      "matches_accepted_asset": true
+    },
+    {
+      "name": "ZIMA-CAD-2026101107.validation.json",
+      "size": 252,
+      "sha256": "d35abaf1ba69acb3faef130770e86a6766e107649e55a32e27c4a96320388221",
+      "matches_accepted_asset": true
+    }
+  ]
+}

@@ -8,7 +8,11 @@ FORM, retained copy, placement, persistence and desktop results are recorded in
 [Linux build verification](LINUX_BUILD.md#native-continuation-on-2026-10-11).
 That record explicitly retains failures and finite coverage limits. Large STEP
 preparation completes on both supplied G92 fixtures. Large-model desktop
-lifecycle and Linux 2026101107 packaging/signing/publication are in progress;
+lifecycle/rotation, committed-source packaging, signing and native smoke are
+recorded. Linux [2026101107](releases/2026101107.md) is published
+at `2026-10-11T18:13:03Z`; trusted 2026100908 update discovery offers it as
+installable. Packaged arc checks pass XWayland; two packaged Wayland attempts
+remain explicit failures. Other observed failures remain open as listed;
 do not interpret the older Windows-only sections below as current Linux results.
 
 ## Outward FORM candidate follow-up (2026-10-11)

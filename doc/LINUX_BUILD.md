@@ -30,6 +30,14 @@ both outer sides at 1/2/3 mm with 37-degree rotation, unchanged OK, edits,
 Undo/Redo, Unbend, save/reopen and regeneration. Both outward and inward
 controls reject 4 mm with the same valid-solid thickening error.
 
+Five fresh-process 1 mm / 2 mm observations per variant give kernel-calculation
+medians: current corner 0.689946 s, retained inward corner 0.921702 s, current
+Window 1.266740 s and retained inward Window 1.178310 s. Different styles have
+intentionally different geometry. Shared library/page caches may remain warm
+and desktop acceptance overlapped: these are observations, not a controlled
+speedup comparison. Fixture preparation and independent validation are outside
+the kernel timer; complete GUI timings remain separate.
+
 Actual Wayland GUI passes the 48-case arc contact matrix (504.842 s), the six
 tangent fixtures (68.294 s), C+K, file-dialog heartbeat/themes, Tree branches,
 curve/point/axis presentation, import interaction, placement, treatment selection,
@@ -52,7 +60,8 @@ Remaining observed failures are explicit:
   complete general GUI acceptance result.
 - The extended Boundary fixture initially reopened its invented lower-case
   filename although the configured naming policy saved an uppercase file.
-  The test now uses Save's actual returned path; desktop rerun is pending.
+  The test now uses Save's actual returned path; the extended desktop rerun
+  passes in 12.379 s, including linked-surface persistence.
 
 G92H1-T shared preparation completes in 67.1013 s and G92K1 in 912.692 s,
 without a kernel crash. Their packet SHA-256 values are respectively
@@ -60,14 +69,51 @@ without a kernel crash. Their packet SHA-256 values are respectively
 and `688c6bd9d10b3c5929d51e71c59ea35e78a511ed6ae21a6f8867f3c3d74daeae`.
 These Linux observations overlap regression work; they are not controlled
 Windows/Linux speed ratios or evidence resolving the known G92K1 integration
-discrepancy. Full large-model desktop lifecycle, rotation and release acceptance
-are still in progress.
+discrepancy.
+
+The 384 Drawing angular-clearance combinations execute before the subsequently
+failing 3D Sketch arrow-mask assertion. The complete dimension-layout suite
+therefore remains failing on both offscreen and the real desktop. Actual Drawing
+angular placement, repeated grip edits, native save/reopen and export pass the
+separate measurement/dimension GUI fixture (7.303 s). Section creation/editing,
+Sketcher context, local Undo/Redo, nested Cancel and Drawing section output pass
+in 23.147 s. Hidden Body activation still fails: activating it displays no
+original geometry. These failures are not converted into passing acceptance.
+
+Large G92H1 Body position previews take 1213.68–1475.50 ms; changed OK takes
+1037.25 ms with one scene publication. Rotation, Cancel, unchanged OK, Undo/Redo,
+save/reopen and independent complete vertex/triangle/frame comparisons complete.
+The original 495.395 s fixture fails only its final fixed-pixel pick after moving
+and reopening the Body. A separate fresh dynamic placement fixture passes in
+183.020 s, selects semantic face `step:face:#1496349`, retains the complete
+2616-candidate order, and matches fresh versus cached selection after scene
+revision. Its warm candidate mean is 18.2557 ms; confirmation is 1024.06 ms with
+one scene publication. The complete 0.5-second confirmation target is unmet.
+
+Three large-model Extrusion open/Cancel trials pass in 58.391 s: opening takes
+1463.18–1715.99 ms and Cancel 742.307–859.254 ms, one publication each, zero
+base uploads, identical complete GPU data and exact rendered channels. The
+rotation benchmark passes all five modes, hover/confirmation and two opacities
+(30 real-model configurations, configuration medians 31.111–608.345 ms), plus
+pan, zoom, tiny rotation, perspective and changed/empty/restored meshes. These
+are measured observations, not promises of universal frame rates.
 
 Packaging tests pass 10 cases with one platform skip, publisher gates pass 16,
 and isolated updater lifecycle passes all 23. Evidence is under
 `build/linux-1106-*`, including per-suite logs and JSON results. The prefix
 identifies the receiving build; the new release identity is 2026101107.
-Signing, finalized archive smoke and publication remain separate gates.
+The clean committed-source candidate and signed archive both pass native smoke;
+all 21 factory assets load. Seven packaged GUI contracts pass across Wayland
+and XWayland; packaged arc Wayland attempts fail at scenario 25 inline editing
+and scenario 4 hover/click, while all 48 pass XWayland (497.532 s). Earlier
+native-development Wayland all-48 acceptance does not erase those failures.
+Initial template fixture lookup used runtime cwd and failed; bundled source cwd
+passes templates in all five languages. Original extracted files remain intact.
+Production signature `zcp-8fa1f825cbde5d81`, bootstrap trust and exact committed
+source/tag/runtime identity pass. Signed ZIP SHA-256 is
+`8cc1f45cb71ae96f15e3e2c5a6d5e400c03101af7aa8d89d4f4ee3bd94eeadcd`.
+See [the machine-readable record](verification/2026101107-linux.json) and
+[release notes](releases/2026101107.md) for publication verification.
 
 ## Dependencies
 
