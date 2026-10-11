@@ -34,6 +34,23 @@ Conda path. Version layout and release gates are in [DISTRIBUTION_CLEANUP_PLAN.m
 
 ## Console-free desktop start
 
+### Release identity and cached compiler dependencies
+
+Before signing or publishing, directly check the packaged CLI `--build-info`
+and updater `--version`, together with the GUI build identity and manifests.
+All must match the tagged `VERSION`; a correct CLI identity alone does not
+prove that every helper or shared GUI library was recompiled.
+
+For reused MSVC builds, the recorded `CMAKE_CXX_CL_SHOWINCLUDES_PREFIX` must
+match the compiler's actual localized `/showIncludes` output. A prefix with
+incorrect character encoding can prevent Ninja from recording header changes,
+including generated version headers. If dependency tracking is uncertain,
+discard the cached objects and rebuild the complete committed product before
+acceptance. Do not bypass source/version checks or copy local modified binaries
+into a release. During 1106 preparation, an additional direct helper-version
+check rejected a cached updater still reporting 1105; the replacement candidate
+was built completely from the same immutable 1106 source tag.
+
 The `zima-cad-cpp` target uses the Windows GUI subsystem. Qt supplies its
 Windows entry point through `Qt6::Core`. CLI verification still accepts
 `--verify-startup` with redirected output.

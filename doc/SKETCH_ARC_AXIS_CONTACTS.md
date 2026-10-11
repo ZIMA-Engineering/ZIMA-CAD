@@ -73,7 +73,10 @@ with and without pair T, plus twelve cases from the newly saved Sketch.
 It uses the common hover/cycling/click list, creation
 Undo/Redo, real inline R/D editing with three changes and Undo/Redo, repeated
 mouse drags, native save and Sketch reopening. The initial 36-scenario run
-passed; the complete 48-scenario contract is rerun for release.
+passed. The complete 48-scenario local contract subsequently passed in 527.141
+seconds. The final clean, signed Windows 2026101106 package passed the same
+48 scenarios in 524.77 seconds, with immutable packaged source/runtime checksums.
+See [published acceptance](releases/2026101106.md).
 
 Existing native tangent-contact, C+K, Sketcher, dimension/reference/relation,
 curve, serialization and FORM suites provide dependent checks. These finite

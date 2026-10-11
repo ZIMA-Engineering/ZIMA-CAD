@@ -2,6 +2,18 @@
 
 ## Scope and status
 
+Signed Windows [2026101106](releases/2026101106.md) was published at
+`2026-10-11T16:12:53Z`. The ordinary FORM library offers only the completed
+outward corner and Window, preserving original inward controls outside the
+picker and independent definitions already embedded in Parts. Arc centre/end
+contacts retain the 3280-case native and 48-scenario GUI regression matrices.
+Five cleanup contracts, five-language validation, 27 packaging/publisher tests
+(two platform-only skips), fresh candidate/signed smoke, production trust and
+nine packaged GUI suites pass. All three anonymous public downloads match the
+accepted signed assets; the trusted 1103 updater offers 1106 as installable
+without installing it during verification. Linux acceptance remains assigned
+to the user's reboot. See [the Linux handoff](LINUX_RELEASE_HANDOFF.md).
+
 Signed Windows [2026101102](releases/2026101102.md) was published at
 `2026-10-11T05:55:01Z`. Dense placement validation reuse, one-scene Body
 confirmation and neutral 3D Curve/point/icon presentation pass the selected
