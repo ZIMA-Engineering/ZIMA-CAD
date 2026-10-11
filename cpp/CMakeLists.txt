@@ -982,9 +982,20 @@ if(ZIMA_BUILD_TESTS)
     target_compile_options(zima_cpp_sketch_serialization_tests PRIVATE $<$<CXX_COMPILER_ID:MSVC>:/utf-8>)
     add_test(NAME zima_cpp_sketch_serialization_tests COMMAND zima_cpp_sketch_serialization_tests)
     add_executable(zima_cpp_sketcher_contract_tests tests/sketcher_contract_tests.cpp)
+    if(MSVC)
+        # Match the GUI stack reserve for native-document fixture loading.
+        target_link_options(zima_cpp_sketcher_contract_tests PRIVATE /STACK:8388608)
+    endif()
     target_link_libraries(zima_cpp_sketcher_contract_tests PRIVATE
         zima_sketcher zima_viewer zima_document_core)
     add_test(NAME zima_cpp_sketcher_contract_tests COMMAND zima_cpp_sketcher_contract_tests)
+    add_test(NAME zima_cpp_native_tangent_contact_tests COMMAND zima_cpp_sketcher_contract_tests)
+    set_tests_properties(zima_cpp_native_tangent_contact_tests PROPERTIES
+        ENVIRONMENT "ZIMA_CPP_VERIFY_NATIVE_CURVE_CONTACT=1" TIMEOUT 120)
+    add_test(NAME zima_cpp_native_tangent_contact_ui_contract COMMAND zima-cad-cpp --verify-startup)
+    set_tests_properties(zima_cpp_native_tangent_contact_ui_contract PROPERTIES
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_SKETCH_KEYPOINT_CONTACT_ONLY=1;ZIMA_VERIFY_NATIVE_CURVE_CONTACT_ONLY=1;ZIMA_NATIVE_CONTACT_SOURCE=${CMAKE_SOURCE_DIR}/tests/fixtures/sketch/form-koule-shared-arcs.json"
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." RUN_SERIAL TRUE TIMEOUT 180)
     add_executable(zima_cpp_sketch_keypoint_contact_tests tests/sketch_keypoint_contact_tests.cpp)
     target_link_libraries(zima_cpp_sketch_keypoint_contact_tests PRIVATE zima_sketcher)
     add_test(NAME zima_cpp_sketch_keypoint_contact_tests COMMAND zima_cpp_sketch_keypoint_contact_tests)

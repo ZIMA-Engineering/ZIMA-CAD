@@ -107,6 +107,7 @@ std::string calculation_definition_fingerprint(const nlohmann::json& root) {
         // Library insertion direction does not change this Part's authored
         // skin geometry. The inserted SheetFormRequest hashes it explicitly.
         if (key == "form_outward") continue;
+        if (key == "form_corner_finish") continue;
         output << nlohmann::json(key) << ':';
         if (key == "history") {
             // This array is an entity table, not the modeling order. The INI
@@ -643,6 +644,7 @@ nlohmann::json read_part_ini(const std::filesystem::path& path) {
         {"symbol_annotations",nlohmann::json::parse(ini_value(ini,"Document","symbol_annotations","[]"))},
         {"symbol_editor_definition",nlohmann::json::parse(ini_value(ini,"Document","symbol_editor_definition","null"))},
         {"form_outward",nlohmann::json::parse(ini_value(ini,"Document","form_outward","false"))},
+        {"form_corner_finish",nlohmann::json::parse(ini_value(ini,"Document","form_corner_finish","false"))},
         {"body_properties", nlohmann::json::parse(ini_value(ini,"Document","body_properties"))},
         {"dimension_layouts", nlohmann::json::parse(ini_value(ini,"Document","dimension_layouts","[]"))},
         {"dimension_identifiers", nlohmann::json::parse(ini_required(ini, "Document", "dimension_identifiers"))},
@@ -806,6 +808,7 @@ void write_part_ini(
         {"symbol_annotations",root.value("symbol_annotations",nlohmann::json::array()).dump()},
         {"symbol_editor_definition",root.at("symbol_editor_definition").dump()},
         {"form_outward",root.value("form_outward",false)?"true":"false"},
+        {"form_corner_finish",root.value("form_corner_finish",false)?"true":"false"},
         {"body_properties", root.at("body_properties").dump()},
         {"dimension_layouts", root.value("dimension_layouts",nlohmann::json::array()).dump()},
         {"dimension_identifiers", root.at("dimension_identifiers").dump()},
@@ -10971,6 +10974,7 @@ PartDocument PartDocument::from_serialized(const nlohmann::json& root,
     if(const auto definition=root.value("symbol_editor_definition",nlohmann::json{});!definition.is_null())
         document.symbol_editor_definition=definition.get<std::string>();
     document.form_outward=root.value("form_outward",false);
+    document.form_corner_finish=root.value("form_corner_finish",false);
     document.body_properties = parse_body_properties(root.at("body_properties").dump());
     document.dimension_layouts=zima::document::dimension_layouts_from_json(root.value("dimension_layouts",nlohmann::json::array()));
     document.dimension_identifiers = DimensionIdentifiers::from_serialized(root.at("dimension_identifiers").dump());
@@ -12882,6 +12886,7 @@ nlohmann::json PartDocument::serialized(
         {"symbol_annotations",symbols::placements_json(symbol_annotations)},
         {"symbol_editor_definition",symbol_editor_definition?nlohmann::json(*symbol_editor_definition):nlohmann::json(nullptr)},
         {"form_outward",form_outward},
+        {"form_corner_finish",form_corner_finish},
         {"body_properties", nlohmann::json::parse(serialize_body_properties(body_properties))},
         {"body_color", body_color},
         {"appearance", serialize_appearance(appearance)},

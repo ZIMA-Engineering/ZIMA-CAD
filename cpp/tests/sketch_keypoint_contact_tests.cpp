@@ -25,7 +25,8 @@ struct Fixture {
             type==2?sketch.ellipses.front().center_point_id:sketch.elliptical_arcs.front().center_point_id;
         if(!free_support) {
             for(auto& p:sketch.points)p.fixed=true;
-            if(type<2){auto dim=type==0?sketch.create_circle_radius_dimension(curve):sketch.create_arc_radius_dimension(curve);dim.locked=true;sketch.apply_dimension(dim);}
+            // Fixed native arc endpoints already determine its radius.
+            if(type==0){auto dim=sketch.create_circle_radius_dimension(curve);dim.locked=true;sketch.apply_dimension(dim);}
         }
         const double t=q*std::numbers::pi/2;
         const auto target=type<2?std::array{8*std::cos(t),8*std::sin(t)}:xy(t);

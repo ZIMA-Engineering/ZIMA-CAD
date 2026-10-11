@@ -1288,6 +1288,17 @@ std::optional<TangentCurveData> tangent_curve_data(
     return std::nullopt;
 }
 
+bool native_circular_tangent_contact(const Sketch& sketch,const SketchConstraint& constraint) {
+    if(constraint.kind!=ConstraintKind::Tangent||constraint.first_point_id.empty()||!sketch.find_point(constraint.first_point_id))return false;
+    for(const auto& geometry:{constraint.geometry_id,constraint.second_geometry_id}) {
+        const auto curve=tangent_curve_data(sketch,geometry);
+        if(!curve||!curve->circular_radius||curve->external_center||curve->center_point_id==constraint.first_point_id)return false;
+        if(!geometry_owns_point(sketch,geometry,constraint.first_point_id)&&
+            !std::ranges::any_of(sketch.constraints,[&](const auto& c){return !c.suppressed&&c.kind==ConstraintKind::PointOnCircle&&c.first_point_id==constraint.first_point_id&&c.geometry_id==geometry;}))return false;
+    }
+    return true;
+}
+
 struct SplineJunction {
     std::string contact, first_arm, second_arm;
 };
@@ -2078,12 +2089,19 @@ std::optional<CurvePairTangentState> curve_pair_tangent_state(
             if(geometry_owns_point(sketch,other,id))resolved_contact=id;
         }
     }
+    const auto persisted_contact=[&](const std::string& geometry_id) {
+        const auto curve=tangent_curve_data(sketch,geometry_id);
+        return curve&&curve->center_point_id!=resolved_contact&&
+            (geometry_owns_point(sketch,geometry_id,resolved_contact)||
+             std::ranges::any_of(sketch.constraints,[&](const auto& c){return !c.suppressed&&c.kind==ConstraintKind::PointOnCircle&&c.first_point_id==resolved_contact&&c.geometry_id==geometry_id;}));
+    };
+    const bool common_contact=!resolved_contact.empty()&&persisted_contact(reference_geometry_id)&&persisted_contact(driven_geometry_id);
     const auto endpoint_contact=[&](const std::string& geometry_id,
             const std::array<double,2>& center,double radius,double sign) {
         const auto* point=sketch.find_point(resolved_contact);
         return point && geometry_owns_point(sketch,geometry_id,resolved_contact) &&
-            std::hypot(point->x-center[0]-sign*radius*direction_x,
-                point->y-center[1]-sign*radius*direction_y)<=1e-8;
+            (common_contact||std::hypot(point->x-center[0]-sign*radius*direction_x,
+                point->y-center[1]-sign*radius*direction_y)<=1e-8);
     };
     const bool contact_on_reference = parameter_in_curve_domain(
         *reference, std::atan2(
@@ -3409,6 +3427,10 @@ bool Sketch::move_point(const std::string& point_id, double x, double y) {
             [&](const auto& value) { return value.center_point_id == point_id; }) ||
         std::any_of(next.elliptical_arcs.begin(), next.elliptical_arcs.end(),
             [&](const auto& value) { return value.center_point_id == point_id; });
+    const bool dragging_native_curve_contact=std::ranges::any_of(next.constraints,[&](const auto& c) {
+        return !c.suppressed&&c.first_point_id==point_id&&native_circular_tangent_contact(next,c)&&
+            !geometry_owns_point(next,c.geometry_id,point_id)&&!geometry_owns_point(next,c.second_geometry_id,point_id);
+    });
     const bool dragging_tangent_contact = std::any_of(
         next.constraints.begin(), next.constraints.end(),
         [&](const auto& support) {
@@ -3435,7 +3457,7 @@ bool Sketch::move_point(const std::string& point_id, double x, double y) {
                 });
         });
     bool translated_drag_component = false;
-    if (dragging_curve_center &&
+    if ((dragging_curve_center||dragging_native_curve_contact) &&
         std::hypot(requested_translation_x, requested_translation_y) > 1.0e-12) {
         auto component = point_translation_closure(next, point_id);
         bool expanded = true;
@@ -3501,11 +3523,12 @@ bool Sketch::move_point(const std::string& point_id, double x, double y) {
         });
         const bool circular_junction=std::ranges::any_of(next.constraints,[&](const auto& c) {
             return !c.suppressed && c.kind==ConstraintKind::Tangent &&
-                std::ranges::any_of(next.arcs,[&](const auto& a){return a.id==c.geometry_id;}) &&
-                std::ranges::any_of(next.arcs,[&](const auto& a){return a.id==c.second_geometry_id;});
+                (native_circular_tangent_contact(next,c) ||
+                 (std::ranges::any_of(next.arcs,[&](const auto& a){return a.id==c.geometry_id;}) &&
+                  std::ranges::any_of(next.arcs,[&](const auto& a){return a.id==c.second_geometry_id;})));
         });
         if(blocked && !circular_junction)return false;
-        // A tangent arc chain can change its radii around a fixed neighbour.
+        // A tangent circular chain can change its radii around a fixed neighbour.
         // Its centre drag is a deformation, rather than a rigid translation.
         if(!blocked) {
             for (const auto& dependent_id : component) {
@@ -3707,6 +3730,20 @@ bool Sketch::move_point(const std::string& point_id, double x, double y) {
         // resize the supporting circle as a side effect of point movement.
         point->x = center->x + (x - center->x) * circle->radius / cursor_radius;
         point->y = center->y + (y - center->y) * circle->radius / cursor_radius;
+    }
+    // An immutable native circular support owns the permitted cursor locus,
+    // independent of which curve was selected first for C+T. A later free
+    // circle's radial projection must not pull the solver anchor off it.
+    if(dragging_native_curve_contact&&!translated_drag_component)for(const auto& support:next.constraints) {
+        if(support.suppressed||support.kind!=ConstraintKind::PointOnCircle||support.first_point_id!=point_id)continue;
+        const auto circle=std::ranges::find(next.circles,support.geometry_id,&SketchCircle::id);
+        if(circle==next.circles.end())continue;
+        const auto* center=next.find_point(circle->center_point_id);
+        const bool locked_radius=std::ranges::any_of(next.dimensions,[&](const auto& d){return !d.suppressed&&d.driving&&d.locked&&d.geometry_id==circle->id&&
+            (d.kind==DimensionKind::Radius||d.kind==DimensionKind::Diameter);});
+        if(!center||(!center->fixed&&!externally_linked.contains(center->id))||!locked_radius)continue;
+        const auto target=circular_constraint_target(next,circle->id,x,y);if(!target)return false;
+        point->x=target->position[0];point->y=target->position[1];break;
     }
     for (const auto& constraint : next.constraints) {
         if (constraint.suppressed ||
@@ -4101,7 +4138,12 @@ bool Sketch::move_point(const std::string& point_id, double x, double y) {
             other->x=anchor->x+extent*ux;other->y=anchor->y+extent*uy;
         }
     }
-    if(dragging_curve_center && !translated_drag_component)
+    const bool dragging_native_tangent_pair=std::ranges::any_of(next.constraints,[&](const auto& c) {
+        return !c.suppressed&&native_circular_tangent_contact(next,c)&&
+            (c.first_point_id==point_id||geometry_owns_point(next,c.geometry_id,point_id)||
+             geometry_owns_point(next,c.second_geometry_id,point_id));
+    });
+    if(!translated_drag_component&&(dragging_curve_center||dragging_native_tangent_pair))
         static_cast<void>(seed_circular_equations(next,{point_id}));
     auto solved = next.solve_impl(100, false, {point_id});
     if (solved.status == SolveStatus::Conflicting && seed_equal_length_components(next, {point_id}))
@@ -5588,7 +5630,45 @@ std::string Sketch::add_tangent_constraint(
     constraint.tangent_internal = tangent_internal;
     const auto id = constraint.id;
     next.constraints.push_back(std::move(constraint));
-    auto result = next.solve();
+    std::vector<std::string> creation_anchors;
+    if(curve_pair&&reference_curve->circular_radius&&driven_curve->circular_radius&&
+        !reference_curve->external_center&&!driven_curve->external_center) {
+        // Fit the native point graph together before sequential corrections
+        // can collapse an otherwise feasible shared arc junction.
+        auto candidate=next;
+        for(const auto& geometry:{reference_geometry_id,driven_geometry_id}) {
+            if(std::ranges::any_of(candidate.dimensions,[&](const auto& d){return !d.suppressed&&d.driving&&d.geometry_id==geometry&&
+                (d.kind==DimensionKind::Radius||d.kind==DimensionKind::Diameter);}))continue;
+            SketchDimension size;size.id="tangent-seed-radius:"+geometry;size.geometry_id=geometry;
+            size.kind=DimensionKind::Radius;size.value=*next.circular_radius(geometry);candidate.dimensions.push_back(size);
+        }
+        // Prefer moving centres at the entered radii where feasible. These
+        // seed-only equations do not become constraints in the document.
+        if(!geometry_owns_point(next,reference_geometry_id,resolved_contact_point_id)&&
+           !geometry_owns_point(next,driven_geometry_id,resolved_contact_point_id))
+            creation_anchors.push_back(reference_curve->center_point_id);
+        const bool seeded=seed_circular_equations(candidate,creation_anchors);
+        if(seeded) {
+            candidate.dimensions=next.dimensions;next=std::move(candidate);
+        } else if(creation_anchors.empty())static_cast<void>(seed_circular_equations(next,{}));
+    }
+    // Creation keeps the selected reference in place, but these temporary
+    // anchors must never participate in the persisted DOF/rank cache.
+    auto result = creation_anchors.empty()?next.solve():next.solve_impl(100,false,creation_anchors);
+    if(!creation_anchors.empty()&&result.status!=SolveStatus::Conflicting&&result.status!=SolveStatus::Invalid)
+        result=next.solve();
+    if(result.status==SolveStatus::Conflicting&&creation_anchors.empty()&&native_circular_tangent_contact(next,*std::ranges::find(next.constraints,id,&SketchConstraint::id))) {
+        // A shared arc end couples both centres, radii and the contact.
+        // Reuse the simultaneous seed already used for circular edits and
+        // drags, then verify it with the ordinary complete solver.
+        auto candidate=next;
+        if(seed_circular_equations(candidate,{})) {
+            const auto checked=candidate.solve();
+            if(checked.status!=SolveStatus::Conflicting&&checked.status!=SolveStatus::Invalid) {
+                next=std::move(candidate);result=checked;
+            }
+        }
+    }
     if(result.status==SolveStatus::Conflicting && resolved_contact_point_id.empty()) {
         // Adding the second immutable support can require simultaneous centre,
         // radius and contact movement. Seed that same one-DOF family only
@@ -5622,15 +5702,13 @@ std::string Sketch::add_tangent_constraint(
     if (result.status == SolveStatus::Conflicting || result.status == SolveStatus::Invalid) {
         throw std::runtime_error("Tangent constraint conflicts with existing geometry");
     }
-    // Line/axis tangency of a circle has a real sketch contact, available
+    // Circular tangency has a real sketch contact, available
     // for connected geometry and trimming. Keep it in this one transaction.
     const auto circle_id=reference_is_line ? driven_geometry_id :
         driven_is_line ? reference_geometry_id : driven_geometry_id;
     const auto support_id=circle_id==reference_geometry_id ? driven_geometry_id : reference_geometry_id;
     if(resolved_contact_point_id.empty() &&
-        (line_curve || is_external(support_id)) &&
-        (std::ranges::any_of(next.circles,[&](const auto& circle){return circle.id==circle_id;}) ||
-         std::ranges::any_of(next.external_references,[&](const auto& ref){return ref.id==circle_id&&external_reference_circle(ref).has_value();}))) {
+        (line_curve || curve_pair) && next.circular_radius(circle_id)) {
         std::optional<std::array<double,2>> position;
         if(line_curve) {
             if(const auto state=segment_curve_tangent_state(next,support_id,circle_id))
@@ -10417,6 +10495,7 @@ SolveResult Sketch::solve_impl(
                     double correction_y{};
                     double residual{};
                     bool state_valid{};
+                    bool translate_reference_curve{};
                     if (reference_curve && driven_curve &&
                         reference_curve->circular_radius &&
                         driven_curve->circular_radius) {
@@ -10444,6 +10523,43 @@ SolveResult Sketch::solve_impl(
                             translated = center_curve_translation_points(
                                 *this, constraint.second_geometry_id);
                             state_valid = true;
+                            if(native_circular_tangent_contact(*this,constraint)) {
+                                const auto* contact=find_point(constraint.first_point_id);
+                                const auto first_center=tangent_curve_center(*this,*reference_curve);
+                                const auto second_center=tangent_curve_center(*this,*driven_curve);
+                                const double dx=(*first_center)[0]-contact->x,dy=(*first_center)[1]-contact->y;
+                                const double length=std::hypot(dx,dy);
+                                if(length<=tolerance){state_valid=false;}
+                                else {
+                                    const double sign=constraint.tangent_internal?1.:-1.;
+                                    correction_x=contact->x+sign*(*driven_curve->circular_radius)*dx/length-(*second_center)[0];
+                                    correction_y=contact->y+sign*(*driven_curve->circular_radius)*dy/length-(*second_center)[1];
+                                    const auto* driven_center=find_point(driven_curve->center_point_id);
+                                    const auto* reference_center=find_point(reference_curve->center_point_id);
+                                    if(driven_center&&immutable(*driven_center)&&reference_center&&!immutable(*reference_center)) {
+                                        // Selection order does not make a fixed native
+                                        // support writable. Move the other curve about
+                                        // their persisted contact instead.
+                                        const double sx=(*second_center)[0]-contact->x,sy=(*second_center)[1]-contact->y;
+                                        const double support_length=std::hypot(sx,sy);
+                                        if(support_length<=tolerance){state_valid=false;}
+                                        else {
+                                            correction_x=contact->x+sign*(*reference_curve->circular_radius)*sx/support_length-(*first_center)[0];
+                                            correction_y=contact->y+sign*(*reference_curve->circular_radius)*sy/support_length-(*first_center)[1];
+                                            translated=center_curve_translation_points(*this,constraint.geometry_id);
+                                            translate_reference_curve=true;
+                                        }
+                                    }
+                                    residual=std::hypot(correction_x,correction_y);
+                                    // The shared C endpoint stays put. Move the
+                                    // driven centre and its other native points,
+                                    // leaving ordinary incidence equations to
+                                    // validate the complete curve afterwards.
+                                    translated.erase(contact->id);
+                                    const auto reference_points=center_curve_translation_points(*this,translate_reference_curve?constraint.second_geometry_id:constraint.geometry_id);
+                                    for(const auto& point:reference_points)translated.erase(point);
+                                }
+                            }
                         }
                     } else {
                         const auto state = general_curve_pair_tangent_state(
@@ -10466,7 +10582,7 @@ SolveResult Sketch::solve_impl(
                     maximum_residual = std::max(maximum_residual, residual);
                     if (residual <= tolerance) continue;
                     const auto reference_points = center_curve_translation_points(
-                        *this, constraint.geometry_id);
+                        *this, translate_reference_curve?constraint.second_geometry_id:constraint.geometry_id);
                     std::vector<std::pair<std::string,std::string>> line_contacts;
                     if (reference_curve && reference_curve->external_center && driven_curve &&
                         driven_curve->circular_radius) {
@@ -12217,6 +12333,16 @@ SolveResult Sketch::solve_impl(
     };
     const auto residuals = [&]() {
         std::vector<double> result;
+        // Endpoint incidence is part of a native Arc definition, rather than
+        // a user C constraint. Include its real equations in the same rank
+        // calculation so shared points and dimensioned arcs have truthful DOF.
+        for(const auto& arc:arcs) {
+            const auto* center=find_point(arc.center_point_id);
+            for(const auto& endpoint:{arc.start_point_id,arc.end_point_id}) {
+                const auto* point=find_point(endpoint);
+                result.push_back(std::hypot(point->x-center->x,point->y-center->y)-arc.radius);
+            }
+        }
         for (const auto& constraint : constraints) {
             // K implies C exactly. Counting its nonlinear finite-difference
             // row again introduces roundoff rank; convergence and the final
@@ -12261,6 +12387,17 @@ SolveResult Sketch::solve_impl(
                         const auto reference_center=tangent_curve_center(*this,*reference_curve);
                         const auto driven_center=tangent_curve_center(*this,*driven_curve);
                         if(contact && reference_curve->external_center && reference_center && driven_center) {
+                            result.push_back((((*reference_center)[0]-contact->x)*((*driven_center)[1]-contact->y)-
+                                ((*reference_center)[1]-contact->y)*((*driven_center)[0]-contact->x))/
+                                std::max(1.0,*reference_curve->circular_radius));
+                            continue;
+                        }
+                        if(native_circular_tangent_contact(*this,constraint)&&reference_center&&driven_center) {
+                            // Native endpoint incidence (or C) already owns
+                            // both radial equations. T adds one angular
+                            // equation. Repeating centre distance here gives
+                            // a numerically redundant row at tangency; the
+                            // ordinary solve enforces its persisted side.
                             result.push_back((((*reference_center)[0]-contact->x)*((*driven_center)[1]-contact->y)-
                                 ((*reference_center)[1]-contact->y)*((*driven_center)[0]-contact->x))/
                                 std::max(1.0,*reference_curve->circular_radius));
@@ -12820,6 +12957,8 @@ SolveResult Sketch::solve_impl(
         columns.erase(std::unique(columns.begin(), columns.end()), columns.end());
         equation_columns.insert(equation_columns.end(), count, columns);
     };
+    for(const auto& arc:arcs)for(const auto& endpoint:{arc.start_point_id,arc.end_point_id})
+        append_equations(1,{arc.id,arc.center_point_id,endpoint});
     for (const auto& constraint : constraints) {
         if (constraint.suppressed || implied_keypoint_contact(constraint)) continue;
         const std::size_t count =

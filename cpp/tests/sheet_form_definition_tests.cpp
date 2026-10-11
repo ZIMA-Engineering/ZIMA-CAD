@@ -78,6 +78,18 @@ int main(){try {
             fingerprints[outward?1:0]=zima::kernel::history_fingerprint({operation},1);
         }
         check(fingerprints[0]!=fingerprints[1],"Changing FORM direction reused prepared geometry");
+        for(bool finished:{false,true}) {
+            auto candidate=part;candidate.form_corner_finish=finished;candidate.save(path,cached);
+            const auto loaded=zima::document::read_sheet_form_definition(path);
+            check(loaded.part.form_corner_finish==finished,"Native FORM lost its explicit finish intent");
+            const auto embedded=zima::document::stored_sheet_form_definition(zima::document::copy_sheet_form_definition(loaded));
+            check(embedded.part.form_corner_finish==finished,"Independent FORM copy lost its finish intent");
+            const auto request=zima::document::sheet_form_request(embedded,{}, {},{0,1,0},{1,0,0},1.);
+            check(request.finish_corner==finished,"FORM calculation lost its finish intent");
+            zima::kernel::HistoryOperation operation;operation.primitive=request;
+            fingerprints[finished?1:0]=zima::kernel::history_fingerprint({operation},1);
+        }
+        check(fingerprints[0]!=fingerprints[1],"Corner finish reused an unrounded result");
         check(part.serialized(cached)==original,"Direction copy modified source library geometry");
         std::filesystem::remove(path);
     }

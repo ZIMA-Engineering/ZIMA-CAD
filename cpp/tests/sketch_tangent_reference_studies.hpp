@@ -192,7 +192,8 @@ inline void run_sketch_tangent_reference_studies() {
         s.find_point(s.circles.front().center_point_id)->fixed=true;
         static_cast<void>(s.add_point_on_line_constraint(s.circles.back().center_point_id,"sketch_axis:x"));
         static_cast<void>(s.add_tangent_constraint(reverse?inner:outer,reverse?outer:inner));
-        check(s.constraints.back().tangent_internal,"Internal circular tangent side was lost");
+        const auto tangent=std::ranges::find_if(s.constraints,[](const auto& c){return c.kind==ConstraintKind::Tangent;});
+        check(tangent!=s.constraints.end()&&tangent->tangent_internal,"Internal circular tangent side was lost");
         auto fixed=s.create_circle_radius_dimension(outer);fixed.locked=true;s.apply_dimension(fixed);
         auto radius=s.create_circle_radius_dimension(inner);s.apply_dimension(radius);
         for(const double r:{4.,2.5,3.5}) {

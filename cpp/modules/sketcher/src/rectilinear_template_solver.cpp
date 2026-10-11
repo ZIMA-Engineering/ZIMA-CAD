@@ -392,6 +392,16 @@ bool seed_circular_equations(Sketch& sketch,const std::vector<std::string>& anch
                     const double target=c.tangent_internal?std::abs((*first)[2]-(*second)[2]):(*first)[2]+(*second)[2];
                     const double distance=std::hypot((*first)[0]-(*second)[0],(*first)[1]-(*second)[1]);
                     r.push_back(distance-target);
+                    // A real native contact needs its angular equation as
+                    // well as radial incidence. Incidence alone becomes
+                    // singular at tangency and cannot fit a coupled chain.
+                    if(const auto p=point(c.first_point_id);p) {
+                        if(distance<1e-9)return {};
+                        const double factor=(*first)[2]/distance*(c.tangent_internal&&(*first)[2]<(*second)[2]?-1.:1.);
+                        r.push_back((*p)[0]-(*first)[0]-((*second)[0]-(*first)[0])*factor);
+                        r.push_back((*p)[1]-(*first)[1]-((*second)[1]-(*first)[1])*factor);
+                        continue;
+                    }
                     const auto a=std::ranges::find(next.arcs,c.geometry_id,&SketchArc::id);
                     const auto b=std::ranges::find(next.arcs,c.second_geometry_id,&SketchArc::id);
                     if(a!=next.arcs.end() && b!=next.arcs.end()) {
@@ -448,6 +458,12 @@ bool seed_circular_equations(Sketch& sketch,const std::vector<std::string>& anch
                 double residual=std::atan2(cross,dot)*180./std::acos(-1.)-angular_targets.at(d.id);
                 while(residual>180.)residual-=360.;while(residual<-180.)residual+=360.;
                 r.push_back(residual);
+            } else if(d.kind==DimensionKind::AngleThreePoint) {
+                const auto a=point(d.first_point_id),vertex=point(d.second_point_id),b=point(d.geometry_id);if(!a||!vertex||!b)return {};
+                const double ax=(*a)[0]-(*vertex)[0],ay=(*a)[1]-(*vertex)[1],bx=(*b)[0]-(*vertex)[0],by=(*b)[1]-(*vertex)[1];
+                if(std::hypot(ax,ay)<1e-10||std::hypot(bx,by)<1e-10)return {};
+                const double target=std::acos(std::cos(d.value*std::acos(-1.)/180.))*180./std::acos(-1.);
+                r.push_back(std::atan2(std::abs(ax*by-ay*bx),ax*bx+ay*by)*180./std::acos(-1.)-target);
             } else if(d.kind==DimensionKind::Angle) {
                 const auto a=point(d.first_point_id),b=point(d.second_point_id);if(!a||!b)return {};
                 double residual=std::atan2((*b)[1]-(*a)[1],(*b)[0]-(*a)[0])*180./std::acos(-1.)-d.value;

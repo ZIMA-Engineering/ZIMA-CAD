@@ -171,6 +171,7 @@ dimension_layouts=[]
 document_id=01a116d5423a7d088936a3b58f99039a
 family={"evaluated":{},"parent":"","row":""}
 family_table={"bindings":{},"columns":[],"instances":[]}
+form_corner_finish=false
 form_outward=false
 format_version=46
 history_cursor=7

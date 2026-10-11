@@ -961,6 +961,7 @@ struct SheetFormRequest {
     Vec3 position, normal{0,0,1}, x_direction{1,0,0};
     double thickness{1};
     bool outward{};
+    bool finish_corner{};
     // Authored manufacturing strokes in the source attachment frame. These
     // are display data, never Boolean operands or selectable solid topology.
     std::vector<ViewerEdge> symbol_edges;

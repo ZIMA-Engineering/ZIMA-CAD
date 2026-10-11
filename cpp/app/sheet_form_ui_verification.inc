@@ -511,6 +511,15 @@ Q_NEVER_INLINE static int verify_sheet_form_ui(QApplication& application,Assembl
         const auto id=pending.id;QElapsedTimer elapsed;elapsed.start();dialog->buttons()->button(QDialogButtonBox::Ok)->click();wait_closed();
         std::cout<<"FORM GUI confirmed insertion="<<elapsed.elapsed()/1000.<<" s"<<std::endl;
         auto [saved,cache]=native();check(saved.find_container(id)&&cache.back().calculation_errors.empty(),"FORM GUI creation retained a calculation error");
+        if(definition.part.form_outward) {
+            double low=std::numeric_limits<double>::infinity(),high=-low;
+            for(const auto p:cache.back().mesh.vertices) {
+                const auto distance=kernel::sheet_material::dot(kernel::sheet_material::sub(p,position),outward);
+                low=std::min(low,distance);high=std::max(high,distance);
+            }
+            check(low>=-1.-1e-7&&high>2.,"GUI Window grows through the opposite face instead of outside the selected support");
+            std::cout<<"FORM GUI outward signed extent=["<<low<<','<<high<<"]"<<std::endl;
+        }
         check(saved.find_container(id)->placement.references==pending.placement.references,"FORM OK lost its attachment references");
         const auto& confirmed=saved.find_container(id)->placement;
         const auto axis_mesh=saved.construction_viewer_mesh();

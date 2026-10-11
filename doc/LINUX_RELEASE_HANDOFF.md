@@ -5,10 +5,11 @@
 The original factory corner and ventilation definitions remain as controls while
 the user evaluates two clearly named experimental files in the same library.
 The shared native candidate code uses embedded
-`form_outward` intent; the outward corner deliberately leaves sharp transitions
-for ordinary downstream Fillet, as requested by the user. Begin manual rounding
-from the actual FORM–Bend junction. Do not promote a candidate to the factory
-library before the user's style decision.
+`form_outward` intent. The finished `CornerGusset90-EXPERIMENTAL.prtz` additionally
+sets `form_corner_finish`: it trims the actual outer Bend-radius domain and
+uses ordinary native Fillets from the FORM–Bend junction, in the order `t` then
+`0.25t`. The retained `-unrounded` candidate omits those Fillets for manual
+investigation. Do not promote a candidate before the user's style decision.
 
 The delivered corner now uses `FORM_CUT` as a closed solid preceding the linked
 zero-thickness Shell in `FORM`. Do not use the rejected two-Sketch radius-depth
@@ -24,6 +25,29 @@ timings separately from kernel-only calculations. Include the Window 4 mm
 thickening failure and its matched factory control, rather than omitting it.
 See [the measured investigation](performance/20261011-corner-outward-surface-experiment.md).
 Windows results are not Linux acceptance.
+
+Repeat the finished nine-case thickness/radius matrix, independently measured
+Fillet radii and two directed solid differences against the pre-Fillet
+Cut/outward Thickness/quarter-cylinder Trim/Fuse construction. Repeat outward
+Window signed-direction checks on both outer faces at 1/2/3 mm and 37-degree
+rotation. Windows cold medians at 1 mm were 0.829244 s finished corner versus
+1.115730 s retained corner, and 1.348830 s outward Window versus 1.279560 s
+retained Window. These compare intentionally different styles, not equivalent
+geometry. Record fresh native Linux observations rather than reusing them.
+
+Also run `zima_cpp_native_tangent_contact_tests` and
+`zima_cpp_native_tangent_contact_ui_contract`, the general Sketcher/C+K suites,
+relation/dimension/curve/reference/serialization/Mirror-tangent commands and
+common-tangent/dimension-entry GUI checks. Verify circle/arc C+T creation,
+shared native arc T-only, independent equations after repeated R/D/position/
+angle edits (including negative/wrapped inputs) and point drags, fixed supports, fully constrained rejection,
+Undo/Redo, save/reopen, and Light/Dark/Light previews. The native 108-case
+matrix and its finite coverage are in
+[native tangent contacts](SKETCH_NATIVE_TANGENT_CONTACTS.md). The factory Part
+documents were re-saved with the current serializer; use the packaged templates
+and verify new-document active context on Linux. The user's original
+`Projects/FORM-KOULE.prtz` remains unmodified; its Sketch is retained as a tracked
+read-only regression fixture.
 
 Also run `zima_cpp_shell_command_tests`, `zima_cpp_boundary_surface_ui_contract`,
 `zima_cpp_surface_thicken_tests`, `zima_cpp_file_dialog_contract_tests`, and the

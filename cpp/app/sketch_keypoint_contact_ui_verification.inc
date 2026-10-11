@@ -1,4 +1,6 @@
+#include "sketch_native_tangent_contact_ui_verification.inc"
 int verify_sketch_keypoint_contact_ui(QApplication& application,const std::filesystem::path& directory) {
+    if(qEnvironmentVariableIsSet("ZIMA_VERIFY_NATIVE_CURVE_CONTACT_ONLY"))return verify_sketch_native_tangent_contact_ui(application,directory);
     using namespace zima;
     try {
         const auto check=[](bool ok,const char* text){if(!ok)throw std::runtime_error(text);};
@@ -12,7 +14,7 @@ int verify_sketch_keypoint_contact_ui(QApplication& application,const std::files
             if(kind==2)curve=sketch.add_ellipse(0,0,8,0,0,4);
             if(kind==3)curve=sketch.add_elliptical_arc(0,0,8,0,0,4,8*std::cos(.2),4*std::sin(.2),8*std::cos(6.1),4*std::sin(6.1));
             for(auto& point:sketch.points)point.fixed=true;
-            if(kind<2){auto radius=kind==0?sketch.create_circle_radius_dimension(curve):sketch.create_arc_radius_dimension(curve);radius.locked=true;sketch.apply_dimension(radius);}
+            if(kind==0){auto radius=sketch.create_circle_radius_dimension(curve);radius.locked=true;sketch.apply_dimension(radius);}
             static_cast<void>(sketch.add_segment(-10,2,-15,9));const auto point=sketch.segments.back().first_point_id;
             part.history={feature};part.sketches={sketch};document::BodyHistoryGraph graph;const auto body=graph.create_body("C+K");
             graph.insert({document::PartHistoryKind::Feature,feature.id});part.set_body_history(graph);part.resolve_constructions();

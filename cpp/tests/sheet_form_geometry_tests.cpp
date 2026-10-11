@@ -248,6 +248,18 @@ int main(int argc,char** argv){try {
         check(document::read_sheet_form_definition(argv[3]).part.form_outward,"Outward authoring intent did not persist");
         return 0;
     }
+    if(argc==4&&std::string_view(argv[1])=="--prepare-finished-form") {
+        auto source=document::read_sheet_form_definition(argv[2]);
+        check(source.corner()&&source.part.form_outward&&!source.solid_cut_supports.empty(),"Expected linked outward corner candidate");
+        source.part.form_corner_finish=true;source.part.name="Corner outward surface with solid cutter and transitions";
+        source.part.save(argv[3],*source.calculated);
+        check(document::read_sheet_form_definition(argv[3]).part.form_corner_finish,"Candidate finish intent did not persist");
+        return 0;
+    }
+    if(argc==3&&std::string_view(argv[1])=="--resave-current-part") {
+        std::vector<kernel::BodyResult> cached;auto part=document::PartDocument::load(argv[2],&cached);
+        part.save(argv[2],cached);return 0;
+    }
     if((argc==3||argc==5)&&std::string_view(argv[1])=="--probe-native-outward-form")
         return native_outward_form_probe(argv[2],argc==5?std::stod(argv[3]):1.,argc==5?std::stod(argv[4]):2.);
     if(argc==2&&std::string_view(argv[1])=="--probe-corner-outward-rounding")
@@ -449,7 +461,7 @@ int main(int argc,char** argv){try {
         workspace::Workspace live;live.add_part(part,previous);kernel::OcctKernel kernel;
         check(workspace::commit_sheet_form(live,kernel,part.document_id,replacement),"Corner definition replacement did not commit");
         auto* state=live.open_part(part.document_id);valid(state->session.calculated_boundaries().back());
-        if(!source.part.form_outward)
+        if(!source.part.form_outward||source.part.form_corner_finish)
             verify_corner_transition_radii(state->session.calculated_boundaries().back(),original.id,original.sheet_form.thickness);
         check(state->session.document().find_container(original.id)->placement.references==original.placement.references,"Definition replacement changed native placement references");
         const auto replacement_volume=state->session.calculated_boundaries().back().volume;
@@ -460,7 +472,7 @@ int main(int argc,char** argv){try {
         check(state->session.redo()&&state->session.document().find_container(original.id)->sheet_form==replacement.sheet_form,"Corner replacement Redo lost definition");
         state->session.document().save(argv[4],state->session.calculated_boundaries());
         std::vector<kernel::BodyResult> reopened;const auto native=document::PartDocument::load(argv[4],&reopened);valid(reopened.back());
-        if(!source.part.form_outward)
+        if(!source.part.form_outward||source.part.form_corner_finish)
             verify_corner_transition_radii(reopened.back(),original.id,original.sheet_form.thickness);
         auto recalculated=native;
         const auto regenerated=workspace::calculate_part_with_resolved_references(kernel,recalculated,&reopened);

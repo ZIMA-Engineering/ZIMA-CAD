@@ -1276,7 +1276,7 @@ bool AssemblyWorkspaceWindow::accept_sketch_circle_ray(
                     has_rim_contact_snap &&
                     rim_snap.first == tangent->support_id &&
                     rim_snap.second ==
-                        zima::sketcher::ConstraintKind::PointOnLine;
+                        tangent->contact_kind;
                 if (has_rim_contact_snap && !tangent_snap_already_owned) {
                     apply_sketch_point_snap(target, rim_point_id,
                         rim_snap.first, rim_snap.second);
@@ -1284,7 +1284,7 @@ bool AssemblyWorkspaceWindow::accept_sketch_circle_ray(
                 if (tangent) {
                     apply_sketch_point_snap(target, rim_point_id,
                         tangent->support_id,
-                        zima::sketcher::ConstraintKind::PointOnLine);
+                        tangent->contact_kind);
                 }
             }
             if (equal_radius) {
@@ -1339,7 +1339,9 @@ void AssemblyWorkspaceWindow::preview_sketch_circle_ray(
             (*pending_circle_center_)[1] + radius * std::sin(angle)));
     }
     viewer_->set_transient_edges({std::move(preview)});
-    if (equal_radius) {
+    if (tangent) {
+        viewer_->set_transient_labels({{sketch->world_point(tangent->contact[0],tangent->contact[1]), "C+T"}});
+    } else if (equal_radius) {
         std::array rim_position{
             (*pending_circle_center_)[0] + radius,
             (*pending_circle_center_)[1]};
@@ -1426,6 +1428,24 @@ AssemblyWorkspaceWindow::inferred_sketch_circle_tangent(
         offer_line({first->x, first->y}, {second->x, second->y}, line.id,
             true);
     }
+    const auto offer_circle=[&](const std::array<double,2>& center,double support_radius,const std::string& id) {
+        const double dx=(*pending_circle_center_)[0]-center[0],dy=(*pending_circle_center_)[1]-center[1];
+        const double distance=std::hypot(dx,dy);if(distance<=1e-12)return;
+        for(const double side:{1.,-1.}) {
+            const std::array contact{center[0]+side*support_radius*dx/distance,center[1]+side*support_radius*dy/distance};
+            const auto projected=sketch->project_point_to_curve(id,contact[0],contact[1]);
+            if(!projected||std::hypot((*projected)[0]-contact[0],(*projected)[1]-contact[1])>1e-7)continue;
+            const double cursor_distance=std::hypot(rim_position[0]-contact[0],rim_position[1]-contact[1]);
+            const double radius=std::hypot(contact[0]-(*pending_circle_center_)[0],contact[1]-(*pending_circle_center_)[1]);
+            if(cursor_distance>best_distance||radius<=1e-12)continue;
+            best_distance=cursor_distance;
+            best=SketchCircleTangentInference{radius,id,contact,zima::sketcher::ConstraintKind::PointOnCircle};
+        }
+    };
+    for(const auto& circle:sketch->circles)if(const auto* p=sketch->find_point(circle.center_point_id))offer_circle({p->x,p->y},circle.radius,circle.id);
+    for(const auto& arc:sketch->arcs)if(const auto* p=sketch->find_point(arc.center_point_id))offer_circle({p->x,p->y},arc.radius,arc.id);
+    for(const auto& reference:sketch->external_references)if(!reference.broken)
+        if(const auto circle=zima::sketcher::external_reference_circle(reference))offer_circle({(*circle)[0],(*circle)[1]},(*circle)[2],reference.id);
     return best;
 }
 

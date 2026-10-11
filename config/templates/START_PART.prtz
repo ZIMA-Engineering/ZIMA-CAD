@@ -12,6 +12,7 @@ dimension_layouts=[]
 document_id=template-start-part
 family={"evaluated":{},"parent":"","row":""}
 family_table={"bindings":{},"columns":[],"instances":[]}
+form_corner_finish=false
 form_outward=false
 format_version=46
 history_cursor=0
@@ -200,4 +201,3 @@ Data={"approved_by":{"":""},"date":{"":""},"drawn_by":{"":""},"mass":{"":"0.000"
 
 [UserParameters]
 Order=name, standard, stock, material, quantity, drawn_by, approved_by, revision, date, mass
-

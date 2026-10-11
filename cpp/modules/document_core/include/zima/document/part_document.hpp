@@ -801,9 +801,9 @@ public:
     std::optional<std::string> symbol_editor_definition;
     // Native FORM library intent, copied independently with the definition.
     // False retains inward authoring; true offsets the authored skin outward.
-    // The outward corner candidate exposes sharp transitions for ordinary
-    // downstream Fillet authoring; it does not apply closed-tool auto rounding.
     bool form_outward{};
+    // Explicit candidate finish intent, independent of offset direction.
+    bool form_corner_finish{};
     // Persisted diagnostics from reference evaluation, keyed by history owner.
     std::map<std::string,std::string> reference_errors;
     // Reference definitions retained after source deletion, until explicitly repaired.

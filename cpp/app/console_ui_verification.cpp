@@ -9,6 +9,7 @@
 #include <QSettings>
 #include <QScopeGuard>
 #include <QTemporaryDir>
+#include <limits>
 #include <QGroupBox>
 #include "primitive_properties_dialog.hpp"
 #include "sweep2d_dialog.hpp"

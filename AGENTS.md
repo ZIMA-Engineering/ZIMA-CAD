@@ -51,6 +51,17 @@
   coverage from one example or silently omit a failing variant.
 - This requirement was agreed with the user on 2026-10-06.
 
+## Point-based Sketcher junctions (mandatory)
+
+- Native curves meeting at the same persisted point already share incidence.
+  Adding tangency at that junction adds only T; do not add a duplicate point
+  or a redundant C. Preserve the shared point when T is removed.
+- A new contact between previously separate curves owns a real native point.
+  Persist C for each support that does not already own that point, together
+  with T. Removing T retains the point and its independent contacts.
+- Verify dimensions and repeated dragging, rather than only the initial solve.
+  This distinction was reaffirmed by the user on 2026-10-11.
+
 ## Part-based library document consistency (mandatory)
 
 - Part-based title blocks, drawing frames and symbols must use the same Body

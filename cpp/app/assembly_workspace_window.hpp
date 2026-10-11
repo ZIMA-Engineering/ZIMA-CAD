@@ -1032,6 +1032,7 @@ private:
         double radius{};
         std::string support_id;
         std::array<double, 2> contact{};
+        zima::sketcher::ConstraintKind contact_kind{zima::sketcher::ConstraintKind::PointOnLine};
     };
     std::optional<SketchCircleTangentInference>
         pending_circle_tangent_inference_;

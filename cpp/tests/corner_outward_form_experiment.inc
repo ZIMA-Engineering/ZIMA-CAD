@@ -4,6 +4,9 @@
 #include <Poly_Triangulation.hxx>
 #include <BRepAdaptor_Curve.hxx>
 #include <BRepPrimAPI_MakePrism.hxx>
+#include <BRepPrimAPI_MakeCylinder.hxx>
+#include <BRepBuilderAPI_MakePolygon.hxx>
+#include <BRepBuilderAPI_MakeFace.hxx>
 #include <BRepAlgoAPI_Section.hxx>
 #include <BRepFilletAPI_MakeFillet.hxx>
 #include <ShapeUpgrade_UnifySameDomain.hxx>
@@ -636,6 +639,8 @@ int native_outward_form_probe(const std::filesystem::path& path,double thickness
         near(kernel::sheet_material::dot(normal,document::construction_direction_from_local_axis("y",rotation)),1.,1e-10);
     }
     auto request=document::sheet_form_request(source,*support,position,normal,along,thickness);
+    std::cout<<"FORM source normal=("<<request.source_normal.x<<','<<request.source_normal.y<<','<<request.source_normal.z
+        <<") source origin=("<<request.source_origin.x<<','<<request.source_origin.y<<','<<request.source_origin.z<<")"<<std::endl;
     auto operations=stock.kernel_operations();kernel::HistoryOperation form{kernel::make_stable_id(),request};form.body=operations.front().body;
     kernel::SheetMaterialDefinition material;material.kind=kernel::SheetMaterialDefinition::Kind::Form;
     material.owner_id=form.owner_id;material.parent_owner_id=support->sheet_owner;material.thickness=thickness;material.origin=position;
@@ -644,7 +649,21 @@ int native_outward_form_probe(const std::filesystem::path& path,double thickness
     const auto start=std::chrono::steady_clock::now();
     const auto results=engine.evaluate_history_incremental(operations,baseline);
     const auto seconds=std::chrono::duration<double>(std::chrono::steady_clock::now()-start).count();
-    valid(results.back());if(source.corner()&&!source.part.form_outward)verify_corner_transition_radii(results.back(),form.owner_id,thickness);
+    valid(results.back());if(source.corner()&&(!source.part.form_outward||source.part.form_corner_finish))verify_corner_transition_radii(results.back(),form.owner_id,thickness);
+    const auto verify_window_side=[&](const kernel::BodyResult& result) {
+        if(source.corner()||!source.part.form_outward)return;
+        double low=std::numeric_limits<double>::infinity(),high=-low;
+        for(TopExp_Explorer vertex(experiment_shape(result),TopAbs_VERTEX);vertex.More();vertex.Next()) {
+            const auto p=BRep_Tool::Pnt(TopoDS::Vertex(vertex.Current()));
+            const auto distance=kernel::sheet_material::dot(kernel::sheet_material::sub({p.X(),p.Y(),p.Z()},position),normal);
+            low=std::min(low,distance);high=std::max(high,distance);
+        }
+        check(low>=-thickness-1e-7&&high>2.*thickness,"Window must grow outside its selected face without protruding through the opposite stock face");
+        const auto preview=document::sheet_form_preview_edges(feature.sheet_form);
+        check(std::ranges::any_of(preview,[](const auto& edge){return std::ranges::any_of(edge.points,[](const auto& p){return p.y>0.;});}),"Window preview has no outward geometry");
+        std::cout<<"Window signed extent from selected outer face=["<<low<<','<<high<<"]"<<std::endl;
+    };
+    verify_window_side(results.back());
     if(!source.solid_cut_supports.empty()) {
         // Independently execute the user's ordinary sequence, including the
         // complete Bend domain: native solid Cut, outward thickness and Fuse.
@@ -661,16 +680,35 @@ int native_outward_form_probe(const std::filesystem::path& path,double thickness
         auto formed=BRepBuilderAPI_Transform(experiment_shape(ordinary.back().body_outputs.at(request.shape_body).get()),placement,false).Shape();
         TopoDS_Compound walls;BRep_Builder builder;builder.MakeCompound(walls);
         for(TopExp_Explorer solid(formed,TopAbs_SOLID);solid.More();solid.Next())builder.Add(walls,solid.Current());
+        const auto bend=document::bend_material_definition(stock.history.front(),stock.sketches.front(),document::sheet_metal_defaults(stock));
+        using namespace kernel::sheet_material;
+        const auto center=sub(bend.origin,mul(bend.radial,bend.radius));
+        double low=std::numeric_limits<double>::infinity(),high=-low;
+        for(TopExp_Explorer vertex(walls,TopAbs_VERTEX);vertex.More();vertex.Next()) {
+            const auto p=BRep_Tool::Pnt(TopoDS::Vertex(vertex.Current()));
+            const auto x=dot(sub({p.X(),p.Y(),p.Z()},bend.origin),bend.along);
+            low=std::min(low,x);high=std::max(high,x);
+        }
+        const auto point=[&](double r,double t,double x){const auto p=add(center,add(mul(bend.radial,r),add(mul(bend.tangent,t),mul(bend.along,x))));return gp_Pnt(p.x,p.y,p.z);};
+        BRepBuilderAPI_MakePolygon polygon;
+        for(const auto p:{point(0,0,low),point(bend.radius,0,low),point(bend.radius,bend.radius,low),point(0,bend.radius,low)})polygon.Add(p);
+        polygon.Close();const auto quarter=BRepPrimAPI_MakePrism(BRepBuilderAPI_MakeFace(polygon.Wire()).Face(),gp_Vec(bend.along.x,bend.along.y,bend.along.z)*(high-low)).Shape();
+        const auto cylinder=BRepPrimAPI_MakeCylinder(gp_Ax2(point(0,0,low),gp_Dir(bend.along.x,bend.along.y,bend.along.z)),bend.radius,high-low).Shape();
+        BRepAlgoAPI_Cut exterior(quarter,cylinder);check(exterior.IsDone(),"Independent Bend trim tool failed");
+        BRepAlgoAPI_Cut trimmed(walls,exterior.Shape());check(trimmed.IsDone(),"Independent outer Bend radius trim failed");
         BRepAlgoAPI_Cut cut(experiment_shape(baseline.back()),cutter);cut.SetNonDestructive(true);cut.Build();check(cut.IsDone(),"Independent solid cut failed");
-        BRepAlgoAPI_Fuse joined(cut.Shape(),walls);joined.SetNonDestructive(true);joined.Build();check(joined.IsDone(),"Independent wall Fuse failed");
+        BRepAlgoAPI_Fuse joined(cut.Shape(),trimmed.Shape());joined.SetNonDestructive(true);joined.Build();check(joined.IsDone(),"Independent wall Fuse failed");
         check(BRepCheck_Analyzer(joined.Shape(),true,false,true).IsValid()&&experiment_solids(joined.Shape())==1,"Independent FORM sequence is invalid/disconnected");
-        const auto actual=experiment_shape(results.back());
+        auto unrounded_operations=operations;
+        std::get<kernel::SheetFormRequest>(unrounded_operations.back().primitive).finish_corner=false;
+        const auto unrounded=engine.evaluate_history_incremental(unrounded_operations,baseline);
+        valid(unrounded.back());const auto actual=experiment_shape(unrounded.back());
         for(const bool reverse:{false,true}) {
             BRepAlgoAPI_Cut difference(reverse?actual:joined.Shape(),reverse?joined.Shape():actual);
             difference.SetNonDestructive(true);difference.Build();check(difference.IsDone(),"Complete Bend equivalence check failed");
             check(std::abs(experiment_volume(difference.Shape()))<1e-7,"FORM differs from ordinary Cut/thickness/Fuse in complete Bend domain");
         }
-        std::cout<<"Independent solid Cut/outward thickness/Fuse equals complete FORM, including Bend\n";
+        std::cout<<"Independent solid Cut/outward thickness/Bend trim/Fuse equals unrounded FORM\n";
     }
     const auto result_path=std::filesystem::path("build/form-diagnostic")/(source.corner()?"native-outward-corner-result.json":"native-outward-window-result.json");
     std::ofstream file(result_path);file<<document::serialize_body_result(results.back()).dump();
@@ -681,6 +719,7 @@ int native_outward_form_probe(const std::filesystem::path& path,double thickness
         check(workspace::commit_sheet_form(live,engine,stock.document_id,feature),"Outward FORM insertion did not commit");
         auto* state=live.open_part(stock.document_id);check(state,"Outward native session missing");
         valid(state->session.calculated_boundaries().back());near(state->session.calculated_boundaries().back().volume,results.back().volume);
+        verify_window_side(state->session.calculated_boundaries().back());
         const auto inserted=*state->session.document().find_container(feature.id);
         const auto revision=state->session.revision();const auto fingerprint=state->session.calculated_boundaries().back().source_fingerprint;
         check(!workspace::commit_sheet_form(live,engine,stock.document_id,inserted)&&state->session.revision()==revision&&
@@ -702,8 +741,10 @@ int native_outward_form_probe(const std::filesystem::path& path,double thickness
         std::vector<kernel::BodyResult> reopened_results;auto reopened=document::PartDocument::load(path,&reopened_results);
         check(*reopened.find_container(feature.id)==inserted,"Outward native save/reopen changed references or embedded definition");
         valid(reopened_results.back());
+        verify_window_side(reopened_results.back());
         const auto regenerated=workspace::calculate_part_with_resolved_references(engine,reopened,&reopened_results);
         valid(regenerated.back());near(regenerated.back().volume,results.back().volume);
+        verify_window_side(regenerated.back());
         check(source.part.serialized(*source.calculated)==authored,"Outward placement modified source authoring document");
         std::cout<<"Outward FORM native placement, unchanged OK, position edit, Undo/Redo, Unbend and save/reopen passed"<<std::endl;
     }

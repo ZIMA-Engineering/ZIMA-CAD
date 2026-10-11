@@ -478,6 +478,7 @@ kernel::SheetFormRequest sheet_form_request(const SheetFormDefinition& definitio
     result.surface=definition.surface;result.support=std::move(support);
     result.position=position;result.normal=normal;result.x_direction=x_direction;result.thickness=thickness;
     result.outward=part.form_outward;
+    result.finish_corner=part.form_corner_finish;
     if(!definition.solid_opening_faces.empty()||!definition.solid_cut_supports.empty()) {
         result.solid_opening_faces=definition.solid_opening_faces;
         const auto& supports=definition.solid_cut_supports.empty()?definition.solid_opening_faces:definition.solid_cut_supports;

@@ -8372,7 +8372,7 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                     axis.reference.owner_id=operation.owner_id;axis.reference.instance_path.clear();
                     axis.label.clear();
                 }
-                if(!form->solid_opening_faces.empty()) {
+                if(!form->solid_opening_faces.empty()||(outward_corner&&form->solid_cut_snapshot)) {
                     PrimitiveData input;input.shape=result_shape;input.faces=owned_topology->faces;
                     input.edges=owned_topology->edges;input.vertices=owned_topology->vertices;
                     form_operands->formed=sheet_form_geometry::trim_corner_shell(input,form_operands->formed,*form,operation,operations,operation_index);
@@ -8407,7 +8407,7 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                 result_shape=changed.shape;
                 owned_topology=std::make_shared<LiveCache::Topology>(LiveCache::Topology{
                     std::move(changed.faces),std::move(changed.edges),std::move(changed.vertices),{}});
-                if(!form->solid_opening_faces.empty()) {
+                if(!form->solid_opening_faces.empty()||(outward_corner&&form->solid_cut_snapshot&&form->finish_corner)) {
                     // Resolve both real transition routes once at the Boolean
                     // boundary. Rounding reuses the ordinary native Fillet
                     // implementation without publishing unused intermediate
@@ -8478,6 +8478,17 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                         routes[support].push_back(owned.reference);
                     }
                     if(std::getenv("ZIMA_CPP_FORM_PROFILE"))std::fprintf(stderr,"FORM transition routes: inner=%zu outer=%zu\n",routes[0].size(),routes[1].size());
+                    if(std::getenv("ZIMA_CPP_FORM_DUMP")) {
+                        BRepTools::Write(result_shape,"build/form-diagnostic/native-outward-unrounded.brep");
+                        for(unsigned side:{0u,1u}) {
+                            TopoDS_Compound route;BRep_Builder builder;builder.MakeCompound(route);
+                            for(const auto& reference:routes[side]) {
+                                const auto found=std::ranges::find_if(owned_topology->edges,[&](const auto& edge){return edge.reference==reference;});
+                                if(found!=owned_topology->edges.end())builder.Add(route,found->shape);
+                            }
+                            BRepTools::Write(route,("build/form-diagnostic/native-outward-route-"+std::to_string(side)+".brep").c_str());
+                        }
+                    }
                     if(routes[0].empty()||routes[1].empty())throw std::runtime_error("FORM could not create a valid sheet.");
                     for(unsigned side:{1u,0u}) {
                         // Symbolic forming permits local thickness variation:

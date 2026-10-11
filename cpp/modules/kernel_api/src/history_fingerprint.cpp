@@ -804,6 +804,7 @@ std::string encode_history_fingerprint(
                 }
             } else if constexpr (std::is_same_v<Request, SheetFormRequest>) {
                 u64(primitive.outward?3:1);
+                u64(primitive.finish_corner?1:0);
                 const auto text=[&](const std::string& s){u64(s.size());for(unsigned char c:s)byte(c);};
                 for(const auto* value:{&primitive.definition_id,&primitive.shape_body,&primitive.cut_body,&primitive.flat_body,
                         &primitive.support.owner_id,&primitive.support.semantic_key,&primitive.support.instance_path,

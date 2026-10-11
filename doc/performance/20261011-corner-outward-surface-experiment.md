@@ -236,3 +236,71 @@ Both 4 mm variants failed the same valid-solid thickening gate. The inward
 3 mm complete probe exceeded 150 s; a bounded profile reached result meshing
 but did not finish the mass-properties phase. The outward 3 mm calculation
 completed in 4.846 s. The baseline timeout remains an unresolved limitation.
+
+## Finished linked-solid candidate (2026-10-11)
+
+`CornerGusset90-EXPERIMENTAL.prtz` adds the outer Bend-cylinder trim and both
+ordinary native transition Fillets to the linked-solid candidate. The solid
+Cut precedes the linked surface and full stock thickness. The trim uses the
+actual destination cylinder only in its quarter-domain. Both routes derive
+from the real FORM–Bend junction; the established order and radii are `t`
+followed by `0.25t`. No radius reduction or approximation-tolerance change was
+introduced. The retained production sources remain controls for the user's
+style decision.
+
+The native `form_corner_finish` field records the candidate's explicit finish
+intent independently of its outward thickness side. The embedded definition
+and result fingerprint consume it, so a finished result cannot reuse an
+unrounded result. The unrounded control retains radius trimming but omits
+transition Fillets. All 20 factory Part-based documents, including four start
+Part templates, were rewritten with the current serializer. Existing document
+extensions and the current format identifiers remain unchanged.
+
+Nine combinations passed strict BRep validity, one-solid connectivity and
+independent curvature measurement of both prescribed radii: `(t, Ri)` =
+`(0.5,0.5), (1,1), (2,2), (3,3), (4,4), (0.5,2), (1,2), (2,4), (3,6)`.
+An independent native solid Cut, ordinary outward thickness, separately
+constructed quarter-box/cylinder trim and Fuse matched the unrounded body over
+the complete Bend domain by two directed solid differences below `1e-7 mm3`.
+The finished body's radii were measured independently, rather than inferred
+from the requested values. Definition replacement, unchanged OK, Undo/Redo,
+save/reopen, regeneration and the workspace copy matrix passed.
+
+The outward Window passed signed-direction checks from both selected outer
+faces at thicknesses 1, 2 and 3 mm, with 37-degree in-plane rotation. Its native
+and persisted results remain within the stock on the opposite side and extend
+outside the selected face. Draft preview, placement, unchanged OK, position
+editing, Undo/Redo, Unbend, save/reopen and regeneration passed. Use
+`VentilationWindow-EXPERIMENTAL-outward.prtz` for this trial; the retained
+`VentilationWindow.prtz` is the previous offset-direction control.
+
+Five serial cold complete-kernel observations per variant on the same 1 mm
+stock, native Windows Release build with OCCT 8.0.0, produced these medians:
+
+| Variant | Complete kernel calculation |
+| --- | ---: |
+| Retained rounded corner | 1.115730 s |
+| Finished linked-solid corner | 0.829244 s |
+| Retained Window | 1.279560 s |
+| Outward Window | 1.348830 s |
+
+The finished corner is 25.7% faster in this sample; the outward Window is 5.4%
+slower. Both pairs intentionally change forming geometry, so these compare
+styles, not identical-output implementations. Timed sections include stock
+support validation, preparation, Cut/Fuse, corner trimming/rounding where
+applicable, final mesh, properties and persistence. Independent verification
+runs outside the timed section. Raw observations and checks are in
+`build/form-diagnostic/finished`; GUI and Linux verification status is recorded
+separately. No new user-visible text was introduced by the finish intent.
+
+Windows GUI verification passed new documents from the regenerated templates,
+the outward Window and the finished corner. The corner fixture covers actual
+outer-plane/axis picking, draft offsets, definition replacement, rollback
+inspection and Cancel, unchanged OK, Pattern/Mirror, Unbend/Bend Back,
+Undo/Redo and native save/reopen. Final inside/outside screenshots were
+inspected. Complete confirmation measured 0.866 s for the corner and 1.531 s
+for the Window in isolated trials; these are separate from the cold-kernel
+observations above. Window insertion also passes actual signed viewer bounds.
+The later circular-tangent work reruns the FORM native contracts because
+library profiles consume the same Sketcher implementation. The user's style
+decision and native Linux acceptance remain pending.

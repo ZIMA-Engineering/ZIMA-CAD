@@ -1,0 +1,152 @@
+{
+  "arcs": [
+    {
+      "center": "01a12ae901977b96afb0d8f37717c2c1",
+      "centerline": false,
+      "construction": false,
+      "end": "01a12ae901977b96afb0d8f37717c2ca",
+      "end_angle": 2.5474709070382104,
+      "id": "01a12ae901977b96afb0d8f37717c2c2",
+      "radius": 7.102432804484844,
+      "start": "01a12ae901977b96afb0d8f37717c2c3",
+      "start_angle": 1.5707963267948966,
+      "visible_in_3d": true
+    },
+    {
+      "center": "01a12ae901977b96afb0d8f37717c2c7",
+      "centerline": false,
+      "construction": false,
+      "end": "01a12ae901977b96afb0d8f37717c2ca",
+      "end_angle": -0.5156309765987293,
+      "id": "01a12ae901977b96afb0d8f37717c2c8",
+      "radius": 6.340958281186107,
+      "start": "01a12ae901977b96afb0d8f37717c2d4",
+      "start_angle": -1.5707963267948968,
+      "visible_in_3d": true
+    }
+  ],
+  "bsplines": [],
+  "circles": [],
+  "constraints": [
+    {
+      "first": "01a12ae901977b96afb0d8f37717c2c3",
+      "geometry": "sketch_axis:x",
+      "id": "01a12ae901977b96afb0d8f37717c2c4",
+      "kind": "tangent",
+      "second": "",
+      "second_geometry": "01a12ae901977b96afb0d8f37717c2c2",
+      "suppressed": false,
+      "tangent_internal": false
+    },
+    {
+      "first": "01a12ae901977b96afb0d8f37717c2c3",
+      "geometry": "sketch_axis:x",
+      "id": "01a12ae901977b96afb0d8f37717c2c6",
+      "kind": "point_on_line",
+      "second": "",
+      "second_geometry": "",
+      "suppressed": false,
+      "tangent_internal": false
+    },
+    {
+      "first": "01a12ae901977b96afb0d8f37717c2c7",
+      "geometry": "sketch_axis:x",
+      "id": "01a12ae901977b96afb0d8f37717c2c9",
+      "kind": "point_on_line",
+      "second": "",
+      "second_geometry": "",
+      "suppressed": false,
+      "tangent_internal": false
+    }
+  ],
+  "corner_radii": [],
+  "curve_supports": [],
+  "curve_trims": [],
+  "dimension_layouts": [],
+  "dimensions": [],
+  "ellipses": [],
+  "elliptical_arcs": [],
+  "external_references": [],
+  "format": "zima-cad-cpp-sketch",
+  "id": "01a12ae901977b96afb0d8f37717c2b5",
+  "import_blocks": [],
+  "name": "Skica",
+  "offsets": [],
+  "owner_container_id": "01a12ae901977b96afb0d8f37717c2b6",
+  "plane": "xz",
+  "plane_auto": false,
+  "plane_offset": 0.0,
+  "plane_reference_owner_id": "",
+  "points": [
+    {
+      "centerline": false,
+      "construction": false,
+      "fixed": false,
+      "id": "01a12ae901977b96afb0d8f37717c2c3",
+      "visible_in_3d": true,
+      "x": 11.401881217956543,
+      "y": 0.0
+    },
+    {
+      "centerline": false,
+      "construction": false,
+      "fixed": false,
+      "id": "01a12ae901977b96afb0d8f37717c2ca",
+      "visible_in_3d": true,
+      "x": 5.5165181159973145,
+      "y": -3.1266243457787035
+    },
+    {
+      "centerline": false,
+      "construction": false,
+      "fixed": false,
+      "id": "01a12ae901977b96afb0d8f37717c2c1",
+      "visible_in_3d": true,
+      "x": 11.401881217956543,
+      "y": -7.102432804484844
+    },
+    {
+      "centerline": false,
+      "construction": false,
+      "fixed": false,
+      "id": "01a12ae901977b96afb0d8f37717c2c7",
+      "visible_in_3d": true,
+      "x": 0.0,
+      "y": 0.0
+    },
+    {
+      "centerline": false,
+      "construction": false,
+      "fixed": false,
+      "id": "01a12ae901977b96afb0d8f37717c2d4",
+      "visible_in_3d": true,
+      "x": -1.0197038632630013e-15,
+      "y": -6.340958281186107
+    }
+  ],
+  "resolved_normal": [
+    0.0,
+    1.0,
+    0.0
+  ],
+  "resolved_origin": [
+    0.0,
+    0.0,
+    0.0
+  ],
+  "resolved_x_axis": [
+    1.0,
+    0.0,
+    0.0
+  ],
+  "resolved_y_axis": [
+    0.0,
+    0.0,
+    -1.0
+  ],
+  "segments": [],
+  "suppressed": false,
+  "symbols": [],
+  "texts": [],
+  "version": 35
+}
