@@ -91,3 +91,11 @@ with a clean runtime environment. A local HTTP fixture verified persistent
 cookies across process restart, clearing cookies and second-instance profile
 isolation. Linux credential services and packaged WebEngine remain native-host
 verification requirements.
+
+Windows [2026101201](releases/2026101201.md) adds an actual rendered-color
+check beside a CAD OpenGL context. The former default-API mode fails that
+negative control, while the shared OpenGL mode passes. Native main-window pixel
+checks, first browser opening, repeated CAD/web switching, Light/Dark/Light,
+resizing and five-language settings width pass from the signed runtime without
+Hide, native-surface or window-ID changes. Offscreen runs explicitly skip native
+pixel capture; they are not evidence of native desktop composition.
