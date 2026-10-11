@@ -34,6 +34,17 @@ are unsupported, in accordance with the project's no-legacy-format policy.
 Factory Part/Skeleton templates and calculated FORM/test assets are refreshed
 with the current writer. This is one shared C++ implementation for both systems.
 
+The native Linux follow-up also checks the independently stored FORM Body
+snapshot. Its nested runtime key can retain the source platform's reconstructed
+math values even after the complete verified document key has been rebound.
+A current complete history key now qualifies that already persisted surface,
+as does the existing current local Body key. This does not omit the native
+definition proof or recalculate geometry on loading. Changing the source Shell
+invalidates both proofs and rejects reuse. The regression changes only the
+disposable nested key, checks identical opaque geometry, then edits thickness
+and verifies rejection. No format, numeric normalization or placement change
+is introduced.
+
 ## Evidence and remaining native Linux acceptance
 
 Native document tests preserve an actual Linux-calculated seven-boundary

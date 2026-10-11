@@ -1,5 +1,16 @@
 # Linux build and distribution handoff — 2026-09-15
 
+## Native Linux continuation (2026-10-11)
+
+The source through Windows 2026101106 has been fetched and the patched native
+Linux SDK, product and test targets are built. The contact, current factory
+FORM, retained copy, placement, persistence and desktop results are recorded in
+[Linux build verification](LINUX_BUILD.md#native-continuation-on-2026-10-11).
+That record explicitly retains failures and finite coverage limits. Large STEP
+preparation completes on both supplied G92 fixtures. Large-model desktop
+lifecycle and Linux 2026101107 packaging/signing/publication are in progress;
+do not interpret the older Windows-only sections below as current Linux results.
+
 ## Outward FORM candidate follow-up (2026-10-11)
 
 After reboot/fetch, additionally run `zima_cpp_native_arc_axis_tests` and

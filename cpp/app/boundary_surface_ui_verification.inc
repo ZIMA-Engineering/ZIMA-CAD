@@ -412,7 +412,11 @@ int verify_boundary_surface_ui(QApplication& application,AssemblyWorkspaceWindow
             QMouseEvent accept_skin(QEvent::MouseButtonDblClick,QPointF(20,20),QPointF(view->mapToGlobal(QPoint(20,20))),
                 Qt::MiddleButton,Qt::MiddleButton,Qt::NoModifier);
             QApplication::sendEvent(view,&accept_skin);flush();check(!skin_dialog(),"Surface extraction middle confirmation failed");
-            run("save");const auto file=directory/(name+".prtz");std::vector<kernel::BodyResult> cache;
+            const auto saved=run("save");
+            const auto active=std::ranges::find_if(saved.data,[](const auto& item){return item.value("active",false);});
+            check(active!=saved.data.end(),"Surface extraction save returned no active document");
+            const auto file=std::filesystem::u8path(active->at("path").template get<std::string>());
+            std::vector<kernel::BodyResult> cache;
             const auto native=document::PartDocument::load(file,&cache);const auto skin=native.history.back().id;
             check(native.history.back().is_surface_result()&&native.history.back().shell.thickness==0.&&cache.back().volume==0.&&
                 std::abs(cache.back().surface_area-600)<1e-7,"Surface extraction changed geometry or retained volume");

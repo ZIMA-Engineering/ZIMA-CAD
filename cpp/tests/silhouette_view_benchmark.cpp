@@ -9,6 +9,8 @@
 #include <QMouseEvent>
 #include <QQuaternion>
 #include <QVariantAnimation>
+#include <QEventLoop>
+#include <QTimer>
 #include <algorithm>
 #include <array>
 #include <chrono>
@@ -96,6 +98,9 @@ void connectivity_probe(QApplication& app) {
     using namespace zima;
     qputenv("ZIMA_CPP_VERIFY_GPU_UPLOAD","1");
     viewer::MeshView view;view.resize(800,600);view.show();app.processEvents();
+    // Wayland acknowledges the initial window size asynchronously. Let that
+    // configure settle before comparing two otherwise identical framebuffers.
+    QEventLoop exposed;QTimer::singleShot(200,&exposed,&QEventLoop::quit);exposed.exec();
     require(view.isValid(),"Connectivity verification requires desktop OpenGL");
     kernel::ViewerMesh base;
     base.vertices={{-5,-5,0},{5,-5,0},{5,5,0},{-5,5,1},{-5,-5,0}};

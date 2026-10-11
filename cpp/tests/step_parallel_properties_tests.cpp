@@ -1,5 +1,6 @@
 #include <zima/interchange/step_model.hpp>
 #include <zima/kernel/occt_kernel.hpp>
+#include <zima/kernel/calculated_body_shape.hpp>
 #include <zima/document/solid_state_calculation.hpp>
 #include <BRepPrimAPI_MakeCylinder.hxx>
 #include <BRepPrimAPI_MakeTorus.hxx>
@@ -42,7 +43,7 @@ int main(){try {
         require(writer.Write(path.string().c_str())==IFSelect_RetDone,"Rational STEP write failed");
         const auto imported=interchange::import_step_part(document::PartDocument::create_default(),{},path);
         const auto& result=imported.calculated.back();
-        TopoDS_Shape frozen;BRep_Builder builder;std::istringstream data(result.kernel_shape);BRepTools::Read(frozen,data,builder);
+        const auto frozen=kernel::read_calculated_body_shape(result);BRep_Builder builder;
         require(!frozen.IsNull(),"Rational STEP lost its native B-Rep");
         TopoDS_Compound solid;builder.MakeCompound(solid);
         for(TopExp_Explorer it(frozen,TopAbs_SOLID);it.More();it.Next())builder.Add(solid,it.Current());

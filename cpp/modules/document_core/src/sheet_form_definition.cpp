@@ -542,7 +542,16 @@ kernel::SheetFormRequest sheet_form_request(const SheetFormDefinition& definitio
             for(auto operation:part.kernel_operations())if(operation.body.id==result.shape_body) {
                 operation.body={};local.push_back(std::move(operation));
             }
-            if(surface.calculation_errors.empty()&&surface.source_fingerprint==kernel::history_fingerprint(local,local.size())) {
+            // A native load verifies the exact persisted definition and rebinds
+            // the complete history key to the receiving platform. Its nested
+            // Body keys can still contain the source platform's math results.
+            // A current complete history therefore also proves this snapshot;
+            // changed source operations invalidate both available proofs.
+            const auto operations=part.kernel_operations();
+            const bool current_definition=definition.calculated->back().source_fingerprint==
+                kernel::history_fingerprint(operations,operations.size());
+            if(surface.calculation_errors.empty()&&(current_definition||
+                surface.source_fingerprint==kernel::history_fingerprint(local,local.size()))) {
                 if(!definition.solid_opening_faces.empty())
                     result.solid_cut_snapshot=std::make_shared<const kernel::BodyResult>(surface);
                 else if(!surface.kernel_faces.empty())result.surface_snapshot=std::make_shared<const kernel::BodyResult>(surface);

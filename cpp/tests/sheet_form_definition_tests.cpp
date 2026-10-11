@@ -61,6 +61,23 @@ int main(){try {
     auto part=zima::document::PartDocument::load(library,&cached);
     const auto definition=zima::document::sheet_form_definition(part,cached);
     check(part.form_outward,"Factory window must use its outer-face outward definition");
+    {
+        auto foreign_keys=definition;
+        auto calculated=*foreign_keys.calculated;
+        auto histories=calculated.back().body_boundaries.at(definition.bodies[1]).get();
+        histories.back().source_fingerprint="source-platform-runtime-key";
+        calculated.back().body_boundaries[definition.bodies[1]]=std::move(histories);
+        foreign_keys.calculated=std::make_shared<const std::vector<zima::kernel::BodyResult>>(std::move(calculated));
+        const auto request=zima::document::sheet_form_request(foreign_keys,{}, {},{0,1,0},{1,0,0},1.);
+        check(request.surface_snapshot&&request.surface_snapshot->kernel_shape==
+            definition.calculated->back().body_boundaries.at(definition.bodies[1]).back().kernel_shape,
+            "Verified complete FORM definition rejected its source-platform Body key");
+        auto* shell=foreign_keys.part.find_container(foreign_keys.part.body_history.find(definition.bodies[1])->entries.back().id);
+        check(shell&&shell->feature_kind==zima::document::FeatureKind::Shell,"FORM regression has no source shell");
+        shell->shell.thickness=.25;
+        check(!zima::document::sheet_form_request(foreign_keys,{}, {},{0,1,0},{1,0,0},1.).surface_snapshot,
+            "Changed FORM source reused its source-platform snapshot");
+    }
     std::vector<std::string> offered;
     for(const auto& entry:std::filesystem::directory_iterator(library.parent_path()))
         if(entry.path().extension()==".prtz")offered.push_back(entry.path().filename().string());

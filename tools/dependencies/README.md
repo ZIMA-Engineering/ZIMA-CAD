@@ -37,5 +37,7 @@ OCCT source and the patch remain subject to its LGPL 2.1 license with the OCCT
 exception. Portable distributions must retain the kernel license notices and
 the complete repository source, including this patch and its build recipes.
 
-Native Linux execution is pending the user's reboot and is recorded in
+The patched native Linux SDK, seven-case analytical integration regression and
+both supplied G92 STEP preparations have passed on Debian 13.6. Finite Linux
+verification and remaining acceptance gaps are recorded in
 [`doc/LINUX_RELEASE_HANDOFF.md`](../../doc/LINUX_RELEASE_HANDOFF.md).
