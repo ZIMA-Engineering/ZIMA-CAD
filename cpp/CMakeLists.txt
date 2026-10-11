@@ -990,9 +990,16 @@ if(ZIMA_BUILD_TESTS)
         zima_sketcher zima_viewer zima_document_core)
     add_test(NAME zima_cpp_sketcher_contract_tests COMMAND zima_cpp_sketcher_contract_tests)
     add_test(NAME zima_cpp_native_tangent_contact_tests COMMAND zima_cpp_sketcher_contract_tests)
+    add_test(NAME zima_cpp_native_arc_axis_tests COMMAND zima_cpp_sketcher_contract_tests)
+    set_tests_properties(zima_cpp_native_arc_axis_tests PROPERTIES
+        ENVIRONMENT "ZIMA_CPP_VERIFY_ARC_AXIS_ONLY=1" TIMEOUT 180)
     set_tests_properties(zima_cpp_native_tangent_contact_tests PROPERTIES
         ENVIRONMENT "ZIMA_CPP_VERIFY_NATIVE_CURVE_CONTACT=1" TIMEOUT 120)
     add_test(NAME zima_cpp_native_tangent_contact_ui_contract COMMAND zima-cad-cpp --verify-startup)
+    add_test(NAME zima_cpp_native_arc_axis_ui_contract COMMAND zima-cad-cpp --verify-startup)
+    set_tests_properties(zima_cpp_native_arc_axis_ui_contract PROPERTIES
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_SKETCH_KEYPOINT_CONTACT_ONLY=1;ZIMA_VERIFY_NATIVE_CURVE_CONTACT_ONLY=1;ZIMA_VERIFY_ARC_AXIS_UI_ONLY=1;ZIMA_NATIVE_CONTACT_SOURCE=${CMAKE_SOURCE_DIR}/tests/fixtures/sketch/form-koule-shared-arcs.json"
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." RUN_SERIAL TRUE TIMEOUT 900)
     set_tests_properties(zima_cpp_native_tangent_contact_ui_contract PROPERTIES
         ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_SKETCH_KEYPOINT_CONTACT_ONLY=1;ZIMA_VERIFY_NATIVE_CURVE_CONTACT_ONLY=1;ZIMA_NATIVE_CONTACT_SOURCE=${CMAKE_SOURCE_DIR}/tests/fixtures/sketch/form-koule-shared-arcs.json"
         WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." RUN_SERIAL TRUE TIMEOUT 180)

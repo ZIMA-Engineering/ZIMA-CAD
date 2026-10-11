@@ -3197,6 +3197,9 @@ bool Sketch::move_point(const std::string& point_id, double x, double y) {
     const auto externally_linked = externally_linked_point_ids(next);
     if (point == nullptr || point->fixed ||
         externally_linked.contains(point_id)) return false;
+    const auto on_axis=[&](const char* axis){return std::ranges::any_of(next.constraints,[&](const auto& c){return
+        !c.suppressed&&c.kind==ConstraintKind::PointOnLine&&c.first_point_id==point_id&&c.geometry_id==axis;});};
+    if(on_axis("sketch_axis:x")&&on_axis("sketch_axis:y"))return false;
     const double original_x = point->x;
     const double original_y = point->y;
     // An unlocked symmetric distance still owns equal distances to its axis.
@@ -4382,6 +4385,49 @@ std::string Sketch::add_segment(
 }
 
 namespace {
+bool seed_arc_point_contact(Sketch& pending, const std::string& point_id) {
+    if(pending.points.size()>32)return false;
+    if(std::ranges::none_of(pending.arcs,[&](const auto& a){return a.center_point_id==point_id||
+        a.start_point_id==point_id||a.end_point_id==point_id;}))return false;
+    auto sized=pending;
+    for(const auto& arc:sized.arcs) {
+        if(std::ranges::any_of(sized.dimensions,[&](const auto& d){return !d.suppressed&&d.driving&&d.geometry_id==arc.id&&
+            (d.kind==DimensionKind::Radius||d.kind==DimensionKind::Diameter);}))continue;
+        SketchDimension size;size.id="contact-seed-radius:"+arc.id;size.geometry_id=arc.id;
+        size.kind=DimensionKind::Radius;size.value=arc.radius;sized.dimensions.push_back(size);
+    }
+    // Prefer a translation/rotation at the entered radii. Temporary equations
+    // only seed creation; the common solver validates the real
+    // document equations and computes its rank after these equations retire.
+    if(seed_circular_equations(sized,{})) {
+        sized.dimensions=pending.dimensions;pending=std::move(sized);return true;
+    }
+    // An end moved onto a line has two circle/line intersections. The nearest
+    // numerical fit may choose the one that reverses the finite arc domain.
+    // Try both real intersections at the entered radius before relaxing sizes.
+    const auto contact=std::ranges::find_if(pending.constraints,[&](const auto& c){return !c.suppressed&&
+        c.kind==ConstraintKind::PointOnLine&&c.first_point_id==point_id;});
+    if(contact!=pending.constraints.end())for(const auto& arc:pending.arcs) {
+        if(arc.start_point_id!=point_id&&arc.end_point_id!=point_id)continue;
+        const auto line=sketch_axis_line(pending,contact->geometry_id)?sketch_axis_line(pending,contact->geometry_id):segment_or_external_line(pending,contact->geometry_id);
+        const auto* center=pending.find_point(arc.center_point_id);if(!line||!center)continue;
+        const double length=std::hypot(line->second[0],line->second[1]);if(length<1e-12)continue;
+        const double ux=line->second[0]/length,uy=line->second[1]/length;
+        const double along=(center->x-line->first[0])*ux+(center->y-line->first[1])*uy;
+        const double fx=line->first[0]+along*ux,fy=line->first[1]+along*uy;
+        const double squared=arc.radius*arc.radius-(fx-center->x)*(fx-center->x)-(fy-center->y)*(fy-center->y);
+        if(squared<0)continue;
+        for(const double side:{-1.,1.}) {
+            auto branch=sized;auto* point=branch.find_point(point_id);
+            point->x=fx+side*std::sqrt(squared)*ux;point->y=fy+side*std::sqrt(squared)*uy;
+            if(seed_circular_equations(branch,{})) {
+                branch.dimensions=pending.dimensions;pending=std::move(branch);return true;
+            }
+        }
+    }
+    return seed_circular_equations(pending,{});
+}
+
 void require_constraint_dof_reduction(
     const Sketch& before, const SolveResult& after,
     const char* redundant_message) {
@@ -4498,7 +4544,19 @@ std::string Sketch::add_point_reference_constraint(
         next.constraints.push_back(std::move(contact));
     }
     next.constraints.push_back(std::move(constraint));
-    const auto result = next.solve();
+    if(next.points.size()<=32&&std::ranges::any_of(next.constraints,[&](const auto& c){return !c.suppressed&&native_circular_tangent_contact(next,c)&&
+        (geometry_owns_point(next,c.geometry_id,native_point_id)||geometry_owns_point(next,c.second_geometry_id,native_point_id));}))
+        static_cast<void>(seed_arc_point_contact(next,native_point_id));
+    auto result = next.solve();
+    if(result.status==SolveStatus::Conflicting&&next.points.size()<=32) {
+        auto candidate=*this;candidate.constraints=next.constraints;
+        if(seed_arc_point_contact(candidate,native_point_id)) {
+            const auto fitted=candidate.solve();
+            if(fitted.status!=SolveStatus::Conflicting && fitted.status!=SolveStatus::Invalid) {
+                next=std::move(candidate);result=fitted;
+            }
+        }
+    }
     if (result.status == SolveStatus::Conflicting ||
         result.status == SolveStatus::Invalid) {
         throw std::runtime_error("Point reference conflicts with existing geometry");
@@ -5275,7 +5333,19 @@ std::string Sketch::add_point_on_line_constraint(
     constraint.geometry_id = line_id;
     const auto id = constraint.id;
     next.constraints.push_back(std::move(constraint));
-    const auto result = next.solve();
+    if(next.points.size()<=32&&std::ranges::any_of(next.constraints,[&](const auto& c){return !c.suppressed&&native_circular_tangent_contact(next,c)&&
+        (geometry_owns_point(next,c.geometry_id,point_id)||geometry_owns_point(next,c.second_geometry_id,point_id));}))
+        static_cast<void>(seed_arc_point_contact(next,point_id));
+    auto result = next.solve();
+    if(result.status==SolveStatus::Conflicting&&next.points.size()<=32) {
+        auto candidate=*this;candidate.constraints=next.constraints;
+        if(seed_arc_point_contact(candidate,point_id)) {
+            const auto fitted=candidate.solve();
+            if(fitted.status!=SolveStatus::Conflicting && fitted.status!=SolveStatus::Invalid) {
+                next=std::move(candidate);result=fitted;
+            }
+        }
+    }
     if (result.status == SolveStatus::Conflicting ||
         result.status == SolveStatus::Invalid) {
         throw std::runtime_error(
@@ -9259,16 +9329,14 @@ void Sketch::apply_dimension(SketchDimension dimension) {
             }
         }
     }
-    if(dimension_kind==DimensionKind::Radius || dimension_kind==DimensionKind::Diameter) {
-        const bool shared_circular_junction=std::ranges::any_of(next.constraints,[&](const auto& c) {
-            if(c.suppressed || c.kind!=ConstraintKind::Tangent)return false;
-            const auto a=std::ranges::find(next.arcs,c.geometry_id,&SketchArc::id);
-            const auto b=std::ranges::find(next.arcs,c.second_geometry_id,&SketchArc::id);
-            if(a==next.arcs.end() || b==next.arcs.end())return false;
-            return a->start_point_id==b->start_point_id || a->start_point_id==b->end_point_id ||
-                a->end_point_id==b->start_point_id || a->end_point_id==b->end_point_id;
+    if(next.points.size()<=32&&(dimension_kind==DimensionKind::Radius || dimension_kind==DimensionKind::Diameter || dimension_kind==DimensionKind::AngleThreePoint)) {
+        const bool shared_circular_junction=std::ranges::any_of(next.arcs,[&](const auto& a) {
+            return std::ranges::any_of(next.arcs,[&](const auto& b) {
+                return a.id!=b.id&&(a.start_point_id==b.start_point_id||a.start_point_id==b.end_point_id||
+                    a.end_point_id==b.start_point_id||a.end_point_id==b.end_point_id);
+            });
         });
-        // Updating one radius moves a shared endpoint before its neighbour's
+        // Updating a radius/angle moves a shared endpoint before its neighbour's
         // centre/angles have been fitted. Fit the coupled graph before checking
         // geometric consistency, then verify using the ordinary solver below.
         if(shared_circular_junction)static_cast<void>(seed_circular_equations(next,{}));

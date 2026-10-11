@@ -1,5 +1,8 @@
 # Native circular tangent contacts
 
+Additional centre/end-to-axis and Origin editing cases are documented in
+[Native arc centre and endpoint contacts](SKETCH_ARC_AXIS_CONTACTS.md).
+
 Separate native circular curves use an actual persisted contact point. Each
 curve that does not own that point receives an independent C relation; T
 constrains their tangent direction and retains the internal/external contact

@@ -2,6 +2,15 @@
 
 ## Outward FORM candidate follow-up (2026-10-11)
 
+After reboot/fetch, additionally run `zima_cpp_native_arc_axis_tests` and
+`zima_cpp_native_arc_axis_ui_contract`. Repeat the 3280 native and 48 GUI
+centre/end-to-axis/Origin cases in
+[Native arc centre and endpoint contacts](SKETCH_ARC_AXIS_CONTACTS.md),
+including no pair T, both T orders, reflected/rotated geometry, repeated R/D,
+position and angle edits/drags, immutable external sources, trim, save/reopen
+and Undo/Redo. Use the shared C++ implementation; Windows results do not close
+this native Linux verification task. The user will perform this after reboot.
+
 The original factory corner and ventilation definitions remain as controls while
 the user evaluates two clearly named experimental files in the same library.
 The shared native candidate code uses embedded

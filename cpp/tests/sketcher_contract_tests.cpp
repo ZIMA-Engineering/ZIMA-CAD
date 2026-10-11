@@ -18,6 +18,7 @@
 #include <set>
 #include <stdexcept>
 #include "native_tangent_contact_study.hpp"
+#include "native_arc_axis_study.hpp"
 
 namespace {
 void require(bool condition, const char* message) {
@@ -27,6 +28,7 @@ void require(bool condition, const char* message) {
 
 int main() {
     try {
+        if(std::getenv("ZIMA_CPP_VERIFY_ARC_AXIS_ONLY"))return run_native_arc_axis_study();
         if(std::getenv("ZIMA_CPP_VERIFY_NATIVE_CURVE_CONTACT"))return run_native_tangent_contact_study();
         run_form_sweep_profile_study();
         run_external_point_circle_segment_study();

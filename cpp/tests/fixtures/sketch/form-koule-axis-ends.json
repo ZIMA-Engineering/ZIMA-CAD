@@ -1,0 +1,172 @@
+{
+  "arcs": [
+    {
+      "center": "01a12b4af75474bc913578b791aad27b",
+      "centerline": false,
+      "construction": false,
+      "end": "01a12b4af75474bc913578b791aad282",
+      "end_angle": 2.5766792908341505,
+      "id": "01a12b4af75474bc913578b791aad27c",
+      "radius": 10.70825941641037,
+      "start": "01a12b4af75474bc913578b791aad27d",
+      "start_angle": 1.5707963267948966,
+      "visible_in_3d": true
+    },
+    {
+      "center": "01a12b4af75474bc913578b791aad275",
+      "centerline": false,
+      "construction": false,
+      "end": "01a12b4af75474bc913578b791aad282",
+      "end_angle": -0.5649133627559089,
+      "id": "01a12b4af75474bc913578b791aad28a",
+      "radius": 9.294368046532005,
+      "start": "01a12b4af75474bc913578b791aad278",
+      "start_angle": -1.4648894247111939,
+      "visible_in_3d": true
+    }
+  ],
+  "bsplines": [],
+  "circles": [],
+  "constraints": [
+    {
+      "first": "01a12b4af75474bc913578b791aad275",
+      "geometry": "sketch_axis:x",
+      "id": "01a12b4af75474bc913578b791aad277",
+      "kind": "point_on_line",
+      "second": "",
+      "second_geometry": "",
+      "suppressed": false,
+      "tangent_internal": false
+    },
+    {
+      "first": "01a12b4af75474bc913578b791aad278",
+      "geometry": "sketch_axis:y",
+      "id": "01a12b4af75474bc913578b791aad27a",
+      "kind": "point_on_line",
+      "second": "",
+      "second_geometry": "",
+      "suppressed": false,
+      "tangent_internal": false
+    },
+    {
+      "first": "01a12b4af75474bc913578b791aad27d",
+      "geometry": "sketch_axis:x",
+      "id": "01a12b4af75474bc913578b791aad27e",
+      "kind": "tangent",
+      "second": "",
+      "second_geometry": "01a12b4af75474bc913578b791aad27c",
+      "suppressed": false,
+      "tangent_internal": false
+    },
+    {
+      "first": "01a12b4af75474bc913578b791aad27d",
+      "geometry": "sketch_axis:x",
+      "id": "01a12b4af75474bc913578b791aad280",
+      "kind": "point_on_line",
+      "second": "",
+      "second_geometry": "",
+      "suppressed": false,
+      "tangent_internal": false
+    },
+    {
+      "first": "01a12b4af75474bc913578b791aad282",
+      "geometry": "01a12b4af75474bc913578b791aad27c",
+      "id": "01a12b4af75474bc913578b791aad281",
+      "kind": "tangent",
+      "second": "",
+      "second_geometry": "01a12b4af75474bc913578b791aad28a",
+      "suppressed": false,
+      "tangent_internal": false
+    }
+  ],
+  "corner_radii": [],
+  "curve_supports": [],
+  "curve_trims": [],
+  "dimension_layouts": [],
+  "dimensions": [],
+  "ellipses": [],
+  "elliptical_arcs": [],
+  "external_references": [],
+  "format": "zima-cad-cpp-sketch",
+  "id": "01a12b4af75474bc913578b791aad266",
+  "import_blocks": [],
+  "name": "Skica",
+  "offsets": [],
+  "owner_container_id": "01a12b4af75474bc913578b791aad267",
+  "plane": "xz",
+  "plane_auto": false,
+  "plane_offset": 0.0,
+  "plane_reference_owner_id": "",
+  "points": [
+    {
+      "centerline": false,
+      "construction": false,
+      "fixed": false,
+      "id": "01a12b4af75474bc913578b791aad278",
+      "visible_in_3d": true,
+      "x": -4.950246684990126e-15,
+      "y": -9.24229266852704
+    },
+    {
+      "centerline": false,
+      "construction": false,
+      "fixed": false,
+      "id": "01a12b4af75474bc913578b791aad27d",
+      "visible_in_3d": true,
+      "x": 15.912420272827147,
+      "y": -1.7763568394002505e-15
+    },
+    {
+      "centerline": false,
+      "construction": false,
+      "fixed": false,
+      "id": "01a12b4af75474bc913578b791aad282",
+      "visible_in_3d": true,
+      "x": 6.867849749790397,
+      "y": -4.9756715380646686
+    },
+    {
+      "centerline": false,
+      "construction": false,
+      "fixed": false,
+      "id": "01a12b4af75474bc913578b791aad27b",
+      "visible_in_3d": true,
+      "x": 15.912420272827147,
+      "y": -10.708259416410371
+    },
+    {
+      "centerline": false,
+      "construction": false,
+      "fixed": false,
+      "id": "01a12b4af75474bc913578b791aad275",
+      "visible_in_3d": true,
+      "x": -0.9824986583796266,
+      "y": -1.915214640379715e-14
+    }
+  ],
+  "resolved_normal": [
+    0.0,
+    1.0,
+    0.0
+  ],
+  "resolved_origin": [
+    0.0,
+    0.0,
+    0.0
+  ],
+  "resolved_x_axis": [
+    1.0,
+    0.0,
+    0.0
+  ],
+  "resolved_y_axis": [
+    0.0,
+    0.0,
+    -1.0
+  ],
+  "segments": [],
+  "suppressed": false,
+  "symbols": [],
+  "texts": [],
+  "version": 35
+}
