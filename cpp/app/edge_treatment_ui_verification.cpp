@@ -80,7 +80,7 @@ int verify_edge_treatment_ui(QApplication& application, AssemblyWorkspaceWindow&
                     (value->findChild<QDoubleSpinBox*>("edgeTreatmentPrimary")||
                      (qEnvironmentVariableIsSet("ZIMA_VERIFY_FORM_TOPOLOGY")&&value->findChild<QTableWidget*>("shellFaces"))||
                      (qEnvironmentVariableIsSet("ZIMA_VERIFY_FORM_TOPOLOGY")&&value->findChild<QTableWidget*>("primitiveReferenceTable"))||
-                     (qEnvironmentVariableIsSet("ZIMA_VERIFY_SHELL_OPENING")&&value->findChild<QDoubleSpinBox*>("shellThickness"))||
+                     ((qEnvironmentVariableIsSet("ZIMA_VERIFY_SHELL_OPENING")||qEnvironmentVariableIsSet("ZIMA_VERIFY_TREATMENT_SELECTION_ONLY"))&&value->findChild<QDoubleSpinBox*>("shellThickness"))||
                      (qEnvironmentVariableIsSet("ZIMA_VERIFY_DRILL_OPENING")&&value->findChild<QDoubleSpinBox*>("drillPointIncludedAngle"))))return value;
             throw std::runtime_error("Treatment Properties is missing");
         };
@@ -101,6 +101,7 @@ int verify_edge_treatment_ui(QApplication& application, AssemblyWorkspaceWindow&
             dialog()->findChild<QDialogButtonBox*>()->button(commit?QDialogButtonBox::Ok:QDialogButtonBox::Cancel)->click();flush();
         };
 #include "form_topology_ui_verification.inc"
+#include "treatment_selection_ui_verification.inc"
         const auto drag=[&](const std::string& owner,const std::string& key,int handle,bool cancel=false) {
             std::cout << "Grip " << key << " / " << handle << " cancel=" << cancel << std::endl;
             const auto candidate=pick(viewer::CandidateKind::Dimension,owner,key);

@@ -49,6 +49,7 @@
 #include <QAbstractProxyModel>
 #include <QAbstractItemView>
 #include <QDialogButtonBox>
+#include <QDir>
 #include <QDoubleSpinBox>
 #include <QStyleOptionSpinBox>
 #include <QComboBox>
@@ -1163,6 +1164,65 @@ static void verify_curve_presentation(QApplication& application,QWidget& parent)
         }
 }
 
+static void verify_tree_branches(QApplication& application,QWidget& parent) {
+    zima::app::HistoryTreeWidget tree(&parent);tree.setGeometry(20,20,400,300);
+    tree.setHeaderHidden(true);tree.setRootIsDecorated(true);
+    auto* root=new QTreeWidgetItem(&tree,{"Document"});
+    auto* group=new QTreeWidgetItem(root,{"Body"});
+    auto* first=new QTreeWidgetItem(group,{"First feature"});
+    auto* last=new QTreeWidgetItem(group,{"Second feature"});
+    new QTreeWidgetItem(root,{"Next body"});
+    tree.expandAll();tree.show();
+    int pass=0;
+    for(const bool dark:{false,true,false}) {
+        auto settings=zima::app::ApplicationSettings{};settings.theme=dark?"dark":"light";
+        zima::app::apply_application_appearance(application,settings);
+        auto palette=application.palette();
+        tree.setPalette(palette);application.processEvents();
+        const auto rect=tree.visualItemRect(first);
+        const int x=rect.left()-tree.indentation()-tree.indentation()/2;
+        const auto image=tree.viewport()->grab().toImage();
+        const auto dpr=image.devicePixelRatio();
+        const auto is_guide=[&](int px,int py) {
+            const auto pixel=image.pixelColor(px,py),base=palette.color(QPalette::Base);
+            return std::abs(pixel.red()-base.red())+std::abs(pixel.green()-base.green())+
+                std::abs(pixel.blue()-base.blue())>60;
+        };
+        int maximum=0;
+        const int top=qRound(rect.top()*dpr),bottom=qRound(tree.visualItemRect(last).bottom()*dpr);
+        for(int dx=-1;dx<=1;++dx) {
+            int painted=0;
+            for(int y=top;y<=bottom;++y)if(is_guide(qRound(x*dpr)+dx,y))++painted;
+            maximum=std::max(maximum,painted);
+        }
+        QDir().mkpath("build/view-context-followup");
+        image.save(QString("build/view-context-followup/tree-branches-%1.png").arg(++pass));
+        require(maximum==bottom-top+1,"Tree ancestor connector has a physical-pixel gap across rows after theme change");
+        const int corner_x=rect.left()-tree.indentation()/2;
+        const int corner_y=rect.center().y();
+        const auto near_guide=[&](int gx,int gy) {
+            for(int dx=-1;dx<=1;++dx)for(int dy=-1;dy<=1;++dy)
+                if(is_guide(qRound(gx*dpr)+dx,qRound(gy*dpr)+dy))return true;
+            return false;
+        };
+        require(near_guide(corner_x,corner_y-3)&&near_guide(corner_x+3,corner_y),
+            "Tree branch does not descend and turn right toward its item");
+        const auto group_rect=tree.visualItemRect(group);
+        const QPointF point(group_rect.left()-tree.indentation()/2,group_rect.center().y());
+        const QPointF global=tree.viewport()->mapToGlobal(point.toPoint());
+        for(int click=0;click<2;++click) {
+            QMouseEvent press(QEvent::MouseButtonPress,point,global,Qt::LeftButton,Qt::LeftButton,Qt::NoModifier);
+            QMouseEvent release(QEvent::MouseButtonRelease,point,global,Qt::LeftButton,Qt::NoButton,Qt::NoModifier);
+            QApplication::sendEvent(tree.viewport(),&press);QApplication::sendEvent(tree.viewport(),&release);application.processEvents();
+            require(group->isExpanded()==(click==1),"Tree connector painting changed disclosure-arrow interaction");
+        }
+        tree.setCurrentItem(first);application.processEvents();
+        require(tree.currentItem()==first&&first->isSelected(),"Tree connector painting changed item selection");
+        tree.clearSelection();
+    }
+    std::cout<<"Tree branch guides: Light/Dark/Light solid elbows, contrast, disclosure and selection passed\n";
+}
+
 int main(int argc, char* argv[]) {
     QApplication application(argc, argv);
     zima::app::apply_application_appearance(application, zima::app::ApplicationSettings{});
@@ -1176,6 +1236,7 @@ int main(int argc, char* argv[]) {
     const auto initial = zima::document::PartDocument::create_twisted_sheet_container();
 
     try {
+        if(qEnvironmentVariableIsSet("ZIMA_VERIFY_TREE_BRANCHES_ONLY")){verify_tree_branches(application,parent);return 0;}
         if(qEnvironmentVariableIsSet("ZIMA_VERIFY_CURVE_PRESENTATION_ONLY")){verify_curve_presentation(application,parent);return 0;}
         if(qEnvironmentVariableIsSet("ZIMA_VERIFY_FEATURE_UNITS_ONLY"))return verify_feature_unit_input(application,parent);
         if(qEnvironmentVariableIsSet("ZIMA_VERIFY_FEATURE_AXIS_HIGHLIGHT_ONLY")) {verify_feature_axis_highlight(application,parent);return 0;}

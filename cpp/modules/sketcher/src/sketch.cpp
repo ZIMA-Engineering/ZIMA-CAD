@@ -3181,6 +3181,23 @@ bool Sketch::move_point(const std::string& point_id, double x, double y) {
         externally_linked.contains(point_id)) return false;
     const double original_x = point->x;
     const double original_y = point->y;
+    // An unlocked symmetric distance still owns equal distances to its axis.
+    // With the other participant anchored by K, only the parallel cursor
+    // component is free; relaxing the scalar must not erase that relation.
+    for(const auto& d:next.dimensions) {
+        if(d.suppressed||!d.driving||d.locked||d.kind!=DimensionKind::DistanceSymmetric||d.second_point_id.empty())continue;
+        const auto other_id=d.first_point_id==point_id?d.second_point_id:d.second_point_id==point_id?d.first_point_id:std::string{};
+        const auto* other=next.find_point(other_id);
+        if(!other||!std::ranges::any_of(next.constraints,[&](const auto& c){return !c.suppressed&&c.kind==ConstraintKind::PointReference&&c.first_point_id==other_id;}))continue;
+        const auto line=sketch_axis_line(next,d.geometry_id)?sketch_axis_line(next,d.geometry_id):segment_or_external_line(next,d.geometry_id);
+        if(!line)continue;
+        const double length=std::hypot(line->second[0],line->second[1]);if(length<=1e-12)continue;
+        const double nx=-line->second[1]/length,ny=line->second[0]/length;
+        const double current=(point->x-line->first[0])*nx+(point->y-line->first[1])*ny;
+        const double target=std::copysign(std::abs((other->x-line->first[0])*nx+(other->y-line->first[1])*ny),current);
+        const double correction=target-((x-line->first[0])*nx+(y-line->first[1])*ny);
+        x+=nx*correction;y+=ny*correction;
+    }
     // Two immutable tangent supports leave the circle one radial DOF. Project
     // the cursor onto that permitted family before asking the ordinary solver
     // to verify all constraints; pinning both raw cursor coordinates is invalid.
@@ -4103,6 +4120,13 @@ bool Sketch::move_point(const std::string& point_id, double x, double y) {
     for (auto& dimension : next.dimensions) {
         if (relaxed_dimension_ids.contains(dimension.id)) dimension.driving = true;
     }
+    // Unlike a plain distance, symmetric dimensions carry structural equations
+    // in addition to their editable scalar. Verify those after restoring them.
+    if(std::ranges::any_of(next.dimensions,[&](const auto& d){return relaxed_dimension_ids.contains(d.id)&&
+        (d.kind==DimensionKind::DistanceSymmetric||d.kind==DimensionKind::DistanceLineSymmetric||d.kind==DimensionKind::AngleSymmetric);})) {
+        const auto restored=next.solve_impl(100,false);
+        if(restored.status==SolveStatus::Conflicting||restored.status==SolveStatus::Invalid)return false;
+    }
     try {
         next.refresh_curve_dependencies();
         next.validate();
@@ -4418,6 +4442,19 @@ std::string Sketch::add_point_reference_constraint(
     SketchConstraint constraint{make_id(), ConstraintKind::PointReference,
         native_point_id, reference_point_id};
     const auto id = constraint.id;
+    // A characteristic position supplements contact with its supporting curve.
+    // Persist C independently so removing K releases the position along the
+    // curve without removing contact. Add both atomically with one solve.
+    if (const auto curve = sketch_keypoint_geometry_id(reference_point_id);
+        curve && std::none_of(next.constraints.begin(), next.constraints.end(),
+            [&](const auto& existing) {
+                return !existing.suppressed && existing.kind == ConstraintKind::PointOnCircle &&
+                    existing.first_point_id == native_point_id && existing.geometry_id == *curve;
+            })) {
+        SketchConstraint contact{make_id(), ConstraintKind::PointOnCircle, native_point_id};
+        contact.geometry_id = *curve;
+        next.constraints.push_back(std::move(contact));
+    }
     next.constraints.push_back(std::move(constraint));
     const auto result = next.solve();
     if (result.status == SolveStatus::Conflicting ||
@@ -11898,9 +11935,16 @@ SolveResult Sketch::solve_impl(
                 continue;
             }
             if (dimension.kind == DimensionKind::AngleThreePoint) {
-                const auto first = point_position(dimension.first_point_id);
+                // A generated K anchors its ray. Correct the other ray when
+                // input order puts that anchor last; the unsigned angle and
+                // persisted participant order remain unchanged.
+                const bool anchored_second = point_reference_anchors.contains(dimension.geometry_id) &&
+                    !point_reference_anchors.contains(dimension.first_point_id);
+                const auto& first_id = anchored_second ? dimension.geometry_id : dimension.first_point_id;
+                const auto& second_id = anchored_second ? dimension.first_point_id : dimension.geometry_id;
+                const auto first = point_position(first_id);
                 const auto vertex = point_position(dimension.second_point_id);
-                const auto second = point_position(dimension.geometry_id);
+                const auto second = point_position(second_id);
                 const double ax = (*first)[0] - (*vertex)[0];
                 const double ay = (*first)[1] - (*vertex)[1];
                 const double bx = (*second)[0] - (*vertex)[0];
@@ -11920,9 +11964,9 @@ SolveResult Sketch::solve_impl(
                     const double target_x = (*vertex)[0] + second_length * std::cos(target);
                     const double target_y = (*vertex)[1] + second_length * std::sin(target);
                     const auto translated = point_translation_closure(
-                        *this, dimension.geometry_id);
+                        *this, second_id);
                     const bool blocked = translated.empty() ||
-                        translated.contains(dimension.first_point_id) ||
+                        translated.contains(first_id) ||
                         translated.contains(dimension.second_point_id) ||
                         std::any_of(translated.begin(), translated.end(),
                             [&](const auto& point_id) {
@@ -12162,10 +12206,22 @@ SolveResult Sketch::solve_impl(
         cached.maximum_residual = maximum_residual;
         return cached;
     }
+    std::set<std::pair<std::string,std::string>> keypoint_contacts;
+    for(const auto& constraint:constraints)
+        if(!constraint.suppressed&&constraint.kind==ConstraintKind::PointReference)
+            if(const auto curve=sketch_keypoint_geometry_id(constraint.second_point_id))
+                keypoint_contacts.emplace(constraint.first_point_id,*curve);
+    const auto implied_keypoint_contact=[&](const SketchConstraint& constraint) {
+        return constraint.kind==ConstraintKind::PointOnCircle &&
+            keypoint_contacts.contains({constraint.first_point_id,constraint.geometry_id});
+    };
     const auto residuals = [&]() {
         std::vector<double> result;
         for (const auto& constraint : constraints) {
-            if (constraint.suppressed) continue;
+            // K implies C exactly. Counting its nonlinear finite-difference
+            // row again introduces roundoff rank; convergence and the final
+            // geometric residual above still validate both persisted relations.
+            if (constraint.suppressed || implied_keypoint_contact(constraint)) continue;
             if (constraint.kind == ConstraintKind::Tangent) {
                 if(const auto junction=spline_junction(*this,
                         constraint.geometry_id,constraint.second_geometry_id)) {
@@ -12686,6 +12742,14 @@ SolveResult Sketch::solve_impl(
         }
     }
 
+    // Generated keypoint coordinates depend on the curve's native variables.
+    // Include those columns when colouring the numerical Jacobian; otherwise
+    // simultaneous perturbations mistake dependent C+K rows for extra rank.
+    for(const auto& constraint:constraints)
+        if(!constraint.suppressed&&constraint.kind==ConstraintKind::PointReference)
+            if(const auto curve=sketch_keypoint_geometry_id(constraint.second_point_id))
+                append_entity(constraint.second_point_id,*curve);
+
     std::vector<std::size_t> structural_parents(variables.size());
     std::iota(structural_parents.begin(), structural_parents.end(), std::size_t{});
     const auto structural_root = [&](std::size_t item) {
@@ -12757,7 +12821,7 @@ SolveResult Sketch::solve_impl(
         equation_columns.insert(equation_columns.end(), count, columns);
     };
     for (const auto& constraint : constraints) {
-        if (constraint.suppressed) continue;
+        if (constraint.suppressed || implied_keypoint_contact(constraint)) continue;
         const std::size_t count =
             constraint.kind == ConstraintKind::Concentric ||
             constraint.kind == ConstraintKind::Midpoint ||

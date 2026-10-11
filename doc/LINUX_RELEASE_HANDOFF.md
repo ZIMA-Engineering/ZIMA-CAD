@@ -9,6 +9,38 @@ will reboot this computer into Linux, fetch the committed changes from GitHub,
 and continue Linux verification in that session. Do not install WSL or treat
 Windows checks as Linux acceptance. Native Linux execution is explicitly pending.
 
+The subsequent View/Tree follow-up restores palette-aware continuous hierarchy
+guides and routes confirmed View containers through their exact Tree menu.
+After these follow-up sources are committed and transferred, run
+`zima_cpp_tree_branches_ui_contract`, `zima_cpp_history_deletion_ui_contract`,
+`zima_cpp_history_deletion_tests`, `zima_cpp_ui_contract_tests` and
+`zima_cpp_translations_contract`. Include Light/Dark/Light, arrow expansion,
+selection, deletion confirmation/Cancel, dependent-reference state and
+Undo/Redo. The native deletion fixture initializes owned Origins before its
+exact serialized baseline; meaningful signed zeros remain checked.
+
+The same follow-up adds independent C+K contacts on characteristic curve points,
+restricts Fillet/Chamfer/Shell to calculated operation-input topology, and replaces
+the Part application dropdown with direct Modeling/Sheet Metal buttons. After
+reboot and Git fetch, build and run `zima_cpp_sketch_keypoint_contact_tests`,
+`zima_cpp_sketch_keypoint_contact_ui_contract`, `zima_cpp_sketcher_contract_tests`,
+`zima_cpp_curve3d_sweep_contract_tests`, `zima_cpp_treatment_selection_ui_contract`,
+`zima_cpp_edge_treatment_ui_contract`, `zima_cpp_application_tools_ui_contract`,
+`zima_cpp_new_document_options_ui_contract` and the five-language contract above.
+Also run the Sketch relation/dimension/curve/reference/serialization/Mirror suites.
+The finite matrix and remaining applicable variants are recorded in
+[Sketch characteristic contacts](SKETCH_KEYPOINT_CONTACTS.md). Check the native
+KDE/Wayland Light/Dark/Light Tree strokes for continuous right-angle branches,
+mode-button order/icons, correct restrictions while Properties/Sketcher is open,
+and C-only movement after deleting K. Repeat on the large G92H1-T input and
+record command timings; Windows verification is not Linux acceptance.
+
+Also retain the existing hidden-Body activation gap: running the desktop with
+`ZIMA_VERIFY_BODY_ACTIVATION_ONLY=1` and `--verify-startup` fails at "Activating
+hidden body displayed no original geometry" on both the local Windows follow-up
+and immutable published 2026101102. Record whether Linux reproduces it; do not
+claim complete Body activation acceptance from the passing focused fixtures.
+
 The 2026-10-11 follow-up adds palette-neutral confirmed 3D Curve strokes and
 owned points, retaining brown point-entry frames. Run
 `zima_cpp_curve_presentation_ui_contract`, `zima_cpp_point_marker_colors_contract`,

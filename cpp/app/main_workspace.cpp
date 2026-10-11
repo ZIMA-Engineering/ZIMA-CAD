@@ -4590,12 +4590,22 @@ int verify_application_tools_ui(QApplication& application,const std::filesystem:
         auto* modeling=window.findChild<QAction*>("applicationModeAction0");auto* sheet=window.findChild<QAction*>("applicationModeAction2");
         auto* extrusion=window.findChild<QAction*>("extrusionAction");
         auto* modeling_feature=window.findChild<QAction*>("featurePrototypeAction");
-        const auto selector=[&]{return window.findChild<QComboBox*>("applicationModeSelector");};
-        check(tabs&&menu&&modeling&&sheet&&extrusion&&selector()&&selector()->count()==2,"Application controls missing");
+        const auto selector=[&]{return window.findChild<QToolButton*>("modelingModeButton");};
+        const auto sheet_button=[&]{return window.findChild<QToolButton*>("sheetMetalModeButton");};
+        check(tabs&&menu&&modeling&&sheet&&extrusion&&selector()&&sheet_button(),"Application controls missing");
+        check(selector()->defaultAction()==modeling&&sheet_button()->defaultAction()==sheet&&
+            !selector()->icon().isNull()&&!sheet_button()->icon().isNull()&&selector()->y()<sheet_button()->y(),
+            "Application mode buttons lost their action, icon or vertical order");
+        for(const bool dark:{false,true,false}) {
+            auto settings=app::ApplicationSettings{};settings.theme=dark?"dark":"light";
+            app::apply_application_appearance(application,settings);flush();
+            check(!selector()->icon().pixmap(24,24).isNull()&&!sheet_button()->icon().pixmap(24,24).isNull(),"Mode icons disappeared after a live theme change");
+            window.grab().save(QString::fromStdString((directory/(dark?"application-modes-dark.png":"application-modes-light.png")).string()));
+        }
         modeling->trigger();flush();
         check(modeling_feature&&menu->actions().contains(modeling_feature)&&modeling->isChecked(),"Modeling Insert commands missing");
-        auto* combo=selector();combo->setCurrentIndex(combo->findData(2));combo->activated(combo->currentIndex());flush();
-        check(sheet->isChecked()&&selector()->currentData().toInt()==2&&!menu->actions().contains(extrusion),"Dropdown did not switch application and Insert commands");
+        sheet_button()->click();flush();
+        check(sheet_button()->isChecked()&&!selector()->isChecked()&&!menu->actions().contains(extrusion),"Button did not switch application and Insert commands");
         auto* sheet_properties=window.findChild<QAction*>("sheetMetalPropertiesAction");auto* toolbar=window.findChild<QToolBar*>("toolsToolbar");
         check(sheet_properties&&!sheet_properties->icon().isNull()&&toolbar->actions().contains(sheet_properties),"Sheet properties command missing");
         auto* selection=window.findChild<QAction*>("viewSelectionAction");
@@ -4621,7 +4631,7 @@ int verify_application_tools_ui(QApplication& application,const std::filesystem:
         QMouseEvent middle(QEvent::MouseButtonDblClick,click,QPointF(model_view->mapToGlobal(click.toPoint())),Qt::MiddleButton,Qt::MiddleButton,Qt::NoModifier);
         QApplication::sendEvent(model_view,&middle);flush();check(!settings_dialog(),"View middle-button double-click did not confirm sheet settings");
         check(selector()->isEnabled(),"Sheet settings left application selector disabled");
-        combo=selector();combo->setCurrentIndex(combo->findData(0));combo->activated(combo->currentIndex());flush();
+        selector()->click();flush();
         check(modeling->isChecked()&&menu->actions().contains(modeling_feature),"Cannot return to Modeling after confirming sheet settings");
         sheet->trigger();flush();
         window.findChild<QAction*>("saveDocumentAction")->trigger();flush();
@@ -4633,11 +4643,11 @@ int verify_application_tools_ui(QApplication& application,const std::filesystem:
         file->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Cancel)->click();flush();
         check(selector()->isEnabled(),"Cancelling File Settings left application selector disabled");
         window.findChild<QAction*>("regenerateDocumentAction")->trigger();flush();
-        check(sheet->isChecked()&&selector()->currentData().toInt()==2,"Refresh lost Sheet Metal choice");
+        check(sheet->isChecked()&&sheet_button()->isChecked(),"Refresh lost Sheet Metal choice");
         check(window.open_document_path(QString::fromStdString(other_path.string())),"Other Part failed to open");flush();
-        check(modeling->isChecked()&&selector()->currentData().toInt()==0,"New Part inherited another Part application");
+        check(modeling->isChecked()&&selector()->isChecked(),"New Part inherited another Part application");
         tabs->setCurrentIndex(0);flush();check(sheet->isChecked(),"Tab switch lost per-document application");
-        modeling->trigger();flush();check(selector()->currentData().toInt()==0&&menu->actions().contains(modeling_feature),"Applications menu failed to sync selector");
+        selector()->click();flush();check(selector()->isChecked()&&!sheet_button()->isChecked()&&menu->actions().contains(modeling_feature),"Mode button failed to sync Applications menu");
         window.findChild<QAction*>("saveDocumentAction")->trigger();flush();
         const auto marker=[&]{return tabs->tabButton(tabs->currentIndex(),QTabBar::RightSide)->findChild<QLabel*>("documentTabDirtyMarker");};
         check(marker()&&marker()->text().isEmpty(),"Clean tab displays dirty marker");const auto clean_width=tabs->tabRect(tabs->currentIndex()).width();
@@ -6057,6 +6067,7 @@ int verify_sketch_endpoint_priority_ui(QApplication& application,const std::file
     }catch(const std::exception& error){std::cerr<<error.what()<<'\n';return 1;}
 }
 
+#include "sketch_keypoint_contact_ui_verification.inc"
 int verify_sketch_coincident_ui(QApplication& application,const std::filesystem::path& directory) {
     using namespace zima;
     try {
@@ -9423,6 +9434,7 @@ int verify_startup_contract(
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_RECTANGLE_EXTERNAL_CONTACT_ONLY")) return verify_rectangle_external_contact_ui(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_SKETCH_SLOT_ONLY")) return verify_sketch_slot_ui(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_SYSTEM_SETUP_ONLY")) return verify_system_setup_ui(application,test_directory);
+    if (qEnvironmentVariableIsSet("ZIMA_VERIFY_SKETCH_KEYPOINT_CONTACT_ONLY")) return verify_sketch_keypoint_contact_ui(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_SKETCH_COINCIDENT_ONLY")) return verify_sketch_coincident_ui(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_PLACED_SKETCH_REFERENCE_ONLY")) return verify_placed_sketch_reference_ui(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_FORM_SWEEP_SKETCH_ONLY")) return verify_form_sweep_sketch_ui(application,test_directory);

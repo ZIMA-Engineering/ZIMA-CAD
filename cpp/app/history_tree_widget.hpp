@@ -23,6 +23,40 @@ public:
     std::function<bool(QTreeWidgetItem*,const QString&,bool)> reorder_requested;
 
 protected:
+    void drawBranches(QPainter* painter,const QRect& rect,const QModelIndex& index) const override {
+        // Fusion supplies disclosure arrows but omits the hierarchy guides.
+        // Let Qt paint the branch background and ordinary disclosure arrows
+        // first; leave their centre clear when adding the visible guides.
+        QTreeWidget::drawBranches(painter,rect,index);
+        painter->save();
+        painter->setClipRect(rect);
+        auto color=palette().color(QPalette::Text);color.setAlpha(150);
+        // One logical pixel follows display scaling. Cover the row boundary
+        // as well, so adjacent strokes cannot leave dotted physical-pixel gaps.
+        QPen pen(color,1,Qt::SolidLine);
+        painter->setPen(pen);painter->setRenderHint(QPainter::Antialiasing,false);
+        const int step=indentation();
+        const bool rtl=isRightToLeft();
+        int x=rtl?rect.left()+step/2:rect.right()-step/2+1;
+        auto current=index;
+        bool first=true;
+        while(current.isValid()&&current!=rootIndex()&&x>=rect.left()&&x<=rect.right()) {
+            const bool sibling=current.row()+1<model()->rowCount(current.parent());
+            if(current.parent()!=rootIndex()) {
+                if(first) {
+                    const int center=rect.center().y();
+                    const int gap=model()->hasChildren(current)?4:0;
+                    painter->drawLine(x,rect.top()-1,x,center-gap);
+                    if(sibling)painter->drawLine(x,center+gap,x,rect.bottom()+1);
+                    painter->drawLine(x+(rtl?-gap:gap),center,
+                        rtl?rect.left():rect.right(),center);
+                } else if(sibling) painter->drawLine(x,rect.top()-1,x,rect.bottom()+1);
+            }
+            first=false;current=current.parent();x+=rtl?step:-step;
+        }
+        painter->restore();
+    }
+
     void mousePressEvent(QMouseEvent* event) override {
         auto* item = itemAt(event->position().toPoint());
         if (event->button() == Qt::LeftButton && item == nullptr) {

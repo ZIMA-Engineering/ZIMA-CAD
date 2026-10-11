@@ -860,6 +860,11 @@ if(ZIMA_BUILD_TESTS)
         Qt6::Widgets Qt6::Svg nlohmann_json::nlohmann_json)
     set_target_properties(zima_cpp_ui_contract_tests PROPERTIES AUTORCC ON)
     add_test(NAME zima_cpp_ui_contract_tests COMMAND zima_cpp_ui_contract_tests)
+    add_test(NAME zima_cpp_tree_branches_ui_contract COMMAND zima_cpp_ui_contract_tests)
+    set_tests_properties(zima_cpp_tree_branches_ui_contract PROPERTIES
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.."
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_TREE_BRANCHES_ONLY=1"
+        TIMEOUT 60 RUN_SERIAL TRUE)
     add_test(NAME zima_cpp_curve_presentation_ui_contract COMMAND zima_cpp_ui_contract_tests)
     set_tests_properties(zima_cpp_curve_presentation_ui_contract PROPERTIES
         WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.."
@@ -970,6 +975,13 @@ if(ZIMA_BUILD_TESTS)
     target_link_libraries(zima_cpp_sketcher_contract_tests PRIVATE
         zima_sketcher zima_viewer zima_document_core)
     add_test(NAME zima_cpp_sketcher_contract_tests COMMAND zima_cpp_sketcher_contract_tests)
+    add_executable(zima_cpp_sketch_keypoint_contact_tests tests/sketch_keypoint_contact_tests.cpp)
+    target_link_libraries(zima_cpp_sketch_keypoint_contact_tests PRIVATE zima_sketcher)
+    add_test(NAME zima_cpp_sketch_keypoint_contact_tests COMMAND zima_cpp_sketch_keypoint_contact_tests)
+    add_test(NAME zima_cpp_sketch_keypoint_contact_ui_contract COMMAND zima-cad-cpp --verify-startup)
+    set_tests_properties(zima_cpp_sketch_keypoint_contact_ui_contract PROPERTIES
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_SKETCH_KEYPOINT_CONTACT_ONLY=1"
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." RUN_SERIAL TRUE TIMEOUT 120)
     add_executable(zima_cpp_rectilinear_solver_tests tests/rectilinear_solver_tests.cpp)
     target_link_libraries(zima_cpp_rectilinear_solver_tests PRIVATE zima_sketcher)
     add_test(NAME zima_cpp_rectilinear_solver_tests COMMAND zima_cpp_rectilinear_solver_tests)
@@ -1581,6 +1593,10 @@ if(ZIMA_BUILD_TESTS)
         WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 120)
     add_test(NAME zima_cpp_holes_ui_contract COMMAND zima-cad-cpp --verify-startup)
     add_test(NAME zima_cpp_edge_treatment_ui_contract COMMAND zima-cad-cpp --verify-startup)
+    add_test(NAME zima_cpp_treatment_selection_ui_contract COMMAND zima-cad-cpp --verify-startup)
+    set_tests_properties(zima_cpp_treatment_selection_ui_contract PROPERTIES
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_CONSOLE_ONLY=1;ZIMA_VERIFY_EDGE_TREATMENT_ONLY=1;ZIMA_VERIFY_TREATMENT_SELECTION_ONLY=1"
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." RUN_SERIAL TRUE TIMEOUT 120)
     add_test(NAME zima_cpp_form_topology_ui_contract COMMAND zima-cad-cpp --verify-startup)
     set_tests_properties(zima_cpp_form_topology_ui_contract PROPERTIES
         ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_CONSOLE_ONLY=1;ZIMA_VERIFY_EDGE_TREATMENT_ONLY=1;ZIMA_VERIFY_FORM_TOPOLOGY=1"

@@ -62,6 +62,9 @@ int main() {
         for(const auto& f:doc.history)graph.insert({document::PartHistoryKind::Feature,f.id});
         doc.set_body_history(graph);
         require(workspace::calculate_part(kernel,doc).back().calculation_errors.empty(),"Dependent Chamfer fixture failed calculation");
+        // Workspace insertion resolves owned origins. Capture the baseline
+        // after the same initialization, including exact signed Euler zeros.
+        doc.resolve_constructions();
         const auto original=doc.serialized();
         const auto plan=workspace::plan_history_deletion(doc,source.id);
         require(plan.affected==std::set<std::string>{fillet.id,chamfer.id},"Dependency closure lost descendants");
@@ -74,6 +77,7 @@ int main() {
             static_cast<void>(suppression_graph.create_body("Independent"));
             suppression_graph.insert({document::PartHistoryKind::Feature,independent.id});
             suppression_graph.activate(source_body);suppression_doc.set_body_history(suppression_graph);
+            suppression_doc.resolve_constructions();
             const auto unchanged=suppression_doc.serialized();
             workspace::Workspace suppression_live;
             const auto suppression_id=suppression_doc.document_id;

@@ -2028,6 +2028,10 @@ void AssemblyWorkspaceWindow::refresh_scene(std::function<zima::kernel::ViewerMe
         update_application_actions();
         rebuild_application_toolbar();
         phase("Part toolbar");
+        // Mesh publication resets the ordinary picker. These commands own
+        // selection in Part just as they do in the Assembly tail below.
+        if (edge_treatment_selection_) refresh_edge_treatment_selection_ui();
+        if (shell_dialog_ != nullptr) refresh_shell_selection_ui();
         // The Part branch returns before the common Assembly tail below.
         // Re-assert the command-local Up-to contract after every Part scene
         // and toolbar refresh as well; otherwise a preview refresh leaves the

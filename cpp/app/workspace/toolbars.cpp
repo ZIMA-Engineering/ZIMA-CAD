@@ -122,20 +122,19 @@ void AssemblyWorkspaceWindow::rebuild_application_toolbar() {
         : active_application_ == ApplicationMode::Piping ? tr("Potrubí")
         : tr("Výkres");
     if(!drawing && active_sketch_id_.empty() && workspace_.open_part(workspace_.active_document_id())) {
-        auto* selector=new QComboBox(tools_toolbar_);selector->setObjectName("applicationModeSelector");
         for(const auto mode:{ApplicationMode::Modeling,ApplicationMode::SheetMetal}) {
             const auto index=static_cast<std::size_t>(mode);
-            selector->addItem(application_actions_[index]->text(),static_cast<int>(mode));
+            auto* action=application_actions_[index];
+            tools_toolbar_->addAction(action);
+            if(auto* button=qobject_cast<QToolButton*>(tools_toolbar_->widgetForAction(action))) {
+                button->setObjectName(mode==ApplicationMode::Modeling
+                    ? "modelingModeButton" : "sheetMetalModeButton");
+                button->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
+                button->setFont(tree_->font());
+                button->setMinimumWidth(146);
+            }
         }
-        selector->setCurrentIndex(selector->findData(static_cast<int>(active_application_)));
-        selector->setEnabled(application_actions_[static_cast<std::size_t>(active_application_)]->isEnabled());
-        selector->setFont(tree_->font());selector->setMinimumWidth(146);
-        connect(selector,&QComboBox::activated,this,[this,selector](int index) {
-            const auto mode=selector->itemData(index).toInt();
-            // The command rebuilds this toolbar; retire the popup before dispatch.
-            QTimer::singleShot(0,this,[this,mode]{application_actions_[mode]->trigger();});
-        });
-        tools_toolbar_->addWidget(selector);
+        tools_toolbar_->addSeparator();
     } else {
         auto* heading = new QLabel(heading_text, tools_toolbar_);
         heading->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);

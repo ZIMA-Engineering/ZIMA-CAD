@@ -99,7 +99,8 @@ void AssemblyWorkspaceWindow::accept_edge_treatment(
     if (!edge_treatment_selection_) return;
     if (candidate.kind != zima::viewer::CandidateKind::Edge ||
         candidate.geometry != zima::viewer::CandidateGeometry::Display ||
-        candidate.owner_id.empty() || candidate.semantic_key.empty()) {
+        candidate.owner_id.empty() || candidate.semantic_key.empty() ||
+        (viewer_->candidate_filter() && !viewer_->candidate_filter()(candidate))) {
         state_->setText(tr("Vyberte hranu původního solidu aktivního Partu."));
         return;
     }
@@ -157,11 +158,19 @@ void AssemblyWorkspaceWindow::refresh_edge_treatment_selection_ui() {
         : resolve_active_occurrence(part->session.document().document_id)
             .value_or(std::string{});
     if (edge_treatment_selection_ && part != nullptr) {
+        std::set<std::pair<std::string,std::string>> input_edges;
+        const auto* input=zima::workspace::calculated_operation_input(part->session,
+            part->session.document().find_container(edge_treatment_preview_owner_id_)
+                ? edge_treatment_preview_owner_id_ : std::string{});
+        if(input)for(const auto& edge:input->mesh.edges)
+            if(!edge.parameter_seam && edge.reference.valid())
+                input_edges.emplace(edge.reference.owner_id,edge.reference.semantic_key);
         tree_->setProperty("commandSelectionActive", true);
         viewer_->set_selection_contract({zima::viewer::CandidateKind::Edge,
                                          zima::viewer::CandidateKind::Dimension});
         viewer_->set_candidate_filter(
             [expected_path = instance_path,
+             input_edges = std::make_shared<const decltype(input_edges)>(std::move(input_edges)),
              preview_owner = edge_treatment_preview_owner_id_](
                 const auto& candidate) {
                 if (candidate.kind == zima::viewer::CandidateKind::Dimension) {
@@ -171,7 +180,8 @@ void AssemblyWorkspaceWindow::refresh_edge_treatment_selection_ui() {
                 return candidate.kind == zima::viewer::CandidateKind::Edge &&
                     candidate.geometry ==
                         zima::viewer::CandidateGeometry::Display &&
-                    candidate.instance_path == expected_path;
+                    candidate.instance_path == expected_path &&
+                    input_edges->contains({candidate.owner_id,candidate.semantic_key});
             }, false);
     }
     for (const auto& group : pending_edge_treatment_groups_) {
@@ -409,7 +419,8 @@ void AssemblyWorkspaceWindow::accept_shell_face(
     if (!shell_face_selection_active_ || shell_dialog_ == nullptr) return;
     if (candidate.kind != zima::viewer::CandidateKind::Face ||
         candidate.geometry != zima::viewer::CandidateGeometry::Display ||
-        candidate.owner_id.empty() || candidate.semantic_key.empty()) {
+        candidate.owner_id.empty() || candidate.semantic_key.empty() ||
+        (viewer_->candidate_filter() && !viewer_->candidate_filter()(candidate))) {
         state_->setText(tr("Vyberte plochu vstupního Tělesa."));
         return;
     }
@@ -462,23 +473,29 @@ void AssemblyWorkspaceWindow::refresh_shell_selection_ui() {
     }
     viewer_->set_selection_contract({zima::viewer::CandidateKind::Face});
     const bool solid_skin=shell_dialog_->pending_value().shell.thickness==0.;
-    std::set<std::pair<std::string,std::string>> solid_faces;
-    if(solid_skin&&part) {
+    std::set<std::pair<std::string,std::string>> input_faces;
+    if(part) {
         const auto& id=shell_dialog_->pending_value().id;
         const auto* input=zima::workspace::calculated_operation_input(part->session,
             part->session.document().find_container(id)?id:std::string{});
-        if(input)for(const auto& face:input->mesh.triangle_references)
-            if(!face.surface_result)solid_faces.emplace(face.owner_id,face.semantic_key);
+        const zima::kernel::FaceReference* previous{};
+        if(input)for(const auto& face:input->mesh.triangle_references) {
+            // Triangles are normally grouped by face; do not allocate and
+            // search the same key for every triangle of a dense STEP surface.
+            if(previous&&previous->owner_id==face.owner_id&&previous->semantic_key==face.semantic_key&&previous->surface_result==face.surface_result)continue;
+            previous=&face;
+            if(!solid_skin||!face.surface_result)input_faces.emplace(face.owner_id,face.semantic_key);
+        }
     }
     viewer_->set_candidate_filter(
-        [expected_path = instance_path,solid_skin,solid_faces=std::move(solid_faces)](const auto& candidate) {
+        [expected_path = instance_path,input_faces=std::make_shared<const decltype(input_faces)>(std::move(input_faces))](const auto& candidate) {
             return candidate.kind == zima::viewer::CandidateKind::Face &&
                 candidate.geometry ==
                     zima::viewer::CandidateGeometry::Display &&
                 candidate.instance_path == expected_path &&
                 !candidate.owner_id.empty() &&
                 !candidate.semantic_key.empty()&&
-                (!solid_skin||solid_faces.contains({candidate.owner_id,candidate.semantic_key}));
+                input_faces->contains({candidate.owner_id,candidate.semantic_key});
         });
 }
 

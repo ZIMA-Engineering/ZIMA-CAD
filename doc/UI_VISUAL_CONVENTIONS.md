@@ -1,5 +1,68 @@
 # Modeling and Sheet Metal visual conventions
 
+## View context menus and Tree branch guides (2026-10-11 follow-up)
+
+A confirmed history container in the model View uses the same context-menu
+implementation as its exact Tree row, including Delete, Properties, Edit,
+suppression, visibility and applicable conversion actions. The matching row
+includes the occurrence path. A View menu selects that one row explicitly;
+unrelated Tree multi-selection must not join its deletion. Direct Tree menus
+retain their existing multi-selection behavior.
+
+Deletion uses the existing document ownership, active Body and dependency rules,
+confirmation, persistence and Undo/Redo implementation. Intrinsic Origins and
+derived parameter dimensions do not become independently deletable objects.
+Before confirmation, View right-click continues to cycle offered candidates.
+
+The Fusion History Tree paints continuous parent/child connectors in its visible
+indentation lanes using the live text palette with reduced opacity. Qt retains
+disclosure arrows and their existing mouse handling. Guide painting visits only
+the ancestor chain of the painted row and performs no geometry calculation.
+Both Light and Dark themes must retain contrast after live theme changes.
+The vertical stroke descends from above and turns right toward the item. The
+last sibling ends with a right-angle elbow. One logical pixel follows display
+scaling; adjacent row strokes overlap at the boundary so fractional scaling
+cannot leave dotted physical-pixel gaps. The focused test checks every physical
+pixel across two successive rows at the actual Windows display scale.
+
+Part application selection uses the existing exclusive Modeling and Sheet Metal
+actions as two direct toolbar buttons, vertically ordered Modeling first. They
+reuse the palette-aware Part and Bend icons and ordinary Qt checked feedback,
+matching projection buttons. The Applications menu, per-document mode state,
+command availability, contextual Insert menu and dialog/Sketch entry restrictions
+remain owned by those same actions. No document transaction is created by a
+mode change. Assembly and Drawing headings retain their previous behavior.
+
+Localization review: menus reuse existing translations in Czech, English,
+German, French and Russian. The Body Delete label now uses the same shared
+Delete translation as other history objects; no new translation keys are added.
+The application buttons reuse the five existing Modeling/Sheet Metal translations
+and introduce no new user-visible text.
+
+The focused GUI checks cover Tree/View menu parity for Feature, Fillet, Point,
+Axis, Plane and Curve3D in all five languages, exact View deletion despite an
+unrelated Tree selection, dependency preview, Cancel, OK, save/reopen and
+Undo/Redo. The branch-guide fixture checks Light/Dark/Light pixels, disclosure
+arrows and selection. These are finite fixtures, not exhaustive verification of
+all feature types or nested Assembly contexts. Linux GUI verification remains
+pending on the user's Linux host.
+
+Windows verification passed after rebuilding the development executable:
+the focused branch and deletion GUI contracts, full UI contract, five-language
+catalog/UI validation, selection-filter GUI, Body Scale GUI and native history
+deletion/suppression contract. The native fixture now resolves owned Origins
+before capturing its baseline, matching Workspace insertion. Exact serialized
+comparison, definition fingerprints and signed zeros remain checked; neither
+the product solver nor fingerprint rules were changed. One intermediate full
+UI run failed its real-cursor toolbar hover assertion; the initial and final
+full runs passed. Branch screenshots were inspected at Windows display scaling.
+
+An additional hidden-Body activation check reports "Activating hidden body
+displayed no original geometry" with both the updated executable and immutable
+published Windows build 2026101102. This existing activation gap remains open;
+the corresponding full activation/deletion fixture is not claimed to pass.
+Evidence is under `build/view-context-followup-*.log` (local, untracked).
+
 ## Sketch command accent (after Windows 2026092603)
 
 The enabled Sketch command uses an azure background with dark text and icon

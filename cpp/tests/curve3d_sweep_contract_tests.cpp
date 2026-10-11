@@ -648,8 +648,16 @@ int main(){try{
             "K marker cannot be the first Loft correspondence point");
         for (auto& constraint : keypoint_sketch.constraints)
             if (constraint.id == first_keypoint_constraint) constraint.suppressed = true;
-        require(document::sweep3d_profile_correspondence(keypoint_sketch).point_ids.size() == 3,
-            "Suppressed K marker still participates in Loft correspondence");
+        require(document::sweep3d_profile_correspondence(keypoint_sketch).point_ids == marker_ids,
+            "Suppressing K removed its independently retained C correspondence");
+        const auto retained_c=std::ranges::find_if(keypoint_sketch.constraints,[&](const auto& c){
+            return c.kind==sketcher::ConstraintKind::PointOnCircle&&c.first_point_id==marker_ids.front()&&c.geometry_id==circle_id;
+        });
+        require(retained_c!=keypoint_sketch.constraints.end(),"K did not create C contact for Loft");
+        retained_c->suppressed=true;
+        require(document::sweep3d_profile_correspondence(keypoint_sketch).point_ids.size()==3,
+            "Suppressing both C and K retained a Loft contact");
+        retained_c->suppressed=false;
         for (auto& constraint : keypoint_sketch.constraints)
             if (constraint.id == first_keypoint_constraint) constraint.suppressed = false;
         const auto restored = sketcher::Sketch::from_serialized(keypoint_sketch.serialized());

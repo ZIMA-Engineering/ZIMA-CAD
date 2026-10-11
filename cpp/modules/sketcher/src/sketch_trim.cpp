@@ -1115,6 +1115,13 @@ SketchTrimResult apply_sketch_trim(
             auto owner = *keypoint_owner;
             valid = remap(owner, {});
             if (valid) {
+                // C+K already owns an independent contact. Retain that C's
+                // identity rather than converting K into a duplicate C row.
+                const bool retained_contact=std::ranges::any_of(sketch.constraints,[&](const auto& c) {
+                    return !c.suppressed&&c.kind==ConstraintKind::PointOnCircle&&
+                        c.first_point_id==constraint.first_point_id&&c.geometry_id==*keypoint_owner;
+                });
+                if(retained_contact)valid=false;
                 // The source K support is replaced by the retained curve.
                 // Persist C to that survivor; when its endpoint is already
                 // the same native point, the topology below owns C directly.

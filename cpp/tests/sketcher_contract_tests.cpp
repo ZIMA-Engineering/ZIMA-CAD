@@ -2616,21 +2616,22 @@ int main() {
                 "sketch_keypoint:circle:" + keypoint_circle + ":0");
         const auto keypoint_markers =
             keypoint_marker_sketch.viewer_mesh().constraint_markers;
-        require(keypoint_markers.size() == 1 &&
-                    keypoint_markers.front().label == "K" &&
-                    keypoint_markers.front().reference.semantic_key ==
+        const auto k_marker=std::ranges::find_if(keypoint_markers,[](const auto& marker){return marker.label=="K";});
+        const auto c_marker=std::ranges::find_if(keypoint_markers,[](const auto& marker){return marker.label=="C";});
+        require(keypoint_markers.size() == 2 && k_marker!=keypoint_markers.end() && c_marker!=keypoint_markers.end() &&
+                    k_marker->reference.semantic_key ==
                         "constraint:" + keypoint_constraint &&
                     std::ranges::find(
-                        keypoint_markers.front().participant_semantic_keys,
+                        k_marker->participant_semantic_keys,
                         "circle:" + keypoint_circle) !=
-                        keypoint_markers.front().participant_semantic_keys.end() &&
+                        k_marker->participant_semantic_keys.end() &&
                     std::ranges::find(
-                        keypoint_markers.front().participant_semantic_keys,
+                        k_marker->participant_semantic_keys,
                         "segment:" + keypoint_segment) ==
-                        keypoint_markers.front().participant_semantic_keys.end() &&
-                    std::ranges::find(keypoint_markers.front().participant_semantic_keys,
-                        "point:" + keypoint_contact) != keypoint_markers.front().participant_semantic_keys.end(),
-                "Exact curve keypoint reference did not expose one K marker");
+                        k_marker->participant_semantic_keys.end() &&
+                    std::ranges::find(k_marker->participant_semantic_keys,
+                        "point:" + keypoint_contact) != k_marker->participant_semantic_keys.end(),
+                "Exact curve keypoint reference did not expose independent C and K markers");
         point_tools.remove_point(point_tools.segments.front().first_point_id);
         require(point_tools.find_point(standalone_point) != nullptr &&
                     point_tools.points.size() == 1 && point_tools.segments.empty() &&

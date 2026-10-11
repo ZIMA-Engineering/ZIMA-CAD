@@ -969,6 +969,8 @@ void AssemblyWorkspaceWindow::create_layout() {
                             QString::fromStdString(owner_id) &&
                         item->data(0, Qt::UserRole + 1).toString().toStdString() == candidate.instance_path &&
                         (role == QStringLiteral("part-container") ||
+                         role == QStringLiteral("part-body") ||
+                         role == QStringLiteral("part-body-boolean") ||
                          role == QStringLiteral("part-construction") ||
                          role == QStringLiteral("assembly-construction") ||
                          role == QStringLiteral("part-sketch") ||
@@ -1001,78 +1003,13 @@ void AssemblyWorkspaceWindow::create_layout() {
                 return;
             }
             if (candidate.kind == zima::viewer::CandidateKind::Container) {
-                const auto* active=workspace_.open_part(workspace_.active_document_id());
-                const auto* body=active?active->session.document().body_history.find(candidate.owner_id):nullptr;
-                if(body&&body->scale) {
-                    QMenu menu(this);auto* properties=menu.addAction(resource_icon("properties"),tr("Vlastnosti"));
-                    if(menu.exec(global_position)==properties)show_body_scale_properties(candidate.owner_id);
-                    return;
-                }
-                if(body&&body->derived_copy) {
-                    QMenu menu(this);auto* source=menu.addAction(resource_icon("properties"),tr("Vlastnosti zdroje"));
-                    auto* settings=menu.addAction(resource_icon("properties"),body->derived_copy->pattern?tr("Vlastnosti Pole"):tr("Vlastnosti Zrcadla"));
-                    const auto* selected=menu.exec(global_position);
-                    if(selected==source)show_derived_source(candidate.owner_id,true);
-                    else if(selected==settings)show_derived_copy_properties(candidate.owner_id);
-                    return;
-                }
                 auto* item = find_container_item(candidate.owner_id);
                 if (item == nullptr) return;
-                QMenu menu(this);
-                auto* edit = menu.addAction(resource_icon("edit"),tr("Upravit"));
-                auto* properties = menu.addAction(resource_icon("properties"),tr("Vlastnosti"));
-                QAction* transform_extrusion{};
-                QAction* transform_revolution{};
-                QAction* suppress_curve{};
-                QAction* remove_curve{};
-                if (const auto* part = workspace_.open_part(
-                        workspace_.active_document_id())) {
-                    if(std::ranges::any_of(
-                            zima::workspace::sheet_state_regions(part->session.document()),
-                            [&](const auto& region) {
-                                return (region.owner_id==candidate.owner_id||region.feature_owner_id==candidate.owner_id)&&region.unfolded;
-                            })) edit->setEnabled(false);
-                    const auto* container =
-                        part->session.document().find_container(candidate.owner_id);
-                    if (container != nullptr && (container->feature_kind ==
-                            zima::document::FeatureKind::Sketch ||
-                            (container->feature_kind == zima::document::FeatureKind::Feature &&
-                             container->feature.type == zima::document::FeatureType::Sketch))) {
-                        menu.addSeparator();
-                        transform_extrusion = menu.addAction(
-                            resource_icon("protrusion"), tr("Vytažení"));
-                        transform_revolution = menu.addAction(
-                            resource_icon("revolve"), tr("Rotace"));
-                    }
-                    const auto* construction =
-                        part->session.document().find_construction(
-                            candidate.owner_id);
-                    if (construction != nullptr &&
-                        construction->kind ==
-                            zima::document::ConstructionKind::Curve3D) {
-                        menu.addSeparator();
-                        suppress_curve = menu.addAction(resource_icon(construction->suppressed ? "restore" : "suppress"), construction->suppressed ? tr("Obnovit") : tr("Potlačit"));
-                        remove_curve = menu.addAction(resource_icon("delete"),tr("Odstranit"));
-                    }
-                }
-                const auto* selected = menu.exec(global_position);
-                if (selected == edit) {
-                    show_parameter_dimensions(candidate.owner_id);
-                } else if (selected == properties) {
-                    construction_dimension_object_id_ = candidate.owner_id;
-                    show_tree_item_properties(item);
-                } else if (selected == transform_extrusion) {
-                    transform_sketch_container(candidate.owner_id,
-                        zima::document::FeatureKind::Extrusion);
-                } else if (selected == transform_revolution) {
-                    transform_sketch_container(candidate.owner_id,
-                        zima::document::FeatureKind::Revolution);
-                } else if (selected == suppress_curve) {
-                    toggle_part_container_suppressed(candidate.owner_id);
-                } else if (selected == remove_curve) {
-                    delete_part_object(candidate.owner_id,
-                        QStringLiteral("part-construction"), true);
-                }
+                // A confirmed View target is one exact object, even if an
+                // unrelated Tree multi-selection was previously active.
+                tree_->setCurrentItem(item,0,QItemSelectionModel::ClearAndSelect);
+                if(tree_context_menu_)tree_context_menu_(item,
+                    tree_->viewport()->mapFromGlobal(global_position));
                 return;
             }
             if (candidate.kind != zima::viewer::CandidateKind::Occurrence) return;
@@ -2287,13 +2224,12 @@ void AssemblyWorkspaceWindow::create_layout() {
             }
         });
     tree_->setContextMenuPolicy(Qt::CustomContextMenu);
-    connect(tree_, &QTreeWidget::customContextMenuRequested, this,
-        [this, synchronize_tree_selection](const QPoint& position) {
+    tree_context_menu_ =
+        [this, synchronize_tree_selection](QTreeWidgetItem* item,const QPoint& position) {
             if (construction_reference_dialog_ != nullptr ||
                 pending_construction_reference_index_ ||
                 primitive_reference_dialog_ != nullptr ||
                 pending_primitive_reference_index_) return;
-            auto* item = tree_->itemAt(position);
             if(item && workspace_.open_assembly(workspace_.displayed_document_id())) {
                 const auto role=item->data(0,Qt::UserRole+3).toString();
                 const auto path=item->data(0,Qt::UserRole+1).toString().toStdString();
@@ -2468,7 +2404,7 @@ void AssemblyWorkspaceWindow::create_layout() {
                     activate->setEnabled(!suppressed);
                     if(part->session.document().body_history.active_body_id()==id)activate->setIcon(resource_icon("active-check"));
                 }
-                auto* remove=part->session.document().body_history.active_body_id().empty()?menu.addAction(resource_icon("delete"),tr("Smazat")):nullptr;
+                auto* remove=part->session.document().body_history.active_body_id().empty()?menu.addAction(resource_icon("delete"),tr("Odstranit")):nullptr;
                 if(remove)remove->setObjectName("deleteBodyAction");
                 const auto selected = exec_tree_menu(menu,item,position);
                 if(remove&&selected==remove)delete_part_object(id,QStringLiteral("part-body"));
@@ -2904,7 +2840,9 @@ void AssemblyWorkspaceWindow::create_layout() {
                     item->data(0, Qt::UserRole + 1).toString().toStdString(),
                     tree_->viewport()->mapToGlobal(position));
             }
-        });
+        };
+    connect(tree_, &QTreeWidget::customContextMenuRequested, this,
+        [this](const QPoint& position) { tree_context_menu_(tree_->itemAt(position),position); });
 }
 
 } // namespace zima::app

@@ -727,6 +727,10 @@ void AssemblyWorkspaceWindow::accept_sketch_coincident_point(
                    zima::viewer::CandidateKind::SketchExternalReference &&
                candidate.semantic_key.starts_with("external_point:")) {
         point_id = candidate.semantic_key.substr(15);
+    } else if (pending_point_pair_constraint_kind_ == zima::sketcher::ConstraintKind::Coincident &&
+               candidate.kind == zima::viewer::CandidateKind::SketchExternalReference &&
+               candidate.semantic_key.starts_with("sketch_curve_keypoint:")) {
+        point_id = "sketch_keypoint:" + candidate.semantic_key.substr(std::string_view("sketch_curve_keypoint:").size());
     } else if (!pending_coincident_point_id_.empty() &&
                candidate.kind ==
                    zima::viewer::CandidateKind::SketchExternalReference &&

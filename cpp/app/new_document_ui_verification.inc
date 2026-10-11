@@ -139,7 +139,7 @@ int verify_new_document_options(QApplication& application) {
             check(window.findChild<QAction*>("materialAction")->isEnabled(),"Part material action is disabled");
             check(window.findChild<QAction*>("sketchAction")->isEnabled()&&window.findChild<QAction*>("featurePrototypeAction")->isEnabled(),
                   "Part start template must activate its Body and enable normal modeling commands");
-            check(window.findChild<QComboBox*>("applicationModeSelector")->currentData().toInt()==0,"Modeling selection was ignored");
+            check(window.findChild<QToolButton*>("modelingModeButton")->isChecked(),"Modeling selection was ignored");
             check(window.findChild<QAction*>("surfaceThickenAction")&&window.findChild<QAction*>("surfaceThickenAction")->isEnabled(),"New Part template must enable Thicken Surface in its active Body");
             const auto model=document::PartDocument::load(std::filesystem::u8path(directory.filePath("model.prtz").toStdString()));
             check(model.document_units.at("Length")=="in"&&model.document_units.at("Angle")=="rad","New document ignored configured units in favor of template units");
@@ -148,12 +148,12 @@ int verify_new_document_options(QApplication& application) {
             window.findChild<QToolButton*>("documentKindButton")->click();flush();
             check_drawing(drawing::SheetFormat::A4,"model");
             create("part","sheet",1);
-            check(window.findChild<QComboBox*>("applicationModeSelector")->currentData().toInt()==2,"Sheet Metal selection was ignored");
+            check(window.findChild<QToolButton*>("sheetMetalModeButton")->isChecked(),"Sheet Metal selection was ignored");
             const auto sheet=document::PartDocument::load(std::filesystem::u8path(directory.filePath("sheet.prtz").toStdString()));
             check(sheet.document_units.at("Length")=="in"&&sheet.document_units.at("Angle")=="rad","New document ignored configured units in favor of template units");
             check(sheet.history.empty()&&sheet.body_history.bodies().size()==1,"Sheet Metal choice changed the Part model");
             create("part","reference",2);
-            check(window.findChild<QComboBox*>("applicationModeSelector")->currentData().toInt()==0,"Skeleton must use Modeling");
+            check(window.findChild<QToolButton*>("modelingModeButton")->isChecked(),"Skeleton must use Modeling");
             check(QFileInfo::exists(directory.filePath("reference_skeleton.prtz")),"Skeleton filename suffix is missing");
             const auto skeleton=document::PartDocument::load(std::filesystem::u8path(directory.filePath("reference_skeleton.prtz").toStdString()));
             check(skeleton.document_units.at("Length")=="in"&&skeleton.document_units.at("Angle")=="rad","New document ignored configured units in favor of template units");

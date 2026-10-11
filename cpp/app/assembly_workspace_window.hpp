@@ -1141,6 +1141,7 @@ private:
     void toggle_part_container_suppressed(const std::string& container_id);
     bool part_element_context_menu_enabled(const std::string& owner_id) const;
     bool tree_item_context_menu_enabled(QTreeWidgetItem* item) const;
+    std::function<void(QTreeWidgetItem*, const QPoint&)> tree_context_menu_;
     void add_tree_rename_action(QMenu& menu,QTreeWidgetItem* item);
     QAction* exec_tree_menu(QMenu& menu,QTreeWidgetItem* item,const QPoint& position);
     void add_object_rename_action(QMenu& menu,const std::string& document,const std::string& kind,const std::string& object);
