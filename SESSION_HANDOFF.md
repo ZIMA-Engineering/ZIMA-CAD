@@ -1,4 +1,44 @@
-# Development handoff — 2026-09-20
+# Development handoff
+
+## Windows agent follow-up after Linux 2026101107 — 2026-10-11
+
+The user explicitly requested this handoff for the Windows agent. Fetch and
+update `main`; the completed Linux publication/verification record is at
+`e952e5bbe8f84ba61e3f5c83e9d284ff4cd9747b` or a newer main commit. Read
+[Linux release 2026101107](doc/releases/2026101107.md) and
+[the finite verification results](doc/verification/2026101107-linux.json)
+before continuing. The signed Linux release is public on
+[GitHub](https://github.com/ZIMA-Engineering/ZIMA-CAD/releases/tag/ZIMA-CAD-2026101107).
+Source/tag commit `dc64545574a899214ca534c61c6b474a9318790e` remains immutable.
+
+Verify the receiving Linux changes on Windows: verified FORM surface reuse
+accepts the exact complete document/history proof across platforms while still
+rejecting changed source geometry. Three verification fixtures were corrected:
+rational STEP uses the shared calculated-shape reader, framebuffer comparison
+waits for the initial Wayland size configuration, and Boundary Surface reopens
+Save's actual returned path. Keep one shared C++ implementation, aligned pinned
+OCCT 8.0.0 dependencies and the existing protected placement contracts.
+Windows execution of these receiving changes has not yet been verified.
+
+The complete 0.5-second interaction target remains unmet. On the user's G92H1,
+Body position previews took approximately 1.2–1.5 s, confirmation approximately
+1.0 s, Extrusion opening 1.5–1.7 s and Cancel 0.74–0.86 s. These are measured
+Linux observations, not Windows timings or universal speed guarantees.
+
+Do not treat the remaining failures as resolved: Spatial Sweep placement
+nonconvergence, inward Window exact role-reorder sample mismatch, both Window
+styles rejecting 4 mm, hidden Body activation, Sketch vertical-arrow masking,
+general GUI assertions and the G92K1 Gauss/Gauss-Kronrod discrepancy. Packaged
+arc Wayland attempts also retain inline-editor/hover failures; all 48 packaged
+arc scenarios pass XWayland. Consult the linked records for exact finite
+coverage, initial failures and subsequent focused passes.
+
+The user will now personally try Linux 2026101107 and provide concrete feedback.
+That manual acceptance is pending. Verify the shared changes on Windows and
+retain the documented open issues; do not assume the user's forthcoming
+feedback or mark those issues complete. Linux publication, public asset hashes,
+production trust and installable discovery from signed Linux 2026100908 have
+already been verified. Existing signed releases must remain immutable.
 
 ## Linux release 2026092001 published
 
