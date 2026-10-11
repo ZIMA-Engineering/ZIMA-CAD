@@ -28,6 +28,12 @@ static void verify_default_work_plane_and_frame(QWidget& parent) {
         const auto k=static_cast<document::FeatureKind>(kind);
         if(!app::uses_container_placement(k)||k==document::FeatureKind::SheetForm)continue;
         auto value=document::PartDocument::create_sketch_container();value.feature_kind=k;
+        // Specialized dialogs require the same initialized definition that
+        // their creation command supplies, including any serialized Sketch.
+        if(k==document::FeatureKind::Hole)value=document::PartDocument::create_hole_container();
+        if(k==document::FeatureKind::Thread)value=document::PartDocument::create_thread_container();
+        if(k==document::FeatureKind::DrillPoint)value=document::PartDocument::create_drill_point_container();
+        if(k==document::FeatureKind::ShaftThread)value=document::PartDocument::create_shaft_thread_container();
         app::PrimitivePropertiesDialog dialog(value,false,true,[](auto){},&parent);
         auto* plane=dialog.findChild<QComboBox*>("profilePlane");
         if(plane)check(app::selected_work_plane(plane).toInt()==static_cast<int>(sketcher::SketchPlane::XY),

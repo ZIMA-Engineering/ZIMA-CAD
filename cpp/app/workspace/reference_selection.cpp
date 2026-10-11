@@ -1120,7 +1120,11 @@ void AssemblyWorkspaceWindow::start_primitive_reference_selection(
             (!candidate_reference.measured_offset || std::signbit(*cached->second.prepared.measured_offset)==
                 std::signbit(*candidate_reference.measured_offset)))return cached->second.allowed;
         const auto remember=[&](bool allowed) {
-            if(validation_cache->size()>=64)validation_cache->clear();
+            // This cache belongs to one reference-entry session and scene
+            // revision; only stable candidates in that finite scene can enter
+            // it. Clearing all entries at 64 caused every warm pass over a
+            // dense import to solve the same candidates again. Current row
+            // preparation and signed-side checks above still validate reuse.
             validation_cache->insert_or_assign(validation_key,PlacementPickValidation{source_reference,candidate_reference,allowed});return allowed;
         };
         proposed.back()=candidate_reference;
@@ -1299,7 +1303,10 @@ void AssemblyWorkspaceWindow::accept_primitive_reference(
                 static_cast<std::ptrdiff_t>(prefix.occurrence_ids.size()));
         local_path = path.encoded();
     }
-    if (!placement_reference_exists(candidate,primitive_reference_geometry_,local_path)) return;
+    const auto* body_dialog=dynamic_cast<const BodyPropertiesDialog*>(primitive_reference_dialog_);
+    const auto* body_index=body_dialog?body_dialog->reference_geometry_index().get():nullptr;
+    if (body_index ? !body_index->contains(document::ConstructionReference{local_path,candidate.owner_id,candidate.semantic_key})
+                   : !placement_reference_exists(candidate,primitive_reference_geometry_,local_path)) return;
     const std::size_t selected_index = *pending_primitive_reference_index_;
     const auto* form_dialog=dynamic_cast<const PrimitivePropertiesDialog*>(primitive_reference_dialog_);
     const bool form_placement=form_dialog&&form_dialog->is_sheet_form();
@@ -1308,16 +1315,19 @@ void AssemblyWorkspaceWindow::accept_primitive_reference(
         primitive_reference_dialog_->references_without(selected_index);
     auto baseline_placement = primitive_reference_dialog_->placement_seed();
     baseline_placement.references = baseline_references;
+    std::optional<kernel::ViewerReferenceGeometry> baseline_subset;
+    if(body_index)baseline_subset=body_index->select(baseline_references);
+    const auto& baseline_geometry=baseline_subset?*baseline_subset:primitive_reference_geometry_;
     static_cast<void>(zima::document::resolve_placement(
-        baseline_placement, primitive_reference_geometry_));
+        baseline_placement, baseline_geometry));
     const zima::kernel::Vec3 orientation_origin{baseline_placement.x,
         baseline_placement.y, baseline_placement.z};
     const int baseline_translation_dof =
         zima::document::point_constraint_remaining_dof(
-            baseline_references, primitive_reference_geometry_, orientation_origin);
+            baseline_references, baseline_geometry, orientation_origin);
     const int baseline_rotation_dof =
         zima::document::orientation_constraint_remaining_dof(
-            baseline_references, primitive_reference_geometry_, true,
+            baseline_references, baseline_geometry, true,
             orientation_origin);
     const bool direction_reference = !form_placement && !orientation_reference &&
         selected_index < 3 && baseline_translation_dof == 0 &&
@@ -1346,8 +1356,14 @@ void AssemblyWorkspaceWindow::accept_primitive_reference(
         assign_automatic_orientation_role(
             proposed_reference, baseline_references);
     }
+    std::optional<kernel::ViewerReferenceGeometry> proposed_subset;
+    if(body_index) {
+        auto references=baseline_references;references.push_back(proposed_reference);
+        proposed_subset=body_index->select(references);
+    }
+    const auto& proposed_geometry=proposed_subset?*proposed_subset:primitive_reference_geometry_;
     proposed_reference=prepare_placement_pick(primitive_reference_dialog_,selected_index,
-        std::move(proposed_reference),primitive_reference_geometry_,orientation_origin);
+        std::move(proposed_reference),proposed_geometry,orientation_origin);
     auto committed_reference = proposed_reference;
     if(from_view && selected_index==0 && baseline_references.empty() &&
        primitive_reference_dialog_->first_empty_position_index()==0 && candidate.kind==zima::viewer::CandidateKind::Face) {
@@ -1366,7 +1382,7 @@ void AssemblyWorkspaceWindow::accept_primitive_reference(
             if(!seeded.value_locks.contains("y"))seeded.y=hit->y;
             if(!seeded.value_locks.contains("z"))seeded.z=hit->z;
             seeded.references={proposed_reference};
-            if(zima::document::resolve_placement(seeded,primitive_reference_geometry_))
+            if(zima::document::resolve_placement(seeded,proposed_geometry))
                 committed_reference.picked_position=std::array{seeded.x,seeded.y,seeded.z};
         }
     }
@@ -1378,20 +1394,20 @@ void AssemblyWorkspaceWindow::accept_primitive_reference(
         proposed_placement.z=(*committed_reference.picked_position)[2];
     }
     proposed_placement.references = baseline_references;
-    if (!form_placement && !zima::document::resolve_placement(proposed_placement, primitive_reference_geometry_)) {
+    if (!form_placement && !zima::document::resolve_placement(proposed_placement, proposed_geometry)) {
         state_->setText(tr("Navržené reference umístění prvku nelze vyřešit."));
         return;
     }
     const zima::kernel::Vec3 proposed_origin{proposed_placement.x, proposed_placement.y, proposed_placement.z};
     const int proposed_rotation_dof =
         zima::document::orientation_constraint_remaining_dof(
-            baseline_references, primitive_reference_geometry_, true,
+            baseline_references, proposed_geometry, true,
             proposed_origin);
     const int proposed_dof = orientation_reference || direction_reference
         ? proposed_rotation_dof
         : proposed_rotation_dof +
             zima::document::point_constraint_remaining_dof(
-                baseline_references, primitive_reference_geometry_, proposed_origin);
+                baseline_references, proposed_geometry, proposed_origin);
     if (!form_placement && (proposed_dof > baseline_dof ||
         (primitive_reference_auto_advance_ && proposed_dof == baseline_dof))) {
         state_->setText(tr("Tato reference nepřidává žádnou nezávislou vazbu."));
@@ -1436,7 +1452,7 @@ void AssemblyWorkspaceWindow::accept_primitive_reference(
             if (!cap_label.empty()) reference_label=QString::fromStdString(owner->name+" — "+cap_label);
         }
     }
-    committed_reference.measured_offset=zima::document::measure_placement_reference_offset(committed_reference,primitive_reference_geometry_,orientation_origin);
+    committed_reference.measured_offset=zima::document::measure_placement_reference_offset(committed_reference,proposed_geometry,orientation_origin);
     const bool auto_advance = primitive_reference_auto_advance_;
     const auto bend_edge=selected_index==0&&properties_dialog_&&properties_dialog_->objectName()=="bendPropertiesDialog"
         ?viewer_->candidate_edge(candidate):std::optional<zima::kernel::ViewerEdge>{};
@@ -1468,12 +1484,14 @@ void AssemblyWorkspaceWindow::accept_primitive_reference(
         primitive_reference_dialog_->set_reference_inspected(selected_index, true);
     pending_primitive_reference_index_.reset();
     viewer_->clear_selection();
-    // set_reference() synchronously publishes the live placement preview and
-    // refreshes the scene while preserving the camera. This follow-up refresh
-    // only updates the post-pick selection contract; it must not perform an
-    // implicit Fit All and make the model jump/shrink after every reference.
-    preserve_view_on_refresh_ = true;
-    refresh_scene();
+    // Body set_reference() synchronously publishes its complete live preview.
+    // Its inspection and selection transitions below update their own overlays
+    // and contracts; publishing that same Body scene again serves no consumer.
+    // Other feature dialogs retain their established follow-up initialization.
+    if(!body_dialog) {
+        preserve_view_on_refresh_ = true;
+        refresh_scene();
+    }
     if (auto_advance) {
         const auto next = primitive_reference_dialog_->first_empty_position_index();
         if (next < 3) {

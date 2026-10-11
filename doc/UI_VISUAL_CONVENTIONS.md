@@ -174,13 +174,19 @@ font default.
 - Neutral geometry uses `currentColor`, resolved from the application's
   `WindowText` palette role for light and dark themes.
 - Modeling operations use green `#80AA1A`.
-- Reference geometry (Point, Axis, Plane and 3D Curve) uses brown
+- Reference geometry (Point, Axis and Plane) uses brown
   `#AD6E2E`, matching the View reference colour. Mirror uses the same brown axis.
   The displayed document's main Origin point stays black. Construction Point
   markers and all feature, Body and occurrence Origin points use the same brown
   as planes. Marker sizes and hover/confirmation colours are unchanged.
   Sweep path endpoint markers also use brown in their ordinary state, with
   green hover and azure confirmation/reference colours.
+- Confirmed 3D Curve strokes and their owned point markers use the same theme
+  foreground as ordinary Sketch geometry: light in Dark mode and dark in Light
+  mode. Point-entry frames in 3D Curve Properties retain their brown datum
+  colour. The shared 3D Curve / Surface Intersection icon uses `currentColor`.
+  Selection, inspection, hover and transient preview colours retain their
+  established roles; curve point identities and occurrence paths are unchanged.
 - The Sketch icon, ordinary Sketch curves and profile point markers use the
   theme foreground. Construction lines, centerlines and points belonging only
   to auxiliary curves use brown. Shared profile/auxiliary points retain their
@@ -219,8 +225,8 @@ grips; measured values and stored annotation placement are not rewritten.
 Regression checks cover both label sides and leader directions at three font
 sizes, and compare arrow pixels with/without text in the actual Sketch View.
 
-Ordinary View Sketch strokes are white and 3D Curve strokes are brown (`#AD6E2E`),
-one logical pixel wide. Properties and Sketcher use white strokes at the existing editing
+Ordinary View Sketch and 3D Curve strokes use the theme foreground,
+one logical pixel wide. Properties and Sketcher retain the existing editing
 width; construction geometry and external references retain their own styles.
 Hover uses interaction green and confirmation uses azure, including Sketch points when the
 owning history container is selected. Finish Sketch uses the green check icon.

@@ -133,6 +133,11 @@ separately from those checks. The finite large-import evidence is in the
   archive imported source geometry before one final history preparation, avoid
   unused measurement/section reference indexes, and retain GPU preparation only
   when its exact geometric inputs remain unchanged.
+- [Dense-import placement validation](performance/20261011-placement-validation-cache.md):
+  size an entry-scoped cache for its actual finite candidate set. Clearing all
+  entries at a tiny fixed count can make every warm pass repeat the same solves.
+  Verify complete candidate ordering and fresh-versus-cached results after a
+  scene revision, and distinguish picker time from scene publication.
 
 These are patterns to evaluate, not feature lists to copy blindly. Their reported
 percentages apply only to the recorded operations and fixtures.

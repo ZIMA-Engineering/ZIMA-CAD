@@ -860,6 +860,11 @@ if(ZIMA_BUILD_TESTS)
         Qt6::Widgets Qt6::Svg nlohmann_json::nlohmann_json)
     set_target_properties(zima_cpp_ui_contract_tests PROPERTIES AUTORCC ON)
     add_test(NAME zima_cpp_ui_contract_tests COMMAND zima_cpp_ui_contract_tests)
+    add_test(NAME zima_cpp_curve_presentation_ui_contract COMMAND zima_cpp_ui_contract_tests)
+    set_tests_properties(zima_cpp_curve_presentation_ui_contract PROPERTIES
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.."
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_CURVE_PRESENTATION_ONLY=1"
+        TIMEOUT 60 RUN_SERIAL TRUE)
     add_executable(zima_cpp_operation_activity_tests tests/operation_activity_tests.cpp)
     target_link_libraries(zima_cpp_operation_activity_tests PRIVATE zima_ui zima_workspace)
     add_test(NAME zima_cpp_operation_activity_tests COMMAND zima_cpp_operation_activity_tests)

@@ -275,9 +275,16 @@ static int verify_imported_body_interaction(QApplication& application,zima::app:
         }
         check(hit.has_value(),"Imported face cannot be offered for Body placement");
         std::cout<<"Imported-face pick point="<<hit->x()<<","<<hit->y()<<" identity="<<offered.semantic_key<<std::endl;
+        const auto expected_candidates=view->selection_candidates_at(*hit);
+        std::cout<<"Imported-face ordered candidate count="<<expected_candidates.size()<<std::endl;
         const auto start=std::chrono::steady_clock::now();
-        for(int i=0;i<20;++i)check(view->selection_candidates_at(*hit).at(offered_index)==offered,"Warm placement changed the offered face");
+        for(int i=0;i<20;++i)check(view->selection_candidates_at(*hit)==expected_candidates,"Warm placement changed the ordered candidate list");
         std::cout<<"Imported-face warm placement picker mean ms="<<std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-start).count()/20<<std::endl;
+        const auto revision=view->base_mesh_revision();
+        view->set_mesh(view->mesh(),false);
+        check(view->base_mesh_revision()!=revision,"Republished scene retained its validation revision");
+        check(view->selection_candidates_at(*hit)==expected_candidates,"Fresh placement validation changed the ordered candidate list");
+        std::cout<<"Imported-face scene revision: fresh and cached candidate lists match\n";
         const auto filter=view->candidate_filter();std::size_t filter_calls=0;
         view->set_candidate_filter([&](const auto& candidate){++filter_calls;return filter(candidate);});
         static_cast<void>(view->selection_candidates_at(*hit));const auto one_pass=filter_calls;filter_calls=0;
@@ -310,8 +317,12 @@ static int verify_imported_body_interaction(QApplication& application,zima::app:
         QMouseEvent press(QEvent::MouseButtonPress,*hit,*hit,*hit,Qt::LeftButton,Qt::LeftButton,Qt::NoModifier);
         QMouseEvent release(QEvent::MouseButtonRelease,*hit,*hit,*hit,Qt::LeftButton,Qt::NoButton,Qt::NoModifier);
         const auto confirming=std::chrono::steady_clock::now();
+        const auto confirmation_revision=view->base_mesh_revision();
         QApplication::sendEvent(view,&press);QApplication::sendEvent(view,&release);flush();
         std::cout<<"Imported-face confirmation ms="<<std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-confirming).count()<<std::endl;
+        const auto publications=view->base_mesh_revision()-confirmation_revision;
+        std::cout<<"Imported-face confirmation scene publications="<<publications<<std::endl;
+        check(publications==1,"Body reference confirmation must publish exactly one complete scene");
         const auto selected=dialog()->pending_value().scope.placement.references;
         check(std::ranges::any_of(selected,[&](const auto& ref){return ref.owner_id==offered.owner_id&&ref.semantic_key==offered.semantic_key&&ref.instance_path==offered.instance_path;}),"Imported-face click did not accept the offered identity");
         dialog()->reject();flush();

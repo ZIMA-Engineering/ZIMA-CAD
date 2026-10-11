@@ -232,6 +232,7 @@ struct MeshView::Impl {
         std::vector<SilhouetteSource> sources;
     };
     std::optional<SilhouetteConnectivity> silhouette_connectivity;
+    std::set<std::pair<std::string,std::string>> curve3d_point_owners;
     std::optional<std::array<float, 3>> silhouette_view_direction;
     GLsizei silhouette_vertex_count{};
     std::vector<CandidateKind> allowed_kinds{CandidateKind::Container};
@@ -928,6 +929,9 @@ void MeshView::set_mesh(zima::kernel::ViewerMesh mesh, bool fit_view) {
     };
     index_faces(impl_->mesh.triangle_references,impl_->display_face_triangles);
     index_faces(impl_->mesh.original_references.triangle_references,impl_->original_face_triangles);
+    impl_->curve3d_point_owners.clear();
+    for(const auto& edge:impl_->mesh.edges)if(is_curve3d_edge(edge.reference.semantic_key))
+        impl_->curve3d_point_owners.emplace(edge.display_owner_id,edge.reference.instance_path);
     impl_->rebuild_sketch_interaction_mesh();
     if (fit_view) fit_all();
     impl_->rebuild_persisted_reference_mesh();
@@ -4476,7 +4480,7 @@ if (impl_->show_origins) {
                         : interaction::hover
                     : (referenced || preview)
                         ? interaction::selected
-                        : centerline || !editing_curve ? interaction::axis : theme.foreground;
+                        : centerline ? interaction::axis : theme.foreground;
                 QPen curve_pen(color, centerline ? 1.5 : candidate_match||referenced||preview||editing_curve?1.8:1.0,
                     Qt::SolidLine,Qt::RoundCap,Qt::RoundJoin);
                 if (centerline) {
@@ -5093,6 +5097,9 @@ if (impl_->show_origins) {
                         : hovered ? interaction::hover
                         : (referenced || creation_preview)
                             ? interaction::selected
+                        : marker_key == "point" && !point.display_owner_id.empty() &&
+                            impl_->curve3d_point_owners.contains({point.display_owner_id,point.reference.instance_path})
+                            ? theme.foreground
                         : marker_key ==
                                 "external_point:sketch_origin"
                             ? QColor(0, 0, 0)

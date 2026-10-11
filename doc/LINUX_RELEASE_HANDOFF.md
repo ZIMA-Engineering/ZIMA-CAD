@@ -9,6 +9,22 @@ will reboot this computer into Linux, fetch the committed changes from GitHub,
 and continue Linux verification in that session. Do not install WSL or treat
 Windows checks as Linux acceptance. Native Linux execution is explicitly pending.
 
+The 2026-10-11 follow-up adds palette-neutral confirmed 3D Curve strokes and
+owned points, retaining brown point-entry frames. Run
+`zima_cpp_curve_presentation_ui_contract`, `zima_cpp_point_marker_colors_contract`,
+`zima_cpp_feature_axis_highlight_contract` and `zima_cpp_translations_contract`
+on Linux, including live Light → Dark → Light switching. The same neutral icon
+is used by 3D Curve and Surface Intersection.
+
+Dense-import reference validation now retains its entry-scoped cache instead of
+discarding all entries at 64 candidates. The large-import GUI test compares the
+complete ordered candidate list, forces fresh validation by publishing another
+scene revision and verifies exact hover/RMB/click identity. Body confirmation
+reuses its fixed reference index and is expected to publish one complete scene.
+Repeat the real G92H1-T fixture, numeric reference changes, both curved placement
+branches, inspection, Cancel and persistence on the Linux desktop. Windows picker
+timings do not establish Linux timings or complete scene-publication performance.
+
 The expanded Windows rigid-Body acceptance also found an existing failing
 `zima_cpp_solid_state_spatial_sweep_document_tests` regeneration variant, reproduced
 from clean `1676d62b` with the same SDK. Its independent nine-section geometry

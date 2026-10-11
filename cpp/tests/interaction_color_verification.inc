@@ -32,7 +32,7 @@ void verify_interaction_colors(QApplication& application,QWidget& parent) {
         // QAction and Tree items do during a Windows appearance change.
         const std::array icons{app::resource_icon("origin-document"),
             app::resource_icon("sketch"),app::resource_icon("insert-symbol"),
-            app::resource_icon("sketch",true)};
+            app::resource_icon("sketch",true),app::resource_icon("sketch-3d")};
         for (const bool dark : {false,true,false}) {
             auto palette=saved;
             const QColor text=dark?QColor("#EEEEEE"):QColor("#202020");

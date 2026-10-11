@@ -411,7 +411,11 @@ int verify_end_plane_picker(QApplication& application,QWidget& parent) {
             mesh.original_references=document::sheet_transition_profile_plane(transition);}
         if(key!="plane:end") {kernel::ViewerEdge edge;edge.reference={"datum",key=="plane"?"border":key,{}};
             edge.overlay=true;edge.points=mesh.original_references.vertices;edge.points.push_back(edge.points.front());mesh.edges.push_back(edge);}
-        viewer::MeshView view(&parent);view.resize(420,320);view.set_mesh(mesh,true);view.set_view_direction({0,0,1});
+        viewer::MeshView view(&parent);view.resize(420,320);view.set_mesh(mesh,true);
+        // Pick in the final front frame, not during set_view_direction's
+        // animation, which can move the plane between hover and confirmation.
+        auto front=view.camera_state();front[0]=0;front[1]=-1;front[2]=front[3]=0;
+        view.set_camera_state(front);
         view.set_selection_contract(app::placement_reference_candidate_kinds());view.set_candidate_filter([](const auto& candidate){return app::placement_reference_candidate_has_stable_geometry(candidate);});
         view.show();application.processEvents();std::optional<QPointF> pointer;
         for(int y=5;y<view.height()-5&&!pointer;y+=2)for(int x=5;x<view.width()-5&&!pointer;x+=2) {
@@ -624,7 +628,9 @@ void verify_container_frame_dialog(QWidget& parent) {
         require(document::resolve_placement(solved,geometry),"Dialog draft failed to solve");
         require(document::orientation_constraint_remaining_dof(solved.references,geometry,true,{solved.x,solved.y,solved.z})==0,
             "Sketch/Bend/Flat/Holes dialog lost TOP");
-        require(pending.first.plane_auto&&pending.first.plane==sketcher::SketchPlane::XZ,"Dialog did not select FRONT work plane");
+        const auto expected_plane=sequence==std::vector{f,g,n}
+            ?sketcher::SketchPlane::XY:sketcher::SketchPlane::XZ;
+        require(pending.first.plane_auto&&pending.first.plane==expected_plane,"Dialog lost the automatic FRONT/whole-Origin work plane");
         // A positional replacement must remove its own automatic twin from
         // the baseline; otherwise an old plane secretly continues driving it.
         const auto without=dialog.references_without(0);
@@ -1008,6 +1014,155 @@ void verify_feature_axis_highlight(QApplication& application,QWidget& parent) {
 
 #include "origin_display_ui_contract.inc"
 #include "face_fill_ui_contract.inc"
+static void verify_curve_presentation(QApplication& application,QWidget& parent) {
+        // A rounding edge is an overlay, so it must be painted even when no
+        // straight route segment is present and the solid edge pass skips it.
+        zima::kernel::ViewerMesh rounded_route_mesh;
+        rounded_route_mesh.vertices = {{-2,-2,-1},{2,2,1}};
+        zima::kernel::ViewerEdge rounded_route_edge;
+        rounded_route_edge.reference = {"curve-entity","curve:rounding:point-b",{}};
+        rounded_route_edge.display_owner_id = "curve-container";
+        rounded_route_edge.overlay = true;
+        for (int i=0; i<=24; ++i) {
+            const double angle = std::acos(-1.0) * (1.0 + i / 24.0);
+            rounded_route_edge.points.push_back({std::cos(angle),1+std::sin(angle),0});
+        }
+        rounded_route_mesh.edges.push_back(rounded_route_edge);
+        zima::kernel::ViewerPoint curve_point{{1,1,0},{"curve-child-origin","point",{}},{},true};
+        curve_point.display_owner_id="curve-container";
+        rounded_route_mesh.points.push_back(curve_point);
+        zima::viewer::MeshView rounded_route_view(&parent);
+        rounded_route_view.setGeometry(0,0,500,360);
+        rounded_route_view.set_mesh(rounded_route_mesh);
+        rounded_route_view.set_view_direction({0,0,1});
+        rounded_route_view.show();
+        for (const auto mode : {zima::viewer::DisplayMode::Wire,
+                zima::viewer::DisplayMode::ShadedWithEdges, zima::viewer::DisplayMode::Shaded}) {
+            rounded_route_view.set_display_mode(mode);
+            application.processEvents();
+            require(framebuffer_contains_color_near(rounded_route_view.grabFramebuffer(),
+                rounded_route_view.size(),QPointF(250,180),zima::viewer::view_theme(rounded_route_view.palette()).foreground),
+                "3D rounding arc is absent from the rendered View");
+        }
+        rounded_route_view.set_selection_contract({zima::viewer::CandidateKind::Container});
+        const auto curve_hits = rounded_route_view.selection_candidates_at({250,180});
+        require(!curve_hits.empty() && curve_hits.front().owner_id == "curve-container",
+            "Visible 3D Curve is absent from ordinary View hover");
+        rounded_route_view.set_geometry_editing_presentation(true, "other-curve");
+        application.processEvents();
+        require(framebuffer_contains_color_near(rounded_route_view.grabFramebuffer(),
+            rounded_route_view.size(),QPointF(250,180),zima::viewer::view_theme(rounded_route_view.palette()).foreground),
+            "Editing another Curve changed this Curve's neutral colour");
+        rounded_route_view.set_geometry_editing_presentation(true, "curve-container", "other-instance");
+        application.processEvents();
+        require(framebuffer_contains_color_near(rounded_route_view.grabFramebuffer(),
+            rounded_route_view.size(),QPointF(250,180),zima::viewer::view_theme(rounded_route_view.palette()).foreground),
+            "Editing another occurrence changed this Curve's neutral colour");
+        rounded_route_view.set_geometry_editing_presentation(true, "curve-container");
+        application.processEvents();
+        require(framebuffer_contains_color_near(rounded_route_view.grabFramebuffer(),
+            rounded_route_view.size(),QPointF(250,180),zima::viewer::view_theme(rounded_route_view.palette()).foreground),
+            "3D rounding arc did not switch to the neutral editing pen");
+        rounded_route_view.set_geometry_editing_presentation(false);
+        const auto curve_palette=rounded_route_view.palette();
+        auto point_mesh=rounded_route_mesh;
+        point_mesh.points.front().position={0,0,0};
+        point_mesh.edges.front().points={{-1,1,0},{1,1,0}};
+        rounded_route_view.set_mesh(point_mesh,false);
+        for(const bool dark:{false,true,false}) {
+            auto palette=curve_palette;
+            palette.setColor(QPalette::Window,dark?QColor("#202020"):QColor("#FFFFFF"));
+            palette.setColor(QPalette::WindowText,dark?QColor("#EEEEEE"):QColor("#202020"));
+            rounded_route_view.setPalette(palette);
+            for(const auto mode:{zima::viewer::DisplayMode::Wire,zima::viewer::DisplayMode::ShadedWithEdges,zima::viewer::DisplayMode::Shaded}) {
+                rounded_route_view.set_display_mode(mode);application.processEvents();
+                const QPointF position(250,180);
+                require(framebuffer_contains_color_near(rounded_route_view.grabFramebuffer(),rounded_route_view.size(),position,
+                    zima::viewer::view_theme(palette).foreground,3),"Confirmed 3D Curve point did not follow the Sketch colour");
+                auto editing_mesh=point_mesh;
+                // The real child editor publishes its own Point frame, rather
+                // than the confirmed parent's point-only display marker.
+                editing_mesh.points.front().display_owner_id="curve-child";
+                rounded_route_view.set_mesh(editing_mesh,false);application.processEvents();
+                require(framebuffer_contains_color_near(rounded_route_view.grabFramebuffer(),rounded_route_view.size(),position,
+                    QColor("#AD6E2E"),3),"3D Curve child editor lost its brown Point colour");
+                rounded_route_view.set_mesh(point_mesh,false);application.processEvents();
+            }
+        }
+        rounded_route_view.setPalette(curve_palette);
+        rounded_route_view.hide();
+        auto solid_centerline_mesh=rounded_route_mesh;
+        auto& centerline=solid_centerline_mesh.edges.front();
+        centerline.reference={"solid-sweep","centerline:from:rounding",{}};
+        centerline.display_owner_id="solid-sweep";centerline.construction=true;centerline.dash_dot=true;
+        rounded_route_view.set_mesh(solid_centerline_mesh);rounded_route_view.show();
+        rounded_route_view.set_selection_contract({});
+        for(const auto mode:{zima::viewer::DisplayMode::Wire,zima::viewer::DisplayMode::ShadedWithEdges,zima::viewer::DisplayMode::Shaded}) {
+            rounded_route_view.set_display_mode(mode);
+            rounded_route_view.set_reference_visibility(zima::viewer::ReferenceVisibility::Axes,true);
+            application.processEvents();const auto shown=rounded_route_view.grabFramebuffer();
+            rounded_route_view.set_reference_visibility(zima::viewer::ReferenceVisibility::Axes,false);
+            application.processEvents();const auto hidden=rounded_route_view.grabFramebuffer();
+            require(shown!=hidden,"Curved solid centerline is absent or ignores axis visibility");
+            require(framebuffer_contains_color_near(shown, rounded_route_view.size(),
+                QPointF(250,180),QColor(173,110,46)),
+                "Solid centerline does not use the standard brown axis colour");
+        }
+        rounded_route_view.hide();
+        auto selected_points_mesh = rounded_route_mesh;
+        selected_points_mesh.edges.front().points = {{-1,1,0},{1,1,0}};
+        selected_points_mesh.points.clear();
+        selected_points_mesh.points.push_back({{0,0,0},
+            {"curve-child:origin","point",{}}, {}, true});
+        selected_points_mesh.points.back().display_owner_id = "curve-container";
+        rounded_route_view.set_mesh(selected_points_mesh);
+        rounded_route_view.set_display_mode(zima::viewer::DisplayMode::Wire);
+        rounded_route_view.show();
+        application.processEvents();
+        const auto selected_dot_visible = [&] {
+            return framebuffer_contains_color_near(rounded_route_view.grabFramebuffer(),
+                rounded_route_view.size(),QPointF(250,180),QColor("#00D1FF"),3);
+        };
+        const auto idle_dot_visible = [&] {
+            return framebuffer_contains_color_near(rounded_route_view.grabFramebuffer(),
+                rounded_route_view.size(),QPointF(250,180),zima::viewer::view_theme(rounded_route_view.palette()).foreground,3);
+        };
+        require(idle_dot_visible(), "Unselected Curve hid its entered point");
+        rounded_route_view.confirm_container("curve-container");
+        application.processEvents();
+        require(selected_dot_visible(), "Selected Curve did not expose its entered point");
+        rounded_route_view.clear_selection();
+        application.processEvents();
+        require(idle_dot_visible() && !selected_dot_visible(),
+            "Deselected Curve did not restore its ordinary point presentation");
+        selected_points_mesh.points.front().reference.instance_path = "other-occurrence";
+        rounded_route_view.set_mesh(selected_points_mesh);
+        rounded_route_view.confirm_container("curve-container");
+        application.processEvents();
+        require(!selected_dot_visible(), "Curve selection exposed another occurrence's point");
+        rounded_route_view.hide();
+
+        {
+        zima::kernel::ViewerMesh inspected_axis_mesh;
+        inspected_axis_mesh.axes.push_back({{0,0,0},{1,0,0},100,{"curve-point:origin","origin:axis:x",{}}});
+        rounded_route_view.set_mesh(inspected_axis_mesh);
+        rounded_route_view.set_reference_visibility(zima::viewer::ReferenceVisibility::Origins,false);
+        rounded_route_view.set_reference_visibility(zima::viewer::ReferenceVisibility::Axes,false);
+        rounded_route_view.set_selection_contract({});
+        rounded_route_view.show();application.processEvents();
+        const auto uninspected_axis=rounded_route_view.grabFramebuffer();
+        rounded_route_view.set_constraint_reference_highlights({},{{"curve-point:origin","origin:axis:x",{}}});
+        application.processEvents();
+        require(rounded_route_view.grabFramebuffer()!=uninspected_axis,
+            "Inspection eye cannot display an axis with Origins and Axes hidden");
+        rounded_route_view.set_constraint_reference_highlights({},{});
+        application.processEvents();
+        require(rounded_route_view.grabFramebuffer()==uninspected_axis,
+            "Ending axis inspection changed ordinary visibility");
+        rounded_route_view.hide();
+        }
+}
+
 int main(int argc, char* argv[]) {
     QApplication application(argc, argv);
     zima::app::apply_application_appearance(application, zima::app::ApplicationSettings{});
@@ -1021,6 +1176,7 @@ int main(int argc, char* argv[]) {
     const auto initial = zima::document::PartDocument::create_twisted_sheet_container();
 
     try {
+        if(qEnvironmentVariableIsSet("ZIMA_VERIFY_CURVE_PRESENTATION_ONLY")){verify_curve_presentation(application,parent);return 0;}
         if(qEnvironmentVariableIsSet("ZIMA_VERIFY_FEATURE_UNITS_ONLY"))return verify_feature_unit_input(application,parent);
         if(qEnvironmentVariableIsSet("ZIMA_VERIFY_FEATURE_AXIS_HIGHLIGHT_ONLY")) {verify_feature_axis_highlight(application,parent);return 0;}
         if(qEnvironmentVariableIsSet("ZIMA_VERIFY_RELATIONS_ONLY")) {
@@ -2208,122 +2364,7 @@ int main(int argc, char* argv[]) {
             unfolded_owner_view.container_inspection_wire().front().points.front().x==10,
             "Unfolded sheet inspection used the authored formed wire instead of current geometry");
 
-        // A rounding edge is an overlay, so it must be painted even when no
-        // straight route segment is present and the solid edge pass skips it.
-        zima::kernel::ViewerMesh rounded_route_mesh;
-        rounded_route_mesh.vertices = {{-2,-2,-1},{2,2,1}};
-        zima::kernel::ViewerEdge rounded_route_edge;
-        rounded_route_edge.reference = {"curve-entity","curve:rounding:point-b",{}};
-        rounded_route_edge.display_owner_id = "curve-container";
-        rounded_route_edge.overlay = true;
-        for (int i=0; i<=24; ++i) {
-            const double angle = std::acos(-1.0) * (1.0 + i / 24.0);
-            rounded_route_edge.points.push_back({std::cos(angle),1+std::sin(angle),0});
-        }
-        rounded_route_mesh.edges.push_back(rounded_route_edge);
-        zima::viewer::MeshView rounded_route_view(&parent);
-        rounded_route_view.setGeometry(0,0,500,360);
-        rounded_route_view.set_mesh(rounded_route_mesh);
-        rounded_route_view.set_view_direction({0,0,1});
-        rounded_route_view.show();
-        for (const auto mode : {zima::viewer::DisplayMode::Wire,
-                zima::viewer::DisplayMode::ShadedWithEdges, zima::viewer::DisplayMode::Shaded}) {
-            rounded_route_view.set_display_mode(mode);
-            application.processEvents();
-            require(framebuffer_contains_color_near(rounded_route_view.grabFramebuffer(),
-                rounded_route_view.size(),QPointF(250,180),QColor(173,110,46)),
-                "3D rounding arc is absent from the rendered View");
-        }
-        rounded_route_view.set_selection_contract({zima::viewer::CandidateKind::Container});
-        const auto curve_hits = rounded_route_view.selection_candidates_at({250,180});
-        require(!curve_hits.empty() && curve_hits.front().owner_id == "curve-container",
-            "Visible 3D Curve is absent from ordinary View hover");
-        rounded_route_view.set_geometry_editing_presentation(true, "other-curve");
-        application.processEvents();
-        require(framebuffer_contains_color_near(rounded_route_view.grabFramebuffer(),
-            rounded_route_view.size(),QPointF(250,180),QColor(173,110,46)),
-            "Editing another Curve recoloured this Curve white");
-        rounded_route_view.set_geometry_editing_presentation(true, "curve-container", "other-instance");
-        application.processEvents();
-        require(framebuffer_contains_color_near(rounded_route_view.grabFramebuffer(),
-            rounded_route_view.size(),QPointF(250,180),QColor(173,110,46)),
-            "Editing another occurrence recoloured this Curve white");
-        rounded_route_view.set_geometry_editing_presentation(true, "curve-container");
-        application.processEvents();
-        require(framebuffer_contains_color_near(rounded_route_view.grabFramebuffer(),
-            rounded_route_view.size(),QPointF(250,180),zima::viewer::view_theme(rounded_route_view.palette()).foreground),
-            "3D rounding arc did not switch to the neutral editing pen");
-        rounded_route_view.set_geometry_editing_presentation(false);
-        rounded_route_view.hide();
-        auto solid_centerline_mesh=rounded_route_mesh;
-        auto& centerline=solid_centerline_mesh.edges.front();
-        centerline.reference={"solid-sweep","centerline:from:rounding",{}};
-        centerline.display_owner_id="solid-sweep";centerline.construction=true;centerline.dash_dot=true;
-        rounded_route_view.set_mesh(solid_centerline_mesh);rounded_route_view.show();
-        rounded_route_view.set_selection_contract({});
-        for(const auto mode:{zima::viewer::DisplayMode::Wire,zima::viewer::DisplayMode::ShadedWithEdges,zima::viewer::DisplayMode::Shaded}) {
-            rounded_route_view.set_display_mode(mode);
-            rounded_route_view.set_reference_visibility(zima::viewer::ReferenceVisibility::Axes,true);
-            application.processEvents();const auto shown=rounded_route_view.grabFramebuffer();
-            rounded_route_view.set_reference_visibility(zima::viewer::ReferenceVisibility::Axes,false);
-            application.processEvents();const auto hidden=rounded_route_view.grabFramebuffer();
-            require(shown!=hidden,"Curved solid centerline is absent or ignores axis visibility");
-            require(framebuffer_contains_color_near(shown, rounded_route_view.size(),
-                QPointF(250,180),QColor(173,110,46)),
-                "Solid centerline does not use the standard brown axis colour");
-        }
-        rounded_route_view.hide();
-        auto selected_points_mesh = rounded_route_mesh;
-        selected_points_mesh.edges.front().points = {{-1,1,0},{1,1,0}};
-        selected_points_mesh.points.push_back({{0,0,0},
-            {"curve-child:origin","point",{}}, {}, true});
-        selected_points_mesh.points.back().display_owner_id = "curve-container";
-        rounded_route_view.set_mesh(selected_points_mesh);
-        rounded_route_view.set_display_mode(zima::viewer::DisplayMode::Wire);
-        rounded_route_view.show();
-        application.processEvents();
-        const auto selected_dot_visible = [&] {
-            return framebuffer_contains_color_near(rounded_route_view.grabFramebuffer(),
-                rounded_route_view.size(),QPointF(250,180),QColor("#00D1FF"),3);
-        };
-        const auto idle_dot_visible = [&] {
-            return framebuffer_contains_color_near(rounded_route_view.grabFramebuffer(),
-                rounded_route_view.size(),QPointF(250,180),QColor(173,110,46),3);
-        };
-        require(idle_dot_visible(), "Unselected Curve hid its entered point");
-        rounded_route_view.confirm_container("curve-container");
-        application.processEvents();
-        require(selected_dot_visible(), "Selected Curve did not expose its entered point");
-        rounded_route_view.clear_selection();
-        application.processEvents();
-        require(idle_dot_visible() && !selected_dot_visible(),
-            "Deselected Curve did not restore its ordinary point presentation");
-        selected_points_mesh.points.front().reference.instance_path = "other-occurrence";
-        rounded_route_view.set_mesh(selected_points_mesh);
-        rounded_route_view.confirm_container("curve-container");
-        application.processEvents();
-        require(!selected_dot_visible(), "Curve selection exposed another occurrence's point");
-        rounded_route_view.hide();
-
-        {
-        zima::kernel::ViewerMesh inspected_axis_mesh;
-        inspected_axis_mesh.axes.push_back({{0,0,0},{1,0,0},100,{"curve-point:origin","origin:axis:x",{}}});
-        rounded_route_view.set_mesh(inspected_axis_mesh);
-        rounded_route_view.set_reference_visibility(zima::viewer::ReferenceVisibility::Origins,false);
-        rounded_route_view.set_reference_visibility(zima::viewer::ReferenceVisibility::Axes,false);
-        rounded_route_view.set_selection_contract({});
-        rounded_route_view.show();application.processEvents();
-        const auto uninspected_axis=rounded_route_view.grabFramebuffer();
-        rounded_route_view.set_constraint_reference_highlights({},{{"curve-point:origin","origin:axis:x",{}}});
-        application.processEvents();
-        require(rounded_route_view.grabFramebuffer()!=uninspected_axis,
-            "Inspection eye cannot display an axis with Origins and Axes hidden");
-        rounded_route_view.set_constraint_reference_highlights({},{});
-        application.processEvents();
-        require(rounded_route_view.grabFramebuffer()==uninspected_axis,
-            "Ending axis inspection changed ordinary visibility");
-        rounded_route_view.hide();
-        }
+        verify_curve_presentation(application,parent);
 
         {
         // Camera redraws reuse display data; replacing inputs must invalidate it.
