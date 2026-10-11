@@ -62,6 +62,10 @@ and updater `--version`, together with the GUI build identity and manifests.
 All must match the tagged `VERSION`; a correct CLI identity alone does not
 prove that every helper or shared GUI library was recompiled.
 
+The Windows distribution builder sets `VSLANG=1033` before configuration and
+compilation so MSVC emits one stable English `/showIncludes` prefix. A fresh
+build must still record that same prefix in its CMake compiler metadata.
+
 For reused MSVC builds, the recorded `CMAKE_CXX_CL_SHOWINCLUDES_PREFIX` must
 match the compiler's actual localized `/showIncludes` output. A prefix with
 incorrect character encoding can prevent Ninja from recording header changes,

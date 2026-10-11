@@ -15,6 +15,8 @@ $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio/Installer
 $vsInstall = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
 if (-not $vsInstall) { throw 'Visual Studio C++ tools are required.' }
 & (Join-Path $vsInstall 'Common7/Tools/Launch-VsDevShell.ps1') -Arch amd64 -SkipAutomaticLocation
+# Keep MSVC /showIncludes output stable for Ninja's dependency scanner.
+$env:VSLANG = '1033'
 $taskCmake = Join-Path $vsInstall 'Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/bin/cmake.exe'
 $taskVcpkg = $env:VCPKG_ROOT
 if (-not $taskVcpkg) { $taskVcpkg = Join-Path $vsInstall 'VC/vcpkg' }
