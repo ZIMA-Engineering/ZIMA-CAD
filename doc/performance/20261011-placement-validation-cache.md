@@ -99,3 +99,18 @@ Signed-package verification is recorded in the corresponding release record.
 Native Linux
 verification belongs to the user's later Linux session; shared source does not
 constitute a Linux acceptance result.
+
+## Signed Windows follow-up
+
+Signed Windows 2026101102 repeats the full large-import GUI checks: warm picks
+average 26.0481 ms and reference confirmation takes 1859.27 ms, publishing one
+scene. Both fresh and cached ordered lists match exactly. Complete offset
+previews remain approximately 2.8–4.0 seconds; the 0.5-second full movement target
+is still unmet. See the [release acceptance](../releases/2026101102.md) for exact
+samples and public asset identities.
+
+The ordinary cylindrical placement lifecycle passes two serial trials per
+version, using identical copied settings and clean runtime environments.
+Complete-process means are 18.391 s for 1101 and 18.586 s for 1102, about 1.1%
+apart; this finite comparison shows no substantial regression for that workflow.
+It does not establish timing parity for every operation.

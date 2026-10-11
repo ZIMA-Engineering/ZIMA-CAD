@@ -1,5 +1,14 @@
 # Application updates
 
+Signed Windows [2026101102](releases/2026101102.md) was published at
+`2026-10-11T05:55:01Z`. Dense placement validation reuse, one-scene Body
+confirmation and neutral 3D Curve/point/icon presentation pass the selected
+native/GUI contracts, fresh candidate and signed smoke, production trust and
+eight packaged GUI scenarios. All three anonymous public downloads match
+accepted bytes; the trusted 1101 updater offers 1102 without installation during
+verification. The complete 0.5-second confirmation target and native Linux
+acceptance remain pending. Existing releases and user data remain intact.
+
 Signed Windows [2026101101](releases/2026101101.md) was published at
 `2026-10-10T23:11:52Z`. Clean committed-source and signed native smoke,
 production trust, eight packaged GUI scenarios and all three anonymous public
