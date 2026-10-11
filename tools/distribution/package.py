@@ -37,6 +37,27 @@ def git(repo, *args):
     return run(['git', '-C', repo, *args], stdout=subprocess.PIPE).stdout
 
 
+def msvc_include_prefix(output):
+    text = output.decode('utf-8')
+    match = re.search(r'^([^\r\n]+?:[ \t]+)(?=[A-Za-z]:[\\/])', text, re.M)
+    if not match:
+        raise ValueError('Cannot identify MSVC /showIncludes prefix from the compiler probe')
+    return match[1]
+
+
+def probe_msvc_include_prefix(stage):
+    probe = stage / 'include-probe'
+    probe.mkdir(exist_ok=True)
+    (probe / 'prefix.hpp').write_text('\n', encoding='utf-8')
+    (probe / 'prefix.cpp').write_text('#include "prefix.hpp"\nint probe;\n', encoding='utf-8')
+    result = run(['cl.exe', '/nologo', '/showIncludes', '/c', '/utf-8',
+                  '/Fo' + str(probe / 'prefix.obj'), probe / 'prefix.cpp'],
+                 stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    prefix = msvc_include_prefix(result.stdout)
+    print('Verified MSVC include prefix:', prefix, flush=True)
+    return prefix
+
+
 def prepare_factory_config(runtime):
     """Set portable release defaults without modifying source or user config."""
     config = runtime / 'config/config.ini'
@@ -420,9 +441,11 @@ def package(args):
         stage.mkdir(parents=True)
         export_source(ROOT, commit, source)
     build = stage / 'b'
+    compiler_prefix = probe_msvc_include_prefix(stage)
     qt_options = ['-DZIMA_QT_SDK_ROOT=' + str(args.qt_sdk.resolve())] if args.qt_sdk else []
     run([args.cmake, '-S', source / 'cpp', '-B', build, '-G', 'Ninja',
          '-DCMAKE_BUILD_TYPE=Release', '-DZIMA_BUILD_TESTS=OFF', '-DZIMA_SOURCE_COMMIT=' + commit,
+         '-DZIMA_MSVC_SHOWINCLUDES_PREFIX=' + compiler_prefix,
          '-DCMAKE_TOOLCHAIN_FILE=' + str(args.toolchain.resolve()),
          '-DVCPKG_MANIFEST_INSTALL=OFF',
          '-DVCPKG_INSTALLED_DIR=' + str(args.installed.resolve().parent), '-DVCPKG_TARGET_TRIPLET=x64-windows', *qt_options])

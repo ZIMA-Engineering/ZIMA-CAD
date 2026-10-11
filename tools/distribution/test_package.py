@@ -11,6 +11,12 @@ import zipfile
 import package
 
 class PackageTests(unittest.TestCase):
+    def test_msvc_include_prefix_preserves_utf8(self):
+        for prefix in ('Note: including file: ', 'Poznámka: Včetně souboru: '):
+            stream=('prefix.cpp\n'+prefix+'C:\\probe\\prefix.hpp\n').encode('utf-8')
+            self.assertEqual(package.msvc_include_prefix(stream),prefix)
+        with self.assertRaises(ValueError):package.msvc_include_prefix(b'no include output')
+
     def test_webengine_closure_uses_one_sdk_and_includes_helper(self):
         with tempfile.TemporaryDirectory() as temp:
             root=Path(temp); sdk=root/'sdk'; installed=root/'installed'; redist=root/'crt'

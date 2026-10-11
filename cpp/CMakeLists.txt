@@ -2,6 +2,14 @@ cmake_minimum_required(VERSION 3.24)
 
 project(ZimaCadCpp LANGUAGES CXX)
 
+set(ZIMA_MSVC_SHOWINCLUDES_PREFIX "" CACHE STRING "Verified compiler include prefix for Ninja")
+if(MSVC AND ZIMA_MSVC_SHOWINCLUDES_PREFIX)
+    # CMake's AUTO decoder can use the OEM code page for a redirected UTF-8
+    # compiler stream. The release builder probes the actual emitted bytes.
+    set(CMAKE_CXX_CL_SHOWINCLUDES_PREFIX "${ZIMA_MSVC_SHOWINCLUDES_PREFIX}")
+    set(CMAKE_CL_SHOWINCLUDES_PREFIX "${ZIMA_MSVC_SHOWINCLUDES_PREFIX}")
+endif()
+
 file(READ "${CMAKE_SOURCE_DIR}/../VERSION" ZIMA_BUILD_ID)
 string(STRIP "${ZIMA_BUILD_ID}" ZIMA_BUILD_ID)
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${CMAKE_SOURCE_DIR}/../VERSION")
