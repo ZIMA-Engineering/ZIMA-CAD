@@ -73,3 +73,10 @@ download contents and internal-dialog confirmation. The main-window contract
 passed multiple browser tabs, desktop CLI opening, settings Cancel, closing tabs
 and restoring the existing CAD context. These are finite local-fixture checks;
 arbitrary enterprise portals and their authentication policies remain unverified.
+
+Signed Windows [2026101108](releases/2026101108.md#signed-windows-publication)
+also passed the browser workspace and browser harness against packaged libraries
+with a clean runtime environment. A local HTTP fixture verified persistent
+cookies across process restart, clearing cookies and second-instance profile
+isolation. Linux credential services and packaged WebEngine remain native-host
+verification requirements.

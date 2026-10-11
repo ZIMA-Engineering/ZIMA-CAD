@@ -2,6 +2,14 @@
 
 ## Scope and status
 
+Signed Windows [2026101108](releases/2026101108.md#signed-windows-publication)
+was published at `2026-10-11T22:17:31Z` with browser tabs, ordinary Axis None ends
+and corrected imported STEP source save/close behavior. Its complete Qt 6.11.0
+SDK includes WebEngine/WebChannel; OCCT remains 8.0.0. Clean and signed native
+smoke, all 21 factory assets, packaged browser/GUI contracts, bootstrap trust,
+public asset hashes and update discovery from signed 2026101106 passed. Linux
+verification of this follow-up requires the Linux host.
+
 Signed Linux [2026101107](releases/2026101107.md) was published at
 `2026-10-11T18:13:03Z` for Debian 13 x86_64 / KDE. It receives the shared Windows
 1106 handoff with patched OCCT 8.0.0 and exact verified FORM surface reuse across
