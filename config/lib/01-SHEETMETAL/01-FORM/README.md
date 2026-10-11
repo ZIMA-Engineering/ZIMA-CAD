@@ -1,51 +1,40 @@
 # Sheet forming definitions
 
-Select a native `.prtz` definition with Sheet Metal > Form. The inserted feature
-owns an independent copy. Properties > Replace definition changes that copy
-while retaining the feature and its placement references.
+Select a native `.prtz` definition with Sheet Metal > Form. This folder offers
+only the two completed, current definitions selected by the user on 2026-10-11.
 
 | Definition | Placement | Geometry |
 | --- | --- | --- |
-| `VentilationWindow.prtz` | One flat sheet face, two positioning references, angle | Outer surface with an explicit opening/cutting Sketch |
-| `CornerGusset90.prtz` | Two outer flat faces adjoining one 90-degree Bend, one longitudinal positioning reference | Closed native solid; cut and Shell are derived automatically |
-| `CornerGusset90-EXPERIMENTAL.prtz` | The same two outer faces and station | Solid Cut, linked outward surface with stock thickness, exact outer Bend radius trim and both transition Fillets |
-| `CornerGusset90-EXPERIMENTAL-unrounded.prtz` | The same two outer faces and station | The same solid cutter, outward wall and radius trim; sharp transitions for comparison or manual Fillet |
-| `VentilationWindow-EXPERIMENTAL-outward.prtz` | One outer sheet face and two positioning references | FORM_CUT Sketch followed by the outward surface variant |
+| `CornerGusset90.prtz` | Two outer flat faces adjoining one 90-degree Bend, one longitudinal positioning reference | Solid Cut, linked outward surface with full stock thickness, exact outer Bend-radius trim and both transition Fillets |
+| `VentilationWindow.prtz` | One outer sheet face, two positioning references and angle | Cutting Sketch followed by an outward surface with full stock thickness |
 
-Each definition uses the four Body names `FORM_CUT`, `FORM`, `FORM_FLAT` and
-`FORM_SYMBOL`. Their names identify the roles independently of Body-list order.
-Keep ordinary Part ownership, history and dependency rules when authoring them.
-All required data belongs in the Part file. A Drawing is not an insertion input.
+Both definitions keep `FORM_CUT` before `FORM`, followed by `FORM_FLAT` and
+`FORM_SYMBOL`. Body names identify the roles, independently of list order.
+Keep ordinary Part ownership, history and one-way dependencies.
 
-The experimental files are the user's trial candidates, not a replacement for
-the retained rounded definitions. In the new corner, edit the solid in
-`FORM_CUT`; `FORM` contains **Surfaces from Body**, with that preceding Body as
-its explicit source and the two closing planes removed. The source solid stays
-available. Do not move `FORM` before its dependency or introduce forward links.
-For a planar window the cutting role remains a Sketch. Both candidate files are
-selected directly through the ordinary Sheet Metal > Form command. Start manual
-corner rounding at the actual FORM–Bend junction. The finished candidate derives
-both routes at that real junction and applies the established radii `t` and
-`0.25t`, in that order. `form_corner_finish` persists that explicit finish intent
-independently of `form_outward`; copied definitions and calculation fingerprints
-retain it. The final production style remains the user's decision.
-See [the current investigation](../../../../doc/performance/20261011-corner-outward-surface-experiment.md).
+In the corner, edit the closed solid in `FORM_CUT`. `FORM` uses **Surfaces from
+Body** with that preceding Body as its source and the two closing planes removed;
+the source solid remains available. The inserted feature trims the outer Bend
+domain and applies ordinary native Fillets at the actual FORM–Bend junction,
+with radii `t` then `0.25t`, where `t` is destination thickness. Native
+`form_outward` and `form_corner_finish` retain this explicit intent.
 
-The retained corner source has closing planes on XY and XZ, a sloped-wall
-profile with a 16 mm width, `16/3` mm cap radius, `20/3` mm centre offset and
-12 mm depth, and a separate exact-outline symbol. Its CUT and FLAT Bodies are
-intentionally empty. Changing the source profile
-does not automatically edit the independent manufacturing symbol Sketch.
+In the Window, `FORM_CUT` is the cutting Sketch. Select the outer sheet face
+first: the spatial Form grows outside it. Keep the authored attachment frame
+and surface orientation. Both definitions must fit the available stock and
+Bend geometry; the Window's existing 4 mm thickening limitation remains.
 
-Retained corner insertion uses a symbolic `0.5t` wall, cavity transition radius
-`t` and opposite transition radius `0.25t`, where `t` is destination thickness.
-Its compact source passed the nine documented combinations, including `Ri = t`.
-The experimental linked surface uses full stock thickness. Its finished variant
-adds both transition Fillets; the unrounded control preserves sharp transitions.
-For the Window trial select `VentilationWindow-EXPERIMENTAL-outward.prtz`: the
-first reference is the outer sheet face and the feature grows outside that face.
-The retained `VentilationWindow.prtz` remains the previous offset-direction control.
-Both variants must fit the available sheet and Bend geometry. The spatial
-form disappears in Unbend; the symbol remains and the empty FLAT role performs
-no precut. See [design and verification](../../../../doc/SHEET_FORM_DESIGN.md)
-for the measured cases, limits and platform status.
+Insertion stores an independent complete definition in the destination Part.
+Updating this factory folder does not alter already inserted features or custom
+libraries. Properties > Replace definition explicitly replaces a stored copy
+while retaining feature identity and placement references.
+
+In Unbend the spatial Form disappears and the manufacturing symbol remains;
+the empty `FORM_FLAT` role performs no precut. Historical inward definitions
+are regression inputs under `cpp/tests/fixtures/form`, outside the library
+picker. Local backups and the sharp manual trial were preserved outside this
+folder under `build/form-diagnostic/library-before-cleanup-1106`.
+
+See [authoring](../../../../doc/FORM_AUTHORING_GUIDE.md),
+[design](../../../../doc/SHEET_FORM_DESIGN.md) and
+[measured verification](../../../../doc/performance/20261011-corner-outward-surface-experiment.md).

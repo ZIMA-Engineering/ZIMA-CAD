@@ -1,9 +1,12 @@
 # Sheet Form design
 
-The retained planar pocket/window workflow is documented in
-[Form authoring guide](FORM_AUTHORING_GUIDE.md). The 2026-10-09 solid/surface
-investigation is [recorded separately](performance/20261009-planar-solid-form-experiment.md);
-it does not replace the production FORM paths.
+The current outward planar pocket/window and linked-solid corner workflows are
+documented in [Form authoring guide](FORM_AUTHORING_GUIDE.md). On 2026-10-11 the
+user selected the latest completed definitions as the only ordinary library
+entries: `CornerGusset90.prtz` and `VentilationWindow.prtz`. Historical inward
+controls moved to `cpp/tests/fixtures/form`. Dated investigations below retain
+their original inputs and results; current acceptance is recorded in
+[the finished-corner investigation](performance/20261011-corner-outward-surface-experiment.md).
 
 User agreement: 2026-10-07. This document records the intended behavior;
 implementation and verification status must be recorded separately.

@@ -60,6 +60,12 @@ int main(){try {
     std::vector<zima::kernel::BodyResult> cached;
     auto part=zima::document::PartDocument::load(library,&cached);
     const auto definition=zima::document::sheet_form_definition(part,cached);
+    check(part.form_outward,"Factory window must use its outer-face outward definition");
+    std::vector<std::string> offered;
+    for(const auto& entry:std::filesystem::directory_iterator(library.parent_path()))
+        if(entry.path().extension()==".prtz")offered.push_back(entry.path().filename().string());
+    std::ranges::sort(offered);
+    check(offered==std::vector<std::string>{"CornerGusset90.prtz","VentilationWindow.prtz"},"Factory picker must offer only the two completed definitions");
     {
         const auto path=std::filesystem::absolute("build/form-diagnostic")/("FormDirection-"+zima::kernel::make_stable_id()+".prtz");
         std::filesystem::create_directories(path.parent_path());
@@ -130,7 +136,8 @@ int main(){try {
     std::filesystem::remove(reordered_path);
     std::cout<<"FORM native file/copy role lookup passed all 24 Body orders\n";
     {
-        const auto linked=zima::document::read_sheet_form_definition("config/lib/01-SHEETMETAL/01-FORM/CornerGusset90-EXPERIMENTAL-unrounded.prtz");
+        const auto linked=zima::document::read_sheet_form_definition("config/lib/01-SHEETMETAL/01-FORM/CornerGusset90.prtz");
+        check(linked.part.form_corner_finish,"Factory corner lost its complete finish");
         check(linked.corner()&&linked.cut_sketch.empty()&&linked.solid_cut_supports.size()==2&&linked.solid_opening_faces.empty()&&linked.part.form_outward,"Linked corner role classification failed");
         check(linked.part.body_history.order()[0]==linked.bodies[0]&&linked.part.body_history.order()[1]==linked.bodies[1],"Linked corner does not follow CUT before FORM");
         const auto& outputs=linked.calculated->back().body_outputs;
@@ -151,7 +158,7 @@ int main(){try {
         std::cout<<"Linked corner solid/surface ancestry, embedded operands, stale cache rejection and CUT-first dependency passed\n";
     }
     {
-        const auto corner=zima::document::read_sheet_form_definition("config/lib/01-SHEETMETAL/01-FORM/CornerGusset90.prtz");
+        const auto corner=zima::document::read_sheet_form_definition("cpp/tests/fixtures/form/CornerGusset90-inward-control.prtz");
         check(corner.corner()&&corner.cut_sketch.empty()&&corner.flat_sketch.empty()&&
             corner.solid_opening_faces.size()==2&&!corner.surface.surface_result,"Closed corner role classification failed");
         const auto source=corner.part.serialized(*corner.calculated);

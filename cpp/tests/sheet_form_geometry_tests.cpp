@@ -1204,7 +1204,7 @@ int main(int argc,char** argv){try {
     }
     const auto begin=std::chrono::steady_clock::now();
     const auto elapsed=[](const auto start){return std::chrono::duration<double>(std::chrono::steady_clock::now()-start).count();};
-    const auto source=document::read_sheet_form_definition("config/lib/01-SHEETMETAL/01-FORM/VentilationWindow.prtz");
+    const auto source=document::read_sheet_form_definition("cpp/tests/fixtures/form/VentilationWindow-inward-control.prtz");
     auto cut_after_shape=source.part;auto role_graph=cut_after_shape.body_history;
     role_graph.move_body(source.bodies[1],0);
     cut_after_shape.set_body_history(std::move(role_graph));

@@ -11,19 +11,21 @@ position and angle edits/drags, immutable external sources, trim, save/reopen
 and Undo/Redo. Use the shared C++ implementation; Windows results do not close
 this native Linux verification task. The user will perform this after reboot.
 
-The original factory corner and ventilation definitions remain as controls while
-the user evaluates two clearly named experimental files in the same library.
-The shared native candidate code uses embedded
-`form_outward` intent. The finished `CornerGusset90-EXPERIMENTAL.prtz` additionally
-sets `form_corner_finish`: it trims the actual outer Bend-radius domain and
-uses ordinary native Fillets from the FORM–Bend junction, in the order `t` then
-`0.25t`. The retained `-unrounded` candidate omits those Fillets for manual
-investigation. Do not promote a candidate before the user's style decision.
+On 2026-10-11 the user selected only the latest completed library definitions.
+Use `config/lib/01-SHEETMETAL/01-FORM/CornerGusset90.prtz` and
+`VentilationWindow.prtz`. Both persist `form_outward`; the corner additionally
+sets `form_corner_finish`, trims the actual outer Bend-radius domain and uses
+ordinary native Fillets from the FORM–Bend junction, in the order `t` then
+`0.25t`. The former inward controls are regression fixtures under
+`cpp/tests/fixtures/form`, outside the picker. Repeat
+`zima_cpp_factory_finished_corner_tests`, `zima_cpp_factory_outward_window_tests`
+and the definition contract's exact two-entry library check. Custom libraries
+and definitions independently embedded in existing Parts remain untouched.
 
 The delivered corner now uses `FORM_CUT` as a closed solid preceding the linked
 zero-thickness Shell in `FORM`. Do not use the rejected two-Sketch radius-depth
 cutter as the final candidate: it overcuts sloped geometry in the Bend.
-After Git fetch and the native Linux build, use the tracked experimental files
+After Git fetch and the native Linux build, use the current canonical factory files
 directly; reproduction helpers are `--prepare-corner-solid-cut` and
 `--prepare-outward-form`/`--order-form-bodies`. Run the definition,
 geometry, persistence/copy and GUI contracts on the Linux desktop. Repeat the

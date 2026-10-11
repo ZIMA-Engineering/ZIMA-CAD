@@ -1,7 +1,7 @@
 # Authoring planar Form definitions
 
-This guide describes the retained production implementation. Solid/surface
-experiments have not replaced it. Form represents manufacturing intent and
+This guide describes the current outward library definitions selected by the
+user on 2026-10-11. Form represents manufacturing intent and
 appearance; it does not simulate material flow or local thinning.
 
 ## Ventilation window or unpierced planar pocket
@@ -22,7 +22,9 @@ appearance; it does not simulate material flow or local thinning.
 5. Author an independent manufacturing Sketch in `FORM_SYMBOL`. Save the
    calculated Part and insert it with Sheet Metal > Form.
 
-The command thickens the shell inward by destination sheet thickness, cuts the
+The current Window selects the outer sheet face and grows outside it. Its
+`form_outward` intent selects the authored normal side for full stock thickness.
+The command cuts the
 replacement region and joins the formed wall. A pocket uses the same planar
 workflow as the window, with continuous walls/bottom instead of an opening.
 No extra cutting line is needed merely to distinguish a pocket.
@@ -35,11 +37,18 @@ no specific user-authored pocket fixture was verified in this investigation.
 
 ## Corner definitions
 
-The production corner gusset retains its separate closed-solid workflow with
-XY/XZ closing faces and empty `FORM_CUT`. Attach it to two outer flat faces
-adjoining one Bend. Do not convert the production corner definition to a surface
-while preparing a planar pocket. Cut presence or perpendicular-plane count
-alone cannot identify the two styles.
+The current corner uses a closed solid in `FORM_CUT`, followed by the linked
+zero-thickness Shell in `FORM`. Attach it to two outer flat faces adjoining one
+90-degree Bend. The inserted feature performs solid Cut, full stock-thickness
+outward wall creation, exact outer Bend trim, Fuse and transition Fillets at the
+FORM–Bend junction in the order `t`, then `0.25t`. Preserve the source solid and
+its explicit face ancestry. Two normal prisms extending to the radius overcut
+sloped geometry and must not replace the shaped cutter.
+
+The ordinary library contains only `CornerGusset90.prtz` and
+`VentilationWindow.prtz`. Historical inward controls live under
+`cpp/tests/fixtures/form`. Already inserted definitions remain independent;
+adopting a different source requires explicit Replace definition.
 
 See [Sheet Form design](SHEET_FORM_DESIGN.md),
 [the experiment](performance/20261009-planar-solid-form-experiment.md) and

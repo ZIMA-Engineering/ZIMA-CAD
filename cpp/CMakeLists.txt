@@ -1952,7 +1952,14 @@ if(ZIMA_BUILD_TESTS)
     add_test(NAME zima_cpp_sheet_form_copy_after_unbend_tests COMMAND zima_cpp_sheet_form_geometry_tests --copy-after-unbend)
     set_tests_properties(zima_cpp_sheet_form_copy_tests zima_cpp_sheet_form_copy_after_unbend_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
     set_tests_properties(zima_cpp_sheet_form_geometry_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." ENVIRONMENT "ZIMA_CPP_FORM_PROFILE=1")
-    set(corner_form_library "config/lib/01-SHEETMETAL/01-FORM/CornerGusset90.prtz")
+    set(corner_form_library "cpp/tests/fixtures/form/CornerGusset90-inward-control.prtz")
+    add_test(NAME zima_cpp_factory_finished_corner_tests COMMAND zima_cpp_sheet_form_geometry_tests
+        --probe-native-outward-form "config/lib/01-SHEETMETAL/01-FORM/CornerGusset90.prtz" 1 1)
+    add_test(NAME zima_cpp_factory_outward_window_tests COMMAND zima_cpp_sheet_form_geometry_tests
+        --probe-native-outward-form "config/lib/01-SHEETMETAL/01-FORM/VentilationWindow.prtz" 1 2)
+    set_tests_properties(zima_cpp_factory_finished_corner_tests zima_cpp_factory_outward_window_tests PROPERTIES
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." RUN_SERIAL TRUE TIMEOUT 180)
+    set_tests_properties(zima_cpp_factory_outward_window_tests PROPERTIES ENVIRONMENT "ZIMA_CPP_FORM_PERSIST=1")
     add_test(NAME zima_cpp_corner_form_roundtrip_copy_tests COMMAND zima_cpp_sheet_form_geometry_tests --verify-solid-corner "${corner_form_library}" 1 1)
     set_tests_properties(zima_cpp_corner_form_roundtrip_copy_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." RUN_SERIAL TRUE TIMEOUT 600 FIXTURES_SETUP corner_form_native)
     add_test(NAME zima_cpp_corner_form_workspace_copy_tests COMMAND zima_cpp_sheet_form_geometry_tests

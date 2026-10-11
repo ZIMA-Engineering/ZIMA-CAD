@@ -304,3 +304,17 @@ observations above. Window insertion also passes actual signed viewer bounds.
 The later circular-tangent work reruns the FORM native contracts because
 library profiles consume the same Sketcher implementation. The user's style
 decision and native Linux acceptance remain pending.
+
+## Ordinary library selection (2026-10-11)
+
+After practical inspection the user requested only the latest functional
+definitions in `01-FORM`. The finished outward corner replaces the old
+`CornerGusset90.prtz`; the outward Window replaces `VentilationWindow.prtz`.
+The experimental filenames and sharp manual alternative no longer appear in
+the library. Original inward controls remain test fixtures under
+`cpp/tests/fixtures/form`. Numbered local backups and the sharp trial were
+preserved outside the offered directory. Earlier sections are historical
+measurements of the explicitly named inputs, not current picker instructions.
+The geometry bytes of the promoted definitions are unchanged. Existing Parts
+retain their complete independent stored definitions; this cleanup does not
+regenerate or replace them. No native format, placement or side contract changes.
