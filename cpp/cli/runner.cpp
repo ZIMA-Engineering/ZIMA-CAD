@@ -102,6 +102,7 @@ int run(const std::vector<std::string>& arguments,const fs::path& executable,
         workspace::Workspace workspace;kernel::OcctKernel kernel;
         workspace.file_reservation=[&](const auto& path){instance.reserve_file(QString::fromStdString(document::path_to_utf8(path)));};
         command_host::Options adapters;
+        adapters.browser_directory=settings.browser_directory;
         adapters.reserve_directory=[&](const auto& path){instance.set_directory(QString::fromStdString(document::path_to_utf8(path)));};
         adapters.settings=[&]{return settings.documents;};
         adapters.translate=[&](const char* source){return settings.translate(source);};

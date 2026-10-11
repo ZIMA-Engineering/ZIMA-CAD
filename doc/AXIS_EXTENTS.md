@@ -40,7 +40,13 @@ visibility, OK, reopening, Cancel and all five UI languages.
 
 ## Up-to termination
 
-Each active side supports Length or Up to; Axis never offers Through all.
+Each side supports Length, Up to or None; Axis never offers Through all.
+None disables only that direction. At least one direction must retain a
+nonzero span. Selecting None for the forward direction activates Two sides so
+the reverse direction remains independently editable. Re-enabling a numeric
+direction supplies a positive initial length. A disabled direction stores zero
+in the existing length field and has no Up-to target; no extra persistent field
+is needed. Its endpoint stays at the origin and retains its semantic identity.
 Two sides have independent targets. In Symmetric mode the forward target sets
 half the total span and the other end is mirrored about the container origin.
 Switching back to Length restores the entered numeric value.
@@ -56,7 +62,7 @@ and reports the invalid reference. Up-to endpoints retain the same semantic IDs.
 
 The native record stores two `axis_ends` with target occurrence/owner/semantic
 identity, end mode and last resolved distance. CLI `forward_end` and `reverse_end`
-accept `condition` (`length` or `up_to`); Up to also requires `owner_id` and
+accept `condition` (`length`, `up_to` or `none`); Up to also requires `owner_id` and
 `semantic_key`, with an optional `instance_path`. End targets participate in
 history dependency and construction deletion checks independently of placement.
 
@@ -67,3 +73,10 @@ Verified on Windows (2026-09-25): `zima_cpp_axis_extents`,
 the common hover candidate list, actual mouse confirmation, OK and Undo/Redo.
 Factory templates were regenerated with the current native build. The normal
 repository launcher still starts `build/cpp-windows-release/zima-cad-cpp.exe`.
+
+The 2026-10-11 native Windows extent regression additionally verifies forward-only
+and reverse-only axes, disabled-end identity, serialization, Undo/Redo and rejection
+of both directions being disabled. Linux execution remains unverified.
+The Windows five-language dialog contract also covers selecting
+None, committing a reverse-only axis, reopening it, and committing a forward-only
+axis. Existing Up To GUI selection and reference inspection passed separately.

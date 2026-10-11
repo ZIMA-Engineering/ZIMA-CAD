@@ -953,6 +953,10 @@ void AssemblyWorkspaceWindow::create_actions() {
     main_toolbar_->addAction(redo_action_);
     main_toolbar_->addSeparator();
     main_toolbar_->addAction(settings_action_);
+    auto* browser_action=make_action(tr("New web tab"),"web");
+    browser_action->setObjectName("newBrowserTabAction");
+    main_toolbar_->addAction(browser_action);tools->addAction(browser_action);
+    connect(browser_action,&QAction::triggered,this,[this]{open_browser();});
     auto* toolbar_spacer = new QWidget(main_toolbar_);
     toolbar_spacer->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
     main_toolbar_->addWidget(toolbar_spacer);

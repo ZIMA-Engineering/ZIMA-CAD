@@ -52,6 +52,7 @@ namespace zima::ui { class ContainerPlacementSection; class OperationActivity; }
 namespace zima::viewer { class MeshView; struct ViewerCandidate; }
 
 namespace zima::command_host { class Host; struct Change; }
+namespace zima::browser { class Runtime; class Tab; }
 
 namespace zima::app {
 
@@ -213,6 +214,15 @@ private:
     ApplicationSettings application_settings_;
     std::filesystem::path working_directory_{std::filesystem::current_path()};
     QTabBar* tabs_{};
+    browser::Runtime* browser_runtime_{};
+    QStackedWidget* browser_stack_{};
+    QPointer<QWidget> active_browser_;
+    std::map<QString,browser::Tab*> browser_tabs_;
+    unsigned browser_tab_sequence_{};
+    browser::Tab* open_browser(const QUrl& url=QUrl{});
+    void ensure_browser_runtime();
+    void select_browser(const QString& id);
+    bool close_browser(int index);
     QTreeWidget* tree_{};
     TreeReferenceState tree_reference_state_;
     QToolButton* document_kind_button_{};
@@ -288,7 +298,6 @@ private:
     QAction* helical_sweep_action_{};
     QAction* sweep2d_action_{};
     QAction* construction_axis_action_{};
-    void show_cylinder_axis_properties(const std::string& id = {});
     QAction* construction_plane_action_{};
     QAction* extrusion_action_{};
     QAction* revolution_action_{};

@@ -60,3 +60,6 @@ screenshots/
 /other-profile-plane.prtz
 /other-profile-plane.prtz.[0-9]*
 /zima-cpp-workspace-lifecycle.prtz.[0-9]*
+
+# Shared user browser data: bookmarks, cookies, cache and credential metadata.
+/config/www/

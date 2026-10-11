@@ -123,6 +123,17 @@ void edit_verify(const kernel::OcctKernel& kernel, fs::path directory) {
     require(get(axis_id).at("extent_mode")=="two_sides"&&get(axis_id).at("reverse_length_mm")==17,"CLI lost Axis extent");
     run(host,"undo");
 
+    set(axis_id,{{"forward_end",{{"condition","none"}}},{"reverse_end",{{"condition","length"}}}});
+    const auto reverse_only=get(axis_id);
+    require(reverse_only.at("forward_end").at("condition")=="none"&&reverse_only.at("reverse_end").at("condition")=="length"&&reverse_only.at("extent_mode")=="two_sides","CLI lost reverse-only Axis ends");
+    const auto before_invalid=state->session.revision();
+    require(!host.execute({{"command","construction.set"},{"arguments",{{"construction",axis_id},{"reverse_end",{{"condition","none"}}}}}}).ok,"CLI accepted an Axis without either direction");
+    require(state->session.revision()==before_invalid&&get(axis_id)==reverse_only,"Rejected Axis ends changed the document");
+    run(host,"undo");
+    set(axis_id,{{"forward_end",{{"condition","length"}}},{"reverse_end",{{"condition","none"}}}});
+    require(get(axis_id).at("reverse_end").at("condition")=="none","CLI lost disabled reverse Axis end");
+    run(host,"undo");
+
     near(axis.at("direction")[0],0);near(axis.at("direction")[1],1);near(axis.at("direction")[2],0);
     run(host,"placement.set",{{"object",axis_id},{"values",{{"rotation_z",180}}}});
     near(get(axis_id).at("direction")[0],-1);near(get(axis_id).at("direction")[1],0);
@@ -223,7 +234,7 @@ void edit_verify(const kernel::OcctKernel& kernel, fs::path directory) {
     run(host,"redo");require(get(ap_id).at("entity")==ap.at("entity"),"Redo allocated new topology identity");
 }
 }
-#include "cylinder_axis_contract.inc"
+#include "cylinder_face_placement_contract.inc"
 int main(int argc, char** argv) { try {
     if (argc == 2 && std::string_view(argv[1]) == "--refresh-start-templates") {
         for (const auto* name : {"START_PART.prtz", "START_SKELETON.prtz"}) {
@@ -240,7 +251,7 @@ int main(int argc, char** argv) { try {
     const auto root = fs::canonical(fs::temp_directory_path());
     const auto directory = root / ("zima-constructions-" + document::PartDocument::create_default().document_id);
     require(fs::create_directory(directory), "Cannot create fixture directory");
-    kernel::OcctKernel kernel; verify(kernel, directory); edit_verify(kernel, directory); cylinder_axis_verify(kernel,directory);
+    kernel::OcctKernel kernel; verify(kernel, directory); edit_verify(kernel, directory); cylinder_face_placement_verify(kernel,directory);
     require(directory.parent_path() == root, "Unexpected cleanup path"); fs::remove_all(directory);
     std::cout << "Construction queries and edits: geometry, identities, ownership, atomic rejection, locks, Undo/Redo and native persistence passed\n";
     return 0;

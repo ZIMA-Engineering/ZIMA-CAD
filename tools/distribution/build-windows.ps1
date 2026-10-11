@@ -5,6 +5,7 @@ param(
     [Parameter(Mandatory=$true)][string]$Output,
     [string]$Commit = 'HEAD',
     [int]$Jobs = 4,
+    [string]$QtSdk = '',
     [switch]$Release,
     [switch]$ReuseBuild
 )
@@ -26,5 +27,6 @@ $arguments = @((Join-Path $PSScriptRoot 'package.py'), 'windows', '--commit', $C
     '--cmake', $taskCmake, '--redist', $redist[0].FullName, '--jobs', $Jobs)
 if ($Release) { $arguments += '--release' }
 if ($ReuseBuild) { $arguments += '--reuse-build' }
+if ($QtSdk) { $arguments += @('--qt-sdk', $QtSdk) }
 & $Python @arguments
 if ($LASTEXITCODE -ne 0) { throw "Candidate build or validation failed: $LASTEXITCODE" }

@@ -46,6 +46,15 @@
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release"
       }
+    },
+    {
+      "name": "windows-official-qt-release",
+      "inherits": "windows-vcpkg-release",
+      "displayName": "Windows native libraries and complete official Qt 6.11.0 SDK",
+      "cacheVariables": {
+        "VCPKG_MANIFEST_INSTALL": "OFF",
+        "ZIMA_QT_SDK_ROOT": "$env{ZIMA_QT_SDK_ROOT}"
+      }
     }
   ],
   "buildPresets": [

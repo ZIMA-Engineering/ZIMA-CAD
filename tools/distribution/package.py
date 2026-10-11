@@ -169,8 +169,21 @@ def refresh_source(repo, previous, commit, source, stage):
                 shutil.copy2(path, target)
 
 
-def deploy_dependencies(runtime, installed, redist, dumpbin):
-    plugins = installed / 'Qt6/plugins'
+def deploy_dependencies(runtime, installed, redist, dumpbin, qt_sdk=None):
+    # WebEngine's subprocess and data are runtime requirements, independent of
+    # the DLL import closure. Use only the selected SDK's committed dependency set.
+    helper = (qt_sdk / 'bin/QtWebEngineProcess.exe') if qt_sdk else installed / 'tools/Qt6/bin/QtWebEngineProcess.exe'
+    resources = (qt_sdk / 'resources') if qt_sdk else installed / 'share/Qt6/resources'
+    locales = (qt_sdk / 'translations/qtwebengine_locales') if qt_sdk else installed / 'translations/qtwebengine_locales'
+    if not qt_sdk and not locales.is_dir():
+        locales = installed / 'share/Qt6/translations/qtwebengine_locales'
+    if not helper.is_file() or not resources.is_dir() or not locales.is_dir():
+        raise ValueError('Incomplete Qt WebEngine SDK: helper, resources and locales are required')
+    shutil.copy2(helper, runtime / helper.name)
+    shutil.copytree(resources, runtime / 'resources/qt/resources', dirs_exist_ok=True,
+                    ignore=shutil.ignore_patterns('*.debug.pak', '*.debug.bin'))
+    shutil.copytree(locales, runtime / 'translations/qtwebengine_locales', dirs_exist_ok=True)
+    plugins = (qt_sdk / 'plugins') if qt_sdk else installed / 'Qt6/plugins'
     for group, names in {'platforms': ['qwindows.dll', 'qoffscreen.dll'],
                          'imageformats': ['qjpeg.dll', 'qsvg.dll'],
                          'styles': ['qmodernwindowsstyle.dll'],
@@ -182,6 +195,11 @@ def deploy_dependencies(runtime, installed, redist, dumpbin):
     for folder in (installed / 'bin', redist):
         for path in folder.glob('*.dll'):
             candidates[path.name.casefold()] = path
+    if qt_sdk:
+        for path in (qt_sdk / 'bin').glob('*.dll'):
+            key = path.name.casefold()
+            if not key.startswith(('vcruntime', 'msvcp', 'concrt')):
+                candidates[key] = path
     for path in redist.glob('*.dll'):
         shutil.copy2(path, runtime / path.name)
     system = Path(os.environ['SystemRoot']) / 'System32'
@@ -198,13 +216,17 @@ def deploy_dependencies(runtime, installed, redist, dumpbin):
             if key.startswith(('api-ms-', 'ext-ms-')):
                 continue
             if key in candidates:
+                if qt_sdk and key.startswith('qt6') and candidates[key].parent != qt_sdk / 'bin':
+                    raise ValueError('Qt dependency escapes selected SDK: ' + name)
                 target = runtime / candidates[key].name
                 if not target.exists():
                     shutil.copy2(candidates[key], target)
                     pending.append(target)
             elif key.startswith(('vcruntime', 'msvcp', 'concrt')) or not (system / name).is_file():
                 raise ValueError('Unresolved native dependency: ' + name)
-    (runtime / 'qt.conf').write_text('[Paths]\nPrefix=.\nPlugins=plugins\n', encoding='utf-8')
+    (runtime / 'qt.conf').write_text(
+        '[Paths]\nPrefix=.\nPlugins=plugins\nLibraryExecutables=.\n'
+        'Data=resources/qt\nTranslations=translations\n', encoding='utf-8')
 
 
 def clean_environment(runtime):
@@ -398,11 +420,12 @@ def package(args):
         stage.mkdir(parents=True)
         export_source(ROOT, commit, source)
     build = stage / 'b'
+    qt_options = ['-DZIMA_QT_SDK_ROOT=' + str(args.qt_sdk.resolve())] if args.qt_sdk else []
     run([args.cmake, '-S', source / 'cpp', '-B', build, '-G', 'Ninja',
          '-DCMAKE_BUILD_TYPE=Release', '-DZIMA_BUILD_TESTS=OFF', '-DZIMA_SOURCE_COMMIT=' + commit,
          '-DCMAKE_TOOLCHAIN_FILE=' + str(args.toolchain.resolve()),
          '-DVCPKG_MANIFEST_INSTALL=OFF',
-         '-DVCPKG_INSTALLED_DIR=' + str(args.installed.resolve().parent), '-DVCPKG_TARGET_TRIPLET=x64-windows'])
+         '-DVCPKG_INSTALLED_DIR=' + str(args.installed.resolve().parent), '-DVCPKG_TARGET_TRIPLET=x64-windows', *qt_options])
     run([args.cmake, '--build', build, '--target', 'zima-cad-cpp', 'zima-cad-cli', 'zima-cad-launcher', 'zima-cad-update', '--parallel', str(args.jobs)])
     assembly = Path(tempfile.mkdtemp(prefix='p-', dir=stage))
     root = assembly / 'ZIMA-CAD'; runtime = root / 'windows' / version
@@ -411,16 +434,27 @@ def package(args):
         shutil.copy2(build / exe, runtime / exe)
     shutil.copy2(build / 'ZIMA-CAD.exe', root / 'ZIMA-CAD.exe')
     shutil.copy2(source / 'tools/distribution/launcher-linux.sh', root / 'ZIMA-CAD.sh')
-    deploy_dependencies(runtime, args.installed, args.redist, args.dumpbin)
+    deploy_dependencies(runtime, args.installed, args.redist, args.dumpbin, args.qt_sdk)
     for name in ('config', 'resources'):
-        shutil.copytree(source / name, runtime / name, ignore=shutil.ignore_patterns('.gitkeep', '*.ini.[0-9]*', '*.frmz.[0-9]*', '*.tblz.[0-9]*'))
+        shutil.copytree(source / name, runtime / name, dirs_exist_ok=True,
+                        ignore=shutil.ignore_patterns('.gitkeep', '*.ini.[0-9]*', '*.frmz.[0-9]*', '*.tblz.[0-9]*'))
     prepare_factory_config(runtime)
     shutil.copytree(args.installed / 'share/opencascade/resources', runtime / 'resources/occt')
     licenses = runtime / 'licenses'; licenses.mkdir()
     shutil.copy2(source / 'LICENSE', root / 'LICENSE')
     shutil.copy2(source / 'LICENSE', licenses / 'ZIMA-CAD.txt')
+    shutil.copy2(source / 'cpp/third_party/qtkeychain/COPYING', licenses / 'qtkeychain.txt')
     for notice in (args.installed / 'share').glob('*/copyright'):
         shutil.copy2(notice, licenses / (notice.parent.name + '.txt'))
+    if args.qt_sdk:
+        sdk_record = json.loads((args.qt_sdk / 'zima-sdk.json').read_text(encoding='utf-8'))
+        if sdk_record['version'] != '6.11.0':
+            raise ValueError('Official Qt SDK does not match the dependency pin')
+        shutil.copytree(args.qt_sdk / 'sbom', licenses / 'qt-sdk-sbom')
+        write_json(licenses / 'qt-sdk.json', sdk_record)
+        (licenses / 'qt-sdk-source.txt').write_text(
+            'Unmodified official Qt 6.11.0 MSVC binaries. License and copyright inventories are in qt-sdk-sbom/.\n'
+            'Corresponding source: https://download.qt.io/archive/qt/6.11/6.11.0/submodules/\n', encoding='utf-8')
     if not list(licenses.glob('qt*.txt')) or not (licenses / 'opencascade.txt').exists():
         raise ValueError('Missing Qt/OCCT license notices')
     shutil.copytree(source, root / 'source' / version)
@@ -465,6 +499,7 @@ def main():
     build.add_argument('--stage', type=Path, required=True)
     build.add_argument('--output', type=Path, required=True)
     build.add_argument('--installed', type=Path, required=True, help='vcpkg x64-windows installed directory')
+    build.add_argument('--qt-sdk', type=Path, help='Complete verified official Qt 6.11.0 MSVC SDK; all Qt modules must use this kit')
     build.add_argument('--toolchain', type=Path, required=True)
     build.add_argument('--redist', type=Path, required=True, help='Microsoft.VC*.CRT redistributable directory')
     build.add_argument('--cmake', default='cmake')

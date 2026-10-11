@@ -50,7 +50,6 @@ const char* definition(document::ConstructionDefinition value) {
     case Definition::PointReference: return "point_reference";
     case Definition::TwoPointAxis: return "two_point_axis";
     case Definition::AxisReference: return "axis_reference";
-    case Definition::CylinderAxis: return "cylinder_axis";
     case Definition::ThreePointPlane: return "three_point_plane";
     case Definition::PlaneReference: return "plane_reference";
     }
@@ -131,7 +130,7 @@ Json details(const Source& source, const Item& item, std::size_t limit) {
         result["reverse_length_mm"] = value.axis_reverse_length;
         for(std::size_t i=0;i<2;++i) {
             const auto& end=value.axis_ends[i];
-            result[i?"reverse_end":"forward_end"]={{"condition",end.up_to?"up_to":"length"},
+            result[i?"reverse_end":"forward_end"]={{"condition",end.up_to?"up_to":((i?value.axis_reverse_length:value.display_size)==0.0?"none":"length")},
                 {"instance_path",end.target.instance_path},{"owner_id",end.target.owner_id},{"semantic_key",end.target.semantic_key}};
         }
     }

@@ -225,6 +225,7 @@ QString AssemblyWorkspaceWindow::create_document(
 }
 
 void AssemblyWorkspaceWindow::close_document(int tab_index) {
+    if(close_browser(tab_index<0?tabs_->currentIndex():tab_index))return;
     if(section_dialog_&&!active_sketch_id_.empty())return;
     if (properties_dialog_ != nullptr) {
         state_->setText(tr("Nejprve dokončete nebo zrušte otevřené vlastnosti."));
@@ -350,6 +351,7 @@ bool AssemblyWorkspaceWindow::open_document_path(const QString& path) {
 }
 
 void AssemblyWorkspaceWindow::finish_document_switch(bool opening) {
+    active_browser_=nullptr;
     if(opening)section_tree_expanded_.erase(workspace_.displayed_document_id());
     active_sketch_id_.clear();
     selected_sketch_id_.clear();
@@ -418,6 +420,11 @@ void AssemblyWorkspaceWindow::refresh_tabs() {
             }
         }, state);
     }
+    for(const auto& [id,page]:browser_tabs_) {
+        const int index=tabs_->addTab(resource_icon("web"),page->title().left(60));
+        tabs_->setTabData(index,id);
+        if(active_browser_==page){displayed_index=index;displayed_label=page->title();}
+    }
     for (int index = 0; index < tabs_->count(); ++index) {
         // Keep the slot width stable, with the close button near the tab's right edge.
         auto* close_slot = new QWidget(tabs_);
@@ -428,7 +435,8 @@ void AssemblyWorkspaceWindow::refresh_tabs() {
         // The dirty marker owns a fixed slot: saving must not resize the tab.
         auto* dirty_marker=new QLabel(close_slot);dirty_marker->setObjectName("documentTabDirtyMarker");
         dirty_marker->setFixedSize(12,22);dirty_marker->setAlignment(Qt::AlignCenter);
-        const bool dirty=workspace::document_needs_save(workspace_,tabs_->tabData(index).toString().toStdString());
+        const bool dirty=!browser_tabs_.contains(tabs_->tabData(index).toString()) &&
+            workspace::document_needs_save(workspace_,tabs_->tabData(index).toString().toStdString());
         dirty_marker->setText(dirty?QStringLiteral("*"):QString{});
         dirty_marker->setToolTip(dirty?tr("Neuložené změny"):QString{});
         close_layout->addWidget(dirty_marker);

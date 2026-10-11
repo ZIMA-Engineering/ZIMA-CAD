@@ -765,6 +765,14 @@ candidate may be built from a selected commit while unrelated work is present.
 
 The builder deploys GUI, CLI and updater executables, transitive DLLs, Schannel TLS, Windows/offscreen and
 image/style plugins, OCCT resources, licenses and exact committed source.
+The browser additionally requires the same SDK's `QtWebEngineProcess.exe`,
+WebEngine resource files and `qtwebengine_locales`. Its helper participates in
+the native DLL dependency closure. `qt.conf` resolves the helper beside the
+executables, resource data under `resources/qt/resources`, and locale files
+under `translations/qtwebengine_locales`. QtKeychain's upstream notice is
+included as `licenses/qtkeychain.txt`. The WebChannel feature must be enabled
+when building Qt WebEngine because password forms use its isolated-world bridge.
+These paths follow the [Qt deployment requirements](https://doc.qt.io/qt-6/qtwebengine-deploying.html).
 Validation enforces a 180 UTF-16-code-unit archive member budget (including the
 top-level folder), safe paths, case collisions, file/size limits, CRC and SHA-256.
 Extraction uses a directory with spaces and non-ASCII characters and removes

@@ -53,7 +53,7 @@ std::optional<ExtrusionParameters::EndTarget> resolve_profile_target(
 // Axis termination consumes the same persisted target geometry as profiles.
 // It is independent of container placement and never invokes the solid kernel.
 bool resolve_axis_extents(ConstructionObject& object, const kernel::ViewerReferenceGeometry& geometry) {
-    if(object.kind!=ConstructionKind::Axis || object.definition==ConstructionDefinition::CylinderAxis)return true;
+    if(object.kind!=ConstructionKind::Axis)return true;
     const auto sub=[](kernel::Vec3 a,kernel::Vec3 b){return kernel::Vec3{a.x-b.x,a.y-b.y,a.z-b.z};};
     const auto dot=[](kernel::Vec3 a,kernel::Vec3 b){return a.x*b.x+a.y*b.y+a.z*b.z;};
     const auto cross=[](kernel::Vec3 a,kernel::Vec3 b){return kernel::Vec3{a.y*b.z-a.z*b.y,a.z*b.x-a.x*b.z,a.x*b.y-a.y*b.x};};

@@ -228,15 +228,32 @@ bool Workspace::remove(const std::string& document_id) {
         displayed_document_id_.clear();
         return true;
     }
-    const std::string replacement = id_of(documents_[
-        std::min(index, documents_.size() - 1)]);
+    // Loaded import dependencies are data sources, never replacement tabs.
+    const auto visible=[](const DocumentState& state) {
+        return std::visit([](const auto& value) {
+            if constexpr(requires{value.background_import_source;})
+                return !value.background_import_source;
+            else return true;
+        },state);
+    };
+    auto replacement_index=std::min(index,documents_.size()-1);
+    while(replacement_index<documents_.size() && !visible(documents_[replacement_index]))
+        ++replacement_index;
+    if(replacement_index==documents_.size()) {
+        const auto visible_state=std::ranges::find_if(documents_,visible);
+        if(visible_state==documents_.end()) {
+            // Closing the final document also releases its hidden import data.
+            documents_.clear();active_document_id_.clear();displayed_document_id_.clear();
+            drawing_edited_sources.clear();return true;
+        }
+        replacement_index=static_cast<std::size_t>(std::distance(documents_.begin(),visible_state));
+    }
+    const std::string replacement=id_of(documents_[replacement_index]);
     if (removed_displayed) displayed_document_id_ = !removed_active && find(active_document_id_)
         ? active_document_id_ : replacement;
     if (removed_active) {
-        active_document_id_ = removed_displayed
-            ? replacement
-            : find(displayed_document_id_) != nullptr
-                ? displayed_document_id_ : replacement;
+        active_document_id_ = removed_displayed ? replacement
+            : find(displayed_document_id_) != nullptr ? displayed_document_id_ : replacement;
     }
     return true;
 }

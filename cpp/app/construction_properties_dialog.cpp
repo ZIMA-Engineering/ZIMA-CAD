@@ -171,7 +171,7 @@ ConstructionPropertiesDialog::ConstructionPropertiesDialog(
         this, [this] { refresh_definition_fields(); });
     refresh_definition_fields();
     if (initial.kind == zima::document::ConstructionKind::Axis) {
-        display_size_ = field(initial.display_size, "constructionDisplaySize");
+        display_size_ = field(initial.display_size > 0 ? initial.display_size : 100.0, "constructionDisplaySize");
         display_size_->setRange(0.001, 1'000'000.0);
     }
     content_layout()->addLayout(form);
@@ -276,7 +276,7 @@ ConstructionPropertiesDialog::ConstructionPropertiesDialog(
             axis_extent_mode_->addItem(tr("Obě strany"));
             axis_extent_mode_->addItem(tr("Symetricky"));
             axis_extent_mode_->setCurrentIndex(static_cast<int>(initial.axis_extent_mode));
-            axis_reverse_length_ = field(initial.axis_reverse_length, "constructionAxisReverseLength");
+            axis_reverse_length_ = field(initial.axis_reverse_length > 0 ? initial.axis_reverse_length : 50.0, "constructionAxisReverseLength");
             axis_reverse_length_->setRange(0.001, 1'000'000.0);
             rotation_form->addRow(tr("Rozsah"), axis_extent_mode_);
             axis_ends_=initial.axis_ends;
@@ -285,7 +285,9 @@ ConstructionPropertiesDialog::ConstructionPropertiesDialog(
                 axis_end_mode_[i]=new QComboBox(row);
                 axis_end_mode_[i]->setObjectName(QString("axisEndMode%1").arg(i));
                 axis_end_mode_[i]->addItem(tr("Na délku"));axis_end_mode_[i]->addItem(tr("Až k…"));
-                axis_end_mode_[i]->setCurrentIndex(axis_ends_[i].up_to?1:0);
+                axis_end_mode_[i]->addItem(tr("Nevytvářet"));
+                axis_end_mode_[i]->setCurrentIndex(axis_ends_[i].up_to ? 1 :
+                    ((i ? initial.axis_reverse_length : initial.display_size) == 0.0 ? 2 : 0));
                 layout->addWidget(axis_end_mode_[i]);layout->addWidget(i?axis_reverse_length_:display_size_);
                 rotation_form->addRow(i?tr("Druhá délka"):tr("Délka"),row);
                 auto* table=axis_end_table_[i]=new QTableWidget(1,3,this);
@@ -317,12 +319,16 @@ ConstructionPropertiesDialog::ConstructionPropertiesDialog(
                     axis_ends_[i].up_to=axis_end_mode_[i]->currentIndex()==1;
                     rotation_form->setRowVisible(row,visible);
                     rotation_form->setRowVisible(axis_end_table_[i],visible&&axis_ends_[i].up_to);
-                    (i?axis_reverse_length_:display_size_)->setVisible(!axis_ends_[i].up_to);
+                    (i?axis_reverse_length_:display_size_)->setVisible(axis_end_mode_[i]->currentIndex()==0);
                     if(active_axis_target_==i&&(!visible||!axis_ends_[i].up_to))end_axis_target_entry();
                     refresh_axis_targets();notify_preview();
                 };
                 connect(axis_extent_mode_,&QComboBox::currentIndexChanged,this,refresh);
-                connect(axis_end_mode_[i],&QComboBox::currentIndexChanged,this,refresh);
+                connect(axis_end_mode_[i],&QComboBox::currentIndexChanged,this,[this,i,refresh]{
+                    if(i==0 && axis_end_mode_[i]->currentIndex()==2 && axis_extent_mode_->currentIndex()!=1)
+                        axis_extent_mode_->setCurrentIndex(1);
+                    refresh();
+                });
                 refresh();
             }
             connect(axis_reverse_length_, &QDoubleSpinBox::valueChanged, this,
@@ -1514,7 +1520,8 @@ zima::document::ConstructionObject ConstructionPropertiesDialog::current_value()
     if (display_size_ != nullptr) value.display_size = display_size_->value();
     if (axis_extent_mode_ != nullptr) {
         value.axis_extent_mode = static_cast<zima::document::AxisExtentMode>(axis_extent_mode_->currentIndex());
-        value.axis_reverse_length = axis_reverse_length_->value();
+        value.display_size = axis_end_mode_[0]->currentIndex()==2 ? 0.0 : display_size_->value();
+        value.axis_reverse_length = axis_end_mode_[1]->currentIndex()==2 ? 0.0 : axis_reverse_length_->value();
         value.axis_ends = axis_ends_;
     }
     if (base_plane_combo_ != nullptr) {
@@ -1587,8 +1594,13 @@ bool ConstructionPropertiesDialog::submit() {
     if (display_size_ != nullptr) value.display_size = display_size_->value();
     if (axis_extent_mode_ != nullptr) {
         value.axis_extent_mode = static_cast<zima::document::AxisExtentMode>(axis_extent_mode_->currentIndex());
-        value.axis_reverse_length = axis_reverse_length_->value();
+        value.display_size = axis_end_mode_[0]->currentIndex()==2 ? 0.0 : display_size_->value();
+        value.axis_reverse_length = axis_end_mode_[1]->currentIndex()==2 ? 0.0 : axis_reverse_length_->value();
         value.axis_ends = axis_ends_;
+    }
+    if (axis_extent_mode_ && !value.valid_display_extent()) {
+        error_->setText(tr("Osa musí mít alespoň jeden nenulový směr."));
+        return false;
     }
     const auto populated = placement_->populated_references();
     const std::size_t required =

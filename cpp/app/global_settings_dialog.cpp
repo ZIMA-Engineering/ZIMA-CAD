@@ -228,6 +228,30 @@ GlobalSettingsDialog::GlobalSettingsDialog(
     auto* drawing_note=new QLabel(tr("Cesty jsou relativní k uloženému výkresu. PDF obsahuje všechny listy, DXF pouze aktuální list. Projekční pohled přebírá zobrazení rodiče."),drawing_page);
     drawing_note->setWordWrap(true);drawing_form->addRow(drawing_note);
     sections_->addTab(drawing_page,tr("Výkresy"));
+    browser_page_=new QWidget(sections_);
+    auto* browser_form=new QFormLayout(browser_page_);
+    browser_form->setFieldGrowthPolicy(QFormLayout::AllNonFixedFieldsGrow);
+    browser_home_=new QLineEdit(settings_.browser.home,browser_page_);
+    browser_home_->setObjectName("browserHomePage");
+    browser_home_->setPlaceholderText(tr("Leave empty for a blank page."));
+    browser_form->addRow(tr("Home page"),browser_home_);
+    const auto browser_check=[&](const char* name,const QString& label,bool checked){
+        auto* field=new QCheckBox(label,browser_page_);field->setObjectName(name);field->setChecked(checked);browser_form->addRow(field);return field;
+    };
+    browser_start_=browser_check("browserOpenOnStartup",tr("Open browser on startup"),settings_.browser.open_on_start);
+    browser_download_=browser_check("browserAskDownloadPath",tr("Always ask where to download files"),settings_.browser.ask_download_path);
+    browser_cookies_=browser_check("browserBlockThirdPartyCookies",tr("Block third-party cookies"),settings_.browser.block_third_party_cookies);
+    browser_save_passwords_=browser_check("browserSavePasswords",tr("Offer to save passwords"),settings_.browser.save_passwords);
+    browser_autofill_=browser_check("browserAutofillPasswords",tr("Fill saved passwords"),settings_.browser.autofill_passwords);
+    const auto browser_button=[&](const QString& label,std::function<void()> action){
+        auto* button=new QPushButton(label,browser_page_);browser_form->addRow(button);connect(button,&QPushButton::clicked,this,action);
+    };
+    browser_button(tr("Manage passwords"),[this]{if(browser_passwords)browser_passwords();});
+    browser_button(tr("Clear cookies"),[this]{
+        if(browser_clear_cookies&&QMessageBox::question(this,tr("Clear cookies"),tr("Clear website cookies? This signs you out of websites and keeps saved passwords."))==QMessageBox::Yes)browser_clear_cookies();
+    });
+    browser_button(tr("Clear cache"),[this]{if(browser_clear_cache)browser_clear_cache();});
+    sections_->addTab(browser_page_,tr("Web browser"));
     updates_ = new UpdatesPage([this](bool rollback) {
         auto* service = UpdateService::get();
         const auto blocker = service->restartBlocker();
@@ -268,6 +292,7 @@ GlobalSettingsDialog::GlobalSettingsDialog(
 
 void GlobalSettingsDialog::show_updates() { sections_->setCurrentWidget(updates_); }
 void GlobalSettingsDialog::show_ai() { sections_->setCurrentWidget(ai_); }
+void GlobalSettingsDialog::show_browser() { sections_->setCurrentWidget(browser_page_); }
 
 const ApplicationSettings& GlobalSettingsDialog::settings() const {
     return settings_;
@@ -294,6 +319,15 @@ void GlobalSettingsDialog::browse_path(const QString& key) {
 bool GlobalSettingsDialog::submit() {
     settings_.document_naming = {names_uppercase_->isChecked(), names_diacritics_->isChecked(), names_spaces_->isChecked()};
     settings_.stacked_tolerances = tolerance_layout_->currentData().toBool();
+    settings_.browser.home=browser_home_->text().trimmed();
+    if(!settings_.browser.home.isEmpty()&&!browser::allowed_url(QUrl(settings_.browser.home))){
+        show_browser();QMessageBox::warning(this,tr("Web browser"),tr("Enter a valid HTTP or HTTPS address."));return false;
+    }
+    settings_.browser.open_on_start=browser_start_->isChecked();
+    settings_.browser.ask_download_path=browser_download_->isChecked();
+    settings_.browser.block_third_party_cookies=browser_cookies_->isChecked();
+    settings_.browser.save_passwords=browser_save_passwords_->isChecked();
+    settings_.browser.autofill_passwords=browser_autofill_->isChecked();
     settings_.sheet_cut_tolerance=sheet_cut_tolerance_->value();
     settings_.drawing_view_style=drawing_view_style_->currentData().toString();
     settings_.drawing_pdf_directory=drawing_pdf_directory_->text().trimmed();

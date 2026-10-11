@@ -100,6 +100,7 @@ Settings load_settings(const fs::path& executable,const fs::path& working,const 
     const auto value=[&](const char* key,const char* fallback){const auto found=supplied(key);return found.second.empty()?std::string(fallback):found.second;};
     const auto configured_path=[&](const char* key,const char* fallback){const auto found=supplied(key);return resolve(found.first,found.second.empty()?fallback:found.second);};
     Settings result;
+    result.browser_directory=(installed?installed->root/"config":paths.front().parent_path())/"www";
     const auto enabled=[&](const char* key){auto text=value(key,"false");std::ranges::transform(text,text.begin(),[](unsigned char c){return char(std::tolower(c));});return text=="true";};
     result.documents.normalize_document_name=DocumentNaming{enabled("DocumentNames/Uppercase"),enabled("DocumentNames/RemoveDiacritics"),enabled("DocumentNames/ReplaceSpaces")};
     result.stacked_tolerances=value("Dimensions/ToleranceLayout","inline")=="stacked";

@@ -251,6 +251,35 @@ int main() {
         require(!complete_document_save(workspace,closing.write()),"Completion resurrected a closed document");
         workspace.add_part(part,boundaries,directory/"retargeted.prtz");
         require(!complete_document_save(workspace,closing.write()),"Old save attached to a reopened document with the same ID");
+        {
+            Workspace imported;
+            const auto source_path=directory/"hidden-source.prtz";
+            auto source=document::PartDocument::create_default();const auto source_id=source.document_id;
+            auto top=assembly::AssemblyDocument::create_default();const auto top_id=top.document_id;
+            const auto top_path=directory/"imported.asmz";
+            top.components.push_back(assembly::AssemblyDocument::create_part_occurrence("Hidden",source_id,source_path,{}));
+            imported.add_assembly(top,top_path);imported.add_part(source,{},source_path);
+            imported.open_part(source_id)->background_import_source=true;
+            const auto snapshot=prepare_document_save(imported,top_id,top_path);
+            require(complete_document_save(imported,snapshot.write()),"Assembly did not save hidden sources");
+            require(fs::exists(source_path)&&!document_needs_save(imported,top_id),"Assembly source Save remained pending");
+            auto changed=source;changed.name="changed hidden source";
+            imported.open_part(source_id)->session.commit(changed,{});
+            require(document_needs_save(imported,top_id),"Hidden source change did not dirty its owning Assembly");
+            require(close_document(imported,top_id,false)==CloseDocumentResult::UnsavedChanges,"Close discarded a hidden source edit");
+            const auto before=prepare_document_save(imported,top_id,top_path);
+            changed.name="newer hidden source";imported.open_part(source_id)->session.commit(changed,{});
+            require(complete_document_save(imported,before.write())&&document_needs_save(imported,top_id),"Older receipt cleared a newer source edit");
+            require(complete_document_save(imported,prepare_document_save(imported,top_id,top_path).write()),"Hidden source Save failed");
+            require(document::PartDocument::load(source_path).name==changed.name,"Saved Assembly lost current hidden source");
+            require(close_document(imported,top_id,false)==CloseDocumentResult::Closed,"Saved import could not close");
+            require(imported.size()==0&&imported.displayed_document_id().empty(),"Closing last Assembly revealed a hidden Part tab");
+            auto other=document::PartDocument::create_default();const auto other_id=other.document_id;
+            imported.add_part(other);imported.add_assembly(top,top_path);imported.add_part(source,{},source_path);
+            imported.open_part(source_id)->background_import_source=true;
+            imported.activate(top_id);imported.display_top_level(top_id);
+            require(imported.remove(top_id)&&imported.displayed_document_id()==other_id,"Close chose hidden source over visible tab");
+        }
         // Exact unique test directory, verified under the temporary root before cleanup.
         require(fs::canonical(directory).parent_path()==fs::canonical(fs::temp_directory_path()),"Unsafe test cleanup path");
         fs::remove_all(directory);

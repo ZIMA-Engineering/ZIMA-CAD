@@ -60,8 +60,16 @@ void apply_construction_properties(Object& value, const Json& args, const kernel
         const char* key=i?"reverse_end":"forward_end";
         if(!field(key,document::ConstructionKind::Axis))continue;
         const auto& end=args.at(key);const auto mode=end.at("condition").get<std::string>();
-        if(mode!="length"&&mode!="up_to")throw ConstructionParameterError("invalid_arguments","Invalid construction axis extent mode");
+        if(mode!="length"&&mode!="up_to"&&mode!="none")throw ConstructionParameterError("invalid_arguments","Invalid construction axis extent mode");
         value.axis_ends[i].up_to=mode=="up_to";
+        auto& length=i?value.axis_reverse_length:value.display_size;
+        if(mode=="none") {
+            length=0.0;
+            if(i==0 && value.axis_extent_mode!=document::AxisExtentMode::TwoSides)
+                value.axis_extent_mode=document::AxisExtentMode::TwoSides;
+        }
+        else if(mode=="length" && length==0.0)length=i?50.0:100.0;
+
         if(value.axis_ends[i].up_to)value.axis_ends[i].target={end.value("instance_path",std::string{}),end.at("owner_id").get<std::string>(),end.at("semantic_key").get<std::string>()};
     }
     if (field("offset_mm", document::ConstructionKind::Plane))
@@ -129,6 +137,9 @@ void apply_construction_properties(Object& value, const Json& args, const kernel
         }
     }
     if (!specified && !args.contains("points")) throw ConstructionParameterError("invalid_arguments", "Specify at least one construction property.");
+    if(value.kind==document::ConstructionKind::Axis && !value.axis_ends[0].up_to &&
+       !value.axis_ends[1].up_to && !value.valid_display_extent())
+        throw ConstructionParameterError("invalid_arguments","Osa musí mít alespoň jeden nenulový směr.");
 }
 // Point IDs select existing children; entries without an ID allocate native Points.
 // This is the complete ordered list from the Properties dialog, not a merge by name.

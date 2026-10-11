@@ -32,6 +32,27 @@ build and console contract passed with it detached. Linux development presets
 still need a new native dependency setup on Linux; they cannot use the removed
 Conda path. Version layout and release gates are in [DISTRIBUTION_CLEANUP_PLAN.md](DISTRIBUTION_CLEANUP_PLAN.md).
 
+## Matching Qt SDK for WebEngine
+
+The browser requires Qt WebEngine Widgets and WebChannel. Use one complete
+Qt 6.11.0 MSVC kit for all Qt modules, plugins, helper processes, resources and
+locales. Do not combine official Qt binaries with Qt modules from another kit.
+OCCT 8.0.0 and the other native dependencies remain in the pinned vcpkg tree.
+
+`tools/dependencies/provision-qt-windows.py --help` describes the repository-owned
+provisioner. It downloads the official modules, verifies published SHA-1 values,
+records SHA-256 values in `zima-sdk.json`, and validates extraction paths and
+module collisions. Use a short dedicated directory such as `C:/zcb/qt611`.
+Set `ZIMA_QT_SDK_ROOT` to this directory and select the
+`windows-official-qt-release` CMake preset. The preset uses the existing local
+build directory, preserving `zima-cad.bat`. The normal vcpkg presets remain
+available for builds with a complete vcpkg Qt kit.
+
+Pass `-QtSdk C:/zcb/qt611` to `tools/distribution/build-windows.ps1` when packaging
+this kit. The packager rejects Qt dependencies outside the selected SDK and
+includes its provenance and SPDX notices. Both the main executable and
+`QtWebEngineProcess.exe` participate in native dependency closure validation.
+
 ## Console-free desktop start
 
 ### Release identity and cached compiler dependencies

@@ -58,6 +58,8 @@
 #include "file_dialog.hpp"
 #include "global_settings_dialog.hpp"
 #include "resource_icon.hpp"
+#include "../../browser/browser.hpp"
+#include <QUuid>
 
 #include <zima/viewer/mesh_view.hpp>
 #include <zima/interchange/interchange.hpp>

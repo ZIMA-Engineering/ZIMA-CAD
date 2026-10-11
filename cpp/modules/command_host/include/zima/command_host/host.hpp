@@ -17,6 +17,7 @@ struct Settings {
     document::SweepPrecisionDefaults sweep_precision_defaults;
 };
 struct Interaction {
+    bool browser_active{};
     bool editing{};
     bool template_document{};
     bool template_editor_ready{};
@@ -28,6 +29,9 @@ enum class ChangeKind { Open, New, Save, Regenerate, History, Model, Activate, O
 struct Change { ChangeKind kind; std::string document_id; bool clear_selection{}; };
 enum class Activity { Read, Write, Export, Rename };
 struct Options {
+    std::filesystem::path browser_directory;
+    std::function<bool(const std::string&)> open_browser;
+    std::function<void()> bookmarks_changed;
     std::function<void(const std::filesystem::path&)> reserve_directory;
     std::function<Settings()> settings;
     std::function<Interaction()> interaction;
@@ -76,6 +80,7 @@ private:
     bool executing_{};
     std::optional<Change> change_;
     void register_commands();
+    void register_browser_commands();
     void register_template_commands();
     void register_template_object_commands();
     void register_primitive_commands();

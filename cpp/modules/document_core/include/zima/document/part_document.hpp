@@ -56,7 +56,6 @@ enum class ConstructionDefinition {
     PointReference,
     TwoPointAxis,
     AxisReference,
-    CylinderAxis,
     ThreePointPlane,
     PlaneReference,
 };
@@ -140,13 +139,21 @@ struct ConstructionObject {
     std::array<AxisEnd, 2> axis_ends;
     // Finite extent does not change the container placement or axis direction.
     [[nodiscard]] std::pair<double, double> axis_limits() const {
-        if (definition == ConstructionDefinition::CylinderAxis)
-            return {-display_size * 0.5, display_size * 0.5};
         const double forward = axis_ends[0].up_to ? axis_ends[0].resolved_length
             : axis_extent_mode == AxisExtentMode::Symmetric ? display_size * .5 : display_size;
         if (axis_extent_mode == AxisExtentMode::Symmetric) return {-forward, forward};
         const double reverse = axis_ends[1].up_to ? axis_ends[1].resolved_length : axis_reverse_length;
         return {axis_extent_mode == AxisExtentMode::TwoSides ? -reverse : 0.0, forward};
+    }
+    // Zero length represents a disabled direction; an Axis must retain a
+    // positive active span. Other construction kinds keep positive sizes.
+    [[nodiscard]] bool valid_display_extent() const {
+        if (!std::isfinite(display_size) || !std::isfinite(axis_reverse_length) ||
+            display_size < 0.0 || axis_reverse_length < 0.0) return false;
+        if (kind != ConstructionKind::Axis)
+            return display_size > 0.0 && axis_reverse_length > 0.0;
+        const auto [first, last] = axis_limits();
+        return std::isfinite(first) && std::isfinite(last) && last > first;
     }
     [[nodiscard]] zima::kernel::Vec3 axis_point(double distance) const {
         const double length = std::hypot(direction.x, direction.y, direction.z);

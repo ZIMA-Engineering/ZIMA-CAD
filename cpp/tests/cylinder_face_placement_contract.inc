@@ -1,4 +1,4 @@
-void cylinder_axis_verify(const kernel::OcctKernel& kernel, fs::path directory) {
+void cylinder_face_placement_verify(const kernel::OcctKernel& kernel, fs::path directory) {
     kernel::StepProduct product;
     product.definition_id="cylinder-source"; product.name="Cylinder";
     auto native_source=document::PartDocument::create_default();
@@ -19,70 +19,16 @@ void cylinder_axis_verify(const kernel::OcctKernel& kernel, fs::path directory) 
         return ref.surface && ref.surface->kind==kernel::SurfaceGeometry::Kind::Cylinder;
     });
     require(face!=geometry.triangle_references.end(),"Imported cylinder lacks persisted analytic data");
-    auto axis=document::PartDocument::create_construction(document::ConstructionKind::Axis);
-    axis.definition=document::ConstructionDefinition::CylinderAxis;
-    axis.references={{"",face->owner_id,face->semantic_key}};
-    const auto shape=part->session.calculated_boundaries().back().kernel_shape;
-    require(workspace::commit_construction(live,id,axis,workspace::ConstructionEditMode::Create),"Cannot commit cylinder axis");
-    const auto current=[&]{return *part->session.document().find_construction(axis.id);};
-    require(current().reference_valid&&std::abs(current().origin.z-10)<1e-6&&
-        std::abs(std::abs(current().direction.z)-1)<1e-6,"Cylinder axis is not centred and coaxial");
-    require(part->session.calculated_boundaries().back().kernel_shape==shape,"Axis creation recalculated the body");
-    const auto idle=part->session.document().construction_viewer_mesh();
-    const auto axis_point=[&](const auto& point){return point.reference.owner_id==current().container_origin.id && point.reference.semantic_key=="point";};
-    require(std::ranges::none_of(idle.points,axis_point),"Idle cylinder axis displays an unwanted point");
-    require(std::ranges::any_of(idle.original_references.points,axis_point),"Cylinder axis lost its original point reference");
-    require(std::ranges::any_of(idle.axes,[&](const auto& item){return item.reference.owner_id==current().entity_id;}),
-        "Hiding cylinder axis point also hid its axis");
-    const auto identity=current().entity_id;
-    command_host::Host host(live,kernel,directory);
-    run(host,"undo"); require(!part->session.document().find_construction(axis.id),"Axis Undo retained a container");
-    run(host,"redo"); require(current().entity_id==identity,"Axis Redo changed identity");
-    auto moved=source; moved.placement.x=31; moved.placement.y=-17; moved.placement.z=9;
-    moved.placement.rotation_x=37; moved.placement.absolute_rotation_x=37;
-    static_cast<void>(workspace::commit_imported_feature(live,kernel,id,moved));
-    const double radians=37*std::numbers::pi/180;
-    require(current().reference_valid&&std::abs(current().origin.x-31)<1e-6&&
-        std::abs(current().origin.y-(-17-10*std::sin(radians)))<1e-6&&
-        std::abs(current().origin.z-(9+10*std::cos(radians)))<1e-6&&
-        std::abs(std::abs(current().direction.y)-std::sin(radians))<1e-6,
-        "Cylinder axis did not follow translated and rotated import");
-    const auto native=directory/"axis.prtz";
-    part->session.document().save(native,part->session.calculated_boundaries());
-    std::vector<kernel::BodyResult> loaded_cache;
-    auto loaded=document::PartDocument::load(native,&loaded_cache);
-    require(*loaded.find_construction(axis.id)==current(),"Native save lost cylinder axis definition");
-    loaded.resolve_constructions(loaded_cache.back().mesh.original_references);
-    require(loaded.find_construction(axis.id)->reference_valid,"Reopened cylinder axis cannot resolve");
-    auto invalid=current(); const auto position=invalid.origin;
-    require(!document::resolve_construction(invalid,{})&&invalid.origin==position,
-        "Missing cylindrical face silently moved the axis");
-    auto wrong=geometry;
-    for(auto& ref:wrong.triangle_references)if(ref.surface) {
-        auto plane=std::make_shared<kernel::SurfaceGeometry>(*ref.surface);
-        plane->kind=kernel::SurfaceGeometry::Kind::Plane;ref.surface=std::move(plane);
-    }
-    require(!document::resolve_construction(invalid,wrong),"Non-cylindrical face was accepted");
-    // Repeated Assembly occurrences keep distinct source paths.
+    const auto native=directory/"cylinder-source.prtz";
+    const auto loaded_cache=part->session.calculated_boundaries();
+    part->session.document().save(native,loaded_cache);
     assembly::AssemblyDocument group=assembly::AssemblyDocument::create_default();
     auto one=assembly::AssemblyDocument::create_part_occurrence("One",id,native,loaded_cache.back());
-    auto two=assembly::AssemblyDocument::create_part_occurrence("Two",id,native,loaded_cache.back());two.placement.x=100;
+    auto two=assembly::AssemblyDocument::create_part_occurrence("Two",id,native,loaded_cache.back());
+    two.placement.x=100;
     group.components={one,two};
-    const auto scene=group.build_scene();
-    const auto occurrence_face=std::ranges::find_if(scene.original_references.triangle_references,[&](const auto& ref) {
-        return ref.surface&&ref.surface->kind==kernel::SurfaceGeometry::Kind::Cylinder&&
-            ref.instance_path==assembly::InstancePath{{two.occurrence_id}}.encoded();
-    });
-    require(occurrence_face!=scene.original_references.triangle_references.end(),"Repeated cylinder occurrence is missing");
-    auto assembly_axis=axis;assembly_axis.references={{occurrence_face->instance_path,occurrence_face->owner_id,occurrence_face->semantic_key}};
-    group.constructions={assembly_axis};group.resolve_constructions();
-    require(group.constructions.front().reference_valid&&std::abs(group.constructions.front().origin.x-131)<1e-6,
-        "Cylinder axis resolved the wrong Assembly occurrence");
-    const auto assembly_file=directory/"axis.asmz";group.save(assembly_file);
-    require(assembly::AssemblyDocument::load(assembly_file).constructions.front().definition==document::ConstructionDefinition::CylinderAxis,
-        "Assembly persistence lost cylinder axis definition");
+    command_host::Host host(live,kernel,directory);
     // Cylindrical faces feed the exact same placement equations as axes.
-    group.constructions.clear();
     group.components[0].grounded=true;
     group.components[1].placement.rotation_y=23;
     const auto face_reference=[&](const std::string& occurrence) {

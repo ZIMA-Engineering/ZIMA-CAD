@@ -39,6 +39,15 @@ def dependencies(binary, env):
 def deploy(runtime, sdk):
     query = lambda key: Path(shared.run(['qmake6', '-query', key], stdout=subprocess.PIPE).stdout.decode().strip())
     plugins = query('QT_INSTALL_PLUGINS')
+    helper = query('QT_INSTALL_LIBEXECS') / 'QtWebEngineProcess'
+    web_resources = query('QT_INSTALL_DATA') / 'resources'
+    web_locales = query('QT_INSTALL_TRANSLATIONS') / 'qtwebengine_locales'
+    if not helper.is_file() or not web_resources.is_dir() or not web_locales.is_dir():
+        raise ValueError('Incomplete Qt WebEngine SDK: helper, resources and locales are required')
+    packaged_helper = runtime / 'bin/QtWebEngineProcess'
+    shutil.copy2(helper, packaged_helper)
+    shutil.copytree(web_resources, runtime / 'resources/qt/resources')
+    shutil.copytree(web_locales, runtime / 'translations/qtwebengine_locales')
     for group in ('platforms', 'imageformats', 'iconengines', 'tls', 'networkinformation',
                   'xcbglintegrations', 'wayland-shell-integration', 'wayland-graphics-integration-client',
                   'wayland-decoration-client'):
@@ -54,6 +63,7 @@ def deploy(runtime, sdk):
     env = dict(os.environ, LD_LIBRARY_PATH=str(sdk / 'lib'))
     pending = list((runtime / 'bin').iterdir()) + list((runtime / 'plugins').rglob('*.so'))
     origins = {p: plugins / p.relative_to(runtime / 'plugins') for p in (runtime / 'plugins').rglob('*.so')}
+    origins[packaged_helper] = helper
     host, inspected = set(), set()
     while pending:
         binary = pending.pop()
@@ -88,9 +98,11 @@ def deploy(runtime, sdk):
     for binary in list((runtime / 'bin').iterdir()) + list(libraries.iterdir()) + list((runtime / 'plugins').rglob('*.so')):
         shared.run(['patchelf', '--set-rpath', '$ORIGIN/' + os.path.relpath(libraries, binary.parent), binary])
         binary.chmod(0o755)
-    (runtime / 'bin/qt.conf').write_text('[Paths]\nPrefix=..\nPlugins=plugins\nLibraries=lib\n', encoding='utf-8')
+    (runtime / 'bin/qt.conf').write_text(
+        '[Paths]\nPrefix=..\nPlugins=plugins\nLibraries=lib\nLibraryExecutables=bin\n'
+        'Data=resources/qt\nTranslations=translations\n', encoding='utf-8')
     clean = shared.clean_environment(runtime)
-    for binary in list((runtime / 'bin').glob('zima-*')) + list(libraries.iterdir()) + list((runtime / 'plugins').rglob('*.so')):
+    for binary in [packaged_helper] + list((runtime / 'bin').glob('zima-*')) + list(libraries.iterdir()) + list((runtime / 'plugins').rglob('*.so')):
         for path in dependencies(binary, clean):
             if runtime not in path.parents and not HOST.fullmatch(path.name):
                 raise ValueError('Dependency escapes portable runtime: ' + str(path))
@@ -141,6 +153,7 @@ def main():
     metadata['occt_sdk'] = json.loads((sdk / 'sdk.json').read_text())
     shutil.copy2(source / 'LICENSE', root / 'LICENSE')
     shutil.copy2(source / 'LICENSE', runtime / 'licenses/ZIMA-CAD.txt')
+    shutil.copy2(source / 'cpp/third_party/qtkeychain/COPYING', runtime / 'licenses/qtkeychain.txt')
     shutil.copy2(source / 'tools/distribution/launcher-linux.sh', root / 'ZIMA-CAD.sh')
     (root / 'ZIMA-CAD.sh').chmod(0o755)
     shutil.copytree(source, root / 'source' / version)

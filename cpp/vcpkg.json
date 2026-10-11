@@ -13,6 +13,11 @@
     "qtbase",
     "openssl",
     "qtsvg",
+    {
+      "name": "qtwebengine",
+      "default-features": false,
+      "features": ["webengine", "webchannel"]
+    },
     "freetype",
     "harfbuzz"
   ]

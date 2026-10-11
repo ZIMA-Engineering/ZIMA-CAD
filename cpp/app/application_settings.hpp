@@ -4,6 +4,7 @@
 #include <zima/document/sweep_precision.hpp>
 #include <QString>
 #include "../common/document_naming.hpp"
+#include "../browser/preferences.hpp"
 
 class QApplication;
 
@@ -37,6 +38,7 @@ struct ApplicationSettings {
     QString theme{QStringLiteral("light")};
     bool use_iso_application_font{false};
     bool stacked_tolerances{};
+    browser::Preferences browser;
     double sheet_cut_tolerance{0.05};
     document::SweepPrecisionDefaults sweep_precision_defaults;
 

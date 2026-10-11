@@ -6,10 +6,41 @@ import tempfile
 import subprocess
 import shutil
 import unittest
+from unittest.mock import patch
 import zipfile
 import package
 
 class PackageTests(unittest.TestCase):
+    def test_webengine_closure_uses_one_sdk_and_includes_helper(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root=Path(temp); sdk=root/'sdk'; installed=root/'installed'; redist=root/'crt'
+            redist.mkdir(); (installed/'bin').mkdir(parents=True)
+            (installed/'bin/Qt6Core.dll').write_bytes(b'foreign-kit')
+            files=['bin/QtWebEngineProcess.exe','bin/Qt6Core.dll','bin/Qt6WebEngineCore.dll',
+                   'resources/qtwebengine_resources.pak','resources/qtwebengine_resources.debug.pak',
+                   'translations/qtwebengine_locales/en-US.pak',
+                   'plugins/platforms/qwindows.dll','plugins/platforms/qoffscreen.dll',
+                   'plugins/imageformats/qjpeg.dll','plugins/imageformats/qsvg.dll',
+                   'plugins/styles/qmodernwindowsstyle.dll','plugins/tls/qschannelbackend.dll']
+            for name in files:
+                path=sdk/name;path.parent.mkdir(parents=True,exist_ok=True);path.write_bytes(b'selected-kit')
+            inspected=[]
+            def imports(arguments, **kwargs):
+                binary=Path(arguments[-1]);inspected.append(binary.name)
+                dependencies={'QtWebEngineProcess.exe':'Qt6WebEngineCore.dll','Qt6WebEngineCore.dll':'Qt6Core.dll'}
+                return subprocess.CompletedProcess(arguments,0,('    '+dependencies.get(binary.name,'')+'\n').encode())
+            with patch.dict(os.environ,{'SystemRoot':str(root/'windows')}),patch.object(package,'run',side_effect=imports):
+                runtime=root/'runtime';runtime.mkdir()
+                package.deploy_dependencies(runtime,installed,redist,'dumpbin',sdk)
+                self.assertIn('QtWebEngineProcess.exe',inspected)
+                self.assertEqual((runtime/'Qt6Core.dll').read_bytes(),b'selected-kit')
+                self.assertTrue((runtime/'resources/qt/resources/qtwebengine_resources.pak').is_file())
+                self.assertFalse((runtime/'resources/qt/resources/qtwebengine_resources.debug.pak').exists())
+                (sdk/'bin/Qt6Core.dll').unlink()
+                rejected=root/'rejected';rejected.mkdir()
+                with self.assertRaisesRegex(ValueError,'escapes selected SDK'):
+                    package.deploy_dependencies(rejected,installed,redist,'dumpbin',sdk)
+
     def test_native_factory_assets_include_future_libraries_and_exclude_backups(self):
         with tempfile.TemporaryDirectory() as temp:
             runtime = Path(temp)

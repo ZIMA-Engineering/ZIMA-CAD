@@ -13,14 +13,6 @@ int verify_new_document_options(QApplication& application) {
             for(const auto* key:{"Uppercase","RemoveDiacritics","ReplaceSpaces"})config.setValue(QString("DocumentNames/")+key,false);
             config.sync();
             app::AssemblyWorkspaceWindow window(directory.path());window.resize(1366,768);window.show();flush();
-            {
-                const auto translated=app::ApplicationSettings::load(directory.path());
-                auto axis=document::PartDocument::create_construction(document::ConstructionKind::Axis);
-                app::CylinderAxisDialog dialog(axis,[](auto){},&window);
-                check(dialog.windowTitle()==translated.qt_translations.value("Vlastnosti osy válcové plochy"),"Cylinder axis title is not localized");
-                auto* table=dialog.findChild<QTableWidget*>("cylinderAxisReference");
-                check(table&&table->horizontalHeaderItem(1)->text()==translated.qt_translations.value("Válcová plocha"),"Cylinder axis source field is not localized");
-            }
             for (bool accept : {false, true}) {
                 window.findChild<QAction*>("globalSettingsAction")->trigger();flush();
                 auto* options=window.findChild<QDialog*>("globalSettingsDialog");check(options,"Naming settings missing");

@@ -3,6 +3,7 @@
 
 namespace zima::cli {
 struct Settings {
+    std::filesystem::path browser_directory;
     bool stacked_tolerances{};
     command_host::Settings documents;
     std::map<std::string,std::string> translations;

@@ -52,6 +52,7 @@ std::string Host::tr(const char* text) const{return options_.translate?options_.
 void Host::io(std::function<void()> task) const{if(options_.run_io)options_.run_io(std::move(task));else task();}
 void Host::activate(const std::string& id){workspace_.activate(id);workspace_.display_top_level(id);}
 Result Host::target(const Json& args) const {
+    if(interaction().browser_active)return Result::failure("browser_active",tr("Select a model document tab first."));
     if(workspace_.active_document_id().empty())return Result::failure("no_document",tr("Není otevřený dokument."));
     if(args.contains("document")&&args["document"]!=workspace_.active_document_id())
         return Result::failure("document_changed",tr("Požadovaný dokument není aktivní."));
@@ -65,6 +66,7 @@ Result Host::run(const std::function<Result()>& execute){
 Result Host::execute_text(std::string_view text){return run([&]{return dispatcher_.execute_text(text);});}
 Result Host::execute(const Json& request){return run([&]{return dispatcher_.execute(request);});}
 void Host::register_commands(){
+    register_browser_commands();
     register_primitive_commands();
     register_profile_commands();
     register_holes_commands();
@@ -115,6 +117,10 @@ void Host::register_commands(){
     register_drawing_dimension_commands();
     register_drawing_title_commands();
     dispatcher_.set_guard([this](const commands::Command& command){
+        const auto active=interaction();
+        if(command.name.starts_with("browser."))return Result::success();
+        if(active.browser_active&&command.changes_state&&command.name!="open"&&command.name!="activate"&&command.name!="new"&&command.name!="cd")
+            return Result::failure("browser_active",tr("Select a model document tab first."));
         if(!command.changes_state)return Result::success();
         const auto state=interaction();
         const bool template_command=command.name.starts_with("template.")||command.name=="undo"||command.name=="redo"||command.name=="close"||command.name=="activate";
@@ -135,6 +141,7 @@ void Host::register_commands(){
         const auto state=interaction();
         const auto time=std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
         return Result::success({{"active_document",workspace_.active_document_id()},
+            {"active_tab_type",state.browser_active?"browser":"document"},
             {"displayed_document",workspace_.displayed_document_id()},{"active_occurrence",state.active_occurrence},
             {"active_sketch",state.active_sketch},{"working_directory",path_text(directory_)},
             {"captured_at_unix_ms",time},{"selection",state.selection},{"hover",state.hover},

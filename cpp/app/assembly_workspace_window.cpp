@@ -80,9 +80,13 @@ AssemblyWorkspaceWindow::AssemblyWorkspaceWindow(const QString& working_director
     });
     refresh_tabs();
     refresh_scene();
+    if(application_settings_.browser.open_on_start)QTimer::singleShot(0,this,[this]{open_browser();});
 }
 
 AssemblyWorkspaceWindow::~AssemblyWorkspaceWindow() {
+    for(const auto& [id,page]:browser_tabs_)delete page;
+    browser_tabs_.clear();active_browser_=nullptr;
+    delete browser_runtime_;browser_runtime_=nullptr;
     // Qt only destroys QObject children (including any open Properties
     // dialog) from inside the QWidget base-class destructor, which runs
     // after every data member of this derived class has already been

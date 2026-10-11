@@ -71,7 +71,6 @@
 #include <QTemporaryDir>
 #include "construction_reference_candidate_policy.hpp"
 #include "construction_properties_dialog.hpp"
-#include "cylinder_axis_dialog.hpp"
 #include <zima/interchange/step_model.hpp>
 #include "primitive_properties_dialog.hpp"
 #include "drawing_window.hpp"
@@ -9135,7 +9134,8 @@ int verify_selection_filter(QApplication& application,
 #include "solid_state_ui_verification.inc"
 #include "application_lifecycle_ui_verification.inc"
 #include "new_document_ui_verification.inc"
-#include "cylinder_axis_ui_verification.inc"
+#include "browser_workspace_ui_verification.inc"
+#include "step_tabs_ui_verification.inc"
 #include "sheet_exchange_ui_verification.inc"
 #include "sheet_transition_ui_verification.inc"
 #include "symbol_ui_verification.inc"
@@ -9192,11 +9192,14 @@ int verify_startup_contract(
         std::cout<<"Compact Part/Assembly/Drawing layout and live view theme passed\n";
         return 0;
     }
-    if(qEnvironmentVariableIsSet("ZIMA_VERIFY_CYLINDER_AXIS_ONLY"))return verify_cylinder_axis_ui(application,window,test_directory);
     if(qEnvironmentVariableIsSet("ZIMA_VERIFY_SYMBOLS_ONLY"))return verify_symbol_ui(application,window,test_directory);
     if(qEnvironmentVariableIsSet("ZIMA_VERIFY_NATIVE_TITLE_BLOCK_ONLY"))return verify_native_title_block(application,window,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_NEW_DOCUMENT_OPTIONS_ONLY"))
         return verify_new_document_options(application);
+    if (qEnvironmentVariableIsSet("ZIMA_VERIFY_BROWSER_WORKSPACE_ONLY"))
+        return verify_browser_workspace(application);
+    if (qEnvironmentVariableIsSet("ZIMA_VERIFY_STEP_TABS_ONLY"))
+        return verify_hidden_step_tabs(application);
     if(qEnvironmentVariableIsSet("ZIMA_VERIFY_RELATION_TEMPLATES_ONLY")) {
         const auto flush=[&]{application.processEvents();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);application.processEvents();};
         for(const auto* type:{"part","assembly"}) {
@@ -13634,6 +13637,7 @@ int main(int argc, char* argv[]) {
     format.setDepthBufferSize(24);
     format.setSamples(4);
     QSurfaceFormat::setDefaultFormat(format);
+    QCoreApplication::setAttribute(Qt::AA_ShareOpenGLContexts);
     QApplication application(argc, argv);
 
     application.setApplicationName("ZIMA-CAD");

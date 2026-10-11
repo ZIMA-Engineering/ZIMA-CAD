@@ -115,6 +115,10 @@ void AssemblyWorkspaceWindow::apply_console_change(const command_host::Change& c
 }
 void AssemblyWorkspaceWindow::create_command_console() {
     command_host::Options options;
+    options.browser_directory=std::filesystem::u8path((application_settings_.installation_root.isEmpty()
+        ?QFileInfo(application_settings_.base_config_path).absolutePath():application_settings_.installation_root+"/config").toStdString())/"www";
+    options.open_browser=[this](const std::string& url){return open_browser(QUrl(QString::fromStdString(url)))!=nullptr;};
+    options.bookmarks_changed=[this]{if(browser_runtime_)browser_runtime_->bookmarks.reload();};
     options.reserve_directory=[this](const auto& path) {
         instance_.set_directory(QString::fromStdString(document::path_to_utf8(path)));
         setProperty("instanceWorkingDirectory",QString::fromStdString(document::path_to_utf8(path)));
@@ -130,6 +134,7 @@ void AssemblyWorkspaceWindow::create_command_console() {
     };
     options.interaction=[this]{
         command_host::Interaction state;
+        state.browser_active=active_browser_!=nullptr;
         state.editing=QApplication::activeModalWidget()!=nullptr||properties_dialog_;
         for(auto* dialog:findChildren<QDialog*>())state.editing|=dialog->isVisible();
         state.editing|=tree_&&tree_->property("commandSelectionActive").toBool();

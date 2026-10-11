@@ -6,6 +6,7 @@
 #include <zima/ui/properties_subwindow.hpp>
 
 #include <QMap>
+#include <functional>
 
 class QComboBox;
 class QCheckBox;
@@ -25,6 +26,8 @@ public:
     [[nodiscard]] const ApplicationSettings& settings() const;
     void show_updates();
     void show_ai();
+    void show_browser();
+    std::function<void()> browser_passwords, browser_clear_cookies, browser_clear_cache;
 
 protected:
     bool submit() override;
@@ -43,6 +46,13 @@ private:
     UpdatesPage* updates_{};
     AiSettingsPage* ai_{};
     QWidget* desktop_{};
+    QWidget* browser_page_{};
+    QLineEdit* browser_home_{};
+    QCheckBox* browser_start_{};
+    QCheckBox* browser_download_{};
+    QCheckBox* browser_cookies_{};
+    QCheckBox* browser_save_passwords_{};
+    QCheckBox* browser_autofill_{};
     QString ai_preferences_path_;
     QComboBox* language_{};
     QComboBox* theme_{};

@@ -17,8 +17,49 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 option(ZIMA_BUILD_TESTS "Build the C++ contract tests" ON)
+set(ZIMA_QT_SDK_ROOT "" CACHE PATH "Complete official Qt SDK; empty selects the normal platform SDK")
+if(ZIMA_QT_SDK_ROOT)
+    if(NOT EXISTS "${ZIMA_QT_SDK_ROOT}/lib/cmake/Qt6/Qt6Config.cmake")
+        message(FATAL_ERROR "ZIMA_QT_SDK_ROOT must identify a complete Qt SDK")
+    endif()
+    # Component caches from another kit must never survive a deliberate SDK change.
+    get_cmake_property(qt_cached_variables CACHE_VARIABLES)
+    foreach(qt_cached_variable IN LISTS qt_cached_variables)
+        if(qt_cached_variable MATCHES "^Qt6.*_DIR$")
+            unset(${qt_cached_variable} CACHE)
+        endif()
+    endforeach()
+    set(Qt6_DIR "${ZIMA_QT_SDK_ROOT}/lib/cmake/Qt6" CACHE PATH "Selected Qt SDK" FORCE)
+    list(PREPEND CMAKE_PREFIX_PATH "${ZIMA_QT_SDK_ROOT}")
+endif()
 
 find_package(Qt6 6.5 REQUIRED COMPONENTS Core Gui Widgets OpenGL OpenGLWidgets Svg Network)
+find_package(Qt6 REQUIRED COMPONENTS WebEngineWidgets WebChannel)
+if(ZIMA_QT_SDK_ROOT AND NOT Qt6_VERSION VERSION_EQUAL "6.11.0")
+    message(FATAL_ERROR "The official Windows SDK must match the Qt 6.11.0 dependency pin")
+endif()
+
+# Keep the credential backend separate from the application and build one
+# pinned QtKeychain implementation on both platforms, without its demo or tests.
+function(zima_add_keychain)
+    set(BUILD_WITH_QT6 ON)
+    set(BUILD_TRANSLATIONS OFF)
+    set(BUILD_TESTING OFF)
+    set(BUILD_TEST_APPLICATION OFF)
+    set(BUILD_SHARED_LIBS OFF)
+    add_subdirectory(third_party/qtkeychain EXCLUDE_FROM_ALL)
+endfunction()
+zima_add_keychain()
+add_library(zima_browser_store browser/bookmarks.cpp browser/bookmarks.hpp)
+target_link_libraries(zima_browser_store PUBLIC Qt6::Core Qt6::Gui)
+set_target_properties(zima_browser_store PROPERTIES AUTOMOC ON)
+target_compile_options(zima_browser_store PRIVATE $<$<CXX_COMPILER_ID:MSVC>:/utf-8>)
+if(ZIMA_BUILD_TESTS)
+    add_executable(zima_browser_bookmarks_tests tests/browser_bookmarks_tests.cpp)
+    target_link_libraries(zima_browser_bookmarks_tests PRIVATE zima_browser_store)
+    target_compile_options(zima_browser_bookmarks_tests PRIVATE $<$<CXX_COMPILER_ID:MSVC>:/utf-8>)
+    add_test(NAME zima_browser_bookmarks COMMAND zima_browser_bookmarks_tests)
+endif()
 # Debian Qt 6.8 exports CorePrivate from Core; newer kits split its config.
 if(NOT TARGET Qt6::CorePrivate)
     find_package(Qt6 REQUIRED COMPONENTS CorePrivate)
@@ -417,6 +458,8 @@ add_library(zima_command_host
     modules/command_host/src/drawing_commands.cpp)
 target_include_directories(zima_command_host PUBLIC modules/command_host/include)
 target_link_libraries(zima_command_host PUBLIC zima_commands zima_workspace)
+target_link_libraries(zima_command_host PUBLIC zima_browser_store)
+target_sources(zima_command_host PRIVATE modules/command_host/src/browser_commands.cpp)
 # Commands carry UTF-8 paths and localized text even without Qt's build flags.
 target_compile_options(zima_command_host PUBLIC $<$<CXX_COMPILER_ID:MSVC>:/utf-8>)
 
@@ -457,6 +500,16 @@ add_library(zima_ui modules/ui/src/properties_subwindow.cpp
     modules/ui/src/container_placement_section.cpp)
 target_include_directories(zima_ui PUBLIC modules/ui/include)
 target_link_libraries(zima_ui PUBLIC Qt6::Widgets zima_document_core)
+if(ZIMA_BUILD_TESTS)
+    add_executable(zima_browser_ui_tests tests/browser_ui_tests.cpp
+        browser/browser.cpp browser/browser.hpp browser/credentials.cpp browser/credentials.hpp
+        app/file_dialog.cpp app/resource_icon.cpp app/application_settings.cpp app/zima_resources.qrc)
+    set_target_properties(zima_browser_ui_tests PROPERTIES AUTOMOC ON AUTORCC ON)
+    target_link_libraries(zima_browser_ui_tests PRIVATE zima_browser_store zima_ui
+        qt6keychain Qt6::WebEngineWidgets Qt6::WebChannel Qt6::Svg)
+    target_compile_options(zima_browser_ui_tests PRIVATE $<$<CXX_COMPILER_ID:MSVC>:/utf-8>)
+    add_test(NAME zima_browser_ui COMMAND zima_browser_ui_tests)
+endif()
 
 add_library(zima_interchange modules/interchange/src/interchange.cpp
     modules/interchange/src/dxf.cpp
@@ -474,7 +527,7 @@ add_executable(zima-cad-cpp
     app/body_link_ui_verification.cpp
     ${ZIMA_WORKSPACE_SOURCES}
     app/command_console.cpp app/console_ui_verification.cpp app/holes_ui_verification.cpp app/edge_treatment_ui_verification.cpp app/rotation_handle_ui_verification.cpp
-    app/main_workspace.cpp app/appearance_dialog.cpp app/appearance_command.cpp app/section_command.cpp app/section_ui_verification.cpp app/assembly_workspace_window.cpp app/template_command.cpp app/symbol_command.cpp app/numeric_value_lock_command.cpp app/shaft_thread_command.cpp app/cylinder_axis_command.cpp app/derived_copy_command.cpp app/body_scale_command.cpp app/body_scale_ui_verification.cpp
+    app/main_workspace.cpp app/appearance_dialog.cpp app/appearance_command.cpp app/section_command.cpp app/section_ui_verification.cpp app/assembly_workspace_window.cpp app/template_command.cpp app/symbol_command.cpp app/numeric_value_lock_command.cpp app/shaft_thread_command.cpp app/derived_copy_command.cpp app/body_scale_command.cpp app/body_scale_ui_verification.cpp
     app/application_settings.cpp app/global_settings_dialog.cpp app/measurement_command.cpp app/measurement_ui_verification.cpp app/mass_properties_command.cpp
     app/document_tools_dialogs.cpp app/updates_ui_verification.cpp app/ai_settings_page.cpp
     app/drawing_window.cpp app/show_erase_dialog.cpp app/file_dialog.cpp app/resource_icon.cpp
@@ -501,6 +554,10 @@ target_link_libraries(zima-cad-cpp PRIVATE
     zima_interchange nlohmann_json::nlohmann_json
     Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Svg)
 set_target_properties(zima-cad-cpp PROPERTIES AUTORCC ON)
+target_sources(zima-cad-cpp PRIVATE app/workspace/browser.cpp browser/browser.cpp browser/browser.hpp
+    browser/credentials.cpp browser/credentials.hpp)
+target_link_libraries(zima-cad-cpp PRIVATE zima_browser_store qt6keychain Qt6::WebEngineWidgets Qt6::WebChannel)
+set_target_properties(zima-cad-cpp PROPERTIES AUTOMOC ON)
 add_dependencies(zima-cad-cpp zima-cad-update)
 if(MSVC)
     # Retain the large-object budget for lambda-heavy UI translation units.
@@ -508,6 +565,12 @@ if(MSVC)
 endif()
 if(WIN32)
     set_target_properties(zima-cad-cpp PROPERTIES WIN32_EXECUTABLE TRUE)
+    add_custom_command(TARGET zima-cad-cpp POST_BUILD
+        COMMAND ${CMAKE_COMMAND}
+            "-DQT_RUNTIME_DIRECTORY=$<TARGET_FILE_DIR:Qt6::Core>"
+            "-DOUTPUT_DIRECTORY=$<TARGET_FILE_DIR:zima-cad-cpp>"
+            "-DCONFIGURATION=$<CONFIG>"
+            -P "${CMAKE_CURRENT_SOURCE_DIR}/../tools/deploy-qt-webengine.cmake")
     target_sources(zima-cad-cpp PRIVATE app/windows/zima-cad.rc)
     set_source_files_properties(app/windows/zima-cad.rc PROPERTIES OBJECT_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/app/windows/app-icon.ico")
 endif()
@@ -1592,6 +1655,14 @@ if(ZIMA_BUILD_TESTS)
         ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_CONSOLE_ONLY=1;ZIMA_VERIFY_SKETCH_ROLES_ONLY=1"
         WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 90)
     add_test(NAME zima_cpp_axis_up_to_ui_contract COMMAND zima-cad-cpp --verify-startup)
+    add_test(NAME zima_cpp_browser_workspace_ui_contract COMMAND zima-cad-cpp --verify-startup)
+    add_test(NAME zima_cpp_step_tabs_ui_contract COMMAND zima-cad-cpp --verify-startup)
+    set_tests_properties(zima_cpp_step_tabs_ui_contract PROPERTIES
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_STEP_TABS_ONLY=1"
+        WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/.." TIMEOUT 90)
+    set_tests_properties(zima_cpp_browser_workspace_ui_contract PROPERTIES
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_BROWSER_WORKSPACE_ONLY=1"
+        WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/.." TIMEOUT 90)
     set_tests_properties(zima_cpp_axis_up_to_ui_contract PROPERTIES
         ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_CONSOLE_ONLY=1;ZIMA_VERIFY_AXIS_UP_TO_ONLY=1"
         WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 90)
@@ -2198,4 +2269,25 @@ if(ZIMA_BUILD_TESTS)
     endif()
     add_test(NAME zima_desktop_integration COMMAND zima_desktop_integration_tests)
     set_tests_properties(zima_desktop_integration PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+endif()
+
+if(WIN32 AND ZIMA_QT_SDK_ROOT)
+    set_property(GLOBAL APPEND PROPERTY JOB_POOLS qt_runtime_link=1)
+    # vcpkg still supplies OCCT and other native libraries. Its app-local step
+    # runs first; overwrite every referenced Qt runtime/plugin from the one
+    # explicitly selected kit, including test executables in the same directory.
+    get_property(qt_deploy_targets DIRECTORY PROPERTY BUILDSYSTEM_TARGETS)
+    foreach(qt_deploy_target IN LISTS qt_deploy_targets)
+        get_target_property(qt_deploy_type ${qt_deploy_target} TYPE)
+        if(qt_deploy_type STREQUAL "EXECUTABLE")
+            set_property(TARGET ${qt_deploy_target} PROPERTY JOB_POOL_LINK qt_runtime_link)
+            add_custom_command(TARGET ${qt_deploy_target} POST_BUILD
+                COMMAND ${CMAKE_COMMAND}
+                    "-DQT_SDK=${ZIMA_QT_SDK_ROOT}"
+                    "-DQT_CONFIGURATION=$<IF:$<CONFIG:Debug>,--debug,--release>"
+                    "-DTARGET_DIRECTORY=$<TARGET_FILE_DIR:${qt_deploy_target}>"
+                    "-DTARGET_EXECUTABLE=$<TARGET_FILE:${qt_deploy_target}>"
+                    -P "${CMAKE_CURRENT_SOURCE_DIR}/../tools/deploy-qt-sdk.cmake")
+        endif()
+    endforeach()
 endif()

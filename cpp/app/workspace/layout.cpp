@@ -1613,6 +1613,9 @@ void AssemblyWorkspaceWindow::create_layout() {
 
     layout->addWidget(tabs_);
     layout->addWidget(document_splitter_, 1);
+    browser_stack_=new QStackedWidget(central);
+    browser_stack_->setObjectName("browserStack");browser_stack_->hide();
+    layout->addWidget(browser_stack_,1);
     setCentralWidget(central);
     state_ = new QLabel(this);
     state_->setObjectName("workspaceState");
@@ -1638,9 +1641,13 @@ void AssemblyWorkspaceWindow::create_layout() {
     operation_progress_->hide();
     statusBar()->addPermanentWidget(operation_progress_);
     connect(tabs_, &QTabBar::tabCloseRequested, this,
-        [this](int index) { close_document(index); });
+        [this](int index) { if(!close_browser(index))close_document(index); });
     connect(tabs_, &QTabBar::currentChanged, this, [this](int index) {
         if (index < 0) return;
+        const auto tab_id=tabs_->tabData(index).toString();
+        if(tab_id.startsWith("web:")){select_browser(tab_id);return;}
+        active_browser_=nullptr;
+        if(browser_stack_)browser_stack_->hide();
         if(measurement_dialog_)measurement_dialog_->reject();
         if(section_dialog_){QSignalBlocker block(tabs_);for(int i=0;i<tabs_->count();++i)if(tabs_->tabData(i).toString().toStdString()==section_document_id_)tabs_->setCurrentIndex(i);return;}
         const std::string previous_id = workspace_.active_document_id();

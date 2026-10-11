@@ -2,6 +2,18 @@
 
 ## Native Linux continuation (2026-10-11)
 
+The integrated browser follow-up adds Qt WebEngine Widgets, WebChannel and the
+Qt DBus development component required by the shared QtKeychain 0.15.0 backend.
+Provision matching system Qt modules before rebuilding. Run
+`zima_browser_bookmarks` and `zima_browser_ui` in the native desktop session,
+including an available Secret Service or KWallet credential service. The Linux
+packager now includes the WebEngine helper in its ELF dependency and license
+closure, plus resource data and locale files. Verify actual web navigation,
+downloads, password save/autofill/removal, profile persistence and all five
+languages from the packaged runtime. Windows browser results do not verify
+these Linux contracts. The ordinary Axis None controls and imported Assembly
+closing/source-save behavior also require native Linux GUI verification.
+
 The source through Windows 2026101106 has been fetched and the patched native
 Linux SDK, product and test targets are built. The contact, current factory
 FORM, retained copy, placement, persistence and desktop results are recorded in

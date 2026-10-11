@@ -211,7 +211,7 @@ void AssemblyWorkspaceWindow::save_active_assembly() {
         workspace_,id,std::filesystem::u8path(path.toStdString()));}
     catch(const std::exception& error) {
         report_operation_error(application_settings_.text("message.save_failed",
-            tr("Uložení se nezdařilo")),error.what());return;
+            tr("Uložení se nezdařilo")),QObject::tr(error.what()));return;
     }
     if(!pending)return;
     begin_status_operation(tr("Ukládám sestavu %1…").arg(
@@ -259,7 +259,7 @@ void AssemblyWorkspaceWindow::save_active_document() {
             workspace_,id,std::filesystem::u8path(path.toStdString()));}
         catch(const std::exception& error) {
             report_operation_error(application_settings_.text("message.save_failed",
-                tr("Uložení se nezdařilo")),error.what());return;
+                tr("Uložení se nezdařilo")),QObject::tr(error.what()));return;
         }
         if(!pending)return;
         begin_status_operation(tr("Ukládám výkres %1…").arg(
@@ -310,7 +310,7 @@ void AssemblyWorkspaceWindow::save_active_document() {
         workspace_,id,std::filesystem::u8path(path.toStdString()));}
     catch(const std::exception& error) {
         report_operation_error(application_settings_.text("message.save_failed",
-            tr("Uložení se nezdařilo")),error.what());return;
+            tr("Uložení se nezdařilo")),QObject::tr(error.what()));return;
     }
     if(!pending)return;
     begin_status_operation(tr("Ukládám Part %1…").arg(
@@ -752,6 +752,9 @@ void AssemblyWorkspaceWindow::show_global_settings(bool system_setup,bool first_
     if(!system_setup)pending.language = ApplicationSettings::load(
         QFileInfo(application_settings_.config_path).absolutePath()).language;
     auto* dialog = new GlobalSettingsDialog(std::move(pending), this,system_setup,first_launch);
+    dialog->browser_passwords=[this]{ensure_browser_runtime();browser_runtime_->show_passwords();};
+    dialog->browser_clear_cookies=[this]{ensure_browser_runtime();browser_runtime_->profile();browser_runtime_->clear_cookies();};
+    dialog->browser_clear_cache=[this]{ensure_browser_runtime();browser_runtime_->profile();browser_runtime_->clear_cache();};
     global_settings_dialog_ = dialog;
     connect(dialog, &QDialog::accepted, this, [this] {
         auto next = ApplicationSettings::load(
@@ -765,6 +768,7 @@ void AssemblyWorkspaceWindow::show_global_settings(bool system_setup,bool first_
             next.qt_translations = application_settings_.qt_translations;
         }
         application_settings_ = std::move(next);
+        if(browser_runtime_)browser_runtime_->configure(application_settings_.browser);
         drawing_workspace_->set_formats_directory(application_settings_.resolved_paths.value("Formats"));
         if (!language_changed) apply_application_translations(*qApp, application_settings_);
         apply_application_appearance(*qApp, application_settings_);

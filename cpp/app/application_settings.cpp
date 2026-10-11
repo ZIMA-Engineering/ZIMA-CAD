@@ -134,7 +134,7 @@ ApplicationSettings ApplicationSettings::load(const QString& working_directory, 
     const auto value = [&](const QString& key, const QString& fallback, QString* origin = nullptr) {
         for (auto it = layers.rbegin(); it != layers.rend(); ++it) {
             const auto text = (*it)->value(key).toString().trimmed();
-            if (!text.isEmpty()) {
+            if (!text.isEmpty() || (key == "Browser/HomePage" && (*it)->contains(key))) {
                 if (origin) *origin = (*it)->fileName();
                 return text;
             }
@@ -143,6 +143,12 @@ ApplicationSettings ApplicationSettings::load(const QString& working_directory, 
         return fallback;
     };
     result.language = value("Application/Language", "cs");
+    result.browser.home=value("Browser/HomePage",browser::official_url()).trimmed();
+    result.browser.open_on_start=value("Browser/OpenOnStartup","false").toLower()=="true";
+    result.browser.ask_download_path=value("Browser/AskDownloadPath","false").toLower()=="true";
+    result.browser.block_third_party_cookies=value("Browser/BlockThirdPartyCookies","true").toLower()=="true";
+    result.browser.save_passwords=value("Browser/SavePasswords","true").toLower()=="true";
+    result.browser.autofill_passwords=value("Browser/AutofillPasswords","true").toLower()=="true";
     result.theme=value("Application/Theme","light").trimmed().toLower();
     if(result.theme!="dark")result.theme="light";
     result.document_naming.uppercase=value("DocumentNames/Uppercase","false").toLower()=="true";
@@ -328,6 +334,10 @@ bool ApplicationSettings::save(QString* error) const {
         {"Drawing/DxfDirectory",drawing_dxf_directory},
         {"Drawing/ViewDisplayStyle",drawing_view_style},
         {"Application/Language", language}, {"Application/Theme", theme=="dark"?"dark":"light"},
+        {"Browser/HomePage",browser.home},{"Browser/OpenOnStartup",browser.open_on_start},
+        {"Browser/AskDownloadPath",browser.ask_download_path},
+        {"Browser/BlockThirdPartyCookies",browser.block_third_party_cookies},
+        {"Browser/SavePasswords",browser.save_passwords},{"Browser/AutofillPasswords",browser.autofill_passwords},
         {"Application/UseISOFont", use_iso_application_font},
         {"Dimensions/ToleranceLayout", stacked_tolerances ? "stacked" : "inline"},
         {"DocumentNames/Uppercase", document_naming.uppercase},

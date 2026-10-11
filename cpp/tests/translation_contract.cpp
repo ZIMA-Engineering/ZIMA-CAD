@@ -96,7 +96,7 @@ int verify_translations(QApplication& application, QWidget& parent) {
     const QRegularExpression literal(R"rx("(?:\\.|[^"\\])*")rx");
     while (files.hasNext()) {
         const auto path = files.next();
-        if (path.contains("/tests/") || path.contains("verification")) continue;
+        if (path.contains("/tests/") || path.contains("/third_party/") || path.contains("verification")) continue;
         QFile file(path); check(file.open(QIODevice::ReadOnly), "Cannot read translation source");
         auto matches = calls.globalMatch(QString::fromUtf8(file.readAll()));
         while (matches.hasNext()) {
@@ -752,7 +752,7 @@ int verify_translations(QApplication& application, QWidget& parent) {
             check(!reverse->isVisible(),"One-sided axis exposes second length");
             mode->setCurrentIndex(1);application.processEvents();check(reverse->isVisible(),"Two-sided axis hides second length");
             auto* end=properties.findChild<QComboBox*>("axisEndMode0");
-            check(end&&end->count()==2&&end->itemText(0)==settings.qt_translations.value("Na délku")&&end->itemText(1)==settings.qt_translations.value("Až k…"),"Axis end modes/untranslated Through All");
+            check(end&&end->count()==3&&end->itemText(0)==settings.qt_translations.value("Na délku")&&end->itemText(1)==settings.qt_translations.value("Až k…")&&end->itemText(2)==settings.qt_translations.value("Nevytvářet"),"Axis end modes are missing or untranslated");
             end->setCurrentIndex(1);application.processEvents();
             auto* target=properties.findChild<QTableWidget*>("axisEndTarget0");
             check(target&&target->isVisible()&&!properties.findChild<QDoubleSpinBox*>("constructionDisplaySize")->isVisible(),"Up-to reference row missing");
@@ -770,6 +770,22 @@ int verify_translations(QApplication& application, QWidget& parent) {
             editing.findChild<QComboBox*>("constructionAxisExtentMode")->setCurrentIndex(2);application.processEvents();
             check(!editing.findChild<QDoubleSpinBox*>("constructionAxisReverseLength")->isVisible(),"Symmetric axis exposes second length");
             editing.reject();application.processEvents();
+            app::ConstructionPropertiesDialog reverse_only(*committed,true,[&](auto value){committed=value;},&parent);
+            reverse_only.setAttribute(Qt::WA_DeleteOnClose,false);reverse_only.show();application.processEvents();
+            reverse_only.findChild<QComboBox*>("axisEndMode0")->setCurrentIndex(2);application.processEvents();
+            check(!reverse_only.findChild<QDoubleSpinBox*>("constructionDisplaySize")->isVisible(),"None exposes forward length");
+            check(reverse_only.pending_value().display_size==0&&reverse_only.pending_value().axis_reverse_length==23,"Reverse-only preview lost extents");
+            reverse_only.findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();application.processEvents();
+            check(committed->axis_limits()==std::pair{-23.,0.},"Reverse-only Axis OK changed span");
+            app::ConstructionPropertiesDialog forward_only(*committed,true,[&](auto value){committed=value;},&parent);
+            forward_only.setAttribute(Qt::WA_DeleteOnClose,false);forward_only.show();application.processEvents();
+            check(forward_only.findChild<QComboBox*>("axisEndMode0")->currentIndex()==2,"Reopened Axis lost disabled forward direction");
+            forward_only.findChild<QComboBox*>("axisEndMode0")->setCurrentIndex(0);
+            forward_only.findChild<QDoubleSpinBox*>("constructionDisplaySize")->setValue(71);
+            forward_only.findChild<QComboBox*>("axisEndMode1")->setCurrentIndex(2);application.processEvents();
+            check(!forward_only.findChild<QDoubleSpinBox*>("constructionAxisReverseLength")->isVisible(),"None exposes reverse length");
+            forward_only.findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();application.processEvents();
+            check(committed->axis_limits()==std::pair{0.,71.},"Forward-only Axis OK changed span");
         }
         {
             app::DimensionTextFields fields({},&parent);

@@ -736,7 +736,8 @@ int native_outward_form_probe(const std::filesystem::path& path,double thickness
         check(workspace::commit_sheet_state(live,engine,stock.document_id,unfold),"Outward FORM Unbend did not commit");
         valid(state->session.calculated_boundaries().back());
         check(state->session.undo(),"Outward Unbend Undo failed");
-        const auto path=std::filesystem::absolute("Projects/test/VentilationWindow-outward-placed.prtz");
+        const auto path=std::filesystem::absolute("build/form-diagnostic/VentilationWindow-outward-placed.prtz");
+        std::filesystem::create_directories(path.parent_path());
         state->session.document().save(path,state->session.calculated_boundaries());
         std::vector<kernel::BodyResult> reopened_results;auto reopened=document::PartDocument::load(path,&reopened_results);
         check(*reopened.find_container(feature.id)==inserted,"Outward native save/reopen changed references or embedded definition");

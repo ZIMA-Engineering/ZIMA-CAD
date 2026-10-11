@@ -45,6 +45,19 @@ DocumentSave prepare_document_save(const Workspace& workspace,
             else job.snapshot_=value.session.document();
         }
     },*state);
+    if(const auto* assembly=std::get_if<AssemblyState>(state)) {
+        std::set<std::string> included;
+        for(const auto& component:assembly->session.document().components) {
+            if(component.derived_copy || component.source_kind==assembly::ComponentSourceKind::Pattern)continue;
+            const auto source_id=family_owner(workspace,component.source_document_id);
+            if(source_id==id || !included.insert(source_id).second)continue;
+            const auto* source=workspace.find(source_id);
+            if(!source || !document_needs_save(workspace,source_id))continue;
+            const auto source_path=std::visit([](const auto& value){return value.path;},*source);
+            if(source_path.empty())throw std::invalid_argument("An edited Assembly source has no native filename. Save the source model first.");
+            job.sources_.push_back(prepare_document_save(workspace,source_id,source_path));
+        }
+    }
     if(std::holds_alternative<DrawingState>(*state)) {
         if(const auto pending=workspace.drawing_edited_sources.find(id);pending!=workspace.drawing_edited_sources.end()) {
             std::set<std::string> included;
@@ -72,7 +85,7 @@ std::optional<DocumentSave> prepare_document_save_if_needed(
 
 SavedDocument DocumentSave::write() const {
     auto result=receipt_;
-    // A source failure must prevent publication of the dependent Drawing.
+    // A source failure prevents publication of its dependent document.
     for(const auto& source:sources_)result.sources_.push_back(source.write());
     std::visit([&](const auto& snapshot) {
         using Snapshot=std::decay_t<decltype(snapshot)>;
@@ -101,7 +114,7 @@ bool complete_document_save(Workspace& workspace, const SavedDocument& saved) {
                 value.mark_saved();workspace.drawing_edited_sources.erase(saved.id_);
             }
         } else {
-            if(value.session.revision()==saved.revision_ &&
+            if(sources_current && value.session.revision()==saved.revision_ &&
                value.session.data_generation()==saved.generation_ &&
                value.session.document().dimension_identifiers.allocation_count()==saved.allocations_) {
                 value.session.mark_saved();
@@ -113,10 +126,20 @@ bool complete_document_save(Workspace& workspace, const SavedDocument& saved) {
     },*state);
 }
 
-bool document_needs_save(const Workspace& workspace, const std::string& requested) {
+namespace {
+bool document_needs_save_impl(const Workspace& workspace, const std::string& requested,
+    std::set<std::string>& visited) {
     const auto id=family_owner(workspace,requested);
+    if(!visited.insert(id).second)return false;
     const auto* state=workspace.find(id);
     if(!state)throw std::invalid_argument("Document is not open");
+    if(const auto* assembly=std::get_if<AssemblyState>(state)) {
+        for(const auto& component:assembly->session.document().components) {
+            if(component.derived_copy || component.source_kind==assembly::ComponentSourceKind::Pattern)continue;
+            if(workspace.find(component.source_document_id) &&
+                document_needs_save_impl(workspace,component.source_document_id,visited))return true;
+        }
+    }
     if(const auto pending=workspace.drawing_edited_sources.find(id);pending!=workspace.drawing_edited_sources.end()&&!pending->second.empty())return true;
     return std::visit([](const auto& value) {
         using State=std::decay_t<decltype(value)>;
@@ -128,6 +151,11 @@ bool document_needs_save(const Workspace& workspace, const std::string& requeste
         std::error_code error;
         return !std::filesystem::is_regular_file(value.path,error);
     },*state);
+}
+} // namespace
+bool document_needs_save(const Workspace& workspace,const std::string& requested) {
+    std::set<std::string> visited;
+    return document_needs_save_impl(workspace,requested,visited);
 }
 CloseDocumentResult close_document(Workspace& workspace, const std::string& id, bool discard) {
     if(!workspace.find(id))return CloseDocumentResult::NotOpen;

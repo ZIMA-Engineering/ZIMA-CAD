@@ -35,6 +35,28 @@ int main(){try{
   document::DocumentSession session(part);session.commit(changed,{});check(session.undo()&&session.redo(),"Axis extent Undo/Redo failed");
   check(session.document().constructions[0].display_size==120,"Axis Redo lost length");
  }
+ // Disabled directions retain endpoint ancestry and survive native round-trips.
+ for(const bool forward:{false,true}) {
+  auto one=axis;one.axis_extent_mode=document::AxisExtentMode::TwoSides;
+  (forward?one.axis_reverse_length:one.display_size)=0.0;
+  check(one.valid_display_extent(),"Single enabled direction was rejected");
+  const auto bounds=one.axis_limits();
+  check(bounds==(forward?std::pair{0.,80.}:std::pair{-25.,0.}),"Disabled direction has nonzero extent");
+  const auto roundtrip=document::deserialize_construction_objects(document::serialize_construction_objects({one}));
+  check(roundtrip.front()==one,"Disabled direction was lost on native reopen");
+  auto changed=part;changed.constructions[0]=one;
+  document::DocumentSession edits(part);edits.commit(changed,{});
+  check(edits.undo()&&edits.document().constructions[0]==part.constructions[0],"Disabled direction Undo failed");
+  check(edits.redo()&&edits.document().constructions[0]==one,"Disabled direction Redo failed");
+  const auto packet=changed.construction_viewer_mesh();
+  for(const auto& point:packet.original_references.points)if(point.reference.semantic_key.starts_with("axis:point:"))
+   near(point.position,one.axis_point(point.reference.semantic_key.ends_with("start")?bounds.first:bounds.second));
+ }
+ auto empty=axis;empty.axis_extent_mode=document::AxisExtentMode::TwoSides;
+ empty.display_size=empty.axis_reverse_length=0;
+ check(!empty.valid_display_extent(),"Both disabled directions accepted");
+ try {static_cast<void>(document::serialize_construction_objects({empty}));throw std::logic_error("Empty axis was serialized");}
+ catch(const std::logic_error&){throw;}catch(const std::runtime_error&){}
  // End references are independent of placement and keep semantic endpoint identities.
  auto limited=document::PartDocument::create_construction(document::ConstructionKind::Axis);
  limited.direction={0,0,1};limited.axis_extent_mode=document::AxisExtentMode::TwoSides;

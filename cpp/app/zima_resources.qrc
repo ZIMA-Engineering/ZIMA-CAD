@@ -1,5 +1,13 @@
 <RCC>
   <qresource prefix="/zima">
+    <file alias="icons/web.svg">../../resources/icons/web.svg</file>
+    <file alias="icons/web-folder.svg">../../resources/icons/web-folder.svg</file>
+    <file alias="icons/web-home.svg">../../resources/icons/web-home.svg</file>
+    <file alias="icons/web-back.svg">../../resources/icons/web-back.svg</file>
+    <file alias="icons/web-forward.svg">../../resources/icons/web-forward.svg</file>
+    <file alias="icons/web-refresh.svg">../../resources/icons/web-refresh.svg</file>
+    <file alias="icons/web-pin.svg">../../resources/icons/web-pin.svg</file>
+    <file alias="browser/password_manager.js">../browser/password_manager.js</file>
     <file alias="icons/boundary-surface.svg">../../resources/icons/boundary-surface.svg</file>
     <file alias="icons/surface-thicken.svg">../../resources/icons/surface-thicken.svg</file>
     <file alias="icons/surface-from-solid.svg">../../resources/icons/surface-from-solid.svg</file>
