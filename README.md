@@ -37,6 +37,15 @@ a Linux runtime. User configuration and projects live outside version directorie
 See [native distribution](doc/NATIVE_DISTRIBUTION.md),
 [updates](doc/UPDATES.md) and the [user manual](doc/UZIVATELSKY_MANUAL.md).
 
+Signed Windows [2026101103](https://github.com/ZIMA-Engineering/ZIMA-CAD/releases/tag/ZIMA-CAD-2026101103)
+includes linked surfaces from a preceding Body, experimental solid-cutter/outward
+FORM definitions, file-selector ownership fixes and the Sketcher/Tree/selection
+updates. [Release verification and limits](doc/releases/2026101103.md) record
+the twelve packaged GUI scenarios, native geometry checks and public update
+acceptance. The original FORM styles remain available; manual corner rounding
+and the final candidate style decision remain open. Linux verification follows
+the separate handoff.
+
 ## Command line
 
 The `zima-cad-cli` executable runs the shared CAD commands without a desktop window.

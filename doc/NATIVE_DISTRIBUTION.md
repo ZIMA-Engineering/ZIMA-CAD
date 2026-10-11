@@ -1008,3 +1008,14 @@ Accepted signed assets, reports, SDK/build, personal configuration and projects
 remain. The stable local development launcher is `zima-cad.bat`. This Windows
 acceptance does not verify Linux. No new UI strings or catalog keys were added;
 the focused five-language catalog validation passed.
+
+Signed Windows [2026101103](releases/2026101103.md) was published on 2026-10-11
+from clean immutable source commit `7b1997c8b75b0f933b3afaff998513a91dafb078`.
+Native dependencies, archive/inventory/digest checks, GUI/CLI smoke, loading all
+23 factory native assets and twelve isolated packaged GUI scenarios passed.
+Production trust, uploaded asset digests, anonymous public downloads and update
+discovery from trusted `2026101102` passed. Runtime/source remained immutable;
+personal configuration and projects were preserved. The classic FORM library
+contains the new outward experimental definitions while retaining the original
+production styles. The linked corner remains unrounded for manual evaluation.
+Linux execution remains a separate host acceptance requirement.

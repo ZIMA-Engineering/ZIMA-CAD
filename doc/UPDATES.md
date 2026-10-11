@@ -441,3 +441,14 @@ Accepted signed assets, reports, SDK/build, personal configuration and projects
 remain. The stable local development launcher is `zima-cad.bat`. This Windows
 acceptance does not verify Linux. No new UI strings or catalog keys were added;
 the focused five-language catalog validation passed.
+
+Signed Windows [2026101103](releases/2026101103.md) was published as latest stable
+on 2026-10-11 at 11:56:54 UTC. Production bootstrap trust, all three GitHub
+upload digests and anonymous downloads matched the accepted assets. The trusted
+`2026101102` updater verifies the manifest/signature and offers `2026101103` as
+installable; verification did not install over a user's application. Native
+factory loading and twelve packaged GUI scenarios passed with immutable
+runtime/source checksums. The release includes linked Body surfaces and
+experimental FORM candidates; practical rounding/style acceptance and Linux
+execution remain explicitly separate. See the release record for SHA-256,
+timings, limitations and evidence locations.
