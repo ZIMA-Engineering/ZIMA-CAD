@@ -31,6 +31,9 @@
 #include <QUuid>
 #include <QWebEnginePage>
 #include <QWebEngineView>
+#include <QOpenGLWidget>
+#include <QQuickWindow>
+#include <QSurfaceFormat>
 #include <iostream>
 #include <stdexcept>
 
@@ -52,12 +55,21 @@ QByteArray pixels(const QIcon& icon) {
 }
 
 int main(int argc,char** argv) {
+    QSurfaceFormat format;format.setRenderableType(QSurfaceFormat::OpenGL);
+    format.setVersion(3,3);format.setProfile(QSurfaceFormat::CoreProfile);
+    format.setDepthBufferSize(24);format.setSamples(4);QSurfaceFormat::setDefaultFormat(format);
     QCoreApplication::setAttribute(Qt::AA_ShareOpenGLContexts);
+    // The alternate mode is a diagnostic negative control for the former
+    // mixed-API startup, never a product configuration.
+    bool default_api=false;for(int i=1;i<argc;++i)if(QByteArray(argv[i])=="--default-graphics-api")default_api=true;
+    if(!default_api)QQuickWindow::setGraphicsApi(QSGRendererInterface::OpenGL);
     QApplication application(argc,argv);
     try {
         QTemporaryDir directory;check(directory.isValid(),"No browser test directory");
         QString downloads=directory.filePath("first");QDir().mkpath(downloads);
         QMainWindow owner;owner.resize(1200,800);
+        auto* cad_context=new QOpenGLWidget(&owner);cad_context->resize(100,100);owner.show();cad_context->show();
+        wait([&]{return cad_context->isValid();},"CAD OpenGL context did not initialize");cad_context->hide();
         QTcpServer server;check(server.listen(QHostAddress::LocalHost),"Cannot start HTTP fixture");
         QObject::connect(&server,&QTcpServer::newConnection,&server,[&] {
             while(auto* socket=server.nextPendingConnection()) {
@@ -67,7 +79,7 @@ int main(int argc,char** argv) {
                     socket->setProperty("request",bytes);
                     if(!bytes.contains("\r\n\r\n"))return;
                     const auto path=bytes.split(' ').value(1);
-                    QByteArray body="<html><head><title>Browser fixture</title></head><body>Fixture</body></html>";
+                    QByteArray body="<html><head><title>Browser fixture</title></head><body style='margin:0;background:#1d9a53'>Fixture<div style='position:fixed;left:50%;top:0;right:0;bottom:0;background:#a32acf'></div></body></html>";
                     QByteArray extra="Content-Type: text/html\r\n";
                     if(path=="/second")body="<html><head><title>Second fixture</title></head><body>Second</body></html>";
                     if(path=="/login")body="<html><head><title>Login fixture</title></head><body><form action='/login'><input name='username' autocomplete='username'><input name='password' type='password' autocomplete='current-password'></form></body></html>";
@@ -90,6 +102,12 @@ int main(int argc,char** argv) {
         check(toolbar && toolbar->actions().front()->objectName()=="browserHome","Home is not the first navigation action");
         tab->navigate(QUrl(base+"/home"));
         wait([&]{return tab->title()=="Browser fixture";},"HTTP page did not load");
+        auto* rendered_view=tab->findChild<QWebEngineView*>("browserView");
+        wait([&]{
+            const auto image=rendered_view->grab().toImage();const auto scale=image.devicePixelRatio();
+            return !image.isNull()&&image.pixelColor(int(rendered_view->width()*.25*scale),int(rendered_view->height()*.5*scale))==QColor("#1d9a53")
+                &&image.pixelColor(int(rendered_view->width()*.75*scale),int(rendered_view->height()*.5*scale))==QColor("#a32acf");
+        },"Browser HTTP content did not render beside the CAD OpenGL context");
         auto* tree=tab->findChild<QTreeWidget*>("browserBookmarks");
         check(tree && tree->topLevelItemCount()==1,"Bookmark Tree missing");
         const auto bookmark=runtime.bookmarks.add("Fixture",tab->url(),{},false,&error);

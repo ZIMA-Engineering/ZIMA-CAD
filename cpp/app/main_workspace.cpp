@@ -119,6 +119,13 @@
 #include <QSplitter>
 #include <QStackedWidget>
 #include <QSurfaceFormat>
+#include <QQuickWindow>
+#include <QScreen>
+#include <QWebEngineView>
+#include <QThread>
+#include <QTcpServer>
+#include <QTcpSocket>
+#include <QWindow>
 #include <QStyleFactory>
 #include <QTabBar>
 #include <QTabWidget>
@@ -13638,6 +13645,9 @@ int main(int argc, char* argv[]) {
     format.setSamples(4);
     QSurfaceFormat::setDefaultFormat(format);
     QCoreApplication::setAttribute(Qt::AA_ShareOpenGLContexts);
+    // WebEngine embeds a Qt Quick widget in the same top-level window as the
+    // OpenGL CAD views. Qt requires one graphics API for that widget hierarchy.
+    QQuickWindow::setGraphicsApi(QSGRendererInterface::OpenGL);
     QApplication application(argc, argv);
 
     application.setApplicationName("ZIMA-CAD");

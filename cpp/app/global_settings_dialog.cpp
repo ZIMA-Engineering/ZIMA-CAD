@@ -6,6 +6,7 @@
 #include "ai_settings_page.hpp"
 #include "aipreferences.h"
 #include <QTabWidget>
+#include <QTabBar>
 #include <QVBoxLayout>
 #include <QDialogButtonBox>
 
@@ -273,6 +274,13 @@ GlobalSettingsDialog::GlobalSettingsDialog(
     sections_->addTab(ai_, tr("AI"));
     desktop_ = desktop_context?desktop::settings_page(sections_,*desktop_context):desktop::settings_page(sections_);
     sections_->addTab(desktop_, tr("Desktop integration"));
+    if(!system_setup_) {
+        // Include the current language/style's complete tab strip in the
+        // initial width; the shared subwindow helper bounds it to the owner.
+        const auto margins=content_layout()->contentsMargins();
+        const int width=std::max(820,sections_->tabBar()->sizeHint().width()+margins.left()+margins.right()+32);
+        set_initial_size({width,0});
+    }
     if(system_setup_) {
         // Hidden tabs still contribute to QStackedWidget's minimum size.
         // Remove the setup-inapplicable pages from the stack, retaining their

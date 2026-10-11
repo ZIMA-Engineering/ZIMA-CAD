@@ -1,5 +1,18 @@
 # Linux build and distribution handoff — 2026-09-15
 
+## Browser graphics follow-up (2026-10-12)
+
+Windows 2026101201 selects the shared OpenGL Qt Quick graphics API before
+QApplication to keep WebEngine and the CAD OpenGL widgets in one native window.
+Qt Quick is now an explicit build dependency. Re-run the browser harness and
+`zima_cpp_browser_workspace_ui_contract` in the Linux desktop session, including
+native pixel composition, first opening with/without a CAD document, repeated
+tab switches, resizing, Light/Dark/Light and the five-language settings width.
+Offscreen tests explicitly skip native-screen pixel capture and do not verify
+the window lifecycle on XWayland or Wayland. The Windows negative-control mode
+`zima_browser_ui_tests --default-graphics-api` diagnoses the former mixed-API
+configuration; it is not a supported product setting.
+
 ## Native Linux continuation (2026-10-11)
 
 The integrated browser follow-up adds Qt WebEngine Widgets, WebChannel and the

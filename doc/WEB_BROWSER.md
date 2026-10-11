@@ -5,6 +5,14 @@ to Global Settings opens another web tab. Closing a browser tab does not close a
 CAD document. Website popups open additional web tabs and share the browser
 profile. CAD commands remain unavailable while a browser tab is active.
 
+The desktop selects the OpenGL Qt Quick graphics API before creating the
+application. WebEngine's embedded Quick view shares the top-level window with
+the CAD OpenGL widgets; mixing Windows' default D3D11 Quick backend with those
+widgets can produce a black page and recreate the native window. This follows
+the [Qt Quick widget graphics API contract](https://doc.qt.io/qt-6/qquickwidget.html#graphics-api-support).
+GPU rendering remains enabled. The browser does not change CAD rendering or
+calculation precision.
+
 The navigation bar contains Home, Back, Forward, Reload, the address field and
 the bookmark pin, in that order. The left Tree contains bookmark folders and
 links. Its gear opens the Browser page in Global Settings; its plus menu adds a
@@ -18,6 +26,9 @@ available and otherwise use the shared globe icon.
 The initial home page is the official ZIMA-CAD page at
 <https://zima-engineering.cz/05-Software/01-ZIMA-CAD/0000-index/index_cs.html>.
 Users may choose another home page or leave the address empty for a blank page.
+Global Settings chooses an initial width that fits the complete translated tab
+strip, subject to the main window's available width. Its shared internal-window
+placement and manual resizing behavior remain in use.
 Opening a web tab at application startup is optional. The official bookmark is
 created only when the bookmark file is first initialized; deleting it is permanent.
 
