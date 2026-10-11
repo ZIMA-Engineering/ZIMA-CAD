@@ -302,6 +302,7 @@ struct EdgeTreatmentParameters {
 struct ShellParameters {
     std::vector<zima::kernel::FaceReference> removed_faces;
     double thickness{1.0};
+    std::string source_body;
     bool operator==(const ShellParameters&) const = default;
 };
 
@@ -798,6 +799,11 @@ public:
     // Library insertion metadata is embedded in the native Part alongside its
     // editable Body history and participates in Undo/Redo.
     std::optional<std::string> symbol_editor_definition;
+    // Native FORM library intent, copied independently with the definition.
+    // False retains inward authoring; true offsets the authored skin outward.
+    // The outward corner candidate exposes sharp transitions for ordinary
+    // downstream Fillet authoring; it does not apply closed-tool auto rounding.
+    bool form_outward{};
     // Persisted diagnostics from reference evaluation, keyed by history owner.
     std::map<std::string,std::string> reference_errors;
     // Reference definitions retained after source deletion, until explicitly repaired.

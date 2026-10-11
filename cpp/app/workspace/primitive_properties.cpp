@@ -1950,11 +1950,13 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
         dialog->set_shell_face_callbacks(
             [this](std::size_t index) { remove_shell_face(index); },
             [this] {
+                shell_dialog_->set_shell_source_selection_active(false);
                 shell_face_selection_active_ = true;
                 refresh_shell_selection_ui();
                 state_->setText(shell_dialog_->pending_value().shell.thickness==0.?tr("Vyberte plochy k odstranění. MMB výběr ukončí."):
                     tr("Vyberte plochy, které má Shell otevřít."));
             });
+        configure_shell_source_entry(dialog);
         refresh_shell_selection_ui();
     }
     connect(dialog, &QDialog::rejected, this, [this, dialog_container_id] {

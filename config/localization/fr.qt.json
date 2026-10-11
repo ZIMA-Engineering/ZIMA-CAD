@@ -2250,5 +2250,14 @@
   "Corner FORM cannot fit the prescribed transition radii. Change the bend radius or the definition.": "Le formage d’angle ne peut pas être créé avec les rayons de raccordement prescrits. Modifiez le rayon du pli ou la définition.",
   "Cannot initialize document fingerprint": "Impossible d’initialiser l’empreinte du document",
   "Cannot finish document fingerprint": "Impossible de terminer l’empreinte du document",
-  "Calculated history boundary does not match its parameters": "Le résultat de calcul enregistré ne correspond pas aux paramètres du document"
+  "Calculated history boundary does not match its parameters": "Le résultat de calcul enregistré ne correspond pas aux paramètres du document",
+  "Vytvořit navázané plochy ze zdrojového tělesa. Volitelně vyberte plochy k odstranění.": "Créer des surfaces liées à partir du corps source. Sélectionnez éventuellement les faces à supprimer.",
+  "Zdrojové těleso": "Corps source",
+  "Použít vstup aktivního tělesa": "Utiliser la géométrie d’entrée du corps actif",
+  "Zobrazit zdrojové těleso": "Afficher le corps source",
+  "Vyberte zdrojové těleso. MMB výběr ukončí.": "Sélectionnez le corps source. Le bouton central termine la sélection.",
+  "Invalid Shell parameters": "Paramètres de coque incorrects.",
+  "Shell parameters are invalid": "Paramètres de coque incorrects.",
+  "Shell requires an input body": "La coque nécessite un corps d’entrée.",
+  "Shell requires a calculated input body.": "La coque nécessite un corps d’entrée calculé."
 }

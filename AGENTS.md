@@ -373,6 +373,26 @@ anchored. The shared properties-window implementation owns this layout policy.
 
 ## Windows runtime and release packaging
 
+### Factory native library format updates (mandatory)
+
+- Whenever the native `.prtz` format or its required persisted contracts change,
+  regenerate and verify every repository-owned FORM definition and other native
+  library asset affected by that change, including future library features.
+  Updating only the start templates or executable is insufficient.
+- Use the changed native implementation to calculate, save and reopen the assets.
+  Verify their authored history, role Bodies, reference/side identities and
+  applicable insertion and dependent operations. Do not merely replace a format
+  version field or add legacy compatibility paths.
+- Commit the updated factory assets with the format change and verify that the
+  release contains those exact committed files and can load/use them with its
+  packaged native runtime. An affected stale or unverified factory asset blocks
+  release completion. Windows and Linux use the same committed library data;
+  report any platform-specific verification gap.
+- Preserve custom user libraries and independently stored definitions already
+  inserted into documents. Factory conversion does not authorize overwriting
+  user-authored files or silently changing existing model geometry.
+- This requirement was requested by the user on 2026-10-11.
+
 - Before changing or publishing a Windows runtime or portable build, read and
   follow `doc/WINDOWS_RUNTIME_AND_BUILD.md`.
 - C++ is the only product implementation. Do not restore the removed Python
@@ -831,3 +851,17 @@ change. Tree Insert here markers use red. Semantic icon colors remain explicit.
   uses: red for a Body, green for a container, and palette-neutral for a document.
   The general Origin selection action uses the neutral theme foreground.
 - This requirement was requested by the user on 2026-10-10.
+
+## FORM authoring history (2026-10-11)
+
+- New and explicitly remodeled FORM definitions keep `FORM_CUT` before `FORM`.
+  Planar openings may use a cutting Sketch; a sloped corner uses the actual
+  closed three-dimensional solid cutter. Two normal prisms cutting to the Bend
+  radius are not an equivalent replacement for that shaped solid.
+- A corner `FORM` may be an exact surface linked to the preceding cutter through
+  the ordinary zero-thickness Shell command in a separate Body. Preserve the
+  cutter, native parent/child identity and one-way dependencies. Do not permit
+  forward or cyclic links to bypass ordinary history.
+- Verify the complete Bend domain against solid Cut, outward surface thickness
+  and Fuse; connectivity and valid BRep alone do not prove absence of notches.
+  Candidate style promotion remains the user's decision after practical tests.

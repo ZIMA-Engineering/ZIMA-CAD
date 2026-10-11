@@ -227,6 +227,13 @@ def clean_environment(runtime):
     return env
 
 
+def native_factory_assets(runtime):
+    """Discover all native factory documents, including future library assets."""
+    extensions = {'.prtz', '.asmz', '.drwz', '.tblz', '.frmz', '.symz'}
+    return sorted(path for path in (runtime / 'config').rglob('*')
+                  if path.is_file() and path.suffix.lower() in extensions)
+
+
 def smoke(root, version, gui=True):
     linux = os.name != 'nt'
     runtime = root / ('linux' if linux else 'windows') / version
@@ -265,6 +272,19 @@ def smoke(root, version, gui=True):
         if len(records) != len(items) or not all(r.get('ok') for r in records):
             raise ValueError('CLI smoke command failed')
         return records
+    # Use the packaged executable's native reader, rather than assuming that a
+    # changed extension/version marker makes an old library compatible. This
+    # gate checks loading; feature-specific insertion acceptance remains required.
+    factory_assets = native_factory_assets(runtime)
+    for asset in factory_assets:
+        reader_path = asset
+        if asset.suffix.lower() in {'.frmz', '.tblz', '.symz'}:
+            # These library extensions are native Part documents; the CLI
+            # dispatches by document extension. Read a byte-identical copy
+            # through the ordinary Part reader without modifying the factory.
+            reader_path = project / 'FACTORY-LIBRARY-CHECK.prtz'
+            shutil.copyfile(asset, reader_path)
+        commands([{'command': 'open', 'arguments': {'path': str(reader_path)}}])
     records = commands(['new part PACKAGE-SMOKE', {'command': 'sketch.create',
         'arguments': {'name': 'Package profile', 'plane': 'XY'}}, 'save'])
     sketch = records[1]['data']['sketch']
@@ -300,6 +320,9 @@ def smoke(root, version, gui=True):
     for name, record in json.loads((root / 'checksums.json').read_text(encoding='utf-8')).items():
         if sha(root / name) != record['sha256']:
             raise ValueError('Smoke modified a packaged source/runtime file: ' + name)
+    return {'native_factory_assets': [
+        {'path': path.relative_to(runtime).as_posix(), 'sha256': sha(path), 'load': 'passed'}
+        for path in factory_assets]}
 
 
 def validate_archive(archive, destination=None):
@@ -422,14 +445,15 @@ def package(args):
             if path.is_file(): zipped.write(path, 'ZIMA-CAD/' + path.relative_to(root).as_posix())
     extracted = assembly / 'ověření balíku'
     digest = validate_archive(candidate, extracted)
-    smoke(extracted / 'ZIMA-CAD', version)
+    smoke_result = smoke(extracted / 'ZIMA-CAD', version)
     # Validation report is outside the immutable archive. No official publication.
     with archive.open('xb') as target, candidate.open('rb') as stream:
         shutil.copyfileobj(stream, target)
     if sha(archive) != digest:
         raise ValueError('Final archive copy differs')
     write_json(output / (archive.stem + '.validation.json'), {'archive': archive.name, 'sha256': digest,
-        'commit': commit, 'version': version, 'windows_smoke': 'passed', 'linux_smoke': 'not-run', 'signed': False})
+        'commit': commit, 'version': version, 'windows_smoke': 'passed', 'linux_smoke': 'not-run', 'signed': False,
+        **smoke_result})
     print('Validated candidate:', archive)
 
 

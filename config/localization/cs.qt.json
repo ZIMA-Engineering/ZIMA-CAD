@@ -2250,5 +2250,14 @@
   "Corner FORM cannot fit the prescribed transition radii. Change the bend radius or the definition.": "Rohové tváření nelze vytvořit s předepsanými poloměry přechodů. Změňte poloměr ohybu nebo definici.",
   "Cannot initialize document fingerprint": "Nelze inicializovat otisk dokumentu",
   "Cannot finish document fingerprint": "Nelze dokončit otisk dokumentu",
-  "Calculated history boundary does not match its parameters": "Uložený výsledek výpočtu neodpovídá parametrům dokumentu"
+  "Calculated history boundary does not match its parameters": "Uložený výsledek výpočtu neodpovídá parametrům dokumentu",
+  "Vytvořit navázané plochy ze zdrojového tělesa. Volitelně vyberte plochy k odstranění.": "Vytvořit navázané plochy ze zdrojového tělesa. Volitelně vyberte plochy k odstranění.",
+  "Zdrojové těleso": "Zdrojové těleso",
+  "Použít vstup aktivního tělesa": "Použít vstup aktivního tělesa",
+  "Zobrazit zdrojové těleso": "Zobrazit zdrojové těleso",
+  "Vyberte zdrojové těleso. MMB výběr ukončí.": "Vyberte zdrojové těleso. MMB výběr ukončí.",
+  "Invalid Shell parameters": "Neplatné parametry skořepiny.",
+  "Shell parameters are invalid": "Neplatné parametry skořepiny.",
+  "Shell requires an input body": "Skořepina vyžaduje vstupní těleso.",
+  "Shell requires a calculated input body.": "Skořepina vyžaduje vypočtené vstupní těleso."
 }

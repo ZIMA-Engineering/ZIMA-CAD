@@ -2250,5 +2250,14 @@
   "Corner FORM cannot fit the prescribed transition radii. Change the bend radius or the definition.": "Corner FORM cannot fit the prescribed transition radii. Change the bend radius or the definition.",
   "Cannot initialize document fingerprint": "Cannot initialize document fingerprint",
   "Cannot finish document fingerprint": "Cannot finish document fingerprint",
-  "Calculated history boundary does not match its parameters": "Calculated history boundary does not match its parameters"
+  "Calculated history boundary does not match its parameters": "Calculated history boundary does not match its parameters",
+  "Vytvořit navázané plochy ze zdrojového tělesa. Volitelně vyberte plochy k odstranění.": "Create linked surfaces from the source body. Optionally select faces to remove.",
+  "Zdrojové těleso": "Source body",
+  "Použít vstup aktivního tělesa": "Use the active body input",
+  "Zobrazit zdrojové těleso": "Inspect the source body",
+  "Vyberte zdrojové těleso. MMB výběr ukončí.": "Select the source Body. MMB ends selection.",
+  "Invalid Shell parameters": "Invalid Shell parameters.",
+  "Shell parameters are invalid": "Invalid Shell parameters.",
+  "Shell requires an input body": "Shell requires an input Body.",
+  "Shell requires a calculated input body.": "Shell requires a calculated input Body."
 }

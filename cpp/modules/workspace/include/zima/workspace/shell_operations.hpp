@@ -10,7 +10,9 @@ public:
 enum class ShellEditMode { Create, Replace };
 // Unique persisted face identities of the real operation input, without OCCT.
 [[nodiscard]] std::vector<kernel::FaceReference> shell_input_faces(
-    const PartState&,const std::string& container_id={});
+    const PartState&,const std::string& container_id={},const std::string& source_body={});
+[[nodiscard]] const kernel::BodyResult* shell_source_input(
+    const PartState&,const std::string& container_id={},const std::string& source_body={});
 [[nodiscard]] bool commit_shell(Workspace&,const kernel::OcctKernel&,
     const std::string& document_id,document::HistoryContainer,ShellEditMode);
 } // namespace zima::workspace

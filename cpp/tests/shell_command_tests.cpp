@@ -211,6 +211,76 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
         state->session.calculated_boundaries().back().kernel_shape==split_shape,"Disconnected Shell lost its definition or preceding geometry");
     run(host,"undo");require(!state->session.document().find_container(failed),"Failed Shell Undo retained its definition");
     run(host,"redo");require(state->session.calculated_boundaries().back().calculation_errors.contains(failed),"Failed Shell Redo lost its diagnostic");
+
+    // Copy the exact solid skin into a later editable Body. The source remains
+    // a solid and source history/Body order are explicit dependencies.
+    run(host,"new",{{"type","part"},{"name","surface-shell-other-body"}});
+    state=live.open_part(live.active_document_id());
+    const auto source_body=state->session.document().body_history.active_body_id();
+    const auto source_box=test::rectangular_commands([&](const char* n,Json a){return run(host,n,std::move(a));},
+        {{"length_mm","10"},{"width_mm","10"},{"height_mm","10"}}).data.at("container").get<std::string>();
+    const auto destination=run(host,"body.create",{{"name","Linked skin"}}).data.at("body").get<std::string>();
+    const auto source_faces=run(host,"shell.faces",{{"source_body",source_body}}).data.at("items");
+    require(source_faces.size()==6,"External solid faces were not exposed without calculation");
+    const auto extract=run(host,"surface_shell.create",{{"source_body",source_body},{"faces",Json::array({face("z_max",source_box),face("z_min",source_box)})}}).data.at("container").get<std::string>();
+    const auto extraction=*state->session.document().find_container(extract);
+    const auto check_branches=[&](double source_volume,double skin_area) {
+        const auto& result=state->session.calculated_boundaries().back();
+        require(result.calculation_errors.empty(),"External extraction calculation failed");
+        near(result.body_outputs.at(source_body)->volume,source_volume);
+        near(result.body_outputs.at(destination)->volume,0.);
+        near(result.body_outputs.at(destination)->surface_area,skin_area);
+        require(std::ranges::all_of(result.body_outputs.at(destination)->mesh.triangle_references,[&](const auto& ref){return ref.owner_id==extract&&ref.surface_result;}),"Extracted surface lost native ancestry/owner");
+    };
+    check_branches(1000.,400.);
+    const auto source_data=state->session.document().find_container(source_box)->feature_id;
+    require(run(host,"shell.faces",{{"container",extract}}).data.at("total")==6,"External extraction edit listed its final surface instead of source solid");
+    const auto extract_revision=state->session.revision();const auto* extract_cache=state->session.calculated_boundaries().data();
+    require(!run(host,"surface_shell.set",{{"container",extract},{"source_body",source_body}}).data.at("changed").get<bool>()&&
+        state->session.revision()==extract_revision&&state->session.calculated_boundaries().data()==extract_cache,"Unchanged external extraction recalculated or committed");
+    for(const auto invalid:{destination,std::string("missing")}) {
+        require(!host.execute({{"command","surface_shell.set"},{"arguments",{{"container",extract},{"source_body",invalid}}}}).ok,"Invalid external extraction source accepted");
+        require(state->session.revision()==extract_revision&&*state->session.document().find_container(extract)==extraction,"Rejected source edit changed the document");
+    }
+    auto reversed=state->session.document().body_history;bool reorder_rejected=false;
+    try {reversed.move_body(destination,0);}catch(const std::invalid_argument&){reorder_rejected=true;}
+    require(reorder_rejected,"Dependent surface Body moved before its solid source");
+    run(host,"undo");require(!state->session.document().find_container(extract),"External extraction did not Undo in one step");
+    run(host,"redo");require(*state->session.document().find_container(extract)==extraction,"External extraction Redo lost source or surface identities");
+    run(host,"body.activate",{{"body",source_body}});
+    test::resize_rectangular_commands([&](const char* n,Json a){return run(host,n,std::move(a));},{{"container",source_box},{"length_mm","12"}});
+    check_branches(1200.,440.);
+    require(state->session.document().find_container(source_box)->feature_id==source_data&&*state->session.document().find_container(extract)==extraction,"Source edit changed linked identity");
+    run(host,"save");std::vector<kernel::BodyResult> linked_saved;
+    auto linked_reopened=document::PartDocument::load(directory/"surface-shell-other-body.prtz",&linked_saved);
+    require(*linked_reopened.find_container(extract)==extraction,"Native file lost external extraction source");
+    const auto linked_regenerated=kernel.evaluate_history_incremental(linked_reopened.kernel_operations(),linked_saved);
+    require(linked_regenerated.back().calculation_errors.empty(),"External extraction regeneration failed");
+    near(linked_regenerated.back().body_outputs.at(source_body)->volume,1200.);
+    near(linked_regenerated.back().body_outputs.at(destination)->surface_area,440.);
+    require(!linked_saved.back().body_boundaries.at(source_body).back().kernel_faces.empty(),"Retained source solid lacks persisted native topology");
+    for(const bool rotate:{false,true}) {
+        auto positioned=linked_reopened;auto graph=positioned.body_history;
+        for(const auto& id:{source_body,destination}) {
+            auto body=*graph.find(id);auto& p=body.scope.placement;p.references.clear();
+            p.x=id==source_body?17.:-11.;p.y=id==source_body?-9.:21.;p.z=id==source_body?4.:8.;
+            if(rotate){p.rotation_x=p.absolute_rotation_x=id==source_body?23.:-15.;p.rotation_z=p.absolute_rotation_z=id==source_body?41.:19.;}
+            graph.update_body(body);
+        }
+        positioned.set_body_history(graph);
+        const auto result=workspace::calculate_part_with_resolved_references(kernel,positioned,&linked_saved);
+        require(result.back().calculation_errors.empty(),"Linked surface failed after source/target Body placement");
+        const auto& solid=result.back().body_outputs.at(source_body)->mesh;
+        const auto& skin=result.back().body_outputs.at(destination)->mesh;
+        near(result.back().body_outputs.at(destination)->surface_area,440.);
+        for(const auto& point:skin.vertices)require(std::ranges::any_of(solid.vertices,[&](const auto& original){
+            return std::hypot(point.x-original.x,point.y-original.y,point.z-original.z)<1e-7;
+        }),"Linked surface applies a Body transform twice or loses source placement");
+        require(*positioned.find_container(extract)==extraction,"Body placement changed linked native identity");
+    }
+    auto suppressed=linked_reopened;suppressed.find_container(source_box)->suppressed=true;
+    const auto missing_input=workspace::calculate_part_with_resolved_references(kernel,suppressed,&linked_saved);
+    require(suppressed.find_container(extract)&&missing_input.back().calculation_errors.contains(extract),"Suppressed source aborts the Part or loses dependent definition/error");
 }
 }
 int main(){try {

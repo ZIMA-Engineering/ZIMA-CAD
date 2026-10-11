@@ -10,6 +10,20 @@ import zipfile
 import package
 
 class PackageTests(unittest.TestCase):
+    def test_native_factory_assets_include_future_libraries_and_exclude_backups(self):
+        with tempfile.TemporaryDirectory() as temp:
+            runtime = Path(temp)
+            expected = ('config/templates/START_PART.prtz',
+                        'config/lib/01-SHEETMETAL/01-FORM/CornerGusset90.prtz',
+                        'config/lib/future/NEW-FEATURE.PRTZ',
+                        'config/symbols/example.symz', 'config/formats/example.tblz')
+            for name in (*expected, 'config/lib/private.prtz.1', 'config/readme.txt'):
+                path = runtime / name
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text('fixture', encoding='utf-8')
+            self.assertEqual({p.relative_to(runtime).as_posix() for p in package.native_factory_assets(runtime)},
+                             set(expected))
+
     @unittest.skipUnless(os.name == 'nt', 'Windows environment contract')
     def test_clean_environment(self):
         runtime = Path('C:/candidate/windows/2026091501')

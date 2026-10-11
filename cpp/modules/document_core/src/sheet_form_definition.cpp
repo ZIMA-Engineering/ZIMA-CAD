@@ -3,6 +3,7 @@
 #include <zima/document/placement_orientation.hpp>
 #include <zima/kernel/sheet_material.hpp>
 #include <zima/kernel/stable_id.hpp>
+#include <zima/kernel/dimension_layout.hpp>
 #include <nlohmann/json.hpp>
 #include <algorithm>
 #include <cmath>
@@ -86,7 +87,9 @@ SheetFormDefinition definition(PartDocument part,const std::vector<kernel::BodyR
         local_references(sketcher::Sketch::from_serialized(data),part.document_id);
     });
     const auto& cutting=*part.body_history.find(result.bodies[0]);
-    if(!cutting.entries.empty()) {
+    const auto cut_output=calculated.empty()?std::map<std::string,kernel::BodySnapshot>::const_iterator{}:calculated.back().body_outputs.find(cutting.scope.id);
+    const bool cut_solid=!calculated.empty()&&cut_output!=calculated.back().body_outputs.end()&&cut_output->second->volume>0.;
+    if(!cutting.entries.empty()&&!cut_solid) {
         result.cut_sketches=cut_sketches(part,cutting);
         result.cut_sketch=result.cut_sketches.front();
     }
@@ -111,7 +114,15 @@ SheetFormDefinition definition(PartDocument part,const std::vector<kernel::BodyR
     // create topology identity from traversal position.
     result.surface={faces.begin()->first,faces.begin()->second,{}};
     result.surface.surface_result=source->second->volume==0.;
-    if(source->second->volume>0.) {
+    if(source->second->volume>0.||cut_solid) {
+        const auto& closed=cut_solid?calculated.back().body_boundaries.at(cutting.scope.id).back():source->second.get();
+        auto& openings=cut_solid?result.solid_cut_supports:result.solid_opening_faces;
+        if(cut_solid) {
+            if(!part.form_outward||source->second->volume!=0.||!closed.calculation_errors.empty()||
+                std::ranges::find(part.body_history.order(),cutting.scope.id)>=std::ranges::find(part.body_history.order(),shape.scope.id))
+                throw std::invalid_argument("Invalid FORM definition.");
+        }else {
+        if(part.form_outward)throw std::invalid_argument("Invalid FORM definition.");
         if(!result.cut_sketches.empty())throw std::invalid_argument("Invalid FORM definition.");
         std::vector<kernel::HistoryOperation> local;
         for(auto operation:part.kernel_operations())if(operation.body.id==shape.scope.id) {
@@ -121,14 +132,15 @@ SheetFormDefinition definition(PartDocument part,const std::vector<kernel::BodyR
         if(boundary==calculated.back().body_boundaries.end()||boundary->second.empty()||
            boundary->second.back().source_fingerprint!=kernel::history_fingerprint(local,local.size()))
             throw std::invalid_argument("FORM definition calculation failed.");
+        }
         using namespace kernel::sheet_material;
         for(const auto normal:{kernel::Vec3{0,0,1},kernel::Vec3{0,1,0}}) {
             std::map<std::pair<std::string,std::string>,kernel::FaceReference> closing;
-            for(auto face:source->second->mesh.triangle_references) {
+            for(auto face:closed.mesh.triangle_references) {
                 // Display triangle tags persist identity; the matching native
                 // reference packet owns the analytic geometry after reopening.
                 if(!face.surface) {
-                    const auto& originals=source->second->mesh.original_references.triangle_references;
+                    const auto& originals=closed.mesh.original_references.triangle_references;
                     const auto original=std::ranges::find(originals,face);
                     if(original!=originals.end())face.surface=original->surface;
                 }
@@ -138,7 +150,7 @@ SheetFormDefinition definition(PartDocument part,const std::vector<kernel::BodyR
                     closing.emplace(std::pair{face.owner_id,face.semantic_key},face);
             }
             if(closing.size()!=1)throw std::invalid_argument("Invalid FORM definition.");
-            result.solid_opening_faces.push_back(closing.begin()->second);
+            openings.push_back(closing.begin()->second);
         }
     }else if(result.cut_sketch.empty())throw std::invalid_argument("Invalid FORM definition.");
     result.part=std::move(part);
@@ -213,6 +225,7 @@ std::vector<kernel::ViewerEdge> sheet_form_preview_edges(const SheetFormParamete
             const auto relative=kernel::sheet_material::sub(point,request.source_origin);
             point={kernel::sheet_material::dot(relative,request.source_x),
                 kernel::sheet_material::dot(relative,request.source_normal),kernel::sheet_material::dot(relative,z)};
+            if(request.outward&&!source.corner())point.y-=value.thickness;
         }
         // A transient wire offers no source-document topology for picking.
         edge.reference={};edge.display_owner_id.clear();edge.exact_spline.reset();
@@ -426,7 +439,7 @@ bool resolve_sheet_form_feature_placement(const SheetFormParameters& definition,
         bool* orientation_from_reference) {
     const auto source=stored_sheet_form_definition(definition);
     return resolve_form_placement(placement,geometry,base_rotation,orientation_from_reference,
-        source.corner(),!source.solid_opening_faces.empty());
+        source.corner(),source.part.form_outward||!source.solid_opening_faces.empty());
 }
 void validate_sheet_form_parameters(const SheetFormParameters& value) {
     if(!value.definition||value.definition->empty()||!value.surface.valid()||
@@ -458,20 +471,30 @@ kernel::SheetFormRequest sheet_form_request(const SheetFormDefinition& definitio
         throw std::invalid_argument("Invalid FORM definition.");
     auto part=definition.part;
     const auto cut=std::ranges::find(part.sketches,definition.cut_sketch,&sketcher::Sketch::id);
-    if(cut==part.sketches.end()&&definition.solid_opening_faces.empty())throw std::invalid_argument("Invalid FORM definition.");
+    if(cut==part.sketches.end()&&definition.solid_opening_faces.empty()&&definition.solid_cut_supports.empty())throw std::invalid_argument("Invalid FORM definition.");
     kernel::SheetFormRequest result;
     result.definition_id=part.document_id;result.shape_body=definition.bodies[1];
     result.cut_body=definition.bodies[0];result.flat_body=definition.flat_sketch.empty()?std::string{}:definition.bodies[2];
     result.surface=definition.surface;result.support=std::move(support);
     result.position=position;result.normal=normal;result.x_direction=x_direction;result.thickness=thickness;
-    if(!definition.solid_opening_faces.empty()) {
+    result.outward=part.form_outward;
+    if(!definition.solid_opening_faces.empty()||!definition.solid_cut_supports.empty()) {
         result.solid_opening_faces=definition.solid_opening_faces;
-        const auto& plane=*definition.solid_opening_faces.front().surface;
+        const auto& supports=definition.solid_cut_supports.empty()?definition.solid_opening_faces:definition.solid_cut_supports;
+        const auto& plane=*supports.front().surface;
         result.source_origin={};
         result.source_normal=kernel::sheet_material::mul(plane.axis,plane.reversed?-1.:1.);
-        const auto& other=*definition.solid_opening_faces[1].surface;
+        const auto& other=*supports[1].surface;
         result.source_x=kernel::sheet_material::unit(kernel::sheet_material::cross(
             kernel::sheet_material::mul(other.axis,other.reversed?-1.:1.),result.source_normal));
+        if(!definition.solid_cut_supports.empty()) {
+            const auto& scope=part.body_history.find(result.cut_body)->scope;
+            const auto frame=kernel::annotation_frame(scope.translation(),scope.rotation_degrees());
+            const auto origin=frame.world({});
+            result.source_origin=origin;
+            result.source_normal=kernel::sheet_material::sub(frame.world(result.source_normal),origin);
+            result.source_x=kernel::sheet_material::sub(frame.world(result.source_x),origin);
+        }
     }else {
     const auto& placement=part.body_history.find(result.cut_body)->scope.placement;
     const kernel::Vec3 angles{placement.rotation_x,placement.rotation_y,placement.rotation_z};
@@ -503,6 +526,15 @@ kernel::SheetFormRequest sheet_form_request(const SheetFormDefinition& definitio
     }
     if(definition.calculated&&!definition.calculated->empty()) {
         const auto& histories=definition.calculated->back().body_boundaries;
+        if(!definition.solid_cut_supports.empty()) {
+            const auto operations=part.kernel_operations();
+            if(definition.calculated->back().source_fingerprint!=kernel::history_fingerprint(operations,operations.size()))
+                throw std::invalid_argument("FORM definition calculation failed.");
+            const auto skin=histories.find(result.shape_body),solid=histories.find(result.cut_body);
+            if(skin==histories.end()||solid==histories.end()||skin->second.empty()||solid->second.empty())throw std::invalid_argument("FORM definition calculation failed.");
+            result.surface_snapshot=std::make_shared<const kernel::BodyResult>(skin->second.back());
+            result.solid_cut_snapshot=std::make_shared<const kernel::BodyResult>(solid->second.back());
+        }else
         if(const auto body=histories.find(result.shape_body);body!=histories.end()&&!body->second.empty()) {
             const auto& surface=body->second.back();
             std::vector<kernel::HistoryOperation> local;

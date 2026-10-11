@@ -2250,5 +2250,14 @@
   "Corner FORM cannot fit the prescribed transition radii. Change the bend radius or the definition.": "Угловую формовку невозможно создать с заданными радиусами переходов. Измените радиус сгиба или определение.",
   "Cannot initialize document fingerprint": "Не удалось инициализировать контрольную сумму документа",
   "Cannot finish document fingerprint": "Не удалось завершить вычисление контрольной суммы документа",
-  "Calculated history boundary does not match its parameters": "Сохранённый результат расчёта не соответствует параметрам документа"
+  "Calculated history boundary does not match its parameters": "Сохранённый результат расчёта не соответствует параметрам документа",
+  "Vytvořit navázané plochy ze zdrojového tělesa. Volitelně vyberte plochy k odstranění.": "Создать связанные поверхности из исходного тела. При необходимости выберите грани для удаления.",
+  "Zdrojové těleso": "Исходное тело",
+  "Použít vstup aktivního tělesa": "Использовать входную геометрию активного тела",
+  "Zobrazit zdrojové těleso": "Показать исходное тело",
+  "Vyberte zdrojové těleso. MMB výběr ukončí.": "Выберите исходное тело. Средняя кнопка завершает выбор.",
+  "Invalid Shell parameters": "Недопустимые параметры оболочки.",
+  "Shell parameters are invalid": "Недопустимые параметры оболочки.",
+  "Shell requires an input body": "Для оболочки требуется исходное тело.",
+  "Shell requires a calculated input body.": "Для оболочки требуется вычисленное исходное тело."
 }

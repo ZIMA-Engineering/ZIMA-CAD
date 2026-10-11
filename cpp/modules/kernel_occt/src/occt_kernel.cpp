@@ -6284,6 +6284,7 @@ struct OcctKernel::LiveCache {
 
 struct OcctKernel::HistoryContext {
     std::vector<OwnedFace> external_faces;
+    std::map<std::string,PrimitiveData> external_shell_bodies;
     std::shared_ptr<const OriginalFaces> original_faces;
     std::string dependency_key;
     bool require_original_faces{};
@@ -6971,6 +6972,9 @@ std::vector<BodyResult> OcctKernel::evaluate_body_histories(
         } else if (!(branches.back().scope == scope) || !scope.source_id.empty() || scope.linked_body) {
             throw std::invalid_argument("Inconsistent body history scope");
         }
+        if(const auto* shell=std::get_if<ShellRequest>(&operation.primitive);shell&&!shell->source_body.empty())
+            if(shell->thickness!=0.||shell->source_body==scope.id||!available.contains(shell->source_body)||!seen.contains(shell->source_body))
+                throw std::invalid_argument("Invalid Shell parameters");
         auto local = operation;
         local.body = {};
         branches.back().operations.push_back(std::move(local));
@@ -6990,6 +6994,11 @@ std::vector<BodyResult> OcctKernel::evaluate_body_histories(
     std::vector<OwnedFace> preceding_faces;
     std::unordered_map<std::string,std::string> source_keys;
     std::map<std::string,BodyResult> source_solids;
+    std::map<std::string,PrimitiveData> shell_sources;
+    std::map<std::string,std::string> shell_source_keys;
+    std::set<std::string> requested_shell_bodies;
+    for(const auto& operation:operations)if(!operation.suppressed)
+        if(const auto* shell=std::get_if<ShellRequest>(&operation.primitive);shell&&!shell->source_body.empty())requested_shell_bodies.insert(shell->source_body);
     profile("graph preparation");
     for (const auto& branch : branches) {
         const auto cached = previous.body_boundaries.find(branch.scope.id);
@@ -7008,12 +7017,20 @@ std::vector<BodyResult> OcctKernel::evaluate_body_histories(
         std::set<std::string> dependencies;
         for(const auto& reference:branch_references)if(source_keys.contains(reference.owner_id))dependencies.insert(reference.owner_id);
         for(const auto& owner:dependencies)context.dependency_key+=":source:"+owner+":"+source_keys.at(owner);
+        for(const auto& operation:branch.operations)if(!operation.suppressed)
+            if(const auto* shell=std::get_if<ShellRequest>(&operation.primitive);shell&&!shell->source_body.empty()) {
+                const auto found=shell_sources.find(shell->source_body);
+                if(found==shell_sources.end())throw std::runtime_error("Shell requires an input body");
+                context.external_shell_bodies.emplace(shell->source_body,sheet_form_geometry::move(found->second,placement.Inverted()));
+                dependencies.insert(shell->source_body);
+                context.dependency_key+=":shell-source:"+shell->source_body+":"+shell_source_keys.at(shell->source_body);
+            }
         HistoryOperation frame_key;frame_key.body=branch.scope;
         if(!dependencies.empty()) {
             context.dependency_key+=":frame:"+history_fingerprint({frame_key},1);
             context.dependency_key=":references:"+dependency_fingerprint(context.dependency_key);
         }
-        context.require_original_faces=std::ranges::any_of(requested_faces,[&](const auto& reference) {
+        context.require_original_faces=requested_shell_bodies.contains(branch.scope.id)||std::ranges::any_of(requested_faces,[&](const auto& reference) {
             return std::ranges::any_of(branch.operations,[&](const auto& operation){return operation.owner_id==reference.owner_id;});
         });
         const std::vector<BodyResult> empty_local;
@@ -7062,6 +7079,18 @@ std::vector<BodyResult> OcctKernel::evaluate_body_histories(
                     preceding_faces.push_back({face.shape.Moved(TopLoc_Location(placement)),face.reference});
             }
         }
+        if(requested_shell_bodies.contains(branch.scope.id)&&local.back().kernel_faces.empty()&&local.back().calculation_errors.empty()) {
+            const auto native=live_cache_->boundaries.find(local.back().source_fingerprint);
+            // A linked skin and its retained solid must be independently usable
+            // after reopening, including when embedded into a FORM definition.
+            // Capture existing ZIMA identities at explicit calculation only.
+            if(native!=live_cache_->boundaries.end()&&!native->second.shape.IsNull()) {
+                auto captured=local.get();
+                persist_surface_topology(native->second.shape,native->second.topology->faces,
+                    native->second.topology->edges,native->second.topology->vertices,captured.back());
+                local=std::move(captured);
+            }
+        }
         if (branch.scope.source_id.empty()) document.body_boundaries.emplace(branch.scope.id, local);
         HistoryOperation placement_key;
         placement_key.body = branch.scope;
@@ -7090,6 +7119,17 @@ std::vector<BodyResult> OcctKernel::evaluate_body_histories(
             input_snapshot = BodySnapshot(std::move(placed));
         }
         const auto& input = input_snapshot.get();
+        if(requested_shell_bodies.contains(branch.scope.id)) {
+            const auto native=live_cache_->boundaries.find(local.back().source_fingerprint);
+            PrimitiveData original;
+            if(native!=live_cache_->boundaries.end()&&local.back().calculation_errors.empty())
+                original={native->second.shape,native->second.topology->faces,native->second.topology->edges,native->second.topology->vertices};
+            // A failed source is an invalid operand for the dependent feature.
+            // Let the ordinary recovering evaluator retain that definition and
+            // report its error rather than aborting the complete Part graph.
+            shell_sources.emplace(branch.scope.id,sheet_form_geometry::move(original,placement));
+            shell_source_keys.emplace(branch.scope.id,input_key);
+        }
         profile("placed input");
         if (branch.scope.source_id.empty()) document.body_inputs.emplace(branch.scope.id, input_snapshot);
         if (branch.scope.source_id.empty())
@@ -7545,7 +7585,9 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                 auto result=make_result(shape, faces, edges, vertices, original, persist,
                     collect, hidden, operation.mesh_deflection, calculate_body_properties,
                     std::holds_alternative<SheetFormRequest>(operation.primitive)&&
-                        !std::get<SheetFormRequest>(operation.primitive).solid_opening_faces.empty());
+                        (!std::get<SheetFormRequest>(operation.primitive).solid_opening_faces.empty()||
+                         (std::get<SheetFormRequest>(operation.primitive).outward&&
+                          sheet_form_geometry::corner_definition(std::get<SheetFormRequest>(operation.primitive)))));
                 return result;
             };
             const bool persist_boundary_shape =
@@ -7698,8 +7740,14 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                     algorithm.Build();
                     if(!publish&&std::getenv("ZIMA_CPP_FORM_PROFILE")&&
                        (!algorithm.IsDone()||algorithm.Shape().IsNull()||!BRepCheck_Analyzer(algorithm.Shape()).IsValid()))
+                    {
                         std::fprintf(stderr,"FORM transition failure: done=%d contours=%d faulty=%d vertices=%d\n",
                             int(algorithm.IsDone()),algorithm.NbContours(),algorithm.NbFaultyContours(),algorithm.NbFaultyVertices());
+                        for(int i=1;i<=algorithm.NbFaultyContours();++i) {
+                            const auto contour=algorithm.FaultyContour(i);
+                            std::fprintf(stderr,"FORM faulty contour=%d status=%d edges=%d\n",contour,int(algorithm.StripeStatus(contour)),algorithm.NbEdges(contour));
+                        }
+                    }
                     if (!algorithm.IsDone() || algorithm.Shape().IsNull() ||
                         !BRepCheck_Analyzer(algorithm.Shape()).IsValid()) {
                         throw std::runtime_error(
@@ -8130,10 +8178,37 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                 };
                 sheet_form_geometry::validate_support(*form,result_shape,owned_topology->faces,operations,operation_index);
                 profile("support validation");
-                const auto preparation_key=sheet_form_geometry::preparation_key(*form,operation.boolean_tolerance);
+                const bool outward_corner=form->outward&&sheet_form_geometry::corner_definition(*form);
+                const bool native_corner=outward_corner||!form->solid_opening_faces.empty();
+                auto prepared_request=*form;
+                if(outward_corner&&!form->solid_cut_snapshot) {
+                    using namespace sheet_material;
+                    const auto regions=regions_before(operations,operation_index);
+                    const auto bend=std::ranges::find_if(regions.regions,[&](const auto& region) {
+                        if(region.kind!=SheetMaterialDefinition::Kind::Cylinder||region.unfolded||region.curved_source_id.empty()||
+                           std::abs(region.angle-std::numbers::pi/2)>1e-10||std::abs(region.thickness-form->thickness)>1e-10)return false;
+                        const auto delta=sub(form->position,region.origin);
+                        return std::abs(dot(delta,region.radial))<1e-7&&std::abs(dot(delta,region.tangent)-region.radius)<1e-7;
+                    });
+                    if(bend==regions.regions.end())throw std::runtime_error("FORM could not create a valid sheet.");
+                    auto definitions=*form->definition;
+                    std::vector<ExtrusionRequest*> cutting_profiles;
+                    for(auto& tool:definitions)if(tool.body.id==form->cut_body) {
+                        if(auto* cut=std::get_if<ExtrusionRequest>(&tool.primitive))cutting_profiles.push_back(cut);
+                        else if(auto* group=std::get_if<FeatureGroupRequest>(&tool.primitive))
+                            for(auto& child:group->children)if(auto* cut=std::get_if<ExtrusionRequest>(&child))cutting_profiles.push_back(cut);
+                    }
+                    if(cutting_profiles.size()!=2)throw std::runtime_error("Invalid FORM definition.");
+                    // Contact profiles stay on their original support planes.
+                    // Cut only as far as the actual outer Bend radius.
+                    for(auto* cut:cutting_profiles)
+                        cut->direction=mul(unit(cut->direction),bend->radius);
+                    prepared_request.definition=std::make_shared<const std::vector<HistoryOperation>>(std::move(definitions));
+                }
+                const auto preparation_key=sheet_form_geometry::preparation_key(prepared_request,operation.boolean_tolerance);
                 auto prepared=live_cache_->prepared_forms.find(preparation_key);
                 if(prepared==live_cache_->prepared_forms.end()) {
-                auto tools=*form->definition;
+                auto tools=*prepared_request.definition;
                 if(form->surface_snapshot||!form->solid_opening_faces.empty())std::erase_if(tools,[&](const auto& value){
                     return (value.body.id!=form->cut_body||form->solid_cut_snapshot)&&value.body.id!=form->flat_body;
                 });
@@ -8200,7 +8275,28 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                             }
                         }
                         profile("native solid Shell");
-                    }else if(role=="shape"&&form->surface_snapshot)source=sheet_form_geometry::read_surface(*form->surface_snapshot);
+                    }else if(role=="shape"&&form->surface_snapshot) {
+                        source=sheet_form_geometry::read_surface(*form->surface_snapshot);
+                        if(outward_corner)shape_axes=sheet_form_geometry::profile_axes(
+                            form->solid_cut_snapshot?form->solid_cut_snapshot->mesh.axes:form->surface_snapshot->mesh.axes);
+                        if(outward_corner&&form->solid_cut_snapshot&&shape_axes.empty()) {
+                            // Authoring may hide its profile centerlines. Keep
+                            // the existing FORM whole-profile axis contract by
+                            // using the ordinary explicit centroid calculation.
+                            std::vector<HistoryOperation> centroid_history;
+                            for(auto local:*form->definition)if(local.body.id==form->cut_body) {
+                                local.body={};
+                                const auto centroid=[](auto& request){request.centerlines.centroid_enabled=true;request.centerlines.origin_enabled=false;};
+                                if(auto* request=std::get_if<ExtrusionRequest>(&local.primitive))centroid(*request);
+                                if(auto* group=std::get_if<FeatureGroupRequest>(&local.primitive))
+                                    for(auto& child:group->children)if(auto* request=std::get_if<ExtrusionRequest>(&child))centroid(*request);
+                                centroid_history.push_back(std::move(local));
+                            }
+                            const auto centroids=evaluate_history_incremental(centroid_history,{});
+                            if(centroids.empty()||!centroids.back().calculation_errors.empty())throw std::runtime_error("FORM definition calculation failed.");
+                            shape_axes=sheet_form_geometry::profile_axes(centroids.back().mesh.axes);
+                        }
+                    }
                     else {
                         const auto boundaries=definitions.back().body_boundaries.find(id);
                         if(boundaries==definitions.back().body_boundaries.end()||boundaries->second.empty())
@@ -8213,20 +8309,31 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                     if(role=="shape"&&form->solid_opening_faces.empty()) {
                         profile("tools and source extraction");
                         const auto thickened=make_thickened_surface_data(
-                            {form->surface,form->thickness,SurfaceThicknessSide::Second,operation.boolean_tolerance},
+                            {form->surface,form->thickness,form->outward?SurfaceThicknessSide::First:SurfaceThicknessSide::Second,operation.boolean_tolerance},
                             "FORM_THICKNESS",source.shape,source.faces,source.edges,source.vertices,true);
                         source=thickened.operand;
                         profile("shell thickening and validation");
                     }
                     const auto scope=std::ranges::find_if(*form->definition,[&](const auto& value){return value.body.id==id;});
                     if(scope==form->definition->end())throw std::runtime_error("FORM definition calculation failed.");
-                    return sheet_form_geometry::move(source,primitive_transform(scope->body.translation,scope->body.rotation_degrees));
+                    auto placed=sheet_form_geometry::move(source,primitive_transform(scope->body.translation,scope->body.rotation_degrees));
+                    if(role=="shape"&&form->outward&&!outward_corner) {
+                        // An outward planar skin starts at the inner stock
+                        // level while its attachment datum is the outer face.
+                        // The positive normal offset then spans the real rim
+                        // thickness instead of merely touching the sheet.
+                        placed=sheet_form_geometry::move(placed,primitive_transform(
+                            sheet_material::mul(form->source_normal,-form->thickness),{}));
+                    }
+                    return placed;
                 };
                 const auto shape_scope=std::ranges::find_if(*form->definition,[&](const auto& value){return value.body.id==form->shape_body;});
                 if(shape_scope==form->definition->end())throw std::runtime_error("FORM definition calculation failed.");
                 auto formed=body(form->shape_body,"shape");
+                const auto axes_scope=std::ranges::find_if(*form->definition,[&](const auto& value){return value.body.id==(outward_corner&&form->solid_cut_snapshot?form->cut_body:form->shape_body);});
+                if(axes_scope==form->definition->end())throw std::runtime_error("FORM definition calculation failed.");
                 shape_axes=sheet_form_geometry::moved_axes(std::move(shape_axes),
-                    primitive_transform(shape_scope->body.translation,shape_scope->body.rotation_degrees));
+                    primitive_transform(axes_scope->body.translation,axes_scope->body.rotation_degrees));
                 PrimitiveData cut;
                 if(form->solid_cut_snapshot) {
                     PrimitiveData source=closed_corner;
@@ -8238,7 +8345,8 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                             source={native->second.shape,native->second.topology->faces,native->second.topology->edges,native->second.topology->vertices};
                         }
                     }
-                    cut=sheet_form_geometry::move(source,primitive_transform(shape_scope->body.translation,shape_scope->body.rotation_degrees));
+                    const auto cut_scope=outward_corner?axes_scope:shape_scope;
+                    cut=sheet_form_geometry::move(source,primitive_transform(cut_scope->body.translation,cut_scope->body.rotation_degrees));
                 }else cut=body(form->cut_body,"cut");
                 sheet_form_geometry::Operands operands{std::move(cut),body(form->flat_body,"flat"),std::move(formed)};
                 operands.axes=std::move(shape_axes);
@@ -8256,7 +8364,7 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                     sheet_form_geometry::place(prepared->second.cut,placement,*form,operation.owner_id,"cut"),
                     sheet_form_geometry::place(prepared->second.flat,placement,*form,operation.owner_id,"flat"),
                     sheet_form_geometry::place(prepared->second.formed,placement,*form,operation.owner_id,"shape"),
-                    !form->solid_opening_faces.empty()};
+                    native_corner};
                 form_operands->axes=sheet_form_geometry::moved_axes(prepared->second.axes,placement);
                 for(auto& axis:form_operands->axes) {
                     axis.reference.semantic_key="centerline:from:centroid:form:"+
@@ -8270,7 +8378,7 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                     form_operands->formed=sheet_form_geometry::trim_corner_shell(input,form_operands->formed,*form,operation,operations,operation_index);
                     profile("outer Bend radius trim");
                 }
-                if(sheet_form_geometry::corner_definition(*form)&&!form->solid_cut_snapshot) {
+                if(sheet_form_geometry::corner_definition(*form)&&!form->solid_cut_snapshot&&!outward_corner) {
                     PrimitiveData corner_input;corner_input.shape=result_shape;corner_input.faces=owned_topology->faces;
                     corner_input.edges=owned_topology->edges;corner_input.vertices=owned_topology->vertices;
                     form_operands->formed=sheet_form_geometry::corner_joining_material(corner_input,form_operands->formed,*form,operation,operations,operation_index);
@@ -8285,7 +8393,7 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                 profile("sheet cut");
                 changed=sheet_form_geometry::combine(changed,form_operands->formed,false,operation,operations);
                 profile("sheet fuse");
-                if(!form->solid_opening_faces.empty()) {
+                if(native_corner) {
                     auto unified=unify_preserving_face_provenance(changed.shape,changed.faces,
                         changed.edges,changed.vertices,std::max(1e-7,operation.boolean_tolerance));
                     changed={std::move(unified.shape),std::move(unified.faces),
@@ -8294,7 +8402,7 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                 }
                 TopTools_IndexedMapOfShape solids;TopExp::MapShapes(changed.shape,TopAbs_SOLID,solids);
                 if(solids.Extent()!=1)throw std::runtime_error("FORM must remain connected to its supporting sheet.");
-                if(form->solid_opening_faces.empty())
+                if(!native_corner)
                     retain_originals(form_operands->formed.faces,form_operands->formed.edges,form_operands->formed.vertices);
                 result_shape=changed.shape;
                 owned_topology=std::make_shared<LiveCache::Topology>(LiveCache::Topology{
@@ -8394,7 +8502,7 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                         profile(side==0?"opposite transition Fillet 0.25t":"cavity transition Fillet t");
                     }
                 }
-                if(!form->solid_opening_faces.empty()) {
+                if(native_corner) {
                     // Copies and sheet-state replay need the complete rounded
                     // change, including material removed from the stock by a
                     // transition. Derive it only when a downstream consumer
@@ -8889,7 +8997,16 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                 continue;
             }
             if (const auto* shell = std::get_if<ShellRequest>(&operation.primitive)) {
-                if (result_shape.IsNull()) {
+                auto shell_input_shape=result_shape;
+                auto shell_input_topology=owned_topology;
+                const bool external=!shell->source_body.empty();
+                if(external) {
+                    const auto source=context.external_shell_bodies.find(shell->source_body);
+                    if(shell->thickness!=0.||source==context.external_shell_bodies.end())throw std::invalid_argument("Shell parameters are invalid");
+                    shell_input_shape=source->second.shape;
+                    shell_input_topology=std::make_shared<LiveCache::Topology>(LiveCache::Topology{source->second.faces,source->second.edges,source->second.vertices,{}});
+                }
+                if (shell_input_shape.IsNull()) {
                     throw std::invalid_argument("Shell requires an input body");
                 }
                 if (operation.operation != BooleanOperation::Add ||
@@ -8903,7 +9020,7 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                     throw std::invalid_argument("Shell parameters are invalid");
                 }
                 TopTools_IndexedMapOfShape solids;
-                TopExp::MapShapes(result_shape, TopAbs_SOLID, solids);
+                TopExp::MapShapes(shell_input_shape, TopAbs_SOLID, solids);
                 if (solids.Extent() != 1) {
                     throw std::invalid_argument(
                         "Shell requires exactly one connected solid");
@@ -8918,7 +9035,7 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                             "Shell face references must be unique");
                     }
                     std::vector<const OwnedFace*> matches;
-                    for (const auto& owned : owned_topology->faces) {
+                    for (const auto& owned : shell_input_topology->faces) {
                         if (owned.reference.owner_id == requested.owner_id &&
                             owned.reference.semantic_key ==
                                 requested.semantic_key) {
@@ -8976,7 +9093,7 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                             destination.push_back(std::move(child));
                         }
                     };
-                    copy(owned_topology->faces,topology->faces);copy(owned_topology->edges,topology->edges);copy(owned_topology->vertices,topology->vertices);
+                    copy(shell_input_topology->faces,topology->faces);copy(shell_input_topology->edges,topology->edges);copy(shell_input_topology->vertices,topology->vertices);
                     require_complete_unique_shell_topology(skin,TopAbs_FACE,topology->faces,"faces");
                     require_complete_unique_shell_topology(skin,TopAbs_EDGE,topology->edges,"edges");
                     require_complete_unique_shell_topology(skin,TopAbs_VERTEX,topology->vertices,"vertices");
@@ -8984,9 +9101,9 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                     // shape and owner. Only the actual solid is converted.
                     TopoDS_Compound combined;builder.MakeCompound(combined);builder.Add(combined,skin);
                     for(TopExp_Explorer face(result_shape,TopAbs_FACE);face.More();face.Next())
-                        if(!solid_members.Contains(face.Current()))builder.Add(combined,face.Current());
+                        if(external||!solid_members.Contains(face.Current()))builder.Add(combined,face.Current());
                     const auto retain_other=[&](const auto& source,auto& destination) {
-                        for(const auto& item:source)if(!solid_members.Contains(item.shape))destination.push_back(item);
+                        for(const auto& item:source)if(external||!solid_members.Contains(item.shape))destination.push_back(item);
                     };
                     retain_other(owned_topology->faces,topology->faces);retain_other(owned_topology->edges,topology->edges);
                     retain_other(owned_topology->vertices,topology->vertices);

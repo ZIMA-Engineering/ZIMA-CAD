@@ -1,5 +1,41 @@
 # Linux build and distribution handoff — 2026-09-15
 
+## Outward FORM candidate follow-up (2026-10-11)
+
+The original factory corner and ventilation definitions remain as controls while
+the user evaluates two clearly named experimental files in the same library.
+The shared native candidate code uses embedded
+`form_outward` intent; the outward corner deliberately leaves sharp transitions
+for ordinary downstream Fillet, as requested by the user. Begin manual rounding
+from the actual FORM–Bend junction. Do not promote a candidate to the factory
+library before the user's style decision.
+
+The delivered corner now uses `FORM_CUT` as a closed solid preceding the linked
+zero-thickness Shell in `FORM`. Do not use the rejected two-Sketch radius-depth
+cutter as the final candidate: it overcuts sloped geometry in the Bend.
+After Git fetch and the native Linux build, use the tracked experimental files
+directly; reproduction helpers are `--prepare-corner-solid-cut` and
+`--prepare-outward-form`/`--order-form-bodies`. Run the definition,
+geometry, persistence/copy and GUI contracts on the Linux desktop. Repeat the
+finite thickness/radius and support-side/rotation matrices, independent BRep
+validation, full-thickness joint coverage, Undo/Redo, unchanged OK, replacement,
+save/reopen, regeneration and manual Fillet selection. Record complete command
+timings separately from kernel-only calculations. Include the Window 4 mm
+thickening failure and its matched factory control, rather than omitting it.
+See [the measured investigation](performance/20261011-corner-outward-surface-experiment.md).
+Windows results are not Linux acceptance.
+
+Also run `zima_cpp_shell_command_tests`, `zima_cpp_boundary_surface_ui_contract`,
+`zima_cpp_surface_thicken_tests`, `zima_cpp_file_dialog_contract_tests`, and the
+five-language contract. Verify preceding source selection in an empty Body,
+retained solid, exact native child ancestry, translated/rotated Body frames,
+source edits/suppression, forbidden forward/self dependencies, independent
+inspection, clearing/replacement, Cancel, unchanged OK and save/reopen.
+The file selector icon fix moves palette-aware rendering out of its worker
+provider and uses model-owned provider lifetime. Repeat idle heartbeat and
+Light/Dark/Light acceptance on Linux. See [linked surfaces](LINKED_BODY_SURFACES.md)
+and [file-dialog evidence](performance/20261011-file-dialog-thread-ownership.md).
+
 ## Approved Windows/Linux parity follow-up (2026-10-10)
 
 The user approved sequential investigation of the G92K1 crash, repeated STEP

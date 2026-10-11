@@ -37,6 +37,12 @@ Q_NEVER_INLINE static int verify_corner_sheet_form_ui(QApplication& application,
             finish_camera();
             view->fit_all();auto camera=view->camera_state();const auto rotation=QQuaternion::fromEulerAngles(rx,ry,rz);
             camera[0]=rotation.scalar();camera[1]=rotation.x();camera[2]=rotation.y();camera[3]=rotation.z();view->set_camera_state(camera);
+            const auto focus=qEnvironmentVariable("ZIMA_CORNER_FORM_RENDER_FOCUS").split(',');
+            if(preview_only&&focus.size()==4) {
+                const kernel::Vec3 p{focus[0].toDouble(),focus[1].toDouble(),focus[2].toDouble()};
+                const auto radius=focus[3].toDouble();
+                view->fit_points({{p.x-radius,p.y-radius,p.z-radius},{p.x+radius,p.y+radius,p.z+radius}});
+            }
             view->set_display_mode(viewer::DisplayMode::ShadedWithEdges);flush();
             check(view->grabFramebuffer().save(QString::fromStdString((directory/(std::string("corner-form-")+suffix+".png")).string())),"Corner rendering capture failed");
         };
@@ -190,7 +196,7 @@ Q_NEVER_INLINE static int verify_corner_sheet_form_ui(QApplication& application,
         run(QString::fromStdString(commands::Json{{"command","close"},{"arguments",{{"discard",true}}}}.dump()));
         check(window.open_document_path(QString::fromStdString(stock_path.string())),"Corner creation stock did not open");flush();
         run(QString::fromStdString("body.activate "+stock.body_history.bodies().front().scope.id));mode->trigger();flush();
-        const auto source=std::filesystem::absolute("config/lib/01-SHEETMETAL/01-FORM/CornerGusset90.prtz");
+        const auto source=definition.part.form_outward?replacement_path:std::filesystem::absolute("config/lib/01-SHEETMETAL/01-FORM/CornerGusset90.prtz");
         auto* action=window.findChild<QAction*>("sheetFormAction");check(action&&action->isEnabled(),"Corner Form action unavailable");
         choose(source,[&]{action->trigger();});dialog=editor();check(dialog,"Corner creation Properties missing");
         const auto canceled=dialog->container_id();dialog->buttons()->button(QDialogButtonBox::Cancel)->click();flush();
@@ -331,7 +337,9 @@ Q_NEVER_INLINE static int verify_sheet_form_ui(QApplication& application,Assembl
         kernel::OcctKernel kernel;const auto calculated=kernel.evaluate_history(part.kernel_operations());
         const auto path=directory/("sheet-form-ui-"+QUuid::createUuid().toString(QUuid::WithoutBraces).toStdString()+".prtz");
         part.save(path,calculated);
-        const auto source=std::filesystem::absolute("config/lib/01-SHEETMETAL/01-FORM/VentilationWindow.prtz");
+        const auto source_override=qEnvironmentVariable("ZIMA_SHEET_FORM_SOURCE");
+        const auto source=std::filesystem::absolute(source_override.isEmpty()?
+            "config/lib/01-SHEETMETAL/01-FORM/VentilationWindow.prtz":source_override.toStdString());
         const auto replacement=directory/"sheet-form-replacement.prtz";
         const auto definition=document::read_sheet_form_definition(source);auto renamed=definition.part;
         renamed.name="Replacement Ventilation Window";renamed.save(replacement,*definition.calculated);

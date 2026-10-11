@@ -1240,8 +1240,24 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
             shell_thickness_ = dimension(initial.shell.thickness, "shellThickness");
             form->addRow(tr("Tloušťka"), shell_thickness_);
         } else {
-            auto* note=new QLabel(tr("Převést těleso na plášť bez objemu. Volitelně vyberte plochy k odstranění."),this);
+            auto* note=new QLabel(tr("Vytvořit navázané plochy ze zdrojového tělesa. Volitelně vyberte plochy k odstranění."),this);
             note->setWordWrap(true);form->addRow(note);
+            shell_source_table_=new QTableWidget(1,4,this);shell_source_table_->setObjectName("shellSourceBody");
+            shell_source_table_->setHorizontalHeaderLabels({QString{},QString{},tr("Zdrojové těleso"),QString{}});
+            style_reference_table(shell_source_table_,1,2);shell_source_table_->setFixedHeight(66);shell_source_table_->setRowHeight(0,34);
+            shell_source_table_->setItem(0,0,new QTableWidgetItem("1"));shell_source_table_->item(0,0)->setTextAlignment(Qt::AlignCenter);
+            shell_source_table_->setItem(0,2,new zima::ui::ReferenceCellItem);
+            auto* indicator=zima::ui::build_reference_row_indicator([this]{if(clear_shell_source_)clear_shell_source_();});
+            indicator->findChild<QPushButton*>()->setToolTip(tr("Použít vstup aktivního tělesa"));
+            shell_source_table_->setCellWidget(0,1,zima::ui::centered_cell_widget(indicator));
+            shell_source_eye_=zima::ui::build_reference_inspection_button(false,false,[this](bool){if(inspect_shell_source_)inspect_shell_source_();});
+            shell_source_eye_->setToolTip(tr("Zobrazit zdrojové těleso"));
+            shell_source_table_->setCellWidget(0,3,zima::ui::centered_cell_widget(shell_source_eye_));
+            shell_source_table_->horizontalHeader()->setSectionResizeMode(0,QHeaderView::Fixed);shell_source_table_->setColumnWidth(0,28);
+            shell_source_table_->horizontalHeader()->setSectionResizeMode(3,QHeaderView::Fixed);shell_source_table_->setColumnWidth(3,28);
+            connect(shell_source_table_,&QTableWidget::cellPressed,this,[this](int,int column){if(column==2&&request_shell_source_)request_shell_source_();});
+            set_shell_source(initial.shell.source_body,QString::fromStdString(initial.shell.source_body));
+            form->addRow(shell_source_table_);
         }
         auto* faces_label = new QLabel(initial.shell.thickness==0.?tr("Odstraňované plochy"):tr("Otevřené plochy"), this);
         auto label_font = faces_label->font();
@@ -2321,6 +2337,28 @@ void PrimitivePropertiesDialog::set_shell_faces(
     append_face_reference_entry(shell_face_list_);
 }
 
+void PrimitivePropertiesDialog::set_shell_source(const std::string& body,const QString& label) {
+    if(shell_source_eye_&&initial_.shell.source_body!=body){QSignalBlocker block(shell_source_eye_);shell_source_eye_->setChecked(false);}
+    initial_.shell.source_body=body;
+    if(!shell_source_table_)return;
+    auto* item=static_cast<zima::ui::ReferenceCellItem*>(shell_source_table_->item(0,2));
+    item->set_reference(body.empty()?tr("Aktivní těleso"):label);
+    item->set_active_input(shell_source_selecting_);
+    item->set_inspected(shell_source_inspected());
+    zima::ui::set_reference_row_populated(shell_source_table_->cellWidget(0,1)->findChild<QWidget*>(QString{},Qt::FindDirectChildrenOnly),!body.empty());
+    shell_source_eye_->setEnabled(!body.empty());
+    if(body.empty()){QSignalBlocker block(shell_source_eye_);shell_source_eye_->setChecked(false);item->set_inspected(false);}
+}
+void PrimitivePropertiesDialog::set_shell_source_callbacks(std::function<void()> select,std::function<void()> clear,std::function<void()> inspect) {
+    request_shell_source_=std::move(select);clear_shell_source_=std::move(clear);inspect_shell_source_=std::move(inspect);
+}
+void PrimitivePropertiesDialog::set_shell_source_selection_active(bool active) {
+    shell_source_selecting_=active;
+    if(shell_source_table_)static_cast<zima::ui::ReferenceCellItem*>(shell_source_table_->item(0,2))->set_active_input(active);
+}
+bool PrimitivePropertiesDialog::shell_source_inspected() const {return shell_source_eye_&&shell_source_eye_->isChecked();}
+void PrimitivePropertiesDialog::set_shell_source_inspected(bool inspected) {if(shell_source_eye_){QSignalBlocker block(shell_source_eye_);shell_source_eye_->setChecked(inspected);}}
+
 void PrimitivePropertiesDialog::set_drill_point_faces(
         std::vector<zima::kernel::FaceReference> faces,
         const std::vector<QString>& labels) {
@@ -2601,7 +2639,7 @@ bool PrimitivePropertiesDialog::sheet_reference_allowed(std::size_t index,const 
                 std::abs(face.sheet_thickness-support.sheet_thickness)<1e-10&&
                 (face.sheet_role==zima::kernel::SheetFaceRole::SideA||face.sheet_role==zima::kernel::SheetFaceRole::SideB)&&
                 std::abs(zima::kernel::sheet_material::dot(normal,face.surface->axis))<1e-10&&
-                (source.solid_opening_faces.empty()||zima::document::sheet_form_corner_faces_available(support,face,sheet_reference_geometry_));});
+                ((!source.part.form_outward&&source.solid_opening_faces.empty())||zima::document::sheet_form_corner_faces_available(support,face,sheet_reference_geometry_));});
         }
         if(!zima::document::sheet_form_position_reference_available(reference,sheet_reference_geometry_,normal))return false;
         const auto other=index==1?2:1;

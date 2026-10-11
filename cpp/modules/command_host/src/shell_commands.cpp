@@ -20,7 +20,7 @@ Json details(const workspace::PartState& state,const document::HistoryContainer&
     const auto& doc=state.session.document();const auto* body=doc.body_owner_for_object(feature.id);
     auto faces=Json::array();for(const auto& face:feature.shell.removed_faces)faces.push_back(reference(face));
     return {{"document",doc.document_id},{"container",feature.id},{"feature",feature.feature_id},{"name",feature.name},
-        {"body",body?body->scope.id:std::string{}},{"thickness_mm",feature.shell.thickness},{"faces",std::move(faces)},
+        {"body",body?body->scope.id:std::string{}},{"source_body",feature.shell.source_body},{"thickness_mm",feature.shell.thickness},{"faces",std::move(faces)},
         {"value_locks",feature.value_locks},{"revision",state.session.revision()}};
 }
 std::size_t page(const Json& args,const char* key,std::size_t fallback,std::size_t maximum,bool positive=false) {
@@ -39,13 +39,14 @@ void Host::register_shell_commands() {
             }catch(const Error& error){return Result::failure(error.code,tr(error.what()));}
         });
     dispatcher_.add({"shell.faces",tr("List available faces of the calculated Shell input body."),
-        {{"container",false},{"owner",false},{"offset",false,Type::Integer},{"limit",false,Type::Integer},{"document",false}},false},[this](const Json& args) {
+        {{"container",false},{"owner",false},{"source_body",false},{"offset",false,Type::Integer},{"limit",false,Type::Integer},{"document",false}},false},[this](const Json& args) {
             try {
                 const auto id=args.value("document",workspace_.active_document_id());const auto* state=workspace_.open_part(id);
                 if(!state)throw Error("unsupported_document","Shell operations require an open Part.");
                 const auto container=args.value("container",std::string{});if(args.contains("container"))static_cast<void>(shell(state,container));
                 const auto offset=page(args,"offset",0,100000000),limit=page(args,"limit",500,5000,true);
-                const auto input=workspace::shell_input_faces(*state,container);auto items=Json::array();std::size_t total{};
+                const auto source=args.value("source_body",container.empty()?std::string{}:shell(state,container).shell.source_body);
+                const auto input=workspace::shell_input_faces(*state,container,source);auto items=Json::array();std::size_t total{};
                 for(const auto& face:input) {
                     if(args.contains("owner")&&args.at("owner")!=face.owner_id)continue;
                     if(total>=offset&&items.size()<limit)items.push_back(reference(face));++total;
@@ -58,6 +59,7 @@ void Host::register_shell_commands() {
     for(const bool surface_only:{false,true})for(const bool create:{true,false}) {
         std::vector<commands::Argument> args;if(!create)args.push_back({"container",true});
         if(!surface_only)args.push_back({"thickness_mm",false,Type::Number});args.push_back({"faces",false,Type::Array});
+        if(surface_only)args.push_back({"source_body",false});
         args.push_back({"name",false});args.push_back({"document",false});
         dispatcher_.add({surface_only?(create?"surface_shell.create":"surface_shell.set"):(create?"shell.create":"shell.set"),
             surface_only?(create?tr("Extract exact surfaces from a solid, optionally removing faces."):tr("Change the removed faces of a surface shell.")):
@@ -72,6 +74,7 @@ void Host::register_shell_commands() {
                 if(create){feature.name=surface_only?tr("Plochy z tělesa"):tr("Shell");if(surface_only)feature.shell.thickness=0.;}
                 if(!create&&(feature.shell.thickness==0.)!=surface_only)
                     throw Error("wrong_feature","Use the command belonging to this shell type.");
+                if(args.contains("source_body"))feature.shell.source_body=args.at("source_body").get<std::string>();
                 const auto* body=create?state->session.document().body_history.find(state->session.document().body_history.active_body_id()):state->session.document().body_owner_for_object(feature.id);
                 if(body&&body->scope.id!=state->session.document().body_history.active_body_id())throw Error("inactive_body","Activate the owning Body before editing its Shell.");
                 if(args.contains("name")) {

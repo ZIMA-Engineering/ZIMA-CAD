@@ -391,11 +391,13 @@ void AssemblyWorkspaceWindow::start_shell(bool surface_only) {
     dialog->set_shell_face_callbacks(
         [this](std::size_t index) { remove_shell_face(index); },
         [this] {
+            shell_dialog_->set_shell_source_selection_active(false);
             shell_face_selection_active_ = true;
             refresh_shell_selection_ui();
             state_->setText(shell_dialog_->pending_value().shell.thickness==0.?tr("Vyberte plochy k odstranění. MMB výběr ukončí."):
                 tr("Vyberte plochy, které mají Shell otevřít."));
         });
+    configure_shell_source_entry(dialog);
     refresh_shell_selection_ui();
     connect(dialog, &QObject::destroyed, this, [this] {
         properties_dialog_ = nullptr;
@@ -410,8 +412,29 @@ void AssemblyWorkspaceWindow::start_shell(bool surface_only) {
         refresh_scene();
     });
     dialog->show();
-    state_->setText(surface_only?tr("Vyberte plochy k odstranění. MMB výběr ukončí."):
+    state_->setText(dialog->shell_source_selection_active()?tr("Vyberte zdrojové těleso. MMB výběr ukončí."):surface_only?tr("Vyberte plochy k odstranění. MMB výběr ukončí."):
         tr("Vyberte plochy, které mají Shell otevřít. MMB výběr ukončí."));
+}
+
+void AssemblyWorkspaceWindow::configure_shell_source_entry(PrimitivePropertiesDialog* dialog) {
+    if(dialog->pending_value().shell.thickness!=0.)return;
+    const auto* part=workspace_.open_part(workspace_.active_document_id());
+    const auto& source=dialog->pending_value().shell.source_body;
+    const auto* body=part?part->session.document().body_history.find(source):nullptr;
+    dialog->set_shell_source(source,body?QString::fromStdString(body->name):QString::fromStdString(source));
+    dialog->set_shell_source_callbacks([this,dialog] {
+        dialog->set_shell_source_selection_active(true);shell_face_selection_active_=true;refresh_shell_selection_ui();
+        state_->setText(tr("Vyberte zdrojové těleso. MMB výběr ukončí."));
+    },[this,dialog] {
+        dialog->set_shell_source({},{});pending_shell_faces_.clear();dialog->set_shell_source_selection_active(true);
+        shell_face_selection_active_=true;refresh_shell_selection_ui();
+        state_->setText(tr("Vyberte zdrojové těleso. MMB výběr ukončí."));
+    },[this] {refresh_shell_selection_ui();});
+    if(part&&source.empty()) {
+        const auto* input=zima::workspace::calculated_operation_input(part->session,
+            part->session.document().find_container(dialog->pending_value().id)?dialog->pending_value().id:std::string{});
+        if(!input||input->volume<=0.)dialog->set_shell_source_selection_active(true);
+    }
 }
 
 void AssemblyWorkspaceWindow::accept_shell_face(
@@ -431,6 +454,13 @@ void AssemblyWorkspaceWindow::accept_shell_face(
     if (candidate.instance_path != expected_path) {
         state_->setText(tr("Vyberte plochu přesného aktivního výskytu Partu."));
         return;
+    }
+    if(shell_dialog_->shell_source_selection_active()) {
+        const auto* body=part->session.document().body_owner_for_object(candidate.owner_id);
+        if(!body)return;
+        shell_dialog_->set_shell_source(body->scope.id,QString::fromStdString(body->name));
+        pending_shell_faces_.clear();shell_dialog_->set_shell_source_selection_active(false);
+        refresh_shell_selection_ui();state_->setText(tr("Vyberte plochy k odstranění. MMB výběr ukončí."));return;
     }
     const zima::kernel::FaceReference face{
         candidate.owner_id, candidate.semantic_key, {}};
@@ -454,13 +484,20 @@ void AssemblyWorkspaceWindow::refresh_shell_selection_ui() {
             .value_or(std::string{});
     shell_dialog_->set_shell_faces(pending_shell_faces_);
     shell_dialog_->set_shell_face_selection_active(
-        shell_face_selection_active_);
+        shell_face_selection_active_&&!shell_dialog_->shell_source_selection_active());
+    const auto pending=shell_dialog_->pending_value();
+    const auto* source_body=part?part->session.document().body_history.find(pending.shell.source_body):nullptr;
+    shell_dialog_->set_shell_source(pending.shell.source_body,source_body?QString::fromStdString(source_body->name):QString::fromStdString(pending.shell.source_body));
 
     std::set<zima::viewer::EdgeKey> highlighted_faces;
     for (const auto& face : pending_shell_faces_) {
         highlighted_faces.insert(
             {face.owner_id, face.semantic_key, instance_path});
     }
+    if(part&&shell_dialog_->shell_source_inspected())try {
+        if(const auto* input=zima::workspace::shell_source_input(*part,part->session.document().find_container(pending.id)?pending.id:std::string{},pending.shell.source_body))
+            for(const auto& face:input->mesh.triangle_references)highlighted_faces.insert({face.owner_id,face.semantic_key,instance_path});
+    }catch(const std::exception&){}
     viewer_->set_constraint_reference_highlights(
         {}, std::move(highlighted_faces));
     viewer_->clear_selection();
@@ -476,8 +513,8 @@ void AssemblyWorkspaceWindow::refresh_shell_selection_ui() {
     std::set<std::pair<std::string,std::string>> input_faces;
     if(part) {
         const auto& id=shell_dialog_->pending_value().id;
-        const auto* input=zima::workspace::calculated_operation_input(part->session,
-            part->session.document().find_container(id)?id:std::string{});
+        const auto container=part->session.document().find_container(id)?id:std::string{};
+        const auto collect=[&](const zima::kernel::BodyResult* input) {
         const zima::kernel::FaceReference* previous{};
         if(input)for(const auto& face:input->mesh.triangle_references) {
             // Triangles are normally grouped by face; do not allocate and
@@ -486,6 +523,12 @@ void AssemblyWorkspaceWindow::refresh_shell_selection_ui() {
             previous=&face;
             if(!solid_skin||!face.surface_result)input_faces.emplace(face.owner_id,face.semantic_key);
         }
+        };
+        if(shell_dialog_->shell_source_selection_active()) {
+            for(const auto& body:part->session.document().body_history.bodies())try {
+                collect(zima::workspace::shell_source_input(*part,container,body.scope.id));
+            }catch(const std::exception&){}
+        }else try {collect(zima::workspace::shell_source_input(*part,container,pending.shell.source_body));}catch(const std::exception&){}
     }
     viewer_->set_candidate_filter(
         [expected_path = instance_path,input_faces=std::make_shared<const decltype(input_faces)>(std::move(input_faces))](const auto& candidate) {
@@ -508,6 +551,8 @@ void AssemblyWorkspaceWindow::remove_shell_face(std::size_t index) {
 bool AssemblyWorkspaceWindow::finish_shell_face_selection() {
     if (!shell_face_selection_active_ || shell_dialog_ == nullptr) return false;
     shell_face_selection_active_ = false;
+    shell_dialog_->set_shell_source_selection_active(false);
+    shell_dialog_->set_shell_source_inspected(false);
     refresh_shell_selection_ui();
     state_->setText(tr(
         "Výběr ploch Shellu ukončen. Kliknutím do seznamu jej znovu zapnete."));

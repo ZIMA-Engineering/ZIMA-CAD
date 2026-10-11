@@ -197,7 +197,63 @@ void verify_corner_axis(const document::PartDocument& part,const document::Histo
 
 }
 #include "planar_solid_form_experiment.inc"
+#include "corner_outward_form_experiment.inc"
 int main(int argc,char** argv){try {
+    if(argc==4&&std::string_view(argv[1])=="--prepare-corner-solid-cut")
+        return prepare_corner_solid_cut(argv[2],argv[3]);
+    if(argc==4&&std::string_view(argv[1])=="--order-form-bodies") {
+        const auto source=document::read_sheet_form_definition(argv[2]);auto part=source.part;auto graph=part.body_history;
+        for(std::size_t i=0;i<source.bodies.size();++i)graph.move_body(source.bodies[i],i);
+        part.set_body_history(graph);kernel::OcctKernel engine;
+        const auto calculated=workspace::calculate_part_with_resolved_references(engine,part);
+        check(calculated.back().calculation_errors.empty(),"Ordered FORM definition failed");
+        for(const auto& id:source.bodies) {
+            const auto before_body=source.calculated->back().body_outputs.find(id),after_body=calculated.back().body_outputs.find(id);
+            check((before_body==source.calculated->back().body_outputs.end())==(after_body==calculated.back().body_outputs.end()),"FORM ordering changed calculated role presence");
+            if(before_body==source.calculated->back().body_outputs.end())continue;
+            const auto& a=before_body->second.get();const auto& b=after_body->second.get();
+            near(a.volume,b.volume);near(a.surface_area,b.surface_area);
+            std::set<std::pair<std::string,std::string>> before,after;
+            for(const auto& face:a.mesh.triangle_references)before.emplace(face.owner_id,face.semantic_key);
+            for(const auto& face:b.mesh.triangle_references)after.emplace(face.owner_id,face.semantic_key);
+            check(before==after,"FORM Body ordering changed face identities");
+        }
+        part.save(argv[3],calculated);check(document::read_sheet_form_definition(argv[3]).bodies==source.bodies,"Ordered native roles changed");
+        std::cout<<"FORM_CUT/FORM/FORM_FLAT/FORM_SYMBOL order preserves role geometry and face identity\n";return 0;
+    }
+    if(argc==3&&std::string_view(argv[1])=="--compare-outward-user-cutters")
+        return compare_outward_user_cutters(argv[2]);
+    if(argc==4&&std::string_view(argv[1])=="--probe-outward-user-part") {
+        std::vector<kernel::BodyResult> previous;auto part=document::PartDocument::load(argv[2],&previous);
+        const auto form=std::ranges::find_if(part.history,[](const auto& value){return value.feature_kind==document::FeatureKind::SheetForm;});
+        check(form!=part.history.end(),"Missing user FORM");
+        const auto definition=document::stored_sheet_form_definition(form->sheet_form);
+        check(definition.part.form_outward,"User FORM is not the outward candidate");
+        std::vector<std::string> downstream;
+        for(auto next=std::next(form);next!=part.history.end();++next)downstream.push_back(next->id);
+        for(auto next=downstream.rbegin();next!=downstream.rend();++next)part.erase_history_object(*next);
+        kernel::OcctKernel engine;
+        const auto calculated=workspace::calculate_part_with_resolved_references(engine,part,&previous);
+        valid(calculated.back());
+        part.name+=" outward diagnostic";part.save(argv[3],calculated);
+        std::ofstream packet("build/form-diagnostic/CornerBodyCutPreview.json");packet<<document::serialize_body_result(calculated.back()).dump();
+        std::cout<<"Read-only user FORM diagnostic passed; downstream operations omitted in output copy only\n";
+        return 0;
+    }
+    if(argc==4&&std::string_view(argv[1])=="--prepare-outward-form") {
+        auto source=document::read_sheet_form_definition(argv[2]);
+        check(source.solid_opening_faces.empty(),"Outward candidate requires an authored surface");
+        source.part.form_outward=true;source.part.name+=" outward candidate";
+        source.part.save(argv[3],*source.calculated);
+        check(document::read_sheet_form_definition(argv[3]).part.form_outward,"Outward authoring intent did not persist");
+        return 0;
+    }
+    if((argc==3||argc==5)&&std::string_view(argv[1])=="--probe-native-outward-form")
+        return native_outward_form_probe(argv[2],argc==5?std::stod(argv[3]):1.,argc==5?std::stod(argv[4]):2.);
+    if(argc==2&&std::string_view(argv[1])=="--probe-corner-outward-rounding")
+        return corner_outward_rounding_experiment();
+    if(argc==3&&std::string_view(argv[1])=="--probe-corner-outward-form")
+        return corner_outward_form_experiment(argv[2]);
     if(argc==3&&std::string_view(argv[1])=="--probe-corner-surface-form")
         return corner_surface_form_experiment(argv[2]);
     if(argc==3&&std::string_view(argv[1])=="--probe-planar-solid-form")
@@ -392,12 +448,23 @@ int main(int argc,char** argv){try {
         replacement.sheet_form.support=original.sheet_form.support;replacement.sheet_form.thickness=original.sheet_form.thickness;
         workspace::Workspace live;live.add_part(part,previous);kernel::OcctKernel kernel;
         check(workspace::commit_sheet_form(live,kernel,part.document_id,replacement),"Corner definition replacement did not commit");
-        const auto* state=live.open_part(part.document_id);valid(state->session.calculated_boundaries().back());
-        verify_corner_transition_radii(state->session.calculated_boundaries().back(),original.id,original.sheet_form.thickness);
+        auto* state=live.open_part(part.document_id);valid(state->session.calculated_boundaries().back());
+        if(!source.part.form_outward)
+            verify_corner_transition_radii(state->session.calculated_boundaries().back(),original.id,original.sheet_form.thickness);
         check(state->session.document().find_container(original.id)->placement.references==original.placement.references,"Definition replacement changed native placement references");
+        const auto replacement_volume=state->session.calculated_boundaries().back().volume;
+        const auto revision=state->session.revision();
+        check(!workspace::commit_sheet_form(live,kernel,part.document_id,*state->session.document().find_container(original.id))&&
+            state->session.revision()==revision,"Unchanged corner definition created a transaction");
+        check(state->session.undo()&&*state->session.document().find_container(original.id)==original,"Corner replacement Undo failed");
+        check(state->session.redo()&&state->session.document().find_container(original.id)->sheet_form==replacement.sheet_form,"Corner replacement Redo lost definition");
         state->session.document().save(argv[4],state->session.calculated_boundaries());
         std::vector<kernel::BodyResult> reopened;const auto native=document::PartDocument::load(argv[4],&reopened);valid(reopened.back());
-        verify_corner_transition_radii(reopened.back(),original.id,original.sheet_form.thickness);
+        if(!source.part.form_outward)
+            verify_corner_transition_radii(reopened.back(),original.id,original.sheet_form.thickness);
+        auto recalculated=native;
+        const auto regenerated=workspace::calculate_part_with_resolved_references(kernel,recalculated,&reopened);
+        valid(regenerated.back());near(regenerated.back().volume,replacement_volume);
         check(native.find_container(original.id)->sheet_form.source_name==source.part.name,"Replacement did not persist independent definition");
         std::cout<<"Native corner definition replacement and exact BRep/save/reopen verified\n";return 0;
     }
@@ -661,7 +728,10 @@ int main(int argc,char** argv){try {
             for(const auto join:{GeomAbs_Intersection,GeomAbs_Arc}) {
                 ProbeShellThickener joined;joined.run(shape,thickness,join);
                 std::cout<<"Joined thickness="<<thickness<<" join="<<int(join)<<" done="<<joined.IsDone()<<std::endl;
-                if(joined.IsDone())std::cout<<"valid="<<BRepCheck_Analyzer(joined.Shape(),true,false,true).IsValid()<<" interference="<<BRepAlgoAPI_Check(joined.Shape(),false,true).IsValid()<<std::endl;
+                if(joined.IsDone()) {
+                    std::cout<<"valid="<<BRepCheck_Analyzer(joined.Shape(),true,false,true).IsValid()<<" interference="<<BRepAlgoAPI_Check(joined.Shape(),false,true).IsValid()<<std::endl;
+                    BRepTools::Write(joined.Shape(),("build/form-diagnostic/joined-"+std::to_string(thickness)+"-type-"+std::to_string(int(join))+".brep").c_str());
+                }
             }
             BRepOffsetAPI_MakeThickSolid thick;thick.MakeThickSolidBySimple(shape,thickness);
             std::cout<<"Simple thickness="<<thickness<<" done="<<thick.IsDone()<<std::endl;

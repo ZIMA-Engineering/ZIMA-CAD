@@ -1,4 +1,5 @@
 #include "workspace_internal.hpp"
+#include <zima/workspace/shell_operations.hpp>
 #include <zima/document/sheet_transition.hpp>
 #include <zima/workspace/solid_state_operations.hpp>
 #include <zima/workspace/operation_input.hpp>
@@ -366,7 +367,11 @@ void AssemblyWorkspaceWindow::rebuild_application_toolbar() {
         if(!skin){skin=new QAction(resource_icon("surface-from-solid"),tr("Plochy z tělesa"),this);
             skin->setObjectName("surfaceFromSolidAction");connect(skin,&QAction::triggered,this,[this]{start_shell(true);});}
         const auto* skin_input=modeling_part?zima::workspace::calculated_operation_input(modeling_part->session,{}):nullptr;
-        skin->setEnabled(boundary_body&&!boundary_body->derived_copy&&!properties_dialog_&&skin_input&&skin_input->volume>0.);
+        bool skin_source=skin_input&&skin_input->volume>0.;
+        if(modeling_part&&!skin_source)for(const auto& body:modeling_part->session.document().body_history.bodies())try {
+            if(zima::workspace::shell_source_input(*modeling_part,{},body.scope.id)){skin_source=true;break;}
+        }catch(const std::exception&){}
+        skin->setEnabled(boundary_body&&!boundary_body->derived_copy&&!properties_dialog_&&skin_source);
         add_command(skin);
         auto* thicken=findChild<QAction*>("surfaceThickenAction");
         if(!thicken){thicken=new QAction(resource_icon("surface-thicken"),tr("Zesílit plochu"),this);

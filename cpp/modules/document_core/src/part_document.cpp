@@ -104,6 +104,9 @@ std::string calculation_definition_fingerprint(const nlohmann::json& root) {
         // A copied FORM retains its source name after identity remapping.
         // Renaming a document does not change calculated geometry or owners.
         if (key == "name" || key == "calculated_boundaries" || key == "calculation_definition_fingerprint") continue;
+        // Library insertion direction does not change this Part's authored
+        // skin geometry. The inserted SheetFormRequest hashes it explicitly.
+        if (key == "form_outward") continue;
         output << nlohmann::json(key) << ':';
         if (key == "history") {
             // This array is an entity table, not the modeling order. The INI
@@ -639,6 +642,7 @@ nlohmann::json read_part_ini(const std::filesystem::path& path) {
         {"measurements", nlohmann::json::parse(ini_value(ini,"Document","measurements","[]"))},
         {"symbol_annotations",nlohmann::json::parse(ini_value(ini,"Document","symbol_annotations","[]"))},
         {"symbol_editor_definition",nlohmann::json::parse(ini_value(ini,"Document","symbol_editor_definition","null"))},
+        {"form_outward",nlohmann::json::parse(ini_value(ini,"Document","form_outward","false"))},
         {"body_properties", nlohmann::json::parse(ini_value(ini,"Document","body_properties"))},
         {"dimension_layouts", nlohmann::json::parse(ini_value(ini,"Document","dimension_layouts","[]"))},
         {"dimension_identifiers", nlohmann::json::parse(ini_required(ini, "Document", "dimension_identifiers"))},
@@ -801,6 +805,7 @@ void write_part_ini(
         {"measurements", root.value("measurements",nlohmann::json::array()).dump()},
         {"symbol_annotations",root.value("symbol_annotations",nlohmann::json::array()).dump()},
         {"symbol_editor_definition",root.at("symbol_editor_definition").dump()},
+        {"form_outward",root.value("form_outward",false)?"true":"false"},
         {"body_properties", root.at("body_properties").dump()},
         {"dimension_layouts", root.value("dimension_layouts",nlohmann::json::array()).dump()},
         {"dimension_identifiers", root.at("dimension_identifiers").dump()},
@@ -6017,6 +6022,13 @@ void PartDocument::resolve_constructions(
             for(const auto& feature:carrier.history)if(feature.feature_kind==FeatureKind::GeneralSurface)
                 visit_feature_sketches(feature,[&](const auto& data,std::size_t){sketch_dependencies(sketcher::Sketch::from_serialized(data));});
             for (const auto& feature : carrier.history)
+                if(feature.feature_kind==FeatureKind::Shell&&!feature.shell.source_body.empty()) {
+                    const auto& source=feature.shell.source_body;
+                    if(source==body.scope.id||feature.shell.thickness!=0.||!next.body_history.find(source))
+                        throw std::invalid_argument("Invalid Shell parameters");
+                    if(std::ranges::find(body.dependencies,source)==body.dependencies.end())body.dependencies.push_back(source);
+                }
+            for (const auto& feature : carrier.history)
                 if (feature.feature_kind == FeatureKind::Sweep2D) {
                     if(feature.sweep2d.path_plane)dependency(*feature.sweep2d.path_plane);
                     for (const auto& data : feature.sweep2d.sketches())
@@ -10265,7 +10277,7 @@ std::vector<zima::kernel::HistoryOperation> PartDocument::kernel_operations(
         } else if (container.feature_kind == FeatureKind::Shell) {
             require_default_sketch_feature_placement(container.placement);
             primitive = zima::kernel::ShellRequest{
-                container.shell.removed_faces, container.shell.thickness};
+                container.shell.removed_faces, container.shell.thickness,container.shell.source_body};
         } else {
             throw std::logic_error("Unsupported Part history feature");
         }
@@ -10958,6 +10970,7 @@ PartDocument PartDocument::from_serialized(const nlohmann::json& root,
     document.symbol_annotations=symbols::placements_from_json(root.value("symbol_annotations",nlohmann::json::array()));
     if(const auto definition=root.value("symbol_editor_definition",nlohmann::json{});!definition.is_null())
         document.symbol_editor_definition=definition.get<std::string>();
+    document.form_outward=root.value("form_outward",false);
     document.body_properties = parse_body_properties(root.at("body_properties").dump());
     document.dimension_layouts=zima::document::dimension_layouts_from_json(root.value("dimension_layouts",nlohmann::json::array()));
     document.dimension_identifiers = DimensionIdentifiers::from_serialized(root.at("dimension_identifiers").dump());
@@ -11601,6 +11614,7 @@ PartDocument PartDocument::from_serialized(const nlohmann::json& root,
             }
         } else if (container.feature_kind == FeatureKind::Shell) {
             container.shell.thickness = source.at("thickness").get<double>();
+            container.shell.source_body = source.value("source_body",std::string{});
             for (const auto& face : source.at("removed_faces")) {
                 container.shell.removed_faces.push_back({
                     face.at("owner").get<std::string>(),
@@ -11609,6 +11623,7 @@ PartDocument PartDocument::from_serialized(const nlohmann::json& root,
             std::set<std::pair<std::string, std::string>> unique_faces;
             if (!std::isfinite(container.shell.thickness) ||
                 container.shell.thickness < 0.0 ||
+                (container.shell.thickness!=0.&&!container.shell.source_body.empty()) ||
                 std::any_of(container.shell.removed_faces.begin(),
                     container.shell.removed_faces.end(), [&](const auto& face) {
                         return !face.valid() || !face.instance_path.empty() ||
@@ -12706,6 +12721,7 @@ nlohmann::json PartDocument::serialized(
             }
         } else if (container.feature_kind == FeatureKind::Shell) {
             serialized["thickness"] = container.shell.thickness;
+            if(!container.shell.source_body.empty())serialized["source_body"] = container.shell.source_body;
             serialized["removed_faces"] = nlohmann::json::array();
             for (const auto& face : container.shell.removed_faces) {
                 serialized["removed_faces"].push_back({
@@ -12865,6 +12881,7 @@ nlohmann::json PartDocument::serialized(
         {"measurements", nlohmann::json::parse(serialize_measurements(measurements))},
         {"symbol_annotations",symbols::placements_json(symbol_annotations)},
         {"symbol_editor_definition",symbol_editor_definition?nlohmann::json(*symbol_editor_definition):nlohmann::json(nullptr)},
+        {"form_outward",form_outward},
         {"body_properties", nlohmann::json::parse(serialize_body_properties(body_properties))},
         {"body_color", body_color},
         {"appearance", serialize_appearance(appearance)},

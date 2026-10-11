@@ -4,6 +4,7 @@
 #include <zima/kernel/occt_kernel.hpp>
 #include <zima/kernel/stable_id.hpp>
 #include <zima/kernel/sheet_material.hpp>
+#include <zima/kernel/surface_shell_identity.hpp>
 #include <nlohmann/json.hpp>
 #include <iostream>
 #include <BRepTools.hxx>
@@ -59,6 +60,27 @@ int main(){try {
     std::vector<zima::kernel::BodyResult> cached;
     auto part=zima::document::PartDocument::load(library,&cached);
     const auto definition=zima::document::sheet_form_definition(part,cached);
+    {
+        const auto path=std::filesystem::absolute("build/form-diagnostic")/("FormDirection-"+zima::kernel::make_stable_id()+".prtz");
+        std::filesystem::create_directories(path.parent_path());
+        const auto original=part.serialized(cached);
+        std::array<std::string,2> fingerprints;
+        for(bool outward:{false,true}) {
+            auto candidate=part;candidate.form_outward=outward;candidate.save(path,cached);
+            const auto loaded=zima::document::read_sheet_form_definition(path);
+            check(loaded.part.form_outward==outward,"Native FORM lost its authored offset direction");
+            const auto parameters=zima::document::copy_sheet_form_definition(loaded);
+            const auto embedded=zima::document::stored_sheet_form_definition(parameters);
+            check(embedded.part.form_outward==outward,"Independent FORM copy lost its offset direction");
+            const auto request=zima::document::sheet_form_request(embedded,{}, {},{0,1,0},{1,0,0},1.);
+            check(request.outward==outward,"Native calculation did not consume authored FORM direction");
+            zima::kernel::HistoryOperation operation;operation.primitive=request;
+            fingerprints[outward?1:0]=zima::kernel::history_fingerprint({operation},1);
+        }
+        check(fingerprints[0]!=fingerprints[1],"Changing FORM direction reused prepared geometry");
+        check(part.serialized(cached)==original,"Direction copy modified source library geometry");
+        std::filesystem::remove(path);
+    }
     // Role names, never Body-list positions, select a library definition.
     // Exercise the actual native file loader and embedded-copy path for every
     // order, including FORM_CUT authored after the outer FORM surface.
@@ -95,6 +117,27 @@ int main(){try {
     check(permutations==24,"FORM role-order matrix is incomplete");
     std::filesystem::remove(reordered_path);
     std::cout<<"FORM native file/copy role lookup passed all 24 Body orders\n";
+    {
+        const auto linked=zima::document::read_sheet_form_definition("config/lib/01-SHEETMETAL/01-FORM/CornerGusset90-EXPERIMENTAL-unrounded.prtz");
+        check(linked.corner()&&linked.cut_sketch.empty()&&linked.solid_cut_supports.size()==2&&linked.solid_opening_faces.empty()&&linked.part.form_outward,"Linked corner role classification failed");
+        check(linked.part.body_history.order()[0]==linked.bodies[0]&&linked.part.body_history.order()[1]==linked.bodies[1],"Linked corner does not follow CUT before FORM");
+        const auto& outputs=linked.calculated->back().body_outputs;
+        check(outputs.at(linked.bodies[0])->volume>0.&&outputs.at(linked.bodies[1])->volume==0.,"Linked corner consumes its cutting solid");
+        for(const auto& face:outputs.at(linked.bodies[1])->mesh.triangle_references) {
+            const auto parent=zima::kernel::surface_shell_parent(face.semantic_key);
+            check(parent&&linked.part.body_owner_for_object(parent->first)->scope.id==linked.bodies[0],"Linked FORM surface lost its source-solid face parent");
+        }
+        const auto copied=zima::document::stored_sheet_form_definition(zima::document::copy_sheet_form_definition(linked));
+        const auto request=zima::document::sheet_form_request(copied,{}, {},{0,1,0},{1,0,0},1.);
+        check(request.surface_snapshot&&request.solid_cut_snapshot&&!request.solid_cut_snapshot->kernel_faces.empty(),"Embedded linked FORM lacks independently persisted operands");
+        auto stale=linked;stale.part.history.front().suppressed=true;bool rejected=false;
+        try{static_cast<void>(zima::document::sheet_form_request(stale,{}, {},{0,1,0},{1,0,0},1.));}catch(const std::invalid_argument&){rejected=true;}
+        check(rejected,"Linked FORM accepted stale solid/surface calculations");
+        auto graph=linked.part.body_history;rejected=false;
+        try{graph.move_body(linked.bodies[1],0);}catch(const std::invalid_argument&){rejected=true;}
+        check(rejected,"Linked FORM moves before its source cutter");
+        std::cout<<"Linked corner solid/surface ancestry, embedded operands, stale cache rejection and CUT-first dependency passed\n";
+    }
     {
         const auto corner=zima::document::read_sheet_form_definition("config/lib/01-SHEETMETAL/01-FORM/CornerGusset90.prtz");
         check(corner.corner()&&corner.cut_sketch.empty()&&corner.flat_sketch.empty()&&

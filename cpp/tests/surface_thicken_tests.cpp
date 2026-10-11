@@ -7,6 +7,7 @@
 #include <zima/workspace/family_operations.hpp>
 #include <zima/kernel/surface_results.hpp>
 #include <zima/kernel/occt_kernel.hpp>
+#include <zima/kernel/calculated_body_shape.hpp>
 #include "../app/surface_thicken_selection.hpp"
 #include <BRepTools.hxx>
 #include <BRep_Builder.hxx>
@@ -38,7 +39,7 @@ std::set<std::string> identities(const kernel::BodyResult& result) {
 }
 void valid(const kernel::BodyResult& result,unsigned solid_count=1) {
     check(result.calculation_errors.empty(),"Thickening reported a calculation failure");
-    TopoDS_Shape shape;BRep_Builder builder;std::istringstream stream(result.kernel_shape);BRepTools::Read(shape,stream,builder);
+    const auto shape=kernel::read_calculated_body_shape(result);
     check(!shape.IsNull()&&BRepCheck_Analyzer(shape,true,false,true).IsValid(),"Thickening produced an invalid exact B-Rep");
     unsigned solids=0;for(TopExp_Explorer it(shape,TopAbs_SOLID);it.More();it.Next())++solids;
     check(solids==solid_count&&result.volume>0.,"Thickening did not create the expected solids");

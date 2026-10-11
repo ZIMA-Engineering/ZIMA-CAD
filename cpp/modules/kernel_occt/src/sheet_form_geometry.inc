@@ -256,7 +256,7 @@ PrimitiveData place(const PrimitiveData& source,const gp_Trsf& transform,
 }
 
 bool corner_definition(const SheetFormRequest& request) {
-    return !request.solid_opening_faces.empty()||(request.definition&&std::ranges::count_if(*request.definition,[&](const auto& operation) {
+    return !request.solid_opening_faces.empty()||(request.outward&&request.solid_cut_snapshot)||(request.definition&&std::ranges::count_if(*request.definition,[&](const auto& operation) {
         return operation.body.id==request.cut_body&&!operation.suppressed;
     })==2);
 }
@@ -273,7 +273,7 @@ bool on_bend_corner(const SheetFormRequest& request,const TopoDS_Face& support,
         const bool first_side=std::abs(dot(request.normal,bend.radial))>1.-1e-10;
         if(!first_side&&std::abs(dot(request.normal,bend.tangent))<1.-1e-10)continue;
         const bool inner=dot(request.normal,first_side?bend.radial:bend.tangent)<0.;
-        if((!inner&&!request.solid_cut_snapshot)||
+        if((!inner&&!request.solid_cut_snapshot&&!request.outward)||(inner&&request.outward)||
            std::abs(radial-(inner?-bend.thickness:0.))>1e-7||
            std::abs(tangent-(inner?bend.radius-bend.thickness:bend.radius))>1e-7||
            std::abs(dot(request.x_direction,bend.along))<1.-1e-10)continue;

@@ -122,6 +122,24 @@ int main(int argc, char** argv) {
         auto switched = zima::app::ApplicationSettings::load(root + "/Projects", newer + executable_name);
         require(switched.language == "fr", "switch lost user language");
         require(QDir::cleanPath(switched.resolved_paths["Localization"]) == newer + "/config/localization", "switch kept previous factory resource path");
+        const auto form_path=QStringLiteral("/config/lib/01-SHEETMETAL/01-FORM/CornerGusset90.prtz");
+        write(runtime+form_path,"old factory FORM");write(newer+form_path,"new native-format FORM");
+        require(read(settings.resolved_paths["Forms"]+"/CornerGusset90.prtz")=="old factory FORM",
+            "Original version did not use its own factory FORM");
+        require(read(switched.resolved_paths["Forms"]+"/CornerGusset90.prtz")=="new native-format FORM",
+            "Version switch kept an obsolete factory FORM");
+        {
+            const auto custom=root+"/config/my-forms";
+            write(custom+"/CornerGusset90.prtz","user-authored FORM");
+            QSettings overrides(root+"/config/"+platform+"/config.ini",QSettings::IniFormat);
+            overrides.setValue("Paths/Forms","../my-forms");overrides.sync();
+            const auto custom_settings=zima::app::ApplicationSettings::load(root+"/Projects",newer+executable_name);
+            require(read(custom_settings.resolved_paths["Forms"]+"/CornerGusset90.prtz")=="user-authored FORM",
+                "Version switch replaced a custom FORM library");
+            overrides.remove("Paths/Forms");overrides.sync();
+            require(read(runtime+form_path)=="old factory FORM"&&read(newer+form_path)=="new native-format FORM",
+                "Resource-path switching modified factory files");
+        }
         write(root + "/Projects/config.ini", "[Units]\nLength=in\n[SheetMetal]\nCutTolerance=0.0125\n");
         auto local = zima::app::ApplicationSettings::load(root + "/Projects", exe);
         require(local.units["Length"] == "in" && local.config_path == root + "/Projects/config.ini", "project override contract changed");

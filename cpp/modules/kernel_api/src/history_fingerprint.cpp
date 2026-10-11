@@ -803,7 +803,7 @@ std::string encode_history_fingerprint(
                     u64(text->size());for(unsigned char c:*text)byte(c);
                 }
             } else if constexpr (std::is_same_v<Request, SheetFormRequest>) {
-                u64(1);
+                u64(primitive.outward?3:1);
                 const auto text=[&](const std::string& s){u64(s.size());for(unsigned char c:s)byte(c);};
                 for(const auto* value:{&primitive.definition_id,&primitive.shape_body,&primitive.cut_body,&primitive.flat_body,
                         &primitive.support.owner_id,&primitive.support.semantic_key,&primitive.support.instance_path,
@@ -867,6 +867,10 @@ std::string encode_history_fingerprint(
                     for (const unsigned char value : face.semantic_key) byte(value);
                 }
                 u64(std::bit_cast<std::uint64_t>(primitive.thickness));
+                if(!primitive.source_body.empty()) {
+                    u64(2);u64(primitive.source_body.size());
+                    for(unsigned char value:primitive.source_body)byte(value);
+                }
             } else {
                 u64(primitive.edges.size());
                 for (const auto& edge : primitive.edges) {

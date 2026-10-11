@@ -2250,5 +2250,14 @@
   "Corner FORM cannot fit the prescribed transition radii. Change the bend radius or the definition.": "Die Eckformung kann mit den vorgeschriebenen Übergangsradien nicht erstellt werden. Ändern Sie den Biegeradius oder die Definition.",
   "Cannot initialize document fingerprint": "Dokumentprüfsumme kann nicht initialisiert werden",
   "Cannot finish document fingerprint": "Dokumentprüfsumme kann nicht abgeschlossen werden",
-  "Calculated history boundary does not match its parameters": "Das gespeicherte Berechnungsergebnis stimmt nicht mit den Dokumentparametern überein"
+  "Calculated history boundary does not match its parameters": "Das gespeicherte Berechnungsergebnis stimmt nicht mit den Dokumentparametern überein",
+  "Vytvořit navázané plochy ze zdrojového tělesa. Volitelně vyberte plochy k odstranění.": "Verknüpfte Flächen aus dem Quellkörper erstellen. Optional zu entfernende Flächen auswählen.",
+  "Zdrojové těleso": "Quellkörper",
+  "Použít vstup aktivního tělesa": "Eingabe des aktiven Körpers verwenden",
+  "Zobrazit zdrojové těleso": "Quellkörper anzeigen",
+  "Vyberte zdrojové těleso. MMB výběr ukončí.": "Quellkörper auswählen. MMT beendet die Auswahl.",
+  "Invalid Shell parameters": "Ungültige Schalenparameter.",
+  "Shell parameters are invalid": "Ungültige Schalenparameter.",
+  "Shell requires an input body": "Die Schale benötigt einen Eingangskörper.",
+  "Shell requires a calculated input body.": "Die Schale benötigt einen berechneten Eingangskörper."
 }

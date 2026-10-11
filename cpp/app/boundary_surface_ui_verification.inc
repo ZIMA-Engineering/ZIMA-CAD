@@ -444,6 +444,63 @@ int verify_boundary_surface_ui(QApplication& application,AssemblyWorkspaceWindow
             check(opened.find_container(skin)->shell.removed_faces.size()==1&&cache.back().volume==0.&&std::abs(cache.back().surface_area-500)<1e-7,
                 "Surface extraction opening did not persist");
             window.grab().save(QString::fromStdString((directory/"surface-shell-ui.png").string()));
+            {
+                auto linked=document::PartDocument::create_default();document::BodyHistoryGraph bodies;
+                const auto first=bodies.create_body("First solid");auto a=zima::test::rectangular_feature(linked,{10,10,10});a.placement.x=-15;
+                bodies.insert({document::PartHistoryKind::Feature,a.id});
+                const auto second=bodies.create_body("Second solid");auto b=zima::test::rectangular_feature(linked,{8,8,20});b.placement.x=15;
+                bodies.insert({document::PartHistoryKind::Feature,b.id});
+                const auto target=bodies.create_body("Linked surfaces");linked.history={a,b};linked.set_body_history(bodies);linked.resolve_constructions();
+                const auto linked_file=directory/"surface-shell-linked-ui.prtz";
+                linked.save(linked_file,fixture_kernel.evaluate_history(linked.kernel_operations()));
+                check(window.open_document_path(QString::fromStdString(linked_file.string())),"Linked surface fixture cannot open");flush();
+                run("body.activate",{{"body",target}});view->fit_all();flush();
+                check(skin_action->isEnabled(),"Surface extraction is disabled in an empty later Body");
+                const auto click_face=[&](const std::string& owner) {
+                    std::optional<QPointF> position;
+                    for(int y=20;y<view->height()-20&&!position;y+=6)for(int x=20;x<view->width()-20&&!position;x+=6) {
+                        const auto offered=view->selection_candidates_at(QPointF(x,y));
+                        if(!offered.empty()&&offered.front().kind==viewer::CandidateKind::Face&&offered.front().owner_id==owner)position=QPointF(x,y);
+                    }
+                    check(position.has_value(),"Common picker offers no preceding source-solid face");
+                    for(auto type:{QEvent::MouseMove,QEvent::MouseButtonPress,QEvent::MouseButtonRelease}) {
+                        QMouseEvent event(type,*position,QPointF(view->mapToGlobal(position->toPoint())),
+                            type==QEvent::MouseMove?Qt::NoButton:Qt::LeftButton,type==QEvent::MouseButtonRelease?Qt::NoButton:Qt::LeftButton,Qt::NoModifier);
+                        QApplication::sendEvent(view,&event);flush();
+                    }
+                };
+                const auto solid_scene=mesh_packet();skin_action->trigger();flush();
+                check(skin_dialog()&&skin_dialog()->shell_source_selection_active(),"Empty target does not arm source entry");
+                click_face(a.id);check(skin_dialog()->pending_value().shell.source_body==first&&skin_dialog()->pending_value().shell.removed_faces.empty(),"Source click removed a face instead of assigning the solid");
+                auto* source_table=skin_dialog()->findChild<QTableWidget*>("shellSourceBody");check(source_table,"Shared source reference entry missing");
+                auto* source_eye=source_table->cellWidget(0,3)->findChild<QToolButton*>();check(source_eye&&source_eye->isEnabled(),"Source inspection eye unavailable");
+                source_eye->click();flush();check(skin_dialog()->shell_source_inspected()&&!skin_dialog()->shell_source_selection_active(),"Inspection armed source selection");
+                skin_dialog()->resize(skin_dialog()->width()+120,skin_dialog()->height()+160);flush();
+                skin_dialog()->reject();flush();check(mesh_packet()==solid_scene,"External extraction Cancel changed a source or target");
+                skin_action->trigger();flush();click_face(a.id);click_face(a.id);
+                check(skin_dialog()->pending_value().shell.removed_faces.size()==1,"External face removal did not consume common candidate");
+                skin_dialog()->buttons()->button(QDialogButtonBox::Ok)->click();flush();check(!skin_dialog(),"Linked surface OK did not close");
+                run("save");std::vector<kernel::BodyResult> linked_cache;auto linked_saved=document::PartDocument::load(linked_file,&linked_cache);
+                const auto extracted=linked_saved.history.back().id;
+                check(linked_saved.find_container(extracted)->shell.source_body==first&&
+                    std::abs(linked_cache.back().body_outputs.at(first)->volume-1000)<1e-7&&
+                    std::abs(linked_cache.back().body_outputs.at(target)->surface_area-500)<1e-7,"Linked extraction consumed its source or lost geometry");
+                const auto extracted_scene=mesh_packet();const auto unchanged_revision=run("shell.get",{{"container",extracted}}).data.at("revision");
+                window.show_tree_item_properties(row(extracted));flush();check(skin_dialog(),"Linked extraction Properties cannot reopen");
+                skin_dialog()->buttons()->button(QDialogButtonBox::Ok)->click();flush();
+                check(!skin_dialog()&&mesh_packet()==extracted_scene&&run("shell.get",{{"container",extracted}}).data.at("revision")==unchanged_revision,"Unchanged linked extraction changed geometry or committed");
+                window.show_tree_item_properties(row(extracted));flush();source_table=skin_dialog()->findChild<QTableWidget*>("shellSourceBody");
+                QMetaObject::invokeMethod(source_table,"cellPressed",Qt::DirectConnection,Q_ARG(int,0),Q_ARG(int,2));flush();click_face(b.id);
+                check(skin_dialog()->pending_value().shell.source_body==second&&skin_dialog()->pending_value().shell.removed_faces.empty(),"Source replacement retained old removal references");
+                skin_dialog()->reject();flush();check(mesh_packet()==extracted_scene,"Source replacement Cancel changed geometry");
+                window.show_tree_item_properties(row(extracted));flush();source_table=skin_dialog()->findChild<QTableWidget*>("shellSourceBody");
+                source_table->cellWidget(0,1)->findChild<QPushButton*>()->click();flush();
+                check(skin_dialog()->pending_value().shell.source_body.empty()&&skin_dialog()->shell_source_selection_active()&&!skin_dialog()->shell_source_inspected(),"Clearing source did not retire inspection and reactivate entry");
+                skin_dialog()->reject();flush();undo->trigger();flush();check(!row(extracted),"Linked extraction Undo failed");
+                redo->trigger();flush();check(row(extracted)&&mesh_packet()==extracted_scene,"Linked extraction Redo changed output");
+                check(window.open_document_path(QString::fromStdString(linked_file.string())),"Linked extraction native file cannot reopen");flush();
+                window.grab().save(QString::fromStdString((directory/"surface-shell-linked-ui.png").string()));
+            }
         }
         {
             auto limited=document::PartDocument::create_default();document::BodyHistoryGraph history;

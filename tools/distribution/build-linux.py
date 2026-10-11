@@ -162,11 +162,12 @@ def main():
             if path.is_file(): zipped.write(path, 'ZIMA-CAD/' + path.relative_to(root).as_posix())
     extracted = assembly / 'ověření balíku'
     digest = shared.validate_archive(candidate, extracted)
-    shared.smoke(extracted / 'ZIMA-CAD', version)
+    smoke_result = shared.smoke(extracted / 'ZIMA-CAD', version)
     with archive.open('xb') as target, candidate.open('rb') as data: shutil.copyfileobj(data, target)
     if shared.sha(archive) != digest: raise ValueError('Archive copy differs')
     shared.write_json(output / (archive.stem + '.validation.json'), dict(archive=archive.name, sha256=digest,
-                      commit=commit, version=version, windows_smoke='not-run', linux_smoke='passed', signed=False))
+                      commit=commit, version=version, windows_smoke='not-run', linux_smoke='passed', signed=False,
+                      **smoke_result))
     print('Validated candidate:', archive)
 
 

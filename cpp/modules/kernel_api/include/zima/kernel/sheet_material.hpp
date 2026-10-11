@@ -305,7 +305,9 @@ inline const HistoryOperation* form_source_operation(const std::vector<HistoryOp
 inline bool form_symbol_visible(const SheetFormRequest& form,const SheetMaterialDefinition& region) {
     // A closed corner gusset is formed during bending, without flat-stock
     // preparation. Planar forms retain their authored manufacturing symbols.
-    return !region.unfolded||form.solid_opening_faces.empty();
+    const bool corner=!form.solid_opening_faces.empty()||(form.outward&&form.solid_cut_snapshot)||(form.outward&&form.definition&&
+        std::ranges::count_if(*form.definition,[&](const auto& operation){return operation.body.id==form.cut_body&&!operation.suppressed;})==2);
+    return !region.unfolded||!corner;
 }
 inline bool is_form_centroid_axis(const AxisReference& reference) {
     return reference.semantic_key.starts_with("centerline:from:centroid:form:")||

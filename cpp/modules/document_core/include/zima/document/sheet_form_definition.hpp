@@ -16,7 +16,8 @@ struct SheetFormDefinition {
     // Solid-only corner roles derive their two closing faces from persisted
     // calculated geometry on the native XY and XZ definition planes.
     std::vector<kernel::FaceReference> solid_opening_faces;
-    [[nodiscard]] bool corner() const {return !solid_opening_faces.empty()||cut_sketches.size()==2;}
+    std::vector<kernel::FaceReference> solid_cut_supports;
+    [[nodiscard]] bool corner() const {return !solid_opening_faces.empty()||!solid_cut_supports.empty()||cut_sketches.size()==2;}
     kernel::FaceReference surface;
     std::shared_ptr<const std::vector<kernel::BodyResult>> calculated;
 };

@@ -132,6 +132,12 @@ public:
         std::function<void(std::size_t)> remove,
         std::function<void()> request_selection);
     void set_shell_face_selection_active(bool active);
+    void set_shell_source(const std::string& body,const QString& label);
+    void set_shell_source_callbacks(std::function<void()> select,std::function<void()> clear,std::function<void()> inspect);
+    void set_shell_source_selection_active(bool active);
+    bool shell_source_selection_active() const {return shell_source_selecting_;}
+    bool shell_source_inspected() const;
+    void set_shell_source_inspected(bool inspected);
     void set_drill_point_faces(
         std::vector<zima::kernel::FaceReference> faces,
         const std::vector<QString>& labels = {});
@@ -319,6 +325,10 @@ private:
     std::function<void(std::size_t)> restore_route_;
     QDoubleSpinBox* shell_thickness_{};
     QTableWidget* shell_face_list_{};
+    QTableWidget* shell_source_table_{};
+    QToolButton* shell_source_eye_{};
+    bool shell_source_selecting_{};
+    std::function<void()> request_shell_source_,clear_shell_source_,inspect_shell_source_;
     std::vector<zima::kernel::FaceReference> shell_faces_;
     std::function<void(std::size_t)> remove_shell_face_;
     std::function<void()> request_shell_face_selection_;

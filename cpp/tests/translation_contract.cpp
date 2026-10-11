@@ -2,6 +2,7 @@
 #include "file_dialog.hpp"
 #include <QTimer>
 #include <zima/ui/operation_activity.hpp>
+#include <zima/ui/reference_cell.hpp>
 #include <zima/document/sheet_form_definition.hpp>
 #include <QLineEdit>
 #include <QCheckBox>
@@ -40,6 +41,7 @@
 #include <QDialogButtonBox>
 #include <QDoubleSpinBox>
 #include <QPushButton>
+#include <QToolButton>
 #include <QRegularExpression>
 #include <QSettings>
 #include <QTemporaryDir>
@@ -452,9 +454,14 @@ int verify_translations(QApplication& application, QWidget& parent) {
                 const auto labels=skin_dialog.findChildren<QLabel*>();
                 check(!skin_dialog.findChild<QDoubleSpinBox*>("shellThickness"),"Surface shell exposes a thickness field");
                 for(const auto key:{"Vlastnosti ploch z tělesa","Odstraňované plochy",
-                    "Převést těleso na plášť bez objemu. Volitelně vyberte plochy k odstranění."})
+                    "Vytvořit navázané plochy ze zdrojového tělesa. Volitelně vyberte plochy k odstranění."})
                     check(std::ranges::any_of(labels,[&](const auto* label){return label->text()==settings.qt_translations.value(QString::fromUtf8(key));}),
                         "Surface shell title or instructions are untranslated");
+                auto* source_table=skin_dialog.findChild<QTableWidget*>("shellSourceBody");
+                check(source_table&&source_table->horizontalHeaderItem(2)->text()==settings.qt_translations.value("Zdrojové těleso")&&
+                    static_cast<ui::ReferenceCellItem*>(source_table->item(0,2))->reference()==settings.qt_translations.value("Aktivní těleso"),"Surface source reference is untranslated");
+                check(source_table->cellWidget(0,1)->findChild<QPushButton*>()->toolTip()==settings.qt_translations.value("Použít vstup aktivního tělesa")&&
+                    source_table->cellWidget(0,3)->findChild<QToolButton*>()->toolTip()==settings.qt_translations.value("Zobrazit zdrojové těleso"),"Surface source controls are untranslated");
                 skin_dialog.hide();
             }
             std::cerr<<"Boundary translations: "<<languages[language].toStdString()<<std::endl;

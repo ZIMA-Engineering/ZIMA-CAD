@@ -860,6 +860,16 @@ if(ZIMA_BUILD_TESTS)
         Qt6::Widgets Qt6::Svg nlohmann_json::nlohmann_json)
     set_target_properties(zima_cpp_ui_contract_tests PROPERTIES AUTORCC ON)
     add_test(NAME zima_cpp_ui_contract_tests COMMAND zima_cpp_ui_contract_tests)
+    add_executable(zima_cpp_file_dialog_contract_tests
+        tests/file_dialog_contract_tests.cpp app/file_dialog.cpp
+        app/resource_icon.cpp app/zima_resources.qrc)
+    target_include_directories(zima_cpp_file_dialog_contract_tests PRIVATE app)
+    target_link_libraries(zima_cpp_file_dialog_contract_tests PRIVATE Qt6::Widgets Qt6::Svg)
+    set_target_properties(zima_cpp_file_dialog_contract_tests PROPERTIES AUTORCC ON)
+    add_test(NAME zima_cpp_file_dialog_contract_tests COMMAND zima_cpp_file_dialog_contract_tests)
+    set_tests_properties(zima_cpp_file_dialog_contract_tests PROPERTIES
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.."
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT}" TIMEOUT 60 RUN_SERIAL TRUE)
     add_test(NAME zima_cpp_tree_branches_ui_contract COMMAND zima_cpp_ui_contract_tests)
     set_tests_properties(zima_cpp_tree_branches_ui_contract PROPERTIES
         WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.."

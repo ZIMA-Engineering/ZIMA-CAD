@@ -4,8 +4,27 @@
 #include <cmath>
 #include <set>
 namespace zima::workspace {
-std::vector<kernel::FaceReference> shell_input_faces(const PartState& state,const std::string& id) {
-    const auto* input=calculated_operation_input(state.session,id);
+const kernel::BodyResult* shell_source_input(const PartState& state,const std::string& id,const std::string& requested) {
+    const auto& part=state.session.document();
+    const auto* feature=id.empty()?nullptr:part.find_container(id);
+    const auto& source=requested;
+    if(source.empty())return calculated_operation_input(state.session,id);
+    const auto* target=feature?part.body_owner_for_object(id):part.body_history.find(part.body_history.active_body_id());
+    const auto* body=part.body_history.find(source);
+    const auto& order=part.body_history.order();
+    if(!target||!body||body->suppressed||body->derived_copy||body->scale||body->link||source==target->scope.id||
+        std::ranges::find(order,source)>=std::ranges::find(order,target->scope.id))
+        throw ShellOperationError("invalid_reference","Invalid Shell parameters");
+    const auto available=part.body_history.available_before(static_cast<std::size_t>(std::ranges::find(order,target->scope.id)-order.begin()));
+    if(std::ranges::find(available,source)==available.end())throw ShellOperationError("invalid_reference","Invalid Shell parameters");
+    const auto& calculated=state.session.calculated_boundaries();
+    if(calculated.empty())return nullptr;
+    const auto found=calculated.back().body_outputs.find(source);
+    if(found==calculated.back().body_outputs.end()||!found->second->calculation_errors.empty()||found->second->volume<=0.)return nullptr;
+    return &found->second.get();
+}
+std::vector<kernel::FaceReference> shell_input_faces(const PartState& state,const std::string& id,const std::string& source_body) {
+    const auto* input=shell_source_input(state,id,source_body);
     if(!input||input->mesh.triangles.empty())
         throw ShellOperationError("missing_input","Shell requires a calculated input body.");
     std::set<std::pair<std::string,std::string>> unique;std::vector<kernel::FaceReference> result;
@@ -36,7 +55,8 @@ bool commit_shell(Workspace& live,const kernel::OcctKernel& kernel,const std::st
     if(body&&body->derived_copy)throw ShellOperationError("read_only_body","A derived Body cannot be edited directly.");
     if(!std::isfinite(feature.shell.thickness)||(feature.shell.thickness!=0.&&feature.shell.thickness<.001)||feature.shell.thickness>1e6)
         throw ShellOperationError("invalid_arguments","Shell thickness must be between 0.001 and 1000000 mm.");
-    const auto available=shell_input_faces(*state,stored?feature.id:std::string{});
+    if(!feature.shell.source_body.empty()&&feature.shell.thickness!=0.)throw ShellOperationError("invalid_arguments","Invalid Shell parameters");
+    const auto available=shell_input_faces(*state,stored?feature.id:std::string{},feature.shell.source_body);
     std::set<std::pair<std::string,std::string>> unique;
     for(const auto& face:feature.shell.removed_faces) {
         if(!face.valid()||!face.instance_path.empty()||std::ranges::find(available,face)==available.end())

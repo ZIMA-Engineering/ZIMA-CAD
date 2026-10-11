@@ -1,7 +1,6 @@
 #include <QRegularExpression>
 #include "file_dialog.hpp"
 #include "resource_icon.hpp"
-#include <QFileIconProvider>
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QFileSystemModel>
@@ -27,6 +26,28 @@ public:
     using QSortFilterProxyModel::QSortFilterProxyModel;
 
     void set_name_header(QString value) { name_header_ = std::move(value); }
+
+    QVariant data(const QModelIndex& index, int role) const override {
+        // QFileSystemModel calls its icon provider from its gatherer thread.
+        // Palette-aware SVG rendering and the shared icon cache belong to GUI
+        // painting instead; never install them as a worker icon provider.
+        if (role == Qt::DecorationRole && index.column() == 0) {
+            if (const auto* files = qobject_cast<const QFileSystemModel*>(sourceModel())) {
+                const auto info = files->fileInfo(mapToSource(index));
+                if (!info.isDir()) {
+                    const auto suffix = info.suffix().toLower();
+                    QString icon_name;
+                    if (suffix == QStringLiteral("prtz")) icon_name = QStringLiteral("part");
+                    else if (suffix == QStringLiteral("asmz")) icon_name = QStringLiteral("assembly");
+                    else if (suffix == QStringLiteral("drwz")) icon_name = QStringLiteral("drawing");
+                    else if (suffix == QStringLiteral("frmz")) icon_name = QStringLiteral("drawing-format");
+                    else if (suffix == QStringLiteral("tblz")) icon_name = QStringLiteral("title-block");
+                    if (!icon_name.isEmpty()) return resource_icon(icon_name);
+                }
+            }
+        }
+        return QSortFilterProxyModel::data(index, role);
+    }
 
     QVariant headerData(int section, Qt::Orientation orientation,
                         int role) const override {
@@ -62,21 +83,6 @@ protected:
 
 private:
     QString name_header_;
-};
-
-class ZimaDocumentFileIconProvider final : public QFileIconProvider {
-public:
-    QIcon icon(const QFileInfo& info) const override {
-        const QString suffix = info.suffix().toLower();
-        QString icon_name;
-        if (suffix == QStringLiteral("prtz")) icon_name = QStringLiteral("part");
-        else if (suffix == QStringLiteral("asmz")) icon_name = QStringLiteral("assembly");
-        else if (suffix == QStringLiteral("drwz")) icon_name = QStringLiteral("drawing");
-        else if (suffix == QStringLiteral("frmz")) icon_name = QStringLiteral("drawing-format");
-        else if (suffix == QStringLiteral("tblz")) icon_name = QStringLiteral("title-block");
-        if (!icon_name.isEmpty()) return resource_icon(icon_name);
-        return QFileIconProvider::icon(info);
-    }
 };
 
 class Utf8FileNameDelegate final : public QStyledItemDelegate {
@@ -181,8 +187,6 @@ QString choose_file(QWidget* parent, const QString& caption,
     if (auto* files = dialog.findChild<QFileSystemModel*>()) {
         files->setNameFilterDisables(false);
     }
-    ZimaDocumentFileIconProvider icon_provider;
-    dialog.setIconProvider(&icon_provider);
     auto* proxy = new FileProxyModel(&dialog);
     proxy->set_name_header(
         translations.value("file.dialog.name", QStringLiteral("Name")));
