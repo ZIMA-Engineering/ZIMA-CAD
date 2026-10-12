@@ -6,10 +6,10 @@ Signed Windows [2026101202](releases/2026101202.md#signed-windows-publication)
 was published at `2026-10-12T02:42:36Z` with shared Part/Assembly Features,
 ordinary Axis end controls, STEP cylinder reference classification and the
 inserted FORM angular-plane fix. Candidate/signed native smoke, all 21 factory
-assets, production trust, seven packaged GUI scenarios, five-language validation,
+assets, production trust, eight packaged GUI scenarios, five-language validation,
 public asset hashes and installable discovery from signed 1201 pass. The extra
-browser screen-composition repetition was blocked by a locked Windows session;
-browser code is unchanged from accepted 1201. Native Linux verification remains
+browser screen-composition check and native browser harness passed on the
+unlocked desktop, closing the initial locked-session gap. Native Linux verification remains
 pending. The detailed finite matrices and gaps are in the release record.
 
 Signed Windows [2026101108](releases/2026101108.md#signed-windows-publication)
