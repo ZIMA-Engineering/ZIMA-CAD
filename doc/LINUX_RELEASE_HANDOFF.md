@@ -21,6 +21,14 @@ and native parameter cells. Double-click must open an entry only from the File
 name column. Windows candidate/signed smoke and packaged File Manager acceptance
 pass; those results do not establish native Linux presentation or interaction.
 
+The 2026101205 follow-up prevents all automatic native-parameter metadata writes
+for sources configured as read-only. On Linux, browse a read-only source that
+contains native Parts and verify that parameters remain visible and non-editable,
+and that no `0000-index` directory or `metadata.ini` is created. Repeat the
+writable-source edit and mirror checks to confirm that their behavior is
+unchanged. Windows local, packaged and public release checks pass; native Linux
+filesystem and desktop behavior still require Linux-host verification.
+
 ## Shared Feature follow-up (2026-10-12)
 
 The next Windows follow-up uses the shared ordinary Feature command and native
