@@ -8,6 +8,14 @@ IMPORTER = runpy.run_path(str(Path(__file__).with_name("import-engineering-table
 
 
 class EngineeringTableImportTest(unittest.TestCase):
+    def test_comma_labels_are_quoted_for_native_qsettings(self):
+        labels=('Hřídele, drážky a ozubení','Shafts, splines and gears','Wellen, Verzahnungen und Zahnräder',
+                'Arbres, cannelures et engrenages','Валы, шлицы и зубчатые передачи')
+        converted=IMPORTER['directory_metadata']('[Directory]\nPreventRemoval=true\n',labels[0],labels[1],'fixture',False,labels)
+        for language,label in zip(IMPORTER['LANGUAGES'],labels):
+            self.assertIn(f'Label\\{language}="{label}"\n',converted)
+            self.assertEqual(IMPORTER['ini_label'](converted,language),label)
+
     def test_empty_label_does_not_consume_the_next_ini_line(self):
         text = '[Directory]\nLabel\\en=\nLabel\\de=\nPreventRemoval=true\n'
         self.assertEqual(IMPORTER['ini_label'](text, 'en'), '')

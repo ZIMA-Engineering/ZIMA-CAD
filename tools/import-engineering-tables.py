@@ -284,13 +284,16 @@ def directory_metadata(text: str, label: str, english: str, identity: str, root:
         )
     if localized_labels:
         for language, value in zip(LANGUAGES, localized_labels, strict=True):
+            # QSettings interprets an unquoted comma as a QStringList separator.
+            # Keep authored directory labels as one scalar string.
+            encoded = json.dumps(value, ensure_ascii=False) if any(char in value for char in ',;"\\\n\r') else value
             key = rf"Label\\{language}"
             if re.search(rf"(?im)^[ \t]*{key}[ \t]*=.*$", text):
-                text = re.sub(rf"(?im)^[ \t]*{key}[ \t]*=.*$", lambda _: f"Label\\{language}={value}", text)
+                text = re.sub(rf"(?im)^[ \t]*{key}[ \t]*=.*$", lambda _: f"Label\\{language}={encoded}", text)
             else:
                 directory_end = re.search(r"(?m)^\[[^]]+\]\s*$", text[text.index("\n", text.index("[Directory]")) + 1:])
                 insert_at = (text.index("\n", text.index("[Directory]")) + 1 + directory_end.start()) if directory_end else len(text)
-                text = text[:insert_at] + f"Label\\{language}={value}\n" + text[insert_at:]
+                text = text[:insert_at] + f"Label\\{language}={encoded}\n" + text[insert_at:]
     return text.rstrip() + "\n"
 
 

@@ -182,7 +182,14 @@ titles where applicable: [keys and keyways](https://www.iso.org/ics/21.120.30/x/
 Reimporting retains all 312 directory IDs, existing metadata settings,
 removal protection, images, PDFs and reference data; only labels, storage names
 and their web-navigation paths change. The importer now reads empty INI label
-values without consuming the next line.
+values without consuming the next line and quotes comma-containing labels so
+QSettings reads one scalar string. The native label audit verifies all 1,560
+factory labels through QSettings in addition to the importer checks.
+File Manager uses canonical QSettings hierarchy keys for localized labels and
+parameter values, matching the backslash-separated on-disk INI keys produced
+by ZIMA-Parts. Earlier CAD-created literal escaped-key values remain readable;
+explicit editing writes canonical keys. Both QSettings parameter lists and
+comma-separated scalar parameter definitions are accepted.
 All Overview index pages have valid local links. One unused legacy
 `index-parts_cs.html` page retains two already-missing source references; the
 import report records them and no active Overview page uses that file.
