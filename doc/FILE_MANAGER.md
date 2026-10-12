@@ -112,6 +112,10 @@ calculated boundaries or assembly snapshots intact. Normal native saving creates
 the established numbered archive. Manual metadata values remain available for
 folders and file types that have no native parameter provider.
 
+Sources marked read-only never create or update `metadata.ini`. Their native
+parameters remain visible, but their cells are not editable and browsing cannot
+modify the factory or external source tree.
+
 The current implementation reads version 2 metadata without rewriting it during
 browsing. Editing an authoritative native parameter in such a directory creates
 version 3 directory metadata and its interoperability mirror. General version 2

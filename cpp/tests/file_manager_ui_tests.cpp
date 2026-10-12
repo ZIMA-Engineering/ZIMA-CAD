@@ -24,11 +24,12 @@ int main(int argc,char** argv){
     QApplication application(argc,argv);
     try{
         QTemporaryDir fixture(QDir::current().filePath("file-manager-test-XXXXXX"));check(fixture.isValid(),"Cannot create synthetic fixture");
-        const QString working=fixture.filePath("working"),source=fixture.filePath("library"),project=source+"/DEMO-001",index=project+"/0000-index";
+        const QString working=fixture.filePath("working"),source=fixture.filePath("library"),read_only=fixture.filePath("read-only"),project=source+"/DEMO-001",index=project+"/0000-index";
         QDir root(fixture.path());
         if(!root.mkdir("working"))throw std::runtime_error(("Cannot create synthetic working directory: "+fixture.path()).toStdString());
+        if(!root.mkdir("read-only"))throw std::runtime_error(("Cannot create synthetic read-only source: "+fixture.path()).toStdString());
         if(!root.mkpath("library/DEMO-001/0000-index"))throw std::runtime_error(("Cannot create synthetic project directory: "+fixture.path()).toStdString());
-        touch(working+"/PANEL.prtz");touch(project+"/BRACKET.prtz");touch(project+"/ASSEMBLY.asmz");touch(project+"/notes.txt");
+        touch(working+"/PANEL.prtz");touch(read_only+"/LOCKED.prtz");touch(project+"/BRACKET.prtz");touch(project+"/ASSEMBLY.asmz");touch(project+"/notes.txt");
         {
             QSettings metadata(index+"/metadata.ini",QSettings::IniFormat);
             metadata.setValue("Directory/Version",3);metadata.setValue("Directory/Kind","project");metadata.setValue("Directory/Id","synthetic-project");
@@ -39,6 +40,7 @@ int main(int argc,char** argv){
 
         zima::app::ApplicationSettings settings;settings.language="cs";settings.file_manager.default_view="overview";settings.file_manager.thumbnail_size=96;
         settings.file_manager.sources.push_back({"synthetic","Testovací knihovna",source,source,true,false,false});
+        settings.file_manager.sources.push_back({"read-only","Knihovna jen pro čtení",read_only,read_only,true,true,false});
         zima::app::FileManagerTab first(settings,working,project);first.resize(1100,700);QString native_edit,opened_file;
         first.open_file_requested=[&](const QString& path){opened_file=path;};
         first.native_parameters_requested=[](const QString& path){zima::app::FileManagerNativeParameters data;if(path.endsWith(".prtz",Qt::CaseInsensitive)){data.order={"native_length"};data.values.insert("native_length","125");data.labels["native_length"].insert("cs","Nativní délka");}return data;};
@@ -46,7 +48,7 @@ int main(int argc,char** argv){
         first.navigate(working);first.navigate(project);
         auto* sources=first.findChild<QListWidget*>("fileManagerSources");auto* source_trees=first.findChild<QStackedWidget*>("fileManagerSourceTrees");auto* views=first.findChild<QTabWidget*>("fileManagerViews");
         auto* overview=first.findChild<QListWidget*>("fileManagerOverview");auto* files=first.findChild<QTreeWidget*>("fileManagerFiles");
-        check(sources&&sources->count()==2&&source_trees&&source_trees->count()==2,"Working directory and configured source are not separate source pages");
+        check(sources&&sources->count()==3&&source_trees&&source_trees->count()==3,"Working directory and configured sources are not separate source pages");
         auto* source_tree=first.findChild<QTreeView*>("fileManagerSourceTree_synthetic");check(source_tree,"Configured source tree is missing");
         const auto project_index=source_tree->model()->index(0,0,source_tree->rootIndex());source_tree->expand(project_index);application.processEvents();
         bool exposed_index=false;for(int row=0;row<source_tree->model()->rowCount(project_index);++row)if(source_tree->model()->index(row,0,project_index).data().toString().compare("0000-index",Qt::CaseInsensitive)==0)exposed_index=true;
@@ -74,6 +76,9 @@ int main(int argc,char** argv){
         const auto native_cell=files->indexFromItem(files->topLevelItem(0),6);QStyleOptionViewItem option;auto* editor=files->itemDelegate()->createEditor(files,option,native_cell);auto* line=qobject_cast<QLineEdit*>(editor);check(line,"Native parameter was not editable without metadata");line->setText("175");files->itemDelegate()->setModelData(editor,files->model(),native_cell);delete editor;
         QSettings created(working+"/0000-index/metadata.ini",QSettings::IniFormat);check(created.value("Directory/Version").toInt()==3&&created.value("Directory/Kind").toString()=="directory","Editing a native parameter did not initialize metadata v3");
         check(created.value("Parts/PANEL\\native_length").toString()=="175"&&created.value("Files/PANEL/Provider").toString()=="zima-cad","New metadata did not mirror the native edit");
+        first.navigate(read_only);check(files->topLevelItemCount()==1,"Read-only source did not display its native file");
+        check(!(files->topLevelItem(0)->flags()&Qt::ItemIsEditable),"Read-only source exposed editable parameter cells");
+        check(!QFileInfo::exists(read_only+"/0000-index/metadata.ini"),"Browsing a read-only source created metadata");
         std::cout<<"File Manager sources, project detection, overview, parameters and independent tabs passed\n";return 0;
     }catch(const std::exception& error){std::cerr<<error.what()<<'\n';return 1;}
 }
