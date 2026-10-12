@@ -2436,5 +2436,7 @@
   "ID parametru smí obsahovat pouze písmena bez diakritiky, číslice, tečku, pomlčku a podtržítko.": "Идентификатор параметра может содержать только латинские буквы, цифры, точки, дефисы и знаки подчёркивания.",
   "ID parametrů musí být jedinečná.": "Идентификаторы параметров должны быть уникальными.",
   "Vyberte existující logo ve formátu SVG nebo PNG.": "Выберите существующий логотип в формате SVG или PNG.",
-  "Logo nelze zkopírovat do adresáře metadat.": "Не удалось скопировать логотип в папку метаданных."
+  "Logo nelze zkopírovat do adresáře metadat.": "Не удалось скопировать логотип в папку метаданных.",
+  "Chránit obsah adresáře před smazáním a přesunutím": "Защитить содержимое каталога от удаления и перемещения",
+  "Adresář „%1“ je chráněný. Ochranu vypněte ve Vlastnostech adresáře před mazáním nebo přesouváním jeho obsahu.": "Каталог «%1» защищён. Отключите защиту в свойствах каталога перед удалением или перемещением его содержимого."
 }

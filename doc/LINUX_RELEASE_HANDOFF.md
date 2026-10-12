@@ -44,6 +44,16 @@ packaged File Manager contract, archive inventory, native smoke and public
 update discovery. Those checks do not establish Linux filesystem performance
 or native presentation.
 
+The 2026101207 follow-up separates explicit directory-metadata administration
+from read-only source content. Directory Properties must remain editable for a
+read-only source, while native parameter cells and Move/Delete remain disabled.
+It exposes and persists `Directory/PreventRemoval`; the lock blocks removal or
+moving of direct contents, the protected directory itself and any ancestor
+containing a protected descendant. Verify localized label changes, the lock
+checkbox, save errors on a physically read-only filesystem and retained copy-out
+behavior. The engineering-table import already has the lock enabled in all 312
+metadata directories.
+
 ## Shared Feature follow-up (2026-10-12)
 
 The next Windows follow-up uses the shared ordinary Feature command and native

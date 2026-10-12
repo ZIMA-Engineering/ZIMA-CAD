@@ -2436,5 +2436,7 @@
   "ID parametru smí obsahovat pouze písmena bez diakritiky, číslice, tečku, pomlčku a podtržítko.": "Die Parameter-ID darf nur Buchstaben ohne Akzente, Ziffern, Punkte, Bindestriche und Unterstriche enthalten.",
   "ID parametrů musí být jedinečná.": "Parameter-IDs müssen eindeutig sein.",
   "Vyberte existující logo ve formátu SVG nebo PNG.": "Wählen Sie ein vorhandenes Logo im SVG- oder PNG-Format aus.",
-  "Logo nelze zkopírovat do adresáře metadat.": "Das Logo kann nicht in den Metadatenordner kopiert werden."
+  "Logo nelze zkopírovat do adresáře metadat.": "Das Logo kann nicht in den Metadatenordner kopiert werden.",
+  "Chránit obsah adresáře před smazáním a přesunutím": "Verzeichnisinhalt vor Löschen und Verschieben schützen",
+  "Adresář „%1“ je chráněný. Ochranu vypněte ve Vlastnostech adresáře před mazáním nebo přesouváním jeho obsahu.": "Das Verzeichnis „%1“ ist geschützt. Deaktivieren Sie den Schutz in den Verzeichniseigenschaften, bevor Sie seinen Inhalt löschen oder verschieben."
 }

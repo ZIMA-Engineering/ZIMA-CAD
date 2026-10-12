@@ -66,9 +66,17 @@ The right side has three views:
 Directory Properties is an internal ZIMA-CAD properties window. It edits all
 five localized directory labels, whether child folders appear in Files, the
 automatic-overview fallback, the ordered parameter definitions, and SVG/PNG
-branding. `logo.svg` or `logo.png` shows only the image; `logo-text.svg` or
-`logo-text.png` shows the image with localized text. SVG has priority. Read-only
-sources expose the same information without allowing changes.
+branding. It also controls `Directory/PreventRemoval`, which prevents deletion
+or moving of the directory's contents. A protected child directory also blocks
+deletion or moving of an ancestor that contains it. `logo.svg` or `logo.png`
+shows only the image; `logo-text.svg` or `logo-text.png` shows the image with
+localized text. SVG has priority.
+
+Directory Properties remains editable for a source marked read-only. This
+allows an administrator to maintain localized labels, presentation and the
+explicit removal lock without enabling native parameter edits or destructive
+file operations for that source. A filesystem that is physically read-only
+still reports an ordinary save error.
 
 ## Metadata version 3
 
@@ -84,6 +92,7 @@ Id=6c8a563c-3ed1-4be5-8c28-76d802f5e858
 Label\cs=Ukázkový projekt
 Label\en=Example project
 Parameters=material,note
+PreventRemoval=true
 
 [Project]
 Number=DEMO-001
@@ -127,9 +136,12 @@ calculated boundaries or assembly snapshots intact. Normal native saving creates
 the established numbered archive. Manual metadata values remain available for
 folders and file types that have no native parameter provider.
 
-Sources marked read-only never create or update `metadata.ini`. Their native
-parameters remain visible, but their cells are not editable and browsing cannot
-modify the factory or external source tree.
+Sources marked read-only never create or update `metadata.ini` merely by being
+browsed or by automatic native-parameter mirroring. Their native parameters
+remain visible, their cells are not editable and file Move/Delete operations
+remain disabled. An explicit Directory Properties confirmation may update only
+the selected directory metadata, including its localized labels and
+`PreventRemoval` setting.
 
 The current implementation reads version 2 metadata without rewriting it during
 browsing. Editing an authoritative native parameter in such a directory creates
@@ -145,8 +157,10 @@ library. It verifies the fixed source list, source-root navigation, hidden
 `0000-index` directories, per-column filters, file-name-only opening, parameter
 editing, project detection, Overview and Files content, mirrored parameter
 updates and independent state in multiple File Manager tabs. The source-row
-contract also creates a project overview at a synthetic source root. It never
-reads or writes production project data.
+contract also creates a project overview at a synthetic source root, verifies
+the removal lock, and edits directory metadata explicitly for a read-only
+source while retaining its non-editable native parameters. It never reads or
+writes production project data.
 
 `tools/test_import_engineering_tables.py` verifies the deterministic filtered
 import and metadata conversion on synthetic content. The committed factory

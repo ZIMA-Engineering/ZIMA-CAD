@@ -94,7 +94,7 @@ private:
     void apply_file_filters();
     void update_actions();
     void open_entry(const QString& path);
-    void edit_directory(const QString& directory, bool read_only);
+    void edit_directory(const QString& directory);
     void edit_project(const QString& directory, bool create);
     void show_source_menu(const QPoint& point);
     void show_tree_menu(QTreeView* tree, const QPoint& point);
